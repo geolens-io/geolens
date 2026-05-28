@@ -133,7 +133,6 @@ function makeProps(layer: MapLayerResponse, overrides: Partial<BaseStyleEditorPr
         'style.raster.stretchMinmax': 'Min/Max',
         'style.raster.stretchPercentile': 'Percentile (2–98%)',
         'style.raster.stretchStddev': 'Std Deviation',
-        'style.raster.stretchComingSoon': 'coming soon',
         'style.raster.colormapGray': 'Grayscale',
         'style.raster.colormapViridis': 'Viridis',
         'style.raster.colormapInferno': 'Inferno',
@@ -355,7 +354,7 @@ describe('RasterEditor', () => {
     }
   });
 
-  it('Test 16: the 3 stretch options are present; percentile and stddev are disabled', () => {
+  it('Test 16: the 3 stretch options are present and all enabled (v1032)', () => {
     render(
       <RasterEditor
         {...makeProps(makeRasterLayer({ band_count: 1 }))}
@@ -368,15 +367,13 @@ describe('RasterEditor', () => {
     expect(minmaxOpt).not.toBeDisabled();
 
     const percentileOpt = within(stretchSelect).getByRole('option', { name: /percentile/i });
-    expect(percentileOpt).toBeDisabled();
+    expect(percentileOpt).not.toBeDisabled();
 
     const stddevOpt = within(stretchSelect).getByRole('option', { name: /std/i });
-    expect(stddevOpt).toBeDisabled();
+    expect(stddevOpt).not.toBeDisabled();
   });
 
-  it('Test 17: disabled percentile option does NOT fire onPaintProp("_stretch", "percentile") via mock', () => {
-    // A disabled <option> in a native select cannot be selected via fireEvent.change in jsdom.
-    // Verify that attempting to set the value to a disabled option does not trigger the handler.
+  it('Test 17: selecting percentile fires onPaintProp("_stretch", "percentile")', () => {
     const onPaintProp = vi.fn();
     render(
       <RasterEditor
@@ -386,22 +383,23 @@ describe('RasterEditor', () => {
 
     const selects = screen.getAllByRole('combobox');
     const stretchSelect = selects[1]!;
+    fireEvent.change(stretchSelect, { target: { value: 'percentile' } });
 
-    // Confirm the option is rendered as disabled
-    const percentileOpt = within(stretchSelect).getByRole('option', { name: /percentile/i });
-    expect(percentileOpt).toBeDisabled();
-    // The option exists but cannot be selected — onPaintProp must NOT have been called for it
-    expect(onPaintProp).not.toHaveBeenCalledWith('_stretch', 'percentile');
+    expect(onPaintProp).toHaveBeenCalledWith('_stretch', 'percentile');
   });
 
-  it('Test 18: "coming soon" suffix appears in disabled stretch option labels', () => {
+  it('Test 18: selecting stddev fires onPaintProp("_stretch", "stddev"); no "coming soon" suffix', () => {
+    const onPaintProp = vi.fn();
     render(
       <RasterEditor
-        {...makeProps(makeRasterLayer({ band_count: 1 }))}
+        {...makeProps(makeRasterLayer({ band_count: 1 }), { onPaintProp })}
       />,
     );
-    // Both disabled options should contain the "coming soon" suffix text
-    expect(screen.getByText(/Percentile.*coming soon/i)).toBeInTheDocument();
-    expect(screen.getByText(/Std Deviation.*coming soon/i)).toBeInTheDocument();
+    const selects = screen.getAllByRole('combobox');
+    const stretchSelect = selects[1]!;
+    fireEvent.change(stretchSelect, { target: { value: 'stddev' } });
+    expect(onPaintProp).toHaveBeenCalledWith('_stretch', 'stddev');
+    // The strategies are implemented in v1032 — the "coming soon" suffix is gone.
+    expect(screen.queryByText(/coming soon/i)).not.toBeInTheDocument();
   });
 });

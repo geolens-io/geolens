@@ -223,9 +223,89 @@ _ALLOWED_COLORMAPS: frozenset[str] = frozenset(
     {"gray", "viridis", "inferno", "plasma", "magma", "ylorrd", "bugn", "terrain"}
 )
 
-# Accepted stretch strategies. Phase 1140 implements minmax only; percentile
-# and stddev are accepted and logged as fallback (see 1140-RESEARCH.md Finding 6).
+# Accepted stretch strategies. minmax (default) keeps the dtype-based rescale;
+# percentile/stddev compute a stats-based rescale from Titiler band statistics
+# (RASTER-STRETCH-01/02). Single-band scope; multi-band is Future RASTER-STRETCH-03.
 _ALLOWED_STRETCH: frozenset[str] = frozenset({"minmax", "percentile", "stddev"})
+
+# stddev stretch uses mean ± _STDDEV_SIGMA·σ, clamped to the band [min, max].
+_STDDEV_SIGMA = 2.0
+
+# Per-band Titiler statistics cache keyed by COG open-path. Statistics are stable
+# for a given asset, so a process-lifetime cache avoids recomputing percentile/
+# stddev breakpoints on every tile request. Cleared on restart (covers re-ingest).
+_band_stats_cache: dict[str, list[dict] | None] = {}
+
+
+async def _fetch_band_statistics(open_path: str) -> list[dict] | None:
+    """Fetch per-band statistics from Titiler /cog/statistics (cached by open_path).
+
+    Returns a list of per-band stat dicts ordered b1, b2, ... or None when the
+    statistics call fails (caller falls back to minmax).
+    """
+    if open_path in _band_stats_cache:
+        return _band_stats_cache[open_path]
+    stats_url = build_titiler_cog_url("statistics", query={"url": open_path})
+    bands: list[dict] | None = None
+    try:
+        resp = await _titiler_client.get(stats_url)
+        if resp.status_code == 200:
+            data = resp.json()
+            if isinstance(data, dict) and data:
+                # Titiler keys bands "b1","b2",... — order by the numeric suffix.
+                bands = [
+                    data[k]
+                    for k in sorted(
+                        data, key=lambda k: int(k[1:]) if k[1:].isdigit() else 0
+                    )
+                ]
+    except (httpx.TimeoutException, httpx.TransportError, ValueError, KeyError):
+        bands = None
+    _band_stats_cache[open_path] = bands
+    return bands
+
+
+def _compute_stretch_rescale(
+    bands: list[dict], stretch: str, n_bands: int
+) -> list[str]:
+    """Compute Titiler ``rescale=lo,hi`` fragments from band statistics.
+
+    percentile → [percentile_2, percentile_98]; stddev → [mean ± 2σ] clamped to
+    [min, max]. Returns one fragment per band; empty when stats are insufficient
+    (caller falls back to minmax).
+    """
+    parts: list[str] = []
+    for i in range(n_bands):
+        if i >= len(bands):
+            break
+        b = bands[i]
+        if stretch == "percentile":
+            lo = b.get("percentile_2")
+            hi = b.get("percentile_98")
+        else:  # stddev
+            mean = b.get("mean")
+            std = b.get("std")
+            if mean is None or std is None:
+                continue
+            lo = mean - _STDDEV_SIGMA * std
+            hi = mean + _STDDEV_SIGMA * std
+            bmin, bmax = b.get("min"), b.get("max")
+            if bmin is not None:
+                lo = max(lo, bmin)
+            if bmax is not None:
+                hi = min(hi, bmax)
+        if lo is None or hi is None or not (lo < hi):
+            continue
+        # Round to 4 dp — Titiler does not need full float precision and clean
+        # values keep the tile-URL cache key stable.
+        parts.append(f"rescale={round(lo, 4)},{round(hi, 4)}")
+    return parts
+
+
+def _apply_stretch_rescale(render_params: str, rescale_parts: list[str]) -> str:
+    """Replace any existing ``rescale=`` fragments in render_params with rescale_parts."""
+    kept = [p for p in render_params.split("&") if p and not p.startswith("rescale=")]
+    return "&".join(kept + rescale_parts)
 
 
 async def _resolve_raster_access(
@@ -482,15 +562,24 @@ async def raster_tile_proxy(
     ):
         render_params = f"{render_params}&colormap_name={colormap_name}" if render_params else f"colormap_name={colormap_name}"
 
-    # stretch: minmax is the default (and only implemented strategy for Phase 1140).
-    # percentile/stddev are accepted and persisted on the URL for future implementation
-    # (Phase 1141+), but fall back to minmax behavior with a logged warning.
-    if stretch and stretch != "minmax":
-        logger.warning(
-            "raster stretch strategy not yet implemented, falling back to minmax",
-            stretch=stretch,
-            dataset_id=str(dataset_id),
+    # stretch: minmax (default) keeps the dtype-based rescale already in
+    # render_params. percentile/stddev compute a stats-based rescale from Titiler
+    # band statistics and override the rescale fragment. Single-band scope
+    # (RASTER-STRETCH-01/02); not applied to DEM (algorithm=terrainrgb has no
+    # rescale). Falls back to minmax with a logged warning when stats are missing.
+    if stretch and stretch != "minmax" and not render_params.startswith("algorithm="):
+        bands = await _fetch_band_statistics(open_path)
+        rescale_parts = (
+            _compute_stretch_rescale(bands, stretch, n_bands=1) if bands else []
         )
+        if rescale_parts:
+            render_params = _apply_stretch_rescale(render_params, rescale_parts)
+        else:
+            logger.warning(
+                "raster stretch stats unavailable, falling back to minmax",
+                stretch=stretch,
+                dataset_id=str(dataset_id),
+            )
 
     titiler_url = build_titiler_cog_url(
         f"tiles/WebMercatorQuad/{z}/{x}/{y}.{fmt}",

@@ -51,6 +51,29 @@ def _make_titiler_ok_response() -> MagicMock:
     return MagicMock(status_code=200, content=png_magic, headers={"content-type": "image/png"})
 
 
+# Per-band statistics returned by the mocked Titiler /cog/statistics endpoint.
+# Values mirror the real ADK DEM COG. Expected stretch rescales:
+#   percentile → rescale=512.66,1304.31  (percentile_2, percentile_98)
+#   stddev     → rescale=490.6,1228.19   (mean ± 2σ, lo clamped to band min)
+_BAND_STATS: dict[str, Any] = {
+    "b1": {
+        "min": 490.6,
+        "max": 1625.6,
+        "mean": 787.77,
+        "std": 220.21,
+        "percentile_2": 512.66,
+        "percentile_98": 1304.31,
+    }
+}
+
+
+def _make_titiler_stats_response(payload: dict | None = None) -> MagicMock:
+    """Mock a Titiler /cog/statistics JSON response."""
+    resp = MagicMock(status_code=200)
+    resp.json = MagicMock(return_value=payload if payload is not None else _BAND_STATS)
+    return resp
+
+
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
@@ -74,11 +97,21 @@ class TestRasterColormapProxy:
 
     @pytest.fixture(autouse=True)
     def _patch_titiler_client(self, monkeypatch):
-        """Replace _titiler_client.get with a mock; capture called URL(s)."""
+        """Replace _titiler_client.get with a mock; capture called URL(s).
+
+        Returns a statistics JSON for /cog/statistics URLs (stretch path) and a
+        PNG for tile URLs. ``self._stats_payload`` lets a test override the stats
+        response (e.g. to simulate a stats failure)."""
         self._titiler_calls: list[str] = []
+        self._stats_payload: dict | None = None
+        self._stats_status: int = 200
 
         async def _fake_get(url: str) -> MagicMock:
             self._titiler_calls.append(url)
+            if "/statistics" in url:
+                if self._stats_status != 200:
+                    return MagicMock(status_code=self._stats_status, json=MagicMock(return_value={}))
+                return _make_titiler_stats_response(self._stats_payload)
             return _make_titiler_ok_response()
 
         from app.processing.tiles import router as tiles_router
@@ -86,6 +119,26 @@ class TestRasterColormapProxy:
         mock_client = MagicMock()
         mock_client.get = _fake_get
         monkeypatch.setattr(tiles_router, "_titiler_client", mock_client)
+
+    @pytest.fixture(autouse=True)
+    def _clear_stats_cache(self):
+        """Clear the module-level band-stats cache between tests (it is keyed by
+        open_path, which is identical across these tests)."""
+        from app.processing.tiles import router as tiles_router
+
+        tiles_router._band_stats_cache.clear()
+        yield
+        tiles_router._band_stats_cache.clear()
+
+    @property
+    def _tile_titiler_calls(self) -> list[str]:
+        """Titiler tile calls only (excludes /cog/statistics stretch lookups)."""
+        return [u for u in self._titiler_calls if "/statistics" not in u]
+
+    @property
+    def _stats_titiler_calls(self) -> list[str]:
+        """Titiler /cog/statistics calls only."""
+        return [u for u in self._titiler_calls if "/statistics" in u]
 
     # ------------------------------------------------------------------
     # Behavior: colormap_name=viridis → URL contains colormap_name=viridis
@@ -163,36 +216,78 @@ class TestRasterColormapProxy:
     # Behavior: stretch=percentile/stddev → accepted, minmax fallback
     # ------------------------------------------------------------------
 
-    async def test_stretch_percentile_accepted_minmax_fallback(self, client):
-        """stretch=percentile is accepted (Literal-valid) with minmax fallback.
-
-        Titiler URL is NOT corrupted; colormap forwarding (if any) still works.
-        """
+    async def test_stretch_percentile_computes_rescale(self, client):
+        """[RASTER-STRETCH-01] stretch=percentile overrides the dtype rescale with
+        [percentile_2, percentile_98] from Titiler band statistics."""
         resp = await client.get(
             _TILE_PATH,
             params={"colormap_name": "plasma", "stretch": "percentile"},
         )
         assert resp.status_code in (200, 204)
-        assert len(self._titiler_calls) == 1
-        assert "colormap_name=plasma" in self._titiler_calls[0]
+        # One /cog/statistics lookup + one tile request
+        assert len(self._stats_titiler_calls) == 1
+        assert len(self._tile_titiler_calls) == 1
+        tile_url = self._tile_titiler_calls[0]
+        assert "colormap_name=plasma" in tile_url
+        # Stats-based rescale present; original dtype rescale (0,65535) replaced
+        assert "rescale=512.66,1304.31" in tile_url, tile_url
+        assert "rescale=0,65535" not in tile_url, tile_url
 
-    async def test_stretch_stddev_accepted_minmax_fallback(self, client):
-        """stretch=stddev is accepted (Literal-valid) with minmax fallback."""
+    async def test_stretch_stddev_computes_rescale(self, client):
+        """[RASTER-STRETCH-02] stretch=stddev overrides rescale with mean±2σ,
+        clamped to the band [min, max]."""
         resp = await client.get(
             _TILE_PATH,
             params={"colormap_name": "inferno", "stretch": "stddev"},
         )
         assert resp.status_code in (200, 204)
-        assert len(self._titiler_calls) == 1
+        assert len(self._stats_titiler_calls) == 1
+        tile_url = self._tile_titiler_calls[0]
+        # mean 787.77 ± 2·220.21 = [347.35, 1228.19]; lo clamped to band min 490.6
+        assert "rescale=490.6,1228.19" in tile_url, tile_url
+        assert "rescale=0,65535" not in tile_url, tile_url
 
-    async def test_stretch_minmax_accepted(self, client):
-        """stretch=minmax is accepted without any fallback warning."""
+    async def test_stretch_minmax_no_statistics_call(self, client):
+        """stretch=minmax keeps the dtype rescale and does NOT call /cog/statistics."""
         resp = await client.get(
             _TILE_PATH,
             params={"colormap_name": "magma", "stretch": "minmax"},
         )
         assert resp.status_code in (200, 204)
-        assert len(self._titiler_calls) == 1
+        assert len(self._stats_titiler_calls) == 0
+        assert len(self._tile_titiler_calls) == 1
+        assert "rescale=0,65535" in self._tile_titiler_calls[0]
+
+    async def test_stretch_stats_unavailable_falls_back_to_minmax(self, client):
+        """When /cog/statistics fails, stretch falls back to the dtype minmax rescale."""
+        self._stats_status = 500
+        resp = await client.get(
+            _TILE_PATH,
+            params={"colormap_name": "viridis", "stretch": "percentile"},
+        )
+        assert resp.status_code in (200, 204)
+        assert len(self._stats_titiler_calls) == 1  # attempted once
+        tile_url = self._tile_titiler_calls[0]
+        assert "rescale=0,65535" in tile_url, tile_url  # original rescale preserved
+
+    async def test_stretch_not_applied_to_dem(self, client):
+        """For DEM (algorithm=terrainrgb), stretch is ignored — no statistics call."""
+        self._auth_render_params = "algorithm=terrainrgb"
+        resp = await client.get(_TILE_PATH, params={"stretch": "percentile"})
+        assert resp.status_code in (200, 204)
+        assert len(self._stats_titiler_calls) == 0
+        assert "algorithm=terrainrgb" in self._tile_titiler_calls[0]
+
+    async def test_stretch_statistics_cached_across_tiles(self, client):
+        """The band-statistics lookup is cached — repeated tiles call /statistics once."""
+        for _ in range(3):
+            resp = await client.get(
+                _TILE_PATH,
+                params={"colormap_name": "plasma", "stretch": "percentile"},
+            )
+            assert resp.status_code in (200, 204)
+        assert len(self._stats_titiler_calls) == 1, self._stats_titiler_calls
+        assert len(self._tile_titiler_calls) == 3
 
     # ------------------------------------------------------------------
     # Behavior: stretch=evil → 422

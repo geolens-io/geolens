@@ -284,7 +284,6 @@
       "stretchMinmax": "Min/Max",
       "stretchPercentile": "Percentile (2–98%)",
       "stretchStddev": "Écart-type",
-      "stretchComingSoon": "bientôt disponible",
       "colormapGray": "Niveaux de gris",
       "colormapViridis": "Viridis",
       "colormapInferno": "Inferno",

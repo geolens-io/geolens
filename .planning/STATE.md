@@ -7,24 +7,24 @@ last_updated: "2026-05-28T21:55:00.000Z"
 last_activity: 2026-05-28
 progress:
   total_phases: 4
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 0
   completed_plans: 0
-  percent: 50
+  percent: 75
 ---
 
 # State
 
 ## Current Position
 
-Phase: 1146 Raster Stretch Stats (next)
+Phase: 1147 Close Gate (next)
 Plan: —
-Status: Phases 1144 (spike) + 1145 (CUT) complete — contour fully removed, live-verified
-Last activity: 2026-05-28 — 1145 cut contour cleanly (dep + contour-sync.ts + call site + flag/gate + dead relief-contour enum + i18n); typecheck 0, 70 tests, i18n 2/2, 0 console errors live
+Status: Phases 1144-1146 complete — contour cut + raster stretch stats live-verified
+Last activity: 2026-05-28 — 1146 implemented percentile/stddev stretch (Titiler /statistics → rescale, cached); backend 19, frontend 36, i18n 2/2, typecheck 0; live tile-render diff confirmed (minmax 859B vs percentile 25KB vs stddev 27KB)
 
 ```
-[██████████░░░░░░░░░░] 50%
-Phases: 2/4 complete
+[███████████████░░░░░] 75%
+Phases: 3/4 complete
 ```
 
 ## Project Reference

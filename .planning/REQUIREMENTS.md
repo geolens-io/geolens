@@ -18,8 +18,8 @@ The v1031 close-gate gated the contour control off (`CONTOUR_CONTROL_ENABLED=fal
 
 `backend/app/processing/tiles/router.py:437` accepts `stretch: Literal["minmax","percentile","stddev"]`, but `:488` logs a warning and falls back to `minmax` for anything non-minmax. This area finishes the two unimplemented strategies. Planning determines backend-only vs backend+frontend wiring (verify whether the RasterEditor stretch control already sends the param).
 
-- [ ] **RASTER-STRETCH-01**: Selecting `percentile` stretch on a single-band raster computes per-band percentile breakpoints (default 2nd/98th, consistent with the existing quicklook path) and drives a correct Titiler `rescale`, instead of falling back to `minmax`.
-- [ ] **RASTER-STRETCH-02**: Selecting `stddev` stretch on a single-band raster computes per-band mean ± N·σ breakpoints and drives a correct Titiler `rescale`, instead of falling back to `minmax`.
+- [x] **RASTER-STRETCH-01**: Selecting `percentile` stretch on a single-band raster computes per-band percentile breakpoints (default 2nd/98th, consistent with the existing quicklook path) and drives a correct Titiler `rescale`, instead of falling back to `minmax`.
+- [x] **RASTER-STRETCH-02**: Selecting `stddev` stretch on a single-band raster computes per-band mean ± N·σ breakpoints and drives a correct Titiler `rescale`, instead of falling back to `minmax`.
 
 ### Quality & Close-Gate
 
@@ -56,8 +56,8 @@ Which phases cover which requirements. Continues phase numbering from 1143 → s
 |-------------|-------|--------|
 | CONTOUR-01 | Phase 1144 | Complete (→ CUT) |
 | CONTOUR-02 | Phase 1145 | Complete (CUT) |
-| RASTER-STRETCH-01 | Phase 1146 | Pending |
-| RASTER-STRETCH-02 | Phase 1146 | Pending |
+| RASTER-STRETCH-01 | Phase 1146 | Complete |
+| RASTER-STRETCH-02 | Phase 1146 | Complete |
 | QA-01 | Phase 1147 | Pending |
 | QA-02 | Phase 1147 | Pending |
 | QA-03 | Phase 1147 | Pending |

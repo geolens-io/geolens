@@ -215,10 +215,9 @@ export function RasterEditor({ layer, paint, onPaintProp, t }: BaseStyleEditorPr
                 </Select>
               </div>
 
-              {/* Stretch select row — Option A: minmax is the only active option;
-                  percentile and stddev render as disabled with a "coming soon" suffix
-                  so the roadmap is signaled without ever silently no-op-ing.
-                  Backend stats-based percentile/stddev computation is the v1032 follow-up. */}
+              {/* Stretch select row — minmax (dtype rescale) / percentile (p2–p98) /
+                  stddev (mean±2σ). percentile and stddev compute a stats-based rescale
+                  via the raster-proxy → Titiler /cog/statistics (RASTER-STRETCH-01/02). */}
               <div className="flex items-center gap-2">
                 <span className="w-28 shrink-0 text-xs text-muted-foreground">
                   {t('style.raster.stretchLabel')}
@@ -232,12 +231,8 @@ export function RasterEditor({ layer, paint, onPaintProp, t }: BaseStyleEditorPr
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="minmax">{t('style.raster.stretchMinmax')}</SelectItem>
-                    <SelectItem value="percentile" disabled>
-                      {`${t('style.raster.stretchPercentile')} (${t('style.raster.stretchComingSoon')})`}
-                    </SelectItem>
-                    <SelectItem value="stddev" disabled>
-                      {`${t('style.raster.stretchStddev')} (${t('style.raster.stretchComingSoon')})`}
-                    </SelectItem>
+                    <SelectItem value="percentile">{t('style.raster.stretchPercentile')}</SelectItem>
+                    <SelectItem value="stddev">{t('style.raster.stretchStddev')}</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
