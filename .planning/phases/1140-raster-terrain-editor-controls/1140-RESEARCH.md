@@ -627,7 +627,7 @@ async def raster_tile_proxy(
 
 ---
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Hypsometric tint opacity and blend mode**
    - What we know: `color-relief-opacity` defaults to 1; 0.7 is a reasonable aesthetic default
