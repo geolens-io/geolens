@@ -50,22 +50,22 @@ Explicitly excluded from v1032. Documented to prevent scope creep.
 
 ## Traceability
 
-Which phases cover which requirements. Populated during roadmap creation (continues phase numbering from 1143 → starts at 1144).
+Which phases cover which requirements. Continues phase numbering from 1143 → starts at 1144.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| CONTOUR-01 | TBD | Pending |
-| CONTOUR-02 | TBD | Pending |
-| RASTER-STRETCH-01 | TBD | Pending |
-| RASTER-STRETCH-02 | TBD | Pending |
-| QA-01 | TBD | Pending |
-| QA-02 | TBD | Pending |
-| QA-03 | TBD | Pending |
+| CONTOUR-01 | Phase 1144 | Pending |
+| CONTOUR-02 | Phase 1145 | Pending |
+| RASTER-STRETCH-01 | Phase 1146 | Pending |
+| RASTER-STRETCH-02 | Phase 1146 | Pending |
+| QA-01 | Phase 1147 | Pending |
+| QA-02 | Phase 1147 | Pending |
+| QA-03 | Phase 1147 | Pending |
 
 **Coverage:**
 - v1 requirements: 7 total
-- Mapped to phases: 0 (pending roadmap)
-- Unmapped: 7 (pending roadmap)
+- Mapped to phases: 7 (100%)
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-05-28 — milestone v1032 Builder Carry-Forward Resolution.*

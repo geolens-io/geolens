@@ -6,7 +6,7 @@ status: planning
 last_updated: "2026-05-28T21:35:06.010Z"
 last_activity: 2026-05-28
 progress:
-  total_phases: 0
+  total_phases: 4
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -17,17 +17,22 @@ progress:
 
 ## Current Position
 
-Phase: Not started (defining requirements)
+Phase: Not started
 Plan: —
-Status: Defining requirements
-Last activity: 2026-05-28 — Milestone v1032 started
+Status: Roadmap created — ready to execute Phase 1144
+Last activity: 2026-05-28 — v1032 roadmap created (4 phases, 7 reqs mapped)
+
+```
+[░░░░░░░░░░░░░░░░░░░░] 0%
+Phases: 0/4 complete
+```
 
 ## Project Reference
 
 See: .planning/PROJECT.md (updated 2026-05-28)
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** Planning next milestone — run `/gsd:new-milestone`.
+**Current focus:** v1032 Builder Carry-Forward Resolution — Phase 1144 next.
 
 ## Last Shipped Milestone
 
@@ -45,8 +50,8 @@ See: .planning/PROJECT.md (updated 2026-05-28)
 ### Decisions (forward-relevant; full milestone log in archives)
 
 - **band_count gate (v1031):** `band_count=None` for the `get_dataset_meta` path (no `RasterAsset` join); frontend gates the single-band COLORMAP section on `band_count === 1`.
-- **Raster stretch fallback (v1031 → v1032):** `stretch=percentile/stddev` are accepted but fall back to `minmax`; stats-based computation deferred to v1032.
-- **EDITOR-DEM-04 contour gate (v1031 → v1032):** `maplibre-contour` worker unstable on enable (~28 MapLibre error events; addProtocol bug fixed `716b1927`). UI gated off via `CONTOUR_CONTROL_ENABLED=false`; `contour-sync.ts` + 5 unit tests retained dormant. Re-enable = flip one boolean + un-skip 5 tests.
+- **Raster stretch fallback (v1031 → v1032):** `stretch=percentile/stddev` are accepted but fall back to `minmax`; stats-based computation deferred to v1032. Fallback warning at `backend/app/processing/tiles/router.py:488`.
+- **EDITOR-DEM-04 contour gate (v1031 → v1032):** `maplibre-contour` worker unstable on enable (~28 MapLibre error events; addProtocol bug fixed `716b1927`). UI gated off via `CONTOUR_CONTROL_ENABLED=false` at `DEMEditorScene.tsx:28`; `contour-sync.ts` (219 LOC) + 5 unit tests retained dormant; `syncContourLayer` called from `map-sync.ts:919` but no-ops when `_contour-enabled` is absent. Default bias: cut if harden is not clearly cheap.
 - **Cluster adapter (carried):** intentionally keeps raw `map.setFilter` for the compound `combineFilter` shape — NOT migrated to `syncLayerFilter` (compound filter must include the cluster/unclustered base predicate unconditionally).
 - **Fill extrusion companion (carried):** does not receive a `layout.visibility` block at `addLayers` add-time (pre-existing gap); controlled via `syncVisibility`. Documented in `fill-adapter.test.ts`.
 - **SF-MCP-01 (carried from v1030):** `chat_actions.py:_collect_chat_action()` never emits rows on `show_query_result` for non-spatial queries; frontend inline card is ready but backend wiring is still missing.
@@ -63,18 +68,19 @@ None active.
 
 | Category | Item | Status | Deferred At |
 |----------|------|--------|-------------|
-| editor-control | EDITOR-DEM-04 contour overlay (`maplibre-contour` worker hardening) | Deferred → v1032; UI gated off, code + 5 tests dormant | v1031 Phase 1143 close-gate (user-approved) |
-| raster-render | Single-band stretch percentile/stddev (stats-based computation) | Deferred → v1032; minmax fallback in place | v1031 Phase 1140 |
 | ci-live-verify | `pytest-parallel-isolation` gate live-verify on real GitHub Actions (billing block) | Carried forward as CI-01-v1030 | v1023 Phase 1100 degraded close |
 | nyquist | VALIDATION.md formalization for 1140/1141/1142/1143 | Optional; coverage strong via close-gate | v1031 milestone audit |
 
 ## Session Continuity
 
-Last session: 2026-05-28T18:25:00.000Z
-Stopped at: v1031 milestone fully archived
+Last session: 2026-05-28T21:35:00.000Z
+Stopped at: v1032 roadmap created
 Resume file: None
 
 ## Operator Next Steps
 
-- Start the next milestone with `/gsd:new-milestone` (questioning → research → requirements → roadmap). A fresh `REQUIREMENTS.md` is created there — the v1031 one was archived to `milestones/v1031-REQUIREMENTS.md`.
-- Optional cleanup: archive the v1140-1143 phase directories with `/gsd:cleanup` (deferred during this run — see below).
+- Run `/gsd:plan-phase 1144` to create the plan for the contour spike.
+- Phase 1144 is audit-only — no production code. Produces `.planning/audits/CONTOUR-WORKER-v1032.md`.
+- Phase 1145 executes the harden-or-cut recommendation from 1144.
+- Phase 1146 implements raster stretch stats (can start after 1144 is underway, sequenced after for clean start).
+- Phase 1147 is the close gate — runs after both 1145 and 1146 complete.
