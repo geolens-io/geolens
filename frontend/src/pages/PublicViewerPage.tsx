@@ -44,7 +44,9 @@ export function PublicViewerPage() {
   useDocumentTitle(t('common:pageTitle.sharedMap'));
   const { isEnterprise } = useEdition();
   const { data: branding } = useBranding();
-  const showFooterBranding = !isEnterprise || branding?.show_badge !== false;
+  // Gate on branding !== undefined so enterprise users with show_badge:false do
+  // not see a flash of the footer badge while the branding query is loading (IN-02).
+  const showFooterBranding = branding !== undefined && (!isEnterprise || branding?.show_badge !== false);
   const { token } = useParams<{ token: string }>();
   const [searchParams] = useSearchParams();
   const isEmbed = searchParams.get('embed') === 'true';

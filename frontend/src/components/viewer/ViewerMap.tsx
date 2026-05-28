@@ -146,7 +146,12 @@ export const ViewerMap = memo(function ViewerMap({
   const { t } = useTranslation('common');
   const { isEnterprise } = useEdition();
   const { data: branding } = useBranding();
-  const showBranding = showInlineBranding && (!isEnterprise || branding?.show_badge !== false);
+  // Gate on branding !== undefined so enterprise users with show_badge:false do
+  // not see a flash of the badge while the branding query is still loading (IN-02).
+  const showBranding = showInlineBranding && (
+    branding !== undefined &&
+    (!isEnterprise || branding?.show_badge !== false)
+  );
   const mapRef = useRef<MaplibreMap | null>(null);
   const managedSourcesRef = useRef<Set<string>>(new Set());
   const prevOrderKeyRef = useRef('');
