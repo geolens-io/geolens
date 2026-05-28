@@ -55,6 +55,7 @@ from app.modules.catalog.maps.schemas import (
     ShareTokenRequest,
     SharedMapResponse,
     ShareTokenResponse,
+    OgImageUploadRequest,
     ThumbnailUploadRequest,
     VisibilityCheckResponse,
 )
@@ -344,6 +345,7 @@ def _build_map_response(
 ) -> MapResponse:
     """Build a MapResponse from a map object and layer list."""
     thumbnail_url = f"/maps/{map_obj.id}/thumbnail/" if map_obj.thumbnail_uri else None
+    og_image_url = f"/maps/{map_obj.id}/og-image/" if map_obj.og_image_uri else None
     return MapResponse(
         id=map_obj.id,
         name=map_obj.name,
@@ -360,6 +362,7 @@ def _build_map_response(
         terrain_config=map_obj.terrain_config,
         visibility=map_obj.visibility,
         thumbnail_url=thumbnail_url,
+        og_image_url=og_image_url,
         forked_from_id=map_obj.forked_from,
         forked_from_name=forked_from_name,
         created_by=map_obj.created_by,
@@ -1631,6 +1634,148 @@ async def get_thumbnail(
     media_type = "image/jpeg" if map_obj.thumbnail_uri.endswith(".jpg") else "image/png"
     cache_control = (
         "public, max-age=3600"
+        if map_obj.visibility == "public"
+        else "private, no-cache"
+    )
+    return Response(
+        content=data,
+        media_type=media_type,
+        headers={"Cache-Control": cache_control},
+    )
+
+
+# ---------------------------------------------------------------------------
+# OG-image upload/serve — SHARE-08 Path A
+# ---------------------------------------------------------------------------
+
+
+@router.put("/{map_id}/og-image/", status_code=status.HTTP_204_NO_CONTENT)
+async def upload_og_image(
+    map_id: uuid.UUID,
+    request: OgImageUploadRequest,
+    user: Identity = Depends(require_permission("edit_metadata")),
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    """Upload a base64 OG social-card image (up to 750KB) for a map.
+
+    Accepts a data:image/ URI, decodes the base64 payload, validates the
+    bytes are a real image (PIL verify), writes to storage under
+    ``maps/og-images/{map_id}.{ext}``, and persists the storage key to
+    ``catalog.maps.og_image_uri``.
+
+    Intended for 1200x630 JPEG captures (SHARE-08). The payload cap
+    (750KB) is larger than the thumbnail cap (100KB) to accommodate the
+    larger canvas export — they are separate schemas (OgImageUploadRequest
+    vs ThumbnailUploadRequest) to avoid relaxing the locked thumbnail
+    contract. Auth and PIL-verify rules are identical to upload_thumbnail.
+    """
+    import base64
+
+    from app.platform.storage.provider import get_storage
+
+    data_uri = request.data_uri
+
+    map_obj = await get_map(db, map_id)
+    if map_obj is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Map not found",
+        )
+    await check_map_ownership(map_obj, user, db)
+
+    if not data_uri.startswith("data:image/"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Body must be a data:image/ URI",
+        )
+
+    if ";base64," not in data_uri:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Body must be a base64-encoded data URI",
+        )
+    try:
+        header, encoded = data_uri.split(",", 1)
+        image_bytes = base64.b64decode(encoded)
+    except (ValueError, UnicodeDecodeError):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid data URI or base64 encoding",
+        )
+
+    # Validate the decoded bytes are a real image (mirrors thumbnail PUT).
+    from io import BytesIO
+
+    from PIL import Image, UnidentifiedImageError
+
+    try:
+        with Image.open(BytesIO(image_bytes)) as img:
+            img.verify()
+    except (UnidentifiedImageError, OSError, SyntaxError, ValueError) as exc:
+        logger.warning(
+            "og_image_upload_invalid_image",
+            map_id=str(map_id),
+            byte_length=len(image_bytes),
+            error=str(exc),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="OG image payload is not a valid image",
+        )
+
+    ext = "jpg" if "jpeg" in header else "png"
+    storage_key = f"maps/og-images/{map_id}.{ext}"
+
+    storage = get_storage()
+    try:
+        await storage.put(storage_key, image_bytes)
+    except Exception:
+        logger.exception("og_image_upload_failed", map_id=str(map_id))
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="OG image storage unavailable",
+        )
+
+    map_obj.og_image_uri = storage_key
+    map_obj.updated_at = datetime.now(UTC)
+    await db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.get("/{map_id}/og-image/", response_class=Response)
+async def get_og_image(
+    map_id: uuid.UUID,
+    user: Identity | None = Depends(get_optional_user),
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    """Serve the OG social-card image from storage (visibility-checked).
+
+    Uses ``public, max-age=86400`` for public maps — OG images change
+    less often than thumbnails (which use 3600s). Mirrors get_thumbnail
+    but reads ``og_image_uri`` and uses the ``maps/og-images/`` key space.
+    """
+    from app.platform.storage.provider import get_storage
+
+    map_obj = await get_map(db, map_id)
+    if map_obj is None or not map_obj.og_image_uri:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="OG image not found",
+        )
+
+    await _check_map_read_access(map_obj, user, db)
+
+    storage = get_storage()
+    try:
+        data = await storage.get(map_obj.og_image_uri)
+    except FileNotFoundError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="OG image not found",
+        )
+    media_type = "image/jpeg" if map_obj.og_image_uri.endswith(".jpg") else "image/png"
+    cache_control = (
+        "public, max-age=86400"
         if map_obj.visibility == "public"
         else "private, no-cache"
     )
