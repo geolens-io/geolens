@@ -24,9 +24,27 @@ export type RichSegment = { kind: 'text'; value: string } | { kind: 'url'; value
 // XSS gate: ONLY match http:// and https:// — javascript:/data:/vbscript: never match.
 const URL_RE = /https?:\/\/[^\s<>"']+/gi;
 
+/**
+ * Strip trailing sentence-ending punctuation from a matched URL token.
+ * CommonMark / GitHub / Slack all apply this post-match trim: `.`, `,`, `;`,
+ * `:`, `!`, `?`, `"`, `'`, `)`, `]` are almost never valid URL endings but are
+ * frequently appended by prose authors ("See https://example.com, for details").
+ *
+ * Parentheses: a closing `)` is stripped only when there is no matching `(`
+ * in the URL body, preserving Wikipedia-style `/wiki/Foo_(bar)` links.
+ */
+export function trimTrailingPunctuation(url: string): string {
+  return url.replace(/[.,;:!?"')\]]+$/, (suffix) => {
+    // Retain ) if the URL body already contains a matching (
+    const body = url.slice(0, url.length - suffix.length);
+    const hasOpenParen = body.includes('(');
+    return hasOpenParen ? suffix : '';
+  });
+}
+
 const IMAGE_EXTS = /\.(jpe?g|png|gif|webp|svg)(\?[^#]*)?(#.*)?$/i;
 const VIDEO_EXTS = /\.(mp4|webm|mov)(\?[^#]*)?(#.*)?$/i;
-const YT_HOSTS = /^https?:\/\/(www\.)?(youtube\.com|youtu\.be)/i;
+const YT_HOSTS = /^https?:\/\/(www\.)?(youtube\.com|youtube-nocookie\.com|youtu\.be)/i;
 // ID must be exactly 11 chars from [A-Za-z0-9_-]
 const YT_ID_RE = /(?:v=|youtu\.be\/|embed\/|shorts\/)([A-Za-z0-9_-]{11})(?:[&?#]|$)/;
 
@@ -34,9 +52,16 @@ const YT_ID_RE = /(?:v=|youtu\.be\/|embed\/|shorts\/)([A-Za-z0-9_-]{11})(?:[&?#]
  * Return the regex matches for http/https URLs found in `text`, or null if
  * none are found. XSS gate: javascript:/data:/vbscript: schemes are excluded
  * because the regex only matches `https?://`.
+ *
+ * Trailing sentence-ending punctuation (., ; : ! ?) is stripped from each
+ * match via `trimTrailingPunctuation`.
  */
 export function detectUrls(text: string): RegExpMatchArray | null {
-  return text.match(URL_RE);
+  const raw = text.match(URL_RE);
+  if (!raw) return null;
+  // Return a mutable array with punctuation trimmed, preserving the array
+  // interface callers expect (length, indexed access).
+  return raw.map(trimTrailingPunctuation) as RegExpMatchArray;
 }
 
 /**
@@ -44,6 +69,10 @@ export function detectUrls(text: string): RegExpMatchArray | null {
  * identified by the XSS-gated `URL_RE` regex (http/https only). Segments
  * whose `kind` is `'url'` are safe to render as `<a href>` anchors; segments
  * whose `kind` is `'text'` are safe React text nodes.
+ *
+ * Trailing sentence-ending punctuation is stripped from each URL segment via
+ * `trimTrailingPunctuation`. Stripped punctuation is re-appended to the
+ * following text segment so the overall displayed text is unchanged.
  */
 export function splitTextWithUrls(text: string): RichSegment[] {
   const segments: RichSegment[] = [];
@@ -55,12 +84,18 @@ export function splitTextWithUrls(text: string): RichSegment[] {
   let match: RegExpExecArray | null;
   while ((match = re.exec(text)) !== null) {
     foundUrl = true;
+    const rawUrl = match[0];
+    const trimmedUrl = trimTrailingPunctuation(rawUrl);
+    const stripped = rawUrl.slice(trimmedUrl.length); // punctuation shaved off
     const start = match.index;
-    const end = start + match[0].length;
+    const end = start + rawUrl.length;
     // Text before this URL (skip empty leading text segments).
     const pre = text.slice(lastIndex, start);
     if (pre.length > 0) segments.push({ kind: 'text', value: pre });
-    segments.push({ kind: 'url', value: match[0] });
+    segments.push({ kind: 'url', value: trimmedUrl });
+    // Re-inject stripped trailing punctuation as a text segment so the
+    // displayed output is visually identical to the original string.
+    if (stripped.length > 0) segments.push({ kind: 'text', value: stripped });
     lastIndex = end;
   }
 

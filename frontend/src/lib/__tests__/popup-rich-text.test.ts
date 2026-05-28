@@ -4,6 +4,7 @@ import {
   splitTextWithUrls,
   classifyUrl,
   normalizeYouTubeEmbed,
+  trimTrailingPunctuation,
 } from '../popup-rich-text';
 
 // ---------------------------------------------------------------------------
@@ -31,16 +32,24 @@ describe('splitTextWithUrls', () => {
     expect(result[0]).toEqual({ kind: 'url', value: 'https://example.com' });
   });
 
-  it('EASY-11 — handles trailing punctuation: trailing dot is consumed by URL match (trade-off documented)', () => {
-    // URL regex does NOT strip trailing punctuation — trailing dot consumed.
-    // This is a deliberate trade-off to avoid false positives on legitimate URLs
-    // ending in tilde, parens, etc. See popup-rich-text.ts for the rationale.
+  it('WR-01 — strips trailing comma: "See https://example.com, for more" → URL has no comma', () => {
+    const result = splitTextWithUrls('See https://example.com, for more');
+    // URL segment should be clean; comma re-appended as text
+    const urlSeg = result.find((s) => s.kind === 'url');
+    expect(urlSeg?.value).toBe('https://example.com');
+    // The comma must still appear somewhere in the output so displayed text is unchanged
+    const textContent = result
+      .filter((s) => s.kind === 'text')
+      .map((s) => s.value)
+      .join('');
+    expect(textContent).toContain(',');
+  });
+
+  it('WR-01 — strips trailing period from standalone URL', () => {
     const result = splitTextWithUrls('visit https://example.com.');
-    expect(result).toHaveLength(2);
     expect(result[0]).toEqual({ kind: 'text', value: 'visit ' });
-    // trailing dot is consumed by URL_RE — documented trade-off
-    expect(result[1].kind).toBe('url');
-    expect(result[1].value).toContain('https://example.com');
+    const urlSeg = result.find((s) => s.kind === 'url');
+    expect(urlSeg?.value).toBe('https://example.com');
   });
 
   it('EASY-11 — matches multiple URLs in one text value → 4 segments (empty trailing text omitted)', () => {
@@ -176,6 +185,18 @@ describe('classifyUrl', () => {
     expect(classifyUrl('https://x.com/foo.mp4').srcUrl).toBe('https://x.com/foo.mp4');
     expect(classifyUrl('https://example.com').srcUrl).toBe('https://example.com');
   });
+
+  it('WR-01 — classifies image URL with trailing period as image (trimTrailingPunctuation applied upstream)', () => {
+    // trimTrailingPunctuation strips the trailing dot before classifyUrl sees it
+    const cleaned = trimTrailingPunctuation('https://example.com/img.jpg.');
+    expect(classifyUrl(cleaned).kind).toBe('image');
+  });
+
+  it('IN-01 — classifies youtube-nocookie.com embed URL as youtube', () => {
+    const result = classifyUrl('https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ');
+    expect(result.kind).toBe('youtube');
+    expect(result.srcUrl).toBe('https://www.youtube.com/embed/dQw4w9WgXcQ');
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -203,6 +224,12 @@ describe('normalizeYouTubeEmbed', () => {
 
   it('EASY-11 — returns embed URL for already-canonical embed/ form (idempotent)', () => {
     expect(normalizeYouTubeEmbed('https://www.youtube.com/embed/dQw4w9WgXcQ')).toBe(
+      'https://www.youtube.com/embed/dQw4w9WgXcQ',
+    );
+  });
+
+  it('IN-01 — returns embed URL for youtube-nocookie.com privacy-enhanced form', () => {
+    expect(normalizeYouTubeEmbed('https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ')).toBe(
       'https://www.youtube.com/embed/dQw4w9WgXcQ',
     );
   });
