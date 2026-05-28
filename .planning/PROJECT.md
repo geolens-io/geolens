@@ -12,20 +12,18 @@ Milestones are delivered through v1031 Builder Render-Mode & Share Polish (shipp
 
 The marketing and documentation web properties (v14.0 + v15.0 + 999.5 cross-repo style alignment) and their planning artifacts moved to the `getgeolens.com` repo on 2026-04-26 — see `~/Code/getgeolens.com/.planning/` for active docs-site work.
 
-## Current Milestone: v1032 Builder Carry-Forward Resolution
+## Current Milestone
 
-**Goal:** Decisively close the v1031 carry-forward tail — resolve the contour control (harden or cut, on spike evidence) and finish single-band raster stretch stats — without inflating into another full builder sweep.
+_None — v1032 shipped 2026-05-28. Run `/gsd:new-milestone` to start the next milestone._
 
-**Target features:**
-- **Contour disposition (spike-first):** Timeboxed spike to root-cause the `maplibre-contour@0.1.0` worker (~28 MapLibre error events on enable; `addProtocol` bug already fixed `716b1927`). Produces a spike audit + harden-or-cut recommendation, then either **harden** (stabilize worker/tile integration, flip `CONTOUR_CONTROL_ENABLED`, un-skip 5 dormant tests, live-verify) or **cut cleanly** (remove `maplibre-contour` dep + `contour-sync.ts` + dormant tests + `DEMEditorScene` gate). Default bias: cut if hardening is not clearly cheap.
-- **Single-band raster stretch stats:** Implement `percentile` + `stddev` strategies at `backend/app/processing/tiles/router.py:488` (both currently fall back to `minmax`), computing real per-band statistics → Titiler rescale.
+## Recent Shipped Milestone: v1032 Builder Carry-Forward Resolution
 
-**Key context:**
-- Continues phase numbering from 1143 (phases start at 1144; no reset).
-- Research skipped — internal hygiene on existing subsystems, no new domain.
-- Out of scope: CI-01 GH Actions billing (ops task, not code); broad builder/UI rework.
-- Nyquist VALIDATION.md formalization (1140-1143) intentionally skipped to keep v1032 lean (coverage already strong: vitest 2599/2599, pytest 181/181, e2e 26/26).
-- Spike-first discipline (matches v1019-v1022); contour harden-vs-cut decided on spike evidence during the autonomous run.
+**Shipped:** 2026-05-28
+**Tag:** local `v1032` · CHANGELOG `[1.7.0]`
+
+**Goal delivered:** Decisively closed the v1031 carry-forward tail — resolved the contour control (spike-first → CUT) and finished single-band raster stretch stats — without inflating into another full builder sweep.
+
+**Delivered:** 7/7 requirements across phases 1144-1147. **Contour (CONTOUR-01/02):** a spike reproduced the deterministic 28-error burst on the live builder and root-caused it — `maplibre-contour@0.1.0` emits `dem1-contour://` custom-protocol tile URLs that MapLibre GL 5.x does not route (resolved as relative HTTP → malformed `Request`); `0.1.0` is the terminal published version with no compatible upgrade, so the control was **CUT** (dep + `contour-sync.ts` + `syncContourLayer` call site + `CONTOUR_CONTROL_ENABLED` flag/gate + dead `relief-contour` enum + 5 dormant tests + 5 i18n keys removed; `syncColorReliefLayer` hypsometric tint preserved; 3 DEM-editor absence tests pin the removal). **Raster stretch (RASTER-STRETCH-01/02):** single-band `percentile` (p2–p98) and `stddev` (mean±2σ clamped) now compute a stats-based Titiler rescale via `/cog/statistics` (cached per asset) in `raster_tile_proxy`, replacing the minmax-only fallback; RasterEditor options un-gated. **Close-gate (QA-01/02/03):** typecheck 0 / vitest 2577 / backend raster·tile 84·2skip / `e2e:smoke:builder` 26 / i18n 2 / `make openapi-check` no drift; orchestrator Playwright MCP confirmed contour absent (0 console errors) and a live `minmax`/`percentile`/`stddev` tile-render diff (859 B / 25 KB / 27 KB). Milestone audit `tech_debt` (integration CLEAN 7/7 + 2/2 flows; no blockers). **Deferred:** RASTER-STRETCH-UI-02 (stretch↔gray-colormap coupling, pre-existing); multi-band stretch; nyquist docs. Still deferred: CI-01-v1030 (GH Actions billing, ops task).
 
 ## Recent Shipped Milestone: v1031 Builder Render-Mode & Share Polish
 
@@ -1206,11 +1204,12 @@ Users can find any dataset in the catalog in seconds — search, see it on a map
 - ✓ PARA-02 WR-02 closure (Shape Y2 load-bearing rationale): `_invoke_sleep_in_sync_context` retains blocking `time.sleep` with documented rationale at conftest.py:624-689 after Shape Y1 (`asyncio.run(asyncio.sleep)`) empirically failed (greenlet context has running loop); regression pin `test_engine_retry_yields_event_loop_during_backoff` at `test_fixture_isolation_v1020.py:1253` — v1022 (PARA-02)
 - ✓ HYG-01 engine-retry envelope hygiene: WR-03 narrow except `(TypeError, AttributeError, InvalidRequestError)` at `_RetryingAsyncEngine.__init__` (conftest.py:842; expanded for SQLAlchemy 2.x); WR-04 listener teardown via `_RetryingAsyncEngine.dispose()` override + `event.remove(...)` at conftest.py:934-977; 3 new regression pins (`test_engine_retry_do_connect_event_handler_retries_on_transient_error` at L1391, `test_init_tile_pool_catches_raw_asyncpg_too_many_connections` at L1557, `test_init_tile_pool_propagates_non_transient_error` at L1666) — v1022 (HYG-01)
 - ✓ CLOSE-01 close-gate (degraded): sequential 3060/3 OOS/38 + `-n 4` 3059/4 OOS/38 + `-n auto` 3-run 2/3/2 distinct deterministic + 0 ICN frames; CHANGELOG `[1.5.7]` block; tags `v1022` (local) + `v1.5.7` (public) cut at SHA `48707fb1`; MILESTONES.md v1022 entry — v1022 (CLOSE-01)
+- ✓ Contour control resolved → CUT: `maplibre-contour@0.1.0` is incompatible with maplibre-gl 5.x custom-protocol routing (no upstream fix); removed dep + `contour-sync.ts` + call site + `CONTOUR_CONTROL_ENABLED` flag/gate + dead `relief-contour` enum + dormant tests + i18n keys; 3 DEM-editor absence tests pin the removal — v1032
+- ✓ Single-band raster `percentile`/`stddev` stretch compute a stats-based Titiler rescale via `/cog/statistics` (cached per asset), replacing the minmax-only fallback; RasterEditor options un-gated — v1032
 
 ### Active
 
-- [ ] Contour control is resolved on spike evidence: either **hardened** (`maplibre-contour` worker stable on enable, `CONTOUR_CONTROL_ENABLED` flipped, 5 dormant tests live, live-verified) or **cut cleanly** (`maplibre-contour` dep + `contour-sync.ts` + dormant tests + `DEMEditorScene` gate removed) — no half-wired state, no blind carry-forward. — v1032
-- [ ] Single-band raster `percentile` and `stddev` stretch strategies compute real per-band statistics and drive a correct Titiler rescale, instead of silently falling back to `minmax`. — v1032
+_None — v1032 shipped. The next milestone's requirements are defined via `/gsd:new-milestone`._
 
 ### Out of Scope
 
@@ -1482,4 +1481,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-28 — started milestone v1032 Builder Carry-Forward Resolution (continues phase numbering from 1143; phases start at 1144). Goal: close the v1031 carry-forward tail — contour disposition (spike-first harden-or-cut on the `maplibre-contour@0.1.0` worker) + single-band raster stretch stats (`percentile`/`stddev` at `tiles/router.py:488`). Research skipped; Nyquist docs + CI-01 billing out of scope. Next: define requirements → roadmap → autonomous execution.*
+*Last updated: 2026-05-28 — completed milestone v1032 Builder Carry-Forward Resolution (4 phases 1144-1147, 7/7 reqs; local tag `v1032`, CHANGELOG `[1.7.0]`). Contour control CUT (`maplibre-contour@0.1.0` ↔ maplibre-gl 5.x custom-protocol incompatibility, no upstream fix); single-band raster `percentile`/`stddev` stretch implemented via Titiler `/cog/statistics`. Orchestrator Playwright MCP close-gate; audit `tech_debt` (integration CLEAN 7/7 + 2/2 flows). Next: `/gsd:new-milestone`.*

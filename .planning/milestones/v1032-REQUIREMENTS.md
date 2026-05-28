@@ -1,3 +1,12 @@
+# Requirements Archive: v1032 Builder Carry-Forward Resolution
+
+**Archived:** 2026-05-28
+**Status:** SHIPPED
+
+For current requirements, see `.planning/REQUIREMENTS.md`.
+
+---
+
 # Requirements: GeoLens — v1032 Builder Carry-Forward Resolution
 
 **Defined:** 2026-05-28

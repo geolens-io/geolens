@@ -1,5 +1,24 @@
 # Milestones
 
+## v1032 Builder Carry-Forward Resolution (Shipped: 2026-05-28)
+
+**Phases completed:** 4 phases (1144-1147), 7/7 requirements. Tag: local `v1032`. CHANGELOG `[1.7.0]`.
+
+**Goal delivered:** Decisively closed the v1031 carry-forward tail — resolved the contour control (spike-first → CUT) and finished single-band raster stretch stats — without inflating into another full builder sweep.
+
+**Key accomplishments:**
+
+- **Contour spike (1144, CONTOUR-01):** Reproduced the deterministic 28-error burst on the live builder via orchestrator Playwright MCP and root-caused it — `maplibre-contour@0.1.0` emits `dem1-contour://` custom-protocol tile URLs that MapLibre GL 5.x does not route (resolved as relative HTTP → malformed `Request`). `0.1.0` is the terminal published version with no compatible upgrade → recommended CUT.
+- **Contour cut (1145, CONTOUR-02):** Removed the `maplibre-contour` dep + `contour-sync.ts` + the `syncContourLayer` call in `map-sync.ts` + the `CONTOUR_CONTROL_ENABLED` flag/gate in `DEMEditorScene.tsx` + the dead `relief-contour` enum/branch in `map-stack.ts` + 5 dormant tests + 5 contour i18n keys (en/de/es/fr). Kept `syncColorReliefLayer` (shipped hypsometric tint). 3 DEM-editor absence tests are the permanent regression pins.
+- **Raster stretch stats (1146, RASTER-STRETCH-01/02):** Implemented single-band `percentile` (p2–p98) and `stddev` (mean±2σ clamped) stretch via Titiler `/cog/statistics` (cached per asset) → rescale override in `raster_tile_proxy`; un-gated the RasterEditor options. Live tile-render diff confirmed (minmax 859 B vs percentile 25 KB vs stddev 27 KB).
+- **Close gate (1147, QA-01/02/03):** typecheck 0 · lint 0 err · vitest 2577/2577 · backend raster/tile 84 pass·2 skip · `e2e:smoke:builder` 26/26 · i18n 2/2 · `make openapi-check` no drift (no SDK regen — `stretch` param pre-dated this milestone). Orchestrator live MCP: contour absent + 0 console errors; stretch tiles render distinctly. CHANGELOG `[1.7.0]`.
+
+**Audit verdict:** `tech_debt` (7/7 reqs satisfied; integration CLEAN 7/7 links + 2/2 E2E flows; no blockers). Tech debt: stretch↔gray-colormap coupling (pre-existing; logged RASTER-STRETCH-UI-02), nyquist VALIDATION skipped (coverage strong), no non-DEM single-band raster seeded (live-verified via reversible `is_dem` toggle). See `.planning/milestones/v1032-MILESTONE-AUDIT.md`.
+
+**Migrations:** None (frontend removal + backend internal behavior + test/i18n only).
+
+---
+
 ## v1031 Builder Render-Mode & Share Polish (Shipped: 2026-05-28)
 
 **Phases completed:** 4 phases (1140-1143), 8 plans, 16 tasks

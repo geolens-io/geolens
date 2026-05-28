@@ -1,8 +1,76 @@
 # Roadmap: GeoLens
 
+## Current Milestone: v1032 Builder Carry-Forward Resolution
+
+**Milestone Goal:** Decisively close the v1031 carry-forward tail — resolve the contour control (harden or cut, on spike evidence) and finish single-band raster stretch stats — without inflating into another full builder sweep.
+
+## Phases
+
+- [x] **Phase 1144: Contour Spike** - Root-cause the `maplibre-contour` worker instability; produce an evidence-backed harden-or-cut recommendation audit. → **CUT** (maplibre-contour@0.1.0 ↔ maplibre-gl 5.x custom-protocol incompatibility; no upstream fix).
+- [x] **Phase 1145: Contour Disposition** - Execute the spike recommendation — **CUT**: removed `maplibre-contour` dep + `contour-sync.ts` + call site + flag/gate + 5 dormant tests + dead `relief-contour` enum + i18n keys. 3 absence tests are the permanent regression pins; live-verified.
+- [x] **Phase 1146: Raster Stretch Stats** - Implemented `percentile` (p2–p98) and `stddev` (mean±2σ) single-band stretch via Titiler `/cog/statistics` (cached) → rescale override; frontend options un-gated. Live-verified (minmax/percentile/stddev tiles differ).
+- [x] **Phase 1147: Close Gate** - Live MCP smoke (contour gone + stretch tile-diff + clean load), all gates green (typecheck 0 / vitest 2577 / backend 84·2skip / e2e 26 / i18n 2), CHANGELOG [1.7.0], openapi no-drift.
+
+## Phase Details
+
+### Phase 1144: Contour Spike
+**Goal**: An evidence-backed audit exists that describes exactly why the `maplibre-contour` worker emits ~28 MapLibre error events on enable and recommends harden or cut with a rough effort estimate for the harden path.
+**Depends on**: Nothing (first phase)
+**Requirements**: CONTOUR-01
+**Success Criteria** (what must be TRUE):
+  1. The ~28 MapLibre error events are reproduced on the live builder via orchestrator Playwright MCP and inventoried by category.
+  2. The worker / isoline-tile / `addProtocol` integration path is analyzed and the root cause is identified (distinct from the already-fixed `addProtocol` registration bug `716b1927`).
+  3. `.planning/audits/CONTOUR-WORKER-v1032.md` exists with a concrete harden-or-cut recommendation and a rough effort estimate for the harden path.
+**Plans**: TBD
+
+### Phase 1145: Contour Disposition
+**Goal**: The contour surface is fully resolved — either the worker enables with zero new console errors and the dormant tests pass, or the contour code is removed and a regression pin confirms the surface stays gone.
+**Depends on**: Phase 1144
+**Requirements**: CONTOUR-02
+**Success Criteria** (what must be TRUE):
+  1. **If harden:** `CONTOUR_CONTROL_ENABLED` is flipped to `true`; contour control renders correctly in the DEM editor with zero new console errors; all 5 previously-skipped `DEMEditorScene` contour tests pass.
+  2. **If cut:** `maplibre-contour` dependency removed from `package.json`; `contour-sync.ts` and its test file deleted; `syncContourLayer` call site at `map-sync.ts:919` removed; all 5 dormant tests deleted; `CONTOUR_CONTROL_ENABLED` flag and its `DEMEditorScene` gate removed.
+  3. **Either branch:** A positive regression pin exists confirming the resolved state (harden: contour renders; cut: the contour surface is absent from the DEM editor).
+  4. Frontend typecheck and vitest pass with zero new failures on the changed files.
+**Plans**: TBD
+**UI hint**: yes
+
+### Phase 1146: Raster Stretch Stats
+**Goal**: Selecting `percentile` or `stddev` stretch on a single-band raster in the builder drives a correct Titiler rescale from real per-band statistics, instead of falling back to `minmax`.
+**Depends on**: Phase 1144 (can run in parallel with 1145 if independent; sequenced after 1144 for a clean start)
+**Requirements**: RASTER-STRETCH-01, RASTER-STRETCH-02
+**Success Criteria** (what must be TRUE):
+  1. Selecting `percentile` stretch in the RasterEditor sends a Titiler tile request with a `rescale` parameter derived from 2nd/98th-percentile per-band statistics (not the min/max of the full range).
+  2. Selecting `stddev` stretch in the RasterEditor sends a Titiler tile request with a `rescale` parameter derived from mean ± N·σ per-band statistics.
+  3. The warning-and-fallback log at `backend/app/processing/tiles/router.py:488` no longer fires for `percentile` or `stddev` inputs.
+  4. Focused backend pytest for the stats-computation and tile-route code passes with the new behavior pinned.
+**Plans**: TBD
+**UI hint**: yes
+
+### Phase 1147: Close Gate
+**Goal**: The completed v1032 work is proven on the live builder and all quality gates are green.
+**Depends on**: Phase 1145, Phase 1146
+**Requirements**: QA-01, QA-02, QA-03
+**Success Criteria** (what must be TRUE):
+  1. Orchestrator-driven live Playwright MCP smoke on `localhost:8080` verifies the contour surface in its final state (hardened control renders cleanly, or the DEM editor is contour-free and error-free) and that `percentile`/`stddev` stretch produces visibly different tile renders from `minmax` on a single-band raster.
+  2. Frontend typecheck, lint, vitest, `e2e:smoke:builder`, and i18n parity (en/de/es/fr) all pass with zero new failures.
+  3. Focused backend pytest covering the touched tile-route and stats-computation code passes.
+  4. CHANGELOG is updated for v1032; OpenAPI and Python/TypeScript SDKs are regenerated if backend routes or schema changed; a public-version bump decision (1.6.0 → 1.6.1 or 1.7.0) is documented.
+**Plans**: TBD
+
+## Progress
+
+| Phase | Plans Complete | Status | Completed |
+|-------|----------------|--------|-----------|
+| 1144. Contour Spike | 1/1 | Complete (→ CUT) | 2026-05-28 |
+| 1145. Contour Disposition | 1/1 | Complete (CUT) | 2026-05-28 |
+| 1146. Raster Stretch Stats | 1/1 | Complete | 2026-05-28 |
+| 1147. Close Gate | 1/1 | Complete | 2026-05-28 |
+
+---
+
 ## Historical Milestones
 
-- ✅ **v1032 Builder Carry-Forward Resolution** — Phases 1144-1147 (shipped 2026-05-28, local tag `v1032`, CHANGELOG [1.7.0]; contour control CUT — `maplibre-contour` 0.1.0 incompatible with maplibre-gl 5.x, no upstream fix — plus single-band raster `percentile`/`stddev` stretch via Titiler `/cog/statistics`; 7/7 reqs) — see [archive](milestones/v1032-ROADMAP.md)
 - ✅ **v1031 Builder Render-Mode & Share Polish** — Phases 1140-1143 (shipped 2026-05-28, local tag `v1031`; hypsometric tint + single-band raster colormap + fill-pattern editor controls, OG-image social cards + SharePanel ≤2 weights, orchestrator-driven Playwright MCP close-gate; 8/9 reqs — EDITOR-DEM-04 contour deferred → v1032) — see [archive](milestones/v1031-ROADMAP.md)
 
 - ✅ **v1030 Map Builder Polish Sweep** — Phases 1133-1139 (shipped 2026-05-28, local tag `v1030`; audit-first builder walkthrough, Tier-1 map bugs + ≤800px polish, AI confirm-before-apply Shape-B staging, per-render-mode editor controls, share chips/presets/branding, easy-wins, 3-viewport Playwright MCP close-gate; 44/44 reqs) — see [archive](milestones/v1030-ROADMAP.md)
@@ -180,4 +248,4 @@ Plans:
 
 ---
 
-*Roadmap updated: 2026-05-28 — v1032 Builder Carry-Forward Resolution shipped (Phases 1144-1147, 7/7 reqs; local tag `v1032`). Awaiting next milestone.*
+*Roadmap updated: 2026-05-28 — v1032 Builder Carry-Forward Resolution active (Phases 1144-1147, 7/7 reqs mapped).*
