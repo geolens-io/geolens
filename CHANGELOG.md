@@ -13,6 +13,15 @@ GitHub release notes are generated from this file, so `CHANGELOG.md` is the rele
 
 ### Added
 
+- **Raster layer editor:** The raster editor now exposes seven adjustment controls — Brightness (min and max), Contrast, Saturation, Hue, Fade, and Opacity — each with an individual slider and numeric input, plus a Reset button that restores all controls to their defaults. Previously these were stub placeholders.
+- **Line layer editor:** Line layers now include `line-cap` (butt / round / square) and `line-join` (bevel / round / miter) selectors as MapLibre LAYOUT properties, so line termination and join style are editable from the builder.
+- **Fill layer 3D-extrusion range hint:** The fill layer editor now shows the actual value range and feature count from dataset sample values when the 3D-extrusion height column is configured, making it easier to set a useful height scale.
+- **"No basemap" preset:** The basemap picker now includes a "No basemap" card as the first option, allowing maps with a solid background color instead of any tile basemap.
+- **AI confirm-before-apply (Shape B):** AI chat style suggestions are now staged in a pending-layers buffer before any layer mutation is committed. An action preview chip row shows each pending change; users can apply or discard the whole batch. Inline data-analysis cards display query results for non-spatial queries, and suggestion chips filter to the current viewport extent.
+- **Sharing polish:** The share-link settings panel now displays allowed origins as editable chips in canonical form; expiration offers five presets (1 day / 7 days / 30 days / 1 year / Never); and shared maps, embeds, and exports include the layer legend and map title. Community-edition maps now show a "Powered by GeoLens" branding mark. The embed dialog includes a sandboxed iframe preview (enterprise-gated).
+- **Keyboard save shortcut:** Cmd/Ctrl+S triggers map save from the builder canvas; the shortcut is a no-op when a dialog is open.
+- **Popup URL/media auto-render:** Popup attribute cells now auto-linkify bare URLs and render image URLs as inline images. A `{column}` token is documented in the popup config so attribute values can be interpolated into template URLs.
+- **Empty-layer hint:** Layers returning zero features now show an inline "0 features — check your filter" hint with a one-click Clear-filter action.
 - DCAT-US Schema v3.0 support now has explicit catalog, dataset, and validation routes under `/datasets/dcat-us/3.0/`, backed by the official GSA/dcat-us JSON Schema 2020-12 definitions vendored from commit `98408dc000f0b71131a03920e2dec6247a84abff`.
 - DCAT-US validation reports now return validity, error count, JSON path, schema path, validator, and message details while preserving existing catalog visibility and per-dataset access checks.
 
@@ -29,6 +38,13 @@ GitHub release notes are generated from this file, so `CHANGELOG.md` is the rele
 
 ### Fixed
 
+- Deleting a layer now removes its map source across all render modes (fill, line, circle, symbol, heatmap, cluster, raster), so orphaned sources no longer remain in the MapLibre style after layer removal.
+- Visibility toggle now takes effect immediately per adapter, so toggling a layer's eye icon updates the live map without requiring a save cycle.
+- Renaming a layer group no longer steals focus prematurely: the rename input stays active until confirmed via an rAF-deferred focus sequence.
+- At viewport widths of 800 px and below, the builder sidebar, NavigationControl position, map coordinate readout, and Sheet panels no longer overlap or collide. The Sheet uses `mt-12` top margin, the coordinate readout uses `right-14` offset, and the close button is hidden for panels that manage their own dismiss affordance.
+- The map body no longer overscrolls: scroll containment is applied so vertical swipe on the layer stack does not propagate to the page.
+- Filter pills in the layer editor no longer overflow their container at narrow widths.
+- The Notes panel now shows a presence indicator dot on the Notes rail icon when the map has saved notes, making it visible at a glance whether notes exist.
 - Builder Notes can now be explicitly cleared: map updates distinguish omitted `notes` from `notes: null`, so omitted updates preserve existing notes and explicit null removes persisted notes.
 - Map builder no longer resurrects stale localStorage Notes when the API returns explicit `notes: null`.
 - Mobile Builder Notes and AI sheets now keep usable full-height panel sizing at narrow viewports.
