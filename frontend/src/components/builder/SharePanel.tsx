@@ -808,6 +808,19 @@ export function ShareDialog({
     return `${window.location.origin}/m/${rawShareToken}`;
   }
 
+  /** SHARE-08 (Phase 1142): returns the crawler-unfurlable /card URL so the
+   *  copied link emits OG/Twitter meta tags when pasted into Slack, Twitter etc.
+   *  Human visitors are redirected to the SPA viewer via the card route's
+   *  <meta http-equiv="refresh"> (Plan 1142-01 backend).
+   *
+   *  The /m/{token} viewer URL is preserved in getShareUrl() for the "Open in
+   *  new tab" affordance (direct, redirect-free viewer load). The embed iframe
+   *  src is unchanged (see generateEmbedCode). */
+  function getShareCardUrl() {
+    if (!rawShareToken) return '';
+    return `${window.location.origin}/api/maps/shared/${rawShareToken}/card`;
+  }
+
   function getEmbedCode() {
     return generateEmbedCode({
       shareToken: rawShareToken || '',
@@ -817,7 +830,9 @@ export function ShareDialog({
   }
 
   async function handleCopyShareLink() {
-    const url = getShareUrl();
+    // SHARE-08: copy the /card URL so the pasted link unfurls in social clients.
+    // The label ("Copy Link") is unchanged — only the copied value changes.
+    const url = getShareCardUrl();
     if (!url) return;
     try {
       await navigator.clipboard.writeText(url);

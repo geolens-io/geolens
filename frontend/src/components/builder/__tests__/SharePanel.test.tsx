@@ -781,6 +781,52 @@ describe('SHARE-03 embed-preview iframe', () => {
 /*  Pitfall #7: inflightEmbedCreate race guard                        */
 /* ------------------------------------------------------------------ */
 
+/* ------------------------------------------------------------------ */
+/*  SHARE-08: Copy Link emits /card URL; embed + Open unchanged        */
+/* ------------------------------------------------------------------ */
+
+describe('SHARE-08 Copy Link emits /card URL', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.useRealTimers();
+  });
+
+  it('Copy Link button writes the /card URL to the clipboard (not the /m/ viewer URL)', async () => {
+    const user = userEvent.setup();
+    const writeTextMock = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText: writeTextMock },
+      writable: true,
+      configurable: true,
+    });
+
+    // Generate a share token so rawShareToken = 'share-token'
+    setup({ enterprise: false, hasShareToken: false });
+    await generateShareLinkAndWait(user);
+
+    await user.click(screen.getByRole('button', { name: /copy link/i }));
+
+    await waitFor(() => {
+      expect(writeTextMock).toHaveBeenCalledOnce();
+    });
+    const [copiedUrl] = writeTextMock.mock.calls[0] as [string];
+    // Must match the /card URL shape
+    expect(copiedUrl).toMatch(/\/api\/maps\/shared\/[^/]+\/card/);
+    // Must NOT be the /m/ viewer URL
+    expect(copiedUrl).not.toMatch(/\/m\//);
+  });
+
+  it('embed code textarea still contains /m/ and embed=true (embed iframe src unchanged)', async () => {
+    const user = userEvent.setup();
+    setup({ enterprise: false, hasShareToken: false, hasNonPublic: true });
+    await generateShareLinkAndWait(user);
+
+    const textarea = screen.getByRole('textbox') as HTMLTextAreaElement;
+    expect(textarea.value).toContain('/m/share-token');
+    expect(textarea.value).toContain('embed=true');
+  });
+});
+
 describe('Pitfall #7 inflightEmbedCreate race guard', () => {
   beforeEach(() => {
     vi.clearAllMocks();
