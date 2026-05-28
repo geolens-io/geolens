@@ -53,7 +53,9 @@
   2. The shared-viewer HTML includes `<meta property="og:image">` and `<meta name="twitter:card">` tags with a resolved image URL
   3. SharePanel renders at most 2 distinct font weights across all content sites (labels, values, helper text, headings)
   4. The OG-image pipeline uses the existing canvas-capture infrastructure — no `@vercel/og` or `satori` introduced
-**Plans**: TBD
+**Plans**: 2 plans
+  - [ ] 1142-01-PLAN.md — Backend SHARE-08 (Path A): `GET /shared/{token}/card` HTML meta route (escaped, public-only, absolute URLs) + `PUT`/`GET /maps/{id}/og-image/` + migration 0024 `og_image_uri` + `MapResponse.og_image_url` + pytest [SHARE-08]
+  - [ ] 1142-02-PLAN.md — Frontend OG capture (1200×630 in doCapture, one repaint) + Copy Link → `/card` URL + SHARE-10 4 section headers → font-semibold + vitest [SHARE-08, SHARE-10]
 **UI hint**: yes
 
 ### Phase 1143: Quality Sweep & Playwright Close-Gate
@@ -73,7 +75,7 @@
 |-------|----------------|--------|-----------|
 | 1140. Raster & Terrain Editor Controls | 4/4 | Complete    | 2026-05-28 |
 | 1141. Fill-Pattern Editor Control | 1/1 | Complete    | 2026-05-28 |
-| 1142. OG-Image Social Cards & SharePanel Typography | 0/TBD | Not started | - |
+| 1142. OG-Image Social Cards & SharePanel Typography | 0/2 | Not started | - |
 | 1143. Quality Sweep & Playwright Close-Gate | 0/TBD | Not started | - |
 
 ## Historical Milestones

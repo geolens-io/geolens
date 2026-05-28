@@ -2,7 +2,7 @@
 phase: 1142
 slug: og-image-social-cards-sharepanel-typography
 status: draft
-nyquist_compliant: false
+nyquist_compliant: true
 wave_0_complete: false
 created: 2026-05-28
 ---
@@ -38,11 +38,16 @@ created: 2026-05-28
 
 > Populated by the planner / executor. SHARE-08 (card route + og-image routes + capture) gets backend pytest + frontend vitest; SHARE-10 is a CSS-class change with a SharePanel render assertion.
 
+> Final structure: 2 plans. Plan 01 = backend (Wave 1, autonomous); Plan 02 = frontend (Wave 2, depends on 01) with SHARE-10 folded in as Task 3 (shared `SharePanel.tsx` ownership → no parallel split).
+
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
-| 1142-01-xx | 01 | 1 | SHARE-08 | T-1142-01 | card route escapes/validates token; meta uses absolute URLs; serves only public/shared maps (no private leak) | unit | `cd backend && uv run pytest -k "card or og_image"` | ❌ W0 | ⬜ pending |
-| 1142-02-xx | 02 | 2 | SHARE-08 | — | OG capture reuses one repaint; no oversized payload past route cap | unit | `cd frontend && npx vitest run` | ❌ W0 | ⬜ pending |
-| 1142-03-xx | 03 | 2 | SHARE-10 | — | N/A (cosmetic) | unit | `cd frontend && npx vitest run src/components/builder/__tests__/SharePanel.test.tsx` | ❌ W0 | ⬜ pending |
+| 1142-01-T1 | 01 | 1 | SHARE-08 | T-1142-04 | OgImageUploadRequest 750KB cap; ThumbnailUploadRequest 100KB cap unchanged; migration 0024 up/down | unit | `cd backend && uv run pytest tests/test_maps_og_image.py -x -q` | created in plan | ⬜ pending |
+| 1142-01-T2 | 01 | 1 | SHARE-08 | T-1142-03, T-1142-05 | og-image PUT owner-only + PIL verify; GET public cache-control; non-owner 403; non-image 400 | unit | `cd backend && uv run pytest tests/test_maps_og_image.py -x -q -k og_image` | created in plan | ⬜ pending |
+| 1142-01-T3 | 01 | 1 | SHARE-08 | T-1142-01, T-1142-02, T-1142-06 | card route html.escape (no markup inject); public-only token gate (no private leak); absolute og:image URL | unit | `cd backend && uv run pytest tests/test_maps_og_image.py -x -q` | created in plan | ⬜ pending |
+| 1142-02-T1 | 02 | 2 | SHARE-08 | T-1142-08 | 1200×630 capture in ONE repaint (no double-trigger); OG failure isolated from thumbnail | unit | `cd frontend && npx vitest run src/components/builder/hooks/__tests__/use-builder-save.test.ts` | created in plan | ⬜ pending |
+| 1142-02-T2 | 02 | 2 | SHARE-08 | T-1142-07 | Copy Link emits `/card` URL; `/m` viewer + embed iframe src unchanged | unit | `cd frontend && npx vitest run src/components/builder/__tests__/SharePanel.test.tsx` | created in plan | ⬜ pending |
+| 1142-02-T3 | 02 | 2 | SHARE-10 | — | N/A (cosmetic — 2 explicit font weights, 0 font-bold) | unit | `cd frontend && npx vitest run src/components/builder/__tests__/SharePanel.test.tsx` | created in plan | ⬜ pending |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
@@ -67,11 +72,11 @@ created: 2026-05-28
 
 ## Validation Sign-Off
 
-- [ ] All tasks have automated verify or Wave 0 dependencies
-- [ ] Sampling continuity: no 3 consecutive tasks without automated verify
-- [ ] Wave 0 covers all MISSING references
-- [ ] No watch-mode flags
-- [ ] Feedback latency < 60s
-- [ ] `nyquist_compliant: true` set in frontmatter
+- [x] All tasks have automated verify or Wave 0 dependencies
+- [x] Sampling continuity: no 3 consecutive tasks without automated verify
+- [x] Wave 0 covers all MISSING references (test files created within plan tasks)
+- [x] No watch-mode flags
+- [x] Feedback latency < 60s
+- [x] `nyquist_compliant: true` set in frontmatter
 
-**Approval:** pending
+**Approval:** approved 2026-05-28 (planner)
