@@ -3,6 +3,10 @@ import { render, screen } from '@/test/test-utils';
 import type { ReactNode } from 'react';
 import { FeaturePopup, type FeatureInfo } from '../FeaturePopup';
 
+// ---------------------------------------------------------------------------
+// EASY-11 rich-text / media rendering tests
+// ---------------------------------------------------------------------------
+
 // MapLibre's Popup component requires a real map context. For unit tests we
 // just need the children to render — replace it with a passthrough wrapper.
 vi.mock('@vis.gl/react-maplibre', () => ({
@@ -19,6 +23,96 @@ function makeFeature(overrides: Partial<FeatureInfo> = {}): FeatureInfo {
     ...overrides,
   };
 }
+
+describe('FeaturePopup — EASY-11 rich-text rendering', () => {
+  it('EASY-11 — text with embedded URL renders as text + anchor segments', () => {
+    const features: FeatureInfo[] = [
+      makeFeature({
+        properties: { description: 'See https://example.com for details' },
+        visibleFields: ['description'],
+      }),
+    ];
+    render(<FeaturePopup longitude={0} latitude={0} features={features} onClose={vi.fn()} />);
+    const anchor = screen.getByRole('link', { name: /https:\/\/example\.com/ });
+    expect(anchor).toHaveAttribute('href', 'https://example.com');
+    expect(anchor).toHaveAttribute('target', '_blank');
+    expect(anchor).toHaveAttribute('rel', 'noopener noreferrer');
+    // The surrounding cell should also contain the text "See "
+    expect(screen.getByText(/See/)).toBeInTheDocument();
+  });
+
+  it('EASY-11 — image URL value renders an <img> with src, alt, and lazy loading', () => {
+    const features: FeatureInfo[] = [
+      makeFeature({
+        properties: { photo: 'https://example.com/x.jpg' },
+        visibleFields: ['photo'],
+      }),
+    ];
+    render(<FeaturePopup longitude={0} latitude={0} features={features} onClose={vi.fn()} />);
+    const img = screen.getByRole('img');
+    expect(img).toHaveAttribute('src', 'https://example.com/x.jpg');
+    expect(img).toHaveAttribute('loading', 'lazy');
+    // Fallback anchor also present
+    expect(screen.getByRole('link')).toHaveAttribute('href', 'https://example.com/x.jpg');
+  });
+
+  it('EASY-11 — video URL value renders a <video controls preload=metadata>', () => {
+    const features: FeatureInfo[] = [
+      makeFeature({
+        properties: { clip: 'https://example.com/x.mp4' },
+        visibleFields: ['clip'],
+      }),
+    ];
+    render(<FeaturePopup longitude={0} latitude={0} features={features} onClose={vi.fn()} />);
+    const video = document.querySelector('video');
+    expect(video).not.toBeNull();
+    expect(video!.hasAttribute('controls')).toBe(true);
+    expect(video).toHaveAttribute('preload', 'metadata');
+  });
+
+  it('EASY-11 — YouTube URL value renders an <iframe> with sandbox and title', () => {
+    const features: FeatureInfo[] = [
+      makeFeature({
+        properties: { video: 'https://youtu.be/dQw4w9WgXcQ' },
+        visibleFields: ['video'],
+      }),
+    ];
+    render(<FeaturePopup longitude={0} latitude={0} features={features} onClose={vi.fn()} />);
+    const iframe = document.querySelector('iframe');
+    expect(iframe).not.toBeNull();
+    expect(iframe!.getAttribute('src')).toContain('youtube.com/embed/dQw4w9WgXcQ');
+    expect(iframe!.getAttribute('sandbox')).toContain('allow-scripts');
+    expect(iframe!.getAttribute('title')).toBeTruthy();
+  });
+
+  it('EASY-11 — plain URL value (no extension) renders as anchor (backward-compat regression pin)', () => {
+    const features: FeatureInfo[] = [
+      makeFeature({
+        properties: { link: 'https://example.com' },
+        visibleFields: ['link'],
+      }),
+    ];
+    render(<FeaturePopup longitude={0} latitude={0} features={features} onClose={vi.fn()} />);
+    const anchor = screen.getByRole('link');
+    expect(anchor).toHaveAttribute('href', 'https://example.com');
+    // Should NOT be plain text without a link
+    expect(anchor.tagName).toBe('A');
+  });
+
+  it('EASY-11 — javascript: in a property value is escaped as text, no anchor created', () => {
+    const features: FeatureInfo[] = [
+      makeFeature({
+        properties: { dangerous: 'javascript:alert(1)' },
+        visibleFields: ['dangerous'],
+      }),
+    ];
+    render(<FeaturePopup longitude={0} latitude={0} features={features} onClose={vi.fn()} />);
+    // No anchor element should be rendered for XSS payloads
+    expect(screen.queryByRole('link')).toBeNull();
+    // The text content appears as plain text
+    expect(screen.getByText('javascript:alert(1)')).toBeInTheDocument();
+  });
+});
 
 describe('FeaturePopup', () => {
   it('renders the title above the property table when set', () => {
