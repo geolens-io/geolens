@@ -491,12 +491,15 @@ describe('DEMEditorScene', () => {
     expect(deleteBtn).toBeInTheDocument();
   });
 
-  // --- CONTOUR LINES section tests (EDITOR-DEM-04) ---
-  // EDITOR-DEM-04 is deferred to v1032: CONTOUR_CONTROL_ENABLED=false gates the section
-  // from the DOM. The positive assertions below pin that the gate is active. The
-  // interaction tests are skipped until v1032 re-enables the gate.
+  // --- CONTOUR LINES section: REMOVED in v1032 (CONTOUR-02 cut) ---
+  // maplibre-contour@0.1.0 is incompatible with maplibre-gl 5.x: its dem1-contour://
+  // custom-protocol tile URLs are not routed by the v5 source loader → resolved as
+  // relative HTTP → malformed Request → 28 errors/enable (see
+  // .planning/audits/CONTOUR-WORKER-v1032.md). The control, contour-sync.ts, and the dep
+  // were removed. The assertions below are the permanent regression pins that the contour
+  // section never renders in any DEM render mode.
 
-  describe('CONTOUR LINES section', () => {
+  describe('CONTOUR LINES section (removed — stays gone)', () => {
     it('section is absent in image mode (always absent regardless of gate)', () => {
       render(
         <DEMEditorScene
@@ -506,7 +509,7 @@ describe('DEMEditorScene', () => {
       expect(screen.queryByText('CONTOUR LINES')).not.toBeInTheDocument();
     });
 
-    it('section is absent in hillshade mode (EDITOR-DEM-04 gated off, deferred to v1032)', () => {
+    it('section is absent in hillshade mode (EDITOR-DEM-04 cut in v1032)', () => {
       render(
         <DEMEditorScene
           {...defaultProps({
@@ -514,11 +517,11 @@ describe('DEMEditorScene', () => {
           })}
         />,
       );
-      // Gate is active: section must NOT appear in the DOM
+      // Contour cut in v1032: section must NOT appear in the DOM
       expect(screen.queryByText('CONTOUR LINES')).not.toBeInTheDocument();
     });
 
-    it('section is absent in terrain mode (EDITOR-DEM-04 gated off, deferred to v1032)', () => {
+    it('section is absent in terrain mode (EDITOR-DEM-04 cut in v1032)', () => {
       render(
         <DEMEditorScene
           {...defaultProps({
@@ -526,111 +529,10 @@ describe('DEMEditorScene', () => {
           })}
         />,
       );
-      // Gate is active: section must NOT appear in the DOM
+      // Contour cut in v1032: section must NOT appear in the DOM
       expect(screen.queryByText('CONTOUR LINES')).not.toBeInTheDocument();
     });
 
-    // v1032: re-enable these tests when CONTOUR_CONTROL_ENABLED is flipped to true
-    it.skip('toggling the Switch fires onPaintChange with _contour-enabled=true [v1032 — CONTOUR_CONTROL_ENABLED=false]', () => {
-      const onPaintChange = vi.fn();
-      render(
-        <DEMEditorScene
-          {...defaultProps({
-            layer: makeDEMLayer({ style_config: { render_mode: 'hillshade' } }),
-            onPaintChange,
-          })}
-        />,
-      );
-
-      const switchEl = screen.getByRole('switch', { name: 'Contour lines' });
-      fireEvent.click(switchEl);
-
-      expect(onPaintChange).toHaveBeenCalledOnce();
-      const [paint] = onPaintChange.mock.calls[0] as [Record<string, unknown>];
-      expect(paint['_contour-enabled']).toBe(true);
-    });
-
-    it.skip('interval slider fires onPaintChange with _contour-interval when contour is enabled [v1032 — CONTOUR_CONTROL_ENABLED=false]', () => {
-      const onPaintChange = vi.fn();
-      render(
-        <DEMEditorScene
-          {...defaultProps({
-            layer: makeDEMLayer({
-              style_config: { render_mode: 'hillshade' },
-              paint: { '_contour-enabled': true },
-            }),
-            onPaintChange,
-          })}
-        />,
-      );
-
-      const intervalSlider = screen.getByRole('slider', { name: 'Interval' });
-      fireEvent.change(intervalSlider, { target: { value: '200' } });
-
-      expect(onPaintChange).toHaveBeenCalledOnce();
-      const [paint] = onPaintChange.mock.calls[0] as [Record<string, unknown>];
-      expect(paint['_contour-interval']).toBe(200);
-    });
-
-    it.skip('weight slider fires onPaintChange with _contour-weight when contour is enabled [v1032 — CONTOUR_CONTROL_ENABLED=false]', () => {
-      const onPaintChange = vi.fn();
-      render(
-        <DEMEditorScene
-          {...defaultProps({
-            layer: makeDEMLayer({
-              style_config: { render_mode: 'hillshade' },
-              paint: { '_contour-enabled': true },
-            }),
-            onPaintChange,
-          })}
-        />,
-      );
-
-      const weightSlider = screen.getByRole('slider', { name: 'Weight' });
-      fireEvent.change(weightSlider, { target: { value: '2' } });
-
-      expect(onPaintChange).toHaveBeenCalledOnce();
-      const [paint] = onPaintChange.mock.calls[0] as [Record<string, unknown>];
-      expect(paint['_contour-weight']).toBe(2);
-    });
-
-    it.skip('color picker fires onPaintChange with _contour-color when contour is enabled [v1032 — CONTOUR_CONTROL_ENABLED=false]', () => {
-      const onPaintChange = vi.fn();
-      render(
-        <DEMEditorScene
-          {...defaultProps({
-            layer: makeDEMLayer({
-              style_config: { render_mode: 'hillshade' },
-              paint: { '_contour-enabled': true },
-            }),
-            onPaintChange,
-          })}
-        />,
-      );
-
-      const colorPicker = screen.getByTestId('color-picker-color');
-      fireEvent.click(colorPicker);
-
-      expect(onPaintChange).toHaveBeenCalledOnce();
-      const [paint] = onPaintChange.mock.calls[0] as [Record<string, unknown>];
-      expect(paint['_contour-color']).toBe('#ABCDEF');
-    });
-
-    it.skip('interval/color/weight controls are NOT rendered when toggle is off [v1032 — CONTOUR_CONTROL_ENABLED=false]', () => {
-      render(
-        <DEMEditorScene
-          {...defaultProps({
-            layer: makeDEMLayer({
-              style_config: { render_mode: 'hillshade' },
-              paint: { '_contour-enabled': false },
-            }),
-          })}
-        />,
-      );
-
-      expect(screen.queryByRole('slider', { name: 'Interval' })).not.toBeInTheDocument();
-      expect(screen.queryByRole('slider', { name: 'Weight' })).not.toBeInTheDocument();
-    });
   });
 
   // --- HYPSOMETRIC TINT section tests (EDITOR-DEM-05) ---

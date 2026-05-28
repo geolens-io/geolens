@@ -988,11 +988,6 @@
     "terrainExaggeration": "Terrain-Überhöhung",
     "imageHint": "Keine weiteren Darstellungssteuerungen für den Bildmodus",
     "compassAriaLabel": "Sonnenazimut: {{azimuth}}°",
-    "sectionContourLines": "HÖHENLINIEN",
-    "contourEnable": "Höhenlinien",
-    "contourInterval": "Abstand",
-    "contourColor": "Farbe",
-    "contourWeight": "Stärke",
     "sectionHypsometricTint": "HYPSOMETRISCHE FÄRBUNG",
     "hypsometricEnable": "Höhentönung",
     "hypsometricTerrainHint": "Höhentönung ist im Terrain-Modus nicht verfügbar"

@@ -13,7 +13,6 @@ import type { AdapterLayerInput } from './layer-adapters/types';
 import { buildLabelLayerSpec, syncLabelLayer } from './label-layer-utils';
 import { clusterCircleLayerId, clusterCountLayerId, getClusterSourceOptions } from './layer-adapters/cluster-adapter';
 import { getClusterSourceStrategy } from './cluster-source';
-import { syncContourLayer } from './contour-sync';
 import { syncColorReliefLayer } from './color-relief-sync';
 import { buildColormapTileUrl } from './layer-adapters/raster-adapter';
 
@@ -841,8 +840,7 @@ function removeStaleSourcesAndLayers(
     const clusterCircleId = clusterCircleLayerId(layerId);
     // EDITOR-DEM-05: color-relief companion has no own source (it reuses the
     // raster-dem source), so it is not found by the source-keyed loop and must
-    // be removed explicitly here.  The contour companion is covered via its
-    // tracked `source-<id>-contour` source and does NOT need an entry here.
+    // be removed explicitly here.
     const colorReliefId = `${layerId}-colorrelief`;
     if (map.getLayer(colorReliefId)) map.removeLayer(colorReliefId);
     if (map.getLayer(labelId)) map.removeLayer(labelId);
@@ -913,14 +911,12 @@ export function syncLayersToMap(
       const rasterToken = token?.kind === 'raster' ? token : rasterTokenFromLayer(layer);
       if (rasterToken) {
         syncRasterLayer(map, adapterInput, rasterToken, desiredSources);
-        // EDITOR-DEM-04: sync companion contour line layer for DEM layers.
+        // EDITOR-DEM-05: sync companion color-relief layer (hillshade-gated) for DEM layers.
         // Called after syncRasterLayer so the raster-dem source already exists.
+        // Layer id: ${layerId}-colorrelief — reuses the existing raster-dem source.
+        // syncColorReliefLayer never calls addSource; the companion layer is auto-removed
+        // by syncColorReliefLayer when disabled or when render_mode !== hillshade.
         if (adapterInput.is_dem === true) {
-          syncContourLayer(map, adapterInput, desiredSources);
-          // EDITOR-DEM-05: sync companion color-relief layer (hillshade-gated).
-          // Layer id: ${layerId}-colorrelief — reuses the existing raster-dem source.
-          // syncColorReliefLayer never calls addSource; the companion layer is auto-removed
-          // by syncColorReliefLayer when disabled or when render_mode !== hillshade.
           syncColorReliefLayer(map, adapterInput);
         }
       } else {

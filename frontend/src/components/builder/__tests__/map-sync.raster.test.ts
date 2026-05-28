@@ -9,17 +9,11 @@ vi.mock('@/lib/tile-utils', () => ({
   buildClusterTileUrl: vi.fn(() => '/tiles/clusters/mock/{z}/{x}/{y}.pbf'),
 }));
 
-// Mock contour-sync so the raster sync tests can assert it is invoked for DEM layers
-// without needing a real DemSource / maplibre-contour.
-// Use vi.hoisted so the mock factory can reference the spy variable despite vi.mock hoisting.
-const { mockSyncContourLayer, mockSyncColorReliefLayer } = vi.hoisted(() => ({
-  mockSyncContourLayer: vi.fn(),
+// Mock color-relief-sync so the raster sync tests can assert it is invoked for DEM layers
+// without needing a real DemSource. Use vi.hoisted so the mock factory can reference the
+// spy despite vi.mock hoisting.
+const { mockSyncColorReliefLayer } = vi.hoisted(() => ({
   mockSyncColorReliefLayer: vi.fn(),
-}));
-vi.mock('@/components/builder/contour-sync', () => ({
-  syncContourLayer: mockSyncContourLayer,
-  ensureDemSource: vi.fn(),
-  _demSources: new Map(),
 }));
 vi.mock('@/components/builder/color-relief-sync', () => ({
   syncColorReliefLayer: mockSyncColorReliefLayer,
@@ -674,82 +668,6 @@ describe('syncLayersToMap', () => {
     // Both layers attempted
     expect(map.addSource).toHaveBeenCalledTimes(2);
     warnSpy.mockRestore();
-  });
-
-  // ---------------------------------------------------------------------------
-  // EDITOR-DEM-04: syncContourLayer wiring
-  // ---------------------------------------------------------------------------
-
-  describe('syncContourLayer wiring', () => {
-    beforeEach(() => {
-      mockSyncContourLayer.mockClear();
-    });
-
-    it('calls syncContourLayer for is_dem=true raster layers', () => {
-      const layer = makeLayer({
-        id: 'dem-contour-test',
-        layer_type: 'raster_geolens',
-        dataset_geometry_type: null,
-        is_dem: true,
-        style_config: { mode: 'categorical', column: '', ramp: '', render_mode: 'hillshade' },
-        paint: { '_contour-enabled': true },
-      });
-      const tokenMap = new Map<string, TileToken>([['ds-1', makeRasterToken()]]);
-
-      syncLayersToMap(map, [layer], tokenMap, undefined, managedSourcesRef, { current: '' });
-
-      expect(mockSyncContourLayer).toHaveBeenCalledOnce();
-      const [, calledInput] = mockSyncContourLayer.mock.calls[0] as [unknown, { layerId: string; is_dem: boolean | null | undefined }];
-      expect(calledInput.layerId).toBe('layer-dem-contour-test');
-      expect(calledInput.is_dem).toBe(true);
-    });
-
-    it('does NOT call syncContourLayer for non-DEM raster layers', () => {
-      const layer = makeLayer({
-        id: 'raster-regular',
-        layer_type: 'raster_geolens',
-        dataset_geometry_type: null,
-        is_dem: false,
-      });
-      const tokenMap = new Map<string, TileToken>([['ds-1', makeRasterToken()]]);
-
-      syncLayersToMap(map, [layer], tokenMap, undefined, managedSourcesRef, { current: '' });
-
-      expect(mockSyncContourLayer).not.toHaveBeenCalled();
-    });
-
-    it('does NOT call syncContourLayer for vector layers', () => {
-      const layer = makeLayer({
-        id: 'vector-test',
-        layer_type: 'vector_geolens',
-        dataset_geometry_type: 'Polygon',
-        is_dem: false,
-      });
-      const tokenMap = new Map<string, TileToken>([['ds-1', makeVectorToken()]]);
-
-      syncLayersToMap(map, [layer], tokenMap, undefined, managedSourcesRef, { current: '' });
-
-      expect(mockSyncContourLayer).not.toHaveBeenCalled();
-    });
-
-    it('passes desiredSources to syncContourLayer so the contour source is preserved', () => {
-      const layer = makeLayer({
-        id: 'dem-ds-test',
-        layer_type: 'raster_geolens',
-        dataset_geometry_type: null,
-        is_dem: true,
-        style_config: { mode: 'categorical', column: '', ramp: '', render_mode: 'hillshade' },
-        paint: { '_contour-enabled': true },
-      });
-      const tokenMap = new Map<string, TileToken>([['ds-1', makeRasterToken()]]);
-
-      syncLayersToMap(map, [layer], tokenMap, undefined, managedSourcesRef, { current: '' });
-
-      expect(mockSyncContourLayer).toHaveBeenCalledOnce();
-      // Third arg should be the desiredSources Set
-      const [, , desiredSourcesArg] = mockSyncContourLayer.mock.calls[0] as [unknown, unknown, Set<string>];
-      expect(desiredSourcesArg).toBeInstanceOf(Set);
-    });
   });
 
   // ---------------------------------------------------------------------------

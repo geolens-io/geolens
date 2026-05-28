@@ -25,7 +25,6 @@ export type MapStackRole =
   | 'surface-terrain'
   | 'relief-hillshade'
   | 'relief-color'
-  | 'relief-contour'
   | 'basemap-preset'
   | 'basemap-labels'
   | 'data-layer'
@@ -142,7 +141,7 @@ const GROUP_TITLES: Record<MapStackGroupId, { title: string; description: string
   },
   relief: {
     title: 'Relief',
-    description: 'DEM-derived visual overlays such as hillshade, contours, and color relief.',
+    description: 'DEM-derived visual overlays such as hillshade and color relief.',
   },
   basemap: {
     title: 'Basemap',
@@ -229,7 +228,6 @@ function isDemVisualLayer(layer: MapLayerResponse) {
 function reliefRole(layer: MapLayerResponse): Extract<MapStackRole, `relief-${string}`> {
   const mode = renderMode(layer.style_config);
   if (mode === 'hillshade') return 'relief-hillshade';
-  if (mode === 'contour') return 'relief-contour';
   return 'relief-color';
 }
 

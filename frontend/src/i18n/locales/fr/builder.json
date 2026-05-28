@@ -988,11 +988,6 @@
     "terrainExaggeration": "Exagération du terrain",
     "imageHint": "Aucun contrôle d'apparence supplémentaire pour le mode image",
     "compassAriaLabel": "Azimut solaire : {{azimuth}}°",
-    "sectionContourLines": "COURBES DE NIVEAU",
-    "contourEnable": "Courbes de niveau",
-    "contourInterval": "Intervalle",
-    "contourColor": "Couleur",
-    "contourWeight": "Épaisseur",
     "sectionHypsometricTint": "TEINTE HYPSOMÉTRIQUE",
     "hypsometricEnable": "Teinte d'élévation",
     "hypsometricTerrainHint": "La teinte d'élévation n'est pas disponible en mode Terrain"

@@ -988,11 +988,6 @@
     "terrainExaggeration": "Terrain exaggeration",
     "imageHint": "No additional appearance controls for image mode",
     "compassAriaLabel": "Sun azimuth: {{azimuth}}°",
-    "sectionContourLines": "CONTOUR LINES",
-    "contourEnable": "Contour lines",
-    "contourInterval": "Interval",
-    "contourColor": "Color",
-    "contourWeight": "Weight",
     "sectionHypsometricTint": "HYPSOMETRIC TINT",
     "hypsometricEnable": "Elevation tint",
     "hypsometricTerrainHint": "Elevation tint is not available in Terrain mode"
