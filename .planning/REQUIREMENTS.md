@@ -31,6 +31,7 @@ The v1031 close-gate gated the contour control off (`CONTOUR_CONTROL_ENABLED=fal
 
 - **RASTER-STRETCH-03**: Multi-band per-band stretch stats (this milestone scopes single-band; RGB/multi-band stretch is a larger surface).
 - **RASTER-STRETCH-UI-01**: User-configurable percentile bounds and σ multiplier in the RasterEditor (this milestone uses sensible defaults).
+- **RASTER-STRETCH-UI-02**: Decouple stretch from colormap so `percentile`/`stddev` also apply on the default grayscale render (today `buildColormapTileUrl` only forwards `stretch=` alongside a non-gray colormap, so selecting a stretch on the gray colormap is a no-op). Alternatively gate the stretch control on a non-gray colormap. Pre-existing coupling surfaced by v1032 (milestone audit tech-debt item).
 - 999.18 editor-convenience + layer-type expansion (EDITOR-SYMBOL-04, EDITOR-BASEMAP-06, LAYER-TEXT-01, LAYER-DRAW-01, LAYER-LIDAR-01) remain parked in the 999.18 backlog register.
 
 ## Out of Scope
