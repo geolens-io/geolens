@@ -259,6 +259,7 @@ function ShareLinkSettings({
     setOriginInput('');
     setOriginError(null);
 
+    const addedCanonical = canonical; // capture what was added for functional rollback
     try {
       await updateEmbedToken.mutateAsync({
         mapId,
@@ -266,8 +267,9 @@ function ShareLinkSettings({
         allowedOrigins: newOrigins,
       });
     } catch (err) {
-      // Rollback optimistic update
-      setOrigins(origins);
+      // Rollback optimistic update using functional setState so concurrent adds
+      // are not discarded (WR-01: stale-closure rollback race).
+      setOrigins((current) => current.filter((o) => o !== addedCanonical));
       if (err instanceof ApiError && err.status === 422 && /Wildcard/i.test(err.message)) {
         setOriginError(t('share.originWildcardError', { defaultValue: 'Wildcard origin not allowed' }));
       } else {
@@ -278,7 +280,7 @@ function ShareLinkSettings({
 
   async function handleRemoveOrigin(target: string) {
     if (!resolvedEmbedTokenId) return;
-    const previous = origins;
+    const removedOrigin = target; // capture for functional rollback
     const newOrigins = origins.filter((o) => o !== target);
     // Optimistic update
     setOrigins(newOrigins);
@@ -290,8 +292,11 @@ function ShareLinkSettings({
         allowedOrigins: newOrigins.length > 0 ? newOrigins : null,
       });
     } catch {
-      // Rollback
-      setOrigins(previous);
+      // Rollback using functional setState — re-insert what was removed so
+      // concurrent removes are not discarded (WR-01: stale-closure race).
+      setOrigins((current) =>
+        current.includes(removedOrigin) ? current : [...current, removedOrigin],
+      );
       toast.error(t('share.updateFailed'));
     }
   }
