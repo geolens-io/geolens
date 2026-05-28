@@ -40,7 +40,8 @@
   2. User can choose from a curated set of built-in patterns and the layer updates on the map immediately
   3. User can clear a pattern and return to a solid fill without requiring a page reload
   4. Existing fill controls (color, opacity, extrusion hint) are unaffected
-**Plans**: TBD
+**Plans**: 1 plan
+  - [ ] 1141-01-PLAN.md — Built-in fill-pattern catalog + idempotent map registrar, IconPicker-style FillPatternPicker, FillEditor wiring (set/clear via owned fill-pattern paint), 4-locale i18n [EDITOR-FILL-01]
 **UI hint**: yes
 
 ### Phase 1142: OG-Image Social Cards & SharePanel Typography
@@ -71,7 +72,7 @@
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1140. Raster & Terrain Editor Controls | 4/4 | Complete    | 2026-05-28 |
-| 1141. Fill-Pattern Editor Control | 0/TBD | Not started | - |
+| 1141. Fill-Pattern Editor Control | 0/1 | Not started | - |
 | 1142. OG-Image Social Cards & SharePanel Typography | 0/TBD | Not started | - |
 | 1143. Quality Sweep & Playwright Close-Gate | 0/TBD | Not started | - |
 
