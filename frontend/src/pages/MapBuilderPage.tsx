@@ -75,6 +75,7 @@ import { useEnabledWidgets } from '@/hooks/use-settings';
 import { useBuilderLayout } from '@/components/builder/hooks/use-builder-layout';
 import { useBuilderDialogs } from '@/components/builder/hooks/use-builder-dialogs';
 import { useBuilderEditorScene } from '@/components/builder/hooks/use-builder-editor-scene';
+import { useFilteredFeatureCount } from '@/components/builder/hooks/use-filtered-feature-count';
 import { useBuilderLayers } from '@/components/builder/hooks/use-builder-layers';
 import { useBuilderSave } from '@/components/builder/hooks/use-builder-save';
 import { TERRAIN_SOURCE_ID, normalizeTerrainExaggeration } from '@/components/builder/map-sync';
@@ -427,6 +428,12 @@ export function MapBuilderPage() {
     savedLayerBaseline: layers.savedLayerBaseline,
     basemapGroup,
   });
+
+  // EASY-18 (Phase 1138-03): rendered-feature count for the active editing layer.
+  // Returns null when no layer is being edited, when no filter is set, or when
+  // the layer isn't yet on the map. Used to drive the empty-state hint inside
+  // LayerFilterEditor.
+  const filteredFeatureCount = useFilteredFeatureCount(mapInstance, editingLayer ?? null);
 
   // Phase 1041: Boundary guard — true when id belongs to basemap group or its sublayers
   const isBasemapBoundaryId = useCallback((id: string): boolean => {
@@ -1291,6 +1298,7 @@ export function MapBuilderPage() {
                 sceneFooter={sceneFooter ?? undefined}
                 breadcrumbPresetName={breadcrumbPresetName}
                 onBreadcrumbClick={onBreadcrumbClick}
+                featureCount={filteredFeatureCount}
               />
               </Suspense>
             </LazyLoadErrorBoundary>
@@ -1341,6 +1349,7 @@ export function MapBuilderPage() {
                   sceneFooter={sceneFooter ?? undefined}
                   breadcrumbPresetName={breadcrumbPresetName}
                   onBreadcrumbClick={onBreadcrumbClick}
+                  featureCount={filteredFeatureCount}
                 />
                 </Suspense>
               </LazyLoadErrorBoundary>
