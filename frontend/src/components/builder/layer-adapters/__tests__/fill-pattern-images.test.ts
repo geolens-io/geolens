@@ -68,6 +68,16 @@ describe('makeFillPatternImage', () => {
       expect(hasAlpha).toBe(true);
     }
   });
+
+  it('all patterns produce distinct pixel data', () => {
+    const images = FILL_PATTERN_IDS.map((id) => makeFillPatternImage(id));
+    for (let i = 0; i < images.length; i++) {
+      for (let j = i + 1; j < images.length; j++) {
+        const same = images[i].data.every((v, k) => v === images[j].data[k]);
+        expect(same, `patterns[${i}] (${FILL_PATTERN_IDS[i]}) and patterns[${j}] (${FILL_PATTERN_IDS[j]}) are identical`).toBe(false);
+      }
+    }
+  });
 });
 
 // ──────────────────────────────────────────────────────────────────────────────

@@ -9,6 +9,8 @@ export const FILL_PATTERN_IDS = [
   'geolens-fill-grid',
 ] as const;
 
+/** Narrowed string type for programmatic pattern-id validation. Consumers may use this
+ *  with `includes`-style guards: `FILL_PATTERN_IDS.includes(value as FillPatternId)`. */
 export type FillPatternId = typeof FILL_PATTERN_IDS[number];
 
 /** Shared tile size for all built-in patterns (16×16, seamlessly tileable). */
@@ -36,12 +38,14 @@ function makeHatch(): { width: number; height: number; data: Uint8ClampedArray }
   return { width: TILE, height: TILE, data };
 }
 
-/** Horizontal + vertical hatch (cross-hatch). */
+/** True diagonal crosshatch: 45-degree lines in both directions (/ and \). */
 function makeCrosshatch(): { width: number; height: number; data: Uint8ClampedArray } {
   const data = new Uint8ClampedArray(TILE * TILE * 4);
   for (let y = 0; y < TILE; y++) {
     for (let x = 0; x < TILE; x++) {
-      if (y % 4 === 0 || x % 4 === 0) {
+      // Forward diagonal (/) and backward diagonal (\), spaced every 4 pixels.
+      // `(x - y + TILE * 4) % 4` avoids negative modulo on any JS engine.
+      if ((x + y) % 4 === 0 || (x - y + TILE * 4) % 4 === 0) {
         setPixel(data, x, y, 80, 80, 80, 255);
       }
     }

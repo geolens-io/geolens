@@ -29,10 +29,10 @@ function patternPreviewStyle(id: string): React.CSSProperties {
     case 'geolens-fill-crosshatch':
       return {
         backgroundImage: `
-          repeating-linear-gradient(0deg, #6b7280 0px, #6b7280 1px, transparent 1px, transparent 4px),
-          repeating-linear-gradient(90deg, #6b7280 0px, #6b7280 1px, transparent 1px, transparent 4px)
+          repeating-linear-gradient(45deg, #6b7280 0px, #6b7280 1px, transparent 1px, transparent 4px),
+          repeating-linear-gradient(-45deg, #6b7280 0px, #6b7280 1px, transparent 1px, transparent 4px)
         `,
-        backgroundSize: '4px 4px',
+        backgroundSize: '5.66px 5.66px',
       };
     case 'geolens-fill-diagonal':
       return {
