@@ -76,7 +76,7 @@
 | 1140. Raster & Terrain Editor Controls | 4/4 | Complete    | 2026-05-28 |
 | 1141. Fill-Pattern Editor Control | 1/1 | Complete    | 2026-05-28 |
 | 1142. OG-Image Social Cards & SharePanel Typography | 2/2 | Complete    | 2026-05-28 |
-| 1143. Quality Sweep & Playwright Close-Gate | 1/1 | Complete   | 2026-05-28 |
+| 1143. Quality Sweep & Playwright Close-Gate | 1/1 | Complete    | 2026-05-28 |
 
 ## Historical Milestones
 

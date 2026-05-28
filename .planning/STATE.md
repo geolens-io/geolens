@@ -2,9 +2,9 @@
 gsd_state_version: 1.0
 milestone: v1031
 milestone_name: Builder Render-Mode & Share Polish
-status: planning
-stopped_at: Phase 1140 UI-SPEC approved
-last_updated: "2026-05-28T17:16:29.698Z"
+status: milestone_complete
+stopped_at: Milestone complete (Phase 1143 was final phase)
+last_updated: 2026-05-28T17:52:21.313Z
 last_activity: 2026-05-28
 progress:
   total_phases: 12
@@ -20,7 +20,7 @@ progress:
 
 Phase: 1143
 Plan: Not started
-Status: Ready to plan
+Status: Milestone complete
 Last activity: 2026-05-28
 
 ```
@@ -32,7 +32,7 @@ Progress: [██████████] 100%
 See: .planning/PROJECT.md
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** Phase 1143 — quality sweep & playwright close gate
+**Current focus:** Milestone complete
 
 ## Last Shipped Milestone
 
