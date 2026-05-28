@@ -268,7 +268,22 @@
       "renderRaster": "Raster",
       "renderHillshade": "Ombrage",
       "reset": "Réinitialiser",
-      "resetTitle": "Réinitialiser le style raster"
+      "resetTitle": "Réinitialiser le style raster",
+      "sectionColormap": "PALETTE DE COULEURS",
+      "colormapLabel": "Palette de couleurs",
+      "stretchLabel": "Étirement",
+      "stretchMinmax": "Min/Max",
+      "stretchPercentile": "Percentile (2–98%)",
+      "stretchStddev": "Écart-type",
+      "stretchComingSoon": "bientôt disponible",
+      "colormapGray": "Niveaux de gris",
+      "colormapViridis": "Viridis",
+      "colormapInferno": "Inferno",
+      "colormapPlasma": "Plasma",
+      "colormapMagma": "Magma",
+      "colormapYlorrd": "Jaune-Rouge",
+      "colormapBugn": "Bleu-Vert",
+      "colormapTerrain": "Terrain"
     },
     "hillshade": {
       "help": "Ajustez la couche de relief générée depuis cette couche MNE.",

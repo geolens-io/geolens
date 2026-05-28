@@ -268,7 +268,22 @@
       "renderRaster": "Ráster",
       "renderHillshade": "Sombreado",
       "reset": "Restablecer",
-      "resetTitle": "Restablecer estilo ráster"
+      "resetTitle": "Restablecer estilo ráster",
+      "sectionColormap": "MAPA DE COLOR",
+      "colormapLabel": "Mapa de color",
+      "stretchLabel": "Extensión",
+      "stretchMinmax": "Mín/Máx",
+      "stretchPercentile": "Percentil (2–98%)",
+      "stretchStddev": "Desviación estándar",
+      "stretchComingSoon": "próximamente",
+      "colormapGray": "Escala de grises",
+      "colormapViridis": "Viridis",
+      "colormapInferno": "Inferno",
+      "colormapPlasma": "Plasma",
+      "colormapMagma": "Magma",
+      "colormapYlorrd": "Amarillo-Rojo",
+      "colormapBugn": "Azul-Verde",
+      "colormapTerrain": "Terreno"
     },
     "hillshade": {
       "help": "Ajuste la capa de relieve generada desde esta capa DEM.",

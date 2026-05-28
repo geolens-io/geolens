@@ -268,7 +268,22 @@
       "renderRaster": "Raster",
       "renderHillshade": "Schummerung",
       "reset": "Zurücksetzen",
-      "resetTitle": "Rasterstil zurücksetzen"
+      "resetTitle": "Rasterstil zurücksetzen",
+      "sectionColormap": "FARBSKALA",
+      "colormapLabel": "Farbskala",
+      "stretchLabel": "Strecken",
+      "stretchMinmax": "Min/Max",
+      "stretchPercentile": "Perzentil (2–98%)",
+      "stretchStddev": "Standardabweichung",
+      "stretchComingSoon": "bald verfügbar",
+      "colormapGray": "Graustufen",
+      "colormapViridis": "Viridis",
+      "colormapInferno": "Inferno",
+      "colormapPlasma": "Plasma",
+      "colormapMagma": "Magma",
+      "colormapYlorrd": "Gelb-Rot",
+      "colormapBugn": "Blau-Grün",
+      "colormapTerrain": "Terrain"
     },
     "hillshade": {
       "help": "Passen Sie die aus diesem DEM-Layer erzeugte Relief-Überlagerung an.",

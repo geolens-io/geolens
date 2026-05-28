@@ -8,6 +8,13 @@ import {
 import { Slider } from '@/components/ui/slider';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { cn } from '@/lib/utils';
 import { coalesceFrame } from '@/lib/builder/raf-coalesce';
 import {
@@ -171,6 +178,73 @@ export function RasterEditor({ layer, paint, onPaintProp, t }: BaseStyleEditorPr
           </div>
         </div>
       </section>
+
+      {/* COLORMAP section — gated on band_count === 1 (single-band rasters only).
+          _colormap and _stretch are builder-private paint keys that mutate the
+          tile URL via buildColormapTileUrl; they never reach MapLibre setPaintProperty
+          (Pitfall 6 — they are intentionally absent from RASTER_OWNED_PAINT_PROPERTIES). */}
+      {layer.band_count === 1 && (
+        <section className="border-b">
+          <div className="px-4 py-2">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground mb-2">
+              {t('style.raster.sectionColormap', { defaultValue: 'COLORMAP' })}
+            </p>
+            <div className="space-y-3">
+              {/* Colormap select row */}
+              <div className="flex items-center gap-2">
+                <span className="w-28 shrink-0 text-xs text-muted-foreground">
+                  {t('style.raster.colormapLabel')}
+                </span>
+                <Select
+                  value={String(paint['_colormap'] ?? 'gray')}
+                  onValueChange={(v) => onPaintProp('_colormap', v)}
+                >
+                  <SelectTrigger className="h-8 text-xs flex-1">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="gray">{t('style.raster.colormapGray')}</SelectItem>
+                    <SelectItem value="viridis">{t('style.raster.colormapViridis')}</SelectItem>
+                    <SelectItem value="inferno">{t('style.raster.colormapInferno')}</SelectItem>
+                    <SelectItem value="plasma">{t('style.raster.colormapPlasma')}</SelectItem>
+                    <SelectItem value="magma">{t('style.raster.colormapMagma')}</SelectItem>
+                    <SelectItem value="ylorrd">{t('style.raster.colormapYlorrd')}</SelectItem>
+                    <SelectItem value="bugn">{t('style.raster.colormapBugn')}</SelectItem>
+                    <SelectItem value="terrain">{t('style.raster.colormapTerrain')}</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Stretch select row — Option A: minmax is the only active option;
+                  percentile and stddev render as disabled with a "coming soon" suffix
+                  so the roadmap is signaled without ever silently no-op-ing.
+                  Backend stats-based percentile/stddev computation is the v1032 follow-up. */}
+              <div className="flex items-center gap-2">
+                <span className="w-28 shrink-0 text-xs text-muted-foreground">
+                  {t('style.raster.stretchLabel')}
+                </span>
+                <Select
+                  value={String(paint['_stretch'] ?? 'minmax')}
+                  onValueChange={(v) => onPaintProp('_stretch', v)}
+                >
+                  <SelectTrigger className="h-8 text-xs flex-1">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="minmax">{t('style.raster.stretchMinmax')}</SelectItem>
+                    <SelectItem value="percentile" disabled>
+                      {`${t('style.raster.stretchPercentile')} (${t('style.raster.stretchComingSoon')})`}
+                    </SelectItem>
+                    <SelectItem value="stddev" disabled>
+                      {`${t('style.raster.stretchStddev')} (${t('style.raster.stretchComingSoon')})`}
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          </div>
+        </section>
+      )}
 
       {/* Reset section — collapsible, closed by default (non-destructive) */}
       <Collapsible open={resetOpen} onOpenChange={setResetOpen}>

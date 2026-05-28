@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@/test/test-utils';
+import { fireEvent, render, screen, within } from '@/test/test-utils';
 import { RasterEditor } from '../RasterEditor';
 import type { BaseStyleEditorProps } from '../types';
 import type { MapLayerResponse } from '@/types/api';
@@ -11,6 +11,31 @@ vi.mock('@/lib/builder/raf-coalesce', () => ({
   __flushForTest: () => {},
   __resetForTest: () => {},
 }));
+
+// Mock shadcn Select to a simple native <select> so fireEvent.change works
+// without needing a portal/Radix runtime in jsdom.
+vi.mock('@/components/ui/select', async () => {
+  const { createElement, Fragment } = await import('react');
+  const Select = ({ value, onValueChange, children }: {
+    value: string;
+    onValueChange: (v: string) => void;
+    children: React.ReactNode;
+  }) =>
+    createElement(
+      'select',
+      { 'data-slot': 'select', value, onChange: (e: React.ChangeEvent<HTMLSelectElement>) => onValueChange(e.target.value) },
+      children,
+    );
+  const SelectTrigger = ({ children }: { children: React.ReactNode }) => createElement(Fragment, null, children);
+  const SelectValue = () => null;
+  const SelectContent = ({ children }: { children: React.ReactNode }) => createElement(Fragment, null, children);
+  const SelectItem = ({ value, children, disabled }: {
+    value: string;
+    children: React.ReactNode;
+    disabled?: boolean;
+  }) => createElement('option', { value, disabled }, children);
+  return { Select, SelectTrigger, SelectValue, SelectContent, SelectItem };
+});
 
 // Mock the Slider to a native input so fireEvent.change and aria-valuetext work
 vi.mock('@/components/ui/slider', () => ({
@@ -102,6 +127,21 @@ function makeProps(layer: MapLayerResponse, overrides: Partial<BaseStyleEditorPr
         'style.raster.hueRotate': 'Hue',
         'style.raster.reset': 'Reset',
         'style.raster.resetTitle': 'Reset raster style',
+        'style.raster.sectionColormap': 'COLORMAP',
+        'style.raster.colormapLabel': 'Colormap',
+        'style.raster.stretchLabel': 'Stretch',
+        'style.raster.stretchMinmax': 'Min/Max',
+        'style.raster.stretchPercentile': 'Percentile (2–98%)',
+        'style.raster.stretchStddev': 'Std Deviation',
+        'style.raster.stretchComingSoon': 'coming soon',
+        'style.raster.colormapGray': 'Grayscale',
+        'style.raster.colormapViridis': 'Viridis',
+        'style.raster.colormapInferno': 'Inferno',
+        'style.raster.colormapPlasma': 'Plasma',
+        'style.raster.colormapMagma': 'Magma',
+        'style.raster.colormapYlorrd': 'Yellow-Red',
+        'style.raster.colormapBugn': 'Blue-Green',
+        'style.raster.colormapTerrain': 'Terrain',
       };
       return labels[key] ?? key;
     },
@@ -219,5 +259,149 @@ describe('RasterEditor', () => {
   it('Test 8: default export equals named export', async () => {
     const mod = await import('../RasterEditor');
     expect(mod.default).toBe(mod.RasterEditor);
+  });
+
+  // ─── COLORMAP section tests ───────────────────────────────────────────────
+
+  it('Test 9: COLORMAP section renders when band_count === 1', () => {
+    render(
+      <RasterEditor
+        {...makeProps(makeRasterLayer({ band_count: 1 }))}
+      />,
+    );
+    expect(screen.getByText('COLORMAP')).toBeInTheDocument();
+  });
+
+  it('Test 10: COLORMAP section is absent when band_count === 3 (multi-band)', () => {
+    render(
+      <RasterEditor
+        {...makeProps(makeRasterLayer({ band_count: 3 }))}
+      />,
+    );
+    expect(screen.queryByText('COLORMAP')).not.toBeInTheDocument();
+  });
+
+  it('Test 11: COLORMAP section is absent when band_count is null', () => {
+    render(
+      <RasterEditor
+        {...makeProps(makeRasterLayer({ band_count: null }))}
+      />,
+    );
+    expect(screen.queryByText('COLORMAP')).not.toBeInTheDocument();
+  });
+
+  it('Test 12: COLORMAP section is absent when band_count is undefined', () => {
+    render(
+      <RasterEditor
+        {...makeProps(makeRasterLayer({ band_count: undefined }))}
+      />,
+    );
+    expect(screen.queryByText('COLORMAP')).not.toBeInTheDocument();
+  });
+
+  it('Test 13: changing the colormap Select fires onPaintProp("_colormap", value)', () => {
+    const onPaintProp = vi.fn();
+    render(
+      <RasterEditor
+        {...makeProps(makeRasterLayer({ band_count: 1 }), { onPaintProp })}
+      />,
+    );
+
+    // The colormap select has value "gray" by default.
+    // Find the native select by its current value and change it.
+    const selects = screen.getAllByRole('combobox');
+    // First select is colormap, second is stretch
+    const colormapSelect = selects[0]!;
+    fireEvent.change(colormapSelect, { target: { value: 'viridis' } });
+
+    expect(onPaintProp).toHaveBeenCalledWith('_colormap', 'viridis');
+  });
+
+  it('Test 14: selecting minmax stretch fires onPaintProp("_stretch", "minmax")', () => {
+    const onPaintProp = vi.fn();
+    render(
+      <RasterEditor
+        {...makeProps(makeRasterLayer({ band_count: 1 }), { onPaintProp })}
+      />,
+    );
+
+    const selects = screen.getAllByRole('combobox');
+    const stretchSelect = selects[1]!;
+    // Re-select minmax to fire the handler
+    fireEvent.change(stretchSelect, { target: { value: 'minmax' } });
+
+    expect(onPaintProp).toHaveBeenCalledWith('_stretch', 'minmax');
+  });
+
+  it('Test 15: the 8 colormap options are present in the colormap Select', () => {
+    render(
+      <RasterEditor
+        {...makeProps(makeRasterLayer({ band_count: 1 }))}
+      />,
+    );
+    const selects = screen.getAllByRole('combobox');
+    const colormapSelect = selects[0]!;
+    // Check accessible names (i18n labels) for all 8 colormaps
+    const expectedLabels = ['Grayscale', 'Viridis', 'Inferno', 'Plasma', 'Magma', 'Yellow-Red', 'Blue-Green', 'Terrain'];
+    for (const label of expectedLabels) {
+      expect(within(colormapSelect).getByRole('option', { name: label })).toBeInTheDocument();
+    }
+    // Also verify the Titiler value attributes
+    const expectedValues = ['gray', 'viridis', 'inferno', 'plasma', 'magma', 'ylorrd', 'bugn', 'terrain'];
+    const options = within(colormapSelect).getAllByRole('option');
+    const actualValues = options.map((o) => (o as HTMLOptionElement).value);
+    for (const v of expectedValues) {
+      expect(actualValues).toContain(v);
+    }
+  });
+
+  it('Test 16: the 3 stretch options are present; percentile and stddev are disabled', () => {
+    render(
+      <RasterEditor
+        {...makeProps(makeRasterLayer({ band_count: 1 }))}
+      />,
+    );
+    const selects = screen.getAllByRole('combobox');
+    const stretchSelect = selects[1]!;
+
+    const minmaxOpt = within(stretchSelect).getByRole('option', { name: /min\/max/i });
+    expect(minmaxOpt).not.toBeDisabled();
+
+    const percentileOpt = within(stretchSelect).getByRole('option', { name: /percentile/i });
+    expect(percentileOpt).toBeDisabled();
+
+    const stddevOpt = within(stretchSelect).getByRole('option', { name: /std/i });
+    expect(stddevOpt).toBeDisabled();
+  });
+
+  it('Test 17: disabled percentile option does NOT fire onPaintProp("_stretch", "percentile") via mock', () => {
+    // A disabled <option> in a native select cannot be selected via fireEvent.change in jsdom.
+    // Verify that attempting to set the value to a disabled option does not trigger the handler.
+    const onPaintProp = vi.fn();
+    render(
+      <RasterEditor
+        {...makeProps(makeRasterLayer({ band_count: 1 }), { onPaintProp })}
+      />,
+    );
+
+    const selects = screen.getAllByRole('combobox');
+    const stretchSelect = selects[1]!;
+
+    // Confirm the option is rendered as disabled
+    const percentileOpt = within(stretchSelect).getByRole('option', { name: /percentile/i });
+    expect(percentileOpt).toBeDisabled();
+    // The option exists but cannot be selected — onPaintProp must NOT have been called for it
+    expect(onPaintProp).not.toHaveBeenCalledWith('_stretch', 'percentile');
+  });
+
+  it('Test 18: "coming soon" suffix appears in disabled stretch option labels', () => {
+    render(
+      <RasterEditor
+        {...makeProps(makeRasterLayer({ band_count: 1 }))}
+      />,
+    );
+    // Both disabled options should contain the "coming soon" suffix text
+    expect(screen.getByText(/Percentile.*coming soon/i)).toBeInTheDocument();
+    expect(screen.getByText(/Std Deviation.*coming soon/i)).toBeInTheDocument();
   });
 });

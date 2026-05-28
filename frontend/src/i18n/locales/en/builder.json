@@ -268,7 +268,22 @@
       "renderRaster": "Raster",
       "renderHillshade": "Hillshade",
       "reset": "Reset",
-      "resetTitle": "Reset raster style"
+      "resetTitle": "Reset raster style",
+      "sectionColormap": "COLORMAP",
+      "colormapLabel": "Colormap",
+      "stretchLabel": "Stretch",
+      "stretchMinmax": "Min/Max",
+      "stretchPercentile": "Percentile (2–98%)",
+      "stretchStddev": "Std Deviation",
+      "stretchComingSoon": "coming soon",
+      "colormapGray": "Grayscale",
+      "colormapViridis": "Viridis",
+      "colormapInferno": "Inferno",
+      "colormapPlasma": "Plasma",
+      "colormapMagma": "Magma",
+      "colormapYlorrd": "Yellow-Red",
+      "colormapBugn": "Blue-Green",
+      "colormapTerrain": "Terrain"
     },
     "hillshade": {
       "help": "Tune the relief overlay generated from this DEM layer.",
