@@ -186,6 +186,15 @@
     "widthByColumn": "Breite nach: {{column}}",
     "toggleFill": "Füllung umschalten",
     "toggleStroke": "Kontur umschalten",
+    "fillPattern": "Füllmuster",
+    "fillPatternNone": "Kein Muster",
+    "fillPatternName": {
+      "hatch": "Schraffur",
+      "crosshatch": "Kreuzschraffur",
+      "diagonal": "Diagonal",
+      "dots": "Punkte",
+      "grid": "Raster"
+    },
     "pattern": "Muster",
     "extrusionRange": "Bereich: {{min}}–{{max}}, {{count}} Objekte",
     "lineEnds": "Linienenden",

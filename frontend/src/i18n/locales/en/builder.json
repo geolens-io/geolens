@@ -186,6 +186,15 @@
     "widthByColumn": "Width by: {{column}}",
     "toggleFill": "Toggle fill visibility",
     "toggleStroke": "Toggle stroke visibility",
+    "fillPattern": "Fill Pattern",
+    "fillPatternNone": "None",
+    "fillPatternName": {
+      "hatch": "Hatch",
+      "crosshatch": "Cross-hatch",
+      "diagonal": "Diagonal",
+      "dots": "Dots",
+      "grid": "Grid"
+    },
     "pattern": "Pattern",
     "extrusionRange": "Range: {{min}}–{{max}}, {{count}} features",
     "lineEnds": "Line ends",

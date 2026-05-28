@@ -186,6 +186,15 @@
     "widthByColumn": "Ancho por: {{column}}",
     "toggleFill": "Alternar relleno",
     "toggleStroke": "Alternar trazo",
+    "fillPattern": "Patrón de relleno",
+    "fillPatternNone": "Sin patrón",
+    "fillPatternName": {
+      "hatch": "Sombreado",
+      "crosshatch": "Sombreado cruzado",
+      "diagonal": "Diagonal",
+      "dots": "Puntos",
+      "grid": "Cuadrícula"
+    },
     "pattern": "Patrón",
     "extrusionRange": "Rango: {{min}}–{{max}}, {{count}} elementos",
     "lineEnds": "Extremos de línea",

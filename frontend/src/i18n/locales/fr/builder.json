@@ -186,6 +186,15 @@
     "widthByColumn": "Largeur par : {{column}}",
     "toggleFill": "Activer/désactiver le remplissage",
     "toggleStroke": "Activer/désactiver le contour",
+    "fillPattern": "Motif de remplissage",
+    "fillPatternNone": "Sans motif",
+    "fillPatternName": {
+      "hatch": "Hachures",
+      "crosshatch": "Hachures croisées",
+      "diagonal": "Diagonal",
+      "dots": "Points",
+      "grid": "Grille"
+    },
     "pattern": "Motif",
     "extrusionRange": "Plage : {{min}}–{{max}}, {{count}} entités",
     "lineEnds": "Extrémités de ligne",
