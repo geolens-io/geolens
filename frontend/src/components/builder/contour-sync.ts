@@ -20,7 +20,7 @@
  *    pre-idle map degrades gracefully (never throws inside the sync loop).
  */
 
-import type { Map as MaplibreMap } from 'maplibre-gl';
+import { addProtocol, type Map as MaplibreMap } from 'maplibre-gl';
 import mlcontour from 'maplibre-contour';
 import type { AdapterLayerInput } from './layer-adapters/types';
 
@@ -75,14 +75,10 @@ export const _demSources = new Map<string, DemSource>();
 
 /**
  * Lazily construct and register a DemSource for `sourceId`.
- * `setupMaplibre` is called exactly once per sourceId.
- *
- * The `map` argument must be a maplibre Map that accepts `addProtocol` — in
- * practice this means the style has finished loading (called from within the
- * sync loop, which runs after idle).
+ * `setupMaplibre` is called exactly once per sourceId, registering the contour
+ * protocol handlers on the maplibre-gl module's GLOBAL protocol registry.
  */
 export function ensureDemSource(
-  map: MaplibreMap,
   sourceId: string,
   tileUrl: string,
 ): DemSource {
@@ -95,9 +91,12 @@ export function ensureDemSource(
     maxzoom: 18,
     worker: true,
   });
-  // setupMaplibre registers the custom protocol handlers on the maplibre global.
-  // It must run AFTER the map is ready (Pitfall 4).
-  demSource.setupMaplibre(map as unknown as Parameters<typeof demSource.setupMaplibre>[0]);
+  // setupMaplibre calls `maplibre.addProtocol(...)`, which lives on the
+  // maplibre-gl MODULE (a static), NOT on a Map instance — passing a Map throws
+  // "addProtocol is not a function". Pass the module's named `addProtocol`
+  // (#1143 close-gate fix: live MCP caught the Map-instance regression that the
+  // no-op setupMaplibre mock had hidden).
+  demSource.setupMaplibre({ addProtocol } as unknown as Parameters<typeof demSource.setupMaplibre>[0]);
   _demSources.set(sourceId, demSource);
   return demSource;
 }
@@ -157,7 +156,7 @@ export function syncContourLayer(
       : 1;
 
     // Ensure the DemSource is registered on the map (once per sourceId).
-    const demSource = ensureDemSource(map, input.sourceId, input.tileUrl);
+    const demSource = ensureDemSource(input.sourceId, input.tileUrl);
 
     const thresholds = intervalToThresholds(interval);
     const contourProtocolUrl = demSource.contourProtocolUrl({

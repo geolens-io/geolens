@@ -35,6 +35,11 @@ vi.mock('maplibre-contour', () => ({
   },
 }));
 
+// Mock maplibre-gl so contour-sync's named `addProtocol` import resolves to a
+// spy without loading the real (WebGL-heavy) module. The #1143 fix passes
+// { addProtocol } (the module static) to setupMaplibre instead of a Map instance.
+vi.mock('maplibre-gl', () => ({ addProtocol: vi.fn() }));
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -325,29 +330,29 @@ describe('syncContourLayer', () => {
 
 describe('ensureDemSource', () => {
   it('calls setupMaplibre exactly once for the same sourceId', () => {
-    const map = createMockMap();
-
-    ensureDemSource(map as unknown as import('maplibre-gl').Map, 'source-dem1', '/tiles/{z}/{x}/{y}.png');
-    ensureDemSource(map as unknown as import('maplibre-gl').Map, 'source-dem1', '/tiles/{z}/{x}/{y}.png');
+    ensureDemSource('source-dem1', '/tiles/{z}/{x}/{y}.png');
+    ensureDemSource('source-dem1', '/tiles/{z}/{x}/{y}.png');
 
     // setupMaplibre should be called only once despite two calls
     expect(mockSetupMaplibre).toHaveBeenCalledTimes(1);
+    // Regression pin (#1143 close-gate): setupMaplibre must receive the
+    // maplibre-gl module API exposing addProtocol — NOT a Map instance (which
+    // has no addProtocol). A no-op setupMaplibre mock previously hid this.
+    expect(mockSetupMaplibre).toHaveBeenCalledWith(
+      expect.objectContaining({ addProtocol: expect.any(Function) }),
+    );
   });
 
   it('returns the cached DemSource on second call', () => {
-    const map = createMockMap();
-
-    const first = ensureDemSource(map as unknown as import('maplibre-gl').Map, 'source-dem1', '/tiles/{z}/{x}/{y}.png');
-    const second = ensureDemSource(map as unknown as import('maplibre-gl').Map, 'source-dem1', '/tiles/{z}/{x}/{y}.png');
+    const first = ensureDemSource('source-dem1', '/tiles/{z}/{x}/{y}.png');
+    const second = ensureDemSource('source-dem1', '/tiles/{z}/{x}/{y}.png');
 
     expect(first).toBe(second);
   });
 
   it('creates separate DemSource instances for different sourceIds', () => {
-    const map = createMockMap();
-
-    ensureDemSource(map as unknown as import('maplibre-gl').Map, 'source-dem-a', '/tiles/{z}/{x}/{y}.png');
-    ensureDemSource(map as unknown as import('maplibre-gl').Map, 'source-dem-b', '/tiles/{z}/{x}/{y}.png');
+    ensureDemSource('source-dem-a', '/tiles/{z}/{x}/{y}.png');
+    ensureDemSource('source-dem-b', '/tiles/{z}/{x}/{y}.png');
 
     expect(mockSetupMaplibre).toHaveBeenCalledTimes(2);
     expect(_demSources.size).toBe(2);
