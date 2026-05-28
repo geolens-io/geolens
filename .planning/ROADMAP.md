@@ -164,4 +164,46 @@ Plans:
 - [ ] TBD
 
 ---
-*Roadmap updated: 2026-05-27 — v1030 active milestone added (7 phases, 44 v1 requirements, 100% coverage)*
+
+### Phase 999.17: SHARE-08 — OG-image / social-card meta on shared links (BACKLOG — P2)
+
+**Goal:** Add OG-image / social-card meta to shared map links. The live thumbnail pipeline emits 400×250 JPEG only (`frontend/src/hooks/use-builder-save.ts:33-34`); `og:image` wants a 1200×630 variant. Two paths: **Path A** — nullable `og_image_uri` column (migration) + `PUT /maps/{id}/og-image/` upload route + `GET /maps/{id}/og-image/` serve route + a second frontend `doCapture` at 1200×630 (~1 day); **Path B** — backend receives the native canvas capture (~1440×900) and resizes to both variants on upload (~1.5 days). Either path then wires `og_image_uri` into the shared-viewer `<meta property="og:image">` tag.
+**Source:** v1030 Phase 1133 WALK-05 disposition (2026-05-27) → `milestones/v1030-REQUIREMENTS.md` §"Future Requirements (v1031+)"; `milestones/v1030-phases/1133-audit-first-builder-walkthrough/1133-BUILDER-WALKTHROUGH-AUDIT.md#share-08-disposition`
+**Estimated effort:** ~1–1.5 days (pick Path A or B in a planning audit)
+**Constraint:** Do NOT add `@vercel/og` / `satori` — both on the STACK do-NOT-add list.
+
+Plans:
+
+- [ ] TBD
+
+---
+
+### Phase 999.18: Builder v2 feature register — editor-control + layer-type expansion (BACKLOG — P3)
+
+**Goal:** Map Builder feature-expansion items deferred from v1030. Three sub-groups — promote independently (effort varies from small editor controls to whole new layer subsystems):
+
+- _Render-mode expansion:_ **EDITOR-FILL-01** fill-pattern (sprite upload + selection flow); **EDITOR-DEM-04** contour-line overlay control; **EDITOR-DEM-05** hypsometric tint color ramps for terrain; **EDITOR-RASTER-COLORMAP** single-band stretch/colormap UI (depends on backend colormap-render path scoping).
+- _Editor convenience:_ **EDITOR-SYMBOL-04** categorical icon mapping with real distinct-value query (`useColumnDistinctValues` exists post-WALK-01); **EDITOR-BASEMAP-06** custom basemap style URL override (architecture-shaped).
+- _Layer-type expansion:_ Text/Annotation layer ("Render as Text"); Draw/annotation layer (text + shapes); LiDAR support.
+
+**Source:** `milestones/v1030-REQUIREMENTS.md` §"v2 Requirements"
+**Estimated effort:** Split per sub-group at promotion — render-mode/convenience are polish-sized; layer-type expansion is feature-milestone work.
+
+Plans:
+
+- [ ] TBD
+
+---
+
+### Phase 999.19: SharePanel font-weight hygiene (F2) (BACKLOG — P3)
+
+**Goal:** SharePanel renders 3 distinct font weights across 5 sites vs the UI-SPEC max-2; reduce to ≤2 weights. Cosmetic only — fold into any future builder polish pass.
+**Source:** v1030 milestone audit — `v1030-MILESTONE-AUDIT.md` (F2, P3)
+**Estimated effort:** <0.5 day
+
+Plans:
+
+- [ ] TBD
+
+---
+*Roadmap updated: 2026-05-28 — backlog review: added 999.17 (SHARE-08 OG-cards), 999.18 (builder v2 feature register), 999.19 (F2 font hygiene) from v1030 carry-forward; 5 open-core items (999.6/13-16) kept, 0 removed*
