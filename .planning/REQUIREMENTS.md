@@ -64,21 +64,21 @@ Which phases cover which requirements. Populated during roadmap creation (contin
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| EDITOR-FILL-01 | Phase TBD | Pending |
-| EDITOR-DEM-04 | Phase TBD | Pending |
-| EDITOR-DEM-05 | Phase TBD | Pending |
-| EDITOR-RASTER-COLORMAP | Phase TBD | Pending |
-| SHARE-08 | Phase TBD | Pending |
-| SHARE-10 | Phase TBD | Pending |
-| QA-01 | Phase TBD | Pending |
-| QA-02 | Phase TBD | Pending |
-| QA-03 | Phase TBD | Pending |
+| EDITOR-DEM-04 | Phase 1140 | Pending |
+| EDITOR-DEM-05 | Phase 1140 | Pending |
+| EDITOR-RASTER-COLORMAP | Phase 1140 | Pending |
+| EDITOR-FILL-01 | Phase 1141 | Pending |
+| SHARE-08 | Phase 1142 | Pending |
+| SHARE-10 | Phase 1142 | Pending |
+| QA-01 | Phase 1143 | Pending |
+| QA-02 | Phase 1143 | Pending |
+| QA-03 | Phase 1143 | Pending |
 
 **Coverage:**
 - v1 requirements: 9 total
-- Mapped to phases: 0 (roadmap pending)
-- Unmapped: 9 ⚠️
+- Mapped to phases: 9 ✓
+- Unmapped: 0 ✓
 
 ---
 *Requirements defined: 2026-05-28*
-*Last updated: 2026-05-28 after initial definition (milestone v1031)*
+*Last updated: 2026-05-28 — traceability populated (roadmap v1031, phases 1140-1143)*

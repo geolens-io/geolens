@@ -2,7 +2,74 @@
 
 ## Current Milestone
 
-_No active milestone. Run `/gsd:new-milestone` to start the next cycle._
+### v1031 Builder Render-Mode & Share Polish
+
+**Goal:** Close the v1030 builder carry-forward backlog — add four new render-mode editor controls (DEM/raster and fill surfaces), complete shared-link social cards, and tidy SharePanel typography — then prove it all on the live builder via intensive Playwright MCP smoke.
+
+**Phases:**
+
+- [ ] **Phase 1140: Raster & Terrain Editor Controls** — Add contour-line overlay, hypsometric tint ramps, and single-band colormap controls to the DEM/RasterEditor surfaces (backend Titiler colormap path scoped at plan-phase)
+- [ ] **Phase 1141: Fill-Pattern Editor Control** — Add fill-pattern authoring (curated built-in sprite set) to FillEditor; plan-time sizing call on built-in selection vs custom-upload backend
+- [ ] **Phase 1142: OG-Image Social Cards & SharePanel Typography** — Wire OG/Twitter card meta to shared map links via the canvas-capture pipeline (Path A vs B decided at plan-phase); reduce SharePanel to ≤2 font weights
+- [ ] **Phase 1143: Quality Sweep & Playwright Close-Gate** — Intensive live Playwright MCP smoke of new controls + share/OG flow, typecheck/lint/vitest/backend-pytest/`e2e:smoke:builder`/i18n parity, CHANGELOG, and OpenAPI/SDK refresh
+
+## Phase Details
+
+### Phase 1140: Raster & Terrain Editor Controls
+**Goal**: Users can configure contour overlays, hypsometric tints, and single-band colormaps for DEM and raster layers directly in the editor
+**Depends on**: Nothing (first feature phase; independent of Phase 1141 and 1142)
+**Requirements**: EDITOR-DEM-04, EDITOR-DEM-05, EDITOR-RASTER-COLORMAP
+**Success Criteria** (what must be TRUE):
+  1. User can toggle a contour-line overlay on a DEM/terrain layer and adjust line styling (interval, color, weight)
+  2. User can select a preset hypsometric tint ramp on a terrain/DEM layer and see elevation banding update on the map
+  3. User can pick a colormap and stretch type for a single-band raster layer, with the map tile re-rendering to reflect the selection
+  4. Existing DEM/raster editor controls (hillshade sliders, opacity, etc.) remain unaffected by the additions
+**Plans**: TBD
+**UI hint**: yes
+
+### Phase 1141: Fill-Pattern Editor Control
+**Goal**: Users can apply a fill-pattern from a curated built-in sprite set to a fill-render-mode layer via the FillEditor
+**Depends on**: Nothing (independent of Phase 1140 and 1142; shares close-gate with Phase 1143)
+**Requirements**: EDITOR-FILL-01
+**Success Criteria** (what must be TRUE):
+  1. User sees a pattern-selection control in FillEditor when a fill-render-mode layer is active
+  2. User can choose from a curated set of built-in patterns and the layer updates on the map immediately
+  3. User can clear a pattern and return to a solid fill without requiring a page reload
+  4. Existing fill controls (color, opacity, extrusion hint) are unaffected
+**Plans**: TBD
+**UI hint**: yes
+
+### Phase 1142: OG-Image Social Cards & SharePanel Typography
+**Goal**: Shared map links emit valid OG/Twitter card meta backed by a 1200×630 preview image, and SharePanel uses ≤2 font weights
+**Depends on**: Nothing (independent feature surface; no dependency on Phase 1140 or 1141)
+**Requirements**: SHARE-08, SHARE-10
+**Success Criteria** (what must be TRUE):
+  1. Opening a shared map link in a social card previewer (e.g., Twitter card validator, LinkedIn) shows a 1200×630 map thumbnail
+  2. The shared-viewer HTML includes `<meta property="og:image">` and `<meta name="twitter:card">` tags with a resolved image URL
+  3. SharePanel renders at most 2 distinct font weights across all content sites (labels, values, helper text, headings)
+  4. The OG-image pipeline uses the existing canvas-capture infrastructure — no `@vercel/og` or `satori` introduced
+**Plans**: TBD
+**UI hint**: yes
+
+### Phase 1143: Quality Sweep & Playwright Close-Gate
+**Goal**: All v1031 new controls and share/OG flows are verified on the live builder and all quality gates are green
+**Depends on**: Phases 1140, 1141, 1142
+**Requirements**: QA-01, QA-02, QA-03
+**Success Criteria** (what must be TRUE):
+  1. Live Playwright MCP smoke (orchestrator-driven) against `http://localhost:8080/maps/8dd6a129-8eb0-4ba9-b421-716c83b160dd` exercises each new render-mode control and the share/OG flow with a committed evidence file
+  2. Frontend typecheck + lint + vitest, focused backend pytest, `e2e:smoke:builder`, and i18n parity (en/de/es/fr) all pass with zero new failures
+  3. CHANGELOG is updated for v1031 with measured feature descriptions
+  4. OpenAPI snapshot and Python/TypeScript SDK artifacts are regenerated where backend routes or schemas changed (e.g., OG-image routes under Path A, raster colormap params)
+**Plans**: TBD
+
+## Progress Table
+
+| Phase | Plans Complete | Status | Completed |
+|-------|----------------|--------|-----------|
+| 1140. Raster & Terrain Editor Controls | 0/TBD | Not started | - |
+| 1141. Fill-Pattern Editor Control | 0/TBD | Not started | - |
+| 1142. OG-Image Social Cards & SharePanel Typography | 0/TBD | Not started | - |
+| 1143. Quality Sweep & Playwright Close-Gate | 0/TBD | Not started | - |
 
 ## Historical Milestones
 
@@ -171,6 +238,7 @@ Plans:
 **Source:** v1030 Phase 1133 WALK-05 disposition (2026-05-27) → `milestones/v1030-REQUIREMENTS.md` §"Future Requirements (v1031+)"; `milestones/v1030-phases/1133-audit-first-builder-walkthrough/1133-BUILDER-WALKTHROUGH-AUDIT.md#share-08-disposition`
 **Estimated effort:** ~1–1.5 days (pick Path A or B in a planning audit)
 **Constraint:** Do NOT add `@vercel/og` / `satori` — both on the STACK do-NOT-add list.
+**Status:** Promoted to v1031 Phase 1142.
 
 Plans:
 
@@ -188,6 +256,7 @@ Plans:
 
 **Source:** `milestones/v1030-REQUIREMENTS.md` §"v2 Requirements"
 **Estimated effort:** Split per sub-group at promotion — render-mode/convenience are polish-sized; layer-type expansion is feature-milestone work.
+**Status:** Render-mode sub-group promoted to v1031 Phases 1140-1141. Editor-convenience and layer-type expansion remain parked.
 
 Plans:
 
@@ -200,10 +269,11 @@ Plans:
 **Goal:** SharePanel renders 3 distinct font weights across 5 sites vs the UI-SPEC max-2; reduce to ≤2 weights. Cosmetic only — fold into any future builder polish pass.
 **Source:** v1030 milestone audit — `v1030-MILESTONE-AUDIT.md` (F2, P3)
 **Estimated effort:** <0.5 day
+**Status:** Promoted to v1031 Phase 1142.
 
 Plans:
 
 - [ ] TBD
 
 ---
-*Roadmap updated: 2026-05-28 — backlog review: added 999.17 (SHARE-08 OG-cards), 999.18 (builder v2 feature register), 999.19 (F2 font hygiene) from v1030 carry-forward; 5 open-core items (999.6/13-16) kept, 0 removed*
+*Roadmap updated: 2026-05-28 — v1031 Builder Render-Mode & Share Polish active (Phases 1140-1143, 9/9 reqs mapped). Backlog 999.17/18/19 render-mode + share items promoted to v1031; editor-convenience + layer-type expansion remain parked in 999.18.*

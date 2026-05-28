@@ -6,7 +6,7 @@ status: planning
 last_updated: "2026-05-28T12:35:47.391Z"
 last_activity: 2026-05-28
 progress:
-  total_phases: 0
+  total_phases: 4
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -17,17 +17,21 @@ progress:
 
 ## Current Position
 
-Phase: Not started (defining requirements)
+Phase: Not started (roadmap defined, ready for plan-phase)
 Plan: —
-Status: Defining requirements
-Last activity: 2026-05-28 — Milestone v1031 started
+Status: Roadmap created — ready for `/gsd:plan-phase 1140`
+Last activity: 2026-05-28 — Roadmap written (4 phases 1140-1143, 9/9 reqs mapped)
+
+```
+Progress: [░░░░░░░░░░░░░░░░░░░░] 0% — 0/4 phases complete
+```
 
 ## Project Reference
 
 See: .planning/PROJECT.md
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** None — between milestones.
+**Current focus:** v1031 Builder Render-Mode & Share Polish — new render-mode editor controls (DEM/raster/fill) + OG-image social cards + SharePanel typography, proven on the live builder via Playwright MCP.
 
 ## Last Shipped Milestone
 
@@ -38,91 +42,86 @@ See: .planning/PROJECT.md
 **Milestone audit:** `.planning/v1030-MILESTONE-AUDIT.md` (PASSED — 44/44 reqs, 10/10 integration, 0 blockers)
 **Archive:** `.planning/milestones/v1030-ROADMAP.md` + `v1030-REQUIREMENTS.md`
 **Stats:** 173 commits, 84 source files (+8215/−245), 2026-05-27→28
-**Carry-forward:** CI-01-v1030 (GH Actions billing); SHARE-08 OG-cards (→v1031); F2 font-medium hygiene (→ future pass); sibling docs `npm run fetch-openapi` before next deploy.
-**Archived phases:** `.planning/milestones/v1029-phases/`
+**Carry-forward:** CI-01-v1030 (GH Actions billing); SHARE-08 OG-cards (→v1031 Phase 1142); F2 font-medium hygiene (→v1031 Phase 1142); sibling docs `npm run fetch-openapi` before next deploy.
+**Archived phases:** `.planning/milestones/v1030-phases/`
 
-## Phase Plan (v1030)
+## Phase Plan (v1031)
 
 | Phase | Goal | Requirements | Depends on |
 |-------|------|--------------|------------|
-| 1133 Audit-First Builder Walkthrough | Live Playwright MCP walkthrough produces `BUILDER-WALKTHROUGH-AUDIT.md` (P0/P1/P2 triage) + AI consumer-gating matrix + `todo.md` staleness cross-reference | WALK-01..05 | — |
-| 1134 Map Functionality and Smaller-Screen Polish | Close Tier-1 todo.md bug-shape items (delete-layer, visibility-toggle, rename-group focus) and ≤800px layout collisions; stabilizes `dispatchLayerAction` boundary before Phase 1135 | MAP-07/08/09/10, MAP-16, MAP-17, MAP-18, MAP-19, MAP-20, MAP-22 | Phase 1133 |
-| 1135 AI Chat Confirm-Before-Apply and Analysis Polish | Add confirm-before-apply staging for destructive AI actions (shape A or B picked in CONTEXT.md before plan-01), action preview chips, viewport-aware suggestions, inline data-analysis card, disabled/error empty-state re-verify | AI-01..05, AI-08, AI-09 | Phase 1134 |
-| 1136 Per-Render-Mode Editor Polish | Close per-editor table-stakes gaps via v1026 owned-property contracts: RasterEditor 4 sliders + reset; LineEditor line-cap/line-join (LAYOUT not PAINT); FillEditor extrusion range hint; BasemapEditor "No basemap" preset + DETAIL LEVEL stays gone | EDITOR-RASTER-01..04, EDITOR-LINE-01, EDITOR-LINE-02, EDITOR-FILL-04, EDITOR-BASEMAP-02, EDITOR-BASEMAP-03 | Phase 1134 |
-| 1137 Sharing and Embed Polish | Extend `3ed5ceb3` separation with chip-based allowed-origins, expiration presets, "Powered by GeoLens" community-edition branding, legend+title in export, conditional iframe preview | SHARE-02, SHARE-03, SHARE-04, SHARE-06, SHARE-07, SHARE-09 | Phase 1133 |
-| 1138 Easy-Win Sweep | Cmd/Ctrl+S, popup URL/media handling, empty-layer state hint — cross-cutting items that don't fit any single bucket | EASY-02, EASY-11, EASY-18 | Phases 1134-1137 |
-| 1139 Quality Sweep and Playwright Close-Gate | Live MCP at 1440×900 / 800×600 / 414×896, disabled-AI smoke, typecheck/lint/vitest/e2e/i18n parity, CHANGELOG + OpenAPI/SDK refresh where backend changed | QA-01, QA-02, QA-03, QA-04 | Phases 1133-1138 |
+| 1140 Raster & Terrain Editor Controls | Users can configure contour overlays, hypsometric tints, and single-band colormaps for DEM and raster layers directly in the editor | EDITOR-DEM-04, EDITOR-DEM-05, EDITOR-RASTER-COLORMAP | — |
+| 1141 Fill-Pattern Editor Control | Users can apply a fill-pattern from a curated built-in sprite set to a fill-render-mode layer via the FillEditor | EDITOR-FILL-01 | — |
+| 1142 OG-Image Social Cards & SharePanel Typography | Shared map links emit valid OG/Twitter card meta backed by a 1200×630 preview image; SharePanel uses ≤2 font weights | SHARE-08, SHARE-10 | — |
+| 1143 Quality Sweep & Playwright Close-Gate | All v1031 new controls and share/OG flows are verified on the live builder and all quality gates are green | QA-01, QA-02, QA-03 | Phases 1140, 1141, 1142 |
 
-**Coverage:** 44/44 v1030 requirements mapped, 0 orphans, 0 duplicates.
+**Coverage:** 9/9 v1031 requirements mapped, 0 orphans, 0 duplicates.
 
-**Parallelism note:** After Phase 1134 ships, Phases 1135 / 1136 / 1137 are independent and can run in parallel (chat ≠ editors ≠ share). Sequenced in the table above for numbering continuity; parallel execution is permitted operationally.
+**Parallelism note:** Phases 1140, 1141, and 1142 are independent feature surfaces and can run in parallel. Phase 1143 (close-gate) depends on all three.
 
 **HARD INVARIANTS (do NOT relax):**
 
-1. **Audit-first sequencing:** Phase 1133 ships first and produces `BUILDER-WALKTHROUGH-AUDIT.md` that every downstream phase references. Hard precedent: v1019 / v1020 / v1021 / v1027 / v1028 all ran audit-first.
-2. **1134 before 1135:** AI confirm-before-apply staging tests pin against `dispatchLayerAction` post-1134 behavior. Visibility/delete adapter fixes must be live first.
-3. **1139 last (canonical close-gate):** v1027 / v1028 / v1029 hard precedent. Live Playwright MCP across 3 viewports + disabled-AI smoke + CHANGELOG.
-4. **Phase 1135 staging shape pick:** CONTEXT.md MUST pick shape A (pre-apply + atomic undo) OR shape B (`pendingLayers` staging buffer) BEFORE plan-01 commits. DO NOT MIX (Pitfall #3).
-5. **No architecture rewrites:** v1030 is polish on top of v1008 / v1026 / v1027 substrate. No new files >500 LOC; no rename of >3 exported symbols; no `BuilderActionSource` widening without an explicit Future Requirement entry first (Pitfall #12).
-6. **Out-of-scope hold:** Annotation/draw layer, LiDAR, "Render as Text", new LLM providers, new connector backends, marketing/docs, enterprise edition changes, large new feature builds — all explicitly OUT. Surface as v1031 carry-forward in REQUIREMENTS.md, do NOT absorb.
+1. **1143 last (canonical close-gate):** v1027/v1028/v1029/v1030 hard precedent. Live Playwright MCP smoke + typecheck/lint/vitest/backend-pytest/`e2e:smoke:builder`/i18n + CHANGELOG + OpenAPI/SDK refresh.
+2. **Playwright MCP is orchestrator-only:** GSD subagents (gsd-executor etc.) lack `mcp__playwright__*` tool access. The orchestrator MUST drive all live MCP verification in Phase 1143 directly. Subagents asked to "run MCP" fabricate PASS/FAIL or write `.spec.ts` instead.
+3. **No architecture rewrites:** v1031 is feature-add on the v1026/v1027 substrate. No new files >500 LOC; no rename of >3 exported symbols; no controller/action-boundary widening without a Future Requirement entry first.
+4. **EDITOR-FILL-01 sizing escape-hatch:** Prefer curated built-in pattern selection first. Defer custom user sprite-upload backend (sprite storage/serving routes) to Future if it balloons — decide at plan-phase, not mid-execution.
+5. **SHARE-08 path pick:** Path A (nullable `og_image_uri` column + `PUT`/`GET /maps/{id}/og-image/` routes) vs Path B (backend resize from native canvas capture) MUST be decided in a planning audit BEFORE plan-01 commits. Do NOT add `@vercel/og` or `satori`.
+6. **EDITOR-RASTER-COLORMAP backend scoping:** Titiler single-band colormap render-path research happens at plan-phase (Phase 1140). Backend changes (new params, response schema) trigger OpenAPI/SDK refresh in Phase 1143.
+7. **Out-of-scope hold:** 999.18 editor-convenience sub-group (EDITOR-SYMBOL-04, EDITOR-BASEMAP-06), layer-type expansion (text, draw, LiDAR), new LLM providers, new connector backends, enterprise edition changes, marketing/docs, open-core/Cloud backlog (999.6/13-16) — all explicitly OUT. Enforce at review.
 
 ## Phase Progress
 
 | Phase | Status | Evidence |
 |-------|--------|----------|
-| 1133 Audit-First Builder Walkthrough | Not started | — |
-| 1134 Map Functionality and Smaller-Screen Polish | Not started | — |
-| 1135 AI Chat Confirm-Before-Apply and Analysis Polish | Not started | — |
-| 1136 Per-Render-Mode Editor Polish | Not started | — |
-| 1137 Sharing and Embed Polish | Not started | — |
-| 1138 Easy-Win Sweep | Not started | — |
-| 1139 Quality Sweep and Playwright Close-Gate | Not started | — |
+| 1140 Raster & Terrain Editor Controls | Not started | — |
+| 1141 Fill-Pattern Editor Control | Not started | — |
+| 1142 OG-Image Social Cards & SharePanel Typography | Not started | — |
+| 1143 Quality Sweep & Playwright Close-Gate | Not started | — |
 
 ## Quick Tasks Completed
 
 | Date | Quick ID | Slug | Status | Notes |
 |------|----------|------|--------|-------|
-| 2026-05-24 | 260524-o57 | adk-high-peaks-data | Delivered + 6 findings | Marketing-data ingest for ADK High Peaks AOI (1m DEM + NY 2023 orthos + 4 vector layers + curated 46er peaks). Map `c39be324-6815-40e5-8143-00a2723827b2` shippable; 6 GeoLens dogfooding findings filed in [260524-o57-API-ISSUES.md](quick/260524-o57-adk-high-peaks-data/260524-o57-API-ISSUES.md) — CRITICAL builder-reorder bug, HIGH DEM-maxzoom + basemap-toast root cause, MEDIUM terrain-config + toast-position, LOW sprite-refs cosmetic. |
+| 2026-05-24 | 260524-o57 | adk-high-peaks-data | Delivered + 6 findings | Marketing-data ingest for ADK High Peaks AOI (1m DEM + NY 2023 orthos + 4 vector layers + curated 46er peaks). Map `c39be324-6815-40e5-8143-00a2723827b2` shippable; 6 GeoLens dogfooding findings filed in [260524-o57-API-ISSUES.md](quick/260524-o57-adk-high-peaks-data/260524-o57-API-ISSUES.md). |
 
 ## Accumulated Context
 
 ### Decisions
 
-- **2026-05-27 (v1030 roadmap):** Adopted ARCHITECTURE 7-phase structure (1133 → 1134 → {1135 || 1136 || 1137} → 1138 → 1139) over the FEATURES 5-tier MVP variant. Rationale: (a) phase numbering must continue from 1133 per PROJECT.md, Tier 1-5 is not a phase structure; (b) audit-first sequencing is hard precedent (v1019/v1020/v1021/v1027/v1028); (c) ARCHITECTURE explicitly flags parallelism (1135 || 1136 || 1137 after 1134), which linear tier list does not. FEATURES tiering remains as priority view INSIDE phases.
-- **2026-05-27 (v1030 roadmap):** Phase 1133 is mandatory audit-first; produces ground-truth backlog before any code lands. Phase 1135 (AI) sequenced AFTER 1134 (MAP) because `dispatchLayerAction` boundary must be stable before AI staging work touches it (Pitfall #1, #3). Phases 1135/1136/1137 are operationally parallel after 1134.
-- **2026-05-27 (v1030 roadmap):** Phase 1135 confirm-before-apply staging shape (A pre-apply + atomic undo OR B `pendingLayers` staging buffer) MUST be picked in CONTEXT.md BEFORE plan-01 commits. Mixing shapes produces partially-applied state on reject and breaks the v1027 snapshot/undo contract (Pitfall #3).
-- **2026-05-27 (v1030 roadmap):** Smaller-screen NavigationControl stays at `top-left` in BuilderMap (v1011 RESP-01/02 contract). Smaller-screen overlap with right sidebar is fixed at the sidebar collapse trigger, NOT by moving NavigationControl (Pitfall #10).
-- **2026-05-27 (v1030 roadmap):** SHARE-08 OG-cards is conditional on Phase 1133 thumbnail-capture audit; if no 1200×630 variant exists, SHARE-08 is flagged to v1031 in REQUIREMENTS.md Future Requirements. SHARE-03 iframe preview is conditional on Phase 1133 sandbox feasibility audit.
-- **2026-05-27 (1134-01):** Cluster adapter intentionally keeps raw `map.setFilter` for compound `combineFilter` shape — NOT migrated to `syncLayerFilter`. The compound filter must include the cluster/unclustered base predicate unconditionally and cannot go through the syncLayerFilter nil-guard path.
-- **2026-05-27 (1134-01):** Fill extrusion companion does not receive layout.visibility block at addLayers add-time (pre-existing gap). Controlled via syncVisibility. Documented in fill-adapter.test.ts.
-- [Phase ?]: SF-MCP-01 carry-forward: backend chat_actions.py:_collect_chat_action() never emits rows on show_query_result for non-spatial queries; frontend inline card is ready but backend wiring missing; routed to Phase 1139
-- [Phase ?]: AI-05 zoom-aware chips deferred in headless: headless WebGL failure prevents MapLibre idle events; 8 unit tests in Plan 04 cover the contract; interactive verification documented in 1135-MCP-SMOKE.md
-- [Phase ?]: BLANK_BASEMAP_ID sentinel reuse in BasemapGroupEditorScene: no new sentinel needed; existing 'blank' constant already routes through swapBasemapPreset to hasVisibleBasemap=false with zero controller change
-- [Phase ?]: 1136-07: deriveExtrusionRange string coercion — API returns dataset_sample_values as strings; parseFloat() coercion added; range hint now works in production
-- [Phase ?]: 1136-07: Basemap pre-flight reset pattern — smoke tests that need basemap group row must PUT basemap_style before navigation; blank state yields no row in stack
+- **2026-05-28 (v1031 roadmap):** 4-phase structure (1140 raster/terrain → 1141 fill-pattern → 1142 sharing → 1143 close-gate). Phases 1140/1141/1142 are independent feature surfaces and can run in parallel; Phase 1143 is the mandatory serial close-gate per v1027/v1028/v1029/v1030 precedent.
+- **2026-05-28 (v1031 roadmap):** No audit-first walkthrough phase — v1031 is a feature-add milestone (not a polish/bug-sweep). The v1030 audit-first invariant was v1030-specific; it does not carry forward when adding new editor controls.
+- **2026-05-28 (v1031 roadmap):** EDITOR-DEM-04/05 and EDITOR-RASTER-COLORMAP grouped into Phase 1140 (shared DEM/raster editor surface; EDITOR-RASTER-COLORMAP carries the most backend Titiler risk and should be scoped first in plan-01). EDITOR-FILL-01 is Phase 1141 (distinct fill-mode + sprite-handling surface).
+- **2026-05-28 (v1031 roadmap):** SHARE-08 and SHARE-10 grouped into Phase 1142. SHARE-08 is substantial (OG-image pipeline, Path A/B decision); SHARE-10 is cosmetic (≤2 font weights). Grouping justified: same SharePanel surface, same phase dependency profile (none on 1140/1141), cosmetic makes natural tail of the sharing phase.
+- **2026-05-27 (1134-01, carried):** Cluster adapter intentionally keeps raw `map.setFilter` for compound `combineFilter` shape — NOT migrated to `syncLayerFilter`. The compound filter must include the cluster/unclustered base predicate unconditionally and cannot go through the syncLayerFilter nil-guard path.
+- **2026-05-27 (1134-01, carried):** Fill extrusion companion does not receive layout.visibility block at addLayers add-time (pre-existing gap). Controlled via syncVisibility. Documented in fill-adapter.test.ts.
+- [Phase 1135, carried]: SF-MCP-01: backend chat_actions.py:_collect_chat_action() never emits rows on show_query_result for non-spatial queries; frontend inline card is ready but backend wiring missing. Carry-forward from v1030.
+- [Phase 1135, carried]: AI-05 zoom-aware chips deferred in headless: headless WebGL failure prevents MapLibre idle events; 8 unit tests cover the contract; interactive verification documented in 1135-MCP-SMOKE.md.
+- [Phase 1136, carried]: BLANK_BASEMAP_ID sentinel reuse in BasemapGroupEditorScene: existing 'blank' constant already routes through swapBasemapPreset to hasVisibleBasemap=false with zero controller change.
+- [Phase 1136, carried]: deriveExtrusionRange string coercion — API returns dataset_sample_values as strings; parseFloat() coercion added; range hint now works in production.
+- [Phase 1136, carried]: Basemap pre-flight reset pattern — smoke tests that need basemap group row must PUT basemap_style before navigation; blank state yields no row in stack.
 
 ### Pending Todos
 
-None for v1030 yet (roadmap fresh; pending Phase 1133 audit output).
+None for v1031 yet (phases not started).
 
 ### Blockers/Concerns
 
-- **CI-01-v1030 billing prerequisite (carry-forward from v1023):** Operator must resolve GH Actions billing at https://github.com/organizations/geolens-io/settings/billing before CI-01 can close GREEN. Remains outside the v1030 polish invariant.
+- **CI-01-v1030 billing prerequisite (carry-forward from v1023):** Operator must resolve GH Actions billing at https://github.com/organizations/geolens-io/settings/billing before CI-01 can close GREEN. Remains outside the v1031 feature invariant. Standing blocker — unblock independently of milestone execution.
 
 ## Deferred Items
 
 | Category | Item | Status | Deferred At |
 |----------|------|--------|-------------|
-| ci-live-verify | `pytest-parallel-isolation` gate live-verify on real GitHub Actions (billing block) | Carried forward to v1030+ as CI-01-v1030 | v1023 Phase 1100 degraded close (mirrors v1022 deferral) |
+| ci-live-verify | `pytest-parallel-isolation` gate live-verify on real GitHub Actions (billing block) | Carried forward to v1031+ as CI-01-v1030 | v1023 Phase 1100 degraded close (mirrors v1022 deferral) |
 | ux-error-reporting | React error page should file a bug via the GitHub issue template | Completed as ERROR-FU-01 | post-v1028 follow-up |
 
 ## Session Continuity
 
-Last session: 2026-05-28T11:06:36.497Z
-Stopped at: Phase 1135 Plan 06 complete — live MCP smoke, SF-MCP-01 carry-forward to Phase 1139
+Last session: 2026-05-28 — roadmap written for v1031
+Stopped at: Roadmap creation complete
 Resume file: None
 
 ## Operator Next Steps
 
-- Run `/gsd:plan-phase 1133` to scope the audit-first walkthrough plan(s).
-- Phase 1133 must produce `BUILDER-WALKTHROUGH-AUDIT.md` before any code-touching phase starts.
+- Run `/gsd:plan-phase 1140` to scope the raster/terrain editor controls (EDITOR-DEM-04, EDITOR-DEM-05, EDITOR-RASTER-COLORMAP). Research Titiler single-band colormap render-path at plan-01.
+- Phases 1140, 1141, 1142 are independent — can be planned and executed in any order or in parallel.
+- Phase 1143 (close-gate) must run last; orchestrator drives all live MCP directly.
