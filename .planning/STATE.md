@@ -2,29 +2,29 @@
 gsd_state_version: 1.0
 milestone: v1032
 milestone_name: Builder Carry-Forward Resolution
-status: planning
-last_updated: "2026-05-28T21:35:06.010Z"
+status: executing
+last_updated: "2026-05-28T21:55:00.000Z"
 last_activity: 2026-05-28
 progress:
   total_phases: 4
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 0
   completed_plans: 0
-  percent: 0
+  percent: 25
 ---
 
 # State
 
 ## Current Position
 
-Phase: Not started
+Phase: 1145 Contour Disposition (next)
 Plan: —
-Status: Roadmap created — ready to execute Phase 1144
-Last activity: 2026-05-28 — v1032 roadmap created (4 phases, 7 reqs mapped)
+Status: Phase 1144 (Contour Spike) complete → disposition = CUT
+Last activity: 2026-05-28 — 1144 spike: reproduced 28-error burst, root-caused (maplibre-contour@0.1.0 ↔ maplibre-gl 5.x protocol incompat), recommended CUT
 
 ```
-[░░░░░░░░░░░░░░░░░░░░] 0%
-Phases: 0/4 complete
+[█████░░░░░░░░░░░░░░░] 25%
+Phases: 1/4 complete
 ```
 
 ## Project Reference

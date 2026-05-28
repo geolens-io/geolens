@@ -11,7 +11,7 @@ Milestone v1032 decisively closes the v1031 carry-forward tail without inflating
 
 The v1031 close-gate gated the contour control off (`CONTOUR_CONTROL_ENABLED=false` at `DEMEditorScene.tsx:28`) because the `maplibre-contour@0.1.0` worker emits ~28 MapLibre error events on enable. `contour-sync.ts` (219 LOC) + its tests + 5 `it.skip` `DEMEditorScene` tests are retained dormant; `syncContourLayer` is still called from `map-sync.ts:919` but no-ops when `_contour-enabled` is absent. STATE.md frames re-enable as "flip one boolean" — this milestone tests that claim against evidence and resolves it either way.
 
-- [ ] **CONTOUR-01** (spike): Root-cause the `maplibre-contour` worker instability on enable. Reproduce the ~28 MapLibre error events on the live builder (orchestrator Playwright MCP), inventory them by category, and analyze the worker / isoline-tile / `addProtocol` integration path (note: the `addProtocol` registration bug was already fixed `716b1927`). Produce a spike audit at `.planning/audits/CONTOUR-WORKER-v1032.md` with an evidence-backed **harden-or-cut recommendation** and a rough effort estimate for the harden path.
+- [x] **CONTOUR-01** (spike): Root-cause the `maplibre-contour` worker instability on enable. Reproduce the ~28 MapLibre error events on the live builder (orchestrator Playwright MCP), inventory them by category, and analyze the worker / isoline-tile / `addProtocol` integration path (note: the `addProtocol` registration bug was already fixed `716b1927`). Produce a spike audit at `.planning/audits/CONTOUR-WORKER-v1032.md` with an evidence-backed **harden-or-cut recommendation** and a rough effort estimate for the harden path.
 - [ ] **CONTOUR-02** (disposition): Resolve the contour control per CONTOUR-01 evidence — EITHER **harden** (worker enables with zero new console errors; `CONTOUR_CONTROL_ENABLED` flipped to `true`; the 5 dormant `DEMEditorScene` tests un-skipped and passing; live-verified rendering on both builder and viewer) OR **cut cleanly** (remove the `maplibre-contour` dependency, `contour-sync.ts` + its test, the `syncContourLayer` call site at `map-sync.ts:919`, the 5 dormant tests, and the `DEMEditorScene` contour gate + `CONTOUR_CONTROL_ENABLED` flag; add a positive regression pin that the surface stays gone). **Default bias: cut if hardening is not clearly cheap** per the spike estimate.
 
 ### Single-Band Raster Stretch Stats
@@ -54,7 +54,7 @@ Which phases cover which requirements. Continues phase numbering from 1143 → s
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| CONTOUR-01 | Phase 1144 | Pending |
+| CONTOUR-01 | Phase 1144 | Complete (→ CUT) |
 | CONTOUR-02 | Phase 1145 | Pending |
 | RASTER-STRETCH-01 | Phase 1146 | Pending |
 | RASTER-STRETCH-02 | Phase 1146 | Pending |
