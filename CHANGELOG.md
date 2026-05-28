@@ -11,12 +11,42 @@ GitHub release notes are generated from this file, so `CHANGELOG.md` is the rele
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-05-28
+
+Builder render-mode editor controls for DEM and raster layers, a built-in fill-pattern picker, OG social-card meta on shared map links, and SharePanel typography cleanup.
+
 ### Added
 
-- **Raster layer editor:** The raster editor now exposes seven adjustment controls — Brightness (min and max), Contrast, Saturation, Hue, Fade, and Opacity — each with an individual slider and numeric input, plus a Reset button that restores all controls to their defaults. Previously these were stub placeholders.
-- **Line layer editor:** Line layers now include `line-cap` (butt / round / square) and `line-join` (bevel / round / miter) selectors as MapLibre LAYOUT properties, so line termination and join style are editable from the builder.
-- **Fill layer 3D-extrusion range hint:** The fill layer editor now shows the actual value range and feature count from dataset sample values when the 3D-extrusion height column is configured, making it easier to set a useful height scale.
-- **"No basemap" preset:** The basemap picker now includes a "No basemap" card as the first option, allowing maps with a solid background color instead of any tile basemap.
+- **DEM contour-line overlay:** DEM layers in hillshade or terrain mode now include a CONTOUR LINES section in the editor — toggle, interval (10–500 m), line color, and line weight. Client-side contour tiles are generated from the raster-dem source via the `maplibre-contour` library with no extra backend round-trip.
+- **DEM hypsometric tint:** DEM layers in hillshade mode now include a HYPSOMETRIC TINT section — toggle and color-ramp picker (Viridis, YlOrRd, BuGn, Plasma, Magma, Terrain, Inferno, Spectral) rendered via a native MapLibre `color-relief` companion layer.
+- **Single-band raster colormap:** Raster layers with a single band now show a COLORMAP section in the editor — a colormap selector (Grayscale, Viridis, Inferno, Plasma, Magma, Terrain, Yellow-Red, Blue-Green) that passes `colormap_name` to Titiler and triggers a tile re-fetch. Multi-band rasters and DEM layers are unaffected.
+- **Fill-pattern picker:** Polygon fill layers now include a FILL PATTERN section with five built-in procedural patterns (Hatch, Crosshatch, Diagonal, Dots, Grid) and a "None" clear option. Patterns are generated client-side as 16×16 tileable `ImageData` sprites with no network fetch.
+- **OG social-card meta on shared map links:** Shared map URLs (copied via the Share panel) now point to a `/card` route that serves `og:title`, `og:description`, `og:image`, and `twitter:card summary_large_image` meta for social unfurl. A 1200×630 JPEG preview is captured on every map save and stored via `PUT /api/maps/{id}/og-image/`.
+
+### Changed
+
+- The Share panel Copy Link button now emits the `/card` URL for social unfurl (instead of the direct `/m/{token}` viewer URL). The "Open" button continues to load the viewer directly via `/m/{token}` without a meta-refresh bounce.
+- SharePanel section headers are now `font-semibold`; secondary labels remain `font-medium`. The panel uses at most two explicit font weights, removing the mixed `font-bold`/`font-medium` inconsistency.
+
+### Fixed
+
+- The `og_image_url` field is now included in `MapResponse` so the frontend can surface the OG image URL alongside the map record.
+- Raster tile proxy now accepts `colormap_name` and `stretch` query params. Unknown colormap names and injection attempts return 422 without reaching Titiler (T-1140-01). The nginx raster-tiles location block now forwards these params and includes them in the cache key.
+
+### Verification
+
+- OpenAPI snapshot (`make openapi-check`) and generated Python + TypeScript SDKs (`make sdks-check`) regenerated for v1031: `PUT`/`GET /maps/{id}/og-image/` routes, `OgImageUploadRequest` schema, `og_image_url` on `MapResponse`, `band_count` on `MapLayerResponse`, and `colormap_name`/`stretch` params on the raster tile proxy. No drift. The sibling docs repo (`getgeolens.com`) requires `npm run fetch-openapi` as a manual downstream follow-up.
+- Frontend `npm run typecheck`: 0 errors. `npm run lint`: 0 errors (1 pre-existing warning in `use-filtered-feature-count.ts` from v1030). `npm run test`: 2599/2599 pass. `npm run test:i18n`: 2/2 pass.
+- Backend pytest (`test_raster_colormap_proxy.py` + `test_maps_og_image.py` + `test_maps.py`): 181/181 pass.
+- Builder e2e smoke (`e2e:smoke:builder`): 26/26 pass after applying Alembic migration 0024 to the dev database and rebuilding the frontend container to include `maplibre-contour@0.1.0`.
+- Live Playwright MCP QA-01 verification (contour/hypsometric/colormap render, fill-pattern set/clear, OG card meta + image) is handled separately by the orchestrator.
+
+## [1.5.10] - 2026-05-28
+
+Map builder audit-first polish sweep — AI confirm-before-apply staging, sharing chips/presets/branding, keyboard save, popup media, empty-layer hints, per-render-mode editors, and DCAT-US v3.0. This entry covers v1030 work committed under [Unreleased] prior to tagging.
+
+### Added
+
 - **AI confirm-before-apply (Shape B):** AI chat style suggestions are now staged in a pending-layers buffer before any layer mutation is committed. An action preview chip row shows each pending change; users can apply or discard the whole batch. Inline data-analysis cards display query results for non-spatial queries, and suggestion chips filter to the current viewport extent.
 - **Sharing polish:** The share-link settings panel now displays allowed origins as editable chips in canonical form; expiration offers five presets (1 day / 7 days / 30 days / 1 year / Never); and shared maps, embeds, and exports include the layer legend and map title. Community-edition maps now show a "Powered by GeoLens" branding mark. The embed dialog includes a sandboxed iframe preview (enterprise-gated).
 - **Keyboard save shortcut:** Cmd/Ctrl+S triggers map save from the builder canvas; the shortcut is a no-op when a dialog is open.
