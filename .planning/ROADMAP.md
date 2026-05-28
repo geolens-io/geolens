@@ -24,7 +24,11 @@
   2. User can select a preset hypsometric tint ramp on a terrain/DEM layer and see elevation banding update on the map
   3. User can pick a colormap and stretch type for a single-band raster layer, with the map tile re-rendering to reflect the selection
   4. Existing DEM/raster editor controls (hillshade sliders, opacity, etc.) remain unaffected by the additions
-**Plans**: TBD
+**Plans**: 4 plans
+  - [ ] 1140-01-PLAN.md — Backend raster colormap params (allowlist-validated) + nginx cache-key fix + band_count on MapLayerResponse [EDITOR-RASTER-COLORMAP]
+  - [ ] 1140-02-PLAN.md — DEM contour-line overlay (maplibre-contour) toggle/interval/color/weight + companion line layer [EDITOR-DEM-04]
+  - [ ] 1140-03-PLAN.md — DEM hypsometric tint (native color-relief) preset ramp picker, hillshade-gated [EDITOR-DEM-05]
+  - [ ] 1140-04-PLAN.md — Single-band raster COLORMAP section (band_count gate) + colormap tile-URL re-render [EDITOR-RASTER-COLORMAP]
 **UI hint**: yes
 
 ### Phase 1141: Fill-Pattern Editor Control
@@ -66,7 +70,7 @@
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1140. Raster & Terrain Editor Controls | 0/TBD | Not started | - |
+| 1140. Raster & Terrain Editor Controls | 0/4 | Not started | - |
 | 1141. Fill-Pattern Editor Control | 0/TBD | Not started | - |
 | 1142. OG-Image Social Cards & SharePanel Typography | 0/TBD | Not started | - |
 | 1143. Quality Sweep & Playwright Close-Gate | 0/TBD | Not started | - |

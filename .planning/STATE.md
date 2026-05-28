@@ -2,11 +2,12 @@
 gsd_state_version: 1.0
 milestone: v1031
 milestone_name: Builder Render-Mode & Share Polish
-status: planning
-last_updated: "2026-05-28T12:35:47.391Z"
-last_activity: 2026-05-28
+status: "Roadmap created — ready for `/gsd:plan-phase 1140`"
+stopped_at: Phase 1140 UI-SPEC approved
+last_updated: "2026-05-28T13:44:28.185Z"
+last_activity: 2026-05-28 — Roadmap written (4 phases 1140-1143, 9/9 reqs mapped)
 progress:
-  total_phases: 4
+  total_phases: 12
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -116,9 +117,9 @@ None for v1031 yet (phases not started).
 
 ## Session Continuity
 
-Last session: 2026-05-28 — roadmap written for v1031
-Stopped at: Roadmap creation complete
-Resume file: None
+Last session: 2026-05-28T13:44:28.182Z
+Stopped at: Phase 1140 UI-SPEC approved
+Resume file: .planning/phases/1140-raster-terrain-editor-controls/1140-UI-SPEC.md
 
 ## Operator Next Steps
 
