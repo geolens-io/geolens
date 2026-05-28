@@ -2,9 +2,9 @@
 gsd_state_version: 1.0
 milestone: v1031
 milestone_name: Builder Render-Mode & Share Polish
-status: "Roadmap created — ready for `/gsd:plan-phase 1140`"
-stopped_at: Phase 1140 UI-SPEC approved
-last_updated: "2026-05-28T15:06:28.907Z"
+status: ready_to_plan
+stopped_at: Phase 1140 complete (4/4) — ready to discuss Phase 1141
+last_updated: 2026-05-28T15:24:18.806Z
 last_activity: 2026-05-28 — Roadmap written (4 phases 1140-1143, 9/9 reqs mapped)
 progress:
   total_phases: 12
@@ -18,10 +18,10 @@ progress:
 
 ## Current Position
 
-Phase: Not started (roadmap defined, ready for plan-phase)
-Plan: —
-Status: Roadmap created — ready for `/gsd:plan-phase 1140`
-Last activity: 2026-05-28 — Roadmap written (4 phases 1140-1143, 9/9 reqs mapped)
+Phase: 1141
+Plan: Not started
+Status: Ready to plan
+Last activity: 2026-05-28
 
 ```
 Progress: [██████████] 100%
@@ -32,7 +32,7 @@ Progress: [██████████] 100%
 See: .planning/PROJECT.md
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** v1031 Builder Render-Mode & Share Polish — new render-mode editor controls (DEM/raster/fill) + OG-image social cards + SharePanel typography, proven on the live builder via Playwright MCP.
+**Current focus:** Phase 1141 — fill pattern editor control
 
 ## Last Shipped Milestone
 

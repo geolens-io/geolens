@@ -8,7 +8,7 @@
 
 **Phases:**
 
-- [ ] **Phase 1140: Raster & Terrain Editor Controls** — Add contour-line overlay, hypsometric tint ramps, and single-band colormap controls to the DEM/RasterEditor surfaces (backend Titiler colormap path scoped at plan-phase)
+- [x] **Phase 1140: Raster & Terrain Editor Controls** — Add contour-line overlay, hypsometric tint ramps, and single-band colormap controls to the DEM/RasterEditor surfaces (backend Titiler colormap path scoped at plan-phase) (completed 2026-05-28)
 - [ ] **Phase 1141: Fill-Pattern Editor Control** — Add fill-pattern authoring (curated built-in sprite set) to FillEditor; plan-time sizing call on built-in selection vs custom-upload backend
 - [ ] **Phase 1142: OG-Image Social Cards & SharePanel Typography** — Wire OG/Twitter card meta to shared map links via the canvas-capture pipeline (Path A vs B decided at plan-phase); reduce SharePanel to ≤2 font weights
 - [ ] **Phase 1143: Quality Sweep & Playwright Close-Gate** — Intensive live Playwright MCP smoke of new controls + share/OG flow, typecheck/lint/vitest/backend-pytest/`e2e:smoke:builder`/i18n parity, CHANGELOG, and OpenAPI/SDK refresh
@@ -28,7 +28,7 @@
   - [x] 1140-01-PLAN.md — Backend raster colormap params (allowlist-validated) + nginx cache-key fix + band_count on MapLayerResponse [EDITOR-RASTER-COLORMAP]
   - [x] 1140-02-PLAN.md — DEM contour-line overlay (maplibre-contour) toggle/interval/color/weight + companion line layer [EDITOR-DEM-04]
   - [x] 1140-03-PLAN.md — DEM hypsometric tint (native color-relief) preset ramp picker, hillshade-gated [EDITOR-DEM-05]
-  - [ ] 1140-04-PLAN.md — Single-band raster COLORMAP section (band_count gate) + colormap tile-URL re-render [EDITOR-RASTER-COLORMAP]
+  - [x] 1140-04-PLAN.md — Single-band raster COLORMAP section (band_count gate) + colormap tile-URL re-render [EDITOR-RASTER-COLORMAP]
 **UI hint**: yes
 
 ### Phase 1141: Fill-Pattern Editor Control
@@ -70,7 +70,7 @@
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1140. Raster & Terrain Editor Controls | 3/4 | In Progress|  |
+| 1140. Raster & Terrain Editor Controls | 4/4 | Complete    | 2026-05-28 |
 | 1141. Fill-Pattern Editor Control | 0/TBD | Not started | - |
 | 1142. OG-Image Social Cards & SharePanel Typography | 0/TBD | Not started | - |
 | 1143. Quality Sweep & Playwright Close-Gate | 0/TBD | Not started | - |
