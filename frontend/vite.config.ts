@@ -65,6 +65,13 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
+      // maplibre-contour uses non-standard export conditions (module/browser,
+      // not import). Vitest's node environment cannot resolve `module` or
+      // `browser` conditions, so we alias to the CJS build explicitly.
+      'maplibre-contour': path.resolve(
+        __dirname,
+        'node_modules/maplibre-contour/dist/index.cjs',
+      ),
     },
   },
   server: {

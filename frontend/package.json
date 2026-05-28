@@ -41,6 +41,7 @@
     "clsx": "^2.1.1",
     "i18next": "^26.0.2",
     "lucide-react": "^1.7.0",
+    "maplibre-contour": "^0.1.0",
     "maplibre-gl": "^5.24.0",
     "radix-ui": "^1.4.3",
     "react": "^19.2.0",
