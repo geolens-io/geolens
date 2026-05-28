@@ -190,7 +190,7 @@ describe('syncColorReliefLayer', () => {
   it('does NOT add a color-relief layer in terrain mode', () => {
     const input = makeInput({
       paint: { '_hypso-enabled': true },
-      style_config: { render_mode: 'terrain' },
+      style_config: { render_mode: 'terrain' } as Record<string, unknown>,
     });
 
     syncColorReliefLayer(map as unknown as import('maplibre-gl').Map, input);
@@ -214,7 +214,7 @@ describe('syncColorReliefLayer', () => {
 
     const input = makeInput({
       paint: { '_hypso-enabled': true },
-      style_config: { render_mode: 'terrain' },
+      style_config: { render_mode: 'terrain' } as Record<string, unknown>,
     });
 
     syncColorReliefLayer(map as unknown as import('maplibre-gl').Map, input);

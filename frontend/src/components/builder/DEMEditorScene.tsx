@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { StyleColorPicker } from './StyleColorPicker';
+import { ColorRampPicker } from './ColorRampPicker';
 import {
   HILLSHADE_EXAGGERATION_MAX,
   HILLSHADE_EXAGGERATION_MIN,
@@ -471,7 +472,59 @@ export const DEMEditorScene = memo(function DEMEditorScene({
         </section>
       )}
 
-      {/* 4. VISIBILITY section — always expanded */}
+      {/* 4. HYPSOMETRIC TINT section — hillshade (full control) and terrain (hint only) modes */}
+      {/* Image mode: section not rendered at all (UI-SPEC A-01 / A-02 / critical_constraint) */}
+      {(mode === 'hillshade' || mode === 'terrain') && (
+        <section
+          aria-labelledby={`section-hypso-dem-${layer.id}`}
+          className="border-b"
+        >
+          <div className="px-4 py-2">
+            <p
+              id={`section-hypso-dem-${layer.id}`}
+              className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground mb-2"
+            >
+              {t('demEditor.sectionHypsometricTint', { defaultValue: 'HYPSOMETRIC TINT' })}
+            </p>
+
+            {/* Terrain mode: inline hint only — color-relief requires hillshade mode */}
+            {mode === 'terrain' && (
+              <p className="text-xs text-muted-foreground">
+                {t('demEditor.hypsometricTerrainHint', {
+                  defaultValue: 'Elevation tint is not available in Terrain mode',
+                })}
+              </p>
+            )}
+
+            {/* Hillshade mode: full toggle + ramp picker */}
+            {mode === 'hillshade' && (
+              <div className="space-y-3">
+                {/* Enable toggle */}
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs text-muted-foreground">
+                    {t('demEditor.hypsometricEnable', { defaultValue: 'Elevation tint' })}
+                  </Label>
+                  <Switch
+                    checked={paint['_hypso-enabled'] === true}
+                    onCheckedChange={(next) => handlePaintValue('_hypso-enabled', next)}
+                    aria-label={t('demEditor.hypsometricEnable', { defaultValue: 'Elevation tint' })}
+                  />
+                </div>
+                {/* Ramp picker — conditionally rendered (mount/unmount) when enabled */}
+                {paint['_hypso-enabled'] === true && (
+                  <ColorRampPicker
+                    mode="graduated"
+                    rampName={getString(paint, '_hypso-ramp', 'Viridis')}
+                    onChange={(name) => handlePaintValue('_hypso-ramp', name)}
+                  />
+                )}
+              </div>
+            )}
+          </div>
+        </section>
+      )}
+
+      {/* 5. VISIBILITY section — always expanded */}
       <section
         aria-labelledby={`section-visibility-dem-${layer.id}`}
         className="border-b"

@@ -14,6 +14,7 @@ import { buildLabelLayerSpec, syncLabelLayer } from './label-layer-utils';
 import { clusterCircleLayerId, clusterCountLayerId, getClusterSourceOptions } from './layer-adapters/cluster-adapter';
 import { getClusterSourceStrategy } from './cluster-source';
 import { syncContourLayer } from './contour-sync';
+import { syncColorReliefLayer } from './color-relief-sync';
 
 // Shared utilities — imported for local use and re-exported for backward compatibility
 import { getLayerType, resolveAdapterType } from './layer-adapters/shared';
@@ -900,6 +901,11 @@ export function syncLayersToMap(
         // Called after syncRasterLayer so the raster-dem source already exists.
         if (adapterInput.is_dem === true) {
           syncContourLayer(map, adapterInput, desiredSources);
+          // EDITOR-DEM-05: sync companion color-relief layer (hillshade-gated).
+          // Layer id: ${layerId}-colorrelief — reuses the existing raster-dem source.
+          // syncColorReliefLayer never calls addSource; the companion layer is auto-removed
+          // by syncColorReliefLayer when disabled or when render_mode !== hillshade.
+          syncColorReliefLayer(map, adapterInput);
         }
       } else {
         const vectorToken = token?.kind === 'vector' ? token : null;

@@ -36,6 +36,26 @@ vi.mock('../StyleColorPicker', () => ({
   ),
 }));
 
+vi.mock('../ColorRampPicker', () => ({
+  ColorRampPicker: ({
+    rampName,
+    onChange,
+  }: {
+    rampName: string;
+    onChange: (name: string) => void;
+    mode: string;
+  }) => (
+    <button
+      type="button"
+      data-testid="color-ramp-picker"
+      data-ramp={rampName}
+      onClick={() => onChange('Inferno')}
+    >
+      ColorRampPicker:{rampName}
+    </button>
+  ),
+}));
+
 vi.mock('@/components/ui/slider', () => ({
   Slider: ({
     value,
@@ -605,6 +625,123 @@ describe('DEMEditorScene', () => {
 
       expect(screen.queryByRole('slider', { name: 'Interval' })).not.toBeInTheDocument();
       expect(screen.queryByRole('slider', { name: 'Weight' })).not.toBeInTheDocument();
+    });
+  });
+
+  // --- HYPSOMETRIC TINT section tests (EDITOR-DEM-05) ---
+
+  describe('HYPSOMETRIC TINT section', () => {
+    it('section is absent in image mode', () => {
+      render(
+        <DEMEditorScene
+          {...defaultProps({ layer: makeDEMLayer({ style_config: null }) })}
+        />,
+      );
+      expect(screen.queryByText('HYPSOMETRIC TINT')).not.toBeInTheDocument();
+    });
+
+    it('section is present in hillshade mode with toggle + no picker when disabled', () => {
+      render(
+        <DEMEditorScene
+          {...defaultProps({
+            layer: makeDEMLayer({ style_config: { render_mode: 'hillshade' } }),
+          })}
+        />,
+      );
+      expect(screen.getByText('HYPSOMETRIC TINT')).toBeInTheDocument();
+      expect(screen.getByRole('switch', { name: 'Elevation tint' })).toBeInTheDocument();
+      // Picker absent when disabled
+      expect(screen.queryByTestId('color-ramp-picker')).not.toBeInTheDocument();
+    });
+
+    it('shows ColorRampPicker when _hypso-enabled is true in hillshade mode', () => {
+      render(
+        <DEMEditorScene
+          {...defaultProps({
+            layer: makeDEMLayer({
+              style_config: { render_mode: 'hillshade' },
+              paint: { '_hypso-enabled': true },
+            }),
+          })}
+        />,
+      );
+      expect(screen.getByTestId('color-ramp-picker')).toBeInTheDocument();
+    });
+
+    it('section shows only the terrain hint (no toggle) in terrain mode', () => {
+      render(
+        <DEMEditorScene
+          {...defaultProps({
+            layer: makeDEMLayer({
+              style_config: { render_mode: 'terrain' } as unknown as MapLayerResponse['style_config'],
+            }),
+          })}
+        />,
+      );
+      expect(screen.getByText('HYPSOMETRIC TINT')).toBeInTheDocument();
+      expect(
+        screen.getByText('Elevation tint is not available in Terrain mode'),
+      ).toBeInTheDocument();
+      // No toggle or picker in terrain mode
+      expect(screen.queryByRole('switch', { name: 'Elevation tint' })).not.toBeInTheDocument();
+      expect(screen.queryByTestId('color-ramp-picker')).not.toBeInTheDocument();
+    });
+
+    it('toggling the Switch fires onPaintChange with _hypso-enabled=true', () => {
+      const onPaintChange = vi.fn();
+      render(
+        <DEMEditorScene
+          {...defaultProps({
+            layer: makeDEMLayer({ style_config: { render_mode: 'hillshade' } }),
+            onPaintChange,
+          })}
+        />,
+      );
+
+      const switchEl = screen.getByRole('switch', { name: 'Elevation tint' });
+      fireEvent.click(switchEl);
+
+      expect(onPaintChange).toHaveBeenCalledOnce();
+      const [paint] = onPaintChange.mock.calls[0] as [Record<string, unknown>];
+      expect(paint['_hypso-enabled']).toBe(true);
+    });
+
+    it('selecting a ramp fires onPaintChange with _hypso-ramp', () => {
+      const onPaintChange = vi.fn();
+      render(
+        <DEMEditorScene
+          {...defaultProps({
+            layer: makeDEMLayer({
+              style_config: { render_mode: 'hillshade' },
+              paint: { '_hypso-enabled': true, '_hypso-ramp': 'Viridis' },
+            }),
+            onPaintChange,
+          })}
+        />,
+      );
+
+      const picker = screen.getByTestId('color-ramp-picker');
+      fireEvent.click(picker);
+
+      expect(onPaintChange).toHaveBeenCalledOnce();
+      const [paint] = onPaintChange.mock.calls[0] as [Record<string, unknown>];
+      expect(paint['_hypso-ramp']).toBe('Inferno');
+    });
+
+    it('ColorRampPicker receives default Viridis ramp when _hypso-ramp not set', () => {
+      render(
+        <DEMEditorScene
+          {...defaultProps({
+            layer: makeDEMLayer({
+              style_config: { render_mode: 'hillshade' },
+              paint: { '_hypso-enabled': true },
+            }),
+          })}
+        />,
+      );
+
+      const picker = screen.getByTestId('color-ramp-picker');
+      expect(picker).toHaveAttribute('data-ramp', 'Viridis');
     });
   });
 

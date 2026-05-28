@@ -968,7 +968,10 @@
     "contourEnable": "Höhenlinien",
     "contourInterval": "Abstand",
     "contourColor": "Farbe",
-    "contourWeight": "Stärke"
+    "contourWeight": "Stärke",
+    "sectionHypsometricTint": "HYPSOMETRISCHE FÄRBUNG",
+    "hypsometricEnable": "Höhentönung",
+    "hypsometricTerrainHint": "Höhentönung ist im Terrain-Modus nicht verfügbar"
   },
   "folderGroup": {
     "defaultName": "Gruppe {{n}}",

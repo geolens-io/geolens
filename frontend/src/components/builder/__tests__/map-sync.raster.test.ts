@@ -12,13 +12,18 @@ vi.mock('@/lib/tile-utils', () => ({
 // Mock contour-sync so the raster sync tests can assert it is invoked for DEM layers
 // without needing a real DemSource / maplibre-contour.
 // Use vi.hoisted so the mock factory can reference the spy variable despite vi.mock hoisting.
-const { mockSyncContourLayer } = vi.hoisted(() => ({
+const { mockSyncContourLayer, mockSyncColorReliefLayer } = vi.hoisted(() => ({
   mockSyncContourLayer: vi.fn(),
+  mockSyncColorReliefLayer: vi.fn(),
 }));
 vi.mock('@/components/builder/contour-sync', () => ({
   syncContourLayer: mockSyncContourLayer,
   ensureDemSource: vi.fn(),
   _demSources: new Map(),
+}));
+vi.mock('@/components/builder/color-relief-sync', () => ({
+  syncColorReliefLayer: mockSyncColorReliefLayer,
+  buildElevationExpression: vi.fn(() => ['interpolate', ['linear'], ['elevation']]),
 }));
 
 // Mock window.location.origin for raster tile URL construction
@@ -744,6 +749,63 @@ describe('syncLayersToMap', () => {
       // Third arg should be the desiredSources Set
       const [, , desiredSourcesArg] = mockSyncContourLayer.mock.calls[0] as [unknown, unknown, Set<string>];
       expect(desiredSourcesArg).toBeInstanceOf(Set);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // EDITOR-DEM-05: syncColorReliefLayer wiring
+  // ---------------------------------------------------------------------------
+
+  describe('syncColorReliefLayer wiring', () => {
+    beforeEach(() => {
+      mockSyncColorReliefLayer.mockClear();
+    });
+
+    it('calls syncColorReliefLayer for is_dem=true raster layers', () => {
+      const layer = makeLayer({
+        id: 'dem-cr-test',
+        layer_type: 'raster_geolens',
+        dataset_geometry_type: null,
+        is_dem: true,
+        style_config: { mode: 'categorical', column: '', ramp: '', render_mode: 'hillshade' },
+        paint: { '_hypso-enabled': true },
+      });
+      const tokenMap = new Map<string, TileToken>([['ds-1', makeRasterToken()]]);
+
+      syncLayersToMap(map, [layer], tokenMap, undefined, managedSourcesRef, { current: '' });
+
+      expect(mockSyncColorReliefLayer).toHaveBeenCalledOnce();
+      const [, calledInput] = mockSyncColorReliefLayer.mock.calls[0] as [unknown, { layerId: string; is_dem: boolean | null | undefined }];
+      expect(calledInput.layerId).toBe('layer-dem-cr-test');
+      expect(calledInput.is_dem).toBe(true);
+    });
+
+    it('does NOT call syncColorReliefLayer for non-DEM raster layers', () => {
+      const layer = makeLayer({
+        id: 'raster-regular-cr',
+        layer_type: 'raster_geolens',
+        dataset_geometry_type: null,
+        is_dem: false,
+      });
+      const tokenMap = new Map<string, TileToken>([['ds-1', makeRasterToken()]]);
+
+      syncLayersToMap(map, [layer], tokenMap, undefined, managedSourcesRef, { current: '' });
+
+      expect(mockSyncColorReliefLayer).not.toHaveBeenCalled();
+    });
+
+    it('does NOT call syncColorReliefLayer for vector layers', () => {
+      const layer = makeLayer({
+        id: 'vector-cr-test',
+        layer_type: 'vector_geolens',
+        dataset_geometry_type: 'Polygon',
+        is_dem: false,
+      });
+      const tokenMap = new Map<string, TileToken>([['ds-1', makeVectorToken()]]);
+
+      syncLayersToMap(map, [layer], tokenMap, undefined, managedSourcesRef, { current: '' });
+
+      expect(mockSyncColorReliefLayer).not.toHaveBeenCalled();
     });
   });
 

@@ -968,7 +968,10 @@
     "contourEnable": "Courbes de niveau",
     "contourInterval": "Intervalle",
     "contourColor": "Couleur",
-    "contourWeight": "Épaisseur"
+    "contourWeight": "Épaisseur",
+    "sectionHypsometricTint": "TEINTE HYPSOMÉTRIQUE",
+    "hypsometricEnable": "Teinte d'élévation",
+    "hypsometricTerrainHint": "La teinte d'élévation n'est pas disponible en mode Terrain"
   },
   "folderGroup": {
     "defaultName": "Groupe {{n}}",

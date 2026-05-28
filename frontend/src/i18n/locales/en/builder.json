@@ -968,7 +968,10 @@
     "contourEnable": "Contour lines",
     "contourInterval": "Interval",
     "contourColor": "Color",
-    "contourWeight": "Weight"
+    "contourWeight": "Weight",
+    "sectionHypsometricTint": "HYPSOMETRIC TINT",
+    "hypsometricEnable": "Elevation tint",
+    "hypsometricTerrainHint": "Elevation tint is not available in Terrain mode"
   },
   "folderGroup": {
     "defaultName": "Group {{n}}",
