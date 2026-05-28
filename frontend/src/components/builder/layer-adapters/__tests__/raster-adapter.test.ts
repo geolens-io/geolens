@@ -192,6 +192,24 @@ describe('buildColormapTileUrl', () => {
     expect(result).toContain('stretch=stddev');
   });
 
+  // RASTER-STRETCH-UI-02: stretch is forwarded independently of colormap so
+  // percentile/stddev apply on the default grayscale render too.
+  it('forwards stretch with NO colormap_name on the default gray colormap', () => {
+    const result = buildColormapTileUrl(BASE, { _colormap: 'gray', _stretch: 'percentile' });
+    expect(result).toBe(`${BASE}?stretch=percentile`);
+    expect(result).not.toContain('colormap_name');
+  });
+
+  it('forwards stretch when no colormap is set at all', () => {
+    const result = buildColormapTileUrl(BASE, { _stretch: 'stddev' });
+    expect(result).toBe(`${BASE}?stretch=stddev`);
+  });
+
+  it('returns base URL unchanged for gray colormap + minmax stretch (no params)', () => {
+    const result = buildColormapTileUrl(BASE, { _colormap: 'gray', _stretch: 'minmax' });
+    expect(result).toBe(BASE);
+  });
+
   it('absolutize+colormap composition yields a well-formed origin/path?colormap_name=... URL', () => {
     // Simulate what absolutizeTileUrl would produce when origin is available
     const relative = '/api/raster-tiles/abc/tiles/{z}/{x}/{y}.png';

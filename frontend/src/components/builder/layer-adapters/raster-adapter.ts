@@ -31,21 +31,26 @@ export const RASTER_OWNED_PAINT_PROPERTIES = [
 ] as const;
 
 /**
- * Build a raster tile URL with colormap_name and stretch query params
- * appended when the user has selected a non-default (non-gray) colormap.
+ * Build a raster tile URL with `colormap_name` and/or `stretch` query params.
  *
  * Called from syncRasterLayer BEFORE the tile-URL-diff comparison so that a
- * colormap change causes the existing source-teardown path to fire and
- * MapLibre re-fetches tiles with the new colormap.
+ * colormap or stretch change causes the existing source-teardown path to fire
+ * and MapLibre re-fetches tiles with the new params.
  *
  * The `_colormap` and `_stretch` keys are builder-private paint keys (never
  * in RASTER_OWNED_PAINT_PROPERTIES — Pitfall 6) and mutate the tile URL, not
  * a MapLibre paint property.
  *
+ * `colormap_name` is forwarded only for a non-gray colormap (gray is Titiler's
+ * single-band default). `stretch` is forwarded independently of the colormap —
+ * the api raster-proxy computes a stats-based rescale server-side that applies
+ * to the grayscale render too, so `percentile`/`stddev` must work even when the
+ * colormap is left at the default gray (RASTER-STRETCH-UI-02).
+ *
  * @param baseUrl  Root-relative or absolute tile URL (e.g. `/api/raster-tiles/...`)
  * @param paint    The layer paint dict; reads `_colormap` and `_stretch`.
- * @returns        `baseUrl` unmodified when no non-gray colormap is set;
- *                 `baseUrl?colormap_name=...&stretch=...` otherwise.
+ * @returns        `baseUrl` unmodified when neither a non-gray colormap nor a
+ *                 non-minmax stretch is set; `baseUrl?colormap_name=...&stretch=...` otherwise.
  */
 export function buildColormapTileUrl(
   baseUrl: string,
@@ -53,15 +58,18 @@ export function buildColormapTileUrl(
 ): string {
   const colormap = paint['_colormap'];
   const stretch = paint['_stretch'];
-  // gray is the Titiler single-band default — no param needed
-  if (!colormap || colormap === 'gray') return baseUrl;
   const params = new URLSearchParams();
-  params.set('colormap_name', colormap as string);
-  // minmax is the default stretch — no param needed; but forward any other value
+  // gray is the Titiler single-band default — only forward a non-gray colormap.
+  if (typeof colormap === 'string' && colormap && colormap !== 'gray') {
+    params.set('colormap_name', colormap);
+  }
+  // minmax is the default (dtype) rescale; percentile/stddev compute a stats-based
+  // rescale server-side that applies regardless of colormap — forward independently.
   if (typeof stretch === 'string' && stretch !== 'minmax') {
     params.set('stretch', stretch);
   }
-  return `${baseUrl}?${params.toString()}`;
+  const qs = params.toString();
+  return qs ? `${baseUrl}?${qs}` : baseUrl;
 }
 
 function normalizeRasterBounds(bounds: number[] | null | undefined) {

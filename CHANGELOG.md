@@ -17,7 +17,7 @@ Closes the v1031 builder carry-forward tail: single-band raster `percentile`/`st
 
 ### Added
 
-- **Single-band raster stretch (percentile / std-deviation):** The raster layer editor's Stretch selector now offers working **Percentile (2–98%)** and **Std Deviation** options alongside Min/Max. Percentile rescales to the 2nd–98th percentile; Std Deviation rescales to mean ± 2σ clamped to the band's min/max. Both compute per-band statistics from Titiler `/cog/statistics` (cached per asset) and override the tile rescale; Min/Max keeps the dtype-based default. DEM (terrain) layers are unaffected. Previously these two options were disabled and labelled "coming soon".
+- **Single-band raster stretch (percentile / std-deviation):** The raster layer editor's Stretch selector now offers working **Percentile (2–98%)** and **Std Deviation** options alongside Min/Max. Percentile rescales to the 2nd–98th percentile; Std Deviation rescales to mean ± 2σ clamped to the band's min/max. Both compute per-band statistics from Titiler `/cog/statistics` (cached per asset) and override the tile rescale; Min/Max keeps the dtype-based default. The stretch applies regardless of colormap selection, including the default grayscale render. DEM (terrain) layers are unaffected. Previously these two options were disabled and labelled "coming soon".
 
 ### Removed
 
