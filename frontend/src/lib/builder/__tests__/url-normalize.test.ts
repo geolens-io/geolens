@@ -57,6 +57,15 @@ describe('normalizeOrigin', () => {
     expect(() => normalizeOrigin('*')).toThrow(/Wildcard origin not allowed/);
   });
 
+  // CR-02: wildcard in parsed hostname (https://*.example.com passes prefix guard)
+  it("throws WildcardOriginError for https://*.example.com", () => {
+    expect(() => normalizeOrigin('https://*.example.com')).toThrow(WildcardOriginError);
+  });
+
+  it("throws WildcardOriginError for https://sub.*.example.com", () => {
+    expect(() => normalizeOrigin('https://sub.*.example.com')).toThrow(WildcardOriginError);
+  });
+
   // whitespace-only throws InvalidOriginError
   it("throws InvalidOriginError for whitespace-only input", () => {
     expect(() => normalizeOrigin('   ')).toThrow(InvalidOriginError);

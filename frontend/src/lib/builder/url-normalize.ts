@@ -40,7 +40,7 @@ export class InvalidOriginError extends Error {
  * 7. Strip default ports (80 for http, 443 for https).
  * 8. Discard path, query, and fragment — return origin only.
  *
- * @throws {WildcardOriginError} if input is `*` or starts with `*`
+ * @throws {WildcardOriginError} if input is `*`, starts with `*`, or the parsed hostname contains `*`
  * @throws {InvalidOriginError} if input is empty/whitespace or unparseable
  */
 export function normalizeOrigin(input: string): string {
@@ -66,6 +66,13 @@ export function normalizeOrigin(input: string): string {
 
   if (!parsed.hostname) {
     throw new InvalidOriginError(input);
+  }
+
+  // Guard: wildcard anywhere in the parsed hostname catches `https://*.example.com`.
+  // The early trimmed.startsWith('*') check misses scheme-prefixed wildcards because
+  // 'https://*.example.com' does not start with '*'.
+  if (parsed.hostname.includes('*')) {
+    throw new WildcardOriginError();
   }
 
   const scheme = parsed.protocol.replace(/:$/, '').toLowerCase(); // drop trailing ':'
