@@ -624,16 +624,20 @@ which is already before `/{map_id}`.
 
 ---
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Should the primary "Copy Link" button in SharePanel emit the `/card` URL or the
    `/m/` URL?**
    - What we know: `/card` gives crawlers the OG meta; `/m/` gives users the SPA.
    - What's unclear: user expectation when pasting in Slack — do they want the link
      to open the SPA directly (prefer `/m/`) or show a rich preview (prefer `/card`)?
-   - Recommendation: Keep "Copy Link" as `/m/token` (existing behavior, no regression).
-     Add a distinct "Copy social link" affordance for the `/card` URL. This is a
-     one-line addition to SharePanel and a clean separation of concerns.
+   - **RESOLVED (2026-05-28, milestone decision):** the primary **"Copy Link" emits the
+     `/card` URL** so the link users actually share unfurls (humans get the instant
+     meta-refresh redirect to `/m/{token}`). The "Open in new tab" affordance keeps
+     `/m/{token}` for a direct, redirect-free viewer load; the embed iframe `src` is
+     unchanged. This makes SHARE-08 meaningful for the shared link itself. Implemented in
+     Plan 1142-02 Task 2 (`getShareCardUrl()` for the copied link, `getShareUrl()` retained
+     for "Open in new tab").
 
 2. **Should the OG image be captured automatically on every save, or only when the
    user explicitly opts in via SharePanel?**
@@ -643,6 +647,9 @@ which is already before `/{map_id}`.
      (same `doCapture` call, no extra repaint). The incremental cost is one more
      offscreen canvas + one more HTTP PUT per save. This means the OG image is always
      ready when the user generates a share link.
+   - **RESOLVED (2026-05-28, milestone decision):** capture the OG image on **every save**
+     in the SAME `doCapture` repaint as the thumbnail (one render event, OG failure
+     isolated from thumbnail). Implemented in Plan 1142-02 Task 1.
 
 ---
 
