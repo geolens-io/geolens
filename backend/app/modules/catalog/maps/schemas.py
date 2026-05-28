@@ -648,6 +648,7 @@ class DatasetMetaKwargs(TypedDict, total=False):
     is_3d: bool | None
     is_dem: bool | None
     dem_vertical_units: str | None
+    band_count: int | None
 
 
 class MapLayerResponse(BaseModel):
@@ -676,6 +677,7 @@ class MapLayerResponse(BaseModel):
     is_3d: bool | None = None
     is_dem: bool | None = None
     dem_vertical_units: str | None = None
+    band_count: int | None = None
 
     model_config = ConfigDict(from_attributes=True)
 

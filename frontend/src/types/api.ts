@@ -913,6 +913,7 @@ export interface MapLayerResponse {
   is_3d?: boolean | null;
   is_dem?: boolean | null;
   dem_vertical_units?: string | null;
+  band_count?: number | null;
 }
 
 export interface MapResponse {
