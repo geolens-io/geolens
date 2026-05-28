@@ -533,7 +533,13 @@ function EmbedPreviewPane({ shareToken, embedTokenRaw, origin }: EmbedPreviewPan
     return () => clearTimeout(timer);
   }, [expanded, loaded, errored, reloadKey]);
 
-  const src = `${origin}/m/${shareToken}?embed=true&et=${embedTokenRaw}`;
+  // Use URLSearchParams to match generateEmbedCode — prevents drift if the
+  // token format ever gains percent-encodable characters (IN-01).
+  const src = (() => {
+    const params = new URLSearchParams({ embed: 'true' });
+    if (embedTokenRaw) params.set('et', embedTokenRaw);
+    return `${origin}/m/${shareToken}?${params.toString()}`;
+  })();
 
   return (
     <div className="space-y-2 border-t pt-3">
