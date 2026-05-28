@@ -658,7 +658,6 @@ export function ShareDialog({
   // every render and wipe in-flight optimistic chip state (WR-02).
   const configOrigins = useMemo(
     () => activeEmbedToken?.allowed_origins ?? [],
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [activeEmbedToken?.allowed_origins],
   );
 

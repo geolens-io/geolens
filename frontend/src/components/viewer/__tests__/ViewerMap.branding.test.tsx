@@ -98,7 +98,7 @@ describe('ViewerMap — SHARE-07 branding overlay', () => {
       isLoading: false,
     });
     mockedUseBranding.mockReturnValue({
-      data: undefined,
+      data: { show_badge: true },
     } as ReturnType<typeof useBranding>);
 
     render(<ViewerMap {...MINIMAL_PROPS} showInlineBranding={true} />);

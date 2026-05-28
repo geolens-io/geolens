@@ -566,7 +566,6 @@ describe('SHARE-04 expiration presets', () => {
     fireEvent.click(screen.getByRole('option', { name: 'Custom date…' }));
 
     // Date input (type="date") should be visible
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const allInputs = document.querySelectorAll<HTMLInputElement>('input[type="date"]');
     expect(allInputs.length).toBeGreaterThan(0);
     const dateInput = allInputs[0];
@@ -589,7 +588,6 @@ describe('SHARE-04 expiration presets', () => {
     expect(trigger).toHaveTextContent(/custom date/i);
 
     // The date input should be pre-populated with the date portion
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const dateInputs = document.querySelectorAll<HTMLInputElement>('input[type="date"]');
     expect(dateInputs.length).toBeGreaterThan(0);
     expect(dateInputs[0]).toHaveValue('2026-06-15');

@@ -146,7 +146,10 @@
   2. Live Playwright MCP smoke with `AI_ENABLED=false`: AI rail surfaces actionable disabled state, no inert button, no `/ai/*` console errors, no broken-canvas state.
   3. `npm run typecheck` exit 0; vitest green (full suite); `npm run lint` exit 0; `e2e:smoke:builder` green; i18n parity (de / es / fr / en) 2/2 (`i18n` script pair).
   4. CHANGELOG `[Unreleased]` populated for v1030 with measured numbers (RasterEditor stub closed → N controls; line-cap/line-join added; AI confirm shape A or B documented; share polish set: chips + presets + branding + legend); OpenAPI snapshot diff regenerated where backend `maps/router.py` or `ai/router.py` changed; SDK regenerated to match (Pitfall #15 — OpenAPI/types diff non-empty AND CHANGELOG silent is a blocker).
-**Plans**: TBD
+**Plans**: 3 plans
+- [ ] 1139-01-PLAN.md — Quality gates: typecheck / vitest / lint / e2e:smoke:builder / i18n with pre-existing-failure allowlist (QA-03)
+- [ ] 1139-02-PLAN.md — CHANGELOG [Unreleased] + OpenAPI/SDK refresh proof (dual-snapshot order, Pitfall #15) (QA-04)
+- [ ] 1139-03-PLAN.md — Orchestrator-driven 3-viewport + disabled-AI live MCP close-gate checklist (QA-01, QA-02)
 **UI hint**: yes
 
 ## Parallelism Notes
@@ -169,7 +172,7 @@ After Phase 1134 ships, Phases 1135 / 1136 / 1137 are **independent and can run 
 | 1136. Per-Render-Mode Editor Polish | v1030 | 7/7 | Complete   | 2026-05-27 |
 | 1137. Sharing and Embed Polish | v1030 | 7/7 | Complete   | 2026-05-28 |
 | 1138. Easy-Win Sweep | v1030 | 3/4 | In Progress|  |
-| 1139. Quality Sweep and Playwright Close-Gate | v1030 | 0/0 | Not started | - |
+| 1139. Quality Sweep and Playwright Close-Gate | v1030 | 0/3 | Not started | - |
 
 ## Historical Milestones
 

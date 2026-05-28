@@ -33,7 +33,6 @@ vi.mock('@/components/ui/slider', () => ({
   }) => (
     <input
       type="range"
-      role="slider"
       aria-label={ariaLabel}
       aria-valuetext={ariaValuetext}
       value={value[0]}

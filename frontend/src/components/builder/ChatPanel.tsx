@@ -876,14 +876,13 @@ export function ChatPanel({
               </div>
             </div>
             <ul
-              role="list"
               className={cn('space-y-1', staging.pendingActions.length > 4 && 'max-h-40 overflow-y-auto')}
             >
               {staging.pendingActions.map((action, idx) => {
                 const { text, fullText } = buildChipText(action, layersRef.current, t);
                 const VerbIcon = action.type === 'add_layer' ? Plus : Trash2;
                 return (
-                  <li key={idx} role="listitem" className="flex items-center gap-2 rounded-md bg-background px-2 py-1">
+                  <li key={idx} className="flex items-center gap-2 rounded-md bg-background px-2 py-1">
                     <VerbIcon className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
                     <span className="text-sm text-foreground truncate flex-1" title={fullText}>{text}</span>
                     <Button

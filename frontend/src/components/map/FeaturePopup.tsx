@@ -264,7 +264,6 @@ function ValueDisplay({
     if (kind === 'image') {
       return (
         <span className="block space-y-1">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={srcUrl}
             alt={srcUrl}
@@ -289,6 +288,7 @@ function ValueDisplay({
     if (kind === 'video') {
       return (
         <span className="block">
+          {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
           <video
             src={srcUrl}
             controls
