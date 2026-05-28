@@ -1,10 +1,11 @@
 ---
 phase: 1140
 slug: raster-terrain-editor-controls
-status: draft
+status: approved
 shadcn_initialized: true
 preset: not applicable (components.json pre-existing; system bootstrapped before this phase)
 created: 2026-05-28
+reviewed_at: 2026-05-28
 ---
 
 # Phase 1140 — UI Design Contract
