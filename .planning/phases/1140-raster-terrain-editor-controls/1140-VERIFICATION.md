@@ -1,7 +1,10 @@
 ---
 phase: 1140-raster-terrain-editor-controls
 verified: 2026-05-28T11:30:00Z
-status: human_needed
+status: passed
+resolved_by: phase-1143-close-gate (QA-01 live Playwright MCP)
+resolved_at: 2026-05-28
+resolution_note: "Hypsometric tint (EDITOR-DEM-05) + single-band raster colormap (EDITOR-RASTER-COLORMAP) verified live at the 1143 close-gate (QA-01 PASS). Contour overlay (EDITOR-DEM-04) deferred to v1032 — gated off (CONTOUR_CONTROL_ENABLED=false); code + 5 unit tests dormant."
 score: 4/4
 overrides_applied: 0
 human_verification:

@@ -1,5 +1,34 @@
 # Milestones
 
+## v1031 Builder Render-Mode & Share Polish (Shipped: 2026-05-28)
+
+**Phases completed:** 4 phases (1140-1143), 8 plans, 16 tasks
+**Audit status:** `tech_debt` — 8/9 requirements satisfied; EDITOR-DEM-04 deferred → v1032 (user-approved)
+**Stats:** 67 commits, 57 source files (+5,488/−70), single day (2026-05-28); CHANGELOG [1.6.0]
+
+**Delivered:** Four new render-mode editor controls (hypsometric tint, single-band raster colormap, fill-pattern) plus shared-link OG/social-card meta and SharePanel typography cleanup — proven on the live builder via orchestrator-driven Playwright MCP.
+
+**Key accomplishments:**
+
+1. **Hypsometric tint (EDITOR-DEM-05)** — `color-relief-sync.ts` companion-layer module adds a preset elevation color-ramp picker to the DEM/hillshade editor; wired through `map-sync.ts` for `is_dem` layers.
+2. **Single-band raster colormap (EDITOR-RASTER-COLORMAP)** — RasterEditor COLORMAP section (gated on `band_count===1`) writes `_colormap`/`_stretch` paint keys; `buildColormapTileUrl` converts them to Titiler `?colormap_name=` tile params; backend `raster_tile_proxy` validates via Literal + frozenset allowlist; nginx keys cache on the params.
+3. **Fill-pattern editor (EDITOR-FILL-01)** — curated built-in sprite catalog + idempotent `ensureFillPatternImages` registrar + IconPicker-style `FillPatternPicker` wired into FillEditor (apply + clear-to-solid), 4-locale i18n.
+4. **OG-image social cards (SHARE-08)** — Path A: migration 0024 `og_image_uri` column + owner-only `PUT`/public `GET /maps/{id}/og-image/` + public `GET /maps/shared/{token}/card` HTML meta route (HTML-escaped, absolute URLs, 404 on non-public); frontend captures a 1200×630 OG JPEG in the existing single `doCapture` repaint; Copy Link emits the `/card` URL. No `@vercel/og`/`satori`.
+5. **SharePanel typography (SHARE-10)** — reduced to ≤2 font weights (4 section headers → `font-semibold`, 0 `font-bold`).
+6. **Close-gate (QA-01/02/03)** — orchestrator-driven live Playwright MCP smoke (caught + fixed the contour `addProtocol` bug, surfaced the worker-integration gap → DEM-04 deferral); all gates green (typecheck 0, lint 0-new, vitest 2599/2599, pytest 181/181, e2e:smoke:builder 26/26, i18n 2/2); OpenAPI + Python/TS SDKs regenerated drift-free; CHANGELOG [1.6.0].
+
+**Known deferred items at close:**
+
+- **EDITOR-DEM-04 (contour overlay) → v1032** — `maplibre-contour` worker emits ~28 MapLibre error events on enable (addProtocol bug fixed `716b1927`; worker/isoline integration needs hardening). UI gated off (`CONTOUR_CONTROL_ENABLED=false`); `contour-sync.ts` + 5 unit tests retained dormant. Re-enable = flip one boolean + un-skip 5 tests.
+- **CI-01-v1030** — GH Actions org billing standing blocker (operator ops task, out of feature scope).
+- Nyquist VALIDATION.md drafts unfinalized (1140/1142) / missing (1141/1143) — non-blocking; underlying coverage strong.
+
+**Known gaps:** None at functional level. Audit graded `tech_debt` solely for the one user-approved contour deferral; cross-phase integration verified CLEAN (12/12 links, 4/4 E2E flows).
+
+**Tag:** `v1031`
+
+---
+
 ## v1025 Mapbuilder Polishing (Shipped: 2026-05-25)
 
 **Phases completed:** 5 phases (1107-1111), 5 plans

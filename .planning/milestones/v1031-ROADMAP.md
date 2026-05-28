@@ -2,11 +2,83 @@
 
 ## Current Milestone
 
-_None — v1031 Builder Render-Mode & Share Polish shipped 2026-05-28. Run `/gsd:new-milestone` to start the next milestone._
+### v1031 Builder Render-Mode & Share Polish
+
+**Goal:** Close the v1030 builder carry-forward backlog — add four new render-mode editor controls (DEM/raster and fill surfaces), complete shared-link social cards, and tidy SharePanel typography — then prove it all on the live builder via intensive Playwright MCP smoke.
+
+**Phases:**
+
+- [x] **Phase 1140: Raster & Terrain Editor Controls** — Add contour-line overlay, hypsometric tint ramps, and single-band colormap controls to the DEM/RasterEditor surfaces (backend Titiler colormap path scoped at plan-phase) (completed 2026-05-28)
+- [x] **Phase 1141: Fill-Pattern Editor Control** — Add fill-pattern authoring (curated built-in sprite set) to FillEditor; plan-time sizing call on built-in selection vs custom-upload backend (completed 2026-05-28)
+- [x] **Phase 1142: OG-Image Social Cards & SharePanel Typography** — Wire OG/Twitter card meta to shared map links via the canvas-capture pipeline (Path A vs B decided at plan-phase); reduce SharePanel to ≤2 font weights (completed 2026-05-28)
+- [x] **Phase 1143: Quality Sweep & Playwright Close-Gate** — Intensive live Playwright MCP smoke of new controls + share/OG flow, typecheck/lint/vitest/backend-pytest/`e2e:smoke:builder`/i18n parity, CHANGELOG, and OpenAPI/SDK refresh (completed 2026-05-28)
+
+## Phase Details
+
+### Phase 1140: Raster & Terrain Editor Controls
+**Goal**: Users can configure contour overlays, hypsometric tints, and single-band colormaps for DEM and raster layers directly in the editor
+**Depends on**: Nothing (first feature phase; independent of Phase 1141 and 1142)
+**Requirements**: EDITOR-DEM-04, EDITOR-DEM-05, EDITOR-RASTER-COLORMAP
+**Success Criteria** (what must be TRUE):
+  1. User can toggle a contour-line overlay on a DEM/terrain layer and adjust line styling (interval, color, weight)
+  2. User can select a preset hypsometric tint ramp on a terrain/DEM layer and see elevation banding update on the map
+  3. User can pick a colormap and stretch type for a single-band raster layer, with the map tile re-rendering to reflect the selection
+  4. Existing DEM/raster editor controls (hillshade sliders, opacity, etc.) remain unaffected by the additions
+**Plans**: 4 plans
+  - [x] 1140-01-PLAN.md — Backend raster colormap params (allowlist-validated) + nginx cache-key fix + band_count on MapLayerResponse [EDITOR-RASTER-COLORMAP]
+  - [x] 1140-02-PLAN.md — DEM contour-line overlay (maplibre-contour) toggle/interval/color/weight + companion line layer [EDITOR-DEM-04]
+  - [x] 1140-03-PLAN.md — DEM hypsometric tint (native color-relief) preset ramp picker, hillshade-gated [EDITOR-DEM-05]
+  - [x] 1140-04-PLAN.md — Single-band raster COLORMAP section (band_count gate) + colormap tile-URL re-render [EDITOR-RASTER-COLORMAP]
+**UI hint**: yes
+
+### Phase 1141: Fill-Pattern Editor Control
+**Goal**: Users can apply a fill-pattern from a curated built-in sprite set to a fill-render-mode layer via the FillEditor
+**Depends on**: Nothing (independent of Phase 1140 and 1142; shares close-gate with Phase 1143)
+**Requirements**: EDITOR-FILL-01
+**Success Criteria** (what must be TRUE):
+  1. User sees a pattern-selection control in FillEditor when a fill-render-mode layer is active
+  2. User can choose from a curated set of built-in patterns and the layer updates on the map immediately
+  3. User can clear a pattern and return to a solid fill without requiring a page reload
+  4. Existing fill controls (color, opacity, extrusion hint) are unaffected
+**Plans**: 1 plan
+  - [x] 1141-01-PLAN.md — Built-in fill-pattern catalog + idempotent map registrar, IconPicker-style FillPatternPicker, FillEditor wiring (set/clear via owned fill-pattern paint), 4-locale i18n [EDITOR-FILL-01]
+**UI hint**: yes
+
+### Phase 1142: OG-Image Social Cards & SharePanel Typography
+**Goal**: Shared map links emit valid OG/Twitter card meta backed by a 1200×630 preview image, and SharePanel uses ≤2 font weights
+**Depends on**: Nothing (independent feature surface; no dependency on Phase 1140 or 1141)
+**Requirements**: SHARE-08, SHARE-10
+**Success Criteria** (what must be TRUE):
+  1. Opening a shared map link in a social card previewer (e.g., Twitter card validator, LinkedIn) shows a 1200×630 map thumbnail
+  2. The shared-viewer HTML includes `<meta property="og:image">` and `<meta name="twitter:card">` tags with a resolved image URL
+  3. SharePanel renders at most 2 distinct font weights across all content sites (labels, values, helper text, headings)
+  4. The OG-image pipeline uses the existing canvas-capture infrastructure — no `@vercel/og` or `satori` introduced
+**Plans**: 2 plans
+  - [x] 1142-01-PLAN.md — Backend SHARE-08 (Path A): `GET /shared/{token}/card` HTML meta route (escaped, public-only, absolute URLs) + `PUT`/`GET /maps/{id}/og-image/` + migration 0024 `og_image_uri` + `MapResponse.og_image_url` + pytest [SHARE-08]
+  - [x] 1142-02-PLAN.md — Frontend OG capture (1200×630 in doCapture, one repaint) + Copy Link → `/card` URL + SHARE-10 4 section headers → font-semibold + vitest [SHARE-08, SHARE-10]
+**UI hint**: yes
+
+### Phase 1143: Quality Sweep & Playwright Close-Gate
+**Goal**: All v1031 new controls and share/OG flows are verified on the live builder and all quality gates are green
+**Depends on**: Phases 1140, 1141, 1142
+**Requirements**: QA-01, QA-02, QA-03
+**Success Criteria** (what must be TRUE):
+  1. Live Playwright MCP smoke (orchestrator-driven) against `http://localhost:8080/maps/8dd6a129-8eb0-4ba9-b421-716c83b160dd` exercises each new render-mode control and the share/OG flow with a committed evidence file
+  2. Frontend typecheck + lint + vitest, focused backend pytest, `e2e:smoke:builder`, and i18n parity (en/de/es/fr) all pass with zero new failures
+  3. CHANGELOG is updated for v1031 with measured feature descriptions
+  4. OpenAPI snapshot and Python/TypeScript SDK artifacts are regenerated where backend routes or schemas changed (e.g., OG-image routes under Path A, raster colormap params)
+**Plans**: TBD
+
+## Progress Table
+
+| Phase | Plans Complete | Status | Completed |
+|-------|----------------|--------|-----------|
+| 1140. Raster & Terrain Editor Controls | 4/4 | Complete    | 2026-05-28 |
+| 1141. Fill-Pattern Editor Control | 1/1 | Complete    | 2026-05-28 |
+| 1142. OG-Image Social Cards & SharePanel Typography | 2/2 | Complete    | 2026-05-28 |
+| 1143. Quality Sweep & Playwright Close-Gate | 1/1 | Complete    | 2026-05-28 |
 
 ## Historical Milestones
-
-- ✅ **v1031 Builder Render-Mode & Share Polish** — Phases 1140-1143 (shipped 2026-05-28, local tag `v1031`; hypsometric tint + single-band raster colormap + fill-pattern editor controls, OG-image social cards + SharePanel ≤2 weights, orchestrator-driven Playwright MCP close-gate; 8/9 reqs — EDITOR-DEM-04 contour deferred → v1032) — see [archive](milestones/v1031-ROADMAP.md)
 
 - ✅ **v1030 Map Builder Polish Sweep** — Phases 1133-1139 (shipped 2026-05-28, local tag `v1030`; audit-first builder walkthrough, Tier-1 map bugs + ≤800px polish, AI confirm-before-apply Shape-B staging, per-render-mode editor controls, share chips/presets/branding, easy-wins, 3-viewport Playwright MCP close-gate; 44/44 reqs) — see [archive](milestones/v1030-ROADMAP.md)
 

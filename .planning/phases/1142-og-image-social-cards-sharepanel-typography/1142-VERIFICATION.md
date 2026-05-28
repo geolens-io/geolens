@@ -1,7 +1,10 @@
 ---
 phase: 1142-og-image-social-cards-sharepanel-typography
 verified: 2026-05-28T20:55:00Z
-status: human_needed
+status: passed
+resolved_by: phase-1143-close-gate (QA-01 live Playwright MCP)
+resolved_at: 2026-05-28
+resolution_note: "Live /card OG/Twitter meta + og-image-after-save verified at the 1143 close-gate (QA-01 PASS); OpenAPI/SDK refresh completed in 1143 (QA-03). Real-client social unfurl (Twitter/X validator) remains a non-gating external spot-check."
 score: 9/9
 overrides_applied: 0
 deferred:

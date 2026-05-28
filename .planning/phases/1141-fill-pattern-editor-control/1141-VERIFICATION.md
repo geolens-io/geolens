@@ -1,7 +1,10 @@
 ---
 phase: 1141-fill-pattern-editor-control
 verified: 2026-05-28T12:00:00Z
-status: human_needed
+status: passed
+resolved_by: phase-1143-close-gate (QA-01 live Playwright MCP)
+resolved_at: 2026-05-28
+resolution_note: "Live fill-pattern apply (SC-2) + clear-to-solid (SC-3) verified at the 1143 close-gate (QA-01 PASS)."
 score: 3/4 must-haves verified (SC-4 fully code-verified; SC-2/SC-3 logic-pinned but live WebGL render deferred)
 overrides_applied: 0
 human_verification:

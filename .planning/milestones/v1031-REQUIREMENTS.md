@@ -1,3 +1,12 @@
+# Requirements Archive: v1031 Builder Render-Mode & Share Polish
+
+**Archived:** 2026-05-28
+**Status:** SHIPPED
+
+For current requirements, see `.planning/REQUIREMENTS.md`.
+
+---
+
 # Requirements: GeoLens — v1031 Builder Render-Mode & Share Polish
 
 **Defined:** 2026-05-28
@@ -64,7 +73,7 @@ Which phases cover which requirements. Populated during roadmap creation (contin
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| EDITOR-DEM-04 | Phase 1140 | Complete |
+| EDITOR-DEM-04 | Phase 1140 | Deferred → v1032 |
 | EDITOR-DEM-05 | Phase 1140 | Complete |
 | EDITOR-RASTER-COLORMAP | Phase 1140 | Complete |
 | EDITOR-FILL-01 | Phase 1141 | Complete |
@@ -78,7 +87,8 @@ Which phases cover which requirements. Populated during roadmap creation (contin
 - v1 requirements: 9 total
 - Mapped to phases: 9 ✓
 - Unmapped: 0 ✓
+- Delivered: 8/9 — EDITOR-DEM-04 deferred → v1032 (user-approved at 2026-05-28 close-gate; UI gated off, code dormant)
 
 ---
 *Requirements defined: 2026-05-28*
-*Last updated: 2026-05-28 — traceability populated (roadmap v1031, phases 1140-1143)*
+*Last updated: 2026-05-28 — traceability reconciled at milestone audit: EDITOR-DEM-04 status Complete → Deferred → v1032 (matches `[~]` requirement marker).*
