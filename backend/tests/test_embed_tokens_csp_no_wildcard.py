@@ -293,3 +293,31 @@ def test_post_embed_token_canonicalizes_origin_storage():
     ], (
         f"Canonical-form mismatch (SHARE-06): expected normalised origins, got: {result!r}"
     )
+
+
+def test_normalize_origin_ipv6_brackets():
+    """CR-01 parity pin: IPv6 origins must emit bracket-safe canonical form.
+
+    Python urlparse strips brackets from IPv6 hostnames
+    (urlparse('http://[::1]:8080').hostname == '::1').
+    The fixed _normalize_origin must wrap the IPv6 host in brackets so the
+    stored value matches the frontend WHATWG URL canonical form and produces
+    a valid CSP frame-ancestors source expression (RFC 9116 / W3C CSP3 §2.6.1).
+
+    Cross-reference: frontend url-normalize.ts normalizeOrigin preserves
+    brackets via the WHATWG URL constructor — no change needed on that side.
+    """
+    from app.modules.embed_tokens.schemas import _normalize_origin
+
+    # IPv6 with non-default port — brackets must be preserved
+    assert _normalize_origin("http://[::1]:8080") == "http://[::1]:8080", (
+        "IPv6 with port must keep brackets"
+    )
+    # IPv6 localhost without port
+    assert _normalize_origin("http://[::1]") == "http://[::1]", (
+        "IPv6 without port must keep brackets"
+    )
+    # IPv6 with default http port 80 — port stripped, brackets kept
+    assert _normalize_origin("http://[::1]:80") == "http://[::1]", (
+        "IPv6 with default port 80 must strip port but keep brackets"
+    )

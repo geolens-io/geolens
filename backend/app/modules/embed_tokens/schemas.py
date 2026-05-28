@@ -26,14 +26,24 @@ def _normalize_origin(origin: str) -> str:
         raise ValueError(f"Invalid origin: {origin}")
 
     scheme = parsed.scheme or "https"
-    host = parsed.hostname
+    # parsed.hostname strips square brackets from IPv6 addresses (e.g. '::1'),
+    # producing an invalid CSP source expression like 'http://::1:8080'.
+    # RFC 9116 / W3C CSP3 §2.6.1 requires IPv6 literals to be enclosed in
+    # brackets. Extract the bracket-safe host string from parsed.netloc instead:
+    # netloc for 'http://[::1]:8080' is '[::1]:8080' — strip the port suffix.
+    if parsed.port is not None:
+        # Split off ':port' suffix from the right. For IPv6 '[::1]:8080' this
+        # gives '[::1]'; for DNS 'example.com:8080' this gives 'example.com'.
+        netloc_host = parsed.netloc.rsplit(":", 1)[0]
+    else:
+        netloc_host = parsed.netloc
     port = parsed.port
     if (scheme == "http" and port == 80) or (scheme == "https" and port == 443):
         port = None
 
     if port:
-        return f"{scheme}://{host}:{port}"
-    return f"{scheme}://{host}"
+        return f"{scheme}://{netloc_host}:{port}"
+    return f"{scheme}://{netloc_host}"
 
 
 def _validate_origins(v: list[str] | None) -> list[str] | None:
