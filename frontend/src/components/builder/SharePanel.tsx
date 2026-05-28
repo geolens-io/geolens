@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Globe, Lock, Copy, Loader2, Code, Link as LinkIcon, Info, Trash2, Shield, ExternalLink, ChevronRight, Users, AlertTriangle, AlertCircle, RotateCcw, X, Plus } from 'lucide-react';
 import { toast } from 'sonner';
@@ -656,7 +656,15 @@ export function ShareDialog({
     t => t.is_active && new Date(t.expires_at) > new Date()
   );
   const resolvedEmbedTokenId = activeEmbedToken?.id ?? null;
-  const configOrigins = activeEmbedToken?.allowed_origins ?? [];
+  // Stabilize with useMemo so the array reference is only new when the data
+  // actually changes. Without memoization, `?? []` produces a new [] reference
+  // on every render, causing the sync useEffect in ShareLinkSettings to fire
+  // every render and wipe in-flight optimistic chip state (WR-02).
+  const configOrigins = useMemo(
+    () => activeEmbedToken?.allowed_origins ?? [],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [activeEmbedToken?.allowed_origins],
+  );
 
   const isPublic = visibility === 'public';
   const canUseAdvancedSharing = isEnterprise;
