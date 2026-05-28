@@ -138,6 +138,10 @@ export function syncContourLayer(
       if (map.getSource(contourSourceId)) {
         map.removeSource(contourSourceId);
       }
+      // Release the DemSource (and its Web Worker) from the module-level registry
+      // so it is not returned stale if the same sourceId is re-added later (e.g.
+      // after auth token rotation or re-adding the same dataset).
+      _demSources.delete(input.sourceId);
       return;
     }
 
@@ -164,12 +168,23 @@ export function syncContourLayer(
       overzoom: 1,
     });
 
-    // Add the vector source if not already present.
-    if (!map.getSource(contourSourceId)) {
+    // Add the vector source if not already present; otherwise update its tile URL
+    // so that interval/threshold changes take effect on the existing source.
+    // VectorTileSource.setTiles() is available in MapLibre GL JS 5.x.
+    const existingContourSource = map.getSource(contourSourceId) as
+      | { setTiles?: (tiles: string[]) => void; serialize?: () => { tiles?: string[] } }
+      | undefined;
+    if (!existingContourSource) {
       map.addSource(contourSourceId, {
         type: 'vector',
         tiles: [contourProtocolUrl],
       });
+    } else {
+      // Only call setTiles when the URL actually changed to avoid unnecessary tile re-fetches.
+      const currentTiles = existingContourSource.serialize?.()?.tiles ?? [];
+      if (currentTiles[0] !== contourProtocolUrl) {
+        existingContourSource.setTiles?.([contourProtocolUrl]);
+      }
     }
 
     // Track the source so removeStaleSourcesAndLayers does not remove it.

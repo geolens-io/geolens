@@ -42,17 +42,44 @@ vi.mock('maplibre-contour', () => ({
 function createMockMap() {
   const layers = new Set<string>();
   const sources = new Set<string>();
+  // Per-source mock objects keyed by source id — supports setTiles / serialize.
+  const sourceMocks = new Map<string, { setTiles: ReturnType<typeof vi.fn>; serialize: ReturnType<typeof vi.fn>; _tiles: string[] }>();
+
   return {
     getLayer: vi.fn((id: string) => (layers.has(id) ? { id } : null)),
     removeLayer: vi.fn((id: string) => { layers.delete(id); }),
     addLayer: vi.fn((spec: { id: string }) => { layers.add(spec.id); }),
-    getSource: vi.fn((id: string) => (sources.has(id) ? { id } : null)),
-    addSource: vi.fn((id: string) => { sources.add(id); }),
-    removeSource: vi.fn((id: string) => { sources.delete(id); }),
+    getSource: vi.fn((id: string) => {
+      if (!sources.has(id)) return null;
+      if (!sourceMocks.has(id)) {
+        // Create a source mock that tracks its current tile URL.
+        const mock = {
+          _tiles: [] as string[],
+          setTiles: vi.fn((tiles: string[]) => { mock._tiles = tiles; }),
+          serialize: vi.fn(() => ({ tiles: mock._tiles })),
+        };
+        sourceMocks.set(id, mock);
+      }
+      return sourceMocks.get(id)!;
+    }),
+    addSource: vi.fn((id: string, spec: { tiles?: string[] }) => {
+      sources.add(id);
+      // Initialize the tile URL from the addSource call.
+      if (!sourceMocks.has(id)) {
+        const mock = {
+          _tiles: spec.tiles ? [...spec.tiles] : [],
+          setTiles: vi.fn((tiles: string[]) => { mock._tiles = tiles; }),
+          serialize: vi.fn(() => ({ tiles: mock._tiles })),
+        };
+        sourceMocks.set(id, mock);
+      }
+    }),
+    removeSource: vi.fn((id: string) => { sources.delete(id); sourceMocks.delete(id); }),
     setPaintProperty: vi.fn(),
     // expose internals for assertions
     _layers: layers,
     _sources: sources,
+    _sourceMocks: sourceMocks,
   };
 }
 
@@ -220,6 +247,79 @@ describe('syncContourLayer', () => {
     expect(() => {
       syncContourLayer(map as unknown as import('maplibre-gl').Map, input, desiredSources);
     }).not.toThrow();
+  });
+
+  // Regression test for CR-01: interval change after first add must call setTiles.
+  it('CR-01 regression: changing interval when source already exists calls setTiles with new URL', () => {
+    const map = createMockMap();
+
+    // First call: interval=100 — adds the source.
+    const firstUrl = 'contour-protocol://first-call';
+    mockContourProtocolUrl.mockReturnValueOnce(firstUrl);
+    const input100 = makeInput({
+      paint: {
+        '_contour-enabled': true,
+        '_contour-interval': 100,
+      },
+    });
+    syncContourLayer(map as unknown as import('maplibre-gl').Map, input100, new Set<string>());
+
+    // Verify source was added with the first URL.
+    expect(map.addSource).toHaveBeenCalledOnce();
+    const sourceMock = map._sourceMocks.get('source-dem1-contour')!;
+    expect(sourceMock).toBeDefined();
+    expect(sourceMock._tiles[0]).toBe(firstUrl);
+
+    // Second call: interval=200 — source already exists, URL is different.
+    const secondUrl = 'contour-protocol://second-call';
+    mockContourProtocolUrl.mockReturnValueOnce(secondUrl);
+    const input200 = makeInput({
+      paint: {
+        '_contour-enabled': true,
+        '_contour-interval': 200,
+      },
+    });
+    syncContourLayer(map as unknown as import('maplibre-gl').Map, input200, new Set<string>());
+
+    // addSource must NOT be called a second time.
+    expect(map.addSource).toHaveBeenCalledOnce();
+    // setTiles MUST be called with the new URL.
+    expect(sourceMock.setTiles).toHaveBeenCalledWith([secondUrl]);
+  });
+
+  // Regression test for CR-01: no unnecessary setTiles when URL is unchanged.
+  it('CR-01 regression: no setTiles call when URL is unchanged on second sync', () => {
+    const map = createMockMap();
+    const sameUrl = 'contour-protocol://same-url';
+    mockContourProtocolUrl.mockReturnValue(sameUrl);
+
+    const input = makeInput({ paint: { '_contour-enabled': true, '_contour-interval': 100 } });
+
+    // First call — adds the source.
+    syncContourLayer(map as unknown as import('maplibre-gl').Map, input, new Set<string>());
+    // Second call — same URL, no interval change.
+    syncContourLayer(map as unknown as import('maplibre-gl').Map, input, new Set<string>());
+
+    const sourceMock = map._sourceMocks.get('source-dem1-contour')!;
+    expect(sourceMock.setTiles).not.toHaveBeenCalled();
+  });
+
+  // Regression test for WR-02: disabled branch prunes the DemSource registry.
+  it('WR-02 regression: disabling contour removes sourceId from _demSources registry', () => {
+    const map = createMockMap();
+
+    // First, enable to populate the registry.
+    const inputEnabled = makeInput({ paint: { '_contour-enabled': true } });
+    syncContourLayer(map as unknown as import('maplibre-gl').Map, inputEnabled, new Set<string>());
+    expect(_demSources.has('source-dem1')).toBe(true);
+
+    // Now disable — the registry entry should be deleted.
+    map._sources.add('source-dem1-contour');
+    map._layers.add('layer-dem1-contour');
+    const inputDisabled = makeInput({ paint: { '_contour-enabled': false } });
+    syncContourLayer(map as unknown as import('maplibre-gl').Map, inputDisabled, new Set<string>());
+
+    expect(_demSources.has('source-dem1')).toBe(false);
   });
 });
 
