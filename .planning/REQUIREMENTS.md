@@ -23,9 +23,9 @@ The v1031 close-gate gated the contour control off (`CONTOUR_CONTROL_ENABLED=fal
 
 ### Quality & Close-Gate
 
-- [ ] **QA-01**: Builder verified via orchestrator-driven live Playwright MCP smoke on `localhost:8080` — the contour surface in its final state (hardened control renders cleanly with no console errors, OR the cut surface is absent and the DEM editor is error-free) plus the raster `percentile`/`stddev` stretch render. Evidence doc captured (`.planning/phases/.../MCP-SMOKE.md`).
-- [ ] **QA-02**: Touched-surface gates green — frontend typecheck + lint + vitest, focused backend pytest, `e2e:smoke:builder`, and i18n parity (en/de/es/fr).
-- [ ] **QA-03**: CHANGELOG updated for v1032; OpenAPI + Python/TypeScript SDK regenerated IF backend routes/schema changed (verify — the `stretch` param already exists in the tile route schema). Public-version bump decided (1.6.0 → 1.6.1 patch vs 1.7.0 minor).
+- [x] **QA-01**: Builder verified via orchestrator-driven live Playwright MCP smoke on `localhost:8080` — the contour surface in its final state (hardened control renders cleanly with no console errors, OR the cut surface is absent and the DEM editor is error-free) plus the raster `percentile`/`stddev` stretch render. Evidence doc captured (`.planning/phases/.../MCP-SMOKE.md`).
+- [x] **QA-02**: Touched-surface gates green — frontend typecheck + lint + vitest, focused backend pytest, `e2e:smoke:builder`, and i18n parity (en/de/es/fr).
+- [x] **QA-03**: CHANGELOG updated for v1032; OpenAPI + Python/TypeScript SDK regenerated IF backend routes/schema changed (verify — the `stretch` param already exists in the tile route schema). Public-version bump decided (1.6.0 → 1.6.1 patch vs 1.7.0 minor).
 
 ## Future Requirements (v1033+)
 
@@ -58,14 +58,15 @@ Which phases cover which requirements. Continues phase numbering from 1143 → s
 | CONTOUR-02 | Phase 1145 | Complete (CUT) |
 | RASTER-STRETCH-01 | Phase 1146 | Complete |
 | RASTER-STRETCH-02 | Phase 1146 | Complete |
-| QA-01 | Phase 1147 | Pending |
-| QA-02 | Phase 1147 | Pending |
-| QA-03 | Phase 1147 | Pending |
+| QA-01 | Phase 1147 | Complete |
+| QA-02 | Phase 1147 | Complete |
+| QA-03 | Phase 1147 | Complete |
 
 **Coverage:**
 - v1 requirements: 7 total
 - Mapped to phases: 7 (100%)
 - Unmapped: 0
+- Delivered: 7/7 ✓ (CONTOUR-01 spike; CONTOUR-02 cut; RASTER-STRETCH-01/02; QA-01/02/03)
 
 ---
 *Requirements defined: 2026-05-28 — milestone v1032 Builder Carry-Forward Resolution.*

@@ -9,7 +9,7 @@
 - [x] **Phase 1144: Contour Spike** - Root-cause the `maplibre-contour` worker instability; produce an evidence-backed harden-or-cut recommendation audit. → **CUT** (maplibre-contour@0.1.0 ↔ maplibre-gl 5.x custom-protocol incompatibility; no upstream fix).
 - [x] **Phase 1145: Contour Disposition** - Execute the spike recommendation — **CUT**: removed `maplibre-contour` dep + `contour-sync.ts` + call site + flag/gate + 5 dormant tests + dead `relief-contour` enum + i18n keys. 3 absence tests are the permanent regression pins; live-verified.
 - [x] **Phase 1146: Raster Stretch Stats** - Implemented `percentile` (p2–p98) and `stddev` (mean±2σ) single-band stretch via Titiler `/cog/statistics` (cached) → rescale override; frontend options un-gated. Live-verified (minmax/percentile/stddev tiles differ).
-- [ ] **Phase 1147: Close Gate** - Orchestrator-driven Playwright MCP smoke, touched-surface gates, CHANGELOG, and version bump decision.
+- [x] **Phase 1147: Close Gate** - Live MCP smoke (contour gone + stretch tile-diff + clean load), all gates green (typecheck 0 / vitest 2577 / backend 84·2skip / e2e 26 / i18n 2), CHANGELOG [1.7.0], openapi no-drift.
 
 ## Phase Details
 
@@ -65,7 +65,7 @@
 | 1144. Contour Spike | 1/1 | Complete (→ CUT) | 2026-05-28 |
 | 1145. Contour Disposition | 1/1 | Complete (CUT) | 2026-05-28 |
 | 1146. Raster Stretch Stats | 1/1 | Complete | 2026-05-28 |
-| 1147. Close Gate | 0/TBD | Not started | - |
+| 1147. Close Gate | 1/1 | Complete | 2026-05-28 |
 
 ---
 

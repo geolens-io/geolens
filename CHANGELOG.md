@@ -11,6 +11,26 @@ GitHub release notes are generated from this file, so `CHANGELOG.md` is the rele
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-05-28
+
+Closes the v1031 builder carry-forward tail: single-band raster `percentile`/`stddev` stretch now compute real statistics, and the unstable contour control was removed.
+
+### Added
+
+- **Single-band raster stretch (percentile / std-deviation):** The raster layer editor's Stretch selector now offers working **Percentile (2–98%)** and **Std Deviation** options alongside Min/Max. Percentile rescales to the 2nd–98th percentile; Std Deviation rescales to mean ± 2σ clamped to the band's min/max. Both compute per-band statistics from Titiler `/cog/statistics` (cached per asset) and override the tile rescale; Min/Max keeps the dtype-based default. DEM (terrain) layers are unaffected. Previously these two options were disabled and labelled "coming soon".
+
+### Removed
+
+- **DEM contour-line control:** Removed the contour-line overlay control (gated off and dormant since v1031) along with its `maplibre-contour` dependency. The library's `0.1.0` release — its latest published version — emits malformed custom-protocol tile URLs under MapLibre GL JS 5.x (≈28 console errors per enable) and has no compatible upgrade. The control was never enabled in a shipped build, so there is no user-facing behavior change. Contour rendering may return in a future release on a maintained approach.
+
+### Verification
+
+- OpenAPI snapshot (`make openapi-check`): no drift — the raster tile proxy's `stretch` param was already documented in v1031; only its server-side behavior changed, so no schema/SDK regeneration was required.
+- Frontend `npm run typecheck`: 0 errors. `npm run lint`: 0 errors (1 pre-existing warning in `use-filtered-feature-count.ts`). `npm run test`: 2577/2577 pass. `npm run test:i18n`: 2/2 pass.
+- Backend pytest (`test_raster_colormap_proxy.py` + raster/tile suite): 84 pass / 2 skip.
+- Builder e2e smoke (`e2e:smoke:builder`): 26/26 pass.
+- Live (orchestrator Playwright MCP): contour control absent from the DEM editor in all render modes with 0 console errors; raster `minmax` vs `percentile` vs `stddev` tiles render distinctly (859 B / 25 KB / 27 KB) — verified end-to-end against the live Titiler statistics path.
+
 ## [1.6.0] - 2026-05-28
 
 Builder render-mode editor controls for DEM and raster layers, a built-in fill-pattern picker, OG social-card meta on shared map links, and SharePanel typography cleanup.
