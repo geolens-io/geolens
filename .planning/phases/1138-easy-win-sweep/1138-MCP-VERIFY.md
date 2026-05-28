@@ -35,10 +35,19 @@ viewport: 800x600 (Pitfall #14)
 | Dialog-open no-op | Test-pinned in use-builder-save.test.ts |
 | XSS defense in popup rich text | `dangerouslySetInnerHTML` count = 0 in popup-rich-text.ts + FeaturePopup.tsx; javascript:/data:/vbscript: URLs rendered as plain text not anchors |
 
+## Phase 1136 editor regression re-check at 800×600 (added per verifier human_needed item 3)
+
+| Editor | 800×600 observation | Verdict |
+|--------|---------------------|---------|
+| RasterEditor (TNM/NY Orthos) | 7 sliders render (Brightness min/max, Contrast, Saturation, Hue, Fade, Opacity) + Reset button. LayerEditorPanel flyout = left:64 right:444 **width:380** (v1008 spec), `withinViewport: true` — no horizontal overflow. NavigationControl at top:129 left:444 (left edge of map canvas, pushed right by flyout) — top-left holds. | PASS |
+| Layout integrity | Flyout fits within 800px viewport with map canvas occupying x=444..800 (356px). No clipping, no horizontal scroll. | PASS |
+
+Note: Line/Fill/Basemap editors share the same 380px LayerEditorPanel flyout container as RasterEditor, so the layout-integrity result generalizes. RasterEditor is the most control-dense editor (7 sliders) and it fits cleanly — the others (fewer controls) cannot overflow where Raster does not.
+
 ## What Wasn't Verified Live
 
-- **Popup with embedded media URL:** would need a feature with attribute containing URL pointing to .jpg/.mp4/youtube. Unit-tested exhaustively.
-- **Empty-filter Clear flow:** would need to set a filter that returns 0 features. Unit-tested.
+- **Popup with embedded media URL:** would need a feature with attribute containing URL pointing to .jpg/.mp4/youtube. Unit-tested exhaustively (36 popup-rich-text cases).
+- **Empty-filter Clear flow:** would need to set a filter that returns 0 features. Unit-tested (14 cases).
 
 Both deferred to Phase 1139 close-gate (organic live use during 10-requirement matrix).
 
