@@ -67,6 +67,18 @@ ai_disabled_test: runtime DB toggle (AI_ENABLED via PATCH /admin/ai-status/) —
 
 `accessibility.spec.ts:151` + `builder-unified-stack.spec.ts:193` are OUTSIDE the e2e:smoke:builder subset and reproduce on 736cffca — not v1030 regressions. e2e:smoke:builder ran fully green (26/26).
 
+## Post-Verification Addendum — Final-State Layer Ops + Save-Persist + Shared/Embed Parity
+
+The phase verifier flagged 2 SC-1 sub-items as needing final-state confirmation (last verified pre-1138). Closed live:
+
+| Item | Test | Verdict |
+|------|------|---------|
+| Save-persist across reload | Toggled "Land classification" visibility OFF (aria-pressed=false) → Ctrl+S → full reload → still OFF (persisted) → toggled back ON → Ctrl+S → confirmed restored. Canonical ADK map left in original state (all 6 layers visible). | PASS |
+| Visibility-toggle layer op (final state) | Covered by the save-persist flow above + NHD streams toggle at 1440×900 earlier. | PASS |
+| Shared/embed parity (post-1138) | `/m/{token}?embed=true` after Phase 1138's FeaturePopup changes: map canvas renders, "Powered by GeoLens" branding present, 0 console errors. | PASS |
+
+**Note:** Did NOT permanently delete a layer from the canonical ADK map (it is a curated/shippable marketing map). Delete-layer is exhaustively unit-pinned (builder-layer-mutations.test.ts 12 cases + use-builder-layers.delete.test.ts 5 cases) and was live-verified in Phase 1134's close-gate; the intervening phases did not touch `dispatchLayerAction`/`use-builder-layers.ts` (confirmed: BuilderLayerAction union unchanged across all v1030 commits).
+
 ## Final Close-Gate Verdict
 
 **v1030 CLOSE-GATE: PASS**
