@@ -2,9 +2,9 @@
 gsd_state_version: 1.0
 milestone: v1031
 milestone_name: Builder Render-Mode & Share Polish
-status: planning
-stopped_at: Phase 1140 UI-SPEC approved
-last_updated: "2026-05-28T15:45:26.013Z"
+status: ready_to_plan
+stopped_at: Phase 1141 complete (1/1) — ready to discuss Phase 1142
+last_updated: 2026-05-28T16:01:20.163Z
 last_activity: 2026-05-28
 progress:
   total_phases: 12
@@ -18,7 +18,7 @@ progress:
 
 ## Current Position
 
-Phase: 1141
+Phase: 1142
 Plan: Not started
 Status: Ready to plan
 Last activity: 2026-05-28
@@ -32,7 +32,7 @@ Progress: [██████████] 100%
 See: .planning/PROJECT.md
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** Phase 1141 — fill pattern editor control
+**Current focus:** Phase 1142 — og image social cards & sharepanel typography
 
 ## Last Shipped Milestone
 
