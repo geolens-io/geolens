@@ -1,5 +1,6 @@
 """Maps API endpoints: CRUD, duplication, and layer management."""
 
+import html
 import uuid
 from datetime import UTC, datetime
 from typing import Literal
@@ -17,7 +18,7 @@ from fastapi import (
     UploadFile,
     status,
 )
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -482,6 +483,98 @@ async def list_maps_endpoint(
 
     summaries = [MapSummaryResponse(**m) for m in maps]
     return MapListResponse(maps=summaries, total=total)
+
+
+@router.get(
+    "/shared/{token}/card",
+    response_class=HTMLResponse,
+    include_in_schema=False,
+)
+async def shared_map_card_endpoint(
+    token: str,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> HTMLResponse:
+    """Crawler-facing HTML route that emits per-map OG/Twitter social-card meta.
+
+    Returns a minimal ``<!doctype html>`` document containing server-rendered
+    ``<meta>`` tags for ``og:title``, ``og:description``, ``og:image``,
+    ``og:type``, ``twitter:card``, ``twitter:title``, ``twitter:description``,
+    ``twitter:image``, and a ``<meta http-equiv="refresh">`` redirect to the
+    real SPA viewer at ``/m/{token}``.
+
+    Access control (T-1142-02):
+    - Invalid or revoked/expired token → 404 (no title/description leak)
+    - Non-public map → 404 (no title/description leak)
+
+    Security (T-1142-01):
+    - All user-controlled text (map name, description) is HTML-escaped via
+      ``html.escape()`` before interpolation into the meta content attribute.
+
+    Image URL priority:
+    1. ``og_image_uri`` → ``/api/maps/{id}/og-image/`` (absolute)
+    2. ``thumbnail_uri`` → ``/api/maps/{id}/thumbnail/`` (absolute)
+    3. ``/og-image.png`` (site-level static fallback, absolute)
+
+    ``include_in_schema=False``: this is a crawler-only HTML surface, not part
+    of the JSON API contract. No OpenAPI/SDK refresh needed for this route.
+    (Phase 1143 OpenAPI refresh is for the og-image PUT/GET and MapResponse.)
+    """
+    from app.modules.catalog.maps.service_public import _validate_share_token
+
+    # Validate share token — mirror the exact rule used by the /m viewer.
+    token_obj = await _validate_share_token(db, token)
+    if token_obj is None or isinstance(token_obj, str):
+        # None = token not found; str = "expired" sentinel
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Share link not found",
+        )
+
+    map_obj = await get_map(db, token_obj.map_id)
+    if map_obj is None or map_obj.visibility != "public":
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Share link not found",
+        )
+
+    # Build absolute base URL (Pitfall 1: crawlers require fully-qualified URLs).
+    base = str(request.base_url).rstrip("/")
+
+    # Determine OG image URL (absolute).
+    if map_obj.og_image_uri:
+        image_url = f"{base}/api/maps/{map_obj.id}/og-image/"
+    elif map_obj.thumbnail_uri:
+        image_url = f"{base}/api/maps/{map_obj.id}/thumbnail/"
+    else:
+        image_url = f"{base}/og-image.png"
+
+    # HTML-escape all user-controlled text (T-1142-01 / Pitfall 3).
+    title = html.escape(map_obj.name or "GeoLens Map")
+    description = html.escape(map_obj.description or "View this map on GeoLens")
+    # token is URL-path-shaped (SHA-256 hex-derived); safe to embed in refresh URL
+    # without HTML escaping — but escape it anyway for defence-in-depth.
+    viewer_url = f"/m/{html.escape(token)}"
+
+    card_html = (
+        "<!doctype html>\n"
+        "<html><head>\n"
+        '<meta charset="UTF-8">\n'
+        '<meta property="og:type" content="website">\n'
+        f'<meta property="og:title" content="{title}">\n'
+        f'<meta property="og:description" content="{description}">\n'
+        f'<meta property="og:image" content="{image_url}">\n'
+        '<meta name="twitter:card" content="summary_large_image">\n'
+        f'<meta name="twitter:title" content="{title}">\n'
+        f'<meta name="twitter:description" content="{description}">\n'
+        f'<meta name="twitter:image" content="{image_url}">\n'
+        f'<meta http-equiv="refresh" content="0;url={viewer_url}">\n'
+        "</head><body></body></html>"
+    )
+    return HTMLResponse(
+        content=card_html,
+        headers={"Cache-Control": "public, max-age=300"},
+    )
 
 
 @router.get("/shared/{token}", response_model=SharedMapResponse)
