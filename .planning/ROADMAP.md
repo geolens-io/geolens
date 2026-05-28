@@ -16,7 +16,7 @@
 - [x] **Phase 1134: Map Functionality and Smaller-Screen Polish** — Tier-1 bugs (delete-layer, visibility-toggle, rename-group focus) + ≤800px layout collisions; stabilizes `dispatchLayerAction` boundary before Phase 1135. (completed 2026-05-27)
 - [x] **Phase 1135: AI Chat Confirm-Before-Apply and Analysis Polish** — Confirm-before-apply staging (shape A or B picked in CONTEXT.md before plan-01), action preview chips, viewport-aware suggestions, data-analysis inline card, disabled/error empty-state re-verify. (completed 2026-05-27)
 - [x] **Phase 1136: Per-Render-Mode Editor Polish** — RasterEditor brightness/contrast/saturation/hue + reset; LineEditor line-cap/line-join; FillEditor extrusion range hint; BasemapEditor "No basemap" preset + DETAIL LEVEL stays gone. (completed 2026-05-27)
-- [ ] **Phase 1137: Sharing and Embed Polish** — Allowed-origins as chips; expiration presets; "Powered by GeoLens" branding (community edition) + legend+title in export; conditional iframe preview.
+- [x] **Phase 1137: Sharing and Embed Polish** — Allowed-origins as chips; expiration presets; "Powered by GeoLens" branding (community edition) + legend+title in export; conditional iframe preview. (completed 2026-05-28)
 - [ ] **Phase 1138: Easy-Win Sweep** — Cmd/Ctrl+S, popup URL/media handling, empty-layer state.
 - [ ] **Phase 1139: Quality Sweep and Playwright Close-Gate** — Live MCP at 1440×900 / 800×600 / 414×896, disabled-AI smoke, typecheck/lint/vitest/e2e/i18n parity, CHANGELOG + OpenAPI/SDK refresh where backend changed.
 
@@ -118,7 +118,7 @@
 - [x] 1137-04-PLAN.md — SharePanel chip-based allowed-origins UI (SHARE-02, SHARE-06)
 - [x] 1137-05-PLAN.md — SharePanel expiration preset Select + Pitfall #6 docstring (SHARE-04)
 - [x] 1137-06-PLAN.md — SharePanel iframe embed-preview pane + inflightEmbedCreate race ref (SHARE-03, Pitfall #7)
-- [ ] 1137-07-PLAN.md — Orchestrator-driven Playwright MCP smoke checklist (close-gate)
+- [x] 1137-07-PLAN.md — Orchestrator-driven Playwright MCP smoke checklist (close-gate)
 **UI hint**: yes
 
 ### Phase 1138: Easy-Win Sweep
@@ -163,7 +163,7 @@ After Phase 1134 ships, Phases 1135 / 1136 / 1137 are **independent and can run 
 | 1134. Map Functionality and Smaller-Screen Polish | v1030 | 6/6 | Complete   | 2026-05-27 |
 | 1135. AI Chat Confirm-Before-Apply and Analysis Polish | v1030 | 6/6 | Complete   | 2026-05-27 |
 | 1136. Per-Render-Mode Editor Polish | v1030 | 7/7 | Complete   | 2026-05-27 |
-| 1137. Sharing and Embed Polish | v1030 | 6/7 | In Progress|  |
+| 1137. Sharing and Embed Polish | v1030 | 7/7 | Complete   | 2026-05-28 |
 | 1138. Easy-Win Sweep | v1030 | 0/0 | Not started | - |
 | 1139. Quality Sweep and Playwright Close-Gate | v1030 | 0/0 | Not started | - |
 
