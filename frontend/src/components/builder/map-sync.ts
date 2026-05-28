@@ -15,6 +15,7 @@ import { clusterCircleLayerId, clusterCountLayerId, getClusterSourceOptions } fr
 import { getClusterSourceStrategy } from './cluster-source';
 import { syncContourLayer } from './contour-sync';
 import { syncColorReliefLayer } from './color-relief-sync';
+import { buildColormapTileUrl } from './layer-adapters/raster-adapter';
 
 // Shared utilities — imported for local use and re-exported for backward compatibility
 import { getLayerType, resolveAdapterType } from './layer-adapters/shared';
@@ -604,13 +605,22 @@ function syncRasterLayer(
   token: RasterTileToken,
   desiredSources: Set<string>,
 ) {
-  adapterInput.tileUrl = token.tile_url;
+  const renderMode = adapterInput.style_config?.render_mode;
+  const useHillshade = adapterInput.is_dem === true && renderMode === 'hillshade';
+
+  // Apply colormap query params to the tile URL before the diff comparison so
+  // that a _colormap change causes the existing source teardown/recreate path
+  // to fire and MapLibre re-fetches tiles with the new colormap. DEM/hillshade
+  // uses terrainrgb encoding — colormap params MUST NOT be added there.
+  const effectiveTileUrl = useHillshade
+    ? token.tile_url
+    : buildColormapTileUrl(token.tile_url, adapterInput.paint);
+
+  adapterInput.tileUrl = effectiveTileUrl;
   adapterInput.tileSize = token.tile_size ?? 256;
   adapterInput.minzoom = token.minzoom ?? 0;
   adapterInput.maxzoom = token.maxzoom ?? 18;
   adapterInput.bounds = token.bounds;
-  const renderMode = adapterInput.style_config?.render_mode;
-  const useHillshade = adapterInput.is_dem === true && renderMode === 'hillshade';
   const adapter = getAdapter(useHillshade ? 'hillshade' : 'raster');
   const expectedLayerType = useHillshade ? 'hillshade' : 'raster';
   const expectedSourceType = useHillshade ? 'raster-dem' : 'raster';
@@ -618,7 +628,7 @@ function syncRasterLayer(
   const currentSource = map.getSource(adapterInput.sourceId) as { type?: string } | undefined;
   const currentSourceSpec = currentSource ? sourceSpec(currentSource) : {};
   const desiredBounds = normalizeRasterBounds(token.bounds);
-  const desiredTileUrl = absolutizeTileUrl(token.tile_url);
+  const desiredTileUrl = absolutizeTileUrl(effectiveTileUrl);
   const desiredTileSize = token.tile_size ?? 256;
   const desiredMinzoom = token.minzoom ?? 0;
   const desiredMaxzoom = token.maxzoom ?? 18;

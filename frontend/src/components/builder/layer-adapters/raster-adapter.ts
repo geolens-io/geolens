@@ -30,6 +30,40 @@ export const RASTER_OWNED_PAINT_PROPERTIES = [
   'raster-hue-rotate',
 ] as const;
 
+/**
+ * Build a raster tile URL with colormap_name and stretch query params
+ * appended when the user has selected a non-default (non-gray) colormap.
+ *
+ * Called from syncRasterLayer BEFORE the tile-URL-diff comparison so that a
+ * colormap change causes the existing source-teardown path to fire and
+ * MapLibre re-fetches tiles with the new colormap.
+ *
+ * The `_colormap` and `_stretch` keys are builder-private paint keys (never
+ * in RASTER_OWNED_PAINT_PROPERTIES — Pitfall 6) and mutate the tile URL, not
+ * a MapLibre paint property.
+ *
+ * @param baseUrl  Root-relative or absolute tile URL (e.g. `/api/raster-tiles/...`)
+ * @param paint    The layer paint dict; reads `_colormap` and `_stretch`.
+ * @returns        `baseUrl` unmodified when no non-gray colormap is set;
+ *                 `baseUrl?colormap_name=...&stretch=...` otherwise.
+ */
+export function buildColormapTileUrl(
+  baseUrl: string,
+  paint: Record<string, unknown>,
+): string {
+  const colormap = paint['_colormap'];
+  const stretch = paint['_stretch'];
+  // gray is the Titiler single-band default — no param needed
+  if (!colormap || colormap === 'gray') return baseUrl;
+  const params = new URLSearchParams();
+  params.set('colormap_name', colormap as string);
+  // minmax is the default stretch — no param needed; but forward any other value
+  if (typeof stretch === 'string' && stretch !== 'minmax') {
+    params.set('stretch', stretch);
+  }
+  return `${baseUrl}?${params.toString()}`;
+}
+
 function normalizeRasterBounds(bounds: number[] | null | undefined) {
   if (!Array.isArray(bounds) || bounds.length !== 4) return undefined;
   if (!bounds.every((value) => Number.isFinite(value))) return undefined;
