@@ -371,7 +371,8 @@
     "addField": "Añadir campo",
     "removeField": "Quitar campo",
     "noFieldsSelected": "Ningún campo seleccionado (solo se mostrará el título)",
-    "noColumns": "Esta capa no tiene columnas inspeccionables."
+    "noColumns": "Esta capa no tiene columnas inspeccionables.",
+    "mediaHint": "Las URL e imágenes en los valores de los campos se muestran como enlaces y vistas previas automáticamente."
   },
   "dataDriven": {
     "title": "Estilo basado en datos",

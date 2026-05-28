@@ -371,7 +371,8 @@
     "addField": "Add field",
     "removeField": "Remove field",
     "noFieldsSelected": "No fields selected (only the title will show)",
-    "noColumns": "This layer has no inspectable columns."
+    "noColumns": "This layer has no inspectable columns.",
+    "mediaHint": "URLs and images in field values render as links and previews automatically."
   },
   "dataDriven": {
     "title": "Data-Driven Style",

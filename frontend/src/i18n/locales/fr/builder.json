@@ -371,7 +371,8 @@
     "addField": "Ajouter un champ",
     "removeField": "Retirer le champ",
     "noFieldsSelected": "Aucun champ sélectionné (seul le titre s'affichera)",
-    "noColumns": "Cette couche n'a pas de colonnes inspectables."
+    "noColumns": "Cette couche n'a pas de colonnes inspectables.",
+    "mediaHint": "Les URL et images dans les valeurs de champ s'affichent automatiquement sous forme de liens et aperçus."
   },
   "dataDriven": {
     "title": "Style piloté par les données",

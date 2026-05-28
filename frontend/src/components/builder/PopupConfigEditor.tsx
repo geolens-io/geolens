@@ -222,6 +222,9 @@ export function PopupConfigEditor({ columns, popupConfig, onPopupChange }: Popup
           {/* Visible fields mode toggle */}
           <div className="space-y-1.5 pt-2 border-t">
             <Label className="text-xs font-medium">{t('popup.visibleFields')}</Label>
+            <p className="text-[11px] text-muted-foreground leading-snug">
+              {t('popup.mediaHint')}
+            </p>
             <div className="flex gap-1">
               <button
                 type="button"

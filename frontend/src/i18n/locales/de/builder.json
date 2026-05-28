@@ -371,7 +371,8 @@
     "addField": "Feld hinzufügen",
     "removeField": "Feld entfernen",
     "noFieldsSelected": "Keine Felder ausgewählt (nur der Titel wird angezeigt)",
-    "noColumns": "Dieser Layer hat keine prüfbaren Spalten."
+    "noColumns": "Dieser Layer hat keine prüfbaren Spalten.",
+    "mediaHint": "URLs und Bilder in Feldwerten werden automatisch als Links und Vorschauen angezeigt."
   },
   "dataDriven": {
     "title": "Datengesteuerter Stil",
