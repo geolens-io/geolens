@@ -344,10 +344,12 @@ class TestCardRoute:
         assert "<script>" not in body, (
             "Raw <script> found in card HTML — title was not HTML-escaped"
         )
-        # The title should appear in some escaped form
+        # The title must appear in properly escaped form — not stripped.
         # html.escape produces: Evil &quot;&gt;&lt;script&gt;alert(1)&lt;/script&gt;
-        assert "&lt;script&gt;" in body or "Evil" in body, (
-            "Expected escaped title content not found in card HTML"
+        # The unconditional check ensures a regression where strip() silently
+        # removes the tag (leaving only "Evil") would fail rather than pass.
+        assert "&lt;script&gt;" in body, (
+            "Expected HTML-escaped <script> tag in card HTML; title was not properly escaped"
         )
 
     async def test_card_route_404_for_private_map(
