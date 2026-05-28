@@ -21,12 +21,12 @@ import { getDefaultWidgetIds, resolveAvailableWidgetIds, sameWidgetIds } from '@
 import { prepareLayersForPersistence, type FolderGroupMeta } from '@/components/builder/folder-groups';
 
 /** Center-crop `srcCanvas` to the given target dimensions and return the
- *  resulting offscreen canvas. The crop math is identical for any 16:10-ratio
- *  target (400×250 thumbnail, 1200×630 OG image — both share the same 1.6
- *  aspect ratio), so a single helper avoids duplication.
+ *  resulting offscreen canvas. Crops from the center without distortion
+ *  (letterbox / pillarbox math). Supports any target aspect ratio.
  *
  *  SHARE-08 (Phase 1142): extracted from the former inline doCapture crop block
- *  to allow two crops (400×250 and 1200×630) to share one render event. */
+ *  to allow two crops (400×250 thumbnail, 1200×630 OG image) to share one
+ *  render event with a single triggerRepaint(). */
 function cropResize(srcCanvas: HTMLCanvasElement, targetW: number, targetH: number): HTMLCanvasElement {
   const targetRatio = targetW / targetH;
   const srcW = srcCanvas.width;
