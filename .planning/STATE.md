@@ -1,26 +1,26 @@
 ---
 gsd_state_version: 1.0
-milestone: none
-milestone_name: none
-status: milestone_complete
-stopped_at: v1030 shipped + archived 2026-05-28
-last_updated: "2026-05-28T12:45:00.000Z"
+milestone: v1031
+milestone_name: Builder Render-Mode & Share Polish
+status: planning
+last_updated: "2026-05-28T12:35:47.391Z"
 last_activity: 2026-05-28
 progress:
-  total_phases: 7
-  completed_phases: 7
-  total_plans: 38
-  completed_plans: 38
-  percent: 100
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # State
 
 ## Current Position
 
-Milestone: none active. v1030 shipped + archived.
-Status: Ready for next milestone (`/gsd:new-milestone`)
-Last activity: 2026-05-28 — v1030 Map Builder Polish Sweep complete
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-05-28 — Milestone v1031 started
 
 ## Project Reference
 
