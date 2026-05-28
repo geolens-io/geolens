@@ -4,6 +4,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { StyleColorPicker } from '../StyleColorPicker';
 import { SliderRow } from '../HeatmapStyleControls';
 import { StrokeControls } from './StrokeControls';
+import { FillPatternPicker } from '../FillPatternPicker';
 import { getPaintValue, FILL_DEFAULTS } from './utils';
 import type { BaseStyleEditorProps } from './types';
 
@@ -70,6 +71,13 @@ export function FillEditor({
             min={0} max={1} step={0.01} format="percent"
             onChange={(val) => onPaintProp('fill-opacity', val)}
           />
+          {isPolygon && (
+            <FillPatternPicker
+              value={typeof paint['fill-pattern'] === 'string' ? paint['fill-pattern'] : undefined}
+              onChange={(id) => onPaintProp('fill-pattern', id)}
+              t={t}
+            />
+          )}
         </>
       )}
       <StrokeControls
