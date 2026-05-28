@@ -68,8 +68,8 @@ Requirements for v1030. Each maps to a roadmap phase in the 7-phase structure (1
 
 ### QA — Quality Sweep & Close-Gate
 
-- [ ] **QA-01**: Live Playwright MCP smoke against `localhost:8080` at 1440 × 900, 800 × 600, and 414 × 896 viewports — every render mode renders, layer ops work, save persists, shared/embed parity holds, zero browser-console errors.
-- [ ] **QA-02**: Live Playwright MCP smoke with `AI_ENABLED=false` — AI rail surfaces actionable disabled state, no inert button, no console error.
+- [x] **QA-01**: Live Playwright MCP smoke against `localhost:8080` at 1440 × 900, 800 × 600, and 414 × 896 viewports — every render mode renders, layer ops work, save persists, shared/embed parity holds, zero browser-console errors.
+- [x] **QA-02**: Live Playwright MCP smoke with `AI_ENABLED=false` — AI rail surfaces actionable disabled state, no inert button, no console error.
 - [x] **QA-03**: `npm run typecheck` exit 0, vitest green, `npm run lint` exit 0, `e2e:smoke:builder` green, i18n parity (de/es/fr) 2/2.
 - [x] **QA-04**: CHANGELOG `[Unreleased]` populated for v1030 with the measured numbers (RasterEditor stub closed, line-cap/join added, AI confirm shape, share polish set); OpenAPI snapshot diff regenerated where backend `maps/router.py` or `ai/router.py` changed; SDK regenerated to match.
 
@@ -167,8 +167,8 @@ Phase-to-requirement mapping. Every v1 requirement maps to exactly one phase. Pe
 | EASY-02 | Phase 1138 | Complete |
 | EASY-11 | Phase 1138 | Complete |
 | EASY-18 | Phase 1138 | Complete |
-| QA-01 | Phase 1139 | Pending |
-| QA-02 | Phase 1139 | Pending |
+| QA-01 | Phase 1139 | Complete |
+| QA-02 | Phase 1139 | Complete |
 | QA-03 | Phase 1139 | Complete |
 | QA-04 | Phase 1139 | Complete |
 

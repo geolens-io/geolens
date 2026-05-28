@@ -171,8 +171,8 @@ After Phase 1134 ships, Phases 1135 / 1136 / 1137 are **independent and can run 
 | 1135. AI Chat Confirm-Before-Apply and Analysis Polish | v1030 | 6/6 | Complete   | 2026-05-27 |
 | 1136. Per-Render-Mode Editor Polish | v1030 | 7/7 | Complete   | 2026-05-27 |
 | 1137. Sharing and Embed Polish | v1030 | 7/7 | Complete   | 2026-05-28 |
-| 1138. Easy-Win Sweep | v1030 | 3/4 | In Progress|  |
-| 1139. Quality Sweep and Playwright Close-Gate | v1030 | 2/3 | In Progress|  |
+| 1138. Easy-Win Sweep | v1030 | 4/4 | Complete   | 2026-05-28 |
+| 1139. Quality Sweep and Playwright Close-Gate | v1030 | 3/3 | Complete   | 2026-05-28 |
 
 ## Historical Milestones
 
