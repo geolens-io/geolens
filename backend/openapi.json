@@ -5402,6 +5402,17 @@
             ],
             "title": "Notes"
           },
+          "og_image_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Og Image Url"
+          },
           "pitch": {
             "title": "Pitch",
             "type": "number"
@@ -8072,6 +8083,17 @@
       },
       "MapLayerResponse": {
         "properties": {
+          "band_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Band Count"
+          },
           "dataset_column_info": {
             "anyOf": [
               {
@@ -8459,6 +8481,17 @@
               }
             ],
             "title": "Notes"
+          },
+          "og_image_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Og Image Url"
           },
           "pitch": {
             "title": "Pitch",
@@ -10580,6 +10613,22 @@
           "links"
         ],
         "title": "OGCRecordResponse",
+        "type": "object"
+      },
+      "OgImageUploadRequest": {
+        "description": "JSON body for PUT /maps/{map_id}/og-image/ (SHARE-08 Path A).\n\nAccepts a base64 data URI up to 750 KB (as a string). This generous\nceiling accommodates a 1200x630 JPEG at quality 0.85, which encodes\nto roughly 150-400 KB raw and ~200-540 KB as a base64 string.\n\n- ``min_length=22``: same floor as ThumbnailUploadRequest \u2014 rejects\n  empty/clearly-malformed URIs without false-positives.\n- ``max_length=750_000``: ~562 KB decoded \u2014 generous for 1200x630 JPEG.\n  DO NOT raise ThumbnailUploadRequest.max_length to match this value;\n  the 100KB thumbnail cap is a locked contract (Phase 254 / D-03).",
+        "properties": {
+          "data_uri": {
+            "maxLength": 750000,
+            "minLength": 22,
+            "title": "Data Uri",
+            "type": "string"
+          }
+        },
+        "required": [
+          "data_uri"
+        ],
+        "title": "OgImageUploadRequest",
         "type": "object"
       },
       "PermissionsResponse": {
@@ -35235,6 +35284,232 @@
         ]
       }
     },
+    "/maps/{map_id}/og-image/": {
+      "get": {
+        "description": "Serve the OG social-card image from storage (visibility-checked).\n\nUses ``public, max-age=86400`` for public maps \u2014 OG images change\nless often than thumbnails (which use 3600s). Mirrors get_thumbnail\nbut reads ``og_image_uri`` and uses the ``maps/og-images/`` key space.",
+        "operationId": "get_og_image_maps__map_id__og_image__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "map_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Map Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Bad request \u2014 invalid payload"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Unauthorized \u2014 missing or invalid credentials"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Forbidden \u2014 caller lacks write access"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Conflict \u2014 resource state prevents the operation"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Validation error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Internal server error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Get Og Image",
+        "tags": [
+          "Maps"
+        ]
+      },
+      "put": {
+        "description": "Upload a base64 OG social-card image (up to 750KB) for a map.\n\nAccepts a data:image/ URI, decodes the base64 payload, validates the\nbytes are a real image (PIL verify), writes to storage under\n``maps/og-images/{map_id}.{ext}``, and persists the storage key to\n``catalog.maps.og_image_uri``.\n\nIntended for 1200x630 JPEG captures (SHARE-08). The payload cap\n(750KB) is larger than the thumbnail cap (100KB) to accommodate the\nlarger canvas export \u2014 they are separate schemas (OgImageUploadRequest\nvs ThumbnailUploadRequest) to avoid relaxing the locked thumbnail\ncontract. Auth and PIL-verify rules are identical to upload_thumbnail.",
+        "operationId": "upload_og_image_maps__map_id__og_image__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "map_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Map Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OgImageUploadRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Bad request \u2014 invalid payload"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Unauthorized \u2014 missing or invalid credentials"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Forbidden \u2014 caller lacks write access"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Conflict \u2014 resource state prevents the operation"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Validation error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Internal server error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Upload Og Image",
+        "tags": [
+          "Maps"
+        ]
+      }
+    },
     "/maps/{map_id}/share/": {
       "delete": {
         "description": "Revoke share token(s) for a map. Owner or admin only.",
@@ -41660,7 +41935,7 @@
     },
     "/tiles/raster-proxy/{dataset_id}/{z}/{x}/{y}.{fmt}": {
       "get": {
-        "description": "API-side raster tile proxy: auth check + fetch from Titiler.\n\nUsed by Vite dev proxy and as a fallback for deployments without nginx.\nProduction deployments with nginx should use the nginx raster-tiles path\nfor better caching and performance.",
+        "description": "API-side raster tile proxy: auth check + fetch from Titiler.\n\nUsed by Vite dev proxy and as a fallback for deployments without nginx.\nProduction deployments with nginx should use the nginx raster-tiles path\nfor better caching and performance.\n\ncolormap_name: Optional Titiler colormap for single-band display. Validated\nagainst _ALLOWED_COLORMAPS (T-1140-01). Gray is the Titiler default for\nsingle-band \u2014 passing gray is a no-op (not forwarded). colormap_name is not\nforwarded for DEM layers (render_params starts with 'algorithm=').\n\nstretch: Optional stretch strategy. Phase 1140 implements minmax only;\npercentile/stddev are accepted and logged as fallback (1140-RESEARCH Finding 6).",
         "operationId": "raster_tile_proxy_tiles_raster_proxy__dataset_id___z___x___y___fmt__get",
         "parameters": [
           {
@@ -41707,6 +41982,57 @@
             "schema": {
               "title": "Fmt",
               "type": "string"
+            }
+          },
+          {
+            "description": "Titiler colormap for single-band display",
+            "in": "query",
+            "name": "colormap_name",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "gray",
+                    "viridis",
+                    "inferno",
+                    "plasma",
+                    "magma",
+                    "ylorrd",
+                    "bugn",
+                    "terrain"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Titiler colormap for single-band display",
+              "title": "Colormap Name"
+            }
+          },
+          {
+            "description": "Stretch strategy: minmax (default), percentile, stddev",
+            "in": "query",
+            "name": "stretch",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "minmax",
+                    "percentile",
+                    "stddev"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Stretch strategy: minmax (default), percentile, stddev",
+              "title": "Stretch"
             }
           }
         ],
