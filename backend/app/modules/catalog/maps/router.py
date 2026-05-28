@@ -1,9 +1,13 @@
 """Maps API endpoints: CRUD, duplication, and layer management."""
 
+import base64
 import html
 import uuid
 from datetime import UTC, datetime
+from io import BytesIO
 from typing import Literal
+
+from PIL import Image, UnidentifiedImageError
 
 import structlog
 from fastapi import (
@@ -97,7 +101,9 @@ from app.modules.catalog.maps.service import (
 )
 from app.modules.catalog.maps.models import Map, MapLayer
 from app.modules.catalog.maps.service import remove_layers_bulk
+from app.modules.catalog.maps.service_public import _validate_share_token
 from app.standards.ogc.errors import ERROR_RESPONSES_WRITE
+from app.core.public_urls import get_public_api_url
 
 logger = structlog.stdlib.get_logger(__name__)
 
@@ -520,8 +526,6 @@ async def shared_map_card_endpoint(
     of the JSON API contract. No OpenAPI/SDK refresh needed for this route.
     (Phase 1143 OpenAPI refresh is for the og-image PUT/GET and MapResponse.)
     """
-    from app.modules.catalog.maps.service_public import _validate_share_token
-
     # Validate share token — mirror the exact rule used by the /m viewer.
     token_obj = await _validate_share_token(db, token)
     if token_obj is None or isinstance(token_obj, str):
@@ -539,7 +543,11 @@ async def shared_map_card_endpoint(
         )
 
     # Build absolute base URL (Pitfall 1: crawlers require fully-qualified URLs).
-    base = str(request.base_url).rstrip("/")
+    # SEC-05: use get_public_api_url() which validates the derived origin against
+    # the CORS allowlist, preventing a crafted Host header from steering og:image
+    # to an attacker-controlled domain.
+    base = await get_public_api_url(db, request=request)
+    base = base.rstrip("/")
 
     # Determine OG image URL (absolute).
     if map_obj.og_image_uri:
@@ -548,6 +556,10 @@ async def shared_map_card_endpoint(
         image_url = f"{base}/api/maps/{map_obj.id}/thumbnail/"
     else:
         image_url = f"{base}/og-image.png"
+    # Defense-in-depth: escape the assembled URL before HTML attribute injection.
+    # URL characters from UUIDs + fixed path segments are safe, but a malicious
+    # Host value containing '"' or '>' would break the attribute boundary.
+    image_url = html.escape(image_url, quote=True)
 
     # HTML-escape all user-controlled text (T-1142-01 / Pitfall 3).
     title = html.escape(map_obj.name or "GeoLens Map")
@@ -1609,8 +1621,6 @@ async def upload_thumbnail(
     Accepts a data:image/ URI, decodes the base64 payload, writes the image
     bytes to the configured storage provider, and stores the storage key.
     """
-    import base64
-
     from app.platform.storage.provider import get_storage
 
     data_uri = request.data_uri
@@ -1659,10 +1669,6 @@ async def upload_thumbnail(
     # store arbitrary bytes that GET /maps/{id}/thumbnail/ later serves back
     # with a media_type=image/* Content-Type — a stored-content tampering
     # primitive.
-    from io import BytesIO
-
-    from PIL import Image, UnidentifiedImageError
-
     try:
         with Image.open(BytesIO(image_bytes)) as img:
             img.verify()
@@ -1762,8 +1768,6 @@ async def upload_og_image(
     vs ThumbnailUploadRequest) to avoid relaxing the locked thumbnail
     contract. Auth and PIL-verify rules are identical to upload_thumbnail.
     """
-    import base64
-
     from app.platform.storage.provider import get_storage
 
     data_uri = request.data_uri
@@ -1797,10 +1801,6 @@ async def upload_og_image(
         )
 
     # Validate the decoded bytes are a real image (mirrors thumbnail PUT).
-    from io import BytesIO
-
-    from PIL import Image, UnidentifiedImageError
-
     try:
         with Image.open(BytesIO(image_bytes)) as img:
             img.verify()
