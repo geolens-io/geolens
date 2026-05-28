@@ -360,4 +360,112 @@ describe('FillEditor', () => {
     );
     expect(screen.queryByText(/Range:/)).not.toBeInTheDocument();
   });
+
+  // ── FillPatternPicker integration tests ────────────────────────────────────
+
+  // Helper with fillPattern t() keys added (used for picker tests)
+  function makePropsWithPattern(layer: MapLayerResponse, overrides: Partial<BaseStyleEditorProps> = {}): BaseStyleEditorProps {
+    return makeProps(layer, {
+      ...overrides,
+      t: (key: string, opts?: Record<string, unknown>) => {
+        if (key === 'style.extrusionRange') {
+          const o = opts ?? {};
+          return `Range: ${o.min}–${o.max}, ${o.count} features`;
+        }
+        const labels: Record<string, string> = {
+          'style.fill': 'Fill',
+          'style.toggleFill': 'Toggle fill visibility',
+          'style.color': 'Color',
+          'style.opacity': 'Opacity',
+          'style.stroke': 'Stroke',
+          'style.toggleStroke': 'Toggle stroke visibility',
+          'style.width': 'Width',
+          'style.heightColumn': 'Height column',
+          'style.none': 'None',
+          'style.styledBy': 'Styled by',
+          'style.fillPattern': 'Fill Pattern',
+          'style.fillPatternNone': 'None',
+          'style.fillPatternName.hatch': 'Hatch',
+          'style.fillPatternName.crosshatch': 'Cross-hatch',
+          'style.fillPatternName.diagonal': 'Diagonal',
+          'style.fillPatternName.dots': 'Dots',
+          'style.fillPatternName.grid': 'Grid',
+        };
+        return labels[key] ?? key;
+      },
+    });
+  }
+
+  it('renders Fill Pattern section when isPolygon=true and fillEnabled=true', () => {
+    render(
+      <FillEditor
+        {...makePropsWithPattern(makeFillLayer(), { isPolygon: true, fillEnabled: true })}
+      />,
+    );
+    expect(screen.getByText('Fill Pattern')).toBeInTheDocument();
+    // "None" swatch button and at least one pattern button (Hatch)
+    const noneButtons = screen.getAllByRole('button', { name: 'None' });
+    expect(noneButtons.length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByRole('button', { name: 'Hatch' })).toBeInTheDocument();
+  });
+
+  it('clicking a pattern swatch calls onPaintProp("fill-pattern", id)', () => {
+    const onPaintProp = vi.fn();
+    render(
+      <FillEditor
+        {...makePropsWithPattern(makeFillLayer(), { isPolygon: true, fillEnabled: true, onPaintProp })}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Hatch' }));
+    expect(onPaintProp).toHaveBeenCalledWith('fill-pattern', 'geolens-fill-hatch');
+  });
+
+  it('clicking "None" swatch calls onPaintProp("fill-pattern", undefined)', () => {
+    const onPaintProp = vi.fn();
+    const layer = makeFillLayer({ paint: { 'fill-color': '#3b82f6', 'fill-pattern': 'geolens-fill-hatch' } });
+    render(
+      <FillEditor
+        {...makePropsWithPattern(layer, {
+          isPolygon: true,
+          fillEnabled: true,
+          onPaintProp,
+          paint: { 'fill-color': '#3b82f6', 'fill-pattern': 'geolens-fill-hatch' },
+        })}
+      />,
+    );
+    // Find the None button in the FillPatternPicker section
+    const noneButtons = screen.getAllByRole('button', { name: 'None' });
+    // Click the first one (in the picker)
+    fireEvent.click(noneButtons[0]);
+    expect(onPaintProp).toHaveBeenCalledWith('fill-pattern', undefined);
+  });
+
+  it('does NOT render Fill Pattern section when isPolygon=false', () => {
+    render(
+      <FillEditor
+        {...makePropsWithPattern(makeFillLayer(), { isPolygon: false, fillEnabled: true })}
+      />,
+    );
+    expect(screen.queryByText('Fill Pattern')).not.toBeInTheDocument();
+  });
+
+  it('does NOT render Fill Pattern section when fillEnabled=false', () => {
+    render(
+      <FillEditor
+        {...makePropsWithPattern(makeFillLayer(), { isPolygon: true, fillEnabled: false })}
+      />,
+    );
+    expect(screen.queryByText('Fill Pattern')).not.toBeInTheDocument();
+  });
+
+  it('behavior preservation: color picker, opacity slider, stroke controls still present', () => {
+    render(
+      <FillEditor
+        {...makePropsWithPattern(makeFillLayer(), { isPolygon: true, fillEnabled: true, strokeEnabled: true })}
+      />,
+    );
+    expect(screen.getByLabelText('Toggle fill visibility')).toBeInTheDocument();
+    expect(screen.getByRole('slider', { name: 'Opacity' })).toBeInTheDocument();
+    expect(screen.getByLabelText('Toggle stroke visibility')).toBeInTheDocument();
+  });
 });
