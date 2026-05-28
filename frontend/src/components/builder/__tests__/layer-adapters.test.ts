@@ -12,6 +12,7 @@ import {
   clusterAdapter,
 } from '@/components/builder/layer-adapters';
 import type { AdapterLayerInput } from '@/components/builder/layer-adapters/types';
+import { FILL_PATTERN_IDS } from '@/components/builder/layer-adapters/fill-pattern-images';
 
 vi.mock('@/lib/tile-utils', () => ({
   buildSignedTileUrl: vi.fn(() => '/tiles/mock/{z}/{x}/{y}.pbf'),
@@ -1380,8 +1381,8 @@ describe('fillAdapter', () => {
     const input = makeInput({ id: 'fp1', layerId: 'layer-fp1', sourceId: 'source-fp1', sourceLayer: 'data.test_table' });
     // hasImage returns false (default from createMockMap), so addImage should be called for each pattern
     fillAdapter.addLayers(map, input);
-    // At minimum, addImage called at least once per pattern id (5 built-in patterns)
-    expect(map.addImage).toHaveBeenCalledTimes(5);
+    // addImage called exactly once per pattern id
+    expect(map.addImage).toHaveBeenCalledTimes(FILL_PATTERN_IDS.length);
   });
 
   it('addLayers does NOT call addImage when hasImage returns true (idempotency gate)', () => {
@@ -1399,7 +1400,7 @@ describe('fillAdapter', () => {
     (map.getPaintProperty as ReturnType<typeof vi.fn>).mockReturnValue(undefined);
     const input = makeInput({ id: 'fp3', layerId: 'layer-fp3', paint: {} });
     fillAdapter.syncPaint(map, input);
-    expect(map.addImage).toHaveBeenCalledTimes(5);
+    expect(map.addImage).toHaveBeenCalledTimes(FILL_PATTERN_IDS.length);
   });
 
   // REGRESSION PIN: a fill input with NO fill-pattern key must produce addLayer paint
