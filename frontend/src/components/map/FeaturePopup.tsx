@@ -270,6 +270,7 @@ function ValueDisplay({
             alt={srcUrl}
             loading="lazy"
             decoding="async"
+            crossOrigin="anonymous"
             className="max-h-32 max-w-full rounded object-contain"
           />
           <a
