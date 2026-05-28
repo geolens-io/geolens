@@ -64,7 +64,7 @@ Requirements for v1030. Each maps to a roadmap phase in the 7-phase structure (1
 
 - [x] **EASY-02**: Cmd/Ctrl+S triggers map Save when the builder is focused; no-op when the dialog/modal is open; visible toast.
 - [x] **EASY-11**: PopupConfigEditor and popup renderer support URLs (auto-linkify) and basic media (image preview). Source: `todo.md` lines 96 + 163.
-- [ ] **EASY-18**: When a layer renders zero features (filter eliminated all rows, or empty source), the LayerEditorPanel surfaces a "0 features — check your filter" hint with a "clear filter" button.
+- [x] **EASY-18**: When a layer renders zero features (filter eliminated all rows, or empty source), the LayerEditorPanel surfaces a "0 features — check your filter" hint with a "clear filter" button.
 
 ### QA — Quality Sweep & Close-Gate
 
@@ -166,7 +166,7 @@ Phase-to-requirement mapping. Every v1 requirement maps to exactly one phase. Pe
 | SHARE-09 | Phase 1137 | Complete |
 | EASY-02 | Phase 1138 | Complete |
 | EASY-11 | Phase 1138 | Complete |
-| EASY-18 | Phase 1138 | Pending |
+| EASY-18 | Phase 1138 | Complete |
 | QA-01 | Phase 1139 | Pending |
 | QA-02 | Phase 1139 | Pending |
 | QA-03 | Phase 1139 | Pending |
