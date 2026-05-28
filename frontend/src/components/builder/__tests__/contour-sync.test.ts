@@ -56,8 +56,6 @@ function createMockMap() {
   };
 }
 
-type MockMap = ReturnType<typeof createMockMap>;
-
 function makeInput(overrides: Partial<AdapterLayerInput> = {}): AdapterLayerInput {
   return {
     id: 'dem1',

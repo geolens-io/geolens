@@ -963,7 +963,12 @@
     "terrainHint": "Terrain verwendet Höhendaten, um die Kartenoberfläche zu extrudieren.",
     "terrainExaggeration": "Terrain-Überhöhung",
     "imageHint": "Keine weiteren Darstellungssteuerungen für den Bildmodus",
-    "compassAriaLabel": "Sonnenazimut: {{azimuth}}°"
+    "compassAriaLabel": "Sonnenazimut: {{azimuth}}°",
+    "sectionContourLines": "HÖHENLINIEN",
+    "contourEnable": "Höhenlinien",
+    "contourInterval": "Abstand",
+    "contourColor": "Farbe",
+    "contourWeight": "Stärke"
   },
   "folderGroup": {
     "defaultName": "Gruppe {{n}}",

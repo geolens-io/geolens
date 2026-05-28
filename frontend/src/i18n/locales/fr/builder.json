@@ -963,7 +963,12 @@
     "terrainHint": "Le terrain utilise des données d'élévation pour extruder la surface de la carte.",
     "terrainExaggeration": "Exagération du terrain",
     "imageHint": "Aucun contrôle d'apparence supplémentaire pour le mode image",
-    "compassAriaLabel": "Azimut solaire : {{azimuth}}°"
+    "compassAriaLabel": "Azimut solaire : {{azimuth}}°",
+    "sectionContourLines": "COURBES DE NIVEAU",
+    "contourEnable": "Courbes de niveau",
+    "contourInterval": "Intervalle",
+    "contourColor": "Couleur",
+    "contourWeight": "Épaisseur"
   },
   "folderGroup": {
     "defaultName": "Groupe {{n}}",

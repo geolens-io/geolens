@@ -13,6 +13,7 @@ import type { AdapterLayerInput } from './layer-adapters/types';
 import { buildLabelLayerSpec, syncLabelLayer } from './label-layer-utils';
 import { clusterCircleLayerId, clusterCountLayerId, getClusterSourceOptions } from './layer-adapters/cluster-adapter';
 import { getClusterSourceStrategy } from './cluster-source';
+import { syncContourLayer } from './contour-sync';
 
 // Shared utilities — imported for local use and re-exported for backward compatibility
 import { getLayerType, resolveAdapterType } from './layer-adapters/shared';
@@ -895,6 +896,11 @@ export function syncLayersToMap(
       const rasterToken = token?.kind === 'raster' ? token : rasterTokenFromLayer(layer);
       if (rasterToken) {
         syncRasterLayer(map, adapterInput, rasterToken, desiredSources);
+        // EDITOR-DEM-04: sync companion contour line layer for DEM layers.
+        // Called after syncRasterLayer so the raster-dem source already exists.
+        if (adapterInput.is_dem === true) {
+          syncContourLayer(map, adapterInput, desiredSources);
+        }
       } else {
         const vectorToken = token?.kind === 'vector' ? token : null;
         syncVectorLayer(map, layer, renderableLayers, adapterInput, tileBaseUrl, vectorToken, desiredSources, geojsonDataMap, prefix);

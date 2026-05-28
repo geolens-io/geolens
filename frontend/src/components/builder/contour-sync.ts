@@ -22,8 +22,10 @@
 
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import mlcontour from 'maplibre-contour';
-import type { DemSource } from 'maplibre-contour';
 import type { AdapterLayerInput } from './layer-adapters/types';
+
+// The DemSource class is a value in the default export; derive its instance type here.
+type DemSource = InstanceType<typeof mlcontour.DemSource>;
 
 // ---------------------------------------------------------------------------
 // Internal helpers

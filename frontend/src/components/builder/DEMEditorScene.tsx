@@ -4,6 +4,7 @@ import { Slider } from '@/components/ui/slider';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
+import { Switch } from '@/components/ui/switch';
 import { StyleColorPicker } from './StyleColorPicker';
 import {
   HILLSHADE_EXAGGERATION_MAX,
@@ -410,7 +411,67 @@ export const DEMEditorScene = memo(function DEMEditorScene({
         </div>
       </section>
 
-      {/* 3. VISIBILITY section — always expanded */}
+      {/* 3. CONTOUR LINES section — hillshade and terrain modes only (UI-SPEC A-01) */}
+      {(mode === 'hillshade' || mode === 'terrain') && (
+        <section
+          aria-labelledby={`section-contour-dem-${layer.id}`}
+          className="border-b"
+        >
+          <div className="px-4 py-2">
+            <p
+              id={`section-contour-dem-${layer.id}`}
+              className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground mb-2"
+            >
+              {t('demEditor.sectionContourLines', { defaultValue: 'CONTOUR LINES' })}
+            </p>
+            <div className="space-y-3">
+              {/* Enable toggle */}
+              <div className="flex items-center justify-between">
+                <Label className="text-xs text-muted-foreground">
+                  {t('demEditor.contourEnable', { defaultValue: 'Contour lines' })}
+                </Label>
+                <Switch
+                  checked={paint['_contour-enabled'] === true}
+                  onCheckedChange={(next) => handlePaintValue('_contour-enabled', next)}
+                  aria-label={t('demEditor.contourEnable', { defaultValue: 'Contour lines' })}
+                />
+              </div>
+              {/* Contour controls — conditionally rendered (mount/unmount) when enabled */}
+              {paint['_contour-enabled'] === true && (
+                <>
+                  <SliderRow
+                    label={t('demEditor.contourInterval', { defaultValue: 'Interval' })}
+                    value={getNumber(paint, '_contour-interval', 100)}
+                    min={10}
+                    max={500}
+                    step={10}
+                    suffix=" m"
+                    ariaLabel={t('demEditor.contourInterval', { defaultValue: 'Interval' })}
+                    onChange={(v) => handlePaintValue('_contour-interval', v)}
+                  />
+                  <StyleColorPicker
+                    label={t('demEditor.contourColor', { defaultValue: 'Color' })}
+                    color={getString(paint, '_contour-color', '#555555')}
+                    onChange={(v) => handlePaintValue('_contour-color', v)}
+                  />
+                  <SliderRow
+                    label={t('demEditor.contourWeight', { defaultValue: 'Weight' })}
+                    value={getNumber(paint, '_contour-weight', 1)}
+                    min={0.5}
+                    max={4}
+                    step={0.5}
+                    suffix=" px"
+                    ariaLabel={t('demEditor.contourWeight', { defaultValue: 'Weight' })}
+                    onChange={(v) => handlePaintValue('_contour-weight', v)}
+                  />
+                </>
+              )}
+            </div>
+          </div>
+        </section>
+      )}
+
+      {/* 4. VISIBILITY section — always expanded */}
       <section
         aria-labelledby={`section-visibility-dem-${layer.id}`}
         className="border-b"

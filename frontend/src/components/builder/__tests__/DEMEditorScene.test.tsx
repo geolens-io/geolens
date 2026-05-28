@@ -471,6 +471,143 @@ describe('DEMEditorScene', () => {
     expect(deleteBtn).toBeInTheDocument();
   });
 
+  // --- CONTOUR LINES section tests (EDITOR-DEM-04) ---
+
+  describe('CONTOUR LINES section', () => {
+    it('section is absent in image mode', () => {
+      render(
+        <DEMEditorScene
+          {...defaultProps({ layer: makeDEMLayer({ style_config: null }) })}
+        />,
+      );
+      expect(screen.queryByText('CONTOUR LINES')).not.toBeInTheDocument();
+    });
+
+    it('section is present in hillshade mode', () => {
+      render(
+        <DEMEditorScene
+          {...defaultProps({
+            layer: makeDEMLayer({ style_config: { render_mode: 'hillshade' } }),
+          })}
+        />,
+      );
+      expect(screen.getByText('CONTOUR LINES')).toBeInTheDocument();
+    });
+
+    it('section is present in terrain mode', () => {
+      render(
+        <DEMEditorScene
+          {...defaultProps({
+            layer: makeDEMLayer({ style_config: { render_mode: 'terrain' } as unknown as MapLayerResponse['style_config'] }),
+          })}
+        />,
+      );
+      expect(screen.getByText('CONTOUR LINES')).toBeInTheDocument();
+    });
+
+    it('toggling the Switch fires onPaintChange with _contour-enabled=true', () => {
+      const onPaintChange = vi.fn();
+      render(
+        <DEMEditorScene
+          {...defaultProps({
+            layer: makeDEMLayer({ style_config: { render_mode: 'hillshade' } }),
+            onPaintChange,
+          })}
+        />,
+      );
+
+      // The Switch's aria-label is "Contour lines"
+      const switchEl = screen.getByRole('switch', { name: 'Contour lines' });
+      fireEvent.click(switchEl);
+
+      expect(onPaintChange).toHaveBeenCalledOnce();
+      const [paint] = onPaintChange.mock.calls[0] as [Record<string, unknown>];
+      expect(paint['_contour-enabled']).toBe(true);
+    });
+
+    it('interval slider fires onPaintChange with _contour-interval when contour is enabled', () => {
+      const onPaintChange = vi.fn();
+      render(
+        <DEMEditorScene
+          {...defaultProps({
+            layer: makeDEMLayer({
+              style_config: { render_mode: 'hillshade' },
+              paint: { '_contour-enabled': true },
+            }),
+            onPaintChange,
+          })}
+        />,
+      );
+
+      const intervalSlider = screen.getByRole('slider', { name: 'Interval' });
+      fireEvent.change(intervalSlider, { target: { value: '200' } });
+
+      expect(onPaintChange).toHaveBeenCalledOnce();
+      const [paint] = onPaintChange.mock.calls[0] as [Record<string, unknown>];
+      expect(paint['_contour-interval']).toBe(200);
+    });
+
+    it('weight slider fires onPaintChange with _contour-weight when contour is enabled', () => {
+      const onPaintChange = vi.fn();
+      render(
+        <DEMEditorScene
+          {...defaultProps({
+            layer: makeDEMLayer({
+              style_config: { render_mode: 'hillshade' },
+              paint: { '_contour-enabled': true },
+            }),
+            onPaintChange,
+          })}
+        />,
+      );
+
+      const weightSlider = screen.getByRole('slider', { name: 'Weight' });
+      fireEvent.change(weightSlider, { target: { value: '2' } });
+
+      expect(onPaintChange).toHaveBeenCalledOnce();
+      const [paint] = onPaintChange.mock.calls[0] as [Record<string, unknown>];
+      expect(paint['_contour-weight']).toBe(2);
+    });
+
+    it('color picker fires onPaintChange with _contour-color when contour is enabled', () => {
+      const onPaintChange = vi.fn();
+      render(
+        <DEMEditorScene
+          {...defaultProps({
+            layer: makeDEMLayer({
+              style_config: { render_mode: 'hillshade' },
+              paint: { '_contour-enabled': true },
+            }),
+            onPaintChange,
+          })}
+        />,
+      );
+
+      const colorPicker = screen.getByTestId('color-picker-color');
+      fireEvent.click(colorPicker);
+
+      expect(onPaintChange).toHaveBeenCalledOnce();
+      const [paint] = onPaintChange.mock.calls[0] as [Record<string, unknown>];
+      expect(paint['_contour-color']).toBe('#ABCDEF');
+    });
+
+    it('interval/color/weight controls are NOT rendered when toggle is off', () => {
+      render(
+        <DEMEditorScene
+          {...defaultProps({
+            layer: makeDEMLayer({
+              style_config: { render_mode: 'hillshade' },
+              paint: { '_contour-enabled': false },
+            }),
+          })}
+        />,
+      );
+
+      expect(screen.queryByRole('slider', { name: 'Interval' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('slider', { name: 'Weight' })).not.toBeInTheDocument();
+    });
+  });
+
   // Test 14: Switching render mode preserves style_config keys not under current mode
   it('switching image→hillshade→image preserves other style_config keys', () => {
     const onStyleConfigChange = vi.fn();

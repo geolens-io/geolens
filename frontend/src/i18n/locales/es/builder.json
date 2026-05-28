@@ -963,7 +963,12 @@
     "terrainHint": "El terreno usa datos de elevación para extruir la superficie del mapa.",
     "terrainExaggeration": "Exageración del terreno",
     "imageHint": "No hay controles de apariencia adicionales para el modo imagen",
-    "compassAriaLabel": "Azimut solar: {{azimuth}}°"
+    "compassAriaLabel": "Azimut solar: {{azimuth}}°",
+    "sectionContourLines": "CURVAS DE NIVEL",
+    "contourEnable": "Curvas de nivel",
+    "contourInterval": "Intervalo",
+    "contourColor": "Color",
+    "contourWeight": "Grosor"
   },
   "folderGroup": {
     "defaultName": "Grupo {{n}}",

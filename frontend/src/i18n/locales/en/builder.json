@@ -963,7 +963,12 @@
     "terrainHint": "Terrain uses elevation data to extrude the map surface.",
     "terrainExaggeration": "Terrain exaggeration",
     "imageHint": "No additional appearance controls for image mode",
-    "compassAriaLabel": "Sun azimuth: {{azimuth}}°"
+    "compassAriaLabel": "Sun azimuth: {{azimuth}}°",
+    "sectionContourLines": "CONTOUR LINES",
+    "contourEnable": "Contour lines",
+    "contourInterval": "Interval",
+    "contourColor": "Color",
+    "contourWeight": "Weight"
   },
   "folderGroup": {
     "defaultName": "Group {{n}}",
