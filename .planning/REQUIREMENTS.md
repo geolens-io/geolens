@@ -24,8 +24,8 @@ New per-render-mode editor controls extending the v1026 owned-property contracts
 ### Quality & Close-Gate
 
 - [ ] **QA-01**: Builder verified via intensive live Playwright MCP smoke against `http://localhost:8080/maps/8dd6a129-8eb0-4ba9-b421-716c83b160dd`, exercising each new render-mode control and the share/OG flow, with a committed evidence file. Orchestrator drives MCP directly (subagents lack `mcp__playwright__*`).
-- [ ] **QA-02**: Touched-surface gates green — frontend typecheck + lint + vitest, focused backend pytest, `e2e:smoke:builder`, and i18n parity (en/de/es/fr).
-- [ ] **QA-03**: CHANGELOG updated for v1031; OpenAPI + Python/TypeScript SDK regenerated where backend routes/schema changed (e.g., OG-image routes under Path A, raster colormap params).
+- [x] **QA-02**: Touched-surface gates green — frontend typecheck + lint + vitest, focused backend pytest, `e2e:smoke:builder`, and i18n parity (en/de/es/fr).
+- [x] **QA-03**: CHANGELOG updated for v1031; OpenAPI + Python/TypeScript SDK regenerated where backend routes/schema changed (e.g., OG-image routes under Path A, raster colormap params).
 
 ## Future Requirements (v1032+)
 
@@ -71,8 +71,8 @@ Which phases cover which requirements. Populated during roadmap creation (contin
 | SHARE-08 | Phase 1142 | Complete |
 | SHARE-10 | Phase 1142 | Complete |
 | QA-01 | Phase 1143 | Pending |
-| QA-02 | Phase 1143 | Pending |
-| QA-03 | Phase 1143 | Pending |
+| QA-02 | Phase 1143 | Complete |
+| QA-03 | Phase 1143 | Complete |
 
 **Coverage:**
 - v1 requirements: 9 total
