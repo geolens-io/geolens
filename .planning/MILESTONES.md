@@ -17,6 +17,8 @@
 
 **Migrations:** None (frontend removal + backend internal behavior + test/i18n only).
 
+**Post-tag fix (same session, no new tag):** RASTER-STRETCH-UI-02 resolved — `buildColormapTileUrl` now forwards `stretch=` independent of colormap so `percentile`/`stddev` apply on the default grayscale render too (was a no-op when colormap=gray). Commit `fbcf7b34`; +3 raster-adapter tests; live-verified via the `/raster-tiles/` path; CHANGELOG `[1.7.0]` updated. Local `v1032` tag re-pointed to include it.
+
 ---
 
 ## v1031 Builder Render-Mode & Share Polish (Shipped: 2026-05-28)

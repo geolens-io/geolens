@@ -50,7 +50,7 @@ See: .planning/PROJECT.md (updated 2026-05-28)
 
 - **Raster stretch (v1032 RESOLVED):** `percentile`/`stddev` now compute a stats-based Titiler rescale (was minmax-only fallback). `_fetch_band_statistics` (Titiler `/cog/statistics`, cached per `open_path`) + `_compute_stretch_rescale` (percentile → [p2,p98]; stddev → [mean±2σ] clamped) + `_apply_stretch_rescale` in `backend/app/processing/tiles/router.py`. Not applied to DEM (terrainrgb). Single-band scope; multi-band = Future RASTER-STRETCH-03.
 - **Contour (v1032 RESOLVED → CUT):** `maplibre-contour` dep + `contour-sync.ts` + call site + `CONTOUR_CONTROL_ENABLED` flag/gate + dead `relief-contour` enum + 5 dormant tests + i18n keys all removed. 3 DEM-editor absence tests are the regression pins. Future contour would need a maintained approach (recorded in milestones/v1032-REQUIREMENTS.md Out of Scope).
-- **stretch ↔ gray-colormap coupling (v1032 tech-debt):** `buildColormapTileUrl` only forwards `stretch=` alongside a non-gray colormap, so selecting a stretch on the gray colormap is a no-op. Pre-existing; logged RASTER-STRETCH-UI-02.
+- **stretch ↔ gray-colormap coupling (RASTER-STRETCH-UI-02 — RESOLVED post-tag, commit `fbcf7b34`):** `buildColormapTileUrl` now forwards `stretch=` independent of colormap, so `percentile`/`stddev` apply on the default grayscale render too (was a no-op when colormap=gray). Live-verified via the `/raster-tiles/` path.
 - **band_count gate (v1031):** `band_count=None` for the `get_dataset_meta` path (no `RasterAsset` join); frontend gates the single-band COLORMAP section on `band_count === 1`.
 - **Cluster adapter (carried):** intentionally keeps raw `map.setFilter` for the compound `combineFilter` shape — NOT migrated to `syncLayerFilter`.
 - **Fill extrusion companion (carried):** does not receive a `layout.visibility` block at `addLayers` add-time (pre-existing gap); controlled via `syncVisibility`. Documented in `fill-adapter.test.ts`.
@@ -68,7 +68,7 @@ None active.
 
 | Category | Item | Status | Deferred At |
 |----------|------|--------|-------------|
-| stretch-ux | RASTER-STRETCH-UI-02: decouple stretch from colormap (stretch is a no-op on the default gray colormap) | Future; pre-existing coupling surfaced by v1032 | v1032 milestone audit |
+| stretch-ux | RASTER-STRETCH-UI-02: decouple stretch from colormap (stretch is a no-op on the default gray colormap) | RESOLVED post-tag (commit `fbcf7b34`) | v1032 milestone audit |
 | raster-render | Multi-band stretch (RASTER-STRETCH-03); configurable percentile bounds / σ (RASTER-STRETCH-UI-01) | Future | v1032 |
 | test-data | No non-DEM single-band raster seeded — live UI stretch verified via reversible `is_dem` toggle | Spot-check if such a dataset is added | v1032 Phase 1146 |
 | ci-live-verify | `pytest-parallel-isolation` gate live-verify on real GitHub Actions (billing block) | Carried forward as CI-01-v1030 | v1023 Phase 1100 degraded close |
