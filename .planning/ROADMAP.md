@@ -131,7 +131,7 @@
   3. When a layer renders zero features (filter eliminated all rows or empty source), the LayerEditorPanel surfaces a "0 features — check your filter" hint with a "clear filter" button that dispatches through `BuilderLayerAction` (no map mutation bypass).
   4. Live Playwright MCP at 800px viewport verifies all three easy-wins do not regress any Phase 1134/1136 layout fix (Pitfall #14 — no "small CSS-only change" exception to MCP re-verify).
 **Plans**: 4 plans
-- [ ] 1138-01-PLAN.md — Cmd/Ctrl+S keyboard shortcut with preventDefault + dialog-open no-op gate (EASY-02)
+- [x] 1138-01-PLAN.md — Cmd/Ctrl+S keyboard shortcut with preventDefault + dialog-open no-op gate (EASY-02)
 - [ ] 1138-02-PLAN.md — popup-rich-text helper + FeaturePopup URL/media auto-render + PopupConfigEditor token+media hint (EASY-11)
 - [ ] 1138-03-PLAN.md — useFilteredFeatureCount hook + LayerFilterEditor empty-state hint + Clear-filter dispatcher pin (EASY-18)
 - [ ] 1138-04-PLAN.md — Orchestrator-driven Playwright MCP smoke checklist at 800x600 viewport (Pitfall #14 close-gate)
@@ -168,7 +168,7 @@ After Phase 1134 ships, Phases 1135 / 1136 / 1137 are **independent and can run 
 | 1135. AI Chat Confirm-Before-Apply and Analysis Polish | v1030 | 6/6 | Complete   | 2026-05-27 |
 | 1136. Per-Render-Mode Editor Polish | v1030 | 7/7 | Complete   | 2026-05-27 |
 | 1137. Sharing and Embed Polish | v1030 | 7/7 | Complete   | 2026-05-28 |
-| 1138. Easy-Win Sweep | v1030 | 0/4 | Not started | - |
+| 1138. Easy-Win Sweep | v1030 | 1/4 | In Progress|  |
 | 1139. Quality Sweep and Playwright Close-Gate | v1030 | 0/0 | Not started | - |
 
 ## Historical Milestones
