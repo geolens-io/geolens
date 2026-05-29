@@ -11,6 +11,24 @@ GitHub release notes are generated from this file, so `CHANGELOG.md` is the rele
 
 ## [Unreleased]
 
+## [1.8.0] - 2026-05-29
+
+Builder render-mode persistence fix (3D terrain now restores on load), a layer-list label indicator, and small builder/raster cleanups — surfaced by a live walkthrough of the two ADK sample maps.
+
+### Fixed
+
+- **DEM/raster "Render as" now persists across reload.** A DEM layer saved as **Terrain** (or any raster mode) was silently reverting to **Image** on every map load, and 3D terrain never attached. Root cause: the style-config normalizer's render-mode allowlist omitted `'terrain'` and `'image'`, so those values were dropped on read. Both are now in the allowlist and the `StyleConfig.render_mode` type union, so the 3D terrain mesh attaches on fresh load and the editor shows the saved render mode. (RMODE-01/02/03)
+- **DEM hillshade no longer spams "dem dimension mismatch" errors when a DEM also powers 3D terrain.** When a DEM is the active terrain source, a second hillshade consumer of the same DEM is now skipped (the terrain mesh already provides relief) and the DEM editor shows an advisory note. Maps without terrain are unaffected — hillshade renders normally. (POLISH-02)
+
+### Added
+
+- **Layer-list label indicator.** Layers that have labels configured now show a small indicator in the builder layer list (with an accessible "Labels on: {column}" tooltip), so labeled layers are visually distinct at a glance. Derived purely from layer state; localized in en/de/es/fr. (LABEL-01)
+
+### Changed
+
+- **Single "Render as" control on point layers.** The point layer Style tab no longer shows a redundant second "Render as" dropdown — the segmented Point / Symbols / Heatmap / Cluster control is now the only render-mode picker, matching line and polygon editors. (POLISH-01)
+- **Bounded the raster band-statistics cache.** The per-asset Titiler statistics cache that backs `percentile`/`stddev` stretch is now an LRU (`maxsize=256`) instead of an unbounded dict, so long-running tile servers can't accumulate one entry per single-band raster indefinitely. (HYG-01)
+
 ## [1.7.0] - 2026-05-28
 
 Closes the v1031 builder carry-forward tail: single-band raster `percentile`/`stddev` stretch now compute real statistics, and the unstable contour control was removed.
