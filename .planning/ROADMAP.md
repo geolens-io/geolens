@@ -116,7 +116,8 @@
   2. `SELECT is_dem FROM catalog.raster_assets WHERE dataset_id = '<fixture_id>'` returns `false` — the dataset is NOT routed through `algorithm=terrainrgb`
   3. Re-running the seed script skips the fixture (idempotent — no duplicate ingest)
   4. The fixture is acquired at seed time (downloaded or generated during script execution), never at pytest time
-**Plans**: TBD
+**Plans**: 1 plan
+  - [ ] 1152-01-singleband-raster-fixture-PLAN.md — seed an idempotent single-band uint8 GRAY_50M_SR raster fixture; verify band_count==1 + is_dem=false
 **UI hint**: yes
 
 ### Phase 1153: Backend — Multi-Band Stretch + Configurable Bounds
