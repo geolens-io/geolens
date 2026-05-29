@@ -20,12 +20,12 @@ The `RENDER_MODES` allowlist (`frontend/src/lib/normalize-style-config.ts:92` �
 
 ### Builder Polish (P2)
 
-- [ ] **POLISH-01**: The point-layer Style tab exposes a single "Render as" control. Today it renders both a segmented button group (Point/Symbols/Heatmap/Cluster) **and** a redundant "Render as" combobox; line/polygon editors show only the segmented control. Consolidate to the segmented control (or, if the combobox drives a distinct sub-variant, relabel it so it is not a second "Render as").
-- [ ] **POLISH-02**: Enabling DEM hillshade on a DEM that is simultaneously bound to a terrain source degrades gracefully — no `backfillBorder` "dem dimension mismatch" console-error spam. Guard the dual-consumer case (reuse the terrain DEM-source tile size for the hillshade consumer, or surface a one-line editor note) rather than letting MapLibre throw. Narrow edge (user-confirmed on Map A; not reproduced on Map B's primary hillshade path).
+- [x] **POLISH-01**: The point-layer Style tab exposes a single "Render as" control. Today it renders both a segmented button group (Point/Symbols/Heatmap/Cluster) **and** a redundant "Render as" combobox; line/polygon editors show only the segmented control. Consolidate to the segmented control (or, if the combobox drives a distinct sub-variant, relabel it so it is not a second "Render as").
+- [x] **POLISH-02**: Enabling DEM hillshade on a DEM that is simultaneously bound to a terrain source degrades gracefully — no `backfillBorder` "dem dimension mismatch" console-error spam. Guard the dual-consumer case (reuse the terrain DEM-source tile size for the hillshade consumer, or surface a one-line editor note) rather than letting MapLibre throw. Narrow edge (user-confirmed on Map A; not reproduced on Map B's primary hillshade path).
 
 ### Raster Hygiene (P2)
 
-- [ ] **HYG-01**: Bound `_band_stats_cache` in `backend/app/processing/tiles/router.py` with an LRU cap or TTL (currently unbounded — one entry per single-band raster that gets a percentile/stddev tile, evicted only on process restart). Closes the v1032 deferred carry-forward. Backend unit test pins the bound.
+- [x] **HYG-01**: Bound `_band_stats_cache` in `backend/app/processing/tiles/router.py` with an LRU cap or TTL (currently unbounded — one entry per single-band raster that gets a percentile/stddev tile, evicted only on process restart). Closes the v1032 deferred carry-forward. Backend unit test pins the bound.
 
 ### Close-Gate (QA)
 
@@ -60,9 +60,9 @@ The `RENDER_MODES` allowlist (`frontend/src/lib/normalize-style-config.ts:92` �
 | RMODE-02 | Phase 1148 | Complete |
 | RMODE-03 | Phase 1148 | Complete |
 | LABEL-01 | Phase 1149 | Complete |
-| POLISH-01 | Phase 1150 | Pending |
-| POLISH-02 | Phase 1150 | Pending |
-| HYG-01 | Phase 1150 | Pending |
+| POLISH-01 | Phase 1150 | Complete |
+| POLISH-02 | Phase 1150 | Complete |
+| HYG-01 | Phase 1150 | Complete |
 | QA-01 | Phase 1151 | Pending |
 | QA-02 | Phase 1151 | Pending |
 
