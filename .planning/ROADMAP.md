@@ -10,7 +10,7 @@ Close the builder render-mode persistence defects surfaced by a live Playwright 
 
 ## Phases
 
-- [ ] **Phase 1148: Render-Mode Persistence Fix** — Add `'terrain'` + `'image'` to the `RENDER_MODES` allowlist and extend the `StyleConfig['render_mode']` union; remove the now-obsolete boundary cast and BSR-09 comment; add round-trip regression tests.
+- [x] **Phase 1148: Render-Mode Persistence Fix** — Add `'terrain'` + `'image'` to the `RENDER_MODES` allowlist and extend the `StyleConfig['render_mode']` union; remove the now-obsolete boundary cast and BSR-09 comment; add round-trip regression tests. (completed 2026-05-29)
 - [ ] **Phase 1149: Layer Label Indicator** — Pure-derived label indicator on layer rows whose `label_config` is enabled; en/de/es/fr i18n + a11y.
 - [ ] **Phase 1150: Builder Polish & Raster Cache Hygiene** — Consolidate duplicate point "Render as" control; graceful DEM hillshade dual-consumer guard; bound `_band_stats_cache`.
 - [ ] **Phase 1151: QA Close-Gate** — Orchestrator-driven Playwright MCP re-verify on both ADK sample maps + standard code gates + CHANGELOG.
@@ -27,7 +27,7 @@ Close the builder render-mode persistence defects surfaced by a live Playwright 
   3. The `normalize-style-config.test.ts` suite includes round-trip tests confirming that `render_mode:'terrain'`, `render_mode:'image'`, and `render_mode:'hillshade'` each survive `normalizeRenderMode()` unchanged.
   4. `DEMEditorScene.tsx` contains no boundary cast for `DemRenderMode` and no BSR-09 follow-up comment, and the `StyleConfig['render_mode']` TypeScript union includes `'terrain'` and `'image'`.
 **Plans**: 1 plan
-- [ ] 1148-01-PLAN.md — Extend RENDER_MODES + StyleConfig union, remove BSR-09 cast, add round-trip regression tests
+- [x] 1148-01-PLAN.md — Extend RENDER_MODES + StyleConfig union, remove BSR-09 cast, add round-trip regression tests
 **UI hint**: yes
 
 ### Phase 1149: Layer Label Indicator
@@ -66,7 +66,7 @@ Close the builder render-mode persistence defects surfaced by a live Playwright 
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1148. Render-Mode Persistence Fix | 0/1 | Not started | - |
+| 1148. Render-Mode Persistence Fix | 1/1 | Complete   | 2026-05-29 |
 | 1149. Layer Label Indicator | 0/? | Not started | - |
 | 1150. Builder Polish & Raster Cache Hygiene | 0/? | Not started | - |
 | 1151. QA Close-Gate | 0/? | Not started | - |
