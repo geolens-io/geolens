@@ -2,30 +2,31 @@
 gsd_state_version: 1.0
 milestone: v1034
 milestone_name: Raster Stretch & Colormap Completion
-status: active
-last_updated: "2026-05-29T20:14:36.098Z"
+status: verifying
+stopped_at: Phase 1152 Plan 01 complete — TESTDATA-01 satisfied; fixture dataset_id 4767fc35-f6d6-4985-a28e-aecb158fbc1b
+last_updated: "2026-05-29T23:30:00.000Z"
 last_activity: 2026-05-29
 progress:
-  total_phases: 4
-  completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
-  percent: 0
+  total_phases: 10
+  completed_phases: 1
+  total_plans: 1
+  completed_plans: 1
+  percent: 10
 ---
 
 # State
 
 ## Current Position
 
-Phase: 1152 — Single-Band Raster Fixture
-Plan: —
-Status: Ready to plan (roadmap created, no plans yet)
-Last activity: 2026-05-29 — v1034 roadmap created (phases 1152-1155)
+Phase: 1152 (Single-Band Raster Fixture) — COMPLETE
+Plan: 1 of 1 (done)
+Status: TESTDATA-01 satisfied — fixture ingested, is_dem=false, band_count=1, idempotent
+Last activity: 2026-05-29
 
 ```
 Phase progress: [ 1152 ][ 1153 ][ 1154 ][ 1155 ]
-                [  →  ][      ][      ][      ]
-                0% complete
+                [ DONE][      ][      ][      ]
+                25% complete (1 of 4 phases)
 ```
 
 ## Project Reference
@@ -33,7 +34,7 @@ Phase progress: [ 1152 ][ 1153 ][ 1154 ][ 1155 ]
 See: .planning/PROJECT.md (updated 2026-05-29)
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** v1034 Raster Stretch & Colormap Completion — Phase 1152 (Single-Band Raster Fixture)
+**Current focus:** Phase 1152 — Single-Band Raster Fixture
 
 ## Last Shipped Milestone
 
@@ -50,6 +51,7 @@ See: .planning/PROJECT.md (updated 2026-05-29)
 **Goal:** Finish the half-done raster stretch/colormap feature — add full per-band multi-band stretch, make percentile/σ bounds configurable, seed a real single-band raster fixture to actually verify the colormap/stretch UI, and clear the v1033 builder dead-code/note tech debt.
 
 **Phases:**
+
 - [ ] 1152: Single-Band Raster Fixture (TESTDATA-01)
 - [ ] 1153: Backend — Multi-Band Stretch + Configurable Bounds (RASTER-STRETCH-03 backend, SPIKE-01, RASTER-STRETCH-UI-01 backend)
 - [ ] 1154: Frontend Controls + Cleanup (RASTER-STRETCH-03 frontend, RASTER-STRETCH-UI-01 frontend, RASTER-STRETCH-UI-02, CLEANUP-01)
@@ -72,6 +74,8 @@ See: .planning/PROJECT.md (updated 2026-05-29)
 - **Cluster adapter (carried):** intentionally keeps raw `map.setFilter` for the compound `combineFilter` shape — NOT migrated to `syncLayerFilter`.
 - **Fill extrusion companion (carried):** no `layout.visibility` block at `addLayers` add-time; controlled via `syncVisibility`. Documented in `fill-adapter.test.ts`.
 - **SF-MCP-01 (carried from v1030):** `chat_actions.py:_collect_chat_action()` never emits rows on `show_query_result` for non-spatial queries; frontend inline card ready but backend wiring still missing.
+- **TESTDATA-01 fixture (v1034 Phase 1152 DONE):** `GRAY_50M_SR.tif` ingested via `ingest_raster_fixture()` in `scripts/seed-natural-earth.py`. `dataset_id=4767fc35-f6d6-4985-a28e-aecb158fbc1b`, `band_count=1`, `is_dem=false`. Idempotent. PITFALL: upload the `.tif` extracted from the zip (not the zip directly) — `_stamp_raster_metadata` gates raster detection on `.tif`/`.tiff` filename extension.
+- **Raster seed filename resolution (v1034):** `RASTER_FIXTURE` has two filename keys: `filename` (CDN zip download/cache key = `GRAY_50M_SR.zip`) and `tif_filename` (uploaded to API / stored as `source_filename` = `GRAY_50M_SR.tif`). Idempotency check uses `tif_filename`.
 
 ### Pending Todos
 
@@ -93,13 +97,14 @@ None active.
 
 ## Session Continuity
 
-Last session: 2026-05-29T20:14:36.098Z
+Last session: 2026-05-29T23:25:05.409Z
 Stopped at: v1034 roadmap created; STATE.md initialized at Phase 1152
 Resume file: None
 
 ## Operator Next Steps
 
-- **Next:** `/gsd:plan-phase 1152` — seed script raster fixture (TESTDATA-01). Single phase, single plan expected.
+- **Phase 1152 DONE.** TESTDATA-01 satisfied — `GRAY_50M_SR.tif` fixture in catalog (id `4767fc35-f6d6-4985-a28e-aecb158fbc1b`), `is_dem=false`, `band_count=1`, idempotent.
+- **Next:** Phase 1153 — Backend Multi-Band Stretch + Configurable Bounds.
 - **Phase 1153 note:** SPIKE-01 is the first task — run `curl http://localhost:8000/cog/statistics?url=<path>&p=5&p=95` against the live Titiler container and inspect response keys before writing any configurable-bounds code.
 - **MCP note:** Orchestrator drives all live Playwright MCP (Phase 1155). Executor subagents lack `mcp__playwright__*` access — see project memory `playwright-mcp-orchestrator-only`.
 - Phase directories for v1033 (1148-1151) should be in `milestones/v1033-phases/` after cleanup.

@@ -11,7 +11,7 @@ Requirements for this milestone. Each maps to exactly one roadmap phase.
 
 ### Test Data (precondition — must land first)
 
-- [ ] **TESTDATA-01**: A non-DEM **single-band uint8/uint16** raster fixture is seeded idempotently via `scripts/seed-natural-earth.py` and is classified `is_dem=false` after ingest, so the single-band stretch/colormap UI can be verified against real data. MUST NOT be float32/float64 — a single-band float raster is auto-classified as a DEM (`backend/app/processing/.../cog.py:85` heuristic `band_count==1 AND float dtype`) and routed through `algorithm=terrainrgb` (`backend/app/processing/tiles/router.py:477`), silently bypassing stretch/colormap. Acceptance includes a post-ingest `is_dem=false` check. Candidate source: Natural Earth `GRAY_50M_SR` (uint8 grayscale shaded relief, public domain) or a synthetic uint8 COG. Fixture MUST be acquired at seed time, never at pytest time (CI flakiness).
+- [x] **TESTDATA-01**: A non-DEM **single-band uint8/uint16** raster fixture is seeded idempotently via `scripts/seed-natural-earth.py` and is classified `is_dem=false` after ingest, so the single-band stretch/colormap UI can be verified against real data. MUST NOT be float32/float64 — a single-band float raster is auto-classified as a DEM (`backend/app/processing/.../cog.py:85` heuristic `band_count==1 AND float dtype`) and routed through `algorithm=terrainrgb` (`backend/app/processing/tiles/router.py:477`), silently bypassing stretch/colormap. Acceptance includes a post-ingest `is_dem=false` check. Candidate source: Natural Earth `GRAY_50M_SR` (uint8 grayscale shaded relief, public domain) or a synthetic uint8 COG. Fixture MUST be acquired at seed time, never at pytest time (CI flakiness).
 
 ### Multi-Band Stretch
 
@@ -58,7 +58,7 @@ Deferred — acknowledged, not in this milestone's roadmap.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| TESTDATA-01 | Phase 1152 | Pending |
+| TESTDATA-01 | Phase 1152 | Complete |
 | RASTER-STRETCH-03 | Phase 1153 (backend) + Phase 1154 (frontend) | Pending |
 | SPIKE-01 | Phase 1153 | Pending |
 | RASTER-STRETCH-UI-01 | Phase 1153 (backend) + Phase 1154 (frontend) | Pending |
