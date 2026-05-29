@@ -16,7 +16,7 @@ The `RENDER_MODES` allowlist (`frontend/src/lib/normalize-style-config.ts:92` â€
 
 ### Label Discoverability (P1)
 
-- [ ] **LABEL-01**: Layer rows in the builder layer list show a derived indicator (small icon/badge) when that layer has labels enabled (`label_config` present + enabled), so a labeled layer (e.g. "ADK 46er peaks") is visually distinct from an unlabeled one (e.g. "Hiking trails"). Pure derivation from layer state (mirror the v1011 `SublayerConfigIndicators` pattern â€” no new persisted state), with an accessible label and en/de/es/fr i18n parity.
+- [x] **LABEL-01**: Layer rows in the builder layer list show a derived indicator (small icon/badge) when that layer has labels enabled (`label_config` present + enabled), so a labeled layer (e.g. "ADK 46er peaks") is visually distinct from an unlabeled one (e.g. "Hiking trails"). Pure derivation from layer state (mirror the v1011 `SublayerConfigIndicators` pattern â€” no new persisted state), with an accessible label and en/de/es/fr i18n parity.
 
 ### Builder Polish (P2)
 
@@ -59,7 +59,7 @@ The `RENDER_MODES` allowlist (`frontend/src/lib/normalize-style-config.ts:92` â€
 | RMODE-01 | Phase 1148 | Complete |
 | RMODE-02 | Phase 1148 | Complete |
 | RMODE-03 | Phase 1148 | Complete |
-| LABEL-01 | Phase 1149 | Pending |
+| LABEL-01 | Phase 1149 | Complete |
 | POLISH-01 | Phase 1150 | Pending |
 | POLISH-02 | Phase 1150 | Pending |
 | HYG-01 | Phase 1150 | Pending |

@@ -11,7 +11,7 @@ Close the builder render-mode persistence defects surfaced by a live Playwright 
 ## Phases
 
 - [x] **Phase 1148: Render-Mode Persistence Fix** — Add `'terrain'` + `'image'` to the `RENDER_MODES` allowlist and extend the `StyleConfig['render_mode']` union; remove the now-obsolete boundary cast and BSR-09 comment; add round-trip regression tests. (completed 2026-05-29)
-- [ ] **Phase 1149: Layer Label Indicator** — Pure-derived label indicator on layer rows whose `label_config` is enabled; en/de/es/fr i18n + a11y.
+- [x] **Phase 1149: Layer Label Indicator** — Pure-derived label indicator on layer rows whose `label_config` is enabled; en/de/es/fr i18n + a11y. (completed 2026-05-29)
 - [ ] **Phase 1150: Builder Polish & Raster Cache Hygiene** — Consolidate duplicate point "Render as" control; graceful DEM hillshade dual-consumer guard; bound `_band_stats_cache`.
 - [ ] **Phase 1151: QA Close-Gate** — Orchestrator-driven Playwright MCP re-verify on both ADK sample maps + standard code gates + CHANGELOG.
 
@@ -39,7 +39,7 @@ Close the builder render-mode persistence defects surfaced by a live Playwright 
   2. The indicator is purely derived from layer state (`label_config.enabled`) — no new persisted fields; mirrors the v1011 `SublayerConfigIndicators` derivation pattern.
   3. The indicator has an accessible label (aria attribute or tooltip), and the i18n key exists in all four locales: en, de, es, fr.
 **Plans**: 1 plan
-- [ ] 1149-01-PLAN.md — Add derived label indicator to StackRow name cell + 4-locale i18n + RTL tests
+- [x] 1149-01-PLAN.md — Add derived label indicator to StackRow name cell + 4-locale i18n + RTL tests
 **UI hint**: yes
 
 ### Phase 1150: Builder Polish & Raster Cache Hygiene
@@ -68,7 +68,7 @@ Close the builder render-mode persistence defects surfaced by a live Playwright 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1148. Render-Mode Persistence Fix | 1/1 | Complete   | 2026-05-29 |
-| 1149. Layer Label Indicator | 0/1 | Not started | - |
+| 1149. Layer Label Indicator | 1/1 | Complete   | 2026-05-29 |
 | 1150. Builder Polish & Raster Cache Hygiene | 0/? | Not started | - |
 | 1151. QA Close-Gate | 0/? | Not started | - |
 
