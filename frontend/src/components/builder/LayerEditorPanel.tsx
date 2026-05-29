@@ -503,15 +503,6 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
                       onOpacityChange={handlers.onOpacityChange}
                       onStyleConfigChange={handlers.onStyleConfigChange}
                       onLayoutChange={handlers.onLayoutChange}
-                      // PointRenderMode uses legacy 'points' (plural) while
-                      // our handler expects RenderAsId ('point'); adapt at the
-                      // call site so the dropdown wiring stays clean.
-                      onRenderModeChange={(id, mode) =>
-                        handlers.onRenderModeChange?.(
-                          id,
-                          (mode === 'points' ? 'point' : mode) as RenderAsId,
-                        )
-                      }
                     />
                   )}
                 </div>

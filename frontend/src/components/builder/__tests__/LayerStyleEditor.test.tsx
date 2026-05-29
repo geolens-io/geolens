@@ -52,7 +52,6 @@ describe('LayerStyleEditor - SP-05 pending preview banner gating', () => {
         onOpacityChange={vi.fn()}
         onStyleConfigChange={vi.fn()}
         onLayoutChange={vi.fn()}
-        onRenderModeChange={vi.fn()}
       />,
     );
     expect(screen.queryByText('Pending style preview')).not.toBeInTheDocument();
@@ -72,7 +71,6 @@ describe('LayerStyleEditor - SP-05 pending preview banner gating', () => {
         onOpacityChange={vi.fn()}
         onStyleConfigChange={vi.fn()}
         onLayoutChange={vi.fn()}
-        onRenderModeChange={vi.fn()}
       />,
     );
     expect(screen.queryByText('Pending style preview')).not.toBeInTheDocument();
@@ -93,7 +91,6 @@ describe('LayerStyleEditor - SP-05 pending preview banner gating', () => {
         onOpacityChange={vi.fn()}
         onStyleConfigChange={vi.fn()}
         onLayoutChange={vi.fn()}
-        onRenderModeChange={vi.fn()}
       />,
     );
     expect(screen.getByText('Pending style preview')).toBeInTheDocument();
@@ -123,7 +120,6 @@ describe('LayerStyleEditor - SP-05 pending preview banner gating', () => {
         onOpacityChange={onOpacityChange}
         onStyleConfigChange={onStyleConfigChange}
         onLayoutChange={vi.fn()}
-        onRenderModeChange={vi.fn()}
       />,
     );
 
@@ -188,7 +184,6 @@ describe('LayerStyleEditor - dash presets', () => {
         onOpacityChange={vi.fn()}
         onStyleConfigChange={onStyleConfigChange}
         onLayoutChange={vi.fn()}
-        onRenderModeChange={vi.fn()}
       />,
     );
 
@@ -204,7 +199,6 @@ describe('LayerStyleEditor - dash presets', () => {
         onOpacityChange={vi.fn()}
         onStyleConfigChange={vi.fn()}
         onLayoutChange={vi.fn()}
-        onRenderModeChange={vi.fn()}
       />,
     );
 
@@ -222,7 +216,6 @@ describe('LayerStyleEditor - dash presets', () => {
         onOpacityChange={vi.fn()}
         onStyleConfigChange={vi.fn()}
         onLayoutChange={vi.fn()}
-        onRenderModeChange={vi.fn()}
       />,
     );
 
@@ -241,7 +234,6 @@ describe('LayerStyleEditor - dash presets', () => {
         onOpacityChange={vi.fn()}
         onStyleConfigChange={vi.fn()}
         onLayoutChange={vi.fn()}
-        onRenderModeChange={vi.fn()}
       />,
     );
 
@@ -268,7 +260,6 @@ describe('LayerStyleEditor - dash presets', () => {
         onOpacityChange={vi.fn()}
         onStyleConfigChange={vi.fn()}
         onLayoutChange={onLayoutChange}
-        onRenderModeChange={vi.fn()}
       />,
     );
 
@@ -288,7 +279,6 @@ describe('LayerStyleEditor - dash presets', () => {
         onOpacityChange={vi.fn()}
         onStyleConfigChange={vi.fn()}
         onLayoutChange={vi.fn()}
-        onRenderModeChange={vi.fn()}
       />,
     );
 
@@ -309,7 +299,6 @@ describe('LayerStyleEditor - line paint controls', () => {
         onOpacityChange={vi.fn()}
         onStyleConfigChange={vi.fn()}
         onLayoutChange={vi.fn()}
-        onRenderModeChange={vi.fn()}
       />,
     );
 
@@ -332,7 +321,6 @@ describe('LayerStyleEditor - line paint controls', () => {
         onOpacityChange={vi.fn()}
         onStyleConfigChange={vi.fn()}
         onLayoutChange={vi.fn()}
-        onRenderModeChange={vi.fn()}
       />,
     );
 
@@ -368,7 +356,6 @@ describe('LayerStyleEditor - line paint controls', () => {
         onOpacityChange={vi.fn()}
         onStyleConfigChange={vi.fn()}
         onLayoutChange={vi.fn()}
-        onRenderModeChange={vi.fn()}
       />,
     );
 
@@ -391,7 +378,6 @@ describe('LayerStyleEditor - line paint controls', () => {
         onOpacityChange={vi.fn()}
         onStyleConfigChange={vi.fn()}
         onLayoutChange={vi.fn()}
-        onRenderModeChange={vi.fn()}
       />,
     );
 
@@ -414,7 +400,6 @@ describe('LayerStyleEditor - line paint controls', () => {
         onOpacityChange={vi.fn()}
         onStyleConfigChange={vi.fn()}
         onLayoutChange={vi.fn()}
-        onRenderModeChange={vi.fn()}
       />,
     );
 
@@ -430,7 +415,6 @@ describe('LayerStyleEditor - line paint controls', () => {
         onOpacityChange={vi.fn()}
         onStyleConfigChange={vi.fn()}
         onLayoutChange={vi.fn()}
-        onRenderModeChange={vi.fn()}
       />,
     );
 
@@ -456,7 +440,6 @@ describe('LayerStyleEditor - line paint controls', () => {
         onOpacityChange={vi.fn()}
         onStyleConfigChange={vi.fn()}
         onLayoutChange={vi.fn()}
-        onRenderModeChange={vi.fn()}
       />,
     );
 
@@ -484,7 +467,6 @@ describe('LayerStyleEditor - circle zoom expression controls', () => {
         onOpacityChange={vi.fn()}
         onStyleConfigChange={vi.fn()}
         onLayoutChange={vi.fn()}
-        onRenderModeChange={vi.fn()}
       />,
     );
 
@@ -513,7 +495,6 @@ describe('LayerStyleEditor - circle zoom expression controls', () => {
         onOpacityChange={vi.fn()}
         onStyleConfigChange={vi.fn()}
         onLayoutChange={vi.fn()}
-        onRenderModeChange={vi.fn()}
       />,
     );
 
@@ -752,7 +733,7 @@ describe('LayerStyleEditor - fill/stroke toggles', () => {
 });
 
 describe('LayerStyleEditor - render mode (heatmap)', () => {
-  it('renders "Render as" dropdown for point layers', () => {
+  it('does NOT render a "Render as" section inside LayerStyleEditor for point layers (POLISH-01)', () => {
     render(
       <LayerStyleEditor
         layer={makeLayer({ dataset_geometry_type: 'Point', paint: { 'circle-color': '#ff0000' } })}
@@ -760,11 +741,12 @@ describe('LayerStyleEditor - render mode (heatmap)', () => {
         onOpacityChange={vi.fn()}
         onStyleConfigChange={vi.fn()}
         onLayoutChange={vi.fn()}
-        onRenderModeChange={vi.fn()}
       />,
     );
 
-    expect(screen.getByText('Render as')).toBeInTheDocument();
+    // POLISH-01: the redundant dropdown was removed; LayerStyleEditor no longer
+    // renders a "Render as" section heading for point layers.
+    expect(screen.queryByText('Render as')).not.toBeInTheDocument();
   });
 
   it('does NOT render "Render as" dropdown for polygon layers', () => {
@@ -775,7 +757,6 @@ describe('LayerStyleEditor - render mode (heatmap)', () => {
         onOpacityChange={vi.fn()}
         onStyleConfigChange={vi.fn()}
         onLayoutChange={vi.fn()}
-        onRenderModeChange={vi.fn()}
       />,
     );
 
@@ -790,7 +771,6 @@ describe('LayerStyleEditor - render mode (heatmap)', () => {
         onOpacityChange={vi.fn()}
         onStyleConfigChange={vi.fn()}
         onLayoutChange={vi.fn()}
-        onRenderModeChange={vi.fn()}
       />,
     );
 
@@ -810,7 +790,6 @@ describe('LayerStyleEditor - render mode (heatmap)', () => {
         onOpacityChange={vi.fn()}
         onStyleConfigChange={vi.fn()}
         onLayoutChange={vi.fn()}
-        onRenderModeChange={vi.fn()}
       />,
     );
 
@@ -839,41 +818,17 @@ describe('LayerStyleEditor - render mode (heatmap)', () => {
         onOpacityChange={vi.fn()}
         onStyleConfigChange={vi.fn()}
         onLayoutChange={vi.fn()}
-        onRenderModeChange={vi.fn()}
       />,
     );
 
     // Symbol rendering is separate from label_config-backed feature labels.
-    expect(screen.getAllByText('Symbols').length).toBeGreaterThan(0);
+    // POLISH-01: the render-as dropdown is removed; "Symbol appearance" section heading is
+    // the canonical signal that the symbol editor is rendered.
+    expect(screen.getByText('Symbol appearance')).toBeInTheDocument();
     expect(screen.getByLabelText('Icon')).toHaveValue('marker');
     expect(screen.getByRole('slider', { name: 'Size' })).toBeInTheDocument();
     expect(screen.getByRole('slider', { name: 'Rotation' })).toBeInTheDocument();
     expect(screen.queryByLabelText('Toggle stroke visibility')).not.toBeInTheDocument();
-  });
-
-  it('offers cluster as a render mode for eligible point layers', async () => {
-    const onRenderModeChange = vi.fn();
-    const user = userEvent.setup();
-
-    render(
-      <LayerStyleEditor
-        layer={makeLayer({
-          dataset_geometry_type: 'Point',
-          dataset_feature_count: 100,
-          paint: { 'circle-color': '#ff0000', 'circle-radius': 5 },
-        })}
-        onPaintChange={vi.fn()}
-        onOpacityChange={vi.fn()}
-        onStyleConfigChange={vi.fn()}
-        onLayoutChange={vi.fn()}
-        onRenderModeChange={onRenderModeChange}
-      />,
-    );
-
-    await user.click(screen.getAllByRole('combobox')[0]);
-    await user.click(screen.getByRole('option', { name: 'Cluster' }));
-
-    expect(onRenderModeChange).toHaveBeenCalledWith('layer-1', 'cluster');
   });
 
   it('shows cluster authoring controls and writes builder config only', () => {
@@ -900,7 +855,6 @@ describe('LayerStyleEditor - render mode (heatmap)', () => {
         onOpacityChange={vi.fn()}
         onStyleConfigChange={onStyleConfigChange}
         onLayoutChange={vi.fn()}
-        onRenderModeChange={vi.fn()}
       />,
     );
 
@@ -941,7 +895,6 @@ describe('LayerStyleEditor - render mode (heatmap)', () => {
         onOpacityChange={vi.fn()}
         onStyleConfigChange={onStyleConfigChange}
         onLayoutChange={vi.fn()}
-        onRenderModeChange={vi.fn()}
       />,
     );
 
@@ -969,11 +922,11 @@ describe('LayerStyleEditor - render mode (heatmap)', () => {
         onOpacityChange={vi.fn()}
         onStyleConfigChange={onStyleConfigChange}
         onLayoutChange={vi.fn()}
-        onRenderModeChange={vi.fn()}
       />,
     );
 
-    const [, weightSelect] = screen.getAllByRole('combobox');
+    // POLISH-01: render-as dropdown removed; weight column is now the first (and only) combobox
+    const [weightSelect] = screen.getAllByRole('combobox');
     await user.click(weightSelect);
     await user.click(screen.getByRole('option', { name: 'count' }));
 
@@ -1000,7 +953,6 @@ describe('LayerStyleEditor — line-gradient integration', () => {
         onOpacityChange={vi.fn()}
         onStyleConfigChange={vi.fn()}
         onLayoutChange={vi.fn()}
-        onRenderModeChange={vi.fn()}
       />,
     );
     expect(screen.getByRole('button', { name: 'Solid color' })).toBeInTheDocument();
@@ -1015,7 +967,6 @@ describe('LayerStyleEditor — line-gradient integration', () => {
         onOpacityChange={vi.fn()}
         onStyleConfigChange={vi.fn()}
         onLayoutChange={vi.fn()}
-        onRenderModeChange={vi.fn()}
       />,
     );
     expect(screen.queryByRole('button', { name: 'Gradient' })).not.toBeInTheDocument();
@@ -1032,7 +983,6 @@ describe('LayerStyleEditor — line-gradient integration', () => {
         onOpacityChange={vi.fn()}
         onStyleConfigChange={onStyleConfigChange}
         onLayoutChange={vi.fn()}
-        onRenderModeChange={vi.fn()}
       />,
     );
     await user.click(screen.getByRole('button', { name: 'Gradient' }));
@@ -1163,7 +1113,6 @@ describe('LayerStyleEditor - opacity slider debounce (PB-02)', () => {
         onOpacityChange={onOpacityChange}
         onStyleConfigChange={vi.fn()}
         onLayoutChange={vi.fn()}
-        onRenderModeChange={vi.fn()}
       />,
     );
 
@@ -1201,7 +1150,6 @@ describe('LayerStyleEditor - opacity slider debounce (PB-02)', () => {
         onOpacityChange={onOpacityChange}
         onStyleConfigChange={vi.fn()}
         onLayoutChange={vi.fn()}
-        onRenderModeChange={vi.fn()}
       />,
     );
   });
@@ -1220,7 +1168,6 @@ describe('LayerStyleEditor - opacity slider debounce (PB-02)', () => {
         onOpacityChange={onOpacityChange}
         onStyleConfigChange={vi.fn()}
         onLayoutChange={vi.fn()}
-        onRenderModeChange={vi.fn()}
       />,
     );
 
@@ -1231,5 +1178,36 @@ describe('LayerStyleEditor - opacity slider debounce (PB-02)', () => {
 
     // No call because opacity hasn't changed from the prop value
     expect(onOpacityChange).not.toHaveBeenCalled();
+  });
+});
+
+describe('LayerStyleEditor — POLISH-01 single render-as control', () => {
+  it('point layer (geomType=circle) renders NO render-as section heading inside LayerStyleEditor', () => {
+    render(
+      <LayerStyleEditor
+        layer={makeLayer({ dataset_geometry_type: 'Point' })}
+        onPaintChange={vi.fn()}
+        onOpacityChange={vi.fn()}
+        onStyleConfigChange={vi.fn()}
+        onLayoutChange={vi.fn()}
+      />,
+    );
+    // The redundant StyleControlSection heading with "Render as" title is gone.
+    // NOTE: DataDrivenStyleEditor renders its own comboboxes (e.g. "Categorical")
+    // which are unrelated to render-as — we only assert the section heading is absent.
+    expect(screen.queryAllByText(/render as/i)).toHaveLength(0);
+  });
+
+  it('LineString layer also renders no render-as section (no regression)', () => {
+    render(
+      <LayerStyleEditor
+        layer={makeLayer({ dataset_geometry_type: 'LineString' })}
+        onPaintChange={vi.fn()}
+        onOpacityChange={vi.fn()}
+        onStyleConfigChange={vi.fn()}
+        onLayoutChange={vi.fn()}
+      />,
+    );
+    expect(screen.queryAllByText(/render as/i)).toHaveLength(0);
   });
 });
