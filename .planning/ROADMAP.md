@@ -50,7 +50,10 @@ Close the builder render-mode persistence defects surfaced by a live Playwright 
   1. The point-layer Style tab shows exactly one "Render as" control (the segmented button group: Point / Symbols / Heatmap / Cluster) — the redundant combobox that previously duplicated the label is gone.
   2. Setting a terrain-bound DEM layer to Hillshade mode produces zero `backfillBorder "dem dimension mismatch"` console errors (either the dual-consumer is guarded at the source, or the editor surfaces a clear note instead of letting MapLibre throw).
   3. A unit test verifies that `_band_stats_cache` in `backend/app/processing/tiles/router.py` is bounded — adding entries beyond the cap evicts older entries rather than growing without limit.
-**Plans**: TBD
+**Plans**: 3 plans
+- [ ] 1150-01-PLAN.md — Remove redundant point render-as dropdown (POLISH-01)
+- [ ] 1150-02-PLAN.md — DEM hillshade dual-consumer guard + advisory note (POLISH-02)
+- [ ] 1150-03-PLAN.md — Bound _band_stats_cache with LRUCache(maxsize=256) (HYG-01)
 
 ### Phase 1151: QA Close-Gate
 **Goal**: Both ADK sample maps are verified clean in a live browser session and all standard code gates pass, providing the evidence trail to close v1033.
@@ -69,7 +72,7 @@ Close the builder render-mode persistence defects surfaced by a live Playwright 
 |-------|----------------|--------|-----------|
 | 1148. Render-Mode Persistence Fix | 1/1 | Complete   | 2026-05-29 |
 | 1149. Layer Label Indicator | 1/1 | Complete   | 2026-05-29 |
-| 1150. Builder Polish & Raster Cache Hygiene | 0/? | Not started | - |
+| 1150. Builder Polish & Raster Cache Hygiene | 0/3 | Not started | - |
 | 1151. QA Close-Gate | 0/? | Not started | - |
 
 ---
