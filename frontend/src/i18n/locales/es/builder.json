@@ -990,7 +990,8 @@
     "compassAriaLabel": "Azimut solar: {{azimuth}}°",
     "sectionHypsometricTint": "TINTE HIPSOMÉTRICO",
     "hypsometricEnable": "Tintura de elevación",
-    "hypsometricTerrainHint": "La tintura de elevación no está disponible en modo Terreno"
+    "hypsometricTerrainHint": "La tintura de elevación no está disponible en modo Terreno",
+    "hillshadeTerrainNote": "Hillshade no está disponible mientras este DEM impulse el Terreno 3D — desactive Terreno para usar Hillshade."
   },
   "folderGroup": {
     "defaultName": "Grupo {{n}}",

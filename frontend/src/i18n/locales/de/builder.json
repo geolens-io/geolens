@@ -990,7 +990,8 @@
     "compassAriaLabel": "Sonnenazimut: {{azimuth}}°",
     "sectionHypsometricTint": "HYPSOMETRISCHE FÄRBUNG",
     "hypsometricEnable": "Höhentönung",
-    "hypsometricTerrainHint": "Höhentönung ist im Terrain-Modus nicht verfügbar"
+    "hypsometricTerrainHint": "Höhentönung ist im Terrain-Modus nicht verfügbar",
+    "hillshadeTerrainNote": "Hillshade ist nicht verfügbar, solange dieser DEM das 3D-Gelände antreibt — deaktivieren Sie Terrain, um Hillshade zu verwenden."
   },
   "folderGroup": {
     "defaultName": "Gruppe {{n}}",

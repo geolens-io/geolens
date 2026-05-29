@@ -78,7 +78,7 @@ import { useBuilderEditorScene } from '@/components/builder/hooks/use-builder-ed
 import { useFilteredFeatureCount } from '@/components/builder/hooks/use-filtered-feature-count';
 import { useBuilderLayers } from '@/components/builder/hooks/use-builder-layers';
 import { useBuilderSave } from '@/components/builder/hooks/use-builder-save';
-import { TERRAIN_SOURCE_ID, normalizeTerrainExaggeration } from '@/components/builder/map-sync';
+import { TERRAIN_SOURCE_ID, normalizeTerrainExaggeration, isHillshadeTerrainBound } from '@/components/builder/map-sync';
 import {
   createBuilderBasemapState,
   removeBasemap as removeBasemapFromState,
@@ -1034,6 +1034,10 @@ export function MapBuilderPage() {
               layerId,
               persistence: 'server',
             })}
+            isTerrainBound={isHillshadeTerrainBound(
+              { dataset_id: editingLayer.dataset_id, is_dem: editingLayer.is_dem },
+              layers.localTerrainConfig,
+            )}
           />
         </Suspense>
       </LazyLoadErrorBoundary>

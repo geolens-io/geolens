@@ -990,7 +990,8 @@
     "compassAriaLabel": "Sun azimuth: {{azimuth}}°",
     "sectionHypsometricTint": "HYPSOMETRIC TINT",
     "hypsometricEnable": "Elevation tint",
-    "hypsometricTerrainHint": "Elevation tint is not available in Terrain mode"
+    "hypsometricTerrainHint": "Elevation tint is not available in Terrain mode",
+    "hillshadeTerrainNote": "Hillshade is unavailable while this DEM powers 3D Terrain — turn off Terrain to use Hillshade."
   },
   "folderGroup": {
     "defaultName": "Group {{n}}",

@@ -41,6 +41,13 @@ export interface DEMEditorSceneProps {
   /** Called after the user confirms deletion. Matches the onRemove pattern in
    * LayerEditorHandlers — same wiring used by the default layer editor. */
   onRemove: (layerId: string) => void;
+  /**
+   * POLISH-02: when true, this DEM is already powering the map's terrain source.
+   * A muted advisory note is rendered in hillshade mode to inform the user that
+   * hillshade is suppressed (two raster-dem consumers cause MapLibre errors).
+   * Defaults to false when omitted.
+   */
+  isTerrainBound?: boolean;
 }
 
 function currentMode(layer: MapLayerResponse): DemRenderMode {
@@ -140,6 +147,7 @@ export const DEMEditorScene = memo(function DEMEditorScene({
   terrainExaggeration,
   onTerrainExaggerationChange,
   onRemove,
+  isTerrainBound = false,
 }: DEMEditorSceneProps) {
   const { t } = useTranslation('builder');
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -268,6 +276,16 @@ export const DEMEditorScene = memo(function DEMEditorScene({
 
           {mode === 'hillshade' && (
             <div className="space-y-4">
+              {/* POLISH-02: advisory note when this DEM also powers terrain */}
+              {isTerrainBound && (
+                <p
+                  className="text-[11px] leading-snug text-muted-foreground rounded-md border bg-muted/25 p-2"
+                  role="note"
+                  aria-label={t('demEditor.hillshadeTerrainNote', { defaultValue: 'Hillshade is unavailable while this DEM powers 3D Terrain — turn off Terrain to use Hillshade.' })}
+                >
+                  {t('demEditor.hillshadeTerrainNote', { defaultValue: 'Hillshade is unavailable while this DEM powers 3D Terrain — turn off Terrain to use Hillshade.' })}
+                </p>
+              )}
               {/* Sub-section: SUN POSITION */}
               <div>
                 <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground mb-3">

@@ -676,3 +676,61 @@ describe('DEMEditorScene', () => {
     expect(config?.some_other_key).toBe('preserved');
   });
 });
+
+// ---------------------------------------------------------------------------
+// POLISH-02: hillshade terrain advisory note
+// ---------------------------------------------------------------------------
+
+describe('POLISH-02 DEMEditorScene hillshade terrain advisory note', () => {
+  const hillshadeLayer = makeDEMLayer({ style_config: { render_mode: 'hillshade' } as unknown as MapLayerResponse['style_config'] });
+  const terrainLayer = makeDEMLayer({ style_config: { render_mode: 'terrain' } as unknown as MapLayerResponse['style_config'] });
+  const imageLayer = makeDEMLayer({ style_config: null });
+
+  it('renders advisory note when render_mode=hillshade AND isTerrainBound=true', () => {
+    render(
+      <DEMEditorScene
+        {...defaultProps({ layer: hillshadeLayer, isTerrainBound: true })}
+      />,
+    );
+    // The advisory note should be visible
+    expect(screen.getByRole('note')).toBeInTheDocument();
+    expect(screen.getByRole('note')).toHaveTextContent(/Hillshade is unavailable while this DEM powers 3D Terrain/i);
+  });
+
+  it('does NOT render advisory note when render_mode=hillshade AND isTerrainBound=false (Map B scenario)', () => {
+    render(
+      <DEMEditorScene
+        {...defaultProps({ layer: hillshadeLayer, isTerrainBound: false })}
+      />,
+    );
+    expect(screen.queryByRole('note')).toBeNull();
+  });
+
+  it('does NOT render advisory note when isTerrainBound=true but render_mode=terrain (note is hillshade-specific)', () => {
+    render(
+      <DEMEditorScene
+        {...defaultProps({ layer: terrainLayer, isTerrainBound: true })}
+      />,
+    );
+    expect(screen.queryByRole('note')).toBeNull();
+  });
+
+  it('does NOT render advisory note when isTerrainBound=true but render_mode=image', () => {
+    render(
+      <DEMEditorScene
+        {...defaultProps({ layer: imageLayer, isTerrainBound: true })}
+      />,
+    );
+    expect(screen.queryByRole('note')).toBeNull();
+  });
+
+  it('advisory note is absent by default (isTerrainBound defaults to false)', () => {
+    // No isTerrainBound prop at all — should default to false and show no note
+    render(
+      <DEMEditorScene
+        {...defaultProps({ layer: hillshadeLayer })}
+      />,
+    );
+    expect(screen.queryByRole('note')).toBeNull();
+  });
+});

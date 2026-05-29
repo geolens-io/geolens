@@ -1,7 +1,7 @@
 import type { Map as MaplibreMap, GeoJSONSource, StyleSpecification, VectorSourceSpecification } from 'maplibre-gl';
 import type { FilterSpecification } from 'maplibre-gl';
 import { toast } from 'sonner';
-import type { MapBasemapConfig, MapLayerResponse, LabelConfig, StyleConfig } from '@/types/api';
+import type { MapBasemapConfig, MapLayerResponse, LabelConfig, StyleConfig, MapTerrainConfig } from '@/types/api';
 import type { RasterTileToken, TileToken, VectorTileToken } from '@/api/tiles';
 import i18n from '@/i18n/i18n';
 import { buildClusterTileUrl, buildSignedTileUrl } from '@/lib/tile-utils';
@@ -197,6 +197,9 @@ export interface SyncOptions {
    *  layers after the standard reorder pass. When 'bottom' (default + legacy),
    *  the standard reorder pipeline already produces data-above-basemap. */
   basemapPosition?: 'top' | 'bottom';
+  /** POLISH-02: active terrain config forwarded from BuilderMap so syncRasterLayer
+   *  can skip the hillshade raster-dem consumer for a DEM already powering terrain. */
+  terrainConfig?: MapTerrainConfig | null;
 }
 
 /** Convert a MapLayerResponse (builder context) to a SyncLayerInput. */
@@ -597,15 +600,44 @@ function lineGradientNeededFor(
 // Sync sub-routines — extracted from syncLayersToMap for readability
 // ---------------------------------------------------------------------------
 
+/**
+ * POLISH-02: Returns true when the given DEM layer is already consumed by the
+ * active terrain source. In this state, starting a second raster-dem consumer
+ * (for hillshade) causes MapLibre backfillBorder "dem dimension mismatch" errors.
+ * Guard: terrain must be enabled AND the same dataset powers both consumers.
+ *
+ * Safety property: predicate is FALSE when terrainConfig.enabled=false (Map B),
+ * so the primary hillshade path is completely unaffected on maps without terrain.
+ */
+export function isHillshadeTerrainBound(
+  layer: { dataset_id: string; is_dem?: boolean | null },
+  terrainConfig: MapTerrainConfig | null | undefined,
+): boolean {
+  return (
+    layer.is_dem === true &&
+    terrainConfig?.enabled === true &&
+    terrainConfig.source_dataset_id === layer.dataset_id
+  );
+}
+
 /** Add or update a raster layer on the map. */
 function syncRasterLayer(
   map: MaplibreMap,
   adapterInput: AdapterLayerInput,
   token: RasterTileToken,
   desiredSources: Set<string>,
+  terrainConfig?: MapTerrainConfig | null,
+  datasetId?: string,
 ) {
   const renderMode = adapterInput.style_config?.render_mode;
   const useHillshade = adapterInput.is_dem === true && renderMode === 'hillshade';
+
+  // POLISH-02: skip the hillshade raster-dem consumer when this DEM is already
+  // powering a terrain source. Two raster-dem consumers on the same DEM with
+  // mismatched tile sizes cause backfillBorder "dem dimension mismatch" errors.
+  if (useHillshade && datasetId != null && isHillshadeTerrainBound({ dataset_id: datasetId, is_dem: adapterInput.is_dem }, terrainConfig)) {
+    return;
+  }
 
   // Apply colormap query params to the tile URL before the diff comparison so
   // that a _colormap change causes the existing source teardown/recreate path
@@ -910,7 +942,7 @@ export function syncLayersToMap(
 
       const rasterToken = token?.kind === 'raster' ? token : rasterTokenFromLayer(layer);
       if (rasterToken) {
-        syncRasterLayer(map, adapterInput, rasterToken, desiredSources);
+        syncRasterLayer(map, adapterInput, rasterToken, desiredSources, options?.terrainConfig, layer.dataset_id);
         // EDITOR-DEM-05: sync companion color-relief layer (hillshade-gated) for DEM layers.
         // Called after syncRasterLayer so the raster-dem source already exists.
         // Layer id: ${layerId}-colorrelief — reuses the existing raster-dem source.
