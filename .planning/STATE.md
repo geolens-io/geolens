@@ -2,11 +2,11 @@
 gsd_state_version: 1.0
 milestone: v1034
 milestone_name: Raster Stretch & Colormap Completion
-status: planning
+status: active
 last_updated: "2026-05-29T20:14:36.098Z"
 last_activity: 2026-05-29
 progress:
-  total_phases: 0
+  total_phases: 4
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -17,17 +17,23 @@ progress:
 
 ## Current Position
 
-Phase: Not started (defining requirements)
+Phase: 1152 — Single-Band Raster Fixture
 Plan: —
-Status: Defining requirements
-Last activity: 2026-05-29 — Milestone v1034 started
+Status: Ready to plan (roadmap created, no plans yet)
+Last activity: 2026-05-29 — v1034 roadmap created (phases 1152-1155)
+
+```
+Phase progress: [ 1152 ][ 1153 ][ 1154 ][ 1155 ]
+                [  →  ][      ][      ][      ]
+                0% complete
+```
 
 ## Project Reference
 
 See: .planning/PROJECT.md (updated 2026-05-29)
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** Planning next milestone — run `/gsd:new-milestone`.
+**Current focus:** v1034 Raster Stretch & Colormap Completion — Phase 1152 (Single-Band Raster Fixture)
 
 ## Last Shipped Milestone
 
@@ -39,6 +45,18 @@ See: .planning/PROJECT.md (updated 2026-05-29)
 **Archive:** `.planning/milestones/v1033-ROADMAP.md` + `v1033-REQUIREMENTS.md`
 **Delivered:** DEM `render_mode:'terrain'` strip-on-load fixed (3D terrain restores on fresh load; raster "Render as" no longer reverts) + layer-list label indicator + point render-as consolidation + DEM hillshade dual-consumer guard + bounded band-stats cache. Orchestrator Playwright MCP close-gate on both ADK sample maps (0 console errors each).
 
+## Current Milestone: v1034 Raster Stretch & Colormap Completion
+
+**Goal:** Finish the half-done raster stretch/colormap feature — add full per-band multi-band stretch, make percentile/σ bounds configurable, seed a real single-band raster fixture to actually verify the colormap/stretch UI, and clear the v1033 builder dead-code/note tech debt.
+
+**Phases:**
+- [ ] 1152: Single-Band Raster Fixture (TESTDATA-01)
+- [ ] 1153: Backend — Multi-Band Stretch + Configurable Bounds (RASTER-STRETCH-03 backend, SPIKE-01, RASTER-STRETCH-UI-01 backend)
+- [ ] 1154: Frontend Controls + Cleanup (RASTER-STRETCH-03 frontend, RASTER-STRETCH-UI-01 frontend, RASTER-STRETCH-UI-02, CLEANUP-01)
+- [ ] 1155: Close-Gate (VERIFY-01, QA-01)
+
+**Key constraint:** SPIKE-01 is the first task of Phase 1153, not its own phase. If Titiler 2.0.2 does not return `percentile_N` keys for arbitrary `p=N` params, escalate before writing any configurable-bounds backend code.
+
 ## Accumulated Context
 
 ### Decisions (forward-relevant; full milestone log in archives)
@@ -47,8 +65,10 @@ See: .planning/PROJECT.md (updated 2026-05-29)
 - **DEM terrain consumer (v1033):** `applyTerrainConfig` (`BuilderMap.tsx`) requires BOTH map-level `terrain_config.enabled` + `source_dataset_id` AND a layer with `render_mode==='terrain'`. With the normalizer fix, terrain attaches on fresh load.
 - **Hillshade dual-consumer guard (v1033 POLISH-02):** `isHillshadeTerrainBound` (exported from `map-sync.ts`) skips the hillshade raster-dem consumer + shows a DEM-editor note when a DEM powers an active terrain source. Inactive when terrain is off, so the primary hillshade path is unaffected. The raw `backfillBorder` error is a MapLibre limitation with non-uniform DEM tiles in the terrain+hillshade dual-consumer case only.
 - **Label indicator predicate (v1033):** layer "has labels" ⇔ `!!label_config?.column && render_mode not heatmap/symbol` — the SAME gate `map-sync.ts` uses to render labels. `StackRow` indicator mirrors it.
-- **Raster stretch (v1032):** `percentile`/`stddev` compute a stats-based Titiler rescale via `/cog/statistics` (cached). `_band_stats_cache` is now an `LRUCache(maxsize=256)` (v1033 HYG-01). Not applied to DEM. Multi-band = Future RASTER-STRETCH-03.
+- **Raster stretch (v1032):** `percentile`/`stddev` compute a stats-based Titiler rescale via `/cog/statistics` (cached). `_band_stats_cache` is now an `LRUCache(maxsize=256)` (v1033 HYG-01). Not applied to DEM. Multi-band = current milestone RASTER-STRETCH-03.
 - **band_count (v1031/v1033):** `band_count=None` on the `get_dataset_meta` path (shows "1 band" for RGB ortho — cosmetic; colormap correctly hidden for imagery). Tracked as Future RASTER-META-01.
+- **Fixture dtype trap (v1034 critical):** `cog.py:85` sets `is_dem=True` for any `band_count==1 AND float dtype`. Fixture MUST be uint8 or uint16. Verify `is_dem=false` after ingest before any UI smoke.
+- **Cache key extension (v1034 critical):** `_band_stats_cache` key must be `(open_path, pmin, pmax)` before the configurable-bounds backend lands. Without this, different pmin/pmax values serve stale p2/p98 stats from cache.
 - **Cluster adapter (carried):** intentionally keeps raw `map.setFilter` for the compound `combineFilter` shape — NOT migrated to `syncLayerFilter`.
 - **Fill extrusion companion (carried):** no `layout.visibility` block at `addLayers` add-time; controlled via `syncVisibility`. Documented in `fill-adapter.test.ts`.
 - **SF-MCP-01 (carried from v1030):** `chat_actions.py:_collect_chat_action()` never emits rows on `show_query_result` for non-spatial queries; frontend inline card ready but backend wiring still missing.
@@ -60,26 +80,26 @@ None active.
 ### Blockers/Concerns
 
 - **CI-01-v1030 billing prerequisite (carry-forward from v1023):** Operator must resolve GH Actions billing at https://github.com/organizations/geolens-io/settings/billing before the `pytest-parallel-isolation` CI gate can live-verify GREEN. Standing ops blocker — unblock independently of milestone execution.
+- **SPIKE-01 (Phase 1153 gate):** Titiler 2.0.2 `p=` arbitrary percentile support is unverified end-to-end against the pinned container. Must confirm before writing any configurable-bounds backend code.
 
 ## Deferred Items
 
 | Category | Item | Status | Deferred At |
 |----------|------|--------|-------------|
-| raster-render | Multi-band stretch (RASTER-STRETCH-03); configurable percentile bounds / σ (RASTER-STRETCH-UI-01) | Future | v1032 |
 | raster-meta | `band_count` cosmetic ("1 band" for RGB ortho on get_dataset_meta path) — RASTER-META-01 | Future | v1033 |
-| test-data | No non-DEM single-band raster seeded (TESTDATA-01) — would enable a genuine stretch/colormap UI spot-check | Future | v1032/v1033 |
-| builder-edge | POLISH-02 — post-ship live re-test (Map A, switch a terrain-bound DEM to hillshade): **0 console errors confirmed** (primary goal met, backfillBorder spam gone). BUT the advisory note never shows and the skip-arm is moot in the natural flow — switching the terrain layer to hillshade **detaches terrain first** (terrain stops being active), so the dual-consumer never co-exists. Net: error-free via terrain-detach, not via the designed skip+note. The note (`demEditor.hillshadeTerrainNote`) is effectively unreachable through this interaction → candidate for removal OR rework so terrain stays attached via the sibling terrain-mode layer (#6) in two-DEM-on-one-dataset maps. Plus a dead `onRenderModeChange` optional member in `LayerStyleEditor/types.ts`. | Accepted tech debt — refine next milestone | v1033 audit + post-ship re-test |
+| builder-edge | `onRenderModeChange` dead member + `hillshadeTerrainNote` unreachable advisory | In scope v1034 CLEANUP-01 | v1033 audit |
 | ci-live-verify | `pytest-parallel-isolation` gate live-verify on real GitHub Actions (billing block) | Carried forward as CI-01-v1030 | v1023 Phase 1100 degraded close |
 | nyquist | VALIDATION.md formalization for 1148-1151 | Optional; coverage strong via close-gate | v1033 milestone audit |
 
 ## Session Continuity
 
-Last session: 2026-05-29T02:00:00.000Z
-Stopped at: v1033 milestone fully archived
+Last session: 2026-05-29T20:14:36.098Z
+Stopped at: v1034 roadmap created; STATE.md initialized at Phase 1152
 Resume file: None
 
 ## Operator Next Steps
 
-- **Next:** `/clear`, then `/gsd:new-milestone` (questioning → research → requirements → roadmap). A fresh `REQUIREMENTS.md` is created there — the v1033 one was archived to `milestones/v1033-REQUIREMENTS.md`. Phase numbering continues from 1151 (next starts at 1152).
-- **Carry-forward candidates** for the next milestone (all minor — see Deferred Items): multi-band raster stretch + configurable percentile/σ; `band_count` cosmetic fix (RASTER-META-01); seed a non-DEM single-band raster (TESTDATA-01); remove the dead `onRenderModeChange` member in `LayerStyleEditor/types.ts`. Standing ops blocker (not a code phase): CI-01-v1030 GH Actions billing.
-- Phase directories 1148-1151 are archived to `milestones/v1033-phases/` by cleanup; `.planning/phases/` then holds only the `999.x` backlog stubs (never auto-execute — they masquerade as incomplete phases).
+- **Next:** `/gsd:plan-phase 1152` — seed script raster fixture (TESTDATA-01). Single phase, single plan expected.
+- **Phase 1153 note:** SPIKE-01 is the first task — run `curl http://localhost:8000/cog/statistics?url=<path>&p=5&p=95` against the live Titiler container and inspect response keys before writing any configurable-bounds code.
+- **MCP note:** Orchestrator drives all live Playwright MCP (Phase 1155). Executor subagents lack `mcp__playwright__*` access — see project memory `playwright-mcp-orchestrator-only`.
+- Phase directories for v1033 (1148-1151) should be in `milestones/v1033-phases/` after cleanup.

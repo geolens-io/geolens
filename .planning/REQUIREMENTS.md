@@ -56,24 +56,22 @@ Deferred — acknowledged, not in this milestone's roadmap.
 
 ## Traceability
 
-Populated during roadmap creation.
-
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| TESTDATA-01 | TBD | Pending |
-| RASTER-STRETCH-03 | TBD | Pending |
-| SPIKE-01 | TBD | Pending |
-| RASTER-STRETCH-UI-01 | TBD | Pending |
-| RASTER-STRETCH-UI-02 | TBD | Pending |
-| VERIFY-01 | TBD | Pending |
-| CLEANUP-01 | TBD | Pending |
-| QA-01 | TBD | Pending |
+| TESTDATA-01 | Phase 1152 | Pending |
+| RASTER-STRETCH-03 | Phase 1153 (backend) + Phase 1154 (frontend) | Pending |
+| SPIKE-01 | Phase 1153 | Pending |
+| RASTER-STRETCH-UI-01 | Phase 1153 (backend) + Phase 1154 (frontend) | Pending |
+| RASTER-STRETCH-UI-02 | Phase 1154 | Pending |
+| VERIFY-01 | Phase 1155 | Pending |
+| CLEANUP-01 | Phase 1154 | Pending |
+| QA-01 | Phase 1155 | Pending |
 
 **Coverage:**
 - v1 requirements: 8 total
-- Mapped to phases: 0 (roadmap pending)
-- Unmapped: 8 ⚠️ (resolved by roadmapper)
+- Mapped to phases: 8/8 ✓
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-05-29*
-*Last updated: 2026-05-29 after initial definition (research-backed)*
+*Last updated: 2026-05-29 — traceability populated by roadmapper (phases 1152-1155)*
