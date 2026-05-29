@@ -236,7 +236,7 @@ export const SearchResultCard = memo(function SearchResultCard({ feature }: { fe
                   </span>
                   {sourceOrganization && (
                     <p
-                      className="text-[12px] leading-4 text-muted-foreground/70 line-clamp-1"
+                      className="text-[12px] leading-4 text-muted-foreground line-clamp-1"
                       data-testid="dataset-card-source"
                       title={sourceOrganization}
                     >
@@ -271,13 +271,13 @@ export const SearchResultCard = memo(function SearchResultCard({ feature }: { fe
                       {displayKeywords.slice(0, 3).map((tag, index) => (
                         <span
                           key={`${tag}-${index}`}
-                          className="inline-flex items-center rounded-full border border-border/30 bg-muted/15 px-2.5 py-0.5 text-[11px] text-muted-foreground/70"
+                          className="inline-flex items-center rounded-full border border-border/30 bg-muted/15 px-2.5 py-0.5 text-[11px] text-muted-foreground"
                         >
                           {tag}
                         </span>
                       ))}
                       {displayKeywords.length > 3 && (
-                        <span className="self-center text-xs text-muted-foreground/80">
+                        <span className="self-center text-xs text-muted-foreground">
                           {t('card.moretags', { count: displayKeywords.length - 3 })}
                         </span>
                       )}
