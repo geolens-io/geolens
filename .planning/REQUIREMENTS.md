@@ -63,8 +63,8 @@ The `RENDER_MODES` allowlist (`frontend/src/lib/normalize-style-config.ts:92` â€
 | POLISH-01 | Phase 1150 | Complete |
 | POLISH-02 | Phase 1150 | Complete |
 | HYG-01 | Phase 1150 | Complete |
-| QA-01 | Phase 1151 | Pending |
-| QA-02 | Phase 1151 | Pending |
+| QA-01 | Phase 1151 | Complete |
+| QA-02 | Phase 1151 | Complete |
 
 **Coverage:**
 - v1 requirements: 9 total
@@ -73,4 +73,4 @@ The `RENDER_MODES` allowlist (`frontend/src/lib/normalize-style-config.ts:92` â€
 
 ---
 *Requirements defined: 2026-05-29*
-*Last updated: 2026-05-29 â€” traceability populated after roadmap creation*
+*Last updated: 2026-05-29 â€” all 9 requirements Complete (phases 1148-1151 shipped + verified live)*

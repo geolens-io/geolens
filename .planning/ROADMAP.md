@@ -13,7 +13,7 @@ Close the builder render-mode persistence defects surfaced by a live Playwright 
 - [x] **Phase 1148: Render-Mode Persistence Fix** — Add `'terrain'` + `'image'` to the `RENDER_MODES` allowlist and extend the `StyleConfig['render_mode']` union; remove the now-obsolete boundary cast and BSR-09 comment; add round-trip regression tests. (completed 2026-05-29)
 - [x] **Phase 1149: Layer Label Indicator** — Pure-derived label indicator on layer rows whose `label_config` is enabled; en/de/es/fr i18n + a11y. (completed 2026-05-29)
 - [x] **Phase 1150: Builder Polish & Raster Cache Hygiene** — Consolidate duplicate point "Render as" control; graceful DEM hillshade dual-consumer guard; bound `_band_stats_cache`. (completed 2026-05-29)
-- [ ] **Phase 1151: QA Close-Gate** — Orchestrator-driven Playwright MCP re-verify on both ADK sample maps + standard code gates + CHANGELOG.
+- [x] **Phase 1151: QA Close-Gate** — Orchestrator-driven Playwright MCP re-verify on both ADK sample maps + standard code gates + CHANGELOG. (completed 2026-05-29)
 
 ## Phase Details
 
