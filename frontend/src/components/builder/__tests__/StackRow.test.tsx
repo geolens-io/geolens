@@ -592,3 +592,57 @@ describe('Add to group sub-flow', () => {
     });
   });
 });
+
+describe('label indicator', () => {
+  it('labeled-layer-shows-indicator: shows data-testid="label-indicator" with sr-only text when label_config.column is set', () => {
+    const layer = makeLayer({
+      id: 'labeled-layer',
+      dataset_name: 'ADK 46er peaks',
+      label_config: { column: 'name' },
+      style_config: null,
+    });
+    render(<StackRow {...defaultProps({ layer })} />);
+
+    const indicator = screen.getByTestId('label-indicator');
+    expect(indicator).toBeInTheDocument();
+
+    // sr-only span text matches interpolated string
+    const srOnly = indicator.querySelector('.sr-only');
+    expect(srOnly).toBeTruthy();
+    expect(srOnly?.textContent).toMatch(/Labels on: name/i);
+  });
+
+  it('unlabeled-layer-hides-indicator: shows no data-testid="label-indicator" when label_config is null', () => {
+    const layer = makeLayer({
+      id: 'unlabeled-layer',
+      dataset_name: 'Hiking trails',
+      label_config: null,
+      style_config: null,
+    });
+    render(<StackRow {...defaultProps({ layer })} />);
+
+    expect(screen.queryByTestId('label-indicator')).not.toBeInTheDocument();
+  });
+
+  it('heatmap-suppression: shows no indicator when label_config.column is set but render_mode is heatmap', () => {
+    const layer = makeLayer({
+      id: 'heatmap-layer',
+      label_config: { column: 'name' },
+      style_config: { render_mode: 'heatmap' } as MapLayerResponse['style_config'],
+    });
+    render(<StackRow {...defaultProps({ layer })} />);
+
+    expect(screen.queryByTestId('label-indicator')).not.toBeInTheDocument();
+  });
+
+  it('symbol-suppression: shows no indicator when label_config.column is set but render_mode is symbol', () => {
+    const layer = makeLayer({
+      id: 'symbol-layer',
+      label_config: { column: 'name' },
+      style_config: { render_mode: 'symbol' } as MapLayerResponse['style_config'],
+    });
+    render(<StackRow {...defaultProps({ layer })} />);
+
+    expect(screen.queryByTestId('label-indicator')).not.toBeInTheDocument();
+  });
+});
