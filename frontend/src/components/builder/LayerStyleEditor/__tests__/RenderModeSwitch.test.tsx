@@ -53,7 +53,6 @@ const baseProps: Omit<BaseStyleEditorProps, 'dispatchKey'> = {
   onPaintChange: vi.fn(),
   onLayoutChange: vi.fn(),
   onStyleConfigChange: vi.fn(),
-  onRenderModeChange: vi.fn(),
   onPaintProp: vi.fn(),
   onToggleFill: vi.fn(),
   onToggleStroke: vi.fn(),
