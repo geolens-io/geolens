@@ -19,13 +19,7 @@ import {
 } from './map-sync';
 import type { MapLayerResponse, StyleConfig } from '@/types/api';
 
-/**
- * DEM render mode union.
- * Note: 'terrain' is not currently in StyleConfig.render_mode union (which has
- * 'heatmap' | 'hillshade' | 'symbol' | 'arrow' | 'cluster'). We cast at the boundary
- * to avoid a global type change. BSR-09 follow-up (Phase 1038 or backend change)
- * should extend the union to include 'terrain'.
- */
+/** DEM render mode union. Assignable to StyleConfig['render_mode'] without cast. */
 export type DemRenderMode = 'image' | 'hillshade' | 'terrain';
 
 export interface DEMEditorSceneProps {

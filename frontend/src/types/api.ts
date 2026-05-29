@@ -860,7 +860,7 @@ export interface StyleConfig {
   /** [min, max] size range selected by the user (for UI state restoration) */
   sizeRange?: [number, number];
   /** Render mode override for specialized adapters. */
-  render_mode?: 'heatmap' | 'hillshade' | 'symbol' | 'arrow' | 'cluster';
+  render_mode?: 'heatmap' | 'hillshade' | 'symbol' | 'arrow' | 'cluster' | 'terrain' | 'image';
   /** Symbol/icon layer config for point datasets. */
   symbol?: SymbolStyleConfig;
   /** Heatmap paint config */
