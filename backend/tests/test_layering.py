@@ -862,13 +862,14 @@ def test_router_orchestrator_modules_stay_within_loc_cap() -> None:
         #   decomposing.
         # Both are top decomposition candidates for a future phase; the cap
         # is a HARD ceiling, not a waiver — growth past it still fails CI.
-        # PR #118 (v1024->v1033 builder catch-up, 2026-05-29): maps/router.py
-        # grew to 2107 via the builder-polish feature work (share tokens/presets,
-        # popup + OG-image config endpoints, per-render-mode style routes).
-        # Re-baselining at 2150 (~2% headroom). Decomposition into facade +
-        # sub-routers (per Phase 226 / Phase 238) remains the queued follow-up;
-        # HARD ceiling — do NOT raise past 2150 without decomposing.
-        "backend/app/modules/catalog/maps/router.py": 2150,
+        # PR #118 (v1024->v1033 builder catch-up): maps/router.py grew to 2107
+        # via builder-polish features. Post-merge follow-up extracted the
+        # 12-helper response-builder/access-check cluster into _router_helpers.py,
+        # bringing it to 1844. Cap re-baselined to 1900 (~3% headroom). Further
+        # reduction below the 1500 default requires splitting the share/media/
+        # layers endpoint groups into sub-routers (per Phase 226 / Phase 238) —
+        # queued. HARD ceiling — do NOT raise past 1900 without decomposing.
+        "backend/app/modules/catalog/maps/router.py": 1900,
         "backend/app/modules/catalog/search/router.py": 1600,
     }
 

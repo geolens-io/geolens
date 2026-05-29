@@ -25,6 +25,27 @@ from app.modules.catalog.datasets.domain.models import (
 from tests.factories import get_user_id
 
 
+@pytest.fixture(autouse=True)
+async def _reset_require_metadata_setting(test_db_session):
+    """Reset require_metadata_for_publish to its default after each test (HYG-02).
+
+    The per-worker test DB is shared across tests with no rollback (see the
+    isolation note in tests/conftest.py). ``test_publish_blocked_when_hard_validation_fails``
+    sets this global app_settings key True; without this teardown it bleeds into
+    ``test_publish_allowed_when_require_metadata_off`` (which relies on the
+    default False), producing order-dependent ``pytest -n 4`` flakes. Resetting
+    via the production setter (rather than a raw DELETE) also clears the
+    PersistentConfig cache so a stale cached True cannot survive either.
+    """
+    yield
+    from app.core.persistent_config import REQUIRE_METADATA_FOR_PUBLISH
+
+    try:
+        await REQUIRE_METADATA_FOR_PUBLISH.set(test_db_session, False)
+    except Exception:  # best-effort teardown — never mask the test's own outcome
+        await test_db_session.rollback()
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
