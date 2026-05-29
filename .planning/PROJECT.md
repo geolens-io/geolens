@@ -12,9 +12,18 @@ Milestones are delivered through v1033 Builder Terrain, Label & Render-Mode QA (
 
 The marketing and documentation web properties (v14.0 + v15.0 + 999.5 cross-repo style alignment) and their planning artifacts moved to the `getgeolens.com` repo on 2026-04-26 — see `~/Code/getgeolens.com/.planning/` for active docs-site work.
 
-## Current Milestone
+## Current Milestone: v1034 Raster Stretch & Colormap Completion
 
-_None — v1033 shipped 2026-05-29. Run `/gsd:new-milestone` to start the next milestone._
+**Goal:** Finish the half-done raster stretch/colormap feature — add full per-band multi-band stretch, make percentile/σ bounds configurable, seed a real single-band raster fixture to actually verify the colormap/stretch UI, and clear the v1033 builder dead-code/note tech debt.
+
+**Target features:**
+- Per-band multi-band stretch (RASTER-STRETCH-03): independent percentile/σ rescale per band via `/cog/statistics` → multi-rescale Titiler URL
+- Configurable stretch bounds (RASTER-STRETCH-UI-01): UI to set percentile bounds / σ multiplier instead of hardcoded p2–p98 / ±2σ
+- Real single-band raster fixture (TESTDATA-01): wire a small redistributable public single-band GeoTIFF into the seed script
+- Verify single-band stretch + colormap UI against the new fixture (the coverage hole never closed)
+- Cleanup: remove dead `onRenderModeChange` member + rework/remove the unreachable `hillshadeTerrainNote` advisory
+
+**Key context:** Continues phase numbering from 1151 (next phase 1152). Builds on v1031 (colormap) + v1032 (single-band stretch) patterns already in `raster_tile_proxy` / `RasterEditor` — not a rewrite. Execution runs autonomously via `/gsd-autonomous`; orchestrator drives all live Playwright MCP smoke before close (executor lacks MCP access — see project memory `playwright-mcp-orchestrator-only`).
 
 ## Recent Shipped Milestone: v1033 Builder Terrain, Label & Render-Mode QA
 
@@ -895,6 +904,16 @@ Users can find any dataset in the catalog in seconds — search, see it on a map
 
 ## Requirements
 
+### Active (v1034 Raster Stretch & Colormap Completion)
+
+- Per-band multi-band raster stretch via `/cog/statistics` + multi-rescale Titiler URL — v1034
+- Configurable stretch bounds (percentile / σ multiplier) in RasterEditor — v1034
+- Seeded non-DEM single-band raster fixture for stretch/colormap verification — v1034
+- Verified single-band stretch + colormap UI against real single-band data — v1034
+- v1033 builder tech-debt cleanup (dead `onRenderModeChange`, `hillshadeTerrainNote`) — v1034
+
+_Full REQ-ID breakdown in `.planning/REQUIREMENTS.md`._
+
 ### Validated
 
 - ✓ Search-first catalog UI with text, spatial, temporal, and tag-based filtering — v1.0
@@ -1490,4 +1509,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-28 — completed milestone v1032 Builder Carry-Forward Resolution (4 phases 1144-1147, 7/7 reqs; local tag `v1032`, CHANGELOG `[1.7.0]`). Contour control CUT (`maplibre-contour@0.1.0` ↔ maplibre-gl 5.x custom-protocol incompatibility, no upstream fix); single-band raster `percentile`/`stddev` stretch implemented via Titiler `/cog/statistics`. Orchestrator Playwright MCP close-gate; audit `tech_debt` (integration CLEAN 7/7 + 2/2 flows). Next: `/gsd:new-milestone`.*
+*Last updated: 2026-05-29 — started milestone v1034 Raster Stretch & Colormap Completion. Closes the raster stretch/colormap tail carried since v1031/v1032: full per-band multi-band stretch, configurable percentile/σ bounds, a real seeded single-band raster fixture (TESTDATA-01) to verify the colormap/stretch UI, plus v1033 builder dead-code/note cleanup. Phase numbering continues from 1151. Prior: v1033 Builder Terrain, Label & Render-Mode QA shipped 2026-05-29 (local tag `v1033`, CHANGELOG `[1.8.0]`).*

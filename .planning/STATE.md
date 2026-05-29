@@ -1,31 +1,26 @@
 ---
 gsd_state_version: 1.0
-milestone: v1033
-milestone_name: Builder Terrain, Label & Render-Mode QA
-status: Awaiting next milestone
-stopped_at: Milestone v1033 complete and archived
-last_updated: "2026-05-29T02:00:00.000Z"
-last_activity: 2026-05-29 — Milestone v1033 completed, audited (tech_debt), and archived
+milestone: v1034
+milestone_name: Raster Stretch & Colormap Completion
+status: planning
+last_updated: "2026-05-29T20:14:36.098Z"
+last_activity: 2026-05-29
 progress:
-  total_phases: 4
-  completed_phases: 4
-  total_plans: 7
-  completed_plans: 7
-  percent: 100
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # State
 
 ## Current Position
 
-Phase: Milestone v1033 complete (archived)
+Phase: Not started (defining requirements)
 Plan: —
-Status: Awaiting next milestone
-Last activity: 2026-05-29 — v1033 audit (`tech_debt`) → complete → cleanup
-
-```
-Progress: [██████████] 100% (v1033: 4/4 phases)
-```
+Status: Defining requirements
+Last activity: 2026-05-29 — Milestone v1034 started
 
 ## Project Reference
 
