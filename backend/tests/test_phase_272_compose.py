@@ -1,8 +1,10 @@
 """Static-analysis tests for Phase 272 docker-compose.yml hardening.
 
-Pins every invariant added by Plans 272-02, 272-03, 272-04 (resource limits,
-security_opt, cap_drop, cap_add, read_only, tmpfs, healthchecks, port bindings,
-restart policy). Static analysis only — no docker daemon required.
+Pins every invariant added by Plans 272-02, 272-03, 272-04 (security_opt,
+cap_drop, cap_add, read_only, tmpfs, healthchecks, port bindings, restart
+policy). The original ``resource limits`` invariant was removed (see the
+INF-01 note below) after commit 90919990 deleted the deploy.resources blocks.
+Static analysis only — no docker daemon required.
 """
 
 from pathlib import Path
@@ -27,34 +29,16 @@ def services(compose):
 
 
 # ---------------------------------------------------------------------------
-# INF-01: deploy.resources.limits on every service
+# INF-01: deploy.resources.limits — INTENTIONALLY REMOVED
 # ---------------------------------------------------------------------------
-
-
-class TestInf01ResourceLimits:
-    """Every service has explicit cpus + memory limits."""
-
-    @pytest.mark.parametrize(
-        "service",
-        [
-            "db",
-            "migrate",
-            "api",
-            "worker",
-            "titiler",
-            "frontend",
-            "backup",
-            "minio",
-            "minio-setup",
-            "valkey",
-        ],
-    )
-    def test_service_has_deploy_resources_limits(self, services, service):
-        svc = services[service]
-        limits = svc.get("deploy", {}).get("resources", {}).get("limits", {})
-        assert limits, f"{service} missing deploy.resources.limits"
-        assert "cpus" in limits, f"{service} missing cpus limit"
-        assert "memory" in limits, f"{service} missing memory limit"
+#
+# Commit 90919990 ("refactor(compose): remove deploy.resources caps and VPS
+# budget framing") deliberately deleted all 10 deploy.resources blocks:
+# GeoLens does not target a specific hardware envelope, and production
+# deployments via k8s/ECS set limits at the orchestrator level. The
+# TestInf01ResourceLimits class that pinned those limits was removed to match
+# that product decision — re-adding a resource-limits invariant here would
+# contradict the documented direction.
 
 
 # ---------------------------------------------------------------------------
