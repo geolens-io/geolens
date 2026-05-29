@@ -565,8 +565,9 @@ async def test_band_stats_cache_hit(monkeypatch):
     monkeypatch.setattr("app.processing.tiles.router._titiler_client.get", mock_get)
 
     path = "/data/cache-hit-test.tif"
-    result1 = await _fetch_band_statistics(path)
-    result2 = await _fetch_band_statistics(path)
+    # Phase 1153: _fetch_band_statistics now requires pmin/pmax for cache-key isolation
+    result1 = await _fetch_band_statistics(path, 2.0, 98.0)
+    result2 = await _fetch_band_statistics(path, 2.0, 98.0)
 
     assert mock_get.call_count == 1, "Second call must be served from cache"
     assert result1 == result2
@@ -584,8 +585,9 @@ async def test_band_stats_cache_negative(monkeypatch):
     monkeypatch.setattr("app.processing.tiles.router._titiler_client.get", mock_get)
 
     path = "/data/timeout-test.tif"
-    result1 = await _fetch_band_statistics(path)
-    result2 = await _fetch_band_statistics(path)
+    # Phase 1153: _fetch_band_statistics now requires pmin/pmax for cache-key isolation
+    result1 = await _fetch_band_statistics(path, 2.0, 98.0)
+    result2 = await _fetch_band_statistics(path, 2.0, 98.0)
 
     assert result1 is None
     assert result2 is None

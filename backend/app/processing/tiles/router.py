@@ -232,24 +232,52 @@ _ALLOWED_STRETCH: frozenset[str] = frozenset({"minmax", "percentile", "stddev"})
 # stddev stretch uses mean ± _STDDEV_SIGMA·σ, clamped to the band [min, max].
 _STDDEV_SIGMA = 2.0
 
-# Per-band Titiler statistics cache keyed by COG open-path. Statistics are stable
-# for a given asset, so a process-lifetime cache avoids recomputing percentile/
-# stddev breakpoints on every tile request. Cleared on restart (covers re-ingest).
+# Per-band Titiler statistics cache keyed by (open_path, pmin, pmax). The bounds
+# are part of the cache key so different percentile clips produce distinct entries —
+# without this, a p2/p98 lookup would serve stale cached stats for a p5/p95 request.
+# (RASTER-STRETCH-UI-01 / Phase 1153 PITFALL-01 / 1153-CONTEXT.md.)
 # HYG-01: bounded LRU so long-lived tile workers don't grow memory without limit.
 # 256 entries covers ~2× the typical project raster count. cachetools.LRUCache
 # supports the same `in` / `[]` / assignment interface as dict.
-_band_stats_cache: LRUCache[str, list[dict] | None] = LRUCache(maxsize=256)
+_band_stats_cache: LRUCache[tuple, list[dict] | None] = LRUCache(maxsize=256)
 
 
-async def _fetch_band_statistics(open_path: str) -> list[dict] | None:
-    """Fetch per-band statistics from Titiler /cog/statistics (cached by open_path).
+def _percentile_key(value: float) -> str:
+    """Format a percentile float for use as a Titiler response key.
+
+    Titiler returns ``percentile_2`` (int-like) and ``percentile_5`` rather than
+    ``percentile_2.0`` or ``percentile_5.0``. Drop the trailing ``.0`` for whole
+    numbers so the key lookup matches the actual response.
+    """
+    if value == int(value):
+        return f"percentile_{int(value)}"
+    return f"percentile_{value}"
+
+
+async def _fetch_band_statistics(
+    open_path: str, pmin: float, pmax: float
+) -> list[dict] | None:
+    """Fetch per-band statistics from Titiler /cog/statistics (cached by open_path + bounds).
+
+    The cache key is ``(open_path, pmin, pmax)`` so different percentile clips
+    never serve stale results from a prior lookup with different bounds
+    (RASTER-STRETCH-UI-01 / Phase 1153 cache-key isolation requirement).
 
     Returns a list of per-band stat dicts ordered b1, b2, ... or None when the
     statistics call fails (caller falls back to minmax).
     """
-    if open_path in _band_stats_cache:
-        return _band_stats_cache[open_path]
-    stats_url = build_titiler_cog_url("statistics", query={"url": open_path})
+    cache_key = (open_path, pmin, pmax)
+    if cache_key in _band_stats_cache:
+        return _band_stats_cache[cache_key]
+    # Forward pmin/pmax as repeated p= params (e.g. p=5&p=95). Use integer
+    # representation for whole numbers to match Titiler's expected format.
+    pmin_str = str(int(pmin)) if pmin == int(pmin) else str(pmin)
+    pmax_str = str(int(pmax)) if pmax == int(pmax) else str(pmax)
+    stats_url = build_titiler_cog_url(
+        "statistics",
+        query={"url": open_path},
+        raw_query_suffix=f"p={pmin_str}&p={pmax_str}",
+    )
     bands: list[dict] | None = None
     try:
         resp = await _titiler_client.get(stats_url)
@@ -265,34 +293,45 @@ async def _fetch_band_statistics(open_path: str) -> list[dict] | None:
                 ]
     except (httpx.TimeoutException, httpx.TransportError, ValueError, KeyError):
         bands = None
-    _band_stats_cache[open_path] = bands
+    _band_stats_cache[cache_key] = bands
     return bands
 
 
 def _compute_stretch_rescale(
-    bands: list[dict], stretch: str, n_bands: int
+    bands: list[dict],
+    stretch: str,
+    n_bands: int,
+    *,
+    pmin: float,
+    pmax: float,
+    sigma: float,
 ) -> list[str]:
     """Compute Titiler ``rescale=lo,hi`` fragments from band statistics.
 
-    percentile → [percentile_2, percentile_98]; stddev → [mean ± 2σ] clamped to
-    [min, max]. Returns one fragment per band; empty when stats are insufficient
-    (caller falls back to minmax).
+    percentile → [percentile_<pmin>, percentile_<pmax>] read dynamically from
+    the band stats dict so custom bounds produce correct rescale values.
+    stddev → [mean ± sigma·σ] clamped to [min, max].
+
+    Returns one fragment per band (up to n_bands); empty when stats are
+    insufficient (caller falls back to minmax).
     """
+    pmin_key = _percentile_key(pmin)
+    pmax_key = _percentile_key(pmax)
     parts: list[str] = []
     for i in range(n_bands):
         if i >= len(bands):
             break
         b = bands[i]
         if stretch == "percentile":
-            lo = b.get("percentile_2")
-            hi = b.get("percentile_98")
+            lo = b.get(pmin_key)
+            hi = b.get(pmax_key)
         else:  # stddev
             mean = b.get("mean")
             std = b.get("std")
             if mean is None or std is None:
                 continue
-            lo = mean - _STDDEV_SIGMA * std
-            hi = mean + _STDDEV_SIGMA * std
+            lo = mean - sigma * std
+            hi = mean + sigma * std
             bmin, bmax = b.get("min"), b.get("max")
             if bmin is not None:
                 lo = max(lo, bmin)
@@ -499,6 +538,7 @@ async def raster_auth_check(
             "X-GeoLens-Asset-OpenPath": open_path,
             "X-GeoLens-Cache-Status": cache_status,
             "X-GeoLens-Render-Params": render_params,
+            "X-GeoLens-Band-Count": str(row["band_count"] or 1),
         },
     )
 
@@ -521,6 +561,27 @@ async def raster_tile_proxy(
     stretch: Literal["minmax", "percentile", "stddev"] | None = Query(
         None, description="Stretch strategy: minmax (default), percentile, stddev"
     ),
+    pmin: float | None = Query(
+        None,
+        description=(
+            "Lower percentile clip for stretch=percentile (0–100, default 2). "
+            "Absent = current p2 behavior. Must be less than pmax."
+        ),
+    ),
+    pmax: float | None = Query(
+        None,
+        description=(
+            "Upper percentile clip for stretch=percentile (0–100, default 98). "
+            "Absent = current p98 behavior. Must be greater than pmin."
+        ),
+    ),
+    sigma: float | None = Query(
+        None,
+        description=(
+            "Standard-deviation multiplier for stretch=stddev (default 2.0). "
+            "Absent = current 2.0σ behavior. Must be > 0."
+        ),
+    ),
     user: Identity | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
 ) -> Response:
@@ -535,9 +596,42 @@ async def raster_tile_proxy(
     single-band — passing gray is a no-op (not forwarded). colormap_name is not
     forwarded for DEM layers (render_params starts with 'algorithm=').
 
-    stretch: Optional stretch strategy. Phase 1140 implements minmax only;
-    percentile/stddev are accepted and logged as fallback (1140-RESEARCH Finding 6).
+    stretch: Optional stretch strategy. percentile/stddev compute a stats-based
+    rescale from Titiler band statistics. Multi-band rasters produce one rescale=
+    fragment per band (up to 3, RASTER-STRETCH-03).
+
+    pmin/pmax: Configurable percentile clip bounds (default 2/98). Must satisfy
+    0 <= pmin < pmax <= 100. Forwarded as repeated p= params to /cog/statistics.
+    The _band_stats_cache key includes pmin/pmax so different bounds never serve
+    stale cached stats (RASTER-STRETCH-UI-01 / Phase 1153 cache-key isolation).
+
+    sigma: Standard-deviation multiplier for stretch=stddev (default 2.0).
+    Must be > 0.
     """
+    # Resolve effective bounds (apply defaults so callers downstream always receive
+    # concrete values, not None).
+    eff_pmin: float = pmin if pmin is not None else 2.0
+    eff_pmax: float = pmax if pmax is not None else 98.0
+    eff_sigma: float = sigma if sigma is not None else _STDDEV_SIGMA
+
+    # T-1153-01: validate pmin/pmax/sigma BEFORE any Titiler call.
+    # Apply checks whenever the param is present, regardless of active stretch mode,
+    # so invalid inputs are always rejected (consistent with T-1140-01 approach).
+    if pmin is not None or pmax is not None:
+        if not (0 <= eff_pmin < eff_pmax <= 100):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=(
+                    "pmin/pmax must satisfy 0 <= pmin < pmax <= 100; "
+                    f"got pmin={eff_pmin}, pmax={eff_pmax}"
+                ),
+            )
+    if sigma is not None and not (sigma > 0):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"sigma must be > 0; got sigma={sigma}",
+        )
+
     # Reuse the auth-check logic to get the open path and render params
     auth_resp = await raster_auth_check(request, dataset_id, user, db)
     open_path = auth_resp.headers.get("X-GeoLens-Asset-OpenPath")
@@ -547,6 +641,14 @@ async def raster_tile_proxy(
         )
 
     render_params = auth_resp.headers.get("X-GeoLens-Render-Params", "")
+
+    # Read band_count from the auth response header (emitted by raster_auth_check).
+    # Absent / non-numeric → fall back to 1. Cap at 3 for Titiler RGB rendering.
+    _raw_band_count = auth_resp.headers.get("X-GeoLens-Band-Count", "1")
+    try:
+        band_count = int(_raw_band_count) if _raw_band_count else 1
+    except (ValueError, TypeError):
+        band_count = 1
 
     # T-1140-01: belt-and-suspenders runtime allowlist check (Literal provides
     # FastAPI-level validation; this guard catches any code path that bypasses it).
@@ -572,13 +674,19 @@ async def raster_tile_proxy(
 
     # stretch: minmax (default) keeps the dtype-based rescale already in
     # render_params. percentile/stddev compute a stats-based rescale from Titiler
-    # band statistics and override the rescale fragment. Single-band scope
-    # (RASTER-STRETCH-01/02); not applied to DEM (algorithm=terrainrgb has no
-    # rescale). Falls back to minmax with a logged warning when stats are missing.
+    # band statistics and override the rescale fragment.
+    # Multi-band: n_bands=min(band_count or 1, 3) so each band gets an independent
+    # rescale= fragment (RASTER-STRETCH-03). Not applied to DEM (algorithm=terrainrgb).
+    # Falls back to minmax with a logged warning when stats are missing.
     if stretch and stretch != "minmax" and not render_params.startswith("algorithm="):
-        bands = await _fetch_band_statistics(open_path)
+        bands = await _fetch_band_statistics(open_path, eff_pmin, eff_pmax)
+        n_bands = min(band_count or 1, 3)
         rescale_parts = (
-            _compute_stretch_rescale(bands, stretch, n_bands=1) if bands else []
+            _compute_stretch_rescale(
+                bands, stretch, n_bands, pmin=eff_pmin, pmax=eff_pmax, sigma=eff_sigma
+            )
+            if bands
+            else []
         )
         if rescale_parts:
             render_params = _apply_stretch_rescale(render_params, rescale_parts)

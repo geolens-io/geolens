@@ -41935,7 +41935,7 @@
     },
     "/tiles/raster-proxy/{dataset_id}/{z}/{x}/{y}.{fmt}": {
       "get": {
-        "description": "API-side raster tile proxy: auth check + fetch from Titiler.\n\nUsed by Vite dev proxy and as a fallback for deployments without nginx.\nProduction deployments with nginx should use the nginx raster-tiles path\nfor better caching and performance.\n\ncolormap_name: Optional Titiler colormap for single-band display. Validated\nagainst _ALLOWED_COLORMAPS (T-1140-01). Gray is the Titiler default for\nsingle-band \u2014 passing gray is a no-op (not forwarded). colormap_name is not\nforwarded for DEM layers (render_params starts with 'algorithm=').\n\nstretch: Optional stretch strategy. Phase 1140 implements minmax only;\npercentile/stddev are accepted and logged as fallback (1140-RESEARCH Finding 6).",
+        "description": "API-side raster tile proxy: auth check + fetch from Titiler.\n\nUsed by Vite dev proxy and as a fallback for deployments without nginx.\nProduction deployments with nginx should use the nginx raster-tiles path\nfor better caching and performance.\n\ncolormap_name: Optional Titiler colormap for single-band display. Validated\nagainst _ALLOWED_COLORMAPS (T-1140-01). Gray is the Titiler default for\nsingle-band \u2014 passing gray is a no-op (not forwarded). colormap_name is not\nforwarded for DEM layers (render_params starts with 'algorithm=').\n\nstretch: Optional stretch strategy. percentile/stddev compute a stats-based\nrescale from Titiler band statistics. Multi-band rasters produce one rescale=\nfragment per band (up to 3, RASTER-STRETCH-03).\n\npmin/pmax: Configurable percentile clip bounds (default 2/98). Must satisfy\n0 <= pmin < pmax <= 100. Forwarded as repeated p= params to /cog/statistics.\nThe _band_stats_cache key includes pmin/pmax so different bounds never serve\nstale cached stats (RASTER-STRETCH-UI-01 / Phase 1153 cache-key isolation).\n\nsigma: Standard-deviation multiplier for stretch=stddev (default 2.0).\nMust be > 0.",
         "operationId": "raster_tile_proxy_tiles_raster_proxy__dataset_id___z___x___y___fmt__get",
         "parameters": [
           {
@@ -42033,6 +42033,60 @@
               ],
               "description": "Stretch strategy: minmax (default), percentile, stddev",
               "title": "Stretch"
+            }
+          },
+          {
+            "description": "Lower percentile clip for stretch=percentile (0\u2013100, default 2). Absent = current p2 behavior. Must be less than pmax.",
+            "in": "query",
+            "name": "pmin",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Lower percentile clip for stretch=percentile (0\u2013100, default 2). Absent = current p2 behavior. Must be less than pmax.",
+              "title": "Pmin"
+            }
+          },
+          {
+            "description": "Upper percentile clip for stretch=percentile (0\u2013100, default 98). Absent = current p98 behavior. Must be greater than pmin.",
+            "in": "query",
+            "name": "pmax",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Upper percentile clip for stretch=percentile (0\u2013100, default 98). Absent = current p98 behavior. Must be greater than pmin.",
+              "title": "Pmax"
+            }
+          },
+          {
+            "description": "Standard-deviation multiplier for stretch=stddev (default 2.0). Absent = current 2.0\u03c3 behavior. Must be > 0.",
+            "in": "query",
+            "name": "sigma",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Standard-deviation multiplier for stretch=stddev (default 2.0). Absent = current 2.0\u03c3 behavior. Must be > 0.",
+              "title": "Sigma"
             }
           }
         ],
