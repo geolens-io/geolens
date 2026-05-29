@@ -19,7 +19,7 @@ Requirements for this milestone. Each maps to exactly one roadmap phase.
 
 ### Configurable Stretch Bounds
 
-- [ ] **SPIKE-01**: Confirm whether the running Titiler instance supports arbitrary percentile params (`?p=<float>&p=<float>`) on `/cog/statistics` and returns the corresponding `percentile_<N>` keys. This determines whether RASTER-STRETCH-UI-01 is a simple param+cache-key change or needs a different approach. Spike against the live Titiler container BEFORE wiring configurable-bounds backend. Recorded as a spike finding.
+- [x] **SPIKE-01**: Confirm whether the running Titiler instance supports arbitrary percentile params (`?p=<float>&p=<float>`) on `/cog/statistics` and returns the corresponding `percentile_<N>` keys. This determines whether RASTER-STRETCH-UI-01 is a simple param+cache-key change or needs a different approach. Spike against the live Titiler container BEFORE wiring configurable-bounds backend. Recorded as a spike finding. **RESOLVED Phase 1153** — evidence in 1153-SPIKE.md; contract-pinning test added.
 - [ ] **RASTER-STRETCH-UI-01**: User can configure stretch bounds in the RasterEditor — percentile low/high (replacing fixed p2/p98) and σ multiplier (replacing fixed ±2σ) — instead of hardcoded defaults. Backend: thread `pmin`/`pmax`/`sigma` query params into `raster_tile_proxy` and `_compute_stretch_rescale`. **CRITICAL**: extend the `_band_stats_cache` key (`backend/app/processing/tiles/router.py:~241`, currently keyed on `open_path` only) to include the bounds (e.g. `(open_path, pmin, pmax)`) — otherwise configurable bounds is a silent server-side no-op. Frontend: percentile low/high numeric inputs shown when stretch=`percentile`; σ segmented control (1/2/3) shown when stretch=`stddev`. Bounds validated (`pmin < pmax`, `sigma > 0`); recompute debounced.
 - [ ] **RASTER-STRETCH-UI-02**: On single-band rasters, a copy-only hint ("Stretch sets the input range for the colormap") is shown below the stretch control when stretch ≠ `minmax` and colormap ≠ `gray`. No behavior change — `buildColormapTileUrl` already forwards `stretch` independently of `colormap_name` and Titiler applies rescale before the colormap lookup (verified correct in research).
 
@@ -59,9 +59,9 @@ Deferred — acknowledged, not in this milestone's roadmap.
 | Requirement | Phase | Status |
 |-------------|-------|--------|
 | TESTDATA-01 | Phase 1152 | Complete |
-| RASTER-STRETCH-03 | Phase 1153 (backend) + Phase 1154 (frontend) | Pending |
-| SPIKE-01 | Phase 1153 | Pending |
-| RASTER-STRETCH-UI-01 | Phase 1153 (backend) + Phase 1154 (frontend) | Pending |
+| RASTER-STRETCH-03 | Phase 1153 (backend) + Phase 1154 (frontend) | Backend Complete; frontend Pending |
+| SPIKE-01 | Phase 1153 | Complete |
+| RASTER-STRETCH-UI-01 | Phase 1153 (backend) + Phase 1154 (frontend) | Backend Complete; frontend Pending |
 | RASTER-STRETCH-UI-02 | Phase 1154 | Pending |
 | VERIFY-01 | Phase 1155 | Pending |
 | CLEANUP-01 | Phase 1154 | Pending |

@@ -3,30 +3,30 @@ gsd_state_version: 1.0
 milestone: v1034
 milestone_name: Raster Stretch & Colormap Completion
 status: verifying
-stopped_at: Phase 1152 Plan 01 complete — TESTDATA-01 satisfied; fixture dataset_id 4767fc35-f6d6-4985-a28e-aecb158fbc1b
-last_updated: "2026-05-29T23:30:00.000Z"
+stopped_at: v1034 roadmap created; STATE.md initialized at Phase 1152
+last_updated: "2026-05-29T23:47:46.465Z"
 last_activity: 2026-05-29
 progress:
   total_phases: 10
-  completed_phases: 1
-  total_plans: 1
-  completed_plans: 1
-  percent: 10
+  completed_phases: 2
+  total_plans: 2
+  completed_plans: 2
+  percent: 20
 ---
 
 # State
 
 ## Current Position
 
-Phase: 1152 (Single-Band Raster Fixture) — COMPLETE
-Plan: 1 of 1 (done)
-Status: TESTDATA-01 satisfied — fixture ingested, is_dem=false, band_count=1, idempotent
+Phase: 1154 (Frontend Controls + Cleanup) — NEXT
+Plan: 1 of N
+Status: Phase 1153 DONE — 66 tests green, OpenAPI no-drift
 Last activity: 2026-05-29
 
 ```
 Phase progress: [ 1152 ][ 1153 ][ 1154 ][ 1155 ]
-                [ DONE][      ][      ][      ]
-                25% complete (1 of 4 phases)
+                [ DONE][ DONE ][      ][      ]
+                50% complete (2 of 4 phases)
 ```
 
 ## Project Reference
@@ -34,7 +34,7 @@ Phase progress: [ 1152 ][ 1153 ][ 1154 ][ 1155 ]
 See: .planning/PROJECT.md (updated 2026-05-29)
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** Phase 1152 — Single-Band Raster Fixture
+**Current focus:** Phase 1153 — Backend Multi-Band Stretch + Configurable Bounds
 
 ## Last Shipped Milestone
 
@@ -70,7 +70,7 @@ See: .planning/PROJECT.md (updated 2026-05-29)
 - **Raster stretch (v1032):** `percentile`/`stddev` compute a stats-based Titiler rescale via `/cog/statistics` (cached). `_band_stats_cache` is now an `LRUCache(maxsize=256)` (v1033 HYG-01). Not applied to DEM. Multi-band = current milestone RASTER-STRETCH-03.
 - **band_count (v1031/v1033):** `band_count=None` on the `get_dataset_meta` path (shows "1 band" for RGB ortho — cosmetic; colormap correctly hidden for imagery). Tracked as Future RASTER-META-01.
 - **Fixture dtype trap (v1034 critical):** `cog.py:85` sets `is_dem=True` for any `band_count==1 AND float dtype`. Fixture MUST be uint8 or uint16. Verify `is_dem=false` after ingest before any UI smoke.
-- **Cache key extension (v1034 critical):** `_band_stats_cache` key must be `(open_path, pmin, pmax)` before the configurable-bounds backend lands. Without this, different pmin/pmax values serve stale p2/p98 stats from cache.
+- **Cache key extension (v1034 Phase 1153 DONE):** `_band_stats_cache` key is now `(open_path, pmin, pmax)` tuple. Cache isolation proven by unit test. OpenAPI snapshot refreshed.
 - **Cluster adapter (carried):** intentionally keeps raw `map.setFilter` for the compound `combineFilter` shape — NOT migrated to `syncLayerFilter`.
 - **Fill extrusion companion (carried):** no `layout.visibility` block at `addLayers` add-time; controlled via `syncVisibility`. Documented in `fill-adapter.test.ts`.
 - **SF-MCP-01 (carried from v1030):** `chat_actions.py:_collect_chat_action()` never emits rows on `show_query_result` for non-spatial queries; frontend inline card ready but backend wiring still missing.
@@ -84,7 +84,7 @@ None active.
 ### Blockers/Concerns
 
 - **CI-01-v1030 billing prerequisite (carry-forward from v1023):** Operator must resolve GH Actions billing at https://github.com/organizations/geolens-io/settings/billing before the `pytest-parallel-isolation` CI gate can live-verify GREEN. Standing ops blocker — unblock independently of milestone execution.
-- **SPIKE-01 (Phase 1153 gate):** Titiler 2.0.2 `p=` arbitrary percentile support is unverified end-to-end against the pinned container. Must confirm before writing any configurable-bounds backend code.
+- **SPIKE-01 (Phase 1153 CLOSED):** Titiler p= arbitrary percentile support confirmed (1153-SPIKE.md); contract-pinning test added to test_raster_colormap_proxy.py.
 
 ## Deferred Items
 
@@ -97,14 +97,14 @@ None active.
 
 ## Session Continuity
 
-Last session: 2026-05-29T23:25:05.409Z
+Last session: 2026-05-29T23:47:46.461Z
 Stopped at: v1034 roadmap created; STATE.md initialized at Phase 1152
 Resume file: None
 
 ## Operator Next Steps
 
 - **Phase 1152 DONE.** TESTDATA-01 satisfied — `GRAY_50M_SR.tif` fixture in catalog (id `4767fc35-f6d6-4985-a28e-aecb158fbc1b`), `is_dem=false`, `band_count=1`, idempotent.
-- **Next:** Phase 1153 — Backend Multi-Band Stretch + Configurable Bounds.
-- **Phase 1153 note:** SPIKE-01 is the first task — run `curl http://localhost:8000/cog/statistics?url=<path>&p=5&p=95` against the live Titiler container and inspect response keys before writing any configurable-bounds code.
+- **Phase 1153 DONE.** RASTER-STRETCH-03 + SPIKE-01 + RASTER-STRETCH-UI-01 backend complete. Multi-band n_bands fix (X-GeoLens-Band-Count header seam), pmin/pmax/sigma configurable bounds, bounds-keyed cache `(open_path, pmin, pmax)`, 422 validation before Titiler, SPIKE-01 contract-pinning test. 66/66 focused tests green. OpenAPI snapshot regenerated (no-drift).
+- **Next:** Phase 1154 — Frontend Controls + Cleanup (RASTER-STRETCH-03 frontend, RASTER-STRETCH-UI-01 frontend, RASTER-STRETCH-UI-02, CLEANUP-01).
 - **MCP note:** Orchestrator drives all live Playwright MCP (Phase 1155). Executor subagents lack `mcp__playwright__*` access — see project memory `playwright-mcp-orchestrator-only`.
 - Phase directories for v1033 (1148-1151) should be in `milestones/v1033-phases/` after cleanup.
