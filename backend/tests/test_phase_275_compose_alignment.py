@@ -36,12 +36,12 @@ def _exists(path: str) -> bool:
 def test_compose_dual_default_documented() -> None:
     """API-05 / M-25: docker-compose.yml port fallbacks differ from .env.example by design."""
     body = _read("docker-compose.yml")
-    # The dual-default rationale must be explicit at both DB and API port sites.
-    count = body.count("API-05 (Phase 275)")
-    assert count >= 2, (
-        "docker-compose.yml must document the dual-default for DB_PORT and API_PORT "
-        f"(API-05): expected >=2 'API-05 (Phase 275)' comments, got {count}"
-    )
+    # NOTE: the original ">=2 'API-05 (Phase 275)' inline-comment" assertion was
+    # dropped after commit fec874a6 ("docs(compose): replace long Phase-ID
+    # archaeology with one-line pointers") intentionally removed per-line phase
+    # citations from docker-compose.yml. The load-bearing invariant is the
+    # functional fallback below (no-.env baseline still binds 5432 / 8000), not
+    # the comment archaeology.
     # The fallback values themselves must remain unchanged so `docker compose up`
     # without copying .env still binds to 5432 / 8000.
     assert "${DB_PORT:-5432}:5432" in body, (
