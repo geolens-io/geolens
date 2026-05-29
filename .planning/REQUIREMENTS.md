@@ -54,8 +54,6 @@ The `RENDER_MODES` allowlist (`frontend/src/lib/normalize-style-config.ts:92` â€
 
 ## Traceability
 
-Populated during roadmap creation.
-
 | Requirement | Phase | Status |
 |-------------|-------|--------|
 | RMODE-01 | Phase 1148 | Pending |
@@ -75,4 +73,4 @@ Populated during roadmap creation.
 
 ---
 *Requirements defined: 2026-05-29*
-*Last updated: 2026-05-29 after milestone v1033 definition*
+*Last updated: 2026-05-29 â€” traceability populated after roadmap creation*
