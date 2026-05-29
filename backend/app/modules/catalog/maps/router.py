@@ -100,8 +100,7 @@ from app.modules.catalog.maps.service import (
     validate_public_visibility,
 )
 from app.modules.catalog.maps.models import Map, MapLayer
-from app.modules.catalog.maps.service import remove_layers_bulk
-from app.modules.catalog.maps.service_public import _validate_share_token
+from app.modules.catalog.maps.service import _validate_share_token, remove_layers_bulk
 from app.standards.ogc.errors import ERROR_RESPONSES_WRITE
 from app.core.public_urls import get_public_api_url
 
@@ -1822,7 +1821,7 @@ async def upload_og_image(
     storage = get_storage()
     try:
         await storage.put(storage_key, image_bytes)
-    except Exception:
+    except Exception:  # broad: S3/MinIO/local storage can throw varied errors -> 502
         logger.exception("og_image_upload_failed", map_id=str(map_id))
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
