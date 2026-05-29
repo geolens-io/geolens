@@ -101,7 +101,7 @@
 ### Phases
 
 - [x] **Phase 1152: Single-Band Raster Fixture** - Seed a uint8 non-DEM single-band COG via the seed script; hard gate for all subsequent stretch/colormap verification (completed 2026-05-29)
-- [ ] **Phase 1153: Backend — Multi-Band Stretch + Configurable Bounds** - Fix `n_bands=1` call site for per-band multi-band rescale; spike Titiler `p=` support then wire `pmin`/`pmax`/`sigma` params + compound cache key
+- [x] **Phase 1153: Backend — Multi-Band Stretch + Configurable Bounds** - Fix `n_bands=1` call site for per-band multi-band rescale; spike Titiler `p=` support then wire `pmin`/`pmax`/`sigma` params + compound cache key (completed 2026-05-29)
 - [ ] **Phase 1154: Frontend Controls + Cleanup** - Widen stretch gate to multi-band; add pmin/pmax/sigma inputs; stretch-colormap hint copy; remove v1033 dead code
 - [ ] **Phase 1155: Close-Gate** - Orchestrator Playwright MCP: multi-band stretch on RGB ortho + single-band stretch/colormap on TESTDATA-01 fixture; standard test gates
 
@@ -130,7 +130,7 @@
   3. Two requests for the same asset with different `pmin`/`pmax` values produce different cache entries in `_band_stats_cache` (key is `(open_path, pmin, pmax)`) and different `rescale=` values in the Titiler URL
   4. A request with invalid bounds (e.g. `pmin=95&pmax=5`, `sigma=-1`) is rejected with HTTP 422 before reaching Titiler
 **Plans**: 1 plan
-  - [ ] 1153-01-multiband-configurable-bounds-PLAN.md — multi-band n_bands fix + pmin/pmax/sigma params + bounds-keyed stats cache + 422 validation; closes SPIKE-01
+  - [x] 1153-01-multiband-configurable-bounds-PLAN.md — multi-band n_bands fix + pmin/pmax/sigma params + bounds-keyed stats cache + 422 validation; closes SPIKE-01
 
 ### Phase 1154: Frontend Controls + Cleanup
 **Goal**: The RasterEditor exposes stretch controls for multi-band rasters, lets users configure percentile bounds and sigma, shows a coupling hint on single-band rasters, and the v1033 dead code is removed — without breaking any existing vitest or smoke tests
@@ -160,7 +160,7 @@
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1152. Single-Band Raster Fixture | 1/1 | Complete   | 2026-05-29 |
-| 1153. Backend — Multi-Band Stretch + Configurable Bounds | 0/1 | Not started | - |
+| 1153. Backend — Multi-Band Stretch + Configurable Bounds | 1/1 | Complete   | 2026-05-29 |
 | 1154. Frontend Controls + Cleanup | 0/? | Not started | - |
 | 1155. Close-Gate | 0/? | Not started | - |
 
