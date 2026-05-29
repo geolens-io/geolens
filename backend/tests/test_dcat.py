@@ -14,6 +14,7 @@ from datetime import date
 import pytest
 from geoalchemy2 import WKTElement
 from httpx import AsyncClient
+from sqlalchemy import text
 from app.modules.catalog.datasets.domain.models import (
     Dataset,
     Record,
@@ -590,6 +591,13 @@ async def test_catalog_dcat_us3_validation_report_passes(
 ):
     """Catalog validation report uses the visible DCAT-US catalog payload."""
     session = test_db_session
+    # The catalog validation endpoint validates the entire anonymous-visible
+    # catalog. Under `pytest -n 4` the shared per-worker DB can carry public
+    # non-conforming datasets left by sibling tests, flipping valid->False.
+    # Truncate catalog tables first so this validates only its own dataset.
+    for _table in ("catalog.datasets", "catalog.records", "catalog.collections"):
+        await session.execute(text(f"TRUNCATE TABLE {_table} CASCADE"))
+    await session.commit()
     admin_id = await get_user_id(session, "admin")
     await _create_dcat_dataset(session, created_by=admin_id)
 
