@@ -344,7 +344,7 @@ export const StackRow = memo(function StackRow({
         ) : (
           <div className="min-w-0 flex items-center gap-1">
             <span
-              className="truncate text-sm"
+              className="truncate text-sm min-w-0"
               onDoubleClick={(e) => {
                 e.stopPropagation();
                 handleStartRename();
