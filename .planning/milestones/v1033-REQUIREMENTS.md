@@ -29,8 +29,8 @@ The `RENDER_MODES` allowlist (`frontend/src/lib/normalize-style-config.ts:92` �
 
 ### Close-Gate (QA)
 
-- [ ] **QA-01**: Orchestrator-driven Playwright MCP re-verify on both sample maps: Map A fresh load → `getTerrain()` non-null + visible 3D relief; DEM render-as persists across a save+reload; the label indicator is visible on labeled rows and absent on unlabeled rows; layer reorder + visibility toggle work; **0 console errors** on both maps. Evidence (screenshots + console capture) saved under the phase directory.
-- [ ] **QA-02**: Code gates green and release paper-trail written — frontend `npm run typecheck` (0), `vitest` (touched suites), `e2e:smoke:builder`, i18n 2/2, backend `pytest` (raster + tile suites), `make openapi-check` (expect **no drift** — the render_mode change is a frontend type only); CHANGELOG entry for v1033.
+- [x] **QA-01**: Orchestrator-driven Playwright MCP re-verify on both sample maps: Map A fresh load → `getTerrain()` non-null + visible 3D relief; DEM render-as persists across a save+reload; the label indicator is visible on labeled rows and absent on unlabeled rows; layer reorder + visibility toggle work; **0 console errors** on both maps. Evidence (screenshots + console capture) saved under the phase directory.
+- [x] **QA-02**: Code gates green and release paper-trail written — frontend `npm run typecheck` (0), `vitest` (touched suites), `e2e:smoke:builder`, i18n 2/2, backend `pytest` (raster + tile suites), `make openapi-check` (expect **no drift** — the render_mode change is a frontend type only); CHANGELOG entry for v1033.
 
 ## v2 / Future Requirements (out of scope for v1033)
 

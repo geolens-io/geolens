@@ -1,5 +1,26 @@
 # Milestones
 
+## v1033 Builder Terrain, Label & Render-Mode QA (Shipped: 2026-05-29)
+
+**Phases completed:** 4 phases (1148-1151), 7 plans, 9/9 requirements. Tag: local `v1033`. CHANGELOG `[1.8.0]`.
+
+**Goal delivered:** Closed the builder render-mode persistence defects surfaced by a live Playwright MCP walkthrough of the two ADK sample maps, added the missing layer-list label indicator, and shipped light builder polish + a raster-cache hygiene fix — without inflating into another full sweep.
+
+**Key accomplishments:**
+
+- **Render-mode persistence (1148, RMODE-01/02/03):** Single root cause — the `RENDER_MODES` allowlist (`frontend/src/lib/normalize-style-config.ts:92`) omitted `'terrain'` and `'image'`, so `normalizeRenderMode()` discarded `'terrain'` on every load → the 3D terrain mesh never attached AND a saved raster "Render as" silently reverted to Image. Added both modes to the allowlist + the `StyleConfig['render_mode']` union (`api.ts`, hand-maintained — backend `style_config` is opaque jsonb, so no OpenAPI/SDK regen), removed the `DEMEditorScene` BSR-09 boundary cast + comment, and pinned round-trip + RENDER_MODES-completeness unit tests. Live MCP: Map A `getTerrain()` non-null on fresh load (was `null`); DEM editor shows ◬ Terrain (was ▦ Image).
+- **Label indicator (1149, LABEL-01):** Derived `Type`-glyph indicator on `StackRow` layer rows where `label_config.column` is set (and render mode isn't heatmap/symbol — mirrors the `map-sync.ts` label-render gate), with `title`/sr-only a11y and en/de/es/fr i18n. Pure derivation, no new persisted state. Inline review fix: `min-w-0` on the name span so long names truncate beside the indicator.
+- **Builder polish + raster hygiene (1150, POLISH-01/02, HYG-01):** Removed the redundant point-layer render-as `<Select>` dropdown (the segmented Point/Symbols/Heatmap/Cluster control is now the sole picker); added `isHillshadeTerrainBound` guard that skips the hillshade raster-dem consumer when a DEM powers an active terrain source (stops MapLibre `backfillBorder` "dem dimension mismatch" spam) + a DEM-editor advisory note — provably inactive when terrain is off, so the primary hillshade path (Map B) is unaffected; bounded `_band_stats_cache` with `cachetools.LRUCache(maxsize=256)`.
+- **Close-gate (1151, QA-01/02):** Orchestrator-driven live Playwright MCP on both ADK maps (0 console errors each) + typecheck 0 / vitest 2601/2601 / i18n 2/2 / lint 0-err / backend raster·tile 76 / `make openapi-check` no-drift / `e2e:smoke:builder` 26/26. CHANGELOG `[1.8.0]`.
+
+**Audit verdict:** `tech_debt` (9/9 reqs satisfied; integration CLEAN 9/9 links + 4/4 E2E flows; 0 blockers). Tech debt: POLISH-02 raw error not reproduced live (guard unit-tested + provably safe), a dead optional `onRenderModeChange` member in `LayerStyleEditor/types.ts`, a SUMMARY line-number drift (795→827), and the pre-existing `band_count` cosmetic. See `.planning/milestones/v1033-MILESTONE-AUDIT.md`.
+
+**Migrations:** None (frontend type/normalizer + backend in-process cache bound + test/i18n only).
+
+**Method note:** Audit-first — a live Playwright MCP walkthrough of both sample maps (`8dd6a129` ADK 3D Relief + `c39be324` Terrain & Trails) drove the scope (`.planning/audits/BUILDER-LABEL-RASTER-AUDIT-v1033.md`); checklist items #1/#3/#4/#5/#6 (labels, render-as types/styling, reorder/visibility) PASSED as-is, confirming the milestone correctly targeted only the real defects.
+
+---
+
 ## v1032 Builder Carry-Forward Resolution (Shipped: 2026-05-28)
 
 **Phases completed:** 4 phases (1144-1147), 7/7 requirements. Tag: local `v1032`. CHANGELOG `[1.7.0]`.

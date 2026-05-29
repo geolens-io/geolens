@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v1033
 milestone_name: Builder Terrain, Label & Render-Mode QA
-status: All phases complete — awaiting milestone audit
-stopped_at: v1033 phases 1148-1151 complete + verified live
-last_updated: "2026-05-29T01:45:00.000Z"
-last_activity: 2026-05-29 — Phase 1151 QA close-gate passed (live MCP both maps + all code gates green)
+status: Awaiting next milestone
+stopped_at: Milestone v1033 complete and archived
+last_updated: "2026-05-29T02:00:00.000Z"
+last_activity: 2026-05-29 — Milestone v1033 completed, audited (tech_debt), and archived
 progress:
   total_phases: 4
   completed_phases: 4
@@ -18,42 +18,45 @@ progress:
 
 ## Current Position
 
-Phase: All 4 phases (1148-1151) complete — awaiting milestone audit
+Phase: Milestone v1033 complete (archived)
 Plan: —
-Status: v1033 implementation + close-gate complete (9/9 reqs)
-Last activity: 2026-05-29 — Phase 1151 QA close-gate passed (live MCP both maps + all code gates green)
+Status: Awaiting next milestone
+Last activity: 2026-05-29 — v1033 audit (`tech_debt`) → complete → cleanup
 
+```
 Progress: [██████████] 100% (v1033: 4/4 phases)
+```
 
 ## Project Reference
 
 See: .planning/PROJECT.md (updated 2026-05-29)
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** v1033 Builder Terrain, Label & Render-Mode QA — Phase 1148 next.
+**Current focus:** Planning next milestone — run `/gsd:new-milestone`.
 
 ## Last Shipped Milestone
 
-**Version:** v1032 Builder Carry-Forward Resolution
-**Shipped:** 2026-05-28
-**Phases:** 1144-1147 (4 phases, 7/7 reqs satisfied)
-**Tag:** local `v1032` · CHANGELOG `[1.7.0]`
-**Milestone audit:** `.planning/milestones/v1032-MILESTONE-AUDIT.md` (`tech_debt` — 7/7 reqs; integration CLEAN 7/7 links + 2/2 E2E flows; no blockers)
-**Archive:** `.planning/milestones/v1032-ROADMAP.md` + `v1032-REQUIREMENTS.md`
-**Delivered:** Contour control CUT (maplibre-contour@0.1.0 ↔ maplibre-gl 5.x custom-protocol incompatibility, no upstream fix) + single-band raster `percentile`/`stddev` stretch via Titiler `/cog/statistics` (cached) → rescale override. Orchestrator Playwright MCP close-gate.
+**Version:** v1033 Builder Terrain, Label & Render-Mode QA
+**Shipped:** 2026-05-29
+**Phases:** 1148-1151 (4 phases, 7 plans, 9/9 reqs satisfied)
+**Tag:** local `v1033` · CHANGELOG `[1.8.0]`
+**Milestone audit:** `.planning/milestones/v1033-MILESTONE-AUDIT.md` (`tech_debt` — 9/9 reqs; integration CLEAN 9/9 links + 4/4 E2E flows; 0 blockers)
+**Archive:** `.planning/milestones/v1033-ROADMAP.md` + `v1033-REQUIREMENTS.md`
+**Delivered:** DEM `render_mode:'terrain'` strip-on-load fixed (3D terrain restores on fresh load; raster "Render as" no longer reverts) + layer-list label indicator + point render-as consolidation + DEM hillshade dual-consumer guard + bounded band-stats cache. Orchestrator Playwright MCP close-gate on both ADK sample maps (0 console errors each).
 
 ## Accumulated Context
 
 ### Decisions (forward-relevant; full milestone log in archives)
 
-- **Raster stretch (v1032 RESOLVED):** `percentile`/`stddev` now compute a stats-based Titiler rescale (was minmax-only fallback). `_fetch_band_statistics` (Titiler `/cog/statistics`, cached per `open_path`) + `_compute_stretch_rescale` (percentile → [p2,p98]; stddev → [mean±2σ] clamped) + `_apply_stretch_rescale` in `backend/app/processing/tiles/router.py`. Not applied to DEM (terrainrgb). Single-band scope; multi-band = Future RASTER-STRETCH-03.
-- **Contour (v1032 RESOLVED → CUT):** `maplibre-contour` dep + `contour-sync.ts` + call site + `CONTOUR_CONTROL_ENABLED` flag/gate + dead `relief-contour` enum + 5 dormant tests + i18n keys all removed. 3 DEM-editor absence tests are the regression pins. Future contour would need a maintained approach (recorded in milestones/v1032-REQUIREMENTS.md Out of Scope).
-- **stretch ↔ gray-colormap coupling (RASTER-STRETCH-UI-02 — RESOLVED post-tag, commit `fbcf7b34`):** `buildColormapTileUrl` now forwards `stretch=` independent of colormap, so `percentile`/`stddev` apply on the default grayscale render too (was a no-op when colormap=gray). Live-verified via the `/raster-tiles/` path.
-- **band_count gate (v1031):** `band_count=None` for the `get_dataset_meta` path (no `RasterAsset` join); frontend gates the single-band COLORMAP section on `band_count === 1`.
+- **RENDER_MODES allowlist (v1033 RESOLVED):** `RENDER_MODES` (`frontend/src/lib/normalize-style-config.ts:92`) now includes all editor-emittable modes incl. `'terrain'` + `'image'`; the `StyleConfig['render_mode']` union (`frontend/src/types/api.ts`) matches. A round-trip + completeness guard test prevents silently dropping a mode again. `DEMEditorScene` no longer casts at the boundary (BSR-09 closed). `api.ts` is hand-maintained; `style_config` is opaque jsonb on the backend — render-mode changes are frontend-only (no OpenAPI/SDK regen).
+- **DEM terrain consumer (v1033):** `applyTerrainConfig` (`BuilderMap.tsx`) requires BOTH map-level `terrain_config.enabled` + `source_dataset_id` AND a layer with `render_mode==='terrain'`. With the normalizer fix, terrain attaches on fresh load.
+- **Hillshade dual-consumer guard (v1033 POLISH-02):** `isHillshadeTerrainBound` (exported from `map-sync.ts`) skips the hillshade raster-dem consumer + shows a DEM-editor note when a DEM powers an active terrain source. Inactive when terrain is off, so the primary hillshade path is unaffected. The raw `backfillBorder` error is a MapLibre limitation with non-uniform DEM tiles in the terrain+hillshade dual-consumer case only.
+- **Label indicator predicate (v1033):** layer "has labels" ⇔ `!!label_config?.column && render_mode not heatmap/symbol` — the SAME gate `map-sync.ts` uses to render labels. `StackRow` indicator mirrors it.
+- **Raster stretch (v1032):** `percentile`/`stddev` compute a stats-based Titiler rescale via `/cog/statistics` (cached). `_band_stats_cache` is now an `LRUCache(maxsize=256)` (v1033 HYG-01). Not applied to DEM. Multi-band = Future RASTER-STRETCH-03.
+- **band_count (v1031/v1033):** `band_count=None` on the `get_dataset_meta` path (shows "1 band" for RGB ortho — cosmetic; colormap correctly hidden for imagery). Tracked as Future RASTER-META-01.
 - **Cluster adapter (carried):** intentionally keeps raw `map.setFilter` for the compound `combineFilter` shape — NOT migrated to `syncLayerFilter`.
-- **Fill extrusion companion (carried):** does not receive a `layout.visibility` block at `addLayers` add-time (pre-existing gap); controlled via `syncVisibility`. Documented in `fill-adapter.test.ts`.
+- **Fill extrusion companion (carried):** no `layout.visibility` block at `addLayers` add-time; controlled via `syncVisibility`. Documented in `fill-adapter.test.ts`.
 - **SF-MCP-01 (carried from v1030):** `chat_actions.py:_collect_chat_action()` never emits rows on `show_query_result` for non-spatial queries; frontend inline card ready but backend wiring still missing.
-- **RENDER_MODES root cause (v1033 target):** `RENDER_MODES` allowlist at `frontend/src/lib/normalize-style-config.ts:92` omits `'terrain'` and `'image'`; `StyleConfig['render_mode']` union at `frontend/src/types/api.ts:863` also omits them. `DEMEditorScene.tsx:22-29` has an explicit boundary cast + BSR-09 comment acknowledging the gap. Fix is frontend-only — `style_config` is opaque jsonb on the backend; `api.ts` is hand-maintained. No OpenAPI/SDK regen needed.
 
 ### Pending Todos
 
@@ -68,17 +71,20 @@ None active.
 | Category | Item | Status | Deferred At |
 |----------|------|--------|-------------|
 | raster-render | Multi-band stretch (RASTER-STRETCH-03); configurable percentile bounds / σ (RASTER-STRETCH-UI-01) | Future | v1032 |
-| test-data | No non-DEM single-band raster seeded — live UI stretch verified via reversible `is_dem` toggle | Spot-check if such a dataset is added | v1032 Phase 1146 |
+| raster-meta | `band_count` cosmetic ("1 band" for RGB ortho on get_dataset_meta path) — RASTER-META-01 | Future | v1033 |
+| test-data | No non-DEM single-band raster seeded (TESTDATA-01) — would enable a genuine stretch/colormap UI spot-check | Future | v1032/v1033 |
+| builder-edge | POLISH-02 hillshade dual-consumer raw error not reproduced live (guard unit-tested + provably safe when terrain off); dead `onRenderModeChange` optional member in `LayerStyleEditor/types.ts` | Accepted tech debt | v1033 audit |
 | ci-live-verify | `pytest-parallel-isolation` gate live-verify on real GitHub Actions (billing block) | Carried forward as CI-01-v1030 | v1023 Phase 1100 degraded close |
-| nyquist | VALIDATION.md formalization for 1144/1145/1146/1147 | Optional; coverage strong via close-gate | v1032 milestone audit |
+| nyquist | VALIDATION.md formalization for 1148-1151 | Optional; coverage strong via close-gate | v1033 milestone audit |
 
 ## Session Continuity
 
-Last session: 2026-05-29T01:32:02.851Z
-Stopped at: v1033 roadmap written (Phases 1148-1151)
+Last session: 2026-05-29T02:00:00.000Z
+Stopped at: v1033 milestone fully archived
 Resume file: None
 
 ## Operator Next Steps
 
-- **Next:** `/gsd:plan-phase 1148` — Render-Mode Persistence Fix (RMODE-01, RMODE-02, RMODE-03). Frontend-only: add `'terrain'`+`'image'` to `RENDER_MODES` at `normalize-style-config.ts:92`; extend `StyleConfig['render_mode']` union at `api.ts:863`; remove boundary cast + BSR-09 comment from `DEMEditorScene.tsx:22-29`; add round-trip regression tests.
-- Phase directories 1144-1147 are archived to `milestones/v1032-phases/`; `.planning/phases/` holds only `999.x` backlog stubs (never auto-execute).
+- **Next:** `/clear`, then `/gsd:new-milestone` (questioning → research → requirements → roadmap). A fresh `REQUIREMENTS.md` is created there — the v1033 one was archived to `milestones/v1033-REQUIREMENTS.md`. Phase numbering continues from 1151 (next starts at 1152).
+- **Carry-forward candidates** for the next milestone (all minor — see Deferred Items): multi-band raster stretch + configurable percentile/σ; `band_count` cosmetic fix (RASTER-META-01); seed a non-DEM single-band raster (TESTDATA-01); remove the dead `onRenderModeChange` member in `LayerStyleEditor/types.ts`. Standing ops blocker (not a code phase): CI-01-v1030 GH Actions billing.
+- Phase directories 1148-1151 are archived to `milestones/v1033-phases/` by cleanup; `.planning/phases/` then holds only the `999.x` backlog stubs (never auto-execute — they masquerade as incomplete phases).
