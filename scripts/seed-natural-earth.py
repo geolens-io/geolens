@@ -223,7 +223,13 @@ LAYER_GROUP_TAGS: dict[str, list[str]] = {
 # algorithm=terrainrgb, silently bypassing all colormap/stretch logic (Pitfall 2 + 9).
 RASTER_FIXTURE: dict = {
     "stem": "GRAY_50M_SR",
-    "filename": "GRAY_50M_SR.zip",
+    # zip_filename is what we download from the CDN; tif_filename is what we
+    # upload to the API (the .tif is extracted from the zip so the server's
+    # raster-detection heuristic fires — _stamp_raster_metadata matches on
+    # .tif/.tiff extension, NOT .zip).  The server stores source_filename as
+    # the tif_filename.  The idempotency check uses tif_filename.
+    "filename": "GRAY_50M_SR.zip",        # CDN download filename (cache key)
+    "tif_filename": "GRAY_50M_SR.tif",    # uploaded filename; stored as source_filename
     "url": "https://naciscdn.org/naturalearth/50m/raster/GRAY_50M_SR.zip",
     "name": "Natural Earth Shaded Relief (1:50m)",
     "tags": ["raster", "shaded-relief", "natural-earth", "grayscale"],
@@ -1077,31 +1083,46 @@ async def ingest_raster_fixture(
     error (on failure).
     """
     stem = RASTER_FIXTURE["stem"]
-    filename = RASTER_FIXTURE["filename"]
+    tif_filename = RASTER_FIXTURE["tif_filename"]  # the filename stored as source_filename
     headers = {"X-Api-Key": api_key}
 
-    # Idempotency: reuse existing source_filename map — no download or upload
-    if filename in existing_by_filename:
+    # Idempotency: reuse existing source_filename map (keyed by the tif filename
+    # that the server stores, not the zip download name).
+    if tif_filename in existing_by_filename:
         print(f"  Skipping {stem} (already imported)")
         return {
             "stem": stem,
             "status": "skipped",
-            "dataset_id": existing_by_filename[filename],
+            "dataset_id": existing_by_filename[tif_filename],
         }
 
     try:
-        # Download via the existing retry+cache helper
+        # Download via the existing retry+cache helper (uses the zip filename as cache key)
         print(f"  Downloading {stem}...")
-        data = await download_or_load_cache(
+        zip_data = await download_or_load_cache(
             client, RASTER_FIXTURE["url"], stem, cache_dir
         )
 
-        # Step 1 - Upload (MIME image/tiff; server detects raster by extension)
-        print(f"  Uploading {stem}...")
+        # Extract the .tif from the zip so the server's raster-detection
+        # heuristic fires (_stamp_raster_metadata checks the filename for
+        # .tif/.tiff — a .zip filename is treated as a vector zip by the
+        # upload route, causing ogrinfo to fail at preview time).
+        zip_filename = RASTER_FIXTURE["filename"]
+        with zipfile.ZipFile(io.BytesIO(zip_data)) as zf:
+            tif_names = [n for n in zf.namelist() if n.lower().endswith(".tif") or n.lower().endswith(".tiff")]
+            if not tif_names:
+                raise RuntimeError(
+                    f"No .tif file found inside {zip_filename}; "
+                    f"archive contains: {zf.namelist()}"
+                )
+            tif_bytes = zf.read(tif_names[0])
+
+        # Step 1 - Upload (MIME image/tiff; server detects raster by .tif extension)
+        print(f"  Uploading {tif_filename}...")
         upload_resp = await client.post(
             f"{base_url}/api/ingest/upload",
             headers=headers,
-            files={"file": (filename, data, "image/tiff")},
+            files={"file": (tif_filename, tif_bytes, "image/tiff")},
         )
         upload_resp.raise_for_status()
         job_id = upload_resp.json()["job_id"]
