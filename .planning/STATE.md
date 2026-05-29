@@ -1,31 +1,26 @@
 ---
 gsd_state_version: 1.0
-milestone: v1032
-milestone_name: Builder Carry-Forward Resolution
-status: Awaiting next milestone
-stopped_at: Milestone v1032 complete and archived
-last_updated: "2026-05-28T22:40:00.000Z"
-last_activity: 2026-05-28 — Milestone v1032 completed, audited (tech_debt), and archived
+milestone: v1033
+milestone_name: Builder Terrain, Label & Render-Mode QA
+status: planning
+last_updated: "2026-05-29T00:35:00.786Z"
+last_activity: 2026-05-29
 progress:
-  total_phases: 4
-  completed_phases: 4
-  total_plans: 4
-  completed_plans: 4
-  percent: 100
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # State
 
 ## Current Position
 
-Phase: Milestone v1032 complete (archived)
+Phase: Not started (defining requirements)
 Plan: —
-Status: Awaiting next milestone
-Last activity: 2026-05-28 — v1032 audit (`tech_debt`) → complete → cleanup
-
-```
-Progress: [██████████] 100% (v1032: 4/4 phases)
-```
+Status: Defining requirements
+Last activity: 2026-05-29 — Milestone v1033 started
 
 ## Project Reference
 

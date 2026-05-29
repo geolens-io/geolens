@@ -12,9 +12,22 @@ Milestones are delivered through v1031 Builder Render-Mode & Share Polish (shipp
 
 The marketing and documentation web properties (v14.0 + v15.0 + 999.5 cross-repo style alignment) and their planning artifacts moved to the `getgeolens.com` repo on 2026-04-26 — see `~/Code/getgeolens.com/.planning/` for active docs-site work.
 
-## Current Milestone
+## Current Milestone: v1033 Builder Terrain, Label & Render-Mode QA
 
-_None — v1032 shipped 2026-05-28. Run `/gsd:new-milestone` to start the next milestone._
+**Goal:** Close the builder render-mode persistence defects surfaced by a live Playwright MCP walkthrough of the two ADK sample maps — chiefly the DEM `render_mode:'terrain'` strip-on-load (no 3D mesh + raster "Render as" save-revert) — and add the missing layer-list label indicator, with light builder polish and a raster-cache hygiene fix.
+
+**Target features:**
+- DEM/raster "Render as" (terrain/image/hillshade) persists across save + reload; 3D terrain mesh attaches on fresh load (fix the `RENDER_MODES` normalize allowlist + `StyleConfig.render_mode` union).
+- Layer-list indicator for layers that have labels enabled (pure-derived, i18n + a11y).
+- Builder polish: consolidate the duplicate point "Render as" control; graceful guard for the DEM hillshade dual-consumer "dimension mismatch".
+- Raster hygiene: bound the unbounded `_band_stats_cache` (v1032 carry-forward).
+- Orchestrator-driven Playwright MCP close-gate on both sample maps + standard code gates.
+
+**Key context:**
+- Audit-first: findings in `.planning/audits/BUILDER-LABEL-RASTER-AUDIT-v1033.md` (live MCP, both maps). F1+F2 share one root cause; F3 downgraded (narrow); items #1/#3/#4/#5/#6 PASS.
+- Phase numbering continues from 1147 (next 1148). No `--reset-phase-numbers`.
+- Render-mode fix is **frontend-only** (`api.ts` is hand-maintained; `style_config` is opaque jsonb on the backend) — no OpenAPI/SDK regen for the union change.
+- Scope kept tight (v1032 ethos): multi-band stretch, configurable percentile/σ, and seeding a non-DEM single-band raster are explicitly out of scope.
 
 ## Recent Shipped Milestone: v1032 Builder Carry-Forward Resolution
 
