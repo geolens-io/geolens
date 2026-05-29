@@ -386,5 +386,9 @@
     "lazyMessage": "A part of the application failed to load. This is usually a network issue.",
     "lazyRetry": "Try again",
     "lazyRetrying": "Retrying..."
+  },
+  "export": {
+    "poweredBy": "Powered by GeoLens",
+    "legendHeader": "Legend"
   }
 }

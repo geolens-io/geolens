@@ -8,7 +8,7 @@ Phase: 1068
 """
 
 import os
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -38,12 +38,15 @@ async def test_token_not_in_subprocess_env_via_header_file():
     async def _fake_communicate_with_timeout(proc, timeout, tool_name):
         return (b"", b"")
 
-    with patch(
-        "asyncio.create_subprocess_exec",
-        side_effect=_fake_create_subprocess_exec,
-    ), patch(
-        "app.processing.ingest.ogr._communicate_with_timeout",
-        new=_fake_communicate_with_timeout,
+    with (
+        patch(
+            "asyncio.create_subprocess_exec",
+            side_effect=_fake_create_subprocess_exec,
+        ),
+        patch(
+            "app.processing.ingest.ogr._communicate_with_timeout",
+            new=_fake_communicate_with_timeout,
+        ),
     ):
         await run_ogr2ogr_service(
             gdal_source="WFS:https://example.test/wfs",
@@ -92,12 +95,15 @@ async def test_no_token_no_header_file_created():
     async def _fake_communicate_with_timeout(proc, timeout, tool_name):
         return (b"", b"")
 
-    with patch(
-        "asyncio.create_subprocess_exec",
-        side_effect=_fake_create_subprocess_exec,
-    ), patch(
-        "app.processing.ingest.ogr._communicate_with_timeout",
-        new=_fake_communicate_with_timeout,
+    with (
+        patch(
+            "asyncio.create_subprocess_exec",
+            side_effect=_fake_create_subprocess_exec,
+        ),
+        patch(
+            "app.processing.ingest.ogr._communicate_with_timeout",
+            new=_fake_communicate_with_timeout,
+        ),
     ):
         await run_ogr2ogr_service(
             gdal_source="WFS:https://example.test/wfs",
@@ -132,12 +138,15 @@ async def test_header_file_is_0600():
     async def _fake_communicate_with_timeout(proc, timeout, tool_name):
         return (b"", b"")
 
-    with patch(
-        "asyncio.create_subprocess_exec",
-        side_effect=_fake_create_subprocess_exec,
-    ), patch(
-        "app.processing.ingest.ogr._communicate_with_timeout",
-        new=_fake_communicate_with_timeout,
+    with (
+        patch(
+            "asyncio.create_subprocess_exec",
+            side_effect=_fake_create_subprocess_exec,
+        ),
+        patch(
+            "app.processing.ingest.ogr._communicate_with_timeout",
+            new=_fake_communicate_with_timeout,
+        ),
     ):
         await run_ogr2ogr_service(
             gdal_source="WFS:https://example.test/wfs",
@@ -168,12 +177,15 @@ async def test_header_file_unlinked_even_on_subprocess_error():
 
     from app.processing.ingest.ogr import IngestionError
 
-    with patch(
-        "asyncio.create_subprocess_exec",
-        side_effect=_fake_create_subprocess_exec,
-    ), patch(
-        "app.processing.ingest.ogr._communicate_with_timeout",
-        new=_fake_communicate_with_timeout,
+    with (
+        patch(
+            "asyncio.create_subprocess_exec",
+            side_effect=_fake_create_subprocess_exec,
+        ),
+        patch(
+            "app.processing.ingest.ogr._communicate_with_timeout",
+            new=_fake_communicate_with_timeout,
+        ),
     ):
         with pytest.raises(IngestionError):
             await run_ogr2ogr_service(

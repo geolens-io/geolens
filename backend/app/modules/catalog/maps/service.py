@@ -27,6 +27,7 @@ from app.modules.catalog.maps.service_layers import (
     remove_layers_bulk,
 )
 from app.modules.catalog.maps.service_public import (
+    _validate_share_token,
     create_share_token,
     find_public_maps_using_dataset,
     get_active_share_token,
@@ -68,6 +69,7 @@ __all__ = [
     "add_layer",
     "apply_layer_diff",
     "remove_layer",
+    "remove_layers_bulk",
     "validate_public_visibility",
     "find_public_maps_using_dataset",
     "create_share_token",
@@ -82,4 +84,5 @@ __all__ = [
     "_resolve_save_response_metadata",
     "_apply_map_visibility_filter",
     "_infer_layer_type",
+    "_validate_share_token",
 ]

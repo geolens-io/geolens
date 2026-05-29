@@ -3,7 +3,7 @@ import { Eye, EyeOff } from 'lucide-react';
 import { Slider } from '@/components/ui/slider';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
-import { basemapThumbnail } from '@/lib/basemap-utils';
+import { basemapThumbnail, BLANK_BASEMAP_ID } from '@/lib/basemap-utils';
 import { cn } from '@/lib/utils';
 
 interface BasemapPreset {
@@ -80,6 +80,28 @@ export function BasemapGroupEditorScene({
             {t('basemapGroup.presetSectionLabel', { defaultValue: 'PRESET' })}
           </p>
           <div className="grid grid-cols-2 gap-2">
+            {/* "No basemap" preset card — always first, before all provider presets */}
+            <button
+              type="button"
+              onClick={() => onSwapBasemap(BLANK_BASEMAP_ID)}
+              className={cn(
+                'flex flex-col rounded-[var(--radius-md)] border p-2 text-left transition-colors',
+                activePresetId === BLANK_BASEMAP_ID
+                  ? 'border-primary shadow-[0_0_0_1px_var(--primary)]'
+                  : 'border-[var(--border)] hover:bg-[var(--surface-2)]',
+              )}
+            >
+              <img
+                src={basemapThumbnail(BLANK_BASEMAP_ID)}
+                alt=""
+                aria-hidden="true"
+                className="w-full rounded-[var(--radius-sm)] object-cover"
+                style={{ height: '56px' }}
+              />
+              <span className="mt-1 block truncate text-[11px] text-foreground">
+                {t('basemapGroup.noBasemap', { defaultValue: 'No basemap' })}
+              </span>
+            </button>
             {presets.map((preset) => {
               const isActive = preset.id === activePresetId;
               return (
@@ -123,7 +145,8 @@ export function BasemapGroupEditorScene({
         </div>
       </section>
 
-      {/* 2. Sublayers section */}
+      {/* 2. Sublayers section — hidden when there are no sublayers (e.g. blank basemap). WR-02 fix. */}
+      {sublayers.length > 0 && (
       <section className="border-b">
         <div className="px-4 py-2">
           <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground mb-2">
@@ -217,6 +240,7 @@ export function BasemapGroupEditorScene({
           </ul>
         </div>
       </section>
+      )}
 
       {/* 3. Visibility section — master opacity */}
       <section className="border-b">

@@ -648,6 +648,7 @@ class DatasetMetaKwargs(TypedDict, total=False):
     is_3d: bool | None
     is_dem: bool | None
     dem_vertical_units: str | None
+    band_count: int | None
 
 
 class MapLayerResponse(BaseModel):
@@ -676,6 +677,7 @@ class MapLayerResponse(BaseModel):
     is_3d: bool | None = None
     is_dem: bool | None = None
     dem_vertical_units: str | None = None
+    band_count: int | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -696,6 +698,7 @@ class MapResponse(BaseModel):
     terrain_config: TerrainConfig | None = None
     visibility: MapVisibility
     thumbnail_url: str | None = None
+    og_image_url: str | None = None
     forked_from_id: uuid.UUID | None = Field(
         default=None, description="Source map UUID if this is a fork"
     )
@@ -950,6 +953,23 @@ class ThumbnailUploadRequest(BaseModel):
     """
 
     data_uri: str = Field(min_length=22, max_length=100_000)
+
+
+class OgImageUploadRequest(BaseModel):
+    """JSON body for PUT /maps/{map_id}/og-image/ (SHARE-08 Path A).
+
+    Accepts a base64 data URI up to 750 KB (as a string). This generous
+    ceiling accommodates a 1200x630 JPEG at quality 0.85, which encodes
+    to roughly 150-400 KB raw and ~200-540 KB as a base64 string.
+
+    - ``min_length=22``: same floor as ThumbnailUploadRequest — rejects
+      empty/clearly-malformed URIs without false-positives.
+    - ``max_length=750_000``: ~562 KB decoded — generous for 1200x630 JPEG.
+      DO NOT raise ThumbnailUploadRequest.max_length to match this value;
+      the 100KB thumbnail cap is a locked contract (Phase 254 / D-03).
+    """
+
+    data_uri: str = Field(min_length=22, max_length=750_000)
 
 
 class AdminShareTokenResponse(BaseModel):

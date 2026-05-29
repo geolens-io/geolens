@@ -34,7 +34,9 @@ async def test_redirect_to_link_local_blocked():
     """A 302 -> 169.254.169.254 (AWS IMDS) is rejected."""
     response = httpx.Response(
         302,
-        headers={"Location": "http://169.254.169.254/latest/meta-data/iam/security-credentials/"},
+        headers={
+            "Location": "http://169.254.169.254/latest/meta-data/iam/security-credentials/"
+        },
         request=httpx.Request("GET", "https://attacker.example/redirect"),
     )
     with pytest.raises(SSRFError):

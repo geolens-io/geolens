@@ -157,6 +157,36 @@ describe('PopupConfigEditor', () => {
     });
   });
 
+  it('EASY-11 — PopupConfigEditor renders mediaHint paragraph when popup is enabled', () => {
+    const cfg: PopupConfig = { enabled: true, expression: '', visible_fields: null };
+    render(<PopupConfigEditor columns={COLUMNS} popupConfig={cfg} onPopupChange={vi.fn()} />);
+    // The media hint explains URL/image auto-rendering in field values
+    expect(
+      screen.getByText(/links and previews|URLs and images/i),
+    ).toBeInTheDocument();
+  });
+
+  it('EASY-11 — PopupConfigEditor does not render mediaHint when popup is disabled', () => {
+    const cfg: PopupConfig = { enabled: true, expression: '', visible_fields: null };
+    const { rerender } = render(
+      <PopupConfigEditor columns={COLUMNS} popupConfig={cfg} onPopupChange={vi.fn()} />,
+    );
+
+    // Confirm mediaHint visible when enabled
+    expect(screen.getByText(/links and previews|URLs and images/i)).toBeInTheDocument();
+
+    // Disable popup
+    rerender(
+      <PopupConfigEditor
+        columns={COLUMNS}
+        popupConfig={{ enabled: false, expression: null, visible_fields: null }}
+        onPopupChange={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByText(/links and previews|URLs and images/i)).not.toBeInTheDocument();
+  });
+
   // Cleanup any leftover fake timers between tests
   beforeEach(() => {});
   afterEach(() => {

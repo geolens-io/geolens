@@ -139,7 +139,9 @@ class TestFanOutEndpoint:
         assert data["fan_out_id"] == str(job.id)
         assert len(data["results"]) == 3
         for r in data["results"]:
-            assert r["status"] == "queued", f"Layer {r['layer_name']} failed: {r.get('error')}"
+            assert r["status"] == "queued", (
+                f"Layer {r['layer_name']} failed: {r.get('error')}"
+            )
             assert r["new_job_id"] is not None
             assert r["error"] is None
 
@@ -545,6 +547,8 @@ class TestUserSafeError:
 
     def test_no_internal_path_leaked(self):
         """Sanitized string contains no absolute path components."""
-        exc = Exception("Error reading /home/ubuntu/data/cities.gpkg: permission denied")
+        exc = Exception(
+            "Error reading /home/ubuntu/data/cities.gpkg: permission denied"
+        )
         result = _user_safe_error(exc)
         assert "/home/" not in result

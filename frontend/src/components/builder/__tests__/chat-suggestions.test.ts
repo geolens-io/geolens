@@ -1,4 +1,4 @@
-import { getSmartSuggestions } from '../chat-suggestions';
+import { getSmartSuggestions, type ViewportContext } from '../chat-suggestions';
 import type { MapLayerResponse } from '@/types/api';
 
 function mockT(key: string, params?: Record<string, string>): string {
@@ -101,5 +101,94 @@ describe('getSmartSuggestions', () => {
     });
     const result = getSmartSuggestions([layer], mockT as never);
     expect(result.some((s) => s.includes('chat.suggestions.heatmap'))).toBe(false);
+  });
+});
+
+describe('chat-suggestions — viewport-aware (Phase 1135 AI-05)', () => {
+  const t = (key: string, options?: Record<string, unknown>) => {
+    if (key === 'chat.suggestions.summarizeLayer') return `Summarize ${String(options?.name)} attributes`;
+    if (key === 'chat.suggestions.nearbyFeatures') return 'Show nearby features in this area';
+    if (key === 'chat.suggestions.colorByAttribute') return `Color ${String(options?.name)} by attribute`;
+    if (key === 'chat.suggestions.areaLabels') return `Label ${String(options?.name)} areas`;
+    if (key === 'chat.suggestions.adjustOpacity') return `Adjust ${String(options?.name)} opacity`;
+    if (key === 'chat.suggestions.addDataset') return 'Add a dataset';
+    return key;
+  };
+
+  function makeVPLayer(overrides: Partial<MapLayerResponse> = {}): MapLayerResponse {
+    return {
+      id: 'l-1',
+      dataset_id: 'ds-1',
+      dataset_name: 'Test',
+      dataset_geometry_type: 'Polygon',
+      dataset_table_name: 'test_table',
+      dataset_extent_bbox: null,
+      dataset_column_info: null,
+      dataset_feature_count: null,
+      dataset_sample_values: null,
+      display_name: null,
+      sort_order: 0,
+      visible: true,
+      opacity: 1,
+      paint: {},
+      layout: {},
+      filter: null,
+      ...overrides,
+    } as MapLayerResponse;
+  }
+
+  it('backward compat: no viewport argument yields existing geometry-only behavior', () => {
+    const layers = [makeVPLayer({ dataset_geometry_type: 'Point' })];
+    const out = getSmartSuggestions(layers, t as never);
+    expect(out.some((s) => s.includes('Color'))).toBe(true);
+    expect(out.length).toBeLessThanOrEqual(4);
+    expect(out.some((s) => s.startsWith('Summarize'))).toBe(false);
+    expect(out).not.toContain('Show nearby features in this area');
+  });
+
+  it('selectedLayerName leads the list', () => {
+    const layers = [makeVPLayer({ dataset_geometry_type: 'Point' })];
+    const viewport: ViewportContext = { zoom: 5, bounds: [-180, -90, 180, 90], selectedLayerName: 'Counties' };
+    const out = getSmartSuggestions(layers, t as never, viewport);
+    expect(out[0]).toBe('Summarize @Counties attributes');
+  });
+
+  it('selectedLayerName with spaces uses bracket-mention syntax', () => {
+    const layers = [makeVPLayer()];
+    const viewport: ViewportContext = { zoom: 5, bounds: [-180, -90, 180, 90], selectedLayerName: 'NYC Subway' };
+    const out = getSmartSuggestions(layers, t as never, viewport);
+    expect(out[0]).toBe('Summarize @[NYC Subway] attributes');
+  });
+
+  it('zoom >= 12 + vector layer adds nearby features suggestion', () => {
+    const layers = [makeVPLayer({ dataset_geometry_type: 'Point' })];
+    const viewport: ViewportContext = { zoom: 14, bounds: [-74, 40, -73, 41] };
+    const out = getSmartSuggestions(layers, t as never, viewport);
+    expect(out).toContain('Show nearby features in this area');
+  });
+
+  it('zoom >= 12 but raster-only layers does NOT add nearby features suggestion', () => {
+    const layers = [makeVPLayer({ dataset_geometry_type: null, layer_type: 'raster_geolens' as MapLayerResponse['layer_type'] })];
+    const viewport: ViewportContext = { zoom: 14, bounds: [-74, 40, -73, 41] };
+    const out = getSmartSuggestions(layers, t as never, viewport);
+    expect(out).not.toContain('Show nearby features in this area');
+  });
+
+  it('zoom < 12 does NOT add nearby features suggestion', () => {
+    const layers = [makeVPLayer({ dataset_geometry_type: 'Point' })];
+    const viewport: ViewportContext = { zoom: 8, bounds: [-180, -90, 180, 90] };
+    const out = getSmartSuggestions(layers, t as never, viewport);
+    expect(out).not.toContain('Show nearby features in this area');
+  });
+
+  it('honors the 4-chip cap even when viewport adds two new priority items', () => {
+    const layers = [
+      makeVPLayer({ id: 'l-1', dataset_name: 'A', dataset_geometry_type: 'Point' }),
+      makeVPLayer({ id: 'l-2', dataset_name: 'B', dataset_geometry_type: 'Polygon' }),
+      makeVPLayer({ id: 'l-3', dataset_name: 'C', dataset_geometry_type: 'LineString' }),
+    ];
+    const viewport: ViewportContext = { zoom: 14, bounds: [-74, 40, -73, 41], selectedLayerName: 'Counties' };
+    const out = getSmartSuggestions(layers, t as never, viewport);
+    expect(out.length).toBe(4);
   });
 });

@@ -94,7 +94,9 @@ class TestSecFu05StacIntersectsMaxLength:
         """A 9000-char GeoJSON polygon string must not be rejected by max_length."""
         poly_9k = _build_polygon_string(9000)
         # Verify our builder produced something plausible
-        assert len(poly_9k) < 10000, f"Builder produced {len(poly_9k)} chars, expected < 10000"
+        assert len(poly_9k) < 10000, (
+            f"Builder produced {len(poly_9k)} chars, expected < 10000"
+        )
         resp = await client.get(
             "/stac/search",
             params={"intersects": poly_9k},

@@ -7,10 +7,11 @@ import re
 import threading
 import time
 import uuid
-from typing import Any, NamedTuple
+from typing import Any, Literal, NamedTuple
 
 import httpx
 import structlog
+from cachetools import LRUCache
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from geoalchemy2.shape import to_shape
 from sqlalchemy import select, text
@@ -211,6 +212,104 @@ def _titiler_render_params(band_count: int | None, dtype: str | None) -> str:
             parts.append(f"rescale={rescale}")
 
     return "&".join(parts)
+
+
+# ---------------------------------------------------------------------------
+# Colormap / stretch allowlists (T-1140-01 security mitigation)
+# ---------------------------------------------------------------------------
+
+# 8 curated Titiler colormap names from the UI-SPEC. Validated against the
+# running Titiler instance (see 1140-RESEARCH.md Finding 5).
+_ALLOWED_COLORMAPS: frozenset[str] = frozenset(
+    {"gray", "viridis", "inferno", "plasma", "magma", "ylorrd", "bugn", "terrain"}
+)
+
+# Accepted stretch strategies. minmax (default) keeps the dtype-based rescale;
+# percentile/stddev compute a stats-based rescale from Titiler band statistics
+# (RASTER-STRETCH-01/02). Single-band scope; multi-band is Future RASTER-STRETCH-03.
+_ALLOWED_STRETCH: frozenset[str] = frozenset({"minmax", "percentile", "stddev"})
+
+# stddev stretch uses mean ± _STDDEV_SIGMA·σ, clamped to the band [min, max].
+_STDDEV_SIGMA = 2.0
+
+# Per-band Titiler statistics cache keyed by COG open-path. Statistics are stable
+# for a given asset, so a process-lifetime cache avoids recomputing percentile/
+# stddev breakpoints on every tile request. Cleared on restart (covers re-ingest).
+# HYG-01: bounded LRU so long-lived tile workers don't grow memory without limit.
+# 256 entries covers ~2× the typical project raster count. cachetools.LRUCache
+# supports the same `in` / `[]` / assignment interface as dict.
+_band_stats_cache: LRUCache[str, list[dict] | None] = LRUCache(maxsize=256)
+
+
+async def _fetch_band_statistics(open_path: str) -> list[dict] | None:
+    """Fetch per-band statistics from Titiler /cog/statistics (cached by open_path).
+
+    Returns a list of per-band stat dicts ordered b1, b2, ... or None when the
+    statistics call fails (caller falls back to minmax).
+    """
+    if open_path in _band_stats_cache:
+        return _band_stats_cache[open_path]
+    stats_url = build_titiler_cog_url("statistics", query={"url": open_path})
+    bands: list[dict] | None = None
+    try:
+        resp = await _titiler_client.get(stats_url)
+        if resp.status_code == 200:
+            data = resp.json()
+            if isinstance(data, dict) and data:
+                # Titiler keys bands "b1","b2",... — order by the numeric suffix.
+                bands = [
+                    data[k]
+                    for k in sorted(
+                        data, key=lambda k: int(k[1:]) if k[1:].isdigit() else 0
+                    )
+                ]
+    except (httpx.TimeoutException, httpx.TransportError, ValueError, KeyError):
+        bands = None
+    _band_stats_cache[open_path] = bands
+    return bands
+
+
+def _compute_stretch_rescale(
+    bands: list[dict], stretch: str, n_bands: int
+) -> list[str]:
+    """Compute Titiler ``rescale=lo,hi`` fragments from band statistics.
+
+    percentile → [percentile_2, percentile_98]; stddev → [mean ± 2σ] clamped to
+    [min, max]. Returns one fragment per band; empty when stats are insufficient
+    (caller falls back to minmax).
+    """
+    parts: list[str] = []
+    for i in range(n_bands):
+        if i >= len(bands):
+            break
+        b = bands[i]
+        if stretch == "percentile":
+            lo = b.get("percentile_2")
+            hi = b.get("percentile_98")
+        else:  # stddev
+            mean = b.get("mean")
+            std = b.get("std")
+            if mean is None or std is None:
+                continue
+            lo = mean - _STDDEV_SIGMA * std
+            hi = mean + _STDDEV_SIGMA * std
+            bmin, bmax = b.get("min"), b.get("max")
+            if bmin is not None:
+                lo = max(lo, bmin)
+            if bmax is not None:
+                hi = min(hi, bmax)
+        if lo is None or hi is None or not (lo < hi):
+            continue
+        # Round to 4 dp — Titiler does not need full float precision and clean
+        # values keep the tile-URL cache key stable.
+        parts.append(f"rescale={round(lo, 4)},{round(hi, 4)}")
+    return parts
+
+
+def _apply_stretch_rescale(render_params: str, rescale_parts: list[str]) -> str:
+    """Replace any existing ``rescale=`` fragments in render_params with rescale_parts."""
+    kept = [p for p in render_params.split("&") if p and not p.startswith("rescale=")]
+    return "&".join(kept + rescale_parts)
 
 
 async def _resolve_raster_access(
@@ -415,6 +514,13 @@ async def raster_tile_proxy(
     x: int,
     y: int,
     fmt: str,
+    colormap_name: Literal[
+        "gray", "viridis", "inferno", "plasma", "magma", "ylorrd", "bugn", "terrain"
+    ]
+    | None = Query(None, description="Titiler colormap for single-band display"),
+    stretch: Literal["minmax", "percentile", "stddev"] | None = Query(
+        None, description="Stretch strategy: minmax (default), percentile, stddev"
+    ),
     user: Identity | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
 ) -> Response:
@@ -423,6 +529,14 @@ async def raster_tile_proxy(
     Used by Vite dev proxy and as a fallback for deployments without nginx.
     Production deployments with nginx should use the nginx raster-tiles path
     for better caching and performance.
+
+    colormap_name: Optional Titiler colormap for single-band display. Validated
+    against _ALLOWED_COLORMAPS (T-1140-01). Gray is the Titiler default for
+    single-band — passing gray is a no-op (not forwarded). colormap_name is not
+    forwarded for DEM layers (render_params starts with 'algorithm=').
+
+    stretch: Optional stretch strategy. Phase 1140 implements minmax only;
+    percentile/stddev are accepted and logged as fallback (1140-RESEARCH Finding 6).
     """
     # Reuse the auth-check logic to get the open path and render params
     auth_resp = await raster_auth_check(request, dataset_id, user, db)
@@ -433,6 +547,47 @@ async def raster_tile_proxy(
         )
 
     render_params = auth_resp.headers.get("X-GeoLens-Render-Params", "")
+
+    # T-1140-01: belt-and-suspenders runtime allowlist check (Literal provides
+    # FastAPI-level validation; this guard catches any code path that bypasses it).
+    if colormap_name is not None and colormap_name not in _ALLOWED_COLORMAPS:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"colormap_name must be one of: {sorted(_ALLOWED_COLORMAPS)}",
+        )
+
+    # Append colormap_name to Titiler render params when:
+    #   1. A non-default colormap was requested (gray is Titiler's single-band default)
+    #   2. This is not a DEM layer (algorithm= prefix means terrainrgb — do not override)
+    if (
+        colormap_name
+        and colormap_name != "gray"
+        and not render_params.startswith("algorithm=")
+    ):
+        render_params = (
+            f"{render_params}&colormap_name={colormap_name}"
+            if render_params
+            else f"colormap_name={colormap_name}"
+        )
+
+    # stretch: minmax (default) keeps the dtype-based rescale already in
+    # render_params. percentile/stddev compute a stats-based rescale from Titiler
+    # band statistics and override the rescale fragment. Single-band scope
+    # (RASTER-STRETCH-01/02); not applied to DEM (algorithm=terrainrgb has no
+    # rescale). Falls back to minmax with a logged warning when stats are missing.
+    if stretch and stretch != "minmax" and not render_params.startswith("algorithm="):
+        bands = await _fetch_band_statistics(open_path)
+        rescale_parts = (
+            _compute_stretch_rescale(bands, stretch, n_bands=1) if bands else []
+        )
+        if rescale_parts:
+            render_params = _apply_stretch_rescale(render_params, rescale_parts)
+        else:
+            logger.warning(
+                "raster stretch stats unavailable, falling back to minmax",
+                stretch=stretch,
+                dataset_id=str(dataset_id),
+            )
 
     titiler_url = build_titiler_cog_url(
         f"tiles/WebMercatorQuad/{z}/{x}/{y}.{fmt}",

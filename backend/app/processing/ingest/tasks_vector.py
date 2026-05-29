@@ -176,9 +176,10 @@ async def ingest_file(job_id: str, file_path: str, user_id: str, **kwargs) -> No
         # greenlet rule forbids holding a session open across run_ogr2ogr,
         # but the progress write must commit so it cannot be lost on
         # rollback if ogr2ogr raises.
-        async with _job_phase_session(
-            job_uuid, phase="progress_write_ogr2ogr"
-        ) as (_progress_session, _progress_job):
+        async with _job_phase_session(job_uuid, phase="progress_write_ogr2ogr") as (
+            _progress_session,
+            _progress_job,
+        ):
             if _progress_job is not None:
                 _progress_job.current_step = "ogr2ogr"
                 _progress_job.progress = 0.1
@@ -230,9 +231,7 @@ async def ingest_file(job_id: str, file_path: str, user_id: str, **kwargs) -> No
                     make_reserved_rename_warning,
                 )
 
-                _append_job_warning(
-                    job, make_reserved_rename_warning(reserved_renames)
-                )
+                _append_job_warning(job, make_reserved_rename_warning(reserved_renames))
 
             # 3b. Shapefile-only: detect DBF 10-char truncation collisions using
             #     the source column list from ogrinfo (stored in info["columns"]).
@@ -372,10 +371,7 @@ async def ingest_file(job_id: str, file_path: str, user_id: str, **kwargs) -> No
 
         if final_status == "complete" and not is_fan_out_child:
             Path(file_path).unlink(missing_ok=True)
-        elif (
-            file_path != original_file_path
-            and not is_fan_out_child
-        ):
+        elif file_path != original_file_path and not is_fan_out_child:
             # Downloaded from S3 for processing -- safe to clean up
             Path(file_path).unlink(missing_ok=True)
 
@@ -488,9 +484,10 @@ async def ingest_service(
         # REMED-02 / ingest-audit P2-07: stamp current_step="ogr2ogr" before
         # the long remote-service fetch (same brief-session pattern as
         # ingest_file). Routed through _job_phase_session per REMED-03.
-        async with _job_phase_session(
-            job_uuid, phase="progress_write_ogr2ogr"
-        ) as (_progress_session, _progress_job):
+        async with _job_phase_session(job_uuid, phase="progress_write_ogr2ogr") as (
+            _progress_session,
+            _progress_job,
+        ):
             if _progress_job is not None:
                 _progress_job.current_step = "ogr2ogr"
                 _progress_job.progress = 0.1
@@ -545,9 +542,7 @@ async def ingest_service(
                     make_reserved_rename_warning,
                 )
 
-                _append_job_warning(
-                    job, make_reserved_rename_warning(reserved_renames)
-                )
+                _append_job_warning(job, make_reserved_rename_warning(reserved_renames))
 
             # 5-8. Shared post-ogr2ogr pipeline
             dataset_source_url = (

@@ -16,6 +16,62 @@ type RasterPaintProperty = keyof typeof RASTER_PAINT_DEFAULTS;
 
 const RASTER_PAINT_PROPERTIES = Object.keys(RASTER_PAINT_DEFAULTS) as RasterPaintProperty[];
 
+/**
+ * The 4 user-facing raster paint properties exposed in RasterEditor.
+ * Excludes raster-brightness-max (kept at default 1), raster-resampling,
+ * raster-fade-duration (internal), and raster-opacity (routed separately
+ * via buildRasterPaint). This is the single source of truth for which
+ * properties the editor controls — no hard-coded keys outside this tuple.
+ */
+export const RASTER_OWNED_PAINT_PROPERTIES = [
+  'raster-brightness-min',
+  'raster-contrast',
+  'raster-saturation',
+  'raster-hue-rotate',
+] as const;
+
+/**
+ * Build a raster tile URL with `colormap_name` and/or `stretch` query params.
+ *
+ * Called from syncRasterLayer BEFORE the tile-URL-diff comparison so that a
+ * colormap or stretch change causes the existing source-teardown path to fire
+ * and MapLibre re-fetches tiles with the new params.
+ *
+ * The `_colormap` and `_stretch` keys are builder-private paint keys (never
+ * in RASTER_OWNED_PAINT_PROPERTIES — Pitfall 6) and mutate the tile URL, not
+ * a MapLibre paint property.
+ *
+ * `colormap_name` is forwarded only for a non-gray colormap (gray is Titiler's
+ * single-band default). `stretch` is forwarded independently of the colormap —
+ * the api raster-proxy computes a stats-based rescale server-side that applies
+ * to the grayscale render too, so `percentile`/`stddev` must work even when the
+ * colormap is left at the default gray (RASTER-STRETCH-UI-02).
+ *
+ * @param baseUrl  Root-relative or absolute tile URL (e.g. `/api/raster-tiles/...`)
+ * @param paint    The layer paint dict; reads `_colormap` and `_stretch`.
+ * @returns        `baseUrl` unmodified when neither a non-gray colormap nor a
+ *                 non-minmax stretch is set; `baseUrl?colormap_name=...&stretch=...` otherwise.
+ */
+export function buildColormapTileUrl(
+  baseUrl: string,
+  paint: Record<string, unknown>,
+): string {
+  const colormap = paint['_colormap'];
+  const stretch = paint['_stretch'];
+  const params = new URLSearchParams();
+  // gray is the Titiler single-band default — only forward a non-gray colormap.
+  if (typeof colormap === 'string' && colormap && colormap !== 'gray') {
+    params.set('colormap_name', colormap);
+  }
+  // minmax is the default (dtype) rescale; percentile/stddev compute a stats-based
+  // rescale server-side that applies regardless of colormap — forward independently.
+  if (typeof stretch === 'string' && stretch !== 'minmax') {
+    params.set('stretch', stretch);
+  }
+  const qs = params.toString();
+  return qs ? `${baseUrl}?${qs}` : baseUrl;
+}
+
 function normalizeRasterBounds(bounds: number[] | null | undefined) {
   if (!Array.isArray(bounds) || bounds.length !== 4) return undefined;
   if (!bounds.every((value) => Number.isFinite(value))) return undefined;
@@ -58,21 +114,32 @@ export const rasterAdapter: LayerAdapter = {
 
   addLayers(map: MaplibreMap, input: AdapterLayerInput): void {
     const { layerId, sourceId, tileUrl, tileSize, minzoom, maxzoom, visible, bounds } = input;
-    if (map.getSource(sourceId)) return;
-    map.addSource(sourceId, {
-      type: 'raster',
-      tiles: [`${window.location.origin}${tileUrl}`],
-      tileSize: tileSize ?? 256,
-      minzoom: minzoom ?? 0,
-      maxzoom: maxzoom ?? 18,
-      ...(normalizeRasterBounds(bounds) ? { bounds: normalizeRasterBounds(bounds) } : {}),
-    });
+    // WALK-R-05: split source guard from layer guard so that when a style swap
+    // removes layers but retains sources (raster basemap reload scenario), the
+    // layer is re-added without re-adding the already-existing source.
+    if (!map.getSource(sourceId)) {
+      const normalizedBounds = normalizeRasterBounds(bounds);
+      map.addSource(sourceId, {
+        type: 'raster',
+        tiles: [`${window.location.origin}${tileUrl}`],
+        tileSize: tileSize ?? 256,
+        minzoom: minzoom ?? 0,
+        maxzoom: maxzoom ?? 18,
+        ...(normalizedBounds ? { bounds: normalizedBounds } : {}),
+      });
+    }
+    if (map.getLayer(layerId)) return;
+    // BUG-01: honor input.visible at initial add so callers that don't
+    // immediately follow up with syncVisibility still produce a layer in the
+    // correct visual state (mirrors fill/circle/heatmap/line adapter pattern).
     map.addLayer({
       id: layerId,
       type: 'raster',
       source: sourceId,
       paint: buildRasterPaint(input),
+      ...(visible === false ? { layout: { visibility: 'none' as const } } : {}),
     });
+    // Defense-in-depth: ensure visibility even if addLayer layout block is missed.
     if (!visible) {
       map.setLayoutProperty(layerId, 'visibility', 'none');
     }

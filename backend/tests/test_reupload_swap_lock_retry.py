@@ -13,7 +13,6 @@ event on contention + an INFO event on retry success.
 
 import types
 import uuid
-from unittest.mock import patch
 
 import pytest
 import structlog
@@ -122,9 +121,7 @@ class TestApplyReuploadSwapRetry:
             )
         )
         await self.session.execute(
-            text(
-                f"INSERT INTO data.\"{self.live}\" (name) VALUES ('original')"
-            )
+            text(f"INSERT INTO data.\"{self.live}\" (name) VALUES ('original')")
         )
         await self.session.execute(
             text(
@@ -133,9 +130,7 @@ class TestApplyReuploadSwapRetry:
             )
         )
         await self.session.execute(
-            text(
-                f"INSERT INTO data.\"{self.staging}\" (name) VALUES ('new_data')"
-            )
+            text(f"INSERT INTO data.\"{self.staging}\" (name) VALUES ('new_data')")
         )
         await self.session.commit()
 
@@ -207,9 +202,7 @@ class TestApplyReuploadSwapRetry:
 
         # The swap completed: the live table now contains the staging row.
         row = (
-            await self.session.execute(
-                text(f'SELECT name FROM data."{self.live}"')
-            )
+            await self.session.execute(text(f'SELECT name FROM data."{self.live}"'))
         ).scalar_one()
         assert row == "new_data"
 
@@ -286,10 +279,7 @@ class TestApplyReuploadSwapRetry:
             # full RENAME-to-_old shape rather than just the table name
             # (which would also match the SELECT EXISTS pre-check).
             sql = str(getattr(stmt, "text", stmt))
-            if (
-                not raised["once"]
-                and f'RENAME TO "{self.live}_old"' in sql
-            ):
+            if not raised["once"] and f'RENAME TO "{self.live}_old"' in sql:
                 raised["once"] = True
                 raise LockNotAvailableError("simulated autovacuum contention")
             return await original_execute(stmt, *args, **kwargs)
@@ -350,8 +340,6 @@ class TestApplyReuploadSwapRetry:
 
         # And the swap really did complete: live table holds the new row.
         row = (
-            await self.session.execute(
-                text(f'SELECT name FROM data."{self.live}"')
-            )
+            await self.session.execute(text(f'SELECT name FROM data."{self.live}"'))
         ).scalar_one()
         assert row == "new_data"

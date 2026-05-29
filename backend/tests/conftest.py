@@ -158,6 +158,7 @@ def pytest_configure(config):
         # Mirror into env so any subprocess (or late import) also sees it.
         os.environ["PYTEST_XDIST_WORKER"] = worker_id
 
+
 # Shared test geometries
 EMPTY_FEATURE_COLLECTION = {
     "type": "FeatureCollection",
@@ -449,7 +450,10 @@ async def _run_with_too_many_clients_retry(
             # (asyncpg's own exception name + message both contain the
             # canonical "too many clients already" substring or the
             # equivalent connect-now phrasing).
-            if isinstance(e, OperationalError) and "too many clients already" not in str(e).lower():
+            if (
+                isinstance(e, OperationalError)
+                and "too many clients already" not in str(e).lower()
+            ):
                 raise
             # Exhausted budget — re-raise loudly, NOT silent-swallow.
             if attempt == attempt_budget - 1:
@@ -590,7 +594,10 @@ async def _acquire_test_session_with_retry(
             # Raw asyncpg classes (TooManyConnectionsError, CannotConnectNowError)
             # are unambiguously contention so the substring guard is a no-op
             # for them (their type alone qualifies for retry).
-            if isinstance(e, OperationalError) and "too many clients already" not in str(e).lower():
+            if (
+                isinstance(e, OperationalError)
+                and "too many clients already" not in str(e).lower()
+            ):
                 raise
             # Exhausted budget — re-raise loudly, NOT silent-swallow.
             if attempt == attempt_budget - 1:
@@ -604,6 +611,7 @@ async def _acquire_test_session_with_retry(
             # Pass exception info to the underlying context manager so it
             # can roll back / clean up appropriately. Re-raise after.
             import sys
+
             await cm.__aexit__(*sys.exc_info())
             raise
         else:
@@ -742,7 +750,10 @@ def _install_dbapi_connect_retry(sync_engine, sleep_fn, backoffs):
                 return dialect.connect(*cargs, **cparams)
             except _TRANSIENT_CONTENTION_EXCEPTIONS as e:
                 last_exc = e
-                if isinstance(e, OperationalError) and "too many clients already" not in str(e).lower():
+                if (
+                    isinstance(e, OperationalError)
+                    and "too many clients already" not in str(e).lower()
+                ):
                     raise
                 if attempt == attempt_budget - 1:
                     raise
@@ -909,13 +920,14 @@ class _RetryingAsyncEngine:
                 return self._underlying.connect()
             except _TRANSIENT_CONTENTION_EXCEPTIONS as e:
                 last_exc = e
-                if isinstance(e, OperationalError) and "too many clients already" not in str(e).lower():
+                if (
+                    isinstance(e, OperationalError)
+                    and "too many clients already" not in str(e).lower()
+                ):
                     raise
                 if attempt == attempt_budget - 1:
                     raise
-                _invoke_sleep_in_sync_context(
-                    self._sleep_fn, self._backoffs[attempt]
-                )
+                _invoke_sleep_in_sync_context(self._sleep_fn, self._backoffs[attempt])
         if last_exc is not None:  # pragma: no cover
             raise last_exc
 
@@ -950,10 +962,7 @@ class _RetryingAsyncEngine:
         # the underlying dispose runs. Idempotent via the None guard:
         # repeated dispose() calls do not re-attempt removal because
         # we clear the refs after a successful remove.
-        if (
-            self._do_connect_handler is not None
-            and self._sync_engine is not None
-        ):
+        if self._do_connect_handler is not None and self._sync_engine is not None:
             try:
                 event.remove(
                     self._sync_engine,
@@ -984,7 +993,10 @@ class _RetryingAsyncEngine:
                 return await self._underlying.dispose()
             except _TRANSIENT_CONTENTION_EXCEPTIONS as e:
                 last_exc = e
-                if isinstance(e, OperationalError) and "too many clients already" not in str(e).lower():
+                if (
+                    isinstance(e, OperationalError)
+                    and "too many clients already" not in str(e).lower()
+                ):
                     raise
                 if attempt == attempt_budget - 1:
                     raise

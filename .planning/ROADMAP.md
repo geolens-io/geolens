@@ -1,10 +1,12 @@
 # Roadmap: GeoLens
 
-## Current Milestone
+## Historical Milestones
 
-No active milestone. Start the next milestone with `$gsd-new-milestone`.
+- ✅ **v1033 Builder Terrain, Label & Render-Mode QA** — Phases 1148-1151 (shipped 2026-05-29, local tag `v1033`, CHANGELOG [1.8.0]; DEM render-mode persistence fix (3D terrain restores on load; raster "Render as" no longer reverts) + layer-list label indicator + point render-as consolidation + hillshade dual-consumer guard + bounded band-stats cache; 9/9 reqs; audit tech_debt/0-blockers) — see [archive](milestones/v1033-ROADMAP.md)
+- ✅ **v1032 Builder Carry-Forward Resolution** — Phases 1144-1147 (shipped 2026-05-28, local tag `v1032`, CHANGELOG [1.7.0]; contour control CUT — `maplibre-contour` 0.1.0 incompatible with maplibre-gl 5.x, no upstream fix — plus single-band raster `percentile`/`stddev` stretch via Titiler `/cog/statistics`; 7/7 reqs) — see [archive](milestones/v1032-ROADMAP.md)
+- ✅ **v1031 Builder Render-Mode & Share Polish** — Phases 1140-1143 (shipped 2026-05-28, local tag `v1031`; hypsometric tint + single-band raster colormap + fill-pattern editor controls, OG-image social cards + SharePanel ≤2 weights, orchestrator-driven Playwright MCP close-gate; 8/9 reqs — EDITOR-DEM-04 contour deferred → v1032) — see [archive](milestones/v1031-ROADMAP.md)
 
-## ✅ Historical Milestones
+- ✅ **v1030 Map Builder Polish Sweep** — Phases 1133-1139 (shipped 2026-05-28, local tag `v1030`; audit-first builder walkthrough, Tier-1 map bugs + ≤800px polish, AI confirm-before-apply Shape-B staging, per-render-mode editor controls, share chips/presets/branding, easy-wins, 3-viewport Playwright MCP close-gate; 44/44 reqs) — see [archive](milestones/v1030-ROADMAP.md)
 
 - ✅ **v1029 DCAT 3.0** — Phases 1129-1132 (shipped 2026-05-27; DCAT-US Schema v3.0 export/validation routes, official schema foundation, docs, OpenAPI/SDK refresh, and Playwright MCP API close gate) — see [archive](milestones/v1029-ROADMAP.md)
 - ✅ **v1028 Map Builder Product Polish** — Phases 1124-1128 (shipped 2026-05-25; Builder Notes clear/persistence fixes, AI unavailable-state polish, workflow regression gates, ADK showcase/shared/embed verification, active smoke path renamed from demo to showcase, no separate demo-instance release gate)
@@ -81,7 +83,7 @@ No active milestone. Start the next milestone with `$gsd-new-milestone`.
 - ✅ **v1010.2 Builder Smoke Carryover** — Phase 1050 (shipped 2026-05-17) — see [archive](milestones/v1010.2-ROADMAP.md)
 - ✅ **v1011 Map Builder Polish & Bug Sweep** — Phase 1051 (shipped 2026-05-18) — see [archive](milestones/v1011-ROADMAP.md)
 - ✅ **v1011.1 Builder Hygiene Carryover** — Phase 1052 (shipped 2026-05-18) — see [archive](milestones/v1011.1-ROADMAP.md)
-- ✅ **v1012 New-User Hardening + Reupload** — Phases 1053-1056 (shipped 2026-05-19, public tag `v1.2.1`) <!-- 1060/A-01: prior ROADMAP entry claimed v1.3.0 but actual CHANGELOG + git tag is v1.2.1 -->
+- ✅ **v1012 New-User Hardening + Reupload** — Phases 1053-1056 (shipped 2026-05-19, public tag `v1.2.1`)
 - ✅ **v1013 Ingest Hardening** — Phases 1057-1060 (shipped 2026-05-20, local tag `v1013`, public tag `v1.3.0`) — see [archive](milestones/v1013-ROADMAP.md)
 - ✅ **v1014 Security Audit Remediation** — Phases 1061-1064 (shipped 2026-05-20, local tag `v1014`, public tag `v1.4.0`) — see [archive](milestones/v1014-ROADMAP.md)
 - ✅ **v1015 Ingest/Export Lifecycle Hardening** — Phases 1065-1070 (shipped 2026-05-20, local tag `v1015`, public tag `v1.5.0`) — see [archive](milestones/v1015-ROADMAP.md)
@@ -93,50 +95,6 @@ No active milestone. Start the next milestone with `$gsd-new-milestone`.
 - ✅ **v1021 Docker Rebuild Sweep + Engine-level Retry** — Phases 1091-1093 (shipped 2026-05-23, local tag `v1021`, public tag `v1.5.6`) — see [archive](milestones/v1021-ROADMAP.md)
 - ✅ **v1022 Parallel-Test Cascade Closure + Hygiene Tail** — Phases 1094-1097 (shipped 2026-05-24, local tag `v1022`, public tag `v1.5.7`) — see [archive](milestones/v1022-ROADMAP.md)
 - ✅ **v1023 CI Live-Verify + OOS Hygiene Tail** — Phases 1098-1100 (shipped 2026-05-24, local tag `v1023`, public tag `v1.5.8`)
-
-## Phases
-
-### v1023 CI Live-Verify + OOS Hygiene Tail (Shipped 2026-05-24)
-
-✅ Complete (degraded — CI-01 v1024+ carry-forward) — see [archive](milestones/v1023-ROADMAP.md). 3 phases (1098-1100), 3 plans, 8 requirements (OOS-01/02/03 + OAUTH-01/02/03 + CLOSE-01 satisfied; CI-01 deferred-degraded due to persistent GH Actions billing block since v1022). Local tag `v1023` + public tag `v1.5.8` at `892fca01`. Retired the 3 pre-existing OOS sequential failures (Phase 1098: trim `maps/router.py` -14 LOC + delete stale README-signature test + behavioral SSRF rewrite immune to mock.patch contamination, renamed to `test_revalidate_redirect_blocks_rfc1918_10x_redirect`) + 3 OAuth parallel-mode flakes (Phase 1099: `client_session` fixture override + `_ensure_public_app_url` monkeypatch — OAUTH-03 `test_oauth_login_redirect` scope-expanded mid-milestone after surfacing in Phase 1098 verify-gate). Post-v1023 invariant: sequential `failed == 0` LITERAL (3062/0/38, strengthened from "0 NEW") + `-n 4` `failed == 0` LITERAL (3062/0/38 across 3 consecutive runs) + `-n auto` 3-run within v1022 PARA-01 ≤30 envelope. Audit verdict: `tech_debt` (CLEAR-TO-TAG degraded — mirrors v1022 precedent) — see [milestone audit](milestones/v1023-MILESTONE-AUDIT.md). **v1024+ carry-forward (1):** CI-01-v1024 — `pytest-parallel-isolation` CI gate live-verify post-billing-resolution at https://github.com/organizations/geolens-io/settings/billing (rolling chain: v1022 → v1023 → v1024+). **2 minor doc-debt items:** OOS-03 stale intermediate test name in 4 consumer artifacts (closure SHA chain `431e2b54`+`9546a961`+`77affeac` correctly recorded; test exists/runs at the final WR-02 rename — 4-file find-and-replace candidate for v1024+); Phase 1099 IN-01..IN-04 test-isolation ledger observations (per CONTEXT `<deferred>`, not code defects).
-
-### v1022 Parallel-Test Cascade Closure + Hygiene Tail (Shipped 2026-05-24)
-
-✅ Complete (degraded) — see [archive](milestones/v1022-ROADMAP.md). 4 phases (1094-1097), 6 plans, 5 requirements (PARA-01 / PARA-02 / HYG-01 / CLOSE-01 satisfied; CI-01 deferred to v1023). Local tag `v1022` + public tag `v1.5.7` at `48707fb1`. Closed v1021's three test-infra carry-forwards: PARA-01 (spike reclassified surface from per-worker DB lifecycle race to `_init_tile_pool_for_tests` retry-envelope gap — wrap 3 sibling `asyncpg.create_pool` sites in existing `_run_with_too_many_clients_retry` envelope); PARA-02 (WR-02 Shape Y2 load-bearing rationale after Y1 empirically failed); HYG-01 (WR-03 narrow except + WR-04 listener teardown + 3 new regression pins for symmetry with `test_engine_retry_*` family). Sequential pytest 3060/3 OOS/38 + `-n 4` 3059/4 OOS/38 + `-n auto` 3-run 2/3/2 distinct deterministic + 0 ICN frames. **CI-01 deferred to v1023:** GitHub Actions billing block at push (run 26359374410: 0/13 jobs executed); user-authorized degraded close. Gate-shape verified locally to v1021 TEST-01 depth. Audit verdict: `tech_debt` (CLEAR-TO-TAG degraded) — see `.planning/milestones/v1022-MILESTONE-AUDIT.md`. **v1023 carry-forward (1):** CI-01-v1023 (operator-resolves-billing + `gh run rerun 26359374410` + document GREEN evidence).
-
-### v1021 Docker Rebuild Sweep + Engine-level Retry (Shipped 2026-05-23)
-
-✅ Complete — see [archive](milestones/v1021-ROADMAP.md). All 3 phases (1091-1093) and 6 requirements (INGEST-01 + OPS-01 + ROUTE-01 + INFRA-01 + INFRA-02 + TEST-01) satisfied. Local tag `v1021` + public tag `v1.5.6` at `35596a7a`. Closed the docker-rebuild-sweep findings from quick task `260523-at1`: INGEST-01 (`urban_areas_landscan_10m` quicklook MissingGreenlet async-context bug closed via fresh `_job_phase_session("quicklook")` + iter-2 post-upload rollback recovery; 109/109 datasets seed clean with `quicklook_256_uri` populated); OPS-01 (`reconcile_failed_jobs` in `scripts/seed-natural-earth.py` queries `/api/admin/jobs/?status=failed` with run-window filter + non-zero exit on failures); ROUTE-01 (`redirect_slashes=False` + dual-shape decorators on ~28 manual routes + `_add_trailing_slash_aliases` programmatic hook for ~72 more + Vite proxy `Location` rewrite — zero `api:8000` leaks across 11 probed routes); INFRA-01 (migrate service `entrypoint: []` override; alembic single-fire confirmed via `grep -c "Context impl PostgresqlImpl" == 1`); INFRA-02 (db/Dockerfile platform pin ACCEPT with inline rationale + CHANGELOG entry); TEST-01 (`_RetryingAsyncEngine` wrapper + `do_connect` event handler at `backend/tests/conftest.py`; in-test contention reduced 126/139 → 11/12 per `-n auto` run, -91%). Sequential pytest baseline 3055 passed / 3 pre-existing OOS / 38 skipped preserved; `-n 4` baseline 3054 passed / 4 OOS / 38 skipped. Audit verdict: `tech_debt` (CLEAR-TO-TAG) — see `.planning/milestones/v1021-MILESTONE-AUDIT.md`. **v1022 carry-forward (1):** Category 4.1 per-worker DB lifecycle parallel-mode cascade — `-n auto` Runs 3+4 produced 709/1020 distinct failures with `InvalidCatalogNameError` cascade (different architectural surface than TEST-01's in-test wrapper). Findings doc at `.planning/phases/1093-engine-level-retry-envelope/1093-02-FINDINGS.md`.
-
-
-
-### v1019 Hygiene Tail — v1018 Frontend + xdist + Process (Shipped 2026-05-22)
-
-✅ Complete — see [archive](milestones/v1019-ROADMAP.md). All 3 phases (1084-1086) and 6 requirements (TD-09..TD-14) satisfied. Local tag `v1019` + public tag `v1.5.4` at `02cb25db`. Closed the 4 v1018-deferred tech-debt items: TD-09 frontend TS hygiene (37 errors / 15 files → 0, `typecheck` script added); TD-11 `/maps/new` 422 console-noise (eliminated via `<Route path="maps/new" element={<Navigate to="/maps">}/>`); TD-12 `/api/api/` doubled prefix (single-line fix in `use-quicklook.ts:58`); TD-10 `pytest -n auto` cascade (2452 → 0 errors via NullPool + 5s startup stagger). Plus TD-13 process tightening (REQ nodeID pinning + executor SUMMARY checkbox-flip rules added to 3 global GSD skill files; repo retro committed) and TD-14 runtime symmetry (api+worker rebuild + ssl=False probe at config.py:309 confirmed). Sequential pytest 3036/0/38, e2e:smoke:builder 25/0/1, frontend typecheck exit 0, live Playwright MCP 5/5 surfaces green. One v1020 carry-forward: 192 fixture-scope failures exposed by parallel test execution (not cascade; needs fixture-isolation audit).
-
----
-
-### v1017 Test Infra & Audit Tail (Shipped 2026-05-21)
-
-✅ Complete — see [archive](milestones/v1017-ROADMAP.md). All 5 phases (1075-1079) and 13 requirements satisfied. Local tag `v1017` + public tag `v1.5.2`. Restored test signal (TI-01 conftest refactor + TI-02 11 baseline failures fixed), closed 7 backend/frontend ingest P2 findings (ING-01..07), wired alembic clean-DB script into CI (CI-01), re-verified Phase 1071 KNOWN-02 docker-smoke (VG-01 — 3 latent script bugs fixed inline), captured post-fix pytest baseline (TI-03), archived 196-item quick_tasks tail (HYG-01). Live MCP smoke 5/5 surfaces green at close-gate. See [archive](milestones/v1017-ROADMAP.md).
-
----
-
-### v1018 Hygiene — v1017 Tech-Debt Tail (Shipped 2026-05-21)
-
-✅ Complete — see [archive](milestones/v1018-ROADMAP.md). All 4 phases (1080-1083) and 8 requirements satisfied. Local tag `v1018` + public tag `v1.5.3` at `d1b76061`. Closed the 8 v1017-deferred tech-debt items: TD-01 broad-except justification at `tasks_common.py:232,238` + WR-01 line-1030 bonus + macOS `\s` portability fix; TD-07 `database_connect_args` `ssl=False` on disable branch + 3-case unit-test pin + WR-02 dead-test repair; TD-02/TD-03 SEC-S16 password fixture update; TD-05 SSRF re-validation mock; TD-06 async loop contamination fix via `client` fixture; TD-04 ogrinfo CLI mock-out at caller-namespace. Pytest 3025/0/38 sequential, frontend 2105/2105 + 25/1 e2e, live MCP 5/5 surfaces green. Zero deferrals to v1019.
-
----
-
-## Progress
-
-| Phase | Milestone | Plans Complete | Status | Completed |
-|-------|-----------|----------------|--------|-----------|
-| 1124. Builder Workflow and Notes/AI Audit | v1028 | 1/1 | Complete | 2026-05-25 |
-| 1125. Builder Workflow Polish | v1028 | 1/1 | Complete | 2026-05-25 |
-| 1126. Notes and AI Authoring Polish | v1028 | 1/1 | Complete | 2026-05-25 |
-| 1127. Showcase Map and Capture Polish | v1028 | 1/1 | Complete | 2026-05-25 |
-| 1128. Quality Sweep and Close Gate | v1028 | 1/1 | Complete | 2026-05-25 |
 
 ## Backlog
 
@@ -204,3 +162,23 @@ Plans:
 Plans:
 
 - [ ] TBD
+
+---
+
+### Phase 999.18: Builder v2 feature register — editor-control + layer-type expansion (BACKLOG — P3)
+
+**Goal:** Map Builder feature-expansion items deferred from v1030. Three sub-groups — promote independently (effort varies from small editor controls to whole new layer subsystems):
+
+- _Editor convenience:_ **EDITOR-SYMBOL-04** categorical icon mapping with real distinct-value query (`useColumnDistinctValues` exists post-WALK-01); **EDITOR-BASEMAP-06** custom basemap style URL override (architecture-shaped).
+- _Layer-type expansion:_ Text/Annotation layer ("Render as Text"); Draw/annotation layer (text + shapes); LiDAR support.
+
+**Source:** `milestones/v1030-REQUIREMENTS.md` §"v2 Requirements"
+**Estimated effort:** Split per sub-group at promotion — editor-convenience are polish-sized; layer-type expansion is feature-milestone work.
+
+Plans:
+
+- [ ] TBD
+
+---
+
+*Roadmap updated: 2026-05-29 — Phase 1149 plan count finalized (1 plan).*

@@ -85,9 +85,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.execute(
-        "DROP INDEX IF EXISTS catalog.ix_records_simple_search_vector"
-    )
+    op.execute("DROP INDEX IF EXISTS catalog.ix_records_simple_search_vector")
     op.execute(
         "DROP FUNCTION IF EXISTS catalog.immutable_text_array_join(text[], text)"
     )

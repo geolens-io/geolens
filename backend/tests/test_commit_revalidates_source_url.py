@@ -45,12 +45,15 @@ class TestCommitImportRevalidatesSourceUrl:
         async def _ssrf_raise(url: str) -> None:
             raise SSRFError(f"private IP after rebinding: {url}")
 
-        with patch(
-            "app.processing.ingest.router.get_job_or_404",
-            new=AsyncMock(return_value=job),
-        ), patch(
-            "app.modules.catalog.sources.security.validate_url_for_ssrf",
-            side_effect=_ssrf_raise,
+        with (
+            patch(
+                "app.processing.ingest.router.get_job_or_404",
+                new=AsyncMock(return_value=job),
+            ),
+            patch(
+                "app.modules.catalog.sources.security.validate_url_for_ssrf",
+                side_effect=_ssrf_raise,
+            ),
         ):
             with pytest.raises(HTTPException) as exc:
                 # `request`, `user`, `db` are mocked to bare minimum since
@@ -79,18 +82,23 @@ class TestCommitImportRevalidatesSourceUrl:
 
         ssrf_mock = AsyncMock()
 
-        with patch(
-            "app.processing.ingest.router.get_job_or_404",
-            new=AsyncMock(return_value=job),
-        ), patch(
-            "app.modules.catalog.sources.security.validate_url_for_ssrf",
-            new=ssrf_mock,
-        ), patch(
-            "app.processing.ingest.router._pick_commit_subclass",
-            return_value=MagicMock(model_validate=lambda d: MagicMock()),
-        ), patch(
-            "app.processing.ingest.router.queue_ingest_job",
-            new=AsyncMock(),
+        with (
+            patch(
+                "app.processing.ingest.router.get_job_or_404",
+                new=AsyncMock(return_value=job),
+            ),
+            patch(
+                "app.modules.catalog.sources.security.validate_url_for_ssrf",
+                new=ssrf_mock,
+            ),
+            patch(
+                "app.processing.ingest.router._pick_commit_subclass",
+                return_value=MagicMock(model_validate=lambda d: MagicMock()),
+            ),
+            patch(
+                "app.processing.ingest.router.queue_ingest_job",
+                new=AsyncMock(),
+            ),
         ):
             try:
                 await commit_import(

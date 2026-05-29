@@ -11,13 +11,91 @@ GitHub release notes are generated from this file, so `CHANGELOG.md` is the rele
 
 ## [Unreleased]
 
+## [1.8.0] - 2026-05-29
+
+Builder render-mode persistence fix (3D terrain now restores on load), a layer-list label indicator, and small builder/raster cleanups — surfaced by a live walkthrough of the two ADK sample maps.
+
+### Fixed
+
+- **DEM/raster "Render as" now persists across reload.** A DEM layer saved as **Terrain** (or any raster mode) was silently reverting to **Image** on every map load, and 3D terrain never attached. Root cause: the style-config normalizer's render-mode allowlist omitted `'terrain'` and `'image'`, so those values were dropped on read. Both are now in the allowlist and the `StyleConfig.render_mode` type union, so the 3D terrain mesh attaches on fresh load and the editor shows the saved render mode. (RMODE-01/02/03)
+- **DEM hillshade no longer spams "dem dimension mismatch" errors when a DEM also powers 3D terrain.** When a DEM is the active terrain source, a second hillshade consumer of the same DEM is now skipped (the terrain mesh already provides relief) and the DEM editor shows an advisory note. Maps without terrain are unaffected — hillshade renders normally. (POLISH-02)
+
 ### Added
 
+- **Layer-list label indicator.** Layers that have labels configured now show a small indicator in the builder layer list (with an accessible "Labels on: {column}" tooltip), so labeled layers are visually distinct at a glance. Derived purely from layer state; localized in en/de/es/fr. (LABEL-01)
+
+### Changed
+
+- **Single "Render as" control on point layers.** The point layer Style tab no longer shows a redundant second "Render as" dropdown — the segmented Point / Symbols / Heatmap / Cluster control is now the only render-mode picker, matching line and polygon editors. (POLISH-01)
+- **Bounded the raster band-statistics cache.** The per-asset Titiler statistics cache that backs `percentile`/`stddev` stretch is now an LRU (`maxsize=256`) instead of an unbounded dict, so long-running tile servers can't accumulate one entry per single-band raster indefinitely. (HYG-01)
+
+## [1.7.0] - 2026-05-28
+
+Closes the v1031 builder carry-forward tail: single-band raster `percentile`/`stddev` stretch now compute real statistics, and the unstable contour control was removed.
+
+### Added
+
+- **Single-band raster stretch (percentile / std-deviation):** The raster layer editor's Stretch selector now offers working **Percentile (2–98%)** and **Std Deviation** options alongside Min/Max. Percentile rescales to the 2nd–98th percentile; Std Deviation rescales to mean ± 2σ clamped to the band's min/max. Both compute per-band statistics from Titiler `/cog/statistics` (cached per asset) and override the tile rescale; Min/Max keeps the dtype-based default. The stretch applies regardless of colormap selection, including the default grayscale render. DEM (terrain) layers are unaffected. Previously these two options were disabled and labelled "coming soon".
+
+### Removed
+
+- **DEM contour-line control:** Removed the contour-line overlay control (gated off and dormant since v1031) along with its `maplibre-contour` dependency. The library's `0.1.0` release — its latest published version — emits malformed custom-protocol tile URLs under MapLibre GL JS 5.x (≈28 console errors per enable) and has no compatible upgrade. The control was never enabled in a shipped build, so there is no user-facing behavior change. Contour rendering may return in a future release on a maintained approach.
+
+### Verification
+
+- OpenAPI snapshot (`make openapi-check`): no drift — the raster tile proxy's `stretch` param was already documented in v1031; only its server-side behavior changed, so no schema/SDK regeneration was required.
+- Frontend `npm run typecheck`: 0 errors. `npm run lint`: 0 errors (1 pre-existing warning in `use-filtered-feature-count.ts`). `npm run test`: 2577/2577 pass. `npm run test:i18n`: 2/2 pass.
+- Backend pytest (`test_raster_colormap_proxy.py` + raster/tile suite): 84 pass / 2 skip.
+- Builder e2e smoke (`e2e:smoke:builder`): 26/26 pass.
+- Live (orchestrator Playwright MCP): contour control absent from the DEM editor in all render modes with 0 console errors; raster `minmax` vs `percentile` vs `stddev` tiles render distinctly (859 B / 25 KB / 27 KB) — verified end-to-end against the live Titiler statistics path.
+
+## [1.6.0] - 2026-05-28
+
+Builder render-mode editor controls for DEM and raster layers, a built-in fill-pattern picker, OG social-card meta on shared map links, and SharePanel typography cleanup.
+
+### Added
+
+- **DEM hypsometric tint:** DEM layers in hillshade mode now include a HYPSOMETRIC TINT section — toggle and color-ramp picker (Viridis, YlOrRd, BuGn, Plasma, Magma, Terrain, Inferno, Spectral) rendered via a native MapLibre `color-relief` companion layer.
+- **Single-band raster colormap:** Raster layers with a single band now show a COLORMAP section in the editor — a colormap selector (Grayscale, Viridis, Inferno, Plasma, Magma, Terrain, Yellow-Red, Blue-Green) that passes `colormap_name` to Titiler and triggers a tile re-fetch. Multi-band rasters and DEM layers are unaffected.
+- **Fill-pattern picker:** Polygon fill layers now include a FILL PATTERN section with five built-in procedural patterns (Hatch, Crosshatch, Diagonal, Dots, Grid) and a "None" clear option. Patterns are generated client-side as 16×16 tileable `ImageData` sprites with no network fetch.
+- **OG social-card meta on shared map links:** Shared map URLs (copied via the Share panel) now point to a `/card` route that serves `og:title`, `og:description`, `og:image`, and `twitter:card summary_large_image` meta for social unfurl. A 1200×630 JPEG preview is captured on every map save and stored via `PUT /api/maps/{id}/og-image/`.
+
+### Changed
+
+- The Share panel Copy Link button now emits the `/card` URL for social unfurl (instead of the direct `/m/{token}` viewer URL). The "Open" button continues to load the viewer directly via `/m/{token}` without a meta-refresh bounce.
+- SharePanel section headers are now `font-semibold`; secondary labels remain `font-medium`. The panel uses at most two explicit font weights, removing the mixed `font-bold`/`font-medium` inconsistency.
+
+### Fixed
+
+- The `og_image_url` field is now included in `MapResponse` so the frontend can surface the OG image URL alongside the map record.
+- Raster tile proxy now accepts `colormap_name` and `stretch` query params. Unknown colormap names and injection attempts return 422 without reaching Titiler (T-1140-01). The nginx raster-tiles location block now forwards these params and includes them in the cache key.
+
+### Verification
+
+- OpenAPI snapshot (`make openapi-check`) and generated Python + TypeScript SDKs (`make sdks-check`) regenerated for v1031: `PUT`/`GET /maps/{id}/og-image/` routes, `OgImageUploadRequest` schema, `og_image_url` on `MapResponse`, `band_count` on `MapLayerResponse`, and `colormap_name`/`stretch` params on the raster tile proxy. No drift. The sibling docs repo (`getgeolens.com`) requires `npm run fetch-openapi` as a manual downstream follow-up.
+- Frontend `npm run typecheck`: 0 errors. `npm run lint`: 0 errors (1 pre-existing warning in `use-filtered-feature-count.ts` from v1030). `npm run test`: 2599/2599 pass. `npm run test:i18n`: 2/2 pass.
+- Backend pytest (`test_raster_colormap_proxy.py` + `test_maps_og_image.py` + `test_maps.py`): 181/181 pass.
+- Builder e2e smoke (`e2e:smoke:builder`): 26/26 pass after applying Alembic migration 0024 to the dev database.
+- Live Playwright MCP QA-01 verification (hypsometric/colormap render, fill-pattern set/clear, OG card meta + image) is handled separately by the orchestrator.
+- **Deferred to v1032 — DEM contour-line overlay (EDITOR-DEM-04):** The CONTOUR LINES editor section is gated off via `CONTOUR_CONTROL_ENABLED=false` in `DEMEditorScene.tsx`. The close-gate MCP found `maplibre-contour` worker emits ~28 MapLibre error events on enable; the worker/isoline tile integration needs deeper work beyond v1031 scope. The `contour-sync.ts` implementation and `maplibre-contour` dependency are retained dormant. Flip the constant to re-enable in v1032.
+
+## [1.5.10] - 2026-05-28
+
+Map builder audit-first polish sweep — AI confirm-before-apply staging, sharing chips/presets/branding, keyboard save, popup media, empty-layer hints, per-render-mode editors, and DCAT-US v3.0. This entry covers v1030 work committed under [Unreleased] prior to tagging.
+
+### Added
+
+- **AI confirm-before-apply (Shape B):** AI chat style suggestions are now staged in a pending-layers buffer before any layer mutation is committed. An action preview chip row shows each pending change; users can apply or discard the whole batch. Inline data-analysis cards display query results for non-spatial queries, and suggestion chips filter to the current viewport extent.
+- **Sharing polish:** The share-link settings panel now displays allowed origins as editable chips in canonical form; expiration offers five presets (1 day / 7 days / 30 days / 1 year / Never); and shared maps, embeds, and exports include the layer legend and map title. Community-edition maps now show a "Powered by GeoLens" branding mark. The embed dialog includes a sandboxed iframe preview (enterprise-gated).
+- **Keyboard save shortcut:** Cmd/Ctrl+S triggers map save from the builder canvas; the shortcut is a no-op when a dialog is open.
+- **Popup URL/media auto-render:** Popup attribute cells now auto-linkify bare URLs and render image URLs as inline images. A `{column}` token is documented in the popup config so attribute values can be interpolated into template URLs.
+- **Empty-layer hint:** Layers returning zero features now show an inline "0 features — check your filter" hint with a one-click Clear-filter action.
 - DCAT-US Schema v3.0 support now has explicit catalog, dataset, and validation routes under `/datasets/dcat-us/3.0/`, backed by the official GSA/dcat-us JSON Schema 2020-12 definitions vendored from commit `98408dc000f0b71131a03920e2dec6247a84abff`.
 - DCAT-US validation reports now return validity, error count, JSON path, schema path, validator, and message details while preserving existing catalog visibility and per-dataset access checks.
 
 ### Changed
 
+- The map viewer now performs a server-side access check before rendering. A new `GET /maps/{map_id}/access/` API endpoint returns `can_view` and `can_edit` flags so the frontend can gate viewer and builder routes from a single authoritative server response.
 - Existing W3C DCAT 3 routes remain compatibility routes at `/datasets/dcat/` and `/datasets/{dataset_id}/dcat/`; DCAT-US v3.0 is exposed as a separate federal profile instead of changing those response shapes.
 - Builder Notes and AI rail behavior now treat Notes, History, and AI as product authoring surfaces in the standard builder, with no separate demo instance or demo deployment assumed for validation.
 - Active map showcase smoke coverage has been renamed from `demo-smoke*` to `showcase-smoke*`, including the package script and active comments that reference the smoke path.
@@ -29,6 +107,13 @@ GitHub release notes are generated from this file, so `CHANGELOG.md` is the rele
 
 ### Fixed
 
+- Deleting a layer now removes its map source across all render modes (fill, line, circle, symbol, heatmap, cluster, raster), so orphaned sources no longer remain in the MapLibre style after layer removal.
+- Visibility toggle now takes effect immediately per adapter, so toggling a layer's eye icon updates the live map without requiring a save cycle.
+- Renaming a layer group no longer steals focus prematurely: the rename input stays active until confirmed via an rAF-deferred focus sequence.
+- At viewport widths of 800 px and below, the builder sidebar, NavigationControl position, map coordinate readout, and Sheet panels no longer overlap or collide. The Sheet uses `mt-12` top margin, the coordinate readout uses `right-14` offset, and the close button is hidden for panels that manage their own dismiss affordance.
+- The map body no longer overscrolls: scroll containment is applied so vertical swipe on the layer stack does not propagate to the page.
+- Filter pills in the layer editor no longer overflow their container at narrow widths.
+- The Notes panel now shows a presence indicator dot on the Notes rail icon when the map has saved notes, making it visible at a glance whether notes exist.
 - Builder Notes can now be explicitly cleared: map updates distinguish omitted `notes` from `notes: null`, so omitted updates preserve existing notes and explicit null removes persisted notes.
 - Map builder no longer resurrects stale localStorage Notes when the API returns explicit `notes: null`.
 - Mobile Builder Notes and AI sheets now keep usable full-height panel sizing at narrow viewports.
@@ -59,6 +144,7 @@ GitHub release notes are generated from this file, so `CHANGELOG.md` is the rele
 
 ### Verification
 
+- OpenAPI snapshot (`make openapi-check`) and generated Python + TypeScript SDKs (`make sdks-check`) were regenerated for v1030. Regeneration surfaced genuine schema drift from commit `3ed5ceb3`: the `GET /maps/{map_id}/access/` viewer-gate endpoint and its `MapAccessResponse` schema were not captured in the previous snapshot. Both are now committed. The sibling docs repo (`getgeolens.com`) requires `npm run fetch-openapi` as a manual downstream follow-up.
 - Focused DCAT tests verify existing W3C DCAT routes, new DCAT-US v3.0 serializer output, DataService emission, validation pass/fail reports, route order, and anonymous private-dataset exclusion.
 - v1028 close gate passed focused backend Notes pytest coverage, backend Ruff checks, focused frontend Notes/AI tests, focused builder workflow tests, frontend typecheck/lint/build, and Playwright discovery for the renamed showcase smoke specs.
 - Playwright MCP verified the ADK 3D Relief builder, mobile Notes sheet, AI unavailable panel, Notes set/clear on a throwaway copy, public shared viewer, embed viewer, canonical-map cleanup, and zero fresh browser console errors; the later Anthropic rerun still showed the known non-blocking MapLibre terrain maxzoom warning.

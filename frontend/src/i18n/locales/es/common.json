@@ -386,5 +386,9 @@
     "lazyMessage": "Una parte de la aplicación no se pudo cargar. Generalmente es un problema de red.",
     "lazyRetry": "Intentar de nuevo",
     "lazyRetrying": "Reintentando..."
+  },
+  "export": {
+    "poweredBy": "Powered by GeoLens",
+    "legendHeader": "Leyenda"
   }
 }

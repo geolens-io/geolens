@@ -151,7 +151,9 @@ async def test_stac_collection_items_no_auth_excludes_private(
     admin_id = await get_user_id(test_db_session, "admin")
 
     # Create a STAC collection
-    coll = Collection(name=f"Test STAC Vis Coll {uuid.uuid4().hex[:6]}", description="test")
+    coll = Collection(
+        name=f"Test STAC Vis Coll {uuid.uuid4().hex[:6]}", description="test"
+    )
     test_db_session.add(coll)
     await test_db_session.flush()
 

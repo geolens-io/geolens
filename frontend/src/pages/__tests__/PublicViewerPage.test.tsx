@@ -181,6 +181,21 @@ describe('PublicViewerPage', () => {
     });
   });
 
+  describe('SHARE-07 branding overlay routing', () => {
+    it('embed mode passes showInlineBranding=true to ViewerMap', async () => {
+      renderPage('/m/share-token?embed=true');
+      await screen.findByTestId('viewer-map');
+      expect(viewerMapMock.props?.showInlineBranding).toBe(true);
+    });
+
+    it('non-embed mode passes showInlineBranding=false to ViewerMap AND AppFooter renders', async () => {
+      renderPage('/m/share-token');
+      await screen.findByTestId('viewer-map');
+      expect(viewerMapMock.props?.showInlineBranding).toBe(false);
+      expect(screen.getByRole('contentinfo')).toBeInTheDocument();
+    });
+  });
+
   describe('ROUTE-04: getSharedMap expected404 quiet path', () => {
     // Test 1: 404 → null data path: "Map not found" renders, no console.error for 404
     it('renders Map not found without console.error when getSharedMap returns null (quiet 404)', () => {

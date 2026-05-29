@@ -2,6 +2,47 @@
 
 *A living document updated after each milestone. Lessons feed forward into future planning.*
 
+## Milestone: v1031 — Builder Render-Mode & Share Polish
+
+**Shipped:** 2026-05-28
+**Phases:** 4 (1140-1143) | **Plans:** 8 | **Requirements:** 8/9 (EDITOR-DEM-04 deferred → v1032) | **Tag:** `v1031` (local) | **Audit:** `tech_debt`
+**Stats:** 67 commits, 57 source files (+5,488/−70), single day.
+
+### What Was Built
+
+- **EDITOR-DEM-05 hypsometric tint:** `color-relief-sync.ts` companion-layer module + preset ramp picker in the DEM/hillshade editor; wired through `map-sync.ts` for `is_dem` layers.
+- **EDITOR-RASTER-COLORMAP:** RasterEditor COLORMAP section gated on `band_count===1` → `_colormap`/`_stretch` paint keys → `buildColormapTileUrl` → Titiler proxy with Literal + frozenset allowlist; nginx forwards + cache-keys on the params. `band_count` plumbed from `RasterAsset` DB join to `MapLayerResponse`.
+- **EDITOR-FILL-01 fill-pattern:** curated built-in sprite catalog + idempotent `ensureFillPatternImages` registrar + IconPicker-style `FillPatternPicker` wired into FillEditor (apply + clear-to-solid), 4-locale i18n.
+- **SHARE-08 OG-image (Path A):** migration 0024 `og_image_uri`, owner-only `PUT`/public `GET /maps/{id}/og-image/`, public `GET /maps/shared/{token}/card` HTML meta route (escaped, absolute URLs, 404 on non-public), 1200×630 capture in the existing single `doCapture` repaint. No `@vercel/og`/`satori`.
+- **SHARE-10:** SharePanel reduced to ≤2 font weights.
+- **QA close-gate (1143):** orchestrator-driven live Playwright MCP; typecheck 0 / vitest 2599/2599 / pytest 181/181 / e2e:smoke:builder 26/26 / i18n 2/2; OpenAPI + Python/TS SDK refresh; CHANGELOG [1.6.0].
+
+### What Worked
+
+- **Independent feature surfaces, serial close-gate.** 1140/1141/1142 touched disjoint surfaces (DEM/raster editor, fill adapter, share/sharing backend) so they composed without cross-phase conflict; the v1027+ precedent of a single serial Playwright-MCP close-gate (1143) caught the integration-level issues.
+- **`human_needed` → close-gate deferral pattern.** Each feature phase verified logic headlessly and explicitly deferred live-WebGL render checks to the 1143 close-gate (recorded as `human_needed` with a `human_verification` block). The close-gate then exercised all of them live in one pass — clean division between unit-pinnable logic and GPU-dependent render.
+- **Close-gate caught a real runtime bug.** The `maplibre-contour` `addProtocol` wiring bug (`setupMaplibre` was handed the Map instance instead of the `maplibre-gl` module) only surfaced under live MCP — headless vitest could not exercise the Web Worker protocol path.
+- **Path A/B decided in a planning audit before code.** The SHARE-08 OG-image path (separate 1200×630 capture + column/routes vs backend resize) was locked at plan-phase per the HARD INVARIANT, so no mid-execution thrash.
+- **Inline code-review fixes.** CR-01 (contour interval `setTiles` on existing source), WR-01 (orphan color-relief layer removal; secure absolute og:image URL via `get_public_api_url`), IN-02 (strengthened HTML-escape test) were all fixed and regression-pinned before verification rather than deferred.
+
+### What Was Inefficient
+
+- **Contour (EDITOR-DEM-04) was built fully, then deferred at the close-gate.** `contour-sync.ts`, the editor section, wiring, and 10+ unit tests all shipped before the live MCP smoke revealed the `maplibre-contour` worker emits ~28 MapLibre error events on enable. The worker-integration instability was a library-maturity risk that headless tests structurally could not catch — so the cost was only visible at the very last gate, after the full build.
+
+### Patterns Established
+
+- **Gate-off-with-dormant-code deferral.** When a library-integration risk surfaces at the close-gate, ship the feature *disabled* behind a single boolean (`CONTOUR_CONTROL_ENABLED=false`) with code + tests retained (tests `skip`ped, not deleted) rather than reverting. Re-enable becomes a one-boolean + un-skip operation in the next milestone — preserves the work and keeps the milestone shippable.
+- **Allowlist-validated tile-proxy passthrough.** New Titiler render params (`colormap_name`, `stretch`) go through a Literal type + frozenset runtime check before reaching the upstream, and nginx keys its cache on them — a reusable shape for safely widening the raster tile proxy.
+
+### Key Lessons
+
+- **Spike library worker/Web-Worker integrations before a full feature build.** `maplibre-contour` runs its isoline generation in a Web Worker via a custom MapLibre protocol; that path is invisible to headless vitest. A 1-hour live spike at plan-phase would have surfaced the instability before the editor UI + tests were written. The deferral was the right call, but earlier detection would have saved the build cost.
+- **`tech_debt` ≠ failure.** The milestone shipped 8/9 with one user-approved deferral and a CLEAN integration check. Classifying the audit honestly as `tech_debt` (not forcing `gaps_found`) kept the record accurate without blocking the close.
+
+### Cost Observations
+
+- Single-day milestone (~5.5h of commits), 4 phases. Model mix: predominantly opus orchestration with sonnet subagents (integration checker). Notable: the close-gate phase (1143) absorbed all live-MCP verification cost for the three upstream feature phases, keeping their individual verifications cheap and headless.
+
 ## Milestone: v1018 — Hygiene — v1017 Tech-Debt Tail
 
 **Shipped:** 2026-05-21

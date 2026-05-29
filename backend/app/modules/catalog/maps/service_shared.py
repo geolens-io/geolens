@@ -51,6 +51,7 @@ class LayerRow(NamedTuple):
     is_3d: bool | None
     is_dem: bool | None
     dem_vertical_units: str | None
+    band_count: int | None
 
 
 def _extract_dem_vertical_units(band_info: object) -> str | None:
@@ -166,6 +167,7 @@ async def _fetch_layer_rows_ordered(
             Dataset.is_3d,
             RasterAsset.is_dem,
             RasterAsset.band_info,
+            RasterAsset.band_count,
         )
         .join(Dataset, MapLayer.dataset_id == Dataset.id)
         .join(Record, Dataset.record_id == Record.id)
@@ -188,6 +190,7 @@ async def _fetch_layer_rows_ordered(
             is_3d=row[9],
             is_dem=bool(row[10]) if row[10] is not None else None,
             dem_vertical_units=_extract_dem_vertical_units(row[11]),
+            band_count=row[12],
         )
         for row in result.all()
     ]

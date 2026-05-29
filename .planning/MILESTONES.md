@@ -1,5 +1,76 @@
 # Milestones
 
+## v1033 Builder Terrain, Label & Render-Mode QA (Shipped: 2026-05-29)
+
+**Phases completed:** 4 phases (1148-1151), 7 plans, 9/9 requirements. Tag: local `v1033`. CHANGELOG `[1.8.0]`.
+
+**Goal delivered:** Closed the builder render-mode persistence defects surfaced by a live Playwright MCP walkthrough of the two ADK sample maps, added the missing layer-list label indicator, and shipped light builder polish + a raster-cache hygiene fix — without inflating into another full sweep.
+
+**Key accomplishments:**
+
+- **Render-mode persistence (1148, RMODE-01/02/03):** Single root cause — the `RENDER_MODES` allowlist (`frontend/src/lib/normalize-style-config.ts:92`) omitted `'terrain'` and `'image'`, so `normalizeRenderMode()` discarded `'terrain'` on every load → the 3D terrain mesh never attached AND a saved raster "Render as" silently reverted to Image. Added both modes to the allowlist + the `StyleConfig['render_mode']` union (`api.ts`, hand-maintained — backend `style_config` is opaque jsonb, so no OpenAPI/SDK regen), removed the `DEMEditorScene` BSR-09 boundary cast + comment, and pinned round-trip + RENDER_MODES-completeness unit tests. Live MCP: Map A `getTerrain()` non-null on fresh load (was `null`); DEM editor shows ◬ Terrain (was ▦ Image).
+- **Label indicator (1149, LABEL-01):** Derived `Type`-glyph indicator on `StackRow` layer rows where `label_config.column` is set (and render mode isn't heatmap/symbol — mirrors the `map-sync.ts` label-render gate), with `title`/sr-only a11y and en/de/es/fr i18n. Pure derivation, no new persisted state. Inline review fix: `min-w-0` on the name span so long names truncate beside the indicator.
+- **Builder polish + raster hygiene (1150, POLISH-01/02, HYG-01):** Removed the redundant point-layer render-as `<Select>` dropdown (the segmented Point/Symbols/Heatmap/Cluster control is now the sole picker); added `isHillshadeTerrainBound` guard that skips the hillshade raster-dem consumer when a DEM powers an active terrain source (stops MapLibre `backfillBorder` "dem dimension mismatch" spam) + a DEM-editor advisory note — provably inactive when terrain is off, so the primary hillshade path (Map B) is unaffected; bounded `_band_stats_cache` with `cachetools.LRUCache(maxsize=256)`.
+- **Close-gate (1151, QA-01/02):** Orchestrator-driven live Playwright MCP on both ADK maps (0 console errors each) + typecheck 0 / vitest 2601/2601 / i18n 2/2 / lint 0-err / backend raster·tile 76 / `make openapi-check` no-drift / `e2e:smoke:builder` 26/26. CHANGELOG `[1.8.0]`.
+
+**Audit verdict:** `tech_debt` (9/9 reqs satisfied; integration CLEAN 9/9 links + 4/4 E2E flows; 0 blockers). Tech debt: POLISH-02 raw error not reproduced live (guard unit-tested + provably safe), a dead optional `onRenderModeChange` member in `LayerStyleEditor/types.ts`, a SUMMARY line-number drift (795→827), and the pre-existing `band_count` cosmetic. See `.planning/milestones/v1033-MILESTONE-AUDIT.md`.
+
+**Migrations:** None (frontend type/normalizer + backend in-process cache bound + test/i18n only).
+
+**Method note:** Audit-first — a live Playwright MCP walkthrough of both sample maps (`8dd6a129` ADK 3D Relief + `c39be324` Terrain & Trails) drove the scope (`.planning/audits/BUILDER-LABEL-RASTER-AUDIT-v1033.md`); checklist items #1/#3/#4/#5/#6 (labels, render-as types/styling, reorder/visibility) PASSED as-is, confirming the milestone correctly targeted only the real defects.
+
+---
+
+## v1032 Builder Carry-Forward Resolution (Shipped: 2026-05-28)
+
+**Phases completed:** 4 phases (1144-1147), 7/7 requirements. Tag: local `v1032`. CHANGELOG `[1.7.0]`.
+
+**Goal delivered:** Decisively closed the v1031 carry-forward tail — resolved the contour control (spike-first → CUT) and finished single-band raster stretch stats — without inflating into another full builder sweep.
+
+**Key accomplishments:**
+
+- **Contour spike (1144, CONTOUR-01):** Reproduced the deterministic 28-error burst on the live builder via orchestrator Playwright MCP and root-caused it — `maplibre-contour@0.1.0` emits `dem1-contour://` custom-protocol tile URLs that MapLibre GL 5.x does not route (resolved as relative HTTP → malformed `Request`). `0.1.0` is the terminal published version with no compatible upgrade → recommended CUT.
+- **Contour cut (1145, CONTOUR-02):** Removed the `maplibre-contour` dep + `contour-sync.ts` + the `syncContourLayer` call in `map-sync.ts` + the `CONTOUR_CONTROL_ENABLED` flag/gate in `DEMEditorScene.tsx` + the dead `relief-contour` enum/branch in `map-stack.ts` + 5 dormant tests + 5 contour i18n keys (en/de/es/fr). Kept `syncColorReliefLayer` (shipped hypsometric tint). 3 DEM-editor absence tests are the permanent regression pins.
+- **Raster stretch stats (1146, RASTER-STRETCH-01/02):** Implemented single-band `percentile` (p2–p98) and `stddev` (mean±2σ clamped) stretch via Titiler `/cog/statistics` (cached per asset) → rescale override in `raster_tile_proxy`; un-gated the RasterEditor options. Live tile-render diff confirmed (minmax 859 B vs percentile 25 KB vs stddev 27 KB).
+- **Close gate (1147, QA-01/02/03):** typecheck 0 · lint 0 err · vitest 2577/2577 · backend raster/tile 84 pass·2 skip · `e2e:smoke:builder` 26/26 · i18n 2/2 · `make openapi-check` no drift (no SDK regen — `stretch` param pre-dated this milestone). Orchestrator live MCP: contour absent + 0 console errors; stretch tiles render distinctly. CHANGELOG `[1.7.0]`.
+
+**Audit verdict:** `tech_debt` (7/7 reqs satisfied; integration CLEAN 7/7 links + 2/2 E2E flows; no blockers). Tech debt: stretch↔gray-colormap coupling (pre-existing; logged RASTER-STRETCH-UI-02), nyquist VALIDATION skipped (coverage strong), no non-DEM single-band raster seeded (live-verified via reversible `is_dem` toggle). See `.planning/milestones/v1032-MILESTONE-AUDIT.md`.
+
+**Migrations:** None (frontend removal + backend internal behavior + test/i18n only).
+
+**Post-tag fix (same session, no new tag):** RASTER-STRETCH-UI-02 resolved — `buildColormapTileUrl` now forwards `stretch=` independent of colormap so `percentile`/`stddev` apply on the default grayscale render too (was a no-op when colormap=gray). Commit `fbcf7b34`; +3 raster-adapter tests; live-verified via the `/raster-tiles/` path; CHANGELOG `[1.7.0]` updated. Local `v1032` tag re-pointed to include it.
+
+---
+
+## v1031 Builder Render-Mode & Share Polish (Shipped: 2026-05-28)
+
+**Phases completed:** 4 phases (1140-1143), 8 plans, 16 tasks
+**Audit status:** `tech_debt` — 8/9 requirements satisfied; EDITOR-DEM-04 deferred → v1032 (user-approved)
+**Stats:** 67 commits, 57 source files (+5,488/−70), single day (2026-05-28); CHANGELOG [1.6.0]
+
+**Delivered:** Four new render-mode editor controls (hypsometric tint, single-band raster colormap, fill-pattern) plus shared-link OG/social-card meta and SharePanel typography cleanup — proven on the live builder via orchestrator-driven Playwright MCP.
+
+**Key accomplishments:**
+
+1. **Hypsometric tint (EDITOR-DEM-05)** — `color-relief-sync.ts` companion-layer module adds a preset elevation color-ramp picker to the DEM/hillshade editor; wired through `map-sync.ts` for `is_dem` layers.
+2. **Single-band raster colormap (EDITOR-RASTER-COLORMAP)** — RasterEditor COLORMAP section (gated on `band_count===1`) writes `_colormap`/`_stretch` paint keys; `buildColormapTileUrl` converts them to Titiler `?colormap_name=` tile params; backend `raster_tile_proxy` validates via Literal + frozenset allowlist; nginx keys cache on the params.
+3. **Fill-pattern editor (EDITOR-FILL-01)** — curated built-in sprite catalog + idempotent `ensureFillPatternImages` registrar + IconPicker-style `FillPatternPicker` wired into FillEditor (apply + clear-to-solid), 4-locale i18n.
+4. **OG-image social cards (SHARE-08)** — Path A: migration 0024 `og_image_uri` column + owner-only `PUT`/public `GET /maps/{id}/og-image/` + public `GET /maps/shared/{token}/card` HTML meta route (HTML-escaped, absolute URLs, 404 on non-public); frontend captures a 1200×630 OG JPEG in the existing single `doCapture` repaint; Copy Link emits the `/card` URL. No `@vercel/og`/`satori`.
+5. **SharePanel typography (SHARE-10)** — reduced to ≤2 font weights (4 section headers → `font-semibold`, 0 `font-bold`).
+6. **Close-gate (QA-01/02/03)** — orchestrator-driven live Playwright MCP smoke (caught + fixed the contour `addProtocol` bug, surfaced the worker-integration gap → DEM-04 deferral); all gates green (typecheck 0, lint 0-new, vitest 2599/2599, pytest 181/181, e2e:smoke:builder 26/26, i18n 2/2); OpenAPI + Python/TS SDKs regenerated drift-free; CHANGELOG [1.6.0].
+
+**Known deferred items at close:**
+
+- **EDITOR-DEM-04 (contour overlay) → v1032** — `maplibre-contour` worker emits ~28 MapLibre error events on enable (addProtocol bug fixed `716b1927`; worker/isoline integration needs hardening). UI gated off (`CONTOUR_CONTROL_ENABLED=false`); `contour-sync.ts` + 5 unit tests retained dormant. Re-enable = flip one boolean + un-skip 5 tests.
+- **CI-01-v1030** — GH Actions org billing standing blocker (operator ops task, out of feature scope).
+- Nyquist VALIDATION.md drafts unfinalized (1140/1142) / missing (1141/1143) — non-blocking; underlying coverage strong.
+
+**Known gaps:** None at functional level. Audit graded `tech_debt` solely for the one user-approved contour deferral; cross-phase integration verified CLEAN (12/12 links, 4/4 E2E flows).
+
+**Tag:** `v1031`
+
+---
+
 ## v1025 Mapbuilder Polishing (Shipped: 2026-05-25)
 
 **Phases completed:** 5 phases (1107-1111), 5 plans

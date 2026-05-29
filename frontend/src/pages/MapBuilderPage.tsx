@@ -45,6 +45,7 @@ const BasemapSublayerEditorFooter = lazy(() =>
 import { useBasemaps } from '@/hooks/use-settings';
 import {
   basemapThumbnail,
+  BLANK_BASEMAP_ID,
 } from '@/lib/basemap-utils';
 import type { MapSublayerOverride } from '@/types/api';
 import { isFolderGroupLayer } from '@/lib/layer-capabilities';
@@ -74,9 +75,10 @@ import { useEnabledWidgets } from '@/hooks/use-settings';
 import { useBuilderLayout } from '@/components/builder/hooks/use-builder-layout';
 import { useBuilderDialogs } from '@/components/builder/hooks/use-builder-dialogs';
 import { useBuilderEditorScene } from '@/components/builder/hooks/use-builder-editor-scene';
+import { useFilteredFeatureCount } from '@/components/builder/hooks/use-filtered-feature-count';
 import { useBuilderLayers } from '@/components/builder/hooks/use-builder-layers';
 import { useBuilderSave } from '@/components/builder/hooks/use-builder-save';
-import { TERRAIN_SOURCE_ID, normalizeTerrainExaggeration } from '@/components/builder/map-sync';
+import { TERRAIN_SOURCE_ID, normalizeTerrainExaggeration, isHillshadeTerrainBound } from '@/components/builder/map-sync';
 import {
   createBuilderBasemapState,
   removeBasemap as removeBasemapFromState,
@@ -95,6 +97,7 @@ import {
 } from '@/components/builder/basemap-state-controller';
 import { WidgetHost, getDefaultWidgetIds, resolveAvailableWidgetIds, usePartitionedWidgets } from '@/components/map-widgets';
 import { useWidgetStore } from '@/stores/map-widget-store';
+import type { ViewportContext } from '@/components/builder/chat-suggestions';
 
 export function MapBuilderPage() {
   const { id } = useParams<{ id: string }>();
@@ -123,6 +126,9 @@ export function MapBuilderPage() {
   // Runtime-only per Phase 1036 BSR-14 / UI-SPEC § Projection. Not persisted in v1.
   const [localProjection, setLocalProjection] = useState<'mercator' | 'globe'>('mercator');
   const [showStyleJson, setShowStyleJson] = useState(false);
+  // Phase 1135 AI-05: debounced viewport context for viewport-aware suggestion chips.
+  // Updated on map idle (500ms debounce) and when the selected layer changes.
+  const [viewport, setViewport] = useState<ViewportContext | undefined>(undefined);
 
   // Phase 1040: Lifted DnD state — single DndContext wraps both the sidebar stack
   // (UnifiedStackPanel) and the Add Dataset modal (BuilderDialogs) so catalog→stack
@@ -276,6 +282,49 @@ export function MapBuilderPage() {
     [mapInstance, layers.localLayers, id],
   );
 
+  // Phase 1135 AI-05: subscribe to map idle events with 500ms debounce to update
+  // viewport context for suggestion chips. Unsubscribes when mapInstance changes.
+  useEffect(() => {
+    if (!mapInstance) return;
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+    const handler = () => {
+      if (debounceTimer !== null) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        const zoom = mapInstance.getZoom();
+        const bounds = mapInstance.getBounds();
+        setViewport((prev) => ({
+          zoom,
+          bounds: [bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth()],
+          selectedLayerName: prev?.selectedLayerName,
+        }));
+      }, 500);
+    };
+    mapInstance.on('idle', handler);
+    return () => {
+      if (debounceTimer !== null) clearTimeout(debounceTimer);
+      mapInstance.off('idle', handler);
+    };
+  }, [mapInstance]);
+
+  // Phase 1135 AI-05: sync selectedLayerName from expandedLayerId into viewport context.
+  useEffect(() => {
+    setViewport((prev) => {
+      const expanded = layers.expandedLayerId;
+      if (!expanded) {
+        if (!prev) return prev;
+        return { ...prev, selectedLayerName: undefined };
+      }
+      const layer = layers.localLayers.find((l) => l.id === expanded);
+      const name = layer ? (layer.display_name ?? layer.dataset_name) : undefined;
+      if (!prev) {
+        // Camera state not yet settled — skip; the idle handler will fold this in next idle.
+        return prev;
+      }
+      if (prev.selectedLayerName === name) return prev;
+      return { ...prev, selectedLayerName: name };
+    });
+  }, [layers.expandedLayerId, layers.localLayers]);
+
   const { byAnchor } = usePartitionedWidgets();
   // activeWidgets for Settings panel widget toggles (Phase 1036)
   const activeWidgets = useWidgetStore((state) => state.activeWidgets);
@@ -379,6 +428,12 @@ export function MapBuilderPage() {
     savedLayerBaseline: layers.savedLayerBaseline,
     basemapGroup,
   });
+
+  // EASY-18 (Phase 1138-03): rendered-feature count for the active editing layer.
+  // Returns null when no layer is being edited, when no filter is set, or when
+  // the layer isn't yet on the map. Used to drive the empty-state hint inside
+  // LayerFilterEditor.
+  const filteredFeatureCount = useFilteredFeatureCount(mapInstance, editingLayer ?? null);
 
   // Phase 1041: Boundary guard — true when id belongs to basemap group or its sublayers
   const isBasemapBoundaryId = useCallback((id: string): boolean => {
@@ -541,7 +596,8 @@ export function MapBuilderPage() {
     layerActions: layers.chatLayerActions,
     onQueryResult: layers.handleQueryResult,
     onMarkDirty: handleMarkDirty,
-  }), [railPanel, aiAvailable, dockNotes, id, layers.localLayers, layers.chatLayerActions, layers.handleQueryResult, handleMarkDirty]);
+    viewport,
+  }), [railPanel, aiAvailable, dockNotes, id, layers.localLayers, layers.chatLayerActions, layers.handleQueryResult, handleMarkDirty, viewport]);
 
   const mobileRailButtons = useMemo(() => [
     {
@@ -813,12 +869,17 @@ export function MapBuilderPage() {
   let breadcrumbPresetName: string | undefined = undefined;
 
   if (editorScene === 'basemap-group' && basemapGroup) {
-    const presets = basemaps.map((b) => ({
-      id: b.id,
-      name: b.label,
-      provider: '',
-      thumbnailUrl: basemapThumbnail(b.id),
-    }));
+    // IN-02 fix: exclude BLANK_BASEMAP_ID from the presets list — the component renders
+    // a dedicated "No basemap" card before the presets loop; including 'blank' in both
+    // would produce a duplicate card if an admin ever adds it to the basemaps catalog.
+    const presets = basemaps
+      .filter((b) => b.id !== BLANK_BASEMAP_ID)
+      .map((b) => ({
+        id: b.id,
+        name: b.label,
+        provider: '',
+        thumbnailUrl: basemapThumbnail(b.id),
+      }));
     sceneContent = (
       <LazyLoadErrorBoundary>
         <Suspense fallback={<SceneSpinnerFallback />}>
@@ -973,6 +1034,10 @@ export function MapBuilderPage() {
               layerId,
               persistence: 'server',
             })}
+            isTerrainBound={isHillshadeTerrainBound(
+              { dataset_id: editingLayer.dataset_id, is_dem: editingLayer.is_dem },
+              layers.localTerrainConfig,
+            )}
           />
         </Suspense>
       </LazyLoadErrorBoundary>
@@ -1237,6 +1302,7 @@ export function MapBuilderPage() {
                 sceneFooter={sceneFooter ?? undefined}
                 breadcrumbPresetName={breadcrumbPresetName}
                 onBreadcrumbClick={onBreadcrumbClick}
+                featureCount={filteredFeatureCount}
               />
               </Suspense>
             </LazyLoadErrorBoundary>
@@ -1259,7 +1325,10 @@ export function MapBuilderPage() {
                  "Close layer editor"). Pre-fix this overlay rendered TWO
                  close buttons. See regression test
                  MapBuilderPage.sheet-close-button.test.tsx. */
-              className="w-full max-w-[380px] p-0 flex flex-col"
+              // MAP-07: 48px top offset clears the MapTitleBar so the right-sidebar Sheet does not
+              // visually overlap the top-left NavigationControl at ≤800px. NavigationControl stays
+              // `top-left` per Pitfall #10; this is the sidebar-side fix.
+              className="mt-12 h-[calc(100%-3rem)] w-full max-w-[380px] p-0 flex flex-col"
             >
               <SheetHeader className="sr-only">
                 <SheetTitle>
@@ -1284,6 +1353,7 @@ export function MapBuilderPage() {
                   sceneFooter={sceneFooter ?? undefined}
                   breadcrumbPresetName={breadcrumbPresetName}
                   onBreadcrumbClick={onBreadcrumbClick}
+                  featureCount={filteredFeatureCount}
                 />
                 </Suspense>
               </LazyLoadErrorBoundary>
@@ -1328,7 +1398,7 @@ export function MapBuilderPage() {
                   aria-label={btn.label}
                   aria-pressed={railPanel === btn.id}
                   className={cn(
-                    'flex h-11 w-11 items-center justify-center rounded-md transition-colors',
+                    'relative flex h-11 w-11 items-center justify-center rounded-md transition-colors',
                     btn.disabled
                       ? 'cursor-not-allowed text-muted-foreground/40'
                       : railPanel === btn.id
@@ -1337,6 +1407,15 @@ export function MapBuilderPage() {
                   )}
                 >
                   <btn.icon className="h-4 w-4" aria-hidden="true" />
+                  {/* MAP-22: presence dot on mobile Notes button — mirrors BuilderRail.tsx:105-110.
+                      BuilderRail is hidden at <800px (isEditorHidden); this dot keeps MAP-22
+                      parity at 414×896. */}
+                  {btn.id === 'notes' && dockNotes.trim().length > 0 && (
+                    <span
+                      aria-label={t('rail.notesPresent', { defaultValue: 'Map has notes' })}
+                      className="absolute -top-0.5 -right-0.5 size-1.5 rounded-full bg-primary"
+                    />
+                  )}
                 </button>
               ))}
             </div>
@@ -1368,7 +1447,10 @@ export function MapBuilderPage() {
                built-in auto-close X. The wrapped BuilderRail expanded panel
                already owns its canonical close affordance (ChevronRight at
                BuilderRail.tsx:125-132 with aria-label "Close panel"). */
-            className="w-[22rem] max-w-[calc(100vw-5rem)] p-0 flex flex-col"
+            // MAP-07: 48px top offset clears the MapTitleBar so the right-sidebar Sheet does not
+            // visually overlap the top-left NavigationControl at ≤800px. NavigationControl stays
+            // `top-left` per Pitfall #10; this is the sidebar-side fix.
+            className="mt-12 h-[calc(100%-3rem)] w-[22rem] max-w-[calc(100vw-5rem)] p-0 flex flex-col"
           >
             <SheetHeader className="sr-only">
               <SheetTitle>{railSheetTitle}</SheetTitle>

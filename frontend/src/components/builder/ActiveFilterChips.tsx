@@ -54,7 +54,13 @@ function summarizeFilter(filter: FilterSpecification): string | null {
   if (op === 'in' && filter.length === 3) {
     const field = extractField(filter[1]);
     if (field && Array.isArray(filter[2]) && filter[2][0] === 'literal') {
-      const vals = filter[2][1] as unknown[];
+      // WR-02: guard against malformed ["literal", null] or ["literal"] (no value arg)
+      // before casting as array — avoids TypeError on .slice() at render time.
+      const raw = filter[2][1];
+      if (!Array.isArray(raw)) {
+        return `${field} in (…)`;
+      }
+      const vals = raw as unknown[];
       const preview = vals.slice(0, 2).map(v => String(v)).join(', ');
       return `${field} in (${preview}${vals.length > 2 ? ', …' : ''})`;
     }
@@ -118,26 +124,34 @@ export function ActiveFilterChips({ layers, onClearFilter }: ActiveFilterChipsPr
   if (chips.length === 0) return null;
 
   return (
-    <div className="flex flex-wrap gap-1.5 pointer-events-none">
-      {chips.map((chip) => (
-        <span
-          key={chip.layerId}
-          className="pointer-events-auto inline-flex items-center gap-1.5 bg-background/90 backdrop-blur-sm border rounded-full px-2.5 py-1 shadow-sm text-xs"
-          title={`${chip.layerName}: ${chip.label}`}
-        >
-          <span className="font-mono text-2xs uppercase tracking-wider text-muted-foreground">
-            {chip.layerName}
-          </span>
-          <span className="text-foreground">{chip.label}</span>
-          <button
-            onClick={() => onClearFilter(chip.layerId)}
-            className="flex cursor-pointer items-center justify-center h-3.5 w-3.5 rounded-full bg-muted hover:bg-destructive/20 hover:text-destructive text-muted-foreground transition-colors"
-            aria-label={t('filters.clear', { defaultValue: 'Clear filter' })}
+    // MAP-20: max-h-[40vh] + overflow-y-auto prevents the chip column from growing into the
+    // bottom-left MeasurementWidget at ≤800px. See UI-SPEC §Filter-Pill vs Measure-Widget
+    // Collision Avoidance.
+    // WR-01: outer wrapper keeps pointer-events-none for map drag passthrough; inner scroll
+    // container restores pointer-events-auto so wheel/touch-scroll events reach the element
+    // when the chip list overflows (the case where the cap is actually needed).
+    <div className="pointer-events-none">
+      <div className="pointer-events-auto flex flex-wrap gap-1.5 max-h-[40vh] overflow-y-auto">
+        {chips.map((chip) => (
+          <span
+            key={chip.layerId}
+            className="inline-flex items-center gap-1.5 bg-background/90 backdrop-blur-sm border rounded-full px-2.5 py-1 shadow-sm text-xs"
+            title={`${chip.layerName}: ${chip.label}`}
           >
-            <X className="h-2.5 w-2.5" />
-          </button>
-        </span>
-      ))}
+            <span className="font-mono text-2xs uppercase tracking-wider text-muted-foreground">
+              {chip.layerName}
+            </span>
+            <span className="text-foreground">{chip.label}</span>
+            <button
+              onClick={() => onClearFilter(chip.layerId)}
+              className="flex cursor-pointer items-center justify-center h-3.5 w-3.5 rounded-full bg-muted hover:bg-destructive/20 hover:text-destructive text-muted-foreground transition-colors"
+              aria-label={t('filters.clear', { defaultValue: 'Clear filter' })}
+            >
+              <X className="h-2.5 w-2.5" />
+            </button>
+          </span>
+        ))}
+      </div>
     </div>
   );
 }

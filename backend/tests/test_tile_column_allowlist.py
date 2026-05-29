@@ -181,9 +181,15 @@ def test_additional_columns_none_or_empty_preserves_legacy_behavior():
     """None / [] for additional_columns must not alter the prior selection."""
     base_z2 = _select_tile_columns(_DATASET_COLUMNS, 2, tile_columns=None)
     assert base_z2 == []
-    assert _select_tile_columns(
-        _DATASET_COLUMNS, 2, tile_columns=None, additional_columns=None
-    ) == []
-    assert _select_tile_columns(
-        _DATASET_COLUMNS, 2, tile_columns=None, additional_columns=[]
-    ) == []
+    assert (
+        _select_tile_columns(
+            _DATASET_COLUMNS, 2, tile_columns=None, additional_columns=None
+        )
+        == []
+    )
+    assert (
+        _select_tile_columns(
+            _DATASET_COLUMNS, 2, tile_columns=None, additional_columns=[]
+        )
+        == []
+    )

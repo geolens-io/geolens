@@ -7,6 +7,7 @@
  * fitBounds / drag-pan also update the displayed coords.
  */
 
+import mapCoordReadoutSrc from '../MapCoordReadout.tsx?raw';
 import { act, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Map as MaplibreMap } from 'maplibre-gl';
@@ -214,5 +215,48 @@ describe('MapCoordReadout — SP-12 representative-fraction segment', () => {
     expect(container.textContent).toContain(updatedValue);
     // Confirm the value changed (lat 60 vs lat 0 at same zoom)
     expect(updatedValue).not.toBe(initialValue);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// MAP-08 — load-bearing positioning regression pin
+//
+// MAP-09 (basemap sheet single close button) is covered by
+// `MapBuilderPage.sheet-close-button.test.tsx` Tests 1-7. The basemap sheet
+// is the same `<SheetContent showCloseButton={false}>` wrapper pattern
+// verified there; no additional test is needed here.
+// ---------------------------------------------------------------------------
+
+describe('MapCoordReadout — MAP-08 load-bearing positioning regression pin', () => {
+  it('MAP-08 (RESP-02 regression): renders with right-14 / top-2 / z-10 positioning classes', () => {
+    const { map } = makeFakeMap({ lat: 0, lng: 0, zoom: 5 });
+    const { container } = render(<MapCoordReadout map={map} />);
+
+    // The outer wrapper anchors at `top-2 right-14 z-10 pointer-events-none`.
+    // right-14 = 56px — load-bearing to clear the NavigationControl when anchored
+    // top-right in ViewerMap.tsx (see RESP-02 — Phase 1051 Plan 09 docstring).
+    // In BuilderMap.tsx the NavigationControl is top-left (Pitfall #10), so the
+    // 56px offset has visual slack in builder context, but must NOT be reduced
+    // without auditing ViewerMap.tsx first.
+    const pill = container.firstChild as HTMLElement;
+    expect(pill).toHaveClass('right-14');
+    expect(pill).toHaveClass('top-2');
+    expect(pill).toHaveClass('z-10');
+  });
+
+  it('MAP-08 source-text pin: RESP-02 docstring references both BuilderMap and ViewerMap contexts', () => {
+    const src = mapCoordReadoutSrc;
+    // The docstring that ships the cross-context contract must be present.
+    expect(src).toContain('RESP-02 — Phase 1051 Plan 09');
+    // Both call sites are mentioned so future engineers know reducing right-14
+    // in one context may break the other.
+    expect(src).toContain('BuilderMap');
+    expect(src).toContain('ViewerMap');
+    // Guard against "px optimization" PRs that shrink the offset on the readout
+    // pill's absolute-positioning line. The pill must not use a smaller offset
+    // adjacent to top-2 on the same className.
+    expect(src).not.toMatch(/top-2.*right-12/);
+    expect(src).not.toMatch(/top-2.*right-10/);
+    expect(src).not.toMatch(/top-2.*right-8/);
   });
 });

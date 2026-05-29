@@ -186,7 +186,26 @@
     "widthByColumn": "Width by: {{column}}",
     "toggleFill": "Toggle fill visibility",
     "toggleStroke": "Toggle stroke visibility",
+    "fillPattern": "Fill Pattern",
+    "fillPatternNone": "None",
+    "fillPatternName": {
+      "hatch": "Hatch",
+      "crosshatch": "Cross-hatch",
+      "diagonal": "Diagonal",
+      "dots": "Dots",
+      "grid": "Grid"
+    },
     "pattern": "Pattern",
+    "extrusionRange": "Range: {{min}}–{{max}}, {{count}} features",
+    "lineEnds": "Line ends",
+    "lineCap": "Cap",
+    "lineCapButt": "Butt",
+    "lineCapRound": "Round",
+    "lineCapSquare": "Square",
+    "lineJoin": "Join",
+    "lineJoinBevel": "Bevel",
+    "lineJoinRound": "Round",
+    "lineJoinMiter": "Miter",
     "dash": {
       "solid": "Solid",
       "dashed": "Dashed",
@@ -258,7 +277,21 @@
       "renderRaster": "Raster",
       "renderHillshade": "Hillshade",
       "reset": "Reset",
-      "resetTitle": "Reset raster style"
+      "resetTitle": "Reset raster style",
+      "sectionColormap": "COLORMAP",
+      "colormapLabel": "Colormap",
+      "stretchLabel": "Stretch",
+      "stretchMinmax": "Min/Max",
+      "stretchPercentile": "Percentile (2–98%)",
+      "stretchStddev": "Std Deviation",
+      "colormapGray": "Grayscale",
+      "colormapViridis": "Viridis",
+      "colormapInferno": "Inferno",
+      "colormapPlasma": "Plasma",
+      "colormapMagma": "Magma",
+      "colormapYlorrd": "Yellow-Red",
+      "colormapBugn": "Blue-Green",
+      "colormapTerrain": "Terrain"
     },
     "hillshade": {
       "help": "Tune the relief overlay generated from this DEM layer.",
@@ -361,7 +394,8 @@
     "addField": "Add field",
     "removeField": "Remove field",
     "noFieldsSelected": "No fields selected (only the title will show)",
-    "noColumns": "This layer has no inspectable columns."
+    "noColumns": "This layer has no inspectable columns.",
+    "mediaHint": "URLs and images in field values render as links and previews automatically."
   },
   "dataDriven": {
     "title": "Data-Driven Style",
@@ -476,7 +510,27 @@
     "summaryUnrestricted": "Unrestricted",
     "expirationUpdated": "Expiration updated",
     "domainsUpdated": "Domain restrictions updated",
-    "updateFailed": "Failed to save changes"
+    "updateFailed": "Failed to save changes",
+    "originsEmptyHint": "No origins yet — paste a URL like https://example.com to allow embedding.",
+    "originsNormHint": "Each origin is normalized to scheme + host + port before saving.",
+    "originsInputPlaceholder": "Paste a URL like https://example.com",
+    "originsInputLabel": "Allowed origin URL",
+    "removeOrigin": "Remove {{origin}}",
+    "addOrigin": "Add origin",
+    "originWildcardError": "Wildcard origin not allowed",
+    "originInvalid": "Invalid URL",
+    "expirationNever": "Never",
+    "expiration1Day": "1 day",
+    "expiration7Days": "7 days",
+    "expiration30Days": "30 days",
+    "expiration1Year": "1 year",
+    "expirationCustom": "Custom date…",
+    "iframePreviewTitle": "Map embed preview",
+    "iframePreviewToggle": "Preview",
+    "iframeErrorTitle": "Preview unavailable",
+    "iframeErrorBody": "Check that the embed token is valid and the share link is active. Reload to retry.",
+    "iframeReload": "Reload",
+    "iframeSandboxNote": "sandbox=\"allow-scripts\" only — SEC-07 contract"
   },
   "chat": {
     "experimental": "Experimental",
@@ -519,8 +573,36 @@
       "addDataset": "Add another dataset to this map",
       "heatmap": "Show {{name}} as a heatmap",
       "areaLabels": "Add area labels for {{name}}",
-      "adjustOpacity": "Adjust opacity for {{name}}"
-    }
+      "adjustOpacity": "Adjust opacity for {{name}}",
+      "summarizeLayer": "Summarize {{name}} attributes",
+      "nearbyFeatures": "Show nearby features in this area"
+    },
+    "staging": {
+      "header_one": "{{count}} pending change — review before applying",
+      "header_other": "{{count}} pending changes — review before applying",
+      "acceptAll": "Accept all",
+      "rejectAll": "Reject all",
+      "accept": "Accept",
+      "reject": "Reject",
+      "chipAdd": "Add \"{{name}}\"",
+      "chipAddBelow": "Add \"{{name}}\" below \"{{ref}}\"",
+      "chipRemove": "Remove \"{{name}}\"",
+      "chipRemoveFeatures_one": "Remove \"{{name}}\" ({{count}} feature)",
+      "chipRemoveFeatures_other": "Remove \"{{name}}\" ({{count}} features)"
+    },
+    "queryResult": {
+      "empty": "The AI query returned no rows.",
+      "emptyHint": "Try a broader area or different filter.",
+      "tableLabel": "Query result table",
+      "rowCount_one": "{{count}} row",
+      "rowCount_other": "{{count}} rows"
+    },
+    "bannerForbiddenTitle": "AI access lost",
+    "bannerForbiddenBody": "You no longer have permission to use AI chat. Contact your administrator to restore access.",
+    "bannerUnavailableTitle": "AI is unavailable",
+    "bannerUnavailableBody": "The AI service is temporarily unavailable. Try again in a moment.",
+    "bannerRetry": "Retry",
+    "bannerDismiss": "Dismiss"
   },
   "basemap": {
     "title": "Basemap",
@@ -828,7 +910,16 @@
     "aiDisabled": "AI disabled by admin",
     "aiUnavailable": "AI unavailable",
     "aiUnavailableTitle": "AI is unavailable",
-    "aiUnavailableDescription": "An administrator needs to enable an AI provider before Ask AI can be used in this builder."
+    "aiUnavailableDescription": "An administrator needs to enable an AI provider before Ask AI can be used in this builder.",
+    "notesPresent": "Map has notes",
+    "aiDisabledTitle": "AI is disabled",
+    "aiDisabledBody": "An administrator has disabled AI for this instance.",
+    "aiNoKeyTitle": "AI not configured",
+    "aiNoKeyBody": "A provider API key is required before AI chat can be used.",
+    "aiPermissionTitle": "AI unavailable",
+    "aiPermissionBody": "You don't have permission to use AI chat.",
+    "aiGoToSettings": "Go to Settings",
+    "aiConfigureSettings": "Configure in Settings"
   },
   "stackRow": {
     "dragHandle": "Drag to reorder {{name}}",
@@ -843,12 +934,14 @@
     "kebabAddLayer": "Add layer",
     "kebabUngroup": "Ungroup",
     "kebabDeleteGroup": "Delete group",
-    "kebabMoveOutOfGroup": "Move out of group"
+    "kebabMoveOutOfGroup": "Move out of group",
+    "labelsIndicator": "Labels on: {{column}}"
   },
   "basemapGroup": {
     "addCustomBasemap": "＋ Add custom basemap…",
     "dragHandle": "Drag to reorder basemap",
     "masterOpacity": "Master opacity",
+    "noBasemap": "No basemap",
     "presetSectionLabel": "PRESET",
     "railLabel": "Basemap group",
     "removeBasemap": "Remove basemap",
@@ -894,7 +987,11 @@
     "terrainHint": "Terrain uses elevation data to extrude the map surface.",
     "terrainExaggeration": "Terrain exaggeration",
     "imageHint": "No additional appearance controls for image mode",
-    "compassAriaLabel": "Sun azimuth: {{azimuth}}°"
+    "compassAriaLabel": "Sun azimuth: {{azimuth}}°",
+    "sectionHypsometricTint": "HYPSOMETRIC TINT",
+    "hypsometricEnable": "Elevation tint",
+    "hypsometricTerrainHint": "Elevation tint is not available in Terrain mode",
+    "hillshadeTerrainNote": "Hillshade is unavailable while this DEM powers 3D Terrain — turn off Terrain to use Hillshade."
   },
   "folderGroup": {
     "defaultName": "Group {{n}}",
@@ -948,6 +1045,11 @@
       "type": "Type",
       "geometry": "Geometry",
       "columns": "Columns"
+    },
+    "emptyResult": {
+      "title": "0 features — check your filter",
+      "help": "The current filter eliminated every feature in this layer. Adjust a condition or clear the filter to see features again.",
+      "clear": "Clear filter"
     }
   },
   "settings": {

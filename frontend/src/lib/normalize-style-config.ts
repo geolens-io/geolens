@@ -89,7 +89,7 @@ const LEGACY_BUILDER_KEY_ALIASES: Record<string, string> = {
   folder_group_expanded: 'folderGroupExpanded',
 };
 
-const RENDER_MODES = new Set(['heatmap', 'hillshade', 'symbol', 'arrow', 'cluster']);
+export const RENDER_MODES = new Set(['heatmap', 'hillshade', 'symbol', 'arrow', 'cluster', 'terrain', 'image']);
 
 function compactRecord<T extends Record<string, unknown>>(record: T): Partial<T> {
   return Object.fromEntries(

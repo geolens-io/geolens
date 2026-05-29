@@ -33,19 +33,19 @@ class TestVrtMagicByteSniff:
         f.write_bytes(
             b'<?xml version="1.0"?>\n'
             b'<VRTDataset rasterXSize="100" rasterYSize="100">\n'
-            b'  <SRS>EPSG:4326</SRS>\n'
-            b'</VRTDataset>\n'
+            b"  <SRS>EPSG:4326</SRS>\n"
+            b"</VRTDataset>\n"
         )
         validate_vrt_body(str(f))  # no raise
 
     def test_valid_vrtdataset_without_xml_decl_accepted(self, tmp_path):
         f = tmp_path / "valid_no_decl.vrt"
-        f.write_bytes(b"<VRTDataset rasterXSize=\"100\" rasterYSize=\"100\"></VRTDataset>")
+        f.write_bytes(b'<VRTDataset rasterXSize="100" rasterYSize="100"></VRTDataset>')
         validate_vrt_body(str(f))  # no raise
 
     def test_non_vrt_xml_rejected(self, tmp_path):
         f = tmp_path / "fake.vrt"
-        f.write_bytes(b"<?xml version=\"1.0\"?>\n<NotAVRT/>")
+        f.write_bytes(b'<?xml version="1.0"?>\n<NotAVRT/>')
         with pytest.raises(ValueError) as exc:
             validate_vrt_body(str(f))
         assert "VRTDataset" in str(exc.value)

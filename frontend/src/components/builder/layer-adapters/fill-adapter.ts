@@ -11,6 +11,7 @@ import {
   syncOwnedPaintProperties,
 } from './shared';
 import { MAP_COLORS } from '@/lib/map-colors';
+import { ensureFillPatternImages } from './fill-pattern-images';
 
 const DEFAULT_EXTRUSION_MIN_ZOOM = 14;
 const FILL_OWNED_PAINT_PROPERTIES = [
@@ -65,6 +66,7 @@ export const fillAdapter: LayerAdapter = {
   addLayers(map: MaplibreMap, input: AdapterLayerInput): void {
     const { layerId, sourceId, sourceLayer, paint: rawPaint, layout, opacity, filter, visible } = input;
     const builder = getBuilderStyleConfig(input);
+    ensureFillPatternImages(map);
     const outlineId = `${input.layerId}-outline`;
     const heightColumn = builder.heightColumn ?? (rawPaint['_height_column'] as string | undefined);
     const hasExpressions = Object.values(rawPaint).some(Array.isArray);
@@ -161,6 +163,7 @@ export const fillAdapter: LayerAdapter = {
   syncPaint(map: MaplibreMap, input: AdapterLayerInput): void {
     const { layerId, paint: rawPaint, opacity, filter } = input;
     const builder = getBuilderStyleConfig(input);
+    ensureFillPatternImages(map);
     const outlineId = `${input.layerId}-outline`;
     if (map.getLayer(layerId)) {
       syncOwnedPaintProperties(map, layerId, rawPaint, {

@@ -27,7 +27,7 @@ from app.modules.audit.models import AuditLog
 from app.modules.auth.models import User
 from app.modules.catalog.datasets.domain.models import Dataset, Record
 from app.processing.raster.models import RasterAsset
-from tests.conftest import _create_test_user, get_auth_header
+from tests.conftest import _create_test_user
 from tests.factories import create_dataset
 
 
@@ -95,9 +95,7 @@ class TestDownloadTokenEndpoint:
         )
 
         # Create a separate editor user
-        editor_headers, _ = await _create_test_user(
-            client, admin_auth_header, "editor"
-        )
+        editor_headers, _ = await _create_test_user(client, admin_auth_header, "editor")
 
         resp = await client.post(
             f"/auth/download-token/{dataset.id}", headers=editor_headers
@@ -325,13 +323,17 @@ class TestDownloadTokenConsumption:
         # or session refresh is needed. The assertion is stable as long as both
         # sessions reach the same physical Postgres instance.
         audit_rows = (
-            await test_db_session.execute(
-                select(AuditLog).where(
-                    AuditLog.action == "dataset.download_cog",
-                    AuditLog.resource_id == dataset.id,
+            (
+                await test_db_session.execute(
+                    select(AuditLog).where(
+                        AuditLog.action == "dataset.download_cog",
+                        AuditLog.resource_id == dataset.id,
+                    )
                 )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         assert len(audit_rows) >= 1, "Expected dataset.download_cog audit row"
         anon_rows = [r for r in audit_rows if r.user_id is None]
         assert len(anon_rows) >= 1, (

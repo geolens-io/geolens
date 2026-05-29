@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { normalizeLayerStyleState, normalizeStyleConfig } from '../normalize-style-config';
+import { normalizeLayerStyleState, normalizeStyleConfig, RENDER_MODES } from '../normalize-style-config';
 
 describe('normalizeLayerStyleState', () => {
   it('moves legacy builder paint metadata into style_config.builder and returns clean paint', () => {
@@ -106,6 +106,37 @@ describe('normalizeLayerStyleState', () => {
         outlineWidth: 2,
       },
     });
+  });
+
+  it('preserves render_mode terrain for DEM/raster adapters', () => {
+    const normalized = normalizeLayerStyleState(
+      { render_mode: 'terrain' },
+      {},
+      null,
+    );
+
+    expect(normalized.paint).toEqual({});
+    expect(normalized.style_config).toEqual({ render_mode: 'terrain' });
+  });
+
+  it('preserves render_mode image for DEM/raster adapters', () => {
+    const normalized = normalizeLayerStyleState(
+      { render_mode: 'image' },
+      {},
+      null,
+    );
+
+    expect(normalized.paint).toEqual({});
+    expect(normalized.style_config).toEqual({ render_mode: 'image' });
+  });
+});
+
+describe('RENDER_MODES allowlist', () => {
+  it('contains all editor-emittable modes', () => {
+    const expected = ['heatmap', 'hillshade', 'symbol', 'arrow', 'cluster', 'terrain', 'image'];
+    for (const mode of expected) {
+      expect(RENDER_MODES, `RENDER_MODES should contain '${mode}'`).toContain(mode);
+    }
   });
 });
 

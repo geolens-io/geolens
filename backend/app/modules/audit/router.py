@@ -310,7 +310,9 @@ async def get_column_ddl_feed(
     await check_dataset_access(db, dataset, dataset_id, user)
 
     # Step 3: fetch DDL history
-    rows, total = await query_column_ddl_history(db, dataset_id, limit=limit, offset=offset)
+    rows, total = await query_column_ddl_history(
+        db, dataset_id, limit=limit, offset=offset
+    )
 
     return ColumnDdlFeedResponse(
         items=[

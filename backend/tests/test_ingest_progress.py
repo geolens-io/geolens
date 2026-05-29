@@ -138,9 +138,7 @@ async def test_vector_worker_writes_ogr2ogr_step_before_subprocess(
     # writes the brief-session progress entry before calling run_ogr2ogr, so
     # we monkeypatch run_ogr2ogr to raise — leaving the row in
     # current_step="ogr2ogr" if the brief-session pattern is honored.
-    fixture = str(
-        Path(__file__).parent / "fixtures" / "ingest" / "basic_attrs.geojson"
-    )
+    fixture = str(Path(__file__).parent / "fixtures" / "ingest" / "basic_attrs.geojson")
 
     job = IngestJob(
         source_filename="basic_attrs.geojson",
@@ -165,12 +163,8 @@ async def test_vector_worker_writes_ogr2ogr_step_before_subprocess(
     # Patch the symbols the worker imports — tasks_vector imports
     # run_ogrinfo / run_ogr2ogr from app.processing.ingest.ogr at function-call
     # time (inside ingest_file).
-    monkeypatch.setattr(
-        "app.processing.ingest.ogr.run_ogrinfo", _fake_run_ogrinfo
-    )
-    monkeypatch.setattr(
-        "app.processing.ingest.ogr.run_ogr2ogr", _raising_run_ogr2ogr
-    )
+    monkeypatch.setattr("app.processing.ingest.ogr.run_ogrinfo", _fake_run_ogrinfo)
+    monkeypatch.setattr("app.processing.ingest.ogr.run_ogr2ogr", _raising_run_ogr2ogr)
 
     # Call the underlying task function (Procrastinate wraps it in .func).
     with pytest.raises(IngestionError):

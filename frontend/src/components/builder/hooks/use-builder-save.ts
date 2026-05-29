@@ -12,7 +12,7 @@ import { useUpdateMap, useDuplicateMap, usePatchMapLayers } from '@/hooks/use-ma
 import { useEnabledWidgets } from '@/hooks/use-settings';
 import { useEdition } from '@/hooks/use-edition';
 import { getLayerColors } from '@/components/map/layer-icons';
-import { uploadThumbnail } from '@/api/maps';
+import { uploadThumbnail, uploadOgImage } from '@/api/maps';
 import { extractPlaceholders, validatePlaceholders } from '@/lib/popup-template';
 import type { MapBasemapConfig, MapLayerDiffRequest, MapLayerInput, MapLayerPatch, MapLayerResponse, MapResponse, MapTerrainConfig, MapUpdateRequest } from '@/types/api';
 import { useWidgetStore } from '@/stores/map-widget-store';
@@ -20,45 +20,69 @@ import { useAuthStore } from '@/stores/auth-store';
 import { getDefaultWidgetIds, resolveAvailableWidgetIds, sameWidgetIds } from '@/components/map-widgets';
 import { prepareLayersForPersistence, type FolderGroupMeta } from '@/components/builder/folder-groups';
 
-/** Crop and resize the map canvas to a 400x250 JPEG, then upload it.
+/** Center-crop `srcCanvas` to the given target dimensions and return the
+ *  resulting offscreen canvas. Crops from the center without distortion
+ *  (letterbox / pillarbox math). Supports any target aspect ratio.
+ *
+ *  SHARE-08 (Phase 1142): extracted from the former inline doCapture crop block
+ *  to allow two crops (400×250 thumbnail, 1200×630 OG image) to share one
+ *  render event with a single triggerRepaint(). */
+function cropResize(srcCanvas: HTMLCanvasElement, targetW: number, targetH: number): HTMLCanvasElement {
+  const targetRatio = targetW / targetH;
+  const srcW = srcCanvas.width;
+  const srcH = srcCanvas.height;
+  const srcRatio = srcW / srcH;
+
+  let cropX = 0, cropY = 0, cropW = srcW, cropH = srcH;
+  if (srcRatio > targetRatio) {
+    cropW = Math.round(srcH * targetRatio);
+    cropX = Math.round((srcW - cropW) / 2);
+  } else {
+    cropH = Math.round(srcW / targetRatio);
+    cropY = Math.round((srcH - cropH) / 2);
+  }
+
+  const offscreen = document.createElement('canvas');
+  offscreen.width = targetW;
+  offscreen.height = targetH;
+  const ctx = offscreen.getContext('2d');
+  if (ctx) {
+    ctx.drawImage(srcCanvas, cropX, cropY, cropW, cropH, 0, 0, targetW, targetH);
+  }
+  return offscreen;
+}
+
+/** Crop and resize the map canvas to a 400x250 JPEG thumbnail AND a 1200x630
+ *  OG image, then upload both.
+ *
  *  PERF-08 (Phase 274): we no longer keep preserveDrawingBuffer permanently
  *  enabled. Force one render frame and read pixels from the freshly-painted
  *  canvas. Using `once('render')` is more reliable than relying on the
  *  synchronous post-triggerRepaint state because some browsers async-defer
- *  the repaint to the next animation frame. */
+ *  the repaint to the next animation frame.
+ *
+ *  SHARE-08 (Phase 1142): the single onRender callback now captures BOTH
+ *  targets from the same srcCanvas without a second triggerRepaint (Pitfall #5).
+ *  The OG upload is fire-and-forget with its own catch so an OG failure does
+ *  not prevent the thumbnail save. */
 function doCapture(map: MaplibreMap, mapId: string, queryClient: ReturnType<typeof useQueryClient>) {
   const onRender = () => {
     try {
       const srcCanvas = map.getCanvas();
-      const thumbW = 400;
-      const thumbH = 250;
-      const targetRatio = thumbW / thumbH;
-      const srcW = srcCanvas.width;
-      const srcH = srcCanvas.height;
-      const srcRatio = srcW / srcH;
 
-      let cropX = 0, cropY = 0, cropW = srcW, cropH = srcH;
-      if (srcRatio > targetRatio) {
-        cropW = Math.round(srcH * targetRatio);
-        cropX = Math.round((srcW - cropW) / 2);
-      } else {
-        cropH = Math.round(srcW / targetRatio);
-        cropY = Math.round((srcH - cropH) / 2);
-      }
+      // 400×250 thumbnail — unchanged behavior
+      const thumb = cropResize(srcCanvas, 400, 250);
+      uploadThumbnail(mapId, thumb.toDataURL('image/jpeg', 0.7)).then(() => {
+        queryClient.invalidateQueries({ queryKey: queryKeys.maps.all });
+      }).catch(() => {
+        // Silent failure for thumbnails
+      });
 
-      const offscreen = document.createElement('canvas');
-      offscreen.width = thumbW;
-      offscreen.height = thumbH;
-      const ctx = offscreen.getContext('2d');
-      if (ctx) {
-        ctx.drawImage(srcCanvas, cropX, cropY, cropW, cropH, 0, 0, thumbW, thumbH);
-        const dataUri = offscreen.toDataURL('image/jpeg', 0.7);
-        uploadThumbnail(mapId, dataUri).then(() => {
-          queryClient.invalidateQueries({ queryKey: queryKeys.maps.all });
-        }).catch(() => {
-          // Silent failure for thumbnails
-        });
-      }
+      // 1200×630 OG image — fire-and-forget, isolated failure (SHARE-08)
+      const og = cropResize(srcCanvas, 1200, 630);
+      uploadOgImage(mapId, og.toDataURL('image/jpeg', 0.85)).catch(() => {
+        if (import.meta.env.DEV) console.warn('[og-image] capture upload failed');
+      });
     } catch (err) {
       if (import.meta.env.DEV) console.warn('[thumbnail] capture failed:', err);
     }
@@ -724,8 +748,20 @@ export function useBuilderSave(state: SaveState) {
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
       if ((e.metaKey || e.ctrlKey) && e.key === 's') {
+        // EASY-02 (Phase 1138-01): preventDefault fires unconditionally to suppress
+        // the browser "Save Page As" dialog whenever Cmd/Ctrl+S is pressed in the builder,
+        // regardless of pending state or open modals.
         e.preventDefault();
-        if (!updateMap.isPending && !patchMapLayers.isPending) handleSaveRef.current();
+        // EASY-02 (Phase 1138-01): no-op when any Radix dialog/sheet is open so
+        // typing Cmd+S inside the Share dialog or Add Dataset modal does not race
+        // a layer mutation against open-modal context. Radix sets
+        // data-state="open" on its content element; we check both the role-dialog
+        // selector (covers Dialog, AlertDialog) and the Sheet-specific data-slot
+        // selector (covers Sheet, which uses role="dialog" but also data-slot="sheet-content").
+        const dialogOpen = document.querySelector('[role="dialog"][data-state="open"]');
+        if (dialogOpen) return;
+        if (updateMap.isPending || patchMapLayers.isPending) return;
+        handleSaveRef.current();
       }
     }
     window.addEventListener('keydown', handleKeyDown);

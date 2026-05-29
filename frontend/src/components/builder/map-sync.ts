@@ -1,7 +1,7 @@
 import type { Map as MaplibreMap, GeoJSONSource, StyleSpecification, VectorSourceSpecification } from 'maplibre-gl';
 import type { FilterSpecification } from 'maplibre-gl';
 import { toast } from 'sonner';
-import type { MapBasemapConfig, MapLayerResponse, LabelConfig, StyleConfig } from '@/types/api';
+import type { MapBasemapConfig, MapLayerResponse, LabelConfig, StyleConfig, MapTerrainConfig } from '@/types/api';
 import type { RasterTileToken, TileToken, VectorTileToken } from '@/api/tiles';
 import i18n from '@/i18n/i18n';
 import { buildClusterTileUrl, buildSignedTileUrl } from '@/lib/tile-utils';
@@ -13,6 +13,8 @@ import type { AdapterLayerInput } from './layer-adapters/types';
 import { buildLabelLayerSpec, syncLabelLayer } from './label-layer-utils';
 import { clusterCircleLayerId, clusterCountLayerId, getClusterSourceOptions } from './layer-adapters/cluster-adapter';
 import { getClusterSourceStrategy } from './cluster-source';
+import { syncColorReliefLayer } from './color-relief-sync';
+import { buildColormapTileUrl } from './layer-adapters/raster-adapter';
 
 // Shared utilities — imported for local use and re-exported for backward compatibility
 import { getLayerType, resolveAdapterType } from './layer-adapters/shared';
@@ -195,6 +197,9 @@ export interface SyncOptions {
    *  layers after the standard reorder pass. When 'bottom' (default + legacy),
    *  the standard reorder pipeline already produces data-above-basemap. */
   basemapPosition?: 'top' | 'bottom';
+  /** POLISH-02: active terrain config forwarded from BuilderMap so syncRasterLayer
+   *  can skip the hillshade raster-dem consumer for a DEM already powering terrain. */
+  terrainConfig?: MapTerrainConfig | null;
 }
 
 /** Convert a MapLayerResponse (builder context) to a SyncLayerInput. */
@@ -595,20 +600,58 @@ function lineGradientNeededFor(
 // Sync sub-routines — extracted from syncLayersToMap for readability
 // ---------------------------------------------------------------------------
 
+/**
+ * POLISH-02: Returns true when the given DEM layer is already consumed by the
+ * active terrain source. In this state, starting a second raster-dem consumer
+ * (for hillshade) causes MapLibre backfillBorder "dem dimension mismatch" errors.
+ * Guard: terrain must be enabled AND the same dataset powers both consumers.
+ *
+ * Safety property: predicate is FALSE when terrainConfig.enabled=false (Map B),
+ * so the primary hillshade path is completely unaffected on maps without terrain.
+ */
+export function isHillshadeTerrainBound(
+  layer: { dataset_id: string; is_dem?: boolean | null },
+  terrainConfig: MapTerrainConfig | null | undefined,
+): boolean {
+  return (
+    layer.is_dem === true &&
+    terrainConfig?.enabled === true &&
+    terrainConfig.source_dataset_id === layer.dataset_id
+  );
+}
+
 /** Add or update a raster layer on the map. */
 function syncRasterLayer(
   map: MaplibreMap,
   adapterInput: AdapterLayerInput,
   token: RasterTileToken,
   desiredSources: Set<string>,
+  terrainConfig?: MapTerrainConfig | null,
+  datasetId?: string,
 ) {
-  adapterInput.tileUrl = token.tile_url;
+  const renderMode = adapterInput.style_config?.render_mode;
+  const useHillshade = adapterInput.is_dem === true && renderMode === 'hillshade';
+
+  // POLISH-02: skip the hillshade raster-dem consumer when this DEM is already
+  // powering a terrain source. Two raster-dem consumers on the same DEM with
+  // mismatched tile sizes cause backfillBorder "dem dimension mismatch" errors.
+  if (useHillshade && datasetId != null && isHillshadeTerrainBound({ dataset_id: datasetId, is_dem: adapterInput.is_dem }, terrainConfig)) {
+    return;
+  }
+
+  // Apply colormap query params to the tile URL before the diff comparison so
+  // that a _colormap change causes the existing source teardown/recreate path
+  // to fire and MapLibre re-fetches tiles with the new colormap. DEM/hillshade
+  // uses terrainrgb encoding — colormap params MUST NOT be added there.
+  const effectiveTileUrl = useHillshade
+    ? token.tile_url
+    : buildColormapTileUrl(token.tile_url, adapterInput.paint);
+
+  adapterInput.tileUrl = effectiveTileUrl;
   adapterInput.tileSize = token.tile_size ?? 256;
   adapterInput.minzoom = token.minzoom ?? 0;
   adapterInput.maxzoom = token.maxzoom ?? 18;
   adapterInput.bounds = token.bounds;
-  const renderMode = adapterInput.style_config?.render_mode;
-  const useHillshade = adapterInput.is_dem === true && renderMode === 'hillshade';
   const adapter = getAdapter(useHillshade ? 'hillshade' : 'raster');
   const expectedLayerType = useHillshade ? 'hillshade' : 'raster';
   const expectedSourceType = useHillshade ? 'raster-dem' : 'raster';
@@ -616,7 +659,7 @@ function syncRasterLayer(
   const currentSource = map.getSource(adapterInput.sourceId) as { type?: string } | undefined;
   const currentSourceSpec = currentSource ? sourceSpec(currentSource) : {};
   const desiredBounds = normalizeRasterBounds(token.bounds);
-  const desiredTileUrl = absolutizeTileUrl(token.tile_url);
+  const desiredTileUrl = absolutizeTileUrl(effectiveTileUrl);
   const desiredTileSize = token.tile_size ?? 256;
   const desiredMinzoom = token.minzoom ?? 0;
   const desiredMaxzoom = token.maxzoom ?? 18;
@@ -827,6 +870,11 @@ function removeStaleSourcesAndLayers(
     const arrowId = prefixed('arrow', id, prefix);
     const clusterCountId = clusterCountLayerId(layerId);
     const clusterCircleId = clusterCircleLayerId(layerId);
+    // EDITOR-DEM-05: color-relief companion has no own source (it reuses the
+    // raster-dem source), so it is not found by the source-keyed loop and must
+    // be removed explicitly here.
+    const colorReliefId = `${layerId}-colorrelief`;
+    if (map.getLayer(colorReliefId)) map.removeLayer(colorReliefId);
     if (map.getLayer(labelId)) map.removeLayer(labelId);
     if (map.getLayer(arrowId)) map.removeLayer(arrowId);
     if (map.getLayer(extrusionId)) map.removeLayer(extrusionId);
@@ -894,7 +942,15 @@ export function syncLayersToMap(
 
       const rasterToken = token?.kind === 'raster' ? token : rasterTokenFromLayer(layer);
       if (rasterToken) {
-        syncRasterLayer(map, adapterInput, rasterToken, desiredSources);
+        syncRasterLayer(map, adapterInput, rasterToken, desiredSources, options?.terrainConfig, layer.dataset_id);
+        // EDITOR-DEM-05: sync companion color-relief layer (hillshade-gated) for DEM layers.
+        // Called after syncRasterLayer so the raster-dem source already exists.
+        // Layer id: ${layerId}-colorrelief — reuses the existing raster-dem source.
+        // syncColorReliefLayer never calls addSource; the companion layer is auto-removed
+        // by syncColorReliefLayer when disabled or when render_mode !== hillshade.
+        if (adapterInput.is_dem === true) {
+          syncColorReliefLayer(map, adapterInput);
+        }
       } else {
         const vectorToken = token?.kind === 'vector' ? token : null;
         syncVectorLayer(map, layer, renderableLayers, adapterInput, tileBaseUrl, vectorToken, desiredSources, geojsonDataMap, prefix);

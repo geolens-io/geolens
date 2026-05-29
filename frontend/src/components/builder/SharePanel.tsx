@@ -1,10 +1,17 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Globe, Lock, Copy, Loader2, Code, Link as LinkIcon, Info, Trash2, Shield, ExternalLink, ChevronRight, Users, AlertTriangle, RotateCcw } from 'lucide-react';
+import { Globe, Lock, Copy, Loader2, Code, Link as LinkIcon, Info, Trash2, Shield, ExternalLink, ChevronRight, Users, AlertTriangle, AlertCircle, RotateCcw, X, Plus } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { ApiError } from '@/api/client';
 import { formatDate } from '@/lib/format';
 import { cn } from '@/lib/utils';
@@ -19,16 +26,8 @@ import {
 import { usePublishMap, useCreateShareToken, useRevokeShareToken, useMapShareToken, useUpdateShareToken } from '@/hooks/use-maps';
 import { checkMapVisibility } from '@/api/maps';
 import { useCreateEmbedToken, useMapEmbedTokens, useUpdateEmbedToken, useRevokeEmbedToken } from '@/components/builder/hooks/use-embed-tokens';
+import { normalizeOrigin, WildcardOriginError } from '@/lib/builder/url-normalize';
 import type { MapVisibility } from '@/types/api';
-
-function parseOrigins(input: string): string[] {
-  return input
-    .split(',')
-    .map((s) => s.trim())
-    .filter(Boolean)
-    .map((s) => s.replace(/\/+$/, ''))
-    .map((s) => (s.includes('://') ? s : `https://${s}`));
-}
 
 /**
  * Generate the iframe embed snippet for a shared map.
@@ -100,7 +99,7 @@ const VISIBILITY_OPTIONS: Array<{
 interface ShareLinkSettingsProps {
   mapId: string;
   shareExpires: string | null;
-  configDomains: string | null;
+  configOrigins: string[];
   resolvedEmbedTokenId: string | null;
   canUseAdvancedSharing: boolean;
   onRevoked: () => void;
@@ -109,7 +108,7 @@ interface ShareLinkSettingsProps {
 function ShareLinkSettings({
   mapId,
   shareExpires,
-  configDomains,
+  configOrigins,
   resolvedEmbedTokenId,
   canUseAdvancedSharing,
   onRevoked,
@@ -121,9 +120,59 @@ function ShareLinkSettings({
 
   const [showSettings, setShowSettings] = useState(false);
   const [expiresValue, setExpiresValue] = useState('');
-  const [domainsValue, setDomainsValue] = useState('');
   const [showDomainRestrict, setShowDomainRestrict] = useState(false);
 
+  // Expiration preset Select state
+  type ExpirationPreset = 'never' | '1d' | '7d' | '30d' | '1y' | 'custom';
+  const [expirationPreset, setExpirationPreset] = useState<ExpirationPreset>('never');
+
+  /**
+   * Detect which preset bucket a given shareExpires ISO string falls into.
+   * Uses ±1 day tolerance for matching preset windows (presets target T23:59:59Z).
+   * Returns 'never' for null, the matching preset key if within tolerance, or 'custom'.
+   */
+  function detectPreset(shareExpiresIso: string | null): ExpirationPreset {
+    if (!shareExpiresIso) return 'never';
+    const target = new Date(shareExpiresIso);
+    const now = new Date();
+    const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+    const PRESET_DAYS: Array<[number, ExpirationPreset]> = [
+      [1, '1d'],
+      [7, '7d'],
+      [30, '30d'],
+      [365, '1y'],
+    ];
+    for (const [days, key] of PRESET_DAYS) {
+      const presetDate = new Date(now.getTime() + days * ONE_DAY_MS);
+      if (Math.abs(target.getTime() - presetDate.getTime()) < ONE_DAY_MS) {
+        return key;
+      }
+    }
+    return 'custom';
+  }
+
+  // Chip-based allowed-origins state
+  const [origins, setOrigins] = useState<string[]>(configOrigins);
+  const [originInput, setOriginInput] = useState('');
+  const [originError, setOriginError] = useState<string | null>(null);
+
+  // Sync origins when configOrigins prop changes (e.g. after PATCH resolves)
+  useEffect(() => {
+    setOrigins(configOrigins);
+  }, [configOrigins]);
+
+  /**
+   * Save the expiration value typed into the Custom date Input.
+   *
+   * Pitfall #6 contract: this handler does NOT modify rawShareToken or
+   * embedTokenRaw state. Expiration is updated on the share token only via
+   * useUpdateShareToken — those raw tokens survive across dialog open/close
+   * cycles and across expiration changes per the 3ed5ceb3 separation.
+   *
+   * Regression pin: SharePanel.test.tsx Pitfall #6 tests assert that after
+   * a preset Select change the Copy Link / embed textarea remain visible
+   * (proxy for raw-token state).
+   */
   async function handleSaveExpiration() {
     try {
       const newExpires = expiresValue ? new Date(expiresValue + 'T23:59:59Z').toISOString() : null;
@@ -139,19 +188,106 @@ function ShareLinkSettings({
     }
   }
 
-  async function handleSaveDomains() {
-    if (!resolvedEmbedTokenId) return;
+  /**
+   * Apply an expiration preset by computing expiresAt and firing updateShareToken.
+   *
+   * Pitfall #6 contract: does NOT modify rawShareToken or embedTokenRaw — those
+   * survive independently per the 3ed5ceb3 separation. Expiration is updated on
+   * the share token only via the useUpdateShareToken mutation.
+   *
+   * Regression pin: SharePanel.test.tsx Pitfall #6 tests assert that after this
+   * handler resolves, rawShareToken and embedTokenRaw remain non-null (Copy Link
+   * button and embed textarea stay visible).
+   */
+  async function handleApplyPreset(preset: Exclude<ExpirationPreset, 'custom'>) {
+    const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+    const PRESET_MS: Record<Exclude<ExpirationPreset, 'custom' | 'never'>, number> = {
+      '1d': 1 * ONE_DAY_MS,
+      '7d': 7 * ONE_DAY_MS,
+      '30d': 30 * ONE_DAY_MS,
+      '1y': 365 * ONE_DAY_MS,
+    };
+    let expiresAt: string | null = null;
+    if (preset !== 'never') {
+      const datePart = new Date(Date.now() + PRESET_MS[preset]).toISOString().split('T')[0];
+      expiresAt = `${datePart}T23:59:59.000Z`;
+    }
     try {
-      const origins = parseOrigins(domainsValue);
+      await updateShareToken.mutateAsync({ mapId, expiresAt });
+      if (expiresAt) {
+        toast.success(t('share.expirationUpdated', { defaultValue: 'Expiration updated' }));
+      } else {
+        toast.success(t('share.expirationCleared', { defaultValue: 'Link expiration removed — link never expires' }));
+      }
+    } catch {
+      toast.error(t('share.updateFailed'));
+    }
+  }
+
+  async function handleAddOrigin(input: string) {
+    if (!resolvedEmbedTokenId) return;
+    const trimmed = input.trim().replace(/,$/, '');
+    if (!trimmed) return;
+
+    let canonical: string;
+    try {
+      canonical = normalizeOrigin(trimmed);
+    } catch (err) {
+      if (err instanceof WildcardOriginError) {
+        setOriginError(t('share.originWildcardError', { defaultValue: 'Wildcard origin not allowed' }));
+      } else {
+        setOriginError(t('share.originInvalid', { defaultValue: 'Invalid URL' }));
+      }
+      return;
+    }
+
+    // Silently dedupe — canonical form already in list
+    if (origins.includes(canonical)) return;
+
+    const newOrigins = [...origins, canonical];
+    // Optimistic update
+    setOrigins(newOrigins);
+    setOriginInput('');
+    setOriginError(null);
+
+    const addedCanonical = canonical; // capture what was added for functional rollback
+    try {
       await updateEmbedToken.mutateAsync({
         mapId,
         tokenId: resolvedEmbedTokenId,
-        allowedOrigins: origins.length > 0 ? origins : null,
+        allowedOrigins: newOrigins,
       });
-      // Phase 20260526-builder-audit BLD-20260526-11: reset input from saved state so it reflects the canonical value.
-      setDomainsValue(origins.length > 0 ? origins.join(', ') : '');
-      toast.success(t('share.domainsUpdated'));
+    } catch (err) {
+      // Rollback optimistic update using functional setState so concurrent adds
+      // are not discarded (WR-01: stale-closure rollback race).
+      setOrigins((current) => current.filter((o) => o !== addedCanonical));
+      if (err instanceof ApiError && err.status === 422 && /Wildcard/i.test(err.message)) {
+        setOriginError(t('share.originWildcardError', { defaultValue: 'Wildcard origin not allowed' }));
+      } else {
+        toast.error(t('share.updateFailed'));
+      }
+    }
+  }
+
+  async function handleRemoveOrigin(target: string) {
+    if (!resolvedEmbedTokenId) return;
+    const removedOrigin = target; // capture for functional rollback
+    const newOrigins = origins.filter((o) => o !== target);
+    // Optimistic update
+    setOrigins(newOrigins);
+
+    try {
+      await updateEmbedToken.mutateAsync({
+        mapId,
+        tokenId: resolvedEmbedTokenId,
+        allowedOrigins: newOrigins.length > 0 ? newOrigins : null,
+      });
     } catch {
+      // Rollback using functional setState — re-insert what was removed so
+      // concurrent removes are not discarded (WR-01: stale-closure race).
+      setOrigins((current) =>
+        current.includes(removedOrigin) ? current : [...current, removedOrigin],
+      );
       toast.error(t('share.updateFailed'));
     }
   }
@@ -160,7 +296,9 @@ function ShareLinkSettings({
     try {
       await revokeShareToken.mutateAsync(mapId);
       setExpiresValue('');
-      setDomainsValue('');
+      setOrigins([]);
+      setOriginInput('');
+      setOriginError(null);
       setShowDomainRestrict(false);
       setShowSettings(false);
       onRevoked();
@@ -179,9 +317,10 @@ function ShareLinkSettings({
           const next = !showSettings;
           setShowSettings(next);
           if (next) {
+            const detected = detectPreset(shareExpires);
+            setExpirationPreset(detected);
             setExpiresValue(shareExpires ? shareExpires.split('T')[0] : '');
-            setDomainsValue(configDomains || '');
-            setShowDomainRestrict(!!configDomains);
+            setShowDomainRestrict(configOrigins.length > 0);
           }
         }}
       >
@@ -193,26 +332,50 @@ function ShareLinkSettings({
         <div className="space-y-4 ps-4 border-s-2 border-border">
           {/* Expiration */}
           {canUseAdvancedSharing && (
-            <div className="space-y-1.5">
+            <div className="space-y-2">
               <label className="text-xs font-medium">{t('share.expirationLabel')}</label>
-              <div className="flex gap-2">
-                <Input
-                  type="date"
-                  value={expiresValue}
-                  onChange={(e) => setExpiresValue(e.target.value)}
-                  min={new Date().toISOString().split('T')[0]}
-                  className="h-8 text-sm flex-1"
-                  placeholder={t('share.expirationPlaceholder')}
-                />
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleSaveExpiration}
-                  disabled={updateShareToken.isPending}
-                >
-                  {updateShareToken.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : t('share.save')}
-                </Button>
-              </div>
+              <Select
+                value={expirationPreset}
+                onValueChange={(v) => {
+                  const next = v as ExpirationPreset;
+                  setExpirationPreset(next);
+                  if (next !== 'custom') {
+                    void handleApplyPreset(next as Exclude<ExpirationPreset, 'custom'>);
+                  }
+                }}
+              >
+                <SelectTrigger size="sm" className="w-full h-8">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="never">{t('share.expirationNever', { defaultValue: 'Never' })}</SelectItem>
+                  <SelectItem value="1d">{t('share.expiration1Day', { defaultValue: '1 day' })}</SelectItem>
+                  <SelectItem value="7d">{t('share.expiration7Days', { defaultValue: '7 days' })}</SelectItem>
+                  <SelectItem value="30d">{t('share.expiration30Days', { defaultValue: '30 days' })}</SelectItem>
+                  <SelectItem value="1y">{t('share.expiration1Year', { defaultValue: '1 year' })}</SelectItem>
+                  <SelectItem value="custom">{t('share.expirationCustom', { defaultValue: 'Custom date…' })}</SelectItem>
+                </SelectContent>
+              </Select>
+              {expirationPreset === 'custom' && (
+                <div className="flex gap-2">
+                  <Input
+                    type="date"
+                    value={expiresValue}
+                    onChange={(e) => setExpiresValue(e.target.value)}
+                    min={new Date().toISOString().split('T')[0]}
+                    className="h-8 text-sm flex-1"
+                    placeholder={t('share.expirationPlaceholder')}
+                  />
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleSaveExpiration}
+                    disabled={updateShareToken.isPending}
+                  >
+                    {updateShareToken.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : t('share.save')}
+                  </Button>
+                </div>
+              )}
               <p className="text-xs text-muted-foreground">{t('share.expirationHint')}</p>
             </div>
           )}
@@ -229,12 +392,11 @@ function ShareLinkSettings({
                   checked={showDomainRestrict}
                   onCheckedChange={(checked) => {
                     setShowDomainRestrict(checked);
-                    if (checked && !domainsValue) {
-                      setDomainsValue(window.location.origin);
-                    }
-                    if (!checked && configDomains) {
-                      // Phase 20260526-builder-audit BLD-20260526-11: clear restrictions directly to avoid stale domainsValue.
-                      setDomainsValue('');
+                    if (!checked && configOrigins.length > 0) {
+                      // Clear all origins when switch is turned off
+                      setOrigins([]);
+                      setOriginInput('');
+                      setOriginError(null);
                       if (resolvedEmbedTokenId) {
                         updateEmbedToken.mutateAsync({
                           mapId,
@@ -250,24 +412,74 @@ function ShareLinkSettings({
                 />
               </div>
               {showDomainRestrict && (
-                <div className="space-y-1.5">
+                <div className="space-y-2">
+                  {/* Chip list */}
+                  {origins.length > 0 && (
+                    <div role="list" className="flex flex-wrap gap-2">
+                      {origins.map((o) => (
+                        <span
+                          key={o}
+                          role="listitem"
+                          className="inline-flex items-center gap-1 rounded-full border border-border bg-muted px-3 py-1 text-xs"
+                        >
+                          <span className="font-mono truncate max-w-[16rem]" title={o}>{o}</span>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveOrigin(o)}
+                            aria-label={t('share.removeOrigin', { origin: o, defaultValue: 'Remove {{origin}}' })}
+                            className="h-4 w-4 rounded-full -mr-1 hover:bg-destructive/10 hover:text-destructive inline-flex items-center justify-center"
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  {/* Input row */}
                   <div className="flex gap-2">
                     <Input
-                      value={domainsValue}
-                      onChange={(e) => setDomainsValue(e.target.value)}
-                      placeholder="example.com, http://localhost:3000"
+                      value={originInput}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        if (v.endsWith(',')) {
+                          void handleAddOrigin(v.slice(0, -1));
+                        } else {
+                          setOriginInput(v);
+                          setOriginError(null);
+                        }
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          void handleAddOrigin(originInput);
+                        }
+                      }}
+                      placeholder={t('share.originsInputPlaceholder', { defaultValue: 'Paste a URL like https://example.com' })}
                       className="h-8 text-sm font-mono flex-1"
+                      aria-label={t('share.originsInputLabel', { defaultValue: 'Allowed origin URL' })}
+                      aria-describedby="origins-hint"
                     />
                     <Button
+                      type="button"
+                      size="icon"
                       variant="outline"
-                      size="sm"
-                      onClick={handleSaveDomains}
-                      disabled={updateEmbedToken.isPending}
+                      className="h-8 w-8 shrink-0"
+                      onClick={() => void handleAddOrigin(originInput)}
+                      aria-label={t('share.addOrigin', { defaultValue: 'Add origin' })}
                     >
-                      {updateEmbedToken.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : t('share.save')}
+                      <Plus className="h-3 w-3" />
                     </Button>
                   </div>
-                  <p className="text-xs text-muted-foreground">{t('share.domainHint')}</p>
+                  {/* Inline error */}
+                  {originError && (
+                    <p className="text-xs text-destructive">{originError}</p>
+                  )}
+                  {/* Hint */}
+                  <p id="origins-hint" className="text-xs text-muted-foreground">
+                    {origins.length === 0
+                      ? t('share.originsEmptyHint', { defaultValue: 'No origins yet — paste a URL like https://example.com to allow embedding.' })
+                      : t('share.originsNormHint', { defaultValue: 'Each origin is normalized to scheme + host + port before saving.' })}
+                  </p>
                 </div>
               )}
             </div>
@@ -289,6 +501,101 @@ function ShareLinkSettings({
               )}
               {t('share.revokeShareLink')}
             </Button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  EmbedPreviewPane – collapsible iframe preview (SHARE-03 / SEC-07) */
+/* ------------------------------------------------------------------ */
+
+interface EmbedPreviewPaneProps {
+  shareToken: string;
+  embedTokenRaw: string;
+  origin: string;
+}
+
+function EmbedPreviewPane({ shareToken, embedTokenRaw, origin }: EmbedPreviewPaneProps) {
+  const { t } = useTranslation('builder');
+  const [expanded, setExpanded] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+  const [errored, setErrored] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
+
+  // 8-second onLoad timeout fallback — if the iframe never fires onLoad
+  // (e.g. viewer error page), transition to error state with Reload affordance.
+  useEffect(() => {
+    if (!expanded || loaded || errored) return;
+    const timer = setTimeout(() => setErrored(true), 8000);
+    return () => clearTimeout(timer);
+  }, [expanded, loaded, errored, reloadKey]);
+
+  // Use URLSearchParams to match generateEmbedCode — prevents drift if the
+  // token format ever gains percent-encodable characters (IN-01).
+  const src = (() => {
+    const params = new URLSearchParams({ embed: 'true' });
+    if (embedTokenRaw) params.set('et', embedTokenRaw);
+    return `${origin}/m/${shareToken}?${params.toString()}`;
+  })();
+
+  return (
+    <div className="space-y-2 border-t pt-3">
+      <button
+        type="button"
+        onClick={() => setExpanded(!expanded)}
+        className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1"
+        aria-expanded={expanded}
+        aria-label={t('share.iframePreviewToggle', { defaultValue: 'Preview' })}
+      >
+        <ChevronRight className={cn('h-3 w-3 transition-transform', expanded && 'rotate-90')} />
+        {t('share.iframePreviewToggle', { defaultValue: 'Preview' })}
+      </button>
+      {expanded && (
+        <div className="rounded-lg border border-border overflow-hidden">
+          {!errored ? (
+            <div className="relative h-[300px] bg-muted">
+              {!loaded && (
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" aria-hidden="true" />
+                </div>
+              )}
+              {/* SEC-07 / M-70: sandbox="allow-scripts" ONLY. NEVER add allow-same-origin — see SharePanel.tsx generateEmbedCode docstring. */}
+              <iframe
+                key={reloadKey}
+                data-testid="share-preview-iframe"
+                src={src}
+                sandbox="allow-scripts"
+                title={t('share.iframePreviewTitle', { defaultValue: 'Map embed preview' })}
+                loading="lazy"
+                style={{ border: 'none' }}
+                className={cn('w-full h-[300px] transition-opacity', loaded ? 'opacity-100' : 'opacity-0')}
+                onLoad={() => setLoaded(true)}
+              />
+            </div>
+          ) : (
+            <div className="h-[300px] bg-muted flex flex-col items-center justify-center gap-2 px-4">
+              <AlertCircle className="h-5 w-5 text-muted-foreground" aria-hidden="true" />
+              <p className="text-sm text-muted-foreground text-center">
+                {t('share.iframeErrorTitle', { defaultValue: 'Preview unavailable' })}
+              </p>
+              <p className="text-xs text-muted-foreground/80 text-center">
+                {t('share.iframeErrorBody', { defaultValue: 'Check that the embed token is valid and the share link is active. Reload to retry.' })}
+              </p>
+              <button
+                type="button"
+                onClick={() => { setErrored(false); setLoaded(false); setReloadKey((k) => k + 1); }}
+                className="text-xs text-primary underline"
+              >
+                {t('share.iframeReload', { defaultValue: 'Reload' })}
+              </button>
+            </div>
+          )}
+          <div className="flex items-center gap-1 px-3 py-2 text-xs text-muted-foreground border-t border-border">
+            <Shield className="h-3 w-3" aria-hidden="true" />
+            {t('share.iframeSandboxNote', { defaultValue: 'sandbox="allow-scripts" only — SEC-07 contract' })}
           </div>
         </div>
       )}
@@ -328,7 +635,10 @@ export function ShareDialog({
   const [hasNonPublic, setHasNonPublic] = useState(false);
   const [embedTokenRaw, setEmbedTokenRaw] = useState<string | null>(null);
   const [rawShareToken, setRawShareToken] = useState<string | null>(null);
-  const [domainInput, setDomainInput] = useState('');
+
+  // Pitfall #7: single-flight guard for concurrent createEmbedToken invocations.
+  // Mirrors ChatPanel.tsx inflightRef pattern (v1010.2 lift).
+  const inflightEmbedCreate = useRef<Promise<{ raw_token: string }> | null>(null);
 
   // Queries as source of truth — only fetch when dialog is open
   const shareTokenQuery = useMapShareToken(open ? mapId : undefined);
@@ -342,7 +652,14 @@ export function ShareDialog({
     t => t.is_active && new Date(t.expires_at) > new Date()
   );
   const resolvedEmbedTokenId = activeEmbedToken?.id ?? null;
-  const configDomains = activeEmbedToken?.allowed_origins?.join(', ') ?? null;
+  // Stabilize with useMemo so the array reference is only new when the data
+  // actually changes. Without memoization, `?? []` produces a new [] reference
+  // on every render, causing the sync useEffect in ShareLinkSettings to fire
+  // every render and wipe in-flight optimistic chip state (WR-02).
+  const configOrigins = useMemo(
+    () => activeEmbedToken?.allowed_origins ?? [],
+    [activeEmbedToken?.allowed_origins],
+  );
 
   const isPublic = visibility === 'public';
   const canUseAdvancedSharing = isEnterprise;
@@ -389,18 +706,44 @@ export function ShareDialog({
     }
   }
 
+  /**
+   * Create an embed token if one does not already exist.
+   *
+   * Pitfall #7 contract: deduplicates concurrent invocations via
+   * inflightEmbedCreate ref. Two callers racing through this function (e.g.,
+   * React StrictMode double-mount, or rapid double-click on Generate Share
+   * Link) share the same in-flight promise instead of firing parallel
+   * createEmbedToken mutations that would both succeed and orphan one of the
+   * resulting tokens in the DB.
+   *
+   * Mirror of ChatPanel.tsx inflightRef pattern lifted in v1010.2.
+   *
+   * Regression pin: SharePanel.test.tsx Pitfall #7 test asserts call count
+   * equals 1 under a 2-concurrent-click scenario.
+   */
   async function maybeCreateEmbedToken() {
     if (embedTokenRaw) return;
     if (activeEmbedToken) return;
+    // Pitfall #7: dedupe concurrent calls. Mirrors ChatPanel inflightRef.
+    if (inflightEmbedCreate.current) {
+      try {
+        await inflightEmbedCreate.current;
+      } catch {
+        // primary call already toasted; secondary callers stay silent
+      }
+      return;
+    }
     try {
-      const origins = canUseAdvancedSharing ? parseOrigins(domainInput) : [];
-      const tokenResult = await createEmbedToken.mutateAsync({
-        mapId,
-        allowedOrigins: origins.length > 0 ? origins : undefined,
-      });
+      // Allowed origins are managed via the chip input in ShareLinkSettings;
+      // no origins at creation time (WR-03: domainInput was dead state).
+      const promise = createEmbedToken.mutateAsync({ mapId });
+      inflightEmbedCreate.current = promise;
+      const tokenResult = await promise;
       setEmbedTokenRaw(tokenResult.raw_token);
     } catch {
       toast.error(t('share.embedTokenFailed'));
+    } finally {
+      inflightEmbedCreate.current = null;
     }
   }
 
@@ -428,11 +771,9 @@ export function ShareDialog({
       setRawShareToken(created.share_url ? created.token : null);
       const check = await runVisibilityCheck();
       if (check?.has_non_public) {
-        const origins = canUseAdvancedSharing ? parseOrigins(domainInput) : [];
-        const tokenResult = await createEmbedToken.mutateAsync({
-          mapId,
-          allowedOrigins: origins.length > 0 ? origins : undefined,
-        });
+        // Allowed origins are managed via chip input in ShareLinkSettings;
+        // no origins at creation time (WR-03: domainInput was dead state).
+        const tokenResult = await createEmbedToken.mutateAsync({ mapId });
         setEmbedTokenRaw(tokenResult.raw_token);
       }
       toast.success(t('toasts.shareLinkCreated', { defaultValue: 'Share link created' }));
@@ -444,7 +785,6 @@ export function ShareDialog({
   function handleRevoked() {
     setRawShareToken(null);
     setEmbedTokenRaw(null);
-    setDomainInput('');
     setHasNonPublic(false);
   }
 
@@ -453,11 +793,9 @@ export function ShareDialog({
     if (!activeEmbedToken) return;
     try {
       await revokeEmbedToken.mutateAsync({ mapId, tokenId: activeEmbedToken.id });
-      const origins = canUseAdvancedSharing ? parseOrigins(domainInput) : [];
-      const tokenResult = await createEmbedToken.mutateAsync({
-        mapId,
-        allowedOrigins: origins.length > 0 ? origins : undefined,
-      });
+      // Allowed origins are managed via chip input in ShareLinkSettings;
+      // no origins at creation time (WR-03: domainInput was dead state).
+      const tokenResult = await createEmbedToken.mutateAsync({ mapId });
       setEmbedTokenRaw(tokenResult.raw_token);
       toast.success(t('share.embedTokenRegenerated', { defaultValue: 'Embed token regenerated' }));
     } catch {
@@ -470,6 +808,19 @@ export function ShareDialog({
     return `${window.location.origin}/m/${rawShareToken}`;
   }
 
+  /** SHARE-08 (Phase 1142): returns the crawler-unfurlable /card URL so the
+   *  copied link emits OG/Twitter meta tags when pasted into Slack, Twitter etc.
+   *  Human visitors are redirected to the SPA viewer via the card route's
+   *  <meta http-equiv="refresh"> (Plan 1142-01 backend).
+   *
+   *  The /m/{token} viewer URL is preserved in getShareUrl() for the "Open in
+   *  new tab" affordance (direct, redirect-free viewer load). The embed iframe
+   *  src is unchanged (see generateEmbedCode). */
+  function getShareCardUrl() {
+    if (!rawShareToken) return '';
+    return `${window.location.origin}/api/maps/shared/${rawShareToken}/card`;
+  }
+
   function getEmbedCode() {
     return generateEmbedCode({
       shareToken: rawShareToken || '',
@@ -479,7 +830,9 @@ export function ShareDialog({
   }
 
   async function handleCopyShareLink() {
-    const url = getShareUrl();
+    // SHARE-08: copy the /card URL so the pasted link unfurls in social clients.
+    // The label ("Copy Link") is unchanged — only the copied value changes.
+    const url = getShareCardUrl();
     if (!url) return;
     try {
       await navigator.clipboard.writeText(url);
@@ -542,7 +895,7 @@ export function ShareDialog({
 
           {/* Visibility selector */}
           <div className="space-y-2">
-            <p className="text-sm font-medium">{t('share.visibilityTitle')}</p>
+            <p className="text-sm font-semibold">{t('share.visibilityTitle')}</p>
             <div className="space-y-1.5" role="radiogroup" aria-label={t('share.visibilityTitle')}>
               {VISIBILITY_OPTIONS.map((opt) => {
                 const Icon = opt.icon;
@@ -564,7 +917,7 @@ export function ShareDialog({
                   >
                     <Icon className={cn('h-4 w-4 mt-0.5 shrink-0', opt.iconClass)} />
                     <div className="min-w-0">
-                      <p className="text-sm font-medium">{t(opt.titleKey)}</p>
+                      <p className="text-sm font-semibold">{t(opt.titleKey)}</p>
                       <p className="text-xs text-muted-foreground">{t(opt.descKey)}</p>
                     </div>
                   </button>
@@ -589,7 +942,7 @@ export function ShareDialog({
               <div className="border-t pt-4 space-y-3">
                 <div className="flex items-center gap-1.5">
                   <LinkIcon className="h-3.5 w-3.5 text-muted-foreground" />
-                  <span className="text-sm font-medium">{t('share.shareLink')}</span>
+                  <span className="text-sm font-semibold">{t('share.shareLink')}</span>
                 </div>
 
                 {hasShareToken ? (
@@ -657,10 +1010,10 @@ export function ShareDialog({
                       <span className={isExpired ? 'text-destructive' : undefined}>
                         {t('share.summaryExpires')}: {shareExpires ? formatDate(shareExpires) : t('share.summaryNever')}
                       </span>
-                      {configDomains && (
+                      {configOrigins.length > 0 && (
                         <>
                           <span className="text-border">|</span>
-                          <span className="truncate">{t('share.summaryDomains')}: {configDomains}</span>
+                          <span className="truncate">{t('share.summaryDomains')}: {configOrigins.join(', ')}</span>
                         </>
                       )}
                     </div>
@@ -669,7 +1022,7 @@ export function ShareDialog({
                     <ShareLinkSettings
                       mapId={mapId}
                       shareExpires={shareExpires}
-                      configDomains={configDomains}
+                      configOrigins={configOrigins}
                       resolvedEmbedTokenId={resolvedEmbedTokenId}
                       canUseAdvancedSharing={canUseAdvancedSharing}
                       onRevoked={handleRevoked}
@@ -698,7 +1051,7 @@ export function ShareDialog({
                 <div className="border-t pt-4 space-y-3">
                   <div className="flex items-center gap-1.5">
                     <Code className="h-3.5 w-3.5 text-muted-foreground" />
-                    <span className="text-sm font-medium">{t('share.embedCode')}</span>
+                    <span className="text-sm font-semibold">{t('share.embedCode')}</span>
                   </div>
                   <div className="relative">
                     <textarea
@@ -768,6 +1121,14 @@ export function ShareDialog({
                       <li><code className="bg-muted px-1 rounded text-[11px]">legend=true|false</code> {t('share.customizeLegend')}</li>
                     </ul>
                   </div>
+                  {/* SHARE-03: embed preview pane — gated on embedTokenRaw to ensure et= param is available */}
+                  {embedTokenRaw && (
+                    <EmbedPreviewPane
+                      shareToken={rawShareToken}
+                      embedTokenRaw={embedTokenRaw}
+                      origin={window.location.origin}
+                    />
+                  )}
                 </div>
               )}
             </>

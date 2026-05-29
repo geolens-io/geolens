@@ -12,6 +12,7 @@ import {
   clusterAdapter,
 } from '@/components/builder/layer-adapters';
 import type { AdapterLayerInput } from '@/components/builder/layer-adapters/types';
+import { FILL_PATTERN_IDS } from '@/components/builder/layer-adapters/fill-pattern-images';
 
 vi.mock('@/lib/tile-utils', () => ({
   buildSignedTileUrl: vi.fn(() => '/tiles/mock/{z}/{x}/{y}.pbf'),
@@ -1372,6 +1373,88 @@ describe('fillAdapter', () => {
     expect(ids[0]).toBe('layer-fe1');
     expect(ids[1]).toBe('layer-fe1-outline');
     expect(ids[2]).toBe('layer-fe1-extrusion');
+  });
+
+  // ── fill-pattern integration pins ──────────────────────────────────────────
+
+  it('addLayers calls addImage for each fill-pattern id (ensureFillPatternImages wired)', () => {
+    const input = makeInput({ id: 'fp1', layerId: 'layer-fp1', sourceId: 'source-fp1', sourceLayer: 'data.test_table' });
+    // hasImage returns false (default from createMockMap), so addImage should be called for each pattern
+    fillAdapter.addLayers(map, input);
+    // addImage called exactly once per pattern id
+    expect(map.addImage).toHaveBeenCalledTimes(FILL_PATTERN_IDS.length);
+  });
+
+  it('addLayers does NOT call addImage when hasImage returns true (idempotency gate)', () => {
+    (map.hasImage as ReturnType<typeof vi.fn>).mockReturnValue(true);
+    const input = makeInput({ id: 'fp2', layerId: 'layer-fp2', sourceId: 'source-fp2', sourceLayer: 'data.test_table' });
+    fillAdapter.addLayers(map, input);
+    expect(map.addImage).toHaveBeenCalledTimes(0);
+  });
+
+  it('syncPaint calls addImage for each fill-pattern id when layer exists', () => {
+    (map.getLayer as ReturnType<typeof vi.fn>).mockImplementation((id: string) => {
+      if (id === 'layer-fp3' || id === 'layer-fp3-outline') return { id };
+      return null;
+    });
+    (map.getPaintProperty as ReturnType<typeof vi.fn>).mockReturnValue(undefined);
+    const input = makeInput({ id: 'fp3', layerId: 'layer-fp3', paint: {} });
+    fillAdapter.syncPaint(map, input);
+    expect(map.addImage).toHaveBeenCalledTimes(FILL_PATTERN_IDS.length);
+  });
+
+  // REGRESSION PIN: a fill input with NO fill-pattern key must produce addLayer paint
+  // with fill-color/fill-opacity and NO 'fill-pattern' property (behavior preserved from today).
+  it('REGRESSION PIN: no-pattern fill input produces addLayer paint WITHOUT fill-pattern key', () => {
+    const input = makeInput({
+      id: 'fp-reg',
+      layerId: 'layer-fp-reg',
+      sourceId: 'source-fp-reg',
+      sourceLayer: 'data.test_table',
+      paint: { 'fill-color': '#3b82f6', 'fill-opacity': 0.8 },
+    });
+    fillAdapter.addLayers(map, input);
+    const fillCall = (map.addLayer as ReturnType<typeof vi.fn>).mock.calls
+      .find((c: unknown[]) => (c[0] as { type: string }).type === 'fill');
+    expect(fillCall).toBeDefined();
+    const fillPaint = (fillCall![0] as { paint: Record<string, unknown> }).paint;
+    expect(fillPaint).toHaveProperty('fill-color', '#3b82f6');
+    expect(fillPaint).not.toHaveProperty('fill-pattern');
+  });
+
+  it('syncPaint writes fill-pattern via setPaintProperty when fill-pattern key is present in paint', () => {
+    (map.getLayer as ReturnType<typeof vi.fn>).mockImplementation((id: string) => {
+      if (id === 'layer-fp4' || id === 'layer-fp4-outline') return { id };
+      return null;
+    });
+    (map.getPaintProperty as ReturnType<typeof vi.fn>).mockReturnValue(undefined);
+    const input = makeInput({
+      id: 'fp4',
+      layerId: 'layer-fp4',
+      paint: { 'fill-color': '#3b82f6', 'fill-pattern': 'geolens-fill-hatch' },
+    });
+    fillAdapter.syncPaint(map, input);
+    expect(map.setPaintProperty).toHaveBeenCalledWith('layer-fp4', 'fill-pattern', 'geolens-fill-hatch');
+  });
+
+  it('syncPaint clears fill-pattern (sets undefined) when fill-pattern key is absent (restores solid fill)', () => {
+    (map.getLayer as ReturnType<typeof vi.fn>).mockImplementation((id: string) => {
+      if (id === 'layer-fp5' || id === 'layer-fp5-outline') return { id };
+      return null;
+    });
+    // Simulate map previously had fill-pattern set
+    (map.getPaintProperty as ReturnType<typeof vi.fn>).mockImplementation((_layerId: string, prop: string) => {
+      if (prop === 'fill-pattern') return 'geolens-fill-hatch';
+      return undefined;
+    });
+    const input = makeInput({
+      id: 'fp5',
+      layerId: 'layer-fp5',
+      paint: { 'fill-color': '#3b82f6' }, // no fill-pattern key → should clear it
+    });
+    fillAdapter.syncPaint(map, input);
+    // syncOwnedPaintProperties with clearMissing=true calls setPaintProperty(layerId, 'fill-pattern', undefined)
+    expect(map.setPaintProperty).toHaveBeenCalledWith('layer-fp5', 'fill-pattern', undefined);
   });
 
 });

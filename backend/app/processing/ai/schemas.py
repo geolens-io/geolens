@@ -179,7 +179,9 @@ def _paint_layer_type_for_geometry(geometry_type: str | None) -> str | None:
     return "circle"
 
 
-def _valid_paint_props_for_geometry(geometry_type: str | None) -> tuple[str | None, set[str]]:
+def _valid_paint_props_for_geometry(
+    geometry_type: str | None,
+) -> tuple[str | None, set[str]]:
     layer_type = _paint_layer_type_for_geometry(geometry_type)
     if not layer_type:
         return None, set()

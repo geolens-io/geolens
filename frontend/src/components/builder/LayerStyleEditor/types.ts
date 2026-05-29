@@ -33,7 +33,6 @@ export interface BaseStyleEditorProps {
   onPaintChange: (layerId: string, paint: Record<string, unknown>) => void;
   onLayoutChange: (layerId: string, layout: Record<string, unknown>) => void;
   onStyleConfigChange: (layerId: string, config: StyleConfig | null, paint: Record<string, unknown>) => void;
-  onRenderModeChange?: (layerId: string, mode: PointRenderMode) => void;
   /** Patch a single paint property (handles builder-alias routing internally). */
   onPaintProp: (key: string, value: unknown) => void;
   onToggleFill: () => void;

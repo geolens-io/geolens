@@ -211,7 +211,9 @@ async def reupload_file(
                 preview_cols = info.get("columns") or []
                 if not preview_cols:
                     # GPKG-01 Phase 1058: pass layer_name for multi-layer shapefiles (rare)
-                    preview_info = await run_ogrinfo_preview(file_path, sample_limit=0, layer_name=layer_name)
+                    preview_info = await run_ogrinfo_preview(
+                        file_path, sample_limit=0, layer_name=layer_name
+                    )
                     preview_cols = preview_info.get("columns") or []
                 dbf_collisions = detect_dbf_truncation_collisions(preview_cols)
                 if dbf_collisions:

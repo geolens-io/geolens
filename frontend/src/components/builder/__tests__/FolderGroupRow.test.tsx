@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@/test/test-utils';
+import { act, fireEvent, render, screen } from '@/test/test-utils';
 import { FolderGroupRow } from '../FolderGroupRow';
 import type { DraggableAttributes, DraggableSyntheticListeners } from '@dnd-kit/core';
 
@@ -448,6 +448,51 @@ describe('FolderGroupRow', () => {
       const inner = (FolderGroupRow as unknown as { type: (...args: unknown[]) => unknown }).type;
       const source = inner.toString();
       expect(source).toContain('requestAnimationFrame');
+    });
+
+    it('BUG-03 negative control — input is NOT focused synchronously when editing flips to true (MAP-16 regression guard)', async () => {
+      // If this test ever fails, the rAF deferral was likely removed from
+      // FolderGroupRow.tsx editing useEffect — that re-introduces the v1011
+      // BUG-03 dnd-kit/Radix focus race. Revert the synchronous-focus change
+      // before merging.
+      //
+      // Strategy: stub requestAnimationFrame to CAPTURE callbacks without
+      // invoking them. After triggering rename mode the editing useEffect runs
+      // and schedules its focus call via rAF. We assert the callback was
+      // captured (proves the rAF-deferred path executed). We then flush the
+      // queue manually and assert focus arrived. A regression that drops the
+      // rAF would leave rafCallbacks empty (the focus would be delivered
+      // synchronously via autoFocus alone, bypassing this contract).
+      const rafCallbacks: FrameRequestCallback[] = [];
+      const rafSpy = vi.spyOn(globalThis, 'requestAnimationFrame').mockImplementation((cb) => {
+        rafCallbacks.push(cb);
+        return 0 as unknown as ReturnType<typeof requestAnimationFrame>;
+      });
+
+      render(<FolderGroupRow {...defaultProps({ groupName: 'My Group' })} />);
+
+      // Trigger rename mode via double-click (same handleStartRename path as kebab → Rename)
+      const nameSpan = screen.getByText('My Group');
+      fireEvent.dblClick(nameSpan);
+
+      // The rename input mounts (autoFocus gives immediate focus in jsdom, which is
+      // acceptable — the production contract is that the rAF wrapper ALSO runs to
+      // win the race against Radix restoreFocus AFTER menu close).
+      const input = await screen.findByRole('textbox', { name: /Group name/i });
+      expect(input).toBeInTheDocument();
+
+      // KEY ASSERTION: the editing useEffect MUST have scheduled a rAF callback.
+      // If this fails, the rAF deferral was removed from the editing useEffect.
+      expect(rafCallbacks.length).toBeGreaterThan(0);
+
+      // Flush the queued rAF callbacks manually
+      act(() => { rafCallbacks.forEach((cb) => cb(performance.now())); });
+
+      // After the manual flush, the rAF-deferred focus has landed.
+      expect(document.activeElement).toBe(input);
+
+      // Cleanup: restore the original requestAnimationFrame
+      rafSpy.mockRestore();
     });
   });
 });

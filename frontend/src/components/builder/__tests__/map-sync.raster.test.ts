@@ -1,12 +1,23 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { syncLayersToMap, stripCustomProps, CUSTOM_PAINT_PROPS } from '@/components/builder/map-sync';
+import { syncLayersToMap, stripCustomProps, CUSTOM_PAINT_PROPS, isHillshadeTerrainBound } from '@/components/builder/map-sync';
 import type { SyncLayerInput } from '@/components/builder/map-sync';
-import type { MapLayerResponse } from '@/types/api';
+import type { MapLayerResponse, MapTerrainConfig } from '@/types/api';
 import type { TileToken, RasterTileToken, VectorTileToken } from '@/api/tiles';
 
 vi.mock('@/lib/tile-utils', () => ({
   buildSignedTileUrl: vi.fn(() => '/tiles/mock/{z}/{x}/{y}.pbf'),
   buildClusterTileUrl: vi.fn(() => '/tiles/clusters/mock/{z}/{x}/{y}.pbf'),
+}));
+
+// Mock color-relief-sync so the raster sync tests can assert it is invoked for DEM layers
+// without needing a real DemSource. Use vi.hoisted so the mock factory can reference the
+// spy despite vi.mock hoisting.
+const { mockSyncColorReliefLayer } = vi.hoisted(() => ({
+  mockSyncColorReliefLayer: vi.fn(),
+}));
+vi.mock('@/components/builder/color-relief-sync', () => ({
+  syncColorReliefLayer: mockSyncColorReliefLayer,
+  buildElevationExpression: vi.fn(() => ['interpolate', ['linear'], ['elevation']]),
 }));
 
 // Mock window.location.origin for raster tile URL construction
@@ -659,6 +670,88 @@ describe('syncLayersToMap', () => {
     warnSpy.mockRestore();
   });
 
+  // ---------------------------------------------------------------------------
+  // EDITOR-DEM-05: syncColorReliefLayer wiring
+  // ---------------------------------------------------------------------------
+
+  describe('syncColorReliefLayer wiring', () => {
+    beforeEach(() => {
+      mockSyncColorReliefLayer.mockClear();
+    });
+
+    it('calls syncColorReliefLayer for is_dem=true raster layers', () => {
+      const layer = makeLayer({
+        id: 'dem-cr-test',
+        layer_type: 'raster_geolens',
+        dataset_geometry_type: null,
+        is_dem: true,
+        style_config: { mode: 'categorical', column: '', ramp: '', render_mode: 'hillshade' },
+        paint: { '_hypso-enabled': true },
+      });
+      const tokenMap = new Map<string, TileToken>([['ds-1', makeRasterToken()]]);
+
+      syncLayersToMap(map, [layer], tokenMap, undefined, managedSourcesRef, { current: '' });
+
+      expect(mockSyncColorReliefLayer).toHaveBeenCalledOnce();
+      const [, calledInput] = mockSyncColorReliefLayer.mock.calls[0] as [unknown, { layerId: string; is_dem: boolean | null | undefined }];
+      expect(calledInput.layerId).toBe('layer-dem-cr-test');
+      expect(calledInput.is_dem).toBe(true);
+    });
+
+    it('does NOT call syncColorReliefLayer for non-DEM raster layers', () => {
+      const layer = makeLayer({
+        id: 'raster-regular-cr',
+        layer_type: 'raster_geolens',
+        dataset_geometry_type: null,
+        is_dem: false,
+      });
+      const tokenMap = new Map<string, TileToken>([['ds-1', makeRasterToken()]]);
+
+      syncLayersToMap(map, [layer], tokenMap, undefined, managedSourcesRef, { current: '' });
+
+      expect(mockSyncColorReliefLayer).not.toHaveBeenCalled();
+    });
+
+    it('does NOT call syncColorReliefLayer for vector layers', () => {
+      const layer = makeLayer({
+        id: 'vector-cr-test',
+        layer_type: 'vector_geolens',
+        dataset_geometry_type: 'Polygon',
+        is_dem: false,
+      });
+      const tokenMap = new Map<string, TileToken>([['ds-1', makeVectorToken()]]);
+
+      syncLayersToMap(map, [layer], tokenMap, undefined, managedSourcesRef, { current: '' });
+
+      expect(mockSyncColorReliefLayer).not.toHaveBeenCalled();
+    });
+  });
+
+  // Regression test for WR-01: color-relief companion layer is removed when its
+  // DEM layer is deleted from the layers list.
+  it('WR-01 regression: color-relief companion layer is removed when DEM source becomes stale', () => {
+    // Simulate a prior state where source-dem-wr01 and layer-dem-wr01-colorrelief are on the map.
+    managedSourcesRef.current = new Set(['source-dem-wr01']);
+    (map.getLayer as ReturnType<typeof vi.fn>).mockImplementation((id: string) => {
+      if (id === 'layer-dem-wr01' || id === 'layer-dem-wr01-colorrelief') return { id };
+      return null;
+    });
+    (map.getSource as ReturnType<typeof vi.fn>).mockImplementation((id: string) => {
+      if (id === 'source-dem-wr01') return { type: 'raster-dem' };
+      return null;
+    });
+
+    // Sync with no layers — source-dem-wr01 is now stale.
+    syncLayersToMap(map, [], new Map(), undefined, managedSourcesRef, { current: '' });
+
+    // The main hillshade layer should be removed.
+    expect(map.removeLayer).toHaveBeenCalledWith('layer-dem-wr01');
+    // The color-relief companion layer (no own source) MUST also be removed.
+    expect(map.removeLayer).toHaveBeenCalledWith('layer-dem-wr01-colorrelief');
+    // The source should be removed too.
+    expect(map.removeSource).toHaveBeenCalledWith('source-dem-wr01');
+  });
+
   it('polygon layer with non-prefixed outline-width strips it from fill paint', () => {
     const layer = makeLayer({
       id: 'legacy1',
@@ -684,5 +777,126 @@ describe('syncLayersToMap', () => {
     const outlinePaint = addLayerCalls[1][0].paint;
     expect(outlinePaint['line-color']).toBe('#000000');
     expect(outlinePaint['line-width']).toBe(3);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// POLISH-02: isHillshadeTerrainBound predicate + syncRasterLayer skip guard
+// ---------------------------------------------------------------------------
+
+describe('POLISH-02 isHillshadeTerrainBound predicate', () => {
+  const demLayer = { dataset_id: 'dem-ds-1', is_dem: true as boolean | null };
+  const otherLayer = { dataset_id: 'other-ds-1', is_dem: true as boolean | null };
+
+  function makeTerrainConfig(overrides: Partial<MapTerrainConfig> = {}): MapTerrainConfig {
+    return {
+      enabled: true,
+      source_dataset_id: 'dem-ds-1',
+      exaggeration: 1,
+      ...overrides,
+    };
+  }
+
+  it('Test A: returns true when terrain enabled + same dataset + is_dem', () => {
+    expect(isHillshadeTerrainBound(demLayer, makeTerrainConfig())).toBe(true);
+  });
+
+  it('Test B: returns false when terrain is disabled (Map B scenario)', () => {
+    expect(isHillshadeTerrainBound(demLayer, makeTerrainConfig({ enabled: false }))).toBe(false);
+  });
+
+  it('Test C: returns false when source_dataset_id !== layer.dataset_id (different DEM)', () => {
+    expect(isHillshadeTerrainBound(otherLayer, makeTerrainConfig())).toBe(false);
+  });
+
+  it('Test D: returns false when terrainConfig is null', () => {
+    expect(isHillshadeTerrainBound(demLayer, null)).toBe(false);
+  });
+
+  it('Test D (undefined): returns false when terrainConfig is undefined', () => {
+    expect(isHillshadeTerrainBound(demLayer, undefined)).toBe(false);
+  });
+
+  it('returns false when is_dem is false even if terrain matches', () => {
+    expect(isHillshadeTerrainBound({ dataset_id: 'dem-ds-1', is_dem: false }, makeTerrainConfig())).toBe(false);
+  });
+});
+
+describe('POLISH-02 syncRasterLayer hillshade skip guard', () => {
+  let map: ReturnType<typeof createMockMap>;
+  let managedSourcesRef: { current: Set<string> };
+
+  function makeDEMLayer(overrides: Partial<MapLayerResponse> = {}): MapLayerResponse {
+    return {
+      id: 'dem-layer-1',
+      dataset_id: 'dem-ds-1',
+      dataset_name: 'Test DEM',
+      dataset_geometry_type: null,
+      dataset_table_name: 'dem_table',
+      dataset_extent_bbox: null,
+      dataset_column_info: null,
+      dataset_feature_count: null,
+      dataset_sample_values: null,
+      display_name: null,
+      sort_order: 0,
+      visible: true,
+      opacity: 1,
+      paint: {},
+      layout: {},
+      filter: null,
+      label_config: null,
+      style_config: { render_mode: 'hillshade' } as MapLayerResponse['style_config'],
+      layer_type: 'raster_geolens',
+      dataset_record_type: 'raster_dataset',
+      is_dem: true,
+      dem_vertical_units: null,
+      show_in_legend: true,
+      ...overrides,
+    } as MapLayerResponse;
+  }
+
+  beforeEach(() => {
+    map = createMockMap();
+    managedSourcesRef = { current: new Set() };
+  });
+
+  it('Test E: when isHillshadeTerrainBound is true + hillshade mode, map.addSource is NOT called', () => {
+    const layer = makeDEMLayer();
+    const tokenMap = new Map<string, TileToken>([
+      ['dem-ds-1', makeRasterToken({ tile_url: '/tiles/dem/{z}/{x}/{y}.png' })],
+    ]);
+    const terrainConfig: MapTerrainConfig = {
+      enabled: true,
+      source_dataset_id: 'dem-ds-1',
+      exaggeration: 1,
+    };
+
+    syncLayersToMap(map, [layer], tokenMap, undefined, managedSourcesRef, { current: '' }, undefined, {
+      terrainConfig,
+    });
+
+    // The hillshade raster-dem consumer should be skipped entirely
+    expect((map.addSource as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(0);
+    expect((map.addLayer as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(0);
+  });
+
+  it('Test F: when isHillshadeTerrainBound is false + hillshade mode, normal hillshade path runs', () => {
+    const layer = makeDEMLayer();
+    const tokenMap = new Map<string, TileToken>([
+      ['dem-ds-1', makeRasterToken({ tile_url: '/tiles/dem/{z}/{x}/{y}.png' })],
+    ]);
+    // terrain is disabled — predicate returns false — hillshade path runs normally
+    const terrainConfig: MapTerrainConfig = {
+      enabled: false,
+      source_dataset_id: 'dem-ds-1',
+      exaggeration: 1,
+    };
+
+    syncLayersToMap(map, [layer], tokenMap, undefined, managedSourcesRef, { current: '' }, undefined, {
+      terrainConfig,
+    });
+
+    // Normal hillshade path runs: addSource should be called
+    expect((map.addSource as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThan(0);
   });
 });

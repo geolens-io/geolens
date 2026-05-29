@@ -51,7 +51,10 @@ vi.mock('@/hooks/use-maps', () => ({
 }));
 
 vi.mock('@/hooks/use-ai-availability', () => ({
-  useAIAvailability: () => ({ isAIAvailable: false }),
+  // Plan 03 (Phase 1135) replaced the plain-text disabled state with AIDisabledState
+  // which branches on `reason`. Provide reason='env_disabled' so the structured
+  // disabled state renders "AI is disabled" (rail.aiDisabledTitle) instead of a spinner.
+  useAIAvailability: () => ({ isAIAvailable: false, reason: 'env_disabled', isLoading: false }),
 }));
 
 vi.mock('@/hooks/use-document-title', () => ({
@@ -236,6 +239,8 @@ describe('MapBuilderPage notes migration and AI rail polish', () => {
 
     await user.click(aiButton);
 
-    expect(screen.getByText('rail.aiUnavailableTitle')).toBeInTheDocument();
+    // Plan 03 (Phase 1135): AIDisabledState renders reason-specific titles.
+    // With reason='env_disabled' the title key is 'rail.aiDisabledTitle'.
+    expect(screen.getByText('rail.aiDisabledTitle')).toBeInTheDocument();
   });
 });

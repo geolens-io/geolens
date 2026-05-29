@@ -106,9 +106,7 @@ class TestPhase2CommitBoundary:
         from app.core.db import async_session
 
         async with async_session() as fresh_session:
-            exists = await self._column_for_session_exists(
-                fresh_session, "geom_4326"
-            )
+            exists = await self._column_for_session_exists(fresh_session, "geom_4326")
         assert exists is False, (
             "add_4326_column work survived a session.rollback() — the helper "
             "is committing internally (P2-02 / ING-02 regression)"
@@ -146,9 +144,7 @@ class TestPhase2CommitBoundary:
         from app.core.db import async_session
 
         async with async_session() as fresh_session:
-            assert await self._column_for_session_exists(
-                fresh_session, "geom_4326"
-            ), (
+            assert await self._column_for_session_exists(fresh_session, "geom_4326"), (
                 "add_4326_column work was lost across the outer commit — "
                 "the helper or its caller did not persist the column"
             )
@@ -196,9 +192,7 @@ class TestPhase2CommitBoundary:
         await self.session.commit()
 
         async with async_session() as probe_session:
-            assert await self._column_for_session_exists(
-                probe_session, "geom_4326"
-            ), (
+            assert await self._column_for_session_exists(probe_session, "geom_4326"), (
                 "Probe session does not see geom_4326 after the outer commit — "
                 "the four-helper chain failed to persist its work"
             )

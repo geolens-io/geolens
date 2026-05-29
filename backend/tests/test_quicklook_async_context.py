@@ -64,7 +64,7 @@ from __future__ import annotations
 import uuid as _uuid
 
 import pytest
-from sqlalchemy import select, text
+from sqlalchemy import text
 
 import app.processing.vector.quicklook as quicklook_module
 from app.modules.catalog.datasets.domain.models import Dataset, Record
@@ -275,9 +275,7 @@ async def test_generate_quicklook_timeout_does_not_poison_outer_session(
             ql_session,
             _ql_job,
         ):
-            await _generate_quicklook(
-                ql_session, dataset, table_name, "MultiPolygon"
-            )
+            await _generate_quicklook(ql_session, dataset, table_name, "MultiPolygon")
 
         # The outer session must remain healthy: dataset.record is lazy=joined
         # and was eagerly loaded inside _create_test_dataset_with_table's
@@ -436,9 +434,7 @@ async def test_generate_quicklook_completes_on_multipolygon_shape(
             ql_session,
             _ql_job,
         ):
-            await _generate_quicklook(
-                ql_session, dataset, table_name, "MultiPolygon"
-            )
+            await _generate_quicklook(ql_session, dataset, table_name, "MultiPolygon")
 
         # Re-fetch the dataset on the outer session to observe what
         # _generate_quicklook persisted via the fresh session. The fresh
@@ -542,10 +538,7 @@ async def test_generate_quicklook_url_persists_after_geom_timeout(
             msg = rec.msg
             if not isinstance(msg, dict):
                 return False
-            return (
-                msg.get("event") == "quicklook_failed"
-                and msg.get("phase") == phase
-            )
+            return msg.get("event") == "quicklook_failed" and msg.get("phase") == phase
 
         commit_phase_records = [
             r for r in caplog.records if _is_quicklook_failed(r, phase="commit")
@@ -581,8 +574,7 @@ async def test_generate_quicklook_url_persists_after_geom_timeout(
         assert recovery_phase_records == [], (
             "unexpected phase=recovery warning on the timeout path — "
             "the iter-2 rollback should succeed on the in-test cancellation "
-            "shape. Logged dicts:\n"
-            + "\n".join(repr(r.msg) for r in caplog.records)
+            "shape. Logged dicts:\n" + "\n".join(repr(r.msg) for r in caplog.records)
         )
     finally:
         await _drop_test_table(session, table_name)

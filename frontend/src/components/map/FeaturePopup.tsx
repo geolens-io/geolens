@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 import { ChevronLeft, ChevronRight, Copy, Check, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { truncateGraphemes } from '@/lib/text';
+import { splitTextWithUrls, classifyUrl } from '@/lib/popup-rich-text';
 
 export interface FeatureInfo {
   properties: Record<string, unknown>;
@@ -252,7 +253,68 @@ function ValueDisplay({
 }) {
   const [expanded, setExpanded] = useState(false);
 
+  // Standalone URL: classify and render image / video / YouTube / plain anchor.
+  // This branch handles the case where the entire property value is a URL.
+  // NOTE on iframe sandbox: YouTube embed REQUIRES allow-same-origin so the
+  // player can load its own JS. This is intentionally laxer than the share-embed
+  // sandbox (allow-scripts only). See threat model T-1138-04.
   if (isUrl(value)) {
+    const { kind, srcUrl } = classifyUrl(value);
+
+    if (kind === 'image') {
+      return (
+        <span className="block space-y-1">
+          <img
+            src={srcUrl}
+            alt={srcUrl}
+            loading="lazy"
+            decoding="async"
+            crossOrigin="anonymous"
+            className="max-h-32 max-w-full rounded object-contain"
+          />
+          <a
+            href={srcUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-primary underline break-all text-[10px]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {truncateGraphemes(srcUrl, MAX_VALUE_LENGTH)}
+          </a>
+        </span>
+      );
+    }
+
+    if (kind === 'video') {
+      return (
+        <span className="block">
+          {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
+          <video
+            src={srcUrl}
+            controls
+            preload="metadata"
+            className="max-h-32 max-w-full rounded"
+          />
+        </span>
+      );
+    }
+
+    if (kind === 'youtube') {
+      return (
+        <span className="block">
+          <iframe
+            src={srcUrl}
+            title="YouTube video"
+            sandbox="allow-scripts allow-same-origin allow-presentation"
+            referrerPolicy="no-referrer-when-downgrade"
+            loading="lazy"
+            className="max-h-32 max-w-full rounded w-full aspect-video"
+          />
+        </span>
+      );
+    }
+
+    // kind === 'other': plain anchor (backward-compatible with isUrl branch).
     return (
       <a
         href={value}
@@ -264,6 +326,35 @@ function ValueDisplay({
         {!expanded ? truncateGraphemes(value, MAX_VALUE_LENGTH) : value}
       </a>
     );
+  }
+
+  // String with embedded URLs: split into text + anchor segments.
+  // Media is NOT rendered inline here (POL: avoid blowing up a paragraph with embeds).
+  if (typeof value === 'string') {
+    const segments = splitTextWithUrls(value);
+    const hasUrls = segments.some((s) => s.kind === 'url');
+    if (hasUrls) {
+      return (
+        <span className="break-words">
+          {segments.map((seg, i) =>
+            seg.kind === 'url' ? (
+              <a
+                key={i}
+                href={seg.value}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-primary underline break-all"
+                onClick={(e) => e.stopPropagation()}
+              >
+                {seg.value}
+              </a>
+            ) : (
+              <span key={i}>{seg.value}</span>
+            ),
+          )}
+        </span>
+      );
+    }
   }
 
   const formatted = formatValue(value);

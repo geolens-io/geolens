@@ -43,8 +43,10 @@ vi.mock('@/hooks/use-settings', () => ({
 }));
 
 const mockUploadThumbnail = vi.fn((..._args: unknown[]) => Promise.resolve());
+const mockUploadOgImage = vi.fn((..._args: unknown[]) => Promise.resolve());
 vi.mock('@/api/maps', () => ({
   uploadThumbnail: (...args: unknown[]) => mockUploadThumbnail(...args),
+  uploadOgImage: (...args: unknown[]) => mockUploadOgImage(...args),
 }));
 
 vi.mock('sonner', () => ({
@@ -67,6 +69,19 @@ vi.mock('react-router', async () => {
     useBlocker: () => mockBlocker,
   };
 });
+
+const mockEdition = vi.hoisted(() => ({
+  isEnterprise: false,
+}));
+
+vi.mock('@/hooks/use-edition', () => ({
+  useEdition: () => ({
+    edition: mockEdition.isEnterprise ? 'enterprise' : 'community',
+    features: [],
+    isEnterprise: mockEdition.isEnterprise,
+    isLoading: false,
+  }),
+}));
 
 /* ── Helpers ───────────────────────────────────────── */
 
@@ -303,6 +318,7 @@ describe('useBuilderSave', () => {
     // so module-level state doesn't bleed across cases.
     __resetThumbnailDebounceForTests();
     mockEnabledWidgets.value = null;
+    mockEdition.isEnterprise = false;
     mockUpdateMapMutateAsync.mockImplementation(async (payload) => {
       mockMutate(payload);
       return { id: payload.id, layers: [] };
@@ -877,6 +893,92 @@ describe('useBuilderSave', () => {
     expect(mockMutate).toHaveBeenCalledTimes(1);
   });
 
+  describe('EASY-02: Cmd/Ctrl+S keyboard shortcut gating', () => {
+    it('EASY-02 — no-op when a Radix dialog is open (role=dialog data-state=open)', () => {
+      const dialog = document.createElement('div');
+      dialog.setAttribute('role', 'dialog');
+      dialog.setAttribute('data-state', 'open');
+      document.body.appendChild(dialog);
+
+      const state = makeSaveState();
+      renderHook(() => useBuilderSave(state));
+
+      act(() => {
+        window.dispatchEvent(
+          new KeyboardEvent('keydown', { key: 's', metaKey: true, bubbles: true }),
+        );
+      });
+
+      expect(mockMutate).not.toHaveBeenCalled();
+
+      document.body.removeChild(dialog);
+    });
+
+    it('EASY-02 — handleSave fires when no dialog is open', () => {
+      const state = makeSaveState();
+      renderHook(() => useBuilderSave(state));
+
+      act(() => {
+        window.dispatchEvent(
+          new KeyboardEvent('keydown', { key: 's', ctrlKey: true, bubbles: true }),
+        );
+      });
+
+      expect(mockMutate).toHaveBeenCalledTimes(1);
+    });
+
+    it('EASY-02 — preventDefault fires even when save is pending', () => {
+      const preventDefaultSpy = vi.fn();
+      const event = new KeyboardEvent('keydown', {
+        key: 's',
+        metaKey: true,
+        bubbles: true,
+        cancelable: true,
+      });
+      event.preventDefault = preventDefaultSpy;
+
+      const state = makeSaveState();
+      renderHook(() => useBuilderSave(state));
+
+      act(() => { window.dispatchEvent(event); });
+
+      expect(preventDefaultSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it('EASY-02 — plain s without modifier does NOT trigger handleSave or preventDefault', () => {
+      const preventDefaultSpy = vi.fn();
+      const event = new KeyboardEvent('keydown', {
+        key: 's',
+        bubbles: true,
+        cancelable: true,
+      });
+      event.preventDefault = preventDefaultSpy;
+
+      const state = makeSaveState();
+      renderHook(() => useBuilderSave(state));
+
+      act(() => { window.dispatchEvent(event); });
+
+      expect(mockMutate).not.toHaveBeenCalled();
+      expect(preventDefaultSpy).not.toHaveBeenCalled();
+    });
+
+    it('EASY-02 — keydown listener is removed on hook unmount (negative-control)', () => {
+      const state = makeSaveState();
+      const { unmount } = renderHook(() => useBuilderSave(state));
+
+      unmount();
+
+      act(() => {
+        window.dispatchEvent(
+          new KeyboardEvent('keydown', { key: 's', metaKey: true, bubbles: true }),
+        );
+      });
+
+      expect(mockMutate).not.toHaveBeenCalled();
+    });
+  });
+
   it('returns blocker from hook', () => {
     const state = makeSaveState();
     const { result } = renderHook(() => useBuilderSave(state));
@@ -1027,6 +1129,36 @@ describe('useBuilderSave', () => {
       // Simulate the render frame (PERF-08).
       await act(async () => { fireRenderCallback(mockMap); await Promise.resolve(); });
       expect(mockUploadThumbnail).toHaveBeenCalledTimes(1);
+
+      vi.useRealTimers();
+    });
+
+    it('SHARE-08: doCapture uploads both 1200x630 OG image and 400x250 thumbnail in one render event (triggerRepaint called once)', async () => {
+      // TDD RED: this test should fail until uploadOgImage is wired into doCapture.
+      vi.useFakeTimers();
+      const mockMap = createMockMap({ loaded: true });
+      await triggerSaveSuccess(mockMap);
+
+      // Advance past 500ms debounce
+      act(() => { vi.advanceTimersByTime(500); });
+
+      // One render event registered; one repaint fired
+      expect(mockMap.once).toHaveBeenCalledWith('render', expect.any(Function));
+      expect(mockMap.triggerRepaint).toHaveBeenCalledTimes(1);
+
+      // Fire the render callback — both uploads happen synchronously in the same onRender
+      await act(async () => { fireRenderCallback(mockMap); await Promise.resolve(); });
+
+      // Thumbnail upload unchanged
+      expect(mockUploadThumbnail).toHaveBeenCalledOnce();
+      expect(mockUploadThumbnail).toHaveBeenCalledWith('map-1', expect.stringContaining('data:image/jpeg'));
+
+      // OG image upload: new requirement
+      expect(mockUploadOgImage).toHaveBeenCalledOnce();
+      expect(mockUploadOgImage).toHaveBeenCalledWith('map-1', expect.stringContaining('data:image/jpeg'));
+
+      // triggerRepaint MUST NOT be called a second time (Pitfall #5: one repaint only)
+      expect(mockMap.triggerRepaint).toHaveBeenCalledTimes(1);
 
       vi.useRealTimers();
     });
@@ -1423,5 +1555,158 @@ describe('useBuilderSave', () => {
       createElementSpy.mockRestore();
       vi.useRealTimers();
     });
+  });
+});
+
+/* ── SHARE-09: export PNG composition regression pins ── */
+
+describe('SHARE-09 export PNG composition', () => {
+  let fillTextSpy: ReturnType<typeof vi.fn>;
+  let fillRectSpy: ReturnType<typeof vi.fn>;
+  let createElementSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    __resetThumbnailDebounceForTests();
+    mockEdition.isEnterprise = false;
+
+    fillTextSpy = vi.fn();
+    fillRectSpy = vi.fn();
+
+    const ctx2d = {
+      fillStyle: '',
+      strokeStyle: '',
+      font: '',
+      textBaseline: '',
+      lineWidth: 1,
+      fillText: fillTextSpy,
+      fillRect: fillRectSpy,
+      strokeRect: vi.fn(),
+      drawImage: vi.fn(),
+      measureText: vi.fn(() => ({ width: 120 })),
+    };
+
+    const offscreenCanvas = {
+      width: 800,
+      height: 600,
+      getContext: vi.fn(() => ctx2d),
+      toBlob: vi.fn((cb: (b: Blob | null) => void) => cb(new Blob(['png'], { type: 'image/png' }))),
+    };
+
+    const origCreateElement = document.createElement.bind(document);
+    createElementSpy = vi.spyOn(document, 'createElement').mockImplementation((tag: string, options?: ElementCreationOptions) => {
+      if (tag === 'canvas') {
+        return offscreenCanvas as unknown as HTMLCanvasElement;
+      }
+      return origCreateElement(tag, options);
+    });
+  });
+
+  afterEach(() => {
+    createElementSpy.mockRestore();
+    mockEdition.isEnterprise = false;
+  });
+
+  function makeExportMap() {
+    return createMockMap({ loaded: true });
+  }
+
+  it('renders title and description in the title block when localName is non-empty', () => {
+    const mockMap = makeExportMap();
+    const state = makeSaveState({
+      localName: 'My Map',
+      localDescription: 'Test desc',
+      localLayers: [],
+      mapInstanceRef: { current: mockMap } as unknown as SaveState['mapInstanceRef'],
+    });
+    const { result } = renderHook(() => useBuilderSave(state));
+
+    act(() => { result.current.handleExportPNG(); });
+    act(() => { fireRenderCallback(mockMap); });
+
+    const calls = fillTextSpy.mock.calls.map((c: unknown[]) => c[0]);
+    expect(calls.some((text: unknown) => text === 'My Map')).toBe(true);
+    expect(calls.some((text: unknown) => text === 'Test desc')).toBe(true);
+  });
+
+  it('renders legend header and one row per visible legend layer', () => {
+    const mockMap = makeExportMap();
+    const streetsLayer = makeLayer({
+      id: 'layer-streets',
+      display_name: 'Streets',
+      visible: true,
+      show_in_legend: true,
+    });
+    const hiddenLayer = makeLayer({
+      id: 'layer-hidden',
+      display_name: 'Hidden',
+      visible: true,
+      show_in_legend: false,
+    });
+    const invisibleLayer = makeLayer({
+      id: 'layer-invisible',
+      display_name: 'Invisible',
+      visible: false,
+      show_in_legend: true,
+    });
+    const state = makeSaveState({
+      localName: '',
+      localDescription: '',
+      localLayers: [streetsLayer, hiddenLayer, invisibleLayer],
+      mapInstanceRef: { current: mockMap } as unknown as SaveState['mapInstanceRef'],
+    });
+    const { result } = renderHook(() => useBuilderSave(state));
+
+    act(() => { result.current.handleExportPNG(); });
+    act(() => { fireRenderCallback(mockMap); });
+
+    const calls = fillTextSpy.mock.calls.map((c: unknown[]) => c[0] as string);
+    // Legend header text (i18n key returns the key itself in test setup)
+    expect(calls.some((text) => /legend/i.test(text))).toBe(true);
+    // Streets layer row
+    expect(calls.some((text) => text === 'Streets')).toBe(true);
+    // Color swatch fill rect for the qualifying layer
+    expect(fillRectSpy).toHaveBeenCalled();
+  });
+
+  it('renders Powered by GeoLens footer when isEnterprise is false', () => {
+    mockEdition.isEnterprise = false;
+    const mockMap = makeExportMap();
+    const state = makeSaveState({
+      localName: '',
+      localDescription: '',
+      localLayers: [],
+      mapInstanceRef: { current: mockMap } as unknown as SaveState['mapInstanceRef'],
+    });
+    const { result } = renderHook(() => useBuilderSave(state));
+
+    act(() => { result.current.handleExportPNG(); });
+    act(() => { fireRenderCallback(mockMap); });
+
+    // i18n mock returns key as-is; use-builder-save calls t('export.poweredBy', { defaultValue: ... })
+    const calls = fillTextSpy.mock.calls.map((c: unknown[]) => c[0] as string);
+    expect(calls.some((text) => /export\.poweredBy|Powered by GeoLens/.test(text))).toBe(true);
+  });
+
+  it('suppresses Powered by GeoLens footer when isEnterprise is true', () => {
+    mockEdition.isEnterprise = true;
+    const mockMap = makeExportMap();
+    const state = makeSaveState({
+      localName: '',
+      localDescription: '',
+      localLayers: [],
+      mapInstanceRef: { current: mockMap } as unknown as SaveState['mapInstanceRef'],
+    });
+    const { result } = renderHook(() => useBuilderSave(state));
+
+    act(() => { result.current.handleExportPNG(); });
+    act(() => { fireRenderCallback(mockMap); });
+
+    // Neither the key form nor the human-readable form should appear
+    expect(fillTextSpy).not.toHaveBeenCalledWith(
+      expect.stringMatching(/export\.poweredBy|Powered by GeoLens/),
+      expect.anything(),
+      expect.anything(),
+    );
   });
 });

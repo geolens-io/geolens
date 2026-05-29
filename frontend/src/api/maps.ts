@@ -286,6 +286,13 @@ export async function uploadThumbnail(mapId: string, dataUri: string): Promise<v
   });
 }
 
+export async function uploadOgImage(mapId: string, dataUri: string): Promise<void> {
+  await apiFetch(`/maps/${mapId}/og-image/`, {
+    method: 'PUT',
+    body: JSON.stringify({ data_uri: dataUri }),
+  });
+}
+
 export async function fetchDatasetMaps(datasetId: string): Promise<MapListResponse> {
   return apiFetch<MapListResponse>(`/datasets/${datasetId}/maps/`);
 }

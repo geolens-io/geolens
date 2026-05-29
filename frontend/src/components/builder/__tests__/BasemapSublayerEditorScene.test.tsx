@@ -301,4 +301,34 @@ describe('BasemapSublayerEditorScene', () => {
     expect(screen.getByText('CASING')).toBeInTheDocument();
     expect(screen.getByText('ZOOM RANGE')).toBeInTheDocument();
   });
+
+  // ---------------------------------------------------------------------------
+  // EDITOR-BASEMAP-03 — v1011 INV-01 DETAIL LEVEL stays-gone regression pin
+  //
+  // Disposition history:
+  //  - v1011 Phase 1051 Plan 11 (INV-01): REMOVED DETAIL LEVEL pill strip
+  //  - Phase 1059 CONTEXT.md D-18: disposition reaffirmed (do not resurrect)
+  //  - Phase 1133 WALK-B-02: live MCP audit confirmed surface ABSENT (PASS)
+  //  - Phase 1136 EDITOR-BASEMAP-03: positive-form regression pin (this block)
+  //
+  // These tests fail loudly if anyone re-introduces the DETAIL LEVEL pill
+  // strip, the status hint, or a radiogroup-shaped detail control to this
+  // component. The shape is intentionally negative — there is no production
+  // code to test; we test the ABSENCE of a removed surface.
+  // ---------------------------------------------------------------------------
+
+  it('EDITOR-BASEMAP-03 (a): renders no text matching /detail level/i (v1011 INV-01)', () => {
+    render(<BasemapSublayerEditorScene {...defaultProps()} />);
+    expect(screen.queryByText(/detail level/i)).not.toBeInTheDocument();
+  });
+
+  it('EDITOR-BASEMAP-03 (b): renders no role="radiogroup" (the removed DETAIL LEVEL pill strip shape)', () => {
+    render(<BasemapSublayerEditorScene {...defaultProps()} />);
+    expect(screen.queryAllByRole('radiogroup')).toHaveLength(0);
+  });
+
+  it('EDITOR-BASEMAP-03 (c): renders no text matching /currently customized/i (the v1011-removed status hint)', () => {
+    render(<BasemapSublayerEditorScene {...defaultProps()} />);
+    expect(screen.queryByText(/currently customized/i)).not.toBeInTheDocument();
+  });
 });

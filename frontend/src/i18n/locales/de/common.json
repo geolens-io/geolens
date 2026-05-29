@@ -386,5 +386,9 @@
     "lazyMessage": "Ein Teil der Anwendung konnte nicht geladen werden. Dies ist normalerweise ein Netzwerkproblem.",
     "lazyRetry": "Erneut versuchen",
     "lazyRetrying": "Wird erneut versucht..."
+  },
+  "export": {
+    "poweredBy": "Powered by GeoLens",
+    "legendHeader": "Legende"
   }
 }

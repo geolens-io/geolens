@@ -14,7 +14,6 @@ This file contains:
     honoured at the SQLAlchemy level without spinning up a database.
 """
 
-import pytest
 from sqlalchemy import select
 from sqlalchemy.dialects import postgresql
 
@@ -24,7 +23,9 @@ from app.modules.audit.service import _apply_filters
 
 def _compile_query(q) -> str:
     """Return the compiled SQL string for a SQLAlchemy select statement."""
-    return str(q.compile(dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True}))
+    return str(
+        q.compile(dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True})
+    )
 
 
 class TestAuditEscapeIlikeSql:
@@ -65,18 +66,14 @@ class TestAuditEscapeIlikeSql:
         """search='_' must emit '\\_' in the resource_type ILIKE pattern."""
         q = _apply_filters(self._base(), search="_")
         sql = _compile_query(q)
-        assert r"\_" in sql, (
-            f"Expected escaped underscore '\\_' in SQL, got:\n{sql}"
-        )
+        assert r"\_" in sql, f"Expected escaped underscore '\\_' in SQL, got:\n{sql}"
 
     def test_backslash_literal_doubled_in_resource_type_ilike(self):
         """search='\\\\' (literal backslash) must emit '\\\\\\\\' in the SQL pattern."""
         q = _apply_filters(self._base(), search="\\")
         sql = _compile_query(q)
         # A doubled backslash in the ILIKE pattern (PostgreSQL escaping on top)
-        assert "\\\\" in sql, (
-            f"Expected doubled backslash in SQL pattern, got:\n{sql}"
-        )
+        assert "\\\\" in sql, f"Expected doubled backslash in SQL pattern, got:\n{sql}"
 
     def test_escape_clause_present(self):
         """The ILIKE call must emit ESCAPE '\\\\' to make the escape char explicit."""

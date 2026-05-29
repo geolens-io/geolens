@@ -340,9 +340,7 @@ async def update_dataset_metadata(
 # no-trailing-slash variants register against the same handler. Slash form
 # stays canonical (already in OpenAPI); no-slash is a hidden alias closing
 # the 404 regression introduced by redirect_slashes=False (api/main.py).
-@router.post(
-    "/bulk-delete", response_model=BulkDeleteResponse, include_in_schema=False
-)
+@router.post("/bulk-delete", response_model=BulkDeleteResponse, include_in_schema=False)
 @router.post("/bulk-delete/", response_model=BulkDeleteResponse)
 async def bulk_delete_datasets_endpoint(
     body: BulkDeleteRequest,

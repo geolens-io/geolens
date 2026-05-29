@@ -105,6 +105,20 @@ async def _validate_chat_layers(
     - Resolves each layer's dataset_table_name from the DB by dataset_id.
     - Rejects layers whose datasets the user cannot access.
 
+    **Visibility decision (Pitfall #5 — v1030 Phase 1135 AI-04):** This function
+    does NOT filter layers by their ``visible`` state, even if the frontend
+    sends a ``visible`` field on the ChatMapLayer model. AI chat analysis sees
+    every layer present in the map regardless of visibility. Rationale:
+    visibility is a viewer-only decluttering signal (users hide layers to
+    reduce visual noise, not to say "do not analyze these"). When a user asks
+    "summarize this layer" or "which counties are in the AOI", the AI must
+    have the full layer manifest to answer correctly; filtering by visibility
+    would silently exclude data the user expects to be analyzed.
+
+    If a future requirement DOES want to scope analysis to visible layers
+    only, add an explicit ``include_hidden: bool`` parameter rather than
+    silently changing the contract here.
+
     Returns (validated_layers, basemap_style).
     """
     from app.modules.catalog.maps.models import Map as MapORM

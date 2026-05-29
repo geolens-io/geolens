@@ -277,6 +277,7 @@ from .manifest_publication import ManifestPublication
 from .manifest_publication_intent import ManifestPublicationIntent
 from .manifest_source import ManifestSource
 from .manifest_source_type import ManifestSourceType
+from .map_access_response import MapAccessResponse
 from .map_create import MapCreate
 from .map_defaults_response import MapDefaultsResponse
 from .map_generate_request import MapGenerateRequest
@@ -341,6 +342,7 @@ from .o_auth_provider_update_group_role_mapping_type_0 import (
 from .o_auth_provider_update_provider_type_type_0 import (
     OAuthProviderUpdateProviderTypeType0,
 )
+from .og_image_upload_request import OgImageUploadRequest
 from .ogc_asset import OGCAsset
 from .ogc_collection_metadata import OGCCollectionMetadata
 from .ogc_collection_metadata_extent_type_0 import OGCCollectionMetadataExtentType0
@@ -408,6 +410,12 @@ from .raster_band_info import RasterBandInfo
 from .raster_connect import RasterConnect
 from .raster_metadata import RasterMetadata
 from .raster_preview_response import RasterPreviewResponse
+from .raster_tile_proxy_tiles_raster_proxy_dataset_id_zxy_fmt_get_colormap_name_type_0 import (
+    RasterTileProxyTilesRasterProxyDatasetIdZXYFmtGetColormapNameType0,
+)
+from .raster_tile_proxy_tiles_raster_proxy_dataset_id_zxy_fmt_get_stretch_type_0 import (
+    RasterTileProxyTilesRasterProxyDatasetIdZXYFmtGetStretchType0,
+)
 from .raster_tile_token import RasterTileToken
 from .refresh_request import RefreshRequest
 from .register_request import RegisterRequest
@@ -786,6 +794,7 @@ __all__ = (
     "ManifestPublicationIntent",
     "ManifestSource",
     "ManifestSourceType",
+    "MapAccessResponse",
     "MapCreate",
     "MapDefaultsResponse",
     "MapGenerateRequest",
@@ -859,6 +868,7 @@ __all__ = (
     "OGCRecordResponseAssetsType0",
     "OGCRecordResponseGeometryType0",
     "OGCRecordResponseTimeType0",
+    "OgImageUploadRequest",
     "PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchGeoJSONFeature",
     "PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchGeoJSONFeatureProperties",
     "PermissionsResponse",
@@ -881,6 +891,8 @@ __all__ = (
     "RasterConnect",
     "RasterMetadata",
     "RasterPreviewResponse",
+    "RasterTileProxyTilesRasterProxyDatasetIdZXYFmtGetColormapNameType0",
+    "RasterTileProxyTilesRasterProxyDatasetIdZXYFmtGetStretchType0",
     "RasterTileToken",
     "RefreshRequest",
     "RegisterRequest",

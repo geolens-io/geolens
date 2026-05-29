@@ -4,7 +4,9 @@ import { Slider } from '@/components/ui/slider';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
+import { Switch } from '@/components/ui/switch';
 import { StyleColorPicker } from './StyleColorPicker';
+import { ColorRampPicker } from './ColorRampPicker';
 import {
   HILLSHADE_EXAGGERATION_MAX,
   HILLSHADE_EXAGGERATION_MIN,
@@ -17,13 +19,7 @@ import {
 } from './map-sync';
 import type { MapLayerResponse, StyleConfig } from '@/types/api';
 
-/**
- * DEM render mode union.
- * Note: 'terrain' is not currently in StyleConfig.render_mode union (which has
- * 'heatmap' | 'hillshade' | 'symbol' | 'arrow' | 'cluster'). We cast at the boundary
- * to avoid a global type change. BSR-09 follow-up (Phase 1038 or backend change)
- * should extend the union to include 'terrain'.
- */
+/** DEM render mode union. Assignable to StyleConfig['render_mode'] without cast. */
 export type DemRenderMode = 'image' | 'hillshade' | 'terrain';
 
 export interface DEMEditorSceneProps {
@@ -45,6 +41,13 @@ export interface DEMEditorSceneProps {
   /** Called after the user confirms deletion. Matches the onRemove pattern in
    * LayerEditorHandlers — same wiring used by the default layer editor. */
   onRemove: (layerId: string) => void;
+  /**
+   * POLISH-02: when true, this DEM is already powering the map's terrain source.
+   * A muted advisory note is rendered in hillshade mode to inform the user that
+   * hillshade is suppressed (two raster-dem consumers cause MapLibre errors).
+   * Defaults to false when omitted.
+   */
+  isTerrainBound?: boolean;
 }
 
 function currentMode(layer: MapLayerResponse): DemRenderMode {
@@ -144,6 +147,7 @@ export const DEMEditorScene = memo(function DEMEditorScene({
   terrainExaggeration,
   onTerrainExaggerationChange,
   onRemove,
+  isTerrainBound = false,
 }: DEMEditorSceneProps) {
   const { t } = useTranslation('builder');
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -272,6 +276,16 @@ export const DEMEditorScene = memo(function DEMEditorScene({
 
           {mode === 'hillshade' && (
             <div className="space-y-4">
+              {/* POLISH-02: advisory note when this DEM also powers terrain */}
+              {isTerrainBound && (
+                <p
+                  className="text-[11px] leading-snug text-muted-foreground rounded-md border bg-muted/25 p-2"
+                  role="note"
+                  aria-label={t('demEditor.hillshadeTerrainNote', { defaultValue: 'Hillshade is unavailable while this DEM powers 3D Terrain — turn off Terrain to use Hillshade.' })}
+                >
+                  {t('demEditor.hillshadeTerrainNote', { defaultValue: 'Hillshade is unavailable while this DEM powers 3D Terrain — turn off Terrain to use Hillshade.' })}
+                </p>
+              )}
               {/* Sub-section: SUN POSITION */}
               <div>
                 <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground mb-3">
@@ -410,7 +424,59 @@ export const DEMEditorScene = memo(function DEMEditorScene({
         </div>
       </section>
 
-      {/* 3. VISIBILITY section — always expanded */}
+      {/* 3. HYPSOMETRIC TINT section — hillshade (full control) and terrain (hint only) modes */}
+      {/* Image mode: section not rendered at all (UI-SPEC A-01 / A-02 / critical_constraint) */}
+      {(mode === 'hillshade' || mode === 'terrain') && (
+        <section
+          aria-labelledby={`section-hypso-dem-${layer.id}`}
+          className="border-b"
+        >
+          <div className="px-4 py-2">
+            <p
+              id={`section-hypso-dem-${layer.id}`}
+              className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground mb-2"
+            >
+              {t('demEditor.sectionHypsometricTint', { defaultValue: 'HYPSOMETRIC TINT' })}
+            </p>
+
+            {/* Terrain mode: inline hint only — color-relief requires hillshade mode */}
+            {mode === 'terrain' && (
+              <p className="text-xs text-muted-foreground">
+                {t('demEditor.hypsometricTerrainHint', {
+                  defaultValue: 'Elevation tint is not available in Terrain mode',
+                })}
+              </p>
+            )}
+
+            {/* Hillshade mode: full toggle + ramp picker */}
+            {mode === 'hillshade' && (
+              <div className="space-y-3">
+                {/* Enable toggle */}
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs text-muted-foreground">
+                    {t('demEditor.hypsometricEnable', { defaultValue: 'Elevation tint' })}
+                  </Label>
+                  <Switch
+                    checked={paint['_hypso-enabled'] === true}
+                    onCheckedChange={(next) => handlePaintValue('_hypso-enabled', next)}
+                    aria-label={t('demEditor.hypsometricEnable', { defaultValue: 'Elevation tint' })}
+                  />
+                </div>
+                {/* Ramp picker — conditionally rendered (mount/unmount) when enabled */}
+                {paint['_hypso-enabled'] === true && (
+                  <ColorRampPicker
+                    mode="graduated"
+                    rampName={getString(paint, '_hypso-ramp', 'Viridis')}
+                    onChange={(name) => handlePaintValue('_hypso-ramp', name)}
+                  />
+                )}
+              </div>
+            )}
+          </div>
+        </section>
+      )}
+
+      {/* 5. VISIBILITY section — always expanded */}
       <section
         aria-labelledby={`section-visibility-dem-${layer.id}`}
         className="border-b"

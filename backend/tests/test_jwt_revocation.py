@@ -10,20 +10,12 @@ Covers:
 """
 
 import uuid
-from unittest.mock import AsyncMock
 
 import jwt
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import select, update
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.modules.auth.models import User
-from app.modules.auth.providers import AuthenticatedIdentity
-from app.modules.auth.providers.local import hash_password
-from app.modules.auth.router import REGISTRATION_ENABLED
-from app.modules.auth.service import AuthService
 
 pytestmark = pytest.mark.anyio
 
@@ -120,7 +112,9 @@ class TestTokenVersionRevocation:
         assert resp.status_code == 200, "token should be valid before bump"
 
         # Bump token_version directly via the service (simulates revoke_all_tokens).
-        resp2 = await client.post("/auth/logout/", headers={"Authorization": f"Bearer {old_access}"})
+        resp2 = await client.post(
+            "/auth/logout/", headers={"Authorization": f"Bearer {old_access}"}
+        )
         assert resp2.status_code == 204
 
         # The old token should now be stale.
@@ -142,8 +136,12 @@ class TestTokenVersionRevocation:
         access = tokens["access_token"]
 
         # /auth/me/ without any logout/bump — token should remain valid.
-        resp = await client.get("/auth/me/", headers={"Authorization": f"Bearer {access}"})
-        assert resp.status_code == 200, "token should remain valid when version not bumped"
+        resp = await client.get(
+            "/auth/me/", headers={"Authorization": f"Bearer {access}"}
+        )
+        assert resp.status_code == 200, (
+            "token should remain valid when version not bumped"
+        )
 
     async def test_legacy_jwt_without_token_version_claim_rejected(
         self, client: AsyncClient

@@ -1,8 +1,13 @@
 """Maps API endpoints: CRUD, duplication, and layer management."""
 
+import base64
+import html
 import uuid
 from datetime import UTC, datetime
+from io import BytesIO
 from typing import Literal
+
+from PIL import Image, UnidentifiedImageError
 
 import structlog
 from fastapi import (
@@ -17,7 +22,7 @@ from fastapi import (
     UploadFile,
     status,
 )
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -55,6 +60,7 @@ from app.modules.catalog.maps.schemas import (
     ShareTokenRequest,
     SharedMapResponse,
     ShareTokenResponse,
+    OgImageUploadRequest,
     ThumbnailUploadRequest,
     VisibilityCheckResponse,
 )
@@ -94,8 +100,9 @@ from app.modules.catalog.maps.service import (
     validate_public_visibility,
 )
 from app.modules.catalog.maps.models import Map, MapLayer
-from app.modules.catalog.maps.service import remove_layers_bulk
+from app.modules.catalog.maps.service import _validate_share_token, remove_layers_bulk
 from app.standards.ogc.errors import ERROR_RESPONSES_WRITE
+from app.core.public_urls import get_public_api_url
 
 logger = structlog.stdlib.get_logger(__name__)
 
@@ -108,14 +115,30 @@ router = APIRouter(prefix="/maps", tags=["Maps"], responses=ERROR_RESPONSES_WRIT
 
 
 def _build_frame_ancestors(origins: list[str] | None) -> str:
-    """Build a CSP frame-ancestors directive value from an allowed_origins list (SEC-S08, Phase 1062-05). CRLF-validated to prevent header injection."""
+    """Build a CSP frame-ancestors directive value from an allowed_origins list.
+
+    SEC-S08 / Phase 1062-05: derives the per-token frame-ancestors directive from
+    the EmbedToken.allowed_origins list. Two layers of malformed-entry filtering:
+
+    1. CRLF injection: entries containing \\r or \\n are silently dropped to
+       prevent response-header splitting.
+    2. Wildcard ('*') entries: silently dropped even if they somehow reached the
+       DB (defense-in-depth on top of the schema-layer 422 rejection in
+       _validate_origins). CSP frame-ancestors '*' is a hard security violation —
+       it disables clickjacking protection entirely (SHARE-06, Phase 1137-02).
+
+    Both filters are defense-in-depth: schema validation already runs at
+    create/update time and rejects malformed entries with a 422. These filters
+    protect against any stale DB row that bypassed validation (e.g. a direct
+    admin INSERT or a future migration that restores a backup from before the
+    schema-layer pin was added).
+    """
     if not origins:
         return "frame-ancestors 'self'"
     safe: list[str] = []
     for o in origins:
-        if "\r" in o or "\n" in o or not o.strip():
-            # Silently drop malformed entries — defense-in-depth on top of the
-            # admin-side EmbedToken validation that already runs at create/update.
+        if "\r" in o or "\n" in o or "*" in o or not o.strip():
+            # Silently drop malformed or wildcard entries — see docstring.
             continue
         safe.append(o.strip())
     if not safe:
@@ -138,6 +161,7 @@ def _meta_to_kwargs(meta) -> DatasetMetaKwargs:
             is_3d=None,
             is_dem=None,
             dem_vertical_units=None,
+            band_count=None,
         )
     return DatasetMetaKwargs(
         dataset_name=meta.title,
@@ -151,6 +175,7 @@ def _meta_to_kwargs(meta) -> DatasetMetaKwargs:
         is_3d=meta.is_3d,
         is_dem=None,
         dem_vertical_units=None,
+        band_count=None,
     )
 
 
@@ -185,6 +210,7 @@ def _build_layer_response(
         is_3d=meta.get("is_3d"),
         is_dem=meta.get("is_dem"),
         dem_vertical_units=meta.get("dem_vertical_units"),
+        band_count=meta.get("band_count"),
     )
 
 
@@ -205,6 +231,7 @@ def _layers_from_tuples(layer_rows: list[LayerRow]) -> list[MapLayerResponse]:
                 is_3d=row.is_3d,
                 is_dem=row.is_dem,
                 dem_vertical_units=row.dem_vertical_units,
+                band_count=row.band_count,
             ),
         )
         for row in layer_rows
@@ -324,6 +351,7 @@ def _build_map_response(
 ) -> MapResponse:
     """Build a MapResponse from a map object and layer list."""
     thumbnail_url = f"/maps/{map_obj.id}/thumbnail/" if map_obj.thumbnail_uri else None
+    og_image_url = f"/maps/{map_obj.id}/og-image/" if map_obj.og_image_uri else None
     return MapResponse(
         id=map_obj.id,
         name=map_obj.name,
@@ -340,6 +368,7 @@ def _build_map_response(
         terrain_config=map_obj.terrain_config,
         visibility=map_obj.visibility,
         thumbnail_url=thumbnail_url,
+        og_image_url=og_image_url,
         forked_from_id=map_obj.forked_from,
         forked_from_name=forked_from_name,
         created_by=map_obj.created_by,
@@ -459,6 +488,104 @@ async def list_maps_endpoint(
 
     summaries = [MapSummaryResponse(**m) for m in maps]
     return MapListResponse(maps=summaries, total=total)
+
+
+@router.get(
+    "/shared/{token}/card",
+    response_class=HTMLResponse,
+    include_in_schema=False,
+)
+async def shared_map_card_endpoint(
+    token: str,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> HTMLResponse:
+    """Crawler-facing HTML route that emits per-map OG/Twitter social-card meta.
+
+    Returns a minimal ``<!doctype html>`` document containing server-rendered
+    ``<meta>`` tags for ``og:title``, ``og:description``, ``og:image``,
+    ``og:type``, ``twitter:card``, ``twitter:title``, ``twitter:description``,
+    ``twitter:image``, and a ``<meta http-equiv="refresh">`` redirect to the
+    real SPA viewer at ``/m/{token}``.
+
+    Access control (T-1142-02):
+    - Invalid or revoked/expired token → 404 (no title/description leak)
+    - Non-public map → 404 (no title/description leak)
+
+    Security (T-1142-01):
+    - All user-controlled text (map name, description) is HTML-escaped via
+      ``html.escape()`` before interpolation into the meta content attribute.
+
+    Image URL priority:
+    1. ``og_image_uri`` → ``/api/maps/{id}/og-image/`` (absolute)
+    2. ``thumbnail_uri`` → ``/api/maps/{id}/thumbnail/`` (absolute)
+    3. ``/og-image.png`` (site-level static fallback, absolute)
+
+    ``include_in_schema=False``: this is a crawler-only HTML surface, not part
+    of the JSON API contract. No OpenAPI/SDK refresh needed for this route.
+    (Phase 1143 OpenAPI refresh is for the og-image PUT/GET and MapResponse.)
+    """
+    # Validate share token — mirror the exact rule used by the /m viewer.
+    token_obj = await _validate_share_token(db, token)
+    if token_obj is None or isinstance(token_obj, str):
+        # None = token not found; str = "expired" sentinel
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Share link not found",
+        )
+
+    map_obj = await get_map(db, token_obj.map_id)
+    if map_obj is None or map_obj.visibility != "public":
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Share link not found",
+        )
+
+    # Build absolute base URL (Pitfall 1: crawlers require fully-qualified URLs).
+    # SEC-05: use get_public_api_url() which validates the derived origin against
+    # the CORS allowlist, preventing a crafted Host header from steering og:image
+    # to an attacker-controlled domain.
+    base = await get_public_api_url(db, request=request)
+    base = base.rstrip("/")
+
+    # Determine OG image URL (absolute).
+    if map_obj.og_image_uri:
+        image_url = f"{base}/api/maps/{map_obj.id}/og-image/"
+    elif map_obj.thumbnail_uri:
+        image_url = f"{base}/api/maps/{map_obj.id}/thumbnail/"
+    else:
+        image_url = f"{base}/og-image.png"
+    # Defense-in-depth: escape the assembled URL before HTML attribute injection.
+    # URL characters from UUIDs + fixed path segments are safe, but a malicious
+    # Host value containing '"' or '>' would break the attribute boundary.
+    image_url = html.escape(image_url, quote=True)
+
+    # HTML-escape all user-controlled text (T-1142-01 / Pitfall 3).
+    title = html.escape(map_obj.name or "GeoLens Map")
+    description = html.escape(map_obj.description or "View this map on GeoLens")
+    # token is URL-path-shaped (SHA-256 hex-derived); safe to embed in refresh URL
+    # without HTML escaping — but escape it anyway for defence-in-depth.
+    viewer_url = f"/m/{html.escape(token)}"
+
+    card_html = (
+        "<!doctype html>\n"
+        "<html><head>\n"
+        '<meta charset="UTF-8">\n'
+        '<meta property="og:type" content="website">\n'
+        f'<meta property="og:title" content="{title}">\n'
+        f'<meta property="og:description" content="{description}">\n'
+        f'<meta property="og:image" content="{image_url}">\n'
+        '<meta name="twitter:card" content="summary_large_image">\n'
+        f'<meta name="twitter:title" content="{title}">\n'
+        f'<meta name="twitter:description" content="{description}">\n'
+        f'<meta name="twitter:image" content="{image_url}">\n'
+        f'<meta http-equiv="refresh" content="0;url={viewer_url}">\n'
+        "</head><body></body></html>"
+    )
+    return HTMLResponse(
+        content=card_html,
+        headers={"Cache-Control": "public, max-age=300"},
+    )
 
 
 @router.get("/shared/{token}", response_model=SharedMapResponse)
@@ -1493,8 +1620,6 @@ async def upload_thumbnail(
     Accepts a data:image/ URI, decodes the base64 payload, writes the image
     bytes to the configured storage provider, and stores the storage key.
     """
-    import base64
-
     from app.platform.storage.provider import get_storage
 
     data_uri = request.data_uri
@@ -1543,10 +1668,6 @@ async def upload_thumbnail(
     # store arbitrary bytes that GET /maps/{id}/thumbnail/ later serves back
     # with a media_type=image/* Content-Type — a stored-content tampering
     # primitive.
-    from io import BytesIO
-
-    from PIL import Image, UnidentifiedImageError
-
     try:
         with Image.open(BytesIO(image_bytes)) as img:
             img.verify()
@@ -1611,6 +1732,142 @@ async def get_thumbnail(
     media_type = "image/jpeg" if map_obj.thumbnail_uri.endswith(".jpg") else "image/png"
     cache_control = (
         "public, max-age=3600"
+        if map_obj.visibility == "public"
+        else "private, no-cache"
+    )
+    return Response(
+        content=data,
+        media_type=media_type,
+        headers={"Cache-Control": cache_control},
+    )
+
+
+# ---------------------------------------------------------------------------
+# OG-image upload/serve — SHARE-08 Path A
+# ---------------------------------------------------------------------------
+
+
+@router.put("/{map_id}/og-image/", status_code=status.HTTP_204_NO_CONTENT)
+async def upload_og_image(
+    map_id: uuid.UUID,
+    request: OgImageUploadRequest,
+    user: Identity = Depends(require_permission("edit_metadata")),
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    """Upload a base64 OG social-card image (up to 750KB) for a map.
+
+    Accepts a data:image/ URI, decodes the base64 payload, validates the
+    bytes are a real image (PIL verify), writes to storage under
+    ``maps/og-images/{map_id}.{ext}``, and persists the storage key to
+    ``catalog.maps.og_image_uri``.
+
+    Intended for 1200x630 JPEG captures (SHARE-08). The payload cap
+    (750KB) is larger than the thumbnail cap (100KB) to accommodate the
+    larger canvas export — they are separate schemas (OgImageUploadRequest
+    vs ThumbnailUploadRequest) to avoid relaxing the locked thumbnail
+    contract. Auth and PIL-verify rules are identical to upload_thumbnail.
+    """
+    from app.platform.storage.provider import get_storage
+
+    data_uri = request.data_uri
+
+    map_obj = await get_map(db, map_id)
+    if map_obj is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Map not found",
+        )
+    await check_map_ownership(map_obj, user, db)
+
+    if not data_uri.startswith("data:image/"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Body must be a data:image/ URI",
+        )
+
+    if ";base64," not in data_uri:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Body must be a base64-encoded data URI",
+        )
+    try:
+        header, encoded = data_uri.split(",", 1)
+        image_bytes = base64.b64decode(encoded)
+    except (ValueError, UnicodeDecodeError):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid data URI or base64 encoding",
+        )
+
+    # Validate the decoded bytes are a real image (mirrors thumbnail PUT).
+    try:
+        with Image.open(BytesIO(image_bytes)) as img:
+            img.verify()
+    except (UnidentifiedImageError, OSError, SyntaxError, ValueError) as exc:
+        logger.warning(
+            "og_image_upload_invalid_image",
+            map_id=str(map_id),
+            byte_length=len(image_bytes),
+            error=str(exc),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="OG image payload is not a valid image",
+        )
+
+    ext = "jpg" if "jpeg" in header else "png"
+    storage_key = f"maps/og-images/{map_id}.{ext}"
+
+    storage = get_storage()
+    try:
+        await storage.put(storage_key, image_bytes)
+    except Exception:  # broad: S3/MinIO/local storage can throw varied errors -> 502
+        logger.exception("og_image_upload_failed", map_id=str(map_id))
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="OG image storage unavailable",
+        )
+
+    map_obj.og_image_uri = storage_key
+    map_obj.updated_at = datetime.now(UTC)
+    await db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.get("/{map_id}/og-image/", response_class=Response)
+async def get_og_image(
+    map_id: uuid.UUID,
+    user: Identity | None = Depends(get_optional_user),
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    """Serve the OG social-card image from storage (visibility-checked).
+
+    Uses ``public, max-age=86400`` for public maps — OG images change
+    less often than thumbnails (which use 3600s). Mirrors get_thumbnail
+    but reads ``og_image_uri`` and uses the ``maps/og-images/`` key space.
+    """
+    from app.platform.storage.provider import get_storage
+
+    map_obj = await get_map(db, map_id)
+    if map_obj is None or not map_obj.og_image_uri:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="OG image not found",
+        )
+
+    await _check_map_read_access(map_obj, user, db)
+
+    storage = get_storage()
+    try:
+        data = await storage.get(map_obj.og_image_uri)
+    except FileNotFoundError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="OG image not found",
+        )
+    media_type = "image/jpeg" if map_obj.og_image_uri.endswith(".jpg") else "image/png"
+    cache_control = (
+        "public, max-age=86400"
         if map_obj.visibility == "public"
         else "private, no-cache"
     )

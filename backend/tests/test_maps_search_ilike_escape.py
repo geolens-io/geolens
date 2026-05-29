@@ -133,11 +133,13 @@ class TestSecFu07IlikeEscape:
 
         # Search for literal "%" — should only match names containing "%"
         # We search for the full unique fragment including "%" to be precise
-        results = await _search_maps(client, admin_auth_header, f"Coverage%")
+        results = await _search_maps(client, admin_auth_header, "Coverage%")
         names = [r["name"] for r in results]
 
         # The percent-containing map must be in results
-        assert percent_name in names, f"Expected percent map '{percent_name}' in {names}"
+        assert percent_name in names, (
+            f"Expected percent map '{percent_name}' in {names}"
+        )
 
         # Verify that a search for just "%" doesn't return the normal map
         # (the normal map name contains no "%")
@@ -157,7 +159,7 @@ class TestSecFu07IlikeEscape:
         """
         uid = _uid()
         under_name = f"row_under_score_{uid}"  # has multiple "_"
-        normal_name = f"NoUnderscore{uid}"     # no "_"
+        normal_name = f"NoUnderscore{uid}"  # no "_"
 
         await _create_map(client, admin_auth_header, under_name)
         await _create_map(client, admin_auth_header, normal_name)
@@ -165,7 +167,9 @@ class TestSecFu07IlikeEscape:
         # "_" as wildcard would match any single-char name — but our names are
         # longer than 1 char, so it wouldn't match them anyway. Instead verify
         # that searching for a known underscored fragment finds the right map.
-        results = await _search_maps(client, admin_auth_header, f"row_under_score_{uid}")
+        results = await _search_maps(
+            client, admin_auth_header, f"row_under_score_{uid}"
+        )
         names = [r["name"] for r in results]
         assert under_name in names, f"Expected underscore map '{under_name}' in {names}"
         assert normal_name not in names, f"Did not expect '{normal_name}' in {names}"
@@ -175,8 +179,8 @@ class TestSecFu07IlikeEscape:
     ):
         """search='%a_b' returns only maps with literal substring '%a_b'."""
         uid = _uid()
-        target_name = f"Map%a_b_{uid}"   # has literal "%a_b"
-        other_name = f"OtherMap_{uid}"   # no "%a_b"
+        target_name = f"Map%a_b_{uid}"  # has literal "%a_b"
+        other_name = f"OtherMap_{uid}"  # no "%a_b"
 
         await _create_map(client, admin_auth_header, target_name)
         await _create_map(client, admin_auth_header, other_name)
@@ -216,8 +220,8 @@ class TestSecFu07IlikeEscape:
         A map named with only a '%' must NOT appear in backslash search results.
         """
         uid = _uid()
-        backslash_name = f"path\\to\\{uid}"   # contains literal backslashes
-        percent_name = f"100pct_{uid}%Done"    # contains literal %
+        backslash_name = f"path\\to\\{uid}"  # contains literal backslashes
+        percent_name = f"100pct_{uid}%Done"  # contains literal %
 
         await _create_map(client, admin_auth_header, backslash_name)
         await _create_map(client, admin_auth_header, percent_name)

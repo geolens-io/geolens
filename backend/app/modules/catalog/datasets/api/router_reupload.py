@@ -60,9 +60,9 @@ UploadResponse = _catalog_port.upload_response_model()
 # Extension sets used for cross-record-type validation.
 # Do NOT depend on the runtime allowed_extensions config (which merges all types).
 _RASTER_EXTENSIONS: frozenset[str] = frozenset({".tif", ".tiff"})
-_VECTOR_EXTENSIONS: frozenset[str] = frozenset({
-    ".zip", ".gpkg", ".geojson", ".json", ".csv", ".xlsx", ".xls"
-})
+_VECTOR_EXTENSIONS: frozenset[str] = frozenset(
+    {".zip", ".gpkg", ".geojson", ".json", ".csv", ".xlsx", ".xls"}
+)
 
 
 def _assert_compatible_record_type(
@@ -378,7 +378,9 @@ async def reupload_preview(
     # Validate layer_name against the file's actual layers (T-1058A-03).
     # We run ogrinfo without layer_name first to get the full layer list,
     # then validate — or use the targeted call if no validation needed.
-    info = await get_catalog_port().run_ogrinfo_preview(file_path, layer_name=layer_name)
+    info = await get_catalog_port().run_ogrinfo_preview(
+        file_path, layer_name=layer_name
+    )
 
     # GPKG-01 Phase 1058: validate user-supplied layer_name appears in the file.
     # WR-02 fix: also check against info["layer_name"] for single-layer files where
@@ -492,7 +494,9 @@ async def reupload_commit(
     # Keep token + layer_name request-only from user_metadata (layer_name goes
     # into the dedicated source_layer column — see D-03 below).
     existing_meta = job.user_metadata or {}
-    existing_meta.update(request.model_dump(exclude_none=True, exclude={"token", "layer_name"}))
+    existing_meta.update(
+        request.model_dump(exclude_none=True, exclude={"token", "layer_name"})
+    )
     job.user_metadata = existing_meta
 
     # GPKG-01 Phase 1058 (D-03): persist the user-chosen layer to the dedicated

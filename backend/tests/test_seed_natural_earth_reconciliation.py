@@ -224,8 +224,7 @@ async def test_reconciliation_filters_by_run_window() -> None:
     )
 
     assert result == [], (
-        "reconciliation surfaced a failure that predated the run window: "
-        f"{result!r}"
+        f"reconciliation surfaced a failure that predated the run window: {result!r}"
     )
 
 
@@ -350,12 +349,8 @@ async def test_main_returns_nonzero_when_reconciliation_finds_failures(
 
     # Bypass network IO for the helpers main() invokes around the
     # exit-code wiring.
-    monkeypatch.setattr(
-        seed, "fetch_existing_datasets", AsyncMock(return_value={})
-    )
-    monkeypatch.setattr(
-        seed, "create_collections", AsyncMock(return_value=None)
-    )
+    monkeypatch.setattr(seed, "fetch_existing_datasets", AsyncMock(return_value={}))
+    monkeypatch.setattr(seed, "create_collections", AsyncMock(return_value=None))
     # Stub print_summary so the captured stdout stays uncluttered; the
     # function's return value is unused by main().
     monkeypatch.setattr(seed, "print_summary", MagicMock(return_value=None))
@@ -385,9 +380,7 @@ async def test_main_returns_nonzero_when_reconciliation_finds_failures(
 
 
 @pytest.mark.anyio
-async def test_main_returns_zero_on_clean_run(
-    monkeypatch, _seed_main_args
-) -> None:
+async def test_main_returns_zero_on_clean_run(monkeypatch, _seed_main_args) -> None:
     """WR-03 (post-1091 review): main() must return 0 when both per-dataset
     polling AND reconciliation report zero failures. Companion negative
     test to ``test_main_returns_nonzero_when_reconciliation_finds_failures``:
@@ -398,17 +391,11 @@ async def test_main_returns_zero_on_clean_run(
 
     _stub_httpx_client_class(seed, {"datasets": [], "jobs": [], "total": 0})
 
-    monkeypatch.setattr(
-        seed, "fetch_existing_datasets", AsyncMock(return_value={})
-    )
-    monkeypatch.setattr(
-        seed, "create_collections", AsyncMock(return_value=None)
-    )
+    monkeypatch.setattr(seed, "fetch_existing_datasets", AsyncMock(return_value={}))
+    monkeypatch.setattr(seed, "create_collections", AsyncMock(return_value=None))
     monkeypatch.setattr(seed, "print_summary", MagicMock(return_value=None))
     # Reconciliation returns []: no failures found in the run window.
-    monkeypatch.setattr(
-        seed, "reconcile_failed_jobs", AsyncMock(return_value=[])
-    )
+    monkeypatch.setattr(seed, "reconcile_failed_jobs", AsyncMock(return_value=[]))
 
     rc = await seed.main(_seed_main_args, datasets=[])
 

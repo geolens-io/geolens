@@ -49,6 +49,7 @@ class MapResponse:
         forked_from_id (None | Unset | UUID): Source map UUID if this is a fork
         forked_from_name (None | str | Unset):
         notes (None | str | Unset):
+        og_image_url (None | str | Unset):
         terrain_config (None | TerrainConfig | Unset):
         thumbnail_url (None | str | Unset):
         widgets (list[str] | None | Unset):
@@ -75,6 +76,7 @@ class MapResponse:
     forked_from_id: None | Unset | UUID = UNSET
     forked_from_name: None | str | Unset = UNSET
     notes: None | str | Unset = UNSET
+    og_image_url: None | str | Unset = UNSET
     terrain_config: None | TerrainConfig | Unset = UNSET
     thumbnail_url: None | str | Unset = UNSET
     widgets: list[str] | None | Unset = UNSET
@@ -161,6 +163,12 @@ class MapResponse:
         else:
             notes = self.notes
 
+        og_image_url: None | str | Unset
+        if isinstance(self.og_image_url, Unset):
+            og_image_url = UNSET
+        else:
+            og_image_url = self.og_image_url
+
         terrain_config: dict[str, Any] | None | Unset
         if isinstance(self.terrain_config, Unset):
             terrain_config = UNSET
@@ -216,6 +224,8 @@ class MapResponse:
             field_dict["forked_from_name"] = forked_from_name
         if notes is not UNSET:
             field_dict["notes"] = notes
+        if og_image_url is not UNSET:
+            field_dict["og_image_url"] = og_image_url
         if terrain_config is not UNSET:
             field_dict["terrain_config"] = terrain_config
         if thumbnail_url is not UNSET:
@@ -365,6 +375,15 @@ class MapResponse:
 
         notes = _parse_notes(d.pop("notes", UNSET))
 
+        def _parse_og_image_url(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        og_image_url = _parse_og_image_url(d.pop("og_image_url", UNSET))
+
         def _parse_terrain_config(data: object) -> None | TerrainConfig | Unset:
             if data is None:
                 return data
@@ -430,6 +449,7 @@ class MapResponse:
             forked_from_id=forked_from_id,
             forked_from_name=forked_from_name,
             notes=notes,
+            og_image_url=og_image_url,
             terrain_config=terrain_config,
             thumbnail_url=thumbnail_url,
             widgets=widgets,

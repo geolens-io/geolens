@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@/test/test-utils';
+import { render, screen, waitFor, within } from '@/test/test-utils';
 import userEvent from '@testing-library/user-event';
 import { sendChatMessage, streamChatMessage } from '@/api/maps';
 import { ApiError } from '@/api/client';
@@ -421,7 +421,7 @@ describe('ChatPanel', () => {
     expect(props.onOpacityChange).toHaveBeenCalledWith('layer-1', 0.35);
   });
 
-  it('does not offer undo for remove_layer actions', async () => {
+  it('does not offer undo for remove_layer actions (requires staging accept)', async () => {
     mockStreamChat.mockImplementation(async function* () {
       yield {
         event: 'actions',
@@ -438,10 +438,17 @@ describe('ChatPanel', () => {
     const props = renderPanel();
     await typeAndSend(user, 'remove the layer');
 
+    // Phase 1135 AI-01: remove_layer is a destructive action — it goes into the staging
+    // buffer and only dispatches after the user accepts. Accept it first.
+    const acceptAll = await screen.findByRole('button', { name: /accept all/i });
+    await user.click(acceptAll);
+
     await waitFor(() => {
       expect(props.onRemove).toHaveBeenCalledWith('layer-1');
     });
     expect(await screen.findByText('Removed')).toBeInTheDocument();
+    // Undo is not offered for remove_layer (supportsUndo was false before staging;
+    // staging accept goes through handleChatAction which sets supportsUndo=false).
     expect(screen.queryByRole('button', { name: /undo/i })).not.toBeInTheDocument();
   });
 
@@ -567,9 +574,7 @@ describe('ChatPanel', () => {
 
   it.each([
     { status: 401, expected: /session expired/i },
-    { status: 403, expected: /permission/i },
     { status: 502, expected: /unavailable/i },
-    { status: 503, expected: /unavailable/i },
   ])(
     'shows specific error for ApiError status $status via fallback',
     async ({ status, expected }) => {
@@ -587,4 +592,373 @@ describe('ChatPanel', () => {
       expect(await screen.findByText(expected)).toBeInTheDocument();
     },
   );
+
+  it.each([
+    { status: 403, expectedBanner: /permission/i },
+    { status: 503, expectedBanner: /unavailable/i },
+  ])(
+    'WR-03: ApiError status $status via fallback routes to sticky banner, not inline bubble',
+    async ({ status, expectedBanner }) => {
+      // Stream fails with generic error, then fallback also fails with ApiError
+      // eslint-disable-next-line require-yield
+      mockStreamChat.mockImplementation(async function* () {
+        throw new Error('stream failed');
+      });
+      mockSendChat.mockRejectedValue(new ApiError('error', status));
+
+      const user = userEvent.setup();
+      renderPanel();
+      await typeAndSend(user, 'trigger error');
+
+      // Should show sticky banner (role="alert"), not inline error bubble
+      const banner = await screen.findByRole('alert');
+      expect(banner).toBeInTheDocument();
+      expect(banner).toHaveTextContent(expectedBanner);
+    },
+  );
+});
+
+describe('ChatPanel — confirm-before-apply staging (Phase 1135 AI-01 / AI-09)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    sessionStorage.clear();
+  });
+
+  it('AI-01: rejecting the staging tray leaves layers byte-equal to pre-prompt — onAddDataset and onRemove NOT called', async () => {
+    mockStreamChat.mockImplementation(async function* () {
+      yield {
+        event: 'actions',
+        data: {
+          actions: [
+            { type: 'add_layer', dataset_id: 'ds-new', dataset_name: 'NYC Subway' },
+            { type: 'remove_layer', layer_id: 'layer-1' },
+          ],
+        },
+      };
+      yield { event: 'done', data: { explanation: 'Two staged changes' } };
+    });
+
+    const user = userEvent.setup();
+    const props = renderPanel();
+    await typeAndSend(user, 'add subway and remove polygons');
+
+    // Wait for the staging tray to render
+    const rejectAllBtn = await screen.findByRole('button', { name: /reject all/i });
+    expect(rejectAllBtn).toBeInTheDocument();
+
+    // No mutations should have fired yet — buffer is pre-flush
+    expect(props.onAddDataset).not.toHaveBeenCalled();
+    expect(props.onRemove).not.toHaveBeenCalled();
+
+    await user.click(rejectAllBtn);
+
+    // After reject: tray gone, NO mutations fired
+    expect(screen.queryByRole('button', { name: /reject all/i })).not.toBeInTheDocument();
+    expect(props.onAddDataset).not.toHaveBeenCalled();
+    expect(props.onRemove).not.toHaveBeenCalled();
+  });
+
+  it('AI-01: acceptOne dispatches exactly one action and leaves remaining pending', async () => {
+    mockStreamChat.mockImplementation(async function* () {
+      yield {
+        event: 'actions',
+        data: {
+          actions: [
+            { type: 'add_layer', dataset_id: 'ds-A', dataset_name: 'A' },
+            { type: 'add_layer', dataset_id: 'ds-B', dataset_name: 'B' },
+          ],
+        },
+      };
+      yield { event: 'done', data: { explanation: 'Two adds' } };
+    });
+
+    const user = userEvent.setup();
+    const props = renderPanel();
+    await typeAndSend(user, 'add A and B');
+
+    // Per-chip Accept buttons render text "Accept" (capital A, exact);
+    // "Accept all" is the accept-all button — filter it out by exact text match.
+    await screen.findByRole('button', { name: /accept all/i }); // wait for tray to render
+    const allButtons = screen.getAllByRole('button');
+    const acceptButtons = allButtons.filter(
+      (btn) => btn.textContent?.trim() === 'Accept',
+    );
+    expect(acceptButtons.length).toBe(2);
+
+    await user.click(acceptButtons[0]);
+    await waitFor(() => {
+      expect(props.onAddDataset).toHaveBeenCalledTimes(1);
+      expect(props.onAddDataset).toHaveBeenCalledWith('ds-A');
+    });
+    // One chip remains — one per-chip Accept button still visible
+    const remaining = screen.getAllByRole('button').filter(
+      (btn) => btn.textContent?.trim() === 'Accept',
+    );
+    expect(remaining.length).toBe(1);
+  });
+
+  it('AI-01: acceptAll dispatches all pending actions in order', async () => {
+    mockStreamChat.mockImplementation(async function* () {
+      yield {
+        event: 'actions',
+        data: {
+          actions: [
+            { type: 'add_layer', dataset_id: 'ds-A', dataset_name: 'A' },
+            { type: 'remove_layer', layer_id: 'layer-1' },
+            { type: 'add_layer', dataset_id: 'ds-C', dataset_name: 'C' },
+          ],
+        },
+      };
+      yield { event: 'done', data: { explanation: 'Three staged' } };
+    });
+    const user = userEvent.setup();
+    const props = renderPanel();
+    await typeAndSend(user, 'do three things');
+    const acceptAll = await screen.findByRole('button', { name: /accept all/i });
+    await user.click(acceptAll);
+    await waitFor(() => {
+      expect(props.onAddDataset).toHaveBeenCalledTimes(2);
+      expect(props.onRemove).toHaveBeenCalledTimes(1);
+    });
+    // Order — first call to onAddDataset is 'ds-A', second is 'ds-C'
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const addCalls = (props.onAddDataset as any).mock.calls as [string][];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const removeCalls = (props.onRemove as any).mock.calls as [string][];
+    expect(addCalls[0][0]).toBe('ds-A');
+    expect(addCalls[1][0]).toBe('ds-C');
+    expect(removeCalls[0][0]).toBe('layer-1');
+  });
+
+  it('AI-09: staging tray renders for add_layer + remove_layer; chip text format matches UI-SPEC', async () => {
+    mockStreamChat.mockImplementation(async function* () {
+      yield {
+        event: 'actions',
+        data: {
+          actions: [
+            { type: 'add_layer', dataset_id: 'ds-2', dataset_name: 'NYC Subway' },
+            { type: 'remove_layer', layer_id: 'layer-1' },
+          ],
+        },
+      };
+      yield { event: 'done', data: { explanation: 'Two staged' } };
+    });
+    const user = userEvent.setup();
+    renderPanel({
+      layers: [makeLayer({ id: 'layer-1', display_name: 'Counties', dataset_feature_count: 5 })],
+    });
+    await typeAndSend(user, 'change some layers');
+    // add_layer chip — name appears
+    expect(await screen.findByText(/Add "NYC Subway"/)).toBeInTheDocument();
+    // remove_layer chip — feature count appears
+    expect(await screen.findByText(/Remove "Counties" \(5 features\)/)).toBeInTheDocument();
+  });
+
+  it('AI-09 negative control: set_style action does NOT trigger the staging tray — dispatches immediately', async () => {
+    mockStreamChat.mockImplementation(async function* () {
+      yield {
+        event: 'actions',
+        data: {
+          actions: [
+            { type: 'set_style', layer_id: 'layer-1', paint: { 'fill-color': '#ff0000' } },
+          ],
+        },
+      };
+      yield { event: 'done', data: { explanation: 'Styled' } };
+    });
+    const user = userEvent.setup();
+    const props = renderPanel();
+    await typeAndSend(user, 'make it red');
+    await waitFor(() => {
+      expect(props.onPaintChange).toHaveBeenCalledTimes(1);
+    });
+    // Negative control: no staging tray for non-destructive actions
+    expect(screen.queryByRole('button', { name: /accept all/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /reject all/i })).not.toBeInTheDocument();
+  });
+});
+
+describe('ChatPanel — inline data-analysis card (Phase 1135 AI-08)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    sessionStorage.clear();
+  });
+
+  it('renders inline table card when show_query_result returns rows', async () => {
+    mockStreamChat.mockImplementation(async function* () {
+      yield {
+        event: 'actions',
+        data: {
+          actions: [
+            {
+              type: 'show_query_result',
+              rows: [
+                { county: 'Essex', area_sqkm: 4853, population: 38000 },
+                { county: 'Hamilton', area_sqkm: 4757, population: 4400 },
+              ],
+            },
+          ],
+        },
+      };
+      yield { event: 'done', data: { explanation: 'Top 2 counties' } };
+    });
+    const user = userEvent.setup();
+    renderPanel();
+    await typeAndSend(user, 'biggest counties');
+    expect(await screen.findByText(/Essex/)).toBeInTheDocument();
+    expect(await screen.findByText(/Hamilton/)).toBeInTheDocument();
+    // Scroll region with aria-label should exist
+    expect(await screen.findByRole('region', { name: /query result table/i })).toBeInTheDocument();
+  });
+
+  it('renders empty-state when show_query_result returns rows: []', async () => {
+    mockStreamChat.mockImplementation(async function* () {
+      yield {
+        event: 'actions',
+        data: { actions: [{ type: 'show_query_result', rows: [] }] },
+      };
+      yield { event: 'done', data: { explanation: 'No results' } };
+    });
+    const user = userEvent.setup();
+    renderPanel();
+    await typeAndSend(user, 'find non-existent thing');
+    expect(await screen.findByText(/no rows/i)).toBeInTheDocument();
+    expect(await screen.findByText(/broader area or different filter/i)).toBeInTheDocument();
+  });
+
+  it('caps visible columns at 5 and shows ellipsis indicator when more exist', async () => {
+    const wideRow: Record<string, number> = { a: 1, b: 2, c: 3, d: 4, e: 5, f: 6, g: 7 };
+    mockStreamChat.mockImplementation(async function* () {
+      yield {
+        event: 'actions',
+        data: { actions: [{ type: 'show_query_result', rows: [wideRow] }] },
+      };
+      yield { event: 'done', data: { explanation: 'Wide row' } };
+    });
+    const user = userEvent.setup();
+    renderPanel();
+    await typeAndSend(user, 'wide query');
+    // First 5 columns visible as headers
+    await screen.findByRole('region', { name: /query result table/i });
+    const headers = screen.getAllByRole('columnheader');
+    // 5 visible column headers + 1 "more columns" indicator = 6 total
+    expect(headers.length).toBe(6);
+    // The … indicator has aria-label "more columns"
+    expect(screen.getByLabelText(/more columns/i)).toBeInTheDocument();
+  });
+
+  it('show_query_result with only geojson + bbox (no rows) calls onQueryResult and does NOT render inline card', async () => {
+    const geojson = { type: 'FeatureCollection', features: [] };
+    const bbox = [-74, 40, -73, 41];
+    mockStreamChat.mockImplementation(async function* () {
+      yield {
+        event: 'actions',
+        data: { actions: [{ type: 'show_query_result', geojson, bbox }] },
+      };
+      yield { event: 'done', data: { explanation: 'Spatial result' } };
+    });
+    const user = userEvent.setup();
+    const props = renderPanel();
+    await typeAndSend(user, 'find spatial features');
+    await waitFor(() => {
+      expect(props.onQueryResult).toHaveBeenCalledWith(geojson, bbox);
+    });
+    // Negative control — no inline card when rows is absent
+    expect(screen.queryByRole('region', { name: /query result table/i })).not.toBeInTheDocument();
+  });
+});
+
+describe('ChatPanel — recoverable error banner (Phase 1135 AI-03)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    sessionStorage.clear();
+  });
+
+  it('503 surfaces sticky banner with Retry button; Retry re-fires the last user message', async () => {
+    // eslint-disable-next-line require-yield
+    mockStreamChat.mockImplementationOnce(async function* () {
+      throw new ApiError('AI unavailable', 503);
+    });
+    mockSendChat.mockRejectedValue(new ApiError('AI unavailable', 503));
+
+    const user = userEvent.setup();
+    renderPanel();
+    await typeAndSend(user, 'broken request');
+
+    // Banner appears
+    const banner = await screen.findByRole('alert');
+    expect(banner).toBeInTheDocument();
+    expect(banner).toHaveTextContent(/AI is unavailable/i);
+    const retryBtn = within(banner).getByRole('button', { name: /retry/i });
+    expect(retryBtn).toBeInTheDocument();
+    // Inline error bubble suppressed — no Retry button OUTSIDE the alert region
+    const allRetryButtons = screen.getAllByRole('button', { name: /retry/i });
+    expect(allRetryButtons.length).toBe(1); // exactly the banner Retry
+
+    // Retry re-fills the input
+    await user.click(retryBtn);
+    const input = screen.getByPlaceholderText(/describe a map change/i) as HTMLTextAreaElement;
+    expect(input.value).toBe('broken request');
+    // Banner cleared
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('403 surfaces sticky banner with Dismiss button; NO Retry button', async () => {
+    // eslint-disable-next-line require-yield
+    mockStreamChat.mockImplementationOnce(async function* () {
+      throw new ApiError('forbidden', 403);
+    });
+    mockSendChat.mockRejectedValue(new ApiError('forbidden', 403));
+
+    const user = userEvent.setup();
+    renderPanel();
+    await typeAndSend(user, 'forbidden request');
+
+    const banner = await screen.findByRole('alert');
+    expect(banner).toHaveTextContent(/AI access lost/i);
+    // No Retry button anywhere
+    expect(screen.queryByRole('button', { name: /retry/i })).not.toBeInTheDocument();
+    // Dismiss button present
+    const dismiss = within(banner).getByRole('button', { name: /dismiss/i });
+    await user.click(dismiss);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('401 falls through to existing inline error bubble — banner NOT rendered', async () => {
+    // eslint-disable-next-line require-yield
+    mockStreamChat.mockImplementationOnce(async function* () {
+      throw new ApiError('session expired', 401);
+    });
+    mockSendChat.mockRejectedValue(new ApiError('session expired', 401));
+
+    const user = userEvent.setup();
+    renderPanel();
+    await typeAndSend(user, 'test-auth-401');
+
+    // No banner
+    await waitFor(() => {
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    });
+    // Existing inline error bubble path renders the session-expired text (t('chat.errorSessionExpired'))
+    expect(await screen.findByText(/please log in again|session expired\. please/i)).toBeInTheDocument();
+  });
+
+  it('network error falls through to existing inline error bubble — banner NOT rendered', async () => {
+    // eslint-disable-next-line require-yield
+    mockStreamChat.mockImplementationOnce(async function* () {
+      throw new Error('Network unreachable');
+    });
+    mockSendChat.mockRejectedValue(new Error('Network unreachable'));
+
+    const user = userEvent.setup();
+    renderPanel();
+    await typeAndSend(user, 'network drops');
+
+    await waitFor(() => {
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    });
+    // Existing inline error bubble renders the generic friendly error
+    const errorMessage = await screen.findByText(/something went wrong|trouble|try again|error/i);
+    expect(errorMessage).toBeInTheDocument();
+  });
 });

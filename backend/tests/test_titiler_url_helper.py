@@ -20,10 +20,10 @@ def test_build_titiler_cog_url_no_query():
 
 def test_build_titiler_cog_url_with_query():
     """User-supplied URL is URL-encoded into the query string."""
-    result = build_titiler_cog_url(
-        "info", query={"url": "https://example.com/foo.tif"}
+    result = build_titiler_cog_url("info", query={"url": "https://example.com/foo.tif"})
+    assert (
+        result == "http://titiler:8000/cog/info?url=https%3A%2F%2Fexample.com%2Ffoo.tif"
     )
-    assert result == "http://titiler:8000/cog/info?url=https%3A%2F%2Fexample.com%2Ffoo.tif"
 
 
 def test_build_titiler_cog_url_with_raw_suffix():
@@ -95,9 +95,7 @@ def test_tiles_router_uses_helper():
         line for line in text.splitlines() if not line.strip().startswith("#")
     ]
     non_comment_text = "\n".join(non_comment_lines)
-    assert (
-        "from app.platform.storage.titiler_url import build_titiler_cog_url" in text
-    )
+    assert "from app.platform.storage.titiler_url import build_titiler_cog_url" in text
     assert "http://titiler:8000" not in non_comment_text, (
         "tiles/router.py must NOT inline http://titiler:8000 -- use build_titiler_cog_url"
     )
@@ -120,9 +118,7 @@ def test_stac_router_uses_helper():
         line for line in text.splitlines() if not line.strip().startswith("#")
     ]
     non_comment_text = "\n".join(non_comment_lines)
-    assert (
-        "from app.platform.storage.titiler_url import build_titiler_cog_url" in text
-    )
+    assert "from app.platform.storage.titiler_url import build_titiler_cog_url" in text
     assert "http://titiler:8000" not in non_comment_text, (
         "stac_router.py must NOT inline http://titiler:8000 -- use build_titiler_cog_url"
     )

@@ -186,7 +186,26 @@
     "widthByColumn": "Largeur par : {{column}}",
     "toggleFill": "Activer/désactiver le remplissage",
     "toggleStroke": "Activer/désactiver le contour",
+    "fillPattern": "Motif de remplissage",
+    "fillPatternNone": "Sans motif",
+    "fillPatternName": {
+      "hatch": "Hachures",
+      "crosshatch": "Hachures croisées",
+      "diagonal": "Diagonal",
+      "dots": "Points",
+      "grid": "Grille"
+    },
     "pattern": "Motif",
+    "extrusionRange": "Plage : {{min}}–{{max}}, {{count}} entités",
+    "lineEnds": "Extrémités de ligne",
+    "lineCap": "Extrémité",
+    "lineCapButt": "Plat",
+    "lineCapRound": "Rond",
+    "lineCapSquare": "Carré",
+    "lineJoin": "Jointure",
+    "lineJoinBevel": "Biseauté",
+    "lineJoinRound": "Rond",
+    "lineJoinMiter": "Onglet",
     "dash": {
       "solid": "Plein",
       "dashed": "Tirets",
@@ -258,7 +277,21 @@
       "renderRaster": "Raster",
       "renderHillshade": "Ombrage",
       "reset": "Réinitialiser",
-      "resetTitle": "Réinitialiser le style raster"
+      "resetTitle": "Réinitialiser le style raster",
+      "sectionColormap": "PALETTE DE COULEURS",
+      "colormapLabel": "Palette de couleurs",
+      "stretchLabel": "Étirement",
+      "stretchMinmax": "Min/Max",
+      "stretchPercentile": "Percentile (2–98%)",
+      "stretchStddev": "Écart-type",
+      "colormapGray": "Niveaux de gris",
+      "colormapViridis": "Viridis",
+      "colormapInferno": "Inferno",
+      "colormapPlasma": "Plasma",
+      "colormapMagma": "Magma",
+      "colormapYlorrd": "Jaune-Rouge",
+      "colormapBugn": "Bleu-Vert",
+      "colormapTerrain": "Terrain"
     },
     "hillshade": {
       "help": "Ajustez la couche de relief générée depuis cette couche MNE.",
@@ -361,7 +394,8 @@
     "addField": "Ajouter un champ",
     "removeField": "Retirer le champ",
     "noFieldsSelected": "Aucun champ sélectionné (seul le titre s'affichera)",
-    "noColumns": "Cette couche n'a pas de colonnes inspectables."
+    "noColumns": "Cette couche n'a pas de colonnes inspectables.",
+    "mediaHint": "Les URL et images dans les valeurs de champ s'affichent automatiquement sous forme de liens et aperçus."
   },
   "dataDriven": {
     "title": "Style piloté par les données",
@@ -476,7 +510,27 @@
     "summaryUnrestricted": "Sans restriction",
     "expirationUpdated": "Expiration mise à jour",
     "domainsUpdated": "Restrictions de domaine mises à jour",
-    "updateFailed": "Échec de la sauvegarde"
+    "updateFailed": "Échec de la sauvegarde",
+    "originsEmptyHint": "Aucune origine pour l'instant — collez une URL comme https://example.com pour autoriser l'intégration.",
+    "originsNormHint": "Chaque origine est normalisée sous la forme schéma + hôte + port avant la sauvegarde.",
+    "originsInputPlaceholder": "Collez une URL comme https://example.com",
+    "originsInputLabel": "URL d'origine autorisée",
+    "removeOrigin": "Supprimer {{origin}}",
+    "addOrigin": "Ajouter une origine",
+    "originWildcardError": "L'origine générique n'est pas autorisée",
+    "originInvalid": "URL invalide",
+    "expirationNever": "Jamais",
+    "expiration1Day": "1 jour",
+    "expiration7Days": "7 jours",
+    "expiration30Days": "30 jours",
+    "expiration1Year": "1 an",
+    "expirationCustom": "Date personnalisée…",
+    "iframePreviewTitle": "Aperçu de la carte intégrée",
+    "iframePreviewToggle": "Aperçu",
+    "iframeErrorTitle": "Aperçu indisponible",
+    "iframeErrorBody": "Vérifiez que le jeton d'intégration est valide et que le lien de partage est actif. Rechargez pour réessayer.",
+    "iframeReload": "Recharger",
+    "iframeSandboxNote": "sandbox=\"allow-scripts\" only — SEC-07 contract"
   },
   "chat": {
     "experimental": "Expérimental",
@@ -519,8 +573,36 @@
       "addDataset": "Ajouter un autre jeu de données à cette carte",
       "heatmap": "Afficher {{name}} comme carte de chaleur",
       "areaLabels": "Ajouter des libellés de zone pour {{name}}",
-      "adjustOpacity": "Ajuster l'opacité pour {{name}}"
-    }
+      "adjustOpacity": "Ajuster l'opacité pour {{name}}",
+      "summarizeLayer": "Résumer les attributs de {{name}}",
+      "nearbyFeatures": "Afficher les entités proches dans cette zone"
+    },
+    "staging": {
+      "header_one": "{{count}} pending change — review before applying",
+      "header_other": "{{count}} pending changes — review before applying",
+      "acceptAll": "Accept all",
+      "rejectAll": "Reject all",
+      "accept": "Accept",
+      "reject": "Reject",
+      "chipAdd": "Add \"{{name}}\"",
+      "chipAddBelow": "Add \"{{name}}\" below \"{{ref}}\"",
+      "chipRemove": "Remove \"{{name}}\"",
+      "chipRemoveFeatures_one": "Remove \"{{name}}\" ({{count}} feature)",
+      "chipRemoveFeatures_other": "Remove \"{{name}}\" ({{count}} features)"
+    },
+    "queryResult": {
+      "empty": "The AI query returned no rows.",
+      "emptyHint": "Try a broader area or different filter.",
+      "tableLabel": "Query result table",
+      "rowCount_one": "{{count}} row",
+      "rowCount_other": "{{count}} rows"
+    },
+    "bannerForbiddenTitle": "AI access lost",
+    "bannerForbiddenBody": "You no longer have permission to use AI chat. Contact your administrator to restore access.",
+    "bannerUnavailableTitle": "AI is unavailable",
+    "bannerUnavailableBody": "The AI service is temporarily unavailable. Try again in a moment.",
+    "bannerRetry": "Retry",
+    "bannerDismiss": "Dismiss"
   },
   "basemap": {
     "title": "Fond de carte",
@@ -828,7 +910,16 @@
     "aiDisabled": "IA désactivée par l'administrateur",
     "aiUnavailable": "IA indisponible",
     "aiUnavailableTitle": "L'IA est indisponible",
-    "aiUnavailableDescription": "Un administrateur doit activer un fournisseur d'IA avant d'utiliser Demander à l'IA dans ce builder."
+    "aiUnavailableDescription": "Un administrateur doit activer un fournisseur d'IA avant d'utiliser Demander à l'IA dans ce builder.",
+    "notesPresent": "La carte a des notes",
+    "aiDisabledTitle": "AI is disabled",
+    "aiDisabledBody": "An administrator has disabled AI for this instance.",
+    "aiNoKeyTitle": "AI not configured",
+    "aiNoKeyBody": "A provider API key is required before AI chat can be used.",
+    "aiPermissionTitle": "AI unavailable",
+    "aiPermissionBody": "You don't have permission to use AI chat.",
+    "aiGoToSettings": "Go to Settings",
+    "aiConfigureSettings": "Configure in Settings"
   },
   "stackRow": {
     "dragHandle": "Glisser pour réorganiser {{name}}",
@@ -843,12 +934,14 @@
     "kebabAddLayer": "Ajouter une couche",
     "kebabUngroup": "Dégrouper",
     "kebabDeleteGroup": "Supprimer le groupe",
-    "kebabMoveOutOfGroup": "Déplacer hors du groupe"
+    "kebabMoveOutOfGroup": "Déplacer hors du groupe",
+    "labelsIndicator": "Étiquettes activées : {{column}}"
   },
   "basemapGroup": {
     "addCustomBasemap": "＋ Ajouter un fond de carte personnalisé…",
     "dragHandle": "Glisser pour réorganiser le fond de carte",
     "masterOpacity": "Opacité globale",
+    "noBasemap": "Aucun fond de carte",
     "presetSectionLabel": "PRÉRÉGLAGE",
     "railLabel": "Groupe de fond de carte",
     "removeBasemap": "Supprimer le fond de carte",
@@ -894,7 +987,11 @@
     "terrainHint": "Le terrain utilise des données d'élévation pour extruder la surface de la carte.",
     "terrainExaggeration": "Exagération du terrain",
     "imageHint": "Aucun contrôle d'apparence supplémentaire pour le mode image",
-    "compassAriaLabel": "Azimut solaire : {{azimuth}}°"
+    "compassAriaLabel": "Azimut solaire : {{azimuth}}°",
+    "sectionHypsometricTint": "TEINTE HYPSOMÉTRIQUE",
+    "hypsometricEnable": "Teinte d'élévation",
+    "hypsometricTerrainHint": "La teinte d'élévation n'est pas disponible en mode Terrain",
+    "hillshadeTerrainNote": "Hillshade n'est pas disponible tant que ce DEM alimente le Terrain 3D — désactivez le Terrain pour utiliser Hillshade."
   },
   "folderGroup": {
     "defaultName": "Groupe {{n}}",
@@ -948,6 +1045,11 @@
       "type": "Type",
       "geometry": "Géométrie",
       "columns": "Colonnes"
+    },
+    "emptyResult": {
+      "title": "0 entité — vérifiez votre filtre",
+      "help": "Le filtre actuel a éliminé toutes les entités de cette couche. Ajustez une condition ou effacez le filtre pour revoir les entités.",
+      "clear": "Effacer le filtre"
     }
   },
   "settings": {

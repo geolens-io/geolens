@@ -186,7 +186,26 @@
     "widthByColumn": "Breite nach: {{column}}",
     "toggleFill": "Füllung umschalten",
     "toggleStroke": "Kontur umschalten",
+    "fillPattern": "Füllmuster",
+    "fillPatternNone": "Kein Muster",
+    "fillPatternName": {
+      "hatch": "Schraffur",
+      "crosshatch": "Kreuzschraffur",
+      "diagonal": "Diagonal",
+      "dots": "Punkte",
+      "grid": "Raster"
+    },
     "pattern": "Muster",
+    "extrusionRange": "Bereich: {{min}}–{{max}}, {{count}} Objekte",
+    "lineEnds": "Linienenden",
+    "lineCap": "Ende",
+    "lineCapButt": "Stumpf",
+    "lineCapRound": "Rund",
+    "lineCapSquare": "Quadratisch",
+    "lineJoin": "Verbindung",
+    "lineJoinBevel": "Abgeschrägt",
+    "lineJoinRound": "Rund",
+    "lineJoinMiter": "Spitz",
     "dash": {
       "solid": "Durchgezogen",
       "dashed": "Gestrichelt",
@@ -258,7 +277,21 @@
       "renderRaster": "Raster",
       "renderHillshade": "Schummerung",
       "reset": "Zurücksetzen",
-      "resetTitle": "Rasterstil zurücksetzen"
+      "resetTitle": "Rasterstil zurücksetzen",
+      "sectionColormap": "FARBSKALA",
+      "colormapLabel": "Farbskala",
+      "stretchLabel": "Strecken",
+      "stretchMinmax": "Min/Max",
+      "stretchPercentile": "Perzentil (2–98%)",
+      "stretchStddev": "Standardabweichung",
+      "colormapGray": "Graustufen",
+      "colormapViridis": "Viridis",
+      "colormapInferno": "Inferno",
+      "colormapPlasma": "Plasma",
+      "colormapMagma": "Magma",
+      "colormapYlorrd": "Gelb-Rot",
+      "colormapBugn": "Blau-Grün",
+      "colormapTerrain": "Terrain"
     },
     "hillshade": {
       "help": "Passen Sie die aus diesem DEM-Layer erzeugte Relief-Überlagerung an.",
@@ -361,7 +394,8 @@
     "addField": "Feld hinzufügen",
     "removeField": "Feld entfernen",
     "noFieldsSelected": "Keine Felder ausgewählt (nur der Titel wird angezeigt)",
-    "noColumns": "Dieser Layer hat keine prüfbaren Spalten."
+    "noColumns": "Dieser Layer hat keine prüfbaren Spalten.",
+    "mediaHint": "URLs und Bilder in Feldwerten werden automatisch als Links und Vorschauen angezeigt."
   },
   "dataDriven": {
     "title": "Datengesteuerter Stil",
@@ -476,7 +510,27 @@
     "summaryUnrestricted": "Uneingeschränkt",
     "expirationUpdated": "Ablaufdatum aktualisiert",
     "domainsUpdated": "Domain-Einschränkungen aktualisiert",
-    "updateFailed": "Änderungen konnten nicht gespeichert werden"
+    "updateFailed": "Änderungen konnten nicht gespeichert werden",
+    "originsEmptyHint": "Noch keine Origins — geben Sie eine URL wie https://example.com ein, um das Einbetten zu erlauben.",
+    "originsNormHint": "Jede Origin wird vor dem Speichern auf Schema + Host + Port normalisiert.",
+    "originsInputPlaceholder": "URL wie https://example.com einfügen",
+    "originsInputLabel": "Erlaubte Origin-URL",
+    "removeOrigin": "{{origin}} entfernen",
+    "addOrigin": "Origin hinzufügen",
+    "originWildcardError": "Wildcard-Origin ist nicht erlaubt",
+    "originInvalid": "Ungültige URL",
+    "expirationNever": "Nie",
+    "expiration1Day": "1 Tag",
+    "expiration7Days": "7 Tage",
+    "expiration30Days": "30 Tage",
+    "expiration1Year": "1 Jahr",
+    "expirationCustom": "Benutzerdefiniertes Datum…",
+    "iframePreviewTitle": "Karten-Einbettungsvorschau",
+    "iframePreviewToggle": "Vorschau",
+    "iframeErrorTitle": "Vorschau nicht verfügbar",
+    "iframeErrorBody": "Bitte überprüfen Sie, ob das Einbettungs-Token gültig und der Freigabelink aktiv ist. Zum Wiederholen neu laden.",
+    "iframeReload": "Neu laden",
+    "iframeSandboxNote": "sandbox=\"allow-scripts\" only — SEC-07 contract"
   },
   "chat": {
     "experimental": "Experimentell",
@@ -519,8 +573,36 @@
       "addDataset": "Einen weiteren Datensatz zu dieser Karte hinzufügen",
       "heatmap": "{{name}} als Heatmap anzeigen",
       "areaLabels": "Flächenbeschriftungen für {{name}} hinzufügen",
-      "adjustOpacity": "Deckkraft für {{name}} anpassen"
-    }
+      "adjustOpacity": "Deckkraft für {{name}} anpassen",
+      "summarizeLayer": "{{name}}-Attribute zusammenfassen",
+      "nearbyFeatures": "Nahe gelegene Features in diesem Bereich anzeigen"
+    },
+    "staging": {
+      "header_one": "{{count}} pending change — review before applying",
+      "header_other": "{{count}} pending changes — review before applying",
+      "acceptAll": "Accept all",
+      "rejectAll": "Reject all",
+      "accept": "Accept",
+      "reject": "Reject",
+      "chipAdd": "Add \"{{name}}\"",
+      "chipAddBelow": "Add \"{{name}}\" below \"{{ref}}\"",
+      "chipRemove": "Remove \"{{name}}\"",
+      "chipRemoveFeatures_one": "Remove \"{{name}}\" ({{count}} feature)",
+      "chipRemoveFeatures_other": "Remove \"{{name}}\" ({{count}} features)"
+    },
+    "queryResult": {
+      "empty": "The AI query returned no rows.",
+      "emptyHint": "Try a broader area or different filter.",
+      "tableLabel": "Query result table",
+      "rowCount_one": "{{count}} row",
+      "rowCount_other": "{{count}} rows"
+    },
+    "bannerForbiddenTitle": "AI access lost",
+    "bannerForbiddenBody": "You no longer have permission to use AI chat. Contact your administrator to restore access.",
+    "bannerUnavailableTitle": "AI is unavailable",
+    "bannerUnavailableBody": "The AI service is temporarily unavailable. Try again in a moment.",
+    "bannerRetry": "Retry",
+    "bannerDismiss": "Dismiss"
   },
   "basemap": {
     "title": "Basiskarte",
@@ -828,7 +910,16 @@
     "aiDisabled": "KI durch Administrator deaktiviert",
     "aiUnavailable": "KI nicht verfügbar",
     "aiUnavailableTitle": "KI ist nicht verfügbar",
-    "aiUnavailableDescription": "Ein Administrator muss einen KI-Anbieter aktivieren, bevor Frag KI in diesem Builder verwendet werden kann."
+    "aiUnavailableDescription": "Ein Administrator muss einen KI-Anbieter aktivieren, bevor Frag KI in diesem Builder verwendet werden kann.",
+    "notesPresent": "Karte hat Notizen",
+    "aiDisabledTitle": "AI is disabled",
+    "aiDisabledBody": "An administrator has disabled AI for this instance.",
+    "aiNoKeyTitle": "AI not configured",
+    "aiNoKeyBody": "A provider API key is required before AI chat can be used.",
+    "aiPermissionTitle": "AI unavailable",
+    "aiPermissionBody": "You don't have permission to use AI chat.",
+    "aiGoToSettings": "Go to Settings",
+    "aiConfigureSettings": "Configure in Settings"
   },
   "stackRow": {
     "dragHandle": "Ziehen zum Neuanordnen von {{name}}",
@@ -843,12 +934,14 @@
     "kebabAddLayer": "Layer hinzufügen",
     "kebabUngroup": "Gruppierung aufheben",
     "kebabDeleteGroup": "Gruppe löschen",
-    "kebabMoveOutOfGroup": "Aus Gruppe verschieben"
+    "kebabMoveOutOfGroup": "Aus Gruppe verschieben",
+    "labelsIndicator": "Beschriftungen an: {{column}}"
   },
   "basemapGroup": {
     "addCustomBasemap": "＋ Benutzerdefinierte Basiskarte hinzufügen…",
     "dragHandle": "Basiskarte ziehen, um sie neu anzuordnen",
     "masterOpacity": "Deckkraft gesamt",
+    "noBasemap": "Keine Basiskarte",
     "presetSectionLabel": "VORGABE",
     "railLabel": "Basiskarten-Gruppe",
     "removeBasemap": "Basiskarte entfernen",
@@ -894,7 +987,11 @@
     "terrainHint": "Terrain verwendet Höhendaten, um die Kartenoberfläche zu extrudieren.",
     "terrainExaggeration": "Terrain-Überhöhung",
     "imageHint": "Keine weiteren Darstellungssteuerungen für den Bildmodus",
-    "compassAriaLabel": "Sonnenazimut: {{azimuth}}°"
+    "compassAriaLabel": "Sonnenazimut: {{azimuth}}°",
+    "sectionHypsometricTint": "HYPSOMETRISCHE FÄRBUNG",
+    "hypsometricEnable": "Höhentönung",
+    "hypsometricTerrainHint": "Höhentönung ist im Terrain-Modus nicht verfügbar",
+    "hillshadeTerrainNote": "Hillshade ist nicht verfügbar, solange dieser DEM das 3D-Gelände antreibt — deaktivieren Sie Terrain, um Hillshade zu verwenden."
   },
   "folderGroup": {
     "defaultName": "Gruppe {{n}}",
@@ -948,6 +1045,11 @@
       "type": "Typ",
       "geometry": "Geometrie",
       "columns": "Spalten"
+    },
+    "emptyResult": {
+      "title": "0 Objekte — überprüfen Sie Ihren Filter",
+      "help": "Der aktuelle Filter hat alle Objekte in dieser Ebene ausgeschlossen. Passen Sie eine Bedingung an oder löschen Sie den Filter, um Objekte wieder anzuzeigen.",
+      "clear": "Filter löschen"
     }
   },
   "settings": {

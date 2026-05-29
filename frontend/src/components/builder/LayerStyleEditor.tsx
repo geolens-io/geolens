@@ -2,7 +2,6 @@ import { useState, useMemo, useCallback, memo, lazy, Suspense, useEffect, useRef
 import { useTranslation } from 'react-i18next';
 import { AlertTriangle, RotateCcw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { SliderRow } from './HeatmapStyleControls';
 import { AdvancedJsonEditor } from './LayerStyleEditor/AdvancedJsonEditor';
 import { RenderModeSwitch } from './LayerStyleEditor/RenderModeSwitch';
@@ -23,8 +22,6 @@ import type { BuilderStyleConfig, MapLayerResponse, StyleConfig, SymbolStyleConf
 
 const DataDrivenStyleEditor = lazy(() => import('./DataDrivenStyleEditor').then(m => ({ default: m.DataDrivenStyleEditor })));
 
-type PointRenderMode = 'points' | 'heatmap' | 'symbol' | 'cluster';
-
 interface LayerStyleEditorProps {
   layer: MapLayerResponse;
   /**
@@ -41,7 +38,6 @@ interface LayerStyleEditorProps {
   onOpacityChange?: (layerId: string, opacity: number) => void;
   onStyleConfigChange: (layerId: string, config: StyleConfig | null, paint: Record<string, unknown>) => void;
   onLayoutChange: (layerId: string, layout: Record<string, unknown>) => void;
-  onRenderModeChange?: (layerId: string, mode: PointRenderMode) => void;
 }
 
 // Re-export hasUnsavedStyleChanges so existing callers (tests etc.) can still
@@ -115,7 +111,6 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
   onOpacityChange,
   onStyleConfigChange,
   onLayoutChange,
-  onRenderModeChange,
 }: LayerStyleEditorProps) {
   const { t } = useTranslation('builder');
   const geomType = getLayerType(layer.dataset_geometry_type);
@@ -125,7 +120,7 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
     [layer.layout],
   );
   const isDataDriven = !!layer.style_config?.column;
-  const renderMode: PointRenderMode = layer.style_config?.render_mode === 'heatmap'
+  const renderMode: 'points' | 'heatmap' | 'symbol' | 'cluster' = layer.style_config?.render_mode === 'heatmap'
     ? 'heatmap'
     : layer.style_config?.render_mode === 'symbol'
       ? 'symbol'
@@ -336,7 +331,6 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
     onPaintChange,
     onLayoutChange,
     onStyleConfigChange,
-    onRenderModeChange,
     onPaintProp: handlePaintProp,
     onToggleFill: handleToggleFill,
     onToggleStroke: handleToggleStroke,
@@ -348,7 +342,7 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
     layer, controlPaint, isDataDriven, builderConfig, symbolConfig, renderMode,
     isPolygon, numericColumns, currentHeightCol, strokeEnabled, fillEnabled,
     clusterAvailable, onPaintChange, onLayoutChange, onStyleConfigChange,
-    onRenderModeChange, handlePaintProp, handleToggleFill, handleToggleStroke,
+    handlePaintProp, handleToggleFill, handleToggleStroke,
     handleHeatmapPaintChange, handleSymbolConfigChange, updateBuilderConfig, t,
   ]);
 
@@ -361,26 +355,6 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
           <span>{t('style.unsupportedBuilderState')}</span>
         </div>
-      )}
-
-      {/* Render as dropdown — point layers only */}
-      {geomType === 'circle' && (
-        <StyleControlSection title={t('style.sections.render')} description={t('style.sections.renderDescription')}>
-          <Select
-            value={renderMode}
-            onValueChange={(mode) => onRenderModeChange?.(layer.id, mode as PointRenderMode)}
-          >
-            <SelectTrigger className="h-8 text-xs">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="points">{t('style.renderPoints')}</SelectItem>
-              <SelectItem value="symbol">{t('style.renderSymbol')}</SelectItem>
-              <SelectItem value="heatmap">{t('style.renderHeatmap')}</SelectItem>
-              {clusterAvailable && <SelectItem value="cluster">{t('style.renderCluster')}</SelectItem>}
-            </SelectContent>
-          </Select>
-        </StyleControlSection>
       )}
 
       {/* Data-driven style editor — hidden when in heatmap/symbol/cluster mode */}

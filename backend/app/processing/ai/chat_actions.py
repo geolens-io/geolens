@@ -239,13 +239,21 @@ def _collect_chat_action(tool_name: str, tool_input: dict, result: dict) -> dict
     Used as the action_collector callback for provider_ext.complete().
     """
     if tool_name not in _EDIT_TOOLS:
-        # Check for query_data with geometry
-        if tool_name == "query_data" and "geojson" in result:
-            return {
+        # query_data emits show_query_result for both spatial (geojson+bbox) and
+        # non-spatial (columns+rows) results so the frontend inline data-analysis
+        # card can render either case. Phase 1135 AI-08 carry-forward fix.
+        if tool_name == "query_data" and "error" not in result and "columns" in result:
+            action: dict = {
                 "type": "show_query_result",
-                "geojson": result["geojson"],
-                "bbox": result["bbox"],
+                "columns": result["columns"],
+                "rows": result.get("rows", []),
+                "row_count": result.get("row_count", 0),
+                "truncated": result.get("truncated", False),
             }
+            if "geojson" in result:
+                action["geojson"] = result["geojson"]
+                action["bbox"] = result["bbox"]
+            return action
         return None
 
     if tool_name == "set_data_driven_style":

@@ -57,9 +57,7 @@ class ServiceNotRecognized(Exception):
         super().__init__(message)
 
 
-def _build_probe_response(
-    result: dict, layers: list[dict], url: str
-) -> ProbeResponse:
+def _build_probe_response(result: dict, layers: list[dict], url: str) -> ProbeResponse:
     """Build a ProbeResponse from WFS or OGC API Features detection results.
 
     After Phase 1057 D-05: layers arrive with geometry_type=None, feature_count=None,

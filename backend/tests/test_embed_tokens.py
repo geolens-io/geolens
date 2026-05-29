@@ -55,9 +55,7 @@ async def _init_tile_pool_for_tests(request):
 
     dsn = settings.test_database_url.replace("postgresql+asyncpg://", "postgresql://")
     pool = await _run_with_too_many_clients_retry(
-        lambda: asyncpg.create_pool(
-            dsn=dsn, min_size=1, max_size=3, command_timeout=10
-        )
+        lambda: asyncpg.create_pool(dsn=dsn, min_size=1, max_size=3, command_timeout=10)
     )
     pool_module._tile_pool = pool
     yield

@@ -3110,6 +3110,10 @@ export type DuplicateMapResponse = {
      */
     notes?: string | null;
     /**
+     * Og Image Url
+     */
+    og_image_url?: string | null;
+    /**
      * Pitch
      */
     pitch: number;
@@ -4301,6 +4305,24 @@ export type ManifestSource = {
 };
 
 /**
+ * MapAccessResponse
+ */
+export type MapAccessResponse = {
+    /**
+     * Can Edit
+     *
+     * True when the current request may open the map builder
+     */
+    can_edit: boolean;
+    /**
+     * Can View
+     *
+     * True when the current request may read the map
+     */
+    can_view: boolean;
+};
+
+/**
  * MapCreate
  */
 export type MapCreate = {
@@ -4708,6 +4730,10 @@ export type MapLayerPatch = {
  */
 export type MapLayerResponse = {
     /**
+     * Band Count
+     */
+    band_count?: number | null;
+    /**
      * Dataset Column Info
      */
     dataset_column_info?: Array<{
@@ -4899,6 +4925,10 @@ export type MapResponse = {
      * Notes
      */
     notes?: string | null;
+    /**
+     * Og Image Url
+     */
+    og_image_url?: string | null;
     /**
      * Pitch
      */
@@ -6047,6 +6077,28 @@ export type OgcRecordResponse = {
      * Type
      */
     type?: string;
+};
+
+/**
+ * OgImageUploadRequest
+ *
+ * JSON body for PUT /maps/{map_id}/og-image/ (SHARE-08 Path A).
+ *
+ * Accepts a base64 data URI up to 750 KB (as a string). This generous
+ * ceiling accommodates a 1200x630 JPEG at quality 0.85, which encodes
+ * to roughly 150-400 KB raw and ~200-540 KB as a base64 string.
+ *
+ * - ``min_length=22``: same floor as ThumbnailUploadRequest — rejects
+ * empty/clearly-malformed URIs without false-positives.
+ * - ``max_length=750_000``: ~562 KB decoded — generous for 1200x630 JPEG.
+ * DO NOT raise ThumbnailUploadRequest.max_length to match this value;
+ * the 100KB thumbnail cap is a locked contract (Phase 254 / D-03).
+ */
+export type OgImageUploadRequest = {
+    /**
+     * Data Uri
+     */
+    data_uri: string;
 };
 
 /**
@@ -17355,6 +17407,60 @@ export type UpdateMapEndpointMapsMapIdPutResponses = {
 
 export type UpdateMapEndpointMapsMapIdPutResponse = UpdateMapEndpointMapsMapIdPutResponses[keyof UpdateMapEndpointMapsMapIdPutResponses];
 
+export type GetMapAccessEndpointMapsMapIdAccessGetData = {
+    body?: never;
+    path: {
+        /**
+         * Map Id
+         */
+        map_id: string;
+    };
+    query?: never;
+    url: '/maps/{map_id}/access/';
+};
+
+export type GetMapAccessEndpointMapsMapIdAccessGetErrors = {
+    /**
+     * Bad request — invalid payload
+     */
+    400: ProblemDetail;
+    /**
+     * Unauthorized — missing or invalid credentials
+     */
+    401: ProblemDetail;
+    /**
+     * Forbidden — caller lacks write access
+     */
+    403: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Conflict — resource state prevents the operation
+     */
+    409: ProblemDetail;
+    /**
+     * Validation error
+     */
+    422: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+};
+
+export type GetMapAccessEndpointMapsMapIdAccessGetError = GetMapAccessEndpointMapsMapIdAccessGetErrors[keyof GetMapAccessEndpointMapsMapIdAccessGetErrors];
+
+export type GetMapAccessEndpointMapsMapIdAccessGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: MapAccessResponse;
+};
+
+export type GetMapAccessEndpointMapsMapIdAccessGetResponse = GetMapAccessEndpointMapsMapIdAccessGetResponses[keyof GetMapAccessEndpointMapsMapIdAccessGetResponses];
+
 export type DuplicateMapEndpointMapsMapIdDuplicatePostData = {
     body?: never;
     path: {
@@ -17915,6 +18021,112 @@ export type RemoveLayerEndpointMapsMapIdLayersLayerIdDeleteResponses = {
 };
 
 export type RemoveLayerEndpointMapsMapIdLayersLayerIdDeleteResponse = RemoveLayerEndpointMapsMapIdLayersLayerIdDeleteResponses[keyof RemoveLayerEndpointMapsMapIdLayersLayerIdDeleteResponses];
+
+export type GetOgImageMapsMapIdOgImageGetData = {
+    body?: never;
+    path: {
+        /**
+         * Map Id
+         */
+        map_id: string;
+    };
+    query?: never;
+    url: '/maps/{map_id}/og-image/';
+};
+
+export type GetOgImageMapsMapIdOgImageGetErrors = {
+    /**
+     * Bad request — invalid payload
+     */
+    400: ProblemDetail;
+    /**
+     * Unauthorized — missing or invalid credentials
+     */
+    401: ProblemDetail;
+    /**
+     * Forbidden — caller lacks write access
+     */
+    403: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Conflict — resource state prevents the operation
+     */
+    409: ProblemDetail;
+    /**
+     * Validation error
+     */
+    422: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+};
+
+export type GetOgImageMapsMapIdOgImageGetError = GetOgImageMapsMapIdOgImageGetErrors[keyof GetOgImageMapsMapIdOgImageGetErrors];
+
+export type GetOgImageMapsMapIdOgImageGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type UploadOgImageMapsMapIdOgImagePutData = {
+    body: OgImageUploadRequest;
+    path: {
+        /**
+         * Map Id
+         */
+        map_id: string;
+    };
+    query?: never;
+    url: '/maps/{map_id}/og-image/';
+};
+
+export type UploadOgImageMapsMapIdOgImagePutErrors = {
+    /**
+     * Bad request — invalid payload
+     */
+    400: ProblemDetail;
+    /**
+     * Unauthorized — missing or invalid credentials
+     */
+    401: ProblemDetail;
+    /**
+     * Forbidden — caller lacks write access
+     */
+    403: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Conflict — resource state prevents the operation
+     */
+    409: ProblemDetail;
+    /**
+     * Validation error
+     */
+    422: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+};
+
+export type UploadOgImageMapsMapIdOgImagePutError = UploadOgImageMapsMapIdOgImagePutErrors[keyof UploadOgImageMapsMapIdOgImagePutErrors];
+
+export type UploadOgImageMapsMapIdOgImagePutResponses = {
+    /**
+     * Successful Response
+     */
+    204: void;
+};
+
+export type UploadOgImageMapsMapIdOgImagePutResponse = UploadOgImageMapsMapIdOgImagePutResponses[keyof UploadOgImageMapsMapIdOgImagePutResponses];
 
 export type RevokeMapShareEndpointMapsMapIdShareDeleteData = {
     body?: never;
@@ -20883,7 +21095,20 @@ export type RasterTileProxyTilesRasterProxyDatasetIdZxyFmtGetData = {
          */
         fmt: string;
     };
-    query?: never;
+    query?: {
+        /**
+         * Colormap Name
+         *
+         * Titiler colormap for single-band display
+         */
+        colormap_name?: 'gray' | 'viridis' | 'inferno' | 'plasma' | 'magma' | 'ylorrd' | 'bugn' | 'terrain' | null;
+        /**
+         * Stretch
+         *
+         * Stretch strategy: minmax (default), percentile, stddev
+         */
+        stretch?: 'minmax' | 'percentile' | 'stddev' | null;
+    };
     url: '/tiles/raster-proxy/{dataset_id}/{z}/{x}/{y}.{fmt}';
 };
 

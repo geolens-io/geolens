@@ -653,7 +653,9 @@ async def create_fan_out_jobs(
             status="queued",
         )
 
-    except Exception as exc:  # broad: any clone/defer failure returns per-layer error, not a 500
+    except (
+        Exception
+    ) as exc:  # broad: any clone/defer failure returns per-layer error, not a 500
         logger = None
         try:
             import structlog as _structlog

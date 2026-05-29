@@ -84,7 +84,8 @@ def _select_tile_columns(
 
     if additional_columns:
         valid_extra = {
-            name for name in additional_columns
+            name
+            for name in additional_columns
             if isinstance(name, str) and _COLUMN_NAME_RE.match(name)
         }
         if valid_extra:

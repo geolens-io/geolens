@@ -47,6 +47,7 @@ class MapLayerResponse:
         paint (MapLayerResponsePaint):
         sort_order (int):
         visible (bool):
+        band_count (int | None | Unset):
         dataset_column_info (list[MapLayerResponseDatasetColumnInfoType0Item] | None | Unset):
         dataset_feature_count (int | None | Unset):
         dataset_record_type (None | str | Unset):
@@ -74,6 +75,7 @@ class MapLayerResponse:
     paint: MapLayerResponsePaint
     sort_order: int
     visible: bool
+    band_count: int | None | Unset = UNSET
     dataset_column_info: (
         list[MapLayerResponseDatasetColumnInfoType0Item] | None | Unset
     ) = UNSET
@@ -133,6 +135,12 @@ class MapLayerResponse:
         sort_order = self.sort_order
 
         visible = self.visible
+
+        band_count: int | None | Unset
+        if isinstance(self.band_count, Unset):
+            band_count = UNSET
+        else:
+            band_count = self.band_count
 
         dataset_column_info: list[dict[str, Any]] | None | Unset
         if isinstance(self.dataset_column_info, Unset):
@@ -248,6 +256,8 @@ class MapLayerResponse:
                 "visible": visible,
             }
         )
+        if band_count is not UNSET:
+            field_dict["band_count"] = band_count
         if dataset_column_info is not UNSET:
             field_dict["dataset_column_info"] = dataset_column_info
         if dataset_feature_count is not UNSET:
@@ -340,6 +350,15 @@ class MapLayerResponse:
         sort_order = d.pop("sort_order")
 
         visible = d.pop("visible")
+
+        def _parse_band_count(data: object) -> int | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(int | None | Unset, data)
+
+        band_count = _parse_band_count(d.pop("band_count", UNSET))
 
         def _parse_dataset_column_info(
             data: object,
@@ -544,6 +563,7 @@ class MapLayerResponse:
             paint=paint,
             sort_order=sort_order,
             visible=visible,
+            band_count=band_count,
             dataset_column_info=dataset_column_info,
             dataset_feature_count=dataset_feature_count,
             dataset_record_type=dataset_record_type,

@@ -36,6 +36,26 @@ vi.mock('../StyleColorPicker', () => ({
   ),
 }));
 
+vi.mock('../ColorRampPicker', () => ({
+  ColorRampPicker: ({
+    rampName,
+    onChange,
+  }: {
+    rampName: string;
+    onChange: (name: string) => void;
+    mode: string;
+  }) => (
+    <button
+      type="button"
+      data-testid="color-ramp-picker"
+      data-ramp={rampName}
+      onClick={() => onChange('Inferno')}
+    >
+      ColorRampPicker:{rampName}
+    </button>
+  ),
+}));
+
 vi.mock('@/components/ui/slider', () => ({
   Slider: ({
     value,
@@ -471,6 +491,167 @@ describe('DEMEditorScene', () => {
     expect(deleteBtn).toBeInTheDocument();
   });
 
+  // --- CONTOUR LINES section: REMOVED in v1032 (CONTOUR-02 cut) ---
+  // maplibre-contour@0.1.0 is incompatible with maplibre-gl 5.x: its dem1-contour://
+  // custom-protocol tile URLs are not routed by the v5 source loader → resolved as
+  // relative HTTP → malformed Request → 28 errors/enable (see
+  // .planning/audits/CONTOUR-WORKER-v1032.md). The control, contour-sync.ts, and the dep
+  // were removed. The assertions below are the permanent regression pins that the contour
+  // section never renders in any DEM render mode.
+
+  describe('CONTOUR LINES section (removed — stays gone)', () => {
+    it('section is absent in image mode (always absent regardless of gate)', () => {
+      render(
+        <DEMEditorScene
+          {...defaultProps({ layer: makeDEMLayer({ style_config: null }) })}
+        />,
+      );
+      expect(screen.queryByText('CONTOUR LINES')).not.toBeInTheDocument();
+    });
+
+    it('section is absent in hillshade mode (EDITOR-DEM-04 cut in v1032)', () => {
+      render(
+        <DEMEditorScene
+          {...defaultProps({
+            layer: makeDEMLayer({ style_config: { render_mode: 'hillshade' } }),
+          })}
+        />,
+      );
+      // Contour cut in v1032: section must NOT appear in the DOM
+      expect(screen.queryByText('CONTOUR LINES')).not.toBeInTheDocument();
+    });
+
+    it('section is absent in terrain mode (EDITOR-DEM-04 cut in v1032)', () => {
+      render(
+        <DEMEditorScene
+          {...defaultProps({
+            layer: makeDEMLayer({ style_config: { render_mode: 'terrain' } as unknown as MapLayerResponse['style_config'] }),
+          })}
+        />,
+      );
+      // Contour cut in v1032: section must NOT appear in the DOM
+      expect(screen.queryByText('CONTOUR LINES')).not.toBeInTheDocument();
+    });
+
+  });
+
+  // --- HYPSOMETRIC TINT section tests (EDITOR-DEM-05) ---
+
+  describe('HYPSOMETRIC TINT section', () => {
+    it('section is absent in image mode', () => {
+      render(
+        <DEMEditorScene
+          {...defaultProps({ layer: makeDEMLayer({ style_config: null }) })}
+        />,
+      );
+      expect(screen.queryByText('HYPSOMETRIC TINT')).not.toBeInTheDocument();
+    });
+
+    it('section is present in hillshade mode with toggle + no picker when disabled', () => {
+      render(
+        <DEMEditorScene
+          {...defaultProps({
+            layer: makeDEMLayer({ style_config: { render_mode: 'hillshade' } }),
+          })}
+        />,
+      );
+      expect(screen.getByText('HYPSOMETRIC TINT')).toBeInTheDocument();
+      expect(screen.getByRole('switch', { name: 'Elevation tint' })).toBeInTheDocument();
+      // Picker absent when disabled
+      expect(screen.queryByTestId('color-ramp-picker')).not.toBeInTheDocument();
+    });
+
+    it('shows ColorRampPicker when _hypso-enabled is true in hillshade mode', () => {
+      render(
+        <DEMEditorScene
+          {...defaultProps({
+            layer: makeDEMLayer({
+              style_config: { render_mode: 'hillshade' },
+              paint: { '_hypso-enabled': true },
+            }),
+          })}
+        />,
+      );
+      expect(screen.getByTestId('color-ramp-picker')).toBeInTheDocument();
+    });
+
+    it('section shows only the terrain hint (no toggle) in terrain mode', () => {
+      render(
+        <DEMEditorScene
+          {...defaultProps({
+            layer: makeDEMLayer({
+              style_config: { render_mode: 'terrain' } as unknown as MapLayerResponse['style_config'],
+            }),
+          })}
+        />,
+      );
+      expect(screen.getByText('HYPSOMETRIC TINT')).toBeInTheDocument();
+      expect(
+        screen.getByText('Elevation tint is not available in Terrain mode'),
+      ).toBeInTheDocument();
+      // No toggle or picker in terrain mode
+      expect(screen.queryByRole('switch', { name: 'Elevation tint' })).not.toBeInTheDocument();
+      expect(screen.queryByTestId('color-ramp-picker')).not.toBeInTheDocument();
+    });
+
+    it('toggling the Switch fires onPaintChange with _hypso-enabled=true', () => {
+      const onPaintChange = vi.fn();
+      render(
+        <DEMEditorScene
+          {...defaultProps({
+            layer: makeDEMLayer({ style_config: { render_mode: 'hillshade' } }),
+            onPaintChange,
+          })}
+        />,
+      );
+
+      const switchEl = screen.getByRole('switch', { name: 'Elevation tint' });
+      fireEvent.click(switchEl);
+
+      expect(onPaintChange).toHaveBeenCalledOnce();
+      const [paint] = onPaintChange.mock.calls[0] as [Record<string, unknown>];
+      expect(paint['_hypso-enabled']).toBe(true);
+    });
+
+    it('selecting a ramp fires onPaintChange with _hypso-ramp', () => {
+      const onPaintChange = vi.fn();
+      render(
+        <DEMEditorScene
+          {...defaultProps({
+            layer: makeDEMLayer({
+              style_config: { render_mode: 'hillshade' },
+              paint: { '_hypso-enabled': true, '_hypso-ramp': 'Viridis' },
+            }),
+            onPaintChange,
+          })}
+        />,
+      );
+
+      const picker = screen.getByTestId('color-ramp-picker');
+      fireEvent.click(picker);
+
+      expect(onPaintChange).toHaveBeenCalledOnce();
+      const [paint] = onPaintChange.mock.calls[0] as [Record<string, unknown>];
+      expect(paint['_hypso-ramp']).toBe('Inferno');
+    });
+
+    it('ColorRampPicker receives default Viridis ramp when _hypso-ramp not set', () => {
+      render(
+        <DEMEditorScene
+          {...defaultProps({
+            layer: makeDEMLayer({
+              style_config: { render_mode: 'hillshade' },
+              paint: { '_hypso-enabled': true },
+            }),
+          })}
+        />,
+      );
+
+      const picker = screen.getByTestId('color-ramp-picker');
+      expect(picker).toHaveAttribute('data-ramp', 'Viridis');
+    });
+  });
+
   // Test 14: Switching render mode preserves style_config keys not under current mode
   it('switching image→hillshade→image preserves other style_config keys', () => {
     const onStyleConfigChange = vi.fn();
@@ -493,5 +674,63 @@ describe('DEMEditorScene', () => {
     // render_mode should be absent; other keys should remain
     expect(config?.render_mode).toBeUndefined();
     expect(config?.some_other_key).toBe('preserved');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// POLISH-02: hillshade terrain advisory note
+// ---------------------------------------------------------------------------
+
+describe('POLISH-02 DEMEditorScene hillshade terrain advisory note', () => {
+  const hillshadeLayer = makeDEMLayer({ style_config: { render_mode: 'hillshade' } as unknown as MapLayerResponse['style_config'] });
+  const terrainLayer = makeDEMLayer({ style_config: { render_mode: 'terrain' } as unknown as MapLayerResponse['style_config'] });
+  const imageLayer = makeDEMLayer({ style_config: null });
+
+  it('renders advisory note when render_mode=hillshade AND isTerrainBound=true', () => {
+    render(
+      <DEMEditorScene
+        {...defaultProps({ layer: hillshadeLayer, isTerrainBound: true })}
+      />,
+    );
+    // The advisory note should be visible
+    expect(screen.getByRole('note')).toBeInTheDocument();
+    expect(screen.getByRole('note')).toHaveTextContent(/Hillshade is unavailable while this DEM powers 3D Terrain/i);
+  });
+
+  it('does NOT render advisory note when render_mode=hillshade AND isTerrainBound=false (Map B scenario)', () => {
+    render(
+      <DEMEditorScene
+        {...defaultProps({ layer: hillshadeLayer, isTerrainBound: false })}
+      />,
+    );
+    expect(screen.queryByRole('note')).toBeNull();
+  });
+
+  it('does NOT render advisory note when isTerrainBound=true but render_mode=terrain (note is hillshade-specific)', () => {
+    render(
+      <DEMEditorScene
+        {...defaultProps({ layer: terrainLayer, isTerrainBound: true })}
+      />,
+    );
+    expect(screen.queryByRole('note')).toBeNull();
+  });
+
+  it('does NOT render advisory note when isTerrainBound=true but render_mode=image', () => {
+    render(
+      <DEMEditorScene
+        {...defaultProps({ layer: imageLayer, isTerrainBound: true })}
+      />,
+    );
+    expect(screen.queryByRole('note')).toBeNull();
+  });
+
+  it('advisory note is absent by default (isTerrainBound defaults to false)', () => {
+    // No isTerrainBound prop at all — should default to false and show no note
+    render(
+      <DEMEditorScene
+        {...defaultProps({ layer: hillshadeLayer })}
+      />,
+    );
+    expect(screen.queryByRole('note')).toBeNull();
   });
 });

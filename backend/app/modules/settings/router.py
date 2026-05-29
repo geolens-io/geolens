@@ -445,9 +445,7 @@ async def detect_embedding_dims(
 
 
 # ROUTE-01 (Phase 1092): dual-shape decorator — see /all above.
-@router.get(
-    "/config-mode", response_model=ConfigModeResponse, include_in_schema=False
-)
+@router.get("/config-mode", response_model=ConfigModeResponse, include_in_schema=False)
 @router.get("/config-mode/", response_model=ConfigModeResponse)
 async def get_config_mode() -> ConfigModeResponse:
     """Return whether the app is in env-only config mode (public, no auth)."""
@@ -829,9 +827,7 @@ async def get_enabled_widgets(
 
 
 # ROUTE-01 (Phase 1092): dual-shape decorator — see /all above.
-@router.get(
-    "/tile-config", response_model=TileConfigResponse, include_in_schema=False
-)
+@router.get("/tile-config", response_model=TileConfigResponse, include_in_schema=False)
 @router.get("/tile-config/", response_model=TileConfigResponse)
 async def get_tile_config(
     request: Request,

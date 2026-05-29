@@ -222,8 +222,12 @@ async def test_publish_blocked_when_hard_validation_fails(
 
     admin_id = await get_user_id(test_db_session, "admin")
 
-    # Enable require_metadata_for_publish so validation gate is active
-    test_db_session.add(
+    # Enable require_metadata_for_publish so validation gate is active.
+    # Idempotent upsert (merge by PK): under `pytest -n 4` the shared per-worker
+    # DB may already hold this global app_settings row (another settings test
+    # upserts it via PersistentConfig.set), so a raw INSERT collides on
+    # app_settings_pkey. merge() upserts instead of failing.
+    await test_db_session.merge(
         AppSetting(key="require_metadata_for_publish", value={"v": True})
     )
     await test_db_session.commit()

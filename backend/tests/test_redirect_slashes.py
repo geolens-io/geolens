@@ -176,9 +176,7 @@ class TestRedirectSlashesNoLeak:
         catalog endpoint is registered without a trailing slash by design;
         ROUTE-01 must not regress that contract.
         """
-        resp = await client.get(
-            "/collections/datasets", follow_redirects=False
-        )
+        resp = await client.get("/collections/datasets", follow_redirects=False)
 
         assert resp.status_code == 200, (
             f"OGC exception regression: GET /collections/datasets must "
@@ -218,9 +216,7 @@ class TestRedirectSlashesNoLeak:
         with duplicate handler, which would silently shadow OGC semantics
         — also a failure but caught by other suites).
         """
-        resp = await client.get(
-            "/collections/datasets/", follow_redirects=False
-        )
+        resp = await client.get("/collections/datasets/", follow_redirects=False)
 
         assert resp.status_code == 404, (
             f"OGC exception contract narrowing: with-slash form must 404 "
@@ -305,11 +301,7 @@ class TestAllTrailingSlashRoutesAcceptBothShapes:
             f"with ``include_in_schema=False`` for the no-slash form. "
             f"Missing routes:\n"
             + "\n".join(f"  {m} {p}" for m, p in missing[:30])
-            + (
-                f"\n  ... and {len(missing) - 30} more"
-                if len(missing) > 30
-                else ""
-            )
+            + (f"\n  ... and {len(missing) - 30} more" if len(missing) > 30 else "")
         )
 
     async def test_dual_shape_sweep_smoke_routes_no_leak(
@@ -351,12 +343,8 @@ class TestAllTrailingSlashRoutesAcceptBothShapes:
             no_slash = path
             with_slash = path + "/"
 
-            r1 = await client.request(
-                method, no_slash, follow_redirects=False
-            )
-            r2 = await client.request(
-                method, with_slash, follow_redirects=False
-            )
+            r1 = await client.request(method, no_slash, follow_redirects=False)
+            r2 = await client.request(method, with_slash, follow_redirects=False)
 
             # The two responses must have the SAME status code — no
             # 404 regression on the no-slash form, no 307 redirect on
