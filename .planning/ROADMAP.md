@@ -38,7 +38,8 @@ Close the builder render-mode persistence defects surfaced by a live Playwright 
   1. The "ADK 46er peaks" layer row (label_config enabled) displays a small indicator icon/badge that the "Hiking trails" row (no labels) does not display.
   2. The indicator is purely derived from layer state (`label_config.enabled`) — no new persisted fields; mirrors the v1011 `SublayerConfigIndicators` derivation pattern.
   3. The indicator has an accessible label (aria attribute or tooltip), and the i18n key exists in all four locales: en, de, es, fr.
-**Plans**: TBD
+**Plans**: 1 plan
+- [ ] 1149-01-PLAN.md — Add derived label indicator to StackRow name cell + 4-locale i18n + RTL tests
 **UI hint**: yes
 
 ### Phase 1150: Builder Polish & Raster Cache Hygiene
@@ -67,7 +68,7 @@ Close the builder render-mode persistence defects surfaced by a live Playwright 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1148. Render-Mode Persistence Fix | 1/1 | Complete   | 2026-05-29 |
-| 1149. Layer Label Indicator | 0/? | Not started | - |
+| 1149. Layer Label Indicator | 0/1 | Not started | - |
 | 1150. Builder Polish & Raster Cache Hygiene | 0/? | Not started | - |
 | 1151. QA Close-Gate | 0/? | Not started | - |
 
@@ -253,4 +254,4 @@ Plans:
 
 ---
 
-*Roadmap updated: 2026-05-29 — v1033 Builder Terrain, Label & Render-Mode QA roadmap created (Phases 1148-1151, 9/9 reqs mapped).*
+*Roadmap updated: 2026-05-29 — Phase 1149 plan count finalized (1 plan).*
