@@ -11,6 +11,7 @@ from typing import Any, Literal, NamedTuple
 
 import httpx
 import structlog
+from cachetools import LRUCache
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from geoalchemy2.shape import to_shape
 from sqlalchemy import select, text
@@ -234,7 +235,10 @@ _STDDEV_SIGMA = 2.0
 # Per-band Titiler statistics cache keyed by COG open-path. Statistics are stable
 # for a given asset, so a process-lifetime cache avoids recomputing percentile/
 # stddev breakpoints on every tile request. Cleared on restart (covers re-ingest).
-_band_stats_cache: dict[str, list[dict] | None] = {}
+# HYG-01: bounded LRU so long-lived tile workers don't grow memory without limit.
+# 256 entries covers ~2× the typical project raster count. cachetools.LRUCache
+# supports the same `in` / `[]` / assignment interface as dict.
+_band_stats_cache: LRUCache[str, list[dict] | None] = LRUCache(maxsize=256)
 
 
 async def _fetch_band_statistics(open_path: str) -> list[dict] | None:

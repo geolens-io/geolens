@@ -10,7 +10,10 @@ Requirements:
 """
 
 import uuid
+from unittest.mock import AsyncMock, MagicMock
 
+import httpx
+import pytest
 from httpx import AsyncClient
 from sqlalchemy import select
 
@@ -516,3 +519,74 @@ class TestRasterTokenEndpoint:
 
         resp = await client.get(f"/tiles/token/{dataset.id}/")
         assert resp.status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# HYG-01: _band_stats_cache LRUCache unit tests
+# ---------------------------------------------------------------------------
+
+
+def test_band_stats_cache_eviction():
+    """LRU eviction: inserting maxsize+1 entries causes the oldest to be evicted."""
+    from cachetools import LRUCache
+
+    # Mirror the same maxsize as router.py
+    cache: LRUCache[str, list[dict] | None] = LRUCache(maxsize=256)
+    for i in range(257):
+        cache[f"path-{i}"] = [{"b1": i}]
+
+    assert len(cache) == 256
+    # path-0 (oldest insertion) should have been evicted
+    assert "path-0" not in cache
+    # path-256 (most recent insertion) should still be present
+    assert "path-256" in cache
+
+
+@pytest.mark.asyncio
+async def test_band_stats_cache_hit(monkeypatch):
+    """Cached path: _titiler_client.get called exactly once across two calls."""
+    from app.processing.tiles.router import _band_stats_cache, _fetch_band_statistics
+
+    _band_stats_cache.clear()
+
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = {
+        "b1": {
+            "percentile_2": 10.0,
+            "percentile_98": 250.0,
+            "mean": 130.0,
+            "std": 40.0,
+            "min": 0.0,
+            "max": 255.0,
+        }
+    }
+    mock_get = AsyncMock(return_value=mock_response)
+    monkeypatch.setattr("app.processing.tiles.router._titiler_client.get", mock_get)
+
+    path = "/data/cache-hit-test.tif"
+    result1 = await _fetch_band_statistics(path)
+    result2 = await _fetch_band_statistics(path)
+
+    assert mock_get.call_count == 1, "Second call must be served from cache"
+    assert result1 == result2
+    assert result1 is not None
+
+
+@pytest.mark.asyncio
+async def test_band_stats_cache_negative(monkeypatch):
+    """Negative caching: None is stored and returned without a second Titiler call."""
+    from app.processing.tiles.router import _band_stats_cache, _fetch_band_statistics
+
+    _band_stats_cache.clear()
+
+    mock_get = AsyncMock(side_effect=httpx.TimeoutException("timeout"))
+    monkeypatch.setattr("app.processing.tiles.router._titiler_client.get", mock_get)
+
+    path = "/data/timeout-test.tif"
+    result1 = await _fetch_band_statistics(path)
+    result2 = await _fetch_band_statistics(path)
+
+    assert result1 is None
+    assert result2 is None
+    assert mock_get.call_count == 1, "None is cached — second call must not retry Titiler"
