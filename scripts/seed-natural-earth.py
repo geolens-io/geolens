@@ -213,6 +213,23 @@ LAYER_GROUP_TAGS: dict[str, list[str]] = {
 }
 
 # ---------------------------------------------------------------------------
+# Raster fixture manifest
+# ---------------------------------------------------------------------------
+# GRAY_50M_SR: Natural Earth 1:50m shaded relief, single-band uint8, EPSG:4326
+# License: public domain (Natural Earth terms-of-use — same CDN used by vector seed)
+# Why this fixture: single-band uint8 dtype means _is_float_dtype("uint8") is False,
+# so is_dem_candidate=False (cog.py:85) — the DEM-misclassification trap is NOT tripped.
+# A float32/float64 single-band raster would set is_dem=True and route through
+# algorithm=terrainrgb, silently bypassing all colormap/stretch logic (Pitfall 2 + 9).
+RASTER_FIXTURE: dict = {
+    "stem": "GRAY_50M_SR",
+    "filename": "GRAY_50M_SR.zip",
+    "url": "https://naciscdn.org/naturalearth/50m/raster/GRAY_50M_SR.zip",
+    "name": "Natural Earth Shaded Relief (1:50m)",
+    "tags": ["raster", "shaded-relief", "natural-earth", "grayscale"],
+}
+
+# ---------------------------------------------------------------------------
 # Metadata generators
 # ---------------------------------------------------------------------------
 
@@ -1034,6 +1051,117 @@ async def process_one(
 
 
 # ---------------------------------------------------------------------------
+# Raster fixture ingest (single-band uint8, is_dem=false)
+# ---------------------------------------------------------------------------
+
+
+async def ingest_raster_fixture(
+    client: httpx.AsyncClient,
+    base_url: str,
+    api_key: str,
+    existing_by_filename: dict[str, str],
+    cache_dir: Path | None,
+) -> dict:
+    """Download and ingest the GRAY_50M_SR single-band uint8 raster fixture.
+
+    Uses the same three-step ingest flow as the vector datasets (upload ->
+    preview -> commit -> poll). Idempotent: if RASTER_FIXTURE["filename"] is
+    already present in ``existing_by_filename``, returns immediately without
+    any HTTP calls. On failure, returns a result dict with status="failed"
+    rather than raising, so a fixture failure never cancels the vector run.
+
+    The fixture is intentionally NOT sent with ``srid_override`` — the GeoTIFF
+    embeds EPSG:4326 and the server reads it directly from the file.
+
+    Returns a dict with keys: stem, status, dataset_id (on success/skip) or
+    error (on failure).
+    """
+    stem = RASTER_FIXTURE["stem"]
+    filename = RASTER_FIXTURE["filename"]
+    headers = {"X-Api-Key": api_key}
+
+    # Idempotency: reuse existing source_filename map — no download or upload
+    if filename in existing_by_filename:
+        print(f"  Skipping {stem} (already imported)")
+        return {
+            "stem": stem,
+            "status": "skipped",
+            "dataset_id": existing_by_filename[filename],
+        }
+
+    try:
+        # Download via the existing retry+cache helper
+        print(f"  Downloading {stem}...")
+        data = await download_or_load_cache(
+            client, RASTER_FIXTURE["url"], stem, cache_dir
+        )
+
+        # Step 1 - Upload (MIME image/tiff; server detects raster by extension)
+        print(f"  Uploading {stem}...")
+        upload_resp = await client.post(
+            f"{base_url}/api/ingest/upload",
+            headers=headers,
+            files={"file": (filename, data, "image/tiff")},
+        )
+        upload_resp.raise_for_status()
+        job_id = upload_resp.json()["job_id"]
+
+        # Step 2 - Preview
+        preview_resp = await client.post(
+            f"{base_url}/api/ingest/preview/{job_id}",
+            headers=headers,
+        )
+        preview_resp.raise_for_status()
+
+        # Step 3 - Commit (no srid_override — CRS is embedded in the GeoTIFF)
+        commit_resp = await client.post(
+            f"{base_url}/api/ingest/commit/{job_id}",
+            headers=headers,
+            json={"title": RASTER_FIXTURE["name"], "visibility": "public"},
+        )
+        commit_resp.raise_for_status()
+
+        # Step 4 - Poll until complete or failed
+        result = await poll_job(client, base_url, api_key, job_id)
+
+        if result.get("status") == "failed":
+            return {
+                "stem": stem,
+                "status": "failed",
+                "error": result.get("error_message", "unknown"),
+            }
+
+        dataset_id = result.get("dataset_id")
+        print(f"  Done {stem} (dataset_id={dataset_id})")
+
+        # Apply tags via records API — best-effort; 409 = duplicate, that's fine
+        if dataset_id and RASTER_FIXTURE["tags"]:
+            try:
+                ds_resp = await client.get(
+                    f"{base_url}/api/datasets/{dataset_id}",
+                    headers=headers,
+                )
+                ds_resp.raise_for_status()
+                record_id = ds_resp.json().get("record_id")
+                if record_id:
+                    for tag in RASTER_FIXTURE["tags"]:
+                        kw_resp = await client.post(
+                            f"{base_url}/api/records/{record_id}/keywords/",
+                            headers=headers,
+                            json={"keyword": tag, "keyword_type": "theme"},
+                        )
+                        if kw_resp.status_code not in (201, 409):
+                            kw_resp.raise_for_status()
+            except Exception as exc:
+                logger.warning("Failed to set keywords for %s: %s", stem, exc)
+
+        return {"stem": stem, "status": "succeeded", "dataset_id": dataset_id}
+
+    except Exception as exc:
+        return {"stem": stem, "status": "failed", "error": str(exc)}
+
+
+# ---------------------------------------------------------------------------
 # Main import pipeline
 # ---------------------------------------------------------------------------
 
@@ -1162,6 +1290,19 @@ async def main(args: argparse.Namespace, datasets: list[dict]) -> int:
                 print(f"  {fname} [{ds_id}]: {err}")
         else:
             print("  GREEN: 0 failed jobs in /api/admin/jobs/ within run window")
+
+        # Ingest the single-band uint8 raster fixture (TESTDATA-01 precondition)
+        # Must run after the vector TaskGroup so the existing idempotency map
+        # (``existing``) is already built. Result is appended to ``results`` so
+        # the summary counters and any future collection grouping see it.
+        print()
+        print("--- Raster Fixture ---")
+        raster_result = await ingest_raster_fixture(
+            client, base_url, api_key, existing, cache_dir
+        )
+        results.append(raster_result)
+        if raster_result["status"] == "failed":
+            print(f"  WARN: raster fixture ingest failed: {raster_result.get('error')}")
 
         # Assign datasets to collections by theme
         print()
