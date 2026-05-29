@@ -39,7 +39,10 @@ dependencies = [
     "rasterio>=1.4.0",
     "Pillow>=12.2.0",
     "numpy>=2.0.0",
-    "prometheus-fastapi-instrumentator>=7.1.0",
+    # 8.0.0 lifts the starlette<1.0.0 cap (prior 7.x pinned <1.0.0), which was
+    # the sole blocker preventing starlette>=1.0.1 from resolving for the
+    # CVE-2026-48710 fix below.
+    "prometheus-fastapi-instrumentator>=8.0.0",
     "authlib>=1.7.1",  # CVE-2026-44681 (GHSA-r95x-qfjj-fjj2) — OIDC Implicit/Hybrid open redirect, fixed in 1.6.12 / 1.7.1
     "python-multipart>=0.0.27",
     "sse-starlette>=3.3.2",
@@ -54,6 +57,12 @@ dependencies = [
     "urllib3>=2.7.0",
     # idna 3.15 patches a DoS in idna.encode() with crafted inputs (Dependabot #40 / CVE-2026-45409 / GHSA-65pc-fj4g-8rjx).
     "idna>=3.15",
+    # starlette 1.0.1 fixes "BadHost": missing Host-header validation that
+    # poisons request.url.path and can bypass path-based auth checks
+    # (CVE-2026-48710 / PYSEC-2026-161 / GHSA-86qp-5c8j-p5mr). Requires
+    # prometheus-fastapi-instrumentator>=8.0.0 above; FastAPI (>=0.46.0) and
+    # sse-starlette (>=0.49.1) already permit starlette 1.x.
+    "starlette>=1.0.1",
 ]
 
 [dependency-groups]
