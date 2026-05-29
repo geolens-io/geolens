@@ -934,7 +934,8 @@
     "kebabAddLayer": "Ajouter une couche",
     "kebabUngroup": "Dégrouper",
     "kebabDeleteGroup": "Supprimer le groupe",
-    "kebabMoveOutOfGroup": "Déplacer hors du groupe"
+    "kebabMoveOutOfGroup": "Déplacer hors du groupe",
+    "labelsIndicator": "Étiquettes activées : {{column}}"
   },
   "basemapGroup": {
     "addCustomBasemap": "＋ Ajouter un fond de carte personnalisé…",

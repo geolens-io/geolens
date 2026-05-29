@@ -2,7 +2,7 @@
 import { memo, useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { DraggableAttributes, DraggableSyntheticListeners } from '@dnd-kit/core';
-import { Eye, EyeOff, GripVertical, MoreVertical } from 'lucide-react';
+import { Eye, EyeOff, GripVertical, MoreVertical, Type } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import {
@@ -135,6 +135,13 @@ export const StackRow = memo(function StackRow({
   const skipCloseAutoFocusRef = useRef(false);
 
   const displayName = layer.display_name ?? layer.dataset_name;
+
+  // Derived label indicator — mirrors map-sync.ts:795 gate exactly.
+  // LabelConfig has no `enabled` field; `column` being set is the sole signal.
+  // Heatmap and symbol render modes suppress label rendering on the map, so we
+  // suppress the indicator too to avoid false positives.
+  const renderMode = (layer.style_config as Record<string, unknown> | null | undefined)?.render_mode as string | undefined;
+  const hasLabels = !!layer.label_config?.column && renderMode !== 'heatmap' && renderMode !== 'symbol';
 
   function handleStartRename() {
     setNameValue(displayName);
@@ -335,15 +342,27 @@ export const StackRow = memo(function StackRow({
             autoFocus
           />
         ) : (
-          <span
-            className="truncate text-sm block"
-            onDoubleClick={(e) => {
-              e.stopPropagation();
-              handleStartRename();
-            }}
-          >
-            {displayName}
-          </span>
+          <div className="min-w-0 flex items-center gap-1">
+            <span
+              className="truncate text-sm"
+              onDoubleClick={(e) => {
+                e.stopPropagation();
+                handleStartRename();
+              }}
+            >
+              {displayName}
+            </span>
+            {hasLabels && (
+              <span
+                title={t('stackRow.labelsIndicator', { column: layer.label_config!.column, defaultValue: 'Labels on: {{column}}' })}
+                className="shrink-0 inline-flex items-center justify-center h-3.5 w-3.5 rounded-sm text-muted-foreground"
+                data-testid="label-indicator"
+              >
+                <Type className="h-3 w-3" aria-hidden="true" />
+                <span className="sr-only">{t('stackRow.labelsIndicator', { column: layer.label_config!.column, defaultValue: 'Labels on: {{column}}' })}</span>
+              </span>
+            )}
+          </div>
         )}
       </div>
 
