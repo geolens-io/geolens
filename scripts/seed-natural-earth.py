@@ -1071,8 +1071,8 @@ async def ingest_raster_fixture(
     """Download and ingest the GRAY_50M_SR single-band uint8 raster fixture.
 
     Uses the same three-step ingest flow as the vector datasets (upload ->
-    preview -> commit -> poll). Idempotent: if RASTER_FIXTURE["filename"] is
-    already present in ``existing_by_filename``, returns immediately without
+    preview -> commit -> poll). Idempotent: if RASTER_FIXTURE["tif_filename"]
+    is already present in ``existing_by_filename``, returns immediately without
     any HTTP calls. On failure, returns a result dict with status="failed"
     rather than raising, so a fixture failure never cancels the vector run.
 
@@ -1323,6 +1323,10 @@ async def main(args: argparse.Namespace, datasets: list[dict]) -> int:
         )
         results.append(raster_result)
         if raster_result["status"] == "failed":
+            # ``failed`` was aggregated before this append (line ~1277), so
+            # bump it here too — otherwise a failed fixture ingest never
+            # reaches the exit-code guard below and CI gets a false green.
+            failed += 1
             print(f"  WARN: raster fixture ingest failed: {raster_result.get('error')}")
 
         # Assign datasets to collections by theme
