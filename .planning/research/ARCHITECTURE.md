@@ -1,410 +1,453 @@
-# Architecture Research — v1030 Map Builder Polish Sweep
+# Architecture Research — v1034 Raster Stretch & Colormap Completion
 
-**Domain:** Internal product polish for the GeoLens map builder (feature-rich layered authoring surface).
-**Researched:** 2026-05-27
-**Mode:** Project research (integration-only, no ecosystem survey).
-**Substrate baseline:** v1008 unified stack, v1026 style reconciler, v1027 controller + typed action boundary, v1029 DCAT 3.0, in-flight share/access/chat polish at `3ed5ceb3`.
+**Domain:** Raster tile serving / map builder editor controls
+**Researched:** 2026-05-29
+**Mode:** Project research — integration point mapping for three concrete features
+**Confidence:** HIGH (all findings sourced from direct file inspection of the live codebase)
 
 ---
 
 ## Executive Summary
 
-v1030 is a **polish + audit milestone** layered on top of an already-shipped substrate: a typed `BuilderLayerAction` contract (`builder-action-contract.ts`), a `dispatchLayerAction` bridge wired into both manual UI and AI chat (`use-builder-layers.ts:1124`), an editor-scene controller (`use-builder-editor-scene.ts`), per-render-mode editor components dispatched by a lookup table (`LayerStyleEditor/RenderModeSwitch.tsx`), and per-render-mode MapLibre adapters with owned-property reconciliation (`layer-adapters/shared.ts`).
+v1034 extends three interlocking surfaces that shipped in v1031/v1032/v1033 without fully closing the multi-band and configurable-bounds gaps. All three features share the same data path — `raster_tile_proxy` (backend) → `buildColormapTileUrl` / `raster-adapter.ts` (frontend tile URL) → MapLibre source teardown/recreate (map-sync.ts) — and none of them require new routes, new schema migrations, or changes to `map-sync.ts`.
 
-The architecture-level question for v1030 is **NOT "what new abstractions do we need?"** — it's **"where do new behaviors plug into existing seams without violating contracts?"**
-
-Three clean seams already exist:
-1. **`BuilderLayerAction` union** for any mutating intent (manual, AI, system).
-2. **`LayerAdapter` interface** for any per-render-mode MapLibre behavior.
-3. **`useBuilderEditorScene` / `editorLayer` / `editorScene`** for any panel routing.
-
-For each of the six v1030 polish questions, **the answer is plug into existing seams**, with one exception (AI confirm-before-apply staging) that needs a thin new layer above `dispatchLayerAction`.
-
-The recommended phase order is:
-1. **Audit-first walkthrough** (writes BUILDER-WALKTHROUGH-AUDIT.md — no code).
-2. **Map functionality polish** (small-screen layout, dirty/save, settings/widgets — low blast radius, unblocks UAT).
-3. **Per-render-mode editor polish** (LineEditor/FillEditor/etc — extends adapters via existing owned-property protocol).
-4. **AI chat polish** (creation + analysis — extends existing `add_layer` / `query_data` tools; the only new structural piece is an optional "confirm" gate).
-5. **Sharing/embed polish** (extends `3ed5ceb3` separation; possibly adds embed-preview surface).
-6. **Easy-win sweep + close-gate** (Playwright MCP + i18n + smoke).
+The work is additive modification to five existing files plus a new fixture function in the seed script. The build order is: **fixture → multi-band backend → configurable-bounds backend → frontend controls → cleanup → verify**. Every dependency in this order is strict (later steps require earlier ones to already exist for verification to be meaningful).
 
 ---
 
-## Q1. AI-chat layer creation — where does `create_layer` live?
+## Feature 1: Per-Band Multi-Band Stretch (RASTER-STRETCH-03)
 
-### Current State (Verified)
+### The Hardcoded Call Site
 
-- **Tool already exists.** `add_layer` is the LLM-facing tool (`backend/app/processing/ai/tools.py:294-309`) and lives in `_EDIT_TOOLS` (`chat_constants.py:16-25`). Its only required input is `dataset_id`.
-- **Action already exists.** `ChatAction.type='add_layer'` is in the Pydantic union (`schemas.py:363-386`) with a `dataset_id` field.
-- **Frontend dispatch already exists.** `ChatPanel.tsx:305-309` routes `add_layer` to `layerActions.onAddDataset(datasetId)`, which goes through `dispatchLayerAction({ type: 'add_dataset', source: 'ai', datasetId })` (use-builder-layers.ts:1194-1198) → `handleAddDataset` (use-builder-layers.ts:721).
-- **Builder side handles insertion + default style** via `handleAddDataset` → `addLayerMutation` (server `POST /api/maps/{map_id}/layers`) → reducer prepends to `localLayers` → `useLayerMapSync` triggers the adapter for the inferred render mode.
+**File:** `backend/app/processing/tiles/router.py`
+**Function:** `raster_tile_proxy` (the `@router.get("/raster-proxy/...")` handler, line 510)
+**The exact hardcoded line:**
 
-### Gap (What "Layer creation" polish actually means)
-
-The plumbing exists, but the user-flow polish gaps are:
-
-| Gap | Where it lives | Polish opportunity |
-|-----|----------------|-------------------|
-| Insertion position (top vs bottom vs above selected) | `handleAddDataset` (use-builder-layers.ts:721+) | Currently inserts somewhere fixed; AI can't ask "below the roads layer" |
-| Default style for the AI-created layer | adapter `addLayers` defaults + `MAP_COLORS.default` | A single style per geom type; AI can't pre-style on creation |
-| Confirm-before-apply | None — every chat action applies immediately, with single-level Undo (`lastSnapshotRef`, ChatPanel.tsx:172) | User-facing polish: "I'm about to add 3 layers — proceed?" |
-| Search → preview → add flow | `search_datasets` tool returns IDs; `add_layer` consumes one | Better surface in chat output for "I found 3 candidates — which one?" |
-
-### Recommendation
-
-**Do NOT introduce a new `create_layer` action.** Extend the existing `add_dataset` BuilderLayerAction with optional payload fields, and let the AI tool keep its `add_layer` name.
-
-**Specific extensions (minimal, all in existing seams):**
-
-1. **Insertion position** — extend `BuilderLayerAction['add_dataset']` to optionally carry `position: 'top' | 'bottom' | { aboveLayerId: string }`. Default stays "top" (existing behavior). Backend `add_layer` tool gets an optional `position` enum.
-2. **Default style hint** — extend `add_dataset` action with optional `style_hint: StyleConfig | null`. `handleAddDataset` passes it to `addLayerMutation`. Reuses the v1026 reconciler — no new code path.
-3. **Confirm-before-apply (THE one new structural piece)** — see Q4 below; this is cross-cutting, not creation-specific.
-
-### Confirm-Before-Apply: Recommended Shape (Cross-cutting)
-
-ChatPanel currently applies every action inside the streaming `actions` SSE event (ChatPanel.tsx:371-400). The cleanest place to gate is **the same `dispatchLayerAction` call site**, with a thin staging layer:
-
-```text
-streamChatMessage → 'actions' event → [STAGING REVIEW] → dispatchLayerAction(...)
+```python
+rescale_parts = (
+    _compute_stretch_rescale(bands, stretch, n_bands=1) if bands else []
+)
 ```
 
-**New (small) module:** `frontend/src/components/builder/chat-action-staging.ts`
-- Exports `shouldStageAction(action: ChatAction): boolean` — returns true for `add_layer`, `remove_layer` (already non-undo-safe per ChatPanel.tsx:107-111), maybe `set_data_driven_style` if user setting is enabled.
-- Exports `StagedActionsBanner` component — accepts/rejects a batch of pending actions inline in the chat message bubble.
-- Does NOT touch backend; works on the existing `ChatAction[]` stream.
-- Configurable via existing settings (read-only feature flag for v1030, or admin toggle).
+This is on line 580 (inside the `if stretch and stretch != "minmax" and not render_params.startswith("algorithm="):` block). `n_bands=1` is the only change required in `_compute_stretch_rescale`.
 
-**Crucially**, this is purely additive — when staging is OFF or the action is safe, the existing flow runs unchanged. The v1027 `dispatchLayerAction` boundary is unchanged.
+### Where `band_count` Is Read
 
----
+`band_count` is already read from the SQL result in `_resolve_raster_access` (line 342 of the same file — the `ra.band_count` column) and returned in `row["band_count"]`. It is then consumed in `raster_auth_check` at line 485:
 
-## Q2. AI-chat data analysis — read-only flows
-
-### Current State (Verified)
-
-- **`query_data` tool already exists** (`tools.py:310-328`) and produces `show_query_result` actions (`chat_actions.py:243-250`) with `geojson` + `bbox`.
-- **Frontend already handles it** via `dispatchQueryResult` (ChatPanel.tsx:208-227) → `onQueryResult` → `handleQueryResult` (use-ephemeral-layers.ts:107-109) → adds an ephemeral source `ephemeral-result` with 4 typed layers (polygon fill/outline, line, point) and auto-fits to bbox.
-- **`search_datasets` tool already exists** (`tools.py:88-93`) — returns `id, title, summary, geometry_type, keywords, extent_bbox, feature_count, column_info, sample_values`.
-- **Layer column context** — `ChatMapLayer` (schemas.py:316-333) carries `column_info`, `sample_values`, `feature_count`, `style_config`, `paint` per layer the user has active.
-
-### Gap
-
-The "which datasets cover Y" / "what's in this layer" prompts have the **plumbing**, but polish gaps:
-
-| Gap | Where |
-|-----|-------|
-| Ephemeral layer naming/legend | `useEphemeralLayers` (use-ephemeral-layers.ts:1-117) has 4 fixed-style layers, no naming, no legend integration |
-| Dismissal UX | `handleDismissEphemeral` exists but no inline button in chat bubble |
-| Bbox spatial filter on `search_datasets` | Backend `bbox` param already accepted (tools.py:48-55); no chat-suggestion chip prompting it |
-| Layer-shape reuse | Query result doesn't snapshot to a real layer (user can't promote ephemeral → permanent) |
-| AOI-aware suggestions | `getSmartSuggestions` (chat-suggestions.ts) doesn't know map viewport |
-
-### Recommendation
-
-**No new action type. No new backend tool.** All polish is frontend-side:
-
-1. **Dismiss/promote affordance** — add buttons inside the chat bubble for `show_query_result` actions: "Dismiss" (clears ephemeral) and (stretch goal) "Save as layer" (would need a new BuilderLayerAction `add_ephemeral_as_layer`; treat as v1031 stretch).
-2. **Smart suggestions extension** — `getSmartSuggestions(layers, t)` already takes layers; extend to take the map viewport (or current bbox from `useBuilderLayers` saved center/zoom) and surface chips like "What datasets cover this view?"
-3. **Ephemeral layer styling** — share the existing `MAP_COLORS` palette; consider extracting a tiny `getEphemeralLayerSpec(geometryType)` helper from the inline addLayer block.
-
-**No new read-only action type is needed** because the existing `show_query_result` already carries arbitrary GeoJSON + bbox — that covers "which datasets cover Y" once the backend's `query_data` SQL generator is steered (which is a prompt/skill change, not an architecture change).
-
----
-
-## Q3. Sharing/embed polish — where do `3ed5ceb3` changes point next?
-
-### What `3ed5ceb3` Actually Landed (Verified)
-
-The commit message + diff confirm:
-- **New backend route `GET /api/maps/{map_id}/access/`** returning `{can_view, can_edit}` (router.py:779-797) so `MapViewerGate` no longer depends on the client-side `isAdmin`/role flag.
-- **SharePanel separation** — `rawShareToken` (state, freshly-minted) vs `persistedShareTokenHint` (query data, server-side hint). The "regenerate to copy again" affordance when the raw token isn't in memory (SharePanel.tsx:622-647).
-- **Embed-token regenerate** path when `activeEmbedToken` exists but `embedTokenRaw` was lost (SharePanel.tsx:451-466).
-- **Save-state banner** — `share-output-save-state` test-id banner explaining how unsaved/saving/failed states interact with share links (SharePanel.tsx:512-541).
-
-### Forward-Pointing Gaps
-
-| Gap | Surface | Polish opportunity |
-|-----|---------|---------------------|
-| **Embed preview** | None — operator copies iframe to test | Side-by-side iframe preview inside ShareDialog |
-| **OG-image / social preview** | `useUploadThumbnail` exists (use-maps.ts via `PUT /api/maps/{id}/thumbnail/`) but never surfaces in share | Show thumbnail in ShareDialog; let user regen |
-| **Allowed-origins UX** | Comma-separated input (SharePanel.tsx:255-260) | Tag-style chips, origin validation, "add current parent origin" button |
-| **Expiration UX** | Date picker only (SharePanel.tsx:199-206) | Quick presets (1 day / 1 week / 30 days / never), plus current behavior |
-| **Embed-token list visibility** | `useMapEmbedTokens` returns array; only one is shown in summary | Per-token domain/expiration table for admins |
-| **Viewer/embed parity** | `MapViewerGate` uses new access endpoint; sharing has no equivalent "what will viewer see?" preview | Pre-flight `visibility-check` already exists (router.py:500-518) — surface non-public layer names in the banner |
-| **Copy-link → in-flight verification** | None — user copies, then must paste in a new tab to verify | A "Test link" button that opens an incognito-like check (could reuse `getSharedMap()` cross-origin probe) |
-| **Frame-ancestors CSP** | `_build_frame_ancestors` exists (router.py:110) but not surfaced as a "policy" indicator in the embed section | Inline note: "This iframe will work on: example.com, app.example.com" |
-
-### Recommendation
-
-**Build on the rawToken/persistedHint separation pattern.** All polish is additive within existing `SharePanel.tsx`:
-
-1. **Embed preview iframe** — render a sandboxed iframe of the current embed URL inside ShareDialog when a token is in memory.
-2. **Thumbnail surface** — add `<img src={`/api/maps/${mapId}/thumbnail/`} />` near the share section.
-3. **Allowed-origins chip input** — replace the comma string with a chip array, validate per `parseOrigins()` (already returns normalized strings).
-4. **Expiration presets** — wrap the existing date input with preset buttons; pass through to existing `updateShareToken` mutation.
-5. **Pre-flight banner** — use `checkMapVisibility` (already wired) to show "Note: 2 of your layers are private; viewers will need an embed token" with the actual non-public layer names.
-
-**No new backend routes are required for any of the above** — every polish item maps to existing endpoints. (Possible exception: a list/manage embed-tokens admin surface, which already has `admin_router.py` per the grep above and can stay out of v1030 scope.)
-
----
-
-## Q4. Per-render-mode editor polish — preserving the reconciler contract
-
-### Current Architecture (Verified)
-
-The v1026 + v1027 architecture has **three layers** of separation:
-
-```text
-┌─────────────────────────────────────────────────────────────────┐
-│ LayerStyleEditor (UI)                                            │
-│ └── RenderModeSwitch (lookup table)                              │
-│     ├── FillEditor.tsx                                           │
-│     ├── LineEditor.tsx                                           │
-│     ├── CircleEditor.tsx                                         │
-│     ├── SymbolEditor.tsx                                         │
-│     ├── HeatmapEditor.tsx                                        │
-│     ├── ClusterEditor.tsx                                        │
-│     └── RasterEditor.tsx                                         │
-│         All emit through BaseStyleEditorProps callbacks:         │
-│         onPaintProp / onPaintChange / onLayoutChange /           │
-│         onBuilderChange                                          │
-└─────────────────────────────────────────────────────────────────┘
-                            │
-                            ▼ (callbacks compose to BuilderLayerAction)
-┌─────────────────────────────────────────────────────────────────┐
-│ dispatchLayerAction (typed action boundary)                      │
-│ └── BuilderLayerAction union: set_paint / set_style_config / ... │
-└─────────────────────────────────────────────────────────────────┘
-                            │
-                            ▼
-┌─────────────────────────────────────────────────────────────────┐
-│ useLayerMapSync handlers → layer-adapters                        │
-│ └── LayerAdapter:                                                 │
-│     - addLayers(map, input)                                      │
-│     - syncPaint(map, input)         [owned-property reconcile]   │
-│     - syncVisibility(map, input)                                 │
-│     - getLayerIds(layerId): string[]                             │
-│   Per-adapter constant: *_OWNED_PAINT_PROPERTIES                 │
-└─────────────────────────────────────────────────────────────────┘
+```python
+bc = row["band_count"] or 1
 ```
 
-The **load-bearing invariants** are:
-- Editors emit through prop callbacks — they never poke the map.
-- Editors read from `layer.paint` / `layer.style_config.builder` / `layer.layout` — single source of truth.
-- Adapters declare `*_OWNED_PAINT_PROPERTIES` constants — `syncOwnedPaintProperties` (shared.ts:293-336) reconciles only those.
-- Custom paint keys (anything in `CUSTOM_PAINT_PROPS`, shared.ts:6-13) are kept in `layer.paint` but stripped before sending to MapLibre via `stripCustomProps` / `filterPaintForLayerType`.
-- Companion layers (outline, extrusion, arrow, label, cluster count/circle) are owned end-to-end by the adapter and surfaced via `getLayerIds(layerId)`.
+And forwarded into `_titiler_render_params(row["band_count"], row["dtype"])` (line 494).
 
-### What "Easy Wins" Mean Here
+The stretch path in `raster_tile_proxy` calls `raster_auth_check` first (line 542) and gets `render_params` back via the response header `X-GeoLens-Render-Params`. `render_params` already contains the correct number of `bidx=` params based on `band_count` (from `_titiler_render_params`). This gives the stretch path access to how many bands were selected.
 
-Polish opportunities by editor (drawn from `todo.md` + structural inspection):
+### The Fix
 
-| Editor | Polish |
-|--------|--------|
-| **LineEditor** | Already has gradient + arrow + dash + offset. Polish: arrow direction (forward/reverse/both) — currently only forward; line-cap selector (round/square/butt) |
-| **FillEditor** | Already supports outline + extrusion. Polish: better extrusion-3D enablement UI; "lock outline color to fill" toggle |
-| **CircleEditor** | Polish: stroke-width slider parity with fill; cluster-mode handoff |
-| **SymbolEditor** | Polish: sprite browser; icon-rotation control |
-| **HeatmapEditor** | Polish: weight-column selector parity with column-driven styling |
-| **ClusterEditor** | Polish: min-points threshold |
-| **RasterEditor** | Polish: contrast/brightness/saturation parity with MapLibre raster paint props |
-| **Cross-cutting** | "Render as Text" — explicitly OUT of scope for v1030 per PROJECT.md line 35. Defer. |
+`raster_tile_proxy` does not currently re-read `band_count` after calling `raster_auth_check`. The cleanest fix is:
 
-### Extension Recipe (Preserves v1026 Contract)
+1. Parse the number of `bidx=` fragments already in `render_params` (a `render_params.count("bidx=")` gives the band count without a second DB read). Or, alternatively, parse `render_params` to count band selections.
+2. Pass that count as `n_bands` to `_compute_stretch_rescale` instead of the hardcoded `1`.
 
-To add a control to LineEditor without breaking adapter contracts:
+The `_compute_stretch_rescale` function (lines 272–307) already loops `for i in range(n_bands)` and handles multi-band correctly — it just needs the right value passed in. The function is not modified.
 
-1. **If the control maps to a MapLibre paint property** (e.g., `line-cap`): edit the editor to add a `<SliderRow>` or `<Select>` that calls `onPaintProp('line-cap', value)`. Add `line-cap` to `LINE_OWNED_PAINT_PROPERTIES` in `line-adapter.ts` so the reconciler manages it. **Done — no new code paths.**
-2. **If the control maps to a builder-only field** (e.g., a new arrow option): add to `BuilderStyleConfig` type, read in `getBuilderStyleConfig(input)` via the existing `BUILDER_STYLE_KEY_ALIASES` map (map-sync.ts:403), and consume in the adapter's `syncPaint`. **Done — no new action types.**
-3. **If the control needs a new companion layer** (rare): extend the adapter's `addLayers` + `syncPaint` + `syncVisibility` + `getLayerIds`. The companion layer pattern (outline, extrusion, arrow) gives a reference.
+The `_fetch_band_statistics` function (lines 244–269) already returns stats for ALL bands from `/cog/statistics` (sorted `b1`, `b2`, `b3`, ...). The cache key is `open_path` (unchanged — single-band and multi-band stats for the same asset are the same Titiler response, just more bands in the list).
 
-### Recommendation
+**New vs Modified:**
+- MODIFIED: `backend/app/processing/tiles/router.py` — `raster_tile_proxy` function, one argument change at the `_compute_stretch_rescale` call site
 
-**Polish per editor in-place.** Each per-editor change is a 1-3 file PR (editor + adapter owned-props + i18n key). No new abstractions. No new architectural layer.
+### Frontend Gating Change
 
-**The minimal extension point** for "Render as Text" specifically (out of v1030 scope but worth noting): would be a new `RenderAsId='text'` value in `renderAs.ts:4-16` + a new symbol-shaped adapter or shared symbol path with `text-field`-only paint. The `RENDER_AS_WRITABLE_FIELDS` + `buildRenderAsPatch` pattern already exists (renderAs.ts:82, 409) — adding a new render mode reuses that machinery. **Defer to v1031+.**
+**File:** `frontend/src/components/builder/LayerStyleEditor/RasterEditor.tsx`
+**Current gate (line 186):**
+```tsx
+{layer.band_count === 1 && (
+```
 
----
+**What to change:** Widen to include multi-band rasters where stretch is meaningful but colormap is not. The COLORMAP section (color LUT applied to single-band output) should stay `band_count === 1` only. The STRETCH section (percentile/stddev rescale per band) should show for any raster where `band_count >= 1`:
 
-## Q5. Map functionality polish — controller integration
+```tsx
+{/* COLORMAP: single-band only */}
+{layer.band_count === 1 && (
+  ...colormap select...
+)}
+{/* STRETCH: all rasters (multi-band gets per-band rescale, single-band gets same as before) */}
+{(layer.band_count != null && layer.band_count >= 1) && (
+  ...stretch select...
+)}
+```
 
-### Touchpoints (Verified)
+Or, if design decision is to keep them colocated in a single section, the section header condition becomes `band_count != null && band_count >= 1` while the colormap row inside is additionally gated on `band_count === 1`.
 
-| Polish item | Controller / Module |
-|-------------|---------------------|
-| Viewport preservation | `useBuilderSave` reads `map.getCenter/Zoom/Bearing/Pitch` (use-builder-save.ts:445-449) and writes to `MapUpdateRequest` |
-| Dirty state | `setHasUnsavedChanges` lives in `useBuilderLayers` (use-builder-layers.ts:52, 65, 122). Every mutating handler calls `markDirty` or `setHasUnsavedChanges(true)`. |
-| Save status | `useBuilderSave` returns `saveStatus: BuilderSaveStatus` (use-builder-save.ts:736-751). Already surfaced in `SharePanel` banner (SharePanel.tsx:512-541) |
-| History | `HistoryPanel.tsx` reads `useMapHistory(mapId, 0, limit)` server-side; no undo/redo state in builder — just a read-only audit list |
-| Settings/widgets | `useWidgetStore` zustand store (`stores/map-widget-store.ts`); `toggle(widgetId)` is called from MapBuilderPage:990. Widget host is `WidgetHost.tsx` |
-| Basemap | `useBuilderLayers` owns `localBasemap` + `basemapConfig` + `showBasemapLabels` + `localTerrainConfig`. `applyBasemapConfigToMap` (map-sync.ts:317-361) reconciles. `reorderBasemapAboveData` (map-sync.ts:293-314) handles drag-orderable basemap position |
-| Smaller-screen layouts (RESP-01..03 from v1011) | `BuilderMap` NavigationControl (`top-left`), `MapCoordReadout` (`right-14`), `data-builder-canvas="true"` scoped CSS rule — established in v1011 |
+`layer` is typed as `MapLayerResponse` (from `BaseStyleEditorProps.layer`). `band_count?: number | null` is already declared at line 916 of `frontend/src/types/api.ts`.
 
-### Smaller-Screen Polish Items From `todo.md`
+**New vs Modified:**
+- MODIFIED: `frontend/src/components/builder/LayerStyleEditor/RasterEditor.tsx` — section gate condition only
 
-The `todo.md` lines 138-149 list these specific small-screen gaps:
-- Right sidebar collapse overtops zoom controls.
-- Lat/long pill overlays the map widget container.
-- Basemap selector has two stacked "X" buttons.
-- "Rename group" doesn't focus the text field.
-- Delete layer doesn't work (regression — verify on `localhost:8080`).
-- Layer 1 visibility toggle no-op on certain maps (regression — verify).
-- "Detail level toggle" — kept disposition from v1011 (REMOVE; dead-wired).
+### Map-Sync / Adapter: No Change Required
 
-### Recommendation
+`buildColormapTileUrl` (in `raster-adapter.ts`, line 55) already reads `paint['_colormap']` and `paint['_stretch']` and appends both as query params. It does not need to know about band count — the backend proxy handles the per-band logic server-side.
 
-**Every item maps to an existing surface:**
+`syncRasterLayer` in `map-sync.ts` (line 624) already calls `buildColormapTileUrl(token.tile_url, adapterInput.paint)` before the tile-URL diff comparison (line 648). If `_stretch` changes in paint, the URL changes, the source diff fires, and MapLibre re-fetches with the new URL — this path is unchanged and already works.
 
-1. **Small-screen layout collisions** — extend the v1011 pattern. The `data-builder-canvas` scoping is the precedent. Add ARIA + z-index discipline to right-sidebar collapse, lat/long pill, basemap selector.
-2. **Rename-group focus** — `requestAnimationFrame(() => input.focus())` pattern; precedent in ChatPanel.tsx:542-544.
-3. **Delete-layer regression** — likely in `handleRemove` (use-builder-layers.ts:287) or its companion-layer cleanup (`removePerLayerCompanions` in `builder-layer-mutations.ts`). Audit-first surfaces the exact failure mode.
-4. **Visibility-toggle regression** — likely in `handleToggleVisibility` → adapter `syncVisibility` for some render mode that's missing initial-layout handling (cf. fill-adapter.ts:85-95 BUG-01 precedent: `initialLayout = visible === false ? { ...layout, visibility: 'none' } : layout`). Same shape regression may exist in another adapter.
-5. **Widgets toggle redundancy question** (todo.md:144) — Settings → Widgets toggles control "is this widget mountable?", separate from the user's on-map widget controls. Polish opportunity: better copy + group widgets that are always-on (Navigation, Scale) vs toggleable (Measurement). UI-only.
-6. **Save indicator** — already shipped in v13.11 QUALITY-01 (todo.md:105). Verify still working.
-7. **Public map zoom-control location** — already shipped in v13.11 QUALITY-04 (todo.md:107). Verify regression-free.
-
-**Recommended:** treat all of these as **bug-shape closures** in a single phase, gated by the audit-first walkthrough.
+**Confirmed: `map-sync.ts` and `raster-adapter.ts` need zero changes for feature 1.**
 
 ---
 
-## Q6. Suggested Build Order for v1030
+## Feature 2: Configurable Stretch Bounds (RASTER-STRETCH-UI-01)
 
-### Phase Dependency Graph
+### New Query Params
 
-```text
-[Audit-first walkthrough]   Phase 1133
-        │ produces BUILDER-WALKTHROUGH-AUDIT.md
+Three new optional query params thread from frontend to backend:
+
+| Param | Type | Purpose |
+|-------|------|---------|
+| `pmin` | float (0–100) | Lower percentile bound (default: 2) |
+| `pmax` | float (0–100) | Upper percentile bound (default: 98) |
+| `sigma` | float (>0) | σ multiplier for stddev stretch (default: 2.0) |
+
+### Threading from RasterEditor → Tile URL → Backend
+
+**Step 1 — RasterEditor (MODIFIED):**
+`frontend/src/components/builder/LayerStyleEditor/RasterEditor.tsx`
+
+Add two number inputs / sliders for `pmin`/`pmax` (visible when stretch === 'percentile') and one for `sigma` (visible when stretch === 'stddev'). Write them to paint via `onPaintProp('_pmin', value)`, `onPaintProp('_pmax', value)`, `onPaintProp('_sigma', value)`. These are builder-private paint keys following the same `_` prefix convention as `_colormap` and `_stretch`.
+
+**Step 2 — buildColormapTileUrl (MODIFIED):**
+`frontend/src/components/builder/layer-adapters/raster-adapter.ts`
+Function: `buildColormapTileUrl` (line 55)
+
+Add reads for `paint['_pmin']`, `paint['_pmax']`, `paint['_sigma']` and forward as query params when non-default:
+
+```ts
+if (typeof paint['_pmin'] === 'number' && paint['_pmin'] !== 2) {
+  params.set('pmin', String(paint['_pmin']));
+}
+// ... pmax, sigma similarly
+```
+
+The function's return value changes when these values are set, causing the tile URL to differ, triggering the `syncRasterLayer` source-teardown path in `map-sync.ts` naturally — no changes needed in `map-sync.ts`.
+
+**Step 3 — raster_tile_proxy (MODIFIED):**
+`backend/app/processing/tiles/router.py`
+Function: `raster_tile_proxy` (line 510)
+
+Add three new `Query` parameters:
+```python
+pmin: float | None = Query(None, ge=0, le=100),
+pmax: float | None = Query(None, ge=0, le=100),
+sigma: float | None = Query(None, gt=0),
+```
+
+These are passed into `_compute_stretch_rescale` which uses them instead of the hardcoded `percentile_2`/`percentile_98` keys and `_STDDEV_SIGMA`.
+
+**Step 4 — _compute_stretch_rescale (MODIFIED):**
+`backend/app/processing/tiles/router.py`
+Function: `_compute_stretch_rescale` (line 272)
+
+Extend signature:
+```python
+def _compute_stretch_rescale(
+    bands: list[dict], stretch: str, n_bands: int,
+    pmin: float = 2.0, pmax: float = 98.0, sigma: float = 2.0
+) -> list[str]:
+```
+
+Then use `pmin`/`pmax` to select the right percentile keys from the Titiler statistics response and `sigma` instead of `_STDDEV_SIGMA`.
+
+Note: Titiler `/cog/statistics` returns fixed percentile keys (`percentile_2`, `percentile_98`, and optionally others). If `pmin`/`pmax` are non-default values, the backend must request those percentiles explicitly from Titiler via `/cog/statistics?p=<pmin>&p=<pmax>`. Check Titiler's `/cog/statistics` API — it accepts `p` params for custom percentile computation. This is a potential complication: the current `_fetch_band_statistics` function uses a fixed URL with no `p` params.
+
+### Cache Key Change: Critical
+
+**Current cache key:** `open_path` (the S3/local path string)
+**Required cache key:** `(open_path, pmin, pmax)` because different percentile bounds require Titiler to compute different stats.
+
+`_band_stats_cache` is currently typed as `LRUCache[str, list[dict] | None]`. It must change to a compound key:
+
+```python
+_band_stats_cache: LRUCache[tuple[str, float, float], list[dict] | None] = LRUCache(maxsize=256)
+```
+
+And `_fetch_band_statistics` must accept `pmin`/`pmax` params and pass them to Titiler's statistics URL, keying by the tuple.
+
+`sigma` does NOT need to be in the cache key because sigma is used only in the local `_compute_stretch_rescale` computation — the raw stats (mean, std) from Titiler are sigma-independent.
+
+The statsURL call in `_fetch_band_statistics` becomes:
+```python
+stats_url = build_titiler_cog_url(
+    "statistics",
+    query={"url": open_path, "p": str(pmin), "p": str(pmax)},
+)
+```
+
+Note: `urlencode` in `build_titiler_cog_url` does not handle repeated keys (`p=2&p=98`). The `query` dict approach only allows one value per key. This means either: (a) pass `pmin`/`pmax` as `raw_query_suffix` already-encoded, or (b) extend `build_titiler_cog_url` to accept multi-value query params. Option (a) is simpler and consistent with how `render_params` is already forwarded.
+
+**New vs Modified:**
+- MODIFIED: `backend/app/processing/tiles/router.py` — `_fetch_band_statistics`, `_compute_stretch_rescale`, `raster_tile_proxy` signatures + cache key type
+- MODIFIED: `frontend/src/components/builder/layer-adapters/raster-adapter.ts` — `buildColormapTileUrl`
+- MODIFIED: `frontend/src/components/builder/LayerStyleEditor/RasterEditor.tsx` — new inputs for pmin/pmax/sigma (conditional on stretch mode)
+
+---
+
+## Feature 3: Single-Band Raster Test Fixture (TESTDATA-01)
+
+### Current State of seed-natural-earth.py
+
+The script is vector-only. Its `ingest_dataset` function (line 542) calls:
+1. `POST /api/ingest/upload` with a ZIP containing a Shapefile
+2. `POST /api/ingest/preview/{job_id}` (server auto-detects vector)
+3. `POST /api/ingest/commit/{job_id}` with `{"title":..., "visibility":"public", "srid_override":4326}`
+
+For rasters, the commit body is a `RasterCommitRequest` (not `VectorCommitRequest`). The server distinguishes them via `file_type` in `job.user_metadata`, which is set automatically during upload when the filename ends in `.tif`/`.tiff`/`.vrt` (router.py line 334–366, `_stamp_raster_metadata`). So raster ingest does NOT require a different commit body shape — only the file extension triggers the raster path.
+
+### What the Seed Script Does Not Have
+
+- No raster download or ingest path
+- No idempotency check for rasters (the existing check looks for existing source filenames via `existing` dict — same mechanism would work for a `.tif` file)
+- No COG source (natural-earth does not distribute GeoTIFFs)
+
+### Recommended Fixture Source
+
+A small, freely-redistributable, public-domain single-band GeoTIFF. Good candidates:
+- **SRTM/ETOPO tiles** (NASA) — already COG-compatible, public domain
+- **USGS National Elevation Dataset sample tiles** — public domain
+- **Natural Earth raster quickstart** — `https://naturalearth.s3.amazonaws.com/packages/Natural_Earth_quick_start.zip` contains a world raster (multi-band) — not ideal for single-band test
+- **A generated synthetic GeoTIFF** — created at script runtime using GDAL (requires GDAL on PATH) — no download dependency, fully deterministic, any CRS/band-count
+
+The synthetic approach is most reliable for CI (no external CDN dependency, no bandwidth, deterministic data). GDAL is already a dependency of the geolens stack.
+
+### How to Extend seed-natural-earth.py
+
+**New function (idempotent ingest of a raster):**
+
+```python
+async def ingest_raster_fixture(
+    client: httpx.AsyncClient,
+    base_url: str,
+    api_key: str,
+    existing_by_filename: dict[str, str],
+) -> dict | None:
+    """Ingest a small single-band COG fixture for raster stretch/colormap testing.
+
+    Idempotent: skips if a dataset with source_filename 'testdata_singleband.tif'
+    already exists in existing_by_filename.
+    """
+    FIXTURE_FILENAME = "testdata_singleband.tif"
+    if FIXTURE_FILENAME in existing_by_filename:
+        return {"status": "skipped", "dataset_id": existing_by_filename[FIXTURE_FILENAME]}
+
+    # Generate a tiny single-band COG using GDAL (gdal_translate)
+    # ... or download from a stable public URL ...
+
+    headers = {"X-Api-Key": api_key}
+    # Upload
+    upload_resp = await client.post(
+        f"{base_url}/api/ingest/upload",
+        headers=headers,
+        files={"file": (FIXTURE_FILENAME, tif_bytes, "image/tiff")},
+    )
+    upload_resp.raise_for_status()
+    job_id = upload_resp.json()["job_id"]
+
+    # Preview (triggers raster detection via _stamp_raster_metadata)
+    preview_resp = await client.post(
+        f"{base_url}/api/ingest/preview/{job_id}",
+        headers=headers,
+    )
+    preview_resp.raise_for_status()
+
+    # Commit as raster (RasterCommitRequest shape)
+    commit_resp = await client.post(
+        f"{base_url}/api/ingest/commit/{job_id}",
+        headers=headers,
+        json={
+            "title": "Test Single-Band Raster",
+            "visibility": "public",
+        },
+    )
+    commit_resp.raise_for_status()
+    result = await poll_job(client, base_url, api_key, job_id)
+    return result
+```
+
+The raster path does NOT need `srid_override` if the GeoTIFF has a valid CRS embedded. It does NOT need `compression` or `resampling` — defaults are fine for a test fixture.
+
+**Where to call it in main():** After the vector seed loop, add a dedicated raster fixture step with its own progress print, before `create_collections`.
+
+**Idempotency key:** The existing `existing` dict is built from `GET /api/datasets?limit=...` and keyed by `source_filename`. A `.tif` upload will appear there once ingested, so re-running the script skips it automatically — the same mechanism as vector datasets.
+
+**New vs Modified:**
+- MODIFIED: `scripts/seed-natural-earth.py` — add `ingest_raster_fixture` function + call in `main()`
+
+---
+
+## Complete Data Flow (All Three Features Combined)
+
+```
+[RasterEditor.tsx]
+  user changes _stretch='percentile', _pmin=5, _pmax=95
+        │
+        ▼ onPaintProp writes to layer.paint
+[buildColormapTileUrl in raster-adapter.ts]
+  reads paint['_colormap'], ['_stretch'], ['_pmin'], ['_pmax'], ['_sigma']
+  returns baseUrl?stretch=percentile&pmin=5&pmax=95
+        │
+        ▼ URL differs from current source tiles[0]
+[syncRasterLayer in map-sync.ts]
+  detects tile URL diff → removeLayer → removeSource → addLayers with new URL
+  (no code change in map-sync.ts)
+        │
+        ▼ MapLibre fetches new tile URL
+[raster_tile_proxy in tiles/router.py]
+  receives ?stretch=percentile&pmin=5&pmax=95
+  calls _fetch_band_statistics(open_path, pmin=5, pmax=95)
+        │
+        ▼ cache miss (new pmin/pmax)
+[_fetch_band_statistics]
+  GET http://titiler:8000/cog/statistics?url=...&p=5&p=95
+  stores result in _band_stats_cache[(open_path, 5.0, 95.0)]
+        │
         ▼
-        ├─────────────────────────────────────────┐
-        ▼                                         ▼
-[Map functionality polish]   Phase 1134    [Per-render-mode editor polish]   Phase 1136
-  (small-screen, save/dirty,                 (per-editor easy wins;
-   visibility/delete bug fixes)               adapter owned-props additions)
-        │                                         │
-        │                                         │
-        ▼                                         ▼
-[AI chat polish]   Phase 1135              [Sharing/embed polish]   Phase 1137
-  (build on dispatchLayerAction;             (build on 3ed5ceb3 separation;
-   add staging for non-undo-safe;            embed preview, OG image,
-   smart suggestions w/ viewport)            allowed-origins chips)
-        │                                         │
-        └────────────────┬────────────────────────┘
-                         ▼
-              [Easy-win sweep]   Phase 1138
-                (close low-cost items from
-                 audit + todo.md backlog)
-                         │
-                         ▼
-              [Close-gate + Playwright MCP]   Phase 1139
-                (smoke + i18n + final re-verify
-                 + CHANGELOG)
+[_compute_stretch_rescale(bands, 'percentile', n_bands, pmin=5, pmax=95)]
+  n_bands = count of bidx= in render_params (e.g. 3 for RGB)
+  computes rescale=lo,hi per band from percentile_5/percentile_95 fields
+        │
+        ▼
+[_apply_stretch_rescale(render_params, rescale_parts)]
+  replaces existing rescale= fragments with new per-band values
+        │
+        ▼
+[build_titiler_cog_url(..., raw_query_suffix=render_params)]
+  builds http://titiler:8000/cog/tiles/WebMercatorQuad/z/x/y.png?url=...&bidx=1&bidx=2&bidx=3&rescale=lo1,hi1&rescale=lo2,hi2&rescale=lo3,hi3
+        │
+        ▼
+[Titiler] renders tile with per-band stats rescale
 ```
 
-### Rationale
+---
 
-| Phase | # | Why this order |
-|-------|---|----------------|
-| **Audit-first walkthrough** | 1133 | Substrate is mature; we don't know which polish items are still real (some may already be fixed). Live MCP sweep produces the only ground truth. **Hard precedent:** v1019/v1020/v1021/v1022 (4 spike-first milestones in a row), v1027 audit baseline, v1028 workflow audit. |
-| **Map functionality polish** | 1134 | Lowest blast radius (CSS scoping, focus refs, single-line adapter fixes). Closes the regressions that block UAT for everything else. |
-| **Per-render-mode editor polish** | 1136 | Parallel to AI work (no overlap — editor controls don't touch chat). Can start as soon as 1134 ships. Self-contained per editor. |
-| **AI chat polish** | 1135 | Depends on the dispatchLayerAction surface being stable (1134 might touch removePersistedLayer / removeDraftLayer). The one new module (`chat-action-staging.ts`) sits ABOVE dispatchLayerAction. |
-| **Sharing/embed polish** | 1137 | Independent of all the above. Builds on the 3ed5ceb3 separation pattern. The thumbnail surface depends on capture-thumbnail working — verify in audit phase first. |
-| **Easy-win sweep** | 1138 | Catches the items that don't fit any specific bucket (small i18n fixes, lint fixes, minor a11y wins from audit). |
-| **Close-gate** | 1139 | Playwright MCP re-verify on `localhost:8080`, `e2e:smoke:builder`, `npm run lint`, full vitest, i18n parity, CHANGELOG. v1027/v1028/v1029 precedent. |
+## New vs Modified Components
 
-### Parallelism
-
-After Phase 1133 (audit), Phases 1134 / 1136 / 1137 are **independent and can run in parallel** if multiple executors are available. Phase 1135 (AI chat) **must follow 1134** because the dispatch boundary may shift slightly.
-
-### Out of Scope (Per PROJECT.md line 35)
-
-- "Render as Text" layer type — defer to v1031+ as a `RenderAsId` extension.
-- Annotation/draw layer.
-- LiDAR support.
-- New LLM provider work.
-- New connector backends.
-- Enterprise edition changes.
-
-These items, if surfaced during the audit, should be **tracked as v1031 carry-forwards in REQUIREMENTS.md** rather than absorbed into v1030.
+| File | Status | What Changes |
+|------|--------|--------------|
+| `backend/app/processing/tiles/router.py` | MODIFIED | `raster_tile_proxy`: `n_bands` from render_params count + `pmin`/`pmax`/`sigma` Query params; `_fetch_band_statistics`: cache key `(open_path, pmin, pmax)` + p-param forwarding to Titiler; `_compute_stretch_rescale`: extended signature with `pmin`/`pmax`/`sigma` defaults; `_band_stats_cache` type annotation |
+| `frontend/src/components/builder/layer-adapters/raster-adapter.ts` | MODIFIED | `buildColormapTileUrl`: read `_pmin`, `_pmax`, `_sigma` from paint; append as query params when non-default |
+| `frontend/src/components/builder/LayerStyleEditor/RasterEditor.tsx` | MODIFIED | Section gate widened for stretch (multi-band); COLORMAP gate unchanged (`band_count===1`); new pmin/pmax/sigma inputs conditional on stretch mode |
+| `scripts/seed-natural-earth.py` | MODIFIED | Add `ingest_raster_fixture()` function + call in `main()` |
+| `backend/app/platform/storage/titiler_url.py` | NO CHANGE | `build_titiler_cog_url` — p params forwarded via `raw_query_suffix`, not `query` dict |
+| `frontend/src/components/builder/map-sync.ts` | NO CHANGE | Source teardown/recreate already fires on tile URL diff |
+| `frontend/src/types/api.ts` | NO CHANGE | `band_count?: number | null` on `MapLayerResponse` already exists (line 916) |
+| `frontend/src/components/builder/LayerStyleEditor/types.ts` | NO CHANGE | `BaseStyleEditorProps.layer: MapLayerResponse` already has `band_count` |
 
 ---
 
-## Integration-Point Cheat Sheet
+## Dependency-Ordered Build Sequence
 
-For executors/synthesizer reference — exact files and functions per polish concern:
+### Step 1: Fixture (TESTDATA-01)
+**Rationale:** All subsequent UI verification requires a real raster in the system. Without a single-band COG, the colormap+stretch section never renders (band_count check), and multi-band stretch cannot be verified without a known 3-band COG. Build this first so every later step has something to test against.
 
-| Concern | Type | File | Symbol |
-|---------|------|------|--------|
-| Add `add_dataset` extensions | MODIFIED | `frontend/src/components/builder/builder-action-contract.ts` | `BuilderLayerAction` union (line 19) |
-| Add staging gate for AI actions | NEW | `frontend/src/components/builder/chat-action-staging.ts` | `shouldStageAction`, `<StagedActionsBanner>` |
-| Wire staging into chat | MODIFIED | `frontend/src/components/builder/ChatPanel.tsx` | `handleChatAction` / streaming `'actions'` case (line 371) |
-| Add `position` to `add_layer` tool | MODIFIED | `backend/app/processing/ai/tools.py` | `_ADD_LAYER` schema (line 294) |
-| Pass `position` to handler | MODIFIED | `backend/app/processing/ai/chat_actions.py` | `_collect_chat_action` (line 236) |
-| Insertion position in handler | MODIFIED | `frontend/src/components/builder/hooks/use-builder-layers.ts` | `handleAddDataset` (line 721) |
-| Ephemeral layer naming | MODIFIED | `frontend/src/components/builder/hooks/use-ephemeral-layers.ts` | `addLayers` IIFE (line 37) |
-| Smart suggestions w/ viewport | MODIFIED | `frontend/src/components/builder/chat-suggestions.ts` | `getSmartSuggestions` |
-| Embed preview iframe | MODIFIED | `frontend/src/components/builder/SharePanel.tsx` | After embed code textarea (line 720) |
-| Thumbnail in share | MODIFIED | `SharePanel.tsx` | Inside `<DialogContent>` after visibility selector |
-| Allowed-origins chip input | MODIFIED | `SharePanel.tsx` | `ShareLinkSettings` domain section (line 221) |
-| Per-editor controls | MODIFIED | `frontend/src/components/builder/LayerStyleEditor/{Line,Fill,Circle,...}Editor.tsx` | Each editor's `<>` body |
-| Per-adapter owned props | MODIFIED | `frontend/src/components/builder/layer-adapters/{line,fill,circle,...}-adapter.ts` | `*_OWNED_PAINT_PROPERTIES` constants |
-| Small-screen CSS scoping | MODIFIED | `frontend/src/components/builder/BuilderMap.tsx` + global CSS | `data-builder-canvas` attribute (v1011 precedent) |
-| Visibility/delete regressions | MODIFIED | `use-builder-layers.ts` `handleRemove` (line 287), `handleToggleVisibility`; adapter `syncVisibility` per render mode | — |
-| Widget store integration | NO CHANGE | `frontend/src/stores/map-widget-store.ts` | `useWidgetStore` (settings polish is UI-only) |
+Files: `scripts/seed-natural-earth.py`
 
----
+### Step 2: Multi-Band Backend Fix (RASTER-STRETCH-03 backend)
+**Rationale:** Backend change is independent of frontend controls — it only changes the `n_bands` argument. Can be verified with curl/httpx against the running proxy to confirm multi-rescale tile URLs generate different byte responses. Does not require any frontend change. Must precede the frontend gating change so backend is ready when frontend starts sending multi-band stretch requests.
 
-## v1026 / v1027 / v1008 Contract Preservation
+Files: `backend/app/processing/tiles/router.py` — `raster_tile_proxy` n_bands derivation only
 
-The following invariants **MUST be preserved**:
+### Step 3: Configurable-Bounds Backend (RASTER-STRETCH-UI-01 backend)
+**Rationale:** Adds `pmin`/`pmax`/`sigma` Query params + updates cache key. Must be landed before the frontend starts sending these params, otherwise the backend ignores them silently. Cache-key change is load-bearing — without it, `pmin=5` and `pmin=2` serve identical tiles from cache.
 
-| Contract | Source | Why load-bearing |
-|----------|--------|------------------|
-| `BuilderLayerAction` is the only mutation entry point | `builder-action-contract.ts` | AI chat + manual UI share this — drift causes diverging behavior |
-| Adapters own their MapLibre paint/layout via `*_OWNED_PAINT_PROPERTIES` | `*-adapter.ts` per render mode | Anything outside the ownership set is preserved as user-style; reconciler scope discipline |
-| `useBuilderEditorScene` derives `editorScene` from `expandedLayerId` + `editingLayer.is_dem` | `use-builder-editor-scene.ts:12-22` | Synthetic basemap/settings/dem layer descriptors flow from this; new scenes need a new branch + synthetic factory |
-| `dispatchLayerAction` is the only place that translates a `BuilderLayerAction` to handler calls | `use-builder-layers.ts:1124-1160` | Adding a new action type means: type union update + handler table update + chat dispatcher coverage in `ChatPanel.handleChatAction` |
-| `CUSTOM_PAINT_PROPS` strip happens before any MapLibre call | `shared.ts:6-13` + `stripCustomProps` | Builder-only fields (`_outline-width`, `_height_column`) leaking to MapLibre = console errors |
-| Source-id dedupe via `getSourceIdForLayer` | `map-sync.ts:451-467` | Phase 1050 SF-04 contract — non-cluster vector layers share sources per `dataset_table_name`. Polish must NOT add per-layer sources for non-cluster vector layers. |
-| `_add_trailing_slash_aliases(app)` covers ~72 routes | `backend/app/api/main.py:443-487` (Phase 1092 ROUTE-01) | Any new share/embed/access route should use the same dual-shape registration |
+Files: `backend/app/processing/tiles/router.py` — `_fetch_band_statistics`, `_compute_stretch_rescale`, `raster_tile_proxy` new params, cache type
 
-**Phase 1133 audit MUST verify these contracts are still respected on `main`.**
+### Step 4: Frontend Controls
+**Rationale:** Depends on the backend accepting `pmin`/`pmax`/`sigma` (step 3) and the multi-band backend being ready (step 2). Two sub-steps, either order:
+
+4a. **Widen multi-band gate in RasterEditor** — changes `band_count === 1` section gate to expose stretch for multi-band; no new URL params
+4b. **Add configurable-bounds inputs + tile URL params** — adds `_pmin`/`_pmax`/`_sigma` to paint → `buildColormapTileUrl` → tile URL → triggers re-fetch
+
+Files: `frontend/src/components/builder/LayerStyleEditor/RasterEditor.tsx`, `frontend/src/components/builder/layer-adapters/raster-adapter.ts`
+
+### Step 5: Cleanup (v1033 tech debt)
+**Rationale:** Remove dead `onRenderModeChange` member and rework `hillshadeTerrainNote` advisory. Independent of all above — no functional behavior change. Can be done any time after the feature work is stable, before close-gate.
+
+Files: Wherever `onRenderModeChange` is declared (search in builder components) and the `hillshadeTerrainNote` string (likely in RasterEditor or DEMEditor).
+
+### Step 6: Verify (Close-Gate)
+Playwright MCP live smoke on the single-band fixture (colormap + stretch + configurable bounds) and a multi-band dataset (stretch section visible, colormap hidden). Backend test for `_compute_stretch_rescale` with n_bands>1 and custom pmin/pmax. Verify cache key isolation (different pmin/pmax → different cache entries).
 
 ---
 
-## Known Risks for v1030
+## Component Boundaries
 
-1. **Visibility/delete regression** (todo.md:143, 146) — if it's adapter-level, the fix may apply across multiple adapters (fill, line, circle, raster). The v1011 BUG-01 precedent (initialLayout) suggests this pattern recurs.
-2. **`3ed5ceb3` changes are uncommitted on the branch** (per git status — files modified but not yet pushed). Phase 1133 audit must run **after** that commit lands on `main`, or the audit will mis-attribute baseline behavior.
-3. **Confirm-before-apply scope creep** — easy to expand into a full action history / multi-step undo stack. Hold the line: gate at `dispatchLayerAction` for non-undo-safe actions only; reuse existing `lastSnapshotRef` single-level undo for everything else.
-4. **Smaller-screen layout** at <800px is in the v1011-established `data-builder-canvas` scope. New polish must NOT introduce ungated CSS that affects ViewerMap (separate component).
-5. **AI chat staging UX** changes the action-application timing — tests in `ChatPanel.test.tsx` rely on synchronous `dispatchLayerAction` calls after each `'actions'` event. New tests required.
-6. **i18n parity** — every user-visible string change must add keys to all 4 locales (en/de/es/fr) — v1009 precedent (770-key parity).
+```
+┌─────────────────────────────────────────────────────────────┐
+│ RasterEditor.tsx                                             │
+│  band_count gate → colormap (=1 only) + stretch (>=1)       │
+│  pmin/pmax inputs (when stretch=percentile)                  │
+│  sigma input (when stretch=stddev)                           │
+│  writes: onPaintProp('_colormap'|'_stretch'|'_pmin'|'_pmax'|'_sigma', v) │
+└────────────────────────────┬────────────────────────────────┘
+                             │ paint dict
+                             ▼
+┌─────────────────────────────────────────────────────────────┐
+│ buildColormapTileUrl (raster-adapter.ts)                     │
+│  reads _colormap, _stretch, _pmin, _pmax, _sigma             │
+│  returns tile URL with query params                          │
+└────────────────────────────┬────────────────────────────────┘
+                             │ tile URL diff
+                             ▼
+┌─────────────────────────────────────────────────────────────┐
+│ syncRasterLayer (map-sync.ts) — UNCHANGED                   │
+│  detects URL diff → MapLibre source teardown+recreate        │
+└────────────────────────────┬────────────────────────────────┘
+                             │ HTTP tile request
+                             ▼
+┌─────────────────────────────────────────────────────────────┐
+│ raster_tile_proxy (tiles/router.py)                          │
+│  new Query params: pmin, pmax, sigma                         │
+│  n_bands from render_params bidx count                       │
+│  calls _fetch_band_statistics(open_path, pmin, pmax)         │
+│  calls _compute_stretch_rescale(bands, stretch, n_bands,     │
+│    pmin, pmax, sigma)                                        │
+│  _band_stats_cache key: (open_path, pmin, pmax)              │
+└────────────────────────────┬────────────────────────────────┘
+                             │ Titiler HTTP
+                             ▼
+┌─────────────────────────────────────────────────────────────┐
+│ Titiler /cog/statistics?url=...&p=pmin&p=pmax               │
+│ Titiler /cog/tiles/.../z/x/y.png?bidx=1...&rescale=lo,hi... │
+└─────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Scalability / Load Considerations
+
+The `_band_stats_cache` LRU is bounded at 256 entries. With the compound `(open_path, pmin, pmax)` key, a single raster file with 5 different pmin/pmax combinations would occupy 5 cache entries instead of 1. For a typical deployment with ~10–20 raster datasets and 3 common pmin/pmax combinations (2/98, 5/95, 1/99), this is ~30–60 entries — well within the 256 ceiling. The `maxsize=256` bound from v1033 HYG-01 remains appropriate.
+
+---
+
+## Contract Preservation Notes
+
+- `_colormap` and `_stretch` keys in paint are already excluded from `RASTER_OWNED_PAINT_PROPERTIES` (Pitfall 6 — they mutate tile URL, not MapLibre paint). The new `_pmin`, `_pmax`, `_sigma` keys follow the same convention and must also be excluded from `RASTER_OWNED_PAINT_PROPERTIES`.
+- `buildColormapTileUrl` is called from `syncRasterLayer` BEFORE the tile-URL diff comparison (map-sync.ts line 648). This ordering is load-bearing: new paint keys must be readable by `buildColormapTileUrl` before the diff fires. No change needed — the function already receives the full `adapterInput.paint`.
+- The backend allowlist `_ALLOWED_STRETCH` (line 230 of router.py) already contains `{"minmax", "percentile", "stddev"}`. No new stretch modes are added — only the bounds become configurable.
+- The Titiler colormap allowlist `_ALLOWED_COLORMAPS` (line 223) is unchanged.
 
 ---
 
 ## Sources
 
-- `backend/app/processing/ai/tools.py` (chat tool schemas) — verified HIGH
-- `backend/app/processing/ai/schemas.py` (ChatAction, ChatMapLayer) — verified HIGH
-- `backend/app/processing/ai/chat_constants.py` (_EDIT_TOOLS) — verified HIGH
-- `backend/app/processing/ai/chat_actions.py` (action collection) — verified HIGH
-- `backend/app/modules/catalog/maps/router.py:1316-1481` (share endpoints) — verified HIGH
-- `backend/app/modules/catalog/maps/router.py:779-797` (access endpoint, Phase 3ed5ceb3) — verified HIGH
-- `frontend/src/components/builder/ChatPanel.tsx` (action dispatch) — verified HIGH
-- `frontend/src/components/builder/SharePanel.tsx` (share UI + 3ed5ceb3 separation) — verified HIGH
-- `frontend/src/components/builder/map-sync.ts` (composition sync, reconciler exports) — verified HIGH
-- `frontend/src/components/builder/builder-action-contract.ts` (BuilderLayerAction union) — verified HIGH
-- `frontend/src/components/builder/hooks/use-builder-editor-scene.ts` (editor scene controller) — verified HIGH
-- `frontend/src/components/builder/hooks/use-builder-layers.ts:1124-1211` (dispatchLayerAction, chatLayerActions) — verified HIGH
-- `frontend/src/components/builder/hooks/use-ephemeral-layers.ts` (query result rendering) — verified HIGH
-- `frontend/src/components/builder/hooks/use-builder-save.ts:389-510` (save/dirty state) — verified HIGH
-- `frontend/src/components/builder/layer-adapters/{fill,line}-adapter.ts` (adapter contract) — verified HIGH
-- `frontend/src/components/builder/layer-adapters/shared.ts` (owned-property reconciler, custom paint props) — verified HIGH
-- `frontend/src/components/builder/LayerStyleEditor/{LineEditor,RenderModeSwitch}.tsx` (editor lookup table) — verified HIGH
-- `frontend/src/components/builder/renderAs.ts` (RenderAsId capability table) — verified HIGH
-- `.planning/PROJECT.md` (v1030 scope, v1027/v1026/v1008 substrate) — verified HIGH
-- `todo.md:138-152` (live polish backlog) — verified HIGH
-- `git show 3ed5ceb3` (in-flight share/access polish) — verified HIGH
+All findings verified by direct file inspection at HEAD (commit `f2c06400`):
 
-**Overall research confidence:** HIGH. All recommendations cite specific files/line numbers from the substrate. No external research needed (per PROJECT.md line 34).
+- `backend/app/processing/tiles/router.py` — lines 189–312 (stretch functions), 510–675 (raster_tile_proxy handler) — HIGH confidence
+- `backend/app/platform/storage/titiler_url.py` — full file — HIGH confidence
+- `backend/app/processing/ingest/schemas.py` — lines 110–196 (commit request shapes) — HIGH confidence
+- `backend/app/processing/ingest/router.py` — lines 322–366 (`_stamp_raster_metadata`, `file_type` detection) — HIGH confidence
+- `frontend/src/components/builder/LayerStyleEditor/RasterEditor.tsx` — full file — HIGH confidence
+- `frontend/src/components/builder/layer-adapters/raster-adapter.ts` — full file — HIGH confidence
+- `frontend/src/components/builder/map-sync.ts` — lines 624–688 (`syncRasterLayer`) — HIGH confidence
+- `frontend/src/components/builder/LayerStyleEditor/types.ts` — full file (`BaseStyleEditorProps`) — HIGH confidence
+- `frontend/src/types/api.ts` — lines 890–917 (`MapLayerResponse.band_count`) — HIGH confidence
+- `scripts/seed-natural-earth.py` — lines 542–616 (`ingest_dataset`), 955–1030 (`process_one`) — HIGH confidence
+- `.planning/PROJECT.md` — lines 15–36 (v1034 scope) — HIGH confidence

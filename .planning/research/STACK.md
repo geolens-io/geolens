@@ -1,200 +1,258 @@
-# Stack Research — v1030 Map Builder Polish Sweep
+# Stack Research — v1034 Raster Stretch & Colormap Completion
 
-**Domain:** Internal product polish on an already-shipped, feature-rich map builder
-**Researched:** 2026-05-27
-**Confidence:** HIGH
+**Domain:** Completing a half-built raster-rendering feature in an existing GIS catalog
+**Researched:** 2026-05-29
+**Confidence:** HIGH (Titiler/COG syntax verified via Context7 + existing codebase cross-check; fixture source license confirmed)
+
+---
 
 ## TL;DR
 
-**v1030 is a polish milestone on top of a feature-complete stack. The honest answer to "what additions are needed?" is: almost nothing. Stay on the libraries you already have, use them more idiomatically through the v1027 controller / v1026 reconciler substrate, and resist net-new dependencies during a polish sweep.**
+No new dependencies. The three new things v1034 needs are: (1) pass the real `band_count` instead of the hardcoded `1` to the already-correct `_compute_stretch_rescale`, (2) expose percentile/σ bounds as query params on the proxy endpoint, and (3) download `GRAY_50M_SR.zip` from the NACIS CDN (public domain) and ingest it as a single-band COG via the existing three-step ingest API.
 
-Three concrete recommendations, each scoped to one polish surface:
+---
 
-1. **Layer-type editor parity (fill/line/circle/symbol/heatmap/cluster/raster/basemap/DEM)** — stay on `maplibre-gl@^5.24.0` + `@vis.gl/react-maplibre@^8.1.0` + `chroma-js@^3.2.0` + `react-colorful@^5.6.1`. No version bumps, no new libs. Use the v1027 typed `LayerActions` boundary + v1026 style reconciler more idiomatically. Add zero net-new packages.
-2. **AI-chat confirm-before-apply ergonomics** — keep `anthropic>=0.87` + `openai>=2.0,<3` (server-side already implements native tool use). On the frontend, do **NOT** add Vercel AI SDK. The existing SSE-driven `streamChatMessage` + `ChatAction` discriminated-union surface is the right substrate; the polish is action-tagging + UI-side preview/confirm, not transport-layer.
-3. **Share/embed polish** — keep `navigator.clipboard.writeText` as-is (HTTPS-only is acceptable for this product; deployment is `localhost` for dev and HTTPS in prod). Defer adding `qrcode.react` / `react-qr-code` / OG-image generation unless the audit (Phase 1133) surfaces real demand. **Do NOT add Web Share API or `react-share` libraries.**
+## 1. Titiler Version
 
-## v1030 Polish Surfaces vs. Stack Decisions
+**Image pinned in `docker-compose.yml`:** `ghcr.io/developmentseed/titiler:2.0.2`
 
-| Polish Surface | Stack Decision | Rationale |
-|----------------|----------------|-----------|
-| Layer-type editor parity (FillEditor, LineEditor, CircleEditor, SymbolEditor, HeatmapEditor, ClusterEditor, RasterEditor) | **No deps changed.** Use existing `LayerStyleEditor/` subdirectory split from v1010 PB-08 + v1027 typed `LayerActions` boundary. | Each render mode already has a sub-component (`FillEditor.tsx`, `LineEditor.tsx`, etc.); the polish is reconciling per-control coverage gaps surfaced by the Phase 1133 audit, not migrating to a new editor framework. |
-| Basemap-as-group + DEM-as-raster sublayer behavior | **No deps changed.** v1008 `BasemapGroupRow` + DEM raster-layer model is the substrate. | The contract is jsonb-additive (per `paint._height_column` convention) — extend opaquely, no migration. |
-| AI chat — "add a layer that shows X" / "which datasets cover Y" | **No new SDK.** Keep `anthropic>=0.87` + `openai>=2.0,<3`. Polish lives in the `ChatAction` action-tagging + frontend preview/confirm wrapper around the existing `handleChatAction()` reducer. | Backend `streaming.py` already implements native Anthropic tool use (`tool_use` block parsing, `has_tool_use` resume logic at lines 142, 197, 200, 333, 350, 354) + `tool_call_parser.py` shows OpenAI tool-calling parity. Vercel AI SDK would replace transport for no functional gain. |
-| Sharing/embed polish (in-flight `3ed5ceb3`) | **No new deps.** Continue with `navigator.clipboard` + iframe `sandbox="allow-scripts"` snippet generator. | The existing `generateEmbedCode()` helper + `useCreateEmbedToken` / `useUpdateEmbedToken` / `useRevokeEmbedToken` mutations are the right substrate. Adding QR/OG image generation is scope-creep for a polish milestone. |
-| Smaller-screen layout collisions (basemap selector double-X, lat/long pill overlay, right-sidebar overlap of zoom controls) | **No new deps.** Tailwind + existing v1011 `data-builder-canvas` scoped-CSS pattern. | The v1011 `data-builder-canvas="true"` attribute + scoped CSS rule is the load-bearing pattern (per [MEMORY entry](../../CLAUDE.md)) — extend with sibling responsive rules, do not introduce new responsive frameworks. |
-| Easy-win UX enhancements from `todo.md` backlog | **No new deps unless an entry explicitly requires one.** | Polish milestones earn dependency additions through the audit-first walkthrough, not pre-emptively. |
+This is the authoritative version. All URL syntax and response shapes below are confirmed against the Context7 docs for the `/developmentseed/titiler` library (source reputation: High, 1483 code snippets).
 
-## Current Stack (verified against `frontend/package.json` + `backend/pyproject.toml` 2026-05-27)
+---
 
-### Frontend — already in place, no changes needed
+## 2. `/cog/statistics` — Response Shape (CONFIRMED)
 
-| Library | Current | Latest | Action |
-|---------|---------|--------|--------|
-| `maplibre-gl` | `^5.24.0` | 5.24.0 | **Stay.** v5.24.0 is the final v5 release (April 2026); v6 in development is not a polish target. |
-| `@vis.gl/react-maplibre` | `^8.1.0` | 8.1.0 | **Stay.** v8 already supports MapLibre v5; no relevant new APIs since. |
-| `react` / `react-dom` | `^19.2.0` / `^19.2.5` | 19.x | **Stay.** |
-| `@tanstack/react-query` | `^5.100.9` | 5.x | **Stay.** All share/embed mutations already use it (`useCreateShareToken`, `useMapShareToken`, etc.). |
-| `@tanstack/react-table` | `^8.21.3` | 8.x | **Stay.** |
-| `@tanstack/react-virtual` | `^3.13.0` | 3.x | **Stay.** |
-| `chroma-js` | `^3.2.0` | 3.x | **Stay.** Most feature-rich for data viz/gradients — ColorBrewer palettes, perceptual interpolation, chainable scales. Already used in `LineGradientControls.tsx` + `DataDrivenStyleEditor.tsx`. |
-| `react-colorful` | `^5.6.1` | 5.6.1 | **Stay.** <5KB, accessible, sufficient for v1030. Do not migrate to `chromakit` (OKLCH is not a v1030 requirement — would add bundle weight for zero user-visible benefit). |
-| `radix-ui` | `^1.4.3` | 1.x | **Stay.** Already powers `Dialog`, `DropdownMenu`, `Switch`, `Sheet` in the builder. |
-| `lucide-react` | `^1.7.0` | 1.x | **Stay.** All icons in `ChatPanel.tsx` and `SharePanel.tsx` come from here. |
-| `sonner` | `^2.0.7` | 2.x | **Stay.** Toast surface. |
-| `react-i18next` | `^17.0.4` | 17.x | **Stay.** All polish strings flow through it. |
-| `zustand` | `^5.0.11` | 5.x | **Stay.** Auth store + UI state. |
-| `terra-draw` + `terra-draw-maplibre-gl-adapter` | `^1.28.8` / `^1.3.0` | current | **Stay.** Drawing tools are out-of-scope per v1030 anti-features (annotation/draw layer deferred). |
-| `@dnd-kit/core` + `/sortable` + `/utilities` | `^6.3.1` / `^10.0.0` / `^3.2.2` | current | **Stay.** Unified-stack DnD substrate from v1008/v1009/v1011. |
+### Response structure
 
-### Backend — already in place, no changes needed
+The endpoint returns a flat dict keyed by band name strings `"b1"`, `"b2"`, `"b3"`, etc. (NOT `"1"`, `"2"`, `"3"`). The existing `_fetch_band_statistics` parser in `router.py:259-265` already handles this correctly — it sorts by `int(k[1:])` and builds a list ordered `b1, b2, ...`.
 
-| Library | Current | Latest | Action |
-|---------|---------|--------|--------|
-| `anthropic` | `>=0.87.0` | 0.104.1 (2026-05-22) | **Stay.** The `>=0.87` floor allows any current version to install. The native tool-use streaming surface in `backend/app/processing/ai/streaming.py` (lines 103-234) works on both 0.87 and 0.104. **Do NOT pin to a specific newer version during a polish milestone** — risk-to-reward is bad. |
-| `openai` | `>=2.0.0,<3` | 2.38.0 (2026-05-21) | **Stay.** Same logic — `>=2.0,<3` is current. Native structured outputs + tool calling already work via `tool_call_parser.py`. |
-| `fastapi[standard]` | `>=0.115.0` | 0.115.x | **Stay.** SSE streaming via `sse-starlette>=3.3.2` is what powers `streamChatMessage`. |
-| `sse-starlette` | `>=3.3.2` | 3.x | **Stay.** |
+Each band value is an object with these fields:
 
-**Rationale for not bumping anthropic/openai SDKs:** The codebase uses primitive Messages API + ChatCompletions API. Tool use, streaming, structured outputs — all stable since well before 0.87 / 2.0 respectively. New SDK features (Workload Identity Federation, Managed Agents, AWS-region clients, thinking-token-count beta) are enterprise/agent-framework features GeoLens does not consume. Bumping introduces risk during a polish milestone for no functional benefit.
-
-## What v1030 Polish Actually Needs
-
-### 1. AI-chat confirm-before-apply (NEW capability — stack ALREADY supports)
-
-The `ChatAction` discriminated union at `frontend/src/types/api.ts` + the `handleChatAction()` reducer at `ChatPanel.tsx:267-321` already supports all action types (`set_filter`, `set_style`, `set_data_driven_style`, `set_label`, `toggle_visibility`, `show_query_result`, `add_layer`, `remove_layer`, `set_opacity`). The v1030 polish is **purely UI-side**:
-
-- **Action-preview surface:** between `actions` SSE event arrival and `handleChatAction()` dispatch, render a "Apply these N changes?" confirm card with diff-style rows (per existing v1009 BulkActionBar pattern from MapStackPanel deletes).
-- **Undo extension:** `lastSnapshotRef` at `ChatPanel.tsx:172` already exists (v20260526-builder-audit BLD-20260526-04) — the multi-step undo is a follow-on polish, not a stack change.
-- **No new dependencies.** This is `useState` + Radix `Dialog` (already in deps) + i18n strings (already in deps).
-
-**Explicit non-recommendation:** Do NOT add Vercel AI SDK. It would replace the existing SSE transport (`streamChatMessage` at `frontend/src/api/maps.ts`) without adding capability. The backend `streaming.py` already implements the canonical Anthropic tool-use stream parser; the frontend already routes by `event` discriminator. Vercel AI SDK's `useChat` hook is for products that have NOT built this — GeoLens has.
-
-### 2. Layer-type editor parity (audit-driven; stack ALREADY supports)
-
-The Phase 1133 audit will surface gaps like "FillEditor exposes paint._height_column but HeatmapEditor does not expose paint.heatmap-color stops". Every such gap is a known-pattern fix within the existing editor subdirectory:
-
-- `frontend/src/components/builder/LayerStyleEditor/FillEditor.tsx`
-- `frontend/src/components/builder/LayerStyleEditor/LineEditor.tsx`
-- `frontend/src/components/builder/LayerStyleEditor/CircleEditor.tsx`
-- `frontend/src/components/builder/LayerStyleEditor/SymbolEditor.tsx`
-- `frontend/src/components/builder/LayerStyleEditor/HeatmapEditor.tsx`
-- `frontend/src/components/builder/LayerStyleEditor/ClusterEditor.tsx`
-- `frontend/src/components/builder/LayerStyleEditor/RasterEditor.tsx`
-
-Plus the data-driven and label editors (`DataDrivenStyleEditor.tsx`, `LabelEditor.tsx`) and the filter editor (`LayerFilterEditor.tsx`).
-
-**Substrate this lands on:**
-- v1027 typed `LayerActions` boundary (`builder-action-contract.ts`) — every editor calls through the same typed surface.
-- v1026 shared style reconciler — paint changes flow through one reconciliation contract.
-- v1010 `coalesceFrame` + 100/200ms debounces — hover-rate paint mutations are already throttled.
-
-**No new dependencies.** The shape of every editor polish is "add a slider/select/colorpicker to the existing editor, wire it through the existing `onPaintChange` action."
-
-### 3. Share/embed polish (in-flight; stack ALREADY supports)
-
-`3ed5ceb3` already landed:
-- Fresh-token persistence separated from persisted hint
-- Embed-origin restrictions UX
-- Expiration-clear vs. update messaging
-- `handleRegenerateShareLink` + `handleRegenerateEmbedToken` flows
-- Save-state warning banner
-
-Remaining polish surfaces:
-- **Copy-to-clipboard reliability** — `navigator.clipboard.writeText` works on HTTPS + localhost (covers dev + prod). Failure mode is a `toast.error(t('toasts.copyFailed'))` which already exists. **No fallback library needed.** If a user reports a non-HTTPS production deployment, address it as a deployment-config fix, not a stack addition.
-- **Customization hints** — the existing `customizeTitle` block in `SharePanel.tsx:763-770` documents `zoom=N`, `center=lng,lat`, `legend=true|false`. Extend with i18n strings if the audit surfaces missing params; no new deps.
-
-**Explicit non-recommendations** for share/embed:
-- Do NOT add `qrcode.react` / `react-qr-code` / `qr-code-styling` — the embed iframe + share URL are the canonical outputs. QR codes are nice-to-have but not in the v1030 audit-driven scope. If demanded post-audit, `react-qr-code` is the lightest option (~6KB) — but defer.
-- Do NOT add OG-image generation (`@vercel/og`, satori, sharp). The product is a SPA, not a static-site generator. Map screenshot OG-images are a Phase-x-many-from-now feature.
-- Do NOT add `react-share` / `share-api-polyfill` / `react-web-share`. The product does not need "share to Twitter/WhatsApp" buttons — it needs reliable link + iframe copy, which `navigator.clipboard` already does.
-
-## Installation
-
-```bash
-# No installs needed for v1030.
+```json
+{
+  "b1": {
+    "min": 102.0,
+    "max": 3200.0,
+    "mean": 847.3,
+    "count": 45000,
+    "sum": 38128500.0,
+    "std": 312.7,
+    "median": 720.0,
+    "majority": 650.0,
+    "minority": 3200.0,
+    "unique": 2841,
+    "histogram": [...],
+    "valid_percent": 98.3,
+    "masked_pixels": 750,
+    "valid_pixels": 44250,
+    "percentile_2": 180.0,
+    "percentile_98": 1800.0
+  }
+}
 ```
 
-If the Phase 1133 audit surfaces a concrete need that the existing stack truly cannot serve, it gets added — but pre-emptively pinning new libraries during research is exactly what produces "we installed it and never used it" technical debt.
+### Key field names used by `_compute_stretch_rescale`
 
-## What NOT to Use
+| Field | Used for |
+|-------|----------|
+| `percentile_2` | Lower bound of percentile stretch |
+| `percentile_98` | Upper bound of percentile stretch |
+| `mean` | Center for stddev stretch |
+| `std` | Half-width for stddev stretch |
+| `min` | Clamp floor for stddev |
+| `max` | Clamp ceiling for stddev |
 
-| Avoid | Why | Use Instead |
-|-------|-----|-------------|
-| Vercel AI SDK (`ai`, `@ai-sdk/anthropic`, `@ai-sdk/openai`) | Would replace existing SSE transport at `frontend/src/api/maps.ts` + `backend/app/processing/ai/streaming.py` for no functional gain. v1027 `ChatAction` discriminated-union surface is the right contract. Adding Vercel AI SDK = transport layer rewrite during a polish milestone. | Keep existing `streamChatMessage` SSE iterator + `handleChatAction` reducer. Polish action-confirmation in the UI layer above. |
-| `qrcode.react` / `react-qr-code` / `qr-code-styling` | Scope-creep for polish milestone. Audit may surface demand but v1030 anti-features list excludes "new feature builds". | Defer until a real user request lands. |
-| `@vercel/og` / `satori` / `sharp` (OG image generation) | GeoLens is not a static-site generator. Dynamic OG images for shared maps would require server-side MapLibre rendering or pre-baked screenshots — both are large milestones. | Defer. The existing share link + iframe embed are the canonical shareable artifacts. |
-| `react-share` / `share-api-polyfill` / `react-web-share` | Web Share API is mobile-only and the product is desktop-first. The product needs reliable "copy link" and "copy iframe" — which `navigator.clipboard` already does. | `navigator.clipboard.writeText` (already in use). |
-| `chromakit` / OKLCH color pickers | OKLCH is not a v1030 requirement. `react-colorful` (current dep) is <5KB and works for every existing color picker site. Replacing it would bloat bundle for zero user-visible benefit. | Keep `react-colorful`. |
-| `culori` (OKLCH color manipulation) | `chroma-js` already provides ColorBrewer palettes + perceptual interpolation — sufficient for cartographic visualization. Switching color libraries mid-milestone is high-risk-low-reward. | Keep `chroma-js`. |
-| `copy-to-clipboard` npm package | Adds 1KB + execCommand fallback for a deprecated API. Modern browsers all support `navigator.clipboard` on HTTPS + localhost; that covers GeoLens deployment surfaces. | `navigator.clipboard.writeText` directly. |
-| Bumping `anthropic` to 0.104.x or `openai` to 2.38.x | The `>=0.87` and `>=2.0,<3` floors already allow the current versions. New SDK features (Managed Agents, AWS clients, Workload Identity) are not consumed by GeoLens. Pinning forward = risk for no gain during polish. | Keep current floors. Bump only if a sec advisory lands or a specific tool-use feature requires it. |
-| Anthropic Agent SDK / OpenAI Agents SDK | "Agent" frameworks add multi-step planning loops, tool retry envelopes, and memory abstractions. v1030's chat already does one-shot tool use; agentic loops are an entirely different milestone. | Keep one-shot streaming tool use. |
-| New responsive frameworks (e.g., Container Queries libraries) | v1011 established `data-builder-canvas="true"` scoped-CSS pattern. Adding a new responsive abstraction would re-litigate that decision during a polish milestone. | Use Tailwind + v1011 scoped-CSS pattern. |
+These match the live field names verified in Context7. The existing code at `router.py:287-288` uses `b.get("percentile_2")` and `b.get("percentile_98")` — correct.
 
-## Integration Points (v1027 + v1026 + v1011 Substrate)
+### Configuring percentile bounds via `?p=` query param
 
-Every v1030 polish surface lands on already-established contracts:
+The statistics endpoint accepts `?p=N` (repeatable) to request specific percentiles. Default is `[2, 98]` when no `p` is supplied. To make bounds configurable:
 
-| Polish | Lands on | Source-of-truth file |
-|--------|----------|----------------------|
-| Layer-type editor controls | v1027 `LayerActions` typed boundary | `frontend/src/components/builder/builder-action-contract.ts` |
-| Layer-type editor paint changes | v1026 style reconciler | (shared reconciler module from v1026) |
-| AI chat actions | v1027 `ChatAction` discriminated union | `frontend/src/types/api.ts` + `ChatPanel.tsx:267-321` |
-| Hover-rate paint mutation throttling | v1010 `coalesceFrame` + 100/200ms debounces | `frontend/src/lib/builder/raf-coalesce.ts` |
-| Basemap-as-group sublayer behavior | v1008 `BasemapGroupRow` + jsonb-additive `basemap_position` | (basemap-config jsonb model) |
-| Drag-from-catalog cross-context | v1009 DndContext lift + v1011 `disabled.droppable` per-drag-source contract | (UnifiedStackPanel + dnd-kit registration sites) |
-| Smaller-screen layout collisions | v1011 `data-builder-canvas="true"` scoped CSS pattern | `BuilderMap.tsx` + scoped CSS rule |
-| Sharing/embed flow | `3ed5ceb3` polish (fresh-token persistence, allowed-origins, expiration messaging) | `frontend/src/components/builder/SharePanel.tsx` |
-| Map auto-capture / thumbnail | v1010.2 SF-07 module-level `autoCapturedMapIds: Set` + StrictMode-safe predicate | (auto-capture predicate module) |
-| Tile dedupe | v1010.2 SF-04 `getSourceIdForLayer` keyed by `dataset_table_name` (non-cluster) / per-layer (cluster) | `frontend/src/components/builder/map-sync.ts:374` |
+```
+GET /cog/statistics?url=...&p=5&p=95
+```
 
-**The pattern is consistent:** v1030 polish lands as "extend existing contract" not "introduce new contract."
+This returns `percentile_5` and `percentile_95` fields (not `percentile_2`/`percentile_98`). When implementing configurable bounds, the backend must:
+1. Accept `pmin`/`pmax` (or `p_low`/`p_high`) as proxy query params
+2. Forward them as `?p=pmin&p=pmax` to Titiler's `/cog/statistics`
+3. Read `b.get(f"percentile_{pmin}")` and `b.get(f"percentile_{pmax}")` from the response
 
-## Alternatives Considered
+The `_band_stats_cache` key is currently `open_path` only. When percentile bounds become configurable, the cache key must include the bounds: `f"{open_path}:{pmin}:{pmax}"` to avoid serving cached p2/p98 stats for a p5/p95 request.
 
-| Recommended | Alternative | When to Use Alternative |
-|-------------|-------------|-------------------------|
-| Stay on `maplibre-gl@^5.24.0` | Bump to v6 (in development) | When v6 ships and stabilizes (not 2026). Polish milestone is wrong time to track pre-release. |
-| Stay on `anthropic>=0.87` floor | Pin to `>=0.104` | When a specific 0.104.x feature (e.g., thinking-token-count beta) becomes a product requirement. v1030 does not require thinking tokens. |
-| Stay on `react-colorful` | Migrate to `chromakit` | When OKLCH color picking becomes a product requirement. v1030 does not require OKLCH. |
-| Stay on `chroma-js` | Migrate to `culori` | When CSS Color Level 4 / wide-gamut display support becomes a requirement. v1030 does not. |
-| Native `navigator.clipboard` | `copy-to-clipboard` package with execCommand fallback | When supporting non-HTTPS production deployments. GeoLens does not. |
-| Existing SSE streaming | Vercel AI SDK `useChat` | When starting greenfield. GeoLens has working transport — switching during polish is destructive. |
-| Iframe + URL copy | Web Share API (`navigator.share`) | When mobile-first sharing flow is a product requirement. GeoLens is desktop-first builder. |
+---
 
-## Version Compatibility
+## 3. Titiler Tile Endpoint — `rescale` Syntax for Multi-Band
 
-All current versions are mutually compatible (the stack ships on `localhost:8080` with this exact combination as of 2026-05-27). No changes proposed → no new compatibility risks introduced.
+### Confirmed syntax (Context7 + CHANGES.md)
+
+Multi-band per-band rescale uses **repeated `rescale=lo,hi` params**, one per band:
+
+```
+# Single band (current):
+rescale=0,255
+
+# Three-band, one pair per band — the ONLY correct format since rio-tiler 2.1:
+rescale=0,255&rescale=0,1000&rescale=0,10000
+```
+
+The old comma-separated format (`rescale=0,255,0,1000,0,10000`) was retired in rio-tiler 2.1. Titiler 2.0.2 uses a current rio-tiler that expects the repeated-param form. This matches the existing `_titiler_render_params` logic, which already emits one `rescale=0,{max}` fragment per selected band in a loop.
+
+### What the existing `_apply_stretch_rescale` does
+
+`_apply_stretch_rescale(render_params, rescale_parts)` drops ALL existing `rescale=` fragments from `render_params` and appends the new list. This is already correct for multi-band — no changes needed to this function.
+
+### The single line that needs changing for RASTER-STRETCH-03
+
+In `raster_tile_proxy` (router.py:581):
+
+```python
+# Current — hardcoded n_bands=1 (single-band only):
+rescale_parts = _compute_stretch_rescale(bands, stretch, n_bands=1)
+
+# Multi-band fix — pass real band count, capped at 3 (RGB rendering max):
+n_selected = min(band_count or 1, 3) if (band_count or 1) >= 3 else max(band_count or 1, 1)
+rescale_parts = _compute_stretch_rescale(bands, stretch, n_bands=n_selected)
+```
+
+The `band_count` is available from the DB row (`row["band_count"]`) which is already fetched by `_resolve_raster_access`. No additional DB query needed.
+
+### `_compute_stretch_rescale` already handles n_bands > 1
+
+The function at router.py:272-306 loops `for i in range(n_bands)` and reads `bands[i]` for each — it already works correctly for n_bands=3. The only current limitation is the call site hardcodes `n_bands=1`.
+
+---
+
+## 4. Configurable Percentile/σ Bounds — Implementation Shape
+
+### Backend (RASTER-STRETCH-UI-01)
+
+Add two optional query params to `raster_tile_proxy`:
+
+```python
+pmin: float = Query(2.0, ge=0.1, le=49.9, description="Lower percentile bound (default 2)")
+pmax: float = Query(98.0, ge=50.1, le=99.9, description="Upper percentile bound (default 98)")
+sigma: float = Query(2.0, ge=0.5, le=5.0, description="Sigma multiplier for stddev stretch (default 2.0)")
+```
+
+When `stretch == "percentile"`, pass `pmin`/`pmax` to the statistics fetch and read `f"percentile_{int(pmin)}"` from the response. When `stretch == "stddev"`, use `sigma` instead of the hardcoded `_STDDEV_SIGMA = 2.0`.
+
+Cache key for `_band_stats_cache` must incorporate `pmin`/`pmax` when non-default — otherwise the LRU cache returns p2/p98 stats for a p5/p95 request.
+
+### Frontend
+
+`buildColormapTileUrl` in `raster-adapter.ts` must forward new paint keys `_pmin`/`_pmax`/`_sigma` as query params alongside `stretch`. The `RasterEditor` gets two new numeric inputs (visible only when `_stretch !== 'minmax'`): a percentile range slider (shown for `percentile`) or a sigma spinner (shown for `stddev`).
+
+---
+
+## 5. Test Fixture — Single-Band Raster COG
+
+### Recommended source
+
+**Natural Earth 1:50m Gray Earth with Shaded Relief and Hypsography**
+
+| Property | Value |
+|----------|-------|
+| File | `GRAY_50M_SR.zip` |
+| URL | `https://naciscdn.org/naturalearth/50m/raster/GRAY_50M_SR.zip` |
+| Size | ~18 MB (compressed), verified 200 OK |
+| License | **Public domain** (confirmed at naturalearthdata.com/about/terms-of-use/) |
+| Band count | 1 (single-band grayscale uint8) |
+| CRS | EPSG:4326 |
+| Resolution | 50m-scale (~0.0167° ≈ ~1.5 km at equator) |
+| Content | Grayscale shaded relief derived from SRTM Plus — ideal for testing stretch/colormap UI |
+
+**Why this source over alternatives:**
+- Already on the same NACIS CDN the seed script uses; consistent CDN_BASE and download pattern
+- Public domain — can be committed to the seed script without any license concern
+- Single-band uint8 — exercises all three stretch modes (minmax trivial, percentile/stddev meaningful on 0–255 grayscale gradient data)
+- Small enough to seed quickly; the zip extracts to `GRAY_50M_SR.tif` plus sidecar files
+- Not a DEM — the tile proxy's `algorithm=terrainrgb` branch does NOT fire, so colormap + stretch both apply
+- Fits `band_count=1` gating logic in RasterEditor
+
+**Why not NLCD land cover:**
+- CONUS extent only; large files (30 m resolution nationwide = multi-GB uncompressed)
+- Categorical data (integer class codes 11–95) — percentile stretch produces degenerate ranges on sparse class histograms
+- Not already on the NACIS CDN; requires a different download mechanism
+
+**Why not 10m Natural Earth gray earth (`GRAY_HR_SR.zip`):**
+- 75 MB compressed — 4× larger than necessary for a dev fixture; slows seed and CI
+
+### How the GeoTIFF needs to arrive as a COG
+
+The existing raster ingest pipeline (`ingest_raster` task) handles COG conversion internally. When you upload a raw GeoTIFF via `/api/ingest/upload`, the worker runs GDAL to convert it to a COG in the staging area before registering it. The seed fixture only needs to deliver the `.tif` inside a `.zip` (or bare `.tif` — both are accepted per `router.py:97-98`).
+
+The zip from `GRAY_50M_SR.zip` contains `GRAY_50M_SR.tif` — this is a valid GeoTIFF that will be COG-converted by the worker. No pre-conversion step needed in the seed script.
+
+If a fully pre-converted COG is preferred for deterministic behavior (bypasses the worker COG step), the GDAL command is:
+
+```bash
+gdal_translate GRAY_50M_SR.tif GRAY_50M_SR_COG.tif \
+  -of COG \
+  -co COMPRESS=DEFLATE \
+  -co BLOCKSIZE=256
+```
+
+This requires GDAL >= 3.1 (COG driver built-in). The project already has GDAL available in the worker and dev environment.
+
+---
+
+## 6. Seed Script Integration Pattern
+
+### How to add the raster fixture to `seed-natural-earth.py`
+
+The existing `ingest_dataset()` function at line 542 handles vector files (.zip with shapefiles). For raster, the commit step requires `file_type == "raster"` in job metadata — this is set automatically by `_stamp_raster_metadata` in the upload handler when the file extension is `.tif`/`.tiff`.
+
+The commit body for a raster dataset is a `RasterCommitRequest`, but the seed script only needs to POST `{"title": "...", "visibility": "public"}` — the router discriminates raster vs. vector by job metadata, not by the commit body schema. No code change to `ingest_dataset()` is needed; the same three-step flow works.
+
+Recommended addition (a standalone function in the seed script, called after the main vector import loop):
+
+```python
+RASTER_DATASETS = [
+    {
+        "stem": "GRAY_50M_SR",
+        "url": "https://naciscdn.org/naturalearth/50m/raster/GRAY_50M_SR.zip",
+        "name": "Natural Earth Shaded Relief (1:50m)",
+        "tags": ["raster", "shaded-relief", "natural-earth", "grayscale"],
+    }
+]
+```
+
+The download and ingest flow mirrors the vector datasets exactly: download zip → POST to `/api/ingest/upload` → POST to `/api/ingest/preview/{job_id}` → POST to `/api/ingest/commit/{job_id}` with `{"title": ..., "visibility": "public"}` → poll until complete.
+
+---
+
+## 7. What NOT to Add
+
+- **No new Python dependencies.** `rasterio`, `GDAL`, `rio-cogeo`, `cachetools` already in the project. The multi-band fix is pure logic changes to existing functions.
+- **No new Titiler query params beyond what's documented.** The `/cog/statistics` `?p=N` param is already part of the Titiler API.
+- **No pre-converted fixture hosting.** Downloading from NACIS at seed time is the correct pattern (matches how all other Natural Earth data is seeded). Do not commit the `.tif` to the repo.
+- **No change to `_apply_stretch_rescale`.** It already strips and replaces all rescale fragments; the function is correct for multi-band.
+- **No change to `_fetch_band_statistics`.** It already returns all bands as a list ordered `b1, b2, ...`; the caller just needs to pass `n_bands > 1`.
+- **No frontend changes for the multi-band feature itself.** The UI selects stretch mode per-layer; the backend computes the right number of rescale pairs automatically from the stored `band_count`. The frontend does not need to know how many bands there are to send `stretch=percentile`.
+
+---
+
+## 8. Confidence Assessment
+
+| Area | Confidence | Basis |
+|------|------------|-------|
+| Titiler rescale multi-band syntax | HIGH | Context7 docs + CHANGES.md + existing `_titiler_render_params` code already uses this pattern |
+| `/cog/statistics` response field names | HIGH | Context7 docs match field names already used in existing `_compute_stretch_rescale` |
+| Percentile `p=` query param to statistics | HIGH | Context7 StatisticsParams source confirms `alias="p"` |
+| Band stats cache key extension needed | HIGH | LRU cache currently keyed on `open_path` only; configurable bounds require key extension |
+| `GRAY_50M_SR.zip` URL and license | HIGH | HTTP 200 + 18 MB content-length verified via curl; public domain confirmed on terms-of-use page |
+| COG conversion not required before seed upload | MEDIUM | Based on how `_stamp_raster_metadata` detects `.tif` and worker converts; not smoke-tested end-to-end with this specific file yet |
+| `n_bands` calculation for multi-band | HIGH | Direct reading of existing `_compute_stretch_rescale` loop logic |
+
+---
 
 ## Sources
 
-### Verified against existing codebase (HIGH confidence)
-- `/Users/ishiland/Code/geolens/frontend/package.json` (2026-05-27) — frontend deps verified
-- `/Users/ishiland/Code/geolens/backend/pyproject.toml` (2026-05-27) — backend deps verified
-- `/Users/ishiland/Code/geolens/frontend/src/components/builder/ChatPanel.tsx` — `ChatAction` discriminated union + `handleChatAction()` reducer
-- `/Users/ishiland/Code/geolens/frontend/src/components/builder/SharePanel.tsx` — `generateEmbedCode()` + token regeneration UX
-- `/Users/ishiland/Code/geolens/backend/app/processing/ai/streaming.py` — native Anthropic tool_use streaming parser
-- `/Users/ishiland/Code/geolens/backend/app/processing/ai/tool_call_parser.py` — tool call parser
-- `/Users/ishiland/Code/geolens/.planning/PROJECT.md` — milestone scope and substrate (v1026/v1027/v1029)
-
-### External verification (MEDIUM confidence — version numbers only, not feature claims)
-- [MapLibre GL JS Releases (GitHub)](https://github.com/maplibre/maplibre-gl-js/releases) — v5.24.0 confirmed as final v5 release, April 2026
-- [@vis.gl/react-maplibre on npm](https://www.npmjs.com/package/@vis.gl/react-maplibre) — v8.1.0 confirmed latest
-- [anthropic-sdk-python releases](https://github.com/anthropics/anthropic-sdk-python/releases) — v0.104.1 latest (2026-05-22); no breaking changes since 0.87 noted
-- [OpenAI Python SDK on PyPI](https://pypi.org/project/openai/) — v2.38.0 latest (2026-05-21); 2.0-3.0 range still current
-- [MapLibre Sprite spec](https://maplibre.org/maplibre-style-spec/sprite/) — SDF + sprite atlas patterns confirmed (no new APIs since v5.24)
-- [Vercel AI SDK comparison guide (PkgPulse)](https://www.pkgpulse.com/guides/vercel-ai-sdk-vs-openai-sdk-vs-anthropic-sdk-2026) — confirms Vercel AI SDK adds transport abstraction, not new capability
-- [chroma-js vs culori comparison (PkgPulse)](https://www.pkgpulse.com/blog/culori-vs-chroma-js-vs-tinycolor2-color-manipulation-javascript-2026) — chroma-js still recommended for data viz / map gradients
-
-### Confidence assessment per claim
-- **Current frontend/backend versions:** HIGH (read from package.json + pyproject.toml directly)
-- **Latest available versions:** MEDIUM (verified via GitHub/npm/PyPI but pubdates can shift)
-- **"No breaking changes" for anthropic 0.87 → 0.104.1:** MEDIUM (GitHub release notes do not enumerate breaking changes explicitly; major version remains 0.x, code paths in `streaming.py` use the stable Messages API surface)
-- **Substrate integration points (v1027/v1026/v1011):** HIGH (codebase grep + PROJECT.md milestone records)
-- **"Don't add X" recommendations:** HIGH (grounded in scope of polish milestone + anti-features list in PROJECT.md)
-
----
-*Stack research for: v1030 Map Builder Polish Sweep*
-*Researched: 2026-05-27*
-*Bottom line: don't add anything. Use what's there better.*
+- Context7 Titiler library (`/developmentseed/titiler`) — statistics endpoint, rescale syntax, StatisticsParams
+- `backend/app/processing/tiles/router.py` — `_compute_stretch_rescale`, `_fetch_band_statistics`, `_apply_stretch_rescale`, `_titiler_render_params`
+- `backend/app/platform/storage/titiler_url.py` — URL builder
+- `backend/app/processing/ingest/router.py` — raster commit discrimination
+- `frontend/src/components/builder/layer-adapters/raster-adapter.ts` — `buildColormapTileUrl`
+- `docker-compose.yml` — Titiler 2.0.2 image pin
+- `https://naciscdn.org/naturalearth/50m/raster/GRAY_50M_SR.zip` — 200 OK, 18 279 677 bytes
+- `https://www.naturalearthdata.com/about/terms-of-use/` — public domain confirmed

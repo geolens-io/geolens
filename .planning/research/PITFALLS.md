@@ -1,572 +1,318 @@
-# Pitfalls Research — v1030 Map Builder Polish Sweep
+# Pitfalls Research
 
-**Domain:** Mature map builder polish on v1026 reconciler + v1027 action boundary substrate
-**Researched:** 2026-05-27
-**Confidence:** HIGH (grounded in actual GeoLens source — `builder-action-contract.ts`, `layer-adapters/shared.ts`, `ChatPanel.tsx`, `SharePanel.tsx`, `chat_actions.py`, AI `router.py`) and direct prior-milestone post-mortems (v1009.1, v1010.2, v1011, v1011.1, v1028)
+**Domain:** GeoLens v1034 — raster stretch/colormap completion (multi-band stretch, configurable bounds, single-band fixture)
+**Researched:** 2026-05-29
+**Confidence:** HIGH (sourced entirely from live codebase inspection of `router.py`, `cog.py`, `RasterEditor.tsx`, `raster-adapter.ts`, `test_raster_colormap_proxy.py`, `test_raster_tiles.py`)
 
 ---
 
 ## Critical Pitfalls
 
-### Pitfall 1: Bypassing the v1027 typed action boundary for "just one direct call"
+### Pitfall 1: `_band_stats_cache` keyed on `open_path` only — stale when configurable bounds change
 
 **What goes wrong:**
-A new AI action type (e.g. `add_layer_with_style`, `analyze_layer`) is wired by calling `map.addLayer()` / `setPaintProperty()` / `useBuilderLayers.handleAddDataset()` directly from `ChatPanel.tsx` instead of dispatching through `BuilderLayerAction` → `BuilderLayerActionHandlers`. Manual vs AI provenance is lost (`BuilderActionSource` not threaded), undo snapshots miss the mutation, dirty-state never flips, and the v1026 reconciler's owned-property set diverges from the layer JSON.
+`_fetch_band_statistics` in `router.py:250` caches on `open_path` alone. Today all stretch runs are hardcoded p2–p98 / ±2σ so there is no per-call variation. Once RASTER-STRETCH-UI-01 adds user-configurable percentile bounds (e.g. p5–p95 instead of p2–p98), the cache will return the p2/p98 slice for every request regardless of what the user set. The rendered tile will appear correct (cached fast) but will silently apply the wrong stretch bounds.
 
 **Why it happens:**
-`builder-action-contract.ts` discriminated-union is verbose to extend (16+ action types). When a new chat action arrives, the path-of-least-resistance is to mirror one of the existing imperative handlers in `handleChatAction()` rather than to add a typed action variant and a handler — especially for "compound" actions like "add a layer and immediately apply a graduated style", where the temptation is to chain two existing handlers inline.
+The cache predates configurable bounds. The key was correct when the only variable was "which asset". Adding user control of `pmin`/`pmax` or `sigma` adds a second cache dimension that the current key does not capture.
 
 **How to avoid:**
-- Phase 1133 audit must enumerate every existing `case` branch in `ChatPanel.handleChatAction()` and `dispatchBuilderLayerAction()` and require that every NEW chat action type land as a new `BuilderLayerAction` discriminated-union variant FIRST, with a matching `BuilderLayerActionHandlers` method.
-- Add a planner guardrail: if a v1030 plan touches `ChatPanel.tsx` AND adds a new `action.type` switch case, the plan MUST also touch `builder-action-contract.ts`. Otherwise the action is bypassing the boundary.
-- Re-use the v1009.1 / v1010.2 "code-review catches secondary findings" pattern (`feedback_review_findings_inline.md`): post-shipping review must grep for new `map.setPaintProperty`, `map.setLayoutProperty`, `map.addLayer`, `map.addSource` callsites outside `layer-adapters/`, `map-sync.ts`, and `basemap-state-controller.ts`.
-- A diagnostic test asserting "no setPaintProperty calls outside known files" exists for adapters; extend it to chat-side callers.
+Change the cache key to `f"{open_path}:pmin={pmin}:pmax={pmax}"` (percentile) or `f"{open_path}:sigma={sigma}"` (stddev) before any configurable-bounds UI lands. The backend endpoint must receive the bounds as query params and pass them through to both the statistics call and the cache key.
+
+Additionally: Titiler's `/cog/statistics` endpoint returns fixed percentile breakpoints (`percentile_2`, `percentile_98`). Configurable bounds may require a different Titiler endpoint call or manual percentile interpolation from the returned histogram. Verify what Titiler's statistics API actually supports for arbitrary percentile requests before wiring the UI. If Titiler returns only p2/p98, configurable bounds require a completely different approach (e.g. `rescale=pmin%,pmax%` Titiler param if it exists, or frontend-side percentile selection from the full stats histogram).
 
 **Warning signs:**
-- A new action's effect doesn't show up in the AI undo snapshot (BLD-20260526-04 pattern).
-- Dirty-state badge (orange Save indicator) doesn't appear after an AI action.
-- Style JSON export omits a paint property that's visibly on the canvas (the reconciler's owned-set was never told about it).
+- Changing the percentile slider in the UI has no effect on tile appearance.
+- Network tab shows tile URL with `stretch=percentile` but the rescale values in the Titiler URL never change between slider moves.
+- `test_stretch_statistics_cached_across_tiles` passes but a new test asserting different rescale values for different bounds values fails.
 
-**Phase to address:** Phase 1133 (audit + walkthrough) names this in the AUDIT.md as P0; Phase that adds AI layer-creation/data-analysis actions MUST land the new `BuilderLayerAction` variants before the wire-up.
+**Phase to address:**
+The configurable-bounds backend phase (whichever phase implements RASTER-STRETCH-UI-01). Must land before or alongside the slider UI. The cache key fix is a one-liner but the audit of what Titiler actually supports may take a spike session — do the spike first.
 
 ---
 
-### Pitfall 2: Collapsing the v1026 reconciler patch/replace/clear tri-state
+### Pitfall 2: Single-band float32 fixture is auto-classified as DEM candidate — colormap/stretch UI hidden
 
 **What goes wrong:**
-A polish change to an editor (e.g. LineEditor, FillEditor) or to a chat action handler treats paint changes as a simple object merge (`{ ...current, ...next }`) — losing the distinction between (a) **patch** a single property, (b) **replace** the whole paint dict, and (c) **clear** specific keys. After save/reload, properties that were intentionally cleared come back, or a `replace_paint: true` AI action accidentally merges with stale state. This was the exact bug class v1026 was built to eliminate, and `buildChatActionPaint()` in `ChatPanel.tsx:80` is the canonical encoder of the contract — it MUST be the single source of truth.
+`cog.py:85` sets `is_dem_candidate = src.count == 1 and _is_float_dtype(src.dtypes[0])`. Any single-band float32/float64 GeoTIFF ingested through the normal pipeline will have `is_dem=True` written to `raster_assets`. In `raster_tile_proxy` (`router.py:477–480`) the `is_dem` flag causes `render_params = "algorithm=terrainrgb"`, which bypasses all colormap and stretch logic (the `not render_params.startswith("algorithm=")` guard at lines 565 and 578). In `RasterEditor.tsx:186` the colormap section is gated on `layer.band_count === 1`, but the DEM guard is on the backend. If the fixture is ingested as a DEM, the frontend colormap/stretch UI will appear (correct band_count=1) but the backend will silently ignore both params and serve terrainrgb tiles. The acceptance test "verify colormap/stretch UI against the fixture" would appear to pass (HTTP 200, tile returned) but would actually be testing nothing.
 
 **Why it happens:**
-The contract is implicit (three booleans/arrays — `paint`, `clear_paint`, `replace_paint`) rather than a tagged union, and a refactor of "let's just set the value" often loses the `clear_paint` branch. Tests pass because the canvas looks right at first apply; the regression appears only after a save → reload → reapply cycle, which lives outside per-PR test coverage.
+The ingest pipeline has no way to distinguish a DEM elevation grid from a single-band float32 optical product (NDVI, SAR coherence, single-band Landsat). The `is_dem_candidate` heuristic is `band_count==1 AND float dtype` — any float single-band file matches. Common redistributable single-band rasters (Copernicus DEM, SRTM, NLCD impervious surface as float) are all float32.
 
 **How to avoid:**
-- All polish changes to paint handling MUST route through `buildChatActionPaint(currentPaint, action)` (`ChatPanel.tsx:80`) for chat-driven mutations and through the `syncOwnedPaintProperties()` reconciler (`layer-adapters/shared.ts:293`) for editor-driven mutations. No new path may be added.
-- Save/reload symmetry test (vitest) for each render-mode editor: render → mutate one property → simulate save → reload → assert paint matches `expected`. The fixture must include a `clear_paint` case (set color, then clear it, assert it's gone after reload).
-- A unit test pin on `buildChatActionPaint` for each (patch, replace, clear, patch+clear, replace+patch) combination — `ChatPanel.test.tsx` already pins some of these; extend coverage for new action types.
+Choose a fixture with integer dtype, NOT float. uint8 and uint16 single-band GeoTIFFs (Landsat QA band, NLCD land cover classification as uint8, ESA WorldCover) pass `is_dem_candidate=False` because `_is_float_dtype("uint8")` returns False. After ingest, immediately verify `SELECT is_dem FROM catalog.raster_assets WHERE dataset_id = '...'` returns `false` before any further testing. Do not proceed to colormap/stretch verification until this check passes.
 
 **Warning signs:**
-- After save/reload, a property the user explicitly cleared (e.g. a custom `line-gradient` they removed) reappears.
-- AI `set_style` with `replace_paint: true` produces a layer that has BOTH the new and old properties.
-- Style JSON export round-trip drops a property that the editor still shows on the canvas.
+- `SELECT is_dem FROM catalog.raster_assets WHERE dataset_id = '<fixture-id>'` returns `true`.
+- The raster proxy serves tiles with `algorithm=terrainrgb` in the Titiler URL (visible in network tab or backend logs).
+- `stretch=percentile` request to `/tiles/raster-proxy/{id}/...` does NOT trigger a `/cog/statistics` call (the DEM guard skips it).
+- The colormap select renders in the UI but changing it has no visible effect on the map.
 
-**Phase to address:** Per-render-mode editor polish phases (FillEditor / LineEditor / CircleEditor / SymbolEditor / HeatmapEditor / ClusterEditor / RasterEditor) must each include a save/reload symmetry vitest. AI chat phases must extend `ChatPanel.test.tsx` `buildChatActionPaint` table.
+**Phase to address:**
+The fixture-selection/seeding phase (TESTDATA-01). This is the primary pre-condition for all subsequent colormap/stretch verification. Must be resolved before the "verify colormap/stretch UI" acceptance criterion can be claimed PASS.
 
 ---
 
-### Pitfall 3: AI confirm-before-apply collapsing the snapshot/undo contract
+### Pitfall 3: Colormap forwarded to multi-band raster, or n_bands left at 1 for multi-band stretch
 
 **What goes wrong:**
-The current snapshot/undo pattern (`lastSnapshotRef` in `ChatPanel.tsx:172`) is "auto-apply then undo." If a polish phase introduces a true confirm-before-apply UX without changing the action contract, the staged action's intermediate map state can drift: the user sees a "preview" that was actually applied to the live map and reconciler, save dirty state flips, and rejecting the suggestion leaves the map in a partially-applied state (because `handleChatAction` already ran through `dispatchBuilderLayerAction`).
+Two related bugs, same root surface.
+
+**Bug A — colormap on multi-band:** `buildColormapTileUrl` in `raster-adapter.ts` appends `colormap_name` without checking band count. `RasterEditor.tsx:186` gates the colormap section on `layer.band_count === 1`, but `band_count` on the layer object may be `null` for datasets where `RasterAsset.band_count` was not populated (e.g. VRT or legacy ingest). If `layer.band_count` is `null`, `null === 1` is false, so the colormap section is hidden — safe. But if a multi-band dataset has `band_count` incorrectly stored as `1`, the UI shows the colormap control and Titiler receives `colormap_name=viridis` on a 3-band RGB raster — Titiler returns a 500.
+
+**Bug B — n_bands=1 hardcoded:** `router.py:581` passes `n_bands=1` to `_compute_stretch_rescale`. This is currently correct (single-band scope per the comment at line 229). When RASTER-STRETCH-03 (multi-band stretch) is added, this call site must be updated to `n_bands=min(row["band_count"] or 1, 3)` to match `_titiler_render_params`'s own logic. If forgotten, multi-band stretch silently applies only b1's rescale to all three displayed bands, producing wrong colors with no error.
 
 **Why it happens:**
-The v1027 boundary was designed for **commit immediately**. Adding "confirm" requires either (a) a true two-phase staging buffer (NEW pending state distinct from `layers`) OR (b) a forced-undo-on-reject path. Mixing them — preview by applying and rejecting via undo — creates the trap where mid-stream errors leave half-applied changes (already a known edge case at `ChatPanel.tsx:440-450`).
+The `n_bands=1` constant is a placeholder that documents its own future-work scope via a comment, but a reader implementing RASTER-STRETCH-03 must find and update this specific line. There is no compile-time guard. Bug A is a VRT data-quality edge case.
 
 **How to avoid:**
-- Stage one option upfront in the requirements: either **(A) Pre-apply preview + atomic undo** (extend existing snapshot pattern, but make `supportsUndo` false-state surface a "cannot preview" UI rather than silently committing) OR **(B) True staging buffer** (separate `pendingLayers` + `pendingPaint`, never write to reconciler until accepted). Don't mix.
-- If (A) chosen: extend `BuilderActionBase` with `source: 'ai-pending' | 'ai-committed'`, and make the v1026 reconciler skip side-effects when `source === 'ai-pending'`. Save/dirty state must not flip for pending. This requires a `BuilderActionSource` widening — not a one-line fix.
-- If (B) chosen: a separate `useBuilderPendingActions` hook that buffers `BuilderMapAction[]`. `MapBuilderPage` decides whether to render `effectiveLayers = pendingActions.reduce(layers, applyAction)` for preview. Only commit on accept.
-- Either way: assert no AI action mutates `lastSnapshotRef` AND backend state in the same code path.
+- Backend-level colormap guard: if `colormap_name` is present AND `band_count > 1`, return HTTP 422 immediately (before forwarding to Titiler). Belt-and-suspenders against `null` band_count edge cases.
+- RASTER-STRETCH-03 implementation plan must explicitly list updating `router.py:581` from `n_bands=1` to `n_bands=min(row["band_count"] or 1, 3)` as a named deliverable. Add a unit test that verifies 3 `rescale=` fragments in the Titiler URL for a 3-band stretch.
 
 **Warning signs:**
-- A "Reject" or "Cancel" click leaves the map visually changed.
-- Save indicator turns orange (dirty) when previewing an AI suggestion the user hasn't accepted.
-- AI shows the same suggestion twice and both apply because the user clicked Apply on the first and the second was already pre-applied.
+- Titiler returns 500 on tile requests where `colormap_name` is set.
+- For multi-band stretch: the b2/b3 tile bands appear stretched identically to b1 despite having different value ranges.
+- Backend logs show `colormap_name=viridis` in a Titiler URL that also has `bidx=1&bidx=2&bidx=3`.
 
-**Phase to address:** The AI chat phase that introduces confirm-before-apply MUST pick the staging shape (A or B) in CONTEXT.md before plan-01 lands. A regression test that "rejecting a pending AI action leaves layers byte-equal to pre-prompt" is mandatory.
+**Phase to address:**
+- Colormap-on-multiband guard: the backend validation phase or the first phase touching `raster_tile_proxy` param handling.
+- n_bands call-site fix: the RASTER-STRETCH-03 implementation phase. Must be a named deliverable, not an implicit assumption.
 
 ---
 
-### Pitfall 4: AI provider-disabled state regresses to broken-canvas
+### Pitfall 4: Per-band statistics fetched N times instead of once — tail latency on first tile
 
 **What goes wrong:**
-v1028 already shipped an "actionable AI unavailable state" (per PROJECT.md line 72). A polish change to add new AI features (layer creation, data analysis) wires them only on the AI-enabled path and ships without re-verifying the disabled path: clicking suggestions on a deployment with no `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` shows a generic 503 toast, the suggestion chip is still clickable, and `useAIStatus` consumer-side gating is missed for one new endpoint (mirrors the v1010.2 SF-06 / `useEmbeddingStats` gap where the plan named only `useAIStatus`).
+Today `_fetch_band_statistics` makes one `/cog/statistics` call and returns all bands in a single response. For RASTER-STRETCH-03, if the implementation fires one statistics call per band (`/cog/statistics?url=...&bidx=1`, then `&bidx=2`, then `&bidx=3` sequentially), the first tile request for a 3-band dataset blocks for 3× the Titiler statistics latency (often 500ms–2s on cold COG). Users see a delayed first tile load that looks like a broken raster.
 
 **Why it happens:**
-- `_check_ai_available(db)` (`ai/router.py:70`) ALREADY handles the 403 (admin-disabled) / 503 (no key) distinction correctly. The frontend gap is on the consumer side — every NEW hook that hits `/ai/*` needs `{ enabled: !!token && aiEnabled }` and an explicit empty-state UI.
-- New "data analysis" prompts may hit new endpoints (`/ai/analyze/`, hypothetical) that don't reuse the `AI_ENABLED` gate, or reuse it but don't surface the 503 distinctly.
+A natural implementation loops over bands and fetches stats individually. The Titiler `/cog/statistics` endpoint returns ALL bands in one response with no `bidx` filter needed — the current code already correctly fetches one-shot and orders bands by numeric suffix (`router.py:259–265`). The pitfall is a regression where RASTER-STRETCH-03 adds a per-band loop instead of reusing the existing one-shot fetch.
 
 **How to avoid:**
-- Phase 1133 audit must enumerate every existing `/ai/*` endpoint and every frontend hook that calls one. Output a "consumer gating matrix" with columns: hook, endpoint, gated-on-aiEnabled, surfaces-503-distinctly, surfaces-403-distinctly.
-- Any new AI endpoint added in v1030 MUST: (1) call `await _check_ai_available(db)` first; (2) reuse `_AI_GENERATE_LIMIT` (`10/minute`) or document why a different rate limit is justified; (3) be permission-gated with `require_permission("use_ai_chat")`.
-- Any new frontend AI hook MUST: (1) be gated on `enabled: !!token && aiEnabled && isAdmin?` (mirror `useAIStatus` per v1010.2 SF-06 fix); (2) surface 403 ("admin-disabled") and 503 ("no key") with the i18n keys `chat.errorForbidden` / `chat.errorAiUnavailable` already in `ChatPanel.tsx:202`.
-- A Playwright MCP smoke gate with `AI_ENABLED=false` AND with the key envvars unset: no suggestion chips visible, no 401/403/503 noise in browser console, no broken-canvas state.
+Keep the one `_fetch_band_statistics(open_path)` call for all multi-band stretches. Pass `n_bands=min(band_count, 3)` to `_compute_stretch_rescale`. The existing function already returns a list ordered b1, b2, b3 — no per-band loop is needed. The RASTER-STRETCH-03 plan should cite `router.py:244` as the reuse point explicitly.
 
 **Warning signs:**
-- Chat suggestion chips render when `AI_ENABLED=false`.
-- Browser console shows repeated 503 noise from a new analyze endpoint.
-- Disabled-AI UAT was last verified more than one milestone ago.
+- Backend logs show 3 sequential `/cog/statistics` requests for the same open_path on a 3-band dataset.
+- First tile load time is 3× longer than a single-band asset.
+- `_band_stats_cache` is not hit on the second and third band calls because each uses a per-band key instead of the shared open_path key.
 
-**Phase to address:** Phase 1133 audit names the matrix; every AI phase exits with a "disabled-AI smoke check" line in CHECKPOINT.md. Final close-gate phase re-verifies with `AI_ENABLED=false`.
+**Phase to address:**
+RASTER-STRETCH-03 implementation phase. Include a unit test asserting `_titiler_client.get` is called exactly once for a 3-band stretch request (mirrors the existing `test_stretch_statistics_cached_across_tiles` pattern).
 
 ---
 
-### Pitfall 5: AI data-analysis prompt leaks across maps via prompt cache or visibility
+### Pitfall 5: `bidx` ordering off-by-one — wrong color channel mapping in multi-band stretch
 
 **What goes wrong:**
-- A new "analyze this map" prompt feeds layer metadata (column names, sample values, geometry types) to the LLM. If layer visibility is NOT respected (`layer.visible === false` layers included in `_validate_chat_layers` payload), the analysis quietly references hidden layers.
-- The schema-context cache is keyed per-map (`PERF-04`-style — `chat_actions.py:73` comment). If a polish refactor introduces a new cache that's keyed only by `dataset_id` (not `(map_id, dataset_id)`), Map A's analysis can pull cached schema from Map B that the user never opened, leaking dataset names + column lists between maps the user owns.
-- Server-side AI provider API keys (`settings.anthropic_api_key`, `settings.openai_api_key`) appear in `_check_ai_available`'s `keys` dict at `router.py:84`. If a new error path includes `keys.get(provider)` in the exception detail (a temptingly-easy debug hint), the key leaks to the client through a 500 response.
+Titiler expects 1-indexed band selectors (`bidx=1`, `bidx=2`, `bidx=3`). `_compute_stretch_rescale` indexes `bands[i]` for `i in range(n_bands)` (0-indexed). The ordering invariant is: `bands[0]` = b1 stats, `bands[1]` = b2 stats, etc. This works because `_fetch_band_statistics` sorts by `int(k[1:])` (the numeric suffix of `"b1"`, `"b2"`). The risk is that a Titiler version change or a different stat key format (e.g. `"band_1"` instead of `"b1"`, or named bands like `"coastal_aerosol"`) silently scrambles the band→rescale mapping, causing red-channel rescale applied to blue band.
 
 **Why it happens:**
-- Polish work often "just passes through the existing layers list" without thinking about visibility — and the existing `_validate_chat_layers` (`router.py:94`) does not filter on `layer.visible`.
-- Cache key shortcuts are common when refactoring (e.g. memoizing on dataset alone).
-- "Helpful" error messages can include configuration in non-prod paths and get shipped.
+The `k[1:]` parsing in `router.py:263` is brittle: it assumes the key format is always exactly `"b" + integer`. If Titiler adds descriptive band keys or changes its response format, the sort breaks and bands are ordered arbitrarily.
 
 **How to avoid:**
-- Phase 1133 audit must check `_validate_chat_layers` against the new analyze prompts — if the prompt is "analyze visible layers", filter on `layer.visible` BEFORE validation. If the prompt is "analyze all layers", document that explicitly.
-- A regression test: prompt analyze on a 2-map session where Map A and Map B share a dataset_id but have different visible-layer sets; assert Map A's schema-context cache key is NOT reused on Map B.
-- Lint rule (eslint `no-restricted-syntax` or grep guard): forbid string-interpolating `settings.anthropic_api_key`, `settings.openai_api_key`, `keys.get(provider)` into any `detail=`, `message=`, or `HTTPException` body. Mirror SEC-S14 ESLint ban pattern.
-- Per-dataset access via existing `build_table_allowlist(db, user)` is the right gate — DO NOT introduce a parallel "this is just a read" shortcut path. Every analyze call must go through the allowlist.
+Add a defensive log or assertion after sorting: verify that the first key was `"b1"` and the last was `"b{n}"`. At minimum, a unit test should verify that a 3-band response with keys provided out of order (`"b3"`, `"b1"`, `"b2"`) is sorted correctly. The existing test suite tests only single-band — add a 3-band variant for RASTER-STRETCH-03.
 
 **Warning signs:**
-- An analyze response mentions a column from a layer the user has toggled off.
-- An analyze response is suspiciously fast on a brand-new map (cache leak from another map).
-- An error message in the network tab includes any string that looks like an API key fragment (`sk-`, `claude-`, `key=`).
+- Multi-band raster renders with swapped colors (red and blue channels visually inverted).
+- Titiler stats response format changes in Titiler release notes.
+- `int(k[1:])` raises a `ValueError` for any non-numeric suffix key (e.g. `"b1_extra"`).
 
-**Phase to address:** Phase that adds AI data-analysis explicitly lists a "leak-shape regression set" in CONTEXT.md: visibility leak, cache leak, key leak, cross-map leak.
+**Phase to address:**
+RASTER-STRETCH-03 implementation phase. Must include a 3-band round-trip test that checks which `rescale=` fragment appears for each band in the Titiler tile URL.
 
 ---
 
-### Pitfall 6: SharePanel raw-token clearing on dialog re-render or visibility change
+### Pitfall 6: Fixture fails COG compliance or lacks overviews
 
 **What goes wrong:**
-The just-shipped `3ed5ceb3` separated `rawShareToken` (local state, only set when JUST CREATED) from `persistedShareTokenHint` (query-derived flag). A subsequent polish change "tidies up" the local state by clearing `setRawShareToken(null)` on dialog `onOpenChange={false}` or on a visibility-change cleanup effect. Result: user creates a public link, switches tab, comes back, the share-URL field is empty because the dialog re-rendered, and the user clicks "Get Share Link" thinking it failed, creating a SECOND token and orphaning the first (now-revoked but linked-to-elsewhere).
+The ingest pipeline's `check_cog_compliance()` runs at commit time but returns a warning, not a hard block, on compliance failure. A fixture that is a plain GeoTIFF (not a Cloud-Optimized GeoTIFF with blocking/tiling and overviews) will ingest successfully but Titiler may produce degraded tiles or do full-resolution reads at every zoom level. Without overviews, Titiler reads the full pixel grid even at low zoom — any fixture larger than a few hundred pixels will cause slow tile loads or Titiler memory pressure in CI.
 
 **Why it happens:**
-The local-state-survives-rerender contract is subtle: `rawShareToken` is intentionally NOT cleared on dialog close (see `SharePanel.tsx:444` `handleRevoked` — clears on revoke only) because the dialog stays mounted while the dropdown closes. Any "cleanup-on-unmount" or "reset-on-close" polish change breaks the v1011 SP-09 / v1010.2 pattern of "raw token survives session, hint persists."
+Creating a real COG with correct block size, DEFLATE compression, and overview levels requires intentional GDAL steps (`gdal_translate -co TILED=YES -co COMPRESS=DEFLATE` + `gdaladdo`). A minimal test fixture created with plain `rasterio.open(..., 'w')` is not a COG.
 
 **How to avoid:**
-- A regression test that pins `rawShareToken` survival across dialog open/close cycles AND `visibilitychange` events. Add to `SharePanel.test.tsx`.
-- A docstring-level contract at the `useState<string | null>(null)` declaration in `SharePanel.tsx:330` explaining: "Do NOT clear on dialog close or visibility change. This is the raw token the server returned only once; if cleared, the user must regenerate."
-- Pin in the test: assert that after `await handleGetShareLink()`, then `onOpenChange(false)`, then `onOpenChange(true)`, the share URL field is still populated.
+Generate the fixture using the GeoLens COG creation pipeline itself (i.e. let the ingest worker convert it) so `check_cog_compliance()` returns `(True, "")`. Alternatively, create the fixture manually with the correct COG profile and verify with `gdalinfo`/`check_cog_compliance()` before committing. For a tiny fixture (<256×256 pixels), overview levels are empty by design which is acceptable — document this explicitly.
 
 **Warning signs:**
-- Test removes a `setRawShareToken(null)` call — verify it's not the load-bearing one.
-- A polish PR touches `SharePanel.tsx` and adds a `useEffect` that depends on `open`.
+- `check_cog_compliance(fixture_path)` returns `(False, reason)`.
+- `gdalinfo` output on the fixture does not show `Overview: N levels` when the fixture is larger than 256×256.
+- Titiler returns unexpected tile content (e.g. all-nodata tiles) at low zoom levels.
 
-**Phase to address:** Any phase touching `SharePanel.tsx` must include the SP-survival pin. v1011 SP-09 / `feedback_dndkit_listener_jsx_spread.md` "preserve load-bearing state across rerenders" pattern applies.
+**Phase to address:**
+TESTDATA-01 fixture phase. Add `check_cog_compliance(fixture_path)` as an explicit test assertion.
 
 ---
 
-### Pitfall 7: Embed token race — create vs list
+### Pitfall 7: Seed script downloads fixture at CI time — flaky CI
 
 **What goes wrong:**
-`SharePanel.handleGetShareLink()` calls `createShareToken.mutateAsync()`, then `runVisibilityCheck()`, then `maybeCreateEmbedToken()`. The embed-token list query (`useMapEmbedTokens`) is gated on `open && hasShareToken` (`SharePanel.tsx:340`). When `hasShareToken` flips true after `setRawShareToken`, the list query fires in parallel with `createEmbedToken.mutateAsync()`. If the list query returns BEFORE the create completes, `activeEmbedToken` is undefined, `maybeCreateEmbedToken` proceeds to create — but its `mutateAsync.onSuccess` invalidates the list query, triggering a second list fetch that races with the just-created token's commit. Worst case: TWO embed tokens get created.
+If the seed script downloads the test fixture from an external URL (USGS, NASA EarthData, etc.) at CI time, the test run is dependent on external network availability. CI seed steps regularly fail or timeout on transient connectivity issues, especially with government data servers. The `seed-natural-earth.py` pattern uses HTTP downloads, but the seed is run manually before CI, not during CI. A new fixture that is downloaded ON DEMAND during the test suite itself breaks deterministic CI.
 
 **Why it happens:**
-TanStack Query mutations + dependent queries that gate on derived booleans is a classic race. The `maybeCreateEmbedToken` guard `if (activeEmbedToken) return;` only protects against the case where the list query has already completed AND contains a token — it doesn't protect against concurrent in-flight creates.
+Downloading during tests is convenient for large files. The distinction between "seed runs before tests" (existing pattern) and "fixture download happens during test execution" is easy to miss.
 
 **How to avoid:**
-- Add a synchronous in-flight ref inside `SharePanel`: `const inflightEmbedCreate = useRef(false);` set true at the top of `maybeCreateEmbedToken`, clear in `finally`. Mirror the `inflightRef` pattern in `ChatPanel.tsx:165` ("setIsLoading is async-batched, so two same-tick handleSend calls would both see isLoading=false and both fetch").
-- A regression test: simulate the race — open dialog, click "Get Share Link" twice within one tick — assert only ONE `createEmbedToken` was issued (use a spy on the mutation).
-- Backend defense: `create_embed_token` SHOULD upsert/idempotent on `(map_id, allowed_origins)` collision. Check `backend/app/modules/catalog/maps/router.py` to confirm — if it always inserts, polish phase needs to add a unique constraint or in-flight check on the backend side as well.
+Either (a) commit the fixture directly to the repo if it is small enough (< 1 MB for a representative single-band COG is practical), or (b) use the existing seed script pattern where the fixture download is a separate pre-CI step with retry logic and idempotency. Never fetch the fixture inside a pytest test or conftest. If the fixture must be downloaded, add `@pytest.mark.skip_if_no_fixture` or equivalent guard so tests requiring it are skipped cleanly when the fixture is absent rather than failing noisily.
 
 **Warning signs:**
-- Two embed tokens visible in the embed-tokens list for the same map with the same origins.
-- `Network` tab shows two simultaneous `POST /api/maps/{id}/embed-tokens/` calls.
+- A conftest or test function contains an HTTP fetch for the fixture path.
+- CI failures on the fixture test are intermittent (not reproducible locally with cached fixture).
 
-**Phase to address:** Sharing-polish phase explicitly lists "embed-token race regression" in REQUIREMENTS.md. Test pin lives in `SharePanel.test.tsx`.
+**Phase to address:**
+TESTDATA-01 fixture phase. The fixture acquisition strategy (committed vs downloaded) must be decided before the seed script is written.
 
 ---
 
-### Pitfall 8: Allowed-origins UX regression breaks iframe enforcement
+### Pitfall 8: Fixture seed is not idempotent — duplicate datasets on repeated runs
 
 **What goes wrong:**
-A polish change to the allowed-origins UX (better input validation, comma-vs-newline normalization, default-to-current-origin convenience) accidentally:
-- Strips trailing slashes inconsistently between create and update paths (`parseOrigins` in `SharePanel.tsx:24` already does `replace(/\/+$/, '')` — but only on create).
-- Replaces a non-empty list with `null` instead of `[]` when the user clears the field (different backend semantics: `null` may mean "any origin" depending on default; `[]` means "self only").
-- Auto-adds `https://` to a bare hostname AFTER it's already in the list, producing duplicates.
-
-The CSP `frame-ancestors` directive at `router.py:111-123` is built from this list. A broken update path means the embed silently allows ANY origin (frame-ancestors falls back to `'self'` only when list is empty, but if a downstream change makes the empty-list path emit `*`, every embed is vulnerable).
-
-**Why it happens:**
-- `parseOrigins` is called only at create/regenerate; the update path (PATCH `allowed_origins`) is rarely tested with the same diversity of input.
-- The `null` vs `[]` distinction is invisible to most polish changes.
-- The CSP construction at `router.py:111` (`_build_csp_frame_ancestors`) has CRLF guards but not "fail-closed" semantics for unexpected inputs (e.g. wildcard).
+The existing `seed-natural-earth.py` uses a `BOOTSTRAP_KEY_NAME` idempotency key stored in the DB to skip re-running the seed. A new raster fixture that does not hook into this idempotency mechanism will create a duplicate dataset every time the seed script is run. Duplicate raster datasets with the same asset path will cause `_band_stats_cache` to serve stats from the first ingest indefinitely, and the test that "verifies colormap UI against the fixture" may hit the wrong dataset ID.
 
 **How to avoid:**
-- Round-trip test: input → `parseOrigins` → POST/PATCH → GET → assert canonical normalized form persisted. Run for: empty, one bare host, one with scheme, one with trailing slash, comma-separated with whitespace.
-- A backend pin that `_build_csp_frame_ancestors([])` returns `frame-ancestors 'self'` exactly (no wildcard, no leak).
-- A backend pin that `frame-ancestors` directive NEVER contains `*` regardless of input.
-- E2E pin: load embed iframe from an origin NOT in the allow-list, assert browser refuses to render (load event blocked). Playwright MCP can verify with an iframe in a `data:` URL.
+Use a deterministic `source_filename` or a separate fixture-specific bootstrap key. The seed script must check if a dataset with the given `source_filename` already exists before uploading. Mirror the `idempotency map (source_filename -> dataset_id)` pattern already in `seed-natural-earth.py:1088`.
 
 **Warning signs:**
-- Two identical entries in `allowed_origins` (one with scheme, one without).
-- CSP response header on `/api/maps/shared/{token}` contains an asterisk.
-- Update path doesn't `parseOrigins` before persisting.
+- Running the seed twice creates two datasets in the catalog with the same name.
+- The fixture dataset ID changes between runs, breaking hardcoded test references.
 
-**Phase to address:** Sharing-polish phase MUST cover the update path (PATCH `allowed_origins`) explicitly. Add a round-trip vitest + a CSP-header regression pin.
+**Phase to address:**
+TESTDATA-01 fixture phase. Run the seed script twice in CI and assert dataset count is unchanged.
 
 ---
 
-### Pitfall 9: Per-render-mode editor adds direct `map.setPaintProperty` for "performance"
+### Pitfall 9: Fixture redistribution license is not verified
 
 **What goes wrong:**
-A polish change to one editor (e.g. LineEditor for `line-gradient` smoothness, or HeatmapEditor for the radius slider) decides the v1026 reconciler debouncing is "too slow" for live preview and bypasses it with `map.setPaintProperty()` directly inside a slider `onChange`. The canvas tracks the slider, but: (a) the layer JSON is now divergent from the canvas; (b) the v1010 `coalesceFrame` rAF utility is bypassed (200ms debounce target broken — PERF-02 regression); (c) on save, the reconciled paint wins, the user's last drag value is lost.
+Using a fixture from a source with restrictive terms (e.g. NASA EarthData datasets that require registration, Copernicus data that requires attribution, commercial aerial imagery) exposes the project to license violations if the fixture is committed to a public repo. The error is not technical — CI and tests pass — but the licensing issue can force a fixture swap mid-milestone.
 
 **Why it happens:**
-- v1010 established `coalesceFrame` + 100ms opacity / 200ms color+filter debounces for exactly this reason. Polish work that runs without re-reading the v1010 perf baseline reinvents the bypass.
-- Direct `map.setPaintProperty()` looks like an obvious speedup, and a single slider may genuinely feel snappier.
-- The save/reload divergence is not caught by interaction tests — only by save/reload round-trip.
+Agency-level licenses are assumed to be "open" when they are often "open for non-commercial research with attribution." USGS National Map, ESA WorldCover, and Copernicus DEM all have different license terms that require verification at the dataset level, not just the agency level.
 
 **How to avoid:**
-- Reference the v1010 PERF baseline (`.planning/audits/BUILDER-PERF-BASELINE.md`) at the top of every editor polish phase. PERF-02 hover p50 ≤30ms is the bar.
-- All slider/picker `onChange`s in editors must call through `BuilderLayerActionHandlers.setPaint` (or `setStyleConfig`) — direct `map` access is forbidden by convention.
-- Add an eslint or grep guard: `map.setPaintProperty` is only allowed inside `frontend/src/components/builder/layer-adapters/` and `frontend/src/components/builder/map-sync.ts` (the existing pattern).
-- A save/reload symmetry vitest for every editor that has a slider.
+Choose a fixture that is explicitly CC0 / public domain / USGS public domain. Candidates: USGS 3DEP (public domain BUT float32 — use with integer band), ESA WorldCover (CC BY 4.0 — attribution required, check if acceptable), or generate a synthetic single-band uint8 COG programmatically using rasterio (no license issues). Document the license in a `FIXTURE-LICENSE.md` or inline comment near the fixture download URL.
 
 **Warning signs:**
-- A PR diff adds `import type { Map as MaplibreMap }` to a file in `LayerStyleEditor/`.
-- After dragging a slider, hitting save, and reloading, the slider value resets to a stale value.
+- Fixture source URL is behind a login wall or has "non-commercial use only" in the terms.
+- The fixture was downloaded without checking the dataset-level (not agency-level) license.
 
-**Phase to address:** Per-render-mode editor polish phase. The first plan in each phase must include the grep guard + symmetry test BEFORE any slider tuning lands.
-
----
-
-### Pitfall 10: Smaller-screen NavigationControl move breaks builder-vs-viewer asymmetric offset contract
-
-**What goes wrong:**
-Fixing "right sidebar overlaps zoom controls on smaller screens" (todo.md line 147) by moving the NavigationControl back to `top-right` re-creates the v1011 RESP-01/RESP-02 collision: builder's `top-left` placement was load-bearing for the `MapCoordReadout` at `top-2 right-14` (the 56px right offset clears the NavigationControl ONLY when nav is `top-right` — which is true in ViewerMap but NOT in BuilderMap, where Phase 1051 deliberately moved nav to `top-left` to clear the right-sidebar drill-down at <800px). Moving nav to `top-right` in builder re-introduces the collision at <800px AND breaks the docstring contract at `MapCoordReadout.tsx:26-37`.
-
-**Why it happens:**
-- The asymmetry (BuilderMap nav `top-left`, ViewerMap nav `top-right`) is visually surprising and looks like a bug to anyone who didn't read v1011 RESP-01/RESP-02.
-- The docstring is at the shared component (`MapCoordReadout.tsx`), but the load-bearing positioning is at the parent (`BuilderMap.tsx`, `ViewerMap.tsx`).
-- The `data-builder-canvas="true"` + scoped CSS rule at `index.css` (`[data-builder-canvas="true"] .maplibregl-ctrl-top-left { margin-top: 32px }`) is also part of the contract — moving the control invalidates that scoped CSS.
-
-**How to avoid:**
-- The smaller-screen polish phase MUST read `MapCoordReadout.tsx:26-37` docstring and v1011 RESP-01/RESP-02 commits (`391459bb` move + `4f4a9917` followup) BEFORE proposing any nav-position change.
-- Don't fix this by moving the NavigationControl. Fix it by adjusting the right-sidebar collapse trigger (sidebar should narrow or float to NOT overlap a fixed top-left or top-right nav).
-- A regression test: at <800px viewport, the right-sidebar fly-out should not overlap any `.maplibregl-ctrl-top-*` controls.
-- A 800px Playwright MCP screenshot in close-gate (mirrors v1011 RESP-02-FOLLOWUP `4f4a9917`).
-
-**Warning signs:**
-- A PR diff changes `<NavigationControl position="top-left" />` to `top-right` in BuilderMap.tsx.
-- A PR diff removes the `data-builder-canvas="true"` attribute or its scoped CSS.
-- A PR diff reduces `right-14` to `right-2` in MapCoordReadout.tsx.
-
-**Phase to address:** Smaller-screen layout polish phase. Phase 1133 audit MUST flag this surface as "load-bearing — read v1011 RESP-01/RESP-02 first."
-
----
-
-### Pitfall 11: Basemap-selector "double X" fix introduces sheet-close regression
-
-**What goes wrong:**
-v1011 RESP-03 closed the basemap-selector double-X bug by setting `<SheetContent showCloseButton={false}>` on both Sheet wrappers + adding a NEGATIVE-CONTROL bug-shape pin. A polish change "adds back the close button for consistency with other dialogs" — re-introducing the double-X. OR the polish change adds a different `<SheetContent>` somewhere (e.g. a new layer-config sheet) WITHOUT setting `showCloseButton={false}`, creating a new instance of the same bug class on a different surface.
-
-**Why it happens:**
-- shadcn's `Sheet` renders a close button by default; the convention is opt-OUT, not opt-in.
-- The "consistency" pressure is real — designers may want close buttons on all sheets.
-- The v1011 regression pin only covers the basemap selector, not new sheets.
-
-**How to avoid:**
-- Generalize the v1011 RESP-03 NEGATIVE-CONTROL pin: assert that EVERY `<SheetContent>` rendered inside the builder canvas has `showCloseButton={false}` if its parent already has an X. A vitest that mounts each canvas-overlay sheet and asserts ≤1 close button visible.
-- A grep guard: any new `<SheetContent>` MUST have `showCloseButton={false}` OR a comment justifying the close button.
-
-**Warning signs:**
-- A `<SheetContent>` without `showCloseButton` prop in the builder.
-- Two X buttons visible on a sheet at the same time.
-
-**Phase to address:** Smaller-screen layout polish phase. Audit must enumerate every `<SheetContent>` in `frontend/src/components/builder/` and `frontend/src/components/ui/sheet.tsx`.
-
----
-
-### Pitfall 12: Polish-sweep scope creep into architecture work
-
-**What goes wrong:**
-v1030 is explicitly product polish, NOT architecture. But polish work routinely surfaces "while we're here, let's just refactor the action-boundary types" or "since we're touching ChatPanel, let's split it into ChatMessages + ChatActions." Scope creep extends the milestone by a week, the architecture change isn't planned-first (no audit, no CONTEXT.md), and the polish work that motivated the milestone is left half-done.
-
-**Why it happens:**
-- Polish work exposes "obvious" structural issues (overlong files, repeated patterns, missing abstractions).
-- v1010 / v1026 / v1027 set a precedent that "architecture rewrites are how we ship quality."
-- `/gsd-autonomous` runs end-to-end and lacks the human pause-point that would catch scope creep.
-
-**How to avoid:**
-- v1030 CONTEXT.md MUST list "Out of scope" items explicitly, mirroring v1028's "broad AI-chat redesign, new LLM provider work, and unrelated platform changes are out of scope" line. The current PROJECT.md v1030 entry already lists architecture rewrites, LLM providers, marketing, connectors, enterprise, large new features — keep this list visible at every phase entry.
-- Any plan that proposes touching `builder-action-contract.ts` (renaming variants, splitting handlers, etc.) MUST be flagged at audit time as architecture work and either scoped explicitly or deferred to a v1031.
-- Hard rule: no new files >500 LOC, no rename of >3 exported symbols, no `BuilderActionSource` widening without an explicit Future Requirement entry first.
-
-**Warning signs:**
-- A plan starts with "refactor X to make Y easier."
-- A polish phase grows from "fix the X bug" to "refactor X subsystem."
-- The roadmap adds a "Phase 113N — refactoring foundation" between polish phases.
-
-**Phase to address:** Roadmapper. Polish phases must each be scoped to one user-visible surface, not a subsystem.
-
----
-
-### Pitfall 13: "Easy-win" UX enhancements turn out hard
-
-**What goes wrong:**
-Several items in `todo.md:138-150` look like easy wins but have hidden complexity:
-- "delete layer does not work" — may root-cause to v1027 action-dispatch routing, not a UI fix.
-- "regular layer toggle does not work for map X" — already names a specific map ID; may be a per-map data issue, not a builder bug.
-- "rename group does not focus appropriately on text field" — Radix DropdownMenu + focus management is the v1011 BUG-03 pattern (rAF-deferred focus + drop `onSelect` preventDefault).
-- "Basemap should be draggable in layer order" — v1011 RESP-03 + Plan 06 sortable-disabled-droppable contract. Touching it WILL re-surface the dnd-kit collision regression (`useSortable` collision target during catalog drags).
-- "DETAIL LEVEL toggle — what is the point?" — v1011 INV-01 ALREADY removed this. If todo.md still references it, the todo is stale OR a regression.
-
-**Why it happens:**
-- Easy-win labels are user-facing; the implementation paths are NOT.
-- todo.md was written before v1011 closed several of these items.
-- The cost of "discovery is the work" is invisible until a plan starts.
-
-**How to avoid:**
-- Phase 1133 audit MUST cross-reference EACH todo.md easy-win against the v1011/v1028 milestone records:
-  - "DETAIL LEVEL toggle" → already removed in v1011 INV-01 (commit `6078b82a`). VERIFY the todo is stale; if it's a regression, that's a separate bug.
-  - "Basemap draggable" → shipped in v1011 RESP-03. VERIFY it works; if not, it's a regression of the v1011 contract.
-  - "Layer toggle for map X" → reproduce on the actual map ID before scheduling.
-  - "Rename group focus" → known Radix pattern (`feedback_dndkit_listener_jsx_spread.md` for the spread-order rule; rAF-deferred focus for the parent close timing).
-- Each easy-win must have a 15-minute spike attached to the audit BEFORE plan-01 lands. If the spike exceeds 15 min, the item is NOT an easy win — promote to its own phase or defer.
-
-**Warning signs:**
-- A plan for "easy-win delete layer fix" runs >2 hours.
-- A polish PR touches more than the named surface.
-- An item closed in a prior milestone is being re-opened.
-
-**Phase to address:** Phase 1133 audit. Cross-reference every todo.md item against the milestone history before scheduling.
-
----
-
-### Pitfall 14: Live MCP verification skipped because "it's small"
-
-**What goes wrong:**
-v1009 / v1009.1 / v1010 / v1010.2 / v1011 ALL had post-shipping code review catch secondary findings the planner missed. `feedback_review_findings_inline.md` is now the canonical pattern (default to fixing inline). A polish change skips Playwright MCP re-verify because "it's just a CSS tweak" — and ships a regression that only shows up live.
-
-Recent specific examples from MEMORY.md:
-- v1011 RESP-02-FOLLOWUP: 20×16 px NavigationControl ↔ MapCoordReadout overlap discovered LIVE during MCP re-verify at 800px. Headless vitest + e2e missed it.
-- v1010.2: SF-04 dedupe contract leaked outside `map-sync.ts` to 3 callers. Only post-shipping code review caught it.
-- v1011: 21 inline code-review fixes across 2 iterations. Without iter-2, would've been v1011.1.
-
-**Why it happens:**
-- Polish work feels low-risk per-item.
-- Live MCP is slow vs vitest (minutes vs seconds).
-- The "let's just ship" pressure peaks at end-of-milestone.
-
-**How to avoid:**
-- v1030 CONTEXT.md MUST state: Playwright MCP is the canonical close-gate (already stated, but reinforce per phase). No phase ships without a live MCP re-verify checklist in CHECKPOINT.md.
-- Every polish phase exits with a 1-paragraph live MCP summary: "verified at 1440px desktop AND 800px tablet-narrow AND 414px mobile."
-- Post-shipping code review per `feedback_review_findings_inline.md` is mandatory. Default to fixing inline.
-
-**Warning signs:**
-- A phase's CHECKPOINT.md says "live MCP skipped — vitest covers it."
-- A phase shipped without re-running the 800px screenshot.
-- A "small" PR diff touches more than its named surface.
-
-**Phase to address:** Every phase. Roadmap CONTEXT.md must include the MCP requirement.
-
----
-
-### Pitfall 15: CHANGELOG misses behavior changes because "they're invisible"
-
-**What goes wrong:**
-A polish change adjusts (a) the AI snapshot/undo contract (`isUndoSafeAction` set in `ChatPanel.tsx:107`), (b) the embed-token expiration messaging (clear vs update), (c) the allowed-origins normalization (trailing-slash strip behavior), or (d) the layer adapter `addLayers` initial-visibility honoring. CHANGELOG `[Unreleased]` is updated for the user-facing UI bug fix but NOT for the contract change. Downstream code (CLI, SDK consumers, tests) breaks silently on upgrade because they relied on the old behavior.
-
-**Why it happens:**
-- Polish work is framed as "user-facing fixes."
-- Contract changes inside `BuilderActionSource`, `ChatAction`, `SharedMapResponse`, `EmbedToken.allowed_origins` are easy to update without touching CHANGELOG.
-- The current milestone shape doesn't have a "behavior-change checklist" gate.
-
-**How to avoid:**
-- Every phase's CHECKPOINT.md must include a "Behavior changes" line: any change to the v1027 action contract, v1026 reconciler owned-set, AI action shape, share/embed token shape, or backend response shape is logged.
-- A grep at close-gate: if `backend/openapi.json` diff is non-empty AND CHANGELOG `[Unreleased]` doesn't reference the changed routes, that's a blocker.
-- If `frontend/src/types/api.ts` diff is non-empty AND CHANGELOG doesn't reference the type change, that's a blocker.
-
-**Warning signs:**
-- A polish phase ships with a non-empty OpenAPI diff but no CHANGELOG entry.
-- A user reports "thing X changed silently after upgrade" — that should have been a CHANGELOG line.
-
-**Phase to address:** Close-gate phase. Add CHANGELOG audit step.
+**Phase to address:**
+TESTDATA-01 fixture phase. License must be confirmed before the fixture URL is committed.
 
 ---
 
 ## Technical Debt Patterns
 
-Shortcuts that seem reasonable but create long-term problems.
-
 | Shortcut | Immediate Benefit | Long-term Cost | When Acceptable |
 |----------|-------------------|----------------|-----------------|
-| Direct `map.setPaintProperty()` in an editor "for snappiness" | One slider feels faster | Layer JSON divergence; save/reload loses user input; v1010 PERF-02 budget broken | Never — use `setPaint` via the action boundary + reconciler |
-| Bypass `BuilderLayerAction` for a "compound" AI action | Ship the new action in 1 plan instead of 2 | Provenance lost, undo snapshot misses it, dirty-state breaks | Never — add the new action variant first |
-| Auto-clear `rawShareToken` on dialog close "to keep state clean" | Cleaner state machine | User loses just-created token; can't copy share URL on re-open | Never — raw token must survive session |
-| Skip Playwright MCP for "CSS-only" changes | Faster phase close | Live regression slips past headless tests (v1011 RESP-02-FOLLOWUP precedent) | Never on builder/viewer canvas changes |
-| Cache AI prompt schema by `dataset_id` only (not `(map_id, dataset_id)`) | Higher cache hit rate | Cross-map leakage (PERF-04 / Phase 274 reverse) | Only on global, public-visibility-only metadata (never columns) |
-| Skip CHANGELOG for "internal" contract changes | Faster ship | Downstream consumers break silently on upgrade | Only when OpenAPI diff is empty AND no TS types changed |
-| `null` vs `[]` for `allowed_origins` "to be expressive" | Cleaner API shape | CSP semantics diverge between defaults | Never — settle on `[]`-as-default-self everywhere |
-| Use `useSortable` for a row that should only be a drop target | Less boilerplate | Re-introduces dnd-kit collision regression (v1011 Plan 06 / CTRL-01) | Never — use `useDroppable` for drop-only |
+| Hardcode `n_bands=1` at stretch call site (router.py:581) | Single-band stretch ships faster | Must be found and updated for RASTER-STRETCH-03; no compile-time guard | Never — add a comment referencing the future multi-band phase explicitly |
+| Cache `_band_stats_cache` on `open_path` only | Simple implementation | Stale cache when configurable bounds land (RASTER-STRETCH-UI-01) | Never past RASTER-STRETCH-UI-01 |
+| Use a DEM float32 COG as the single-band test fixture | Convenient (ADK scripts already fetch one) | `is_dem=True` on ingest → colormap/stretch backend guards skip → test verifies nothing | Never |
+| Skip overview generation in the test fixture COG | Faster to create | Titiler may do full-resolution reads; slow tiles in CI | Only if fixture is <256×256 pixels (overview levels empty by design) |
+| Negative-cache `None` in `_band_stats_cache` on Titiler timeout | Prevents Titiler spam | Stats permanently wrong for a restarted/fixed asset until service restart | Acceptable — process-lifetime cache clears on restart (already the documented behavior) |
+| Download fixture from external URL at CI test time | No committed binary | Intermittent CI failures on network issues | Never — download in seed script, not in test suite |
 
 ---
 
 ## Integration Gotchas
 
-Common mistakes when connecting to existing GeoLens subsystems.
-
 | Integration | Common Mistake | Correct Approach |
 |-------------|----------------|------------------|
-| v1027 action boundary | Direct call to handler bypassing `dispatchBuilderLayerAction` | Always go through `BuilderLayerAction` dispatch |
-| v1026 reconciler | Mutating `paint` object in-place and expecting `paintValueChanged` to detect | Pass new object; `paintValueChanged` uses JSON.stringify for arrays/objects |
-| v1008 unified stack | New `<SheetContent>` without `showCloseButton={false}` inside builder canvas | All overlay sheets opt-out of duplicate X |
-| v1011 sortable contract | Add `useSortable` to a basemap-or-group row without `disabled: { droppable }` gating | Use `useDndContext()` + per-drag-source droppable gate (CTRL-01 fix `befe6a3b`) |
-| AI chat layer validation | Trust client-supplied `dataset_table_name` | Always overwrite from DB via `_validate_chat_layers` |
-| AI rate limiting | Add new `/ai/*` endpoint without `@limiter.limit(_AI_GENERATE_LIMIT)` | All AI endpoints share the `10/minute` budget unless documented otherwise |
-| Embed-token CSP | Build `frame-ancestors` from un-normalized origins | Use `_build_csp_frame_ancestors` which does CRLF + parse validation |
-| Share-token rotation | Don't revoke old token when regenerating | `handleRegenerateShareLink` revokes first (`SharePanel.tsx:423`) — preserve this |
-| Layer adapter `addLayers` | Ignore `input.visible` at initial add | All adapters now honor `input.visible` (BUG-01 fix from v1011) — preserve |
-| Map source dedupe | Key vector source by `layer.id` instead of `dataset_table_name` | Use `getSourceIdForLayer` (v1010.2 SF-04 contract) for non-cluster sources |
+| Titiler `/cog/statistics` | Assume it accepts arbitrary `pmin`/`pmax` percentile params | Verify: Titiler returns `percentile_2` and `percentile_98` only by default. Configurable bounds require a Titiler API audit before wiring. |
+| Titiler colormap on multi-band | Forward `colormap_name` for any raster | Gate on `band_count == 1`; add backend 422 if colormap + `band_count > 1` |
+| Rasterio COG creation for fixture | Create a plain GeoTIFF with `rasterio.open(..., 'w')` | Must use COG profile (tiled, DEFLATE, overviews) so `check_cog_compliance()` passes |
+| `_band_stats_cache` in tests | Forget to clear between tests sharing the same `open_path` mock | Use the `_clear_stats_cache` autouse fixture from `test_raster_colormap_proxy.py` — all new stretch tests MUST use it |
+| Titiler tile-URL `p=` param | Use `p=2&p=98` on the tile URL for dynamic rescaling | Titiler tile endpoint does not support `p=` for dynamic percentile rescaling; statistics must be fetched separately from `/cog/statistics` and fed as explicit `rescale=lo,hi` |
+| DEM guard bypass check | Check only frontend `band_count === 1` gate | Also verify backend `is_dem` column via direct DB check; frontend and backend guards are independent |
 
 ---
 
 ## Performance Traps
 
-Patterns that work at small scale but fail as polish surfaces multiply.
-
 | Trap | Symptoms | Prevention | When It Breaks |
 |------|----------|------------|----------------|
-| AI tool-loop with no token budget | Single chat blows quota | Reuse `_AI_GENERATE_LIMIT` 10/min AND server-side tool-loop step cap | After 1 user issues 20 prompts/min |
-| Embed-token list query firing on every keystroke in domain input | Backend hammered with list calls | Debounce or only refetch on dialog open | After 1 enterprise user types a long origin list |
-| New AI action that fetches DB metadata per-call (not cached) | Each prompt slows linearly with layer count | Use existing per-map cached schema context (PERF-04) | After 10+ layers in one map |
-| Save-on-every-slider-tick | Backend overwhelmed during slider drag | v1010 200ms color+filter debounce — apply to all editors | Already a known v1010 perf budget |
-| Style JSON export rebuilds on every render | UI lag in StyleJsonDialog | useMemo with stable deps | After 50+ layers |
-| `useMapEmbedTokens` enabled unconditionally | Network noise + token-list refetch on every dialog open | Gated on `open && hasShareToken` (existing pattern at `SharePanel.tsx:340`) — preserve | Always preserve this gate |
-| Direct map mutation skipping `coalesceFrame` | dropped frames during continuous slider drag | All animation-shape mutations use `coalesceFrame` rAF utility (v1010) | After 1 fast slider drag |
+| Per-tile statistics re-fetch (cache miss every request) | Every tile request takes 500ms+ extra; `/cog/statistics` in every tile network request | Verify `_band_stats_cache` is keyed correctly and not cleared between tiles | Invisible during testing due to cache; breaks on cold start |
+| Per-band sequential statistics fetch (N HTTP calls for N bands) | First tile blocked for N × latency | Reuse single `_fetch_band_statistics` call; pass `n_bands` to `_compute_stretch_rescale` | Breaks on first 3-band uncached request |
+| `/cog/statistics` cold-start on large COG without overviews | First tile after deploy takes 5–15s | Fixture COG must have valid overview levels | Always on any large non-overviewed COG |
+| Configurable-bounds slider fires stats recompute on every tick | Cache miss per tick when bounds key changes | Front-end debounce (use `coalesceFrame` pattern); only send bounds on slider release | On every rapid slider drag |
 
 ---
 
 ## Security Mistakes
 
-Domain-specific security issues beyond general web security.
-
 | Mistake | Risk | Prevention |
 |---------|------|------------|
-| AI prompt includes server-side `ANTHROPIC_API_KEY` in error detail | Key exfil via 500 response | Never interpolate `settings.*_api_key` into HTTPException; ESLint ban + grep gate |
-| Embed CSP `frame-ancestors` set from un-validated input | XSS via iframe parent injection | `_build_csp_frame_ancestors` CRLF + parse validation at `router.py:111` — never bypass |
-| Share-token endpoint returns the raw token on EVERY GET (not just create) | Token leaks to anyone with read access | `get_active_share_token` returns `token=None` on subsequent GETs (`SharePanel.tsx:335` pattern) — preserve |
-| AI chat `_validate_chat_layers` doesn't enforce per-user dataset allowlist | Cross-tenant column-name leak | `build_table_allowlist(db, user)` — already enforced at `router.py:136`, NEVER bypass |
-| Embed iframe sandbox includes `allow-same-origin` with `allow-scripts` | Sandbox-escape (SEC-07 / M-70 — already documented at `SharePanel.tsx:36`) | Keep `sandbox="allow-scripts"` only |
-| Public-map endpoint accepts API key as query param without rate limit | Anonymous brute force | Existing rate limits on `/datasets/` + `/search/` — extend to any new `/ai/*` GET |
-| AI analyze leaks visibility-off layer columns | Hidden-layer schema disclosure | Filter `layer.visible` BEFORE `_validate_chat_layers`, OR document that "analyze sees hidden layers" |
-| OG/social-card endpoint serves private map thumbnails | Private map preview leaks | Verify visibility check on every OG endpoint; non-public 404s |
-| `frame-ancestors 'self' *` from a wildcard accidentally accepted | Embed anywhere | Backend pin: assert `*` never appears in directive |
-| New `/ai/analyze/` endpoint forgets `require_permission("use_ai_chat")` | Anonymous LLM cost burn | Every `/ai/*` endpoint MUST be permission-gated |
+| Accepting `pmin`/`pmax` without range validation | `pmin=−∞` or `pmax=NaN` propagates into `rescale=`, causing NaN in Titiler URL or silent fallback | Validate: `0 < pmin < pmax < 100` for percentile; `sigma > 0` for stddev; return 422 on invalid |
+| Accepting unbounded `sigma` | Very large sigma (e.g. `sigma=100`) computes rescale beyond dtype max — not a crash but semantically wrong | Validate: `0 < sigma <= 10` (or whatever UX max is) |
+| Multi-band `bidx` params assembled by frontend | SSRF-adjacent if frontend constructs raw Titiler params | All Titiler URL construction stays server-side; frontend sends only `stretch`, `pmin`, `pmax`, `sigma` |
 
 ---
 
 ## UX Pitfalls
 
-Common user experience mistakes during a polish sweep.
-
 | Pitfall | User Impact | Better Approach |
 |---------|-------------|-----------------|
-| Pre-applying AI suggestions then asking confirm | User sees changes they didn't ask for; rejecting leaves partial state | Two-phase staging OR force-undo-on-reject — pick one upfront |
-| Closing share dialog clears raw token | User can't copy share URL after dialog reopen | Keep `rawShareToken` survival contract |
-| Generic "AI failed" toast on all error classes | User can't distinguish "no API key" from "rate limited" from "auth expired" | Existing `mapApiErrorToMessage` at `ChatPanel.tsx:199` — extend, don't generalize |
-| Suggestion chips visible when AI is disabled | User confused why nothing happens | Gate chips on `aiEnabled` (v1010.2 SF-06 pattern) |
-| "Save" indicator turns dirty on AI preview before user accepts | User saves a preview they were rejecting | Pending actions must not flip dirty state |
-| Removing X close button without alternative dismiss | User trapped in sheet on mobile | Provide back-button OR backdrop-click dismiss explicitly |
-| Polish "fixes" the basemap selector double-X by adding nav-position back to top-right | Re-creates v1011 RESP-02 800px overlap | Fix the right-sidebar overlap instead; keep nav `top-left` in builder |
-| Editor slider commits on every tick | Janky save indicator flicker | v1010 200ms debounce + dirty-state-only-after-commit |
-| Allowed-origins input auto-https'd silently | User confused why `http://localhost:3000` becomes `https://localhost:3000` | Show normalized form in the chip list before submit |
-| Embed code copied but user doesn't realize CSP'd | Embed fails in test page, blame copy button | Embed code preview includes the iframe sandbox attribute visibly |
+| Configurable-bounds sliders update tile URL on every frame | Map flickers; backend stat cache miss on every tick if bounds key changes | Use `coalesceFrame` (already in `RasterEditor.tsx` for paint sliders) for `onValueChange`; only apply on slider release |
+| Stretch dropdown visible for multi-band rasters before RASTER-STRETCH-03 | User selects percentile, sees no change (only b1 rescaled), confused | Keep stretch dropdown hidden when `band_count > 1` until RASTER-STRETCH-03 is complete — or show disabled with tooltip |
+| Colormap section absent when `band_count` is null | User sees no colormap control and does not know why | Show disabled colormap section with tooltip "Band information unavailable" so the user knows the feature exists |
 
 ---
 
 ## "Looks Done But Isn't" Checklist
 
-Things that appear complete but are missing critical pieces.
-
-- [ ] **New AI action type:** Often missing the `BuilderLayerAction` variant — verify the action is in `builder-action-contract.ts` AND `dispatchBuilderLayerAction` switch
-- [ ] **Paint mutation polish:** Often missing the save/reload symmetry test — verify a vitest exercises save → reload → assert paint matches
-- [ ] **`clear_paint` in chat action:** Often missing — verify `buildChatActionPaint` test table includes a clear case
-- [ ] **AI confirm-before-apply:** Often missing the "reject leaves layers byte-equal" pin — add explicit regression test
-- [ ] **AI provider gating on new feature:** Often missing — verify `_check_ai_available(db)` AND consumer-side `enabled: !!token && aiEnabled` (mirror v1010.2 SF-06)
-- [ ] **AI analyze:** Often missing visibility filter — verify hidden layers excluded OR document
-- [ ] **SharePanel polish:** Often missing the raw-token-survives-rerender pin — extend SharePanel.test.tsx
-- [ ] **Embed token race:** Often missing the in-flight ref — verify `inflightEmbedCreate.current` mirrors ChatPanel's pattern
-- [ ] **Allowed-origins polish:** Often missing the round-trip canonical-form test — verify on create AND update
-- [ ] **Per-render-mode editor polish:** Often missing the direct-mutation grep guard — verify no `map.setPaintProperty` outside adapters
-- [ ] **Smaller-screen layout fix:** Often missing the 800px Playwright MCP screenshot — required gate
-- [ ] **`<SheetContent>` new sheet:** Often missing `showCloseButton={false}` — verify no double-X
-- [ ] **Polish phase scope:** Often missing the "out of scope" list — verify CONTEXT.md restates non-goals
-- [ ] **Easy-win item:** Often missing the 15-min spike — verify item didn't already ship in a prior milestone
-- [ ] **CHANGELOG entry:** Often missing for "internal" contract changes — verify OpenAPI/TS-types diff matches CHANGELOG
-- [ ] **Disabled-AI UAT:** Often missing — verify the close-gate runs with `AI_ENABLED=false`
-- [ ] **Code-review iter-2:** Often skipped — per `feedback_review_findings_inline.md`, run review even after iter-1 GREEN
+- [ ] **TESTDATA-01 fixture — not a DEM:** `SELECT is_dem FROM catalog.raster_assets WHERE dataset_id = '<fixture-id>'` returns `false`. A green UI smoke test alone does not prove colormap/stretch is exercised — the DEM guard silently bypasses it.
+- [ ] **Multi-band stretch n_bands call site:** `router.py:581` passes `n_bands=min(band_count, 3)`, not `n_bands=1`. The constant `1` is a silent correctness bug that does not crash.
+- [ ] **Cache key with configurable bounds:** If RASTER-STRETCH-UI-01 is in scope, the cache key in `_fetch_band_statistics` includes the bound params. A cache hit test alone will not catch a missing cache dimension.
+- [ ] **Fixture COG validity:** `check_cog_compliance(fixture_path)` returns `(True, "")`.
+- [ ] **Fixture has overviews (if >256×256):** `gdalinfo` shows `Overview: N levels` on the fixture.
+- [ ] **Seed idempotency:** Seed script run twice leaves dataset count unchanged.
+- [ ] **Fixture redistribution license:** Explicitly verified at dataset level (not just agency level), CC0 / public domain or equivalent.
+- [ ] **Statistics call count for multi-band:** Unit test asserts `_titiler_client.get` called once for a 3-band stretch request (not N times).
+- [ ] **Colormap NOT forwarded to multi-band:** Backend 422 test when `colormap_name` present AND `band_count > 1`.
+- [ ] **DEM — colormap NOT forwarded:** Existing `test_dem_render_params_colormap_not_appended` still passes after any proxy changes.
 
 ---
 
 ## Recovery Strategies
 
-When pitfalls occur despite prevention, how to recover.
-
 | Pitfall | Recovery Cost | Recovery Steps |
 |---------|---------------|----------------|
-| Direct `map.setPaintProperty` shipped in editor | LOW | Replace with `setPaint` via action handler; add save/reload symmetry test; grep guard |
-| New AI action bypasses action boundary | MEDIUM | Add the `BuilderLayerAction` variant retroactively; thread `BuilderActionSource`; backfill provenance |
-| AI confirm-before-apply leaves partial state | MEDIUM | Add atomic-undo OR snapshot-and-restore on reject; pin "byte-equal" regression test |
-| Raw share token cleared on dialog close | LOW | Revert the cleanup; pin survival test |
-| Embed token race created duplicates | MEDIUM | Backend dedup + admin cleanup endpoint; add inflight ref; pin race regression |
-| Allowed-origins normalization broken | LOW | Round-trip vitest + canonical-form documentation; backfill `parseOrigins` calls on update path |
-| Per-render-mode editor save/reload divergence | LOW | Symmetry test + grep guard; revert direct mutation |
-| Smaller-screen NavigationControl move regression | LOW | Revert to v1011 `top-left` placement; fix the sidebar overlap differently |
-| Double-X sheet regression | LOW | Add `showCloseButton={false}`; extend negative-control pin |
-| Polish scope creep into architecture | HIGH | Defer the architecture work to v1031; revert mid-phase refactors; ship the polish that was scoped |
-| Easy-win turned hard | MEDIUM | Promote to its own phase OR defer; document in CARRYFORWARD |
-| CHANGELOG miss | LOW | Backfill `[Unreleased]` with the contract change; tag a `v1030.x` if user-facing |
-| AI provider key leak in error | HIGH | Rotate the leaked key immediately; backfill ESLint ban; audit logs for exfil |
-| AI cross-map cache leak | HIGH | Clear the cache; re-key on `(map_id, dataset_id)`; audit access logs |
+| Cache key missing bounds — wrong stretch shown | LOW | Clear `_band_stats_cache` (process restart) + deploy corrected key; no DB migration |
+| Fixture ingested as DEM (`is_dem=True`) | LOW | `UPDATE catalog.raster_assets SET is_dem = false WHERE dataset_id = '<id>';` + re-verify via Playwright MCP; or re-ingest with non-float dtype fixture |
+| n_bands=1 bug in multi-band stretch | MEDIUM | Backend fix + redeploy; no migration; existing single-band datasets unaffected |
+| Fixture fails COG compliance | MEDIUM | Re-generate fixture with proper COG profile (`gdal_translate -co TILED=YES -co COMPRESS=DEFLATE -co COPY_SRC_OVERVIEWS=YES`); re-ingest; update seed script |
+| Seed double-imports duplicate datasets | LOW | `DELETE FROM catalog.records WHERE id IN (SELECT r.id FROM catalog.records r JOIN catalog.datasets d ON d.record_id = r.id WHERE d.source_filename = '<fixture>')` (keep the first); fix seed idempotency |
+| Fixture license problem | MEDIUM | Swap fixture for a CC0 source; re-ingest; update seed script and license docs |
 
 ---
 
 ## Pitfall-to-Phase Mapping
 
-How v1030 roadmap phases should address these pitfalls.
-
 | Pitfall | Prevention Phase | Verification |
 |---------|------------------|--------------|
-| 1 — Bypass v1027 action boundary | Phase 1133 audit + every AI phase | grep guard for direct `map.*` outside adapters |
-| 2 — Collapse v1026 patch/replace/clear | Per-render-mode editor phases + AI phase | `buildChatActionPaint` test table + save/reload symmetry vitest |
-| 3 — AI confirm collapses snapshot/undo | AI chat phase | "Reject leaves layers byte-equal" regression test |
-| 4 — AI provider-disabled regression | Phase 1133 audit + close-gate phase | `AI_ENABLED=false` Playwright MCP smoke |
-| 5 — AI analyze leaks columns / cache | AI data-analysis phase | Visibility filter test + cache-key pin + grep ban on key strings |
-| 6 — SharePanel raw-token cleared | Sharing polish phase | Raw-token-survival vitest |
-| 7 — Embed-token race | Sharing polish phase | Inflight-ref + race regression vitest |
-| 8 — Allowed-origins UX regression | Sharing polish phase | Round-trip + CSP no-wildcard backend pin |
-| 9 — Editor direct `setPaintProperty` | Per-render-mode editor phase | grep guard + save/reload symmetry |
-| 10 — NavigationControl smaller-screen move | Smaller-screen layout phase | 800px Playwright MCP screenshot + RESP-01/RESP-02 readme |
-| 11 — `<SheetContent>` double-X regression | Smaller-screen layout phase | Generalized negative-control pin |
-| 12 — Polish scope creep | Roadmapper + every phase | Out-of-scope list in CONTEXT.md; deferred-architecture register |
-| 13 — Easy-wins turn hard | Phase 1133 audit | 15-min spike + cross-ref milestone history |
-| 14 — Skip live MCP | Every phase + close-gate | Mandatory MCP screenshot per phase |
-| 15 — Missed CHANGELOG | Close-gate phase | OpenAPI/types diff vs CHANGELOG diff check |
+| Cache key missing bounds (Pitfall 1) | RASTER-STRETCH-UI-01 backend phase | Unit test: two requests with different `pmin`/`pmax` produce different cache keys and different rescale values in Titiler URL |
+| Fixture misclassified as DEM (Pitfall 2) | TESTDATA-01 fixture phase | `SELECT is_dem FROM catalog.raster_assets WHERE dataset_id = '<id>'` returns `false`; Playwright MCP confirms colormap select changes tile appearance |
+| Colormap on multi-band / n_bands=1 (Pitfall 3) | RASTER-STRETCH-03 or earlier backend guard phase | Backend 422 test for colormap+multiband; unit test for 3 `rescale=` fragments in 3-band tile URL |
+| N per-band stats calls (Pitfall 4) | RASTER-STRETCH-03 | Unit test: `_titiler_client.get` called once for 3-band stretch |
+| bidx ordering off-by-one (Pitfall 5) | RASTER-STRETCH-03 | Unit test: out-of-order 3-band stats response sorted correctly; integration test checks rescale per band slot |
+| Fixture not a valid COG / no overviews (Pitfall 6) | TESTDATA-01 fixture phase | `check_cog_compliance(fixture_path)` returns `(True, "")`; `gdalinfo` shows overviews |
+| Seed flakiness via CI-time download (Pitfall 7) | TESTDATA-01 fixture phase | No HTTP fetch inside pytest or conftest for the fixture |
+| Seed not idempotent / duplicate datasets (Pitfall 8) | TESTDATA-01 fixture phase | Run seed twice; assert dataset count unchanged |
+| Fixture license not verified (Pitfall 9) | TESTDATA-01 fixture phase | License source cited in seed script comment or FIXTURE-LICENSE.md |
 
 ---
 
 ## Sources
 
-- **`builder-action-contract.ts`** — v1027 typed action boundary; discriminated-union of `BuilderLayerAction` + `BuilderBasemapAction` + `BuilderSettingsAction` + `BuilderLayerActionHandlers`. `BuilderActionSource = 'manual' | 'ai' | 'system'` is the provenance contract.
-- **`layer-adapters/shared.ts`** — v1026 reconciler primitives: `syncOwnedPaintProperties`, `syncOwnedLayoutProperties`, `paintValueChanged`, `syncSingleLayerVisibility`, `CUSTOM_PAINT_PROPS`, `setLayerProperty`. The canonical owned-set contract.
-- **`ChatPanel.tsx`** — current chat action dispatch (`handleChatAction`), `buildChatActionPaint` patch/replace/clear encoder, `lastSnapshotRef` undo pattern (`BLD-20260526-04`), `inflightRef` synchronous lock pattern (`ChatPanel.tsx:165`).
-- **`SharePanel.tsx`** — `rawShareToken` vs `persistedShareTokenHint` separation (post-`3ed5ceb3`), `parseOrigins` normalization (`SharePanel.tsx:24`), embed iframe sandbox contract (SEC-07 / M-70 at line 36), `handleRegenerateShareLink` revoke-first pattern.
-- **`backend/app/processing/ai/router.py`** — `_check_ai_available` 403/503 distinction, `_validate_chat_layers` per-dataset allowlist enforcement, `@limiter.limit(_AI_GENERATE_LIMIT)` `10/minute` rate limit, `require_permission("use_ai_chat")` gate on every AI endpoint.
-- **`backend/app/processing/ai/chat_actions.py`** — `_handle_query_data` cache-key-per-map note (PERF-04 / Phase 274).
-- **`backend/app/modules/catalog/maps/router.py`** — `_build_csp_frame_ancestors` CRLF validation (line 111), `get_shared_map_endpoint` CSP emission (line 473), share-token revocation on visibility change (line 863).
-- **`frontend/src/components/map/MapCoordReadout.tsx`** — Builder-vs-Viewer NavigationControl asymmetry contract (line 26-37); load-bearing `right-14` offset documented.
-- **`.planning/PROJECT.md`** — Prior-milestone post-mortems:
-  - **v1009.1 SP-09 (`inflightRefresh`)** — synchronous in-flight ref pattern.
-  - **v1010 PERF baseline** — `coalesceFrame` rAF + 200ms debounce contract.
-  - **v1010.2 SF-04** — vector-tile source dedupe via `getSourceIdForLayer`.
-  - **v1010.2 SF-06** — consumer-side `enabled: !!token && aiEnabled` gating; `useEmbeddingStats` was missed by plan naming only `useAIStatus`.
-  - **v1011 RESP-01/RESP-02** — NavigationControl `top-left` in builder vs `top-right` in viewer; `data-builder-canvas="true"` scoped CSS.
-  - **v1011 RESP-03** — `<SheetContent showCloseButton={false}>` + negative-control regression pin.
-  - **v1011 INV-01** — DETAIL LEVEL remove (commit `6078b82a`).
-  - **v1011 BUG-01** — adapter-contract honor `input.visible` at initial add; defense-in-depth `syncVisibility`.
-  - **v1011 CTRL-01** — dnd-kit `disabled: { droppable }` per-drag-source contract; sortable-row-not-collision-target during catalog drags.
-  - **v1028** — AI feature polish + actionable AI-unavailable state.
-- **`feedback_review_findings_inline.md`** — Default-to-fixing-all-inline policy after post-shipping code review.
-- **`feedback_hygiene_milestone_pattern.md`** — Hygiene-shape milestone close pattern (v1009.1 / v1010.1 / v1010.2 / v1011 / v1011.1).
-- **`project_maplibre_idle_retry_pattern.md`** — `map.once('idle', retry)` recovery pattern for `isStyleLoaded` race (v1011 SP-03 B-01-followup).
-- **`todo.md:138-150`** — Current polish backlog covering carrot expand, sublayer indication, basemap drag, layer toggle for specific map, Map Settings widgets necessity, rename group focus, delete layer, smaller-screen overlays (3 separate items), and export-map watermark.
-- **MEMORY.md** — Live MCP precedent for builder milestones; FastAPI trailing-slash dual-shape ROUTE-01 ALREADY-LANDED context for any new route additions.
+- Live code inspection: `backend/app/processing/tiles/router.py` — DEM guard at :477–480, stretch call site at :578–584 and :581 (`n_bands=1`), cache at :241–269, n_bands logic in `_titiler_render_params` at :195–212, `_compute_stretch_rescale` at :272–306
+- Live code inspection: `backend/app/processing/raster/cog.py:85` — `is_dem_candidate = src.count == 1 and _is_float_dtype(src.dtypes[0])` heuristic; `_FLOAT_DTYPES` at line 11
+- Live code inspection: `backend/tests/test_raster_colormap_proxy.py` — existing test patterns to extend for multi-band
+- Live code inspection: `backend/tests/test_raster_tiles.py` — `_create_raster_dataset` helper pattern; `_band_stats_cache` unit tests
+- Live code inspection: `frontend/src/components/builder/LayerStyleEditor/RasterEditor.tsx:186` — colormap section gate on `layer.band_count === 1`
+- Live code inspection: `frontend/src/components/builder/layer-adapters/raster-adapter.ts:55–73` — `buildColormapTileUrl` with no multi-band guard
+- Live code inspection: `backend/app/processing/raster/models.py:72` — `is_dem` field on `RasterAsset`
+- PROJECT.md v1033/v1032/v1031 milestone notes — stretch architecture, DEM guard history, cache bounds decisions
+- Milestone context: `_band_stats_cache` keyed on path only today; DEM algorithm guard; colormap single-band-only by design; RASTER-STRETCH-03 deferred from v1033
 
 ---
-
-*Pitfalls research for: v1030 Map Builder Polish Sweep — pitfalls of ADDING polish features to an existing v1026 reconciler + v1027 action boundary + v1008 unified stack substrate, with AI chat integrated via the same boundary and sharing/embed in flight.*
-*Researched: 2026-05-27*
+*Pitfalls research for: GeoLens v1034 raster stretch/colormap completion — multi-band per-band stretch, configurable bounds, single-band raster test fixture*
+*Researched: 2026-05-29*
