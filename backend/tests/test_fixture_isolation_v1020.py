@@ -26,7 +26,7 @@ Cross-references:
 """
 
 import asyncio
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 from sqlalchemy.exc import OperationalError
@@ -170,7 +170,7 @@ def test_lifecycle_propagates_non_contention_operational_error():
     """
     engine = MagicMock(name="engine")
     engine.connect.side_effect = _make_op_error(
-        "could not translate host name \"postgres\" to address"
+        'could not translate host name "postgres" to address'
     )
     factory_call_count = {"n": 0}
 
@@ -389,12 +389,9 @@ async def test_setup_phase_contention_retries_raw_asyncpg_too_many_connections()
         "let the raw asyncpg exception propagate — exactly the bug that "
         "limited Plan 1088-03's first measurement to 42% coverage."
     )
-    assert result == "ok", (
-        f"Expected post-retry result 'ok'; got {result!r}."
-    )
+    assert result == "ok", f"Expected post-retry result 'ok'; got {result!r}."
     assert sleep_calls == [1.0], (
-        f"Expected exactly one 1.0s backoff between attempts; "
-        f"got {sleep_calls!r}."
+        f"Expected exactly one 1.0s backoff between attempts; got {sleep_calls!r}."
     )
 
 
@@ -419,7 +416,7 @@ async def test_setup_phase_propagates_non_contention_operational_error():
         raise OperationalError(
             "SELECT 1",
             {},
-            Exception("could not translate host name \"postgres\" to address"),
+            Exception('could not translate host name "postgres" to address'),
         )
 
     async def fake_sleep(seconds):
@@ -589,13 +586,15 @@ async def test_in_test_contention_retries_succeeds():
         factory_call_count["n"] += 1
         if factory_call_count["n"] == 1:
             # First attempt: warm-up SELECT 1 raises contention.
-            session = _FakeSession(execute_outcomes=[
-                OperationalError(
-                    "SELECT 1",
-                    {},
-                    Exception("FATAL:  sorry, too many clients already"),
-                )
-            ])
+            session = _FakeSession(
+                execute_outcomes=[
+                    OperationalError(
+                        "SELECT 1",
+                        {},
+                        Exception("FATAL:  sorry, too many clients already"),
+                    )
+                ]
+            )
         else:
             # Second attempt: warm-up succeeds.
             session = _FakeSession(execute_outcomes=[None])
@@ -633,9 +632,7 @@ async def test_in_test_contention_retries_succeeds():
     # Assertion 3: the warm-up SELECT 1 was executed at least once on the
     # retry attempt (the lazy-connection contract — see helper docstring).
     assert any(
-        "SELECT 1" in stmt
-        for s in created_sessions
-        for stmt in s.execute_calls
+        "SELECT 1" in stmt for s in created_sessions for stmt in s.execute_calls
     ), (
         f"Expected the warm-up SELECT 1 to be executed inside the retry "
         f"envelope so asyncpg connection acquisition is triggered eagerly. "
@@ -691,11 +688,13 @@ async def test_in_test_contention_retries_raw_asyncpg_too_many_connections():
     def fake_factory():
         factory_call_count["n"] += 1
         if factory_call_count["n"] == 1:
-            session = _FakeSession(execute_outcomes=[
-                asyncpg.exceptions.TooManyConnectionsError(
-                    "sorry, too many clients already"
-                )
-            ])
+            session = _FakeSession(
+                execute_outcomes=[
+                    asyncpg.exceptions.TooManyConnectionsError(
+                        "sorry, too many clients already"
+                    )
+                ]
+            )
         else:
             session = _FakeSession(execute_outcomes=[None])
         created_sessions.append(session)
@@ -722,8 +721,7 @@ async def test_in_test_contention_retries_raw_asyncpg_too_many_connections():
     )
     assert yielded is created_sessions[-1]
     assert sleep_calls == [0.5], (
-        f"Expected exactly one 0.5s backoff between attempts; "
-        f"got {sleep_calls!r}."
+        f"Expected exactly one 0.5s backoff between attempts; got {sleep_calls!r}."
     )
 
 
@@ -744,13 +742,15 @@ async def test_in_test_propagates_non_contention_operational_error():
 
     def fake_factory():
         factory_call_count["n"] += 1
-        session = _FakeSession(execute_outcomes=[
-            OperationalError(
-                "SELECT 1",
-                {},
-                Exception("could not translate host name \"postgres\" to address"),
-            )
-        ])
+        session = _FakeSession(
+            execute_outcomes=[
+                OperationalError(
+                    "SELECT 1",
+                    {},
+                    Exception('could not translate host name "postgres" to address'),
+                )
+            ]
+        )
         return _FakeSessionCM(session)
 
     async def fake_sleep(seconds):
@@ -760,7 +760,7 @@ async def test_in_test_propagates_non_contention_operational_error():
         async with _acquire_test_session_with_retry(
             fake_factory,
             sleep_fn=fake_sleep,
-        ) as session:
+        ):
             # Should not reach here on the non-contention path.
             pytest.fail(
                 "Helper yielded a session despite a non-contention "
@@ -795,13 +795,15 @@ async def test_in_test_exhausts_retry_budget_then_fails_loudly():
 
     def fake_factory():
         factory_call_count["n"] += 1
-        session = _FakeSession(execute_outcomes=[
-            OperationalError(
-                "SELECT 1",
-                {},
-                Exception("FATAL:  sorry, too many clients already"),
-            )
-        ])
+        session = _FakeSession(
+            execute_outcomes=[
+                OperationalError(
+                    "SELECT 1",
+                    {},
+                    Exception("FATAL:  sorry, too many clients already"),
+                )
+            ]
+        )
         return _FakeSessionCM(session)
 
     async def fake_sleep(seconds):
@@ -812,7 +814,7 @@ async def test_in_test_exhausts_retry_budget_then_fails_loudly():
             fake_factory,
             sleep_fn=fake_sleep,
             backoffs=(0.0, 0.0, 0.0),
-        ) as session:
+        ):
             pytest.fail(
                 "Helper yielded a session despite every warm-up attempt "
                 "failing; the loud-fail contract has regressed."
@@ -926,10 +928,12 @@ def test_engine_retry_succeeds_on_transient_too_many_clients():
     Post-Plan-1093-02 HEAD: passes because the wrapper retries on the
     second attempt.
     """
-    fake_engine = _FakeAsyncEngine(connect_outcomes=[
-        _make_op_error("FATAL:  sorry, too many clients already"),
-        None,  # second attempt succeeds
-    ])
+    fake_engine = _FakeAsyncEngine(
+        connect_outcomes=[
+            _make_op_error("FATAL:  sorry, too many clients already"),
+            None,  # second attempt succeeds
+        ]
+    )
 
     sleep_calls: list[float] = []
 
@@ -996,12 +1000,14 @@ def test_engine_retry_catches_raw_asyncpg_too_many_connections():
     """
     import asyncpg.exceptions
 
-    fake_engine = _FakeAsyncEngine(connect_outcomes=[
-        asyncpg.exceptions.TooManyConnectionsError(
-            "sorry, too many clients already"
-        ),
-        None,  # second attempt succeeds
-    ])
+    fake_engine = _FakeAsyncEngine(
+        connect_outcomes=[
+            asyncpg.exceptions.TooManyConnectionsError(
+                "sorry, too many clients already"
+            ),
+            None,  # second attempt succeeds
+        ]
+    )
 
     sleep_calls: list[float] = []
 
@@ -1022,8 +1028,7 @@ def test_engine_retry_catches_raw_asyncpg_too_many_connections():
     )
     assert result is not None
     assert sleep_calls == [1.0], (
-        f"Expected exactly one 1.0s backoff between attempts; "
-        f"got {sleep_calls!r}."
+        f"Expected exactly one 1.0s backoff between attempts; got {sleep_calls!r}."
     )
 
 
@@ -1038,9 +1043,11 @@ def test_engine_retry_propagates_non_transient_operational_error():
     full 7s budget before failing with the same exception. The wrapper
     must surface them on the first attempt.
     """
-    fake_engine = _FakeAsyncEngine(connect_outcomes=[
-        _make_op_error("could not translate host name \"postgres\" to address"),
-    ])
+    fake_engine = _FakeAsyncEngine(
+        connect_outcomes=[
+            _make_op_error('could not translate host name "postgres" to address'),
+        ]
+    )
 
     sleep_calls: list[float] = []
 
@@ -1080,12 +1087,22 @@ def test_engine_retry_exhausts_budget_then_fails_loudly():
     """
     import asyncpg.exceptions
 
-    fake_engine = _FakeAsyncEngine(connect_outcomes=[
-        asyncpg.exceptions.TooManyConnectionsError("sorry, too many clients already"),
-        asyncpg.exceptions.TooManyConnectionsError("sorry, too many clients already"),
-        asyncpg.exceptions.TooManyConnectionsError("sorry, too many clients already"),
-        asyncpg.exceptions.TooManyConnectionsError("sorry, too many clients already"),
-    ])
+    fake_engine = _FakeAsyncEngine(
+        connect_outcomes=[
+            asyncpg.exceptions.TooManyConnectionsError(
+                "sorry, too many clients already"
+            ),
+            asyncpg.exceptions.TooManyConnectionsError(
+                "sorry, too many clients already"
+            ),
+            asyncpg.exceptions.TooManyConnectionsError(
+                "sorry, too many clients already"
+            ),
+            asyncpg.exceptions.TooManyConnectionsError(
+                "sorry, too many clients already"
+            ),
+        ]
+    )
 
     sleep_calls: list[float] = []
 
@@ -1302,9 +1319,7 @@ def test_engine_retry_yields_event_loop_during_backoff():
     """
     from pathlib import Path
 
-    conftest_path = (
-        Path(__file__).parent / "conftest.py"
-    )
+    conftest_path = Path(__file__).parent / "conftest.py"
     conftest_text = conftest_path.read_text()
 
     # Locate the Shape Y2 rationale block by anchor on the
@@ -1331,9 +1346,7 @@ def test_engine_retry_yields_event_loop_during_backoff():
     ]
     # Audit cross-reference is satisfied by Section 4.3 OR 4.4
     # citation (both correlate the WR-02 disposition).
-    audit_token_present = (
-        "Section 4.3" in block or "Section 4.4" in block
-    )
+    audit_token_present = "Section 4.3" in block or "Section 4.4" in block
 
     for token in required_tokens:
         assert token in block, (
@@ -1693,7 +1706,7 @@ def test_init_tile_pool_propagates_non_transient_error():
         OperationalError (DNS failure shape) on first attempt.
         """
         call_count["n"] += 1
-        raise _make_op_error("could not translate host name \"postgres\" to address")
+        raise _make_op_error('could not translate host name "postgres" to address')
 
     sleep_calls: list[float] = []
 

@@ -205,6 +205,4 @@ async def test_stac_item_returns_200_without_5xx_fixture(
     )
     body = resp.json()
     # The item ID should be in the response (it is the dataset UUID)
-    assert "id" in body or "type" in body, (
-        f"Unexpected STAC item body shape: {body}"
-    )
+    assert "id" in body or "type" in body, f"Unexpected STAC item body shape: {body}"

@@ -11,7 +11,9 @@ from app.modules.auth.schemas import UserResponse
 VALID_ROLES = {"admin", "editor", "viewer"}
 
 # Mirror the CHECK constraint on IngestJob.status — see jobs/models.py
-JobStatus = Literal["pending", "running", "complete", "failed", "cancelled", "fanned_out"]
+JobStatus = Literal[
+    "pending", "running", "complete", "failed", "cancelled", "fanned_out"
+]
 
 
 class AdminUserCreate(BaseModel):

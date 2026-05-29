@@ -93,8 +93,12 @@ class TestPrepareWithOverviewsSafeEnv:
             cog_module.prepare_with_overviews(str(src), "uint8")
 
         # Find the gdaladdo invocation
-        gdaladdo_calls = [(cmd, env) for cmd, env in captured if cmd and cmd[0] == "gdaladdo"]
-        assert gdaladdo_calls, f"gdaladdo was not invoked; captured: {[c[0] for c in captured]}"
+        gdaladdo_calls = [
+            (cmd, env) for cmd, env in captured if cmd and cmd[0] == "gdaladdo"
+        ]
+        assert gdaladdo_calls, (
+            f"gdaladdo was not invoked; captured: {[c[0] for c in captured]}"
+        )
         _, env = gdaladdo_calls[0]
         _assert_clamps(env)
         # Per-call extras (GDAL_CACHEMAX, COMPRESS_OVERVIEW) must merge in too.
@@ -124,7 +128,9 @@ class TestPrepareWithOverviewsSafeEnv:
         with _capture_subprocess_runs(monkeypatch) as captured:
             cog_module.prepare_with_overviews(str(src), "uint8", compression="ZSTD")
 
-        gdaladdo_calls = [(cmd, env) for cmd, env in captured if cmd and cmd[0] == "gdaladdo"]
+        gdaladdo_calls = [
+            (cmd, env) for cmd, env in captured if cmd and cmd[0] == "gdaladdo"
+        ]
         assert gdaladdo_calls
         _, env = gdaladdo_calls[0]
         _assert_clamps(env)
@@ -163,17 +169,19 @@ class TestConvertToCogGdalwarpSafeEnv:
         monkeypatch.setattr(rasterio, "open", lambda *_a, **_k: fake_ctx)
 
         with _capture_subprocess_runs(monkeypatch) as captured:
-            cog_module.convert_to_cog(
-                str(src), str(dst), "uint8", assign_crs=4326
-            )
+            cog_module.convert_to_cog(str(src), str(dst), "uint8", assign_crs=4326)
 
-        gdalwarp_calls = [(cmd, env) for cmd, env in captured if cmd and cmd[0] == "gdalwarp"]
+        gdalwarp_calls = [
+            (cmd, env) for cmd, env in captured if cmd and cmd[0] == "gdalwarp"
+        ]
         assert gdalwarp_calls, (
             f"gdalwarp was not invoked; captured: {[c[0] for c in captured]}"
         )
         _, env = gdalwarp_calls[0]
         # Pre-KNOWN-03 this branch passed env=None — assert it's no longer None.
-        assert env is not None, "gdalwarp subprocess passed env=None (KNOWN-03 regression)"
+        assert env is not None, (
+            "gdalwarp subprocess passed env=None (KNOWN-03 regression)"
+        )
         _assert_clamps(env)
 
 

@@ -137,7 +137,9 @@ async def test_search_facets_not_rate_limited(client: AsyncClient):
     try:
         statuses = []
         for i in range(7):
-            resp = await client.get(f"/search/facets/?q=sec-facets-norlimit-{uuid.uuid4().hex}")
+            resp = await client.get(
+                f"/search/facets/?q=sec-facets-norlimit-{uuid.uuid4().hex}"
+            )
             statuses.append(resp.status_code)
 
         rate_limited = [s for s in statuses if s == 429]

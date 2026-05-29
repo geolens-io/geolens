@@ -43,9 +43,7 @@ class TestLocalModeSizeLimit:
         with patch("app.processing.ingest.service.settings") as mock_settings:
             mock_settings.storage_provider = "local"
             mock_settings.upload_staging_dir = str(tmp_path)
-            result = await save_upload_file(
-                file, "job-ok", max_size_bytes=2048
-            )
+            result = await save_upload_file(file, "job-ok", max_size_bytes=2048)
 
         assert isinstance(result, Path)
         assert result.exists()
@@ -65,9 +63,7 @@ class TestLocalModeSizeLimit:
             mock_settings.storage_provider = "local"
             mock_settings.upload_staging_dir = str(tmp_path)
             with pytest.raises(HTTPException) as exc:
-                await save_upload_file(
-                    file, "job-too-big", max_size_bytes=100 * 1024
-                )
+                await save_upload_file(file, "job-too-big", max_size_bytes=100 * 1024)
 
         assert exc.value.status_code == 413
         assert "exceeds maximum" in exc.value.detail.lower()
@@ -111,9 +107,7 @@ class TestS3ModeSizeLimit:
 
         with patch("app.processing.ingest.service.settings") as mock_settings:
             mock_settings.storage_provider = "s3"
-            with patch(
-                "app.platform.storage.get_storage", return_value=mock_storage
-            ):
+            with patch("app.platform.storage.get_storage", return_value=mock_storage):
                 with pytest.raises(HTTPException) as exc:
                     await save_upload_file(
                         file, "job-s3-toobig", max_size_bytes=50 * 1024
@@ -136,9 +130,7 @@ class TestS3ModeSizeLimit:
 
         with patch("app.processing.ingest.service.settings") as mock_settings:
             mock_settings.storage_provider = "s3"
-            with patch(
-                "app.platform.storage.get_storage", return_value=mock_storage
-            ):
+            with patch("app.platform.storage.get_storage", return_value=mock_storage):
                 result = await save_upload_file(
                     file, "job-s3-ok", max_size_bytes=10 * 1024
                 )

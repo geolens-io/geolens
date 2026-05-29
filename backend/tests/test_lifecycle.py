@@ -682,9 +682,7 @@ async def test_convert_saml_user_invalidates_prior_jwt(
             json={"password": new_password},
             headers=admin_auth_header,
         )
-        assert resp_conv.status_code == 200, (
-            f"Conversion failed: {resp_conv.text}"
-        )
+        assert resp_conv.status_code == 200, f"Conversion failed: {resp_conv.text}"
 
         # The pre-conversion JWT must now be rejected (token_version bumped).
         resp_after = await client.get(

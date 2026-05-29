@@ -22,7 +22,7 @@ Covers:
 import pytest
 import uuid
 from httpx import AsyncClient
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock
 
 from app.modules.auth.password_policy import validate_password_complexity
 from app.modules.auth.router import REGISTRATION_ENABLED
@@ -48,9 +48,7 @@ class TestValidatePasswordComplexity:
     def test_valid_password_4_classes_passes(self):
         """12 chars with all 4 classes (lower+upper+digit+symbol) must pass."""
         # Should not raise.
-        validate_password_complexity(
-            "Abcdef1!XYZab", min_length=12, require_classes=3
-        )
+        validate_password_complexity("Abcdef1!XYZab", min_length=12, require_classes=3)
 
     def test_short_password_raises_length_error(self):
         """Password shorter than min_length raises ValueError with length message."""
@@ -74,29 +72,21 @@ class TestValidatePasswordComplexity:
     def test_3_of_4_classes_passes(self):
         """Lower+upper+digit (3 of 4) passes with require_classes=3."""
         # No symbol — 3 classes, 13 chars.
-        validate_password_complexity(
-            "Abcdef1234567", min_length=12, require_classes=3
-        )
+        validate_password_complexity("Abcdef1234567", min_length=12, require_classes=3)
 
     def test_exactly_min_length_all_classes_passes(self):
         """Exactly 12 chars with all 4 classes passes."""
-        validate_password_complexity(
-            "Abc1!defghij", min_length=12, require_classes=3
-        )
+        validate_password_complexity("Abc1!defghij", min_length=12, require_classes=3)
 
     def test_short_with_all_classes_fails_length_first(self):
         """5-char password with all 4 classes still fails the length check."""
         with pytest.raises(ValueError, match="at least 12 characters"):
-            validate_password_complexity(
-                "Ab1!x", min_length=12, require_classes=3
-            )
+            validate_password_complexity("Ab1!x", min_length=12, require_classes=3)
 
     def test_require_classes_1_allows_lowercase_only(self):
         """require_classes=1 allows an all-lowercase 12-char password."""
         # Should not raise.
-        validate_password_complexity(
-            "abcdefghijkl", min_length=12, require_classes=1
-        )
+        validate_password_complexity("abcdefghijkl", min_length=12, require_classes=1)
 
     def test_trailing_whitespace_satisfies_symbol_class(self):
         """Locked stance (KNOWN-09): whitespace counts as a symbol. The
@@ -133,7 +123,9 @@ class TestRegisterPasswordPolicy:
             "/auth/register/",
             json={"username": f"weakpw_{unique}", "password": "password"},
         )
-        assert resp.status_code == 422, f"Expected 422, got {resp.status_code}: {resp.text}"
+        assert resp.status_code == 422, (
+            f"Expected 422, got {resp.status_code}: {resp.text}"
+        )
         # Error message must mention the policy.
         body = resp.text.lower()
         assert "password" in body

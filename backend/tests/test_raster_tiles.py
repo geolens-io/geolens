@@ -589,4 +589,6 @@ async def test_band_stats_cache_negative(monkeypatch):
 
     assert result1 is None
     assert result2 is None
-    assert mock_get.call_count == 1, "None is cached — second call must not retry Titiler"
+    assert mock_get.call_count == 1, (
+        "None is cached — second call must not retry Titiler"
+    )

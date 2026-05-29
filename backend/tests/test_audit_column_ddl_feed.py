@@ -110,7 +110,9 @@ async def test_query_column_ddl_history_returns_matching_rows(
     )
 
     # Seed a DDL event for our dataset
-    await _seed_ddl_event(test_db_session, dataset_id=dataset_id, action="layer.add_column")
+    await _seed_ddl_event(
+        test_db_session, dataset_id=dataset_id, action="layer.add_column"
+    )
     # Seed a non-DDL event (should NOT appear)
     await audit_emit(
         test_db_session,
@@ -303,7 +305,9 @@ async def test_column_ddl_feed_non_owner_gets_403_or_404(
     dataset_id = await _create_dataset_direct(
         test_db_session, created_by=owner_id, name="DDL Feed Test 6 Non-Owner"
     )
-    await _seed_ddl_event(test_db_session, dataset_id=dataset_id, action="layer.add_column")
+    await _seed_ddl_event(
+        test_db_session, dataset_id=dataset_id, action="layer.add_column"
+    )
 
     # Second user (non-owner)
     other_headers, _ = await _create_test_user(client, admin_auth_header, "editor")
@@ -338,13 +342,17 @@ async def test_column_ddl_feed_admin_sees_any(
     dataset_id = await _create_dataset_direct(
         test_db_session, created_by=owner_id, name="DDL Feed Test 7 Admin Access"
     )
-    await _seed_ddl_event(test_db_session, dataset_id=dataset_id, action="layer.add_column")
+    await _seed_ddl_event(
+        test_db_session, dataset_id=dataset_id, action="layer.add_column"
+    )
 
     resp = await client.get(
         f"/api/audit/datasets/{dataset_id}/column-ddl",
         headers=admin_auth_header,
     )
-    assert resp.status_code == 200, f"Admin should see 200, got {resp.status_code}: {resp.text}"
+    assert resp.status_code == 200, (
+        f"Admin should see 200, got {resp.status_code}: {resp.text}"
+    )
     body = resp.json()
     assert body["total"] >= 1
 
@@ -392,7 +400,10 @@ async def test_column_ddl_feed_pagination(
     """limit and offset query params are honored."""
     admin_id = await get_user_id(test_db_session, "admin")
     dataset_id = await _create_dataset_direct(
-        test_db_session, created_by=admin_id, name="DDL Feed Test 9 Pagination", visibility="public"
+        test_db_session,
+        created_by=admin_id,
+        name="DDL Feed Test 9 Pagination",
+        visibility="public",
     )
 
     # Seed 4 events

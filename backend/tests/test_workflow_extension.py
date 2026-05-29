@@ -47,12 +47,15 @@ def _bypass_dataset_access_check():
     These tests exercise workflow extension dispatch, not RBAC, so we stub
     the access gate in both modules.
     """
-    with patch(
-        "app.modules.catalog.datasets.api.router_data.check_dataset_access",
-        side_effect=_noop_check_dataset_access,
-    ), patch(
-        "app.modules.catalog.datasets.api.router.check_dataset_access",
-        side_effect=_noop_check_dataset_access,
+    with (
+        patch(
+            "app.modules.catalog.datasets.api.router_data.check_dataset_access",
+            side_effect=_noop_check_dataset_access,
+        ),
+        patch(
+            "app.modules.catalog.datasets.api.router.check_dataset_access",
+            side_effect=_noop_check_dataset_access,
+        ),
     ):
         yield
 

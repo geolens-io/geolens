@@ -14,7 +14,6 @@ endpoint permitted in Phase 1047 per REQUIREMENTS.md Out-of-Scope (PB-03).
 
 import uuid
 
-import pytest
 from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -28,7 +27,9 @@ from tests.factories import create_dataset, get_user_id
 # ---------------------------------------------------------------------------
 
 
-async def _create_map(client: AsyncClient, headers: dict, name: str | None = None) -> dict:
+async def _create_map(
+    client: AsyncClient, headers: dict, name: str | None = None
+) -> dict:
     """Create a map via the API and return the response JSON."""
     map_name = name or f"Bulk Delete Test Map {uuid.uuid4().hex[:6]}"
     resp = await client.post(
@@ -252,7 +253,9 @@ class TestBulkDeleteAudit:
             .order_by(AuditLog.created_at.desc())
         )
         audit_rows = audit_result.scalars().all()
-        assert len(audit_rows) >= 1, "Expected at least one map.bulk_remove_layers audit entry"
+        assert len(audit_rows) >= 1, (
+            "Expected at least one map.bulk_remove_layers audit entry"
+        )
         latest = audit_rows[0]
         assert latest.details is not None
         assert "deleted_count" in latest.details
@@ -298,7 +301,9 @@ class TestBulkDeleteAudit:
             .order_by(MapHistory.created_at.desc())
         )
         history_rows = history_result.scalars().all()
-        assert len(history_rows) >= 1, "Expected at least one layer.bulk_remove history entry"
+        assert len(history_rows) >= 1, (
+            "Expected at least one layer.bulk_remove history entry"
+        )
         latest = history_rows[0]
         # WR-02 fix: bulk operations use target_type="map" since there is no
         # single layer target. This matches the layer.replace recording pattern

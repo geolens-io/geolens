@@ -1126,9 +1126,7 @@ async def _apply_reupload_swap(
         await session.execute(text(f"SET LOCAL lock_timeout = '{timeout_str}'"))
         if live_exists:
             await session.execute(
-                text(
-                    f'ALTER TABLE {_qtable(table_name)} RENAME TO "{table_name}_old"'
-                )
+                text(f'ALTER TABLE {_qtable(table_name)} RENAME TO "{table_name}_old"')
             )
         await session.execute(
             text(f'ALTER TABLE {_qtable(staging_table)} RENAME TO "{table_name}"')

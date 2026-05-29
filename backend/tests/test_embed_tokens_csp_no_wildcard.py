@@ -281,11 +281,13 @@ def test_post_embed_token_canonicalizes_origin_storage():
     """
     from app.modules.embed_tokens.schemas import _validate_origins
 
-    result = _validate_origins([
-        "HTTPS://EXAMPLE.COM:443/",
-        "http://localhost:3000/",
-        "https://other.com",
-    ])
+    result = _validate_origins(
+        [
+            "HTTPS://EXAMPLE.COM:443/",
+            "http://localhost:3000/",
+            "https://other.com",
+        ]
+    )
     assert result == [
         "https://example.com",
         "http://localhost:3000",

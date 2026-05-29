@@ -200,9 +200,7 @@ async def search_stac_items(
 
         # EW-05: surface STAC file:size (when present) so the frontend can show
         # an estimated download size before the user commits to a multi-GB fetch.
-        data_asset_size_bytes = (
-            data_asset.get("file:size") if data_asset else None
-        )
+        data_asset_size_bytes = data_asset.get("file:size") if data_asset else None
         if not isinstance(data_asset_size_bytes, int):
             data_asset_size_bytes = None  # be defensive — bad-shape values become None
 

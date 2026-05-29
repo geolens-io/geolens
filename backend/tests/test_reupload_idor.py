@@ -9,13 +9,11 @@ Phase: 1065-02
 """
 
 import uuid
-from io import BytesIO
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.catalog.datasets.domain.models import Dataset, Record
@@ -200,9 +198,7 @@ class TestReuploadIDORNonOwner:
         non_owner_headers, _ = await _create_test_user_with_role(
             client, admin_auth_header, "editor"
         )
-        dataset = await _create_private_dataset(
-            test_db_session, created_by=owner_id
-        )
+        dataset = await _create_private_dataset(test_db_session, created_by=owner_id)
 
         resp = await client.post(
             f"/datasets/{dataset.id}/reupload",
@@ -233,9 +229,7 @@ class TestReuploadIDORNonOwner:
         non_owner_headers, _ = await _create_test_user_with_role(
             client, admin_auth_header, "editor"
         )
-        dataset = await _create_private_dataset(
-            test_db_session, created_by=owner_id
-        )
+        dataset = await _create_private_dataset(test_db_session, created_by=owner_id)
 
         resp = await client.post(
             f"/datasets/{dataset.id}/reupload/service/preview",
@@ -264,9 +258,7 @@ class TestReuploadIDORNonOwner:
         non_owner_headers, _ = await _create_test_user_with_role(
             client, admin_auth_header, "editor"
         )
-        dataset = await _create_private_dataset(
-            test_db_session, created_by=owner_id
-        )
+        dataset = await _create_private_dataset(test_db_session, created_by=owner_id)
         job = await _create_pending_job(
             test_db_session,
             dataset_id=dataset.id,
@@ -295,9 +287,7 @@ class TestReuploadIDORNonOwner:
         non_owner_headers, _ = await _create_test_user_with_role(
             client, admin_auth_header, "editor"
         )
-        dataset = await _create_private_dataset(
-            test_db_session, created_by=owner_id
-        )
+        dataset = await _create_private_dataset(test_db_session, created_by=owner_id)
         job = await _create_pending_job(
             test_db_session,
             dataset_id=dataset.id,
@@ -333,13 +323,15 @@ class TestReuploadIDORNonOwner:
         non_owner_headers, _ = await _create_test_user_with_role(
             client, admin_auth_header, "editor"
         )
-        dataset = await _create_private_dataset(
-            test_db_session, created_by=owner_id
-        )
+        dataset = await _create_private_dataset(test_db_session, created_by=owner_id)
 
         resp = await client.post(
             f"/datasets/{dataset.id}/reupload/presigned",
-            json={"filename": "test.geojson", "file_size": 100, "content_type": "application/json"},
+            json={
+                "filename": "test.geojson",
+                "file_size": 100,
+                "content_type": "application/json",
+            },
             headers=non_owner_headers,
         )
         # In non-S3 env, the handler exits early with 400 (before dataset lookup).
@@ -367,9 +359,7 @@ class TestReuploadIDORNonOwner:
         non_owner_headers, _ = await _create_test_user_with_role(
             client, admin_auth_header, "editor"
         )
-        dataset = await _create_private_dataset(
-            test_db_session, created_by=owner_id
-        )
+        dataset = await _create_private_dataset(test_db_session, created_by=owner_id)
         job = await _create_pending_job(
             test_db_session,
             dataset_id=dataset.id,
@@ -433,9 +423,7 @@ class TestReuploadIDOROwnerAllowed:
         owner_headers, owner_id = await _create_test_user_with_role(
             client, admin_auth_header, "editor"
         )
-        dataset = await _create_private_dataset(
-            test_db_session, created_by=owner_id
-        )
+        dataset = await _create_private_dataset(test_db_session, created_by=owner_id)
 
         # TD-04: mock run_service_preview so the test does not depend on
         # `ogrinfo` being on the host PATH. Patch the CALLER module
@@ -450,7 +438,9 @@ class TestReuploadIDOROwnerAllowed:
         # exercised; only the incidental ogrinfo subprocess is mocked.
         with patch(
             "app.modules.catalog.datasets.api.router_reupload.run_service_preview",
-            new=AsyncMock(side_effect=IngestionError("ogrinfo failed: mocked for TD-04")),
+            new=AsyncMock(
+                side_effect=IngestionError("ogrinfo failed: mocked for TD-04")
+            ),
         ):
             resp = await client.post(
                 f"/datasets/{dataset.id}/reupload/service/preview",

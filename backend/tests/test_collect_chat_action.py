@@ -22,7 +22,9 @@ def test_non_spatial_query_emits_show_query_result_with_rows() -> None:
         "row_count": 3,
         "truncated": False,
     }
-    action = _collect_chat_action("query_data", {"question": "feature count by county"}, result)
+    action = _collect_chat_action(
+        "query_data", {"question": "feature count by county"}, result
+    )
     assert action is not None, "non-spatial query_data must emit an action"
     assert action["type"] == "show_query_result"
     assert action["columns"] == ["county_name", "feature_count"]
@@ -80,7 +82,9 @@ def test_empty_result_still_emits_action_with_zero_rows() -> None:
         "truncated": False,
         "note": "No matching results found. The user may want to try different criteria.",
     }
-    action = _collect_chat_action("query_data", {"question": "impossible filter"}, result)
+    action = _collect_chat_action(
+        "query_data", {"question": "impossible filter"}, result
+    )
     assert action is not None, "empty result still emits action for empty-state UI"
     assert action["type"] == "show_query_result"
     assert action["rows"] == []

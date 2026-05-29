@@ -59,7 +59,9 @@ IngestJobWarning = Annotated[
 
 class JobStatusResponse(BaseModel):
     id: uuid.UUID
-    status: Literal["pending", "running", "complete", "failed", "cancelled", "fanned_out"]
+    status: Literal[
+        "pending", "running", "complete", "failed", "cancelled", "fanned_out"
+    ]
     dataset_id: uuid.UUID | None
     source_filename: str | None
     error_message: str | None

@@ -47,7 +47,6 @@ def mock_file_save(tmp_path: Path):
     with patch(
         "app.processing.ingest.router.save_upload_file", new_callable=AsyncMock
     ) as mock_save:
-
         # NOTE: `**_` absorbs production kwargs the mock doesn't model
         # (e.g. ``max_size_bytes`` added by Phase 1066 feat IA-P0-02 in
         # commit e11924c3). The tests using this fixture do not exercise

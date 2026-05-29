@@ -12,6 +12,8 @@ They are skipped automatically when SEC_AUDIT_PUBLIC_DATASET_ID is not set.
 
 from __future__ import annotations
 
+import os
+
 import pytest
 
 from app.processing.export.where_validator import validate_where_ast
@@ -37,7 +39,10 @@ class TestAllowlist:
         assert validate_where_ast("category IN ('a', 'b', 'c')") is None
 
     def test_allowlist_between(self):
-        assert validate_where_ast("created_at BETWEEN '2024-01-01' AND '2024-12-31'") is None
+        assert (
+            validate_where_ast("created_at BETWEEN '2024-01-01' AND '2024-12-31'")
+            is None
+        )
 
     def test_allowlist_is_null(self):
         assert validate_where_ast("col IS NULL") is None
@@ -176,7 +181,9 @@ class TestBlocklist:
         with pytest.raises(ValueError) as exc:
             validate_where_ast("catalog.records.title = 'x'")
         # Error message names the table-qualified rejection specifically.
-        assert "table-qualified" in str(exc.value).lower() or "Disallowed" in str(exc.value)
+        assert "table-qualified" in str(exc.value).lower() or "Disallowed" in str(
+            exc.value
+        )
 
         # Two-segment table.column form (the more common attack shape).
         with pytest.raises(ValueError):
@@ -252,10 +259,6 @@ class TestWrapper:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-import os
-import urllib.parse
-
-
 class TestEndpoint:
     """HTTP-level regression tests for the export -where gate (SEC-S09).
 
@@ -267,14 +270,15 @@ class TestEndpoint:
     def require_dataset_id(self):
         dataset_id = os.environ.get("SEC_AUDIT_PUBLIC_DATASET_ID")
         if not dataset_id:
-            pytest.skip("Set SEC_AUDIT_PUBLIC_DATASET_ID to a public exportable dataset")
+            pytest.skip(
+                "Set SEC_AUDIT_PUBLIC_DATASET_ID to a public exportable dataset"
+            )
         self.dataset_id = dataset_id
 
     @pytest.mark.anyio
     async def test_endpoint_rejects_union_attack(self, client, admin_auth_header):
         """GET /datasets/{id}/export?where=<UNION> must return 400."""
         payload = "gid > 0 UNION SELECT 1, 2, 3"
-        encoded = urllib.parse.quote_plus(payload)
         resp = await client.get(
             f"/datasets/{self.dataset_id}/export",
             params={"format": "csv", "where": payload},

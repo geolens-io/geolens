@@ -69,25 +69,17 @@ def validate_where_clause(where: str, column_info: list[dict] | None) -> str:
     # defense-in-depth against a sqlglot parser bug that silently tolerates a
     # statement terminator or comment in a future release.
     if ";" in where:
-        raise ValueError(
-            "WHERE clause must not contain statement terminator ';'"
-        )
+        raise ValueError("WHERE clause must not contain statement terminator ';'")
     if "--" in where:
-        raise ValueError(
-            "WHERE clause must not contain SQL line comment '--'"
-        )
+        raise ValueError("WHERE clause must not contain SQL line comment '--'")
     if "/*" in where or "*/" in where:
-        raise ValueError(
-            "WHERE clause must not contain SQL block comment '/* */'"
-        )
+        raise ValueError("WHERE clause must not contain SQL block comment '/* */'")
     # Unbalanced single-quote check — count unescaped quotes; legal usage is
     # always even (open + close). SQL '' is the escape sequence so we collapse
     # those first.
     quote_count = where.replace("''", "").count("'")
     if quote_count % 2 != 0:
-        raise ValueError(
-            "WHERE clause has unbalanced single-quotes"
-        )
+        raise ValueError("WHERE clause has unbalanced single-quotes")
 
     # Phase 1062 SEC-S09: AST gate — rejects UNION / subqueries / DDL /
     # function calls that the identifier-only regex below cannot detect.

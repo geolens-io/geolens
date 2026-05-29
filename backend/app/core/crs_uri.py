@@ -36,9 +36,7 @@ _RE_OGC_CRS84_HTTP = re.compile(
 
 # Form 3: EPSG code via HTTP or HTTPS numeric path segment.
 # Captures the numeric code; rejects non-numeric codes at match time (\d+).
-_RE_EPSG_HTTP = re.compile(
-    r"^https?://www\.opengis\.net/def/crs/EPSG/0/(\d+)/?$"
-)
+_RE_EPSG_HTTP = re.compile(r"^https?://www\.opengis\.net/def/crs/EPSG/0/(\d+)/?$")
 
 # Form 4: EPSG URN (WFS 2.0 DefaultCRS and OGC API storageCrs).
 _RE_EPSG_URN = re.compile(r"^urn:ogc:def:crs:EPSG::(\d+)$")

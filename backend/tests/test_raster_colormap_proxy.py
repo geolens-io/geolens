@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import uuid
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock
 
 import httpx
 import pytest
@@ -48,7 +48,9 @@ def _make_auth_response(
 
 def _make_titiler_ok_response() -> MagicMock:
     png_magic = b"\x89PNG\r\n\x1a\n" + b"\x00" * 100
-    return MagicMock(status_code=200, content=png_magic, headers={"content-type": "image/png"})
+    return MagicMock(
+        status_code=200, content=png_magic, headers={"content-type": "image/png"}
+    )
 
 
 # Per-band statistics returned by the mocked Titiler /cog/statistics endpoint.
@@ -110,7 +112,9 @@ class TestRasterColormapProxy:
             self._titiler_calls.append(url)
             if "/statistics" in url:
                 if self._stats_status != 200:
-                    return MagicMock(status_code=self._stats_status, json=MagicMock(return_value={}))
+                    return MagicMock(
+                        status_code=self._stats_status, json=MagicMock(return_value={})
+                    )
                 return _make_titiler_stats_response(self._stats_payload)
             return _make_titiler_ok_response()
 
@@ -328,7 +332,9 @@ class TestRasterColormapProxy:
     # Additional allowlist colormaps
     # ------------------------------------------------------------------
 
-    @pytest.mark.parametrize("cmap", ["inferno", "plasma", "magma", "ylorrd", "bugn", "terrain"])
+    @pytest.mark.parametrize(
+        "cmap", ["inferno", "plasma", "magma", "ylorrd", "bugn", "terrain"]
+    )
     async def test_all_allowlist_colormaps_forwarded(self, client, cmap: str):
         """All 8 allowlist colormaps (except gray) are forwarded to Titiler."""
         resp = await client.get(_TILE_PATH, params={"colormap_name": cmap})

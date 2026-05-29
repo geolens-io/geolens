@@ -181,9 +181,7 @@ async def remove_layers_bulk(
 
     # Determine failures (ids not in the map)
     failed_pairs: list[tuple[str, str]] = [
-        (str(lid), "not_found")
-        for lid in layer_ids
-        if lid not in existing_ids
+        (str(lid), "not_found") for lid in layer_ids if lid not in existing_ids
     ]
 
     if not existing_ids:

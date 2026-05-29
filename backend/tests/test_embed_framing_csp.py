@@ -16,9 +16,7 @@ import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
 
-import pytest
 from httpx import AsyncClient
-from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.catalog.maps.models import Map, MapShareToken
@@ -149,7 +147,9 @@ async def test_shared_map_with_no_embed_token_returns_frame_ancestors_self(
     assert resp.status_code == 200
     csp = resp.headers.get("content-security-policy", "")
     assert "frame-ancestors" in csp, f"Expected frame-ancestors in CSP, got: {csp!r}"
-    assert "'self'" in csp, f"Expected 'self' in CSP when no allowed_origins, got: {csp!r}"
+    assert "'self'" in csp, (
+        f"Expected 'self' in CSP when no allowed_origins, got: {csp!r}"
+    )
 
 
 async def test_shared_map_with_embed_token_returns_frame_ancestors_from_allowed_origins(
@@ -175,8 +175,12 @@ async def test_shared_map_with_embed_token_returns_frame_ancestors_from_allowed_
     assert resp.status_code == 200
     csp = resp.headers.get("content-security-policy", "")
     assert "frame-ancestors" in csp, f"Expected frame-ancestors in CSP, got: {csp!r}"
-    assert "https://partner.example" in csp, f"Expected partner.example in CSP, got: {csp!r}"
-    assert "https://other.example" in csp, f"Expected other.example in CSP, got: {csp!r}"
+    assert "https://partner.example" in csp, (
+        f"Expected partner.example in CSP, got: {csp!r}"
+    )
+    assert "https://other.example" in csp, (
+        f"Expected other.example in CSP, got: {csp!r}"
+    )
     assert "'self'" in csp, f"Expected 'self' always included, got: {csp!r}"
 
 
@@ -204,7 +208,9 @@ async def test_shared_map_with_embed_token_empty_origins_returns_frame_ancestors
     assert resp.status_code == 200
     csp = resp.headers.get("content-security-policy", "")
     assert "frame-ancestors" in csp, f"Expected frame-ancestors in CSP, got: {csp!r}"
-    assert "'self'" in csp, f"Expected 'self' in CSP when allowed_origins=[], got: {csp!r}"
+    assert "'self'" in csp, (
+        f"Expected 'self' in CSP when allowed_origins=[], got: {csp!r}"
+    )
     # Must NOT include any other origins beyond 'self'
     assert "http" not in csp.replace("'self'", ""), (
         f"Unexpected origins in CSP for empty allowed_origins, got: {csp!r}"

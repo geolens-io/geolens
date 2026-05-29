@@ -564,7 +564,11 @@ async def raster_tile_proxy(
         and colormap_name != "gray"
         and not render_params.startswith("algorithm=")
     ):
-        render_params = f"{render_params}&colormap_name={colormap_name}" if render_params else f"colormap_name={colormap_name}"
+        render_params = (
+            f"{render_params}&colormap_name={colormap_name}"
+            if render_params
+            else f"colormap_name={colormap_name}"
+        )
 
     # stretch: minmax (default) keeps the dtype-based rescale already in
     # render_params. percentile/stddev compute a stats-based rescale from Titiler

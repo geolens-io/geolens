@@ -9,6 +9,7 @@ Covers:
 
 import time
 
+import httpx
 import pytest
 
 from app.modules.catalog.sources.classify import classify_layer_kind
@@ -164,7 +165,9 @@ class TestProbeOrchestratorNoEnrichment:
     and D-05 (drop enrichment from probe phase; lazy-enrich at preview time).
     """
 
-    def _make_response(self, data: dict, url: str = "http://fake.example.com") -> "httpx.Response":
+    def _make_response(
+        self, data: dict, url: str = "http://fake.example.com"
+    ) -> "httpx.Response":
         """Build an httpx.Response with a request attached (required for raise_for_status)."""
         import httpx as _httpx
 
@@ -172,7 +175,9 @@ class TestProbeOrchestratorNoEnrichment:
         response = _httpx.Response(200, json=data, request=request)
         return response
 
-    def _make_xml_response(self, xml_text: str, url: str = "http://fake.example.com") -> "httpx.Response":
+    def _make_xml_response(
+        self, xml_text: str, url: str = "http://fake.example.com"
+    ) -> "httpx.Response":
         """Build an httpx.Response with XML content and a request attached."""
         import httpx as _httpx
 
@@ -223,7 +228,9 @@ class TestProbeOrchestratorNoEnrichment:
                 from app.modules.catalog.sources.probe import detect_service_type
 
                 start = time.perf_counter()
-                result = await detect_service_type("http://fake-ogcapi.example.com", client)
+                result = await detect_service_type(
+                    "http://fake-ogcapi.example.com", client
+                )
                 elapsed_ms = (time.perf_counter() - start) * 1000
 
         assert elapsed_ms < 100, (
@@ -265,11 +272,17 @@ class TestProbeOrchestratorNoEnrichment:
 
                 from app.modules.catalog.sources.probe import detect_service_type
 
-                result = await detect_service_type("http://fake-ogcapi.example.com", client)
+                result = await detect_service_type(
+                    "http://fake-ogcapi.example.com", client
+                )
 
         for layer in result.layers:
-            assert layer.geometry_type is None, f"Expected geometry_type=None for {layer.name}"
-            assert layer.feature_count is None, f"Expected feature_count=None for {layer.name}"
+            assert layer.geometry_type is None, (
+                f"Expected geometry_type=None for {layer.name}"
+            )
+            assert layer.feature_count is None, (
+                f"Expected feature_count=None for {layer.name}"
+            )
             assert layer.kind == "vector", f"Expected kind='vector' for {layer.name}"
 
     @pytest.mark.anyio
@@ -310,8 +323,12 @@ class TestProbeOrchestratorNoEnrichment:
 
         assert result.service_type.startswith("WFS")
         for layer in result.layers:
-            assert layer.geometry_type is None, f"Expected geometry_type=None for {layer.name}"
-            assert layer.feature_count is None, f"Expected feature_count=None for {layer.name}"
+            assert layer.geometry_type is None, (
+                f"Expected geometry_type=None for {layer.name}"
+            )
+            assert layer.feature_count is None, (
+                f"Expected feature_count=None for {layer.name}"
+            )
             assert layer.kind == "vector", f"Expected kind='vector' for {layer.name}"
 
     def test_enrich_ogcapi_layers_not_called(self):
@@ -337,9 +354,7 @@ class TestProbeOrchestratorNoEnrichment:
         arcgis_service_json = {
             "currentVersion": 10.9,
             "serviceDescription": "Test ArcGIS Feature Service",
-            "layers": [
-                {"id": 0, "name": "Wildfire Points", "type": "Feature Layer"}
-            ],
+            "layers": [{"id": 0, "name": "Wildfire Points", "type": "Feature Layer"}],
         }
 
         async def mock_get(url: str, **kwargs):
@@ -366,7 +381,7 @@ class TestProbeOrchestratorNoEnrichment:
 
                 from app.modules.catalog.sources.probe import detect_service_type
 
-                result = await detect_service_type(
+                await detect_service_type(
                     "https://services.arcgis.com/rest/services/Wildfire/FeatureServer",
                     client,
                 )

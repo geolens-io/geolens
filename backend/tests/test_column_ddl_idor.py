@@ -5,13 +5,10 @@ via POST/PATCH/DELETE /layers/{id}/columns/*.
 Also verifies that the owner retains full access (no over-restriction).
 """
 
-import uuid
-
 import pytest
 from httpx import AsyncClient
 
 from .conftest import _create_test_user
-from tests.factories import create_dataset
 
 
 async def _create_layer_for_user(
@@ -48,12 +45,8 @@ async def test_add_column_other_user_private_returns_404(
     admin_auth_header: dict,
 ):
     """Editor B cannot add a column to editor A's private dataset."""
-    editor_a_headers, _ = await _create_test_user(
-        client, admin_auth_header, "editor"
-    )
-    editor_b_headers, _ = await _create_test_user(
-        client, admin_auth_header, "editor"
-    )
+    editor_a_headers, _ = await _create_test_user(client, admin_auth_header, "editor")
+    editor_b_headers, _ = await _create_test_user(client, admin_auth_header, "editor")
 
     dataset_id = await _create_layer_for_user(
         client, editor_a_headers, title="S03 add col target"
@@ -73,12 +66,8 @@ async def test_rename_column_other_user_private_returns_404(
     admin_auth_header: dict,
 ):
     """Editor B cannot rename a column on editor A's private dataset."""
-    editor_a_headers, _ = await _create_test_user(
-        client, admin_auth_header, "editor"
-    )
-    editor_b_headers, _ = await _create_test_user(
-        client, admin_auth_header, "editor"
-    )
+    editor_a_headers, _ = await _create_test_user(client, admin_auth_header, "editor")
+    editor_b_headers, _ = await _create_test_user(client, admin_auth_header, "editor")
 
     dataset_id = await _create_layer_for_user(
         client, editor_a_headers, title="S03 rename col target"
@@ -98,12 +87,8 @@ async def test_alter_column_type_other_user_private_returns_404(
     admin_auth_header: dict,
 ):
     """Editor B cannot alter a column type on editor A's private dataset."""
-    editor_a_headers, _ = await _create_test_user(
-        client, admin_auth_header, "editor"
-    )
-    editor_b_headers, _ = await _create_test_user(
-        client, admin_auth_header, "editor"
-    )
+    editor_a_headers, _ = await _create_test_user(client, admin_auth_header, "editor")
+    editor_b_headers, _ = await _create_test_user(client, admin_auth_header, "editor")
 
     dataset_id = await _create_layer_for_user(
         client, editor_a_headers, title="S03 alter type target"
@@ -123,12 +108,8 @@ async def test_drop_column_other_user_private_returns_404(
     admin_auth_header: dict,
 ):
     """Editor B cannot drop a column from editor A's private dataset."""
-    editor_a_headers, _ = await _create_test_user(
-        client, admin_auth_header, "editor"
-    )
-    editor_b_headers, _ = await _create_test_user(
-        client, admin_auth_header, "editor"
-    )
+    editor_a_headers, _ = await _create_test_user(client, admin_auth_header, "editor")
+    editor_b_headers, _ = await _create_test_user(client, admin_auth_header, "editor")
 
     dataset_id = await _create_layer_for_user(
         client, editor_a_headers, title="S03 drop col target"
@@ -152,9 +133,7 @@ async def test_add_column_owner_returns_201(
     admin_auth_header: dict,
 ):
     """Editor A can add a column to their own dataset (no over-restriction regression)."""
-    editor_a_headers, _ = await _create_test_user(
-        client, admin_auth_header, "editor"
-    )
+    editor_a_headers, _ = await _create_test_user(client, admin_auth_header, "editor")
 
     dataset_id = await _create_layer_for_user(
         client, editor_a_headers, title="S03 owner add col"
@@ -174,9 +153,7 @@ async def test_rename_column_owner_returns_200(
     admin_auth_header: dict,
 ):
     """Editor A can rename a column on their own dataset (no over-restriction regression)."""
-    editor_a_headers, _ = await _create_test_user(
-        client, admin_auth_header, "editor"
-    )
+    editor_a_headers, _ = await _create_test_user(client, admin_auth_header, "editor")
 
     dataset_id = await _create_layer_for_user(
         client, editor_a_headers, title="S03 owner rename col"
@@ -196,9 +173,7 @@ async def test_alter_column_type_owner_returns_200(
     admin_auth_header: dict,
 ):
     """Editor A can alter a column type on their own dataset (no over-restriction regression)."""
-    editor_a_headers, _ = await _create_test_user(
-        client, admin_auth_header, "editor"
-    )
+    editor_a_headers, _ = await _create_test_user(client, admin_auth_header, "editor")
 
     dataset_id = await _create_layer_for_user(
         client, editor_a_headers, title="S03 owner alter type"
@@ -218,9 +193,7 @@ async def test_drop_column_owner_returns_200(
     admin_auth_header: dict,
 ):
     """Editor A can drop a column from their own dataset (no over-restriction regression)."""
-    editor_a_headers, _ = await _create_test_user(
-        client, admin_auth_header, "editor"
-    )
+    editor_a_headers, _ = await _create_test_user(client, admin_auth_header, "editor")
 
     dataset_id = await _create_layer_for_user(
         client, editor_a_headers, title="S03 owner drop col"

@@ -226,9 +226,7 @@ async def register(
 
 
 # ROUTE-01 (Phase 1092): dual-shape decorator — see /refresh above.
-@router.post(
-    "/logout", status_code=status.HTTP_204_NO_CONTENT, include_in_schema=False
-)
+@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT, include_in_schema=False)
 @router.post("/logout/", status_code=status.HTTP_204_NO_CONTENT)
 async def logout(
     current_user: User = Depends(get_current_active_user),
@@ -297,7 +295,8 @@ async def create_download_token_endpoint(
         from app.modules.auth.providers import AuthenticatedIdentity  # LAZY — per D-17
 
         identity = AuthenticatedIdentity(
-            user_id=user.id, username=user.username  # type: ignore[attr-defined]
+            user_id=user.id,
+            username=user.username,  # type: ignore[attr-defined]
         )
         service = AuthService(db)
         token = service.create_download_token(identity, dataset_id)
@@ -391,9 +390,7 @@ async def me_permissions(
 
 
 # ROUTE-01 (Phase 1092): dual-shape decorator — see /refresh above.
-@router.get(
-    "/api-keys", response_model=ApiKeyListResponse, include_in_schema=False
-)
+@router.get("/api-keys", response_model=ApiKeyListResponse, include_in_schema=False)
 @router.get("/api-keys/", response_model=ApiKeyListResponse)
 async def list_my_api_keys(
     skip: int = Query(0, ge=0),

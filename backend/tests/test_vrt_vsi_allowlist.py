@@ -74,11 +74,11 @@ class TestVrtVsiAllowedPrefixes:
             b'<?xml version="1.0"?>\n'
             b'<VRTDataset rasterXSize="1" rasterYSize="1">\n'
             b'  <VRTRasterBand dataType="Byte" band="1">\n'
-            b'    <SimpleSource>\n'
-            b'      <SourceFilename>/etc/passwd</SourceFilename>\n'
-            b'      <SourceBand>1</SourceBand>\n'
-            b'    </SimpleSource>\n'
-            b'  </VRTRasterBand>\n'
+            b"    <SimpleSource>\n"
+            b"      <SourceFilename>/etc/passwd</SourceFilename>\n"
+            b"      <SourceBand>1</SourceBand>\n"
+            b"    </SimpleSource>\n"
+            b"  </VRTRasterBand>\n"
             b"</VRTDataset>\n"
         )
 

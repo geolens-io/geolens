@@ -112,7 +112,9 @@ class TestParseCrsUri:
         for any non-negative integer that regex-matches. Downstream PostGIS rejects
         unknown SRIDs at Find_SRID / ST_Transform time (T-1057C-04 accept).
         """
-        result = parse_crs_uri("http://www.opengis.net/def/crs/EPSG/0/99999999999999999999")
+        result = parse_crs_uri(
+            "http://www.opengis.net/def/crs/EPSG/0/99999999999999999999"
+        )
         assert result == 99999999999999999999
 
 
@@ -145,9 +147,7 @@ class TestExtractSridFromJsonUriFallback:
 
     def test_epsg_urn_fallback(self) -> None:
         """URN-form EPSG in coordinateSystem.name → numeric EPSG code."""
-        result = extract_srid_from_json(
-            {"name": "urn:ogc:def:crs:EPSG::3857"}
-        )
+        result = extract_srid_from_json({"name": "urn:ogc:def:crs:EPSG::3857"})
         assert result == 3857
 
     # ---- Ordering: projjson wins over URI ----
@@ -178,9 +178,7 @@ class TestExtractSridFromJsonUriFallback:
 
     def test_unrecognized_uri_fallthrough(self) -> None:
         """Unrecognized URI in name → None (preserves null-CRS behavior)."""
-        result = extract_srid_from_json(
-            {"name": "http://example.com/random"}
-        )
+        result = extract_srid_from_json({"name": "http://example.com/random"})
         assert result is None
 
     # ---- Edge cases ----

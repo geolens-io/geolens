@@ -396,7 +396,9 @@ async def upload_file(
         max_size_bytes = max_size_mb * 1024 * 1024
 
         job = await create_ingest_job(db, file.filename, "", user.id)
-        saved_path = await save_upload_file(file, str(job.id), max_size_bytes=max_size_bytes)
+        saved_path = await save_upload_file(
+            file, str(job.id), max_size_bytes=max_size_bytes
+        )
         validation_path = str(saved_path)
         downloaded_validation_path: Path | None = None
 
@@ -744,7 +746,8 @@ async def commit_fan_out(
     # depending on how the preview stored them. Normalise to a set of strings.
     if all_layers and isinstance(all_layers[0], dict):
         known_layer_names: set[str] = {
-            lay.get("name", "") for lay in all_layers  # type: ignore[union-attr]
+            lay.get("name", "")
+            for lay in all_layers  # type: ignore[union-attr]
         }
     else:
         known_layer_names = set(all_layers)  # type: ignore[arg-type]

@@ -23,7 +23,6 @@ from app.modules.auth.dependencies import (
 from app.modules.catalog.authorization import (
     check_dataset_access,
     check_dataset_access_or_anonymous,
-    get_user_roles,
 )
 from app.modules.catalog.datasets.domain.models import Dataset as DatasetModel
 from app.modules.catalog.datasets.domain.schemas import (

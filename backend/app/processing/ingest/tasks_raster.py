@@ -302,9 +302,10 @@ async def ingest_raster(job_id: str, file_path: str, user_id: str, **kwargs) -> 
         # signal must still advance — keeps the step name consistent.
         # Brief-session pattern via _job_phase_session (REMED-03) — no
         # session held open across the asyncio.to_thread CPU work below.
-        async with _job_phase_session(
-            job_uuid, phase="progress_write_cog_convert"
-        ) as (_progress_session, _progress_job):
+        async with _job_phase_session(job_uuid, phase="progress_write_cog_convert") as (
+            _progress_session,
+            _progress_job,
+        ):
             if _progress_job is not None:
                 _progress_job.current_step = "cog_convert"
                 _progress_job.progress = 0.2
@@ -347,9 +348,10 @@ async def ingest_raster(job_id: str, file_path: str, user_id: str, **kwargs) -> 
         # multi-second hotspot. Brief-session write before the two
         # generate_quicklook calls so the UI advances. Routed through
         # _job_phase_session per REMED-03.
-        async with _job_phase_session(
-            job_uuid, phase="progress_write_quicklook"
-        ) as (_progress_session, _progress_job):
+        async with _job_phase_session(job_uuid, phase="progress_write_quicklook") as (
+            _progress_session,
+            _progress_job,
+        ):
             if _progress_job is not None:
                 _progress_job.current_step = "quicklook"
                 _progress_job.progress = 0.6
@@ -417,8 +419,7 @@ async def ingest_raster(job_id: str, file_path: str, user_id: str, **kwargs) -> 
 
             # 9b. Set temporal fields on Record (N5 extraction to _parse_temporal_fields).
             parsed_start, parsed_end, temporal_errors = _parse_temporal_fields(
-                temporal_start=um.get("temporal_start")
-                or meta.get("temporal_start"),
+                temporal_start=um.get("temporal_start") or meta.get("temporal_start"),
                 temporal_end=um.get("temporal_end"),
             )
             if parsed_start is not None:

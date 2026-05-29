@@ -615,8 +615,8 @@ def _add_trailing_slash_aliases(target_app: FastAPI) -> None:
                 deprecated=route.deprecated,
                 methods=[method],
                 operation_id=None,  # MUST differ from canonical for
-                                    # uniqueness; FastAPI auto-generates
-                                    # when None.
+                # uniqueness; FastAPI auto-generates
+                # when None.
                 response_model_include=route.response_model_include,
                 response_model_exclude=route.response_model_exclude,
                 response_model_by_alias=route.response_model_by_alias,

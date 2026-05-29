@@ -25,7 +25,6 @@ Live MCP re-verify against ``ahocevar.com/geoserver/wfs → Countries of the
 World`` is deferred to the Phase 1060 close gate.
 """
 
-import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -36,6 +35,7 @@ from app.processing.ingest.ogr import run_ogr2ogr_service
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_fake_proc(returncode: int = 0) -> MagicMock:
     """Return a fake asyncio.subprocess.Process that exits cleanly."""

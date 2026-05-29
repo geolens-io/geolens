@@ -17,9 +17,8 @@ import uuid
 import pytest
 from httpx import AsyncClient
 
-from .conftest import _create_test_user, get_auth_header
+from .conftest import _create_test_user
 from tests.factories import create_dataset, get_user_id
-from app.core.config import settings
 
 
 # ---------------------------------------------------------------------------
@@ -142,9 +141,7 @@ async def test_related_non_owner_private_returns_404(
     editor_a_headers, editor_a_id_str = await _create_test_user(
         client, admin_auth_header, "editor"
     )
-    editor_b_headers, _ = await _create_test_user(
-        client, admin_auth_header, "editor"
-    )
+    editor_b_headers, _ = await _create_test_user(client, admin_auth_header, "editor")
     editor_a_id = uuid.UUID(editor_a_id_str)
 
     priv = await create_dataset(

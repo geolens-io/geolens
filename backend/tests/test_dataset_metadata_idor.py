@@ -32,9 +32,7 @@ async def test_patch_dataset_other_user_private_returns_404(
     editor_a_headers, editor_a_id_str = await _create_test_user(
         client, admin_auth_header, "editor"
     )
-    editor_b_headers, _ = await _create_test_user(
-        client, admin_auth_header, "editor"
-    )
+    editor_b_headers, _ = await _create_test_user(client, admin_auth_header, "editor")
 
     private = await create_dataset(
         session,
@@ -96,9 +94,7 @@ async def test_delete_dataset_other_user_private_returns_404(
     editor_a_headers, editor_a_id_str = await _create_test_user(
         client, admin_auth_header, "editor"
     )
-    editor_b_headers, _ = await _create_test_user(
-        client, admin_auth_header, "editor"
-    )
+    editor_b_headers, _ = await _create_test_user(client, admin_auth_header, "editor")
 
     private = await create_dataset(
         session,
@@ -128,9 +124,7 @@ async def test_delete_dataset_other_user_public_returns_403(
     editor_a_headers, editor_a_id_str = await _create_test_user(
         client, admin_auth_header, "editor"
     )
-    editor_b_headers, _ = await _create_test_user(
-        client, admin_auth_header, "editor"
-    )
+    editor_b_headers, _ = await _create_test_user(client, admin_auth_header, "editor")
 
     public_ds = await create_dataset(
         session,
@@ -223,9 +217,7 @@ async def test_bulk_delete_skips_unauthorized_items(
     editor_a_headers, editor_a_id_str = await _create_test_user(
         client, admin_auth_header, "editor"
     )
-    editor_b_headers, _ = await _create_test_user(
-        client, admin_auth_header, "editor"
-    )
+    editor_b_headers, _ = await _create_test_user(client, admin_auth_header, "editor")
 
     private = await create_dataset(
         session,
@@ -275,9 +267,7 @@ async def test_update_publication_status_other_user_private_returns_404(
     editor_a_headers, editor_a_id_str = await _create_test_user(
         client, admin_auth_header, "editor"
     )
-    editor_b_headers, _ = await _create_test_user(
-        client, admin_auth_header, "editor"
-    )
+    editor_b_headers, _ = await _create_test_user(client, admin_auth_header, "editor")
 
     private = await create_dataset(
         session,
@@ -310,9 +300,7 @@ async def test_set_target_status_other_user_private_returns_404(
     editor_a_headers, editor_a_id_str = await _create_test_user(
         client, admin_auth_header, "editor"
     )
-    editor_b_headers, _ = await _create_test_user(
-        client, admin_auth_header, "editor"
-    )
+    editor_b_headers, _ = await _create_test_user(client, admin_auth_header, "editor")
 
     private = await create_dataset(
         session,

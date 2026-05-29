@@ -37,9 +37,9 @@ def test_worker_test_database_name_solo(monkeypatch):
     """
     monkeypatch.delenv("PYTEST_XDIST_WORKER", raising=False)
     name = _worker_test_database_name("geolens_test")
-    assert re.fullmatch(
-        r"geolens_test_master_[0-9a-f]{8}", name
-    ), f"unexpected solo DB name: {name!r}"
+    assert re.fullmatch(r"geolens_test_master_[0-9a-f]{8}", name), (
+        f"unexpected solo DB name: {name!r}"
+    )
 
 
 def test_worker_test_database_name_xdist(monkeypatch):
@@ -50,9 +50,9 @@ def test_worker_test_database_name_xdist(monkeypatch):
     """
     monkeypatch.setenv("PYTEST_XDIST_WORKER", "gw3")
     name = _worker_test_database_name("geolens_test")
-    assert re.fullmatch(
-        r"geolens_test_gw3_[0-9a-f]{8}", name
-    ), f"unexpected xdist DB name: {name!r}"
+    assert re.fullmatch(r"geolens_test_gw3_[0-9a-f]{8}", name), (
+        f"unexpected xdist DB name: {name!r}"
+    )
 
 
 def test_worker_test_database_name_truncates_to_63_chars(monkeypatch):
@@ -108,6 +108,6 @@ def test_settings_postgres_db_test_is_mutated():
     we don't assert the specific worker_id because that varies across runs.
     """
     db_name = settings.postgres_db_test
-    assert re.search(
-        r"_(master|gw\d+)_[0-9a-f]{8}$", db_name
-    ), f"settings.postgres_db_test not mutated to per-worker form: {db_name!r}"
+    assert re.search(r"_(master|gw\d+)_[0-9a-f]{8}$", db_name), (
+        f"settings.postgres_db_test not mutated to per-worker form: {db_name!r}"
+    )

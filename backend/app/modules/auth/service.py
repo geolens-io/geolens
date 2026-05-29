@@ -177,7 +177,9 @@ class AuthService:
 
         # Issue new pair
         identity = AuthenticatedIdentity(user_id=user.id, username=user.username)
-        new_access = await self.create_access_token(identity, expire_minutes=expire_minutes)
+        new_access = await self.create_access_token(
+            identity, expire_minutes=expire_minutes
+        )
         new_refresh = self.create_refresh_token(user.id, expire_days=expire_days)
 
         # Opportunistic cleanup: delete expired tokens older than 1 day

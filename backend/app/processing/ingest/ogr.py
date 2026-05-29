@@ -703,16 +703,16 @@ async def run_ogr2ogr_service(
     try:
         env = {**os.environ, "GDAL_HTTP_FOLLOWLOCATION": "NO"}
         if token and service_type in ("wfs", "ogcapi_features"):
-            safe_token = _sanitize_authorization_token(token)  # SEC-FU-04: raises ValueError before subprocess
+            safe_token = _sanitize_authorization_token(
+                token
+            )  # SEC-FU-04: raises ValueError before subprocess
             # Write the header to a 0600 tempfile under the staging dir
             # (predictable owner, ephemeral). Using tempfile + os.chmod 0o600
             # (NamedTemporaryFile already creates owner-only on POSIX, but
             # set explicitly for clarity).
             import tempfile
 
-            fd, header_file_path = tempfile.mkstemp(
-                prefix="gdal_auth_", suffix=".hdr"
-            )
+            fd, header_file_path = tempfile.mkstemp(prefix="gdal_auth_", suffix=".hdr")
             try:
                 os.write(fd, f"Authorization: Bearer {safe_token}\n".encode("ascii"))
             finally:
@@ -742,7 +742,9 @@ async def run_ogr2ogr_service(
                 pass
 
     if proc.returncode != 0:
-        stripped = _strip_ogr_driver_list(stderr.decode())  # SEED-04: strip driver list noise
+        stripped = _strip_ogr_driver_list(
+            stderr.decode()
+        )  # SEED-04: strip driver list noise
         raise IngestionError(
             f"ogr2ogr failed (exit {proc.returncode}): {stripped.strip()}"
         )

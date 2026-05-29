@@ -56,9 +56,7 @@ def validate_password_complexity(
         cannot satisfy in combination with the other classes.
     """
     if len(password) < min_length:
-        raise ValueError(
-            f"Password must be at least {min_length} characters"
-        )
+        raise ValueError(f"Password must be at least {min_length} characters")
 
     has_lower = any(c.islower() for c in password)
     has_upper = any(c.isupper() for c in password)

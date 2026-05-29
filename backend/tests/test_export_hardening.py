@@ -101,7 +101,6 @@ class TestExportEndpointCapabilityGate:
         import inspect
 
         from app.processing.export.router import export_dataset_endpoint
-        from app.modules.auth.dependencies import require_permission
 
         sig = inspect.signature(export_dataset_endpoint)
         user_param = sig.parameters["user"]
@@ -213,9 +212,7 @@ def mock_export_service_for_known05(monkeypatch):
             f.write(b"mock export data")
         return file_path, filename, media
 
-    monkeypatch.setattr(
-        "app.processing.export.router.export_dataset", _fake_export
-    )
+    monkeypatch.setattr("app.processing.export.router.export_dataset", _fake_export)
 
     yield _fake_export
 
@@ -326,8 +323,7 @@ class TestExportRevokedViewerParity:
             # (see dependencies.py:314).
             detail = resp.json().get("detail", "")
             assert "permission" in detail.lower() and "export" in detail.lower(), (
-                f"Expected detail to mention 'permission' and 'export'; "
-                f"got {detail!r}"
+                f"Expected detail to mention 'permission' and 'export'; got {detail!r}"
             )
         finally:
             # Restore the matrix to defaults so the revoke doesn't leak

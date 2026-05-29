@@ -289,9 +289,7 @@ async def probe_service_url(
 
 
 # ROUTE-01 (Phase 1092): dual-shape decorator — see /probe above.
-@router.post(
-    "/preview", response_model=ServicePreviewResponse, include_in_schema=False
-)
+@router.post("/preview", response_model=ServicePreviewResponse, include_in_schema=False)
 @router.post("/preview/", response_model=ServicePreviewResponse)
 async def preview_service_layer(
     request: ServicePreviewRequest,
@@ -484,10 +482,7 @@ async def preview_service_layer(
     # don't carry CRS; CRS84 assumed). The COLLECTION METADATA does expose
     # the URI-form CRS — fetch and parse it so preview displays the right
     # EPSG code instead of "Unknown + required override".
-    if (
-        preview_data.get("srid") is None
-        and request.service_type == "OGC API Features"
-    ):
+    if preview_data.get("srid") is None and request.service_type == "OGC API Features":
         fallback_srid = await _fetch_ogcapi_collection_srid(
             request.url, request.layer_name, request.token
         )

@@ -118,9 +118,7 @@ class TestTileCacheColsKey:
                 "app.processing.tiles.router.get_tile_cache",
                 return_value=mock_cache_no_cols,
             ):
-                resp_no_cols = await client.get(
-                    f"/tiles/data.{table_name}/2/2/2.pbf"
-                )
+                resp_no_cols = await client.get(f"/tiles/data.{table_name}/2/2/2.pbf")
 
             assert resp_no_cols.status_code == 200
             get_kwargs_no_cols = mock_cache_no_cols.get.call_args

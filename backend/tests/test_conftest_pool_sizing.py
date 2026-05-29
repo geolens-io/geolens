@@ -21,9 +21,6 @@ See .planning/audits/PYTEST-XDIST-SPIKE-v1019.md for the measured fan-out
 numbers and the chosen fix rationale (shape (a) selected over (b)/(c)).
 """
 
-import os
-import pytest
-
 from tests.conftest import (
     _SETUP_STAGGER_SECONDS,
     _derive_test_pool_sizing,
@@ -255,7 +252,9 @@ def test_xdist_engine_uses_nullpool(monkeypatch):
     The pool class is resolved at engine creation time, not connection time.
     """
     monkeypatch.setenv("PYTEST_XDIST_WORKER", "gw0")
-    engine = _make_test_async_engine("postgresql+asyncpg://testuser:testpass@localhost/testdb")
+    engine = _make_test_async_engine(
+        "postgresql+asyncpg://testuser:testpass@localhost/testdb"
+    )
     try:
         pool_class_name = type(engine.pool).__name__
         assert pool_class_name == "NullPool", (
@@ -265,6 +264,7 @@ def test_xdist_engine_uses_nullpool(monkeypatch):
         )
     finally:
         import asyncio
+
         asyncio.run(engine.dispose())
 
 
@@ -276,7 +276,9 @@ def test_sequential_engine_uses_queuepool(monkeypatch):
     within a single test still work (e.g. reupload, IDOR tests).
     """
     monkeypatch.delenv("PYTEST_XDIST_WORKER", raising=False)
-    engine = _make_test_async_engine("postgresql+asyncpg://testuser:testpass@localhost/testdb")
+    engine = _make_test_async_engine(
+        "postgresql+asyncpg://testuser:testpass@localhost/testdb"
+    )
     try:
         pool_class_name = type(engine.pool).__name__
         assert pool_class_name != "NullPool", (
@@ -286,4 +288,5 @@ def test_sequential_engine_uses_queuepool(monkeypatch):
         )
     finally:
         import asyncio
+
         asyncio.run(engine.dispose())

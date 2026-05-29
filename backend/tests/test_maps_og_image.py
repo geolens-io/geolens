@@ -37,7 +37,6 @@ def test_og_image_upload_request_max_length_is_750000() -> None:
 
 def test_og_image_upload_request_rejects_oversize() -> None:
     """OgImageUploadRequest rejects a payload > 750_000 chars."""
-    from pydantic import ValidationError
 
     from app.modules.catalog.maps.schemas import OgImageUploadRequest
 
@@ -51,9 +50,7 @@ def test_thumbnail_upload_request_max_length_unchanged() -> None:
 
     field_info = ThumbnailUploadRequest.model_fields["data_uri"]
     # Pydantic v2: metadata list contains MaxLen(100000)
-    maxlen_values = [
-        getattr(m, "max_length", None) for m in field_info.metadata
-    ]
+    maxlen_values = [getattr(m, "max_length", None) for m in field_info.metadata]
     assert 100_000 in maxlen_values, (
         f"ThumbnailUploadRequest.data_uri max_length must remain 100_000; "
         f"got metadata: {field_info.metadata}"
@@ -230,7 +227,9 @@ class TestOgImageRoutes:
             json={"data_uri": _valid_jpeg_data_uri()},
             headers=editor_auth_header,
         )
-        assert resp.status_code in (403, 404), f"Expected 403/404, got {resp.status_code}"
+        assert resp.status_code in (403, 404), (
+            f"Expected 403/404, got {resp.status_code}"
+        )
 
     async def test_put_og_image_non_image_payload_rejected(
         self, client: AsyncClient, admin_auth_header: dict
@@ -245,7 +244,9 @@ class TestOgImageRoutes:
             json={"data_uri": f"data:image/jpeg;base64,{garbage_b64}"},
             headers=admin_auth_header,
         )
-        assert resp.status_code == 400, f"Expected 400, got {resp.status_code}: {resp.text}"
+        assert resp.status_code == 400, (
+            f"Expected 400, got {resp.status_code}: {resp.text}"
+        )
 
     async def test_map_response_includes_og_image_url_after_upload(
         self, client: AsyncClient, admin_auth_header: dict
@@ -380,9 +381,7 @@ class TestCardRoute:
         # Private title must NOT appear in any error body
         assert "Secret Private Map" not in resp.text
 
-    async def test_card_route_404_for_invalid_token(
-        self, client: AsyncClient
-    ) -> None:
+    async def test_card_route_404_for_invalid_token(self, client: AsyncClient) -> None:
         """T-1142-02 [BLOCKING]: bogus token returns 404."""
         resp = await client.get("/maps/shared/bogus-invalid-token-xyz/card")
         assert resp.status_code == 404, (
@@ -440,7 +439,10 @@ class TestCardRoute:
     ) -> None:
         """Card route og:image falls back to /thumbnail/ when only thumbnail_uri set."""
         map_data = await _create_map(
-            client, admin_auth_header, name="Thumbnail Fallback Map", visibility="public"
+            client,
+            admin_auth_header,
+            name="Thumbnail Fallback Map",
+            visibility="public",
         )
         map_id = map_data["id"]
 
