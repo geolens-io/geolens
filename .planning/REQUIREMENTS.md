@@ -15,13 +15,13 @@ Requirements for this milestone. Each maps to exactly one roadmap phase.
 
 ### Multi-Band Stretch
 
-- [ ] **RASTER-STRETCH-03**: Multi-band rasters (e.g. RGB orthos) apply an independent per-band stretch (`minmax`/`percentile`/`stddev`) producing one Titiler `rescale=lo,hi` fragment per band (capped at 3 bands / bidx 1–3). Backend deliverable: change the hardcoded `n_bands=1` call site at `backend/app/processing/tiles/router.py:581` to `n_bands=min(band_count or 1, 3)` (the `_compute_stretch_rescale` loop is already correct). Pinned by a unit test asserting the produced Titiler URL contains 3 `rescale=` fragments for a 3-band input. Frontend deliverable: widen the RasterEditor stretch-section gate at `frontend/src/components/builder/LayerStyleEditor/RasterEditor.tsx:186` from `band_count === 1` to `band_count >= 1` for the **stretch** control only (colormap stays single-band gated).
+- [x] **RASTER-STRETCH-03**: Multi-band rasters (e.g. RGB orthos) apply an independent per-band stretch (`minmax`/`percentile`/`stddev`) producing one Titiler `rescale=lo,hi` fragment per band (capped at 3 bands / bidx 1–3). Backend deliverable: change the hardcoded `n_bands=1` call site at `backend/app/processing/tiles/router.py:581` to `n_bands=min(band_count or 1, 3)` (the `_compute_stretch_rescale` loop is already correct). Pinned by a unit test asserting the produced Titiler URL contains 3 `rescale=` fragments for a 3-band input. Frontend deliverable: widen the RasterEditor stretch-section gate at `frontend/src/components/builder/LayerStyleEditor/RasterEditor.tsx:186` from `band_count === 1` to `band_count >= 1` for the **stretch** control only (colormap stays single-band gated).
 
 ### Configurable Stretch Bounds
 
 - [x] **SPIKE-01**: Confirm whether the running Titiler instance supports arbitrary percentile params (`?p=<float>&p=<float>`) on `/cog/statistics` and returns the corresponding `percentile_<N>` keys. This determines whether RASTER-STRETCH-UI-01 is a simple param+cache-key change or needs a different approach. Spike against the live Titiler container BEFORE wiring configurable-bounds backend. Recorded as a spike finding. **RESOLVED Phase 1153** — evidence in 1153-SPIKE.md; contract-pinning test added.
 - [x] **RASTER-STRETCH-UI-01**: User can configure stretch bounds in the RasterEditor — percentile low/high (replacing fixed p2/p98) and σ multiplier (replacing fixed ±2σ) — instead of hardcoded defaults. Backend: thread `pmin`/`pmax`/`sigma` query params into `raster_tile_proxy` and `_compute_stretch_rescale`. **CRITICAL**: extend the `_band_stats_cache` key (`backend/app/processing/tiles/router.py:~241`, currently keyed on `open_path` only) to include the bounds (e.g. `(open_path, pmin, pmax)`) — otherwise configurable bounds is a silent server-side no-op. Frontend: percentile low/high numeric inputs shown when stretch=`percentile`; σ segmented control (1/2/3) shown when stretch=`stddev`. Bounds validated (`pmin < pmax`, `sigma > 0`); recompute debounced.
-- [ ] **RASTER-STRETCH-UI-02**: On single-band rasters, a copy-only hint ("Stretch sets the input range for the colormap") is shown below the stretch control when stretch ≠ `minmax` and colormap ≠ `gray`. No behavior change — `buildColormapTileUrl` already forwards `stretch` independently of `colormap_name` and Titiler applies rescale before the colormap lookup (verified correct in research).
+- [x] **RASTER-STRETCH-UI-02**: On single-band rasters, a copy-only hint ("Stretch sets the input range for the colormap") is shown below the stretch control when stretch ≠ `minmax` and colormap ≠ `gray`. No behavior change — `buildColormapTileUrl` already forwards `stretch` independently of `colormap_name` and Titiler applies rescale before the colormap lookup (verified correct in research).
 
 ### Verification
 
@@ -29,7 +29,7 @@ Requirements for this milestone. Each maps to exactly one roadmap phase.
 
 ### Cleanup (v1033 tech debt)
 
-- [ ] **CLEANUP-01**: Remove the dead `onRenderModeChange` optional member in `frontend/src/components/builder/LayerStyleEditor/types.ts`, and rework or remove the unreachable `demEditor.hillshadeTerrainNote` advisory (switching a terrain-bound DEM to hillshade detaches terrain first, so the dual-consumer skip-arm + note never fire in the natural flow — see v1033 audit). Either make the note reachable via the sibling terrain-mode layer path or remove it + its i18n keys. Keep `e2e:smoke:builder` and vitest green.
+- [x] **CLEANUP-01**: Remove the dead `onRenderModeChange` optional member in `frontend/src/components/builder/LayerStyleEditor/types.ts`, and rework or remove the unreachable `demEditor.hillshadeTerrainNote` advisory (switching a terrain-bound DEM to hillshade detaches terrain first, so the dual-consumer skip-arm + note never fire in the natural flow — see v1033 audit). Either make the note reachable via the sibling terrain-mode layer path or remove it + its i18n keys. Keep `e2e:smoke:builder` and vitest green.
 
 ### QA / Close-Gate
 
@@ -62,9 +62,9 @@ Deferred — acknowledged, not in this milestone's roadmap.
 | RASTER-STRETCH-03 | Phase 1153 (backend) + Phase 1154 (frontend) | Backend Complete; frontend Pending |
 | SPIKE-01 | Phase 1153 | Complete |
 | RASTER-STRETCH-UI-01 | Phase 1153 (backend) + Phase 1154 (frontend) | Backend Complete; frontend Pending |
-| RASTER-STRETCH-UI-02 | Phase 1154 | Pending |
+| RASTER-STRETCH-UI-02 | Phase 1154 | Complete |
 | VERIFY-01 | Phase 1155 | Pending |
-| CLEANUP-01 | Phase 1154 | Pending |
+| CLEANUP-01 | Phase 1154 | Complete |
 | QA-01 | Phase 1155 | Pending |
 
 **Coverage:**
