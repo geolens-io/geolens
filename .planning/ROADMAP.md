@@ -67,7 +67,9 @@
   1. Loading home/search, `/maps`, and dataset detail produces zero `ReactDOMClient.createRoot() on a container that has already been passed to createRoot()` console errors, pinned by a console-error assertion on at least one route.
   2. A regression test covers the search-page quicklook thumbnails (`useQuicklook` + `lib/blob-url-cache.ts`) so the blob-URL revoke-on-eviction fix cannot regress into `ERR_FILE_NOT_FOUND`.
   3. `registerBlobUrlRevocation(queryClient)` is invoked from an effect/memoized init rather than during hook render in `use-map-thumbnail.ts` and `use-quicklook.ts`, with behavior unchanged.
-**Plans**: TBD
+**Plans**: 2 plans
+- [ ] 1159-01-PLAN.md — MAPS-01 cached-root guard in main.tsx + HYG-01 move registerBlobUrlRevocation into useEffect (source fixes)
+- [ ] 1159-02-PLAN.md — MAPS-02 blob-url-cache eviction/revoke vitest + MAPS-01 e2e console-hygiene HMR-reexec spec (regression tests)
 **UI hint**: yes
 
 ### Phase 1160: Live Playwright MCP Close-Gate
@@ -88,7 +90,7 @@
 | 1156. Vector-Tile Egress Authorization | 2/2 | Complete    | 2026-05-30 |
 | 1157. Backend Export Access + Route Hygiene | 2/2 | Complete    | 2026-05-30 |
 | 1158. Builder Layer Visibility & DEM Consolidation | 2/2 | Complete    | 2026-05-30 |
-| 1159. Maps/Search UI & Blob Hygiene | 0/TBD | Not started | - |
+| 1159. Maps/Search UI & Blob Hygiene | 0/2 | Planned | - |
 | 1160. Live Playwright MCP Close-Gate | 0/TBD | Not started | - |
 
 ---
