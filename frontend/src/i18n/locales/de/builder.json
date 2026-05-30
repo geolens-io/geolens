@@ -291,7 +291,11 @@
       "colormapMagma": "Magma",
       "colormapYlorrd": "Gelb-Rot",
       "colormapBugn": "Blau-Grün",
-      "colormapTerrain": "Terrain"
+      "colormapTerrain": "Terrain",
+      "stretchColormapHint": "Die Streckung legt den Eingabebereich für die Farbskala fest.",
+      "pminLabel": "Niedrig %",
+      "pmaxLabel": "Hoch %",
+      "sigmaLabel": "Sigma (σ)"
     },
     "hillshade": {
       "help": "Passen Sie die aus diesem DEM-Layer erzeugte Relief-Überlagerung an.",
@@ -990,8 +994,7 @@
     "compassAriaLabel": "Sonnenazimut: {{azimuth}}°",
     "sectionHypsometricTint": "HYPSOMETRISCHE FÄRBUNG",
     "hypsometricEnable": "Höhentönung",
-    "hypsometricTerrainHint": "Höhentönung ist im Terrain-Modus nicht verfügbar",
-    "hillshadeTerrainNote": "Hillshade ist nicht verfügbar, solange dieser DEM das 3D-Gelände antreibt — deaktivieren Sie Terrain, um Hillshade zu verwenden."
+    "hypsometricTerrainHint": "Höhentönung ist im Terrain-Modus nicht verfügbar"
   },
   "folderGroup": {
     "defaultName": "Gruppe {{n}}",
