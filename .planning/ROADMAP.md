@@ -10,7 +10,7 @@
 ## Phases
 
 - [x] **Phase 1156: Vector-Tile Egress Authorization (SEC-01)** — Gate vector-tile data + tokens on `record_status=='published'` for anonymous callers, mirroring the raster path. Security blocker, ships first. (completed 2026-05-30)
-- [ ] **Phase 1157: Backend Export Access + Route Hygiene (EXP-01, EXP-02, API-01)** — Allow anonymous export of public+published datasets; pin unpublished/private export denial; add the `/collections/{id}/items/` trailing-slash alias.
+- [x] **Phase 1157: Backend Export Access + Route Hygiene (EXP-01, EXP-02, API-01)** — Allow anonymous export of public+published datasets; pin unpublished/private export denial; add the `/collections/{id}/items/` trailing-slash alias. (completed 2026-05-30)
 - [ ] **Phase 1158: Builder Layer Visibility & DEM Consolidation (BLDR-01, BLDR-02, BLDR-03, BLDR-04)** — Raster basemap stays below data; terrain eye toggles 3D; one DEM row + render-mode pill; color-relief companion honors parent visibility.
 - [ ] **Phase 1159: Maps/Search UI & Blob Hygiene (MAPS-01, MAPS-02, HYG-01)** — Eliminate the duplicate `createRoot()` console error; pin the search-page quicklook blob-URL fix; move `registerBlobUrlRevocation` out of render.
 - [ ] **Phase 1160: Live Playwright MCP Close-Gate (QA-01)** — Orchestrator-driven live MCP verification of all fixes plus the standard gate; final before tag.
@@ -42,7 +42,7 @@
   4. `GET /collections/{id}/items/` (trailing slash) resolves identically to the no-slash form instead of 404.
 **Plans**: 2 plans
   - [x] 1157-01-PLAN.md — EXP-01 anonymous-aware vector export gate (get_optional_user + public-published anon branch) + API-01 trailing-slash dual-shape alias on `get_collection_items`
-  - [ ] 1157-02-PLAN.md — EXP-02 regression test (anon/non-owner allow+deny matrix, seeds an unpublished dataset) + API-01 trailing-slash parity test
+  - [x] 1157-02-PLAN.md — EXP-02 regression test (anon/non-owner allow+deny matrix, seeds an unpublished dataset) + API-01 trailing-slash parity test
 
 ### Phase 1158: Builder Layer Visibility & DEM Consolidation
 **Goal**: The map builder renders basemap/data ordering, DEM rows, and DEM/terrain visibility toggles the way users expect — raster basemaps never occlude data, the terrain eye actually toggles 3D, one DEM row replaces the confusing triple stack, and hypsometric tint hides with its parent.
@@ -84,7 +84,7 @@
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1156. Vector-Tile Egress Authorization | 2/2 | Complete    | 2026-05-30 |
-| 1157. Backend Export Access + Route Hygiene | 1/2 | In Progress|  |
+| 1157. Backend Export Access + Route Hygiene | 2/2 | Complete   | 2026-05-30 |
 | 1158. Builder Layer Visibility & DEM Consolidation | 0/TBD | Not started | - |
 | 1159. Maps/Search UI & Blob Hygiene | 0/TBD | Not started | - |
 | 1160. Live Playwright MCP Close-Gate | 0/TBD | Not started | - |

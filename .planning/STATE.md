@@ -2,26 +2,26 @@
 gsd_state_version: 1.0
 milestone: v1035
 milestone_name: Builder, Maps & Export Bug Sweep
-status: executing
+status: verifying
 stopped_at: "Session resumed — v1035 roadmap in place (Phases 1156-1160, 0 plans); next action `/gsd:plan-phase 1156` (SEC-01)"
-last_updated: "2026-05-30T17:51:20.617Z"
+last_updated: "2026-05-30T17:57:37.578Z"
 last_activity: 2026-05-30
 progress:
   total_phases: 10
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 4
-  completed_plans: 3
-  percent: 10
+  completed_plans: 4
+  percent: 20
 ---
 
 # State
 
 ## Current Position
 
-Phase: 1157 (Backend Export Access + Route Hygiene) — EXECUTING
-Plan: 2 of 2
-Next Phase: 1157 (Backend Export Access + Route Hygiene)
-Status: Ready to execute
+Phase: 1157 (Backend Export Access + Route Hygiene) — COMPLETE
+Plan: 2 of 2 (all plans done)
+Next Phase: 1158 (Builder Layer Visibility & DEM Consolidation)
+Status: Phase 1157 complete — 4 plans shipped across Phases 1156-1157; ready for Phase 1158
 Last activity: 2026-05-30
 
 ## Project Reference
@@ -47,8 +47,8 @@ See: .planning/PROJECT.md (updated 2026-05-30)
 
 **Phases:**
 
-- [ ] 1156: Vector-Tile Egress Authorization (SEC-01) — security blocker, ships first
-- [ ] 1157: Backend Export Access + Route Hygiene (EXP-01, EXP-02, API-01)
+- [x] 1156: Vector-Tile Egress Authorization (SEC-01) — security blocker, ships first
+- [x] 1157: Backend Export Access + Route Hygiene (EXP-01, EXP-02, API-01)
 - [ ] 1158: Builder Layer Visibility & DEM Consolidation (BLDR-01, BLDR-02, BLDR-03, BLDR-04)
 - [ ] 1159: Maps/Search UI & Blob Hygiene (MAPS-01, MAPS-02, HYG-01)
 - [ ] 1160: Live Playwright MCP Close-Gate (QA-01)
@@ -97,13 +97,12 @@ None active.
 
 ## Session Continuity
 
-Last session: 2026-05-30T17:51:20.612Z
+Last session: 2026-05-30T17:57:37.574Z
 Stopped at: Session resumed — v1035 roadmap in place (Phases 1156-1160, 0 plans); next action `/gsd:plan-phase 1156` (SEC-01)
 Resume file: None
 
 ## Operator Next Steps
 
-- **Phase 1156 complete.** SEC-01 fix: 3 commits (`bfaba566`, `87df7122`, `a9c0a8e8`). Regression test: 2 commits (`82527ed3` bug fix, `67717802` test file). 4 tests passing. Rule 1 fix: `DefaultProcessingPort` had no `check_dataset_access_or_anonymous` — replaced `port.*` calls with direct import in `tiles/router.py`.
-- **Next:** Execute Phase 1157 (EXP-01 anonymous export, EXP-02 regression test, API-01 trailing-slash alias).
+- **Phase 1157 complete.** EXP-01 fix (`f24b74b9`) + API-01 alias (`3ff2e0a6`) in Plan 01. EXP-02 + API-01 regression tests (`f3509867`) in Plan 02 — 9/9 passing.
+- **Next:** Execute Phase 1158 (BLDR-01 raster basemap ordering, BLDR-02 terrain toggle, BLDR-03 DEM row consolidation, BLDR-04 color-relief visibility).
 - **MCP note:** Orchestrator drives all live Playwright MCP (Phase 1160). Executor subagents lack `mcp__playwright__*` access — see project memory `playwright-mcp-orchestrator-only`.
-- **Phase 1156 also updates ROADMAP.md** (status Complete, 2/2 plans).
