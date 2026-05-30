@@ -2,9 +2,9 @@
 gsd_state_version: 1.0
 milestone: v1035
 milestone_name: Builder, Maps & Export Bug Sweep
-status: verifying
-stopped_at: "Session resumed — v1035 roadmap in place (Phases 1156-1160, 0 plans); next action `/gsd:plan-phase 1156` (SEC-01)"
-last_updated: "2026-05-30T17:57:37.578Z"
+status: ready_to_plan
+stopped_at: Phase 1157 complete (2/2) — ready to discuss Phase 1158
+last_updated: 2026-05-30T18:10:22.296Z
 last_activity: 2026-05-30
 progress:
   total_phases: 10
@@ -18,10 +18,10 @@ progress:
 
 ## Current Position
 
-Phase: 1157 (Backend Export Access + Route Hygiene) — COMPLETE
-Plan: 2 of 2 (all plans done)
+Phase: 1158
+Plan: Not started
 Next Phase: 1158 (Builder Layer Visibility & DEM Consolidation)
-Status: Phase 1157 complete — 4 plans shipped across Phases 1156-1157; ready for Phase 1158
+Status: Ready to plan
 Last activity: 2026-05-30
 
 ## Project Reference
@@ -29,7 +29,7 @@ Last activity: 2026-05-30
 See: .planning/PROJECT.md (updated 2026-05-30)
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** Phase 1157 — Backend Export Access + Route Hygiene
+**Current focus:** Phase 1158 — builder layer visibility & dem consolidation
 
 ## Last Shipped Milestone
 
