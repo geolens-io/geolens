@@ -12,18 +12,18 @@ Milestones are delivered through v1033 Builder Terrain, Label & Render-Mode QA (
 
 The marketing and documentation web properties (v14.0 + v15.0 + 999.5 cross-repo style alignment) and their planning artifacts moved to the `getgeolens.com` repo on 2026-04-26 — see `~/Code/getgeolens.com/.planning/` for active docs-site work.
 
-## Current Milestone: v1034 Raster Stretch & Colormap Completion
+## Current Milestone
 
-**Goal:** Finish the half-done raster stretch/colormap feature — add full per-band multi-band stretch, make percentile/σ bounds configurable, seed a real single-band raster fixture to actually verify the colormap/stretch UI, and clear the v1033 builder dead-code/note tech debt.
+_None — v1034 shipped 2026-05-30. Run `/gsd:new-milestone` to start the next milestone._
 
-**Target features:**
-- Per-band multi-band stretch (RASTER-STRETCH-03): independent percentile/σ rescale per band via `/cog/statistics` → multi-rescale Titiler URL
-- Configurable stretch bounds (RASTER-STRETCH-UI-01): UI to set percentile bounds / σ multiplier instead of hardcoded p2–p98 / ±2σ
-- Real single-band raster fixture (TESTDATA-01): wire a small redistributable public single-band GeoTIFF into the seed script
-- Verify single-band stretch + colormap UI against the new fixture (the coverage hole never closed)
-- Cleanup: remove dead `onRenderModeChange` member + rework/remove the unreachable `hillshadeTerrainNote` advisory
+## Recent Shipped Milestone: v1034 Raster Stretch & Colormap Completion
 
-**Key context:** Continues phase numbering from 1151 (next phase 1152). Builds on v1031 (colormap) + v1032 (single-band stretch) patterns already in `raster_tile_proxy` / `RasterEditor` — not a rewrite. Execution runs autonomously via `/gsd-autonomous`; orchestrator drives all live Playwright MCP smoke before close (executor lacks MCP access — see project memory `playwright-mcp-orchestrator-only`).
+**Shipped:** 2026-05-30
+**Tag:** local `v1034`
+
+**Goal delivered:** Completed the raster stretch/colormap feature — full per-band multi-band stretch, configurable percentile/σ bounds, a real seeded single-band raster fixture to verify the colormap/stretch UI, and v1033 cleanup. The orchestrator-driven Playwright MCP close-gate then **disproved the milestone's founding assumption** (that v1031/v1032's colormap/stretch already worked) and fixed two pre-existing latent defects — so v1034 delivered a genuinely working raster colormap/stretch feature for the first time.
+
+**Delivered:** 8/8 requirements across phases 1152-1155. **TESTDATA-01:** `GRAY_50M_SR.tif` seeded uint8/band_count=1/is_dem=false (DB-verified — avoids the float→DEM-misclassification trap), idempotent. **RASTER-STRETCH-03:** backend `n_bands=1`→`min(band_count,3)` (`tiles/router.py`) with 3-`rescale=`-fragment unit test; frontend multi-band stretch gate (colormap stays single-band). **SPIKE-01:** live Titiler confirmed arbitrary `p=` percentile support (`percentile_5/95`). **RASTER-STRETCH-UI-01:** backend `pmin`/`pmax`/`sigma` params + compound stats-cache key `(open_path,pmin,pmax)` + 422 validation; frontend percentile inputs + σ segmented control. **RASTER-STRETCH-UI-02:** stretch↔colormap hint. **CLEANUP-01:** removed unreachable `hillshadeTerrainNote` + 4 i18n keys; live `onRenderModeChange` untouched. **VERIFY-01/QA-01 (close-gate):** orchestrator Playwright MCP found + fixed (commit `de9d1f8d`) two latent v1031/v1032 defects — (1) raster colormap/stretch controls lived in `LayerStyleEditor/RasterEditor` (never mounted for rasters; `LayerEditorPanel` mounts `RasterLayerControls`) → extracted a shared `RasterStretchControls` used by both; (2) builder-private paint keys `_colormap/_stretch/_pmin/_pmax/_sigma` were rejected on save (422 → never persisted) → allowlisted into `style_config.builder` (backend `LEGACY_BUILDER_PAINT_KEYS`) + re-injected builder→paint on load (frontend `normalizeLayerStyleState`). Live-proven end-to-end: set colormap=viridis + stretch=percentile + pmin/pmax → tile URL carries the params → save **200** (was 422) → reload retains controls + tiles; multi-band ortho shows stretch, hides colormap; 0 console errors. Gates: typecheck 0 / vitest 2621 / i18n 2 / backend maps+raster 180 / raster·tile 66 / openapi no-drift / sdks regenerated (`6bee34cf`) / e2e:smoke:builder 22·1 (the 1 = pre-existing `vector-dataset-onto-stack`, raster-unrelated). Milestone audit `tech_debt` (CLEAR-TO-TAG). **Carry-forward:** band_count hydration on fresh-add (colormap/stretch section appears only after first save+reload) — minor UX, candidate for a follow-up.
 
 ## Recent Shipped Milestone: v1033 Builder Terrain, Label & Render-Mode QA
 

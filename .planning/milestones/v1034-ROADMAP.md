@@ -2,7 +2,6 @@
 
 ## Historical Milestones
 
-- ✅ **v1034 Raster Stretch & Colormap Completion** — Phases 1152-1155 (shipped 2026-05-30, local tag `v1034`; per-band multi-band stretch + configurable percentile/σ bounds + seeded single-band raster fixture; Playwright MCP close-gate found + fixed two latent v1031/v1032 defects — colormap/stretch controls in an unmounted component + builder-private paint keys 422'd on save; 8/8 reqs; audit tech_debt/CLEAR-TO-TAG) — see [archive](milestones/v1034-ROADMAP.md)
 - ✅ **v1033 Builder Terrain, Label & Render-Mode QA** — Phases 1148-1151 (shipped 2026-05-29, local tag `v1033`, CHANGELOG [1.8.0]; DEM render-mode persistence fix (3D terrain restores on load; raster "Render as" no longer reverts) + layer-list label indicator + point render-as consolidation + hillshade dual-consumer guard + bounded band-stats cache; 9/9 reqs; audit tech_debt/0-blockers) — see [archive](milestones/v1033-ROADMAP.md)
 - ✅ **v1032 Builder Carry-Forward Resolution** — Phases 1144-1147 (shipped 2026-05-28, local tag `v1032`, CHANGELOG [1.7.0]; contour control CUT — `maplibre-contour` 0.1.0 incompatible with maplibre-gl 5.x, no upstream fix — plus single-band raster `percentile`/`stddev` stretch via Titiler `/cog/statistics`; 7/7 reqs) — see [archive](milestones/v1032-ROADMAP.md)
 - ✅ **v1031 Builder Render-Mode & Share Polish** — Phases 1140-1143 (shipped 2026-05-28, local tag `v1031`; hypsometric tint + single-band raster colormap + fill-pattern editor controls, OG-image social cards + SharePanel ≤2 weights, orchestrator-driven Playwright MCP close-gate; 8/9 reqs — EDITOR-DEM-04 contour deferred → v1032) — see [archive](milestones/v1031-ROADMAP.md)
@@ -96,6 +95,76 @@
 - ✅ **v1021 Docker Rebuild Sweep + Engine-level Retry** — Phases 1091-1093 (shipped 2026-05-23, local tag `v1021`, public tag `v1.5.6`) — see [archive](milestones/v1021-ROADMAP.md)
 - ✅ **v1022 Parallel-Test Cascade Closure + Hygiene Tail** — Phases 1094-1097 (shipped 2026-05-24, local tag `v1022`, public tag `v1.5.7`) — see [archive](milestones/v1022-ROADMAP.md)
 - ✅ **v1023 CI Live-Verify + OOS Hygiene Tail** — Phases 1098-1100 (shipped 2026-05-24, local tag `v1023`, public tag `v1.5.8`)
+
+## Current Milestone: v1034 Raster Stretch & Colormap Completion
+
+### Phases
+
+- [x] **Phase 1152: Single-Band Raster Fixture** - Seed a uint8 non-DEM single-band COG via the seed script; hard gate for all subsequent stretch/colormap verification (completed 2026-05-29)
+- [x] **Phase 1153: Backend — Multi-Band Stretch + Configurable Bounds** - Fix `n_bands=1` call site for per-band multi-band rescale; spike Titiler `p=` support then wire `pmin`/`pmax`/`sigma` params + compound cache key (completed 2026-05-29)
+- [x] **Phase 1154: Frontend Controls + Cleanup** - Widen stretch gate to multi-band; add pmin/pmax/sigma inputs; stretch-colormap hint copy; remove v1033 dead code (completed 2026-05-30)
+- [x] **Phase 1155: Close-Gate** - Orchestrator Playwright MCP: multi-band stretch on RGB ortho + single-band stretch/colormap on TESTDATA-01 fixture; standard test gates
+
+## Phase Details
+
+### Phase 1152: Single-Band Raster Fixture
+**Goal**: A real non-DEM single-band uint8 raster is available in the system so all subsequent colormap and stretch UI verification runs against actual data rather than a DEM that silently bypasses all stretch/colormap logic
+**Depends on**: Nothing (first phase)
+**Requirements**: TESTDATA-01
+**Success Criteria** (what must be TRUE):
+  1. Running the seed script ingests a small uint8 single-band GeoTIFF (e.g. Natural Earth `GRAY_50M_SR` or a GDAL-generated synthetic COG) and completes without error
+  2. `SELECT is_dem FROM catalog.raster_assets WHERE dataset_id = '<fixture_id>'` returns `false` — the dataset is NOT routed through `algorithm=terrainrgb`
+  3. Re-running the seed script skips the fixture (idempotent — no duplicate ingest)
+  4. The fixture is acquired at seed time (downloaded or generated during script execution), never at pytest time
+**Plans**: 1 plan
+  - [x] 1152-01-singleband-raster-fixture-PLAN.md — seed an idempotent single-band uint8 GRAY_50M_SR raster fixture; verify band_count==1 + is_dem=false
+**UI hint**: yes
+
+### Phase 1153: Backend — Multi-Band Stretch + Configurable Bounds
+**Goal**: The backend correctly computes an independent per-band rescale for multi-band rasters AND accepts configurable percentile/sigma bounds that are properly isolated in the stats cache — so a 3-band ortho produces 3 `rescale=` fragments and changing `pmin` from 2 to 5 actually changes the served tiles
+**Depends on**: Phase 1152 (fixture required for backend smoke verification)
+**Requirements**: RASTER-STRETCH-03 (backend), SPIKE-01, RASTER-STRETCH-UI-01 (backend)
+**Success Criteria** (what must be TRUE):
+  1. SPIKE result recorded: `curl http://localhost:8000/cog/statistics?url=<path>&p=5&p=95` against the running Titiler 2.0.2 container returns `percentile_5` and `percentile_95` keys (or the spike documents an alternative approach if not)
+  2. A tile request for a 3-band raster with `stretch=percentile` produces a Titiler URL containing exactly 3 `rescale=` fragments — one per band — confirmed by a unit test asserting the fragment count
+  3. Two requests for the same asset with different `pmin`/`pmax` values produce different cache entries in `_band_stats_cache` (key is `(open_path, pmin, pmax)`) and different `rescale=` values in the Titiler URL
+  4. A request with invalid bounds (e.g. `pmin=95&pmax=5`, `sigma=-1`) is rejected with HTTP 422 before reaching Titiler
+**Plans**: 1 plan
+  - [x] 1153-01-multiband-configurable-bounds-PLAN.md — multi-band n_bands fix + pmin/pmax/sigma params + bounds-keyed stats cache + 422 validation; closes SPIKE-01
+
+### Phase 1154: Frontend Controls + Cleanup
+**Goal**: The RasterEditor exposes stretch controls for multi-band rasters, lets users configure percentile bounds and sigma, shows a coupling hint on single-band rasters, and the v1033 dead code is removed — without breaking any existing vitest or smoke tests
+**Depends on**: Phase 1153 (backend must accept pmin/pmax/sigma before frontend sends them)
+**Requirements**: RASTER-STRETCH-03 (frontend gate), RASTER-STRETCH-UI-01 (frontend), RASTER-STRETCH-UI-02, CLEANUP-01
+**Success Criteria** (what must be TRUE):
+  1. The stretch section (minmax/percentile/stddev selector) is visible in the RasterEditor for a multi-band raster layer; the colormap section remains hidden for multi-band
+  2. When stretch is set to `percentile`, two numeric inputs for pmin and pmax appear; when stretch is `stddev`, a sigma control (1/2/3) appears; changing either causes the tile URL to update with the new params
+  3. On a single-band raster with stretch not equal to `minmax` and colormap not equal to `gray`, the coupling hint ("Stretch sets the input range for the colormap") is visible below the stretch control
+  4. The dead `onRenderModeChange` optional member is absent from `LayerStyleEditor/types.ts`; `demEditor.hillshadeTerrainNote` i18n key and its advisory display are removed or made reachable; `npm run typecheck` exits 0 and vitest is green
+**Plans**: 2 plans
+- [x] 1154-01-PLAN.md — buildColormapTileUrl forwards _pmin/_pmax/_sigma (non-default only) + unit tests
+- [x] 1154-02-PLAN.md — RasterEditor gate-split + percentile/sigma controls + stretch-colormap hint + i18n + CLEANUP-01 hillshade note removal
+**UI hint**: yes
+
+### Phase 1155: Close-Gate
+**Goal**: The complete raster stretch/colormap feature is verified end-to-end against real data with Playwright MCP — tile URLs carry the expected params, tile output visibly differs across stretch modes, and all standard gates are green — so the milestone can be tagged
+**Depends on**: Phases 1152, 1153, 1154
+**Requirements**: VERIFY-01, QA-01
+**Success Criteria** (what must be TRUE):
+  1. On the TESTDATA-01 single-band fixture in the live builder: switching stretch mode (minmax/percentile/stddev) produces distinct tile response sizes OR visually distinct map output, and the emitted Titiler tile URL carries the expected `rescale=` and `colormap_name=` params — not merely HTTP 200
+  2. On an existing RGB multi-band raster in the live builder: the stretch section is visible, the colormap section is hidden, and applying percentile stretch produces a Titiler URL with 3 `rescale=` fragments
+  3. Configuring non-default pmin/pmax (e.g. 5/95) on the single-band fixture changes the emitted tile URL and the map re-renders — confirming configurable bounds reach Titiler
+  4. `npm run typecheck` 0 errors, vitest green, `e2e:smoke:builder` green, focused backend raster/tile pytest green, i18n parity, `make openapi-check` no-drift (no API surface change expected); 0 console errors per surface in Playwright MCP
+**Plans**: TBD
+
+## Progress
+
+| Phase | Plans Complete | Status | Completed |
+|-------|----------------|--------|-----------|
+| 1152. Single-Band Raster Fixture | 1/1 | Complete   | 2026-05-29 |
+| 1153. Backend — Multi-Band Stretch + Configurable Bounds | 1/1 | Complete   | 2026-05-29 |
+| 1154. Frontend Controls + Cleanup | 2/2 | Complete   | 2026-05-30 |
+| 1155. Close-Gate | 1/1 | Complete | 2026-05-30 |
 
 ## Backlog
 

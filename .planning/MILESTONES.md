@@ -1,5 +1,26 @@
 # Milestones
 
+## v1034 Raster Stretch & Colormap Completion (Shipped: 2026-05-30)
+
+**Phases completed:** 4 phases (1152-1155), 5 plans, 8/8 requirements. Tag: local `v1034`.
+
+**Goal delivered:** Completed the raster stretch/colormap feature carried since v1031/v1032 — per-band multi-band stretch, configurable percentile/σ bounds, and a real seeded single-band raster fixture to verify the colormap/stretch UI. The orchestrator-driven Playwright MCP close-gate then disproved the milestone's founding assumption (that v1031/v1032's colormap/stretch already worked in the UI) and fixed two pre-existing latent defects — so v1034 shipped a genuinely working raster colormap/stretch feature for the first time.
+
+**Key accomplishments:**
+
+- **Single-band fixture (1152, TESTDATA-01):** `ingest_raster_fixture()` added to `scripts/seed-natural-earth.py` ingesting Natural Earth `GRAY_50M_SR` (public domain) as a uint8 single-band COG. Idempotent; DB-verified `band_count=1` + `is_dem=false` — deliberately uint8 to avoid the float32→DEM-misclassification trap (`cog.py:85`) that would silently route through `terrainrgb` and bypass all stretch/colormap.
+- **Backend multi-band + configurable bounds (1153, RASTER-STRETCH-03 / SPIKE-01 / UI-01-be):** SPIKE confirmed live Titiler supports arbitrary `p=` percentiles (`percentile_5/95`). Fixed the hardcoded `n_bands=1` at `tiles/router.py` → `min(band_count,3)` (per-band rescale, 3-`rescale=`-fragment unit test). Added `pmin`/`pmax`/`sigma` query params + compound stats-cache key `(open_path,pmin,pmax)` (the critical no-op-on-stale-cache trap) + 422 bounds validation. DEM `algorithm=terrainrgb` guard preserved.
+- **Frontend controls + cleanup (1154, UI-01-fe / UI-02 / RASTER-STRETCH-03-fe / CLEANUP-01):** multi-band stretch gate (colormap stays single-band), percentile pmin/pmax inputs + σ segmented control, stretch↔colormap hint, 4-locale i18n. Removed the unreachable `hillshadeTerrainNote` advisory + its 4 i18n keys; the live `onRenderModeChange` handler was confirmed *not* dead and left untouched (v1033's audit note was a misdiagnosis).
+- **Close-gate — two latent defects found + fixed (1155, VERIFY-01 / QA-01; commit `de9d1f8d`):** (1) The raster colormap/stretch controls lived in `LayerStyleEditor/RasterEditor`, which is **never mounted for raster layers** (`LayerEditorPanel` mounts `RasterLayerControls`) — extracted a shared `RasterStretchControls` rendered by both. (2) The builder-private paint keys `_colormap`/`_stretch`/`_pmin`/`_pmax`/`_sigma` were **rejected by the paint allowlist on save (422 → never persisted)** — allowlisted into `style_config.builder` (backend `LEGACY_BUILDER_PAINT_KEYS`) + re-injected builder→paint on load (`normalizeLayerStyleState`). Live-proven end-to-end: set colormap=viridis + stretch=percentile + pmin=5/pmax=95 → tile URL carries the params → save **200** (was 422) → reload retains controls + tiles re-render; multi-band ortho shows stretch and hides colormap; 0 console errors.
+
+**Gate results:** typecheck 0 · vitest 2621 (238 files) · i18n 2/2 · backend maps+raster 180 · raster·tile 66 · `make openapi-check` no-drift · `make sdks-check` clean (Python/TS SDKs regenerated `6bee34cf` for the 1153 query params) · `e2e:smoke:builder` 22/1 (the 1 = pre-existing `builder-v1-5 vector-dataset-onto-stack` console-error, raster-unrelated).
+
+**Audit verdict:** `tech_debt` (CLEAR-TO-TAG; 8/8 reqs; integration CLEAN). Carry-forward: band_count hydration on fresh-add (colormap/stretch section appears only after first save+reload — minor UX). See `.planning/milestones/v1034-MILESTONE-AUDIT.md`.
+
+**Migrations:** None. Backend change is paint-allowlist logic only (no DDL); `style_config` is opaque jsonb.
+
+**Method note:** Research-first (4 parallel researchers) correctly scoped the backend as a near-one-line fix and flagged the DEM-misclassification + cache-key traps up front. The orchestrator-driven live Playwright MCP close-gate was decisive — it caught two defects (unmounted controls + non-persisting keys) that 2600+ unit/integration tests missed because they only exercised the wrong component and never round-tripped through save. Demonstrates why live browser verification is a load-bearing gate, not a formality.
+
 ## v1033 Builder Terrain, Label & Render-Mode QA (Shipped: 2026-05-29)
 
 **Phases completed:** 4 phases (1148-1151), 7 plans, 9/9 requirements. Tag: local `v1033`. CHANGELOG `[1.8.0]`.

@@ -2,49 +2,47 @@
 gsd_state_version: 1.0
 milestone: v1034
 milestone_name: Raster Stretch & Colormap Completion
-status: executing
-stopped_at: v1034 roadmap created; STATE.md initialized at Phase 1152
-last_updated: "2026-05-30T00:25:41.698Z"
-last_activity: 2026-05-30 -- Phase 1155 execution started
+status: Awaiting next milestone
+stopped_at: Milestone v1034 complete and archived
+last_updated: "2026-05-30T12:00:00.000Z"
+last_activity: 2026-05-30 — Milestone v1034 completed, audited (tech_debt), and archived
 progress:
-  total_phases: 10
-  completed_phases: 3
-  total_plans: 4
-  completed_plans: 4
-  percent: 30
+  total_phases: 4
+  completed_phases: 4
+  total_plans: 5
+  completed_plans: 5
+  percent: 100
 ---
 
 # State
 
 ## Current Position
 
-Phase: 1155 (Close-Gate) — EXECUTING
-Plan: 1 of 1
-Status: Executing Phase 1155
-Last activity: 2026-05-30 -- Phase 1155 execution started
+Phase: Milestone v1034 complete (archived)
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-05-30 — v1034 audit (`tech_debt`) → complete → archive
 
 ```
-Phase progress: [ 1152 ][ 1153 ][ 1154 ][ 1155 ]
-                [ DONE][ DONE ][      ][      ]
-                50% complete (2 of 4 phases)
+Progress: [██████████] 100% (v1034: 4/4 phases)
 ```
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-05-29)
+See: .planning/PROJECT.md (updated 2026-05-30)
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** Phase 1155 — Close-Gate
+**Current focus:** Planning next milestone — run `/gsd:new-milestone`.
 
 ## Last Shipped Milestone
 
-**Version:** v1033 Builder Terrain, Label & Render-Mode QA
-**Shipped:** 2026-05-29
-**Phases:** 1148-1151 (4 phases, 7 plans, 9/9 reqs satisfied)
-**Tag:** local `v1033` · CHANGELOG `[1.8.0]`
-**Milestone audit:** `.planning/milestones/v1033-MILESTONE-AUDIT.md` (`tech_debt` — 9/9 reqs; integration CLEAN 9/9 links + 4/4 E2E flows; 0 blockers)
-**Archive:** `.planning/milestones/v1033-ROADMAP.md` + `v1033-REQUIREMENTS.md`
-**Delivered:** DEM `render_mode:'terrain'` strip-on-load fixed (3D terrain restores on fresh load; raster "Render as" no longer reverts) + layer-list label indicator + point render-as consolidation + DEM hillshade dual-consumer guard + bounded band-stats cache. Orchestrator Playwright MCP close-gate on both ADK sample maps (0 console errors each).
+**Version:** v1034 Raster Stretch & Colormap Completion
+**Shipped:** 2026-05-30
+**Phases:** 1152-1155 (4 phases, 5 plans, 8/8 reqs satisfied)
+**Tag:** local `v1034`
+**Milestone audit:** `.planning/milestones/v1034-MILESTONE-AUDIT.md` (`tech_debt` — 8/8 reqs; integration CLEAN; CLEAR-TO-TAG)
+**Archive:** `.planning/milestones/v1034-ROADMAP.md` + `v1034-REQUIREMENTS.md`
+**Delivered:** Per-band multi-band stretch + configurable percentile/σ bounds + seeded single-band raster fixture (`GRAY_50M_SR.tif`). The Playwright MCP close-gate found + fixed two latent v1031/v1032 defects: raster colormap/stretch controls were in an unmounted component (extracted shared `RasterStretchControls`) and builder-private paint keys 422'd on save (allowlisted into `style_config.builder` + re-injected on load). Feature now works end-to-end (live-verified: set → save 200 → reload retains + tiles re-render). **Carry-forward:** band_count hydration on fresh-add (section appears only after first save+reload) — minor UX.
 
 ## Current Milestone: v1034 Raster Stretch & Colormap Completion
 
