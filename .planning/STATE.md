@@ -2,9 +2,9 @@
 gsd_state_version: 1.0
 milestone: v1035
 milestone_name: Builder, Maps & Export Bug Sweep
-status: verifying
-stopped_at: "1156 complete (SEC-01 fix + regression tests — 4 passed, Rule 1 fix for check_dataset_access_or_anonymous); next: execute 1157 (EXP-01, EXP-02, API-01)"
-last_updated: "2026-05-30T17:09:50.865Z"
+status: ready_to_plan
+stopped_at: Phase 1156 complete (2/2) — ready to discuss Phase 1157
+last_updated: 2026-05-30T17:33:24.986Z
 last_activity: 2026-05-30
 progress:
   total_phases: 10
@@ -18,10 +18,10 @@ progress:
 
 ## Current Position
 
-Phase: 1156 (Vector-Tile Egress Authorization) — COMPLETE
-Plan: 2 of 2 (1156-01 SEC-01 fix; 1156-02 regression tests — 4 passed)
+Phase: 1157
+Plan: Not started
 Next Phase: 1157 (Backend Export Access + Route Hygiene)
-Status: Phase 1156 complete; executing Phase 1157 next
+Status: Ready to plan
 Last activity: 2026-05-30
 
 ## Project Reference
@@ -29,7 +29,7 @@ Last activity: 2026-05-30
 See: .planning/PROJECT.md (updated 2026-05-30)
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** Phase 1156 — Vector-Tile Egress Authorization
+**Current focus:** Phase 1157 — backend export access + route hygiene
 
 ## Last Shipped Milestone
 
