@@ -22,7 +22,6 @@ from app.core.identity import Identity
 from app.modules.auth.dependencies import get_optional_user
 from app.core.config import settings
 from app.core.dependencies import get_db
-from app.modules.catalog.authorization import check_dataset_access_or_anonymous
 from app.modules.embed_tokens.service import validate_embed_token_access
 from app.platform.cache.provider import get_tile_cache
 from app.platform.extensions import get_processing_port
@@ -833,6 +832,48 @@ def _build_tile_token_for_dataset(
     )
 
 
+async def _enforce_tile_token_access(
+    db: AsyncSession,
+    dataset: Any,
+    dataset_id: uuid.UUID,
+    user: Identity | None,
+    port: Any,
+) -> None:
+    """Status-aware access gate for the tile-token endpoints (SEC-01).
+
+    Mirrors the raster ``_resolve_raster_access`` contract so vector and raster
+    token minting deny identically:
+    - non-public + anonymous -> 401 (authenticating may grant access)
+    - non-public + authenticated -> full RBAC via ``check_dataset_access`` (404 if denied)
+    - public + unpublished + non-owner -> 404 (closes the anonymous egress leak)
+    - public + published -> allowed
+
+    Raises HTTPException on denial; returns None on allow.
+    """
+    record = dataset.record
+    if record.visibility != "public":
+        if user is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Authentication required",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        await port.check_dataset_access(db, dataset, dataset_id, user)
+        return
+
+    # Public dataset: still block non-published for non-owners (SEC-01).
+    if record.record_status != "published":
+        if user is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found"
+            )
+        user_roles = await port.get_user_roles(db, user)
+        if "admin" not in user_roles and record.created_by != user.id:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found"
+            )
+
+
 @router.get("/token/{dataset_id}/", response_model=VectorTileToken | RasterTileToken)
 @limiter.exempt
 async def get_tile_token(
@@ -865,7 +906,7 @@ async def get_tile_token(
             status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found"
         )
 
-    await check_dataset_access_or_anonymous(db, dataset, dataset_id, user)
+    await _enforce_tile_token_access(db, dataset, dataset_id, user, port)
 
     raster_asset = None
     if dataset.record.record_type in ("raster_dataset", "vrt_dataset"):
@@ -932,7 +973,7 @@ async def get_tile_tokens_batch(
 
         # Per-dataset auth check (status-aware)
         try:
-            await check_dataset_access_or_anonymous(db, dataset, dataset_id, user)
+            await _enforce_tile_token_access(db, dataset, dataset_id, user, port)
         except HTTPException as exc:
             tokens[key] = {"error": exc.detail}
             continue
