@@ -220,4 +220,55 @@ describe('buildColormapTileUrl', () => {
     const absolutized = `https://example.com${withColormap}`;
     expect(absolutized).toBe('https://example.com/api/raster-tiles/abc/tiles/{z}/{x}/{y}.png?colormap_name=plasma');
   });
+
+  // ── RASTER-STRETCH-UI-01: pmin / pmax / sigma forwarding ──────────────────
+
+  it('forwards pmin/pmax for non-default percentile (5/95)', () => {
+    const result = buildColormapTileUrl(BASE, { _stretch: 'percentile', _pmin: 5, _pmax: 95 });
+    expect(result).toContain('stretch=percentile');
+    expect(result).toContain('pmin=5');
+    expect(result).toContain('pmax=95');
+  });
+
+  it('omits pmin/pmax for default percentile bounds (2/98)', () => {
+    const result = buildColormapTileUrl(BASE, { _stretch: 'percentile', _pmin: 2, _pmax: 98 });
+    expect(result).toContain('stretch=percentile');
+    expect(result).not.toContain('pmin');
+    expect(result).not.toContain('pmax');
+  });
+
+  it('forwards only pmin when pmax is left at default (98)', () => {
+    const result = buildColormapTileUrl(BASE, { _stretch: 'percentile', _pmin: 5 });
+    expect(result).toContain('pmin=5');
+    expect(result).not.toContain('pmax');
+  });
+
+  it('forwards sigma for non-default stddev (3)', () => {
+    const result = buildColormapTileUrl(BASE, { _stretch: 'stddev', _sigma: 3 });
+    expect(result).toContain('stretch=stddev');
+    expect(result).toContain('sigma=3');
+  });
+
+  it('omits sigma for default stddev (2)', () => {
+    const result = buildColormapTileUrl(BASE, { _stretch: 'stddev', _sigma: 2 });
+    expect(result).toContain('stretch=stddev');
+    expect(result).not.toContain('sigma');
+  });
+
+  it('never forwards pmin/pmax when stretch is not percentile', () => {
+    const result = buildColormapTileUrl(BASE, { _stretch: 'stddev', _pmin: 5, _pmax: 95 });
+    expect(result).not.toContain('pmin');
+    expect(result).not.toContain('pmax');
+  });
+
+  it('never forwards sigma when stretch is not stddev', () => {
+    const result = buildColormapTileUrl(BASE, { _stretch: 'percentile', _sigma: 3 });
+    expect(result).not.toContain('sigma');
+  });
+
+  it('default percentile URL is byte-identical to today (no bound keys → no pmin/pmax)', () => {
+    // No _pmin/_pmax keys present — must produce the exact same URL as before this change.
+    const result = buildColormapTileUrl(BASE, { _colormap: 'viridis', _stretch: 'percentile' });
+    expect(result).toBe(`${BASE}?colormap_name=viridis&stretch=percentile`);
+  });
 });
