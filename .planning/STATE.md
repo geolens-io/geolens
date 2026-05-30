@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1035
 milestone_name: Builder, Maps & Export Bug Sweep
-status: ready_to_plan
-stopped_at: Phase 1159 complete (2/2) — ready to discuss Phase 1160
-last_updated: 2026-05-30T19:33:10.744Z
-last_activity: 2026-05-30
+status: milestone_complete
+stopped_at: Milestone complete (Phase 1160 was final phase)
+last_updated: 2026-05-30T20:35:58.750Z
+last_activity: 2026-05-30 -- Phase 1160 execution started
 progress:
   total_phases: 10
-  completed_phases: 4
-  total_plans: 8
-  completed_plans: 8
-  percent: 40
+  completed_phases: 5
+  total_plans: 9
+  completed_plans: 9
+  percent: 50
 ---
 
 # State
@@ -21,7 +21,7 @@ progress:
 Phase: 1160
 Plan: Not started
 Next Phase: 1158 (Builder Layer Visibility & DEM Consolidation)
-Status: Ready to plan
+Status: Milestone complete
 Last activity: 2026-05-30
 
 ## Project Reference
@@ -29,7 +29,7 @@ Last activity: 2026-05-30
 See: .planning/PROJECT.md (updated 2026-05-30)
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** Phase 1160 — live playwright mcp close gate
+**Current focus:** Milestone complete
 
 ## Last Shipped Milestone
 

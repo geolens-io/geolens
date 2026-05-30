@@ -40,7 +40,7 @@ Requirements for this milestone. Each maps to exactly one roadmap phase.
 
 ### QA / Close-Gate
 
-- [ ] **QA-01**: Orchestrator-driven live Playwright MCP close-gate before tagging — verify (a) SEC-01: anonymous vector-tile/token request on a public-unpublished dataset is denied; (b) BLDR-01: raster basemap at `position='top'` keeps data visible; (c) BLDR-02: terrain DEM eye toggles 3D on/off (`getTerrain()` null/set); (d) BLDR-04: hiding a hypso-tinted DEM hides the tint; (e) EXP-01: anonymous CSV/GeoJSON export of a public dataset returns a real body; (f) MAPS-01: target routes show 0 `createRoot` errors. Executor subagents lack `mcp__playwright__*` — orchestrator MUST drive MCP directly (project memory `playwright-mcp-orchestrator-only`). Plus the standard gate: `npm run typecheck` 0, vitest green, `e2e:smoke:builder` green, focused backend tiles/export pytest green, i18n parity, `make openapi-check` no-drift.
+- [x] **QA-01**: Orchestrator-driven live Playwright MCP close-gate before tagging — verify (a) SEC-01: anonymous vector-tile/token request on a public-unpublished dataset is denied; (b) BLDR-01: raster basemap at `position='top'` keeps data visible; (c) BLDR-02: terrain DEM eye toggles 3D on/off (`getTerrain()` null/set); (d) BLDR-04: hiding a hypso-tinted DEM hides the tint; (e) EXP-01: anonymous CSV/GeoJSON export of a public dataset returns a real body; (f) MAPS-01: target routes show 0 `createRoot` errors. Executor subagents lack `mcp__playwright__*` — orchestrator MUST drive MCP directly (project memory `playwright-mcp-orchestrator-only`). Plus the standard gate: `npm run typecheck` 0, vitest green, `e2e:smoke:builder` green, focused backend tiles/export pytest green, i18n parity, `make openapi-check` no-drift.
 
 ## v2 Requirements
 
@@ -74,7 +74,7 @@ Which phases cover which requirements. Filled during roadmap creation.
 | MAPS-02 | Phase 1159 | Complete |
 | API-01 | Phase 1157 | Complete |
 | HYG-01 | Phase 1159 | Complete |
-| QA-01 | Phase 1160 | Pending |
+| QA-01 | Phase 1160 | Complete |
 
 **Coverage:**
 - v1 requirements: 12 total (11 fixes + 1 close-gate)

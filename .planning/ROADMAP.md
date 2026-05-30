@@ -13,7 +13,7 @@
 - [x] **Phase 1157: Backend Export Access + Route Hygiene (EXP-01, EXP-02, API-01)** — Allow anonymous export of public+published datasets; pin unpublished/private export denial; add the `/collections/{id}/items/` trailing-slash alias. (completed 2026-05-30)
 - [x] **Phase 1158: Builder Layer Visibility & DEM Consolidation (BLDR-01, BLDR-02, BLDR-03, BLDR-04)** — Raster basemap stays below data; terrain eye toggles 3D; one DEM row + render-mode pill; color-relief companion honors parent visibility. (completed 2026-05-30)
 - [x] **Phase 1159: Maps/Search UI & Blob Hygiene (MAPS-01, MAPS-02, HYG-01)** — Eliminate the duplicate `createRoot()` console error; pin the search-page quicklook blob-URL fix; move `registerBlobUrlRevocation` out of render. (completed 2026-05-30)
-- [ ] **Phase 1160: Live Playwright MCP Close-Gate (QA-01)** — Orchestrator-driven live MCP verification of all fixes plus the standard gate; final before tag.
+- [x] **Phase 1160: Live Playwright MCP Close-Gate (QA-01)** — Orchestrator-driven live MCP verification of all fixes plus the standard gate; final before tag. (completed 2026-05-30)
 
 ## Phase Details
 
@@ -91,7 +91,7 @@
 | 1157. Backend Export Access + Route Hygiene | 2/2 | Complete    | 2026-05-30 |
 | 1158. Builder Layer Visibility & DEM Consolidation | 2/2 | Complete    | 2026-05-30 |
 | 1159. Maps/Search UI & Blob Hygiene | 2/2 | Complete    | 2026-05-30 |
-| 1160. Live Playwright MCP Close-Gate | 0/TBD | Not started | - |
+| 1160. Live Playwright MCP Close-Gate | 1/1 | Complete    | 2026-05-30 |
 
 ---
 
