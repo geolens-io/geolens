@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v1035
 milestone_name: Builder, Maps & Export Bug Sweep
-status: milestone_complete
-stopped_at: Milestone complete (Phase 1160 was final phase)
-last_updated: 2026-05-30T20:35:58.750Z
-last_activity: 2026-05-30 -- v1035 shipped (5/5 phases, tagged v1035)
+status: v1035 shipped 2026-05-30 — 12/12 reqs; close-gate passed; tech_debt carry-forward BLDR-TILE-RACE
+stopped_at: context exhaustion at 75% (2026-05-30)
+last_updated: "2026-05-30T21:12:43.967Z"
+last_activity: 2026-05-30 — v1035 milestone closed
 progress:
   total_phases: 5
   completed_phases: 5
@@ -98,8 +98,8 @@ None active.
 
 ## Session Continuity
 
-Last session: 2026-05-30T19:22:29.903Z
-Stopped at: Session resumed — v1035 roadmap in place (Phases 1156-1160, 0 plans); next action `/gsd:plan-phase 1156` (SEC-01)
+Last session: 2026-05-30T21:12:43.962Z
+Stopped at: context exhaustion at 75% (2026-05-30)
 Resume file: None
 
 ## Operator Next Steps
