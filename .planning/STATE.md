@@ -5,24 +5,24 @@ milestone_name: Builder, Maps & Export Bug Sweep
 status: milestone_complete
 stopped_at: Milestone complete (Phase 1160 was final phase)
 last_updated: 2026-05-30T20:35:58.750Z
-last_activity: 2026-05-30 -- Phase 1160 execution started
+last_activity: 2026-05-30 -- v1035 shipped (5/5 phases, tagged v1035)
 progress:
-  total_phases: 10
+  total_phases: 5
   completed_phases: 5
   total_plans: 9
   completed_plans: 9
-  percent: 50
+  percent: 100
 ---
 
 # State
 
 ## Current Position
 
-Phase: 1160
-Plan: Not started
-Next Phase: 1158 (Builder Layer Visibility & DEM Consolidation)
-Status: Milestone complete
-Last activity: 2026-05-30
+Phase: — (v1035 SHIPPED: all 5 phases 1156-1160 complete, tagged `v1035`)
+Plan: —
+Next Phase: — (start next milestone via `/gsd:new-milestone`)
+Status: v1035 shipped 2026-05-30 — 12/12 reqs; close-gate passed; tech_debt carry-forward BLDR-TILE-RACE
+Last activity: 2026-05-30 — v1035 milestone closed
 
 ## Project Reference
 
