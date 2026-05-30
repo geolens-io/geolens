@@ -849,6 +849,8 @@
     "exportHint": "Descargar `{{filename}}` con fuentes, capas, filtros, etiquetas, sprites, glifos y metadatos de viewport.",
     "exportButton": "Exportar JSON",
     "importButton": "Importar JSON",
+    "importHint": "Al importar se crea un mapa nuevo: tu mapa actual no se modificará.",
+    "openNewMap": "Abrir mapa nuevo",
     "errors": {
       "notObject": "El JSON de estilo debe ser un objeto.",
       "invalidJson": "JSON no válido.",
@@ -860,7 +862,8 @@
       "matched_one": "{{count}} fuente coincidente",
       "matched_other": "{{count}} fuentes coincidentes",
       "skipped_one": "{{count}} capa omitida.",
-      "skipped_other": "{{count}} capas omitidas."
+      "skipped_other": "{{count}} capas omitidas.",
+      "newMap": "Se creó el mapa nuevo «{{name}}»."
     }
   },
   "bulkActions": {

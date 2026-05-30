@@ -849,6 +849,8 @@
     "exportHint": "`{{filename}}` mit Quellen, Layern, Filtern, Beschriftungen, Sprites, Glyphen und Viewport-Metadaten herunterladen.",
     "exportButton": "JSON exportieren",
     "importButton": "JSON importieren",
+    "importHint": "Beim Importieren wird eine neue Karte erstellt – Ihre aktuelle Karte bleibt unverändert.",
+    "openNewMap": "Neue Karte öffnen",
     "errors": {
       "notObject": "Stil-JSON muss ein Objekt sein.",
       "invalidJson": "Ungültiges JSON.",
@@ -860,7 +862,8 @@
       "matched_one": "{{count}} übereinstimmende Quelle",
       "matched_other": "{{count}} übereinstimmende Quellen",
       "skipped_one": "{{count}} Layer übersprungen.",
-      "skipped_other": "{{count}} Layer übersprungen."
+      "skipped_other": "{{count}} Layer übersprungen.",
+      "newMap": "Neue Karte „{{name}}“ erstellt."
     }
   },
   "bulkActions": {

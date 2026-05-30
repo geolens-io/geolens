@@ -849,6 +849,8 @@
     "exportHint": "Télécharger `{{filename}}` avec les sources, couches, filtres, étiquettes, sprites, glyphes et métadonnées de viewport.",
     "exportButton": "Exporter JSON",
     "importButton": "Importer JSON",
+    "importHint": "L'importation crée une nouvelle carte — votre carte actuelle ne sera pas modifiée.",
+    "openNewMap": "Ouvrir la nouvelle carte",
     "errors": {
       "notObject": "Le JSON de style doit être un objet.",
       "invalidJson": "JSON invalide.",
@@ -860,7 +862,8 @@
       "matched_one": "{{count}} source correspondante",
       "matched_other": "{{count}} sources correspondantes",
       "skipped_one": "{{count}} couche ignorée.",
-      "skipped_other": "{{count}} couches ignorées."
+      "skipped_other": "{{count}} couches ignorées.",
+      "newMap": "Nouvelle carte « {{name}} » créée."
     }
   },
   "bulkActions": {

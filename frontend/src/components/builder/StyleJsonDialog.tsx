@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Download, Upload, AlertTriangle, CheckCircle2 } from 'lucide-react';
+import { useNavigate } from 'react-router';
+import { Download, Upload, AlertTriangle, CheckCircle2, Info, ExternalLink } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -11,7 +12,7 @@ import {
 } from '@/components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useExportMapStyleJson, useImportMapStyleJson } from '@/hooks/use-maps';
-import type { MapStyleImportSummary } from '@/types/api';
+import type { MapStyleImportResponse, MapStyleImportSummary } from '@/types/api';
 
 interface StyleJsonDialogProps {
   mapId: string;
@@ -66,11 +67,12 @@ function ImportSummary({ summary }: { summary: MapStyleImportSummary }) {
 
 export function StyleJsonDialog({ mapId, mapName, open, onOpenChange }: StyleJsonDialogProps) {
   const { t } = useTranslation('builder');
+  const navigate = useNavigate();
   const exportStyle = useExportMapStyleJson();
   const importStyle = useImportMapStyleJson();
   const [jsonText, setJsonText] = useState('');
   const [error, setError] = useState<string | null>(null);
-  const [summary, setSummary] = useState<MapStyleImportSummary | null>(null);
+  const [result, setResult] = useState<MapStyleImportResponse | null>(null);
   const filename = useMemo(() => styleFilename(mapName), [mapName]);
 
   async function handleExport() {
@@ -80,7 +82,7 @@ export function StyleJsonDialog({ mapId, mapName, open, onOpenChange }: StyleJso
 
   async function handleImport() {
     setError(null);
-    setSummary(null);
+    setResult(null);
     let parsed: Record<string, unknown>;
     try {
       parsed = JSON.parse(jsonText) as Record<string, unknown>;
@@ -93,11 +95,16 @@ export function StyleJsonDialog({ mapId, mapName, open, onOpenChange }: StyleJso
       return;
     }
     try {
-      const result = await importStyle.mutateAsync(parsed);
-      setSummary(result.summary);
+      const imported = await importStyle.mutateAsync(parsed);
+      setResult(imported);
     } catch (err) {
       setError(err instanceof Error ? err.message : t('styleJson.errors.importFailed'));
     }
+  }
+
+  function openNewMap(newMapId: string) {
+    onOpenChange(false);
+    navigate(`/maps/${newMapId}`);
   }
 
   return (
@@ -124,13 +131,17 @@ export function StyleJsonDialog({ mapId, mapName, open, onOpenChange }: StyleJso
             </Button>
           </TabsContent>
           <TabsContent value="import" className="space-y-3 pt-3">
+            <div className="flex items-start gap-2 rounded border bg-muted/30 p-3 text-xs text-muted-foreground">
+              <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              <span>{t('styleJson.importHint')}</span>
+            </div>
             <textarea
               className="min-h-48 w-full resize-y rounded border bg-background p-2 font-mono text-xs outline-none focus:ring-2 focus:ring-ring"
               value={jsonText}
               onChange={(event) => {
                 setJsonText(event.target.value);
                 setError(null);
-                setSummary(null);
+                setResult(null);
               }}
               placeholder='{"version":8,"sources":{},"layers":[]}'
               aria-label={t('styleJson.ariaLabel')}
@@ -143,7 +154,25 @@ export function StyleJsonDialog({ mapId, mapName, open, onOpenChange }: StyleJso
                 <span>{error}</span>
               </div>
             )}
-            {summary && <ImportSummary summary={summary} />}
+            {result && (
+              <div className="space-y-2">
+                <ImportSummary summary={result.summary} />
+                <div className="flex items-center justify-between gap-2 rounded border border-success/40 bg-success/10 p-2 text-xs">
+                  <span className="text-muted-foreground">
+                    {t('styleJson.summary.newMap', { name: result.map.name })}
+                  </span>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="gap-1.5"
+                    onClick={() => openNewMap(result.map.id)}
+                  >
+                    <ExternalLink className="h-3.5 w-3.5" />
+                    {t('styleJson.openNewMap')}
+                  </Button>
+                </div>
+              </div>
+            )}
             <Button onClick={handleImport} disabled={importStyle.isPending || !jsonText.trim()} className="gap-2">
               <Upload className="h-4 w-4" />
               {t('styleJson.importButton')}

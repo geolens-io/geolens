@@ -849,6 +849,8 @@
     "exportHint": "Download `{{filename}}` with sources, layers, filters, labels, sprites, glyphs, and viewport metadata.",
     "exportButton": "Export JSON",
     "importButton": "Import JSON",
+    "importHint": "Importing creates a new map — your current map won't be changed.",
+    "openNewMap": "Open new map",
     "errors": {
       "notObject": "Style JSON must be an object.",
       "invalidJson": "Invalid JSON.",
@@ -860,7 +862,8 @@
       "matched_one": "{{count}} matched source",
       "matched_other": "{{count}} matched sources",
       "skipped_one": "{{count}} skipped layer.",
-      "skipped_other": "{{count}} skipped layers."
+      "skipped_other": "{{count}} skipped layers.",
+      "newMap": "Created new map “{{name}}”."
     }
   },
   "bulkActions": {
