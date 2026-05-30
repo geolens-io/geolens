@@ -24,10 +24,14 @@ function ThemedToaster() {
 
 const router = createBrowserRouter(createRoutesFromElements(appRoutes));
 
+// Cache the React root on the container so a Vite HMR re-exec of this entry
+// module reuses it instead of calling createRoot() twice on the same node
+// (MAPS-01 / #122). Type-only; erased at runtime.
+interface RootContainer extends HTMLElement { __glRoot?: Root }
+
 async function bootstrap() {
   await initializeI18n();
 
-  interface RootContainer extends HTMLElement { __glRoot?: Root }
   const container = document.getElementById('root')! as RootContainer;
   const root = container.__glRoot ?? ReactDOM.createRoot(container);
   container.__glRoot = root;

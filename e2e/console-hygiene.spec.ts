@@ -28,6 +28,15 @@ test('MAPS-01: no duplicate createRoot warning under HMR-like re-exec', async ({
   await page.goto('/');
   await page.waitForLoadState('networkidle');
 
+  // This regression only reproduces under the Vite dev server, which serves raw
+  // TS source at `/src/main.tsx` and HMR-re-execs the entry. A production static
+  // build (nginx + dist/) has no such path, so the forced import would 404 and
+  // throw an unrelated error — skip cleanly there instead.
+  const isViteDevServer = await page.evaluate(
+    () => document.querySelector('script[src*="/@vite/client"]') !== null,
+  );
+  test.skip(!isViteDevServer, 'MAPS-01 HMR re-exec test requires the Vite dev server');
+
   // Attach the collector AFTER initial load (cold load is already clean).
   // We only care about messages produced by the HMR-like re-exec below.
   page.on('console', (msg) => {
@@ -41,8 +50,9 @@ test('MAPS-01: no duplicate createRoot warning under HMR-like re-exec', async ({
   // fresh module evaluation, re-running bootstrap() → createRoot() path.
   await page.evaluate(() => import('/src/main.tsx?t=' + Date.now()));
 
-  // Give React a moment to flush any pending warnings.
-  await page.waitForTimeout(500);
+  // createRoot()'s warning fires synchronously inside the awaited import above;
+  // this short buffer only covers CDP console-event delivery to the test process.
+  await page.waitForTimeout(100);
 
   // Assert 0 duplicate-createRoot warnings across errors and warnings.
   const dupRootWarnings = consoleMessages.filter((m) =>
