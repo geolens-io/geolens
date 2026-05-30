@@ -51,10 +51,12 @@
 **Success Criteria** (what must be TRUE):
   1. With `basemap_position='top'`, a raster/imagery basemap stays below the data layers and does not occlude them (pinned by a unit test in `UnifiedStackPanel.basemap-drag.test.tsx`).
   2. Toggling the visibility eye on a terrain-mode DEM layer attaches/detaches the 3D terrain (`getTerrain()` becomes null when hidden, re-attaches when shown), pinned by a test on `effectiveTerrainEnabled`.
-  3. The layer stack shows a single clearly-labeled row per DEM dataset with a render-mode pill, with no separate stand-alone terrain layer row, and duplicate "Copy N of M" metadata surfaces accidental double-adds.
+  3. The layer stack no longer renders a separate stand-alone terrain-mode DEM row (terrain is the map-level setting it already is), so the confusing triple-row DEM stack collapses; the terrain-mode layer record is suppressed from the stack via `isDemTerrainVisualSuppressed` while hillshade DEM rows still render. (The "Copy N of M" duplicate-badge from `map-stack.ts` is out of scope — a new UI surface this fixes-only milestone excludes.)
   4. Hiding a hillshade DEM layer with hypsometric tint also hides its `-colorrelief` companion, pinned by a test.
   5. `e2e:smoke:builder` and vitest stay green.
-**Plans**: TBD
+**Plans**: 2 plans
+  - [ ] 1158-01-PLAN.md — Apply the 4 audited source fixes (BLDR-01 raster-basemap ordering skip + BLDR-04 color-relief companion visibility in map-sync/color-relief-sync; BLDR-02 terrain eye gates 3D in BuilderMap; BLDR-03 suppress terrain-mode DEM row from UnifiedStackPanel)
+  - [ ] 1158-02-PLAN.md — Regression test pins (BLDR-01 raster-skip + BLDR-04 companion-visibility units; BLDR-02 terrain attach/detach-on-visibility; BLDR-03 terrain-row suppression) + full frontend gate (typecheck/vitest/e2e:smoke:builder)
 **UI hint**: yes
 
 ### Phase 1159: Maps/Search UI & Blob Hygiene
