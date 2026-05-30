@@ -195,15 +195,22 @@ export function RasterEditor({ layer, paint, onPaintProp, t }: BaseStyleEditorPr
         const sigma = typeof paint['_sigma'] === 'number' ? paint['_sigma'] : 2;
 
         const handlePminChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-          const candidate = Number(e.target.value);
-          if (candidate >= 0 && candidate < pmax) {
+          // Empty string → Number('') is 0, which would silently write pmin=0
+          // on backspace. Ignore empty/non-finite input so the field can be
+          // cleared without emitting a bogus bound.
+          const raw = e.target.value;
+          if (raw === '') return;
+          const candidate = Number(raw);
+          if (Number.isFinite(candidate) && candidate >= 0 && candidate < pmax) {
             onPaintProp('_pmin', candidate);
           }
         };
 
         const handlePmaxChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-          const candidate = Number(e.target.value);
-          if (candidate > pmin && candidate <= 100) {
+          const raw = e.target.value;
+          if (raw === '') return;
+          const candidate = Number(raw);
+          if (Number.isFinite(candidate) && candidate > pmin && candidate <= 100) {
             onPaintProp('_pmax', candidate);
           }
         };

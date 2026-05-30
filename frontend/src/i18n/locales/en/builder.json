@@ -282,7 +282,7 @@
       "colormapLabel": "Colormap",
       "stretchLabel": "Stretch",
       "stretchMinmax": "Min/Max",
-      "stretchPercentile": "Percentile (2–98%)",
+      "stretchPercentile": "Percentile",
       "stretchStddev": "Std Deviation",
       "colormapGray": "Grayscale",
       "colormapViridis": "Viridis",

@@ -282,7 +282,7 @@
       "colormapLabel": "Farbskala",
       "stretchLabel": "Strecken",
       "stretchMinmax": "Min/Max",
-      "stretchPercentile": "Perzentil (2–98%)",
+      "stretchPercentile": "Perzentil",
       "stretchStddev": "Standardabweichung",
       "colormapGray": "Graustufen",
       "colormapViridis": "Viridis",

@@ -282,7 +282,7 @@
       "colormapLabel": "Palette de couleurs",
       "stretchLabel": "Étirement",
       "stretchMinmax": "Min/Max",
-      "stretchPercentile": "Percentile (2–98%)",
+      "stretchPercentile": "Percentile",
       "stretchStddev": "Écart-type",
       "colormapGray": "Niveaux de gris",
       "colormapViridis": "Viridis",
