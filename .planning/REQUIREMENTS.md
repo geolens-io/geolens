@@ -12,9 +12,9 @@
 
 ### Backend Rename (Breaking)
 
-- [ ] **BE-RENAME-01**: An Alembic migration renames the `maps.widgets` JSONB column to `maps.plugins` (forward + downgrade), preserving existing row values (arrays of ID strings); the deployed `0001_baseline.py` is NOT edited. Pinned by the new migration file and an upgrade/downgrade round-trip test.
-- [ ] **BE-RENAME-02**: The same (or a paired) migration renames the `persistent_config` key `enabled_widgets` → `enabled_plugins` via `UPDATE persistent_config SET key='enabled_plugins' WHERE key='enabled_widgets'`, with a symmetric downgrade.
-- [ ] **BE-RENAME-03**: The `Map` model column `widgets` → `plugins` (`backend/app/modules/catalog/maps/models.py:87`) and the `persistent_config.py` `enabled_widgets` default-None logic (`:128`, `:675`) → `enabled_plugins`, consistent with the migrated schema.
+- [x] **BE-RENAME-01**: An Alembic migration renames the `maps.widgets` JSONB column to `maps.plugins` (forward + downgrade), preserving existing row values (arrays of ID strings); the deployed `0001_baseline.py` is NOT edited. Pinned by the new migration file and an upgrade/downgrade round-trip test.
+- [x] **BE-RENAME-02**: The same (or a paired) migration renames the `persistent_config` key `enabled_widgets` → `enabled_plugins` via `UPDATE persistent_config SET key='enabled_plugins' WHERE key='enabled_widgets'`, with a symmetric downgrade.
+- [x] **BE-RENAME-03**: The `Map` model column `widgets` → `plugins` (`backend/app/modules/catalog/maps/models.py:87`) and the `persistent_config.py` `enabled_widgets` default-None logic (`:128`, `:675`) → `enabled_plugins`, consistent with the migrated schema.
 - [ ] **BE-RENAME-04**: The Map API request/response field `widgets` becomes `plugins` (`backend/app/modules/catalog/maps/schemas.py:669,751`) — hard cut, no `widgets` alias accepted or emitted.
 - [ ] **BE-RENAME-05**: The Settings API field + validator `enabled_widgets` becomes `enabled_plugins` (`backend/app/modules/settings/schemas.py:359,363,414`) — hard cut, no alias.
 - [ ] **BE-RENAME-06**: Backend tests referencing widgets are updated and green; `make openapi` regenerates `backend/openapi.json`; the committed OpenAPI snapshot reflects `plugins`/`enabled_plugins` (`make openapi-check` clean).
@@ -63,9 +63,9 @@ Which phases cover which requirements. Populated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| BE-RENAME-01 | Phase 1161 | Pending |
-| BE-RENAME-02 | Phase 1161 | Pending |
-| BE-RENAME-03 | Phase 1161 | Pending |
+| BE-RENAME-01 | Phase 1161 | Complete |
+| BE-RENAME-02 | Phase 1161 | Complete |
+| BE-RENAME-03 | Phase 1161 | Complete |
 | BE-RENAME-04 | Phase 1161 | Pending |
 | BE-RENAME-05 | Phase 1161 | Pending |
 | BE-RENAME-06 | Phase 1161 | Pending |

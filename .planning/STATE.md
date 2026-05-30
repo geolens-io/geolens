@@ -1,3 +1,17 @@
+---
+gsd_state_version: 1.0
+milestone: v1036
+milestone_name: milestone
+status: "roadmap created; awaiting `/gsd:plan-phase 1161`"
+last_updated: "2026-05-30T23:55:52.794Z"
+progress:
+  total_phases: 5
+  completed_phases: 0
+  total_plans: 2
+  completed_plans: 1
+  percent: 0
+---
+
 # Project State
 
 **Milestone:** v1036 (roadmap created — planning)
@@ -6,6 +20,7 @@
 ---
 
 ## frontmatter
+
 ```yaml
 milestone: v1036
 status: planning
@@ -34,7 +49,7 @@ last_shipped: v1035
 **Plan:** none
 **Status:** roadmap created; awaiting `/gsd:plan-phase 1161`
 
-Progress: [..........] 0% (0/5 phases)
+Progress: [█████░░░░░] 50%
 
 ---
 
@@ -65,22 +80,25 @@ Progress: [..........] 0% (0/5 phases)
 ## Accumulated Context
 
 ### Decisions
+
 - Phase structure: 5 phases (1161-1165) derived from the 19 v1036 reqs. Backend contract is the foundation (migration must land before any live save/reload); frontend depends on the regenerated SDK; i18n/tooling/docs follow the code rename; live MCP close-gate is final.
 - Hard breaking cut confirmed — NO back-compat alias / deprecation shim / dual-read. Old `widgets` name removed in the same commit `plugins` lands.
 - Plugin ID values `measurement`/`legend` are preserved everywhere (stable identifiers, not the word "widget") — invariant across all phases.
 - New Alembic migration chains off head `a3f8c21d9e04`; downgrade must restore both original names.
 
 ### Todos / Carry-forward
+
 - (none from v1035)
 
 ### Blockers
+
 - (none)
 
 ---
 
 ## Session Continuity
 
-**Last session:** v1036 roadmap creation (ROADMAP.md + STATE.md + REQUIREMENTS traceability).
+**Last session:** 2026-05-30T23:55:52.790Z
 **Next action:** `/gsd:plan-phase 1161` (Backend Rename & Contract).
 
 ---

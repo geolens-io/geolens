@@ -32,7 +32,7 @@ Rename the map "widget" platform to "plugin" across the entire stack — DB, API
   4. The backend test suite passes with every reference updated to `plugins`/`enabled_plugins`, and no test (or app code) references the removed `widgets`/`enabled_widgets` names.
   5. `make openapi` regenerates a committed `backend/openapi.json` exposing the `plugins`/`enabled_plugins` fields (`make openapi-check` clean), and the regenerated TS/Python SDK reflects it.
 **Plans**: 2 plans
-  - [ ] 1161-01-PLAN.md — Reversible `0025` migration (rename `catalog.maps.widgets`→`plugins` column + `enabled_widgets`→`enabled_plugins` config key) + `Map` model & `persistent_config` rename + upgrade/downgrade round-trip test (BE-RENAME-01/02/03)
+  - [x] 1161-01-PLAN.md — Reversible `0025` migration (rename `catalog.maps.widgets`→`plugins` column + `enabled_widgets`→`enabled_plugins` config key) + `Map` model & `persistent_config` rename + upgrade/downgrade round-trip test (BE-RENAME-01/02/03)
   - [ ] 1161-02-PLAN.md — Map & Settings API contract rename (schemas, settings validator+route+config object, maps router/service/helpers) + full backend test sweep + `make openapi` regen so `make openapi-check`/`sdks-check` are clean (BE-RENAME-04/05/06)
 
 ### Phase 1162: Frontend Rename
@@ -86,7 +86,7 @@ Rename the map "widget" platform to "plugin" across the entire stack — DB, API
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1161. Backend Rename & Contract | 0/2 | Not started | - |
+| 1161. Backend Rename & Contract | 1/2 | In Progress|  |
 | 1162. Frontend Rename | 0/TBD | Not started | - |
 | 1163. i18n Key Rename | 0/TBD | Not started | - |
 | 1164. Tooling, Docs & Audit Fixes | 0/TBD | Not started | - |
