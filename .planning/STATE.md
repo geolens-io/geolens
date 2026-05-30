@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1035
 milestone_name: Builder, Maps & Export Bug Sweep
-status: ready_to_plan
-stopped_at: Phase 1156 complete (2/2) — ready to discuss Phase 1157
-last_updated: 2026-05-30T17:33:24.986Z
+status: executing
+stopped_at: "Session resumed — v1035 roadmap in place (Phases 1156-1160, 0 plans); next action `/gsd:plan-phase 1156` (SEC-01)"
+last_updated: "2026-05-30T17:51:20.617Z"
 last_activity: 2026-05-30
 progress:
   total_phases: 10
   completed_phases: 1
-  total_plans: 2
-  completed_plans: 2
+  total_plans: 4
+  completed_plans: 3
   percent: 10
 ---
 
@@ -18,10 +18,10 @@ progress:
 
 ## Current Position
 
-Phase: 1157
-Plan: Not started
+Phase: 1157 (Backend Export Access + Route Hygiene) — EXECUTING
+Plan: 2 of 2
 Next Phase: 1157 (Backend Export Access + Route Hygiene)
-Status: Ready to plan
+Status: Ready to execute
 Last activity: 2026-05-30
 
 ## Project Reference
@@ -29,7 +29,7 @@ Last activity: 2026-05-30
 See: .planning/PROJECT.md (updated 2026-05-30)
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** Phase 1157 — backend export access + route hygiene
+**Current focus:** Phase 1157 — Backend Export Access + Route Hygiene
 
 ## Last Shipped Milestone
 
@@ -97,7 +97,7 @@ None active.
 
 ## Session Continuity
 
-Last session: 2026-05-30T17:09:50.861Z
+Last session: 2026-05-30T17:51:20.612Z
 Stopped at: Session resumed — v1035 roadmap in place (Phases 1156-1160, 0 plans); next action `/gsd:plan-phase 1156` (SEC-01)
 Resume file: None
 

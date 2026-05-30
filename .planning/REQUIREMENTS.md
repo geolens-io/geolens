@@ -22,7 +22,7 @@ Requirements for this milestone. Each maps to exactly one roadmap phase.
 
 ### Export
 
-- [ ] **EXP-01** (#121): Anonymous users can export a published **public** dataset in all file formats (gpkg/geojson/shp/csv). `export_dataset_endpoint` (`backend/app/processing/export/router.py:47`) currently uses `require_permission("export")`, forcing auth before any visibility check, so anonymous export of public data 401s. Mirror the anonymous COG-download gate: branch on `user is None` to allow public+published via `check_dataset_access_or_anonymous` + a public-visibility defense-in-depth guard (`router_export.py:354`, `_resolve_download_user:254`); keep the `export` capability check on the authenticated path.
+- [x] **EXP-01** (#121): Anonymous users can export a published **public** dataset in all file formats (gpkg/geojson/shp/csv). `export_dataset_endpoint` (`backend/app/processing/export/router.py:47`) currently uses `require_permission("export")`, forcing auth before any visibility check, so anonymous export of public data 401s. Mirror the anonymous COG-download gate: branch on `user is None` to allow public+published via `check_dataset_access_or_anonymous` + a public-visibility defense-in-depth guard (`router_export.py:354`, `_resolve_download_user:254`); keep the `export` capability check on the authenticated path.
 - [ ] **EXP-02** (QZ-LP-02): A regression test proves anonymous and non-owner export of **private / restricted / unpublished** datasets remains denied (401/403/404) after EXP-01. (No draft/ready vector dataset exists in the dev DB today — seed or construct one in the test.)
 
 ### Maps & Search UI
@@ -32,7 +32,7 @@ Requirements for this milestone. Each maps to exactly one roadmap phase.
 
 ### API Hygiene
 
-- [ ] **API-01** (QZ-LP-03): `GET /collections/{id}/items/` (trailing slash) resolves like the no-slash form instead of 404, via a dual-shape alias (stacked decorator per the Phase 1092 ROUTE-01 pattern). Low-risk consistency fix; the frontend uses the no-slash form today.
+- [x] **API-01** (QZ-LP-03): `GET /collections/{id}/items/` (trailing slash) resolves like the no-slash form instead of 404, via a dual-shape alias (stacked decorator per the Phase 1092 ROUTE-01 pattern). Low-risk consistency fix; the frontend uses the no-slash form today.
 
 ### Code Hygiene
 
@@ -68,11 +68,11 @@ Which phases cover which requirements. Filled during roadmap creation.
 | BLDR-02 | Phase 1158 | Pending |
 | BLDR-03 | Phase 1158 | Pending |
 | BLDR-04 | Phase 1158 | Pending |
-| EXP-01 | Phase 1157 | Pending |
+| EXP-01 | Phase 1157 | Complete |
 | EXP-02 | Phase 1157 | Pending |
 | MAPS-01 | Phase 1159 | Pending |
 | MAPS-02 | Phase 1159 | Pending |
-| API-01 | Phase 1157 | Pending |
+| API-01 | Phase 1157 | Complete |
 | HYG-01 | Phase 1159 | Pending |
 | QA-01 | Phase 1160 | Pending |
 

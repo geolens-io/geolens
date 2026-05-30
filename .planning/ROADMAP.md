@@ -41,7 +41,7 @@
   3. Anonymous and non-owner export of private/restricted/unpublished datasets returns 401/403/404, pinned by a regression test (seed/construct a draft vector dataset).
   4. `GET /collections/{id}/items/` (trailing slash) resolves identically to the no-slash form instead of 404.
 **Plans**: 2 plans
-  - [ ] 1157-01-PLAN.md — EXP-01 anonymous-aware vector export gate (get_optional_user + public-published anon branch) + API-01 trailing-slash dual-shape alias on `get_collection_items`
+  - [x] 1157-01-PLAN.md — EXP-01 anonymous-aware vector export gate (get_optional_user + public-published anon branch) + API-01 trailing-slash dual-shape alias on `get_collection_items`
   - [ ] 1157-02-PLAN.md — EXP-02 regression test (anon/non-owner allow+deny matrix, seeds an unpublished dataset) + API-01 trailing-slash parity test
 
 ### Phase 1158: Builder Layer Visibility & DEM Consolidation
@@ -84,7 +84,7 @@
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1156. Vector-Tile Egress Authorization | 2/2 | Complete    | 2026-05-30 |
-| 1157. Backend Export Access + Route Hygiene | 0/TBD | Not started | - |
+| 1157. Backend Export Access + Route Hygiene | 1/2 | In Progress|  |
 | 1158. Builder Layer Visibility & DEM Consolidation | 0/TBD | Not started | - |
 | 1159. Maps/Search UI & Blob Hygiene | 0/TBD | Not started | - |
 | 1160. Live Playwright MCP Close-Gate | 0/TBD | Not started | - |
