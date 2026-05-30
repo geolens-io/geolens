@@ -1028,6 +1028,7 @@ async def _authorize_vector_tile_request(
     sig: str | None,
     exp: int | None,
     scope: str | None,
+    user: Identity | None,
 ) -> str:
     """Authorize direct vector-tile access and return cache scope."""
     embed_token_header = request.headers.get("X-Embed-Token")
@@ -1057,6 +1058,21 @@ async def _authorize_vector_tile_request(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Invalid or expired signature",
             )
+    else:
+        # Public dataset: still block non-published for unauthenticated users
+        if meta.record_status != "published":
+            # Unauthenticated users cannot see unpublished public datasets
+            if user is None:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found"
+                )
+            # Authenticated non-owners cannot see unpublished
+            port = get_processing_port()
+            user_roles = await port.get_user_roles(db, user)
+            if "admin" not in user_roles and meta.created_by != user.id:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found"
+                )
 
     return "public"
 
@@ -1106,6 +1122,7 @@ async def cluster_tile_endpoint(
     cluster_radius: int = Query(48, ge=1, le=256),
     cluster_max_zoom: int = Query(14, ge=0, le=22),
     db: AsyncSession = Depends(get_db),
+    user: Identity | None = Depends(get_optional_user),
 ) -> Response:
     """Serve a server-side clustered vector tile for point datasets.
 
@@ -1126,6 +1143,7 @@ async def cluster_tile_endpoint(
         sig=sig,
         exp=exp,
         scope=scope,
+        user=user,
     )
 
     cache_ttl = meta.tile_cache_ttl or settings.tile_cache_ttl
@@ -1239,6 +1257,7 @@ async def tile_endpoint(
     scope: str | None = None,
     cols: str | None = None,
     db: AsyncSession = Depends(get_db),
+    user: Identity | None = Depends(get_optional_user),
 ) -> Response:
     """Serve a vector tile as gzipped MVT binary.
 
@@ -1266,6 +1285,7 @@ async def tile_endpoint(
         sig=sig,
         exp=exp,
         scope=scope,
+        user=user,
     )
 
     # Parse `cols` query param into a validated, deduped, sorted list.
