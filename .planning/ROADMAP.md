@@ -40,7 +40,9 @@
   2. The authenticated path still enforces the `export` capability check.
   3. Anonymous and non-owner export of private/restricted/unpublished datasets returns 401/403/404, pinned by a regression test (seed/construct a draft vector dataset).
   4. `GET /collections/{id}/items/` (trailing slash) resolves identically to the no-slash form instead of 404.
-**Plans**: TBD
+**Plans**: 2 plans
+  - [ ] 1157-01-PLAN.md — EXP-01 anonymous-aware vector export gate (get_optional_user + public-published anon branch) + API-01 trailing-slash dual-shape alias on `get_collection_items`
+  - [ ] 1157-02-PLAN.md — EXP-02 regression test (anon/non-owner allow+deny matrix, seeds an unpublished dataset) + API-01 trailing-slash parity test
 
 ### Phase 1158: Builder Layer Visibility & DEM Consolidation
 **Goal**: The map builder renders basemap/data ordering, DEM rows, and DEM/terrain visibility toggles the way users expect — raster basemaps never occlude data, the terrain eye actually toggles 3D, one DEM row replaces the confusing triple stack, and hypsometric tint hides with its parent.
