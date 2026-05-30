@@ -12,24 +12,30 @@ Milestones are delivered through v1033 Builder Terrain, Label & Render-Mode QA (
 
 The marketing and documentation web properties (v14.0 + v15.0 + 999.5 cross-repo style alignment) and their planning artifacts moved to the `getgeolens.com` repo on 2026-04-26 — see `~/Code/getgeolens.com/.planning/` for active docs-site work.
 
-## Current Milestone: v1035 Builder, Maps & Export Bug Sweep
+## Current Milestone: v1036 Widget → Plugin Platform Rename
 
-**Goal:** Close the defects surfaced by quick task 260530-ezw + its production-readiness QA pass — a security leak, builder rendering/visibility bugs, an export-access gap, and supporting hygiene — so the maps/builder/export surfaces are production-ready.
+**Goal:** Rename the map "widget" platform to "plugin" across the entire stack — DB, API, frontend, i18n, docs, and tooling — as a clean breaking change on shipped 1.0.0 (no back-compat shim), so the platform's public vocabulary is consistent and a real plugin-authoring guide exists.
 
 **Target features:**
-- **SEC-01 (#124, blocker):** vector tile + token endpoints gate on `record_status` — no anonymous access to public-but-unpublished tile data/tokens (mirror the raster path)
-- **BLDR-01 (#120):** raster/imagery basemap stays below data at `basemap_position='top'`
-- **BLDR-02 (#123):** terrain/DEM visibility toggle disables terrain (`effectiveTerrainEnabled = terrainConfig.enabled && demLayer.visible`)
-- **BLDR-03 (#123):** consolidate the triple DEM stack rows (one DEM row + render-mode pill; terrain as a map-level setting)
-- **BLDR-04 (#125):** color-relief (hypsometric tint) companion honors parent layer visibility
-- **EXP-01 (#121):** anonymous export of published **public** datasets (all formats), mirroring the anon COG-download gate
-- **EXP-02 (QZ-LP-02):** regression — unpublished/non-public vector export stays gated
-- **MAPS-01 (#122):** eliminate the app-wide duplicate `ReactDOMClient.createRoot()` console error
-- **MAPS-02 (QZ-LP-01):** search-page quicklook regression test (verified healthy live)
-- **API-01 (QZ-LP-03):** `/collections/{id}/items/` trailing-slash dual-shape alias
-- **HYG-01 (QZ-LP-04):** move `registerBlobUrlRevocation` out of hook render
+- **RENAME-DB-01 (breaking):** Alembic migration renames `maps.widgets` JSONB → `maps.plugins` and `persistent_config` key `enabled_widgets` → `enabled_plugins` (forward + downgrade; row values unchanged). Do NOT edit the deployed `0001_baseline.py`.
+- **RENAME-API-01 (breaking):** Map API field `widgets` → `plugins` (`maps/schemas.py`) and Settings API field/validator `enabled_widgets` → `enabled_plugins` (`settings/schemas.py`); hard cut, no alias. OpenAPI + Python/TS SDKs regenerated.
+- **RENAME-FE-01:** `frontend/src/components/map-widgets/` → `map-plugins/` (10 files) + all identifiers (`WidgetHost`/`WidgetPanel`/`WidgetErrorBoundary`/`WidgetDefinition`/`WidgetContext`/`registerWidget`/`map-widget-store`/`widget-availability` → `Plugin*`) across ~57 frontend files; `types/api.ts` + settings api + query-keys updated.
+- **RENAME-I18N-01:** rename ~64 i18n keys (13 builder + 3 admin × en/es/fr/de) with full parity.
+- **RENAME-TOOL-01:** rename `.claude/commands/widget-audit.md` → `plugin-audit.md` (+ fix cross-refs in builder-audit.md / map-audit.md), update 2 `.agents/skills`, and rename 3 e2e specs.
+- **DOCS-01:** write a real `docs/plugin-development.md` authoring guide (registry, built-ins, availability, host/panel contract) so the audit reference resolves.
+- **AUDIT-FIX-01:** fold in the 3 plugin-audit.md review findings — resolve the dangling doc reference, add `plugin-availability.ts` to the read list, derive built-ins from the registry (not hardcoded "measurement and legend").
+- **QA-01:** orchestrator-driven live Playwright MCP close-gate — set → save → reload a plugin to round-trip the renamed DB column on the running stack.
 
-**Key context:** All items are root-caused with file:line in `.planning/backlog/qa-260530-*.md` and the quick-task SUMMARY. SEC-01 is a real anonymous data leak (sequence first). Phase numbering continues from 1155. No new domain research (fixes in existing code).
+**Key context:** Source brief `RENAME-widgets-to-plugins-BRIEF.md`. **Hard breaking cut** confirmed (no deprecation alias). KEEP the widget **ID values** `measurement`/`legend` — they are identifiers, not the word. No "plugin" naming collision (the enterprise extension system uses "extension"). Breaking change → CHANGELOG `[2.0.0]`. Phase numbering continues from 1160. No domain research (internal rename of existing code).
+
+## Recent Shipped Milestone: v1035 Builder, Maps & Export Bug Sweep
+
+**Shipped:** 2026-05-30
+**Tag:** local `v1035`
+
+**Goal delivered:** Closed the defects from quick task 260530-ezw + its production-readiness QA — one anonymous data-leak security blocker, four map-builder rendering/visibility bugs, an export-access gap, an app-wide console error, plus regression coverage. Fixes to existing files only (no new deps/migrations/features); proven on the running stack via orchestrator-driven live Playwright MCP.
+
+**Delivered:** 12/12 requirements across phases 1156-1160. **SEC-01** (blocker): anonymous vector-tile data leak closed across all 5 entry points (vector `.pbf` + single/batch tile-token + cluster) — now gate on `visibility=='public' AND record_status=='published'`, mirroring the raster path. **EXP-01/EXP-02:** anonymous export of public+published datasets (all formats) + allow/deny regression matrix. **API-01:** `/collections/{id}/items/` trailing-slash alias. **BLDR-01/02/03/04:** raster basemap stays below data; terrain eye toggles 3D; phantom triple-DEM row suppressed; color-relief honors parent visibility. **MAPS-01/02 + HYG-01:** duplicate `createRoot()` console error killed; quicklook blob-url revoke; `registerBlobUrlRevocation` moved out of render. 2 BLOCKERs caught + fixed inline. Audit `tech_debt` (12/12; CLEAR-TO-TAG). Carry-forward: BLDR-TILE-RACE (pre-existing ~20% tile-token 403 in builder drag-from-catalog).
 
 ## Recent Shipped Milestone: v1034 Raster Stretch & Colormap Completion
 
@@ -919,13 +925,15 @@ Users can find any dataset in the catalog in seconds — search, see it on a map
 
 ## Requirements
 
-### Active (v1034 Raster Stretch & Colormap Completion)
+### Active (v1036 Widget → Plugin Platform Rename)
 
-- Per-band multi-band raster stretch via `/cog/statistics` + multi-rescale Titiler URL — v1034
-- Configurable stretch bounds (percentile / σ multiplier) in RasterEditor — v1034
-- Seeded non-DEM single-band raster fixture for stretch/colormap verification — v1034
-- Verified single-band stretch + colormap UI against real single-band data — v1034
-- v1033 builder tech-debt cleanup (dead `onRenderModeChange`, `hillshadeTerrainNote`) — v1034
+- Breaking DB rename: `maps.widgets` JSONB → `maps.plugins` + config key `enabled_widgets` → `enabled_plugins` (Alembic migration, forward + downgrade) — v1036
+- Breaking API rename: map `widgets` field + settings `enabled_widgets` validator → `plugins` / `enabled_plugins`; OpenAPI + SDKs regenerated; hard cut, no alias — v1036
+- Frontend refactor: `map-widgets/` → `map-plugins/` + `Widget*` identifiers → `Plugin*` across ~57 files (keep `measurement`/`legend` ID values) — v1036
+- i18n: ~64 widget keys → plugin keys across en/es/fr/de with parity — v1036
+- Tooling: `widget-audit.md` → `plugin-audit.md` (+ cross-refs/skills/e2e) + 3 audit-correctness fixes — v1036
+- New `docs/plugin-development.md` authoring guide — v1036
+- Live Playwright MCP close-gate: plugin set→save→reload round-trips the renamed DB column — v1036
 
 _Full REQ-ID breakdown in `.planning/REQUIREMENTS.md`._
 
@@ -1524,6 +1532,6 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-30 — started milestone v1035 Builder, Maps & Export Bug Sweep (closes quick task 260530-ezw findings + production-readiness QA pass: SEC-01 anon tile leak #124, BLDR-01..04 #120/#123/#125, EXP-01/02 #121, MAPS-01/02 #122, API-01, HYG-01; phase numbering continues from 1155). Prior: v1034 Raster Stretch & Colormap Completion shipped 2026-05-30 (local tag `v1034`).*
+*Last updated: 2026-05-30 — started milestone v1036 Widget → Plugin Platform Rename (full-platform rename of the map "widget" platform → "plugin" across DB/API/frontend/i18n/docs/tooling; hard breaking cut on shipped 1.0.0, no back-compat alias; CHANGELOG `[2.0.0]`; phase numbering continues from 1160). Prior: v1035 Builder, Maps & Export Bug Sweep shipped 2026-05-30 (local tag `v1035`).*
 
 *Earlier: 2026-05-29 — started milestone v1034 Raster Stretch & Colormap Completion. Closes the raster stretch/colormap tail carried since v1031/v1032: full per-band multi-band stretch, configurable percentile/σ bounds, a real seeded single-band raster fixture (TESTDATA-01) to verify the colormap/stretch UI, plus v1033 builder dead-code/note cleanup. Phase numbering continues from 1151. Prior: v1033 Builder Terrain, Label & Render-Mode QA shipped 2026-05-29 (local tag `v1033`, CHANGELOG `[1.8.0]`).*
