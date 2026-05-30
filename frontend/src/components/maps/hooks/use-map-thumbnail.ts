@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiFetchBlob } from '@/api/client';
 import { registerBlobUrlRevocation } from '@/lib/blob-url-cache';
@@ -33,7 +34,7 @@ export function useMapThumbnail(
 ): string | null {
   const thumbnailPath = withThumbnailVersion(thumbnailUrl, version);
   const queryClient = useQueryClient();
-  registerBlobUrlRevocation(queryClient);
+  useEffect(() => { registerBlobUrlRevocation(queryClient); }, [queryClient]);
 
   const { data: src = null } = useQuery({
     queryKey: ['map-thumbnail', thumbnailUrl, version],
