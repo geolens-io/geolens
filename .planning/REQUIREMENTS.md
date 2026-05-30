@@ -11,7 +11,7 @@ Requirements for this milestone. Each maps to exactly one roadmap phase.
 
 ### Security (blocker — fix first)
 
-- [ ] **SEC-01** (#124): Vector-tile data and tile tokens are denied to anonymous callers for datasets that are `visibility=public` but **not** `record_status=published`. Today the vector-tile authorization checks visibility only and never consults `record_status`, so an unpublished (draft/ready/internal) public dataset leaks its MVT features + a valid HMAC token to anyone. Fix all four entry points to require `published` for non-owner/non-admin, mirroring the already-correct **raster** path (`backend/app/processing/tiles/router.py:438,467`): `_authorize_vector_tile_request` (`tiles/router.py:1053`), carry `record_status` into `_DatasetMeta`/`_resolve_dataset_meta` (`tiles/router.py:1015`), `get_tile_token` (`tiles/router.py:866`), `get_tile_tokens_batch` (`tiles/router.py:939`), and `cluster_tile_endpoint` (`tiles/router.py:1130`). The anonymous-access contract is `visibility=='public' AND record_status=='published'` (`backend/app/platform/extensions/defaults.py:61-65,109-110`). Pinned by a regression test: anonymous tile-token + `.pbf` request on a public-unpublished dataset → 401/404 (today both return 200 + 1842 bytes of feature data).
+- [x] **SEC-01** (#124): Vector-tile data and tile tokens are denied to anonymous callers for datasets that are `visibility=public` but **not** `record_status=published`. Today the vector-tile authorization checks visibility only and never consults `record_status`, so an unpublished (draft/ready/internal) public dataset leaks its MVT features + a valid HMAC token to anyone. Fix all four entry points to require `published` for non-owner/non-admin, mirroring the already-correct **raster** path (`backend/app/processing/tiles/router.py:438,467`): `_authorize_vector_tile_request` (`tiles/router.py:1053`), carry `record_status` into `_DatasetMeta`/`_resolve_dataset_meta` (`tiles/router.py:1015`), `get_tile_token` (`tiles/router.py:866`), `get_tile_tokens_batch` (`tiles/router.py:939`), and `cluster_tile_endpoint` (`tiles/router.py:1130`). The anonymous-access contract is `visibility=='public' AND record_status=='published'` (`backend/app/platform/extensions/defaults.py:61-65,109-110`). Pinned by a regression test: anonymous tile-token + `.pbf` request on a public-unpublished dataset → 401/404 (today both return 200 + 1842 bytes of feature data).
 
 ### Map Builder
 
@@ -63,7 +63,7 @@ Which phases cover which requirements. Filled during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| SEC-01 | Phase 1156 | Pending |
+| SEC-01 | Phase 1156 | Complete |
 | BLDR-01 | Phase 1158 | Pending |
 | BLDR-02 | Phase 1158 | Pending |
 | BLDR-03 | Phase 1158 | Pending |

@@ -2,14 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1035
 milestone_name: Builder, Maps & Export Bug Sweep
-status: planning
-last_updated: "2026-05-30T16:35:25.727Z"
-last_activity: 2026-05-30
+status: executing
+stopped_at: "1156-01 complete (SEC-01 fix — all 5 vector-tile entry points now status-aware); next: execute 1156-02 regression tests"
+last_updated: "2026-05-30T17:10:00Z"
+last_activity: 2026-05-30 -- 1156-01 SEC-01 fix executed
 progress:
-  total_phases: 5
+  total_phases: 10
   completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
+  total_plans: 2
+  completed_plans: 1
   percent: 0
 ---
 
@@ -17,17 +18,17 @@ progress:
 
 ## Current Position
 
-Phase: Not started (roadmap created — Phases 1156-1160)
-Plan: —
-Status: Roadmap created; awaiting `/gsd:plan-phase 1156`
-Last activity: 2026-05-30 — Milestone v1035 roadmap created (5 phases, 12/12 reqs mapped)
+Phase: 1156 (Vector-Tile Egress Authorization) — EXECUTING
+Plan: 2 of 2 (1156-01 complete; 1156-02 regression tests pending)
+Status: Executing Phase 1156
+Last activity: 2026-05-30 -- 1156-01 SEC-01 fix executed
 
 ## Project Reference
 
 See: .planning/PROJECT.md (updated 2026-05-30)
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** v1035 bug/security sweep — start with Phase 1156 (SEC-01 vector-tile egress leak, security blocker).
+**Current focus:** Phase 1156 — Vector-Tile Egress Authorization
 
 ## Last Shipped Milestone
 
@@ -52,6 +53,7 @@ See: .planning/PROJECT.md (updated 2026-05-30)
 - [ ] 1160: Live Playwright MCP Close-Gate (QA-01)
 
 **Key constraints:**
+
 - **SEC-01 is a real anonymous data leak** (live-proven: 1842 bytes of MVT served to anon for a public-unpublished dataset). Sequence Phase 1156 first; the raster path (`tiles/router.py:438,467`) is the correct model to mirror across the four vector entry points (`_authorize_vector_tile_request` :1053, `_DatasetMeta`/`_resolve_dataset_meta` :1015, `get_tile_token` :866, `get_tile_tokens_batch` :939, `cluster_tile_endpoint` :1130).
 - **EXP-02 needs a draft/ready vector dataset** — none exists in the dev DB; seed or construct one in the regression test.
 - **Orchestrator drives all live Playwright MCP** (Phase 1160). Executor subagents lack `mcp__playwright__*` access — see project memory `playwright-mcp-orchestrator-only`.
@@ -68,6 +70,7 @@ See: .planning/PROJECT.md (updated 2026-05-30)
 - **BLDR-03 (audited):** `UnifiedStackPanel` renders 1 `StackRow` per `MapLayerResponse` (no synthesis); three DEM rows = the DEM dataset added as 3 separate layer records. Recommended: one DEM row + render-mode pill, terrain as map-level setting (no separate terrain layer row); reuse the `MapStackDuplicateMetadata` "Copy N of M" logic (`map-stack.ts:299-337`, currently unshown). `map-stack.ts`/`buildMapStack` is dead in the live UI (only `normalize-saved-map.ts` + tests reference it).
 - **MAPS-01:** duplicate `ReactDOMClient.createRoot()` error fires app-wide (3× per load on home/search, `/maps`, dataset detail) — find the offending `createRoot()` call and cache/reuse the root (or unmount before re-rooting). Out of scope: broader StrictMode/HMR mount refactor.
 - **API-01:** add `/collections/{id}/items/` trailing-slash dual-shape alias per the Phase 1092 ROUTE-01 stacked-decorator pattern (`redirect_slashes=False` at app level). Frontend uses no-slash today.
+- **SEC-01 fix approach (1156-01):** Option A used for `_authorize_vector_tile_request` — thread `user: Identity | None` as keyword param, add `else` status guard mirroring raster lines 465-479; both token endpoints use `check_dataset_access_or_anonymous` one-call form; batch endpoint uses `try/except HTTPException` to preserve per-key error accumulation.
 
 ### Pending Todos
 
@@ -93,12 +96,12 @@ None active.
 
 ## Session Continuity
 
-Last session: 2026-05-30
-Stopped at: v1035 roadmap created; STATE.md updated; REQUIREMENTS traceability filled (12/12)
+Last session: 2026-05-30T17:04:13.446Z
+Stopped at: Session resumed — v1035 roadmap in place (Phases 1156-1160, 0 plans); next action `/gsd:plan-phase 1156` (SEC-01)
 Resume file: None
 
 ## Operator Next Steps
 
-- **Roadmap created.** 5 phases (1156-1160), 12/12 reqs mapped. Run `/gsd:plan-phase 1156` to begin.
-- **Phase 1156 first (SEC-01)** — real anonymous data leak; ships/verifies independently before the rest.
+- **1156-01 done.** SEC-01 fix landed in 3 commits (`bfaba566`, `87df7122`, `a9c0a8e8`). All 5 vector-tile entry points now enforce `visibility=='public' AND record_status=='published'` for anonymous callers.
+- **Next:** Execute 1156-02 (regression tests for SEC-01 behavioral gate).
 - **MCP note:** Orchestrator drives all live Playwright MCP (Phase 1160). Executor subagents lack `mcp__playwright__*` access — see project memory `playwright-mcp-orchestrator-only`.

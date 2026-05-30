@@ -28,7 +28,7 @@
   4. A public+published vector dataset still serves tiles + tokens to anonymous callers (no over-gating regression); owner/admin/embed-token paths unchanged.
   5. A regression test pins the anonymous tile-token + `.pbf` denial on a public-unpublished dataset.
 **Plans**: 2 plans
-  - [ ] 1156-01-PLAN.md — Status-aware vector-tile authorization across all five entry points (`_DatasetMeta` field + token endpoints + `_authorize_vector_tile_request`)
+  - [x] 1156-01-PLAN.md — Status-aware vector-tile authorization across all five entry points (`_DatasetMeta` field + token endpoints + `_authorize_vector_tile_request`)
   - [ ] 1156-02-PLAN.md — SEC-01 regression test pinning anon denial (single/batch token + cluster) and the public+published over-gating guard
 
 ### Phase 1157: Backend Export Access + Route Hygiene
@@ -81,7 +81,7 @@
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1156. Vector-Tile Egress Authorization | 0/TBD | Not started | - |
+| 1156. Vector-Tile Egress Authorization | 1/2 | In Progress|  |
 | 1157. Backend Export Access + Route Hygiene | 0/TBD | Not started | - |
 | 1158. Builder Layer Visibility & DEM Consolidation | 0/TBD | Not started | - |
 | 1159. Maps/Search UI & Blob Hygiene | 0/TBD | Not started | - |
