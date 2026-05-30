@@ -102,6 +102,7 @@ export function syncColorReliefLayer(
       // cast to silence the type checker while keeping full runtime safety.
       type: 'color-relief' as unknown as 'hillshade',
       source: input.sourceId, // existing raster-dem source from hillshade-adapter
+      layout: { visibility: input.visible ? 'visible' : 'none' },
       paint: {
         'color-relief-color': buildElevationExpression(rampName),
         'color-relief-opacity': 0.7,
