@@ -41886,6 +41886,11 @@
             "description": "Internal server error"
           }
         },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
         "summary": "Cluster Tile Endpoint",
         "tags": [
           "Tiles"
@@ -42517,6 +42522,11 @@
             "description": "Internal server error"
           }
         },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
         "summary": "Tile Endpoint",
         "tags": [
           "Tiles"
