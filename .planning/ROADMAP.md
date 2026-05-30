@@ -97,6 +97,20 @@
 - ✅ **v1022 Parallel-Test Cascade Closure + Hygiene Tail** — Phases 1094-1097 (shipped 2026-05-24, local tag `v1022`, public tag `v1.5.7`) — see [archive](milestones/v1022-ROADMAP.md)
 - ✅ **v1023 CI Live-Verify + OOS Hygiene Tail** — Phases 1098-1100 (shipped 2026-05-24, local tag `v1023`, public tag `v1.5.8`)
 
+## Up Next (candidate milestone)
+
+### Builder v2 — editor-control + layer-type expansion
+
+_Promoted from backlog 999.18 on 2026-05-30. Run `/gsd-new-milestone` to split the sub-groups below into sequenced phases (1156+)._
+
+Map Builder feature-expansion items deferred from v1030. Three sub-groups — split independently at milestone planning (effort ranges from small editor controls to whole new layer subsystems):
+
+- _Editor convenience:_ **EDITOR-SYMBOL-04** categorical icon mapping with real distinct-value query (`useColumnDistinctValues` exists post-WALK-01); **EDITOR-BASEMAP-06** custom basemap style URL override (architecture-shaped).
+- _Layer-type expansion:_ Text/Annotation layer ("Render as Text"); Draw/annotation layer (text + shapes); LiDAR support.
+
+**Source:** `milestones/v1030-REQUIREMENTS.md` §"v2 Requirements"
+**Estimated effort:** Split per sub-group — editor-convenience items are polish-sized; layer-type expansion is feature-milestone work.
+
 ## Backlog
 
 ### Phase 999.6: Tenant scoping infrastructure for multi-tenant isolation (BACKLOG — Cloud prerequisite)
@@ -166,20 +180,4 @@ Plans:
 
 ---
 
-### Phase 999.18: Builder v2 feature register — editor-control + layer-type expansion (BACKLOG — P3)
-
-**Goal:** Map Builder feature-expansion items deferred from v1030. Three sub-groups — promote independently (effort varies from small editor controls to whole new layer subsystems):
-
-- _Editor convenience:_ **EDITOR-SYMBOL-04** categorical icon mapping with real distinct-value query (`useColumnDistinctValues` exists post-WALK-01); **EDITOR-BASEMAP-06** custom basemap style URL override (architecture-shaped).
-- _Layer-type expansion:_ Text/Annotation layer ("Render as Text"); Draw/annotation layer (text + shapes); LiDAR support.
-
-**Source:** `milestones/v1030-REQUIREMENTS.md` §"v2 Requirements"
-**Estimated effort:** Split per sub-group at promotion — editor-convenience are polish-sized; layer-type expansion is feature-milestone work.
-
-Plans:
-
-- [ ] TBD
-
----
-
-*Roadmap updated: 2026-05-29 — v1034 roadmap created (phases 1152-1155).*
+*Roadmap updated: 2026-05-30 — backlog review: promoted 999.18 → Up Next (Builder v2 candidate milestone); removed stale 999.17 + 999.19 (both shipped in v1031 Phase 1142).*
