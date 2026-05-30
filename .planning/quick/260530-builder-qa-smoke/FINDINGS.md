@@ -131,8 +131,10 @@ Evidence: `screenshots/qa-08`.
 
 Tests: backend `test_maps.py` + 2 new regression tests (non-default round-trip + invalid-enum
 reject); `test_maps_style_json.py` expectations updated for additive fields; frontend
-`BuilderMap.unit.test.ts` projection-preservation case. Frontend typecheck 0; vitest
-1473/1473; backend maps suites green; ruff + eslint clean. OpenAPI snapshot regenerated.
+`BuilderMap.unit.test.ts` projection-preservation case; **new `MapBuilderPage.settings-wiring.test.tsx`
+(3 cases) guarding the previously-manual-only wiring — widget-toggle→dirty, Globe→config.projection,
+saved-projection→pill seed**. Frontend typecheck 0; full vitest 2625/2625; backend maps suites
+green; ruff + eslint clean. OpenAPI snapshot regenerated.
 
 ---
 
