@@ -429,13 +429,13 @@ class TestRasterColormapProxy:
             f"Expected exactly 3 rescale= fragments (cap=3) for band_count=4, got: {tile_url.count('rescale=')} in {tile_url}"
         )
 
-    async def test_missing_band_count_falls_back_to_one_rescale_fragment(self, client):
+    async def test_missing_band_count_falls_back_to_one_rescale_fragment(
+        self, client, monkeypatch
+    ):
         """[RASTER-STRETCH-03] band_count missing/None → 1 rescale= fragment, no crash."""
-        # Simulate absent X-GeoLens-Band-Count header by setting it to empty string
-        # The router should treat absent/empty as 1.
         from app.processing.tiles import router as tiles_router
-        import monkeypatch as mp  # noqa: F401  -- use the monkeypatch fixture
-        # We'll use a custom auth mock that omits the band count header
+
+        # Simulate absent X-GeoLens-Band-Count header — router must fall back to 1.
         async def _fake_auth_no_band_count(request, dataset_id, user=None, db=None):
             return MagicMock(
                 status_code=200,
@@ -447,7 +447,8 @@ class TestRasterColormapProxy:
                 },
                 content=b"",
             )
-        tiles_router.raster_auth_check = _fake_auth_no_band_count
+
+        monkeypatch.setattr(tiles_router, "raster_auth_check", _fake_auth_no_band_count)
         resp = await client.get(_TILE_PATH, params={"stretch": "percentile"})
         assert resp.status_code in (200, 204)
         tile_url = self._tile_titiler_calls[0]

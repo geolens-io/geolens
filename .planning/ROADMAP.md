@@ -103,7 +103,7 @@
 - [x] **Phase 1152: Single-Band Raster Fixture** - Seed a uint8 non-DEM single-band COG via the seed script; hard gate for all subsequent stretch/colormap verification (completed 2026-05-29)
 - [x] **Phase 1153: Backend — Multi-Band Stretch + Configurable Bounds** - Fix `n_bands=1` call site for per-band multi-band rescale; spike Titiler `p=` support then wire `pmin`/`pmax`/`sigma` params + compound cache key (completed 2026-05-29)
 - [x] **Phase 1154: Frontend Controls + Cleanup** - Widen stretch gate to multi-band; add pmin/pmax/sigma inputs; stretch-colormap hint copy; remove v1033 dead code (completed 2026-05-30)
-- [ ] **Phase 1155: Close-Gate** - Orchestrator Playwright MCP: multi-band stretch on RGB ortho + single-band stretch/colormap on TESTDATA-01 fixture; standard test gates
+- [x] **Phase 1155: Close-Gate** - Orchestrator Playwright MCP: multi-band stretch on RGB ortho + single-band stretch/colormap on TESTDATA-01 fixture; standard test gates
 
 ## Phase Details
 
@@ -164,7 +164,7 @@
 | 1152. Single-Band Raster Fixture | 1/1 | Complete   | 2026-05-29 |
 | 1153. Backend — Multi-Band Stretch + Configurable Bounds | 1/1 | Complete   | 2026-05-29 |
 | 1154. Frontend Controls + Cleanup | 2/2 | Complete   | 2026-05-30 |
-| 1155. Close-Gate | 0/? | Not started | - |
+| 1155. Close-Gate | 1/1 | Complete | 2026-05-30 |
 
 ## Backlog
 
