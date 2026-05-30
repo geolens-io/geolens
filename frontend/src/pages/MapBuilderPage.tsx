@@ -78,7 +78,7 @@ import { useBuilderEditorScene } from '@/components/builder/hooks/use-builder-ed
 import { useFilteredFeatureCount } from '@/components/builder/hooks/use-filtered-feature-count';
 import { useBuilderLayers } from '@/components/builder/hooks/use-builder-layers';
 import { useBuilderSave } from '@/components/builder/hooks/use-builder-save';
-import { TERRAIN_SOURCE_ID, normalizeTerrainExaggeration, isHillshadeTerrainBound } from '@/components/builder/map-sync';
+import { TERRAIN_SOURCE_ID, normalizeTerrainExaggeration, isHillshadeTerrainBound, isDemTerrainVisualSuppressed } from '@/components/builder/map-sync';
 import {
   createBuilderBasemapState,
   removeBasemap as removeBasemapFromState,
@@ -500,6 +500,12 @@ export function MapBuilderPage() {
   const selectableRowIds = useMemo((): string[] => {
     const ids: string[] = [];
     for (const layer of layers.localLayers) {
+      // BLDR-03: terrain-mode DEM layers are suppressed from the stack panel
+      // (no row rendered), so they must not be range-selectable either —
+      // otherwise a shift-click range spanning a hidden terrain row could
+      // silently include and bulk-delete that terrain record. Mirror the
+      // visibleStackLayers filter applied inside UnifiedStackPanel.
+      if (isDemTerrainVisualSuppressed(layer)) continue;
       ids.push(layer.id);
     }
     return ids;

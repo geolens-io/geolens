@@ -834,6 +834,11 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
   const safeMoveLayerOutOfGroup = onMoveLayerOutOfGroup ?? NOOP;
   const safeToggleGroupExpand = onToggleGroupExpand ?? NOOP;
 
+  // BLDR-03: emptiness is measured over visibleStackLayers (terrain-mode DEM
+  // rows are suppressed because terrain is a map-level setting, not a data row).
+  // A map whose only layer is a terrain-mode DEM therefore intentionally shows
+  // the "add data" empty state — there are no data layers to manage in the stack;
+  // terrain is configured via the map-level terrain controls.
   const isEmpty = visibleStackLayers.length === 0;
 
   // ---------------------------------------------------------------------------
