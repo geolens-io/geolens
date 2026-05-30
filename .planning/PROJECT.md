@@ -12,9 +12,24 @@ Milestones are delivered through v1033 Builder Terrain, Label & Render-Mode QA (
 
 The marketing and documentation web properties (v14.0 + v15.0 + 999.5 cross-repo style alignment) and their planning artifacts moved to the `getgeolens.com` repo on 2026-04-26 — see `~/Code/getgeolens.com/.planning/` for active docs-site work.
 
-## Current Milestone
+## Current Milestone: v1035 Builder, Maps & Export Bug Sweep
 
-_None — v1034 shipped 2026-05-30. Run `/gsd:new-milestone` to start the next milestone._
+**Goal:** Close the defects surfaced by quick task 260530-ezw + its production-readiness QA pass — a security leak, builder rendering/visibility bugs, an export-access gap, and supporting hygiene — so the maps/builder/export surfaces are production-ready.
+
+**Target features:**
+- **SEC-01 (#124, blocker):** vector tile + token endpoints gate on `record_status` — no anonymous access to public-but-unpublished tile data/tokens (mirror the raster path)
+- **BLDR-01 (#120):** raster/imagery basemap stays below data at `basemap_position='top'`
+- **BLDR-02 (#123):** terrain/DEM visibility toggle disables terrain (`effectiveTerrainEnabled = terrainConfig.enabled && demLayer.visible`)
+- **BLDR-03 (#123):** consolidate the triple DEM stack rows (one DEM row + render-mode pill; terrain as a map-level setting)
+- **BLDR-04 (#125):** color-relief (hypsometric tint) companion honors parent layer visibility
+- **EXP-01 (#121):** anonymous export of published **public** datasets (all formats), mirroring the anon COG-download gate
+- **EXP-02 (QZ-LP-02):** regression — unpublished/non-public vector export stays gated
+- **MAPS-01 (#122):** eliminate the app-wide duplicate `ReactDOMClient.createRoot()` console error
+- **MAPS-02 (QZ-LP-01):** search-page quicklook regression test (verified healthy live)
+- **API-01 (QZ-LP-03):** `/collections/{id}/items/` trailing-slash dual-shape alias
+- **HYG-01 (QZ-LP-04):** move `registerBlobUrlRevocation` out of hook render
+
+**Key context:** All items are root-caused with file:line in `.planning/backlog/qa-260530-*.md` and the quick-task SUMMARY. SEC-01 is a real anonymous data leak (sequence first). Phase numbering continues from 1155. No new domain research (fixes in existing code).
 
 ## Recent Shipped Milestone: v1034 Raster Stretch & Colormap Completion
 
@@ -1509,4 +1524,6 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-29 — started milestone v1034 Raster Stretch & Colormap Completion. Closes the raster stretch/colormap tail carried since v1031/v1032: full per-band multi-band stretch, configurable percentile/σ bounds, a real seeded single-band raster fixture (TESTDATA-01) to verify the colormap/stretch UI, plus v1033 builder dead-code/note cleanup. Phase numbering continues from 1151. Prior: v1033 Builder Terrain, Label & Render-Mode QA shipped 2026-05-29 (local tag `v1033`, CHANGELOG `[1.8.0]`).*
+*Last updated: 2026-05-30 — started milestone v1035 Builder, Maps & Export Bug Sweep (closes quick task 260530-ezw findings + production-readiness QA pass: SEC-01 anon tile leak #124, BLDR-01..04 #120/#123/#125, EXP-01/02 #121, MAPS-01/02 #122, API-01, HYG-01; phase numbering continues from 1155). Prior: v1034 Raster Stretch & Colormap Completion shipped 2026-05-30 (local tag `v1034`).*
+
+*Earlier: 2026-05-29 — started milestone v1034 Raster Stretch & Colormap Completion. Closes the raster stretch/colormap tail carried since v1031/v1032: full per-band multi-band stretch, configurable percentile/σ bounds, a real seeded single-band raster fixture (TESTDATA-01) to verify the colormap/stretch UI, plus v1033 builder dead-code/note cleanup. Phase numbering continues from 1151. Prior: v1033 Builder Terrain, Label & Render-Mode QA shipped 2026-05-29 (local tag `v1033`, CHANGELOG `[1.8.0]`).*

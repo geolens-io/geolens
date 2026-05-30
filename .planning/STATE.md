@@ -1,31 +1,26 @@
 ---
 gsd_state_version: 1.0
-milestone: v1034
-milestone_name: Raster Stretch & Colormap Completion
-status: Awaiting next milestone
-stopped_at: Milestone v1034 complete and archived
-last_updated: "2026-05-30T12:00:00.000Z"
-last_activity: 2026-05-30 — Milestone v1034 completed, audited (tech_debt), and archived
+milestone: v1035
+milestone_name: Builder, Maps & Export Bug Sweep
+status: planning
+last_updated: "2026-05-30T16:35:25.727Z"
+last_activity: 2026-05-30
 progress:
-  total_phases: 4
-  completed_phases: 4
-  total_plans: 5
-  completed_plans: 5
-  percent: 100
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # State
 
 ## Current Position
 
-Phase: Milestone v1034 complete (archived)
+Phase: Not started (defining requirements)
 Plan: —
-Status: Awaiting next milestone
-Last activity: 2026-05-30 — Completed quick task 260530-ezw: download/tile/vector verify + 3 builder/maps fixes
-
-```
-Progress: [██████████] 100% (v1034: 4/4 phases)
-```
+Status: Defining requirements
+Last activity: 2026-05-30 — Milestone v1035 started
 
 ## Project Reference
 
