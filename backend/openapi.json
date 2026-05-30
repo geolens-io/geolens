@@ -1220,6 +1220,17 @@
             "description": "Map canvas background color in #RRGGBB hex format, or null to use the basemap default.",
             "title": "Background Color"
           },
+          "basemap_position": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BasemapPosition"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Whether the basemap renders above ('top') or below ('bottom', default) the data layers. null/undefined loads as 'bottom' on the client. Phase 1051 UX-03 (jsonb-additive, no migration)."
+          },
           "boundary_visibility": {
             "$ref": "#/components/schemas/BasemapSublayerVisibility",
             "default": "full",
@@ -1248,6 +1259,17 @@
             "minimum": 0.0,
             "title": "Opacity",
             "type": "number"
+          },
+          "projection": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BasemapProjection"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Map projection: 'mercator' (default) or experimental 'globe'. null/undefined loads as 'mercator' on the client."
           },
           "relief_contrast": {
             "anyOf": [
@@ -1301,6 +1323,24 @@
           "monochrome"
         ],
         "title": "BasemapLandWaterTone",
+        "type": "string"
+      },
+      "BasemapPosition": {
+        "description": "Whether the basemap renders below ('bottom', default) or above ('top') data layers.",
+        "enum": [
+          "bottom",
+          "top"
+        ],
+        "title": "BasemapPosition",
+        "type": "string"
+      },
+      "BasemapProjection": {
+        "description": "Map projection. 'mercator' (default) or experimental 'globe'.",
+        "enum": [
+          "mercator",
+          "globe"
+        ],
+        "title": "BasemapProjection",
         "type": "string"
       },
       "BasemapPublicResponse": {

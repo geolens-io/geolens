@@ -88,6 +88,7 @@ import {
   setBasemapLabelsVisible,
   setBasemapMasterOpacity,
   setBasemapPosition,
+  setBasemapProjection,
   setBasemapSublayerOpacity,
   SUBLAYER_ID_OVERRIDE_KEY,
   swapBasemapPreset,
@@ -123,7 +124,8 @@ export function MapBuilderPage() {
   const [mapInstance, setMapInstance] = useState<MaplibreMap | null>(null);
   const [railPanel, setRailPanel] = useState<RailPanel>(null);
   const [dockNotes, setDockNotes] = useState('');
-  // Runtime-only per Phase 1036 BSR-14 / UI-SPEC § Projection. Not persisted in v1.
+  // Projection (Mercator/Globe). Persisted on basemap_config.projection; seeded from
+  // the saved map on load and applied to the live map once it's ready (effects below).
   const [localProjection, setLocalProjection] = useState<'mercator' | 'globe'>('mercator');
   const [showStyleJson, setShowStyleJson] = useState(false);
   // Phase 1135 AI-05: debounced viewport context for viewport-aware suggestion chips.
@@ -388,6 +390,57 @@ export function MapBuilderPage() {
     () => { setHasUnsavedChanges(true); },
     [setHasUnsavedChanges],
   );
+
+  // Widget toggles live in a store outside the layer state that drives
+  // hasUnsavedChanges, so wrap the toggle to mark the map dirty — otherwise the
+  // save indicator + unsaved-changes nav guard miss widget-only edits. The save
+  // payload already reads the store at save time (resolveWidgetsPayload).
+  const handleToggleWidget = useCallback(
+    (widgetId: string) => {
+      toggleWidget(widgetId);
+      setHasUnsavedChanges(true);
+    },
+    [toggleWidget, setHasUnsavedChanges],
+  );
+
+  // Projection persists on basemap_config.projection. Route through the basemap
+  // patch (which marks the map dirty), update local state, and apply to the live
+  // map. setProjection is guarded for test envs / older maplibre.
+  const handleSetProjection = useCallback(
+    (proj: 'mercator' | 'globe') => {
+      setLocalProjection(proj);
+      applyBasemapPatch(setBasemapProjection(basemapState, proj));
+      try {
+        mapInstanceRef.current?.setProjection?.({ type: proj });
+      } catch {
+        // setProjection may not exist in test envs / older maplibre — swallow safely
+      }
+    },
+    [applyBasemapPatch, basemapState],
+  );
+
+  // Seed projection from the saved map. Keyed on the saved value so background
+  // refetches don't clobber an unsaved local projection change (the value only
+  // changes when the persisted projection does).
+  const savedProjection = mapData?.basemap_config?.projection ?? 'mercator';
+  useEffect(() => {
+    setLocalProjection(savedProjection);
+  }, [savedProjection]);
+
+  // Apply projection to the live map once it's ready (and on map swap). Globe
+  // requires a loaded style, so gate on isStyleLoaded with an idle fallback.
+  useEffect(() => {
+    if (!mapInstance) return;
+    const apply = () => {
+      try {
+        mapInstance.setProjection?.({ type: localProjection });
+      } catch {
+        // older maplibre / test env — swallow safely
+      }
+    };
+    if (mapInstance.isStyleLoaded?.()) apply();
+    else mapInstance.once?.('idle', apply);
+  }, [mapInstance, localProjection]);
 
   // Phase 1035: basemaps data for the BasemapGroupEditorScene preset grid
   // (placed early for useMemo/useState hooks — actual wiring happens after handleSelectLayer)
@@ -1052,7 +1105,7 @@ export function MapBuilderPage() {
             isTerrainActive={isTerrainActive}
             boundLayerName={boundLayerName}
             activeWidgetIds={activeWidgets}
-            onToggleWidget={toggleWidget}
+            onToggleWidget={handleToggleWidget}
             backgroundColor={basemapState.config.background_color ?? null}
             onBackgroundColorChange={(color) => {
               applyBasemapPatch(setBasemapBackgroundColor(basemapState, color));
@@ -1061,14 +1114,7 @@ export function MapBuilderPage() {
               applyBasemapPatch(setBasemapBackgroundColor(basemapState, null));
             }}
             projection={localProjection}
-            onSetProjection={(proj) => {
-              setLocalProjection(proj);
-              try {
-                mapInstanceRef.current?.setProjection?.({ type: proj });
-              } catch {
-                // setProjection may not exist in test envs / older maplibre — swallow safely
-              }
-            }}
+            onSetProjection={handleSetProjection}
           />
         </Suspense>
       </LazyLoadErrorBoundary>

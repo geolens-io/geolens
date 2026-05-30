@@ -176,6 +176,13 @@ export function setBasemapPosition(
   return { basemapConfig: { ...state.config, basemap_position: position } };
 }
 
+export function setBasemapProjection(
+  state: BuilderBasemapState,
+  projection: NonNullable<MapBasemapConfig['projection']>,
+): BuilderBasemapPatch {
+  return { basemapConfig: { ...state.config, projection } };
+}
+
 export function setBasemapMasterOpacity(
   state: BuilderBasemapState,
   opacity: number,

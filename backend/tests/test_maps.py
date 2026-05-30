@@ -44,6 +44,11 @@ BASEMAP_CONFIG_PAYLOAD = {
     # field in their expected payload so equality assertions match the
     # serialized response.
     "sublayer_overrides": None,
+    # basemap_position + projection: jsonb-additive fields (default None) so the
+    # frontend's basemap-position drag and projection toggle round-trip without a
+    # migration. Included here so response-equality assertions match.
+    "basemap_position": None,
+    "projection": None,
 }
 
 
@@ -673,6 +678,51 @@ class TestUpdateMap:
         fetched = await client.get(f"/maps/{map_id}", headers=admin_auth_header)
         assert fetched.status_code == 200
         assert fetched.json()["basemap_config"]["opacity"] == 0.55
+
+    async def test_update_map_round_trips_basemap_position_and_projection(
+        self, client: AsyncClient, admin_auth_header: dict
+    ):
+        """Non-default basemap_position + projection round-trip (regression: these
+        jsonb-additive fields were sent by the builder but rejected with 422
+        because the backend BasemapConfig omitted them)."""
+        created = await _create_map(client, admin_auth_header)
+        map_id = created["id"]
+
+        resp = await client.put(
+            f"/maps/{map_id}",
+            json={
+                "basemap_config": {
+                    **BASEMAP_CONFIG_PAYLOAD,
+                    "basemap_position": "top",
+                    "projection": "globe",
+                }
+            },
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200, resp.text
+        body = resp.json()["basemap_config"]
+        assert body["basemap_position"] == "top"
+        assert body["projection"] == "globe"
+
+        fetched = await client.get(f"/maps/{map_id}", headers=admin_auth_header)
+        assert fetched.status_code == 200
+        fetched_config = fetched.json()["basemap_config"]
+        assert fetched_config["basemap_position"] == "top"
+        assert fetched_config["projection"] == "globe"
+
+    async def test_update_map_rejects_invalid_projection(
+        self, client: AsyncClient, admin_auth_header: dict
+    ):
+        """projection only accepts the known enum values."""
+        created = await _create_map(client, admin_auth_header)
+
+        resp = await client.put(
+            f"/maps/{created['id']}",
+            json={"basemap_config": {**BASEMAP_CONFIG_PAYLOAD, "projection": "orthographic"}},
+            headers=admin_auth_header,
+        )
+
+        assert resp.status_code == 422
 
     async def test_update_map_rejects_extra_basemap_config_fields(
         self, client: AsyncClient, admin_auth_header: dict

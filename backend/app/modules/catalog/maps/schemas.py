@@ -258,6 +258,20 @@ class BasemapReliefContrast(str, Enum):
     strong = "strong"
 
 
+class BasemapPosition(str, Enum):
+    """Whether the basemap renders below ('bottom', default) or above ('top') data layers."""
+
+    bottom = "bottom"
+    top = "top"
+
+
+class BasemapProjection(str, Enum):
+    """Map projection. 'mercator' (default) or experimental 'globe'."""
+
+    mercator = "mercator"
+    globe = "globe"
+
+
 # Regex for #RRGGBB color field validation.
 # Accepts exactly #RRGGBB (6 hex digits, case-insensitive).
 # Rejects raw names ("red"), short hex ("#abc"), long hex ("#1234567"),
@@ -406,6 +420,21 @@ class BasemapConfig(BaseModel):
             "(e.g. 'road', 'boundary', 'building'). Key set is opaque — "
             "unknown future sublayer IDs are accepted without rejection. "
             "See CONTEXT.md D-01."
+        ),
+    )
+    basemap_position: BasemapPosition | None = Field(
+        default=None,
+        description=(
+            "Whether the basemap renders above ('top') or below ('bottom', "
+            "default) the data layers. null/undefined loads as 'bottom' on the "
+            "client. Phase 1051 UX-03 (jsonb-additive, no migration)."
+        ),
+    )
+    projection: BasemapProjection | None = Field(
+        default=None,
+        description=(
+            "Map projection: 'mercator' (default) or experimental 'globe'. "
+            "null/undefined loads as 'mercator' on the client."
         ),
     )
 

@@ -187,6 +187,22 @@ describe('basemap appearance helpers', () => {
     });
   });
 
+  it('preserves jsonb-additive basemap_position and projection through normalization', () => {
+    // Regression: normalizeBasemapConfig rebuilds the config from known fields,
+    // so projection (like basemap_position) must be explicitly carried through —
+    // otherwise the Settings projection toggle is stripped before save.
+    const normalized = normalizeBasemapConfig(
+      { basemap_position: 'top', projection: 'globe' },
+      true,
+    );
+    expect(normalized.basemap_position).toBe('top');
+    expect(normalized.projection).toBe('globe');
+    // Invalid values are dropped, not passed through.
+    expect(
+      normalizeBasemapConfig({ projection: 'orthographic' } as never, true).projection,
+    ).toBeUndefined();
+  });
+
   it('applies curated layer visibility and tone changes to supported style layers', () => {
     const next = applyBasemapConfigToStyle(style, {
       label_mode: 'subtle',

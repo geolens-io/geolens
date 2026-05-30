@@ -77,7 +77,7 @@ See: .planning/PROJECT.md (updated 2026-05-30)
 
 ### Pending Todos
 
-- **BUILDER-QA F2 (minor, 2026-05-30):** Settings widget toggles (e.g. Measure) don't set the dirty flag — save button stays "Saved", no nav-guard fires; data persists only on explicit Cmd+S. Root: `useWidgetStore.toggle` (`MapBuilderPage.tsx:331`) never calls `setHasUnsavedChanges`. Fix: wire dirty-tracking into the widget-toggle path. (Projection F3 is runtime-only by design — lower priority.) See `.planning/quick/260530-builder-qa-smoke/FINDINGS.md`.
+None active. (Builder QA 2026-05-30: F2 widget dirty-tracking, F3 projection persistence, and F4 backend `basemap_position` 422 all fixed + tested — see `.planning/quick/260530-builder-qa-smoke/`.)
 
 ### Blockers/Concerns
 

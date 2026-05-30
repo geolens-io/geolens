@@ -6,6 +6,7 @@ import type {
   MapBasemapPosition,
   MapBasemapReliefContrast,
   MapBasemapVisibilityMode,
+  MapProjection,
 } from '@/types/api';
 import positronThumb from '@/assets/basemaps/positron.png';
 import darkThumb from '@/assets/basemaps/dark.png';
@@ -32,6 +33,7 @@ const VISIBILITY_MODES = new Set<MapBasemapVisibilityMode>(['full', 'subtle', 'h
 const LAND_WATER_TONES = new Set<MapBasemapLandWaterTone>(['default', 'muted', 'contrast', 'monochrome']);
 const RELIEF_CONTRASTS = new Set<MapBasemapReliefContrast>(['soft', 'standard', 'strong']);
 const BASEMAP_POSITIONS = new Set<MapBasemapPosition>(['top', 'bottom']);
+const BASEMAP_PROJECTIONS = new Set<MapProjection>(['mercator', 'globe']);
 const HEX_COLOR_RE = /^#[0-9a-fA-F]{6}$/;
 
 export type StyleLayer = StyleSpecification['layers'][number] & {
@@ -213,6 +215,12 @@ function validBasemapPosition(value: unknown) {
     : undefined;
 }
 
+function validProjection(value: unknown) {
+  return typeof value === 'string' && BASEMAP_PROJECTIONS.has(value as MapProjection)
+    ? value as MapProjection
+    : undefined;
+}
+
 export function normalizeBasemapConfig(
   value: Partial<MapBasemapConfig> | null | undefined,
   showBasemapLabels = true,
@@ -245,6 +253,10 @@ export function normalizeBasemapConfig(
   const basemapPosition = validBasemapPosition(value?.basemap_position);
   if (basemapPosition) {
     normalized.basemap_position = basemapPosition;
+  }
+  const projection = validProjection(value?.projection);
+  if (projection) {
+    normalized.projection = projection;
   }
   if (value && Object.prototype.hasOwnProperty.call(value, 'sublayer_overrides')) {
     normalized.sublayer_overrides = value.sublayer_overrides ?? null;

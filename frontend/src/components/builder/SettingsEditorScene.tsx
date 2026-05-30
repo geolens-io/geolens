@@ -24,7 +24,7 @@ export interface SettingsEditorSceneProps {
   backgroundColor: string | null;
   onBackgroundColorChange: (color: string) => void;
   onBackgroundColorReset: () => void;
-  // Projection (runtime-only, v1)
+  // Projection (persisted on basemap_config.projection)
   projection: 'mercator' | 'globe';
   onSetProjection: (projection: 'mercator' | 'globe') => void;
 }

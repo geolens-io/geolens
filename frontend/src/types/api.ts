@@ -24,6 +24,9 @@ export type MapBasemapReliefContrast = 'soft' | 'standard' | 'strong';
  *  required — legacy maps load with `undefined` and default to 'bottom'. */
 export type MapBasemapPosition = 'top' | 'bottom';
 
+/** Map projection. 'mercator' (default) or experimental 'globe'. */
+export type MapProjection = 'mercator' | 'globe';
+
 /** Phase 1059 BSE-01: per-sublayer style override stored in MapBasemapConfig.sublayer_overrides.
  *  All fields nullable — null means "use basemap default". Mirrors backend SublayerOverride
  *  Pydantic model at backend/app/modules/catalog/maps/schemas.py.
@@ -56,6 +59,9 @@ export interface MapBasemapConfig {
   /** Phase 1051 UX-03: 'top' renders basemap above data; 'bottom' (default)
    *  renders below. See `MapBasemapPosition` above. */
   basemap_position?: MapBasemapPosition;
+  /** Map projection: 'mercator' (default) or experimental 'globe'.
+   *  undefined/null loads as 'mercator'. Persisted jsonb-additive on basemap_config. */
+  projection?: MapProjection;
   /** Phase 1059 BSE-01: per-sublayer overrides keyed by semantic sublayer ID.
    *  Opaque key set — see KnownSublayerId for documented IDs. Backed by
    *  MapBasemapConfig.sublayer_overrides jsonb (zero-migration backward compat). */

@@ -104,6 +104,38 @@ Evidence: `screenshots/qa-08`.
 
 ---
 
+## F4 — BUG (latent, found while fixing F3), FIXED
+
+**Saving a map after dragging the basemap above data → 422 (silent save failure).**
+
+- While wiring projection persistence I found the backend `BasemapConfig`
+  (`extra="forbid"`) was **missing the `basemap_position` field** that the frontend has
+  sent wholesale inside `basemap_config` since Phase 1051 (use-builder-save.ts:475-487,
+  "round-trips through the wholesale pass-through"). So any save carrying a non-default
+  `basemap_position` (i.e. after the user drags the basemap above data — a shipped v1011
+  feature) returned **422 `Extra inputs are not permitted`**. Corroborated: no map in the DB
+  had ever persisted `basemap_position` (all `null`).
+- Fix: added `basemap_position` (+ `projection`) to the backend `BasemapConfig` schema
+  (`schemas.py`, jsonb-additive, no migration) with proper enums. Verified: PUT with
+  `basemap_position:'top'` now → **200** and round-trips.
+
+---
+
+## Fixes applied (this session)
+
+| Finding | Fix | Verified |
+|---------|-----|----------|
+| **F2** | `handleToggleWidget` wraps the widget store toggle to call `setHasUnsavedChanges(true)` (`MapBuilderPage.tsx`) | Toggling Measure now shows "Unsaved changes" ✓ |
+| **F3** | Projection persists on `basemap_config.projection`: backend field added; `normalizeBasemapConfig` preserves it (`basemap-utils.ts`); `setBasemapProjection` helper + seed-on-load + apply-on-map-ready effects (`MapBuilderPage.tsx`) | Globe → save → reload: map renders globe + Settings shows Globe + DB has `projection:"globe"` ✓ |
+| **F4** | Added `basemap_position` + `projection` to backend `BasemapConfig` (`schemas.py`) | PUT `basemap_position:'top'` → 200 (was 422), round-trips ✓ |
+
+Tests: backend `test_maps.py` + 2 new regression tests (non-default round-trip + invalid-enum
+reject); `test_maps_style_json.py` expectations updated for additive fields; frontend
+`BuilderMap.unit.test.ts` projection-preservation case. Frontend typecheck 0; vitest
+1473/1473; backend maps suites green; ruff + eslint clean. OpenAPI snapshot regenerated.
+
+---
+
 ## Note (not a finding)
 
 JWT expired mid-session (~1h15m in) → a 401/404 console burst (`/auth/refresh`, `/auth/me`,
