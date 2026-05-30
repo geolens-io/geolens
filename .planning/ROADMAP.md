@@ -87,7 +87,7 @@
 |-------|----------------|--------|-----------|
 | 1156. Vector-Tile Egress Authorization | 2/2 | Complete    | 2026-05-30 |
 | 1157. Backend Export Access + Route Hygiene | 2/2 | Complete    | 2026-05-30 |
-| 1158. Builder Layer Visibility & DEM Consolidation | 2/2 | Complete   | 2026-05-30 |
+| 1158. Builder Layer Visibility & DEM Consolidation | 2/2 | Complete    | 2026-05-30 |
 | 1159. Maps/Search UI & Blob Hygiene | 0/TBD | Not started | - |
 | 1160. Live Playwright MCP Close-Gate | 0/TBD | Not started | - |
 

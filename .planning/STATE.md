@@ -2,9 +2,9 @@
 gsd_state_version: 1.0
 milestone: v1035
 milestone_name: Builder, Maps & Export Bug Sweep
-status: verifying
-stopped_at: "Session resumed — v1035 roadmap in place (Phases 1156-1160, 0 plans); next action `/gsd:plan-phase 1156` (SEC-01)"
-last_updated: "2026-05-30T18:41:37.619Z"
+status: ready_to_plan
+stopped_at: Phase 1158 complete (2/2) — ready to discuss Phase 1159
+last_updated: 2026-05-30T18:55:32.056Z
 last_activity: 2026-05-30
 progress:
   total_phases: 10
@@ -18,10 +18,10 @@ progress:
 
 ## Current Position
 
-Phase: 1158 (Builder Layer Visibility & DEM Consolidation) — EXECUTING
-Plan: 2 of 2
+Phase: 1159
+Plan: Not started
 Next Phase: 1158 (Builder Layer Visibility & DEM Consolidation)
-Status: Phase complete — ready for verification
+Status: Ready to plan
 Last activity: 2026-05-30
 
 ## Project Reference
@@ -29,7 +29,7 @@ Last activity: 2026-05-30
 See: .planning/PROJECT.md (updated 2026-05-30)
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** Phase 1158 — Builder Layer Visibility & DEM Consolidation
+**Current focus:** Phase 1159 — maps/search ui & blob hygiene
 
 ## Last Shipped Milestone
 
@@ -94,6 +94,7 @@ None active.
 | raster-meta | `band_count` cosmetic ("1 band" for RGB ortho on get_dataset_meta path) — RASTER-META-01 | Future | v1033 |
 | ci-live-verify | `pytest-parallel-isolation` gate live-verify on real GitHub Actions (billing block) | Carried forward as CI-01-v1030 | v1023 Phase 1100 degraded close |
 | public-export-policy | Per-deployment toggle to restrict anonymous public file export | Out of scope (product decision) | v1035 |
+| builder-dem-dedupe | BLDR-03 "Copy N of M" duplicate-badge for near-identical hillshade DEM rows (surface `MapStackDuplicateMetadata`) — deferred as net-new UI vs the v1035 no-new-features constraint; the phantom terrain-row suppression (the core fix) shipped | Out of scope (new UI surface) | v1035 Phase 1158 |
 
 ## Session Continuity
 
