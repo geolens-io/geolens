@@ -2,6 +2,13 @@ import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { AdapterLayerInput, LayerAdapter } from './types';
 import { paintValueChanged } from './shared';
 
+/** Default lower percentile bound for the raster stretch. Backend default is 2. */
+const STRETCH_PMIN_DEFAULT = 2;
+/** Default upper percentile bound for the raster stretch. Backend default is 98. */
+const STRETCH_PMAX_DEFAULT = 98;
+/** Default standard-deviation multiplier for stddev stretch. Backend default is 2. */
+const STRETCH_SIGMA_DEFAULT = 2;
+
 export const RASTER_PAINT_DEFAULTS = {
   'raster-brightness-min': 0,
   'raster-brightness-max': 1,
@@ -47,10 +54,23 @@ export const RASTER_OWNED_PAINT_PROPERTIES = [
  * to the grayscale render too, so `percentile`/`stddev` must work even when the
  * colormap is left at the default gray (RASTER-STRETCH-UI-02).
  *
+ * Bound params follow the "only forward non-default" discipline:
+ * - `pmin` / `pmax` are forwarded only when `_stretch === 'percentile'` AND the
+ *   value is a finite number differing from its default (2 / 98). Each is
+ *   forwarded independently, so one may be non-default while the other is omitted.
+ * - `sigma` is forwarded only when `_stretch === 'stddev'` AND the value is a
+ *   finite number differing from its default (2).
+ * This ensures the default-case URL is byte-identical to prior behavior.
+ *
+ * `_pmin`, `_pmax`, and `_sigma` are builder-private paint keys (Pitfall 6) —
+ * they must NOT appear in `RASTER_OWNED_PAINT_PROPERTIES`.
+ *
  * @param baseUrl  Root-relative or absolute tile URL (e.g. `/api/raster-tiles/...`)
- * @param paint    The layer paint dict; reads `_colormap` and `_stretch`.
- * @returns        `baseUrl` unmodified when neither a non-gray colormap nor a
- *                 non-minmax stretch is set; `baseUrl?colormap_name=...&stretch=...` otherwise.
+ * @param paint    The layer paint dict; reads `_colormap`, `_stretch`, `_pmin`,
+ *                 `_pmax`, and `_sigma`.
+ * @returns        `baseUrl` unmodified when no non-default params are set;
+ *                 `baseUrl?<params>` otherwise (param order: colormap_name,
+ *                 stretch, pmin, pmax, sigma).
  */
 export function buildColormapTileUrl(
   baseUrl: string,
@@ -67,6 +87,24 @@ export function buildColormapTileUrl(
   // rescale server-side that applies regardless of colormap — forward independently.
   if (typeof stretch === 'string' && stretch !== 'minmax') {
     params.set('stretch', stretch);
+  }
+  // Percentile bounds — forward each independently only when non-default.
+  if (stretch === 'percentile') {
+    const pmin = Number(paint['_pmin']);
+    if (Number.isFinite(pmin) && pmin !== STRETCH_PMIN_DEFAULT) {
+      params.set('pmin', String(pmin));
+    }
+    const pmax = Number(paint['_pmax']);
+    if (Number.isFinite(pmax) && pmax !== STRETCH_PMAX_DEFAULT) {
+      params.set('pmax', String(pmax));
+    }
+  }
+  // Stddev sigma — forward only when non-default.
+  if (stretch === 'stddev') {
+    const sigma = Number(paint['_sigma']);
+    if (Number.isFinite(sigma) && sigma !== STRETCH_SIGMA_DEFAULT) {
+      params.set('sigma', String(sigma));
+    }
   }
   const qs = params.toString();
   return qs ? `${baseUrl}?${qs}` : baseUrl;
