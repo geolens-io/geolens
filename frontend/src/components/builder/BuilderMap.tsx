@@ -392,7 +392,10 @@ export const BuilderMap = memo(function BuilderMap({
         && (layer.style_config as { render_mode?: unknown } | null | undefined)?.render_mode === 'terrain',
     );
     const token = demLayer ? currentTokenMap.get(demLayer.dataset_id) : null;
-    if (!demLayer || token?.kind !== 'raster') {
+    // Honor the layer's visibility eye: treat undefined visible as visible (default-visible semantics).
+    const demLayerVisible = demLayer?.visible !== false;
+    const effectiveTerrainEnabled = currentTerrainConfig.enabled === true && demLayerVisible;
+    if (!demLayer || token?.kind !== 'raster' || !effectiveTerrainEnabled) {
       map.setTerrain(null);
       return;
     }
@@ -413,7 +416,7 @@ export const BuilderMap = memo(function BuilderMap({
   const terrainLayerKey = layers
     .map((layer) => {
       const renderMode = (layer.style_config as { render_mode?: unknown } | null | undefined)?.render_mode;
-      return `${layer.dataset_id}:${String(layer.is_dem)}:${layer.dataset_record_type ?? ''}:${String(renderMode ?? '')}`;
+      return `${layer.dataset_id}:${String(layer.is_dem)}:${layer.dataset_record_type ?? ''}:${String(renderMode ?? '')}:${String(layer.visible)}`;
     })
     .join(',');
 
