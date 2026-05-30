@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1035
 milestone_name: Builder, Maps & Export Bug Sweep
-status: ready_to_plan
-stopped_at: Phase 1158 complete (2/2) — ready to discuss Phase 1159
-last_updated: 2026-05-30T18:55:32.056Z
+status: executing
+stopped_at: "Session resumed — v1035 roadmap in place (Phases 1156-1160, 0 plans); next action `/gsd:plan-phase 1156` (SEC-01)"
+last_updated: "2026-05-30T19:17:49.449Z"
 last_activity: 2026-05-30
 progress:
   total_phases: 10
   completed_phases: 3
-  total_plans: 6
-  completed_plans: 6
+  total_plans: 8
+  completed_plans: 7
   percent: 30
 ---
 
@@ -18,10 +18,10 @@ progress:
 
 ## Current Position
 
-Phase: 1159
-Plan: Not started
+Phase: 1159 (Maps/Search UI & Blob Hygiene) — EXECUTING
+Plan: 2 of 2
 Next Phase: 1158 (Builder Layer Visibility & DEM Consolidation)
-Status: Ready to plan
+Status: Ready to execute
 Last activity: 2026-05-30
 
 ## Project Reference
@@ -29,7 +29,7 @@ Last activity: 2026-05-30
 See: .planning/PROJECT.md (updated 2026-05-30)
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** Phase 1159 — maps/search ui & blob hygiene
+**Current focus:** Phase 1159 — Maps/Search UI & Blob Hygiene
 
 ## Last Shipped Milestone
 
@@ -98,7 +98,7 @@ None active.
 
 ## Session Continuity
 
-Last session: 2026-05-30T18:41:37.615Z
+Last session: 2026-05-30T19:17:49.444Z
 Stopped at: Session resumed — v1035 roadmap in place (Phases 1156-1160, 0 plans); next action `/gsd:plan-phase 1156` (SEC-01)
 Resume file: None
 

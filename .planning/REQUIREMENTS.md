@@ -27,7 +27,7 @@ Requirements for this milestone. Each maps to exactly one roadmap phase.
 
 ### Maps & Search UI
 
-- [ ] **MAPS-01** (#122): The app no longer logs the duplicate `ReactDOMClient.createRoot() on a container that has already been passed to createRoot()` error. It fires app-wide (home/search, `/maps`, dataset detail — 3× per load), indicating the root mount or a shared portal/widget is re-rooting an existing container. Identify the offending `createRoot()` call and cache/reuse the root (or unmount before re-rooting). Pinned by a console-error assertion on at least one route.
+- [x] **MAPS-01** (#122): The app no longer logs the duplicate `ReactDOMClient.createRoot() on a container that has already been passed to createRoot()` error. It fires app-wide (home/search, `/maps`, dataset detail — 3× per load), indicating the root mount or a shared portal/widget is re-rooting an existing container. Identify the offending `createRoot()` call and cache/reuse the root (or unmount before re-rooting). Pinned by a console-error assertion on at least one route.
 - [ ] **MAPS-02** (QZ-LP-01): A regression test covers the search-page quicklook thumbnails (`useQuicklook` + `lib/blob-url-cache.ts`) so the blob-URL revoke-on-eviction fix (quick task 260530-ezw) cannot regress into `ERR_FILE_NOT_FOUND`. (Verified healthy live in this QA pass; this requirement pins it.)
 
 ### API Hygiene
@@ -36,7 +36,7 @@ Requirements for this milestone. Each maps to exactly one roadmap phase.
 
 ### Code Hygiene
 
-- [ ] **HYG-01** (QZ-LP-04): `registerBlobUrlRevocation(queryClient)` is invoked from an effect (or memoized init) rather than during hook render in `frontend/src/components/maps/hooks/use-map-thumbnail.ts` and `use-quicklook.ts`. Behavior is unchanged (already idempotent via a `WeakSet`); this removes the side-effect-in-render smell.
+- [x] **HYG-01** (QZ-LP-04): `registerBlobUrlRevocation(queryClient)` is invoked from an effect (or memoized init) rather than during hook render in `frontend/src/components/maps/hooks/use-map-thumbnail.ts` and `use-quicklook.ts`. Behavior is unchanged (already idempotent via a `WeakSet`); this removes the side-effect-in-render smell.
 
 ### QA / Close-Gate
 
@@ -70,10 +70,10 @@ Which phases cover which requirements. Filled during roadmap creation.
 | BLDR-04 | Phase 1158 | Complete |
 | EXP-01 | Phase 1157 | Complete |
 | EXP-02 | Phase 1157 | Complete |
-| MAPS-01 | Phase 1159 | Pending |
+| MAPS-01 | Phase 1159 | Complete |
 | MAPS-02 | Phase 1159 | Pending |
 | API-01 | Phase 1157 | Complete |
-| HYG-01 | Phase 1159 | Pending |
+| HYG-01 | Phase 1159 | Complete |
 | QA-01 | Phase 1160 | Pending |
 
 **Coverage:**
