@@ -12,7 +12,7 @@
 - [x] **Phase 1156: Vector-Tile Egress Authorization (SEC-01)** — Gate vector-tile data + tokens on `record_status=='published'` for anonymous callers, mirroring the raster path. Security blocker, ships first. (completed 2026-05-30)
 - [x] **Phase 1157: Backend Export Access + Route Hygiene (EXP-01, EXP-02, API-01)** — Allow anonymous export of public+published datasets; pin unpublished/private export denial; add the `/collections/{id}/items/` trailing-slash alias. (completed 2026-05-30)
 - [x] **Phase 1158: Builder Layer Visibility & DEM Consolidation (BLDR-01, BLDR-02, BLDR-03, BLDR-04)** — Raster basemap stays below data; terrain eye toggles 3D; one DEM row + render-mode pill; color-relief companion honors parent visibility. (completed 2026-05-30)
-- [ ] **Phase 1159: Maps/Search UI & Blob Hygiene (MAPS-01, MAPS-02, HYG-01)** — Eliminate the duplicate `createRoot()` console error; pin the search-page quicklook blob-URL fix; move `registerBlobUrlRevocation` out of render.
+- [x] **Phase 1159: Maps/Search UI & Blob Hygiene (MAPS-01, MAPS-02, HYG-01)** — Eliminate the duplicate `createRoot()` console error; pin the search-page quicklook blob-URL fix; move `registerBlobUrlRevocation` out of render. (completed 2026-05-30)
 - [ ] **Phase 1160: Live Playwright MCP Close-Gate (QA-01)** — Orchestrator-driven live MCP verification of all fixes plus the standard gate; final before tag.
 
 ## Phase Details
@@ -69,7 +69,7 @@
   3. `registerBlobUrlRevocation(queryClient)` is invoked from an effect/memoized init rather than during hook render in `use-map-thumbnail.ts` and `use-quicklook.ts`, with behavior unchanged.
 **Plans**: 2 plans
 - [x] 1159-01-PLAN.md — MAPS-01 cached-root guard in main.tsx + HYG-01 move registerBlobUrlRevocation into useEffect (source fixes)
-- [ ] 1159-02-PLAN.md — MAPS-02 blob-url-cache eviction/revoke vitest + MAPS-01 e2e console-hygiene HMR-reexec spec (regression tests)
+- [x] 1159-02-PLAN.md — MAPS-02 blob-url-cache eviction/revoke vitest + MAPS-01 e2e console-hygiene HMR-reexec spec (regression tests)
 **UI hint**: yes
 
 ### Phase 1160: Live Playwright MCP Close-Gate
@@ -90,7 +90,7 @@
 | 1156. Vector-Tile Egress Authorization | 2/2 | Complete    | 2026-05-30 |
 | 1157. Backend Export Access + Route Hygiene | 2/2 | Complete    | 2026-05-30 |
 | 1158. Builder Layer Visibility & DEM Consolidation | 2/2 | Complete    | 2026-05-30 |
-| 1159. Maps/Search UI & Blob Hygiene | 1/2 | In Progress|  |
+| 1159. Maps/Search UI & Blob Hygiene | 2/2 | Complete   | 2026-05-30 |
 | 1160. Live Playwright MCP Close-Gate | 0/TBD | Not started | - |
 
 ---
