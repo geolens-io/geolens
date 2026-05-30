@@ -1,5 +1,5 @@
 import React from 'react';
-import ReactDOM from 'react-dom/client';
+import ReactDOM, { type Root } from 'react-dom/client';
 import { createBrowserRouter, createRoutesFromElements, RouterProvider } from 'react-router';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Toaster } from 'sonner';
@@ -27,7 +27,11 @@ const router = createBrowserRouter(createRoutesFromElements(appRoutes));
 async function bootstrap() {
   await initializeI18n();
 
-  ReactDOM.createRoot(document.getElementById('root')!).render(
+  interface RootContainer extends HTMLElement { __glRoot?: Root }
+  const container = document.getElementById('root')! as RootContainer;
+  const root = container.__glRoot ?? ReactDOM.createRoot(container);
+  container.__glRoot = root;
+  root.render(
     <React.StrictMode>
       <AppErrorBoundary>
         <QueryClientProvider client={queryClient}>
