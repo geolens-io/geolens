@@ -864,15 +864,7 @@ async def get_tile_token(
             status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found"
         )
 
-    # Non-public datasets require authentication and RBAC
-    if dataset.record.visibility != "public":
-        if user is None:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Authentication required",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-        await port.check_dataset_access(db, dataset, dataset_id, user)
+    await port.check_dataset_access_or_anonymous(db, dataset, dataset_id, user)
 
     raster_asset = None
     if dataset.record.record_type in ("raster_dataset", "vrt_dataset"):
@@ -937,16 +929,12 @@ async def get_tile_tokens_batch(
             tokens[key] = {"error": "Dataset not found"}
             continue
 
-        # Per-dataset auth check
-        if dataset.record.visibility != "public":
-            if user is None:
-                tokens[key] = {"error": "Authentication required"}
-                continue
-            try:
-                await port.check_dataset_access(db, dataset, dataset_id, user)
-            except HTTPException as exc:
-                tokens[key] = {"error": exc.detail}
-                continue
+        # Per-dataset auth check (status-aware)
+        try:
+            await port.check_dataset_access_or_anonymous(db, dataset, dataset_id, user)
+        except HTTPException as exc:
+            tokens[key] = {"error": exc.detail}
+            continue
 
         tokens[key] = _build_tile_token_for_dataset(
             dataset,
