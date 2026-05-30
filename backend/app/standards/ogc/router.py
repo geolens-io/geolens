@@ -242,6 +242,21 @@ async def get_dataset_collection(
 
 
 @ogc_features_router.get(
+    "/collections/{dataset_id}/items/",
+    response_class=JSONResponse,
+    responses={
+        200: {
+            "content": {
+                "application/geo+json": {
+                    "schema": OGCFeatureItemsResponse.model_json_schema()
+                }
+            }
+        },
+        **ERROR_RESPONSES_PUBLIC,
+    },
+    include_in_schema=False,  # trailing-slash alias, hidden from OpenAPI (ROUTE-01 pattern)
+)
+@ogc_features_router.get(
     "/collections/{dataset_id}/items",
     response_class=JSONResponse,
     responses={
