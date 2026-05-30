@@ -94,10 +94,15 @@ class TestWhereClauseInjectionRejection:
 
 
 class TestExportEndpointCapabilityGate:
-    def test_export_endpoint_uses_require_permission(self):
-        """The dependency on the endpoint must be the require_permission
-        factory for 'export', NOT bare get_current_active_user. This is a
-        static-shape test that doesn't need a live FastAPI app."""
+    def test_export_endpoint_is_anonymous_capable_with_capability_gate(self):
+        """EXP-01: the export endpoint is anonymous-capable (get_optional_user),
+        NOT gated by require_permission at the signature level. The 'export'
+        capability check moved into the authenticated branch of the handler body
+        (via get_effective_permissions). This static-shape test pins both:
+        (1) the user param resolves via get_optional_user, and
+        (2) the handler source still enforces the export capability — guarding
+        against the gate being silently dropped.
+        Behavioral allow/deny coverage lives in test_export_access.py (EXP-02)."""
         import inspect
 
         from app.processing.export.router import export_dataset_endpoint
@@ -107,13 +112,22 @@ class TestExportEndpointCapabilityGate:
         default = user_param.default
 
         # FastAPI Depends carries a `dependency` attribute that's the resolver.
-        # require_permission("export") returns a closure named _permission_checker.
         assert default is not None, "user param must have a Depends() default"
         dep_callable = getattr(default, "dependency", None)
         assert dep_callable is not None, "Depends() must reference a callable"
-        # The closure name from require_permission factory is _permission_checker.
-        assert dep_callable.__name__ == "_permission_checker", (
-            f"Expected require_permission factory, got {dep_callable.__name__}"
+        assert dep_callable.__name__ == "get_optional_user", (
+            f"Expected get_optional_user (anonymous-capable per EXP-01), "
+            f"got {dep_callable.__name__}"
+        )
+
+        # The export capability gate must still be enforced in the handler body
+        # (authenticated branch) — pin it so it cannot be silently removed.
+        src = inspect.getsource(export_dataset_endpoint)
+        assert "get_effective_permissions" in src, (
+            "export capability gate (get_effective_permissions) missing from handler body"
+        )
+        assert '"export"' in src or "'export'" in src, (
+            "export capability key missing from handler body"
         )
 
 

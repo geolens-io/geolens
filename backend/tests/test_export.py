@@ -135,11 +135,18 @@ def mock_export_service(monkeypatch):
 
 class TestExportAuth:
     @pytest.mark.anyio
-    async def test_export_requires_auth(self, client: AsyncClient):
-        """GET /datasets/{uuid}/export without token returns 401."""
+    async def test_export_anonymous_missing_dataset_returns_404(
+        self, client: AsyncClient
+    ):
+        """EXP-01: export no longer requires authentication — anonymous callers
+        may export public+published datasets (matching the OGC/tiles contract).
+        An anonymous request for a non-existent dataset therefore resolves to a
+        normal 404 (dataset not found), NOT a 401. Anonymous denial of
+        private/restricted/unpublished data and the public+published allow path
+        are covered by test_export_access.py (EXP-02)."""
         fake_id = str(uuid.uuid4())
         resp = await client.get(f"/datasets/{fake_id}/export")
-        assert resp.status_code == 401
+        assert resp.status_code == 404
 
     @pytest.mark.anyio
     async def test_export_dataset_not_found(
