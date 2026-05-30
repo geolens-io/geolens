@@ -12,7 +12,13 @@ from starlette.background import BackgroundTask
 
 from app.modules.audit.service import AuditEvent, audit_emit
 from app.core.identity import Identity
-from app.modules.auth.dependencies import require_permission
+from app.modules.auth.dependencies import get_optional_user
+from app.modules.catalog.authorization import (
+    check_dataset_access,
+    check_dataset_access_or_anonymous,
+    get_user_roles,
+)
+from app.modules.auth.permissions import get_effective_permissions
 from app.core.dependencies import get_db
 from app.platform.extensions import get_processing_port
 from app.processing.export.ogr import ExportError
@@ -40,11 +46,13 @@ async def export_dataset_endpoint(
     where: str | None = Query(
         None, description="Attribute filter expression, e.g. pop > 1000"
     ),
-    # IA-P1-01 (Phase 1069): gate on the "export" capability instead of
-    # bare authentication. Mirrors router_export.download_cog (:236-245)
-    # which already consults the matrix. Closes the asymmetry where an
-    # admin revoking "export" from "viewer" still allowed vector export.
-    user: Identity = Depends(require_permission("export")),
+    # IA-P1-01 (Phase 1069, updated Phase 1157 EXP-01): the "export" capability
+    # is now enforced on the authenticated branch only (see handler body).
+    # Anonymous callers are allowed to export public+published datasets without
+    # a capability check — matching the OGC/tiles anonymous-access contract.
+    # Authenticated callers still require the "export" capability via the
+    # per-role matrix check below.
+    user: Identity | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
 ) -> FileResponse:
     """Export a dataset as a downloadable file.
@@ -61,8 +69,27 @@ async def export_dataset_endpoint(
             detail="Dataset not found",
         )
 
-    # 2. Visibility check
-    await port.check_dataset_access(db, dataset, dataset_id, user)
+    # 2. Visibility + permission check (branches on authenticated vs anonymous).
+    if user is None:
+        # Anonymous export: enforce public+published gate via the anon-aware
+        # helper (raises 404 to hide existence on denial), then a
+        # defense-in-depth guard requiring public visibility.
+        await check_dataset_access_or_anonymous(db, dataset, dataset_id, user)
+        if dataset.record.visibility != "public":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Anonymous export requires public dataset",
+            )
+    else:
+        # Authenticated path: full RBAC visibility check + export capability.
+        await check_dataset_access(db, dataset, dataset_id, user)
+        user_roles = await get_user_roles(db, user)
+        matrix = await get_effective_permissions(db)
+        if not any(matrix.get(role, {}).get("export", False) for role in user_roles):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Missing permission: export",
+            )
 
     # 3. Parse bbox
     from app.modules.catalog.features.service import parse_bbox
@@ -119,11 +146,13 @@ async def export_dataset_endpoint(
             detail="Export temporarily unavailable",
         )
 
-    # 7. Audit log
+    # 7. Audit log. user_id may be None for anonymous exports (EXP-01).
+    # The audit_logs.user_id column is nullable; AuditEvent.user_id is typed
+    # uuid.UUID | None to match.
     await audit_emit(
         db,
         AuditEvent(
-            user_id=user.id,
+            user_id=user.id if user is not None else None,
             action="dataset.export",
             resource_type="dataset",
             resource_id=dataset_id,
