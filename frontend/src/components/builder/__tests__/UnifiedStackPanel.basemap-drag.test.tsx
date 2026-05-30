@@ -342,6 +342,31 @@ describe('UX-03: reorderBasemapAboveData (map-sync helper)', () => {
     expect(map.moveLayer).toHaveBeenCalledWith('road-primary');
     expect(map.moveLayer).not.toHaveBeenCalledWith('embed-layer-data-1');
   });
+
+  // BLDR-01: raster-type basemap layers (imagery) must NOT be lifted above data
+  // layers by reorderBasemapAboveData at position='top'. Prior to the fix,
+  // the isLandLayer/isWaterLayer guards only matched vector fill layers, allowing
+  // type==='raster' imagery layers to slip through and float above data —
+  // producing a blank imagery overlay that obscured user data.
+  it('Test 12: raster basemap layer is NOT lifted above data at position="top" (BLDR-01)', () => {
+    const styleLayers = [
+      // Imagery basemap: type=raster, non-data source — must NOT be moved
+      { id: 'imagery-basemap', type: 'raster', source: 'esri-imagery' },
+      // Non-raster reference detail layer: type=line, non-data source — SHOULD be lifted
+      { id: 'road-primary', type: 'line', source: 'openmaptiles' },
+      // Data layer: source starts with 'source-' — must NOT be moved
+      { id: 'layer-data-1', source: 'source-data-population' },
+    ];
+    const map = makeMockMap(styleLayers);
+    reorderBasemapAboveData(map, 'top');
+    // Raster basemap must stay below data — never moved
+    expect(map.moveLayer).not.toHaveBeenCalledWith('imagery-basemap');
+    // Non-raster basemap detail layer should still float above data
+    expect(map.moveLayer).toHaveBeenCalledWith('road-primary');
+    // Data layer must never be moved
+    expect(map.moveLayer).not.toHaveBeenCalledWith('layer-data-1');
+    expect((map.moveLayer as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(1);
+  });
 });
 
 describe('UX-03: round-trip persistence shape (MapBasemapConfig.basemap_position)', () => {
