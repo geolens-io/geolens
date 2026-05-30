@@ -25,7 +25,7 @@ Requirements for this milestone. Each maps to exactly one roadmap phase.
 
 ### Verification
 
-- [ ] **VERIFY-01**: The single-band stretch (`minmax`/`percentile`/`stddev`) + colormap UI is verified end-to-end against the seeded TESTDATA-01 fixture — distinct tile output across stretch modes and a non-`gray` colormap, with the actual Titiler URL carrying the expected `rescale=` / `colormap_name=` params (not merely HTTP 200).
+- [x] **VERIFY-01**: The single-band stretch (`minmax`/`percentile`/`stddev`) + colormap UI is verified end-to-end against the seeded TESTDATA-01 fixture — distinct tile output across stretch modes and a non-`gray` colormap, with the actual Titiler URL carrying the expected `rescale=` / `colormap_name=` params (not merely HTTP 200).
 
 ### Cleanup (v1033 tech debt)
 
@@ -33,7 +33,7 @@ Requirements for this milestone. Each maps to exactly one roadmap phase.
 
 ### QA / Close-Gate
 
-- [ ] **QA-01**: Orchestrator-driven live Playwright MCP close-gate before tagging — verify multi-band per-band stretch on an RGB ortho AND single-band stretch/colormap on the TESTDATA-01 fixture, confirm the emitted Titiler tile URLs carry the expected `rescale=`/`colormap_name=` params, and 0 console errors per surface. Executor subagents lack `mcp__playwright__*` access — orchestrator MUST drive MCP directly (project memory `playwright-mcp-orchestrator-only`). Plus the standard gate: `npm run typecheck` 0, vitest green, `e2e:smoke:builder` green, focused backend raster/tile pytest green, i18n parity, `make openapi-check` no-drift (expected: no API change — `style_config` is opaque jsonb, `api.ts` hand-maintained).
+- [x] **QA-01**: Orchestrator-driven live Playwright MCP close-gate before tagging — verify multi-band per-band stretch on an RGB ortho AND single-band stretch/colormap on the TESTDATA-01 fixture, confirm the emitted Titiler tile URLs carry the expected `rescale=`/`colormap_name=` params, and 0 console errors per surface. Executor subagents lack `mcp__playwright__*` access — orchestrator MUST drive MCP directly (project memory `playwright-mcp-orchestrator-only`). Plus the standard gate: `npm run typecheck` 0, vitest green, `e2e:smoke:builder` green, focused backend raster/tile pytest green, i18n parity, `make openapi-check` no-drift (expected: no API change — `style_config` is opaque jsonb, `api.ts` hand-maintained).
 
 ## v2 Requirements
 
@@ -63,9 +63,9 @@ Deferred — acknowledged, not in this milestone's roadmap.
 | SPIKE-01 | Phase 1153 | Complete |
 | RASTER-STRETCH-UI-01 | Phase 1153 (backend) + Phase 1154 (frontend) | Backend Complete; frontend Pending |
 | RASTER-STRETCH-UI-02 | Phase 1154 | Complete |
-| VERIFY-01 | Phase 1155 | Pending |
+| VERIFY-01 | Phase 1155 | Complete |
 | CLEANUP-01 | Phase 1154 | Complete |
-| QA-01 | Phase 1155 | Pending |
+| QA-01 | Phase 1155 | Complete |
 
 **Coverage:**
 - v1 requirements: 8 total
