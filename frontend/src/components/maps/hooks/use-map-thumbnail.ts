@@ -1,6 +1,6 @@
-import { useEffect } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiFetchBlob } from '@/api/client';
+import { registerBlobUrlRevocation } from '@/lib/blob-url-cache';
 
 function withThumbnailVersion(
   thumbnailUrl: string | null | undefined,
@@ -20,15 +20,20 @@ function withThumbnailVersion(
  * Routes the request through apiFetchBlob (which attaches the Bearer token
  * from useAuthStore automatically) so authed thumbnails work as <img src>.
  *
- * Blob URL lifecycle: URL.revokeObjectURL is called on unmount AND on
- * mapId change (via the useEffect cleanup on [data]) to prevent memory
- * leaks and post-redirect ERR_FILE_NOT_FOUND console errors (SF-05).
+ * Blob URL lifecycle: the blob URL is cached in React Query under the
+ * thumbnail key and shared across all consumers. Revocation is tied to the
+ * QUERY CACHE (eviction / refetch-replacement) via registerBlobUrlRevocation,
+ * NOT to component unmount — revoking on unmount left the dead URL in cache and
+ * caused ERR_FILE_NOT_FOUND for the next consumer (list↔grid toggle, back-nav,
+ * StrictMode remount). See SF-05 history and lib/blob-url-cache.ts.
  */
 export function useMapThumbnail(
   thumbnailUrl: string | null | undefined,
   version?: string | null,
 ): string | null {
   const thumbnailPath = withThumbnailVersion(thumbnailUrl, version);
+  const queryClient = useQueryClient();
+  registerBlobUrlRevocation(queryClient);
 
   const { data: src = null } = useQuery({
     queryKey: ['map-thumbnail', thumbnailUrl, version],
@@ -40,15 +45,6 @@ export function useMapThumbnail(
     staleTime: 60 * 1000, // 1 minute: thumbnails regenerate on re-capture
     gcTime: 10 * 60_000,
   });
-
-  // Revoke blob URL when data changes (new mapId) or on unmount
-  useEffect(() => {
-    if (typeof src === 'string') {
-      return () => {
-        URL.revokeObjectURL(src);
-      };
-    }
-  }, [src]);
 
   return src;
 }

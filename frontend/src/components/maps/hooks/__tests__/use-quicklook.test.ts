@@ -137,41 +137,42 @@ describe('useQuicklook', () => {
     expect(mockApiFetchBlob).toHaveBeenCalledTimes(2);
   });
 
-  // Test 6: unmount revokes blob URL
-  it('revokes blob URL on unmount', async () => {
+  // Test 6: unmount must NOT revoke the blob URL — the value lives in the
+  // React Query cache and is shared with other consumers. Revoking on unmount
+  // was the root cause of the ERR_FILE_NOT_FOUND regression.
+  it('does NOT revoke blob URL on unmount (kept valid in cache for reuse)', async () => {
     mockApiFetchBlob.mockResolvedValueOnce(fakeBlob);
 
-    const id = 'dataset-unmount';
-    const { result, unmount } = renderHook(() => useQuicklook(id), {
-      wrapper: createWrapper(),
-    });
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const wrapper = ({ children }: { children: ReactNode }) =>
+      createElement(QueryClientProvider, { client: queryClient }, children);
+
+    const { result, unmount } = renderHook(() => useQuicklook('dataset-unmount'), { wrapper });
 
     await waitFor(() => expect(result.current.url).toBe('blob:http://localhost/quicklook'));
 
     unmount();
 
-    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:http://localhost/quicklook');
+    expect(URL.revokeObjectURL).not.toHaveBeenCalled();
   });
 
-  // Test 7: dataset id change revokes old blob URL and fetches new one
-  it('revokes old blob URL and fetches new one when datasetId changes', async () => {
-    mockApiFetchBlob.mockResolvedValue(fakeBlob);
+  // Test 7: revocation is tied to cache eviction, not component lifecycle.
+  it('revokes blob URL when React Query evicts the cached entry', async () => {
+    mockApiFetchBlob.mockResolvedValueOnce(fakeBlob);
 
-    const { result, rerender } = renderHook(
-      ({ id }: { id: string }) => useQuicklook(id),
-      { initialProps: { id: 'dataset-a' }, wrapper: createWrapper() },
-    );
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const wrapper = ({ children }: { children: ReactNode }) =>
+      createElement(QueryClientProvider, { client: queryClient }, children);
+
+    const { result } = renderHook(() => useQuicklook('dataset-evict'), { wrapper });
 
     await waitFor(() => expect(result.current.url).toBe('blob:http://localhost/quicklook'));
 
-    rerender({ id: 'dataset-b' });
+    queryClient.removeQueries({ queryKey: ['quicklook'] });
 
-    await waitFor(() => {
-      expect(mockApiFetchBlob).toHaveBeenCalledTimes(2);
-    });
-
-    // revokeObjectURL was called when the query key changed (data changed)
-    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:http://localhost/quicklook');
+    await waitFor(() =>
+      expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:http://localhost/quicklook'),
+    );
   });
 
   // Test 8: apiFetchBlob called with the exact path (proves Bearer-attaching wrapper is used)

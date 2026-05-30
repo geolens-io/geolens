@@ -122,43 +122,45 @@ describe('useMapThumbnail', () => {
     );
   });
 
-  // SF-05: Blob URL lifecycle — revoke on data change AND unmount.
-  // Mirrors use-quicklook.ts:67-74 cleanup pattern.
-  it('calls revokeObjectURL when the query key changes', async () => {
-    mockApiFetchBlob.mockResolvedValue(fakeBlob);
-    // Distinct URLs per createObjectURL call so the cleanup fires on src change.
-    vi.mocked(URL.createObjectURL)
-      .mockReturnValueOnce('blob:http://localhost/thumb-1')
-      .mockReturnValueOnce('blob:http://localhost/thumb-2');
+  // Blob URL lifecycle is tied to the React Query cache, not the component:
+  // revocation happens when the cache entry is evicted/replaced, never on
+  // unmount (revoking on unmount caused the ERR_FILE_NOT_FOUND regression
+  // because the dead URL stayed cached for the next consumer).
+  it('revokes a blob URL when its cache entry is evicted', async () => {
+    mockApiFetchBlob.mockResolvedValueOnce(fakeBlob);
 
-    const { result, rerender } = renderHook(
-      ({ url }: { url: string }) => useMapThumbnail(url),
-      { initialProps: { url: '/api/maps/1/thumbnail/' }, wrapper: createWrapper() },
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const wrapper = ({ children }: { children: ReactNode }) =>
+      createElement(QueryClientProvider, { client: queryClient }, children);
+
+    const { result } = renderHook(() => useMapThumbnail('/api/maps/1/thumbnail/'), { wrapper });
+
+    await waitFor(() => expect(result.current).toBe('blob:http://localhost/thumb'));
+
+    queryClient.removeQueries({ queryKey: ['map-thumbnail'] });
+
+    await waitFor(() =>
+      expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:http://localhost/thumb'),
     );
-
-    await waitFor(() => expect(result.current).toBe('blob:http://localhost/thumb-1'));
-
-    rerender({ url: '/api/maps/2/thumbnail/' });
-
-    await waitFor(() => expect(result.current).toBe('blob:http://localhost/thumb-2'));
-
-    // revokeObjectURL was called when the query key changed (data changed)
-    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:http://localhost/thumb-1');
   });
 
-  it('calls revokeObjectURL on unmount', async () => {
+  it('does NOT call revokeObjectURL on unmount (kept valid in cache for reuse)', async () => {
     mockApiFetchBlob.mockResolvedValueOnce(fakeBlob);
+
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const wrapper = ({ children }: { children: ReactNode }) =>
+      createElement(QueryClientProvider, { client: queryClient }, children);
 
     const { result, unmount } = renderHook(
       () => useMapThumbnail('/api/maps/1/thumbnail/'),
-      { wrapper: createWrapper() },
+      { wrapper },
     );
 
     await waitFor(() => expect(result.current).toBe('blob:http://localhost/thumb'));
 
     unmount();
 
-    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:http://localhost/thumb');
+    expect(URL.revokeObjectURL).not.toHaveBeenCalled();
   });
 
   it('does NOT call revokeObjectURL when data is undefined', () => {

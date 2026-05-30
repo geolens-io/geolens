@@ -1,7 +1,7 @@
-import { useEffect } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiFetchBlob, ApiError } from '@/api/client';
 import { isQuicklookKnownMissing, markQuicklookMissing } from '@/lib/quicklook-cache';
+import { registerBlobUrlRevocation } from '@/lib/blob-url-cache';
 
 export interface UseQuicklookResult {
   url: string | null;
@@ -23,9 +23,11 @@ export interface UseQuicklookResult {
  * valid JWT. Those are cached in quicklook-cache.ts for the session so we
  * don't re-fetch them on re-render.
  *
- * Blob URL lifecycle: URL.revokeObjectURL is called on unmount AND on
- * datasetId change (via the useEffect cleanup on [data]) to prevent memory
- * leaks.
+ * Blob URL lifecycle: the blob URL is cached in React Query under the
+ * quicklook key and shared across consumers. Revocation is tied to the QUERY
+ * CACHE (eviction / refetch-replacement) via registerBlobUrlRevocation, NOT to
+ * component unmount — revoking on unmount left the dead URL in cache and caused
+ * ERR_FILE_NOT_FOUND for the next consumer. See lib/blob-url-cache.ts.
  */
 export function useQuicklook(
   datasetId: string | null,
@@ -48,6 +50,9 @@ export function useQuicklook(
 // Separated inner hook so the early-return pattern above doesn't violate React
 // hooks exhaustive-deps lint; all conditional logic happens before any hook calls.
 function useQuicklookQuery(datasetId: string, size: number): UseQuicklookResult {
+  const queryClient = useQueryClient();
+  registerBlobUrlRevocation(queryClient);
+
   const {
     data,
     isPending,
@@ -63,15 +68,6 @@ function useQuicklookQuery(datasetId: string, size: number): UseQuicklookResult 
     gcTime: 10 * 60_000,
     retry: false,
   });
-
-  // Revoke blob URL when data changes (new dataset) or on unmount
-  useEffect(() => {
-    if (typeof data === 'string') {
-      return () => {
-        URL.revokeObjectURL(data);
-      };
-    }
-  }, [data]);
 
   // Handle 404 negative-caching — must happen after hooks, but before return
   if (error instanceof ApiError && error.status === 404) {
