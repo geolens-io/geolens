@@ -32,6 +32,9 @@ def _get_kwargs(
     stretch: None
     | RasterTileProxyTilesRasterProxyDatasetIdZXYFmtGetStretchType0
     | Unset = UNSET,
+    pmin: float | None | Unset = UNSET,
+    pmax: float | None | Unset = UNSET,
+    sigma: float | None | Unset = UNSET,
 ) -> dict[str, Any]:
 
     params: dict[str, Any] = {}
@@ -53,6 +56,27 @@ def _get_kwargs(
     else:
         json_stretch = stretch
     params["stretch"] = json_stretch
+
+    json_pmin: float | None | Unset
+    if isinstance(pmin, Unset):
+        json_pmin = UNSET
+    else:
+        json_pmin = pmin
+    params["pmin"] = json_pmin
+
+    json_pmax: float | None | Unset
+    if isinstance(pmax, Unset):
+        json_pmax = UNSET
+    else:
+        json_pmax = pmax
+    params["pmax"] = json_pmax
+
+    json_sigma: float | None | Unset
+    if isinstance(sigma, Unset):
+        json_sigma = UNSET
+    else:
+        json_sigma = sigma
+    params["sigma"] = json_sigma
 
     params = {k: v for k, v in params.items() if v is not UNSET and v is not None}
 
@@ -129,6 +153,9 @@ def sync_detailed(
     stretch: None
     | RasterTileProxyTilesRasterProxyDatasetIdZXYFmtGetStretchType0
     | Unset = UNSET,
+    pmin: float | None | Unset = UNSET,
+    pmax: float | None | Unset = UNSET,
+    sigma: float | None | Unset = UNSET,
 ) -> Response[Any | ProblemDetail]:
     """Raster Tile Proxy
 
@@ -143,8 +170,17 @@ def sync_detailed(
     single-band — passing gray is a no-op (not forwarded). colormap_name is not
     forwarded for DEM layers (render_params starts with 'algorithm=').
 
-    stretch: Optional stretch strategy. Phase 1140 implements minmax only;
-    percentile/stddev are accepted and logged as fallback (1140-RESEARCH Finding 6).
+    stretch: Optional stretch strategy. percentile/stddev compute a stats-based
+    rescale from Titiler band statistics. Multi-band rasters produce one rescale=
+    fragment per band (up to 3, RASTER-STRETCH-03).
+
+    pmin/pmax: Configurable percentile clip bounds (default 2/98). Must satisfy
+    0 <= pmin < pmax <= 100. Forwarded as repeated p= params to /cog/statistics.
+    The _band_stats_cache key includes pmin/pmax so different bounds never serve
+    stale cached stats (RASTER-STRETCH-UI-01 / Phase 1153 cache-key isolation).
+
+    sigma: Standard-deviation multiplier for stretch=stddev (default 2.0).
+    Must be > 0.
 
     Args:
         dataset_id (UUID):
@@ -156,6 +192,12 @@ def sync_detailed(
             Unset): Titiler colormap for single-band display
         stretch (None | RasterTileProxyTilesRasterProxyDatasetIdZXYFmtGetStretchType0 | Unset):
             Stretch strategy: minmax (default), percentile, stddev
+        pmin (float | None | Unset): Lower percentile clip for stretch=percentile (0–100, default
+            2). Absent = current p2 behavior. Must be less than pmax.
+        pmax (float | None | Unset): Upper percentile clip for stretch=percentile (0–100, default
+            98). Absent = current p98 behavior. Must be greater than pmin.
+        sigma (float | None | Unset): Standard-deviation multiplier for stretch=stddev (default
+            2.0). Absent = current 2.0σ behavior. Must be > 0.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -173,6 +215,9 @@ def sync_detailed(
         fmt=fmt,
         colormap_name=colormap_name,
         stretch=stretch,
+        pmin=pmin,
+        pmax=pmax,
+        sigma=sigma,
     )
 
     response = client.get_httpx_client().request(
@@ -196,6 +241,9 @@ def sync(
     stretch: None
     | RasterTileProxyTilesRasterProxyDatasetIdZXYFmtGetStretchType0
     | Unset = UNSET,
+    pmin: float | None | Unset = UNSET,
+    pmax: float | None | Unset = UNSET,
+    sigma: float | None | Unset = UNSET,
 ) -> Any | ProblemDetail | None:
     """Raster Tile Proxy
 
@@ -210,8 +258,17 @@ def sync(
     single-band — passing gray is a no-op (not forwarded). colormap_name is not
     forwarded for DEM layers (render_params starts with 'algorithm=').
 
-    stretch: Optional stretch strategy. Phase 1140 implements minmax only;
-    percentile/stddev are accepted and logged as fallback (1140-RESEARCH Finding 6).
+    stretch: Optional stretch strategy. percentile/stddev compute a stats-based
+    rescale from Titiler band statistics. Multi-band rasters produce one rescale=
+    fragment per band (up to 3, RASTER-STRETCH-03).
+
+    pmin/pmax: Configurable percentile clip bounds (default 2/98). Must satisfy
+    0 <= pmin < pmax <= 100. Forwarded as repeated p= params to /cog/statistics.
+    The _band_stats_cache key includes pmin/pmax so different bounds never serve
+    stale cached stats (RASTER-STRETCH-UI-01 / Phase 1153 cache-key isolation).
+
+    sigma: Standard-deviation multiplier for stretch=stddev (default 2.0).
+    Must be > 0.
 
     Args:
         dataset_id (UUID):
@@ -223,6 +280,12 @@ def sync(
             Unset): Titiler colormap for single-band display
         stretch (None | RasterTileProxyTilesRasterProxyDatasetIdZXYFmtGetStretchType0 | Unset):
             Stretch strategy: minmax (default), percentile, stddev
+        pmin (float | None | Unset): Lower percentile clip for stretch=percentile (0–100, default
+            2). Absent = current p2 behavior. Must be less than pmax.
+        pmax (float | None | Unset): Upper percentile clip for stretch=percentile (0–100, default
+            98). Absent = current p98 behavior. Must be greater than pmin.
+        sigma (float | None | Unset): Standard-deviation multiplier for stretch=stddev (default
+            2.0). Absent = current 2.0σ behavior. Must be > 0.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -241,6 +304,9 @@ def sync(
         client=client,
         colormap_name=colormap_name,
         stretch=stretch,
+        pmin=pmin,
+        pmax=pmax,
+        sigma=sigma,
     ).parsed
 
 
@@ -258,6 +324,9 @@ async def asyncio_detailed(
     stretch: None
     | RasterTileProxyTilesRasterProxyDatasetIdZXYFmtGetStretchType0
     | Unset = UNSET,
+    pmin: float | None | Unset = UNSET,
+    pmax: float | None | Unset = UNSET,
+    sigma: float | None | Unset = UNSET,
 ) -> Response[Any | ProblemDetail]:
     """Raster Tile Proxy
 
@@ -272,8 +341,17 @@ async def asyncio_detailed(
     single-band — passing gray is a no-op (not forwarded). colormap_name is not
     forwarded for DEM layers (render_params starts with 'algorithm=').
 
-    stretch: Optional stretch strategy. Phase 1140 implements minmax only;
-    percentile/stddev are accepted and logged as fallback (1140-RESEARCH Finding 6).
+    stretch: Optional stretch strategy. percentile/stddev compute a stats-based
+    rescale from Titiler band statistics. Multi-band rasters produce one rescale=
+    fragment per band (up to 3, RASTER-STRETCH-03).
+
+    pmin/pmax: Configurable percentile clip bounds (default 2/98). Must satisfy
+    0 <= pmin < pmax <= 100. Forwarded as repeated p= params to /cog/statistics.
+    The _band_stats_cache key includes pmin/pmax so different bounds never serve
+    stale cached stats (RASTER-STRETCH-UI-01 / Phase 1153 cache-key isolation).
+
+    sigma: Standard-deviation multiplier for stretch=stddev (default 2.0).
+    Must be > 0.
 
     Args:
         dataset_id (UUID):
@@ -285,6 +363,12 @@ async def asyncio_detailed(
             Unset): Titiler colormap for single-band display
         stretch (None | RasterTileProxyTilesRasterProxyDatasetIdZXYFmtGetStretchType0 | Unset):
             Stretch strategy: minmax (default), percentile, stddev
+        pmin (float | None | Unset): Lower percentile clip for stretch=percentile (0–100, default
+            2). Absent = current p2 behavior. Must be less than pmax.
+        pmax (float | None | Unset): Upper percentile clip for stretch=percentile (0–100, default
+            98). Absent = current p98 behavior. Must be greater than pmin.
+        sigma (float | None | Unset): Standard-deviation multiplier for stretch=stddev (default
+            2.0). Absent = current 2.0σ behavior. Must be > 0.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -302,6 +386,9 @@ async def asyncio_detailed(
         fmt=fmt,
         colormap_name=colormap_name,
         stretch=stretch,
+        pmin=pmin,
+        pmax=pmax,
+        sigma=sigma,
     )
 
     response = await client.get_async_httpx_client().request(**kwargs)
@@ -323,6 +410,9 @@ async def asyncio(
     stretch: None
     | RasterTileProxyTilesRasterProxyDatasetIdZXYFmtGetStretchType0
     | Unset = UNSET,
+    pmin: float | None | Unset = UNSET,
+    pmax: float | None | Unset = UNSET,
+    sigma: float | None | Unset = UNSET,
 ) -> Any | ProblemDetail | None:
     """Raster Tile Proxy
 
@@ -337,8 +427,17 @@ async def asyncio(
     single-band — passing gray is a no-op (not forwarded). colormap_name is not
     forwarded for DEM layers (render_params starts with 'algorithm=').
 
-    stretch: Optional stretch strategy. Phase 1140 implements minmax only;
-    percentile/stddev are accepted and logged as fallback (1140-RESEARCH Finding 6).
+    stretch: Optional stretch strategy. percentile/stddev compute a stats-based
+    rescale from Titiler band statistics. Multi-band rasters produce one rescale=
+    fragment per band (up to 3, RASTER-STRETCH-03).
+
+    pmin/pmax: Configurable percentile clip bounds (default 2/98). Must satisfy
+    0 <= pmin < pmax <= 100. Forwarded as repeated p= params to /cog/statistics.
+    The _band_stats_cache key includes pmin/pmax so different bounds never serve
+    stale cached stats (RASTER-STRETCH-UI-01 / Phase 1153 cache-key isolation).
+
+    sigma: Standard-deviation multiplier for stretch=stddev (default 2.0).
+    Must be > 0.
 
     Args:
         dataset_id (UUID):
@@ -350,6 +449,12 @@ async def asyncio(
             Unset): Titiler colormap for single-band display
         stretch (None | RasterTileProxyTilesRasterProxyDatasetIdZXYFmtGetStretchType0 | Unset):
             Stretch strategy: minmax (default), percentile, stddev
+        pmin (float | None | Unset): Lower percentile clip for stretch=percentile (0–100, default
+            2). Absent = current p2 behavior. Must be less than pmax.
+        pmax (float | None | Unset): Upper percentile clip for stretch=percentile (0–100, default
+            98). Absent = current p98 behavior. Must be greater than pmin.
+        sigma (float | None | Unset): Standard-deviation multiplier for stretch=stddev (default
+            2.0). Absent = current 2.0σ behavior. Must be > 0.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -369,5 +474,8 @@ async def asyncio(
             client=client,
             colormap_name=colormap_name,
             stretch=stretch,
+            pmin=pmin,
+            pmax=pmax,
+            sigma=sigma,
         )
     ).parsed

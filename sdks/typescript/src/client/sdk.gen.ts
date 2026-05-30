@@ -3191,8 +3191,17 @@ export const rasterAuthCheckTilesRasterAuthCheckGet = <ThrowOnError extends bool
  * single-band — passing gray is a no-op (not forwarded). colormap_name is not
  * forwarded for DEM layers (render_params starts with 'algorithm=').
  *
- * stretch: Optional stretch strategy. Phase 1140 implements minmax only;
- * percentile/stddev are accepted and logged as fallback (1140-RESEARCH Finding 6).
+ * stretch: Optional stretch strategy. percentile/stddev compute a stats-based
+ * rescale from Titiler band statistics. Multi-band rasters produce one rescale=
+ * fragment per band (up to 3, RASTER-STRETCH-03).
+ *
+ * pmin/pmax: Configurable percentile clip bounds (default 2/98). Must satisfy
+ * 0 <= pmin < pmax <= 100. Forwarded as repeated p= params to /cog/statistics.
+ * The _band_stats_cache key includes pmin/pmax so different bounds never serve
+ * stale cached stats (RASTER-STRETCH-UI-01 / Phase 1153 cache-key isolation).
+ *
+ * sigma: Standard-deviation multiplier for stretch=stddev (default 2.0).
+ * Must be > 0.
  */
 export const rasterTileProxyTilesRasterProxyDatasetIdZXYFmtGet = <ThrowOnError extends boolean = false>(options: Options<RasterTileProxyTilesRasterProxyDatasetIdZxyFmtGetData, ThrowOnError>) => (options.client ?? client).get<RasterTileProxyTilesRasterProxyDatasetIdZxyFmtGetResponses, RasterTileProxyTilesRasterProxyDatasetIdZxyFmtGetErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }],

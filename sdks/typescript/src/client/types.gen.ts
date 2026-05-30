@@ -21108,6 +21108,24 @@ export type RasterTileProxyTilesRasterProxyDatasetIdZxyFmtGetData = {
          * Stretch strategy: minmax (default), percentile, stddev
          */
         stretch?: 'minmax' | 'percentile' | 'stddev' | null;
+        /**
+         * Pmin
+         *
+         * Lower percentile clip for stretch=percentile (0–100, default 2). Absent = current p2 behavior. Must be less than pmax.
+         */
+        pmin?: number | null;
+        /**
+         * Pmax
+         *
+         * Upper percentile clip for stretch=percentile (0–100, default 98). Absent = current p98 behavior. Must be greater than pmin.
+         */
+        pmax?: number | null;
+        /**
+         * Sigma
+         *
+         * Standard-deviation multiplier for stretch=stddev (default 2.0). Absent = current 2.0σ behavior. Must be > 0.
+         */
+        sigma?: number | null;
     };
     url: '/tiles/raster-proxy/{dataset_id}/{z}/{x}/{y}.{fmt}';
 };
