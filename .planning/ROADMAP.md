@@ -1,5 +1,92 @@
 # Roadmap: GeoLens
 
+## Current Milestone: v1035 Builder, Maps & Export Bug Sweep
+
+**Goal:** Close the defects surfaced by quick task 260530-ezw + its production-readiness QA pass — one anonymous data leak (security blocker), four map-builder rendering/visibility bugs, an export-access gap, an app-wide console error, and supporting hygiene/regression coverage — so the maps/builder/export surfaces are production-ready. Fixes to existing files only: no new deps, migrations, or user-facing features.
+
+**Granularity:** Standard (contained bug sweep — 5 cohesive phases, not one-per-requirement).
+**Coverage:** 12/12 requirements mapped.
+
+## Phases
+
+- [ ] **Phase 1156: Vector-Tile Egress Authorization (SEC-01)** — Gate vector-tile data + tokens on `record_status=='published'` for anonymous callers, mirroring the raster path. Security blocker, ships first.
+- [ ] **Phase 1157: Backend Export Access + Route Hygiene (EXP-01, EXP-02, API-01)** — Allow anonymous export of public+published datasets; pin unpublished/private export denial; add the `/collections/{id}/items/` trailing-slash alias.
+- [ ] **Phase 1158: Builder Layer Visibility & DEM Consolidation (BLDR-01, BLDR-02, BLDR-03, BLDR-04)** — Raster basemap stays below data; terrain eye toggles 3D; one DEM row + render-mode pill; color-relief companion honors parent visibility.
+- [ ] **Phase 1159: Maps/Search UI & Blob Hygiene (MAPS-01, MAPS-02, HYG-01)** — Eliminate the duplicate `createRoot()` console error; pin the search-page quicklook blob-URL fix; move `registerBlobUrlRevocation` out of render.
+- [ ] **Phase 1160: Live Playwright MCP Close-Gate (QA-01)** — Orchestrator-driven live MCP verification of all fixes plus the standard gate; final before tag.
+
+## Phase Details
+
+### Phase 1156: Vector-Tile Egress Authorization
+**Goal**: Anonymous callers can no longer obtain MVT feature data or a valid HMAC tile token for a `public`-but-not-`published` (draft/ready/internal) vector dataset — the vector path now enforces the same `visibility=='public' AND record_status=='published'` contract as raster.
+**Depends on**: Nothing (first phase — security blocker, ships/verifies independently)
+**Requirements**: SEC-01
+**Success Criteria** (what must be TRUE):
+  1. An anonymous `GET /tiles/{table}/{z}/{x}/{y}.pbf` request for a public-unpublished vector dataset returns 401/404 (today returns 200 + 1842 bytes of feature data).
+  2. An anonymous `GET /tiles/token/{id}/` and the batch-token endpoint for a public-unpublished dataset return 401/404 instead of minting a valid HMAC token.
+  3. Clustered point tiles (`cluster_tile_endpoint`) inherit the same status-aware denial.
+  4. A public+published vector dataset still serves tiles + tokens to anonymous callers (no over-gating regression); owner/admin/embed-token paths unchanged.
+  5. A regression test pins the anonymous tile-token + `.pbf` denial on a public-unpublished dataset.
+**Plans**: TBD
+
+### Phase 1157: Backend Export Access + Route Hygiene
+**Goal**: Anonymous users can download a published-public dataset in every export format, unpublished/private/restricted export stays denied, and the OGC items route resolves with or without a trailing slash.
+**Depends on**: Phase 1156 (shares the same backend auth-model area; sequence after the security gate is verified)
+**Requirements**: EXP-01, EXP-02, API-01
+**Success Criteria** (what must be TRUE):
+  1. An anonymous `GET /datasets/{id}/export?format=geojson` (and gpkg/shp/csv) on a public+published dataset returns a real export body instead of 401.
+  2. The authenticated path still enforces the `export` capability check.
+  3. Anonymous and non-owner export of private/restricted/unpublished datasets returns 401/403/404, pinned by a regression test (seed/construct a draft vector dataset).
+  4. `GET /collections/{id}/items/` (trailing slash) resolves identically to the no-slash form instead of 404.
+**Plans**: TBD
+
+### Phase 1158: Builder Layer Visibility & DEM Consolidation
+**Goal**: The map builder renders basemap/data ordering, DEM rows, and DEM/terrain visibility toggles the way users expect — raster basemaps never occlude data, the terrain eye actually toggles 3D, one DEM row replaces the confusing triple stack, and hypsometric tint hides with its parent.
+**Depends on**: Phase 1156 (independent surface — frontend builder; may proceed in parallel, ordered after the blocker for sequencing)
+**Requirements**: BLDR-01, BLDR-02, BLDR-03, BLDR-04
+**Success Criteria** (what must be TRUE):
+  1. With `basemap_position='top'`, a raster/imagery basemap stays below the data layers and does not occlude them (pinned by a unit test in `UnifiedStackPanel.basemap-drag.test.tsx`).
+  2. Toggling the visibility eye on a terrain-mode DEM layer attaches/detaches the 3D terrain (`getTerrain()` becomes null when hidden, re-attaches when shown), pinned by a test on `effectiveTerrainEnabled`.
+  3. The layer stack shows a single clearly-labeled row per DEM dataset with a render-mode pill, with no separate stand-alone terrain layer row, and duplicate "Copy N of M" metadata surfaces accidental double-adds.
+  4. Hiding a hillshade DEM layer with hypsometric tint also hides its `-colorrelief` companion, pinned by a test.
+  5. `e2e:smoke:builder` and vitest stay green.
+**Plans**: TBD
+**UI hint**: yes
+
+### Phase 1159: Maps/Search UI & Blob Hygiene
+**Goal**: The app no longer logs the duplicate `createRoot()` console error, the search-page quicklook blob-URL fix is regression-protected, and the blob-revocation registration no longer runs as a side-effect during hook render.
+**Depends on**: Nothing functionally (frontend hygiene); sequence after Phase 1158 to keep frontend work cohesive
+**Requirements**: MAPS-01, MAPS-02, HYG-01
+**Success Criteria** (what must be TRUE):
+  1. Loading home/search, `/maps`, and dataset detail produces zero `ReactDOMClient.createRoot() on a container that has already been passed to createRoot()` console errors, pinned by a console-error assertion on at least one route.
+  2. A regression test covers the search-page quicklook thumbnails (`useQuicklook` + `lib/blob-url-cache.ts`) so the blob-URL revoke-on-eviction fix cannot regress into `ERR_FILE_NOT_FOUND`.
+  3. `registerBlobUrlRevocation(queryClient)` is invoked from an effect/memoized init rather than during hook render in `use-map-thumbnail.ts` and `use-quicklook.ts`, with behavior unchanged.
+**Plans**: TBD
+**UI hint**: yes
+
+### Phase 1160: Live Playwright MCP Close-Gate
+**Goal**: Every fix is proven on the live stack via orchestrator-driven Playwright MCP, and the standard automated gate is green, before tagging v1035.
+**Depends on**: Phases 1156, 1157, 1158, 1159
+**Requirements**: QA-01
+**Success Criteria** (what must be TRUE):
+  1. Live MCP confirms: SEC-01 anonymous tile/token on a public-unpublished dataset is denied; BLDR-01 raster basemap at `position='top'` keeps data visible; BLDR-02 terrain DEM eye toggles 3D on/off (`getTerrain()` null/set); BLDR-04 hiding a hypso-tinted DEM hides the tint; EXP-01 anonymous CSV/GeoJSON export of a public dataset returns a real body; MAPS-01 target routes show 0 `createRoot` errors.
+  2. Orchestrator drives all MCP directly (executor subagents lack `mcp__playwright__*` — project memory `playwright-mcp-orchestrator-only`).
+  3. Standard gate green: `npm run typecheck` 0, vitest green, `e2e:smoke:builder` green, focused backend tiles/export pytest green, i18n parity, `make openapi-check` no-drift.
+**Plans**: TBD
+**UI hint**: yes
+
+## Progress
+
+| Phase | Plans Complete | Status | Completed |
+|-------|----------------|--------|-----------|
+| 1156. Vector-Tile Egress Authorization | 0/TBD | Not started | - |
+| 1157. Backend Export Access + Route Hygiene | 0/TBD | Not started | - |
+| 1158. Builder Layer Visibility & DEM Consolidation | 0/TBD | Not started | - |
+| 1159. Maps/Search UI & Blob Hygiene | 0/TBD | Not started | - |
+| 1160. Live Playwright MCP Close-Gate | 0/TBD | Not started | - |
+
+---
+
 ## Historical Milestones
 
 - ✅ **v1034 Raster Stretch & Colormap Completion** — Phases 1152-1155 (shipped 2026-05-30, local tag `v1034`; per-band multi-band stretch + configurable percentile/σ bounds + seeded single-band raster fixture; Playwright MCP close-gate found + fixed two latent v1031/v1032 defects — colormap/stretch controls in an unmounted component + builder-private paint keys 422'd on save; 8/8 reqs; audit tech_debt/CLEAR-TO-TAG) — see [archive](milestones/v1034-ROADMAP.md)

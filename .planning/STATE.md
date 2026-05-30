@@ -6,7 +6,7 @@ status: planning
 last_updated: "2026-05-30T16:35:25.727Z"
 last_activity: 2026-05-30
 progress:
-  total_phases: 0
+  total_phases: 5
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -17,17 +17,17 @@ progress:
 
 ## Current Position
 
-Phase: Not started (defining requirements)
+Phase: Not started (roadmap created — Phases 1156-1160)
 Plan: —
-Status: Defining requirements
-Last activity: 2026-05-30 — Milestone v1035 started
+Status: Roadmap created; awaiting `/gsd:plan-phase 1156`
+Last activity: 2026-05-30 — Milestone v1035 roadmap created (5 phases, 12/12 reqs mapped)
 
 ## Project Reference
 
 See: .planning/PROJECT.md (updated 2026-05-30)
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** Planning next milestone — run `/gsd:new-milestone`.
+**Current focus:** v1035 bug/security sweep — start with Phase 1156 (SEC-01 vector-tile egress leak, security blocker).
 
 ## Last Shipped Milestone
 
@@ -39,45 +39,43 @@ See: .planning/PROJECT.md (updated 2026-05-30)
 **Archive:** `.planning/milestones/v1034-ROADMAP.md` + `v1034-REQUIREMENTS.md`
 **Delivered:** Per-band multi-band stretch + configurable percentile/σ bounds + seeded single-band raster fixture (`GRAY_50M_SR.tif`). The Playwright MCP close-gate found + fixed two latent v1031/v1032 defects: raster colormap/stretch controls were in an unmounted component (extracted shared `RasterStretchControls`) and builder-private paint keys 422'd on save (allowlisted into `style_config.builder` + re-injected on load). Feature now works end-to-end (live-verified: set → save 200 → reload retains + tiles re-render). **Carry-forward:** band_count hydration on fresh-add (section appears only after first save+reload) — minor UX.
 
-## Current Milestone: v1034 Raster Stretch & Colormap Completion
+## Current Milestone: v1035 Builder, Maps & Export Bug Sweep
 
-**Goal:** Finish the half-done raster stretch/colormap feature — add full per-band multi-band stretch, make percentile/σ bounds configurable, seed a real single-band raster fixture to actually verify the colormap/stretch UI, and clear the v1033 builder dead-code/note tech debt.
+**Goal:** Close the defects surfaced by quick task 260530-ezw + its production-readiness QA pass — one anonymous data leak (security blocker), four map-builder rendering/visibility bugs, an export-access gap, an app-wide console error, and supporting hygiene/regression coverage. Fixes to existing files only — no new deps, migrations, or user-facing features. Phase numbering continues from v1034's 1155. GitHub issues: #120, #121, #122, #123, #124, #125.
 
 **Phases:**
 
-- [ ] 1152: Single-Band Raster Fixture (TESTDATA-01)
-- [ ] 1153: Backend — Multi-Band Stretch + Configurable Bounds (RASTER-STRETCH-03 backend, SPIKE-01, RASTER-STRETCH-UI-01 backend)
-- [ ] 1154: Frontend Controls + Cleanup (RASTER-STRETCH-03 frontend, RASTER-STRETCH-UI-01 frontend, RASTER-STRETCH-UI-02, CLEANUP-01)
-- [ ] 1155: Close-Gate (VERIFY-01, QA-01)
+- [ ] 1156: Vector-Tile Egress Authorization (SEC-01) — security blocker, ships first
+- [ ] 1157: Backend Export Access + Route Hygiene (EXP-01, EXP-02, API-01)
+- [ ] 1158: Builder Layer Visibility & DEM Consolidation (BLDR-01, BLDR-02, BLDR-03, BLDR-04)
+- [ ] 1159: Maps/Search UI & Blob Hygiene (MAPS-01, MAPS-02, HYG-01)
+- [ ] 1160: Live Playwright MCP Close-Gate (QA-01)
 
-**Key constraint:** SPIKE-01 is the first task of Phase 1153, not its own phase. If Titiler 2.0.2 does not return `percentile_N` keys for arbitrary `p=N` params, escalate before writing any configurable-bounds backend code.
+**Key constraints:**
+- **SEC-01 is a real anonymous data leak** (live-proven: 1842 bytes of MVT served to anon for a public-unpublished dataset). Sequence Phase 1156 first; the raster path (`tiles/router.py:438,467`) is the correct model to mirror across the four vector entry points (`_authorize_vector_tile_request` :1053, `_DatasetMeta`/`_resolve_dataset_meta` :1015, `get_tile_token` :866, `get_tile_tokens_batch` :939, `cluster_tile_endpoint` :1130).
+- **EXP-02 needs a draft/ready vector dataset** — none exists in the dev DB; seed or construct one in the regression test.
+- **Orchestrator drives all live Playwright MCP** (Phase 1160). Executor subagents lack `mcp__playwright__*` access — see project memory `playwright-mcp-orchestrator-only`.
 
 ## Accumulated Context
 
 ### Decisions (forward-relevant; full milestone log in archives)
 
-- **RENDER_MODES allowlist (v1033 RESOLVED):** `RENDER_MODES` (`frontend/src/lib/normalize-style-config.ts:92`) now includes all editor-emittable modes incl. `'terrain'` + `'image'`; the `StyleConfig['render_mode']` union (`frontend/src/types/api.ts`) matches. A round-trip + completeness guard test prevents silently dropping a mode again. `DEMEditorScene` no longer casts at the boundary (BSR-09 closed). `api.ts` is hand-maintained; `style_config` is opaque jsonb on the backend — render-mode changes are frontend-only (no OpenAPI/SDK regen).
-- **DEM terrain consumer (v1033):** `applyTerrainConfig` (`BuilderMap.tsx`) requires BOTH map-level `terrain_config.enabled` + `source_dataset_id` AND a layer with `render_mode==='terrain'`. With the normalizer fix, terrain attaches on fresh load.
-- **Hillshade dual-consumer guard (v1033 POLISH-02):** `isHillshadeTerrainBound` (exported from `map-sync.ts`) skips the hillshade raster-dem consumer + shows a DEM-editor note when a DEM powers an active terrain source. Inactive when terrain is off, so the primary hillshade path is unaffected. The raw `backfillBorder` error is a MapLibre limitation with non-uniform DEM tiles in the terrain+hillshade dual-consumer case only.
-- **Label indicator predicate (v1033):** layer "has labels" ⇔ `!!label_config?.column && render_mode not heatmap/symbol` — the SAME gate `map-sync.ts` uses to render labels. `StackRow` indicator mirrors it.
-- **Raster stretch (v1032):** `percentile`/`stddev` compute a stats-based Titiler rescale via `/cog/statistics` (cached). `_band_stats_cache` is now an `LRUCache(maxsize=256)` (v1033 HYG-01). Not applied to DEM. Multi-band = current milestone RASTER-STRETCH-03.
-- **band_count (v1031/v1033):** `band_count=None` on the `get_dataset_meta` path (shows "1 band" for RGB ortho — cosmetic; colormap correctly hidden for imagery). Tracked as Future RASTER-META-01.
-- **Fixture dtype trap (v1034 critical):** `cog.py:85` sets `is_dem=True` for any `band_count==1 AND float dtype`. Fixture MUST be uint8 or uint16. Verify `is_dem=false` after ingest before any UI smoke.
-- **Cache key extension (v1034 Phase 1153 DONE):** `_band_stats_cache` key is now `(open_path, pmin, pmax)` tuple. Cache isolation proven by unit test. OpenAPI snapshot refreshed.
-- **Cluster adapter (carried):** intentionally keeps raw `map.setFilter` for the compound `combineFilter` shape — NOT migrated to `syncLayerFilter`.
-- **Fill extrusion companion (carried):** no `layout.visibility` block at `addLayers` add-time; controlled via `syncVisibility`. Documented in `fill-adapter.test.ts`.
-- **SF-MCP-01 (carried from v1030):** `chat_actions.py:_collect_chat_action()` never emits rows on `show_query_result` for non-spatial queries; frontend inline card ready but backend wiring still missing.
-- **TESTDATA-01 fixture (v1034 Phase 1152 DONE):** `GRAY_50M_SR.tif` ingested via `ingest_raster_fixture()` in `scripts/seed-natural-earth.py`. `dataset_id=4767fc35-f6d6-4985-a28e-aecb158fbc1b`, `band_count=1`, `is_dem=false`. Idempotent. PITFALL: upload the `.tif` extracted from the zip (not the zip directly) — `_stamp_raster_metadata` gates raster detection on `.tif`/`.tiff` filename extension.
-- **Raster seed filename resolution (v1034):** `RASTER_FIXTURE` has two filename keys: `filename` (CDN zip download/cache key = `GRAY_50M_SR.zip`) and `tif_filename` (uploaded to API / stored as `source_filename` = `GRAY_50M_SR.tif`). Idempotency check uses `tif_filename`.
+- **Anonymous-access contract (canonical):** `can_access_dataset()` (`backend/app/platform/extensions/defaults.py:93`) returns `visibility=='public' AND record_status=='published'` for `user is None` (`:109-110`); query-level equivalent is `filter_visible()` anon branch (`:61-65`). Wrappers: `check_dataset_access_or_anonymous()` / `check_dataset_access()` (`backend/app/modules/catalog/authorization.py:75,100`). SEC-01 + EXP-01 must route anonymous through these (or the inline status-aware 3-branch check), not visibility-only.
+- **COG-download anon reference (for EXP-01):** `download_cog` (`backend/app/modules/catalog/datasets/api/router_export.py:354`) uses `_resolve_download_user` (`:254`, returns None for valid no-sub download token) then branches on `user is None` → `check_dataset_access_or_anonymous` + public-visibility guard (`:385-407`), keeping the capability check only on the authenticated branch. Mirror this for vector export (`processing/export/router.py:47`).
+- **BLDR-02 terrain toggle fix shape (audited):** in `applyTerrainConfig` (`BuilderMap.tsx:~394`, `demLayer` in scope at `:389`) compute `effectiveTerrainEnabled = terrainConfig.enabled && demLayer.visible`; extend `terrainLayerKey` (`:413-418`) with `:${String(layer.visible)}` so the effect re-runs. Lowest-touch option.
+- **BLDR-04 color-relief fix shape (audited):** `syncColorReliefLayer` (`color-relief-sync.ts:97-112`) — `AdapterLayerInput` already carries `visible` (`types.ts:23`) and the call site (`map-sync.ts:957-959`) passes `adapterInput` with `visible` populated, so set `layout:{visibility: input.visible ? 'visible':'none'}` on add + on sync. No signature change needed.
+- **BLDR-01 fix shape (audited):** `reorderBasemapAboveData` (`map-sync.ts:298-322`) currently skips only vector base fills (`isLandLayer`/`isWaterLayer`/`background`); extend to skip non-data raster basemap layers (`layer.type==='raster'` whose source ≠ data `sourcePrefix`).
+- **BLDR-03 (audited):** `UnifiedStackPanel` renders 1 `StackRow` per `MapLayerResponse` (no synthesis); three DEM rows = the DEM dataset added as 3 separate layer records. Recommended: one DEM row + render-mode pill, terrain as map-level setting (no separate terrain layer row); reuse the `MapStackDuplicateMetadata` "Copy N of M" logic (`map-stack.ts:299-337`, currently unshown). `map-stack.ts`/`buildMapStack` is dead in the live UI (only `normalize-saved-map.ts` + tests reference it).
+- **MAPS-01:** duplicate `ReactDOMClient.createRoot()` error fires app-wide (3× per load on home/search, `/maps`, dataset detail) — find the offending `createRoot()` call and cache/reuse the root (or unmount before re-rooting). Out of scope: broader StrictMode/HMR mount refactor.
+- **API-01:** add `/collections/{id}/items/` trailing-slash dual-shape alias per the Phase 1092 ROUTE-01 stacked-decorator pattern (`redirect_slashes=False` at app level). Frontend uses no-slash today.
 
 ### Pending Todos
 
-None active. (Builder QA 2026-05-30: F2 widget dirty-tracking, F3 projection persistence, and F4 backend `basemap_position` 422 all fixed + tested — see `.planning/quick/260530-builder-qa-smoke/`.)
+None active.
 
 ### Blockers/Concerns
 
 - **CI-01-v1030 billing prerequisite (carry-forward from v1023):** Operator must resolve GH Actions billing at https://github.com/organizations/geolens-io/settings/billing before the `pytest-parallel-isolation` CI gate can live-verify GREEN. Standing ops blocker — unblock independently of milestone execution.
-- **SPIKE-01 (Phase 1153 CLOSED):** Titiler p= arbitrary percentile support confirmed (1153-SPIKE.md); contract-pinning test added to test_raster_colormap_proxy.py.
 
 ### Quick Tasks Completed
 
@@ -90,20 +88,17 @@ None active. (Builder QA 2026-05-30: F2 widget dirty-tracking, F3 projection per
 | Category | Item | Status | Deferred At |
 |----------|------|--------|-------------|
 | raster-meta | `band_count` cosmetic ("1 band" for RGB ortho on get_dataset_meta path) — RASTER-META-01 | Future | v1033 |
-| builder-edge | `onRenderModeChange` dead member + `hillshadeTerrainNote` unreachable advisory | In scope v1034 CLEANUP-01 | v1033 audit |
 | ci-live-verify | `pytest-parallel-isolation` gate live-verify on real GitHub Actions (billing block) | Carried forward as CI-01-v1030 | v1023 Phase 1100 degraded close |
-| nyquist | VALIDATION.md formalization for 1148-1151 | Optional; coverage strong via close-gate | v1033 milestone audit |
+| public-export-policy | Per-deployment toggle to restrict anonymous public file export | Out of scope (product decision) | v1035 |
 
 ## Session Continuity
 
-Last session: 2026-05-30T00:17:29.063Z
-Stopped at: v1034 roadmap created; STATE.md initialized at Phase 1152
+Last session: 2026-05-30
+Stopped at: v1035 roadmap created; STATE.md updated; REQUIREMENTS traceability filled (12/12)
 Resume file: None
 
 ## Operator Next Steps
 
-- **Phase 1152 DONE.** TESTDATA-01 satisfied — `GRAY_50M_SR.tif` fixture in catalog (id `4767fc35-f6d6-4985-a28e-aecb158fbc1b`), `is_dem=false`, `band_count=1`, idempotent.
-- **Phase 1153 DONE.** RASTER-STRETCH-03 + SPIKE-01 + RASTER-STRETCH-UI-01 backend complete. Multi-band n_bands fix (X-GeoLens-Band-Count header seam), pmin/pmax/sigma configurable bounds, bounds-keyed cache `(open_path, pmin, pmax)`, 422 validation before Titiler, SPIKE-01 contract-pinning test. 66/66 focused tests green. OpenAPI snapshot regenerated (no-drift).
-- **Next:** Phase 1154 — Frontend Controls + Cleanup (RASTER-STRETCH-03 frontend, RASTER-STRETCH-UI-01 frontend, RASTER-STRETCH-UI-02, CLEANUP-01).
-- **MCP note:** Orchestrator drives all live Playwright MCP (Phase 1155). Executor subagents lack `mcp__playwright__*` access — see project memory `playwright-mcp-orchestrator-only`.
-- Phase directories for v1033 (1148-1151) should be in `milestones/v1033-phases/` after cleanup.
+- **Roadmap created.** 5 phases (1156-1160), 12/12 reqs mapped. Run `/gsd:plan-phase 1156` to begin.
+- **Phase 1156 first (SEC-01)** — real anonymous data leak; ships/verifies independently before the rest.
+- **MCP note:** Orchestrator drives all live Playwright MCP (Phase 1160). Executor subagents lack `mcp__playwright__*` access — see project memory `playwright-mcp-orchestrator-only`.

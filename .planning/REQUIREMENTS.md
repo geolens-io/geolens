@@ -63,18 +63,18 @@ Which phases cover which requirements. Filled during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| SEC-01 | TBD | Pending |
-| BLDR-01 | TBD | Pending |
-| BLDR-02 | TBD | Pending |
-| BLDR-03 | TBD | Pending |
-| BLDR-04 | TBD | Pending |
-| EXP-01 | TBD | Pending |
-| EXP-02 | TBD | Pending |
-| MAPS-01 | TBD | Pending |
-| MAPS-02 | TBD | Pending |
-| API-01 | TBD | Pending |
-| HYG-01 | TBD | Pending |
-| QA-01 | TBD | Pending |
+| SEC-01 | Phase 1156 | Pending |
+| BLDR-01 | Phase 1158 | Pending |
+| BLDR-02 | Phase 1158 | Pending |
+| BLDR-03 | Phase 1158 | Pending |
+| BLDR-04 | Phase 1158 | Pending |
+| EXP-01 | Phase 1157 | Pending |
+| EXP-02 | Phase 1157 | Pending |
+| MAPS-01 | Phase 1159 | Pending |
+| MAPS-02 | Phase 1159 | Pending |
+| API-01 | Phase 1157 | Pending |
+| HYG-01 | Phase 1159 | Pending |
+| QA-01 | Phase 1160 | Pending |
 
 **Coverage:**
 - v1 requirements: 12 total (11 fixes + 1 close-gate)
