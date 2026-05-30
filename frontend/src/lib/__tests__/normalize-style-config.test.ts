@@ -205,3 +205,28 @@ describe('normalizeStyleConfig', () => {
     });
   });
 });
+
+describe('normalizeLayerStyleState — raster stretch/colormap round-trip (v1034)', () => {
+  it('re-injects builder colormap/stretch/pmin/pmax/sigma back onto paint on load', () => {
+    // Simulates a layer loaded from the backend: clean paint + builder-stored keys.
+    const { paint, style_config } = normalizeLayerStyleState(
+      { builder: { colormap: 'viridis', stretch: 'percentile', pmin: 5, pmax: 95, sigma: 3 } },
+      { 'raster-opacity': 1 },
+      null,
+    );
+    expect(paint._colormap).toBe('viridis');
+    expect(paint._stretch).toBe('percentile');
+    expect(paint._pmin).toBe(5);
+    expect(paint._pmax).toBe(95);
+    expect(paint._sigma).toBe(3);
+    // The builder values survive in style_config too.
+    expect(style_config?.builder?.colormap).toBe('viridis');
+    expect(style_config?.builder?.pmin).toBe(5);
+  });
+
+  it('leaves paint untouched when no raster builder keys are present', () => {
+    const { paint } = normalizeLayerStyleState(null, { 'raster-opacity': 0.5 }, null);
+    expect(paint).toEqual({ 'raster-opacity': 0.5 });
+    expect('_colormap' in paint).toBe(false);
+  });
+});

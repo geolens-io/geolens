@@ -489,6 +489,7 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
                       opacity={layer.opacity ?? 1}
                       onOpacityChange={(v) => handlers.onOpacityChange(layer.id, v)}
                       isDem={layer.is_dem}
+                      bandCount={layer.band_count}
                       styleConfig={layer.style_config}
                       onStyleConfigChange={(nextConfig, nextPaint) =>
                         handlers.onStyleConfigChange(layer.id, nextConfig, nextPaint)

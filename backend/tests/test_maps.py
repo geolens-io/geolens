@@ -2044,6 +2044,47 @@ class TestMapLayers:
         assert stored.paint == data["paint"]
         assert stored.style_config == data["style_config"]
 
+    async def test_add_layer_moves_raster_stretch_paint_to_style_config(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+    ):
+        """v1034: raster colormap/stretch/pmin/pmax/sigma builder-private paint
+        keys are accepted and moved into style_config.builder (clean paint),
+        so the raster colormap/stretch round-trip persists across save/reload."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await create_dataset(test_db_session, created_by=admin_id)
+        created = await _create_map(client, admin_auth_header)
+        map_id = created["id"]
+
+        resp = await client.post(
+            f"/maps/{map_id}/layers",
+            json={
+                "dataset_id": str(ds.id),
+                "paint": {
+                    "raster-opacity": 1,
+                    "_colormap": "viridis",
+                    "_stretch": "percentile",
+                    "_pmin": 5,
+                    "_pmax": 95,
+                    "_sigma": 3,
+                },
+            },
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 201, resp.text
+        data = resp.json()
+        # Private keys stripped from the stored MapLibre paint boundary.
+        assert data["paint"] == {"raster-opacity": 1}
+        assert data["style_config"]["builder"] == {
+            "colormap": "viridis",
+            "stretch": "percentile",
+            "pmin": 5,
+            "pmax": 95,
+            "sigma": 3,
+        }
+
     async def test_add_layer_rejects_unknown_private_paint_key(
         self,
         client: AsyncClient,

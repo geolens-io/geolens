@@ -322,8 +322,20 @@ export function normalizeLayerStyleState(
   paint: Record<string, unknown> | null | undefined,
   geometryType: string | null,
 ): NormalizedLayerStyleState {
-  return {
-    style_config: normalizeStyleConfig(raw, paint, geometryType),
-    paint: stripLegacyBuilderPaint(paint),
-  };
+  const style_config = normalizeStyleConfig(raw, paint, geometryType);
+  const cleanPaint = stripLegacyBuilderPaint(paint);
+  // Re-hydrate the raster colormap/stretch builder-private keys back onto the
+  // in-memory paint view. The backend stores them in style_config.builder (the
+  // clean-paint boundary), but RasterStretchControls + buildColormapTileUrl read
+  // them as `_`-prefixed paint keys — so re-inject them after load to keep the
+  // editor and tile-render path working without a separate builder read path.
+  const builder = style_config?.builder;
+  if (builder) {
+    if (typeof builder.colormap === 'string') cleanPaint._colormap = builder.colormap;
+    if (typeof builder.stretch === 'string') cleanPaint._stretch = builder.stretch;
+    if (typeof builder.pmin === 'number') cleanPaint._pmin = builder.pmin;
+    if (typeof builder.pmax === 'number') cleanPaint._pmax = builder.pmax;
+    if (typeof builder.sigma === 'number') cleanPaint._sigma = builder.sigma;
+  }
+  return { style_config, paint: cleanPaint };
 }

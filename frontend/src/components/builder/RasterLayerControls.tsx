@@ -5,6 +5,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { formatNumber } from '@/lib/format';
 import { useTranslation } from 'react-i18next';
 import { StyleColorPicker } from './StyleColorPicker';
+import { RasterStretchControls } from './LayerStyleEditor/RasterStretchControls';
 import { normalizeHillshadeExaggeration } from './layer-adapters/hillshade-adapter';
 import type { StyleConfig } from '@/types/api';
 
@@ -38,6 +39,8 @@ interface RasterLayerControlsProps {
   /** Omit to hide the opacity slider (e.g. when the parent owns opacity via a separate control). */
   onOpacityChange?: (value: number) => void;
   isDem?: boolean | null;
+  /** Resolved band count — gates the colormap/stretch section (single vs multi-band). */
+  bandCount?: number | null;
   styleConfig?: Partial<StyleConfig> | null;
   onStyleConfigChange?: (config: StyleConfig | null, paint: Record<string, unknown>) => void;
 }
@@ -48,6 +51,7 @@ export function RasterLayerControls({
   opacity,
   onOpacityChange,
   isDem = false,
+  bandCount = null,
   styleConfig = null,
   onStyleConfigChange,
 }: RasterLayerControlsProps) {
@@ -297,6 +301,18 @@ export function RasterLayerControls({
           </SelectContent>
         </Select>
       </div>
+
+      {/* Colormap / Stretch (RASTER-STRETCH-03 / UI-01 / UI-02). Shared with
+          RasterEditor via RasterStretchControls. onPaintProp merges into the
+          full paint dict to match this component's onPaintChange contract.
+          Not shown for DEM (terrainrgb) or when band_count is unknown. */}
+      <RasterStretchControls
+        bandCount={bandCount}
+        paint={paint}
+        onPaintProp={(key, value) => onPaintChange({ ...paint, [key]: value })}
+        isDem={isDem}
+        t={t}
+      />
         </>
       )}
     </div>

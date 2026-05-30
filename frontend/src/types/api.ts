@@ -823,6 +823,16 @@ export interface BuilderStyleConfig {
      *  inside LineGradientControls. */
     stops: Array<{ position: number; color: string; id?: string }>;
   };
+  /** Raster colormap name (single-band). Builder-private; mutates the tile URL via buildColormapTileUrl. */
+  colormap?: string;
+  /** Raster stretch mode: minmax | percentile | stddev. Builder-private. */
+  stretch?: string;
+  /** Configurable percentile-low bound for stretch=percentile. */
+  pmin?: number;
+  /** Configurable percentile-high bound for stretch=percentile. */
+  pmax?: number;
+  /** Configurable sigma multiplier for stretch=stddev. */
+  sigma?: number;
   /** Virtual builder folder-group membership. Stored on real layers; folder rows are reconstructed client-side. */
   folderGroupId?: string;
   folderGroupName?: string;

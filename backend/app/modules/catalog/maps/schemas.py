@@ -32,6 +32,16 @@ LEGACY_BUILDER_PAINT_KEYS = {
     "_heatmap-ramp": "heatmap_ramp",
     "_heatmap-weight-column": "heatmap_weight_column",
     "_height_column": "height_column",
+    # Raster colormap/stretch builder-private keys (v1031/v1032/v1034). The
+    # frontend authors them as `_`-prefixed paint keys that drive the raster
+    # tile URL (buildColormapTileUrl); they are moved here into
+    # style_config.builder so the MapLibre `paint` storage boundary stays clean
+    # and the round-trip persists across save/reload.
+    "_colormap": "colormap",
+    "_stretch": "stretch",
+    "_pmin": "pmin",
+    "_pmax": "pmax",
+    "_sigma": "sigma",
 }
 _STYLE_CONFIG_BUILDER_KEY = "builder"
 
