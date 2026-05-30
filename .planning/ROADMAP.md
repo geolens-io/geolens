@@ -11,7 +11,7 @@
 
 - [x] **Phase 1156: Vector-Tile Egress Authorization (SEC-01)** — Gate vector-tile data + tokens on `record_status=='published'` for anonymous callers, mirroring the raster path. Security blocker, ships first. (completed 2026-05-30)
 - [x] **Phase 1157: Backend Export Access + Route Hygiene (EXP-01, EXP-02, API-01)** — Allow anonymous export of public+published datasets; pin unpublished/private export denial; add the `/collections/{id}/items/` trailing-slash alias. (completed 2026-05-30)
-- [ ] **Phase 1158: Builder Layer Visibility & DEM Consolidation (BLDR-01, BLDR-02, BLDR-03, BLDR-04)** — Raster basemap stays below data; terrain eye toggles 3D; one DEM row + render-mode pill; color-relief companion honors parent visibility.
+- [x] **Phase 1158: Builder Layer Visibility & DEM Consolidation (BLDR-01, BLDR-02, BLDR-03, BLDR-04)** — Raster basemap stays below data; terrain eye toggles 3D; one DEM row + render-mode pill; color-relief companion honors parent visibility. (completed 2026-05-30)
 - [ ] **Phase 1159: Maps/Search UI & Blob Hygiene (MAPS-01, MAPS-02, HYG-01)** — Eliminate the duplicate `createRoot()` console error; pin the search-page quicklook blob-URL fix; move `registerBlobUrlRevocation` out of render.
 - [ ] **Phase 1160: Live Playwright MCP Close-Gate (QA-01)** — Orchestrator-driven live MCP verification of all fixes plus the standard gate; final before tag.
 
@@ -56,7 +56,7 @@
   5. `e2e:smoke:builder` and vitest stay green.
 **Plans**: 2 plans
   - [x] 1158-01-PLAN.md — Apply the 4 audited source fixes (BLDR-01 raster-basemap ordering skip + BLDR-04 color-relief companion visibility in map-sync/color-relief-sync; BLDR-02 terrain eye gates 3D in BuilderMap; BLDR-03 suppress terrain-mode DEM row from UnifiedStackPanel)
-  - [ ] 1158-02-PLAN.md — Regression test pins (BLDR-01 raster-skip + BLDR-04 companion-visibility units; BLDR-02 terrain attach/detach-on-visibility; BLDR-03 terrain-row suppression) + full frontend gate (typecheck/vitest/e2e:smoke:builder)
+  - [x] 1158-02-PLAN.md — Regression test pins (BLDR-01 raster-skip + BLDR-04 companion-visibility units; BLDR-02 terrain attach/detach-on-visibility; BLDR-03 terrain-row suppression) + full frontend gate (typecheck/vitest/e2e:smoke:builder)
 **UI hint**: yes
 
 ### Phase 1159: Maps/Search UI & Blob Hygiene
@@ -87,7 +87,7 @@
 |-------|----------------|--------|-----------|
 | 1156. Vector-Tile Egress Authorization | 2/2 | Complete    | 2026-05-30 |
 | 1157. Backend Export Access + Route Hygiene | 2/2 | Complete    | 2026-05-30 |
-| 1158. Builder Layer Visibility & DEM Consolidation | 1/2 | In Progress|  |
+| 1158. Builder Layer Visibility & DEM Consolidation | 2/2 | Complete   | 2026-05-30 |
 | 1159. Maps/Search UI & Blob Hygiene | 0/TBD | Not started | - |
 | 1160. Live Playwright MCP Close-Gate | 0/TBD | Not started | - |
 
