@@ -306,7 +306,7 @@ export const SUBLAYER_CLASSIFIERS: Record<string, (layer: StyleLayer) => boolean
   label: isTextLabelLayer,
 };
 
-function isWaterLayer(layer: StyleLayer) {
+export function isWaterLayer(layer: StyleLayer) {
   return matchesAny(layer, WATER_PATTERNS);
 }
 
@@ -314,7 +314,7 @@ function isParkLayer(layer: StyleLayer) {
   return matchesAny(layer, ['park', 'wood', 'forest', 'natural', 'greenspace']);
 }
 
-function isLandLayer(layer: StyleLayer) {
+export function isLandLayer(layer: StyleLayer) {
   return layer.type === 'background' || matchesAny(layer, LAND_PATTERNS);
 }
 

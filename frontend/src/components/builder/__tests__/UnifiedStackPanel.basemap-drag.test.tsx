@@ -265,7 +265,9 @@ describe('UX-03: BasemapGroupRow drag handle (sortable wiring)', () => {
 });
 
 describe('UX-03: reorderBasemapAboveData (map-sync helper)', () => {
-  function makeMockMap(layers: Array<{ id: string; source?: string }>): MaplibreMap {
+  function makeMockMap(
+    layers: Array<{ id: string; source?: string; type?: string; layout?: Record<string, unknown> }>,
+  ): MaplibreMap {
     const moveLayer = vi.fn();
     return {
       moveLayer,
@@ -274,18 +276,22 @@ describe('UX-03: reorderBasemapAboveData (map-sync helper)', () => {
     } as unknown as MaplibreMap;
   }
 
-  it('Test 7: when position="top", moveLayer dispatches for every non-data style layer', () => {
+  it('Test 7: when position="top", lifts reference detail/label layers but keeps base fills in place', () => {
     const styleLayers = [
-      { id: 'background', source: undefined }, // basemap background (no source)
-      { id: 'water', source: 'openmaptiles' }, // basemap layer (non-data source prefix)
-      { id: 'layer-data-1', source: 'source-data-population' }, // data layer
+      { id: 'background', type: 'background' }, // base fill → must stay below data
+      { id: 'water', type: 'fill', source: 'openmaptiles' }, // base fill → must stay
+      { id: 'road-primary', type: 'line', source: 'openmaptiles' }, // detail → lifts
+      { id: 'place-labels', type: 'symbol', source: 'openmaptiles', layout: { 'text-field': '{name}' } }, // labels → lifts
+      { id: 'layer-data-1', source: 'source-data-population' }, // data → never moved
     ];
     const map = makeMockMap(styleLayers);
     reorderBasemapAboveData(map, 'top');
-    // 'background' (no source) and 'water' (non-data prefix) should be moved;
-    // 'layer-data-1' (source starts with 'source-') should NOT be moved.
-    expect(map.moveLayer).toHaveBeenCalledWith('background');
-    expect(map.moveLayer).toHaveBeenCalledWith('water');
+    // Reference detail/labels float above data; opaque base fills do NOT
+    // (lifting them was the "labels only basemap shows full imagery" bug).
+    expect(map.moveLayer).toHaveBeenCalledWith('road-primary');
+    expect(map.moveLayer).toHaveBeenCalledWith('place-labels');
+    expect(map.moveLayer).not.toHaveBeenCalledWith('background');
+    expect(map.moveLayer).not.toHaveBeenCalledWith('water');
     expect(map.moveLayer).not.toHaveBeenCalledWith('layer-data-1');
     expect((map.moveLayer as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(2);
   });
@@ -312,28 +318,28 @@ describe('UX-03: reorderBasemapAboveData (map-sync helper)', () => {
     const moveLayer = vi.fn();
     const map = {
       moveLayer,
-      // Style still lists 'old-layer' but getLayer says it's gone (race during teardown)
-      getLayer: (id: string) => id === 'water' ? { id } : undefined,
+      // Style still lists 'old-road' but getLayer says it's gone (race during teardown)
+      getLayer: (id: string) => id === 'road-primary' ? { id } : undefined,
       getStyle: () => ({
         layers: [
-          { id: 'old-layer', source: 'openmaptiles' },
-          { id: 'water', source: 'openmaptiles' },
+          { id: 'old-road', type: 'line', source: 'openmaptiles' },
+          { id: 'road-primary', type: 'line', source: 'openmaptiles' },
         ],
       }),
     } as unknown as MaplibreMap;
     reorderBasemapAboveData(map, 'top');
-    expect(moveLayer).toHaveBeenCalledWith('water');
-    expect(moveLayer).not.toHaveBeenCalledWith('old-layer');
+    expect(moveLayer).toHaveBeenCalledWith('road-primary');
+    expect(moveLayer).not.toHaveBeenCalledWith('old-road');
   });
 
   it('Test 11: respects custom sourcePrefix for viewer/embed contexts', () => {
     const styleLayers = [
-      { id: 'water', source: 'openmaptiles' }, // basemap
+      { id: 'road-primary', type: 'line', source: 'openmaptiles' }, // basemap detail → lifts
       { id: 'embed-layer-data-1', source: 'embed-source-data-pop' }, // data (embed prefix)
     ];
     const map = makeMockMap(styleLayers);
     reorderBasemapAboveData(map, 'top', 'embed-source-');
-    expect(map.moveLayer).toHaveBeenCalledWith('water');
+    expect(map.moveLayer).toHaveBeenCalledWith('road-primary');
     expect(map.moveLayer).not.toHaveBeenCalledWith('embed-layer-data-1');
   });
 });

@@ -5,7 +5,7 @@ import type { MapBasemapConfig, MapLayerResponse, LabelConfig, StyleConfig, MapT
 import type { RasterTileToken, TileToken, VectorTileToken } from '@/api/tiles';
 import i18n from '@/i18n/i18n';
 import { buildClusterTileUrl, buildSignedTileUrl } from '@/lib/tile-utils';
-import { applyBasemapConfigToStyle } from '@/lib/basemap-utils';
+import { applyBasemapConfigToStyle, isLandLayer, isWaterLayer } from '@/lib/basemap-utils';
 import { sanitizeNullableNumericFilter } from '@/lib/maplibre-filter-utils';
 import { isFolderGroupLayer } from '@/lib/layer-capabilities';
 import { getAdapter } from './layer-adapters/registry';
@@ -310,6 +310,12 @@ export function reorderBasemapAboveData(
     const src = ('source' in layer) ? String(layer.source ?? '') : '';
     if (src.startsWith(sourcePrefix)) continue;
     if (!map.getLayer(layer.id)) continue;
+    // Never lift the opaque base fills (background / land / water) above the
+    // data layers — doing so paints them over the data and makes a
+    // "labels only" basemap reveal its full imagery on reorder. Only the
+    // reference detail layers (roads, buildings, boundaries, labels) should
+    // float above the data when basemap_position === 'top'.
+    if (isLandLayer(layer) || isWaterLayer(layer)) continue;
     try {
       map.moveLayer(layer.id);
     } catch (err) {
