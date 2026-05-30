@@ -2,9 +2,9 @@
 gsd_state_version: 1.0
 milestone: v1035
 milestone_name: Builder, Maps & Export Bug Sweep
-status: verifying
-stopped_at: "Session resumed — v1035 roadmap in place (Phases 1156-1160, 0 plans); next action `/gsd:plan-phase 1156` (SEC-01)"
-last_updated: "2026-05-30T19:22:29.907Z"
+status: ready_to_plan
+stopped_at: Phase 1159 complete (2/2) — ready to discuss Phase 1160
+last_updated: 2026-05-30T19:33:10.744Z
 last_activity: 2026-05-30
 progress:
   total_phases: 10
@@ -18,10 +18,10 @@ progress:
 
 ## Current Position
 
-Phase: 1159 (Maps/Search UI & Blob Hygiene) — EXECUTING
-Plan: 2 of 2
+Phase: 1160
+Plan: Not started
 Next Phase: 1158 (Builder Layer Visibility & DEM Consolidation)
-Status: Phase complete — ready for verification
+Status: Ready to plan
 Last activity: 2026-05-30
 
 ## Project Reference
@@ -29,7 +29,7 @@ Last activity: 2026-05-30
 See: .planning/PROJECT.md (updated 2026-05-30)
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** Phase 1159 — Maps/Search UI & Blob Hygiene
+**Current focus:** Phase 1160 — live playwright mcp close gate
 
 ## Last Shipped Milestone
 
