@@ -27,7 +27,9 @@
   3. Clustered point tiles (`cluster_tile_endpoint`) inherit the same status-aware denial.
   4. A public+published vector dataset still serves tiles + tokens to anonymous callers (no over-gating regression); owner/admin/embed-token paths unchanged.
   5. A regression test pins the anonymous tile-token + `.pbf` denial on a public-unpublished dataset.
-**Plans**: TBD
+**Plans**: 2 plans
+  - [ ] 1156-01-PLAN.md — Status-aware vector-tile authorization across all five entry points (`_DatasetMeta` field + token endpoints + `_authorize_vector_tile_request`)
+  - [ ] 1156-02-PLAN.md — SEC-01 regression test pinning anon denial (single/batch token + cluster) and the public+published over-gating guard
 
 ### Phase 1157: Backend Export Access + Route Hygiene
 **Goal**: Anonymous users can download a published-public dataset in every export format, unpublished/private/restricted export stays denied, and the OGC items route resolves with or without a trailing slash.
