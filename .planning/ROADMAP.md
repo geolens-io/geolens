@@ -142,7 +142,7 @@
   3. On a single-band raster with stretch not equal to `minmax` and colormap not equal to `gray`, the coupling hint ("Stretch sets the input range for the colormap") is visible below the stretch control
   4. The dead `onRenderModeChange` optional member is absent from `LayerStyleEditor/types.ts`; `demEditor.hillshadeTerrainNote` i18n key and its advisory display are removed or made reachable; `npm run typecheck` exits 0 and vitest is green
 **Plans**: 2 plans
-- [ ] 1154-01-PLAN.md — buildColormapTileUrl forwards _pmin/_pmax/_sigma (non-default only) + unit tests
+- [x] 1154-01-PLAN.md — buildColormapTileUrl forwards _pmin/_pmax/_sigma (non-default only) + unit tests
 - [ ] 1154-02-PLAN.md — RasterEditor gate-split + percentile/sigma controls + stretch-colormap hint + i18n + CLEANUP-01 hillshade note removal
 **UI hint**: yes
 
@@ -163,7 +163,7 @@
 |-------|----------------|--------|-----------|
 | 1152. Single-Band Raster Fixture | 1/1 | Complete   | 2026-05-29 |
 | 1153. Backend — Multi-Band Stretch + Configurable Bounds | 1/1 | Complete   | 2026-05-29 |
-| 1154. Frontend Controls + Cleanup | 0/2 | Planned | - |
+| 1154. Frontend Controls + Cleanup | 1/2 | In Progress|  |
 | 1155. Close-Gate | 0/? | Not started | - |
 
 ## Backlog
