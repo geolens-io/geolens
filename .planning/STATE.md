@@ -21,7 +21,7 @@ progress:
 Phase: Milestone v1034 complete (archived)
 Plan: —
 Status: Awaiting next milestone
-Last activity: 2026-05-30 — v1034 audit (`tech_debt`) → complete → archive
+Last activity: 2026-05-30 — Completed quick task 260530-ezw: download/tile/vector verify + 3 builder/maps fixes
 
 ```
 Progress: [██████████] 100% (v1034: 4/4 phases)
@@ -83,6 +83,12 @@ None active. (Builder QA 2026-05-30: F2 widget dirty-tracking, F3 projection per
 
 - **CI-01-v1030 billing prerequisite (carry-forward from v1023):** Operator must resolve GH Actions billing at https://github.com/organizations/geolens-io/settings/billing before the `pytest-parallel-isolation` CI gate can live-verify GREEN. Standing ops blocker — unblock independently of milestone execution.
 - **SPIKE-01 (Phase 1153 CLOSED):** Titiler p= arbitrary percentile support confirmed (1153-SPIKE.md); contract-pinning test added to test_raster_colormap_proxy.py.
+
+### Quick Tasks Completed
+
+| # | Description | Date | Commit | Directory |
+|---|-------------|------|--------|-----------|
+| 260530-ezw | Verify download links/tiles/vector (all working); fix basemap labels-only reorder + thumbnail blob ERR_FILE_NOT_FOUND + clarify import-style creates new map | 2026-05-30 | 452c5ada | [260530-ezw-address-download-links-tile-services-vec](./quick/260530-ezw-address-download-links-tile-services-vec/) |
 
 ## Deferred Items
 
