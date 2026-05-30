@@ -9,7 +9,7 @@
 
 ## Phases
 
-- [ ] **Phase 1156: Vector-Tile Egress Authorization (SEC-01)** — Gate vector-tile data + tokens on `record_status=='published'` for anonymous callers, mirroring the raster path. Security blocker, ships first.
+- [x] **Phase 1156: Vector-Tile Egress Authorization (SEC-01)** — Gate vector-tile data + tokens on `record_status=='published'` for anonymous callers, mirroring the raster path. Security blocker, ships first. (completed 2026-05-30)
 - [ ] **Phase 1157: Backend Export Access + Route Hygiene (EXP-01, EXP-02, API-01)** — Allow anonymous export of public+published datasets; pin unpublished/private export denial; add the `/collections/{id}/items/` trailing-slash alias.
 - [ ] **Phase 1158: Builder Layer Visibility & DEM Consolidation (BLDR-01, BLDR-02, BLDR-03, BLDR-04)** — Raster basemap stays below data; terrain eye toggles 3D; one DEM row + render-mode pill; color-relief companion honors parent visibility.
 - [ ] **Phase 1159: Maps/Search UI & Blob Hygiene (MAPS-01, MAPS-02, HYG-01)** — Eliminate the duplicate `createRoot()` console error; pin the search-page quicklook blob-URL fix; move `registerBlobUrlRevocation` out of render.
@@ -29,7 +29,7 @@
   5. A regression test pins the anonymous tile-token + `.pbf` denial on a public-unpublished dataset.
 **Plans**: 2 plans
   - [x] 1156-01-PLAN.md — Status-aware vector-tile authorization across all five entry points (`_DatasetMeta` field + token endpoints + `_authorize_vector_tile_request`)
-  - [ ] 1156-02-PLAN.md — SEC-01 regression test pinning anon denial (single/batch token + cluster) and the public+published over-gating guard
+  - [x] 1156-02-PLAN.md — SEC-01 regression test pinning anon denial (single/batch token + cluster) and the public+published over-gating guard
 
 ### Phase 1157: Backend Export Access + Route Hygiene
 **Goal**: Anonymous users can download a published-public dataset in every export format, unpublished/private/restricted export stays denied, and the OGC items route resolves with or without a trailing slash.
@@ -81,7 +81,7 @@
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1156. Vector-Tile Egress Authorization | 1/2 | In Progress|  |
+| 1156. Vector-Tile Egress Authorization | 2/2 | Complete   | 2026-05-30 |
 | 1157. Backend Export Access + Route Hygiene | 0/TBD | Not started | - |
 | 1158. Builder Layer Visibility & DEM Consolidation | 0/TBD | Not started | - |
 | 1159. Maps/Search UI & Blob Hygiene | 0/TBD | Not started | - |

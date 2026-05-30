@@ -2,26 +2,27 @@
 gsd_state_version: 1.0
 milestone: v1035
 milestone_name: Builder, Maps & Export Bug Sweep
-status: executing
-stopped_at: "1156-01 complete (SEC-01 fix — all 5 vector-tile entry points now status-aware); next: execute 1156-02 regression tests"
-last_updated: "2026-05-30T17:10:00Z"
-last_activity: 2026-05-30 -- 1156-01 SEC-01 fix executed
+status: verifying
+stopped_at: "1156 complete (SEC-01 fix + regression tests — 4 passed, Rule 1 fix for check_dataset_access_or_anonymous); next: execute 1157 (EXP-01, EXP-02, API-01)"
+last_updated: "2026-05-30T17:09:50.865Z"
+last_activity: 2026-05-30
 progress:
   total_phases: 10
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 2
-  completed_plans: 1
-  percent: 0
+  completed_plans: 2
+  percent: 10
 ---
 
 # State
 
 ## Current Position
 
-Phase: 1156 (Vector-Tile Egress Authorization) — EXECUTING
-Plan: 2 of 2 (1156-01 complete; 1156-02 regression tests pending)
-Status: Executing Phase 1156
-Last activity: 2026-05-30 -- 1156-01 SEC-01 fix executed
+Phase: 1156 (Vector-Tile Egress Authorization) — COMPLETE
+Plan: 2 of 2 (1156-01 SEC-01 fix; 1156-02 regression tests — 4 passed)
+Next Phase: 1157 (Backend Export Access + Route Hygiene)
+Status: Phase 1156 complete; executing Phase 1157 next
+Last activity: 2026-05-30
 
 ## Project Reference
 
@@ -96,12 +97,13 @@ None active.
 
 ## Session Continuity
 
-Last session: 2026-05-30T17:04:13.446Z
+Last session: 2026-05-30T17:09:50.861Z
 Stopped at: Session resumed — v1035 roadmap in place (Phases 1156-1160, 0 plans); next action `/gsd:plan-phase 1156` (SEC-01)
 Resume file: None
 
 ## Operator Next Steps
 
-- **1156-01 done.** SEC-01 fix landed in 3 commits (`bfaba566`, `87df7122`, `a9c0a8e8`). All 5 vector-tile entry points now enforce `visibility=='public' AND record_status=='published'` for anonymous callers.
-- **Next:** Execute 1156-02 (regression tests for SEC-01 behavioral gate).
+- **Phase 1156 complete.** SEC-01 fix: 3 commits (`bfaba566`, `87df7122`, `a9c0a8e8`). Regression test: 2 commits (`82527ed3` bug fix, `67717802` test file). 4 tests passing. Rule 1 fix: `DefaultProcessingPort` had no `check_dataset_access_or_anonymous` — replaced `port.*` calls with direct import in `tiles/router.py`.
+- **Next:** Execute Phase 1157 (EXP-01 anonymous export, EXP-02 regression test, API-01 trailing-slash alias).
 - **MCP note:** Orchestrator drives all live Playwright MCP (Phase 1160). Executor subagents lack `mcp__playwright__*` access — see project memory `playwright-mcp-orchestrator-only`.
+- **Phase 1156 also updates ROADMAP.md** (status Complete, 2/2 plans).
