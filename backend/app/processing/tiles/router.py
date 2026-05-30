@@ -82,6 +82,8 @@ class _DatasetMeta(NamedTuple):
     record_id: uuid.UUID
     table_name: str
     visibility: str
+    record_status: str
+    created_by: uuid.UUID
     record_type: str
     geometry_type: str | None
     column_info: list
@@ -1017,6 +1019,8 @@ async def _resolve_dataset_meta(table_name: str, db: AsyncSession) -> _DatasetMe
         record_id=dataset.record_id,
         table_name=dataset.table_name,
         visibility=dataset.record.visibility,
+        record_status=dataset.record.record_status,
+        created_by=dataset.record.created_by,
         record_type=dataset.record.record_type,
         geometry_type=dataset.geometry_type,
         column_info=dataset.column_info or [],
