@@ -140,6 +140,10 @@ function makeProps(layer: MapLayerResponse, overrides: Partial<BaseStyleEditorPr
         'style.raster.colormapYlorrd': 'Yellow-Red',
         'style.raster.colormapBugn': 'Blue-Green',
         'style.raster.colormapTerrain': 'Terrain',
+        'style.raster.stretchColormapHint': 'Stretch sets the input range for the colormap.',
+        'style.raster.pminLabel': 'Low %',
+        'style.raster.pmaxLabel': 'High %',
+        'style.raster.sigmaLabel': 'Sigma (σ)',
       };
       return labels[key] ?? key;
     },
@@ -400,5 +404,221 @@ describe('RasterEditor', () => {
     expect(onPaintProp).toHaveBeenCalledWith('_stretch', 'stddev');
     // The strategies are implemented in v1032 — the "coming soon" suffix is gone.
     expect(screen.queryByText(/coming soon/i)).not.toBeInTheDocument();
+  });
+
+  // ─── GATE-SPLIT tests ─────────────────────────────────────────────────────
+
+  it('Test 19: multi-band (band_count=3): stretch Select present, colormap Select absent', () => {
+    render(
+      <RasterEditor
+        {...makeProps(makeRasterLayer({ band_count: 3 }))}
+      />,
+    );
+    // Stretch select exists (has Min/Max option)
+    const selects = screen.getAllByRole('combobox');
+    expect(selects.length).toBeGreaterThanOrEqual(1);
+    const stretchSelect = selects[0]!;
+    expect(within(stretchSelect).getByRole('option', { name: /min\/max/i })).toBeInTheDocument();
+    // Colormap option absent — viridis should not be in any select
+    const allOptions = screen.queryAllByRole('option', { name: /viridis/i });
+    expect(allOptions.length).toBe(0);
+  });
+
+  it('Test 20: single-band (band_count=1): both colormap and stretch selects present', () => {
+    render(
+      <RasterEditor
+        {...makeProps(makeRasterLayer({ band_count: 1 }))}
+      />,
+    );
+    const selects = screen.getAllByRole('combobox');
+    expect(selects.length).toBeGreaterThanOrEqual(2);
+    // First select is colormap (has Viridis option)
+    expect(within(selects[0]!).getByRole('option', { name: /viridis/i })).toBeInTheDocument();
+    // Second select is stretch (has Min/Max option)
+    expect(within(selects[1]!).getByRole('option', { name: /min\/max/i })).toBeInTheDocument();
+  });
+
+  it('Test 21: band_count=null: neither colormap nor stretch selects render', () => {
+    render(
+      <RasterEditor
+        {...makeProps(makeRasterLayer({ band_count: null }))}
+      />,
+    );
+    expect(screen.queryAllByRole('combobox').length).toBe(0);
+  });
+
+  it('Test 22: band_count=undefined: neither colormap nor stretch selects render', () => {
+    render(
+      <RasterEditor
+        {...makeProps(makeRasterLayer({ band_count: undefined }))}
+      />,
+    );
+    expect(screen.queryAllByRole('combobox').length).toBe(0);
+  });
+
+  // ─── PERCENTILE INPUTS tests ──────────────────────────────────────────────
+
+  it('Test 23: percentile stretch: Low% / High% number inputs appear', () => {
+    const layer = makeRasterLayer({ band_count: 1, paint: { _stretch: 'percentile' } });
+    render(
+      <RasterEditor
+        {...makeProps(layer, { paint: layer.paint as Record<string, unknown> })}
+      />,
+    );
+    const spinbuttons = screen.getAllByRole('spinbutton');
+    expect(spinbuttons.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('Test 24: percentile out-of-range guard: pmin >= pmax does not call onPaintProp("_pmin", invalid)', () => {
+    const onPaintProp = vi.fn();
+    // pmax default is 98; enter pmin=99 which is > pmax=98 — invalid
+    const layer = makeRasterLayer({ band_count: 1, paint: { _stretch: 'percentile' } });
+    render(
+      <RasterEditor
+        {...makeProps(layer, { paint: layer.paint as Record<string, unknown>, onPaintProp })}
+      />,
+    );
+    const spinbuttons = screen.getAllByRole('spinbutton');
+    const pminInput = spinbuttons[0]!;
+    fireEvent.change(pminInput, { target: { value: '99' } });
+    // Should not call onPaintProp with the invalid value 99 (>= pmax 98)
+    const calls = onPaintProp.mock.calls.filter(
+      ([k, v]) => k === '_pmin' && v === 99,
+    );
+    expect(calls.length).toBe(0);
+  });
+
+  it('Test 25: percentile out-of-range guard: pmin < 0 does not call onPaintProp("_pmin", invalid)', () => {
+    const onPaintProp = vi.fn();
+    const layer = makeRasterLayer({ band_count: 1, paint: { _stretch: 'percentile' } });
+    render(
+      <RasterEditor
+        {...makeProps(layer, { paint: layer.paint as Record<string, unknown>, onPaintProp })}
+      />,
+    );
+    const spinbuttons = screen.getAllByRole('spinbutton');
+    const pminInput = spinbuttons[0]!;
+    fireEvent.change(pminInput, { target: { value: '-5' } });
+    const calls = onPaintProp.mock.calls.filter(
+      ([k, v]) => k === '_pmin' && v === -5,
+    );
+    expect(calls.length).toBe(0);
+  });
+
+  it('Test 26: percentile valid entry: pmin=10 calls onPaintProp("_pmin", 10)', () => {
+    const onPaintProp = vi.fn();
+    const layer = makeRasterLayer({ band_count: 1, paint: { _stretch: 'percentile' } });
+    render(
+      <RasterEditor
+        {...makeProps(layer, { paint: layer.paint as Record<string, unknown>, onPaintProp })}
+      />,
+    );
+    const spinbuttons = screen.getAllByRole('spinbutton');
+    const pminInput = spinbuttons[0]!;
+    fireEvent.change(pminInput, { target: { value: '10' } });
+    expect(onPaintProp).toHaveBeenCalledWith('_pmin', 10);
+  });
+
+  // ─── SIGMA SEGMENTED tests ────────────────────────────────────────────────
+
+  it('Test 27: stddev stretch: sigma buttons 1/2/3 render with aria-pressed on default 2', () => {
+    const layer = makeRasterLayer({ band_count: 1, paint: { _stretch: 'stddev' } });
+    render(
+      <RasterEditor
+        {...makeProps(layer, { paint: layer.paint as Record<string, unknown> })}
+      />,
+    );
+    const btn1 = screen.getByRole('button', { name: '1' });
+    const btn2 = screen.getByRole('button', { name: '2' });
+    const btn3 = screen.getByRole('button', { name: '3' });
+    expect(btn1).toBeInTheDocument();
+    expect(btn2).toBeInTheDocument();
+    expect(btn3).toBeInTheDocument();
+    // Default sigma is 2 → aria-pressed=true on btn2
+    expect(btn2).toHaveAttribute('aria-pressed', 'true');
+    expect(btn1).toHaveAttribute('aria-pressed', 'false');
+    expect(btn3).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  it('Test 28: sigma button click fires onPaintProp("_sigma", 3)', () => {
+    const onPaintProp = vi.fn();
+    const layer = makeRasterLayer({ band_count: 1, paint: { _stretch: 'stddev' } });
+    render(
+      <RasterEditor
+        {...makeProps(layer, { paint: layer.paint as Record<string, unknown>, onPaintProp })}
+      />,
+    );
+    const btn3 = screen.getByRole('button', { name: '3' });
+    fireEvent.click(btn3);
+    expect(onPaintProp).toHaveBeenCalledWith('_sigma', 3);
+  });
+
+  it('Test 29: minmax stretch: no pmin/pmax/sigma controls', () => {
+    const layer = makeRasterLayer({ band_count: 1, paint: { _stretch: 'minmax' } });
+    render(
+      <RasterEditor
+        {...makeProps(layer, { paint: layer.paint as Record<string, unknown> })}
+      />,
+    );
+    expect(screen.queryAllByRole('spinbutton').length).toBe(0);
+    // sigma buttons: no button named '1', '2', or '3'
+    expect(screen.queryByRole('button', { name: '1' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '2' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '3' })).toBeNull();
+  });
+
+  // ─── HINT tests ───────────────────────────────────────────────────────────
+
+  it('Test 30: hint present when band_count=1 && stretch=percentile && colormap=viridis', () => {
+    const layer = makeRasterLayer({
+      band_count: 1,
+      paint: { _stretch: 'percentile', _colormap: 'viridis' },
+    });
+    render(
+      <RasterEditor
+        {...makeProps(layer, { paint: layer.paint as Record<string, unknown> })}
+      />,
+    );
+    const note = screen.getByRole('note');
+    expect(note).toHaveTextContent('Stretch sets the input range for the colormap.');
+  });
+
+  it('Test 31: hint absent for stretch=minmax (even with non-gray colormap)', () => {
+    const layer = makeRasterLayer({
+      band_count: 1,
+      paint: { _stretch: 'minmax', _colormap: 'viridis' },
+    });
+    render(
+      <RasterEditor
+        {...makeProps(layer, { paint: layer.paint as Record<string, unknown> })}
+      />,
+    );
+    expect(screen.queryByRole('note')).toBeNull();
+  });
+
+  it('Test 32: hint absent for colormap=gray (even with non-minmax stretch)', () => {
+    const layer = makeRasterLayer({
+      band_count: 1,
+      paint: { _stretch: 'percentile', _colormap: 'gray' },
+    });
+    render(
+      <RasterEditor
+        {...makeProps(layer, { paint: layer.paint as Record<string, unknown> })}
+      />,
+    );
+    expect(screen.queryByRole('note')).toBeNull();
+  });
+
+  it('Test 33: hint absent for band_count=3', () => {
+    const layer = makeRasterLayer({
+      band_count: 3,
+      paint: { _stretch: 'percentile', _colormap: 'viridis' },
+    });
+    render(
+      <RasterEditor
+        {...makeProps(layer, { paint: layer.paint as Record<string, unknown> })}
+      />,
+    );
+    expect(screen.queryByRole('note')).toBeNull();
   });
 });
