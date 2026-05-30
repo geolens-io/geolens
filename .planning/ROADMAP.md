@@ -55,7 +55,7 @@
   4. Hiding a hillshade DEM layer with hypsometric tint also hides its `-colorrelief` companion, pinned by a test.
   5. `e2e:smoke:builder` and vitest stay green.
 **Plans**: 2 plans
-  - [ ] 1158-01-PLAN.md — Apply the 4 audited source fixes (BLDR-01 raster-basemap ordering skip + BLDR-04 color-relief companion visibility in map-sync/color-relief-sync; BLDR-02 terrain eye gates 3D in BuilderMap; BLDR-03 suppress terrain-mode DEM row from UnifiedStackPanel)
+  - [x] 1158-01-PLAN.md — Apply the 4 audited source fixes (BLDR-01 raster-basemap ordering skip + BLDR-04 color-relief companion visibility in map-sync/color-relief-sync; BLDR-02 terrain eye gates 3D in BuilderMap; BLDR-03 suppress terrain-mode DEM row from UnifiedStackPanel)
   - [ ] 1158-02-PLAN.md — Regression test pins (BLDR-01 raster-skip + BLDR-04 companion-visibility units; BLDR-02 terrain attach/detach-on-visibility; BLDR-03 terrain-row suppression) + full frontend gate (typecheck/vitest/e2e:smoke:builder)
 **UI hint**: yes
 
@@ -87,7 +87,7 @@
 |-------|----------------|--------|-----------|
 | 1156. Vector-Tile Egress Authorization | 2/2 | Complete    | 2026-05-30 |
 | 1157. Backend Export Access + Route Hygiene | 2/2 | Complete    | 2026-05-30 |
-| 1158. Builder Layer Visibility & DEM Consolidation | 0/TBD | Not started | - |
+| 1158. Builder Layer Visibility & DEM Consolidation | 1/2 | In Progress|  |
 | 1159. Maps/Search UI & Blob Hygiene | 0/TBD | Not started | - |
 | 1160. Live Playwright MCP Close-Gate | 0/TBD | Not started | - |
 

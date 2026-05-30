@@ -15,10 +15,10 @@ Requirements for this milestone. Each maps to exactly one roadmap phase.
 
 ### Map Builder
 
-- [ ] **BLDR-01** (#120): A raster/imagery basemap stays **below** the data layers when `basemap_position='top'` (it must not occlude the data). `reorderBasemapAboveData` (`frontend/src/components/builder/map-sync.ts:298-322`) currently skips only vector base fills (`isLandLayer`/`isWaterLayer`/`background`); extend it to also skip non-data raster basemap layers (`layer.type==='raster'` whose source is not the data `sourcePrefix`). Pinned by a unit test in `UnifiedStackPanel.basemap-drag.test.tsx` asserting a raster basemap layer is not lifted above data at `position='top'`.
-- [ ] **BLDR-02** (#123): Toggling the visibility eye on a terrain-mode DEM layer enables/disables the 3D terrain. Terrain is currently driven solely by `terrainConfig.enabled` and ignores the layer's `visible` flag, so the toggle is a no-op (`map.getTerrain()` stays set). Compute `effectiveTerrainEnabled = terrainConfig.enabled && demLayer.visible` in `applyTerrainConfig` (`frontend/src/components/builder/BuilderMap.tsx:~394`; `demLayer` is in scope at `:389`) and add `layer.visible` to `terrainLayerKey` (`:413-418`) so the effect re-runs. Pinned by a test asserting `getTerrain()` becomes null when the terrain DEM layer is hidden and re-attaches when shown.
-- [ ] **BLDR-03** (#123): The map-builder layer stack shows a single, clearly-labeled row per DEM dataset instead of up to three confusing rows ("DEM hillshade (1m)", "DEM hillshade (1m) rendering", "3D terrain (DEM)"). `UnifiedStackPanel` renders one `StackRow` per `MapLayerResponse` (1:1, no synthesis), so the rows come from the DEM being added as multiple layer records; render modes are mutually exclusive per layer (`DEMEditorScene` pills). Consolidate to one DEM row with the render-mode pill and treat terrain as the map-level setting it already is (no separate terrain layer row); surface duplicate "Copy N of M" metadata to flag accidental double-adds. Keep `e2e:smoke:builder` and vitest green.
-- [ ] **BLDR-04** (#125): When a hillshade DEM layer with hypsometric tint (color-relief) is toggled off, its color-relief companion is also hidden. `syncColorReliefLayer` (`frontend/src/components/builder/color-relief-sync.ts:97-112`) adds `${layerId}-colorrelief` without a `layout.visibility` and is never passed the parent's visible state. Thread the parent `visible` flag in and apply `setLayoutProperty('${layerId}-colorrelief','visibility', …)` on add and on sync. Pinned by a test asserting the colorrelief companion hides with its parent.
+- [x] **BLDR-01** (#120): A raster/imagery basemap stays **below** the data layers when `basemap_position='top'` (it must not occlude the data). `reorderBasemapAboveData` (`frontend/src/components/builder/map-sync.ts:298-322`) currently skips only vector base fills (`isLandLayer`/`isWaterLayer`/`background`); extend it to also skip non-data raster basemap layers (`layer.type==='raster'` whose source is not the data `sourcePrefix`). Pinned by a unit test in `UnifiedStackPanel.basemap-drag.test.tsx` asserting a raster basemap layer is not lifted above data at `position='top'`.
+- [x] **BLDR-02** (#123): Toggling the visibility eye on a terrain-mode DEM layer enables/disables the 3D terrain. Terrain is currently driven solely by `terrainConfig.enabled` and ignores the layer's `visible` flag, so the toggle is a no-op (`map.getTerrain()` stays set). Compute `effectiveTerrainEnabled = terrainConfig.enabled && demLayer.visible` in `applyTerrainConfig` (`frontend/src/components/builder/BuilderMap.tsx:~394`; `demLayer` is in scope at `:389`) and add `layer.visible` to `terrainLayerKey` (`:413-418`) so the effect re-runs. Pinned by a test asserting `getTerrain()` becomes null when the terrain DEM layer is hidden and re-attaches when shown.
+- [x] **BLDR-03** (#123): The map-builder layer stack shows a single, clearly-labeled row per DEM dataset instead of up to three confusing rows ("DEM hillshade (1m)", "DEM hillshade (1m) rendering", "3D terrain (DEM)"). `UnifiedStackPanel` renders one `StackRow` per `MapLayerResponse` (1:1, no synthesis), so the rows come from the DEM being added as multiple layer records; render modes are mutually exclusive per layer (`DEMEditorScene` pills). Consolidate to one DEM row with the render-mode pill and treat terrain as the map-level setting it already is (no separate terrain layer row); surface duplicate "Copy N of M" metadata to flag accidental double-adds. Keep `e2e:smoke:builder` and vitest green.
+- [x] **BLDR-04** (#125): When a hillshade DEM layer with hypsometric tint (color-relief) is toggled off, its color-relief companion is also hidden. `syncColorReliefLayer` (`frontend/src/components/builder/color-relief-sync.ts:97-112`) adds `${layerId}-colorrelief` without a `layout.visibility` and is never passed the parent's visible state. Thread the parent `visible` flag in and apply `setLayoutProperty('${layerId}-colorrelief','visibility', …)` on add and on sync. Pinned by a test asserting the colorrelief companion hides with its parent.
 
 ### Export
 
@@ -64,10 +64,10 @@ Which phases cover which requirements. Filled during roadmap creation.
 | Requirement | Phase | Status |
 |-------------|-------|--------|
 | SEC-01 | Phase 1156 | Complete |
-| BLDR-01 | Phase 1158 | Pending |
-| BLDR-02 | Phase 1158 | Pending |
-| BLDR-03 | Phase 1158 | Pending |
-| BLDR-04 | Phase 1158 | Pending |
+| BLDR-01 | Phase 1158 | Complete |
+| BLDR-02 | Phase 1158 | Complete |
+| BLDR-03 | Phase 1158 | Complete |
+| BLDR-04 | Phase 1158 | Complete |
 | EXP-01 | Phase 1157 | Complete |
 | EXP-02 | Phase 1157 | Complete |
 | MAPS-01 | Phase 1159 | Pending |
