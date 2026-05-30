@@ -22,6 +22,7 @@ from app.core.identity import Identity
 from app.modules.auth.dependencies import get_optional_user
 from app.core.config import settings
 from app.core.dependencies import get_db
+from app.modules.catalog.authorization import check_dataset_access_or_anonymous
 from app.modules.embed_tokens.service import validate_embed_token_access
 from app.platform.cache.provider import get_tile_cache
 from app.platform.extensions import get_processing_port
@@ -864,7 +865,7 @@ async def get_tile_token(
             status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found"
         )
 
-    await port.check_dataset_access_or_anonymous(db, dataset, dataset_id, user)
+    await check_dataset_access_or_anonymous(db, dataset, dataset_id, user)
 
     raster_asset = None
     if dataset.record.record_type in ("raster_dataset", "vrt_dataset"):
@@ -931,7 +932,7 @@ async def get_tile_tokens_batch(
 
         # Per-dataset auth check (status-aware)
         try:
-            await port.check_dataset_access_or_anonymous(db, dataset, dataset_id, user)
+            await check_dataset_access_or_anonymous(db, dataset, dataset_id, user)
         except HTTPException as exc:
             tokens[key] = {"error": exc.detail}
             continue
