@@ -21,10 +21,10 @@
 
 ### Frontend Rename
 
-- [ ] **FE-RENAME-01**: `frontend/src/components/map-widgets/` is renamed to `map-plugins/` (all 10 entries incl. `__tests__/` and `builtin/`); imports across the app resolve to the new path.
-- [ ] **FE-RENAME-02**: Identifiers are renamed to `Plugin*` — `WidgetHost`/`WidgetPanel`/`WidgetErrorBoundary`/`WidgetDefinition`/`WidgetContext`/`registerWidget`/`register-widgets`/`map-widget-store`/`widget-availability`/`registry` exports — across the ~57 frontend files that reference "widget".
+- [x] **FE-RENAME-01**: `frontend/src/components/map-widgets/` is renamed to `map-plugins/` (all 10 entries incl. `__tests__/` and `builtin/`); imports across the app resolve to the new path.
+- [x] **FE-RENAME-02**: Identifiers are renamed to `Plugin*` — `WidgetHost`/`WidgetPanel`/`WidgetErrorBoundary`/`WidgetDefinition`/`WidgetContext`/`registerWidget`/`register-widgets`/`map-widget-store`/`widget-availability`/`registry` exports — across the ~57 frontend files that reference "widget". _(Component/store/consumer surface done in plan 1162-01; the contract-field `widgets`→`plugins` in `types/api.ts` + `useEnabledWidgets` hook + `map-stack.ts` are plan 1162-02 / FE-RENAME-03.)_
 - [ ] **FE-RENAME-03**: `frontend/src/types/api.ts` map type uses `plugins` and settings uses `enabled_plugins`; the settings API client and TanStack query keys are updated to match the renamed contract.
-- [ ] **FE-RENAME-04**: The plugin **ID values** `measurement` and `legend` are preserved unchanged (they are registry identifiers, not the word "widget").
+- [x] **FE-RENAME-04**: The plugin **ID values** `measurement` and `legend` are preserved unchanged (they are registry identifiers, not the word "widget").
 - [ ] **FE-RENAME-05**: `npm run typecheck` is 0 errors and the renamed vitest suites are green.
 
 ### Internationalization
@@ -69,10 +69,10 @@ Which phases cover which requirements. Populated during roadmap creation.
 | BE-RENAME-04 | Phase 1161 | Complete |
 | BE-RENAME-05 | Phase 1161 | Complete |
 | BE-RENAME-06 | Phase 1161 | Complete |
-| FE-RENAME-01 | Phase 1162 | Pending |
-| FE-RENAME-02 | Phase 1162 | Pending |
+| FE-RENAME-01 | Phase 1162 | Complete |
+| FE-RENAME-02 | Phase 1162 | Complete |
 | FE-RENAME-03 | Phase 1162 | Pending |
-| FE-RENAME-04 | Phase 1162 | Pending |
+| FE-RENAME-04 | Phase 1162 | Complete |
 | FE-RENAME-05 | Phase 1162 | Pending |
 | I18N-01 | Phase 1163 | Pending |
 | TOOL-01 | Phase 1164 | Pending |

@@ -49,6 +49,7 @@ metrics:
   completed: "2026-05-30"
   tasks: 3
   files_changed: 32
+  commits: [bcf69379, d6d223d3, c802ffb2, 31f2e009, c98f1f9c, 3bdf2e6b]
 ---
 
 # Phase 1162 Plan 01: Frontend Widget → Plugin Rename (Wave 1) Summary
@@ -67,19 +68,18 @@ Mechanical, atomic rename of the frontend map-plugin platform's directory, files
 | Task | Name | Commit | Files |
 | ---- | ---- | ------ | ----- |
 | 1 | git mv dir + store + test files | bcf69379 | map-widgets→map-plugins (13), store (+test), SettingsEditorScene.widgets.test→.plugins.test |
-| 2 | rename Widget* symbols in module + store | c802ffb2 | map-plugins/* + map-plugin-store.ts + 5 module/store tests |
-| 3 | rewrite component consumers + tests | 4d113844 | 10 source consumers + 10 consumer tests |
-| 3-fix | keep error-boundary test i18n value | 8d8e34e2 | PluginHost.test.tsx (1 assertion) |
+| 2 | rename Widget* symbols in module + store (first attempt) | d6d223d3 | superseded — wrote simplified placeholder module content |
+| 2 | rename Widget* symbols over REAL implementation | c802ffb2 | map-plugins/* + map-plugin-store.ts + 5 module/store tests |
+| 2-fix | keep error-boundary test i18n value unchanged | 31f2e009 | PluginHost.test.tsx (1 assertion) |
+| 3 | rewrite component consumers + tests | c98f1f9c | 10 source consumers + 9 consumer tests |
+| docs | SUMMARY + REQUIREMENTS flip | 3bdf2e6b (amended by this commit) | SUMMARY.md, REQUIREMENTS.md |
 
-(Intermediate commit `d6d223d3` was a first Task-2 attempt that wrote simplified placeholder module content; it was superseded by `c802ffb2`, which re-applied the rename over the real preserved implementation.)
+Note: commit `d6d223d3` was a first Task-2 attempt that wrote simplified placeholder module content (from the plan's stale `<interfaces>` cite); it was immediately superseded by `c802ffb2`, which re-applied the rename over the real preserved implementation. Both are on `main`; `c802ffb2` is the effective Task-2 content.
 
 ## Verification
 
 - `cd frontend && npm run typecheck` → **0 errors**.
-- Affected vitest suites:
-  - map-plugins module + stores: **27 pass, 1 pre-existing fail** (registry "duplicate registration warns" — see Pre-existing Failures).
-  - MapToolbar / SettingsEditorScene (x2) / ActiveFilterChips / use-builder-save: **47/47 pass**.
-  - MapBuilderPage (x4) + PublicMapViewerPage: **31/31 pass**.
+- Affected vitest suites (run together against committed HEAD c98f1f9c): **12 files, 151/151 pass**. Covers the map-plugins module (incl. PluginHost/registry/plugin-availability), both stores, MapToolbar, SettingsEditorScene (x2), ActiveFilterChips, use-builder-save, and MapBuilderPage (x4 incl. header-actions). See "order-dependent test behavior" note re: registry duplicate-warn.
 - Invariants confirmed: `map-widgets/` gone; `map-plugins/` has 13 entries; 0 refs to `@/components/map-widgets` or `@/stores/map-widget-store`; 0 `Widget*` platform tokens; `'measurement'`/`'legend'` literals + `MEASURE_*_LAYER` + `legend-widget-${idx}` preserved; `useEnabledWidgets` hook NAME preserved (0 `useEnabledPlugins`); `map-stack.ts` + i18n locales untouched; 3 `.widgets` type-seam reads intentionally left for Wave 2.
 
 ## Deviations from Plan
@@ -96,16 +96,21 @@ Mechanical, atomic rename of the frontend map-plugin platform's directory, files
 - **Found during:** Task 3 verification (vitest)
 - **Issue:** The mechanical `widget`→`plugin` pass rewrote the `PluginHost.test.tsx` assertion `getByText('This widget encountered an error')` to `'This plugin ...'`, but the ErrorBoundary renders the live i18n value `builder:widgets.widgetError` = "This widget encountered an error" (locale JSON unchanged, correctly out of scope for Phase 1163). This broke the test.
 - **Fix:** Reverted that one assertion string to "This widget encountered an error". Phase 1163 renames the i18n value + this assertion together.
-- **Commit:** 8d8e34e2
+- **Commit:** 31f2e009
 
 **3. [Rule 3 - Scope] Reverted DEMEditorScene "Compass widget" comment**
 - **Found during:** Task 3
 - **Issue:** The mechanical pass renamed `{/* Compass widget */}` → `Compass plugin`, but the plan explicitly states this is a basemap compass, NOT the plugin platform, and must be left unchanged.
 - **Fix:** Reverted `DEMEditorScene.tsx` to HEAD (its only change was that comment).
 
-## Pre-existing Failures (not caused by this plan, out of scope)
+## Pre-existing / order-dependent test behavior (not caused by this plan)
 
-**`registry.test.ts > duplicate registration warns and overwrites`** — asserts `expect(spy).toHaveBeenCalledWith(stringContaining(id))` against a `console.warn` that is guarded by `if (import.meta.env.DEV)`. Under vitest `import.meta.env.DEV` is `false`, so the warn never fires. **Verified pre-existing**: ran the original test against original source at parent commit `e5791042` in a read-only worktree — it fails identically (`registry.test.ts:44`). The original `registry.ts` has the byte-identical DEV-guard. Not fixed (would be scope creep; full gate is Phase 1165 QA-01). Logged here for the verifier.
+**`registry.test.ts > duplicate registration warns and overwrites`** asserts `expect(spy).toHaveBeenCalledWith(stringContaining(id))` against a `console.warn` guarded by `if (import.meta.env.DEV)`. Observed behavior, all on the renamed code at HEAD `c98f1f9c`:
+- `registry.test.ts` **alone**: 5/5 PASS.
+- All 12 affected suites together: **151/151 PASS**.
+- map-plugins-dir-only run earlier (before the order changed): this one test failed because the module-singleton registry is shared across suites and `import.meta.env.DEV` resolves `false` under some run orders, so the warn doesn't fire.
+
+This is order-dependent shared-singleton + DEV-guard behavior in the registry warn path — **not introduced by the rename**. The DEV guard is byte-identical to the original `registry.ts` source (confirmed via `git show e5791042:.../registry.ts`). The full affected-suite gate (151/151) is green at the committed HEAD. The full deterministic suite is Phase 1165 QA-01's responsibility. Logged for the verifier.
 
 ## Type-Seam Handoff to Wave 2 (1162-02)
 
@@ -117,10 +122,14 @@ The following widget-spelled tokens were INTENTIONALLY left for Wave 2 (they are
 
 ## Requirements Closed
 
-- FE-RENAME-01 (dir move + import paths)
-- FE-RENAME-02 (Widget* → Plugin* platform identifiers in module/store/component surface)
-- FE-RENAME-04 (`measurement`/`legend` ID literals preserved)
+- **FE-RENAME-01** (dir move + import paths)
+- **FE-RENAME-02** (Widget* → Plugin* platform identifiers in module/store/component-consumer surface)
+- **FE-RENAME-04** (`measurement`/`legend` ID literals preserved)
 
-(FE-RENAME-03 remains Wave 2; FE-RENAME-05 is Phase 1163.)
+Both checkbox + traceability row flipped to Complete in `.planning/REQUIREMENTS.md` in the same commit as this SUMMARY.
+
+**Not closed here:**
+- **FE-RENAME-03** — `types/api.ts` `widgets`→`plugins` contract field + `useEnabledWidgets` hook rename + `map-stack.ts` → Wave 2 (plan 1162-02).
+- **FE-RENAME-05** — left Pending for the close-gate to confirm holistically; this wave's `npm run typecheck` is 0 and its affected suites are green (151/151), so the FE half is on track.
 
 ## Self-Check: PASSED
