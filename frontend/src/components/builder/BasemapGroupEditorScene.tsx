@@ -26,7 +26,12 @@ export interface BasemapGroupEditorSceneProps {
   sublayers: BasemapSublayer[];
   masterOpacity: number;
   onSwapBasemap: (presetId: string) => void;
-  onAddCustomBasemap: () => void;
+  /**
+   * Optional. When omitted, the "Add custom basemap" affordance is not rendered.
+   * Custom-basemap support is a Plan 1037 follow-up; until a real handler is
+   * supplied the button stays hidden rather than shipping a no-op stub.
+   */
+  onAddCustomBasemap?: () => void;
   onSublayerVisibilityChange: (sublayerId: string) => void;
   onSublayerOpacityChange: (sublayerId: string, opacity: number) => void;
   onMasterOpacityChange: (opacity: number) => void;
@@ -135,13 +140,15 @@ export function BasemapGroupEditorScene({
               );
             })}
           </div>
-          <button
-            type="button"
-            onClick={onAddCustomBasemap}
-            className="text-[12px] text-primary text-left mt-2 hover:underline"
-          >
-            {t('basemapGroup.addCustomBasemap', { defaultValue: '＋ Add custom basemap…' })}
-          </button>
+          {onAddCustomBasemap && (
+            <button
+              type="button"
+              onClick={onAddCustomBasemap}
+              className="text-[12px] text-primary text-left mt-2 hover:underline"
+            >
+              {t('basemapGroup.addCustomBasemap', { defaultValue: '＋ Add custom basemap…' })}
+            </button>
+          )}
         </div>
       </section>
 

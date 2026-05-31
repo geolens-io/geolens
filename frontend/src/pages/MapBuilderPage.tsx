@@ -951,7 +951,9 @@ export function MapBuilderPage() {
               applyBasemapPatch(swapBasemapPreset(basemapState, presetId));
               layers.markDirty();
             }}
-            onAddCustomBasemap={() => { /* Plan 1037 follow-up */ }}
+            // onAddCustomBasemap intentionally omitted — custom-basemap support is a Plan
+            // 1037 follow-up. With the prop optional, the button stays hidden until a real
+            // handler is wired up here (was a visible no-op stub; B-015).
             onSublayerVisibilityChange={handleToggleSublayerVisibility}
             onSublayerOpacityChange={handleSublayerOpacityChange}
             onMasterOpacityChange={(opacity) => {

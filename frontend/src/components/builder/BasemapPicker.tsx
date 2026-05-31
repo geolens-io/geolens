@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ChevronDown } from 'lucide-react';
 import { useBasemaps } from '@/hooks/use-settings';
@@ -18,6 +18,21 @@ export function BasemapPicker({ value, onChange, showLabels = true, onToggleLabe
   const { t } = useTranslation('builder');
   const { data: basemaps } = useBasemaps();
   const [open, setOpen] = useState(false);
+
+  // B-016: Escape closes the expanded basemap grid. A document-level listener
+  // (gated on `open`, cleaned up on close/unmount) works regardless of which
+  // inner control has focus, and avoids a non-native interactive wrapper.
+  useEffect(() => {
+    if (!open) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.stopPropagation();
+        setOpen(false);
+      }
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [open]);
   const enabled = (basemaps ?? []).filter((b) => b.enabled);
   const blankEntry: BasemapEntry = { id: BLANK_BASEMAP_ID, label: t('basemap.blank'), url: BLANK_BASEMAP_ID, enabled: true, is_preset: false };
   const options = [blankEntry, ...enabled];
