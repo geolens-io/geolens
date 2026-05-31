@@ -344,6 +344,8 @@ class TestVectorTileEgressAuthorization:
                 f"Expected 200 for anon raw .pbf on public+published, "
                 f"got {resp.status_code}: {resp.text[:200]}"
             )
-            assert len(resp.content) > 0, "Expected non-empty MVT body for published public tile"
+            assert len(resp.content) > 0, (
+                "Expected non-empty MVT body for published public tile"
+            )
         finally:
             await _cleanup_data_table(test_db_session, dataset.table_name)

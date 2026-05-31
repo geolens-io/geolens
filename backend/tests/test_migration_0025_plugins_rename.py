@@ -186,7 +186,9 @@ def test_0025_upgrade_downgrade_round_trip(throwaway_db_name: str) -> None:
         command.upgrade(cfg, "head")
         cols = _maps_columns(engine)
         assert "plugins" in cols, "catalog.maps.plugins missing after upgrade"
-        assert "widgets" not in cols, "catalog.maps.widgets should be gone after upgrade"
+        assert "widgets" not in cols, (
+            "catalog.maps.widgets should be gone after upgrade"
+        )
 
         # Seed an app_settings row under the renamed key with a real plugin ID.
         with engine.begin() as conn:
@@ -208,11 +210,15 @@ def test_0025_upgrade_downgrade_round_trip(throwaway_db_name: str) -> None:
         command.downgrade(cfg, "-1")
         cols = _maps_columns(engine)
         assert "widgets" in cols, "catalog.maps.widgets missing after downgrade"
-        assert "plugins" not in cols, "catalog.maps.plugins should be gone after downgrade"
+        assert "plugins" not in cols, (
+            "catalog.maps.plugins should be gone after downgrade"
+        )
 
         rows = _config_rows(engine)
         assert "enabled_widgets" in rows, "config key not reverted to enabled_widgets"
-        assert "enabled_plugins" not in rows, "config key should not remain enabled_plugins"
+        assert "enabled_plugins" not in rows, (
+            "config key should not remain enabled_plugins"
+        )
         # Value preserved across the downgrade (ID strings untouched).
         assert rows["enabled_widgets"] == _SEED_VALUE, (
             f"config value not preserved on downgrade: {rows['enabled_widgets']!r}"
@@ -222,11 +228,15 @@ def test_0025_upgrade_downgrade_round_trip(throwaway_db_name: str) -> None:
         command.upgrade(cfg, "+1")
         cols = _maps_columns(engine)
         assert "plugins" in cols, "catalog.maps.plugins missing after re-upgrade"
-        assert "widgets" not in cols, "catalog.maps.widgets should be gone after re-upgrade"
+        assert "widgets" not in cols, (
+            "catalog.maps.widgets should be gone after re-upgrade"
+        )
 
         rows = _config_rows(engine)
         assert "enabled_plugins" in rows, "config key not restored to enabled_plugins"
-        assert "enabled_widgets" not in rows, "stale enabled_widgets key after re-upgrade"
+        assert "enabled_widgets" not in rows, (
+            "stale enabled_widgets key after re-upgrade"
+        )
         assert rows["enabled_plugins"] == _SEED_VALUE, (
             f"config value not preserved on re-upgrade: {rows['enabled_plugins']!r}"
         )

@@ -718,7 +718,12 @@ class TestUpdateMap:
 
         resp = await client.put(
             f"/maps/{created['id']}",
-            json={"basemap_config": {**BASEMAP_CONFIG_PAYLOAD, "projection": "orthographic"}},
+            json={
+                "basemap_config": {
+                    **BASEMAP_CONFIG_PAYLOAD,
+                    "projection": "orthographic",
+                }
+            },
             headers=admin_auth_header,
         )
 

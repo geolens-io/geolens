@@ -337,7 +337,5 @@ async def test_collection_items_trailing_slash_matches_no_slash(
             f"alias resolves to a different handler or status"
         )
     finally:
-        await test_db_session.execute(
-            text(f"DROP TABLE IF EXISTS data.{table_name}")
-        )
+        await test_db_session.execute(text(f"DROP TABLE IF EXISTS data.{table_name}"))
         await test_db_session.commit()

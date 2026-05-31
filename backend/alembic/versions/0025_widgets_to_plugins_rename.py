@@ -29,7 +29,6 @@ values preserved.
 
 from typing import Union
 
-import sqlalchemy as sa
 from alembic import op
 
 revision: str = "0025_widgets_to_plugins_rename"

@@ -400,7 +400,9 @@ class TestRasterColormapProxy:
         band gets its own independent rescale= from Titiler per-band stats.
         """
         self._auth_band_count = 3
-        self._auth_render_params = "bidx=1&bidx=2&bidx=3&rescale=0,255&rescale=0,255&rescale=0,255"
+        self._auth_render_params = (
+            "bidx=1&bidx=2&bidx=3&rescale=0,255&rescale=0,255&rescale=0,255"
+        )
         resp = await client.get(_TILE_PATH, params={"stretch": "percentile"})
         assert resp.status_code in (200, 204)
         tile_url = self._tile_titiler_calls[0]
@@ -421,7 +423,9 @@ class TestRasterColormapProxy:
     async def test_four_band_stretch_capped_at_three_rescale_fragments(self, client):
         """[RASTER-STRETCH-03] band_count=4 is capped at 3 → exactly 3 rescale= fragments."""
         self._auth_band_count = 4
-        self._auth_render_params = "bidx=1&bidx=2&bidx=3&rescale=0,255&rescale=0,255&rescale=0,255"
+        self._auth_render_params = (
+            "bidx=1&bidx=2&bidx=3&rescale=0,255&rescale=0,255&rescale=0,255"
+        )
         resp = await client.get(_TILE_PATH, params={"stretch": "percentile"})
         assert resp.status_code in (200, 204)
         tile_url = self._tile_titiler_calls[0]
@@ -567,13 +571,16 @@ class TestRasterColormapProxy:
             f"Default sigma must be 2.0, got: {tile_url}"
         )
 
-    @pytest.mark.parametrize("bad_params,description", [
-        ({"pmin": 95, "pmax": 5}, "pmin>=pmax"),
-        ({"pmin": -1, "pmax": 98}, "pmin<0"),
-        ({"pmin": 2, "pmax": 101}, "pmax>100"),
-        ({"sigma": 0}, "sigma=0"),
-        ({"sigma": -1}, "sigma<0"),
-    ])
+    @pytest.mark.parametrize(
+        "bad_params,description",
+        [
+            ({"pmin": 95, "pmax": 5}, "pmin>=pmax"),
+            ({"pmin": -1, "pmax": 98}, "pmin<0"),
+            ({"pmin": 2, "pmax": 101}, "pmax>100"),
+            ({"sigma": 0}, "sigma=0"),
+            ({"sigma": -1}, "sigma<0"),
+        ],
+    )
     async def test_invalid_bounds_returns_422_before_titiler(
         self, client, bad_params, description
     ):
@@ -628,8 +635,12 @@ class TestRasterColormapProxy:
         )
         assert resp.status_code in (200, 204)
         stats_url = self._stats_titiler_calls[0]
-        assert "p=5" in stats_url, f"SPIKE-01: p=5 not forwarded to statistics URL: {stats_url}"
-        assert "p=95" in stats_url, f"SPIKE-01: p=95 not forwarded to statistics URL: {stats_url}"
+        assert "p=5" in stats_url, (
+            f"SPIKE-01: p=5 not forwarded to statistics URL: {stats_url}"
+        )
+        assert "p=95" in stats_url, (
+            f"SPIKE-01: p=95 not forwarded to statistics URL: {stats_url}"
+        )
 
         # The resulting tile URL must use percentile_5/percentile_95 values (530.0 / 1280.0)
         # NOT the hardcoded percentile_2/percentile_98 values (512.66 / 1304.31)

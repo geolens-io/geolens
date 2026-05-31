@@ -679,7 +679,6 @@ class MapUpdate(BaseModel):
     )
 
 
-
 class DatasetMetaKwargs(TypedDict, total=False):
     """Keyword arguments carrying dataset metadata into _build_layer_response."""
 

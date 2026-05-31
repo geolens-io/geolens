@@ -387,7 +387,9 @@ class ChatAction(BaseModel):
     opacity: float | None = Field(None, ge=0.0, le=1.0)  # for set_opacity
     geojson: GeoJSONFeatureCollection | None = None  # for show_query_result
     bbox: list[float] | None = None  # for show_query_result
-    rows: list[list] | None = None  # for show_query_result (row arrays, paired with columns)
+    rows: list[list] | None = (
+        None  # for show_query_result (row arrays, paired with columns)
+    )
     columns: list[str] | None = None  # for show_query_result (inline data table)
     row_count: int | None = None  # for show_query_result (total matched rows)
     truncated: bool | None = None  # for show_query_result (rows capped for payload)
