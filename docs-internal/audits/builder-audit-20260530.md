@@ -37,10 +37,21 @@
 > stale/wrong Map handle via the generic `window.__glmap` fiber-BFS, or sampling inside the
 > token/style gate window before the `once('idle')` retry lands. No production fix needed.
 >
-> **Remaining (untouched, P1/P2/LOW):** B-010/B-011 (Advanced JSON editor `_`-key handling),
-> B-012/B-013/B-014 (AI undo state + SSE-retry), B-015/B-016/B-017 (UX), B-020..B-040 +
-> dimension-level findings (perf memoization, embed Referer fallback, S5-xx share hardening,
-> UX/token polish). See §10 + the loose-ends census appendix below.
+> **All remaining P1s fixed (2026-05-31, follow-up commits):** **B-010** (Advanced JSON editor
+> strips builder-private keys before validateStyleMin), **B-011** (DEM `_hypso-*` keys
+> allowlisted across all four surfaces — was a 422 on every DEM elevation-tint save, more severe
+> than the audit stated), **B-012** (suppress AI undo on add/remove turns — re-add mints a new
+> id), **B-013** (destructive staged-accept downgrades supportsUndo), **B-014** (model-emitted SSE
+> error throws a typed sentinel → inline error, no double LLM call), **B-015** (no-op "Add custom
+> basemap" button hidden via optional prop), **B-016** (BasemapPicker Escape-to-close), **B-017**
+> (map error toast names the failing layer; `mapErrorNamed` added en/de/es/fr). Each with a
+> regression test. **Verification:** frontend typecheck 0; builder+viewer+normalize vitest
+> **1471/1471**; backend chat+maps suite **163/163**; i18n parity 2/2; OpenAPI in sync;
+> eslint/ruff clean.
+>
+> **Remaining (untouched, P2/LOW only):** B-020..B-040 + dimension-level findings (perf
+> memoization, embed Referer fallback, S5-xx share hardening, UX/token polish). See §10 + the
+> loose-ends census appendix below. No P0/P1 items remain open.
 
 ## Scorecard
 
