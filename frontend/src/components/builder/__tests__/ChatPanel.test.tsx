@@ -259,6 +259,22 @@ describe('ChatPanel', () => {
     expect(mockSendChat).not.toHaveBeenCalled();
   });
 
+  it('B-014: a streamed error event shows an inline error and does NOT retry via non-streaming', async () => {
+    // Model emitted an SSE error event mid-stream (e.g. tool-loop exhausted).
+    // The non-streaming sendChatMessage fallback must NOT fire — that would
+    // double the (already-failed) LLM call.
+    mockStreamChat.mockImplementation(async function* () {
+      yield { event: 'error', data: { message: 'tool loop exhausted' } };
+    });
+
+    const user = userEvent.setup();
+    renderPanel();
+    await typeAndSend(user, 'trigger a model error');
+
+    expect(await screen.findByText('Something went wrong. Please try again.')).toBeInTheDocument();
+    expect(mockSendChat).not.toHaveBeenCalled();
+  });
+
   it('ignores malformed style paint payloads instead of applying indexed string keys', async () => {
     mockStreamChat.mockImplementation(async function* () {
       yield {

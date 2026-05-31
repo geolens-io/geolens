@@ -15,6 +15,21 @@ import { getSmartSuggestions, type ViewportContext } from './chat-suggestions';
 
 const prefersReducedMotion = globalThis.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches ?? false;
 
+/**
+ * Sentinel for a model-emitted SSE `error` event (e.g. tool-loop exhausted,
+ * deadline). Distinct from a transport/stream-start failure: when the model
+ * itself errored mid-stream there is nothing to retry, so the catch block must
+ * NOT fall through to the non-streaming `sendChatMessage` path (which would
+ * double the LLM call). Transport failures keep throwing plain Error / ApiError
+ * and still take the legitimate non-streaming fallback.
+ */
+class StreamModelError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'StreamModelError';
+  }
+}
+
 /** Remove chat history entries that reference a removed layer. */
 function cleanStaleLayerRefs(mapId: string, removedLayerId: string) {
   const stored = sessionStorage.getItem(`geolens-chat-${mapId}`);
@@ -355,12 +370,22 @@ export function ChatPanel({
       case 'add_layer': {
         const datasetId = getActionDatasetId(action);
         if (datasetId) onAddDataset(datasetId);
+        // B-012: a layer-list mutation makes this turn non-replay-safe. The undo
+        // snapshot keys restores on the OLD layer.id, but re-adding via
+        // onAddDataset mints a NEW id, so paint/filter/label restores would
+        // no-op. Suppress undo for the turn (matches the "undo only for
+        // replay-safe style/filter edits" design intent). This also covers the
+        // staging-accept path, which dispatches through handleChatAction.
+        if (lastSnapshotRef.current) lastSnapshotRef.current.supportsUndo = false;
         break;
       }
       case 'remove_layer':
         if (layerId) {
           onRemove(layerId);
           cleanStaleLayerRefs(mapId, layerId);
+          // B-012: see add_layer above — re-adding a removed layer on undo mints
+          // a new id, so the keyed restores no-op. Suppress undo for the turn.
+          if (lastSnapshotRef.current) lastSnapshotRef.current.supportsUndo = false;
         }
         break;
       case 'set_opacity': {
@@ -464,6 +489,12 @@ export function ChatPanel({
                 // Also record in pendingActions so the message's actions[] captures the intent
                 // for display purposes (the "applied N changes" line shows after accept).
                 pendingActions.push(action);
+                // B-013: a destructive action is never undo-safe (handleUndo can't truly
+                // restore an add/remove). Downgrade the turn's snapshot so the undo
+                // affordance stays suppressed even after the user accepts the staged action.
+                if (lastSnapshotRef.current) {
+                  lastSnapshotRef.current.supportsUndo = false;
+                }
                 continue;
               }
               handleChatAction(action);
@@ -490,7 +521,12 @@ export function ChatPanel({
             break;
           }
           case 'error':
-            throw new Error(data.message as string);
+            // Model emitted an error event mid-stream (tool-loop exhausted,
+            // deadline). Throw a typed sentinel so the catch shows an inline
+            // error instead of re-calling the LLM via the non-streaming path.
+            throw new StreamModelError(
+              typeof data.message === 'string' ? data.message : '',
+            );
         }
       }
     } catch (err) {
@@ -546,6 +582,19 @@ export function ChatPanel({
             retryMessage: userMsg,
           },
         ]);
+      } else if (err instanceof StreamModelError) {
+        // The model itself errored mid-stream (tool-loop exhausted, deadline).
+        // There is nothing to retry — re-calling the LLM via the non-streaming
+        // path would just double the (already-failed) call. Show inline error.
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: crypto.randomUUID(),
+            role: 'error',
+            content: mapApiErrorToMessage(err),
+            retryMessage: userMsg,
+          },
+        ]);
       } else {
         // No actions applied yet — safe to retry via non-streaming
         try {
@@ -563,6 +612,11 @@ export function ChatPanel({
             if (isDestructiveAction(action)) {
               staging.push(action);
               // Still recorded in responseActions message bubble; map mutation deferred to user accept.
+              // B-013: destructive actions are never undo-safe — downgrade the snapshot so undo
+              // stays suppressed after the user accepts the staged add/remove.
+              if (lastSnapshotRef.current) {
+                lastSnapshotRef.current.supportsUndo = false;
+              }
               continue;
             }
             handleChatAction(action);
