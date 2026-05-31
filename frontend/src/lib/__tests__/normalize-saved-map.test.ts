@@ -60,7 +60,7 @@ function makeMapResponse(overrides: Partial<MapResponse> = {}): MapResponse {
     updated_at: '2024-01-01T00:00:00Z',
     layers: overrides.layers ?? [],
     layer_count: overrides.layers?.length ?? 0,
-    plugins: overrides.widgets ?? null,
+    plugins: overrides.plugins ?? null,
     forked_from_id: null,
     forked_from_name: null,
     ...overrides,
@@ -297,7 +297,7 @@ describe('normalizeSavedMap', () => {
     // Input is unchanged
     expect(input.basemap_style).toBe(inputCopy.basemap_style);
     expect(input.layers).toHaveLength(inputCopy.layers.length);
-    expect(input.widgets).toEqual(inputCopy.widgets);
+    expect(input.plugins).toEqual(inputCopy.plugins);
   });
 
   it('carries SharedLayerResponse[] through unchanged when input is SharedMapResponse', () => {

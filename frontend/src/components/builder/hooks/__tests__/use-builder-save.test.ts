@@ -780,7 +780,7 @@ describe('useBuilderSave', () => {
   it('sends plugins null when active plugins return to client defaults from explicit state', () => {
     usePluginStore.getState().open('legend');
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
-    queryClient.setQueryData(queryKeys.maps.detail('map-1'), { widgets: [] });
+    queryClient.setQueryData(queryKeys.maps.detail('map-1'), { plugins: [] });
     const state = makeSaveState();
     const { result } = renderHookWithQueryClient(state, queryClient);
 

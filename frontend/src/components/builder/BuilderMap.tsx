@@ -3,7 +3,7 @@ import { usePluginStore } from '@/stores/map-plugin-store';
 import { isPluginIdAvailable } from '@/components/map-plugins';
 import { toast } from 'sonner';
 import { Map as MapGL, NavigationControl, ScaleControl } from '@vis.gl/react-maplibre';
-import { useBasemaps, useEnabledWidgets, useMapDefaults, useTileConfig } from '@/hooks/use-settings';
+import { useBasemaps, useEnabledPlugins, useMapDefaults, useTileConfig } from '@/hooks/use-settings';
 import {
   findBasemapById,
   isKnownMissingRemoteStyleImage,

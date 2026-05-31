@@ -660,24 +660,24 @@ function makeInteractionEntries(groups: MapStackGroup[], orderedLayers: IndexedL
     });
   });
 
-  const widgets = map.widgets ?? [];
-  if (widgets.length > 0) {
+  const plugins = map.plugins ?? [];
+  if (plugins.length > 0) {
     const drawOrder = GROUP_ORDER_BASE.interactions + 500;
     interactions.entries.push({
-      id: 'interactions:widgets',
+      id: 'interactions:plugins',
       groupId: 'interactions',
-      role: 'interaction-widgets',
-      title: 'Map widgets',
-      subtitle: widgets.join(', '),
+      role: 'interaction-plugins',
+      title: 'Map plugins',
+      subtitle: plugins.join(', '),
       order: drawOrder,
-      orderLabel: 'Widgets',
+      orderLabel: 'Plugins',
       visible: true,
       locked: false,
-      badges: [{ label: `${widgets.length} widget${widgets.length === 1 ? '' : 's'}`, tone: 'info' }],
+      badges: [{ label: `${plugins.length} plugin${plugins.length === 1 ? '' : 's'}`, tone: 'info' }],
       metadata: {
         drawOrder,
         source: 'derived',
-        widgets,
+        plugins,
       },
     });
   }

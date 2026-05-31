@@ -228,8 +228,8 @@ export function MapBuilderPage() {
   // Phase 276 CODE-12: hand-rolled string keys are intentional value-equality
   // dependencies. mapData refetches (TanStack Query refetchOnReconnect /
   // refetchOnMount / window-focus invalidations) produce shape-equivalent
-  // but identity-different plugin arrays — declaring `[mapData?.widgets,
-  // enabledPluginIds]` directly as deps would reset the user's local widget
+  // but identity-different plugin arrays — declaring `[mapData?.plugins,
+  // enabledPluginIds]` directly as deps would reset the user's local plugin
   // toggles on every background refetch. Coercing the deps to stable JSON
   // strings (savedPluginKey) and a NUL-joined ID list (enabledPluginKey)
   // gives the useEffect value-equality semantics, which is what we actually
@@ -241,7 +241,7 @@ export function MapBuilderPage() {
   // Verify with the map-builder UAT in Plan 276-05: open builder, toggle a
   // plugin OFF, trigger a refetch (Cmd-R / window focus / queryClient
   // invalidateQueries), confirm the toggle stays OFF.
-  const savedPluginKey = mapData ? `${mapData.id}:${JSON.stringify(mapData.widgets ?? null)}` : '';
+  const savedPluginKey = mapData ? `${mapData.id}:${JSON.stringify(mapData.plugins ?? null)}` : '';
   const enabledPluginKey = enabledPluginIds == null ? '__all__' : enabledPluginIds.join('\0');
 
   // Restore active plugins from the saved map payload. `null` means client defaults,
@@ -391,7 +391,7 @@ export function MapBuilderPage() {
     [setHasUnsavedChanges],
   );
 
-  // Widget toggles live in a store outside the layer state that drives
+  // Plugin toggles live in a store outside the layer state that drives
   // hasUnsavedChanges, so wrap the toggle to mark the map dirty — otherwise the
   // save indicator + unsaved-changes nav guard miss plugin-only edits. The save
   // payload already reads the store at save time (resolvePluginsPayload).
