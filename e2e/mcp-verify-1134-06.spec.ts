@@ -12,7 +12,7 @@
  * MAP-17  Delete a layer → no orphan sources, no stack drift
  * MAP-18  Toggle visibility off/on → canvas reflects immediately
  * MAP-19  Pan/zoom canvas → page body scrollY remains 0
- * MAP-20  Filter chips: 3+ chips contained, no measure-widget collision
+ * MAP-20  Filter chips: 3+ chips contained, no measure-plugin collision
  * MAP-22  Add notes → Notes icon shows 6px presence dot
  */
 
@@ -223,8 +223,8 @@ for (const vp of VIEWPORTS) {
       await page.setViewportSize({ width: vp.width, height: vp.height });
       await navToBuilder(page);
 
-      // Hover over the top portion of the map canvas (away from MeasurementWidget at bottom-left)
-      // At 800x600, the MeasurementWidget "Close widget" button at bottom-14 left-4 intercepts
+      // Hover over the top portion of the map canvas (away from MeasurementPlugin at bottom-left)
+      // At 800x600, the MeasurementPlugin "Close plugin" button at bottom-14 left-4 intercepts
       // hover at the canvas center. Use position near top-center of canvas instead.
       const canvas = page.locator('canvas.maplibregl-canvas');
       const canvasBox = await canvas.boundingBox();
@@ -525,7 +525,7 @@ for (const vp of VIEWPORTS) {
         return;
       }
 
-      // Use the upper-center of the canvas (away from MeasurementWidget at bottom-left)
+      // Use the upper-center of the canvas (away from MeasurementPlugin at bottom-left)
       const centerX = canvasBox.x + canvasBox.width / 2;
       const centerY = canvasBox.y + canvasBox.height * 0.3; // 30% down from top
 
