@@ -696,7 +696,7 @@ Each subagent must:
    - Read `SettingsEditorScene.tsx`
    - Check: Appearance exposes background color with a swatch picker and reset action
    - Check: background color changes preview immediately, mark the map dirty, save/reload through `MapBasemapConfig.background_color`, and render the same in viewer routes
-   - Check: Terrain, Widgets, Projection, and Appearance sections fit without overlap on narrow sidebars <!-- v1036: "Widgets" → "Plugins" rename pending (RENAME-TOOL-01, phase 1164) -->
+   - Check: Terrain, Plugins, Projection, and Appearance sections fit without overlap on narrow sidebars
 
 8. **Unsaved changes:**
    - Verify: navigating away with unsaved changes triggers a confirmation dialog
