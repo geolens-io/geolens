@@ -14,11 +14,21 @@
 > via an earlier merge (`e5791042`). Regression tests added: backend ChatAction round-trip;
 > frontend filter-count prefix. **Verification:** frontend typecheck 0; builder+viewer vitest
 > **1454/1454**; backend chat suite **38/38**; OpenAPI snapshot in sync; eslint/ruff clean on
-> changed files. Live Playwright MCP smoke was **blocked** — a concurrent autonomous run had
-> the API returning 500s during the session and was mutating the working tree; once it settled
-> the API returned correct auth-gated responses, but a full live builder smoke on this branch
-> is still **pending** (the showcase map was never saved; no test data was mutated). Remaining
-> P2/LOW items (AI undo, embed Referer fallback, perf memoization, misc UX/token) are
+> changed files. **Live Playwright MCP smoke (2026-05-31, public showcase map
+> `c39be324`):** builder loads with **zero console errors** on the post-1162-rename + fixes
+> bundle; the served `use-layer-map-sync` module confirmed to contain the arrow-companion fix
+> (not a stale bundle); `setFilter` apply→clear round-trips cleanly on a line layer; the
+> unsaved-changes `beforeunload` guard fires correctly; legend renders with the "plugin"
+> rename live. The showcase map was **not saved** (in-memory toggle discarded via the guard;
+> no test data mutated). **One unresolved observation (carry-forward, NOT attributable to this
+> change):** the layer-row eye toggle flipped React dirty-state (`aria-pressed` + "Unsaved
+> changes") but the resolved MapLibre layer's `visibility` stayed `visible` for the Blue Line
+> fill/outline pair. My B-004 edit only *adds* an `arrowId` line to an already-working
+> visibility block, so it cannot regress fill/outline toggling; the `use-layer-map-sync` /
+> `use-builder-layers` visibility unit suites pass. The most likely cause is the fiber-resolved
+> Map not being the live render target (instrumentation artifact) or a pre-existing builder
+> sync quirk — needs a focused `/gsd-debug` session, filed as **B-041 (P2)**. Remaining
+> P2/LOW items (AI undo, embed Referer fallback, perf memoization, misc UX/token, B-041) are
 > documented below, untouched.
 
 ## Scorecard
