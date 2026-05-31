@@ -13,11 +13,6 @@ from starlette.background import BackgroundTask
 from app.modules.audit.service import AuditEvent, audit_emit
 from app.core.identity import Identity
 from app.modules.auth.dependencies import get_optional_user
-from app.modules.catalog.authorization import (
-    check_dataset_access,
-    check_dataset_access_or_anonymous,
-    get_user_roles,
-)
 from app.modules.auth.permissions import get_effective_permissions
 from app.core.dependencies import get_db
 from app.platform.extensions import get_processing_port
@@ -70,6 +65,15 @@ async def export_dataset_endpoint(
         )
 
     # 2. Visibility + permission check (branches on authenticated vs anonymous).
+    # Function-level import: processing/ must not import app.modules.catalog at
+    # module scope (Phase 225 PROCESS-02/04 layering guard — test_layering.py).
+    # Mirrors the existing parse_bbox import below.
+    from app.modules.catalog.authorization import (
+        check_dataset_access,
+        check_dataset_access_or_anonymous,
+        get_user_roles,
+    )
+
     if user is None:
         # Anonymous export: enforce public+published gate via the anon-aware
         # helper (raises 404 to hide existence on denial), then a
