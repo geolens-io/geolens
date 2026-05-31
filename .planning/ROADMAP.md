@@ -72,7 +72,9 @@ Rename the map "widget" platform to "plugin" across the entire stack — DB, API
   3. The 3 plugin-audit review findings are folded in: (a) the `docs/plugin-development.md` reference resolves to a real file, (b) `plugin-availability.ts` is added to the Step-2 read list, (c) built-ins are derived from the registry rather than hardcoded as "measurement and legend".
   4. `docs/plugin-development.md` exists and documents the registry, built-ins, availability gating, the host/panel contract, and how to register a plugin.
   5. CHANGELOG has a `[2.0.0]` entry describing the breaking `widgets`→`plugins` API/DB rename and the migration path for operators (`alembic upgrade head`) and external API clients (switch to `plugins`).
-**Plans**: TBD
+**Plans**: 2 plans
+  - [ ] 1164-01-PLAN.md — DOCS-01 plugin-development guide + TOOL-01 rename widget-audit->plugin-audit (+2 cross-refs) + TOOL-04 three audit fixes (Wave 1)
+  - [ ] 1164-02-PLAN.md — TOOL-02 confirm skills/agents (no widget refs) + TOOL-03 update 3 existing widget-referencing e2e specs + DOCS-02 CHANGELOG [2.0.0] (Wave 1)
 
 ### Phase 1165: Live MCP Close-Gate
 **Goal**: The whole stack is verified, on the running app, to round-trip the renamed plugin platform with zero regressions before the v1036 tag.
@@ -93,7 +95,7 @@ Rename the map "widget" platform to "plugin" across the entire stack — DB, API
 | 1161. Backend Rename & Contract | 2/2 | Complete |  |
 | 1162. Frontend Rename | 2/2 | Complete | 2026-05-30 |
 | 1163. i18n Key Rename | 2/2 | Complete   | 2026-05-31 |
-| 1164. Tooling, Docs & Audit Fixes | 0/TBD | Not started | - |
+| 1164. Tooling, Docs & Audit Fixes | 0/2 | Not started | - |
 | 1165. Live MCP Close-Gate | 0/TBD | Not started | - |
 
 ## Coverage
