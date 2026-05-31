@@ -281,7 +281,7 @@ export function BasemapGroupEditorFooter({
       <Button
         type="button"
         variant="ghost"
-        className="flex-1 text-destructive hover:bg-[oklch(0.97_0.02_27)] hover:text-destructive"
+        className="flex-1 text-destructive hover:bg-destructive/10 hover:text-destructive"
         onClick={onRemoveBasemap}
       >
         {t('basemapGroup.removeBasemap', { defaultValue: 'Remove basemap' })}
