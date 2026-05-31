@@ -32,9 +32,9 @@ interface MapCoordReadoutProps {
  *   surface no longer exists in the builder context — but `right-14` is
  *   load-bearing for the viewer and must NOT be reduced without first
  *   confirming the NavigationControl position at every call site.
- *   Top-right WidgetHost slot (`WidgetHost.tsx:17`) sits at `top-12 right-3`
+ *   Top-right PluginHost slot (`PluginHost.tsx:17`) sits at `top-12 right-3`
  *   — 40px below this pill — so there is no vertical collision with any
- *   floating widget at the same horizontal band.
+ *   floating plugin at the same horizontal band.
  */
 export const MapCoordReadout = memo(function MapCoordReadout({
   map,

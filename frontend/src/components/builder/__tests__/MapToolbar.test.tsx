@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { MapToolbar } from '../MapToolbar';
-import { useWidgetStore } from '@/stores/map-widget-store';
+import { usePluginStore } from '@/stores/map-plugin-store';
 
 const mockEnabledWidgets = vi.hoisted(() => ({
   value: null as string[] | null | undefined,
@@ -16,13 +16,13 @@ vi.mock('react-i18next', () => ({
   }),
 }));
 
-describe('MapToolbar widget controls', () => {
+describe('MapToolbar plugin controls', () => {
   beforeEach(() => {
     mockEnabledWidgets.value = null;
-    useWidgetStore.getState().replace([]);
+    usePluginStore.getState().replace([]);
   });
 
-  it('renders available widget controls when unrestricted', () => {
+  it('renders available plugin controls when unrestricted', () => {
     render(<MapToolbar />);
 
     expect(screen.getByRole('button', { name: 'Pan' })).toBeInTheDocument();
@@ -30,7 +30,7 @@ describe('MapToolbar widget controls', () => {
     expect(screen.getByRole('button', { name: 'Legend' })).toBeInTheDocument();
   });
 
-  it('hides widget controls disabled by admin settings', () => {
+  it('hides plugin controls disabled by admin settings', () => {
     mockEnabledWidgets.value = [];
     render(<MapToolbar />);
 
@@ -41,12 +41,12 @@ describe('MapToolbar widget controls', () => {
 
   it('pan control clears stale measurement state', () => {
     mockEnabledWidgets.value = [];
-    useWidgetStore.getState().open('measurement');
+    usePluginStore.getState().open('measurement');
     render(<MapToolbar />);
 
     fireEvent.click(screen.getByRole('button', { name: 'Pan' }));
 
-    expect(useWidgetStore.getState().activeWidgets.has('measurement')).toBe(false);
+    expect(usePluginStore.getState().activePlugins.has('measurement')).toBe(false);
   });
 
   it('renders style JSON action when provided', () => {

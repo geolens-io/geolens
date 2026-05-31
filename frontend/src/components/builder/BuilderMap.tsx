@@ -1,6 +1,6 @@
 import { useEffect, useRef, useCallback, useState, useMemo, memo } from 'react';
-import { useWidgetStore } from '@/stores/map-widget-store';
-import { isWidgetIdAvailable } from '@/components/map-widgets';
+import { usePluginStore } from '@/stores/map-plugin-store';
+import { isPluginIdAvailable } from '@/components/map-plugins';
 import { toast } from 'sonner';
 import { Map as MapGL, NavigationControl, ScaleControl } from '@vis.gl/react-maplibre';
 import { useBasemaps, useEnabledWidgets, useMapDefaults, useTileConfig } from '@/hooks/use-settings';
@@ -177,10 +177,10 @@ export const BuilderMap = memo(function BuilderMap({
   const { data: basemaps } = useBasemaps();
   const { data: mapDefaults } = useMapDefaults();
   const { data: tileConfig } = useTileConfig();
-  const enabledWidgetsQuery = useEnabledWidgets();
-  const enabledWidgetIds = useMemo(
-    () => enabledWidgetsQuery.data ?? (enabledWidgetsQuery.isLoading ? [] : null),
-    [enabledWidgetsQuery.data, enabledWidgetsQuery.isLoading],
+  const enabledPluginsQuery = useEnabledWidgets();
+  const enabledPluginIds = useMemo(
+    () => enabledPluginsQuery.data ?? (enabledPluginsQuery.isLoading ? [] : null),
+    [enabledPluginsQuery.data, enabledPluginsQuery.isLoading],
   );
   const isBlank = basemapStyle === BLANK_BASEMAP_ID;
   const basemapEntry = isBlank ? undefined : findBasemapById(basemaps ?? [], basemapStyle);
@@ -430,19 +430,19 @@ export const BuilderMap = memo(function BuilderMap({
   // Cached queryable layer IDs — updated when layers change, read by click/mousemove handlers
   const queryLayerIdsRef = useRef<string[]>([]);
 
-  // Tracks whether measurement widget is active — avoids re-registering map handlers on every toggle
+  // Tracks whether measurement plugin is active — avoids re-registering map handlers on every toggle
   const measureActiveRef = useRef(false);
 
   useEffect(() => {
     measureActiveRef.current =
-      useWidgetStore.getState().activeWidgets.has('measurement') &&
-      isWidgetIdAvailable('measurement', enabledWidgetIds);
-    return useWidgetStore.subscribe((state) => {
+      usePluginStore.getState().activePlugins.has('measurement') &&
+      isPluginIdAvailable('measurement', enabledPluginIds);
+    return usePluginStore.subscribe((state) => {
       measureActiveRef.current =
-        state.activeWidgets.has('measurement') &&
-        isWidgetIdAvailable('measurement', enabledWidgetIds);
+        state.activePlugins.has('measurement') &&
+        isPluginIdAvailable('measurement', enabledPluginIds);
     });
-  }, [enabledWidgetIds]);
+  }, [enabledPluginIds]);
 
   const handleLoad = useCallback(
     (e: MapLibreEvent) => {

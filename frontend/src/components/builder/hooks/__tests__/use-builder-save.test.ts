@@ -7,7 +7,7 @@ import { MemoryRouter } from 'react-router';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { renderHook } from '@/test/test-utils';
 import { buildLayerDiff, useBuilderSave, __resetThumbnailDebounceForTests } from '@/components/builder/hooks/use-builder-save';
-import { useWidgetStore } from '@/stores/map-widget-store';
+import { usePluginStore } from '@/stores/map-plugin-store';
 import type { MapLayerResponse } from '@/types/api';
 import { queryKeys } from '@/lib/query-keys';
 import { ApiError } from '@/api/client';
@@ -325,7 +325,7 @@ describe('useBuilderSave', () => {
     });
     mockPatchMapLayersMutateAsync.mockResolvedValue({ id: 'map-1', layers: [] });
     mockDuplicateMapMutateAsync.mockResolvedValue({ id: 'new-map-1', excluded_layer_count: 0 });
-    useWidgetStore.getState().replace([]);
+    usePluginStore.getState().replace([]);
   });
 
   it('handleSave calls updateMap.mutate with correct payload', () => {
@@ -764,8 +764,8 @@ describe('useBuilderSave', () => {
     expect(result.current.saveStatus).toBe('failed');
   });
 
-  it('omits widgets when active widgets match client defaults already saved as defaults', () => {
-    useWidgetStore.getState().open('legend');
+  it('omits plugins when active plugins match client defaults already saved as defaults', () => {
+    usePluginStore.getState().open('legend');
     const state = makeSaveState();
     const { result } = renderHook(() => useBuilderSave(state));
 
@@ -777,8 +777,8 @@ describe('useBuilderSave', () => {
     expect(payload.data.widgets).toBeUndefined();
   });
 
-  it('sends widgets null when active widgets return to client defaults from explicit state', () => {
-    useWidgetStore.getState().open('legend');
+  it('sends plugins null when active plugins return to client defaults from explicit state', () => {
+    usePluginStore.getState().open('legend');
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
     queryClient.setQueryData(queryKeys.maps.detail('map-1'), { widgets: [] });
     const state = makeSaveState();
@@ -792,9 +792,9 @@ describe('useBuilderSave', () => {
     expect(payload.data.widgets).toBeNull();
   });
 
-  it('persists explicit widget state when it differs from client defaults', () => {
-    useWidgetStore.getState().open('legend');
-    useWidgetStore.getState().open('measurement');
+  it('persists explicit plugin state when it differs from client defaults', () => {
+    usePluginStore.getState().open('legend');
+    usePluginStore.getState().open('measurement');
     const state = makeSaveState();
     const { result } = renderHook(() => useBuilderSave(state));
 
@@ -806,10 +806,10 @@ describe('useBuilderSave', () => {
     expect(payload.data.widgets).toEqual(['legend', 'measurement']);
   });
 
-  it('does not persist admin-disabled active widgets', () => {
+  it('does not persist admin-disabled active plugins', () => {
     mockEnabledWidgets.value = ['legend'];
-    useWidgetStore.getState().open('legend');
-    useWidgetStore.getState().open('measurement');
+    usePluginStore.getState().open('legend');
+    usePluginStore.getState().open('measurement');
     const state = makeSaveState();
     const { result } = renderHook(() => useBuilderSave(state));
 

@@ -4,7 +4,7 @@ import type { SettingsEditorSceneProps } from '../SettingsEditorScene';
 
 // Phase 1051 Plan 07 (UX-04): regression suite covering the refined
 // Map Settings → Widgets section. The Switch row is the SINGLE source
-// of truth for widget availability; on-map controls (e.g., MapToolbar
+// of truth for plugin availability; on-map controls (e.g., MapToolbar
 // Measure / Legend buttons) remain functional for live interaction but
 // are NOT a duplicate of the availability toggle.
 //
@@ -88,8 +88,8 @@ vi.mock('@/components/ui/switch', () => ({
   ),
 }));
 
-vi.mock('@/components/map-widgets/registry', () => ({
-  getWidgets: () => [
+vi.mock('@/components/map-plugins/registry', () => ({
+  getPlugins: () => [
     { id: 'measurement', labelKey: 'widgets.measurement.label', icon: () => null },
     { id: 'legend', labelKey: 'widgets.legend.label', icon: () => null },
   ],
@@ -106,8 +106,8 @@ function defaultProps(overrides: Partial<SettingsEditorSceneProps> = {}): Settin
     terrainConfig: null,
     isTerrainActive: false,
     boundLayerName: undefined,
-    activeWidgetIds: new Set<string>(),
-    onToggleWidget: vi.fn(),
+    activePluginIds: new Set<string>(),
+    onTogglePlugin: vi.fn(),
     backgroundColor: null,
     onBackgroundColorChange: vi.fn(),
     onBackgroundColorReset: vi.fn(),
@@ -118,62 +118,62 @@ function defaultProps(overrides: Partial<SettingsEditorSceneProps> = {}): Settin
 }
 
 describe('SettingsEditorScene · Widgets section (UX-04)', () => {
-  // Test 1 — disabled widget reads "Enable {name}"
-  it('Switch aria-label reads "Enable {name}" when widget is OFF', () => {
-    render(<SettingsEditorScene {...defaultProps({ activeWidgetIds: new Set<string>() })} />);
+  // Test 1 — disabled plugin reads "Enable {name}"
+  it('Switch aria-label reads "Enable {name}" when plugin is OFF', () => {
+    render(<SettingsEditorScene {...defaultProps({ activePluginIds: new Set<string>() })} />);
 
-    // Both widgets are OFF — both should read "Enable {label}"
+    // Both plugins are OFF — both should read "Enable {label}"
     expect(screen.getByRole('switch', { name: 'Enable measurement' })).toBeInTheDocument();
     expect(screen.getByRole('switch', { name: 'Enable legend' })).toBeInTheDocument();
   });
 
-  // Test 2 — enabled widget reads "Disable {name}"
-  it('Switch aria-label reads "Disable {name}" when widget is ON', () => {
+  // Test 2 — enabled plugin reads "Disable {name}"
+  it('Switch aria-label reads "Disable {name}" when plugin is ON', () => {
     render(
       <SettingsEditorScene
-        {...defaultProps({ activeWidgetIds: new Set<string>(['legend']) })}
+        {...defaultProps({ activePluginIds: new Set<string>(['legend']) })}
       />,
     );
 
     expect(screen.getByRole('switch', { name: 'Disable legend' })).toBeInTheDocument();
-    // The other widget stays OFF
+    // The other plugin stays OFF
     expect(screen.getByRole('switch', { name: 'Enable measurement' })).toBeInTheDocument();
   });
 
-  // Test 3 — toggling the Switch calls onToggleWidget with the correct id
-  it('toggling a widget Switch calls onToggleWidget once with the widget id', () => {
-    const onToggleWidget = vi.fn();
+  // Test 3 — toggling the Switch calls onTogglePlugin with the correct id
+  it('toggling a plugin Switch calls onTogglePlugin once with the plugin id', () => {
+    const onTogglePlugin = vi.fn();
     render(
       <SettingsEditorScene
-        {...defaultProps({ activeWidgetIds: new Set<string>(), onToggleWidget })}
+        {...defaultProps({ activePluginIds: new Set<string>(), onTogglePlugin })}
       />,
     );
 
     const measurementSwitch = screen.getByRole('switch', { name: 'Enable measurement' });
     fireEvent.click(measurementSwitch);
 
-    expect(onToggleWidget).toHaveBeenCalledOnce();
-    expect(onToggleWidget).toHaveBeenCalledWith('measurement');
+    expect(onTogglePlugin).toHaveBeenCalledOnce();
+    expect(onTogglePlugin).toHaveBeenCalledWith('measurement');
   });
 
   // Test 4 — descriptive note renders in the section
-  it('renders the availability-note paragraph above the widget rows', () => {
+  it('renders the availability-note paragraph above the plugin rows', () => {
     render(<SettingsEditorScene {...defaultProps()} />);
 
     expect(
-      screen.getByText('Controls whether each widget appears on the map.'),
+      screen.getByText('Controls whether each plugin appears on the map.'),
     ).toBeInTheDocument();
   });
 
-  // Test 5 — single Switch per widget id (no duplicate availability controls)
-  it('renders exactly one Switch element per widget id within the Settings scene', () => {
+  // Test 5 — single Switch per plugin id (no duplicate availability controls)
+  it('renders exactly one Switch element per plugin id within the Settings scene', () => {
     render(<SettingsEditorScene {...defaultProps()} />);
 
-    // 2 widgets in the mock registry, so exactly 2 Switches must exist
+    // 2 plugins in the mock registry, so exactly 2 Switches must exist
     const switches = screen.getAllByRole('switch');
     expect(switches).toHaveLength(2);
 
-    // and none of them share an aria-label (no duplicate availability control for the same widget)
+    // and none of them share an aria-label (no duplicate availability control for the same plugin)
     const labels = switches.map((sw) => sw.getAttribute('aria-label'));
     expect(new Set(labels).size).toBe(labels.length);
   });

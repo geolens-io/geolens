@@ -15,9 +15,9 @@ import { getLayerColors } from '@/components/map/layer-icons';
 import { uploadThumbnail, uploadOgImage } from '@/api/maps';
 import { extractPlaceholders, validatePlaceholders } from '@/lib/popup-template';
 import type { MapBasemapConfig, MapLayerDiffRequest, MapLayerInput, MapLayerPatch, MapLayerResponse, MapResponse, MapTerrainConfig, MapUpdateRequest } from '@/types/api';
-import { useWidgetStore } from '@/stores/map-widget-store';
+import { usePluginStore } from '@/stores/map-plugin-store';
 import { useAuthStore } from '@/stores/auth-store';
-import { getDefaultWidgetIds, resolveAvailableWidgetIds, sameWidgetIds } from '@/components/map-widgets';
+import { getDefaultPluginIds, resolveAvailablePluginIds, samePluginIds } from '@/components/map-plugins';
 import { prepareLayersForPersistence, type FolderGroupMeta } from '@/components/builder/folder-groups';
 
 /** Center-crop `srcCanvas` to the given target dimensions and return the
@@ -232,17 +232,17 @@ export function __resetThumbnailDebounceForTests(): void {
   autoCapturedKeys.clear();
 }
 
-function resolveWidgetsPayload(
+function resolvePluginsPayload(
   mapId: string,
   queryClient: ReturnType<typeof useQueryClient>,
-  enabledWidgetIds: string[] | null | undefined,
+  enabledPluginIds: string[] | null | undefined,
 ): string[] | null | undefined {
-  const active = resolveAvailableWidgetIds(
-    useWidgetStore.getState().activeWidgets,
-    enabledWidgetIds,
+  const active = resolveAvailablePluginIds(
+    usePluginStore.getState().activePlugins,
+    enabledPluginIds,
   );
   const cached = queryClient.getQueryData<MapResponse>(queryKeys.maps.detail(mapId));
-  if (sameWidgetIds(active, getDefaultWidgetIds(enabledWidgetIds))) {
+  if (samePluginIds(active, getDefaultPluginIds(enabledPluginIds))) {
     return cached?.widgets == null ? undefined : null;
   }
   return active;
@@ -419,10 +419,10 @@ export function useBuilderSave(state: SaveState) {
   const duplicateMutation = useDuplicateMap();
   const [lastSaveFailed, setLastSaveFailed] = useState(false);
   const { isEnterprise } = useEdition();
-  const enabledWidgetsQuery = useEnabledWidgets();
-  const enabledWidgetIds = useMemo(
-    () => enabledWidgetsQuery.data ?? (enabledWidgetsQuery.isLoading ? [] : null),
-    [enabledWidgetsQuery.data, enabledWidgetsQuery.isLoading],
+  const enabledPluginsQuery = useEnabledWidgets();
+  const enabledPluginIds = useMemo(
+    () => enabledPluginsQuery.data ?? (enabledPluginsQuery.isLoading ? [] : null),
+    [enabledPluginsQuery.data, enabledPluginsQuery.isLoading],
   );
 
   const baselineLayersRef = useRef<MapLayerResponse[]>([]);
@@ -491,7 +491,7 @@ export function useBuilderSave(state: SaveState) {
       zoom: zoom ?? null,
       bearing: bearing ?? 0,
       pitch: pitch ?? 0,
-      widgets: resolveWidgetsPayload(id, queryClient, enabledWidgetIds),
+      widgets: resolvePluginsPayload(id, queryClient, enabledPluginIds),
     };
     const persistableLayers = prepareLayersForPersistence(localLayers, groupMeta);
     const fullReplacementPayload: MapUpdateRequest = {
