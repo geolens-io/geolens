@@ -49,7 +49,7 @@ metrics:
   completed: "2026-05-30"
   tasks: 3
   files_changed: 32
-  commits: [bcf69379, d6d223d3, c802ffb2, 31f2e009, c98f1f9c, 3bdf2e6b]
+  commits: [bcf69379, d6d223d3, c802ffb2, 31f2e009, 3bdf2e6b, a79eb4ed, 051eadb9, 6a079900]
 ---
 
 # Phase 1162 Plan 01: Frontend Widget → Plugin Rename (Wave 1) Summary
@@ -71,15 +71,16 @@ Mechanical, atomic rename of the frontend map-plugin platform's directory, files
 | 2 | rename Widget* symbols in module + store (first attempt) | d6d223d3 | superseded — wrote simplified placeholder module content |
 | 2 | rename Widget* symbols over REAL implementation | c802ffb2 | map-plugins/* + map-plugin-store.ts + 5 module/store tests |
 | 2-fix | keep error-boundary test i18n value unchanged | 31f2e009 | PluginHost.test.tsx (1 assertion) |
-| 3 | rewrite component consumers + tests | c98f1f9c | 10 source consumers + 9 consumer tests |
-| docs | SUMMARY + REQUIREMENTS flip | 3bdf2e6b (amended by this commit) | SUMMARY.md, REQUIREMENTS.md |
+| 3 | rewrite component consumers + tests | a79eb4ed | 10 source consumers + 9 consumer tests |
+| 3-fix | rename bare `widgets` local refs in PluginHost | 6a079900 | PluginHost.tsx (4 local-var refs the regex skipped) |
+| docs | SUMMARY + REQUIREMENTS flip | 3bdf2e6b, 051eadb9 | SUMMARY.md, REQUIREMENTS.md |
 
 Note: commit `d6d223d3` was a first Task-2 attempt that wrote simplified placeholder module content (from the plan's stale `<interfaces>` cite); it was immediately superseded by `c802ffb2`, which re-applied the rename over the real preserved implementation. Both are on `main`; `c802ffb2` is the effective Task-2 content.
 
 ## Verification
 
 - `cd frontend && npm run typecheck` → **0 errors**.
-- Affected vitest suites (run together against committed HEAD c98f1f9c): **12 files, 151/151 pass**. Covers the map-plugins module (incl. PluginHost/registry/plugin-availability), both stores, MapToolbar, SettingsEditorScene (x2), ActiveFilterChips, use-builder-save, and MapBuilderPage (x4 incl. header-actions). See "order-dependent test behavior" note re: registry duplicate-warn.
+- Affected vitest suites against committed HEAD 6a079900 (run in 3 batches): **14 files, 129/129 pass** (module+stores 35, consumer batch-1 81, MapBuilderPage batch 13). Covers the map-plugins module (incl. PluginHost/registry/plugin-availability), both stores, MapToolbar, SettingsEditorScene (x2), ActiveFilterChips, use-builder-save, and MapBuilderPage (x4 incl. header-actions). See "order-dependent test behavior" note re: registry duplicate-warn (passes in these batches).
 - Invariants confirmed: `map-widgets/` gone; `map-plugins/` has 13 entries; 0 refs to `@/components/map-widgets` or `@/stores/map-widget-store`; 0 `Widget*` platform tokens; `'measurement'`/`'legend'` literals + `MEASURE_*_LAYER` + `legend-widget-${idx}` preserved; `useEnabledWidgets` hook NAME preserved (0 `useEnabledPlugins`); `map-stack.ts` + i18n locales untouched; 3 `.widgets` type-seam reads intentionally left for Wave 2.
 
 ## Deviations from Plan
