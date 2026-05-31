@@ -57,7 +57,9 @@ Rename the map "widget" platform to "plugin" across the entire stack — DB, API
   1. The ~64 widget-namespaced i18n keys (13 builder + 3 admin × 4 locales) are renamed to the plugin namespace in `en`, `es`, `fr`, and `de`, and no widget-namespaced key remains in any locale file.
   2. All four locale files have identical key sets — the i18n parity check passes (2/2).
   3. UI-visible strings render "Plugin" (not "Widget") in the rendered builder/admin components.
-**Plans**: TBD
+**Plans**: 2 plans
+  - [ ] 1163-01-PLAN.md — Rename ~64 widget→plugin i18n keys + translate values across all 8 locale files (en/es/fr/de x builder.json/admin.json), preserving measurement/legend IDs and 4-locale parity (I18N-01, locale half)
+  - [ ] 1163-02-PLAN.md — Repoint every t('widgets.*')/labelKey 'widgets.*'/builder:widgets.*/settings.widgets* call site (27 refs across ~13 files) to the renamed plugin keys + update value-asserting tests; phase gate: typecheck 0 + test:i18n parity 2/2 + zero old-key call sites (I18N-01, call-site half)
 **UI hint**: yes
 
 ### Phase 1164: Tooling, Docs & Audit Fixes
@@ -90,7 +92,7 @@ Rename the map "widget" platform to "plugin" across the entire stack — DB, API
 |-------|----------------|--------|-----------|
 | 1161. Backend Rename & Contract | 2/2 | Complete |  |
 | 1162. Frontend Rename | 2/2 | Complete | 2026-05-30 |
-| 1163. i18n Key Rename | 0/TBD | Not started | - |
+| 1163. i18n Key Rename | 0/2 | Not started | - |
 | 1164. Tooling, Docs & Audit Fixes | 0/TBD | Not started | - |
 | 1165. Live MCP Close-Gate | 0/TBD | Not started | - |
 
