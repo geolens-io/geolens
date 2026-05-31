@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v1036
 milestone_name: milestone
-status: "executing — phase 1163 in progress (plan 1163-01 Wave 1 shipped: locale keys renamed; plan 1163-02 Wave 2 call-site repoint next; I18N-01 partial)"
-last_updated: "2026-05-31T04:30:00.000Z"
+status: "executing — phase 1163 COMPLETE (both waves shipped: locale keys [W1] + call sites [W2] repointed; I18N-01 done; gate green typecheck 0 / parity 2/2). Next: phase 1164"
+last_updated: "2026-05-31T05:30:00.000Z"
 progress:
   total_phases: 5
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 2
-  completed_plans: 1
-  percent: 50
+  completed_plans: 2
+  percent: 60
 ---
 
 # Project State
@@ -24,12 +24,12 @@ progress:
 ```yaml
 milestone: v1036
 status: executing
-current_phase: 1163
+current_phase: 1164
 total_phases: 5
-plans_complete: 1
+plans_complete: 2
 plans_total: 2
-progress_pct: 50
-current_focus: "Phase 1163 Wave 1 shipped (1163-01: ~64 widget→plugin locale keys renamed across en/es/fr/de, parity green); Wave 2 (1163-02 call-site repoint) next — I18N-01 partial"
+progress_pct: 60
+current_focus: "Phase 1163 COMPLETE (I18N-01 done — both locale keys [W1, 1163-01] + call sites [W2, 1163-02] repointed; gate green: typecheck 0, test:i18n 2/2, 6 affected suites 35/35, zero old-key call sites, zero widget in locales). Next: phase 1164 (Tooling, Docs & Audit Fixes)."
 last_shipped: v1035
 ```
 
@@ -45,11 +45,11 @@ last_shipped: v1035
 
 ## Current Position
 
-**Phase:** 1163 — i18n Key Rename (in progress)
-**Plan:** 1163-01 (Wave 1) shipped; 1163-02 (Wave 2) next
-**Status:** Wave 1 complete — all ~64 `widget*` locale keys renamed to `plugin*` across en/es/fr/de × builder.json/admin.json; values translated per-locale; parity green (builder 905 / admin 534 leaf keys identical); `measurement`/`legend` IDs preserved; zero `widget` in locale dir. I18N-01 is PARTIAL (call-site `t()` repoint + phase parity/typecheck gate is Wave 2). Next: Phase 1163 Plan 02.
+**Phase:** 1163 — i18n Key Rename (COMPLETE 2026-05-31)
+**Plan:** 1163-01 (Wave 1) + 1163-02 (Wave 2) both shipped
+**Status:** Phase 1163 complete. Wave 1 (1163-01) renamed all ~64 `widget*` locale keys → `plugin*` (en/es/fr/de × builder.json/admin.json, parity green). Wave 2 (1163-02) repointed all old-key `t()`/`labelKey`/`i18n.t('builder:…')` call sites (8 production files + 6 test/types files) to the renamed `plugins.*` keys and updated the value-asserting tests. Phase gate green: `npm run typecheck` 0, `test:i18n` 2/2, 6 affected suites 35/35, zero old-key call sites, zero `widget` in locales. `measurement`/`legend` IDs + `legend-widget` DOM id preserved. I18N-01 COMPLETE. Next: Phase 1164 — Tooling, Docs & Audit Fixes.
 
-Progress: [█████░░░░░] 50%
+Progress: [██████░░░░] 60% (3/5 phases)
 
 ---
 

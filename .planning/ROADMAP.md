@@ -15,7 +15,7 @@ Rename the map "widget" platform to "plugin" across the entire stack — DB, API
 
 - [x] **Phase 1161: Backend Rename & Contract** - Rename `maps.widgets`→`maps.plugins` (column, model, schemas, settings, tests) with a reversible migration; refresh OpenAPI + SDK.
 - [x] **Phase 1162: Frontend Rename** - Rename `map-widgets/`→`map-plugins/` and all `Widget*`→`Plugin*` identifiers/API types; typecheck + vitest green.
-- [ ] **Phase 1163: i18n Key Rename** - Rename ~64 `widget*` i18n keys → `plugin*` across en/es/fr/de with full key parity.
+- [x] **Phase 1163: i18n Key Rename** - Rename ~64 `widget*` i18n keys → `plugin*` across en/es/fr/de with full key parity. (completed 2026-05-31)
 - [ ] **Phase 1164: Tooling, Docs & Audit Fixes** - Rename slash command, skills, and e2e specs; fold in 3 deferred audit fixes; write plugin-development guide + CHANGELOG `[2.0.0]`.
 - [ ] **Phase 1165: Live MCP Close-Gate** - Orchestrator-driven Playwright MCP proving the renamed `maps.plugins` column round-trips set→save→reload, plus the full deterministic gate.
 
@@ -58,8 +58,8 @@ Rename the map "widget" platform to "plugin" across the entire stack — DB, API
   2. All four locale files have identical key sets — the i18n parity check passes (2/2).
   3. UI-visible strings render "Plugin" (not "Widget") in the rendered builder/admin components.
 **Plans**: 2 plans
-  - [ ] 1163-01-PLAN.md — Rename ~64 widget→plugin i18n keys + translate values across all 8 locale files (en/es/fr/de x builder.json/admin.json), preserving measurement/legend IDs and 4-locale parity (I18N-01, locale half)
-  - [ ] 1163-02-PLAN.md — Repoint every t('widgets.*')/labelKey 'widgets.*'/builder:widgets.*/settings.widgets* call site (27 refs across ~13 files) to the renamed plugin keys + update value-asserting tests; phase gate: typecheck 0 + test:i18n parity 2/2 + zero old-key call sites (I18N-01, call-site half)
+  - [x] 1163-01-PLAN.md — Rename ~64 widget→plugin i18n keys + translate values across all 8 locale files (en/es/fr/de x builder.json/admin.json), preserving measurement/legend IDs and 4-locale parity (I18N-01, locale half)
+  - [x] 1163-02-PLAN.md — Repoint every t('widgets.*')/labelKey 'widgets.*'/builder:widgets.*/settings.widgets* call site (27 refs across ~13 files) to the renamed plugin keys + update value-asserting tests; phase gate: typecheck 0 + test:i18n parity 2/2 + zero old-key call sites (I18N-01, call-site half)
 **UI hint**: yes
 
 ### Phase 1164: Tooling, Docs & Audit Fixes
@@ -92,7 +92,7 @@ Rename the map "widget" platform to "plugin" across the entire stack — DB, API
 |-------|----------------|--------|-----------|
 | 1161. Backend Rename & Contract | 2/2 | Complete |  |
 | 1162. Frontend Rename | 2/2 | Complete | 2026-05-30 |
-| 1163. i18n Key Rename | 0/2 | Not started | - |
+| 1163. i18n Key Rename | 2/2 | Complete   | 2026-05-31 |
 | 1164. Tooling, Docs & Audit Fixes | 0/TBD | Not started | - |
 | 1165. Live MCP Close-Gate | 0/TBD | Not started | - |
 

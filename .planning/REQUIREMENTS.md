@@ -29,7 +29,7 @@
 
 ### Internationalization
 
-- [ ] **I18N-01**: All ~64 widget-namespaced i18n keys (13 builder + 3 admin × en/es/fr/de) are renamed to the plugin namespace with full 4-locale parity; the i18n parity check passes (2/2).
+- [x] **I18N-01**: All ~64 widget-namespaced i18n keys (13 builder + 3 admin × en/es/fr/de) are renamed to the plugin namespace with full 4-locale parity; the i18n parity check passes (2/2).
 
 ### Tooling & Tests
 
@@ -74,7 +74,7 @@ Which phases cover which requirements. Populated during roadmap creation.
 | FE-RENAME-03 | Phase 1162 | Complete |
 | FE-RENAME-04 | Phase 1162 | Complete |
 | FE-RENAME-05 | Phase 1162 | Complete |
-| I18N-01 | Phase 1163 | Pending |
+| I18N-01 | Phase 1163 | Complete |
 | TOOL-01 | Phase 1164 | Pending |
 | TOOL-02 | Phase 1164 | Pending |
 | TOOL-03 | Phase 1164 | Pending |
