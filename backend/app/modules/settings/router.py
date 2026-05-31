@@ -24,7 +24,7 @@ from app.core.persistent_config import (
     BRANDING_SHOW_BADGE,
     EMBEDDING_DIMS,
     ENABLE_DATASET_EDITING,
-    ENABLED_WIDGETS,
+    ENABLED_PLUGINS,
     MAP_DEFAULTS,
     REQUIRE_METADATA_FOR_PUBLISH,
     _registry,
@@ -816,14 +816,14 @@ async def get_map_defaults(
 
 # ROUTE-01 (Phase 1092): dual-shape decorator — see /all above.
 @router.get(
-    "/enabled-widgets", response_model=list[str] | None, include_in_schema=False
+    "/enabled-plugins", response_model=list[str] | None, include_in_schema=False
 )
-@router.get("/enabled-widgets/", response_model=list[str] | None)
-async def get_enabled_widgets(
+@router.get("/enabled-plugins/", response_model=list[str] | None)
+async def get_enabled_plugins(
     db: AsyncSession = Depends(get_db),
 ) -> list[str] | None:
-    """Return enabled widget IDs. null = no restriction (all shown), [] = none, [...ids] = only those."""
-    return await ENABLED_WIDGETS.get(db)
+    """Return enabled plugin IDs. null = no restriction (all shown), [] = none, [...ids] = only those."""
+    return await ENABLED_PLUGINS.get(db)
 
 
 # ROUTE-01 (Phase 1092): dual-shape decorator — see /all above.

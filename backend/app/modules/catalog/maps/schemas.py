@@ -666,11 +666,12 @@ class MapUpdate(BaseModel):
         max_length=_MAX_LAYERS_PER_MAP,
         description=f"Full replacement layer list (max {_MAX_LAYERS_PER_MAP} layers)",
     )
-    widgets: list[str] | None = Field(
+    plugins: list[str] | None = Field(
         default=None,
         max_length=50,
-        description="Enabled widget IDs, e.g. ['measurement']",
+        description="Enabled plugin IDs, e.g. ['measurement']",
     )
+
 
 
 class DatasetMetaKwargs(TypedDict, total=False):
@@ -748,7 +749,7 @@ class MapResponse(BaseModel):
     updated_at: datetime
     layers: list[MapLayerResponse]
     layer_count: int
-    widgets: list[str] | None = None
+    plugins: list[str] | None = None
 
     model_config = ConfigDict(from_attributes=True)
 

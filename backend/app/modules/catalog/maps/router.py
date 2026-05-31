@@ -771,7 +771,7 @@ async def update_map_endpoint(
     }
 
     # Build update kwargs from fields the client actually sent. This preserves
-    # explicit widgets=null, which restores client-default widget behavior.
+    # explicit plugins=null, which restores client-default plugin behavior.
     kwargs = body.model_dump(exclude_unset=True)
     if "terrain_config" in kwargs and body.terrain_config is not None:
         kwargs["terrain_config"] = body.terrain_config.model_dump(mode="json")

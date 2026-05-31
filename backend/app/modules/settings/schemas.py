@@ -356,14 +356,14 @@ def validate_public_api_url(v: Any) -> str:
 
 
 # Mapping from setting key to validator function
-def validate_enabled_widgets(v: Any) -> list[str] | None:
+def validate_enabled_plugins(v: Any) -> list[str] | None:
     if v is None:
         return None
     if not isinstance(v, list):
-        raise ValueError("enabled_widgets must be a list or null")
+        raise ValueError("enabled_plugins must be a list or null")
     for item in v:
         if not isinstance(item, str) or not item.strip():
-            raise ValueError("Each widget ID must be a non-empty string")
+            raise ValueError("Each plugin ID must be a non-empty string")
     return [item.strip() for item in v]
 
 
@@ -411,7 +411,7 @@ SETTING_VALIDATORS: dict[str, Any] = {
     "public_app_url": validate_public_app_url,
     "public_api_url": validate_public_api_url,
     "public_base_url": validate_public_api_url,
-    "enabled_widgets": validate_enabled_widgets,
+    "enabled_plugins": validate_enabled_plugins,
     "access_token_expire_minutes": validate_access_token_expire,
     "refresh_token_expire_days": validate_refresh_token_expire,
     "embedding_dims": validate_embedding_dims,
