@@ -2,19 +2,19 @@
 gsd_state_version: 1.0
 milestone: v1036
 milestone_name: milestone
-status: "roadmap created; awaiting `/gsd:plan-phase 1161`"
+status: "executing — phase 1161 wave 1 complete (plan 1161-01); wave 2 next (1161-02)"
 last_updated: "2026-05-31T00:05:34.360Z"
 progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 2
   completed_plans: 1
-  percent: 0
+  percent: 50
 ---
 
 # Project State
 
-**Milestone:** v1036 (roadmap created — planning)
+**Milestone:** v1036 (executing — phase 1161)
 **Last updated:** 2026-05-30
 
 ---
@@ -45,11 +45,11 @@ last_shipped: v1035
 
 ## Current Position
 
-**Phase:** 1161 — Backend Rename & Contract (not yet planned)
-**Plan:** none
-**Status:** roadmap created; awaiting `/gsd:plan-phase 1161`
+**Phase:** 1161 — Backend Rename & Contract (executing)
+**Plan:** 1161-01 complete (wave 1); 1161-02 next (wave 2)
+**Status:** wave 1 shipped — migration 0025 + Map.plugins/ENABLED_PLUGINS + round-trip test (BE-RENAME-01/02/03)
 
-Progress: [█████░░░░░] 50%
+Progress: [█████░░░░░] 50% (1/2 plans in phase 1161)
 
 ---
 
@@ -66,8 +66,6 @@ Progress: [█████░░░░░] 50%
 | 1161-01 | 75m | 3 | 4 | 2026-05-30 |
 
 ---
-| Phase 1161 P01 | 55m | 3 tasks | 4 files |
-| Phase 1161 P01 | 55m | 3 tasks | 4 files |
 
 ## Roadmap Snapshot (v1036)
 
@@ -105,7 +103,7 @@ Progress: [█████░░░░░] 50%
 
 ## Session Continuity
 
-**Last session:** 2026-05-30T23:55:52.790Z
-**Next action:** `/gsd:plan-phase 1161` (Backend Rename & Contract).
+**Last session:** Completed plan 1161-01 (wave 1) — migration 0025, round-trip test, Map.plugins/ENABLED_PLUGINS.
+**Next action:** Execute plan 1161-02 (wave 2): Map/Settings API contract + rename the `settings/router.py` `ENABLED_WIDGETS` consumer (restores `import app.api.main`), then `make openapi`.
 
 ---

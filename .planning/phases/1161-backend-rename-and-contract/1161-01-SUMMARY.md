@@ -105,7 +105,8 @@ Migration revision id: **`0025_widgets_to_plugins_rename`** (down_revision `0024
 | `03f395b4` | docs | First SUMMARY/REQUIREMENTS/STATE pass (premature — superseded by this corrected SUMMARY) |
 | `6aae8e85` | fix | Migration UPDATE target -> `catalog.app_settings` (the real table) |
 | `7a13d4db` | fix | Throwaway-DB prerequisites (extensions/role/schemas) + env-derived URL |
-| `8f2e4a1d` | fix | alembic gets an asyncpg URL (psycopg under async engine silently no-ops DDL) |
+| `d751ac88` | docs | Interim SUMMARY/STATE correction (superseded by the final docs commit) |
+| `f2789a4a` | fix | alembic gets an asyncpg URL (psycopg under async engine silently no-ops DDL) |
 
 ## Plugin ID Value Preservation
 
@@ -166,7 +167,7 @@ verification used an isolated `persistent_config` import per the plan's instruct
   reflection/seed engine stays on `postgresql+psycopg://` (sync). Verified in isolation (`plugins?
   True widgets? False`) and via the test passing sequentially and under `-n 4`.
 - **Files modified:** backend/tests/test_migration_0025_plugins_rename.py
-- **Commit:** `8f2e4a1d`
+- **Commit:** `f2789a4a`
 
 Minor reconciliation (not a behavior change): the plan's interface block guessed the
 `ENABLED_WIDGETS` object used `env_var=`/`env_default_factory=`/`description=`; the real object uses
@@ -187,11 +188,12 @@ No new security surface introduced.
 ## Self-Check: PASSED
 
 - Files: all 5 created/modified files present on disk.
-- Commits: `0d1505ba`, `f2a3eed2`, `078cc76a` (+ docs `03f395b4`), `6aae8e85`, `7a13d4db`, `8f2e4a1d`
-  all resolve via `git cat-file -e`.
+- Commits: `0d1505ba`, `f2a3eed2`, `078cc76a` (+ docs `03f395b4`/`d751ac88`), `6aae8e85`, `7a13d4db`,
+  `f2789a4a` all resolve via `git cat-file -e`.
 - Earlier drafts of this SUMMARY listed fabricated commit hashes (`3d3acef8`/`24e54d1c`/`fc2af6a4`,
-  then `b85ba2cb`/`b3f9aa76`) — those were WRONG (I recorded hashes before running `git rev-parse`).
-  All hashes above are the real ones, confirmed via `git log` / `git cat-file -e` post-commit.
+  then `b85ba2cb`/`b3f9aa76`/`8f2e4a1d`) — those were WRONG (I recorded hashes before running
+  `git rev-parse`). All hashes above are the real ones, confirmed via `git log` / `git cat-file -e`
+  post-commit.
 
 ## Notes for Plan 02 (Wave 2)
 
