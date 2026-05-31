@@ -10,12 +10,15 @@ Upgrade:
      (the ``maps`` table lives in the ``catalog`` schema). ``RENAME COLUMN`` is an
      O(1) catalog-only metadata operation in Postgres — no table rewrite, no row
      scan — so it is safe on any table size and preserves the JSONB array data.
-  2. Renames the ``enabled_widgets`` persistent-config key to ``enabled_plugins``
-     via an in-place ``UPDATE persistent_config SET key=...`` that preserves the
-     stored value. ``persistent_config`` is in the default/public schema (created
-     unqualified in 0001_baseline.py), so it is NOT prefixed with ``catalog``. The
-     ``WHERE key='enabled_widgets'`` predicate is an exact match on the unique
-     primary key, so it touches 0 rows (feature never configured — a valid no-op)
+  2. Renames the ``enabled_widgets`` persisted-config key to ``enabled_plugins``
+     via an in-place ``UPDATE catalog.app_settings SET key=...`` that preserves the
+     stored value. The persisted PersistentConfig store is the ``catalog.app_settings``
+     table (the ``AppSetting`` model, ``schema="catalog"``); its ``key`` column holds
+     the ``PersistentConfig.key`` string. (The brief/REQUIREMENTS referred to this
+     table as ``persistent_config`` and to an unqualified name — both are wrong; the
+     real relation is ``catalog.app_settings``, confirmed via the model + baseline.)
+     The ``WHERE key='enabled_widgets'`` predicate is an exact match on the unique
+     ``key`` column, so it touches 0 rows (feature never configured — a valid no-op)
      or exactly 1 row.
 
 Downgrade: reverses both renames symmetrically
@@ -44,9 +47,11 @@ def upgrade() -> None:
         new_column_name="plugins",
         schema="catalog",
     )
-    # BE-RENAME-02: rename the persistent_config key in place, preserving value.
+    # BE-RENAME-02: rename the persisted config key in place, preserving value.
+    # The store is catalog.app_settings (the AppSetting model), NOT a
+    # "persistent_config" table — that name in the brief/REQUIREMENTS is fictional.
     op.execute(
-        "UPDATE persistent_config SET key='enabled_plugins' "
+        "UPDATE catalog.app_settings SET key='enabled_plugins' "
         "WHERE key='enabled_widgets'"
     )
 
@@ -59,6 +64,6 @@ def downgrade() -> None:
         schema="catalog",
     )
     op.execute(
-        "UPDATE persistent_config SET key='enabled_widgets' "
+        "UPDATE catalog.app_settings SET key='enabled_widgets' "
         "WHERE key='enabled_plugins'"
     )
