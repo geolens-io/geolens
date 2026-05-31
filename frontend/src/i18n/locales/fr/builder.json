@@ -55,7 +55,7 @@
       "basemapLabels": "Étiquettes de lieux",
       "dataLabels": "Étiquettes de {{name}}",
       "layerPopup": "Popup de {{name}}",
-      "mapWidgets": "Widgets de carte"
+      "mapPlugins": "Plugins de carte"
     },
     "subtitles": {
       "surfaceBackground": "Base",
@@ -89,7 +89,7 @@
       "unsupported": "Non compatible",
       "needsAttention": "Demande attention",
       "copy": "Copie {{index}} sur {{count}}",
-      "widgets": "{{count}} widget"
+      "plugins": "{{count}} plugin"
     },
     "actions": {
       "openInspector": "Ouvrir l'inspecteur",
@@ -671,7 +671,7 @@
     "save": "Enregistrer ({{shortcut}})",
     "collapseSidebar": "Réduire le panneau latéral",
     "expandSidebar": "Développer le panneau latéral",
-    "widgets": "Widgets",
+    "plugins": "Plugins",
     "moreActions": "Plus d'actions",
     "allSaved": "Toutes les modifications enregistrées",
     "retrySave": "Échec de l'enregistrement. Réessayez d'enregistrer les modifications.",
@@ -761,7 +761,7 @@
     "featureCount_other": "{{count}} entités",
     "dismiss": "Fermer le résultat de requête"
   },
-  "widgets": {
+  "plugins": {
     "measurement": {
       "label": "Mesurer",
       "distance": "Distance",
@@ -779,8 +779,8 @@
       "weightedBy": "Pondéré par : {{column}}",
       "unavailable": "(légende indisponible)"
     },
-    "closeWidget": "Fermer le widget",
-    "widgetError": "Ce widget a rencontré une erreur"
+    "closePlugin": "Fermer le plugin",
+    "pluginError": "Ce plugin a rencontré une erreur"
   },
   "drawing": {
     "select": "Sélectionner",
@@ -1067,20 +1067,20 @@
     "defaultBackgroundColor": "Par défaut",
     "resetBackgroundColor": "Réinitialiser la couleur d'arrière-plan",
     "terrainLabel": "TERRAIN",
-    "widgetsLabel": "WIDGETS",
+    "pluginsLabel": "PLUGINS",
     "projectionLabel": "PROJECTION",
     "terrainActiveHint": "Terrain actif",
     "terrainInactiveCollapsedHint": "Aucun terrain actif",
     "boundTo": "Lié à : {{name}}",
     "terrainInactiveHint": "Aucune couche de terrain n'est active.",
-    "widgetsEnabledCount": "{{count}} activés",
-    "noWidgets": "Aucun widget disponible.",
-    "widgetsGroupAria": "Widgets",
+    "pluginsEnabledCount": "{{count}} activés",
+    "noPlugins": "Aucun plugin disponible.",
+    "pluginsGroupAria": "Plugins",
     "disableAction": "Désactiver",
     "enableAction": "Activer",
-    "enableWidget": "Activer {{name}}",
-    "disableWidget": "Désactiver {{name}}",
-    "widgetsAvailabilityNote": "Détermine si chaque widget apparaît sur la carte.",
+    "enablePlugin": "Activer {{name}}",
+    "disablePlugin": "Désactiver {{name}}",
+    "pluginsAvailabilityNote": "Détermine si chaque plugin apparaît sur la carte.",
     "projectionMercator": "Mercator",
     "projectionGlobe": "Globe",
     "projectionAria": "Projection de la carte",

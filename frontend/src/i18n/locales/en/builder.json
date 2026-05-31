@@ -55,7 +55,7 @@
       "basemapLabels": "Place labels",
       "dataLabels": "{{name}} labels",
       "layerPopup": "{{name}} popup",
-      "mapWidgets": "Map widgets"
+      "mapPlugins": "Map plugins"
     },
     "subtitles": {
       "surfaceBackground": "Foundation",
@@ -89,7 +89,7 @@
       "unsupported": "Unsupported",
       "needsAttention": "Needs attention",
       "copy": "Copy {{index}} of {{count}}",
-      "widgets": "{{count}} widget"
+      "plugins": "{{count}} plugin"
     },
     "actions": {
       "openInspector": "Open inspector",
@@ -671,7 +671,7 @@
     "save": "Save ({{shortcut}})",
     "collapseSidebar": "Collapse sidebar",
     "expandSidebar": "Expand sidebar",
-    "widgets": "Widgets",
+    "plugins": "Plugins",
     "moreActions": "More actions",
     "allSaved": "All changes saved",
     "retrySave": "Save failed. Retry saving changes.",
@@ -761,7 +761,7 @@
     "featureCount_other": "{{count}} features",
     "dismiss": "Dismiss query result"
   },
-  "widgets": {
+  "plugins": {
     "measurement": {
       "label": "Measure",
       "distance": "Distance",
@@ -779,8 +779,8 @@
       "weightedBy": "Weighted by: {{column}}",
       "unavailable": "(legend unavailable)"
     },
-    "closeWidget": "Close widget",
-    "widgetError": "This widget encountered an error"
+    "closePlugin": "Close plugin",
+    "pluginError": "This plugin encountered an error"
   },
   "drawing": {
     "select": "Select",
@@ -1067,20 +1067,20 @@
     "defaultBackgroundColor": "Default",
     "resetBackgroundColor": "Reset background color",
     "terrainLabel": "TERRAIN",
-    "widgetsLabel": "WIDGETS",
+    "pluginsLabel": "PLUGINS",
     "projectionLabel": "PROJECTION",
     "terrainActiveHint": "Terrain active",
     "terrainInactiveCollapsedHint": "No terrain active",
     "boundTo": "Bound to: {{name}}",
     "terrainInactiveHint": "No terrain layer is active.",
-    "widgetsEnabledCount": "{{count}} enabled",
-    "noWidgets": "No widgets available.",
-    "widgetsGroupAria": "Widgets",
+    "pluginsEnabledCount": "{{count}} enabled",
+    "noPlugins": "No plugins available.",
+    "pluginsGroupAria": "Plugins",
     "disableAction": "Disable",
     "enableAction": "Enable",
-    "enableWidget": "Enable {{name}}",
-    "disableWidget": "Disable {{name}}",
-    "widgetsAvailabilityNote": "Controls whether each widget appears on the map.",
+    "enablePlugin": "Enable {{name}}",
+    "disablePlugin": "Disable {{name}}",
+    "pluginsAvailabilityNote": "Controls whether each plugin appears on the map.",
     "projectionMercator": "Mercator",
     "projectionGlobe": "Globe",
     "projectionAria": "Map projection",

@@ -55,7 +55,7 @@
       "basemapLabels": "Etiquetas de lugares",
       "dataLabels": "Etiquetas de {{name}}",
       "layerPopup": "Popup de {{name}}",
-      "mapWidgets": "Widgets del mapa"
+      "mapPlugins": "Plugins del mapa"
     },
     "subtitles": {
       "surfaceBackground": "Base",
@@ -89,7 +89,7 @@
       "unsupported": "No compatible",
       "needsAttention": "Requiere atención",
       "copy": "Copia {{index}} de {{count}}",
-      "widgets": "{{count}} widget"
+      "plugins": "{{count}} plugin"
     },
     "actions": {
       "openInspector": "Abrir inspector",
@@ -671,7 +671,7 @@
     "save": "Guardar ({{shortcut}})",
     "collapseSidebar": "Contraer barra lateral",
     "expandSidebar": "Expandir barra lateral",
-    "widgets": "Widgets",
+    "plugins": "Plugins",
     "moreActions": "Más acciones",
     "allSaved": "Todos los cambios guardados",
     "retrySave": "Error al guardar. Reintenta guardar los cambios.",
@@ -761,7 +761,7 @@
     "featureCount_other": "{{count}} entidades",
     "dismiss": "Descartar resultado de consulta"
   },
-  "widgets": {
+  "plugins": {
     "measurement": {
       "label": "Medir",
       "distance": "Distancia",
@@ -779,8 +779,8 @@
       "weightedBy": "Ponderado por: {{column}}",
       "unavailable": "(leyenda no disponible)"
     },
-    "closeWidget": "Cerrar widget",
-    "widgetError": "Este widget encontró un error"
+    "closePlugin": "Cerrar plugin",
+    "pluginError": "Este plugin encontró un error"
   },
   "drawing": {
     "select": "Seleccionar",
@@ -1067,20 +1067,20 @@
     "defaultBackgroundColor": "Predeterminado",
     "resetBackgroundColor": "Restablecer color de fondo",
     "terrainLabel": "TERRENO",
-    "widgetsLabel": "WIDGETS",
+    "pluginsLabel": "PLUGINS",
     "projectionLabel": "PROYECCIÓN",
     "terrainActiveHint": "Terreno activo",
     "terrainInactiveCollapsedHint": "Sin terreno activo",
     "boundTo": "Vinculado a: {{name}}",
     "terrainInactiveHint": "No hay ninguna capa de terreno activa.",
-    "widgetsEnabledCount": "{{count}} activados",
-    "noWidgets": "No hay widgets disponibles.",
-    "widgetsGroupAria": "Widgets",
+    "pluginsEnabledCount": "{{count}} activados",
+    "noPlugins": "No hay plugins disponibles.",
+    "pluginsGroupAria": "Plugins",
     "disableAction": "Desactivar",
     "enableAction": "Activar",
-    "enableWidget": "Activar {{name}}",
-    "disableWidget": "Desactivar {{name}}",
-    "widgetsAvailabilityNote": "Controla si cada widget aparece en el mapa.",
+    "enablePlugin": "Activar {{name}}",
+    "disablePlugin": "Desactivar {{name}}",
+    "pluginsAvailabilityNote": "Controla si cada plugin aparece en el mapa.",
     "projectionMercator": "Mercator",
     "projectionGlobe": "Globo",
     "projectionAria": "Proyección del mapa",
