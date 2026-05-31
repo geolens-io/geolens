@@ -683,7 +683,7 @@ def test_oauth_provider_create_saml_rejects_community(community_edition):
             idp_certificate="-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----",
             sp_entity_id="https://geolens.test/auth/saml/community-saml",
         )
-    assert "SAML SSO requires the GeoLens Enterprise overlay" in str(excinfo.value)
+    assert "SAML SSO requires the enterprise overlay" in str(excinfo.value)
 
 
 def test_oauth_provider_update_saml_fields_reject_community(community_edition):
@@ -694,7 +694,7 @@ def test_oauth_provider_update_saml_fields_reject_community(community_edition):
 
     with pytest.raises(ValidationError) as excinfo:
         OAuthProviderUpdate(idp_sso_url="https://fixture-idp.geolens.test/sso")
-    assert "SAML SSO requires the GeoLens Enterprise overlay" in str(excinfo.value)
+    assert "SAML SSO requires the enterprise overlay" in str(excinfo.value)
 
 
 def test_oauth_provider_create_oauth_rejects_saml_fields():

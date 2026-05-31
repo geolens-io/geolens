@@ -18,7 +18,7 @@ from app.core.edition import is_enterprise
 from app.core.text import normalize_nfc as _nfc
 
 ADVANCED_SHARING_ERROR = (
-    "Advanced sharing controls require the GeoLens Enterprise overlay"
+    "Advanced sharing controls require the enterprise overlay"
 )
 LEGACY_BUILDER_PAINT_KEYS = {
     "_outline-width": "outline_width",
@@ -942,7 +942,7 @@ class ShareTokenRequest(BaseModel):
         default=None,
         description=(
             "Expiration timestamp. Null creates a basic non-expiring share link; "
-            "non-null expiration requires GeoLens Enterprise."
+            "non-null expiration requires the enterprise edition."
         ),
     )
 
