@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v1036
 milestone_name: milestone
-status: wave 1 shipped — migration 0025 + Map.plugins/ENABLED_PLUGINS + round-trip test (BE-RENAME-01/02/03)
-last_updated: "2026-05-31T00:59:52.218Z"
+status: "executing — phase 1161 complete (plans 1161-01 + 1161-02 shipped; BE-RENAME-01..06 closed); phase 1162 next"
+last_updated: "2026-05-31T01:12:00.000Z"
 progress:
   total_phases: 5
-  completed_phases: 1
+  completed_phases: 0
   total_plans: 2
   completed_plans: 2
-  percent: 20
+  percent: 100
 ---
 
 # Project State
