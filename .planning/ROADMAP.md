@@ -17,7 +17,7 @@ Rename the map "widget" platform to "plugin" across the entire stack — DB, API
 - [x] **Phase 1162: Frontend Rename** - Rename `map-widgets/`→`map-plugins/` and all `Widget*`→`Plugin*` identifiers/API types; typecheck + vitest green.
 - [x] **Phase 1163: i18n Key Rename** - Rename ~64 `widget*` i18n keys → `plugin*` across en/es/fr/de with full key parity. (completed 2026-05-31)
 - [x] **Phase 1164: Tooling, Docs & Audit Fixes** - Rename slash command, skills, and e2e specs; fold in 3 deferred audit fixes; write plugin-development guide + CHANGELOG `[2.0.0]`. (completed 2026-05-31)
-- [ ] **Phase 1165: Live MCP Close-Gate** - Orchestrator-driven Playwright MCP proving the renamed `maps.plugins` column round-trips set→save→reload, plus the full deterministic gate.
+- [x] **Phase 1165: Live MCP Close-Gate** - Orchestrator-driven Playwright MCP proving the renamed `maps.plugins` column round-trips set→save→reload, plus the full deterministic gate.
 
 ## Phase Details
 

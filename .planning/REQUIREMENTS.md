@@ -34,18 +34,18 @@
 ### Tooling & Tests
 
 - [x] **TOOL-01**: `.claude/commands/widget-audit.md` is renamed to `plugin-audit.md`, and cross-references in `builder-audit.md` and `map-audit.md` are updated.
-- [ ] **TOOL-02**: The 2 `.agents/skills` files that reference widgets are updated to plugins.
-- [ ] **TOOL-03**: The 3 widget e2e specs are renamed and their selectors/strings updated; `e2e:smoke:builder` is green.
+- [x] **TOOL-02**: The 2 `.agents/skills` files that reference widgets are updated to plugins.
+- [x] **TOOL-03**: The 3 widget e2e specs are renamed and their selectors/strings updated; `e2e:smoke:builder` is green.
 - [x] **TOOL-04**: The 3 plugin-audit.md review findings are folded in — (a) the `docs/plugin-development.md` reference resolves to a real file, (b) `plugin-availability.ts` is added to the Step-2 read list, (c) built-ins are derived from the registry rather than hardcoded as "measurement and legend".
 
 ### Documentation
 
 - [x] **DOCS-01**: `docs/plugin-development.md` is written as a real plugin-authoring guide — registry, built-ins, availability gating, the host/panel contract, and how to register a plugin — so the audit reference and contributor onboarding resolve.
-- [ ] **DOCS-02**: A CHANGELOG `[2.0.0]` entry documents the breaking `widgets`→`plugins` API/DB rename and the migration path for operators (run `alembic upgrade head`) and external API clients (switch to `plugins`).
+- [x] **DOCS-02**: A CHANGELOG `[2.0.0]` entry documents the breaking `widgets`→`plugins` API/DB rename and the migration path for operators (run `alembic upgrade head`) and external API clients (switch to `plugins`).
 
 ### QA / Close-Gate
 
-- [ ] **QA-01**: An orchestrator-driven live Playwright MCP close-gate on the running stack (`localhost:8080`) proves a plugin set → save → reload round-trips the renamed `maps.plugins` DB column, the admin `enabled_plugins` config persists, and the builder console is error-free — alongside the full deterministic gate (typecheck 0, vitest, backend tests, `e2e:smoke:builder`, i18n parity, `make openapi-check` no-drift, `make sdks-check`).
+- [x] **QA-01**: An orchestrator-driven live Playwright MCP close-gate on the running stack (`localhost:8080`) proves a plugin set → save → reload round-trips the renamed `maps.plugins` DB column, the admin `enabled_plugins` config persists, and the builder console is error-free — alongside the full deterministic gate (typecheck 0, vitest, backend tests, `e2e:smoke:builder`, i18n parity, `make openapi-check` no-drift, `make sdks-check`).
 
 ## Out of Scope
 
@@ -81,7 +81,7 @@ Which phases cover which requirements. Populated during roadmap creation.
 | TOOL-04 | Phase 1164 | Complete |
 | DOCS-01 | Phase 1164 | Complete |
 | DOCS-02 | Phase 1164 | Complete |
-| QA-01 | Phase 1165 | Pending |
+| QA-01 | Phase 1165 | Complete |
 
 **Coverage:**
 - v1036 requirements: 19 total
