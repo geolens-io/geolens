@@ -116,6 +116,81 @@ All 19 v1036 requirements are mapped to exactly one phase. No orphans, no duplic
 
 ## Backlog
 
+### Phase 999.6: Tenant scoping infrastructure for multi-tenant isolation (BACKLOG — Cloud prerequisite)
+
+**Goal:** [Captured for future planning]
+**Requirements:** TBD
+**Plans:** 0 plans
+**Source:** `docs-internal/audits/oc-separation-audit-20260426-b.md` §2 (Seam #8) / §7 P3
+**Estimated effort:** 1–2 weeks+ (architectural prerequisite)
+**Tier:** Cloud (vendor-hosted SaaS, deferred) — **not Enterprise**. Self-hosted Enterprise is single-tenant by design (reframed 2026-04-30 — see `docs-internal/GTM/free-vs-enterprise.md` §3).
+
+No tenant-scoping infrastructure exists today — `User` has no tenant column, all catalog tables sit in single `catalog` schema, no request-context middleware. Required before the future **Cloud (multi-tenant SaaS) tier** can launch — vendor-operated deployment hosting many customer orgs with isolated data, users, audit, billing, and quotas. Touches identity, catalog, audit, and embed-token domains; needs migration plan + query-injection callback registry + tenant-context propagation. **Priority:** blocks Cloud launch, not next Enterprise sale.
+
+Plans:
+
+- [ ] TBD (promote with /gsd-review-backlog when ready)
+
+---
+
+### Phase 999.13: Persistent connector registry (BACKLOG — P2)
+
+**Goal:** Greenfield Enterprise-tier feature — `Connector` ORM (id, type, config_jsonb, schedule, last_sync_at, owner_id) + `ConnectorAdapter` Protocol + Celery beat scheduler integration + encrypted credential vault. Distinct from current stateless probes at `backend/app/modules/catalog/sources/adapters/{wfs,arcgis,stac,ogcapi}.py`.
+**Requirements:** TBD
+**Plans:** 0 plans
+**Source:** `oc-separation-audit-20260430-b.md` §2 Seam #8 (🔴) / §7 P2
+**Estimated effort:** 2–3 weeks
+**Tier:** Enterprise — stored credentials + scheduled mirroring is an explicit Enterprise paywall per `docs-internal/GTM/free-vs-enterprise.md` §6.
+
+Plans:
+
+- [ ] TBD (promote with /gsd-review-backlog when ready)
+
+---
+
+### Phase 999.14: Helm chart + AMI Packer pipeline (BACKLOG — P2)
+
+**Goal:** Build a `deployment/` directory with Helm chart for K8s deployments + Packer template for AWS Marketplace AMI distribution. Phase 223 wired the `BillingExtension` for AMI metering, but there's currently no path to actually ship the AMI image to AWS Marketplace.
+**Requirements:** TBD
+**Plans:** 0 plans
+**Source:** `oc-separation-audit-20260430-b.md` §4 (HIGH severity — no `deployment/`, no Helm, no AMI pipeline) → confirmed unchanged in `oc-separation-audit-20260502.md` §4 (structural gap unchanged) / §7 P2 (action item #13)
+**Estimated effort:** 1–2 weeks
+
+Plans:
+
+- [ ] TBD (promote with /gsd-review-backlog when ready)
+
+---
+
+### Phase 999.15: SBOM + signed image distribution (BACKLOG — P2)
+
+**Goal:** Add SBOM generation (CycloneDX or SPDX) + Cosign-signed images to the deployment pipeline. Typical enterprise procurement gate.
+**Requirements:** TBD
+**Plans:** 0 plans
+**Source:** `oc-separation-audit-20260430-b.md` §4 finding #4 / §7 P2
+**Estimated effort:** 1 week
+
+Plans:
+
+- [ ] TBD (promote with /gsd-review-backlog when ready)
+
+---
+
+### Phase 999.16: Extract geolens-schemas package (BACKLOG — P2)
+
+**Goal:** Extract `backend/app/standards/{stac,ogc,dcat}/` schemas + validators into a standalone `geolens-schemas` PyPI package (Apache-2.0). Embedded today; persistent OSS-surface gap per audits since v13.1 close.
+**Requirements:** TBD
+**Plans:** 0 plans
+**Source:** `oc-separation-audit-20260430-b.md` §6 (FAIL — schema/validator package not extractable) → confirmed unchanged in `oc-separation-audit-20260502.md` §6.1 (still no `schemas/` or `validators/` dir) / §7 P2 (action item #12)
+**Estimated effort:** 1 week
+**Unblocks:** Schema-validator OSS adoption beyond GeoLens consumers; reusable wedge for FAIR-aligned tooling.
+
+Plans:
+
+- [ ] TBD (promote with /gsd-review-backlog when ready)
+
+---
+
 ### Phase 999.17: Builder terrain/legend consistency & DEM dedup (BACKLOG)
 
 **Goal:** Fix the cross-surface inconsistency where `render_mode:"terrain"` DEM layers are excluded from the builder layer stack but still listed in the legend (phantom entries), and stop the terrain-bind flow from accumulating duplicate DEM layers. Fits the *Map Builder Extensibility Refactor* plan.
