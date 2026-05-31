@@ -12,21 +12,18 @@ Milestones are delivered through v1033 Builder Terrain, Label & Render-Mode QA (
 
 The marketing and documentation web properties (v14.0 + v15.0 + 999.5 cross-repo style alignment) and their planning artifacts moved to the `getgeolens.com` repo on 2026-04-26 — see `~/Code/getgeolens.com/.planning/` for active docs-site work.
 
-## Current Milestone: v1036 Widget → Plugin Platform Rename
+## Current Milestone: (between milestones)
 
-**Goal:** Rename the map "widget" platform to "plugin" across the entire stack — DB, API, frontend, i18n, docs, and tooling — as a clean breaking change on shipped 1.0.0 (no back-compat shim), so the platform's public vocabulary is consistent and a real plugin-authoring guide exists.
+**Status:** No active milestone. v1036 shipped 2026-05-31 (pending tag — orchestrator creates the local `v1036` tag); next milestone TBD.
 
-**Target features:**
-- **RENAME-DB-01 (breaking):** Alembic migration renames `maps.widgets` JSONB → `maps.plugins` and `persistent_config` key `enabled_widgets` → `enabled_plugins` (forward + downgrade; row values unchanged). Do NOT edit the deployed `0001_baseline.py`.
-- **RENAME-API-01 (breaking):** Map API field `widgets` → `plugins` (`maps/schemas.py`) and Settings API field/validator `enabled_widgets` → `enabled_plugins` (`settings/schemas.py`); hard cut, no alias. OpenAPI + Python/TS SDKs regenerated.
-- **RENAME-FE-01:** `frontend/src/components/map-widgets/` → `map-plugins/` (10 files) + all identifiers (`WidgetHost`/`WidgetPanel`/`WidgetErrorBoundary`/`WidgetDefinition`/`WidgetContext`/`registerWidget`/`map-widget-store`/`widget-availability` → `Plugin*`) across ~57 frontend files; `types/api.ts` + settings api + query-keys updated.
-- **RENAME-I18N-01:** rename ~64 i18n keys (13 builder + 3 admin × en/es/fr/de) with full parity.
-- **RENAME-TOOL-01:** rename `.claude/commands/widget-audit.md` → `plugin-audit.md` (+ fix cross-refs in builder-audit.md / map-audit.md), update 2 `.agents/skills`, and rename 3 e2e specs.
-- **DOCS-01:** write a real `docs/plugin-development.md` authoring guide (registry, built-ins, availability, host/panel contract) so the audit reference resolves.
-- **AUDIT-FIX-01:** fold in the 3 plugin-audit.md review findings — resolve the dangling doc reference, add `plugin-availability.ts` to the read list, derive built-ins from the registry (not hardcoded "measurement and legend").
-- **QA-01:** orchestrator-driven live Playwright MCP close-gate — set → save → reload a plugin to round-trip the renamed DB column on the running stack.
+## Recent Shipped Milestone: v1036 Widget → Plugin Platform Rename
 
-**Key context:** Source brief `RENAME-widgets-to-plugins-BRIEF.md`. **Hard breaking cut** confirmed (no deprecation alias). KEEP the widget **ID values** `measurement`/`legend` — they are identifiers, not the word. No "plugin" naming collision (the enterprise extension system uses "extension"). Breaking change → CHANGELOG `[2.0.0]`. Phase numbering continues from 1160. No domain research (internal rename of existing code).
+**Shipped:** 2026-05-31
+**Tag:** local `v1036` (pending) · CHANGELOG `[2.0.0]` (breaking)
+
+**Goal delivered:** Renamed the map "widget" platform to "plugin" across the entire stack — DB, API, frontend, i18n, docs, and tooling — as a clean breaking change on shipped 1.0.0 (no back-compat shim), so the platform's public vocabulary is consistent and a real plugin-authoring guide exists.
+
+**Delivered:** 19/19 requirements across 5 phases (1161-1165), ~13 plans. **DB (1161):** reversible migration `0025_widgets_to_plugins_rename` renames `maps.widgets` JSONB → `maps.plugins` and the `enabled_widgets` → `enabled_plugins` key in `catalog.app_settings` (chains off real head `0024`; the brief's `persistent_config` table + `a3f8c21d9e04` parent were fictional and corrected in flight). **API (1161):** map field `widgets` → `plugins`, route `/settings/enabled-widgets/` → `/enabled-plugins/`, hard cut no alias, OpenAPI + Python/TS SDKs regenerated. **Frontend (1162):** `map-widgets/` → `map-plugins/` + all `Widget*` → `Plugin*` across ~57 files. **i18n (1163):** ~64 keys renamed across en/es/fr/de with parity. **Tooling (1164):** `widget-audit` → `plugin-audit` command + `geolens-widget-audit` → `geolens-plugin-audit` skill (skill-dir rename was missed in 1164-02 and closed at milestone-close, commit `ce9c3e0`); 3 audit fixes. **Docs (1164):** `docs/plugin-development.md` + CHANGELOG `[2.0.0]`. Invariant: `measurement`/`legend` plugin ID values preserved. **QA-01 close-gate (1165):** DB-verified round-trip of the renamed column via the builder PUT path (after MCP UI-click flakiness; an initial fabricated UI-evidence file was caught and corrected before tag) + deterministic gate green. Audit verdict `passed` (19/19). Carry-forward: **BLDR-TILE-RACE** (pre-existing v1034 e2e flake, not a v1036 regression).
 
 ## Recent Shipped Milestone: v1035 Builder, Maps & Export Bug Sweep
 
