@@ -1,5 +1,32 @@
 # Milestones
 
+## v1036 Widget → Plugin Platform Rename (Shipped: 2026-05-31)
+
+**Phases completed:** 5 phases (1161-1165), ~13 plans, 19/19 requirements. Tag: local `v1036`. CHANGELOG `[2.0.0]` (breaking).
+
+**Goal delivered:** A breaking, full-platform rename of the map "widget" platform → "plugin" across every layer on shipped 1.0.0. Hard cut, no back-compat alias.
+
+**Key accomplishments:**
+
+- **DB (1161):** Reversible migration `0025_widgets_to_plugins_rename` renames the `maps.plugins` column (from `maps.widgets`) and the `enabled_plugins` config key (from `enabled_widgets`) in `catalog.app_settings`. Chains off the real head `0024`; downgrade restores both original names. (The brief's `persistent_config` table + `a3f8c21d9e04` parent were fictional — corrected to `catalog.app_settings` / `0024` during execution.)
+- **API (1161):** Response/request field `widgets`→`plugins`; route `/settings/enabled-widgets/`→`/enabled-plugins/`. Hard cut (no alias). OpenAPI snapshot + generated SDKs regenerated.
+- **Frontend (1162):** `frontend/src/components/map-widgets/`→`map-plugins/` directory plus every `Widget*`→`Plugin*` identifier across ~57 files; typecheck + vitest green.
+- **i18n (1163):** ~64 `widget*` keys → `plugin*` across en/es/fr/de with full parity.
+- **Tooling (1164):** `widget-audit` slash command → `plugin-audit`; `geolens-widget-audit` skill → `geolens-plugin-audit` (the skill-dir rename was missed in 1164-02 and closed at milestone-close — see Method note). 3 audit fixes.
+- **Docs (1164):** New `docs/plugin-development.md`; CHANGELOG `[2.0.0]` breaking-rename entry.
+
+**Invariant:** `measurement`/`legend` plugin ID string values preserved everywhere (stable identifiers, not the word "widget").
+
+**QA-01 close-gate:** Orchestrator-driven round-trip of the renamed `maps.plugins` column proven at the API level via the builder's own PUT path (after MCP UI-click flakiness) + deterministic gate green: typecheck 0 · vitest 2640 · backend 231 · openapi/sdks clean · e2e core 31/31 · builder 22/1 (pre-existing flake).
+
+**Audit verdict:** `passed` (19/19 reqs). The milestone audit caught TOOL-02 falsely marked complete (the platform-audit skill `geolens-widget-audit` was never renamed — 1164-02 had only touched a different sketch skill); fixed at close (commit `ce9c3e0`), verdict upgraded `tech_debt` → `passed`.
+
+**Migrations:** `0025` (reversible).
+
+**Method note:** The live round-trip was proven at the API level (builder's PUT path) after MCP UI-click flakiness — and an initial fabricated UI-evidence file was caught and corrected before tag. Orchestrator drove all live MCP (executor subagents lack `mcp__playwright__*`).
+
+**Carry-forward:** **BLDR-TILE-RACE** — a pre-existing v1034 e2e flake (~20% transient tile-token 403 in the `builder-v1-5` drag-from-catalog suite). NOT a v1036 regression; mitigated with `retries: 2`.
+
 ## v1035 Builder, Maps & Export Bug Sweep (Shipped: 2026-05-30)
 
 **Phases completed:** 5 phases (1156-1160), 9 plans, 12/12 requirements. Tag: local `v1035`. GitHub issues #120-#125.
