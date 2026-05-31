@@ -192,3 +192,82 @@ async def test_query_data_via_execute_chat_tool_preserves_geojson():
     # row_count and truncated should also pass through
     assert result["row_count"] == 1
     assert result["truncated"] is False
+
+
+# --- add_layer: dataset_name resolution end-to-end (builder-audit B-002) ---
+
+
+@pytest.mark.anyio
+async def test_add_layer_resolves_dataset_name_end_to_end():
+    """builder-audit B-002: an add_layer action must carry the dataset's display
+    title so the staging chip shows a human name, not the raw UUID.
+
+    Earlier the field was added to the ChatAction model + read by the frontend,
+    but never populated server-side (the add_layer tool input only has
+    dataset_id and _collect_chat_action fell through to {type, **tool_input}).
+    This exercises the full path: _execute_chat_tool resolves the title via
+    port.get_dataset(...).record.title, and _collect_chat_action propagates it.
+    """
+    from app.processing.ai.chat_actions import _collect_chat_action
+
+    ds_id = str(uuid.uuid4())
+    fake_dataset = SimpleNamespace(record=SimpleNamespace(title="Adirondack Trails"))
+    fake_port = DefaultProcessingPort()
+
+    with patch.object(
+        fake_port, "get_dataset", new_callable=AsyncMock, return_value=fake_dataset
+    ):
+        result = await _execute_chat_tool(
+            "add_layer",
+            {"dataset_id": ds_id},
+            AsyncMock(),  # session
+            SimpleNamespace(id=uuid.uuid4(), username="test_user"),
+            set(),
+            [_make_layer()],
+            port=fake_port,
+        )
+
+    assert result["dataset_name"] == "Adirondack Trails", (
+        "_execute_chat_tool must resolve the dataset title onto the result"
+    )
+
+    action = _collect_chat_action("add_layer", {"dataset_id": ds_id}, result)
+    assert action is not None
+    assert action["type"] == "add_layer"
+    assert action["dataset_id"] == ds_id
+    assert action["dataset_name"] == "Adirondack Trails", (
+        "_collect_chat_action must propagate the resolved name to the chip"
+    )
+
+
+@pytest.mark.anyio
+async def test_add_layer_name_lookup_failure_is_non_fatal():
+    """B-002 hardening: a dataset-name lookup failure must NOT block the add —
+    the action still flows with dataset_id and simply omits dataset_name."""
+    from app.processing.ai.chat_actions import _collect_chat_action
+
+    ds_id = str(uuid.uuid4())
+    fake_port = DefaultProcessingPort()
+
+    with patch.object(
+        fake_port,
+        "get_dataset",
+        new_callable=AsyncMock,
+        side_effect=RuntimeError("db down"),
+    ):
+        result = await _execute_chat_tool(
+            "add_layer",
+            {"dataset_id": ds_id},
+            AsyncMock(),
+            SimpleNamespace(id=uuid.uuid4(), username="test_user"),
+            set(),
+            [_make_layer()],
+            port=fake_port,
+        )
+
+    assert result["status"] == "ok"
+    assert result["dataset_id"] == ds_id
+    assert "dataset_name" not in result
+    action = _collect_chat_action("add_layer", {"dataset_id": ds_id}, result)
+    assert action["type"] == "add_layer"
+    assert "dataset_name" not in action
