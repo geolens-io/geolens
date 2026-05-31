@@ -100,27 +100,30 @@ Dev-only strings, behavior identical:
 ### Auto-fixed / in-scope cleanups
 
 **1. [Rule 3 - blocking] mcp-verify locator retargeted to a real selector.**
-- Found during: Task 2. The planner-suggested `[class*="PluginHost"], [data-testid*="plugin"]` matches nothing in production (no such class/testid). Retargeted to the real `PluginPanel` "Close plugin" aria-label so the (informational) check references something that can actually render.
-- Files: `e2e/mcp-verify-1134-06.spec.ts`. Commit: 9a1c2f3e.
+- Found during: Task 2. The planner-suggested `[class*="PluginHost"], [data-testid*="plugin"]` matches nothing in production (no such class/testid). Retargeted to the real `PluginPanel` "Close plugin" aria-label so the (informational) check references something that can actually render. Var `widgetHostExists` -> `pluginHostExists`.
+- Files: `e2e/mcp-verify-1134-06.spec.ts`. Commit: e9f4a1c2.
 
-**2. [Rule 1 - cleanup] Collapsed 8 leftover scaffold placeholder comment lines** ("// line ~567 mentions MeasurementWidget — update to plugin vocab") in mcp-verify-1134-06.spec.ts into one correct comment.
-- Files: `e2e/mcp-verify-1134-06.spec.ts`. Commit: 9a1c2f3e.
+**2. [Rule 1 - in-scope] PluginPanel.tsx doc-comment "widget"->"plugin"** — beyond the 2 named stragglers but same dir/rename, found by the residual-scan. Dev-only comment.
+- Files: `frontend/src/components/map-plugins/PluginPanel.tsx`. Commit: 28dd5eae.
 
-**3. [Rule 1 - in-scope] PluginPanel.tsx doc-comment "widget"→"plugin"** — beyond the 2 named stragglers but same dir/rename, found by the residual-scan. Dev-only comment.
-- Files: `frontend/src/components/map-plugins/PluginPanel.tsx`. Commit: 7b3e9a14.
+### Process note (premature-green caught + corrected)
+
+The first TOOL-03 commit `774862f2` landed only the mcp-verify *comment* subset — the admin.spec.ts heading, the builder-unified-stack regex, and the mcp-verify locator/var edits in that batch had **failed** on stale `old_string` matches, and the failure was not caught before committing (the batch's own grep showed 10 residual `widget` tokens). Re-verified from a clean shell, re-applied the real edits against exact file bytes, and completed TOOL-03 in `e9f4a1c2`. Post-fix gate is genuinely green: `grep -rniE 'widget' e2e/` = 0; `playwright --list` compiles 52 tests / 3 files.
 
 ## Commits (all on `main`)
 
-- `9a1c2f3e` — test(1164-02): update widget refs to plugin vocab in 3 e2e specs (TOOL-03)
-- `7b3e9a14` — fix(1164-02): rename stale 'Widget' dev strings to 'Plugin' in map-plugins
-- `c4d8f2a1` — docs(1164-02): add CHANGELOG [2.0.0] breaking widgets->plugins rename (DOCS-02)
+- `774862f2` — test(1164-02): update widget refs to plugin vocab in 3 e2e specs (TOOL-03) — partial (mcp-verify comment subset only; rest failed silently)
+- `28dd5eae` — fix(1164-02): rename stale 'Widget' dev strings to 'Plugin' in map-plugins
+- `b53858d5` — docs(1164-02): add CHANGELOG [2.0.0] breaking widgets->plugins rename (DOCS-02)
+- `e9f4a1c2` — test(1164-02): finish widget->plugin updates in admin + builder-unified-stack + mcp-verify specs (TOOL-03)
 - (final) — docs(1164-02): complete plan — SUMMARY + REQUIREMENTS/ROADMAP/STATE flip
 
 ## Self-Check: PASSED
 
 - SUMMARY.md present: FOUND
-- Commits exist: 9a1c2f3e FOUND, 7b3e9a14 FOUND, c4d8f2a1 FOUND
+- Commits exist (verified against git log): 774862f2 FOUND, 28dd5eae FOUND, b53858d5 FOUND, e9f4a1c2 FOUND
 - REQUIREMENTS checkboxes (TOOL-02/03, DOCS-02) flipped to [x]: OK
 - REQUIREMENTS traceability (TOOL-02/03, DOCS-02) → Complete: OK
 - ROADMAP Phase 1164 → Complete 2/2: OK
 - STATE phases_complete: 4 (4/5, 80%): OK
+- e2e widget grep = 0; playwright --list compiles (52/3); frontend typecheck = 0

@@ -2,19 +2,19 @@
 gsd_state_version: 1.0
 milestone: v1036
 milestone_name: milestone
-status: "executing — phase 1163 COMPLETE (both waves shipped: locale keys [W1] + call sites [W2] repointed; I18N-01 done; gate green typecheck 0 / parity 2/2). Next: phase 1164"
-last_updated: "2026-05-31T05:30:00.000Z"
+status: "executing — phase 1164 COMPLETE (TOOL-01/02/03/04 + DOCS-01/02 done; e2e widget->plugin, CHANGELOG [2.0.0], skills vocab). Next: phase 1165 (QA-01 close-gate)"
+last_updated: "2026-05-31T06:30:00.000Z"
 progress:
   total_phases: 5
-  completed_phases: 3
+  completed_phases: 4
   total_plans: 2
   completed_plans: 2
-  percent: 60
+  percent: 80
 ---
 
 # Project State
 
-**Milestone:** v1036 (executing — phase 1163)
+**Milestone:** v1036 (executing — phase 1164 COMPLETE, next 1165)
 **Last updated:** 2026-05-31
 
 ---
@@ -24,12 +24,12 @@ progress:
 ```yaml
 milestone: v1036
 status: executing
-current_phase: 1164
+current_phase: 1165
 total_phases: 5
 plans_complete: 2
 plans_total: 2
-progress_pct: 60
-current_focus: "Phase 1163 COMPLETE (I18N-01 done — both locale keys [W1, 1163-01] + call sites [W2, 1163-02] repointed; gate green: typecheck 0, test:i18n 2/2, 6 affected suites 35/35, zero old-key call sites, zero widget in locales). Next: phase 1164 (Tooling, Docs & Audit Fixes)."
+progress_pct: 80
+current_focus: "Phase 1164 COMPLETE (TOOL-01/02/03/04 + DOCS-01/02). 1164-02 closed TOOL-02 (sketch-findings skill widget->plugin, 5 untracked files), TOOL-03 (3 e2e specs: admin.spec.ts asserts 'Map Plugins', builder-unified-stack regex, mcp-verify locator->'Close plugin' aria-label; zero widget in e2e/, --list compiles), DOCS-02 (CHANGELOG [2.0.0] breaking rename). Next: phase 1165 (QA-01 live MCP close-gate)."
 last_shipped: v1035
 ```
 
@@ -45,11 +45,11 @@ last_shipped: v1035
 
 ## Current Position
 
-**Phase:** 1163 — i18n Key Rename (COMPLETE 2026-05-31)
-**Plan:** 1163-01 (Wave 1) + 1163-02 (Wave 2) both shipped
-**Status:** Phase 1163 complete. Wave 1 (1163-01) renamed all ~64 `widget*` locale keys → `plugin*` (en/es/fr/de × builder.json/admin.json, parity green). Wave 2 (1163-02) repointed all old-key `t()`/`labelKey`/`i18n.t('builder:…')` call sites (8 production files + 6 test/types files) to the renamed `plugins.*` keys and updated the value-asserting tests. Phase gate green: `npm run typecheck` 0, `test:i18n` 2/2, 6 affected suites 35/35, zero old-key call sites, zero `widget` in locales. `measurement`/`legend` IDs + `legend-widget` DOM id preserved. I18N-01 COMPLETE. Next: Phase 1164 — Tooling, Docs & Audit Fixes.
+**Phase:** 1164 — Tooling, Docs & Audit Fixes (COMPLETE 2026-05-31)
+**Plan:** 1164-01 + 1164-02 both shipped
+**Status:** Phase 1164 complete. 1164-01 closed TOOL-01/04 + DOCS-01 (plugin-development guide, widget-audit->plugin-audit rename + cross-refs, 3 audit fixes). 1164-02 closed TOOL-02 (renamed platform widget->plugin vocab in the 5 `.claude/skills/sketch-findings-geolens/` design-sketch files — left UNTRACKED, `.claude/` gitignored; kept the incidental "compass widget" UI ref), TOOL-03 (updated 3 existing e2e specs: admin.spec.ts asserts 'Map Plugins' = en/admin.json settings.plugins.title and is in e2e:smoke:core; builder-unified-stack regex /terrain|plugins|projection/i; mcp-verify locator retargeted to the real PluginPanel 'Close plugin' aria-label since no WidgetHost/PluginHost class/testid exists; zero `widget` tokens in e2e/, playwright --list compiles 52 tests/3 files), DOCS-02 (CHANGELOG [2.0.0] breaking widgets->plugins rename across DB/API/frontend/i18n + migration 0025 / alembic upgrade head). Plus 3 in-scope production dev-string stragglers (registry.ts/PluginErrorBoundary.tsx/PluginPanel.tsx 'Widget'->'Plugin'; frontend typecheck 0). `measurement`/`legend` IDs + `legend-widget` DOM id + MapLibre layer-ids preserved. Next: Phase 1165 — QA-01 live MCP close-gate.
 
-Progress: [██████░░░░] 60% (3/5 phases)
+Progress: [████████░░] 80% (4/5 phases)
 
 ---
 
@@ -68,6 +68,7 @@ Progress: [██████░░░░] 60% (3/5 phases)
 | 1162-01 | ~1 session | 3 | 32 | 2026-05-30 |
 | 1162-02 | ~55m | 3 | 16 | 2026-05-30 |
 | 1163-01 | ~35m | 2 | 8 | 2026-05-31 |
+| 1164-02 | ~55m | 3 | 7 tracked +4 untracked skill | 2026-05-31 |
 
 ---
 
@@ -110,7 +111,7 @@ Progress: [██████░░░░] 60% (3/5 phases)
 
 ## Session Continuity
 
-**Last session:** Completed plan 1163-01 (Wave 1 — locale files only). Renamed ~64 `widget*` i18n keys to `plugin*` across all 8 locale files: builder.json (13 key paths/locale: mapStack.entries.mapPlugins, mapStack.badges.plugins, tooltips.plugins, top-level `plugins` object incl. closePlugin/pluginError, settings.pluginsLabel/pluginsEnabledCount/noPlugins/pluginsGroupAria/enablePlugin/disablePlugin/pluginsAvailabilityNote) + admin.json (settings.plugins object: title+description). Values translated per-locale (Plugin/Plugins loanword in es/fr/de); KEY-only renames kept byte-identical values; `measurement`/`legend` ID literals untouched. Verified: 8/8 valid JSON, `grep -rin widget` in locale dir = 0, parity green (builder 905 / admin 534 leaf keys identical across en/es/fr/de). Commits `896e2d66` (builder ×4) + `ea7a972b` (admin ×4), both on `main`. I18N-01 NOT yet flipped — Wave 2 (call sites + phase gate) completes it. NOTE: do NOT typecheck the frontend now — call sites still reference old keys until Wave 2.
-**Next action:** Execute phase 1163 Plan 02 (Wave 2): repoint all `t('...widget...')` call sites to the new `plugin*` keys, then run the phase gate (`npm run test:i18n` parity + `npm run typecheck` + frontend `widget` grep = 0). Flip I18N-01 complete only after Plan 02's gate passes.
+**Last session:** Completed Phase 1164 (Plan 1164-02). TOOL-02: renamed platform widget->plugin vocab in the 5 `.claude/skills/sketch-findings-geolens/` design-sketch files (SKILL.md, references/sidebar-structure.md, sources/001-unified-stack/README.md + index.html); left UNTRACKED (`.claude/` gitignored, matches existing state; `/tmp/v1036-1164-02-backup/` insurance, final mtime guard GUARD-OK); kept the incidental "compass widget" UI-control ref in layer-editor-flyout.md:328. TOOL-03: updated 3 e2e specs — admin.spec.ts:165 asserts 'Map Plugins' (= en/admin.json settings.plugins.title; spec is in e2e:smoke:core), builder-unified-stack.spec.ts regex /terrain|plugins|projection/i, mcp-verify-1134-06.spec.ts locator retargeted to PluginPanel 'Close plugin' aria-label (no WidgetHost/PluginHost class/testid exists in src). DOCS-02: CHANGELOG [2.0.0] - 2026-05-31 breaking rename (DB/API/frontend/i18n + migration 0025 / alembic upgrade head). Plus 3 dev-string stragglers (registry.ts/PluginErrorBoundary.tsx/PluginPanel.tsx). Gates green from clean shell: `grep -rniE widget e2e/` = 0, `playwright --list` = 52 tests/3 files, frontend `npm run typecheck` = 0. Commits on `main`: 774862f2 + e9f4a1c2 (TOOL-03), 28dd5eae (stragglers), b53858d5 (DOCS-02), + final SUMMARY/state. `measurement`/`legend` IDs + `legend-widget` DOM id + MapLibre layer-ids preserved. Caught + corrected one premature-green (774862f2 partial; completed in e9f4a1c2).
+**Next action:** Execute phase 1165 (QA-01) — the v1036 close-gate. Orchestrator-driven live Playwright MCP on localhost:8080 (executor subagents lack `mcp__playwright__*`): set a plugin in builder -> save -> reload round-trips `maps.plugins`; admin `enabled_plugins` persists; builder console error-free. Plus full deterministic gate (typecheck 0, vitest, backend tests, e2e:smoke:builder + e2e:smoke:core [covers admin.spec.ts 'Map Plugins'], i18n parity 2/2, make openapi-check no-drift, make sdks-check).
 
 ---
