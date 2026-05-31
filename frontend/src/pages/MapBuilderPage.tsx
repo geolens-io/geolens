@@ -96,7 +96,7 @@ import {
   updateBasemapSublayerOverride,
   type BuilderBasemapPatch,
 } from '@/components/builder/basemap-state-controller';
-import { PluginHost, getDefaultPluginIds, resolveAvailablePluginIds, usePartitionedPlugins } from '@/components/map-plugins';
+import { PluginHost, PluginSidebar, getDefaultPluginIds, resolveAvailablePluginIds, usePartitionedPlugins } from '@/components/map-plugins';
 import { usePluginStore } from '@/stores/map-plugin-store';
 import type { ViewportContext } from '@/components/builder/chat-suggestions';
 
@@ -327,7 +327,7 @@ export function MapBuilderPage() {
     });
   }, [layers.expandedLayerId, layers.localLayers]);
 
-  const { byAnchor } = usePartitionedPlugins();
+  const { byAnchor, sidebar: sidebarPlugins } = usePartitionedPlugins();
   // activePlugins for Settings panel plugin toggles (Phase 1036)
   const activePlugins = usePluginStore((state) => state.activePlugins);
   const togglePlugin = usePluginStore((state) => state.toggle);
@@ -1112,6 +1112,7 @@ export function MapBuilderPage() {
             terrainConfig={layers.localTerrainConfig}
             isTerrainActive={isTerrainActive}
             boundLayerName={boundLayerName}
+            enabledPluginIds={enabledPluginIds}
             activePluginIds={activePlugins}
             onTogglePlugin={handleTogglePlugin}
             backgroundColor={basemapState.config.background_color ?? null}
@@ -1333,6 +1334,11 @@ export function MapBuilderPage() {
               basemapPosition={basemapState.config.basemap_position ?? 'bottom'}
             />
           )}
+          {/* Sidebar-placement plugins render below the layer stack. No built-in
+              uses { mode: 'sidebar' } today, so PluginSidebar returns null and
+              this is inert — but it keeps the declared sidebar placement mode
+              actually reachable for third-party plugins (plugin-audit finding). */}
+          {!isRail && <PluginSidebar plugins={sidebarPlugins} ctx={pluginCtx} />}
         </aside>
 
         {/* Column 2: LayerEditorPanel flyout (380px) — when layer selected or basemap/settings scene active; viewport >= 800px */}

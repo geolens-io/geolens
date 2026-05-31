@@ -77,12 +77,16 @@ vi.mock('@/components/ui/switch', () => ({
   ),
 }));
 
-vi.mock('@/components/map-plugins/registry', () => ({
-  getPlugins: () => [
+vi.mock('@/components/map-plugins', () => {
+  const ALL = [
     { id: 'measurement', labelKey: 'plugins.measurement.label', icon: () => null },
     { id: 'legend', labelKey: 'plugins.legend.label', icon: () => null },
-  ],
-}));
+  ];
+  return {
+    getEnabledPluginDefinitions: (enabled: string[] | null | undefined) =>
+      enabled == null ? ALL : ALL.filter((p) => enabled.includes(p.id)),
+  };
+});
 
 vi.mock('../StyleColorPicker', () => ({
   StyleColorPicker: ({
@@ -108,6 +112,7 @@ function defaultProps(overrides: Partial<SettingsEditorSceneProps> = {}): Settin
     terrainConfig: null,
     isTerrainActive: false,
     boundLayerName: undefined,
+    enabledPluginIds: null,
     activePluginIds: new Set<string>(),
     onTogglePlugin: vi.fn(),
     backgroundColor: null,
@@ -166,7 +171,7 @@ describe('SettingsEditorScene', () => {
     expect(screen.queryByLabelText(/Terrain exaggeration/i)).not.toBeInTheDocument();
   });
 
-  // Test 5: Widget toggles render with correct aria-label (UX-04: "Enable {name}" / "Disable {name}")
+  // Test 5: Plugin toggles render with correct aria-label (UX-04: "Enable {name}" / "Disable {name}")
   it('plugin toggle rows render with correct aria-label based on active state', () => {
     render(
       <SettingsEditorScene

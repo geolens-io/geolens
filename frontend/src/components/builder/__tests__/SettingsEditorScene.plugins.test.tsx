@@ -3,7 +3,7 @@ import { SettingsEditorScene } from '../SettingsEditorScene';
 import type { SettingsEditorSceneProps } from '../SettingsEditorScene';
 
 // Phase 1051 Plan 07 (UX-04): regression suite covering the refined
-// Map Settings → Widgets section. The Switch row is the SINGLE source
+// Map Settings → Plugins section. The Switch row is the SINGLE source
 // of truth for plugin availability; on-map controls (e.g., MapToolbar
 // Measure / Legend buttons) remain functional for live interaction but
 // are NOT a duplicate of the availability toggle.
@@ -88,12 +88,17 @@ vi.mock('@/components/ui/switch', () => ({
   ),
 }));
 
-vi.mock('@/components/map-plugins/registry', () => ({
-  getPlugins: () => [
+vi.mock('@/components/map-plugins', () => {
+  const ALL = [
     { id: 'measurement', labelKey: 'plugins.measurement.label', icon: () => null },
     { id: 'legend', labelKey: 'plugins.legend.label', icon: () => null },
-  ],
-}));
+  ];
+  return {
+    // null/undefined ⇒ no restriction (all plugins); an array filters to those ids.
+    getEnabledPluginDefinitions: (enabled: string[] | null | undefined) =>
+      enabled == null ? ALL : ALL.filter((p) => enabled.includes(p.id)),
+  };
+});
 
 vi.mock('../StyleColorPicker', () => ({
   StyleColorPicker: ({ label, color }: { label: string; color: string }) => (
@@ -106,6 +111,7 @@ function defaultProps(overrides: Partial<SettingsEditorSceneProps> = {}): Settin
     terrainConfig: null,
     isTerrainActive: false,
     boundLayerName: undefined,
+    enabledPluginIds: null,
     activePluginIds: new Set<string>(),
     onTogglePlugin: vi.fn(),
     backgroundColor: null,
@@ -176,5 +182,30 @@ describe('SettingsEditorScene · Plugins section (UX-04)', () => {
     // and none of them share an aria-label (no duplicate availability control for the same plugin)
     const labels = switches.map((sw) => sw.getAttribute('aria-label'));
     expect(new Set(labels).size).toBe(labels.length);
+  });
+
+  // Test 6 — plugin-audit finding: the per-map list is filtered by the admin
+  // allowlist (enabledPluginIds), so admin-disabled plugins do not appear as
+  // dead toggles that the user can flip with no on-map effect.
+  it('hides plugins the admin has disabled (enabledPluginIds allowlist)', () => {
+    render(
+      <SettingsEditorScene
+        {...defaultProps({ enabledPluginIds: ['legend'] })}
+      />,
+    );
+
+    // Only the admin-enabled plugin gets a toggle…
+    expect(screen.getByRole('switch', { name: 'Enable legend' })).toBeInTheDocument();
+    // …the disabled plugin has no toggle at all (not a dead "Enable measurement").
+    expect(screen.queryByRole('switch', { name: 'Enable measurement' })).toBeNull();
+    expect(screen.getAllByRole('switch')).toHaveLength(1);
+  });
+
+  // Test 7 — when the admin disables every plugin, the section shows the empty state.
+  it('renders the empty state when the admin allowlist is empty', () => {
+    render(<SettingsEditorScene {...defaultProps({ enabledPluginIds: [] })} />);
+
+    expect(screen.queryAllByRole('switch')).toHaveLength(0);
+    expect(screen.getByText('No plugins available.')).toBeInTheDocument();
   });
 });

@@ -124,9 +124,11 @@ export function ActiveFilterChips({ layers, onClearFilter }: ActiveFilterChipsPr
   if (chips.length === 0) return null;
 
   return (
-    // MAP-20: max-h-[40vh] + overflow-y-auto prevents the chip column from growing into the
-    // bottom-left MeasurementPlugin at ≤800px. See UI-SPEC §Filter-Pill vs Measure-Widget
-    // Collision Avoidance.
+    // MAP-20: chips render in PluginHost's top-left anchor (below any top-left
+    // plugin, e.g. MeasurementPlugin) and grow downward. max-h-[40vh] +
+    // overflow-y-auto caps the column so it does not extend down the left edge
+    // into the bottom-left LegendPlugin at ≤800px. See UI-SPEC §Filter-Pill vs
+    // floating-plugin Collision Avoidance.
     // WR-01: outer wrapper keeps pointer-events-none for map drag passthrough; inner scroll
     // container restores pointer-events-auto so wheel/touch-scroll events reach the element
     // when the chip list overflows (the case where the cap is actually needed).

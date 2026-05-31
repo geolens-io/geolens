@@ -22,7 +22,7 @@ const MEASURE_LINE_LAYER = '_measure-line';
 const MEASURE_POINTS_LAYER = '_measure-points';
 
 /** Compute measurement result and build GeoJSON overlay for a set of points. */
-function rebuildMeasurement(pts: LngLat[], currentMode: MeasureMode) {
+export function rebuildMeasurement(pts: LngLat[], currentMode: MeasureMode) {
   let result: number | null = null;
   if (currentMode === 'distance' && pts.length >= 2) {
     let total = 0;
@@ -67,7 +67,7 @@ function rebuildMeasurement(pts: LngLat[], currentMode: MeasureMode) {
   return { result, features };
 }
 
-function formatDistance(meters: number, unit: Unit): string {
+export function formatDistance(meters: number, unit: Unit): string {
   const locale = i18n.language;
   if (unit === 'imperial') {
     const feet = meters * 3.28084;
@@ -82,7 +82,7 @@ function formatDistance(meters: number, unit: Unit): string {
   return `${Math.round(meters).toLocaleString(locale)} m`;
 }
 
-function formatArea(squareMeters: number, unit: Unit): string {
+export function formatArea(squareMeters: number, unit: Unit): string {
   const locale = i18n.language;
   if (unit === 'imperial') {
     const sqFeet = squareMeters * 10.7639;

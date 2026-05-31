@@ -50,7 +50,7 @@ function parsePaintColors(paintColorValue: unknown): { colors: string[]; breaks:
   return { colors, breaks: parsed.breaks };
 }
 
-function expressionColumn(value: unknown): string | null {
+export function expressionColumn(value: unknown): string | null {
   if (!Array.isArray(value)) return null;
   if (value[0] === 'get' && typeof value[1] === 'string') return value[1];
   for (const entry of value) {
@@ -60,7 +60,7 @@ function expressionColumn(value: unknown): string | null {
   return null;
 }
 
-function displayColumn(value: string | undefined): string {
+export function displayColumn(value: string | undefined): string {
   if (!value) return 'value';
   return value
     .replace(/^_+/, '')
@@ -166,7 +166,7 @@ const LegendLayerEntry = memo(function LegendLayerEntry({
                   paint: layer.paint ?? {},
                   style_config: layer.style_config,
                 })}
-                layerId={`legend-widget-${idx}`}
+                layerId={`legend-plugin-${idx}`}
                 layerType={layer.layer_type ?? undefined}
                 styleHints={extractStyleHints(
                   layer.paint ?? {},

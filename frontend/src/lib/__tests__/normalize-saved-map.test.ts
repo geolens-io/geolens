@@ -106,7 +106,7 @@ describe('normalizeSavedMap', () => {
       basemap_config: null,
       terrain_config: null,
       layers: [layer],
-      plugins: ['widget-a'],
+      plugins: ['plugin-a'],
     });
 
     const result = normalizeSavedMap(input);
@@ -116,7 +116,7 @@ describe('normalizeSavedMap', () => {
     expect(result.basemap_config).toBeNull();
     expect(result.terrain_config).toBeNull();
     expect(result.layers).toEqual([layer]);
-    expect(result.plugins).toEqual(['widget-a']);
+    expect(result.plugins).toEqual(['plugin-a']);
   });
 
   it('defaults show_basemap_labels to true when omitted on SharedMapResponse', () => {
@@ -148,7 +148,7 @@ describe('normalizeSavedMap', () => {
     expect(result.layers).toEqual([]);
   });
 
-  it('returns plugins: null when input has undefined widgets', () => {
+  it('returns plugins: null when input has undefined plugins', () => {
     const input = makeMapResponse({ plugins: undefined });
     const result = normalizeSavedMap(input);
     expect(result.plugins).toBeNull();

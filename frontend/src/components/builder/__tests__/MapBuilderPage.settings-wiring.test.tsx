@@ -69,21 +69,19 @@ vi.mock('@/components/ui/switch', () => ({
   ),
 }));
 
-vi.mock('@/components/map-plugins/registry', () => ({
-  getPlugins: () => [
-    { id: 'measurement', labelKey: 'plugins.measurement.label', icon: () => null },
-  ],
-}));
-
 vi.mock('@/components/map-plugins', () => ({
   PluginHost: () => null,
   PluginSidebar: () => null,
   getPlugins: () => [],
-  getEnabledPluginDefinitions: () => [],
+  // SettingsEditorScene now renders the admin-filtered list via
+  // getEnabledPluginDefinitions; mirror the single built-in this suite asserts.
+  getEnabledPluginDefinitions: () => [
+    { id: 'measurement', labelKey: 'plugins.measurement.label', icon: () => null },
+  ],
   getDefaultPluginIds: () => [],
   resolveAvailablePluginIds: () => [],
   samePluginIds: () => true,
-  usePartitionedPlugins: () => ({ byAnchor: {} }),
+  usePartitionedPlugins: () => ({ byAnchor: {}, sidebar: [] }),
 }));
 
 vi.mock('@/hooks/use-maps', () => ({

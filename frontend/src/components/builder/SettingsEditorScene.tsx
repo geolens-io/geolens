@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { ChevronRight, RotateCcw } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { getPlugins } from '@/components/map-plugins/registry';
+import { getEnabledPluginDefinitions } from '@/components/map-plugins';
 import { StyleColorPicker } from './StyleColorPicker';
 import type { MapTerrainConfig } from '@/types/api';
 
@@ -17,7 +17,11 @@ export interface SettingsEditorSceneProps {
   isTerrainActive: boolean;
   /** Name of the bound DEM layer (for the "Bound to:" hint) */
   boundLayerName?: string;
-  // Widgets
+  // Plugins
+  /** Admin allowlist of plugin IDs (null/undefined = no restriction). The
+   *  per-map toggle list is filtered to these so admin-disabled plugins do not
+   *  appear as dead toggles (they would be stripped on render + save anyway). */
+  enabledPluginIds: string[] | null | undefined;
   activePluginIds: Set<string>;
   onTogglePlugin: (pluginId: string) => void;
   // Appearance
@@ -33,6 +37,7 @@ export const SettingsEditorScene = memo(function SettingsEditorScene({
   terrainConfig: _terrainConfig,
   isTerrainActive,
   boundLayerName,
+  enabledPluginIds,
   activePluginIds,
   onTogglePlugin,
   backgroundColor,
@@ -47,7 +52,13 @@ export const SettingsEditorScene = memo(function SettingsEditorScene({
   const [pluginsOpen, setPluginsOpen] = useState(true);
   const [projectionOpen, setProjectionOpen] = useState(true);
 
-  const plugins = useMemo(() => getPlugins(), []);
+  // Only surface plugins the admin allows. getEnabledPluginDefinitions(null)
+  // returns all registered plugins (no restriction), so default deployments are
+  // unaffected; a restricted allowlist hides toggles that would be no-ops.
+  const plugins = useMemo(
+    () => getEnabledPluginDefinitions(enabledPluginIds),
+    [enabledPluginIds],
+  );
 
   const backgroundSwatch = backgroundColor ?? '#ffffff';
 
@@ -148,7 +159,7 @@ export const SettingsEditorScene = memo(function SettingsEditorScene({
         </CollapsibleContent>
       </Collapsible>
 
-      {/* Section 3: WIDGETS */}
+      {/* Section 3: PLUGINS */}
       <Collapsible open={pluginsOpen} onOpenChange={setPluginsOpen}>
         <CollapsibleTrigger asChild>
           <button
