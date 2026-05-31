@@ -68,11 +68,11 @@ export function PluginHost({ byAnchor, ctx, topLeftSlot }: PluginHostProps) {
       {ANCHORS.map((anchor) => {
         const plugins = byAnchor[anchor] ?? [];
         const slot = anchor === 'top-left' ? topLeftSlot : null;
-        if (widgets.length === 0 && !slot) return null;
+        if (plugins.length === 0 && !slot) return null;
         const className = ANCHOR_POSITIONS[anchor];
         return (
           <div key={anchor} className={className}>
-            {widgets.map((w) => (
+            {plugins.map((w) => (
               <PluginPanel key={w.id} def={w}>
                 <PluginErrorBoundary pluginId={w.id}>
                   <w.component ctx={ctx} />
@@ -94,11 +94,11 @@ interface PluginSidebarProps {
 
 /** Renders sidebar-placement plugins in the builder sidebar. */
 export function PluginSidebar({ plugins, ctx }: PluginSidebarProps) {
-  if (widgets.length === 0) return null;
+  if (plugins.length === 0) return null;
 
   return (
     <div className="px-2 space-y-2">
-      {widgets.map((w) => (
+      {plugins.map((w) => (
         <PluginPanel key={w.id} def={w}>
           <PluginErrorBoundary pluginId={w.id}>
             <w.component ctx={ctx} />
