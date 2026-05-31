@@ -3210,13 +3210,13 @@ export type EmbedTokenCreate = {
     /**
      * Allowed Origins
      *
-     * Restrict embedding to these origins. Omit or null allows any origin; non-empty origin restrictions require GeoLens Enterprise.
+     * Restrict embedding to these origins. Omit or null allows any origin; non-empty origin restrictions require the enterprise edition.
      */
     allowed_origins?: Array<string> | null;
     /**
      * Expires In Days
      *
-     * Token lifetime in days (1-365). The default 30-day lifetime is available in Community; custom lifetimes require GeoLens Enterprise.
+     * Token lifetime in days (1-365). The default 30-day lifetime is available in Community; custom lifetimes require the enterprise edition.
      */
     expires_in_days?: number;
     /**
@@ -3352,7 +3352,7 @@ export type EmbedTokenUpdate = {
     /**
      * Allowed Origins
      *
-     * Updated list of allowed embedding origins. Null clears restrictions; non-empty origin restrictions require GeoLens Enterprise.
+     * Updated list of allowed embedding origins. Null clears restrictions; non-empty origin restrictions require the enterprise edition.
      */
     allowed_origins?: Array<string> | null;
 };
@@ -7425,7 +7425,7 @@ export type ShareTokenRequest = {
     /**
      * Expires At
      *
-     * Expiration timestamp. Null creates a basic non-expiring share link; non-null expiration requires GeoLens Enterprise.
+     * Expiration timestamp. Null creates a basic non-expiring share link; non-null expiration requires the enterprise edition.
      */
     expires_at?: string | null;
 };
