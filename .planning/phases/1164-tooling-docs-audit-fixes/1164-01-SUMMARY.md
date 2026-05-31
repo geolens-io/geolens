@@ -68,9 +68,13 @@ Docs/tooling only; no production app source touched.
 | --- | --- | --- | --- |
 | 1 | Create plugin authoring guide (DOCS-01) | `1fd142ef` | docs/plugin-development.md |
 | 2 | Rename widget-audit -> plugin-audit + 3 audit fixes (TOOL-01, TOOL-04) | `a1b4fc2d` | .claude/commands/plugin-audit.md (+ rm widget-audit.md) |
-| 3 | Repoint cross-refs to /plugin-audit (TOOL-01) | `ec71e294` | .claude/commands/map-audit.md, .claude/commands/builder-audit.md |
+| 3 | Repoint map-audit cross-ref to /plugin-audit (TOOL-01) | `ec71e294` | .claude/commands/map-audit.md |
+| 3b | Repoint builder-audit cross-ref to /plugin-audit (TOOL-01 fixup) | `4f9e1c33` | .claude/commands/builder-audit.md |
 
-All three on `main`.
+All on `main`. Task 3 split into two commits: `ec71e294` landed the map-audit.md edit, but the
+builder-audit.md edit in that step had not actually applied (the Edit was in a tool batch that was
+cancelled mid-flight). The post-commit self-check caught the stale `/widget-audit` line still in
+builder-audit.md; the fixup commit `4f9e1c33` applied it correctly.
 
 ## Deviations from Plan
 
@@ -156,11 +160,18 @@ A concurrent session (`builder-audit-fixes-20260530`) shares this working dir an
 - Immediately before the builder-audit.md edit: fresh `grep -n 'widget-audit'` (found at line **1132**,
   matching the plan; the brief's 1190 was stale), `git status --short` (empty — no foreign WIP), and a
   merge-conflict-marker scan (none).
-- Made a single-line Edit on the exact matched line. Post-edit verification confirmed builder-audit.md
-  now has 0 `widget-audit` / 1 `plugin-audit`, no conflict markers, and no residual platform "widget"
-  words on the cross-ref line. Never touched `builder-audit-*` branches; never did a blanket
-  checkout/overwrite; stayed on `main` throughout.
-- No concurrent-branch recovery was needed — HEAD never left `main` during this plan.
+- The single-line Edit on builder-audit.md had to be applied twice: the first attempt was in a tool
+  batch that got cancelled, so it silently did not land (the Task-3 commit `ec71e294` therefore only
+  contained map-audit.md). The plan's post-write self-check caught this — a fresh grep showed line 1132
+  still read `/widget-audit`. I re-grepped (still line 1132, no drift), re-confirmed no conflict
+  markers and no foreign WIP, re-applied the exact single-line Edit, and committed it as `4f9e1c33`.
+  Final state: builder-audit.md has 0 `widget-audit` / 1 `plugin-audit`, no conflict markers, no
+  residual platform "widget" words on the cross-ref line. Never touched `builder-audit-*` branches;
+  never did a blanket checkout/overwrite; stayed on `main` throughout.
+- No concurrent-branch recovery was needed — HEAD never left `main` during this plan. The
+  double-apply was a tool-batch-cancellation artifact, not a contention conflict with the concurrent
+  session (the line text was byte-identical on both reads, and the concurrent session never had
+  uncommitted edits to this file at any point I observed).
 
 ## Requirements Closed
 
