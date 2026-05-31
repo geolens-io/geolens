@@ -15,7 +15,7 @@ from app.core.identity import Identity
 from app.modules.auth.dependencies import get_optional_user
 from app.modules.auth.permissions import get_effective_permissions
 from app.core.dependencies import get_db
-from app.platform.extensions import get_processing_port
+from app.platform.extensions import get_permission_extension, get_processing_port
 from app.processing.export.ogr import ExportError
 from app.processing.export.schemas import ExportFormat
 from app.processing.export.service import export_dataset
@@ -89,7 +89,19 @@ async def export_dataset_endpoint(
         await check_dataset_access(db, dataset, dataset_id, user)
         user_roles = await get_user_roles(db, user)
         matrix = await get_effective_permissions(db)
-        if not any(matrix.get(role, {}).get("export", False) for role in user_roles):
+        # Enforce the export capability through the permission extension — the
+        # same path as require_permission("export") — so deployments that
+        # register a custom PermissionExtension apply their policy here too. The
+        # default extension reduces to the role/matrix check, so OSS behavior is
+        # unchanged. (Codex review: export/router.py:92.)
+        granted = await get_permission_extension().check_permission(
+            db,
+            user,
+            "export",
+            user_roles=user_roles,
+            permission_matrix=matrix,
+        )
+        if not granted:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Missing permission: export",
