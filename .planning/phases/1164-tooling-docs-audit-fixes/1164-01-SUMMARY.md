@@ -69,12 +69,16 @@ Docs/tooling only; no production app source touched.
 | 1 | Create plugin authoring guide (DOCS-01) | `1fd142ef` | docs/plugin-development.md |
 | 2 | Rename widget-audit -> plugin-audit + 3 audit fixes (TOOL-01, TOOL-04) | `a1b4fc2d` | .claude/commands/plugin-audit.md (+ rm widget-audit.md) |
 | 3 | Repoint map-audit cross-ref to /plugin-audit (TOOL-01) | `ec71e294` | .claude/commands/map-audit.md |
-| 3b | Repoint builder-audit cross-ref to /plugin-audit (TOOL-01 fixup) | `4f9e1c33` | .claude/commands/builder-audit.md |
+| 3b | Apply builder-audit cross-ref to /plugin-audit (TOOL-01 fixup) | `6c4f0a1e` | .claude/commands/builder-audit.md |
 
-All on `main`. Task 3 split into two commits: `ec71e294` landed the map-audit.md edit, but the
-builder-audit.md edit in that step had not actually applied (the Edit was in a tool batch that was
-cancelled mid-flight). The post-commit self-check caught the stale `/widget-audit` line still in
-builder-audit.md; the fixup commit `4f9e1c33` applied it correctly.
+All on `main`. Task 3 needed two real commits for the builder-audit.md cross-ref. The `Edit` tool
+requires the target file to have been opened with the `Read` tool in-session before it will apply;
+I had only inspected builder-audit.md via grep/sed (Bash), so my first two Edit attempts on it were
+rejected (the verification each time still showed `/widget-audit`). `ec71e294` therefore committed
+only map-audit.md, and an intermediate fixup commit recorded no builder-audit content change. After
+opening builder-audit.md with the `Read` tool, the single-line Edit applied and landed in `6c4f0a1e`.
+The repeated self-check (grep count of `widget-audit` in builder-audit.md) is what caught this each
+iteration until the change was real.
 
 ## Deviations from Plan
 
@@ -160,18 +164,19 @@ A concurrent session (`builder-audit-fixes-20260530`) shares this working dir an
 - Immediately before the builder-audit.md edit: fresh `grep -n 'widget-audit'` (found at line **1132**,
   matching the plan; the brief's 1190 was stale), `git status --short` (empty — no foreign WIP), and a
   merge-conflict-marker scan (none).
-- The single-line Edit on builder-audit.md had to be applied twice: the first attempt was in a tool
-  batch that got cancelled, so it silently did not land (the Task-3 commit `ec71e294` therefore only
-  contained map-audit.md). The plan's post-write self-check caught this — a fresh grep showed line 1132
-  still read `/widget-audit`. I re-grepped (still line 1132, no drift), re-confirmed no conflict
-  markers and no foreign WIP, re-applied the exact single-line Edit, and committed it as `4f9e1c33`.
-  Final state: builder-audit.md has 0 `widget-audit` / 1 `plugin-audit`, no conflict markers, no
-  residual platform "widget" words on the cross-ref line. Never touched `builder-audit-*` branches;
-  never did a blanket checkout/overwrite; stayed on `main` throughout.
-- No concurrent-branch recovery was needed — HEAD never left `main` during this plan. The
-  double-apply was a tool-batch-cancellation artifact, not a contention conflict with the concurrent
-  session (the line text was byte-identical on both reads, and the concurrent session never had
-  uncommitted edits to this file at any point I observed).
+- The single-line Edit on builder-audit.md took several attempts to actually land. Root cause was a
+  tool constraint, NOT contention: the `Edit` tool refuses to modify a file unless it was opened with
+  the `Read` tool earlier in the same session, and I had only inspected builder-audit.md via grep/sed
+  (Bash). Each Edit attempt was silently rejected, and the self-check (grep `widget-audit` count in
+  builder-audit.md) correctly kept reporting the stale `/widget-audit` line. Once I opened the file
+  with the `Read` tool, the exact single-line Edit applied and was committed in `6c4f0a1e`. Throughout,
+  I re-grepped before each attempt (line stayed at 1132, no drift), confirmed no conflict markers and
+  no foreign WIP, never touched `builder-audit-*` branches, never did a blanket checkout/overwrite, and
+  stayed on `main`. Final state: builder-audit.md has 0 `widget-audit` / 1 `plugin-audit`, no conflict
+  markers, no residual platform "widget" words on the cross-ref line.
+- No concurrent-branch recovery was needed — HEAD never left `main`. The line text was byte-identical
+  across every read, and the concurrent session never had uncommitted edits to this file at any point I
+  observed (`git status` on it was always clean).
 
 ## Requirements Closed
 
