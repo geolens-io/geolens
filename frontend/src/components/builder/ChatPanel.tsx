@@ -734,6 +734,9 @@ export function ChatPanel({
                 {(() => {
                   const queryResultAction = msg.actions?.find((a) => a.type === 'show_query_result');
                   if (!queryResultAction) return null;
+                  // Rows are arrays of cell values (list[list]) paired with a
+                  // separate `columns` array — NOT objects keyed by name. The
+                  // backend (chat_actions / chat_geojson) emits both together.
                   const rows = Array.isArray(queryResultAction.rows) ? queryResultAction.rows : null;
                   if (rows === null) return null;
                   if (rows.length === 0) {
@@ -744,11 +747,17 @@ export function ChatPanel({
                       </div>
                     );
                   }
-                  const firstRow = rows[0];
-                  if (!firstRow || typeof firstRow !== 'object') return null;
-                  const allColumns = Object.keys(firstRow as Record<string, unknown>);
-                  const visibleColumns = allColumns.slice(0, 5);
+                  const allColumns = Array.isArray(queryResultAction.columns)
+                    ? queryResultAction.columns
+                    : [];
+                  if (allColumns.length === 0) return null;
+                  const visibleCount = Math.min(allColumns.length, 5);
+                  const visibleColumns = allColumns.slice(0, visibleCount);
                   const hasMore = allColumns.length > 5;
+                  const cellAt = (row: unknown, colIdx: number): string => {
+                    const raw = Array.isArray(row) ? row[colIdx] : undefined;
+                    return raw == null ? '' : String(raw);
+                  };
                   return (
                     <div className="mt-2 rounded-md border border-border overflow-hidden">
                       <div className="max-h-48 overflow-y-auto" role="region" aria-label={t('chat.queryResult.tableLabel')}>
@@ -764,28 +773,24 @@ export function ChatPanel({
                             </tr>
                           </thead>
                           <tbody>
-                            {rows.map((row, idx) => {
-                              const r = row as Record<string, unknown>;
-                              return (
-                                <tr key={idx} className="border-b border-border last:border-0 hover:bg-muted/40">
-                                  {visibleColumns.map((col) => {
-                                    const raw = r[col];
-                                    const display = raw == null ? '' : String(raw);
-                                    return (
-                                      <td key={col} className="px-2 py-1 text-foreground max-w-[8rem] truncate" title={display}>
-                                        {display}
-                                      </td>
-                                    );
-                                  })}
-                                  {hasMore && <td className="px-2 py-1 text-muted-foreground">…</td>}
-                                </tr>
-                              );
-                            })}
+                            {rows.map((row, idx) => (
+                              <tr key={idx} className="border-b border-border last:border-0 hover:bg-muted/40">
+                                {visibleColumns.map((col, colIdx) => {
+                                  const display = cellAt(row, colIdx);
+                                  return (
+                                    <td key={col} className="px-2 py-1 text-foreground max-w-[8rem] truncate" title={display}>
+                                      {display}
+                                    </td>
+                                  );
+                                })}
+                                {hasMore && <td className="px-2 py-1 text-muted-foreground">…</td>}
+                              </tr>
+                            ))}
                           </tbody>
                         </table>
                       </div>
                       <p className="mt-1 mb-1 px-2 text-xs text-muted-foreground">
-                        {t('chat.queryResult.rowCount', { count: rows.length })}
+                        {t('chat.queryResult.rowCount', { count: queryResultAction.row_count ?? rows.length })}
                       </p>
                     </div>
                   );

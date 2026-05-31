@@ -1261,8 +1261,15 @@ export interface ChatAction {
    * Present only when the AI returned structured row data (not a spatial-only result).
    * When present, the inline data-analysis card is rendered inside the assistant bubble.
    * When absent, only the existing geojson+bbox flyover path executes.
+   * Rows are arrays of cell values, positionally paired with `columns`.
    */
-  rows?: Record<string, unknown>[];
+  rows?: unknown[][];
+  /** Column names for the show_query_result inline data table. */
+  columns?: string[];
+  /** Total matched row count (rows may be truncated for payload size). */
+  row_count?: number;
+  /** True when `rows` was capped below the full `row_count`. */
+  truncated?: boolean;
 }
 
 export interface ChatResponse {

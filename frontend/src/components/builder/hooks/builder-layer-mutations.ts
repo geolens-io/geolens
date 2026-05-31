@@ -79,7 +79,9 @@ export function buildDuplicateRenderingInput(
   return {
     dataset_id: layer.dataset_id,
     sort_order: nextSortOrder,
-    visible: true,
+    // B-031: inherit the source layer's visibility so duplicating a hidden
+    // layer yields a hidden copy rather than forcing it visible.
+    visible: layer.visible ?? true,
     opacity: layer.opacity,
     paint: { ...(layer.paint ?? {}) },
     layout: { ...(layer.layout ?? {}) },

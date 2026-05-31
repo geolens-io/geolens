@@ -447,6 +447,7 @@ export function useBuilderLayers(
           `layer-${id}-outline`,
           `layer-${id}-label`,
           `layer-${id}-extrusion`,
+          `layer-${id}-arrow`,
           `layer-${id}-cluster`,
           `layer-${id}-cluster-count`,
         ];

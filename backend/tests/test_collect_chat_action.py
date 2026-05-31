@@ -11,6 +11,7 @@ query_data results, with optional geojson+bbox on spatial path.
 """
 
 from app.processing.ai.chat_actions import _collect_chat_action
+from app.processing.ai.schemas import ChatAction
 
 
 def test_non_spatial_query_emits_show_query_result_with_rows() -> None:
@@ -95,3 +96,31 @@ def test_non_query_tool_emits_no_action() -> None:
     """Non-query_data tools that are not in _EDIT_TOOLS emit no action."""
     action = _collect_chat_action("unknown_tool", {}, {"result": "x"})
     assert action is None
+
+
+def test_chat_action_round_trip_preserves_query_result_fields() -> None:
+    """Regression (builder-audit B-001): the inline data-table fields are built
+    by _collect_chat_action but were absent from the ChatAction model, so
+    ``ChatAction(**a).model_dump(exclude_none=True)`` silently dropped them and
+    the frontend data card never rendered."""
+    result = {
+        "columns": ["name", "count"],
+        "rows": [["A", 1], ["B", 2]],
+        "row_count": 2,
+        "truncated": False,
+    }
+    action = _collect_chat_action("query_data", {"question": "q"}, result)
+    assert action is not None
+    dumped = ChatAction(**action).model_dump(exclude_none=True)
+    assert dumped["columns"] == ["name", "count"]
+    assert dumped["rows"] == [["A", 1], ["B", 2]]
+    assert dumped["row_count"] == 2
+    assert dumped["truncated"] is False
+
+
+def test_chat_action_round_trip_preserves_add_layer_dataset_name() -> None:
+    """Regression (builder-audit B-002): add_layer carried dataset_name but the
+    ChatAction model dropped it, so staging chips showed the raw UUID."""
+    action = {"type": "add_layer", "dataset_id": "ds-1", "dataset_name": "Parks"}
+    dumped = ChatAction(**action).model_dump(exclude_none=True)
+    assert dumped["dataset_name"] == "Parks"

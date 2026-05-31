@@ -382,10 +382,15 @@ class ChatAction(BaseModel):
     style_config: dict | None = None  # for set_data_driven_style
     label_config: dict | None = None  # for set_label
     dataset_id: str | None = None  # for add_layer
+    dataset_name: str | None = None  # for add_layer (staging-chip display label)
     visible: bool | None = None  # for toggle_visibility
     opacity: float | None = Field(None, ge=0.0, le=1.0)  # for set_opacity
     geojson: GeoJSONFeatureCollection | None = None  # for show_query_result
     bbox: list[float] | None = None  # for show_query_result
+    rows: list[list] | None = None  # for show_query_result (row arrays, paired with columns)
+    columns: list[str] | None = None  # for show_query_result (inline data table)
+    row_count: int | None = None  # for show_query_result (total matched rows)
+    truncated: bool | None = None  # for show_query_result (rows capped for payload)
 
 
 class ChatResponse(BaseModel):

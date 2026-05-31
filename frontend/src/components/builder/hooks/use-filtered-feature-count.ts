@@ -43,12 +43,17 @@ export function useFilteredFeatureCount(
       // queryRenderedFeatures returns [] when the layer id is not on the
       // map (source still loading, layer hidden, etc.) — treat as null
       // so the hint does not flash false positives during loading.
-      const layerExistsOnMap = !!map.getLayer(layer.id);
+      // MapLibre layer ids are registered as `layer-${uuid}` (see
+      // use-layer-map-sync.ts), NOT the raw layer.id UUID. Querying the bare
+      // UUID always missed, so the count was permanently null and the
+      // "0 features after filter" hint (EASY-18) never fired.
+      const mapLayerId = `layer-${layer.id}`;
+      const layerExistsOnMap = !!map.getLayer(mapLayerId);
       if (!layerExistsOnMap) {
         setCount(null);
         return;
       }
-      const features = map.queryRenderedFeatures(undefined, { layers: [layer.id] });
+      const features = map.queryRenderedFeatures(undefined, { layers: [mapLayerId] });
       setCount(features.length);
     }
 

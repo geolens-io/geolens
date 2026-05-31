@@ -1977,6 +1977,20 @@
             ],
             "title": "Clear Paint"
           },
+          "columns": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Columns"
+          },
           "dataset_id": {
             "anyOf": [
               {
@@ -1987,6 +2001,17 @@
               }
             ],
             "title": "Dataset Id"
+          },
+          "dataset_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dataset Name"
           },
           "expression": {
             "anyOf": [
@@ -2069,6 +2094,32 @@
             ],
             "title": "Replace Paint"
           },
+          "row_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Row Count"
+          },
+          "rows": {
+            "anyOf": [
+              {
+                "items": {
+                  "items": {},
+                  "type": "array"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rows"
+          },
           "style_config": {
             "anyOf": [
               {
@@ -2080,6 +2131,17 @@
               }
             ],
             "title": "Style Config"
+          },
+          "truncated": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Truncated"
           },
           "type": {
             "enum": [
