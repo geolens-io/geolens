@@ -113,3 +113,21 @@ All 19 v1036 requirements are mapped to exactly one phase. No orphans, no duplic
 
 ---
 *Roadmap created: 2026-05-30*
+
+## Backlog
+
+### Phase 999.17: Builder terrain/legend consistency & DEM dedup (BACKLOG)
+
+**Goal:** Fix the cross-surface inconsistency where `render_mode:"terrain"` DEM layers are excluded from the builder layer stack but still listed in the legend (phantom entries), and stop the terrain-bind flow from accumulating duplicate DEM layers. Fits the *Map Builder Extensibility Refactor* plan.
+**Requirements:** TBD — see ready-to-plan brief: `docs-internal/audits/BUCKET-B-builder-terrain-legend-phase-brief.md`
+**Plans:** 0 plans
+
+Three fixes (detail in brief):
+1. Legend excludes terrain-suppressed DEM layers in both `LegendPlugin.tsx:80-83` and the viewer `LayerLegend` (mirror `map-stack.ts:541-543` / `isDemTerrainVisualSuppressed` `map-sync.ts:52-58`).
+2. Terrain-bind reuses one DEM layer instead of accumulating duplicates (`DEMEditorScene.tsx:165-189`, `use-builder-layers.ts:1067-1077`); deleting the terrain source clears/warns on `terrain_config`.
+3. (Optional) Relax builder terrain lookup (`BuilderMap.tsx:389-401`) to resolve by `terrain_config.source_dataset_id` like the viewer, so one DEM can serve both the 3D mesh and a visible hillshade overlay.
+
+Gate: unit tests + builder live-MCP close-gate. Source: `/map-audit 8dd6a129` (2026-05-31); confirmed regression (1 hillshade + 1 terrain → 3 terrain layers between 2026-05-28 and 2026-05-31).
+
+Plans:
+- [ ] TBD (promote with /gsd-review-backlog when ready)
