@@ -76,11 +76,11 @@ Which phases cover which requirements. Populated during roadmap creation.
 | FE-RENAME-05 | Phase 1162 | Complete |
 | I18N-01 | Phase 1163 | Complete |
 | TOOL-01 | Phase 1164 | Complete |
-| TOOL-02 | Phase 1164 | Pending |
-| TOOL-03 | Phase 1164 | Pending |
+| TOOL-02 | Phase 1164 | Complete |
+| TOOL-03 | Phase 1164 | Complete |
 | TOOL-04 | Phase 1164 | Complete |
 | DOCS-01 | Phase 1164 | Complete |
-| DOCS-02 | Phase 1164 | Pending |
+| DOCS-02 | Phase 1164 | Complete |
 | QA-01 | Phase 1165 | Pending |
 
 **Coverage:**

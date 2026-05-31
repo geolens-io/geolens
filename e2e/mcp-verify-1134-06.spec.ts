@@ -564,7 +564,7 @@ for (const vp of VIEWPORTS) {
 
     test(`MAP-20: ActiveFilterChips source has max-h-[40vh] overflow-y-auto constraint @ ${vp.name}`, async ({ page }) => {
       // MAP-20 verification: the ActiveFilterChips component includes max-h-[40vh] overflow-y-auto
-      // to prevent the filter chip column from growing into the MeasurementWidget at ≤800px.
+      // to prevent the filter chip column from growing into the MeasurementPlugin at ≤800px.
       // The ADK map has no active filters, so the component renders null (returns early).
       // We verify the constraint exists in the component source via a page-level check that
       // exercises the component's DOM when filters ARE present (or by asserting the page
@@ -580,11 +580,12 @@ for (const vp of VIEWPORTS) {
       await expect(page.locator('canvas.maplibregl-canvas')).toBeVisible({ timeout: 10_000 });
       await expect(page.locator('text=Something went wrong')).toHaveCount(0);
 
-      // MeasurementWidget should be visible (bottom-left anchor) — this is what chips must not collide with
-      // MeasurementWidget renders as a widget at bottom-left with z-10
-      // Note: MeasurementWidget may be hidden until opened — look for its container div
-      const widgetHostExists = await page.locator('[class*="WidgetHost"], [data-testid*="widget"]').count() > 0;
-      // This is informational — WidgetHost may or may not be rendered at idle
+      // MeasurementPlugin should be visible (bottom-left anchor) — this is what chips must not collide with
+      // MeasurementPlugin renders as a floating plugin panel at bottom-left with z-10
+      // Note: MeasurementPlugin may be hidden until opened — look for the PluginPanel close button.
+      // PluginHost exposes no class/testid; the close button carries aria-label "Close plugin".
+      const pluginHostExists = await page.getByRole('button', { name: /close plugin/i }).count() > 0;
+      // This is informational — the plugin panel may or may not be rendered at idle
 
       // Verify the filter chips component source has max-h constraint via API:
       // Check the ActiveFilterChips.tsx source content is correct via unit test (Plan 04).
