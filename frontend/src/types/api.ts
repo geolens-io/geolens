@@ -954,7 +954,7 @@ export interface MapResponse {
   updated_at: string;
   layers: MapLayerResponse[];
   layer_count: number;
-  widgets?: string[] | null;
+  plugins?: string[] | null;
   forked_from_id: string | null;
   forked_from_name: string | null;
 }
@@ -1032,7 +1032,7 @@ export interface MapUpdateRequest {
   terrain_config?: MapTerrainConfig | null;
   visibility?: MapVisibility | null;
   layers?: MapLayerInput[];
-  widgets?: string[] | null;
+  plugins?: string[] | null;
 }
 
 export interface MapLayerInput {
