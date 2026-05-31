@@ -149,7 +149,7 @@ export const BuilderMap = memo(function BuilderMap({
   const { t } = useTranslation('builder');
   const mapRef = useRef<MaplibreMap | null>(null);
   const managedSourcesRef = useRef<Set<string>>(new Set());
-  const errorHandlerRef = useRef<((e: { error: { message?: string; status?: number } }) => void) | null>(null);
+  const errorHandlerRef = useRef<((e: { error: { message?: string; status?: number }; sourceId?: string }) => void) | null>(null);
   const styleImageMissingHandlerRef = useRef<((e: { id: string }) => void) | null>(null);
   // SF-08: latch first-load success so transient 5xx during save don't surface as outage
   const basemapLoadedAtRef = useRef<number | null>(null);
@@ -479,7 +479,7 @@ export const BuilderMap = memo(function BuilderMap({
       // Filter expected tile errors (no-data tiles outside extent) and
       // surface anything else as a deduped toast so the editor knows a
       // real error has occurred (RES-3). Previously silenced in production.
-      errorHandlerRef.current = (e: { error: { message?: string; status?: number } }) => {
+      errorHandlerRef.current = (e: { error: { message?: string; status?: number }; sourceId?: string }) => {
         const status = e.error?.status;
         // Suppress expected no-data tiles (404) and other client errors
         if (status && status >= 400 && status < 500) {
@@ -506,9 +506,27 @@ export const BuilderMap = memo(function BuilderMap({
           const loadedAt = basemapLoadedAtRef.current;
           if (loadedAt !== null && Date.now() - loadedAt < 3000) return;
           setBasemapNotice('tiles');
-          toast.error(t('builderMap.mapError', { defaultValue: 'Map tile error — some layers may not render correctly.' }), {
-            id: 'builder-map-error',
-          });
+          // Name the failing layer when the error carries a sourceId.
+          // MapLibre attaches the source id to tile/source errors as they
+          // bubble up; style/glyph errors have no sourceId, so fall back to
+          // the generic message. Match against the current layers ref using
+          // the same getSourceIdForLayer contract the map sync uses.
+          const failingSourceId = e.sourceId;
+          const failingLayer = failingSourceId
+            ? layersRef.current.find((l) => getSourceIdForLayer(l) === failingSourceId)
+            : undefined;
+          const failingName = failingLayer?.display_name || failingLayer?.dataset_name;
+          toast.error(
+            failingName
+              ? t('builderMap.mapErrorNamed', {
+                  name: failingName,
+                  defaultValue: 'Failed to load {{name}} — the layer may not render correctly.',
+                })
+              : t('builderMap.mapError', { defaultValue: 'Map tile error — some layers may not render correctly.' }),
+            {
+              id: 'builder-map-error',
+            },
+          );
         }
       };
       map.on('error', errorHandlerRef.current);

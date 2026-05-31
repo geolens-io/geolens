@@ -715,6 +715,7 @@
     "loading": "Loading map...",
     "authError": "Session expired. Reload the page to restore tile access.",
     "mapError": "Map tile error. Some layers may not render correctly.",
+    "mapErrorNamed": "Failed to load {{name}}. The layer may not render correctly.",
     "basemapIssueTitle": "Basemap connection issue",
     "basemapIssueDescription": "Your data layers are still editable. Check the basemap service or choose another basemap if the background stays blank.",
     "clusterFallback": "{{name}} is rendering as points: {{reason}}",

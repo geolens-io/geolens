@@ -715,6 +715,7 @@
     "loading": "Chargement de la carte...",
     "authError": "La session a expiré. Rechargez la page pour rétablir l'accès aux tuiles.",
     "mapError": "Erreur de tuiles de carte. Certaines couches peuvent ne pas s'afficher correctement.",
+    "mapErrorNamed": "Échec du chargement de {{name}}. La couche peut ne pas s'afficher correctement.",
     "basemapIssueTitle": "Problème de connexion au fond de carte",
     "basemapIssueDescription": "Vos couches de données restent modifiables. Vérifiez le service de fond de carte ou choisissez un autre fond si l'arrière-plan reste vide.",
     "clusterFallback": "{{name}} s'affiche sous forme de points : {{reason}}",

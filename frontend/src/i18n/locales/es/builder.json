@@ -715,6 +715,7 @@
     "loading": "Cargando mapa...",
     "authError": "La sesión caducó. Recarga la página para restaurar el acceso a los mosaicos.",
     "mapError": "Error de mosaicos del mapa. Es posible que algunas capas no se rendericen correctamente.",
+    "mapErrorNamed": "No se pudo cargar {{name}}. Es posible que la capa no se renderice correctamente.",
     "basemapIssueTitle": "Problema de conexión del mapa base",
     "basemapIssueDescription": "Tus capas de datos siguen siendo editables. Revisa el servicio del mapa base o elige otro mapa base si el fondo sigue en blanco.",
     "clusterFallback": "{{name}} se renderiza como puntos: {{reason}}",
