@@ -134,6 +134,42 @@ describe('LayerStyleEditor - SP-05 pending preview banner gating', () => {
   });
 });
 
+describe('LayerStyleEditor - B-010 Advanced JSON strips builder-private keys', () => {
+  it('hides _-prefixed + legacy builder keys from the Advanced Paint JSON textarea', async () => {
+    const user = userEvent.setup();
+    render(
+      <LayerStyleEditor
+        layer={makeLayer({
+          dataset_geometry_type: 'Polygon',
+          paint: {
+            'fill-color': '#123456',
+            'fill-opacity': 0.4,
+            '_outline-color': '#abcdef',
+            'outline-color': '#000000',
+            '_height_column': 'h',
+          },
+        })}
+        onPaintChange={vi.fn()}
+        onOpacityChange={vi.fn()}
+        onStyleConfigChange={vi.fn()}
+        onLayoutChange={vi.fn()}
+      />,
+    );
+
+    // Expand Advanced JSON, then open the Paint block to reveal the textarea.
+    await user.click(screen.getByRole('button', { name: /Advanced JSON/i }));
+    await user.click(screen.getByRole('button', { name: 'Paint' }));
+
+    const textarea = screen.getByRole('textbox') as HTMLTextAreaElement;
+    // Spec-valid key stays
+    expect(textarea.value).toContain('fill-color');
+    // Builder-private keys are stripped (would otherwise fail validateStyleMin on Apply)
+    expect(textarea.value).not.toContain('_outline-color');
+    expect(textarea.value).not.toContain('outline-color');
+    expect(textarea.value).not.toContain('_height_column');
+  });
+});
+
 describe('hasUnsavedStyleChanges helper (SP-05)', () => {
   it('returns false when savedLayer is undefined', () => {
     const draft = makeLayer({ paint: { 'fill-color': '#abc' } });
