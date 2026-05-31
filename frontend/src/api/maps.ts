@@ -61,7 +61,7 @@ export async function getMap(id: string): Promise<MapResponse> {
     }
   }
   // Apply map-level normalization: guarantees basemap_style is a non-empty string,
-  // show_basemap_labels is a boolean, widgets is string[]|null. Composes with
+  // show_basemap_labels is a boolean, plugins is string[]|null. Composes with
   // the per-layer normalizeLayerStyleState loop above; does NOT reassign resp.layers
   // because the loop already mutated those elements in place.
   const mapNorm = normalizeSavedMap(resp);
@@ -69,7 +69,7 @@ export async function getMap(id: string): Promise<MapResponse> {
   resp.show_basemap_labels = mapNorm.show_basemap_labels;
   resp.basemap_config = mapNorm.basemap_config;
   resp.terrain_config = mapNorm.terrain_config;
-  resp.widgets = mapNorm.widgets;
+  resp.plugins = mapNorm.plugins;
   return resp;
 }
 
@@ -210,8 +210,8 @@ export async function getSharedMap(token: string, apiKey?: string): Promise<Shar
   resp.show_basemap_labels = mapNorm.show_basemap_labels;
   resp.basemap_config = mapNorm.basemap_config;
   resp.terrain_config = mapNorm.terrain_config;
-  // widgets: SharedMapResponse has no widgets field; normalization result is intentionally
-  // discarded. When SharedMapResponse gains widgets, add: resp.widgets = mapNorm.widgets;
+  // plugins: SharedMapResponse has no plugins field; normalization result is intentionally
+  // discarded. When SharedMapResponse gains plugins, add: resp.plugins = mapNorm.plugins;
   return resp;
 }
 

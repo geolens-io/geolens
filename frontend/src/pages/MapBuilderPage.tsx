@@ -71,7 +71,7 @@ import { LazyLoadErrorBoundary } from '@/components/error/LazyLoadErrorBoundary'
 import { useMap, useAddLayer, useRemoveLayer } from '@/hooks/use-maps';
 import { useAIAvailability } from '@/hooks/use-ai-availability';
 import { useDocumentTitle } from '@/hooks/use-document-title';
-import { useEnabledWidgets } from '@/hooks/use-settings';
+import { useEnabledPlugins } from '@/hooks/use-settings';
 import { useBuilderLayout } from '@/components/builder/hooks/use-builder-layout';
 import { useBuilderDialogs } from '@/components/builder/hooks/use-builder-dialogs';
 import { useBuilderEditorScene } from '@/components/builder/hooks/use-builder-editor-scene';
@@ -104,7 +104,7 @@ export function MapBuilderPage() {
   const { id } = useParams<{ id: string }>();
   const { t } = useTranslation('builder');
   const { data: mapData, isLoading, error } = useMap(id, { refetchOnWindowFocus: false });
-  const enabledPluginsQuery = useEnabledWidgets();
+  const enabledPluginsQuery = useEnabledPlugins();
   const enabledPluginIds = useMemo(
     () => enabledPluginsQuery.data ?? (enabledPluginsQuery.isLoading ? [] : null),
     [enabledPluginsQuery.data, enabledPluginsQuery.isLoading],
@@ -248,9 +248,9 @@ export function MapBuilderPage() {
   // `[]` means no plugins, and unknown or admin-disabled IDs are ignored.
   useEffect(() => {
     if (!mapData) return;
-    const nextPlugins = mapData.widgets == null
+    const nextPlugins = mapData.plugins == null
       ? getDefaultPluginIds(enabledPluginIds)
-      : resolveAvailablePluginIds(mapData.widgets, enabledPluginIds);
+      : resolveAvailablePluginIds(mapData.plugins, enabledPluginIds);
     usePluginStore.getState().replace(nextPlugins);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- see Phase 276 CODE-12 block comment above
   }, [savedPluginKey, enabledPluginKey]);

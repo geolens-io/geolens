@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { usePluginStore } from '@/stores/map-plugin-store';
-import { useEnabledWidgets } from '@/hooks/use-settings';
+import { useEnabledPlugins } from '@/hooks/use-settings';
 import { getPlugins } from './registry';
 import { resolveAvailablePluginIds } from './plugin-availability';
 import { PluginPanel } from './PluginPanel';
@@ -24,7 +24,7 @@ const ANCHORS = Object.keys(ANCHOR_POSITIONS) as PluginAnchor[];
 /** Partition active+enabled plugins by placement mode. Call once in the parent. */
 export function usePartitionedPlugins() {
   const activePlugins = usePluginStore((s) => s.activePlugins);
-  const enabledPluginsQuery = useEnabledWidgets();
+  const enabledPluginsQuery = useEnabledPlugins();
   const enabledPluginIds = useMemo(
     () => enabledPluginsQuery.data ?? (enabledPluginsQuery.isLoading ? [] : null),
     [enabledPluginsQuery.data, enabledPluginsQuery.isLoading],

@@ -9,7 +9,7 @@ import type { Map as MaplibreMap } from 'maplibre-gl';
 import { getSourceIdForLayer } from '@/components/builder/map-sync';
 import { ApiError } from '@/api/client';
 import { useUpdateMap, useDuplicateMap, usePatchMapLayers } from '@/hooks/use-maps';
-import { useEnabledWidgets } from '@/hooks/use-settings';
+import { useEnabledPlugins } from '@/hooks/use-settings';
 import { useEdition } from '@/hooks/use-edition';
 import { getLayerColors } from '@/components/map/layer-icons';
 import { uploadThumbnail, uploadOgImage } from '@/api/maps';
@@ -243,7 +243,7 @@ function resolvePluginsPayload(
   );
   const cached = queryClient.getQueryData<MapResponse>(queryKeys.maps.detail(mapId));
   if (samePluginIds(active, getDefaultPluginIds(enabledPluginIds))) {
-    return cached?.widgets == null ? undefined : null;
+    return cached?.plugins == null ? undefined : null;
   }
   return active;
 }
@@ -419,7 +419,7 @@ export function useBuilderSave(state: SaveState) {
   const duplicateMutation = useDuplicateMap();
   const [lastSaveFailed, setLastSaveFailed] = useState(false);
   const { isEnterprise } = useEdition();
-  const enabledPluginsQuery = useEnabledWidgets();
+  const enabledPluginsQuery = useEnabledPlugins();
   const enabledPluginIds = useMemo(
     () => enabledPluginsQuery.data ?? (enabledPluginsQuery.isLoading ? [] : null),
     [enabledPluginsQuery.data, enabledPluginsQuery.isLoading],
@@ -491,7 +491,7 @@ export function useBuilderSave(state: SaveState) {
       zoom: zoom ?? null,
       bearing: bearing ?? 0,
       pitch: pitch ?? 0,
-      widgets: resolvePluginsPayload(id, queryClient, enabledPluginIds),
+      plugins: resolvePluginsPayload(id, queryClient, enabledPluginIds),
     };
     const persistableLayers = prepareLayersForPersistence(localLayers, groupMeta);
     const fullReplacementPayload: MapUpdateRequest = {

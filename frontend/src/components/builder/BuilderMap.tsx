@@ -177,7 +177,7 @@ export const BuilderMap = memo(function BuilderMap({
   const { data: basemaps } = useBasemaps();
   const { data: mapDefaults } = useMapDefaults();
   const { data: tileConfig } = useTileConfig();
-  const enabledPluginsQuery = useEnabledWidgets();
+  const enabledPluginsQuery = useEnabledPlugins();
   const enabledPluginIds = useMemo(
     () => enabledPluginsQuery.data ?? (enabledPluginsQuery.isLoading ? [] : null),
     [enabledPluginsQuery.data, enabledPluginsQuery.isLoading],

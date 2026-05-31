@@ -30,7 +30,7 @@ export type MapStackRole =
   | 'data-layer'
   | 'data-labels'
   | 'interaction-popups'
-  | 'interaction-widgets';
+  | 'interaction-plugins';
 
 export type MapStackBadgeTone = 'neutral' | 'muted' | 'info' | 'success' | 'warning' | 'danger';
 
@@ -90,7 +90,7 @@ export interface MapStackEntryMetadata {
     config?: MapBasemapConfig | null;
     futureControl: boolean;
   };
-  widgets?: string[];
+  plugins?: string[];
 }
 
 export interface MapStackEntry {
@@ -122,7 +122,7 @@ export interface MapStackMapInput {
   basemap_config?: MapBasemapConfig | null;
   terrain_config?: MapTerrainConfig | null;
   layers?: MapLayerResponse[];
-  widgets?: string[] | null;
+  plugins?: string[] | null;
 }
 
 interface IndexedLayer {
@@ -157,7 +157,7 @@ const GROUP_TITLES: Record<MapStackGroupId, { title: string; description: string
   },
   interactions: {
     title: 'Interactions',
-    description: 'Popup and widget affordances surfaced with the map.',
+    description: 'Popup and plugin affordances surfaced with the map.',
   },
 };
 

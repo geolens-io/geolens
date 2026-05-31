@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Hand, Ruler, Layers, FileJson } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { usePluginStore } from '@/stores/map-plugin-store';
-import { useEnabledWidgets } from '@/hooks/use-settings';
+import { useEnabledPlugins } from '@/hooks/use-settings';
 import { getEnabledPluginDefinitions } from '@/components/map-plugins';
 import {
   Tooltip,
@@ -14,7 +14,7 @@ import {
 
 /**
  * Floating toolbar centered at the top of the map canvas.
- * Grouped into semantic sections: navigation | widgets.
+ * Grouped into semantic sections: navigation | plugins.
  */
 interface MapToolbarProps {
   onStyleJsonClick?: () => void;
@@ -25,7 +25,7 @@ export function MapToolbar({ onStyleJsonClick }: MapToolbarProps) {
   const activePlugins = usePluginStore((s) => s.activePlugins);
   const toggle = usePluginStore((s) => s.toggle);
   const close = usePluginStore((s) => s.close);
-  const enabledPluginsQuery = useEnabledWidgets();
+  const enabledPluginsQuery = useEnabledPlugins();
   const enabledPluginIds = useMemo(
     () => enabledPluginsQuery.data ?? (enabledPluginsQuery.isLoading ? [] : null),
     [enabledPluginsQuery.data, enabledPluginsQuery.isLoading],
@@ -103,7 +103,7 @@ export function MapToolbar({ onStyleJsonClick }: MapToolbarProps) {
               {/* Divider */}
               <div className="w-px h-4 bg-border mx-0.5" />
 
-              {/* Widget toggles (Legend) */}
+              {/* Plugin toggles (Legend) */}
               <Tooltip>
                 <TooltipTrigger asChild>
                   <button
