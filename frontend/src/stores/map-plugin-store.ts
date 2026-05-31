@@ -1,32 +1,32 @@
 import { create } from 'zustand';
 
-interface WidgetState {
-  activeWidgets: Set<string>;
-  toggle: (id: string) => void;
+/**
+ * Map plugin store: tracks which plugins are currently open/active on the map.
+ */
+interface PluginState {
+  activePlugins: Set<string>;
   open: (id: string) => void;
   close: (id: string) => void;
-  replace: (ids: Iterable<string>) => void;
+  toggle: (id: string) => void;
+  isOpen: (id: string) => boolean;
 }
 
-export const useWidgetStore = create<WidgetState>()((set) => ({
-  activeWidgets: new Set<string>(),
-  toggle: (id) =>
-    set((s) => {
-      const next = new Set(s.activeWidgets);
-      if (next.has(id)) { next.delete(id); } else { next.add(id); }
-      return { activeWidgets: next };
-    }),
+export const usePluginStore = create<PluginState>((set, get) => ({
+  activePlugins: new Set<string>(),
   open: (id) =>
-    set((s) => {
-      const next = new Set(s.activeWidgets);
-      next.add(id);
-      return { activeWidgets: next };
-    }),
+    set((s) => ({ activePlugins: new Set(s.activePlugins).add(id) })),
   close: (id) =>
     set((s) => {
-      const next = new Set(s.activeWidgets);
+      const next = new Set(s.activePlugins);
       next.delete(id);
-      return { activeWidgets: next };
+      return { activePlugins: next };
     }),
-  replace: (ids) => set({ activeWidgets: new Set(ids) }),
+  toggle: (id) =>
+    set((s) => {
+      const next = new Set(s.activePlugins);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return { activePlugins: next };
+    }),
+  isOpen: (id) => get().activePlugins.has(id),
 }));

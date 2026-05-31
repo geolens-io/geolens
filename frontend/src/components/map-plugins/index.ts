@@ -1,14 +1,18 @@
-// Side-effect: register all built-in widgets at import time
-import './register-widgets';
+import { PluginHost, usePartitionedPlugins } from './PluginHost';
+import './register-plugins';
+import { PluginPanel } from './PluginPanel';
+import { PluginErrorBoundary } from './PluginErrorBoundary';
+import { PluginDefinition } from './registry';
+import { PluginContext, PluginAnchor, PluginPlacement } from './types';
 
-export type { WidgetAnchor, WidgetPlacement, WidgetContext, WidgetDefinition } from './types';
-export { registerWidget, getWidgets, getWidget } from './registry';
-export { WidgetHost, WidgetSidebar, usePartitionedWidgets } from './WidgetHost';
-export { WidgetPanel } from './WidgetPanel';
+export { PluginHost, usePartitionedPlugins, PluginPanel, PluginErrorBoundary };
+export { PluginDefinition };
+export { PluginContext, PluginAnchor, PluginPlacement };
 export {
-  getDefaultWidgetIds,
-  getEnabledWidgetDefinitions,
-  isWidgetIdAvailable,
-  resolveAvailableWidgetIds,
-  sameWidgetIds,
-} from './widget-availability';
+  getEnabledPluginDefinitions,
+  isPluginIdAvailable,
+  resolveAvailablePluginIds,
+  getDefaultPluginIds,
+  samePluginIds,
+} from './plugin-availability';
+export { getPlugins, getPlugin, registerPlugin } from './registry';

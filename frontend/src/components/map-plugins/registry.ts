@@ -1,20 +1,26 @@
-import type { WidgetDefinition } from './types';
+import type { PluginDefinition } from './types';
 
-const registry = new Map<string, WidgetDefinition>();
-let cache: WidgetDefinition[] | null = null;
+export type { PluginDefinition };
 
-export function registerWidget(def: WidgetDefinition): void {
-  if (registry.has(def.id)) {
-    if (import.meta.env.DEV) console.warn(`Widget "${def.id}" already registered, overwriting.`);
-  }
+const registry = new Map<string, PluginDefinition>();
+
+/**
+ * Register a plugin definition. Idempotent by id (last registration wins).
+ */
+export function registerPlugin(def: PluginDefinition) {
   registry.set(def.id, def);
-  cache = null;
 }
 
-export function getWidgets(): WidgetDefinition[] {
-  return (cache ??= Array.from(registry.values()));
+/**
+ * Get all registered plugin definitions in registration order.
+ */
+export function getPlugins(): PluginDefinition[] {
+  return Array.from(registry.values());
 }
 
-export function getWidget(id: string): WidgetDefinition | undefined {
+/**
+ * Get a single plugin definition by id, or undefined.
+ */
+export function getPlugin(id: string): PluginDefinition | undefined {
   return registry.get(id);
 }

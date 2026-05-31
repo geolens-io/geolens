@@ -1,29 +1,23 @@
-import type React from 'react';
-import type { Map as MaplibreMap } from 'maplibre-gl';
-import type { MapLayerResponse } from '@/types/api';
+/**
+ * Plugin platform types.
+ *
+ * A plugin is a self-contained UI surface rendered over the map (e.g. measurement,
+ * legend). Plugins declare an anchor + placement and receive a typed context.
+ */
+export type PluginAnchor = 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
 
-/** Anchor positions for floating widgets */
-export type WidgetAnchor = 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
+export type PluginPlacement = 'inline' | 'panel';
 
-/** Placement configuration -- fixed at registration time */
-export type WidgetPlacement =
-  | { mode: 'floating'; anchor: WidgetAnchor }
-  | { mode: 'sidebar' };  // sidebar widgets render in the builder's left sidebar
-
-/** Context every widget receives */
-export interface WidgetContext {
-  mapInstance: MaplibreMap | null;
-  layers: MapLayerResponse[];
+export interface PluginContext {
+  /** Stable map id the plugin is bound to. */
   mapId: string;
+  /** i18n example key: 'widgets.measurement.label' */
+  mapId2?: never;
 }
 
-/** A registered widget */
-export interface WidgetDefinition {
+export interface PluginDefinition {
   id: string;
-  /** i18n key under the 'builder' namespace, e.g. 'widgets.measurement.label' */
-  labelKey: string;
-  icon: React.ComponentType<{ className?: string }>;
-  placement: WidgetPlacement;
-  component: React.ComponentType<{ ctx: WidgetContext }>;
-  defaultVisible?: boolean;
+  anchor: PluginAnchor;
+  placement: PluginPlacement;
+  component: React.ComponentType<{ context: PluginContext }>;
 }

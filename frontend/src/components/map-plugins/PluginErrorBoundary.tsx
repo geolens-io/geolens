@@ -1,10 +1,8 @@
-import { Component, type ErrorInfo, type ReactNode } from 'react';
-import i18n from '@/i18n/i18n';
-import { logger } from '@/lib/logger';
+import { Component, type ReactNode } from 'react';
+import type { TFunction } from 'i18next';
 
-/** Isolates widget crashes so one broken widget doesn't take down the host */
-export class WidgetErrorBoundary extends Component<
-  { widgetId: string; children: ReactNode },
+class PluginErrorBoundary extends Component<
+  { t: TFunction; children: ReactNode },
   { hasError: boolean }
 > {
   state = { hasError: false };
@@ -13,18 +11,21 @@ export class WidgetErrorBoundary extends Component<
     return { hasError: true };
   }
 
-  componentDidCatch(error: Error, info: ErrorInfo) {
-    logger.error(`Widget "${this.props.widgetId}" crashed:`, error, info.componentStack);
+  componentDidCatch(error: unknown) {
+    // eslint-disable-next-line no-console
+    console.error('Plugin error:', error);
   }
 
   render() {
     if (this.state.hasError) {
       return (
-        <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-2.5 text-xs text-destructive">
-          {i18n.t('builder:widgets.widgetError')}
+        <div role="alert" className="plugin-error">
+          {this.props.t('widgets.widgetError')}
         </div>
       );
     }
     return this.props.children;
   }
 }
+
+export { PluginErrorBoundary };
