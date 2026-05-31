@@ -1244,9 +1244,17 @@ export type ChatAction = {
      */
     clear_paint?: Array<string> | null;
     /**
+     * Columns
+     */
+    columns?: Array<string> | null;
+    /**
      * Dataset Id
      */
     dataset_id?: string | null;
+    /**
+     * Dataset Name
+     */
+    dataset_name?: string | null;
     /**
      * Expression
      */
@@ -1277,11 +1285,23 @@ export type ChatAction = {
      */
     replace_paint?: boolean | null;
     /**
+     * Row Count
+     */
+    row_count?: number | null;
+    /**
+     * Rows
+     */
+    rows?: Array<Array<unknown>> | null;
+    /**
      * Style Config
      */
     style_config?: {
         [key: string]: unknown;
     } | null;
+    /**
+     * Truncated
+     */
+    truncated?: boolean | null;
     /**
      * Type
      */

@@ -29,7 +29,9 @@ class ChatAction:
         type_ (ChatActionType):
         bbox (list[float] | None | Unset):
         clear_paint (list[str] | None | Unset):
+        columns (list[str] | None | Unset):
         dataset_id (None | str | Unset):
+        dataset_name (None | str | Unset):
         expression (list[Any] | None | Unset):
         geojson (GeoJSONFeatureCollection | None | Unset):
         label_config (ChatActionLabelConfigType0 | None | Unset):
@@ -37,14 +39,19 @@ class ChatAction:
         opacity (float | None | Unset):
         paint (ChatActionPaintType0 | None | Unset):
         replace_paint (bool | None | Unset):
+        row_count (int | None | Unset):
+        rows (list[list[Any]] | None | Unset):
         style_config (ChatActionStyleConfigType0 | None | Unset):
+        truncated (bool | None | Unset):
         visible (bool | None | Unset):
     """
 
     type_: ChatActionType
     bbox: list[float] | None | Unset = UNSET
     clear_paint: list[str] | None | Unset = UNSET
+    columns: list[str] | None | Unset = UNSET
     dataset_id: None | str | Unset = UNSET
+    dataset_name: None | str | Unset = UNSET
     expression: list[Any] | None | Unset = UNSET
     geojson: GeoJSONFeatureCollection | None | Unset = UNSET
     label_config: ChatActionLabelConfigType0 | None | Unset = UNSET
@@ -52,7 +59,10 @@ class ChatAction:
     opacity: float | None | Unset = UNSET
     paint: ChatActionPaintType0 | None | Unset = UNSET
     replace_paint: bool | None | Unset = UNSET
+    row_count: int | None | Unset = UNSET
+    rows: list[list[Any]] | None | Unset = UNSET
     style_config: ChatActionStyleConfigType0 | None | Unset = UNSET
+    truncated: bool | None | Unset = UNSET
     visible: bool | None | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
@@ -82,11 +92,26 @@ class ChatAction:
         else:
             clear_paint = self.clear_paint
 
+        columns: list[str] | None | Unset
+        if isinstance(self.columns, Unset):
+            columns = UNSET
+        elif isinstance(self.columns, list):
+            columns = self.columns
+
+        else:
+            columns = self.columns
+
         dataset_id: None | str | Unset
         if isinstance(self.dataset_id, Unset):
             dataset_id = UNSET
         else:
             dataset_id = self.dataset_id
+
+        dataset_name: None | str | Unset
+        if isinstance(self.dataset_name, Unset):
+            dataset_name = UNSET
+        else:
+            dataset_name = self.dataset_name
 
         expression: list[Any] | None | Unset
         if isinstance(self.expression, Unset):
@@ -139,6 +164,25 @@ class ChatAction:
         else:
             replace_paint = self.replace_paint
 
+        row_count: int | None | Unset
+        if isinstance(self.row_count, Unset):
+            row_count = UNSET
+        else:
+            row_count = self.row_count
+
+        rows: list[list[Any]] | None | Unset
+        if isinstance(self.rows, Unset):
+            rows = UNSET
+        elif isinstance(self.rows, list):
+            rows = []
+            for rows_type_0_item_data in self.rows:
+                rows_type_0_item = rows_type_0_item_data
+
+                rows.append(rows_type_0_item)
+
+        else:
+            rows = self.rows
+
         style_config: dict[str, Any] | None | Unset
         if isinstance(self.style_config, Unset):
             style_config = UNSET
@@ -146,6 +190,12 @@ class ChatAction:
             style_config = self.style_config.to_dict()
         else:
             style_config = self.style_config
+
+        truncated: bool | None | Unset
+        if isinstance(self.truncated, Unset):
+            truncated = UNSET
+        else:
+            truncated = self.truncated
 
         visible: bool | None | Unset
         if isinstance(self.visible, Unset):
@@ -164,8 +214,12 @@ class ChatAction:
             field_dict["bbox"] = bbox
         if clear_paint is not UNSET:
             field_dict["clear_paint"] = clear_paint
+        if columns is not UNSET:
+            field_dict["columns"] = columns
         if dataset_id is not UNSET:
             field_dict["dataset_id"] = dataset_id
+        if dataset_name is not UNSET:
+            field_dict["dataset_name"] = dataset_name
         if expression is not UNSET:
             field_dict["expression"] = expression
         if geojson is not UNSET:
@@ -180,8 +234,14 @@ class ChatAction:
             field_dict["paint"] = paint
         if replace_paint is not UNSET:
             field_dict["replace_paint"] = replace_paint
+        if row_count is not UNSET:
+            field_dict["row_count"] = row_count
+        if rows is not UNSET:
+            field_dict["rows"] = rows
         if style_config is not UNSET:
             field_dict["style_config"] = style_config
+        if truncated is not UNSET:
+            field_dict["truncated"] = truncated
         if visible is not UNSET:
             field_dict["visible"] = visible
 
@@ -231,6 +291,23 @@ class ChatAction:
 
         clear_paint = _parse_clear_paint(d.pop("clear_paint", UNSET))
 
+        def _parse_columns(data: object) -> list[str] | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, list):
+                    raise TypeError()
+                columns_type_0 = cast(list[str], data)
+
+                return columns_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(list[str] | None | Unset, data)
+
+        columns = _parse_columns(d.pop("columns", UNSET))
+
         def _parse_dataset_id(data: object) -> None | str | Unset:
             if data is None:
                 return data
@@ -239,6 +316,15 @@ class ChatAction:
             return cast(None | str | Unset, data)
 
         dataset_id = _parse_dataset_id(d.pop("dataset_id", UNSET))
+
+        def _parse_dataset_name(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        dataset_name = _parse_dataset_name(d.pop("dataset_name", UNSET))
 
         def _parse_expression(data: object) -> list[Any] | None | Unset:
             if data is None:
@@ -337,6 +423,37 @@ class ChatAction:
 
         replace_paint = _parse_replace_paint(d.pop("replace_paint", UNSET))
 
+        def _parse_row_count(data: object) -> int | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(int | None | Unset, data)
+
+        row_count = _parse_row_count(d.pop("row_count", UNSET))
+
+        def _parse_rows(data: object) -> list[list[Any]] | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, list):
+                    raise TypeError()
+                rows_type_0 = []
+                _rows_type_0 = data
+                for rows_type_0_item_data in _rows_type_0:
+                    rows_type_0_item = cast(list[Any], rows_type_0_item_data)
+
+                    rows_type_0.append(rows_type_0_item)
+
+                return rows_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(list[list[Any]] | None | Unset, data)
+
+        rows = _parse_rows(d.pop("rows", UNSET))
+
         def _parse_style_config(
             data: object,
         ) -> ChatActionStyleConfigType0 | None | Unset:
@@ -356,6 +473,15 @@ class ChatAction:
 
         style_config = _parse_style_config(d.pop("style_config", UNSET))
 
+        def _parse_truncated(data: object) -> bool | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(bool | None | Unset, data)
+
+        truncated = _parse_truncated(d.pop("truncated", UNSET))
+
         def _parse_visible(data: object) -> bool | None | Unset:
             if data is None:
                 return data
@@ -369,7 +495,9 @@ class ChatAction:
             type_=type_,
             bbox=bbox,
             clear_paint=clear_paint,
+            columns=columns,
             dataset_id=dataset_id,
+            dataset_name=dataset_name,
             expression=expression,
             geojson=geojson,
             label_config=label_config,
@@ -377,7 +505,10 @@ class ChatAction:
             opacity=opacity,
             paint=paint,
             replace_paint=replace_paint,
+            row_count=row_count,
+            rows=rows,
             style_config=style_config,
+            truncated=truncated,
             visible=visible,
         )
 
