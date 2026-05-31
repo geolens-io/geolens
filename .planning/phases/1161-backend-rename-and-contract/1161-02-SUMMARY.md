@@ -14,7 +14,7 @@ provides:
   - Settings validate_enabled_plugins function + SETTING_VALIDATORS["enabled_plugins"] key (validator logic preserved)
   - Public settings endpoint renamed /settings/enabled-widgets/ -> /settings/enabled-plugins/ (breaking)
   - Regenerated backend/openapi.json + Python/TypeScript SDKs reflecting the plugins contract
-  - Backend-wide grep-clean (BE-RENAME-07): zero widgets/enabled_widgets container refs in app/ (rename migration + its test legitimately reference both names)
+  - Backend-wide grep-clean (part of BE-RENAME-06 scope): zero widgets/enabled_widgets container refs in app/ (rename migration + its test legitimately reference both names)
 affects: [1162-frontend-rename, 1163, 1164-qa, getgeolens.com docs fetch-openapi resync]
 
 # Tech tracking
@@ -40,14 +40,13 @@ key-files:
     - sdks/typescript/src/client/** (types.gen.ts, sdk.gen.ts, index.ts)
 
 key-decisions:
-  - "Closed BE-RENAME-07 (backend grep-clean) here, not just 04/05/06 — Wave 1's SUMMARY explicitly deferred the grep-clean confirmation to this plan, and the work is now complete."
-  - "The 23 residual `widget` grep matches are legitimate and intentionally retained: the 0025 rename migration + its round-trip test must reference both old (widgets/enabled_widgets) and new (plugins/enabled_plugins) names, and 0001_baseline.py is deployed/untouched. app/ source is 100% widget-free."
+  - "BE-RENAME-06 includes the backend grep-clean: zero widget container refs remain in runtime app/ source. The 23 residual `widget` grep matches are legitimate and intentionally retained: the 0025 rename migration + its round-trip test must reference both old (widgets/enabled_widgets) and new (plugins/enabled_plugins) names, and 0001_baseline.py is deployed/untouched."
   - "Removed pre-existing `committed openapi.json` widgets (12 refs) by regeneration only — openapi.json was never hand-edited."
 
 patterns-established:
   - "When a plan's <interfaces> line numbers drift from the live code, trust the live code (re-grep before each edit)."
 
-requirements-completed: [BE-RENAME-04, BE-RENAME-05, BE-RENAME-06, BE-RENAME-07]
+requirements-completed: [BE-RENAME-04, BE-RENAME-05, BE-RENAME-06]
 
 # Metrics
 duration: 35min
@@ -56,7 +55,7 @@ completed: 2026-05-31
 
 # Phase 1161 Plan 02: Backend API Contract + Consumer Rename (widgets → plugins) Summary
 
-**The entire backend now persists, serves, validates, and tests the plugin platform under the `plugins`/`enabled_plugins` vocabulary; `app.api.main` imports cleanly again, and the committed OpenAPI + SDKs match (a hard breaking cut with no `widgets` alias).**
+**The entire backend now persists, serves, validates, and tests the plugin platform under the `plugins`/`enabled_plugins` vocabulary; `app.api.main` imports cleanly again, and the committed OpenAPI + SDKs match (a hard breaking cut with no `widgets` alias).** Closes BE-RENAME-04/05/06 (including the backend grep-clean, which is part of BE-RENAME-06's scope).
 
 ## Performance
 
@@ -73,7 +72,7 @@ completed: 2026-05-31
 - Renamed the public config endpoint `/settings/enabled-widgets/` → `/settings/enabled-plugins/` (dual-shape) + `ENABLED_PLUGINS.get(db)` consumer (breaking).
 - Swept both backend test files (`test_maps.py`, `test_persistent_config.py`) to plugin vocabulary; `measurement`/`legend` ID values preserved (BE-RENAME-06).
 - Regenerated `backend/openapi.json` + Python/TS SDKs; `make openapi-check` and `make sdks-check` both exit 0 (QA-01 contract gates green).
-- Confirmed backend-wide grep-clean: `app/` is 100% free of widget container refs (BE-RENAME-07).
+- Confirmed backend-wide grep-clean: `app/` is 100% free of widget container refs (part of BE-RENAME-06).
 
 ## Task Commits
 
@@ -108,7 +107,7 @@ completed: 2026-05-31
 - `sdks/python/**`, `sdks/typescript/**` — regenerated SDK models/endpoint for the plugins contract.
 
 ## Decisions Made
-- **Closed BE-RENAME-07 in addition to 04/05/06.** Wave 1's SUMMARY deferred the backend grep-clean confirmation to this plan; the grep-clean is now verified, so 07 is checked. (My plan frontmatter listed only 04/05/06; 07 is a same-phase carry-forward that this plan's work satisfies.)
+- **Backend grep-clean is part of BE-RENAME-06.** REQUIREMENTS.md defines exactly 6 backend reqs (01..06; there is no BE-RENAME-07). BE-RENAME-06's scope ("backend tests updated and green; OpenAPI regenerated") is satisfied, and the grep-clean confirmation (no widget container refs in `app/`) is verified as part of it.
 - **Did NOT touch frontend.** It still calls `/settings/enabled-widgets/` and uses `widgets`; that breakage is the EXPECTED hard-cut behavior until phase 1162.
 - **Did NOT edit the deployed `0001_baseline.py` or the `0025` migration / its test** to "clean up" their `widget` references — those are correct (the migration performs the rename; the test asserts reversibility).
 

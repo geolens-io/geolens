@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v1036
 milestone_name: milestone
-status: "executing — phase 1161 wave 1 complete (plan 1161-01); wave 2 next (1161-02)"
-last_updated: "2026-05-31T00:05:34.360Z"
+status: wave 1 shipped — migration 0025 + Map.plugins/ENABLED_PLUGINS + round-trip test (BE-RENAME-01/02/03)
+last_updated: "2026-05-31T00:59:52.218Z"
 progress:
   total_phases: 5
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 2
-  completed_plans: 1
-  percent: 50
+  completed_plans: 2
+  percent: 20
 ---
 
 # Project State
@@ -26,10 +26,10 @@ milestone: v1036
 status: executing
 current_phase: 1161
 total_phases: 5
-plans_complete: 1
+plans_complete: 2
 plans_total: 2
-progress_pct: 50
-current_focus: "Phase 1161 wave 2 — Plan 1161-02 (API contract + settings/router.py consumer rename)"
+progress_pct: 100
+current_focus: "Phase 1161 complete — backend widget→plugin rename done (BE-RENAME-01..06); phase 1162 (frontend rename) next"
 last_shipped: v1035
 ```
 
@@ -49,7 +49,7 @@ last_shipped: v1035
 **Plan:** 1161-01 complete (wave 1); 1161-02 next (wave 2)
 **Status:** wave 1 shipped — migration 0025 + Map.plugins/ENABLED_PLUGINS + round-trip test (BE-RENAME-01/02/03)
 
-Progress: [█████░░░░░] 50% (1/2 plans in phase 1161)
+Progress: [██████████] 100%
 
 ---
 
@@ -64,6 +64,7 @@ Progress: [█████░░░░░] 50% (1/2 plans in phase 1161)
 | Phase-Plan | Duration | Tasks | Files | Completed |
 |------------|----------|-------|-------|-----------|
 | 1161-01 | 75m | 3 | 4 | 2026-05-30 |
+| 1161-02 | 35m | 3 | 22 | 2026-05-31 |
 
 ---
 
@@ -93,6 +94,8 @@ Progress: [█████░░░░░] 50% (1/2 plans in phase 1161)
 
 ### Todos / Carry-forward
 
+- 1161-02: 23 residual `widget` grep matches in backend are legitimate (0025 rename migration + its round-trip test must name both vocabularies; 0001 baseline is deployed/untouched). Runtime `app/` is 100% widget-free. No action needed.
+- 1161-02 deviation (resolved): a self-inflicted `git show <fake-sha>` redirect briefly clobbered `settings/router.py` to 0 lines in the working tree; recovered via `git checkout HEAD -- <file>`. No git history / commit impact. See 1161-02-SUMMARY Deviations.
 - (none from v1035)
 
 ### Blockers
@@ -103,7 +106,7 @@ Progress: [█████░░░░░] 50% (1/2 plans in phase 1161)
 
 ## Session Continuity
 
-**Last session:** Completed plan 1161-01 (wave 1) — migration 0025, round-trip test, Map.plugins/ENABLED_PLUGINS.
-**Next action:** Execute plan 1161-02 (wave 2): Map/Settings API contract + rename the `settings/router.py` `ENABLED_WIDGETS` consumer (restores `import app.api.main`), then `make openapi`.
+**Last session:** Completed plan 1161-02 (wave 2) — Map/Settings API contract + maps consumers + settings validator/router/endpoint renamed to plugins; restored `import app.api.main`; backend tests green (193 passed); regenerated OpenAPI + SDKs (`make openapi-check`/`sdks-check` clean). BE-RENAME-04/05/06 closed → phase 1161 complete (2/2 plans).
+**Next action:** Execute phase 1162 (frontend rename): `map-widgets/`→`map-plugins/`, `Widget*`→`Plugin*`, `frontend/src/types/api.ts` to `plugins`/`enabled_plugins`, then `npm run typecheck` + vitest. Frontend is intentionally broken until this phase (hard cut).
 
 ---

@@ -13,7 +13,7 @@ Rename the map "widget" platform to "plugin" across the entire stack — DB, API
 
 ## Phases
 
-- [ ] **Phase 1161: Backend Rename & Contract** - Rename `maps.widgets`→`maps.plugins` (column, model, schemas, settings, tests) with a reversible migration; refresh OpenAPI + SDK.
+- [x] **Phase 1161: Backend Rename & Contract** - Rename `maps.widgets`→`maps.plugins` (column, model, schemas, settings, tests) with a reversible migration; refresh OpenAPI + SDK.
 - [ ] **Phase 1162: Frontend Rename** - Rename `map-widgets/`→`map-plugins/` and all `Widget*`→`Plugin*` identifiers/API types; typecheck + vitest green.
 - [ ] **Phase 1163: i18n Key Rename** - Rename ~64 `widget*` i18n keys → `plugin*` across en/es/fr/de with full key parity.
 - [ ] **Phase 1164: Tooling, Docs & Audit Fixes** - Rename slash command, skills, and e2e specs; fold in 3 deferred audit fixes; write plugin-development guide + CHANGELOG `[2.0.0]`.
@@ -33,7 +33,7 @@ Rename the map "widget" platform to "plugin" across the entire stack — DB, API
   5. `make openapi` regenerates a committed `backend/openapi.json` exposing the `plugins`/`enabled_plugins` fields (`make openapi-check` clean), and the regenerated TS/Python SDK reflects it.
 **Plans**: 2 plans
   - [x] 1161-01-PLAN.md — Reversible `0025` migration (rename `catalog.maps.widgets`→`plugins` column + `enabled_widgets`→`enabled_plugins` config key) + `Map` model & `persistent_config` rename + upgrade/downgrade round-trip test (BE-RENAME-01/02/03)
-  - [ ] 1161-02-PLAN.md — Map & Settings API contract rename (schemas, settings validator+route+config object, maps router/service/helpers) + full backend test sweep + `make openapi` regen so `make openapi-check`/`sdks-check` are clean (BE-RENAME-04/05/06)
+  - [x] 1161-02-PLAN.md — Map & Settings API contract rename (schemas, settings validator+route+config object, maps router/service/helpers) + full backend test sweep + `make openapi` regen so `make openapi-check`/`sdks-check` are clean (BE-RENAME-04/05/06)
 
 ### Phase 1162: Frontend Rename
 **Goal**: The frontend consumes the renamed plugin contract under `Plugin*` / `map-plugins` everywhere, with the build and unit suite fully green.
@@ -86,7 +86,7 @@ Rename the map "widget" platform to "plugin" across the entire stack — DB, API
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1161. Backend Rename & Contract | 1/2 | In Progress|  |
+| 1161. Backend Rename & Contract | 2/2 | Complete |  |
 | 1162. Frontend Rename | 0/TBD | Not started | - |
 | 1163. i18n Key Rename | 0/TBD | Not started | - |
 | 1164. Tooling, Docs & Audit Fixes | 0/TBD | Not started | - |

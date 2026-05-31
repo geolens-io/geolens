@@ -15,9 +15,9 @@
 - [x] **BE-RENAME-01**: An Alembic migration renames the `maps.widgets` JSONB column to `maps.plugins` (forward + downgrade), preserving existing row values (arrays of ID strings); the deployed `0001_baseline.py` is NOT edited. Pinned by the new migration file and an upgrade/downgrade round-trip test.
 - [x] **BE-RENAME-02**: The same (or a paired) migration renames the config key `enabled_widgets` → `enabled_plugins` via `UPDATE catalog.app_settings SET key='enabled_plugins' WHERE key='enabled_widgets'`, with a symmetric downgrade. _(Note: the real persisted-config table is `catalog.app_settings` — the `AppSetting` model; the "persistent_config" name in the original brief was fictional and would have made the migration non-runnable. Corrected in plan 1161-01 commit `b85ba2cb`.)_
 - [x] **BE-RENAME-03**: The `Map` model column `widgets` → `plugins` (`backend/app/modules/catalog/maps/models.py:87`) and the `persistent_config.py` `enabled_widgets` default-None logic (`:128`, `:675`) → `enabled_plugins`, consistent with the migrated schema.
-- [ ] **BE-RENAME-04**: The Map API request/response field `widgets` becomes `plugins` (`backend/app/modules/catalog/maps/schemas.py:669,751`) — hard cut, no `widgets` alias accepted or emitted.
-- [ ] **BE-RENAME-05**: The Settings API field + validator `enabled_widgets` becomes `enabled_plugins` (`backend/app/modules/settings/schemas.py:359,363,414`) — hard cut, no alias.
-- [ ] **BE-RENAME-06**: Backend tests referencing widgets are updated and green; `make openapi` regenerates `backend/openapi.json`; the committed OpenAPI snapshot reflects `plugins`/`enabled_plugins` (`make openapi-check` clean).
+- [x] **BE-RENAME-04**: The Map API request/response field `widgets` becomes `plugins` (`backend/app/modules/catalog/maps/schemas.py:669,751`) — hard cut, no `widgets` alias accepted or emitted.
+- [x] **BE-RENAME-05**: The Settings API field + validator `enabled_widgets` becomes `enabled_plugins` (`backend/app/modules/settings/schemas.py:359,363,414`) — hard cut, no alias.
+- [x] **BE-RENAME-06**: Backend tests referencing widgets are updated and green; `make openapi` regenerates `backend/openapi.json`; the committed OpenAPI snapshot reflects `plugins`/`enabled_plugins` (`make openapi-check` clean).
 
 ### Frontend Rename
 
@@ -66,9 +66,9 @@ Which phases cover which requirements. Populated during roadmap creation.
 | BE-RENAME-01 | Phase 1161 | Complete |
 | BE-RENAME-02 | Phase 1161 | Complete |
 | BE-RENAME-03 | Phase 1161 | Complete |
-| BE-RENAME-04 | Phase 1161 | Pending |
-| BE-RENAME-05 | Phase 1161 | Pending |
-| BE-RENAME-06 | Phase 1161 | Pending |
+| BE-RENAME-04 | Phase 1161 | Complete |
+| BE-RENAME-05 | Phase 1161 | Complete |
+| BE-RENAME-06 | Phase 1161 | Complete |
 | FE-RENAME-01 | Phase 1162 | Pending |
 | FE-RENAME-02 | Phase 1162 | Pending |
 | FE-RENAME-03 | Phase 1162 | Pending |
@@ -90,4 +90,4 @@ Which phases cover which requirements. Populated during roadmap creation.
 
 ---
 *Requirements defined: 2026-05-30*
-*Last updated: 2026-05-30 — traceability mapped to v1036 phases 1161-1165*
+*Last updated: 2026-05-31 — BE-RENAME-04/05/06 closed by plan 1161-02 (phase 1161 complete)*
