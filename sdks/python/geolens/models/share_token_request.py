@@ -21,7 +21,7 @@ class ShareTokenRequest:
     """
     Attributes:
         expires_at (datetime.datetime | None | Unset): Expiration timestamp. Null creates a basic non-expiring share
-            link; non-null expiration requires GeoLens Enterprise.
+            link; non-null expiration requires the enterprise edition.
     """
 
     expires_at: datetime.datetime | None | Unset = UNSET

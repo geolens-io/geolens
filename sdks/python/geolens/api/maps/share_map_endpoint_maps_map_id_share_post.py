@@ -111,7 +111,7 @@ def sync_detailed(
      Create or retrieve a share token for a public map.
 
     Community supports basic non-expiring share links. Non-null expiration
-    requires GeoLens Enterprise.
+    requires the enterprise edition.
 
     Args:
         map_id (UUID):
@@ -148,7 +148,7 @@ def sync(
      Create or retrieve a share token for a public map.
 
     Community supports basic non-expiring share links. Non-null expiration
-    requires GeoLens Enterprise.
+    requires the enterprise edition.
 
     Args:
         map_id (UUID):
@@ -180,7 +180,7 @@ async def asyncio_detailed(
      Create or retrieve a share token for a public map.
 
     Community supports basic non-expiring share links. Non-null expiration
-    requires GeoLens Enterprise.
+    requires the enterprise edition.
 
     Args:
         map_id (UUID):
@@ -215,7 +215,7 @@ async def asyncio(
      Create or retrieve a share token for a public map.
 
     Community supports basic non-expiring share links. Non-null expiration
-    requires GeoLens Enterprise.
+    requires the enterprise edition.
 
     Args:
         map_id (UUID):

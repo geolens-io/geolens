@@ -109,7 +109,7 @@ def sync_detailed(
 
      Update embed token allowed_origins.
 
-    Null clears restrictions. Non-empty origin restrictions require GeoLens Enterprise.
+    Null clears restrictions. Non-empty origin restrictions require the enterprise edition.
 
     Args:
         map_id (UUID):
@@ -148,7 +148,7 @@ def sync(
 
      Update embed token allowed_origins.
 
-    Null clears restrictions. Non-empty origin restrictions require GeoLens Enterprise.
+    Null clears restrictions. Non-empty origin restrictions require the enterprise edition.
 
     Args:
         map_id (UUID):
@@ -182,7 +182,7 @@ async def asyncio_detailed(
 
      Update embed token allowed_origins.
 
-    Null clears restrictions. Non-empty origin restrictions require GeoLens Enterprise.
+    Null clears restrictions. Non-empty origin restrictions require the enterprise edition.
 
     Args:
         map_id (UUID):
@@ -219,7 +219,7 @@ async def asyncio(
 
      Update embed token allowed_origins.
 
-    Null clears restrictions. Non-empty origin restrictions require GeoLens Enterprise.
+    Null clears restrictions. Non-empty origin restrictions require the enterprise edition.
 
     Args:
         map_id (UUID):

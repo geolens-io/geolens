@@ -1214,7 +1214,7 @@ async def share_map_endpoint(
     """Create or retrieve a share token for a public map.
 
     Community supports basic non-expiring share links. Non-null expiration
-    requires GeoLens Enterprise.
+    requires the enterprise edition.
     """
     map_obj = await get_map(db, map_id)
     if map_obj is None:
@@ -1269,7 +1269,7 @@ async def update_map_share_token_endpoint(
 ) -> ShareTokenResponse:
     """Update expiration on an existing share token. Owner or admin only.
 
-    Null clears expiration. Setting a non-null expiration requires GeoLens Enterprise.
+    Null clears expiration. Setting a non-null expiration requires the enterprise edition.
     """
     map_obj = await get_map(db, map_id)
     if map_obj is None:

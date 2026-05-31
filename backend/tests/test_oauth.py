@@ -849,7 +849,7 @@ class TestIdpRoleMappingGate:
             OAuthProviderCreate(**self._create_payload(group_claim="groups"))
 
         assert (
-            "Group-based role mapping requires the GeoLens Enterprise overlay"
+            "Group-based role mapping requires the enterprise overlay"
             in str(exc_info.value)
         )
 
@@ -865,7 +865,7 @@ class TestIdpRoleMappingGate:
             )
 
         assert (
-            "Group-based role mapping requires the GeoLens Enterprise overlay"
+            "Group-based role mapping requires the enterprise overlay"
             in str(exc_info.value)
         )
 
@@ -895,7 +895,7 @@ class TestIdpRoleMappingGate:
             OAuthProviderUpdate(group_role_mapping={"admins": "admin"})
 
         assert (
-            "Group-based role mapping requires the GeoLens Enterprise overlay"
+            "Group-based role mapping requires the enterprise overlay"
             in str(exc_info.value)
         )
 

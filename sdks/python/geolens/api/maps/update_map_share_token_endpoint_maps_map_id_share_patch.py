@@ -106,7 +106,7 @@ def sync_detailed(
 
      Update expiration on an existing share token. Owner or admin only.
 
-    Null clears expiration. Setting a non-null expiration requires GeoLens Enterprise.
+    Null clears expiration. Setting a non-null expiration requires the enterprise edition.
 
     Args:
         map_id (UUID):
@@ -142,7 +142,7 @@ def sync(
 
      Update expiration on an existing share token. Owner or admin only.
 
-    Null clears expiration. Setting a non-null expiration requires GeoLens Enterprise.
+    Null clears expiration. Setting a non-null expiration requires the enterprise edition.
 
     Args:
         map_id (UUID):
@@ -173,7 +173,7 @@ async def asyncio_detailed(
 
      Update expiration on an existing share token. Owner or admin only.
 
-    Null clears expiration. Setting a non-null expiration requires GeoLens Enterprise.
+    Null clears expiration. Setting a non-null expiration requires the enterprise edition.
 
     Args:
         map_id (UUID):
@@ -207,7 +207,7 @@ async def asyncio(
 
      Update expiration on an existing share token. Owner or admin only.
 
-    Null clears expiration. Setting a non-null expiration requires GeoLens Enterprise.
+    Null clears expiration. Setting a non-null expiration requires the enterprise edition.
 
     Args:
         map_id (UUID):

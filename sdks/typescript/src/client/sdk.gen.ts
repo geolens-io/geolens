@@ -2236,7 +2236,7 @@ export const listEmbedTokensEndpointMapsMapIdEmbedTokensGet = <ThrowOnError exte
  * Create an embed token scoped to a map's current layers.
  *
  * Community supports the default 30-day unrestricted token. Custom lifetimes
- * and non-empty origin restrictions require GeoLens Enterprise.
+ * and non-empty origin restrictions require the enterprise edition.
  */
 export const createEmbedTokenEndpointMapsMapIdEmbedTokensPost = <ThrowOnError extends boolean = false>(options: Options<CreateEmbedTokenEndpointMapsMapIdEmbedTokensPostData, ThrowOnError>) => (options.client ?? client).post<CreateEmbedTokenEndpointMapsMapIdEmbedTokensPostResponses, CreateEmbedTokenEndpointMapsMapIdEmbedTokensPostErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }],
@@ -2264,7 +2264,7 @@ export const revokeEmbedTokenEndpointMapsMapIdEmbedTokensTokenIdDelete = <ThrowO
  *
  * Update embed token allowed_origins.
  *
- * Null clears restrictions. Non-empty origin restrictions require GeoLens Enterprise.
+ * Null clears restrictions. Non-empty origin restrictions require the enterprise edition.
  */
 export const updateEmbedTokenEndpointMapsMapIdEmbedTokensTokenIdPatch = <ThrowOnError extends boolean = false>(options: Options<UpdateEmbedTokenEndpointMapsMapIdEmbedTokensTokenIdPatchData, ThrowOnError>) => (options.client ?? client).patch<UpdateEmbedTokenEndpointMapsMapIdEmbedTokensTokenIdPatchResponses, UpdateEmbedTokenEndpointMapsMapIdEmbedTokensTokenIdPatchErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }],
@@ -2435,7 +2435,7 @@ export const getMapShareTokenEndpointMapsMapIdShareGet = <ThrowOnError extends b
  *
  * Update expiration on an existing share token. Owner or admin only.
  *
- * Null clears expiration. Setting a non-null expiration requires GeoLens Enterprise.
+ * Null clears expiration. Setting a non-null expiration requires the enterprise edition.
  */
 export const updateMapShareTokenEndpointMapsMapIdSharePatch = <ThrowOnError extends boolean = false>(options: Options<UpdateMapShareTokenEndpointMapsMapIdSharePatchData, ThrowOnError>) => (options.client ?? client).patch<UpdateMapShareTokenEndpointMapsMapIdSharePatchResponses, UpdateMapShareTokenEndpointMapsMapIdSharePatchErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }],
@@ -2453,7 +2453,7 @@ export const updateMapShareTokenEndpointMapsMapIdSharePatch = <ThrowOnError exte
  * Create or retrieve a share token for a public map.
  *
  * Community supports basic non-expiring share links. Non-null expiration
- * requires GeoLens Enterprise.
+ * requires the enterprise edition.
  */
 export const shareMapEndpointMapsMapIdSharePost = <ThrowOnError extends boolean = false>(options: Options<ShareMapEndpointMapsMapIdSharePostData, ThrowOnError>) => (options.client ?? client).post<ShareMapEndpointMapsMapIdSharePostResponses, ShareMapEndpointMapsMapIdSharePostErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }],

@@ -47,7 +47,7 @@ SAML_PROVIDER_FIELDS = (
     "idp_certificate",
     "sp_entity_id",
 )
-SAML_PROVIDER_ERROR = "SAML SSO requires the GeoLens Enterprise overlay"
+SAML_PROVIDER_ERROR = "SAML SSO requires the enterprise overlay"
 
 
 class OAuthProviderCreate(BaseModel):
@@ -201,14 +201,14 @@ class OAuthProviderCreate(BaseModel):
         if not is_enterprise():
             if self.group_claim is not None:
                 raise ValueError(
-                    "Group-based role mapping requires the GeoLens Enterprise overlay"
+                    "Group-based role mapping requires the enterprise overlay"
                 )
             if (
                 isinstance(self.group_role_mapping, dict)
                 and len(self.group_role_mapping) > 0
             ):
                 raise ValueError(
-                    "Group-based role mapping requires the GeoLens Enterprise overlay"
+                    "Group-based role mapping requires the enterprise overlay"
                 )
         return self
 
@@ -330,14 +330,14 @@ class OAuthProviderUpdate(BaseModel):
         if not is_enterprise():
             if self.group_claim is not None:
                 raise ValueError(
-                    "Group-based role mapping requires the GeoLens Enterprise overlay"
+                    "Group-based role mapping requires the enterprise overlay"
                 )
             if (
                 isinstance(self.group_role_mapping, dict)
                 and len(self.group_role_mapping) > 0
             ):
                 raise ValueError(
-                    "Group-based role mapping requires the GeoLens Enterprise overlay"
+                    "Group-based role mapping requires the enterprise overlay"
                 )
         return self
 

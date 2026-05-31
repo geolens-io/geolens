@@ -19,7 +19,7 @@ class EmbedTokenUpdate:
     """
     Attributes:
         allowed_origins (list[str] | None | Unset): Updated list of allowed embedding origins. Null clears restrictions;
-            non-empty origin restrictions require GeoLens Enterprise.
+            non-empty origin restrictions require the enterprise edition.
     """
 
     allowed_origins: list[str] | None | Unset = UNSET

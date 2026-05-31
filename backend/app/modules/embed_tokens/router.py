@@ -76,7 +76,7 @@ async def create_embed_token_endpoint(
     """Create an embed token scoped to a map's current layers.
 
     Community supports the default 30-day unrestricted token. Custom lifetimes
-    and non-empty origin restrictions require GeoLens Enterprise.
+    and non-empty origin restrictions require the enterprise edition.
     """
     map_obj = await get_map(db, map_id)
     if map_obj is None:
@@ -153,7 +153,7 @@ async def update_embed_token_endpoint(
 ) -> EmbedTokenResponse:
     """Update embed token allowed_origins.
 
-    Null clears restrictions. Non-empty origin restrictions require GeoLens Enterprise.
+    Null clears restrictions. Non-empty origin restrictions require the enterprise edition.
     """
     map_obj = await get_map(db, map_id)
     if map_obj is None:

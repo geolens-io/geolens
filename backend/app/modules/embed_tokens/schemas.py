@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from app.core.edition import is_enterprise
 
 ADVANCED_SHARING_ERROR = (
-    "Advanced sharing controls require the GeoLens Enterprise overlay"
+    "Advanced sharing controls require the enterprise overlay"
 )
 
 
@@ -65,7 +65,7 @@ class EmbedTokenCreate(BaseModel):
         le=365,
         description=(
             "Token lifetime in days (1-365). The default 30-day lifetime is "
-            "available in Community; custom lifetimes require GeoLens Enterprise."
+            "available in Community; custom lifetimes require the enterprise edition."
         ),
         json_schema_extra={"example": 90},
     )
@@ -81,7 +81,7 @@ class EmbedTokenCreate(BaseModel):
         max_length=50,
         description=(
             "Restrict embedding to these origins. Omit or null allows any origin; "
-            "non-empty origin restrictions require GeoLens Enterprise."
+            "non-empty origin restrictions require the enterprise edition."
         ),
         json_schema_extra={"example": ["https://dashboard.example.com"]},
     )
@@ -106,7 +106,7 @@ class EmbedTokenUpdate(BaseModel):
         max_length=50,
         description=(
             "Updated list of allowed embedding origins. Null clears restrictions; "
-            "non-empty origin restrictions require GeoLens Enterprise."
+            "non-empty origin restrictions require the enterprise edition."
         ),
     )
 
