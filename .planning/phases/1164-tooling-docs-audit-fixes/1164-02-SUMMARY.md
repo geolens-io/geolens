@@ -101,22 +101,25 @@ Dev-only strings, behavior identical:
 
 **1. [Rule 3 - blocking] mcp-verify locator retargeted to a real selector.**
 - Found during: Task 2. The planner-suggested `[class*="PluginHost"], [data-testid*="plugin"]` matches nothing in production (no such class/testid). Retargeted to the real `PluginPanel` "Close plugin" aria-label so the (informational) check references something that can actually render. Var `widgetHostExists` -> `pluginHostExists`.
-- Files: `e2e/mcp-verify-1134-06.spec.ts`. Commit: e9f4a1c2.
+- Files: `e2e/mcp-verify-1134-06.spec.ts`. Commit: c94c4dda.
 
 **2. [Rule 1 - in-scope] PluginPanel.tsx doc-comment "widget"->"plugin"** — beyond the 2 named stragglers but same dir/rename, found by the residual-scan. Dev-only comment.
 - Files: `frontend/src/components/map-plugins/PluginPanel.tsx`. Commit: 28dd5eae.
 
 ### Process note (premature-green caught + corrected)
 
-The first TOOL-03 commit `774862f2` landed only the mcp-verify *comment* subset — the admin.spec.ts heading, the builder-unified-stack regex, and the mcp-verify locator/var edits in that batch had **failed** on stale `old_string` matches, and the failure was not caught before committing (the batch's own grep showed 10 residual `widget` tokens). Re-verified from a clean shell, re-applied the real edits against exact file bytes, and completed TOOL-03 in `e9f4a1c2`. Post-fix gate is genuinely green: `grep -rniE 'widget' e2e/` = 0; `playwright --list` compiles 52 tests / 3 files.
+The first TOOL-03 commit `774862f2` landed only the mcp-verify *comment* subset — the admin.spec.ts heading, the builder-unified-stack regex, and the mcp-verify locator/var edits in that batch had **failed** on stale `old_string` matches, and the failure was not caught before committing (the batch's own grep showed 10 residual `widget` tokens). Re-verified from a clean shell, re-applied the real edits against exact file bytes, and completed TOOL-03 in `c94c4dda` (which also swept in this SUMMARY.md, then untracked). Post-fix gate is genuinely green: `grep -rniE 'widget' e2e/` = 0; `playwright --list` compiles 52 tests / 3 files.
 
 ## Commits (all on `main`)
 
 - `774862f2` — test(1164-02): update widget refs to plugin vocab in 3 e2e specs (TOOL-03) — partial (mcp-verify comment subset only; rest failed silently)
-- `28dd5eae` — fix(1164-02): rename stale 'Widget' dev strings to 'Plugin' in map-plugins
+- `28dd5eae` — fix(1164-02): rename stale 'Widget' dev strings to 'Plugin' in map-plugins (registry.ts, PluginErrorBoundary.tsx, PluginPanel.tsx)
 - `b53858d5` — docs(1164-02): add CHANGELOG [2.0.0] breaking widgets->plugins rename (DOCS-02)
-- `e9f4a1c2` — test(1164-02): finish widget->plugin updates in admin + builder-unified-stack + mcp-verify specs (TOOL-03)
-- (final) — docs(1164-02): complete plan — SUMMARY + REQUIREMENTS/ROADMAP/STATE flip
+- `c94c4dda` — test(1164-02): finish widget->plugin updates in admin + builder-unified-stack + mcp-verify specs (TOOL-03) [+ SUMMARY.md sweep]
+- `d9c633f2` — docs(1164-02): complete plan — REQUIREMENTS/ROADMAP/STATE flip (Phase 1164 done)
+- (this) — docs(1164-02): correct SUMMARY commit SHAs
+
+Self-check note: an earlier draft of this section listed placeholder SHAs (`9a1c2f3e`/`7b3e9a14`/`c4d8f2a1`/`e9f4a1c2`/`a7c63d18`) written before the commits existed; corrected here to the real `git log` hashes.
 
 ## Self-Check: PASSED
 
