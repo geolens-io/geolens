@@ -1338,67 +1338,67 @@ class TestDuplicateMap:
         assert resp.status_code == 201
         assert resp.json()["thumbnail_url"] is None
 
-    async def test_duplicate_preserves_widgets(
+    async def test_duplicate_preserves_plugins(
         self, client: AsyncClient, admin_auth_header: dict
     ):
-        """Duplicate copies the source map's widget list."""
-        created = await _create_map(client, admin_auth_header, "Widget Map")
+        """Duplicate copies the source map's plugin list."""
+        created = await _create_map(client, admin_auth_header, "Plugin Map")
         map_id = created["id"]
 
-        # Set widgets on source
-        widget_ids = ["legend", "measurement"]
+        # Set plugins on source
+        plugin_ids = ["legend", "measurement"]
         resp = await client.put(
             f"/maps/{map_id}",
-            json={"widgets": widget_ids},
+            json={"plugins": plugin_ids},
             headers=admin_auth_header,
         )
         assert resp.status_code == 200
-        assert resp.json()["widgets"] == widget_ids
+        assert resp.json()["plugins"] == plugin_ids
 
         # Duplicate
         resp = await client.post(
             f"/maps/{map_id}/duplicate/", headers=admin_auth_header
         )
         assert resp.status_code == 201
-        assert resp.json()["widgets"] == widget_ids
+        assert resp.json()["plugins"] == plugin_ids
 
-    async def test_update_map_widgets(
+    async def test_update_map_plugins(
         self, client: AsyncClient, admin_auth_header: dict
     ):
-        """PUT /maps/{id} can set and clear the widgets list."""
-        created = await _create_map(client, admin_auth_header, "Widgets Test")
+        """PUT /maps/{id} can set and clear the plugins list."""
+        created = await _create_map(client, admin_auth_header, "Plugins Test")
         map_id = created["id"]
 
         # Initially null
         resp = await client.get(f"/maps/{map_id}", headers=admin_auth_header)
-        assert resp.json()["widgets"] is None
+        assert resp.json()["plugins"] is None
 
-        # Set widgets
+        # Set plugins
         resp = await client.put(
             f"/maps/{map_id}",
-            json={"widgets": ["measurement"]},
+            json={"plugins": ["measurement"]},
             headers=admin_auth_header,
         )
         assert resp.status_code == 200
-        assert resp.json()["widgets"] == ["measurement"]
+        assert resp.json()["plugins"] == ["measurement"]
 
-        # Clear widgets
+        # Clear plugins
         resp = await client.put(
             f"/maps/{map_id}",
-            json={"widgets": []},
+            json={"plugins": []},
             headers=admin_auth_header,
         )
         assert resp.status_code == 200
-        assert resp.json()["widgets"] == []
+        assert resp.json()["plugins"] == []
 
         # Restore client defaults
         resp = await client.put(
             f"/maps/{map_id}",
-            json={"widgets": None},
+            json={"plugins": None},
             headers=admin_auth_header,
         )
         assert resp.status_code == 200
-        assert resp.json()["widgets"] is None
+        assert resp.json()["plugins"] is None
 
 
 # ---------------------------------------------------------------------------
