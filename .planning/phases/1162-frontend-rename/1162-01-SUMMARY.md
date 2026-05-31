@@ -106,12 +106,12 @@ Note: commit `d6d223d3` was a first Task-2 attempt that wrote simplified placeho
 
 ## Pre-existing / order-dependent test behavior (not caused by this plan)
 
-**`registry.test.ts > duplicate registration warns and overwrites`** asserts `expect(spy).toHaveBeenCalledWith(stringContaining(id))` against a `console.warn` guarded by `if (import.meta.env.DEV)`. Observed behavior, all on the renamed code at HEAD `c98f1f9c`:
+**`registry.test.ts > duplicate registration warns and overwrites`** asserts `expect(spy).toHaveBeenCalledWith(stringContaining(id))` against a `console.warn` guarded by `if (import.meta.env.DEV)`. Observed behavior, all on the renamed code at committed HEAD `6a079900`:
 - `registry.test.ts` **alone**: 5/5 PASS.
-- All 12 affected suites together: **151/151 PASS**.
-- map-plugins-dir-only run earlier (before the order changed): this one test failed because the module-singleton registry is shared across suites and `import.meta.env.DEV` resolves `false` under some run orders, so the warn doesn't fire.
+- All affected suites (run in 3 batches): **129/129 PASS** (registry duplicate-warn included and passing).
+- In one earlier map-plugins-dir-only run this one test failed: the module-singleton registry is shared across suites and `import.meta.env.DEV` resolves `false` under some run orders, so the warn doesn't fire.
 
-This is order-dependent shared-singleton + DEV-guard behavior in the registry warn path — **not introduced by the rename**. The DEV guard is byte-identical to the original `registry.ts` source (confirmed via `git show e5791042:.../registry.ts`). The full affected-suite gate (151/151) is green at the committed HEAD. The full deterministic suite is Phase 1165 QA-01's responsibility. Logged for the verifier.
+This is order-dependent shared-singleton + DEV-guard behavior in the registry warn path — **not introduced by the rename**. The DEV guard is byte-identical to the original `registry.ts` source (confirmed via `git show e5791042:.../registry.ts`). The full affected-suite gate (129/129) is green at the committed HEAD. The full deterministic suite is Phase 1165 QA-01's responsibility. Logged for the verifier.
 
 ## Type-Seam Handoff to Wave 2 (1162-02)
 
