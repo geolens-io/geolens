@@ -11,6 +11,10 @@ from ..models.basemap_label_mode import BasemapLabelMode
 from ..models.basemap_label_mode import check_basemap_label_mode
 from ..models.basemap_land_water_tone import BasemapLandWaterTone
 from ..models.basemap_land_water_tone import check_basemap_land_water_tone
+from ..models.basemap_position import BasemapPosition
+from ..models.basemap_position import check_basemap_position
+from ..models.basemap_projection import BasemapProjection
+from ..models.basemap_projection import check_basemap_projection
 from ..models.basemap_relief_contrast import BasemapReliefContrast
 from ..models.basemap_relief_contrast import check_basemap_relief_contrast
 from ..models.basemap_sublayer_visibility import BasemapSublayerVisibility
@@ -32,12 +36,17 @@ class BasemapConfig:
     Attributes:
         background_color (None | str | Unset): Map canvas background color in #RRGGBB hex format, or null to use the
             basemap default.
+        basemap_position (BasemapPosition | None | Unset): Whether the basemap renders above ('top') or below ('bottom',
+            default) the data layers. null/undefined loads as 'bottom' on the client. Phase 1051 UX-03 (jsonb-additive, no
+            migration).
         boundary_visibility (BasemapSublayerVisibility | Unset):
         building_visibility (bool | Unset): Whether supported building/3D building basemap layers are shown. Default:
             True.
         label_mode (BasemapLabelMode | Unset):
         land_water_tone (BasemapLandWaterTone | Unset):
         opacity (float | Unset): Master basemap opacity 0.0-1.0 Default: 1.0.
+        projection (BasemapProjection | None | Unset): Map projection: 'mercator' (default) or experimental 'globe'.
+            null/undefined loads as 'mercator' on the client.
         relief_contrast (BasemapReliefContrast | None | Unset): Optional contrast hint for relief-oriented basemap
             styling.
         road_visibility (BasemapSublayerVisibility | Unset):
@@ -47,11 +56,13 @@ class BasemapConfig:
     """
 
     background_color: None | str | Unset = UNSET
+    basemap_position: BasemapPosition | None | Unset = UNSET
     boundary_visibility: BasemapSublayerVisibility | Unset = UNSET
     building_visibility: bool | Unset = True
     label_mode: BasemapLabelMode | Unset = UNSET
     land_water_tone: BasemapLandWaterTone | Unset = UNSET
     opacity: float | Unset = 1.0
+    projection: BasemapProjection | None | Unset = UNSET
     relief_contrast: BasemapReliefContrast | None | Unset = UNSET
     road_visibility: BasemapSublayerVisibility | Unset = UNSET
     sublayer_overrides: BasemapConfigSublayerOverridesType0 | None | Unset = UNSET
@@ -66,6 +77,14 @@ class BasemapConfig:
             background_color = UNSET
         else:
             background_color = self.background_color
+
+        basemap_position: None | str | Unset
+        if isinstance(self.basemap_position, Unset):
+            basemap_position = UNSET
+        elif isinstance(self.basemap_position, str):
+            basemap_position = self.basemap_position
+        else:
+            basemap_position = self.basemap_position
 
         boundary_visibility: str | Unset = UNSET
         if not isinstance(self.boundary_visibility, Unset):
@@ -82,6 +101,14 @@ class BasemapConfig:
             land_water_tone = self.land_water_tone
 
         opacity = self.opacity
+
+        projection: None | str | Unset
+        if isinstance(self.projection, Unset):
+            projection = UNSET
+        elif isinstance(self.projection, str):
+            projection = self.projection
+        else:
+            projection = self.projection
 
         relief_contrast: None | str | Unset
         if isinstance(self.relief_contrast, Unset):
@@ -108,6 +135,8 @@ class BasemapConfig:
         field_dict.update({})
         if background_color is not UNSET:
             field_dict["background_color"] = background_color
+        if basemap_position is not UNSET:
+            field_dict["basemap_position"] = basemap_position
         if boundary_visibility is not UNSET:
             field_dict["boundary_visibility"] = boundary_visibility
         if building_visibility is not UNSET:
@@ -118,6 +147,8 @@ class BasemapConfig:
             field_dict["land_water_tone"] = land_water_tone
         if opacity is not UNSET:
             field_dict["opacity"] = opacity
+        if projection is not UNSET:
+            field_dict["projection"] = projection
         if relief_contrast is not UNSET:
             field_dict["relief_contrast"] = relief_contrast
         if road_visibility is not UNSET:
@@ -143,6 +174,23 @@ class BasemapConfig:
             return cast(None | str | Unset, data)
 
         background_color = _parse_background_color(d.pop("background_color", UNSET))
+
+        def _parse_basemap_position(data: object) -> BasemapPosition | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, str):
+                    raise TypeError()
+                basemap_position_type_0 = check_basemap_position(data)
+
+                return basemap_position_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(BasemapPosition | None | Unset, data)
+
+        basemap_position = _parse_basemap_position(d.pop("basemap_position", UNSET))
 
         _boundary_visibility = d.pop("boundary_visibility", UNSET)
         boundary_visibility: BasemapSublayerVisibility | Unset
@@ -170,6 +218,23 @@ class BasemapConfig:
             land_water_tone = check_basemap_land_water_tone(_land_water_tone)
 
         opacity = d.pop("opacity", UNSET)
+
+        def _parse_projection(data: object) -> BasemapProjection | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, str):
+                    raise TypeError()
+                projection_type_0 = check_basemap_projection(data)
+
+                return projection_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(BasemapProjection | None | Unset, data)
+
+        projection = _parse_projection(d.pop("projection", UNSET))
 
         def _parse_relief_contrast(
             data: object,
@@ -222,11 +287,13 @@ class BasemapConfig:
 
         basemap_config = cls(
             background_color=background_color,
+            basemap_position=basemap_position,
             boundary_visibility=boundary_visibility,
             building_visibility=building_visibility,
             label_mode=label_mode,
             land_water_tone=land_water_tone,
             opacity=opacity,
+            projection=projection,
             relief_contrast=relief_contrast,
             road_visibility=road_visibility,
             sublayer_overrides=sublayer_overrides,

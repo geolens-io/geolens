@@ -14,7 +14,7 @@ def _get_kwargs() -> dict[str, Any]:
 
     _kwargs: dict[str, Any] = {
         "method": "get",
-        "url": "/settings/enabled-widgets/",
+        "url": "/settings/enabled-plugins/",
     }
 
     return _kwargs
@@ -93,9 +93,9 @@ def sync_detailed(
     *,
     client: AuthenticatedClient | Client,
 ) -> Response[ProblemDetail | list[str] | None]:
-    """Get Enabled Widgets
+    """Get Enabled Plugins
 
-     Return enabled widget IDs. null = no restriction (all shown), [] = none, [...ids] = only those.
+     Return enabled plugin IDs. null = no restriction (all shown), [] = none, [...ids] = only those.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -118,9 +118,9 @@ def sync(
     *,
     client: AuthenticatedClient | Client,
 ) -> ProblemDetail | list[str] | None | None:
-    """Get Enabled Widgets
+    """Get Enabled Plugins
 
-     Return enabled widget IDs. null = no restriction (all shown), [] = none, [...ids] = only those.
+     Return enabled plugin IDs. null = no restriction (all shown), [] = none, [...ids] = only those.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -139,9 +139,9 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient | Client,
 ) -> Response[ProblemDetail | list[str] | None]:
-    """Get Enabled Widgets
+    """Get Enabled Plugins
 
-     Return enabled widget IDs. null = no restriction (all shown), [] = none, [...ids] = only those.
+     Return enabled plugin IDs. null = no restriction (all shown), [] = none, [...ids] = only those.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -162,9 +162,9 @@ async def asyncio(
     *,
     client: AuthenticatedClient | Client,
 ) -> ProblemDetail | list[str] | None | None:
-    """Get Enabled Widgets
+    """Get Enabled Plugins
 
-     Return enabled widget IDs. null = no restriction (all shown), [] = none, [...ids] = only those.
+     Return enabled plugin IDs. null = no restriction (all shown), [] = none, [...ids] = only those.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
