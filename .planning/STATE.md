@@ -2,7 +2,7 @@
 gsd_state_version: 1.0
 milestone: v1036
 milestone_name: Widget to Plugin Platform Rename
-status: "v1036 complete — ready to tag / between milestones after tag. All 5 phases (1161-1165) shipped, 19/19 requirements, QA-01 passed (DB-verified API round-trip of maps.plugins via the builder PUT path)."
+status: "v1036 SHIPPED 2026-05-31 — tagged v1036 (local); 19/19 reqs; audit passed; between milestones"
 last_updated: "2026-05-31T07:30:00.000Z"
 progress:
   total_phases: 5
