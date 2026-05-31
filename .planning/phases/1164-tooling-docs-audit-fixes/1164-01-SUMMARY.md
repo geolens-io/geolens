@@ -69,16 +69,17 @@ Docs/tooling only; no production app source touched.
 | 1 | Create plugin authoring guide (DOCS-01) | `1fd142ef` | docs/plugin-development.md |
 | 2 | Rename widget-audit -> plugin-audit + 3 audit fixes (TOOL-01, TOOL-04) | `a1b4fc2d` | .claude/commands/plugin-audit.md (+ rm widget-audit.md) |
 | 3 | Repoint map-audit cross-ref to /plugin-audit (TOOL-01) | `ec71e294` | .claude/commands/map-audit.md |
-| 3b | Apply builder-audit cross-ref to /plugin-audit (TOOL-01 fixup) | `6c4f0a1e` | .claude/commands/builder-audit.md |
+| 3b | Apply builder-audit /plugin-audit cross-ref (line 1132) | `f3e012ad` | .claude/commands/builder-audit.md |
+| 3c | Resolve builder-audit line-184 widget->plugin pending marker | `2c9d6f5a` | .claude/commands/builder-audit.md |
 
-All on `main`. Task 3 needed two real commits for the builder-audit.md cross-ref. The `Edit` tool
-requires the target file to have been opened with the `Read` tool in-session before it will apply;
-I had only inspected builder-audit.md via grep/sed (Bash), so my first two Edit attempts on it were
-rejected (the verification each time still showed `/widget-audit`). `ec71e294` therefore committed
-only map-audit.md, and an intermediate fixup commit recorded no builder-audit content change. After
-opening builder-audit.md with the `Read` tool, the single-line Edit applied and landed in `6c4f0a1e`.
-The repeated self-check (grep count of `widget-audit` in builder-audit.md) is what caught this each
-iteration until the change was real.
+All on `main`. The builder-audit.md edits took extra commits because of a tool constraint (NOT
+contention): the `Edit` tool refuses to modify a file unless it was opened with the `Read` tool
+in-session, and I had only inspected builder-audit.md via grep/sed (Bash). My first Edit attempts were
+silently rejected, so `ec71e294` committed only map-audit.md. After opening builder-audit.md with the
+`Read` tool, the line-1132 cross-ref edit landed in `f3e012ad`, and the line-184 `widget availability`
+pending marker (tagged `RENAME-TOOL-01, phase 1164` — Plan 01 scope) was resolved in `2c9d6f5a`.
+builder-audit.md now has zero `widget` references. The repeated grep self-check is what caught each
+non-applied edit until the changes were real.
 
 ## Deviations from Plan
 
