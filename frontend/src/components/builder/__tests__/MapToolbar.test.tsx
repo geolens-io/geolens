@@ -2,12 +2,12 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { MapToolbar } from '../MapToolbar';
 import { usePluginStore } from '@/stores/map-plugin-store';
 
-const mockEnabledWidgets = vi.hoisted(() => ({
+const mockEnabledPlugins = vi.hoisted(() => ({
   value: null as string[] | null | undefined,
 }));
 
 vi.mock('@/hooks/use-settings', () => ({
-  useEnabledWidgets: () => ({ data: mockEnabledWidgets.value }),
+  useEnabledPlugins: () => ({ data: mockEnabledPlugins.value }),
 }));
 
 vi.mock('react-i18next', () => ({
@@ -18,7 +18,7 @@ vi.mock('react-i18next', () => ({
 
 describe('MapToolbar plugin controls', () => {
   beforeEach(() => {
-    mockEnabledWidgets.value = null;
+    mockEnabledPlugins.value = null;
     usePluginStore.getState().replace([]);
   });
 
@@ -31,7 +31,7 @@ describe('MapToolbar plugin controls', () => {
   });
 
   it('hides plugin controls disabled by admin settings', () => {
-    mockEnabledWidgets.value = [];
+    mockEnabledPlugins.value = [];
     render(<MapToolbar />);
 
     expect(screen.getByRole('button', { name: 'Pan' })).toBeInTheDocument();
@@ -40,7 +40,7 @@ describe('MapToolbar plugin controls', () => {
   });
 
   it('pan control clears stale measurement state', () => {
-    mockEnabledWidgets.value = [];
+    mockEnabledPlugins.value = [];
     usePluginStore.getState().open('measurement');
     render(<MapToolbar />);
 

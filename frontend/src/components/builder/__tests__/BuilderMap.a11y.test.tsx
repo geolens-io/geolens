@@ -24,7 +24,7 @@ vi.mock('@/hooks/use-settings', () => ({
   }),
   useMapDefaults: () => ({ data: { center_lng: 0, center_lat: 0, zoom: 2 } }),
   useTileConfig: () => ({ data: null }),
-  useEnabledWidgets: () => ({ data: [], isLoading: false }),
+  useEnabledPlugins: () => ({ data: [], isLoading: false }),
 }));
 
 const tileTokenState = vi.hoisted(() => ({

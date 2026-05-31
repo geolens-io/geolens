@@ -101,7 +101,7 @@ vi.mock('@/hooks/use-ai-availability', () => ({
 vi.mock('@/hooks/use-document-title', () => ({ useDocumentTitle: vi.fn() }));
 
 vi.mock('@/hooks/use-settings', () => ({
-  useEnabledWidgets: () => ({ data: null }),
+  useEnabledPlugins: () => ({ data: null }),
   useBasemaps: () => ({ data: [] }),
 }));
 

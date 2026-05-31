@@ -128,7 +128,7 @@ vi.mock('@/hooks/use-document-title', () => ({
 }));
 
 vi.mock('@/hooks/use-settings', () => ({
-  useEnabledWidgets: () => ({ data: null }),
+  useEnabledPlugins: () => ({ data: null }),
   useBasemaps: () => ({ data: [] }),
 }));
 

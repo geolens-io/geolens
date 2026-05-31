@@ -6,10 +6,10 @@ import { registerPlugin, getPlugins } from '../registry';
 import { PluginHost, PluginSidebar, usePartitionedPlugins } from '../PluginHost';
 import type { PluginContext } from '../types';
 
-// Mock useEnabledWidgets — controls admin filtering
+// Mock useEnabledPlugins — controls admin filtering
 let mockEnabledPlugins: string[] | undefined = undefined;
 vi.mock('@/hooks/use-settings', () => ({
-  useEnabledWidgets: () => ({ data: mockEnabledPlugins }),
+  useEnabledPlugins: () => ({ data: mockEnabledPlugins }),
 }));
 
 // Mock i18n

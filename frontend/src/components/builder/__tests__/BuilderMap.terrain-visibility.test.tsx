@@ -31,7 +31,7 @@ vi.mock('@/hooks/use-settings', () => ({
   }),
   useMapDefaults: () => ({ data: { center_lng: 0, center_lat: 0, zoom: 2 } }),
   useTileConfig: () => ({ data: null }),
-  useEnabledWidgets: () => ({ data: [], isLoading: false }),
+  useEnabledPlugins: () => ({ data: [], isLoading: false }),
 }));
 
 // tileTokenState is hoisted so tests can toggle the token per-test
