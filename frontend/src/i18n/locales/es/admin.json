@@ -447,9 +447,9 @@
       "saved": "Valores predeterminados del mapa guardados",
       "saveFailed": "Error al guardar los valores predeterminados del mapa"
     },
-    "widgets": {
-      "title": "Widgets de mapa",
-      "description": "Habilitar o deshabilitar los widgets disponibles en el constructor de mapas."
+    "plugins": {
+      "title": "Plugins de mapa",
+      "description": "Habilitar o deshabilitar los plugins disponibles en el constructor de mapas."
     },
     "appearance": {
       "branding": {
