@@ -229,4 +229,18 @@ describe('normalizeLayerStyleState — raster stretch/colormap round-trip (v1034
     expect(paint).toEqual({ 'raster-opacity': 0.5 });
     expect('_colormap' in paint).toBe(false);
   });
+
+  it('B-011: re-injects DEM hypso (color-relief) builder keys back onto paint on load', () => {
+    // A DEM layer loaded from the backend: clean paint + builder-stored hypso keys.
+    const { paint, style_config } = normalizeLayerStyleState(
+      { builder: { hypso_enabled: true, hypso_ramp: 'Inferno' } },
+      { 'raster-opacity': 1 },
+      null,
+    );
+    expect(paint['_hypso-enabled']).toBe(true);
+    expect(paint['_hypso-ramp']).toBe('Inferno');
+    // The builder values survive in style_config too.
+    expect(style_config?.builder?.hypso_enabled).toBe(true);
+    expect(style_config?.builder?.hypso_ramp).toBe('Inferno');
+  });
 });

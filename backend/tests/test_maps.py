@@ -2135,6 +2135,43 @@ class TestMapLayers:
             "sigma": 3,
         }
 
+    async def test_add_layer_moves_hypso_paint_to_style_config(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+    ):
+        """builder-audit B-011: DEM hypsometric (color-relief) builder-private
+        keys _hypso-enabled/_hypso-ramp are accepted and moved into
+        style_config.builder. Before the fix, saving a DEM layer with the
+        Elevation tint enabled hit split_legacy_builder_paint's unknown-key
+        guard and 422'd."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await create_dataset(test_db_session, created_by=admin_id)
+        created = await _create_map(client, admin_auth_header)
+        map_id = created["id"]
+
+        resp = await client.post(
+            f"/maps/{map_id}/layers",
+            json={
+                "dataset_id": str(ds.id),
+                "paint": {
+                    "raster-opacity": 1,
+                    "_hypso-enabled": True,
+                    "_hypso-ramp": "Inferno",
+                },
+            },
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 201, resp.text
+        data = resp.json()
+        # Private keys stripped from the stored MapLibre paint boundary.
+        assert data["paint"] == {"raster-opacity": 1}
+        assert data["style_config"]["builder"] == {
+            "hypso_enabled": True,
+            "hypso_ramp": "Inferno",
+        }
+
     async def test_add_layer_rejects_unknown_private_paint_key(
         self,
         client: AsyncClient,

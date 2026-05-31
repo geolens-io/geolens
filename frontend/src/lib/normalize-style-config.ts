@@ -61,6 +61,8 @@ const LEGACY_BUILDER_PAINT_KEYS = new Set([
   '_heatmap-ramp',
   '_heatmap-weight-column',
   '_height_column',
+  '_hypso-enabled',
+  '_hypso-ramp',
 ]);
 
 const LEGACY_BUILDER_KEY_ALIASES: Record<string, string> = {
@@ -336,6 +338,8 @@ export function normalizeLayerStyleState(
     if (typeof builder.pmin === 'number') cleanPaint._pmin = builder.pmin;
     if (typeof builder.pmax === 'number') cleanPaint._pmax = builder.pmax;
     if (typeof builder.sigma === 'number') cleanPaint._sigma = builder.sigma;
+    if (typeof builder.hypso_enabled === 'boolean') cleanPaint['_hypso-enabled'] = builder.hypso_enabled;
+    if (typeof builder.hypso_ramp === 'string') cleanPaint['_hypso-ramp'] = builder.hypso_ramp;
   }
   return { style_config, paint: cleanPaint };
 }

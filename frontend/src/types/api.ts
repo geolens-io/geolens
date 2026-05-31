@@ -839,6 +839,10 @@ export interface BuilderStyleConfig {
   pmax?: number;
   /** Configurable sigma multiplier for stretch=stddev. */
   sigma?: number;
+  /** DEM hypsometric (color-relief) tint enabled. Builder-private; read back into paint['_hypso-enabled'] on load. */
+  hypso_enabled?: boolean;
+  /** DEM hypsometric color-ramp name. Builder-private; read back into paint['_hypso-ramp'] on load. */
+  hypso_ramp?: string;
   /** Virtual builder folder-group membership. Stored on real layers; folder rows are reconstructed client-side. */
   folderGroupId?: string;
   folderGroupName?: string;

@@ -42,6 +42,12 @@ LEGACY_BUILDER_PAINT_KEYS = {
     "_pmin": "pmin",
     "_pmax": "pmax",
     "_sigma": "sigma",
+    # DEM hypsometric (color-relief) builder-private keys. The DEM editor
+    # authors them as `_`-prefixed paint keys (DEMEditorScene); they are moved
+    # here into style_config.builder so the MapLibre `paint` storage boundary
+    # stays clean and the round-trip persists across save/reload.
+    "_hypso-enabled": "hypso_enabled",
+    "_hypso-ramp": "hypso_ramp",
 }
 _STYLE_CONFIG_BUILDER_KEY = "builder"
 
