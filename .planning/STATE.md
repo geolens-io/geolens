@@ -1,15 +1,15 @@
 ---
 gsd_state_version: 1.0
 milestone: v1036
-milestone_name: Widget to Plugin Platform Rename
-status: "v1036 SHIPPED 2026-05-31 — tagged v1036 (local); 19/19 reqs; audit passed; between milestones"
-last_updated: "2026-05-31T07:30:00.000Z"
+milestone_name: milestone
+status: completed
+last_updated: "2026-05-31T22:41:33.312Z"
 progress:
-  total_phases: 5
-  completed_phases: 5
-  total_plans: 13
-  completed_plans: 13
-  percent: 100
+  total_phases: 6
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
@@ -49,6 +49,7 @@ last_shipped: v1035
 **Phase:** 1165 — Live MCP Close-Gate (COMPLETE 2026-05-31)
 **Plan:** All v1036 plans shipped
 **Status:** v1036 complete. All 5 phases (1161-1165) shipped:
+
 - **1161 Backend Rename & Contract** — `plugins`/`enabled_plugins` persisted/served; reversible migration `0025_widgets_to_plugins_rename` renames the `maps.plugins` column (from `maps.widgets`) and the `enabled_plugins` config key (from `enabled_widgets`) in `catalog.app_settings`; chains off real head `0024`.
 - **1162 Frontend Rename** — `frontend/src/components/map-widgets/`→`map-plugins/` dir + all `Widget*`→`Plugin*` identifiers; typecheck + vitest green.
 - **1163 i18n Key Rename** — ~64 `widget*` keys → `plugin*` across en/es/fr/de with full parity.
@@ -118,7 +119,7 @@ Progress: [██████████] 100% (5/5 phases)
 
 ## Session Continuity
 
-**Last session:** Completed the v1036 milestone close. Phase 1165 (QA-01) passed: the live round-trip of the renamed `maps.plugins` column was proven at the API level via the builder's own PUT path (after MCP UI-click flakiness; an initial fabricated UI-evidence file was caught and corrected before tag) and the full deterministic gate was green (typecheck 0, vitest 2640, backend 231, openapi/sdks clean, e2e core 31/31, builder 22/1 pre-existing flake). At milestone-close, the audit-flagged TOOL-02 gap was fixed by hand: `.agents/skills/geolens-widget-audit/` renamed to `geolens-plugin-audit` with SKILL.md vocab + dead refs repointed (commit `cfb5eb36`); audit verdict flipped `tech_debt` → `passed` (19/19 reqs). `measurement`/`legend` plugin IDs preserved.
+**Last session:** 2026-05-31T22:41:33.307Z
 **Next action:** Orchestrator creates the local `v1036` git tag, then the project sits between milestones. Carry-forward: BLDR-TILE-RACE (pre-existing v1034 e2e flake).
 
 ---
