@@ -1,20 +1,22 @@
+import { Ruler, Layers } from 'lucide-react';
 import { registerPlugin } from './registry';
 import { MeasurementPlugin } from './builtin/MeasurementPlugin';
 import { LegendPlugin } from './builtin/LegendPlugin';
 
-/**
- * Register built-in plugins. Side-effect module imported once by index.ts.
- */
 registerPlugin({
   id: 'measurement',
-  anchor: 'top-left',
-  placement: 'panel',
+  labelKey: 'widgets.measurement.label',
+  icon: Ruler,
+  placement: { mode: 'floating', anchor: 'top-left' },
   component: MeasurementPlugin,
+  defaultVisible: false,
 });
 
 registerPlugin({
   id: 'legend',
-  anchor: 'top-right',
-  placement: 'inline',
+  labelKey: 'widgets.legend.label',
+  icon: Layers,
+  placement: { mode: 'floating', anchor: 'bottom-left' },
   component: LegendPlugin,
+  defaultVisible: true,
 });

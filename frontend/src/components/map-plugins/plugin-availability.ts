@@ -1,54 +1,46 @@
 import { getPlugins } from './registry';
 import type { PluginDefinition } from './types';
 
-/**
- * Availability gating for plugins. A plugin id is "available" when it is both
- * registered AND present in the enabled set (or the enabled set is null = all).
- */
+function enabledIdSet(enabledPluginIds: string[] | null | undefined): Set<string> | null {
+  return enabledPluginIds == null ? null : new Set(enabledPluginIds);
+}
+
 export function getEnabledPluginDefinitions(
-  enabledPluginIds: string[] | null
+  enabledPluginIds: string[] | null | undefined,
 ): PluginDefinition[] {
-  const all = getPlugins();
-  if (enabledPluginIds === null) return all;
-  const set = new Set(enabledPluginIds);
-  return all.filter((w) => set.has(w.id));
+  const enabledSet = enabledIdSet(enabledPluginIds);
+  return getPlugins().filter((plugin) => enabledSet === null || enabledSet.has(plugin.id));
 }
 
-/**
- * Check if a plugin id is available given the enabled set.
- */
 export function isPluginIdAvailable(
-  pluginId: string,
-  enabledPluginIds: string[] | null
+  id: string,
+  enabledPluginIds: string[] | null | undefined,
 ): boolean {
-  if (enabledPluginIds === null) return true;
-  return enabledPluginIds.includes(pluginId);
+  return getEnabledPluginDefinitions(enabledPluginIds).some((plugin) => plugin.id === id);
 }
 
-/**
- * Resolve the available plugin ids from the enabled set, falling back to all
- * registered plugin ids when the enabled set is null.
- */
 export function resolveAvailablePluginIds(
-  enabledPluginIds: string[] | null
+  pluginIds: Iterable<string>,
+  enabledPluginIds: string[] | null | undefined,
 ): string[] {
-  const all = getPlugins().map((w) => w.id);
-  if (enabledPluginIds === null) return all;
-  return all.filter((id) => enabledPluginIds.includes(id));
+  const available = new Set(getEnabledPluginDefinitions(enabledPluginIds).map((plugin) => plugin.id));
+  const resolved: string[] = [];
+  const seen = new Set<string>();
+  for (const id of pluginIds) {
+    if (!available.has(id) || seen.has(id)) continue;
+    resolved.push(id);
+    seen.add(id);
+  }
+  return resolved;
 }
 
-/**
- * Default plugin ids = all registered (used when no explicit enabled set).
- */
-export function getDefaultPluginIds(): string[] {
-  return getPlugins().map((w) => w.id);
+export function getDefaultPluginIds(enabledPluginIds: string[] | null | undefined): string[] {
+  return getEnabledPluginDefinitions(enabledPluginIds)
+    .filter((plugin) => plugin.defaultVisible)
+    .map((plugin) => plugin.id);
 }
 
-/**
- * Compare two plugin id arrays for set-equality (order-insensitive).
- */
-export function samePluginIds(a: string[], b: string[]): boolean {
+export function samePluginIds(a: readonly string[], b: readonly string[]): boolean {
   if (a.length !== b.length) return false;
-  const sa = new Set(a);
-  return b.every((id) => sa.has(id));
+  return a.every((id, index) => id === b[index]);
 }

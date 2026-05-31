@@ -1,26 +1,48 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { LayoutGrid } from 'lucide-react';
 import { registerPlugin, getPlugins, getPlugin } from '../registry';
-import type { PluginDefinition } from '../registry';
+
+// The registry is module-level state. Tests share it with the side-effect
+// registration in register-widgets.ts (imported via index.ts barrel).
+// We test additive behavior rather than assuming an empty registry.
 
 describe('plugin registry', () => {
-  const def: PluginDefinition = {
-    id: 'measurement',
-    anchor: 'top-left',
-    placement: 'panel',
+  const testPlugin = {
+    id: 'test-plugin-registry-spec',
+    labelKey: 'Test Widget',
+    icon: LayoutGrid,
+    placement: { mode: 'floating' as const, anchor: 'top-right' as const },
     component: () => null,
   };
 
-  beforeEach(() => {
-    // registry is module-singleton; re-register for each test
-    registerPlugin(def);
+  it('registerPlugin adds a plugin to the registry', () => {
+    const before = getPlugins().length;
+    registerPlugin(testPlugin);
+    expect(getPlugins().length).toBe(before + 1);
   });
 
-  it('registers and retrieves a plugin by id', () => {
-    registerPlugin(def);
-    expect(getPlugin('measurement')).toBeDefined();
+  it('getPlugin returns a registered plugin by ID', () => {
+    const found = getPlugin(testPlugin.id);
+    expect(found).toBeDefined();
+    expect(found?.labelKey).toBe('Test Widget');
   });
 
-  it('lists all registered plugins', () => {
-    expect(getPlugins().length).toBeGreaterThan(0);
+  it('getPlugin returns undefined for unknown ID', () => {
+    expect(getPlugin('nonexistent-plugin')).toBeUndefined();
+  });
+
+  it('getPlugins returns all registered plugins', () => {
+    const all = getPlugins();
+    expect(all.length).toBeGreaterThanOrEqual(1);
+    expect(all.some((w) => w.id === testPlugin.id)).toBe(true);
+  });
+
+  it('duplicate registration warns and overwrites', () => {
+    const spy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const updated = { ...testPlugin, labelKey: 'Updated Widget' };
+    registerPlugin(updated);
+
+    expect(spy).toHaveBeenCalledWith(expect.stringContaining(testPlugin.id));
+    expect(getPlugin(testPlugin.id)?.labelKey).toBe('Updated Widget');
+    spy.mockRestore();
   });
 });

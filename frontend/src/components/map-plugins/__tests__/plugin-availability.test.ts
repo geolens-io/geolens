@@ -1,23 +1,33 @@
-import { describe, it, expect } from 'vitest';
+import '../register-plugins';
 import {
-  getEnabledPluginDefinitions,
+  getDefaultPluginIds,
   isPluginIdAvailable,
   resolveAvailablePluginIds,
-  getDefaultPluginIds,
   samePluginIds,
 } from '../plugin-availability';
 
-describe('plugin-availability', () => {
-  it('returns all when enabled set is null', () => {
-    // null = all plugins enabled
-    expect(getEnabledPluginDefinitions(null)).toBeDefined();
+describe('plugin availability helpers', () => {
+  it('treats null or undefined enabled plugins as no restriction', () => {
+    expect(isPluginIdAvailable('legend', null)).toBe(true);
+    expect(isPluginIdAvailable('measurement', undefined)).toBe(true);
   });
 
-  it('isPluginIdAvailable respects enabled set', () => {
-    expect(isPluginIdAvailable('measurement', ['measurement'])).toBe(true);
+  it('filters unknown and admin-disabled IDs while preserving order', () => {
+    expect(resolveAvailablePluginIds(['unknown', 'measurement', 'legend', 'measurement'], ['legend', 'measurement'])).toEqual([
+      'measurement',
+      'legend',
+    ]);
+    expect(resolveAvailablePluginIds(['measurement', 'legend'], ['legend'])).toEqual(['legend']);
   });
 
-  it('samePluginIds compares set-equality', () => {
-    expect(samePluginIds(['a'], ['a'])).toBe(true);
+  it('resolves default visible plugins through admin enablement', () => {
+    expect(getDefaultPluginIds(null)).toEqual(['legend']);
+    expect(getDefaultPluginIds(['measurement'])).toEqual([]);
+    expect(getDefaultPluginIds(['legend'])).toEqual(['legend']);
+  });
+
+  it('compares plugin ID arrays by exact saved order', () => {
+    expect(samePluginIds(['legend', 'measurement'], ['legend', 'measurement'])).toBe(true);
+    expect(samePluginIds(['measurement', 'legend'], ['legend', 'measurement'])).toBe(false);
   });
 });

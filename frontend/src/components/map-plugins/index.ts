@@ -1,18 +1,14 @@
-import { PluginHost, usePartitionedPlugins } from './PluginHost';
+// Side-effect: register all built-in plugins at import time
 import './register-plugins';
-import { PluginPanel } from './PluginPanel';
-import { PluginErrorBoundary } from './PluginErrorBoundary';
-import { PluginDefinition } from './registry';
-import { PluginContext, PluginAnchor, PluginPlacement } from './types';
 
-export { PluginHost, usePartitionedPlugins, PluginPanel, PluginErrorBoundary };
-export { PluginDefinition };
-export { PluginContext, PluginAnchor, PluginPlacement };
+export type { PluginAnchor, PluginPlacement, PluginContext, PluginDefinition } from './types';
+export { registerPlugin, getPlugins, getPlugin } from './registry';
+export { PluginHost, PluginSidebar, usePartitionedPlugins } from './PluginHost';
+export { PluginPanel } from './PluginPanel';
 export {
+  getDefaultPluginIds,
   getEnabledPluginDefinitions,
   isPluginIdAvailable,
   resolveAvailablePluginIds,
-  getDefaultPluginIds,
   samePluginIds,
 } from './plugin-availability';
-export { getPlugins, getPlugin, registerPlugin } from './registry';

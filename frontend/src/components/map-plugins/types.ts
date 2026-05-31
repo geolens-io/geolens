@@ -1,23 +1,29 @@
-/**
- * Plugin platform types.
- *
- * A plugin is a self-contained UI surface rendered over the map (e.g. measurement,
- * legend). Plugins declare an anchor + placement and receive a typed context.
- */
+import type React from 'react';
+import type { Map as MaplibreMap } from 'maplibre-gl';
+import type { MapLayerResponse } from '@/types/api';
+
+/** Anchor positions for floating plugins */
 export type PluginAnchor = 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
 
-export type PluginPlacement = 'inline' | 'panel';
+/** Placement configuration -- fixed at registration time */
+export type PluginPlacement =
+  | { mode: 'floating'; anchor: PluginAnchor }
+  | { mode: 'sidebar' };  // sidebar plugins render in the builder's left sidebar
 
+/** Context every plugin receives */
 export interface PluginContext {
-  /** Stable map id the plugin is bound to. */
+  mapInstance: MaplibreMap | null;
+  layers: MapLayerResponse[];
   mapId: string;
-  /** i18n example key: 'widgets.measurement.label' */
-  mapId2?: never;
 }
 
+/** A registered plugin */
 export interface PluginDefinition {
   id: string;
-  anchor: PluginAnchor;
+  /** i18n key under the 'builder' namespace, e.g. 'widgets.measurement.label' */
+  labelKey: string;
+  icon: React.ComponentType<{ className?: string }>;
   placement: PluginPlacement;
-  component: React.ComponentType<{ context: PluginContext }>;
+  component: React.ComponentType<{ ctx: PluginContext }>;
+  defaultVisible?: boolean;
 }
