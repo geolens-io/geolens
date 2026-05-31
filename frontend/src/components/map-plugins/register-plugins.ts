@@ -5,7 +5,7 @@ import { LegendPlugin } from './builtin/LegendPlugin';
 
 registerPlugin({
   id: 'measurement',
-  labelKey: 'widgets.measurement.label',
+  labelKey: 'plugins.measurement.label',
   icon: Ruler,
   placement: { mode: 'floating', anchor: 'top-left' },
   component: MeasurementPlugin,
@@ -14,7 +14,7 @@ registerPlugin({
 
 registerPlugin({
   id: 'legend',
-  labelKey: 'widgets.legend.label',
+  labelKey: 'plugins.legend.label',
   icon: Layers,
   placement: { mode: 'floating', anchor: 'bottom-left' },
   component: LegendPlugin,

@@ -84,7 +84,7 @@ export function LegendPlugin({ ctx }: { ctx: PluginContext }) {
 
   if (legendLayers.length === 0) {
     return (
-      <p className="text-xs text-muted-foreground">{t('widgets.legend.noLayers')}</p>
+      <p className="text-xs text-muted-foreground">{t('plugins.legend.noLayers')}</p>
     );
   }
 
@@ -129,9 +129,9 @@ const LegendLayerEntry = memo(function LegendLayerEntry({
               rampName={(layer.paint?.['_heatmap-ramp'] as string) ?? 'YlOrRd'}
               weightColumn={weightCol}
               opacity={opacity}
-              lowLabel={t('widgets.legend.low')}
-              highLabel={t('widgets.legend.high')}
-              weightedByLabel={weightCol ? t('widgets.legend.weightedBy', { column: weightCol }) : undefined}
+              lowLabel={t('plugins.legend.low')}
+              highLabel={t('plugins.legend.high')}
+              weightedByLabel={weightCol ? t('plugins.legend.weightedBy', { column: weightCol }) : undefined}
             />
           ) : layer.style_config?.column ? (
             <>
@@ -194,7 +194,7 @@ const LegendLayerEntry = memo(function LegendLayerEntry({
             {layer.display_name ?? layer.dataset_name}
           </span>
           <span className="text-muted-foreground italic ml-1">
-            {t('widgets.legend.unavailable', { defaultValue: '(legend unavailable)' })}
+            {t('plugins.legend.unavailable', { defaultValue: '(legend unavailable)' })}
           </span>
         </div>
         {!isLast && <div className="border-b" />}

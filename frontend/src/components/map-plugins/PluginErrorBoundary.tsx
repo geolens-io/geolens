@@ -21,7 +21,7 @@ export class PluginErrorBoundary extends Component<
     if (this.state.hasError) {
       return (
         <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-2.5 text-xs text-destructive">
-          {i18n.t('builder:widgets.widgetError')}
+          {i18n.t('builder:plugins.pluginError')}
         </div>
       );
     }

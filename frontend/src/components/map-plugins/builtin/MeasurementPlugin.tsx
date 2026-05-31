@@ -261,11 +261,11 @@ export function MeasurementPlugin({ ctx }: { ctx: PluginContext }) {
               ? 'bg-primary text-primary-foreground border-primary'
               : 'border-border hover:bg-accent/50'
           )}
-          title={t('widgets.measurement.distance')}
+          title={t('plugins.measurement.distance')}
           aria-pressed={mode === 'distance'}
         >
           <Ruler className="h-3 w-3" />
-          {t('widgets.measurement.distance')}
+          {t('plugins.measurement.distance')}
         </button>
         <button
           onClick={() => handleModeChange('area')}
@@ -275,11 +275,11 @@ export function MeasurementPlugin({ ctx }: { ctx: PluginContext }) {
               ? 'bg-primary text-primary-foreground border-primary'
               : 'border-border hover:bg-accent/50'
           )}
-          title={t('widgets.measurement.area')}
+          title={t('plugins.measurement.area')}
           aria-pressed={mode === 'area'}
         >
           <Pentagon className="h-3 w-3" />
-          {t('widgets.measurement.area')}
+          {t('plugins.measurement.area')}
         </button>
       </div>
 
@@ -292,7 +292,7 @@ export function MeasurementPlugin({ ctx }: { ctx: PluginContext }) {
         </div>
       ) : (
         <p className="text-xs text-muted-foreground text-center">
-          {t('widgets.measurement.clickToMeasure')}
+          {t('plugins.measurement.clickToMeasure')}
         </p>
       )}
 
@@ -302,16 +302,16 @@ export function MeasurementPlugin({ ctx }: { ctx: PluginContext }) {
           onClick={() => setUnit((u) => (u === 'metric' ? 'imperial' : 'metric'))}
           className="text-xs text-muted-foreground hover:text-foreground transition-colors underline-offset-2 hover:underline"
         >
-          {unit === 'metric' ? t('widgets.measurement.metric') : t('widgets.measurement.imperial')}
+          {unit === 'metric' ? t('plugins.measurement.metric') : t('plugins.measurement.imperial')}
         </button>
         {points.length > 0 && (
           <button
             onClick={handleClear}
             className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
-            title={t('widgets.measurement.clear')}
+            title={t('plugins.measurement.clear')}
           >
             <Trash2 className="h-3 w-3" />
-            {t('widgets.measurement.clear')}
+            {t('plugins.measurement.clear')}
           </button>
         )}
       </div>

@@ -160,11 +160,11 @@ export const SettingsEditorScene = memo(function SettingsEditorScene({
               aria-hidden="true"
             />
             <span className={eyebrowClassName}>
-              {t('settings.widgetsLabel', { defaultValue: 'WIDGETS' })}
+              {t('settings.pluginsLabel', { defaultValue: 'PLUGINS' })}
             </span>
             {!pluginsOpen && (
               <span className="ml-auto text-xs text-muted-foreground">
-                {t('settings.widgetsEnabledCount', { count: activePluginIds.size, defaultValue: '{{count}} enabled' })}
+                {t('settings.pluginsEnabledCount', { count: activePluginIds.size, defaultValue: '{{count}} enabled' })}
               </span>
             )}
           </button>
@@ -172,25 +172,25 @@ export const SettingsEditorScene = memo(function SettingsEditorScene({
         <CollapsibleContent>
           {plugins.length === 0 ? (
             <p className="px-4 py-2 text-xs text-muted-foreground">
-              {t('settings.noWidgets', { defaultValue: 'No plugins available.' })}
+              {t('settings.noPlugins', { defaultValue: 'No plugins available.' })}
             </p>
           ) : (
             <>
               {/* UX-04: clarify that this section controls AVAILABILITY (vs live interaction on the map). */}
               <p className="px-4 pt-2 pb-1 text-[11px] text-muted-foreground">
-                {t('settings.widgetsAvailabilityNote', {
+                {t('settings.pluginsAvailabilityNote', {
                   defaultValue: 'Controls whether each plugin appears on the map.',
                 })}
               </p>
-              <div role="group" aria-label={t('settings.widgetsGroupAria', { defaultValue: 'Widgets' })}>
+              <div role="group" aria-label={t('settings.pluginsGroupAria', { defaultValue: 'Plugins' })}>
                 {plugins.map((plugin) => {
                   const isEnabled = activePluginIds.has(plugin.id);
                   const pluginLabel = t(plugin.labelKey, { defaultValue: plugin.id });
                   // UX-04: state-specific aria labels — "Enable {name}" / "Disable {name}" —
                   // replace the older "{action} {name} plugin" composite key.
                   const switchAriaLabel = isEnabled
-                    ? t('settings.disableWidget', { defaultValue: 'Disable {{name}}', name: pluginLabel })
-                    : t('settings.enableWidget', { defaultValue: 'Enable {{name}}', name: pluginLabel });
+                    ? t('settings.disablePlugin', { defaultValue: 'Disable {{name}}', name: pluginLabel })
+                    : t('settings.enablePlugin', { defaultValue: 'Enable {{name}}', name: pluginLabel });
                   return (
                     <div
                       key={plugin.id}

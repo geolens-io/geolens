@@ -60,10 +60,10 @@ function PluginToggles({ settings, enabledPlugins, onChangeEnabled, onReset, env
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-2">
-        <h3 className="text-base font-medium">{t('settings.widgets.title')}</h3>
+        <h3 className="text-base font-medium">{t('settings.plugins.title')}</h3>
         <SettingSourceBadge source={findSetting(settings, 'enabled_plugins')?.source ?? 'default'} settingKey="enabled_plugins" onReset={onReset} />
       </div>
-      <p className="text-sm text-muted-foreground">{t('settings.widgets.description')}</p>
+      <p className="text-sm text-muted-foreground">{t('settings.plugins.description')}</p>
 
       <div className="space-y-3 max-w-md">
         {registeredPlugins.map((w) => {

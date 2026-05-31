@@ -60,7 +60,7 @@ export function MapToolbar({ onStyleJsonClick }: MapToolbarProps) {
       tools.push({
         id: 'measure',
         icon: measurementPlugin.icon ?? Ruler,
-        label: t('widgets.measurement.label', { defaultValue: 'Measure' }),
+        label: t('plugins.measurement.label', { defaultValue: 'Measure' }),
         shortcut: 'M',
         active: measureActive,
         onClick: () => { toggle('measurement'); },
@@ -114,14 +114,14 @@ export function MapToolbar({ onStyleJsonClick }: MapToolbarProps) {
                         ? 'bg-foreground text-background'
                         : 'text-muted-foreground hover:bg-accent hover:text-foreground',
                     )}
-                    aria-label={t('widgets.legend.label', { defaultValue: 'Legend' })}
+                    aria-label={t('plugins.legend.label', { defaultValue: 'Legend' })}
                     aria-pressed={legendActive}
                   >
                     <LegendIcon className="h-3.5 w-3.5" />
                   </button>
                 </TooltipTrigger>
                 <TooltipContent side="bottom" className="text-xs">
-                  {t('widgets.legend.label', { defaultValue: 'Legend' })}
+                  {t('plugins.legend.label', { defaultValue: 'Legend' })}
                   <span className="ms-1.5 font-mono text-2xs text-muted-foreground">L</span>
                 </TooltipContent>
               </Tooltip>
