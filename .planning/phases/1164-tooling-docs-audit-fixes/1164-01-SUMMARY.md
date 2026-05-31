@@ -70,16 +70,18 @@ Docs/tooling only; no production app source touched.
 | 2 | Rename widget-audit -> plugin-audit + 3 audit fixes (TOOL-01, TOOL-04) | `a1b4fc2d` | .claude/commands/plugin-audit.md (+ rm widget-audit.md) |
 | 3 | Repoint map-audit cross-ref to /plugin-audit (TOOL-01) | `ec71e294` | .claude/commands/map-audit.md |
 | 3b | Apply builder-audit /plugin-audit cross-ref (line 1132) | `f3e012ad` | .claude/commands/builder-audit.md |
-| 3c | Resolve builder-audit line-184 widget->plugin pending marker | `2c9d6f5a` | .claude/commands/builder-audit.md |
+| 3c | Resolve builder-audit line-184 widget->plugin pending marker | `5247aa7b` | .claude/commands/builder-audit.md |
+| 3d | Resolve builder-audit line-699 Widgets->Plugins pending marker | `48a0e473` | .claude/commands/builder-audit.md |
 
 All on `main`. The builder-audit.md edits took extra commits because of a tool constraint (NOT
 contention): the `Edit` tool refuses to modify a file unless it was opened with the `Read` tool
 in-session, and I had only inspected builder-audit.md via grep/sed (Bash). My first Edit attempts were
 silently rejected, so `ec71e294` committed only map-audit.md. After opening builder-audit.md with the
-`Read` tool, the line-1132 cross-ref edit landed in `f3e012ad`, and the line-184 `widget availability`
-pending marker (tagged `RENAME-TOOL-01, phase 1164` — Plan 01 scope) was resolved in `2c9d6f5a`.
-builder-audit.md now has zero `widget` references. The repeated grep self-check is what caught each
-non-applied edit until the changes were real.
+`Read` tool, the line-1132 cross-ref edit landed in `f3e012ad`, the line-184 `widget availability`
+pending marker (tagged `RENAME-TOOL-01, phase 1164` — Plan 01 scope) in `5247aa7b`, and the line-699
+settings-section `Widgets` marker in `48a0e473`. builder-audit.md now has zero `widget` references.
+The repeated grep self-check is what caught each non-applied edit until the changes were real. (The
+docs-only commits `e1a454f0`, `d79c84b8`, `e503777a` are SUMMARY self-corrections with no code change.)
 
 ## Deviations from Plan
 
@@ -170,11 +172,11 @@ A concurrent session (`builder-audit-fixes-20260530`) shares this working dir an
   the `Read` tool earlier in the same session, and I had only inspected builder-audit.md via grep/sed
   (Bash). Each Edit attempt was silently rejected, and the self-check (grep `widget-audit` count in
   builder-audit.md) correctly kept reporting the stale `/widget-audit` line. Once I opened the file
-  with the `Read` tool, the exact single-line Edit applied and was committed in `6c4f0a1e`. Throughout,
-  I re-grepped before each attempt (line stayed at 1132, no drift), confirmed no conflict markers and
-  no foreign WIP, never touched `builder-audit-*` branches, never did a blanket checkout/overwrite, and
-  stayed on `main`. Final state: builder-audit.md has 0 `widget-audit` / 1 `plugin-audit`, no conflict
-  markers, no residual platform "widget" words on the cross-ref line.
+  with the `Read` tool, the cross-ref Edit applied (`f3e012ad`) and the two remaining pending markers
+  at lines 184 and 699 were resolved (`5247aa7b`, `48a0e473`). Throughout, I re-grepped before each
+  attempt (cross-ref stayed at line 1132, no drift), confirmed no conflict markers and no foreign WIP,
+  never touched `builder-audit-*` branches, never did a blanket checkout/overwrite, and stayed on
+  `main`. Final state: builder-audit.md has 0 `widget` references of any kind, no conflict markers.
 - No concurrent-branch recovery was needed — HEAD never left `main`. The line text was byte-identical
   across every read, and the concurrent session never had uncommitted edits to this file at any point I
   observed (`git status` on it was always clean).
