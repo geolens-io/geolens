@@ -1,35 +1,46 @@
 # Map Builder Audit — 2026-05-30
 
-> **Remediation status (2026-05-31):** All P1 findings fixed on branch
-> `builder-audit-fixes-v2` (single commit `b561d67f`), branched off `main` after the
-> concurrent milestone-1162 widget→plugin rename landed. Fixes: **B-001/B-002** (ChatAction
-> rows/columns/row_count/truncated + dataset_name + OpenAPI/FE-type regen) — plus a deeper
-> latent bug surfaced during verification: the AI inline data-table renderer keyed rows as
-> objects, but the real backend contract is `list[list]` row arrays paired with a `columns`
-> array, so even once the fields flowed the table would have rendered empty; `ChatPanel`, the
-> frontend type, and the 1135 test fixtures were corrected to the true contract. **B-003**
-> (filter-count `layer-${id}` prefix), **B-004/B-005/B-006** (line-arrow companion in
-> visibility/bulk/filter), **B-008/B-009** (label-change symbol/heatmap guards), **B-031**
-> (duplicate inherits visibility). **B-018/B-019/B-028/B-029** had already landed on `main`
-> via an earlier merge (`e5791042`). Regression tests added: backend ChatAction round-trip;
-> frontend filter-count prefix. **Verification:** frontend typecheck 0; builder+viewer vitest
-> **1454/1454**; backend chat suite **38/38**; OpenAPI snapshot in sync; eslint/ruff clean on
-> changed files. **Live Playwright MCP smoke (2026-05-31, public showcase map
-> `c39be324`):** builder loads with **zero console errors** on the post-1162-rename + fixes
-> bundle; the served `use-layer-map-sync` module confirmed to contain the arrow-companion fix
-> (not a stale bundle); `setFilter` apply→clear round-trips cleanly on a line layer; the
-> unsaved-changes `beforeunload` guard fires correctly; legend renders with the "plugin"
-> rename live. The showcase map was **not saved** (in-memory toggle discarded via the guard;
-> no test data mutated). **One unresolved observation (carry-forward, NOT attributable to this
-> change):** the layer-row eye toggle flipped React dirty-state (`aria-pressed` + "Unsaved
-> changes") but the resolved MapLibre layer's `visibility` stayed `visible` for the Blue Line
-> fill/outline pair. My B-004 edit only *adds* an `arrowId` line to an already-working
-> visibility block, so it cannot regress fill/outline toggling; the `use-layer-map-sync` /
-> `use-builder-layers` visibility unit suites pass. The most likely cause is the fiber-resolved
-> Map not being the live render target (instrumentation artifact) or a pre-existing builder
-> sync quirk — needs a focused `/gsd-debug` session, filed as **B-041 (P2)**. Remaining
-> P2/LOW items (AI undo, embed Referer fallback, perf memoization, misc UX/token, B-041) are
-> documented below, untouched.
+> **Remediation status (2026-05-31):** P1 findings fixed on branch `builder-audit-fixes-v2`
+> (6 commits), branched off `main` after the concurrent milestone-1162 widget→plugin rename
+> landed. **Fixed + verified:** **B-001** (ChatAction rows/columns/row_count/truncated; plus a
+> deeper latent bug — the AI inline data-table renderer keyed rows as objects, but the real
+> backend contract is `list[list]` arrays paired with a `columns` array, so even once the
+> fields flowed the table would have rendered empty; `ChatPanel`, the FE type, and the 1135
+> fixtures were corrected to the true contract). **B-002** (add_layer `dataset_name`) — note:
+> the first pass only plumbed the field through the model/type and was **functionally
+> incomplete** (never populated server-side, chip still showed the UUID); the follow-up commit
+> `f10769da` resolves the title in `_execute_chat_tool` via `port.get_dataset(...).record.title`
+> (best-effort, non-fatal) and propagates it through `_collect_chat_action`, with two
+> end-to-end regression tests. **B-003** (filter-count `layer-${id}` prefix), **B-004/B-005/
+> B-006** (line-arrow companion in visibility/bulk/filter — now unit-covered incl. `-arrow` in
+> the BUG-01 visibility suite), **B-007** (group-delete now tears down child companion layers,
+> commit `aa447b0f` — it had been skipped despite the "B-001..B-009" commit message),
+> **B-008/B-009** (label-change symbol/heatmap guards), **B-031** (duplicate inherits
+> visibility). **B-018/B-019/B-028/B-029** had already landed on `main` via an earlier merge
+> (`e5791042`). **Verification:** frontend typecheck 0; builder+viewer vitest green (216/216
+> hook suite + 1454 builder/viewer); backend chat suite green (incl. new B-002 e2e tests);
+> OpenAPI snapshot in sync; eslint/ruff clean; backend imports clean (`app.api.main`).
+> **Live Playwright MCP smoke (public showcase map `c39be324`):** builder loads with **zero
+> console errors** on the post-1162-rename + fixes bundle; served `use-layer-map-sync` confirmed
+> to contain the arrow fix (not a stale bundle); `setFilter` round-trips; unsaved-changes
+> `beforeunload` guard fires; legend renders with the "plugin" rename live. Showcase map **not
+> saved** (toggle discarded via the guard; no test data mutated).
+>
+> **B-041 — RESOLVED as instrumentation artifact (not a product bug).** During live smoke the
+> layer-row eye flipped React dirty-state but the *fiber-resolved* MapLibre layer's `visibility`
+> stayed `visible`. A loose-ends investigation traced the full wiring (eye →
+> `dispatchLayerAction('set_visibility')` → `handleToggleVisibility`) and confirmed the
+> imperative `setLayoutProperty(id,'visibility','none')` path is exercised on the main layer +
+> all companions by the existing Phase-1051 BUG-01 unit suite (now extended to cover `-arrow`);
+> a second React-driven `syncVisibility` backstop also re-asserts it. For both to no-op
+> simultaneously is inconsistent with the code — the signature of the live probe reading a
+> stale/wrong Map handle via the generic `window.__glmap` fiber-BFS, or sampling inside the
+> token/style gate window before the `once('idle')` retry lands. No production fix needed.
+>
+> **Remaining (untouched, P1/P2/LOW):** B-010/B-011 (Advanced JSON editor `_`-key handling),
+> B-012/B-013/B-014 (AI undo state + SSE-retry), B-015/B-016/B-017 (UX), B-020..B-040 +
+> dimension-level findings (perf memoization, embed Referer fallback, S5-xx share hardening,
+> UX/token polish). See §10 + the loose-ends census appendix below.
 
 ## Scorecard
 
