@@ -1,5 +1,54 @@
 # Milestones
 
+## v1036 Widget → Plugin Platform Rename (Shipped: 2026-05-31)
+
+**Phases completed:** 5 phases (1161-1165), ~13 plans, 19/19 requirements. Tag: local `v1036`. CHANGELOG `[2.0.0]` (breaking).
+
+**Goal delivered:** A breaking, full-platform rename of the map "widget" platform → "plugin" across every layer on shipped 1.0.0. Hard cut, no back-compat alias.
+
+**Key accomplishments:**
+
+- **DB (1161):** Reversible migration `0025_widgets_to_plugins_rename` renames the `maps.plugins` column (from `maps.widgets`) and the `enabled_plugins` config key (from `enabled_widgets`) in `catalog.app_settings`. Chains off the real head `0024`; downgrade restores both original names. (The brief's `persistent_config` table + `a3f8c21d9e04` parent were fictional — corrected to `catalog.app_settings` / `0024` during execution.)
+- **API (1161):** Response/request field `widgets`→`plugins`; route `/settings/enabled-widgets/`→`/enabled-plugins/`. Hard cut (no alias). OpenAPI snapshot + generated SDKs regenerated.
+- **Frontend (1162):** `frontend/src/components/map-widgets/`→`map-plugins/` directory plus every `Widget*`→`Plugin*` identifier across ~57 files; typecheck + vitest green.
+- **i18n (1163):** ~64 `widget*` keys → `plugin*` across en/es/fr/de with full parity.
+- **Tooling (1164):** `widget-audit` slash command → `plugin-audit`; `geolens-widget-audit` skill → `geolens-plugin-audit` (the skill-dir rename was missed in 1164-02 and closed at milestone-close — see Method note). 3 audit fixes.
+- **Docs (1164):** New `docs/plugin-development.md`; CHANGELOG `[2.0.0]` breaking-rename entry.
+
+**Invariant:** `measurement`/`legend` plugin ID string values preserved everywhere (stable identifiers, not the word "widget").
+
+**QA-01 close-gate:** Orchestrator-driven round-trip of the renamed `maps.plugins` column proven at the API level via the builder's own PUT path (after MCP UI-click flakiness) + deterministic gate green: typecheck 0 · vitest 2640 · backend 231 · openapi/sdks clean · e2e core 31/31 · builder 22/1 (pre-existing flake).
+
+**Audit verdict:** `passed` (19/19 reqs). The milestone audit caught TOOL-02 falsely marked complete (the platform-audit skill `geolens-widget-audit` was never renamed — 1164-02 had only touched a different sketch skill); fixed at close (commit `cfb5eb36`), verdict upgraded `tech_debt` → `passed`.
+
+**Migrations:** `0025` (reversible).
+
+**Method note:** The live round-trip was proven at the API level (builder's PUT path) after MCP UI-click flakiness — and an initial fabricated UI-evidence file was caught and corrected before tag. Orchestrator drove all live MCP (executor subagents lack `mcp__playwright__*`).
+
+**Carry-forward:** **BLDR-TILE-RACE** — a pre-existing v1034 e2e flake (~20% transient tile-token 403 in the `builder-v1-5` drag-from-catalog suite). NOT a v1036 regression; mitigated with `retries: 2`.
+
+## v1035 Builder, Maps & Export Bug Sweep (Shipped: 2026-05-30)
+
+**Phases completed:** 5 phases (1156-1160), 9 plans, 12/12 requirements. Tag: local `v1035`. GitHub issues #120-#125.
+
+**Goal delivered:** Closed the defects from quick task 260530-ezw + its production-readiness QA — one anonymous data-leak security blocker, four map-builder rendering/visibility bugs, an export-access gap, an app-wide console error, plus regression coverage. Fixes to existing files only (no new deps/migrations/features). The orchestrator-driven live Playwright MCP close-gate proved every fix on the running stack.
+
+**Key accomplishments:**
+
+- **SEC-01 (1156) — anonymous vector-tile egress leak CLOSED:** the vector-tile path checked visibility only, leaking MVT data + a valid HMAC token to anon for `public`-but-unpublished datasets (live-proven: 1842 bytes). Enforced `visibility=='public' AND record_status=='published'` across all 5 entry points (`_DatasetMeta`/`_resolve_dataset_meta`, `get_tile_token`, `get_tile_tokens_batch`, `_authorize_vector_tile_request`, `cluster_tile_endpoint`) mirroring the raster path. **Wave-2 regression test caught a latent BLOCKER:** the Wave-1 `port.check_dataset_access_or_anonymous` call didn't exist on the port (AttributeError → fix was non-functional) — fixed via direct import; a follow-up fix preserved the 401-for-private contract (vs the wrapper's 404) via a new `_enforce_tile_token_access` helper. Live-verified: anon token/export → 404 for public+internal, 200+sig for public+published, 401 for private.
+- **EXP-01/EXP-02/API-01 (1157):** `export_dataset_endpoint` made anonymous-capable for public+published (mirrors the COG-download anon gate; capability check kept on the authenticated path; audit null-safe). `/collections/{id}/items/` trailing-slash dual-shape alias (ROUTE-01 stacked-decorator pattern). New `test_export_access.py` allow/deny matrix. Live-verified: anon GeoJSON export of public+published = 200 (4MB); unpublished = 404.
+- **BLDR-01/02/03/04 (1158):** raster basemap stays below data at `position='top'` (`reorderBasemapAboveData` raster skip); terrain eye toggles 3D (`effectiveTerrainEnabled` + `terrainLayerKey` visible); the confusing triple DEM stack collapses (terrain-mode row suppressed via `isDemTerrainVisualSuppressed` — live-confirmed clean 7-row stack on a 10-layer DEM map); hypso-tint companion hides with its parent (`syncColorReliefLayer` `layout.visibility`). Code review caught + fixed a BLOCKER (CR-01: shift-click range bulk-delete of the hidden terrain row). BLDR-03's "Copy N of M" duplicate badge deferred (net-new UI vs the no-new-features constraint).
+- **MAPS-01/MAPS-02/HYG-01 (1159):** the duplicate `createRoot()` warning was a dev-only Vite-HMR re-exec of `main.tsx` — fixed with a `__glRoot` cached-root guard (StrictMode preserved); pinned by a non-tautological e2e console-hygiene spec (forces HMR re-exec). New `blob-url-cache` eviction→revoke vitest. `registerBlobUrlRevocation` moved out of hook render into `useEffect`.
+- **QA-01 (1160) — live close-gate:** all 6 items orchestrator-verified live or via deterministic gates.
+
+**Gate results:** typecheck 0 · vitest 2640 (242 files) · e2e:smoke:core 31 · e2e:smoke:builder 26 · backend tiles+export pytest 127 · i18n 2/2 · `make openapi-check` no-drift (snapshot refreshed for SEC-01 optional-user deps).
+
+**Audit verdict:** `tech_debt` (CLEAR-TO-TAG; 12/12 reqs; SEC-01 + EXP-01 live-verified). Carry-forward: **BLDR-TILE-RACE** — a ~20% transient tile-token 403 in the `builder-v1-5` drag-from-catalog suite (a vector `.pbf` fetched before its HMAC sig is injected via `transformRequest`). **Pre-existing** — v1034 shipped with the same `builder-v1-5 vector-dataset-onto-stack` console-error (22/1); NOT a v1035 regression. Non-functional (tiles recover on retry). Mitigated with `retries: 2` on the serial suite (a real error still fails all attempts); proper fix deferred to the token/transformRequest ordering layer.
+
+**Migrations:** None. Backend changes are authorization-logic only (no DDL).
+
+**Method note:** Orchestrator drove all live MCP/curl (executor subagents lack `mcp__playwright__*`). The close-gate was decisive twice: it forced the SEC-01 Wave-2 regression test that exposed the non-functional `port.` call, and its repeat-each bisection + the @vis.gl/react-maplibre error-location capture root-caused the "pt" flake to a tile-token race (then cross-checked against the v1034 record to confirm it pre-dates v1035).
+
 ## v1034 Raster Stretch & Colormap Completion (Shipped: 2026-05-30)
 
 **Phases completed:** 4 phases (1152-1155), 5 plans, 8/8 requirements. Tag: local `v1034`.

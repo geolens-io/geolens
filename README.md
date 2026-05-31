@@ -332,7 +332,7 @@ is deferred until a real-world adopter request makes it concrete.
 | [Configuration Reference](https://docs.getgeolens.com/guides/quickstart/configuration/) | All environment variables and their defaults |
 | [Admin Guide](https://docs.getgeolens.com/guides/admin/) | User management, datasets, system health |
 | [Cloud Deployment](https://docs.getgeolens.com/guides/quickstart/cloud-deployment/) | AWS, GCP, and DigitalOcean deployment guides |
-| [Developer Docs](https://docs.getgeolens.com/) | Build custom map builder widgets |
+| [Developer Docs](https://docs.getgeolens.com/) | Build custom map builder plugins |
 | [API Reference](https://docs.getgeolens.com/guides/api/) | Auto-generated reference at docs.getgeolens.com; interactive Swagger UI at `/api/docs` when running |
 | [Manifest examples](examples/manifests/) | Working `geolens.yaml` examples — first-catalog, public-cog (remote COG), s3-source, url-source |
 

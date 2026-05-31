@@ -24,6 +24,7 @@ import { BulkActionBar } from '@/components/builder/BulkActionBar';
 import { isFolderGroupLayer } from '@/lib/layer-capabilities';
 import { cn } from '@/lib/utils';
 import type { MapLayerResponse } from '@/types/api';
+import { isDemTerrainVisualSuppressed } from './map-sync';
 
 // ---------------------------------------------------------------------------
 // Stable noop — created once at module scope so optional-prop fallbacks never
@@ -782,6 +783,15 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
     return () => el.removeEventListener('keydown', handleKeyDown);
   }, [selectedIds.size, selectableRowIds, onClearSelection, onShiftClick]);
 
+  // Filter out terrain-mode DEM layers from the stack UI — the map-sync layer
+  // render already suppresses them (map-sync.ts:919); this aligns the stack
+  // display with what the map actually renders. Reorder/bulk/drag paths still
+  // see the full `layers` prop so their persistence logic is unaffected.
+  const visibleStackLayers = useMemo(
+    () => layers.filter((l) => !isDemTerrainVisualSuppressed(l)),
+    [layers],
+  );
+
   // SortableContext items: all layer ids + the basemap-group id.
   // UX-03 (Phase 1051 Plan 06): basemap is no longer excluded — it participates
   // in the sortable list so the user can drag it between 'top' and 'bottom'
@@ -790,24 +800,24 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
   // handleDragEnd in MapBuilderPage detects basemap drags via the special id and
   // updates basemap_position on MapBasemapConfig instead of mutating localLayers.
   const sortableIds = useMemo(() => {
-    const layerIds: string[] = layers.map((l) => l.id);
+    const layerIds: string[] = visibleStackLayers.map((l) => l.id);
     if (!basemapGroup) return layerIds;
     return basemapPosition === 'top'
       ? [basemapGroup.id, ...layerIds]
       : [...layerIds, basemapGroup.id];
-  }, [layers, basemapGroup, basemapPosition]);
+  }, [visibleStackLayers, basemapGroup, basemapPosition]);
 
   // Build the render plan: group children by parent for O(N) pass
   const childrenByGroup = useMemo(() => {
     const map: Record<string, MapLayerResponse[]> = {};
-    for (const layer of layers) {
+    for (const layer of visibleStackLayers) {
       const parent = getParentGroupId(layer);
       if (parent) {
         (map[parent] ??= []).push(layer);
       }
     }
     return map;
-  }, [layers]);
+  }, [visibleStackLayers]);
 
   // Noop fallbacks for optional handlers — use module-level NOOP so references
   // are stable and do not defeat memo() on children.
@@ -824,7 +834,12 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
   const safeMoveLayerOutOfGroup = onMoveLayerOutOfGroup ?? NOOP;
   const safeToggleGroupExpand = onToggleGroupExpand ?? NOOP;
 
-  const isEmpty = layers.length === 0;
+  // BLDR-03: emptiness is measured over visibleStackLayers (terrain-mode DEM
+  // rows are suppressed because terrain is a map-level setting, not a data row).
+  // A map whose only layer is a terrain-mode DEM therefore intentionally shows
+  // the "add data" empty state — there are no data layers to manage in the stack;
+  // terrain is configured via the map-level terrain controls.
+  const isEmpty = visibleStackLayers.length === 0;
 
   // ---------------------------------------------------------------------------
   // Basemap dock row — rendered in both empty and populated states.
@@ -893,9 +908,9 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
           <h2 className="text-sm font-semibold">
             {t('unifiedStack.title', { defaultValue: 'Layers' })}
           </h2>
-          {layers.length > 0 && (
+          {visibleStackLayers.length > 0 && (
             <Badge variant="secondary" className="rounded-full px-2 text-xs font-semibold">
-              {layers.length}
+              {visibleStackLayers.length}
             </Badge>
           )}
         </div>
@@ -973,8 +988,13 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
                   row; persistence via MapBasemapConfig.basemap_position. */}
               {basemapPosition === 'top' && renderBasemapDockRow(false)}
 
-              {/* 2. User folder groups + loose layers (in saved order) */}
-              {layers.map((layer) => {
+              {/* 2. User folder groups + loose layers (in saved order).
+                  Terrain-mode DEM layers are excluded via visibleStackLayers so
+                  the stack agrees with the map's existing render suppression
+                  (map-sync.ts:919). The raw `layers` prop is still forwarded to
+                  BulkActionBar and used for drag-overlay lookup so those paths
+                  see the full layer set. */}
+              {visibleStackLayers.map((layer) => {
                 // Skip child rows — they render inside their group container
                 if (getParentGroupId(layer)) return null;
 

@@ -15,7 +15,7 @@ import {
   getApiKeyStatus,
   getBranding,
   updateBranding,
-  getEnabledWidgets,
+  getEnabledPlugins,
   getEnterpriseOnlyTabs,
 } from '@/api/settings';
 
@@ -48,10 +48,10 @@ export function useTileConfig() {
   });
 }
 
-export function useEnabledWidgets() {
+export function useEnabledPlugins() {
   return useQuery({
-    queryKey: queryKeys.settings.enabledWidgets,
-    queryFn: getEnabledWidgets,
+    queryKey: queryKeys.settings.enabledPlugins,
+    queryFn: getEnabledPlugins,
     staleTime: 60_000,
     gcTime: 30 * 60_000,
   });

@@ -447,9 +447,9 @@
       "saved": "Paramètres de carte enregistrés",
       "saveFailed": "Échec de l'enregistrement des paramètres de carte"
     },
-    "widgets": {
-      "title": "Widgets de carte",
-      "description": "Activer ou désactiver les widgets disponibles dans le constructeur de cartes."
+    "plugins": {
+      "title": "Plugins de carte",
+      "description": "Activer ou désactiver les plugins disponibles dans le constructeur de cartes."
     },
     "appearance": {
       "branding": {

@@ -30,7 +30,7 @@ export type MapStackRole =
   | 'data-layer'
   | 'data-labels'
   | 'interaction-popups'
-  | 'interaction-widgets';
+  | 'interaction-plugins';
 
 export type MapStackBadgeTone = 'neutral' | 'muted' | 'info' | 'success' | 'warning' | 'danger';
 
@@ -90,7 +90,7 @@ export interface MapStackEntryMetadata {
     config?: MapBasemapConfig | null;
     futureControl: boolean;
   };
-  widgets?: string[];
+  plugins?: string[];
 }
 
 export interface MapStackEntry {
@@ -122,7 +122,7 @@ export interface MapStackMapInput {
   basemap_config?: MapBasemapConfig | null;
   terrain_config?: MapTerrainConfig | null;
   layers?: MapLayerResponse[];
-  widgets?: string[] | null;
+  plugins?: string[] | null;
 }
 
 interface IndexedLayer {
@@ -157,7 +157,7 @@ const GROUP_TITLES: Record<MapStackGroupId, { title: string; description: string
   },
   interactions: {
     title: 'Interactions',
-    description: 'Popup and widget affordances surfaced with the map.',
+    description: 'Popup and plugin affordances surfaced with the map.',
   },
 };
 
@@ -660,24 +660,24 @@ function makeInteractionEntries(groups: MapStackGroup[], orderedLayers: IndexedL
     });
   });
 
-  const widgets = map.widgets ?? [];
-  if (widgets.length > 0) {
+  const plugins = map.plugins ?? [];
+  if (plugins.length > 0) {
     const drawOrder = GROUP_ORDER_BASE.interactions + 500;
     interactions.entries.push({
-      id: 'interactions:widgets',
+      id: 'interactions:plugins',
       groupId: 'interactions',
-      role: 'interaction-widgets',
-      title: 'Map widgets',
-      subtitle: widgets.join(', '),
+      role: 'interaction-plugins',
+      title: 'Map plugins',
+      subtitle: plugins.join(', '),
       order: drawOrder,
-      orderLabel: 'Widgets',
+      orderLabel: 'Plugins',
       visible: true,
       locked: false,
-      badges: [{ label: `${widgets.length} widget${widgets.length === 1 ? '' : 's'}`, tone: 'info' }],
+      badges: [{ label: `${plugins.length} plugin${plugins.length === 1 ? '' : 's'}`, tone: 'info' }],
       metadata: {
         drawOrder,
         source: 'derived',
-        widgets,
+        plugins,
       },
     });
   }

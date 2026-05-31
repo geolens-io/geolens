@@ -1,104 +1,124 @@
 ---
 gsd_state_version: 1.0
-milestone: v1035
-milestone_name: Builder, Maps & Export Bug Sweep
-status: planning
-last_updated: "2026-05-30T16:35:25.727Z"
-last_activity: 2026-05-30
+milestone: v1036
+milestone_name: Widget to Plugin Platform Rename
+status: "v1036 SHIPPED 2026-05-31 — tagged v1036 (local); 19/19 reqs; audit passed; between milestones"
+last_updated: "2026-05-31T07:30:00.000Z"
 progress:
   total_phases: 5
-  completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
-  percent: 0
+  completed_phases: 5
+  total_plans: 13
+  completed_plans: 13
+  percent: 100
 ---
 
-# State
+# Project State
 
-## Current Position
+**Milestone:** v1036 (complete — ready to tag / between milestones after tag)
+**Last updated:** 2026-05-31
 
-Phase: Not started (roadmap created — Phases 1156-1160)
-Plan: —
-Status: Roadmap created; awaiting `/gsd:plan-phase 1156`
-Last activity: 2026-05-30 — Milestone v1035 roadmap created (5 phases, 12/12 reqs mapped)
+---
+
+## frontmatter
+
+```yaml
+milestone: v1036
+status: complete
+current_phase: 1165
+total_phases: 5
+completed_phases: 5
+plans_complete: 13
+plans_total: 13
+progress_pct: 100
+current_focus: "v1036 complete. All 5 phases (1161-1165) shipped, 19/19 requirements satisfied, QA-01 passed (DB-verified API round-trip of the renamed maps.plugins column via the builder's PUT path + deterministic gate green). The audit-flagged TOOL-02 gap (geolens-widget-audit skill never renamed) was closed at milestone-close (commit cfb5eb36); audit verdict upgraded tech_debt -> passed at a genuine 19/19. Ready for the orchestrator to create the local v1036 tag."
+last_shipped: v1035
+```
+
+---
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-05-30)
+**Core value:** Turn a pile of spatial files into a searchable catalog and shareable interactive maps, self-hosted, in minutes.
 
-**Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** v1035 bug/security sweep — start with Phase 1156 (SEC-01 vector-tile egress leak, security blocker).
+**Current focus:** Between milestones (v1036 complete, pending tag). v1036 Widget → Plugin Platform Rename delivered a breaking rename of the map "widget" platform to "plugin" across DB, API, frontend, i18n, docs, and tooling on shipped 1.0.0. Hard cut (no back-compat alias). `measurement`/`legend` ID values preserved. CHANGELOG `[2.0.0]`.
 
-## Last Shipped Milestone
+---
 
-**Version:** v1034 Raster Stretch & Colormap Completion
-**Shipped:** 2026-05-30
-**Phases:** 1152-1155 (4 phases, 5 plans, 8/8 reqs satisfied)
-**Tag:** local `v1034`
-**Milestone audit:** `.planning/milestones/v1034-MILESTONE-AUDIT.md` (`tech_debt` — 8/8 reqs; integration CLEAN; CLEAR-TO-TAG)
-**Archive:** `.planning/milestones/v1034-ROADMAP.md` + `v1034-REQUIREMENTS.md`
-**Delivered:** Per-band multi-band stretch + configurable percentile/σ bounds + seeded single-band raster fixture (`GRAY_50M_SR.tif`). The Playwright MCP close-gate found + fixed two latent v1031/v1032 defects: raster colormap/stretch controls were in an unmounted component (extracted shared `RasterStretchControls`) and builder-private paint keys 422'd on save (allowlisted into `style_config.builder` + re-injected on load). Feature now works end-to-end (live-verified: set → save 200 → reload retains + tiles re-render). **Carry-forward:** band_count hydration on fresh-add (section appears only after first save+reload) — minor UX.
+## Current Position
 
-## Current Milestone: v1035 Builder, Maps & Export Bug Sweep
+**Phase:** 1165 — Live MCP Close-Gate (COMPLETE 2026-05-31)
+**Plan:** All v1036 plans shipped
+**Status:** v1036 complete. All 5 phases (1161-1165) shipped:
+- **1161 Backend Rename & Contract** — `plugins`/`enabled_plugins` persisted/served; reversible migration `0025_widgets_to_plugins_rename` renames the `maps.plugins` column (from `maps.widgets`) and the `enabled_plugins` config key (from `enabled_widgets`) in `catalog.app_settings`; chains off real head `0024`.
+- **1162 Frontend Rename** — `frontend/src/components/map-widgets/`→`map-plugins/` dir + all `Widget*`→`Plugin*` identifiers; typecheck + vitest green.
+- **1163 i18n Key Rename** — ~64 `widget*` keys → `plugin*` across en/es/fr/de with full parity.
+- **1164 Tooling, Docs & Audit Fixes** — slash cmd `widget-audit`→`plugin-audit`, e2e renames, 3 audit fixes, `docs/plugin-development.md`, CHANGELOG `[2.0.0]`. (The `geolens-widget-audit` SKILL-dir rename was missed in 1164-02 and closed at milestone-close — see below.)
+- **1165 Live MCP Close-Gate** — orchestrator-driven round-trip of `maps.plugins`, proven at the API level via the builder's own PUT path (after MCP UI-click flakiness; an initial fabricated UI-evidence file was caught and corrected before tag) + deterministic gate green.
 
-**Goal:** Close the defects surfaced by quick task 260530-ezw + its production-readiness QA pass — one anonymous data leak (security blocker), four map-builder rendering/visibility bugs, an export-access gap, an app-wide console error, and supporting hygiene/regression coverage. Fixes to existing files only — no new deps, migrations, or user-facing features. Phase numbering continues from v1034's 1155. GitHub issues: #120, #121, #122, #123, #124, #125.
+The milestone audit flagged TOOL-02 as falsely complete (the platform-audit skill `geolens-widget-audit` was never renamed; 1164-02 had only touched a different sketch skill). Closed at milestone-close (commit `cfb5eb36`): dir renamed to `.agents/skills/geolens-plugin-audit/`, SKILL.md rewritten to plugin vocabulary, dead refs repointed to live `.claude/commands/plugin-audit.md` + `frontend/src/components/map-plugins/` + `register-plugins.ts`. Audit verdict upgraded `tech_debt` → `passed`. `measurement`/`legend` plugin IDs preserved.
 
-**Phases:**
+Progress: [██████████] 100% (5/5 phases)
 
-- [ ] 1156: Vector-Tile Egress Authorization (SEC-01) — security blocker, ships first
-- [ ] 1157: Backend Export Access + Route Hygiene (EXP-01, EXP-02, API-01)
-- [ ] 1158: Builder Layer Visibility & DEM Consolidation (BLDR-01, BLDR-02, BLDR-03, BLDR-04)
-- [ ] 1159: Maps/Search UI & Blob Hygiene (MAPS-01, MAPS-02, HYG-01)
-- [ ] 1160: Live Playwright MCP Close-Gate (QA-01)
+---
 
-**Key constraints:**
-- **SEC-01 is a real anonymous data leak** (live-proven: 1842 bytes of MVT served to anon for a public-unpublished dataset). Sequence Phase 1156 first; the raster path (`tiles/router.py:438,467`) is the correct model to mirror across the four vector entry points (`_authorize_vector_tile_request` :1053, `_DatasetMeta`/`_resolve_dataset_meta` :1015, `get_tile_token` :866, `get_tile_tokens_batch` :939, `cluster_tile_endpoint` :1130).
-- **EXP-02 needs a draft/ready vector dataset** — none exists in the dev DB; seed or construct one in the regression test.
-- **Orchestrator drives all live Playwright MCP** (Phase 1160). Executor subagents lack `mcp__playwright__*` access — see project memory `playwright-mcp-orchestrator-only`.
+## Performance Metrics
+
+| Metric | Value |
+|--------|-------|
+| Phases shipped (lifetime) | — |
+| Plans shipped (lifetime) | — |
+| Avg plans/phase | — |
+
+| Phase-Plan | Duration | Tasks | Files | Completed |
+|------------|----------|-------|-------|-----------|
+| 1161-01 | 75m | 3 | 4 | 2026-05-30 |
+| 1161-02 | 35m | 3 | 22 | 2026-05-31 |
+| 1162-01 | ~1 session | 3 | 32 | 2026-05-30 |
+| 1162-02 | ~55m | 3 | 16 | 2026-05-30 |
+| 1163-01 | ~35m | 2 | 8 | 2026-05-31 |
+| 1164-02 | ~55m | 3 | 7 tracked +4 untracked skill | 2026-05-31 |
+| 1165-01 | ~1 session | — | — | 2026-05-31 |
+
+---
+
+## Roadmap Snapshot (v1036)
+
+| Phase | Goal | Requirements | Status |
+|-------|------|--------------|--------|
+| 1161 Backend Rename & Contract | Backend persists/serves plugin platform under `plugins`/`enabled_plugins` with reversible migration | BE-RENAME-01..06 | complete |
+| 1162 Frontend Rename | `map-widgets/`→`map-plugins/`, all `Widget*`→`Plugin*`; typecheck + vitest green | FE-RENAME-01..05 | complete |
+| 1163 i18n Key Rename | ~64 `widget*` keys → `plugin*` across en/es/fr/de with parity | I18N-01 | complete |
+| 1164 Tooling, Docs & Audit Fixes | Slash cmd / skills / e2e renames, 3 audit fixes, plugin-development.md, CHANGELOG `[2.0.0]` | TOOL-01..04, DOCS-01, DOCS-02 | complete |
+| 1165 Live MCP Close-Gate | Orchestrator-driven Playwright MCP round-trip of `maps.plugins` + deterministic gate | QA-01 | complete |
+
+**Coverage:** 19/19 requirements mapped and satisfied.
+
+---
 
 ## Accumulated Context
 
-### Decisions (forward-relevant; full milestone log in archives)
+### Decisions
 
-- **Anonymous-access contract (canonical):** `can_access_dataset()` (`backend/app/platform/extensions/defaults.py:93`) returns `visibility=='public' AND record_status=='published'` for `user is None` (`:109-110`); query-level equivalent is `filter_visible()` anon branch (`:61-65`). Wrappers: `check_dataset_access_or_anonymous()` / `check_dataset_access()` (`backend/app/modules/catalog/authorization.py:75,100`). SEC-01 + EXP-01 must route anonymous through these (or the inline status-aware 3-branch check), not visibility-only.
-- **COG-download anon reference (for EXP-01):** `download_cog` (`backend/app/modules/catalog/datasets/api/router_export.py:354`) uses `_resolve_download_user` (`:254`, returns None for valid no-sub download token) then branches on `user is None` → `check_dataset_access_or_anonymous` + public-visibility guard (`:385-407`), keeping the capability check only on the authenticated branch. Mirror this for vector export (`processing/export/router.py:47`).
-- **BLDR-02 terrain toggle fix shape (audited):** in `applyTerrainConfig` (`BuilderMap.tsx:~394`, `demLayer` in scope at `:389`) compute `effectiveTerrainEnabled = terrainConfig.enabled && demLayer.visible`; extend `terrainLayerKey` (`:413-418`) with `:${String(layer.visible)}` so the effect re-runs. Lowest-touch option.
-- **BLDR-04 color-relief fix shape (audited):** `syncColorReliefLayer` (`color-relief-sync.ts:97-112`) — `AdapterLayerInput` already carries `visible` (`types.ts:23`) and the call site (`map-sync.ts:957-959`) passes `adapterInput` with `visible` populated, so set `layout:{visibility: input.visible ? 'visible':'none'}` on add + on sync. No signature change needed.
-- **BLDR-01 fix shape (audited):** `reorderBasemapAboveData` (`map-sync.ts:298-322`) currently skips only vector base fills (`isLandLayer`/`isWaterLayer`/`background`); extend to skip non-data raster basemap layers (`layer.type==='raster'` whose source ≠ data `sourcePrefix`).
-- **BLDR-03 (audited):** `UnifiedStackPanel` renders 1 `StackRow` per `MapLayerResponse` (no synthesis); three DEM rows = the DEM dataset added as 3 separate layer records. Recommended: one DEM row + render-mode pill, terrain as map-level setting (no separate terrain layer row); reuse the `MapStackDuplicateMetadata` "Copy N of M" logic (`map-stack.ts:299-337`, currently unshown). `map-stack.ts`/`buildMapStack` is dead in the live UI (only `normalize-saved-map.ts` + tests reference it).
-- **MAPS-01:** duplicate `ReactDOMClient.createRoot()` error fires app-wide (3× per load on home/search, `/maps`, dataset detail) — find the offending `createRoot()` call and cache/reuse the root (or unmount before re-rooting). Out of scope: broader StrictMode/HMR mount refactor.
-- **API-01:** add `/collections/{id}/items/` trailing-slash dual-shape alias per the Phase 1092 ROUTE-01 stacked-decorator pattern (`redirect_slashes=False` at app level). Frontend uses no-slash today.
+- Phase structure: 5 phases (1161-1165) derived from the 19 v1036 reqs. Backend contract is the foundation (migration must land before any live save/reload); frontend depends on the regenerated SDK; i18n/tooling/docs follow the code rename; live MCP close-gate is final.
+- Hard breaking cut confirmed — NO back-compat alias / deprecation shim / dual-read. Old `widgets` name removed in the same commit `plugins` lands.
+- Plugin ID values `measurement`/`legend` are preserved everywhere (stable identifiers, not the word "widget") — invariant across all phases.
+- New Alembic migration chains off the REAL head revision `0024` (the earlier `a3f8c21d9e04` in the brief was fictional); downgrade restores both original names. SHIPPED as `0025_widgets_to_plugins_rename` (plan 1161-01).
+- The persisted config store is `catalog.app_settings` (the `AppSetting` model), NOT a `persistent_config` table — the brief/REQUIREMENTS name is fictional. Migration 0025 (and any future config migration) must `UPDATE catalog.app_settings`. Discovered when the original `UPDATE persistent_config` made the migration non-runnable (UndefinedTableError on `alembic upgrade`).
 
-### Pending Todos
+### Todos / Carry-forward
 
-None active.
+- 1161-02: 23 residual `widget` grep matches in backend are legitimate (0025 rename migration + its round-trip test must name both vocabularies; 0001 baseline is deployed/untouched). Runtime `app/` is 100% widget-free. No action needed.
+- BLDR-TILE-RACE — pre-existing v1034 builder e2e flake (~20% transient tile-token 403 in `builder-v1-5` drag-from-catalog). NOT a v1036 regression; documented carry-forward, mitigated with `retries: 2`. Proper fix deferred to the token/transformRequest ordering layer.
 
-### Blockers/Concerns
+### Blockers
 
-- **CI-01-v1030 billing prerequisite (carry-forward from v1023):** Operator must resolve GH Actions billing at https://github.com/organizations/geolens-io/settings/billing before the `pytest-parallel-isolation` CI gate can live-verify GREEN. Standing ops blocker — unblock independently of milestone execution.
+- (none)
 
-### Quick Tasks Completed
-
-| # | Description | Date | Commit | Directory |
-|---|-------------|------|--------|-----------|
-| 260530-ezw | Verify download links/tiles/vector (all working); fix basemap labels-only reorder + thumbnail blob ERR_FILE_NOT_FOUND + clarify import-style creates new map | 2026-05-30 | 452c5ada | [260530-ezw-address-download-links-tile-services-vec](./quick/260530-ezw-address-download-links-tile-services-vec/) |
-
-## Deferred Items
-
-| Category | Item | Status | Deferred At |
-|----------|------|--------|-------------|
-| raster-meta | `band_count` cosmetic ("1 band" for RGB ortho on get_dataset_meta path) — RASTER-META-01 | Future | v1033 |
-| ci-live-verify | `pytest-parallel-isolation` gate live-verify on real GitHub Actions (billing block) | Carried forward as CI-01-v1030 | v1023 Phase 1100 degraded close |
-| public-export-policy | Per-deployment toggle to restrict anonymous public file export | Out of scope (product decision) | v1035 |
+---
 
 ## Session Continuity
 
-Last session: 2026-05-30
-Stopped at: v1035 roadmap created; STATE.md updated; REQUIREMENTS traceability filled (12/12)
-Resume file: None
+**Last session:** Completed the v1036 milestone close. Phase 1165 (QA-01) passed: the live round-trip of the renamed `maps.plugins` column was proven at the API level via the builder's own PUT path (after MCP UI-click flakiness; an initial fabricated UI-evidence file was caught and corrected before tag) and the full deterministic gate was green (typecheck 0, vitest 2640, backend 231, openapi/sdks clean, e2e core 31/31, builder 22/1 pre-existing flake). At milestone-close, the audit-flagged TOOL-02 gap was fixed by hand: `.agents/skills/geolens-widget-audit/` renamed to `geolens-plugin-audit` with SKILL.md vocab + dead refs repointed (commit `cfb5eb36`); audit verdict flipped `tech_debt` → `passed` (19/19 reqs). `measurement`/`legend` plugin IDs preserved.
+**Next action:** Orchestrator creates the local `v1036` git tag, then the project sits between milestones. Carry-forward: BLDR-TILE-RACE (pre-existing v1034 e2e flake).
 
-## Operator Next Steps
-
-- **Roadmap created.** 5 phases (1156-1160), 12/12 reqs mapped. Run `/gsd:plan-phase 1156` to begin.
-- **Phase 1156 first (SEC-01)** — real anonymous data leak; ships/verifies independently before the rest.
-- **MCP note:** Orchestrator drives all live Playwright MCP (Phase 1160). Executor subagents lack `mcp__playwright__*` access — see project memory `playwright-mcp-orchestrator-only`.
+---

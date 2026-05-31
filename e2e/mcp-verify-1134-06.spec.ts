@@ -12,7 +12,7 @@
  * MAP-17  Delete a layer → no orphan sources, no stack drift
  * MAP-18  Toggle visibility off/on → canvas reflects immediately
  * MAP-19  Pan/zoom canvas → page body scrollY remains 0
- * MAP-20  Filter chips: 3+ chips contained, no measure-widget collision
+ * MAP-20  Filter chips: 3+ chips contained, no floating-plugin collision
  * MAP-22  Add notes → Notes icon shows 6px presence dot
  */
 
@@ -223,9 +223,10 @@ for (const vp of VIEWPORTS) {
       await page.setViewportSize({ width: vp.width, height: vp.height });
       await navToBuilder(page);
 
-      // Hover over the top portion of the map canvas (away from MeasurementWidget at bottom-left)
-      // At 800x600, the MeasurementWidget "Close widget" button at bottom-14 left-4 intercepts
-      // hover at the canvas center. Use position near top-center of canvas instead.
+      // Hover over the top-center of the map canvas, away from the floating plugin
+      // anchors: MeasurementPlugin sits top-left (top-12 left-3, only when opened —
+      // defaultVisible:false) and LegendPlugin sits bottom-left. A close-plugin
+      // button on the left edge can intercept hover, so use top-center instead.
       const canvas = page.locator('canvas.maplibregl-canvas');
       const canvasBox = await canvas.boundingBox();
       const hoverX = canvasBox ? Math.floor(canvasBox.width * 0.5) : 200;
@@ -525,7 +526,7 @@ for (const vp of VIEWPORTS) {
         return;
       }
 
-      // Use the upper-center of the canvas (away from MeasurementWidget at bottom-left)
+      // Use the upper-center of the canvas (away from MeasurementPlugin at bottom-left)
       const centerX = canvasBox.x + canvasBox.width / 2;
       const centerY = canvasBox.y + canvasBox.height * 0.3; // 30% down from top
 
@@ -564,7 +565,8 @@ for (const vp of VIEWPORTS) {
 
     test(`MAP-20: ActiveFilterChips source has max-h-[40vh] overflow-y-auto constraint @ ${vp.name}`, async ({ page }) => {
       // MAP-20 verification: the ActiveFilterChips component includes max-h-[40vh] overflow-y-auto
-      // to prevent the filter chip column from growing into the MeasurementWidget at ≤800px.
+      // to prevent the top-left filter chip column from growing down the left edge into the
+      // bottom-left LegendPlugin at ≤800px.
       // The ADK map has no active filters, so the component renders null (returns early).
       // We verify the constraint exists in the component source via a page-level check that
       // exercises the component's DOM when filters ARE present (or by asserting the page
@@ -580,11 +582,13 @@ for (const vp of VIEWPORTS) {
       await expect(page.locator('canvas.maplibregl-canvas')).toBeVisible({ timeout: 10_000 });
       await expect(page.locator('text=Something went wrong')).toHaveCount(0);
 
-      // MeasurementWidget should be visible (bottom-left anchor) — this is what chips must not collide with
-      // MeasurementWidget renders as a widget at bottom-left with z-10
-      // Note: MeasurementWidget may be hidden until opened — look for its container div
-      const widgetHostExists = await page.locator('[class*="WidgetHost"], [data-testid*="widget"]').count() > 0;
-      // This is informational — WidgetHost may or may not be rendered at idle
+      // LegendPlugin is the default-visible floating plugin (bottom-left, z-10); the
+      // capped chip column must not collide with it. MeasurementPlugin (top-left) is
+      // defaultVisible:false, so it is not shown unless the user opens it.
+      // Note: a plugin panel may be hidden until opened — look for the PluginPanel close button.
+      // PluginHost exposes no class/testid; the close button carries aria-label "Close plugin".
+      const pluginHostExists = await page.getByRole('button', { name: /close plugin/i }).count() > 0;
+      // This is informational — the plugin panel may or may not be rendered at idle
 
       // Verify the filter chips component source has max-h constraint via API:
       // Check the ActiveFilterChips.tsx source content is correct via unit test (Plan 04).

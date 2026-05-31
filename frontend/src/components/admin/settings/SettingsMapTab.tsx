@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/button';
 import { SettingSourceBadge } from './SettingSourceBadge';
 import { findSetting } from './utils';
 import { useSettingsForm } from './useSettingsForm';
-import { getWidgets } from '@/components/map-widgets';
+import { getPlugins } from '@/components/map-plugins';
 import type { SettingItem, BasemapEntry } from '@/api/settings';
 
 interface MapDefaultsValue {
@@ -34,39 +34,39 @@ function isValidTileUrl(url: string): boolean {
   return url.includes('{z}') && url.includes('{x}') && url.includes('{y}');
 }
 
-interface WidgetTogglesProps {
+interface PluginTogglesProps {
   settings: SettingItem[];
-  enabledWidgets: string[];
+  enabledPlugins: string[];
   onChangeEnabled: (ids: string[]) => void;
   onReset: (key: string) => void;
   envOnly: boolean;
 }
 
-function WidgetToggles({ settings, enabledWidgets, onChangeEnabled, onReset, envOnly }: WidgetTogglesProps) {
+function PluginToggles({ settings, enabledPlugins, onChangeEnabled, onReset, envOnly }: PluginTogglesProps) {
   const { t } = useTranslation('admin');
   const { t: tBuilder } = useTranslation('builder');
-  const registeredWidgets = getWidgets();
-  if (registeredWidgets.length === 0) return null;
+  const registeredPlugins = getPlugins();
+  if (registeredPlugins.length === 0) return null;
 
-  // enabledWidgets is already coerced: [] from server → full ID list
+  // enabledPlugins is already coerced: [] from server → full ID list
   function handleToggle(id: string, checked: boolean) {
     onChangeEnabled(
       checked
-        ? [...enabledWidgets.filter((wid) => wid !== id), id]
-        : enabledWidgets.filter((wid) => wid !== id),
+        ? [...enabledPlugins.filter((wid) => wid !== id), id]
+        : enabledPlugins.filter((wid) => wid !== id),
     );
   }
 
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-2">
-        <h3 className="text-base font-medium">{t('settings.widgets.title')}</h3>
-        <SettingSourceBadge source={findSetting(settings, 'enabled_widgets')?.source ?? 'default'} settingKey="enabled_widgets" onReset={onReset} />
+        <h3 className="text-base font-medium">{t('settings.plugins.title')}</h3>
+        <SettingSourceBadge source={findSetting(settings, 'enabled_plugins')?.source ?? 'default'} settingKey="enabled_plugins" onReset={onReset} />
       </div>
-      <p className="text-sm text-muted-foreground">{t('settings.widgets.description')}</p>
+      <p className="text-sm text-muted-foreground">{t('settings.plugins.description')}</p>
 
       <div className="space-y-3 max-w-md">
-        {registeredWidgets.map((w) => {
+        {registeredPlugins.map((w) => {
           const Icon = w.icon;
           return (
             <div key={w.id} className="flex items-center justify-between">
@@ -75,7 +75,7 @@ function WidgetToggles({ settings, enabledWidgets, onChangeEnabled, onReset, env
                 <Label>{tBuilder(w.labelKey)}</Label>
               </div>
               <Switch
-                checked={enabledWidgets.includes(w.id)}
+                checked={enabledPlugins.includes(w.id)}
                 onCheckedChange={(checked) => handleToggle(w.id, checked)}
                 disabled={envOnly}
               />
@@ -88,15 +88,15 @@ function WidgetToggles({ settings, enabledWidgets, onChangeEnabled, onReset, env
 }
 
 // Coerce server null (never configured) to full list; [] means explicitly none
-function coerceEnabledWidgets(v: unknown): string[] {
-  if (v == null) return getWidgets().map((w) => w.id);
+function coerceEnabledPlugins(v: unknown): string[] {
+  if (v == null) return getPlugins().map((w) => w.id);
   return Array.isArray(v) ? v as string[] : [];
 }
 
 const MAP_FIELDS = [
   { key: 'basemaps', defaultValue: [] as BasemapEntry[], compare: 'json' as const },
   { key: 'map_defaults', defaultValue: { center_lat: 20, center_lng: 0, zoom: 2 } as MapDefaultsValue, compare: 'json' as const },
-  { key: 'enabled_widgets', defaultValue: [] as string[], compare: 'json' as const, coerce: coerceEnabledWidgets },
+  { key: 'enabled_plugins', defaultValue: [] as string[], compare: 'json' as const, coerce: coerceEnabledPlugins },
 ] as const;
 
 export function SettingsMapTab({ settings, envOnly, onSave, onReset, isSaving, onDirtyChange }: TabProps) {
@@ -325,10 +325,10 @@ export function SettingsMapTab({ settings, envOnly, onSave, onReset, isSaving, o
         </div>
       </div>
 
-      <WidgetToggles
+      <PluginToggles
         settings={settings}
-        enabledWidgets={values.enabled_widgets as string[]}
-        onChangeEnabled={setters.enabled_widgets}
+        enabledPlugins={values.enabled_plugins as string[]}
+        onChangeEnabled={setters.enabled_plugins}
         onReset={onReset}
         envOnly={envOnly}
       />

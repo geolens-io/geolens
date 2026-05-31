@@ -4,8 +4,8 @@
  * Asserts that `handleToggleVisibility` from `useLayerMapSync` dispatches the
  * expected `map.setLayoutProperty(...)` calls on every click — both on the main
  * layer id AND on each companion suffix layer (`-outline`, `-label`,
- * `-extrusion`, `-cluster`, `-cluster-count`) when those companion layers
- * exist in the MapLibre style.
+ * `-extrusion`, `-arrow`, `-cluster`, `-cluster-count`) when those companion
+ * layers exist in the MapLibre style. (`-arrow` added for builder-audit B-004.)
  *
  * Mirrors the test setup pattern from `use-layer-map-sync.raf.test.ts` (vi.mock
  * for layer-adapters + map-sync + label-utils + filter-utils, minimal MaplibreMap
@@ -53,7 +53,7 @@ vi.mock('@/components/builder/label-layer-utils', () => ({
 // Fixtures
 // ---------------------------------------------------------------------------
 const LAYER_ID = 'layer-uuid-123';
-const COMPANION_SUFFIXES = ['', '-outline', '-label', '-extrusion', '-cluster', '-cluster-count'] as const;
+const COMPANION_SUFFIXES = ['', '-outline', '-label', '-extrusion', '-arrow', '-cluster', '-cluster-count'] as const;
 const ALL_COMPANION_IDS = COMPANION_SUFFIXES.map((suffix) => `layer-${LAYER_ID}${suffix}`);
 
 const makeLayer = (overrides: Partial<MapLayerResponse> = {}): MapLayerResponse => ({
@@ -181,7 +181,7 @@ describe('useLayerMapSync — handleToggleVisibility (BUG-01 regression)', () =>
     );
   });
 
-  it('Test 3: all 6 companion suffixes receive setLayoutProperty when they exist on the map', () => {
+  it('Test 3: all companion suffixes (incl. -arrow) receive setLayoutProperty when they exist on the map', () => {
     const layer = makeLayer({ visible: true });
     const mapStub = makeMapStub(ALL_COMPANION_IDS);
     const mapRef = { current: mapStub };

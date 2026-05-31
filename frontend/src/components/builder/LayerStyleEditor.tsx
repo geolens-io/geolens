@@ -119,6 +119,20 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
     () => (layer.layout as Record<string, unknown>) ?? {},
     [layer.layout],
   );
+  // Advanced JSON editor edits real MapLibre paint/layout, so strip builder-private
+  // keys before showing them — MapLibre's validateStyleMin rejects them as
+  // 'unknown property' on Apply (B-010). stripLegacyBuilderPaint removes the known
+  // vector allowlist (incl. non-underscore outline-color/outline-width); the
+  // _-prefix drop covers layout _minzoom/_maxzoom and any future _-prefixed keys.
+  const stripBuilderPrivate = useCallback(
+    (obj: Record<string, unknown>) =>
+      Object.fromEntries(
+        Object.entries(stripLegacyBuilderPaint(obj)).filter(([k]) => !k.startsWith('_')),
+      ),
+    [],
+  );
+  const editorPaint = useMemo(() => stripBuilderPrivate(paint), [paint, stripBuilderPrivate]);
+  const editorLayout = useMemo(() => stripBuilderPrivate(layoutObj), [layoutObj, stripBuilderPrivate]);
   const isDataDriven = !!layer.style_config?.column;
   const renderMode: 'points' | 'heatmap' | 'symbol' | 'cluster' = layer.style_config?.render_mode === 'heatmap'
     ? 'heatmap'
@@ -430,8 +444,8 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
 
       <StyleControlSection title={t('style.sections.advanced')} description={t('style.sections.advancedDescription')}>
         <AdvancedJsonEditor
-          paint={paint}
-          layout={(layer.layout as Record<string, unknown>) ?? {}}
+          paint={editorPaint}
+          layout={editorLayout}
           onPaintChange={(p) => onPaintChange(layer.id, p)}
           onLayoutChange={(l) => onLayoutChange(layer.id, l)}
           layerType={geomType}

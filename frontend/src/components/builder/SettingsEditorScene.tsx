@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { ChevronRight, RotateCcw } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { getWidgets } from '@/components/map-widgets/registry';
+import { getEnabledPluginDefinitions } from '@/components/map-plugins';
 import { StyleColorPicker } from './StyleColorPicker';
 import type { MapTerrainConfig } from '@/types/api';
 
@@ -17,9 +17,13 @@ export interface SettingsEditorSceneProps {
   isTerrainActive: boolean;
   /** Name of the bound DEM layer (for the "Bound to:" hint) */
   boundLayerName?: string;
-  // Widgets
-  activeWidgetIds: Set<string>;
-  onToggleWidget: (widgetId: string) => void;
+  // Plugins
+  /** Admin allowlist of plugin IDs (null/undefined = no restriction). The
+   *  per-map toggle list is filtered to these so admin-disabled plugins do not
+   *  appear as dead toggles (they would be stripped on render + save anyway). */
+  enabledPluginIds: string[] | null | undefined;
+  activePluginIds: Set<string>;
+  onTogglePlugin: (pluginId: string) => void;
   // Appearance
   backgroundColor: string | null;
   onBackgroundColorChange: (color: string) => void;
@@ -33,8 +37,9 @@ export const SettingsEditorScene = memo(function SettingsEditorScene({
   terrainConfig: _terrainConfig,
   isTerrainActive,
   boundLayerName,
-  activeWidgetIds,
-  onToggleWidget,
+  enabledPluginIds,
+  activePluginIds,
+  onTogglePlugin,
   backgroundColor,
   onBackgroundColorChange,
   onBackgroundColorReset,
@@ -44,10 +49,16 @@ export const SettingsEditorScene = memo(function SettingsEditorScene({
   const { t } = useTranslation('builder');
   const [appearanceOpen, setAppearanceOpen] = useState(true);
   const [terrainOpen, setTerrainOpen] = useState(true);
-  const [widgetsOpen, setWidgetsOpen] = useState(true);
+  const [pluginsOpen, setPluginsOpen] = useState(true);
   const [projectionOpen, setProjectionOpen] = useState(true);
 
-  const widgets = useMemo(() => getWidgets(), []);
+  // Only surface plugins the admin allows. getEnabledPluginDefinitions(null)
+  // returns all registered plugins (no restriction), so default deployments are
+  // unaffected; a restricted allowlist hides toggles that would be no-ops.
+  const plugins = useMemo(
+    () => getEnabledPluginDefinitions(enabledPluginIds),
+    [enabledPluginIds],
+  );
 
   const backgroundSwatch = backgroundColor ?? '#ffffff';
 
@@ -148,59 +159,59 @@ export const SettingsEditorScene = memo(function SettingsEditorScene({
         </CollapsibleContent>
       </Collapsible>
 
-      {/* Section 3: WIDGETS */}
-      <Collapsible open={widgetsOpen} onOpenChange={setWidgetsOpen}>
+      {/* Section 3: PLUGINS */}
+      <Collapsible open={pluginsOpen} onOpenChange={setPluginsOpen}>
         <CollapsibleTrigger asChild>
           <button
             type="button"
             className="flex w-full items-center gap-2 px-4 py-2 hover:bg-[var(--surface-2,theme(colors.muted.DEFAULT))] border-b"
           >
             <ChevronRight
-              className={cn('h-4 w-4 shrink-0 transition-transform duration-[--motion-fast]', widgetsOpen && 'rotate-90')}
+              className={cn('h-4 w-4 shrink-0 transition-transform duration-[--motion-fast]', pluginsOpen && 'rotate-90')}
               aria-hidden="true"
             />
             <span className={eyebrowClassName}>
-              {t('settings.widgetsLabel', { defaultValue: 'WIDGETS' })}
+              {t('settings.pluginsLabel', { defaultValue: 'PLUGINS' })}
             </span>
-            {!widgetsOpen && (
+            {!pluginsOpen && (
               <span className="ml-auto text-xs text-muted-foreground">
-                {t('settings.widgetsEnabledCount', { count: activeWidgetIds.size, defaultValue: '{{count}} enabled' })}
+                {t('settings.pluginsEnabledCount', { count: activePluginIds.size, defaultValue: '{{count}} enabled' })}
               </span>
             )}
           </button>
         </CollapsibleTrigger>
         <CollapsibleContent>
-          {widgets.length === 0 ? (
+          {plugins.length === 0 ? (
             <p className="px-4 py-2 text-xs text-muted-foreground">
-              {t('settings.noWidgets', { defaultValue: 'No widgets available.' })}
+              {t('settings.noPlugins', { defaultValue: 'No plugins available.' })}
             </p>
           ) : (
             <>
               {/* UX-04: clarify that this section controls AVAILABILITY (vs live interaction on the map). */}
               <p className="px-4 pt-2 pb-1 text-[11px] text-muted-foreground">
-                {t('settings.widgetsAvailabilityNote', {
-                  defaultValue: 'Controls whether each widget appears on the map.',
+                {t('settings.pluginsAvailabilityNote', {
+                  defaultValue: 'Controls whether each plugin appears on the map.',
                 })}
               </p>
-              <div role="group" aria-label={t('settings.widgetsGroupAria', { defaultValue: 'Widgets' })}>
-                {widgets.map((widget) => {
-                  const isEnabled = activeWidgetIds.has(widget.id);
-                  const widgetLabel = t(widget.labelKey, { defaultValue: widget.id });
+              <div role="group" aria-label={t('settings.pluginsGroupAria', { defaultValue: 'Plugins' })}>
+                {plugins.map((plugin) => {
+                  const isEnabled = activePluginIds.has(plugin.id);
+                  const pluginLabel = t(plugin.labelKey, { defaultValue: plugin.id });
                   // UX-04: state-specific aria labels — "Enable {name}" / "Disable {name}" —
-                  // replace the older "{action} {name} widget" composite key.
+                  // replace the older "{action} {name} plugin" composite key.
                   const switchAriaLabel = isEnabled
-                    ? t('settings.disableWidget', { defaultValue: 'Disable {{name}}', name: widgetLabel })
-                    : t('settings.enableWidget', { defaultValue: 'Enable {{name}}', name: widgetLabel });
+                    ? t('settings.disablePlugin', { defaultValue: 'Disable {{name}}', name: pluginLabel })
+                    : t('settings.enablePlugin', { defaultValue: 'Enable {{name}}', name: pluginLabel });
                   return (
                     <div
-                      key={widget.id}
+                      key={plugin.id}
                       className="flex h-9 items-center gap-2 px-4 hover:bg-[var(--surface-2,theme(colors.muted.DEFAULT))]"
                     >
-                      <widget.icon className="h-4 w-4 text-muted-foreground shrink-0" aria-hidden="true" />
-                      <span className="flex-1 text-xs text-foreground">{widgetLabel}</span>
+                      <plugin.icon className="h-4 w-4 text-muted-foreground shrink-0" aria-hidden="true" />
+                      <span className="flex-1 text-xs text-foreground">{pluginLabel}</span>
                       <Switch
                         checked={isEnabled}
-                        onCheckedChange={() => onToggleWidget(widget.id)}
+                        onCheckedChange={() => onTogglePlugin(plugin.id)}
                         aria-label={switchAriaLabel}
                       />
                     </div>

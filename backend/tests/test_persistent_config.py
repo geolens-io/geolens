@@ -514,86 +514,86 @@ async def test_public_map_defaults_endpoint(client: AsyncClient):
 
 
 # ---------------------------------------------------------------------------
-# Enabled widgets endpoint + validator tests
+# Enabled plugins endpoint + validator tests
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.anyio
-async def test_enabled_widgets_endpoint_returns_list(client: AsyncClient):
-    """GET /settings/enabled-widgets/ returns a list or null (public, no auth)."""
-    resp = await client.get("/settings/enabled-widgets/")
+async def test_enabled_plugins_endpoint_returns_list(client: AsyncClient):
+    """GET /settings/enabled-plugins/ returns a list or null (public, no auth)."""
+    resp = await client.get("/settings/enabled-plugins/")
     assert resp.status_code == 200
     data = resp.json()
     assert data is None or isinstance(data, list)
 
 
 @pytest.mark.anyio
-async def test_enabled_widgets_roundtrip(client: AsyncClient, admin_auth_header: dict):
-    """PUT /settings/ with enabled_widgets persists and GET returns the list."""
-    widget_ids = ["legend", "measurement"]
+async def test_enabled_plugins_roundtrip(client: AsyncClient, admin_auth_header: dict):
+    """PUT /settings/ with enabled_plugins persists and GET returns the list."""
+    plugin_ids = ["legend", "measurement"]
     resp = await client.put(
         "/settings/",
-        json={"settings": {"enabled_widgets": widget_ids}},
+        json={"settings": {"enabled_plugins": plugin_ids}},
         headers=admin_auth_header,
     )
     assert resp.status_code == 200
 
-    resp = await client.get("/settings/enabled-widgets/")
+    resp = await client.get("/settings/enabled-plugins/")
     assert resp.status_code == 200
-    assert resp.json() == widget_ids
+    assert resp.json() == plugin_ids
 
 
 @pytest.mark.anyio
-async def test_enabled_widgets_null_means_all(
+async def test_enabled_plugins_null_means_all(
     client: AsyncClient, admin_auth_header: dict
 ):
-    """PUT /settings/ with enabled_widgets=null resets to 'all enabled'."""
+    """PUT /settings/ with enabled_plugins=null resets to 'all enabled'."""
     resp = await client.put(
         "/settings/",
-        json={"settings": {"enabled_widgets": None}},
+        json={"settings": {"enabled_plugins": None}},
         headers=admin_auth_header,
     )
     assert resp.status_code == 200
 
-    resp = await client.get("/settings/enabled-widgets/")
+    resp = await client.get("/settings/enabled-plugins/")
     assert resp.status_code == 200
-    assert resp.json() is None  # null = no restriction (all widgets enabled)
+    assert resp.json() is None  # null = no restriction (all plugins enabled)
 
 
 @pytest.mark.anyio
-async def test_enabled_widgets_rejects_non_list(
+async def test_enabled_plugins_rejects_non_list(
     client: AsyncClient, admin_auth_header: dict
 ):
-    """PUT /settings/ with enabled_widgets as a string returns 422."""
+    """PUT /settings/ with enabled_plugins as a string returns 422."""
     resp = await client.put(
         "/settings/",
-        json={"settings": {"enabled_widgets": "not-a-list"}},
-        headers=admin_auth_header,
-    )
-    assert resp.status_code == 422
-
-
-@pytest.mark.anyio
-async def test_enabled_widgets_rejects_empty_strings(
-    client: AsyncClient, admin_auth_header: dict
-):
-    """PUT /settings/ with empty string in enabled_widgets returns 422."""
-    resp = await client.put(
-        "/settings/",
-        json={"settings": {"enabled_widgets": ["valid", ""]}},
+        json={"settings": {"enabled_plugins": "not-a-list"}},
         headers=admin_auth_header,
     )
     assert resp.status_code == 422
 
 
 @pytest.mark.anyio
-async def test_enabled_widgets_rejects_non_string_items(
+async def test_enabled_plugins_rejects_empty_strings(
     client: AsyncClient, admin_auth_header: dict
 ):
-    """PUT /settings/ with non-string items in enabled_widgets returns 422."""
+    """PUT /settings/ with empty string in enabled_plugins returns 422."""
     resp = await client.put(
         "/settings/",
-        json={"settings": {"enabled_widgets": [123, True]}},
+        json={"settings": {"enabled_plugins": ["valid", ""]}},
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 422
+
+
+@pytest.mark.anyio
+async def test_enabled_plugins_rejects_non_string_items(
+    client: AsyncClient, admin_auth_header: dict
+):
+    """PUT /settings/ with non-string items in enabled_plugins returns 422."""
+    resp = await client.put(
+        "/settings/",
+        json={"settings": {"enabled_plugins": [123, True]}},
         headers=admin_auth_header,
     )
     assert resp.status_code == 422

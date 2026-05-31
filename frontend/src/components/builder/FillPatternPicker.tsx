@@ -23,32 +23,32 @@ function patternPreviewStyle(id: string): React.CSSProperties {
   switch (id) {
     case 'geolens-fill-hatch':
       return {
-        backgroundImage: 'repeating-linear-gradient(0deg, #6b7280 0px, #6b7280 1px, transparent 1px, transparent 4px)',
+        backgroundImage: 'repeating-linear-gradient(0deg, currentColor 0px, currentColor 1px, transparent 1px, transparent 4px)',
         backgroundSize: '4px 4px',
       };
     case 'geolens-fill-crosshatch':
       return {
         backgroundImage: `
-          repeating-linear-gradient(45deg, #6b7280 0px, #6b7280 1px, transparent 1px, transparent 4px),
-          repeating-linear-gradient(-45deg, #6b7280 0px, #6b7280 1px, transparent 1px, transparent 4px)
+          repeating-linear-gradient(45deg, currentColor 0px, currentColor 1px, transparent 1px, transparent 4px),
+          repeating-linear-gradient(-45deg, currentColor 0px, currentColor 1px, transparent 1px, transparent 4px)
         `,
         backgroundSize: '5.66px 5.66px',
       };
     case 'geolens-fill-diagonal':
       return {
-        backgroundImage: 'repeating-linear-gradient(45deg, #6b7280 0px, #6b7280 1px, transparent 1px, transparent 4px)',
+        backgroundImage: 'repeating-linear-gradient(45deg, currentColor 0px, currentColor 1px, transparent 1px, transparent 4px)',
         backgroundSize: '5.66px 5.66px',
       };
     case 'geolens-fill-dots':
       return {
-        backgroundImage: 'radial-gradient(circle, #6b7280 1px, transparent 1px)',
+        backgroundImage: 'radial-gradient(circle, currentColor 1px, transparent 1px)',
         backgroundSize: '4px 4px',
       };
     case 'geolens-fill-grid':
       return {
         backgroundImage: `
-          repeating-linear-gradient(0deg, #6b7280 0px, #6b7280 1px, transparent 1px, transparent 4px),
-          repeating-linear-gradient(90deg, #6b7280 0px, #6b7280 1px, transparent 1px, transparent 4px)
+          repeating-linear-gradient(0deg, currentColor 0px, currentColor 1px, transparent 1px, transparent 4px),
+          repeating-linear-gradient(90deg, currentColor 0px, currentColor 1px, transparent 1px, transparent 4px)
         `,
         backgroundSize: '4px 4px',
       };

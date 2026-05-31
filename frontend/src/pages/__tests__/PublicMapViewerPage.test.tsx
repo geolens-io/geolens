@@ -81,7 +81,7 @@ const PUBLIC_MAP: MapResponse = {
   created_at: '2026-05-11T00:00:00Z',
   updated_at: '2026-05-11T00:00:00Z',
   layer_count: 1,
-  widgets: null,
+  plugins: null,
   forked_from_id: null,
   forked_from_name: null,
   layers: [

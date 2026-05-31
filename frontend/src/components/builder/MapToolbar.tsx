@@ -2,9 +2,9 @@ import { useMemo, type ComponentType } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Hand, Ruler, Layers, FileJson } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { useWidgetStore } from '@/stores/map-widget-store';
-import { useEnabledWidgets } from '@/hooks/use-settings';
-import { getEnabledWidgetDefinitions } from '@/components/map-widgets';
+import { usePluginStore } from '@/stores/map-plugin-store';
+import { useEnabledPlugins } from '@/hooks/use-settings';
+import { getEnabledPluginDefinitions } from '@/components/map-plugins';
 import {
   Tooltip,
   TooltipContent,
@@ -14,7 +14,7 @@ import {
 
 /**
  * Floating toolbar centered at the top of the map canvas.
- * Grouped into semantic sections: navigation | widgets.
+ * Grouped into semantic sections: navigation | plugins.
  */
 interface MapToolbarProps {
   onStyleJsonClick?: () => void;
@@ -22,23 +22,23 @@ interface MapToolbarProps {
 
 export function MapToolbar({ onStyleJsonClick }: MapToolbarProps) {
   const { t } = useTranslation('builder');
-  const activeWidgets = useWidgetStore((s) => s.activeWidgets);
-  const toggle = useWidgetStore((s) => s.toggle);
-  const close = useWidgetStore((s) => s.close);
-  const enabledWidgetsQuery = useEnabledWidgets();
-  const enabledWidgetIds = useMemo(
-    () => enabledWidgetsQuery.data ?? (enabledWidgetsQuery.isLoading ? [] : null),
-    [enabledWidgetsQuery.data, enabledWidgetsQuery.isLoading],
+  const activePlugins = usePluginStore((s) => s.activePlugins);
+  const toggle = usePluginStore((s) => s.toggle);
+  const close = usePluginStore((s) => s.close);
+  const enabledPluginsQuery = useEnabledPlugins();
+  const enabledPluginIds = useMemo(
+    () => enabledPluginsQuery.data ?? (enabledPluginsQuery.isLoading ? [] : null),
+    [enabledPluginsQuery.data, enabledPluginsQuery.isLoading],
   );
-  const availableWidgets = useMemo(
-    () => getEnabledWidgetDefinitions(enabledWidgetIds),
-    [enabledWidgetIds],
+  const availablePlugins = useMemo(
+    () => getEnabledPluginDefinitions(enabledPluginIds),
+    [enabledPluginIds],
   );
-  const measurementWidget = availableWidgets.find((widget) => widget.id === 'measurement');
-  const legendWidget = availableWidgets.find((widget) => widget.id === 'legend');
-  const LegendIcon = legendWidget?.icon ?? Layers;
-  const measureActive = !!measurementWidget && activeWidgets.has('measurement');
-  const legendActive = !!legendWidget && activeWidgets.has('legend');
+  const measurementPlugin = availablePlugins.find((plugin) => plugin.id === 'measurement');
+  const legendPlugin = availablePlugins.find((plugin) => plugin.id === 'legend');
+  const LegendIcon = legendPlugin?.icon ?? Layers;
+  const measureActive = !!measurementPlugin && activePlugins.has('measurement');
+  const legendActive = !!legendPlugin && activePlugins.has('legend');
 
   const navTools = useMemo(() => {
     const tools: Array<{
@@ -54,20 +54,20 @@ export function MapToolbar({ onStyleJsonClick }: MapToolbarProps) {
       label: t('toolbar.pan', { defaultValue: 'Pan' }),
       shortcut: 'V',
       active: !measureActive,
-      onClick: () => { if (activeWidgets.has('measurement')) close('measurement'); },
+      onClick: () => { if (activePlugins.has('measurement')) close('measurement'); },
     }];
-    if (measurementWidget) {
+    if (measurementPlugin) {
       tools.push({
         id: 'measure',
-        icon: measurementWidget.icon ?? Ruler,
-        label: t('widgets.measurement.label', { defaultValue: 'Measure' }),
+        icon: measurementPlugin.icon ?? Ruler,
+        label: t('plugins.measurement.label', { defaultValue: 'Measure' }),
         shortcut: 'M',
         active: measureActive,
         onClick: () => { toggle('measurement'); },
       });
     }
     return tools;
-  }, [activeWidgets, close, measureActive, measurementWidget, toggle, t]);
+  }, [activePlugins, close, measureActive, measurementPlugin, toggle, t]);
 
   return (
     <TooltipProvider delayDuration={300}>
@@ -98,12 +98,12 @@ export function MapToolbar({ onStyleJsonClick }: MapToolbarProps) {
             </Tooltip>
           ))}
 
-          {legendWidget && (
+          {legendPlugin && (
             <>
               {/* Divider */}
               <div className="w-px h-4 bg-border mx-0.5" />
 
-              {/* Widget toggles (Legend) */}
+              {/* Plugin toggles (Legend) */}
               <Tooltip>
                 <TooltipTrigger asChild>
                   <button
@@ -114,14 +114,14 @@ export function MapToolbar({ onStyleJsonClick }: MapToolbarProps) {
                         ? 'bg-foreground text-background'
                         : 'text-muted-foreground hover:bg-accent hover:text-foreground',
                     )}
-                    aria-label={t('widgets.legend.label', { defaultValue: 'Legend' })}
+                    aria-label={t('plugins.legend.label', { defaultValue: 'Legend' })}
                     aria-pressed={legendActive}
                   >
                     <LegendIcon className="h-3.5 w-3.5" />
                   </button>
                 </TooltipTrigger>
                 <TooltipContent side="bottom" className="text-xs">
-                  {t('widgets.legend.label', { defaultValue: 'Legend' })}
+                  {t('plugins.legend.label', { defaultValue: 'Legend' })}
                   <span className="ms-1.5 font-mono text-2xs text-muted-foreground">L</span>
                 </TooltipContent>
               </Tooltip>

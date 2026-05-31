@@ -839,6 +839,10 @@ export interface BuilderStyleConfig {
   pmax?: number;
   /** Configurable sigma multiplier for stretch=stddev. */
   sigma?: number;
+  /** DEM hypsometric (color-relief) tint enabled. Builder-private; read back into paint['_hypso-enabled'] on load. */
+  hypso_enabled?: boolean;
+  /** DEM hypsometric color-ramp name. Builder-private; read back into paint['_hypso-ramp'] on load. */
+  hypso_ramp?: string;
   /** Virtual builder folder-group membership. Stored on real layers; folder rows are reconstructed client-side. */
   folderGroupId?: string;
   folderGroupName?: string;
@@ -954,7 +958,7 @@ export interface MapResponse {
   updated_at: string;
   layers: MapLayerResponse[];
   layer_count: number;
-  widgets?: string[] | null;
+  plugins?: string[] | null;
   forked_from_id: string | null;
   forked_from_name: string | null;
 }
@@ -1032,7 +1036,7 @@ export interface MapUpdateRequest {
   terrain_config?: MapTerrainConfig | null;
   visibility?: MapVisibility | null;
   layers?: MapLayerInput[];
-  widgets?: string[] | null;
+  plugins?: string[] | null;
 }
 
 export interface MapLayerInput {
@@ -1261,8 +1265,15 @@ export interface ChatAction {
    * Present only when the AI returned structured row data (not a spatial-only result).
    * When present, the inline data-analysis card is rendered inside the assistant bubble.
    * When absent, only the existing geojson+bbox flyover path executes.
+   * Rows are arrays of cell values, positionally paired with `columns`.
    */
-  rows?: Record<string, unknown>[];
+  rows?: unknown[][];
+  /** Column names for the show_query_result inline data table. */
+  columns?: string[];
+  /** Total matched row count (rows may be truncated for payload size). */
+  row_count?: number;
+  /** True when `rows` was capped below the full `row_count`. */
+  truncated?: boolean;
 }
 
 export interface ChatResponse {

@@ -114,7 +114,7 @@ function makeMapResponsePayload(overrides: Partial<MapResponse> = {}): MapRespon
     updated_at: overrides.updated_at ?? '2026-01-01T00:00:00Z',
     layers: overrides.layers ?? [],
     layer_count: overrides.layer_count ?? 0,
-    widgets: overrides.widgets ?? null,
+    plugins: overrides.plugins ?? null,
     forked_from_id: overrides.forked_from_id ?? null,
     forked_from_name: overrides.forked_from_name ?? null,
     ...overrides,
@@ -178,7 +178,7 @@ describe('getMap normalizer integration', () => {
     const payload = makeMapResponsePayload({
       basemap_style: 'satellite',
       show_basemap_labels: false,
-      widgets: ['layer-list'],
+      plugins: ['layer-list'],
     });
     vi.mocked(apiFetch).mockResolvedValueOnce(payload);
 
@@ -187,7 +187,7 @@ describe('getMap normalizer integration', () => {
     expect(result.basemap_style).toBe('satellite');
     expect(typeof result.show_basemap_labels).toBe('boolean');
     expect(result.show_basemap_labels).toBe(false);
-    expect(result.widgets).toEqual(['layer-list']);
+    expect(result.plugins).toEqual(['layer-list']);
   });
 
   it('getMap preserves the result of normalizeLayerStyleState on each layer (per-layer normalizer composition)', async () => {

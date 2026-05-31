@@ -42,6 +42,8 @@ from .basemap_config_sublayer_overrides_type_0 import (
 )
 from .basemap_label_mode import BasemapLabelMode
 from .basemap_land_water_tone import BasemapLandWaterTone
+from .basemap_position import BasemapPosition
+from .basemap_projection import BasemapProjection
 from .basemap_public_response import BasemapPublicResponse
 from .basemap_relief_contrast import BasemapReliefContrast
 from .basemap_sublayer_visibility import BasemapSublayerVisibility
@@ -601,6 +603,8 @@ __all__ = (
     "BasemapConfigSublayerOverridesType0",
     "BasemapLabelMode",
     "BasemapLandWaterTone",
+    "BasemapPosition",
+    "BasemapProjection",
     "BasemapPublicResponse",
     "BasemapReliefContrast",
     "BasemapSublayerVisibility",

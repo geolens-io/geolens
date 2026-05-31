@@ -289,5 +289,5 @@ def _build_map_response(
         updated_at=map_obj.updated_at,
         layers=layers,
         layer_count=len(layers),
-        widgets=map_obj.widgets,
+        plugins=map_obj.plugins,
     )

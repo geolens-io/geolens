@@ -71,14 +71,14 @@ import { LazyLoadErrorBoundary } from '@/components/error/LazyLoadErrorBoundary'
 import { useMap, useAddLayer, useRemoveLayer } from '@/hooks/use-maps';
 import { useAIAvailability } from '@/hooks/use-ai-availability';
 import { useDocumentTitle } from '@/hooks/use-document-title';
-import { useEnabledWidgets } from '@/hooks/use-settings';
+import { useEnabledPlugins } from '@/hooks/use-settings';
 import { useBuilderLayout } from '@/components/builder/hooks/use-builder-layout';
 import { useBuilderDialogs } from '@/components/builder/hooks/use-builder-dialogs';
 import { useBuilderEditorScene } from '@/components/builder/hooks/use-builder-editor-scene';
 import { useFilteredFeatureCount } from '@/components/builder/hooks/use-filtered-feature-count';
 import { useBuilderLayers } from '@/components/builder/hooks/use-builder-layers';
 import { useBuilderSave } from '@/components/builder/hooks/use-builder-save';
-import { TERRAIN_SOURCE_ID, normalizeTerrainExaggeration, isHillshadeTerrainBound } from '@/components/builder/map-sync';
+import { TERRAIN_SOURCE_ID, normalizeTerrainExaggeration, isHillshadeTerrainBound, isDemTerrainVisualSuppressed } from '@/components/builder/map-sync';
 import {
   createBuilderBasemapState,
   removeBasemap as removeBasemapFromState,
@@ -96,18 +96,18 @@ import {
   updateBasemapSublayerOverride,
   type BuilderBasemapPatch,
 } from '@/components/builder/basemap-state-controller';
-import { WidgetHost, getDefaultWidgetIds, resolveAvailableWidgetIds, usePartitionedWidgets } from '@/components/map-widgets';
-import { useWidgetStore } from '@/stores/map-widget-store';
+import { PluginHost, PluginSidebar, getDefaultPluginIds, resolveAvailablePluginIds, usePartitionedPlugins } from '@/components/map-plugins';
+import { usePluginStore } from '@/stores/map-plugin-store';
 import type { ViewportContext } from '@/components/builder/chat-suggestions';
 
 export function MapBuilderPage() {
   const { id } = useParams<{ id: string }>();
   const { t } = useTranslation('builder');
   const { data: mapData, isLoading, error } = useMap(id, { refetchOnWindowFocus: false });
-  const enabledWidgetsQuery = useEnabledWidgets();
-  const enabledWidgetIds = useMemo(
-    () => enabledWidgetsQuery.data ?? (enabledWidgetsQuery.isLoading ? [] : null),
-    [enabledWidgetsQuery.data, enabledWidgetsQuery.isLoading],
+  const enabledPluginsQuery = useEnabledPlugins();
+  const enabledPluginIds = useMemo(
+    () => enabledPluginsQuery.data ?? (enabledPluginsQuery.isLoading ? [] : null),
+    [enabledPluginsQuery.data, enabledPluginsQuery.isLoading],
   );
   const addLayer = useAddLayer();
   const removeLayer = useRemoveLayer();
@@ -120,7 +120,7 @@ export function MapBuilderPage() {
 
   const mapInstanceRef = useRef<MaplibreMap | null>(null);
   // mapInstance state duplicates the ref — needed to trigger re-renders for
-  // widgetCtx useMemo. The ref provides stable imperative access without re-renders.
+  // pluginCtx useMemo. The ref provides stable imperative access without re-renders.
   const [mapInstance, setMapInstance] = useState<MaplibreMap | null>(null);
   const [railPanel, setRailPanel] = useState<RailPanel>(null);
   const [dockNotes, setDockNotes] = useState('');
@@ -228,32 +228,32 @@ export function MapBuilderPage() {
   // Phase 276 CODE-12: hand-rolled string keys are intentional value-equality
   // dependencies. mapData refetches (TanStack Query refetchOnReconnect /
   // refetchOnMount / window-focus invalidations) produce shape-equivalent
-  // but identity-different widget arrays — declaring `[mapData?.widgets,
-  // enabledWidgetIds]` directly as deps would reset the user's local widget
+  // but identity-different plugin arrays — declaring `[mapData?.plugins,
+  // enabledPluginIds]` directly as deps would reset the user's local plugin
   // toggles on every background refetch. Coercing the deps to stable JSON
-  // strings (savedWidgetKey) and a NUL-joined ID list (enabledWidgetKey)
+  // strings (savedPluginKey) and a NUL-joined ID list (enabledPluginKey)
   // gives the useEffect value-equality semantics, which is what we actually
-  // want for "restore widgets when the saved set or admin allowlist
+  // want for "restore plugins when the saved set or admin allowlist
   // changes".
   //
   // If a future author "simplifies" this back to raw object/array deps,
-  // local widget toggle state will silently regress on every refetch.
+  // local plugin toggle state will silently regress on every refetch.
   // Verify with the map-builder UAT in Plan 276-05: open builder, toggle a
-  // widget OFF, trigger a refetch (Cmd-R / window focus / queryClient
+  // plugin OFF, trigger a refetch (Cmd-R / window focus / queryClient
   // invalidateQueries), confirm the toggle stays OFF.
-  const savedWidgetKey = mapData ? `${mapData.id}:${JSON.stringify(mapData.widgets ?? null)}` : '';
-  const enabledWidgetKey = enabledWidgetIds == null ? '__all__' : enabledWidgetIds.join('\0');
+  const savedPluginKey = mapData ? `${mapData.id}:${JSON.stringify(mapData.plugins ?? null)}` : '';
+  const enabledPluginKey = enabledPluginIds == null ? '__all__' : enabledPluginIds.join('\0');
 
-  // Restore active widgets from the saved map payload. `null` means client defaults,
-  // `[]` means no widgets, and unknown or admin-disabled IDs are ignored.
+  // Restore active plugins from the saved map payload. `null` means client defaults,
+  // `[]` means no plugins, and unknown or admin-disabled IDs are ignored.
   useEffect(() => {
     if (!mapData) return;
-    const nextWidgets = mapData.widgets == null
-      ? getDefaultWidgetIds(enabledWidgetIds)
-      : resolveAvailableWidgetIds(mapData.widgets, enabledWidgetIds);
-    useWidgetStore.getState().replace(nextWidgets);
+    const nextPlugins = mapData.plugins == null
+      ? getDefaultPluginIds(enabledPluginIds)
+      : resolveAvailablePluginIds(mapData.plugins, enabledPluginIds);
+    usePluginStore.getState().replace(nextPlugins);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- see Phase 276 CODE-12 block comment above
-  }, [savedWidgetKey, enabledWidgetKey]);
+  }, [savedPluginKey, enabledPluginKey]);
 
   const save = useBuilderSave({
     mapId: id,
@@ -279,7 +279,7 @@ export function MapBuilderPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only the method reference matters, not the whole `save` object
   }, [save.maybeAutoCaptureThumbnail]);
 
-  const widgetCtx = useMemo(
+  const pluginCtx = useMemo(
     () => ({ mapInstance, layers: layers.localLayers, mapId: id! }),
     [mapInstance, layers.localLayers, id],
   );
@@ -327,10 +327,10 @@ export function MapBuilderPage() {
     });
   }, [layers.expandedLayerId, layers.localLayers]);
 
-  const { byAnchor } = usePartitionedWidgets();
-  // activeWidgets for Settings panel widget toggles (Phase 1036)
-  const activeWidgets = useWidgetStore((state) => state.activeWidgets);
-  const toggleWidget = useWidgetStore((state) => state.toggle);
+  const { byAnchor, sidebar: sidebarPlugins } = usePartitionedPlugins();
+  // activePlugins for Settings panel plugin toggles (Phase 1036)
+  const activePlugins = usePluginStore((state) => state.activePlugins);
+  const togglePlugin = usePluginStore((state) => state.toggle);
 
   const layerEditorHandlers = useMemo((): LayerEditorHandlers => ({
     onTabChange: handleTabChange,
@@ -391,16 +391,16 @@ export function MapBuilderPage() {
     [setHasUnsavedChanges],
   );
 
-  // Widget toggles live in a store outside the layer state that drives
+  // Plugin toggles live in a store outside the layer state that drives
   // hasUnsavedChanges, so wrap the toggle to mark the map dirty — otherwise the
-  // save indicator + unsaved-changes nav guard miss widget-only edits. The save
-  // payload already reads the store at save time (resolveWidgetsPayload).
-  const handleToggleWidget = useCallback(
-    (widgetId: string) => {
-      toggleWidget(widgetId);
+  // save indicator + unsaved-changes nav guard miss plugin-only edits. The save
+  // payload already reads the store at save time (resolvePluginsPayload).
+  const handleTogglePlugin = useCallback(
+    (pluginId: string) => {
+      togglePlugin(pluginId);
       setHasUnsavedChanges(true);
     },
-    [toggleWidget, setHasUnsavedChanges],
+    [togglePlugin, setHasUnsavedChanges],
   );
 
   // Projection persists on basemap_config.projection. Route through the basemap
@@ -500,6 +500,12 @@ export function MapBuilderPage() {
   const selectableRowIds = useMemo((): string[] => {
     const ids: string[] = [];
     for (const layer of layers.localLayers) {
+      // BLDR-03: terrain-mode DEM layers are suppressed from the stack panel
+      // (no row rendered), so they must not be range-selectable either —
+      // otherwise a shift-click range spanning a hidden terrain row could
+      // silently include and bulk-delete that terrain record. Mirror the
+      // visibleStackLayers filter applied inside UnifiedStackPanel.
+      if (isDemTerrainVisualSuppressed(layer)) continue;
       ids.push(layer.id);
     }
     return ids;
@@ -945,7 +951,9 @@ export function MapBuilderPage() {
               applyBasemapPatch(swapBasemapPreset(basemapState, presetId));
               layers.markDirty();
             }}
-            onAddCustomBasemap={() => { /* Plan 1037 follow-up */ }}
+            // onAddCustomBasemap intentionally omitted — custom-basemap support is a Plan
+            // 1037 follow-up. With the prop optional, the button stays hidden until a real
+            // handler is wired up here (was a visible no-op stub; B-015).
             onSublayerVisibilityChange={handleToggleSublayerVisibility}
             onSublayerOpacityChange={handleSublayerOpacityChange}
             onMasterOpacityChange={(opacity) => {
@@ -1104,8 +1112,9 @@ export function MapBuilderPage() {
             terrainConfig={layers.localTerrainConfig}
             isTerrainActive={isTerrainActive}
             boundLayerName={boundLayerName}
-            activeWidgetIds={activeWidgets}
-            onToggleWidget={handleToggleWidget}
+            enabledPluginIds={enabledPluginIds}
+            activePluginIds={activePlugins}
+            onTogglePlugin={handleTogglePlugin}
             backgroundColor={basemapState.config.background_color ?? null}
             onBackgroundColorChange={(color) => {
               applyBasemapPatch(setBasemapBackgroundColor(basemapState, color));
@@ -1325,6 +1334,11 @@ export function MapBuilderPage() {
               basemapPosition={basemapState.config.basemap_position ?? 'bottom'}
             />
           )}
+          {/* Sidebar-placement plugins render below the layer stack. No built-in
+              uses { mode: 'sidebar' } today, so PluginSidebar returns null and
+              this is inert — but it keeps the declared sidebar placement mode
+              actually reachable for third-party plugins (plugin-audit finding). */}
+          {!isRail && <PluginSidebar plugins={sidebarPlugins} ctx={pluginCtx} />}
         </aside>
 
         {/* Column 2: LayerEditorPanel flyout (380px) — when layer selected or basemap/settings scene active; viewport >= 800px */}
@@ -1467,9 +1481,9 @@ export function MapBuilderPage() {
             </div>
           )}
 
-          <WidgetHost
+          <PluginHost
             byAnchor={byAnchor}
-            ctx={widgetCtx}
+            ctx={pluginCtx}
             topLeftSlot={
               <ActiveFilterChips
                 layers={layers.localLayers}

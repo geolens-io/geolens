@@ -436,12 +436,12 @@ test.describe.serial('Builder Unified Stack UAT (Phase 1038, BSR-25 + BSR-27)', 
     const editor = page.getByTestId('builder-layer-editor');
     await expect(editor).toBeVisible({ timeout: 10_000 });
 
-    // Settings panel typically contains Terrain or Widgets or Projection.
+    // Settings panel typically contains Terrain or Plugins or Projection.
     // The panel is lazy-loaded (v1010 chunking), so explicitly wait for the
     // content to appear instead of asserting on a pre-resolved isVisible flag.
     await expect(
-      editor.getByText(/terrain|widgets|projection/i).first(),
-      'Settings panel should show Terrain/Widgets/Projection content',
+      editor.getByText(/terrain|plugins|projection/i).first(),
+      'Settings panel should show Terrain/Plugins/Projection content',
     ).toBeVisible({ timeout: 10_000 });
 
     // aria-pressed should now be 'true'

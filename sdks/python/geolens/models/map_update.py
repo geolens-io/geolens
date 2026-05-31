@@ -35,10 +35,10 @@ class MapUpdate:
         name (None | str | Unset):
         notes (None | str | Unset):
         pitch (float | None | Unset): Map tilt in degrees (0-85)
+        plugins (list[str] | None | Unset): Enabled plugin IDs, e.g. ['measurement']
         show_basemap_labels (bool | None | Unset):
         terrain_config (None | TerrainConfig | Unset): Map-level terrain source and exaggeration preferences
         visibility (MapVisibility | None | Unset): private, internal, or public
-        widgets (list[str] | None | Unset): Enabled widget IDs, e.g. ['measurement']
         zoom (float | None | Unset): Map zoom level
     """
 
@@ -52,10 +52,10 @@ class MapUpdate:
     name: None | str | Unset = UNSET
     notes: None | str | Unset = UNSET
     pitch: float | None | Unset = UNSET
+    plugins: list[str] | None | Unset = UNSET
     show_basemap_labels: bool | None | Unset = UNSET
     terrain_config: None | TerrainConfig | Unset = UNSET
     visibility: MapVisibility | None | Unset = UNSET
-    widgets: list[str] | None | Unset = UNSET
     zoom: float | None | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
@@ -131,6 +131,15 @@ class MapUpdate:
         else:
             pitch = self.pitch
 
+        plugins: list[str] | None | Unset
+        if isinstance(self.plugins, Unset):
+            plugins = UNSET
+        elif isinstance(self.plugins, list):
+            plugins = self.plugins
+
+        else:
+            plugins = self.plugins
+
         show_basemap_labels: bool | None | Unset
         if isinstance(self.show_basemap_labels, Unset):
             show_basemap_labels = UNSET
@@ -152,15 +161,6 @@ class MapUpdate:
             visibility = self.visibility
         else:
             visibility = self.visibility
-
-        widgets: list[str] | None | Unset
-        if isinstance(self.widgets, Unset):
-            widgets = UNSET
-        elif isinstance(self.widgets, list):
-            widgets = self.widgets
-
-        else:
-            widgets = self.widgets
 
         zoom: float | None | Unset
         if isinstance(self.zoom, Unset):
@@ -191,14 +191,14 @@ class MapUpdate:
             field_dict["notes"] = notes
         if pitch is not UNSET:
             field_dict["pitch"] = pitch
+        if plugins is not UNSET:
+            field_dict["plugins"] = plugins
         if show_basemap_labels is not UNSET:
             field_dict["show_basemap_labels"] = show_basemap_labels
         if terrain_config is not UNSET:
             field_dict["terrain_config"] = terrain_config
         if visibility is not UNSET:
             field_dict["visibility"] = visibility
-        if widgets is not UNSET:
-            field_dict["widgets"] = widgets
         if zoom is not UNSET:
             field_dict["zoom"] = zoom
 
@@ -325,6 +325,23 @@ class MapUpdate:
 
         pitch = _parse_pitch(d.pop("pitch", UNSET))
 
+        def _parse_plugins(data: object) -> list[str] | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, list):
+                    raise TypeError()
+                plugins_type_0 = cast(list[str], data)
+
+                return plugins_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(list[str] | None | Unset, data)
+
+        plugins = _parse_plugins(d.pop("plugins", UNSET))
+
         def _parse_show_basemap_labels(data: object) -> bool | None | Unset:
             if data is None:
                 return data
@@ -370,23 +387,6 @@ class MapUpdate:
 
         visibility = _parse_visibility(d.pop("visibility", UNSET))
 
-        def _parse_widgets(data: object) -> list[str] | None | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            try:
-                if not isinstance(data, list):
-                    raise TypeError()
-                widgets_type_0 = cast(list[str], data)
-
-                return widgets_type_0
-            except (TypeError, ValueError, AttributeError, KeyError):
-                pass
-            return cast(list[str] | None | Unset, data)
-
-        widgets = _parse_widgets(d.pop("widgets", UNSET))
-
         def _parse_zoom(data: object) -> float | None | Unset:
             if data is None:
                 return data
@@ -407,10 +407,10 @@ class MapUpdate:
             name=name,
             notes=notes,
             pitch=pitch,
+            plugins=plugins,
             show_basemap_labels=show_basemap_labels,
             terrain_config=terrain_config,
             visibility=visibility,
-            widgets=widgets,
             zoom=zoom,
         )
 

@@ -41,7 +41,7 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 
 /**
  * Public map viewer canvas — used by the standalone viewer page and the
- * embeddable iframe widget.
+ * embeddable iframe plugin.
  *
  * Renders multiple shared layers from a publicly visible map composition with
  * read-only navigation, popups on click, and a basemap matching the parent

@@ -162,7 +162,7 @@ test.describe('Admin Panel', () => {
       timeout: 10_000,
     });
     await expect(page.getByText('Default Map View')).toBeVisible();
-    await expect(page.getByText('Map Widgets')).toBeVisible();
+    await expect(page.getByText('Map Plugins')).toBeVisible();
   });
 
   test('published maps page loads', async ({ page }) => {

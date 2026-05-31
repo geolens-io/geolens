@@ -11,6 +11,35 @@ GitHub release notes are generated from this file, so `CHANGELOG.md` is the rele
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-05-31
+
+### Changed
+
+- **BREAKING — the map "widget" platform was renamed to "plugin" across the
+  entire stack.** This is a hard cut: there is no back-compat alias or
+  deprecation shim, and the old `widgets` / `enabled_widgets` names are removed.
+  The built-in plugin IDs `measurement` and `legend` are **unchanged**, as are
+  all MapLibre layer IDs.
+- **Database:** the `maps.widgets` column was renamed to `maps.plugins`, and the
+  `enabled_widgets` config key in `catalog.app_settings` was renamed to
+  `enabled_plugins`. Both changes ship in Alembic migration `0025`
+  (`0025_widgets_to_plugins_rename.py`). **Operators must run
+  `alembic upgrade head`** when deploying this release. Existing row values
+  (arrays of plugin ID strings) are preserved by the migration.
+- **API:** the map field `widgets` was renamed to `plugins`, and the settings
+  route `/settings/enabled-widgets/` was renamed to `/settings/enabled-plugins/`.
+  **External API clients must update** both the field name and the route path.
+- **Frontend:** the `map-widgets/` directory was renamed to `map-plugins/`, and
+  the platform identifiers and component test IDs were renamed from `Widget*` /
+  `widget*` to `Plugin*` / `plugin*`.
+- **i18n:** the widget-platform translation keys were renamed to plugin keys
+  across all locales (en/de/es/fr), with key parity maintained.
+
+### Added
+
+- Plugin authoring guide (`docs/plugin-development.md`) documenting how to build
+  and register a custom map plugin.
+
 ## [1.8.0] - 2026-05-29
 
 Builder render-mode persistence fix (3D terrain now restores on load), a layer-list label indicator, and small builder/raster cleanups — surfaced by a live walkthrough of the two ADK sample maps.

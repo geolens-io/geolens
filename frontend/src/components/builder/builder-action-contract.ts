@@ -30,7 +30,7 @@ export type BuilderBasemapAction =
   | (BuilderActionBase & { type: 'set_basemap_position'; position: 'top' | 'bottom' });
 
 export type BuilderSettingsAction =
-  | (BuilderActionBase & { type: 'toggle_widget'; widgetId: string })
+  | (BuilderActionBase & { type: 'toggle_plugin'; pluginId: string })
   | (BuilderActionBase & { type: 'set_projection'; projection: 'mercator' | 'globe' });
 
 export type BuilderMapAction = BuilderLayerAction | BuilderBasemapAction | BuilderSettingsAction;

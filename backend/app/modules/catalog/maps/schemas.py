@@ -42,6 +42,12 @@ LEGACY_BUILDER_PAINT_KEYS = {
     "_pmin": "pmin",
     "_pmax": "pmax",
     "_sigma": "sigma",
+    # DEM hypsometric (color-relief) builder-private keys. The DEM editor
+    # authors them as `_`-prefixed paint keys (DEMEditorScene); they are moved
+    # here into style_config.builder so the MapLibre `paint` storage boundary
+    # stays clean and the round-trip persists across save/reload.
+    "_hypso-enabled": "hypso_enabled",
+    "_hypso-ramp": "hypso_ramp",
 }
 _STYLE_CONFIG_BUILDER_KEY = "builder"
 
@@ -666,10 +672,10 @@ class MapUpdate(BaseModel):
         max_length=_MAX_LAYERS_PER_MAP,
         description=f"Full replacement layer list (max {_MAX_LAYERS_PER_MAP} layers)",
     )
-    widgets: list[str] | None = Field(
+    plugins: list[str] | None = Field(
         default=None,
         max_length=50,
-        description="Enabled widget IDs, e.g. ['measurement']",
+        description="Enabled plugin IDs, e.g. ['measurement']",
     )
 
 
@@ -748,7 +754,7 @@ class MapResponse(BaseModel):
     updated_at: datetime
     layers: list[MapLayerResponse]
     layer_count: int
-    widgets: list[str] | None = None
+    plugins: list[str] | None = None
 
     model_config = ConfigDict(from_attributes=True)
 

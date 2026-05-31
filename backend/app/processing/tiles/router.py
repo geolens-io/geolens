@@ -82,6 +82,8 @@ class _DatasetMeta(NamedTuple):
     record_id: uuid.UUID
     table_name: str
     visibility: str
+    record_status: str
+    created_by: uuid.UUID
     record_type: str
     geometry_type: str | None
     column_info: list
@@ -830,6 +832,48 @@ def _build_tile_token_for_dataset(
     )
 
 
+async def _enforce_tile_token_access(
+    db: AsyncSession,
+    dataset: Any,
+    dataset_id: uuid.UUID,
+    user: Identity | None,
+    port: Any,
+) -> None:
+    """Status-aware access gate for the tile-token endpoints (SEC-01).
+
+    Mirrors the raster ``_resolve_raster_access`` contract so vector and raster
+    token minting deny identically:
+    - non-public + anonymous -> 401 (authenticating may grant access)
+    - non-public + authenticated -> full RBAC via ``check_dataset_access`` (404 if denied)
+    - public + unpublished + non-owner -> 404 (closes the anonymous egress leak)
+    - public + published -> allowed
+
+    Raises HTTPException on denial; returns None on allow.
+    """
+    record = dataset.record
+    if record.visibility != "public":
+        if user is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Authentication required",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        await port.check_dataset_access(db, dataset, dataset_id, user)
+        return
+
+    # Public dataset: still block non-published for non-owners (SEC-01).
+    if record.record_status != "published":
+        if user is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found"
+            )
+        user_roles = await port.get_user_roles(db, user)
+        if "admin" not in user_roles and record.created_by != user.id:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found"
+            )
+
+
 @router.get("/token/{dataset_id}/", response_model=VectorTileToken | RasterTileToken)
 @limiter.exempt
 async def get_tile_token(
@@ -862,15 +906,7 @@ async def get_tile_token(
             status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found"
         )
 
-    # Non-public datasets require authentication and RBAC
-    if dataset.record.visibility != "public":
-        if user is None:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Authentication required",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-        await port.check_dataset_access(db, dataset, dataset_id, user)
+    await _enforce_tile_token_access(db, dataset, dataset_id, user, port)
 
     raster_asset = None
     if dataset.record.record_type in ("raster_dataset", "vrt_dataset"):
@@ -935,16 +971,12 @@ async def get_tile_tokens_batch(
             tokens[key] = {"error": "Dataset not found"}
             continue
 
-        # Per-dataset auth check
-        if dataset.record.visibility != "public":
-            if user is None:
-                tokens[key] = {"error": "Authentication required"}
-                continue
-            try:
-                await port.check_dataset_access(db, dataset, dataset_id, user)
-            except HTTPException as exc:
-                tokens[key] = {"error": exc.detail}
-                continue
+        # Per-dataset auth check (status-aware)
+        try:
+            await _enforce_tile_token_access(db, dataset, dataset_id, user, port)
+        except HTTPException as exc:
+            tokens[key] = {"error": exc.detail}
+            continue
 
         tokens[key] = _build_tile_token_for_dataset(
             dataset,
@@ -1017,6 +1049,8 @@ async def _resolve_dataset_meta(table_name: str, db: AsyncSession) -> _DatasetMe
         record_id=dataset.record_id,
         table_name=dataset.table_name,
         visibility=dataset.record.visibility,
+        record_status=dataset.record.record_status,
+        created_by=dataset.record.created_by,
         record_type=dataset.record.record_type,
         geometry_type=dataset.geometry_type,
         column_info=dataset.column_info or [],
@@ -1036,6 +1070,7 @@ async def _authorize_vector_tile_request(
     sig: str | None,
     exp: int | None,
     scope: str | None,
+    user: Identity | None,
 ) -> str:
     """Authorize direct vector-tile access and return cache scope."""
     embed_token_header = request.headers.get("X-Embed-Token")
@@ -1065,6 +1100,21 @@ async def _authorize_vector_tile_request(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Invalid or expired signature",
             )
+    else:
+        # Public dataset: still block non-published for unauthenticated users
+        if meta.record_status != "published":
+            # Unauthenticated users cannot see unpublished public datasets
+            if user is None:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found"
+                )
+            # Authenticated non-owners cannot see unpublished
+            port = get_processing_port()
+            user_roles = await port.get_user_roles(db, user)
+            if "admin" not in user_roles and meta.created_by != user.id:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found"
+                )
 
     return "public"
 
@@ -1114,6 +1164,7 @@ async def cluster_tile_endpoint(
     cluster_radius: int = Query(48, ge=1, le=256),
     cluster_max_zoom: int = Query(14, ge=0, le=22),
     db: AsyncSession = Depends(get_db),
+    user: Identity | None = Depends(get_optional_user),
 ) -> Response:
     """Serve a server-side clustered vector tile for point datasets.
 
@@ -1134,6 +1185,7 @@ async def cluster_tile_endpoint(
         sig=sig,
         exp=exp,
         scope=scope,
+        user=user,
     )
 
     cache_ttl = meta.tile_cache_ttl or settings.tile_cache_ttl
@@ -1247,6 +1299,7 @@ async def tile_endpoint(
     scope: str | None = None,
     cols: str | None = None,
     db: AsyncSession = Depends(get_db),
+    user: Identity | None = Depends(get_optional_user),
 ) -> Response:
     """Serve a vector tile as gzipped MVT binary.
 
@@ -1274,6 +1327,7 @@ async def tile_endpoint(
         sig=sig,
         exp=exp,
         scope=scope,
+        user=user,
     )
 
     # Parse `cols` query param into a validated, deduped, sorted list.

@@ -239,7 +239,7 @@ async def update_map(
     basemap_config: dict | None | object = _UNSET,
     terrain_config: dict | None | object = _UNSET,
     visibility: str | None = None,
-    widgets: list[str] | None | object = _UNSET,
+    plugins: list[str] | None | object = _UNSET,
     layers: list[dict] | None = None,
 ) -> tuple[Map, list[LayerRow], str | None, str | None]:
     """Update map fields. If 'layers' key present, replace all layers.
@@ -257,8 +257,8 @@ async def update_map(
         raise ValueError(f"Map {map_id} not found")
 
     # Update scalar fields (skip None values, except explicit notes=null which
-    # clears private builder notes, and explicit widgets=null which restores
-    # client-default widget behavior).
+    # clears private builder notes, and explicit plugins=null which restores
+    # client-default plugin behavior).
     scalar_fields = {
         "name": name,
         "description": description,
@@ -280,8 +280,8 @@ async def update_map(
         map_obj.basemap_config = cast(dict | None, basemap_config)
     if terrain_config is not _UNSET:
         map_obj.terrain_config = cast(dict | None, terrain_config)
-    if widgets is not _UNSET:
-        map_obj.widgets = cast(list[str] | None, widgets)
+    if plugins is not _UNSET:
+        map_obj.plugins = cast(list[str] | None, plugins)
 
     # Replace layers if provided
     if layers is not None:
@@ -385,7 +385,7 @@ async def duplicate_map(
         show_basemap_labels=source.show_basemap_labels,
         basemap_config=source.basemap_config,
         terrain_config=source.terrain_config,
-        widgets=source.widgets,
+        plugins=source.plugins,
         thumbnail_uri=None,
         visibility="private",
         forked_from=source.id,

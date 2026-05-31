@@ -78,12 +78,14 @@ export function useLayerMapSync(
           const outlineId = `layer-${layerId}-outline`;
           const labelId = `layer-${layerId}-label`;
           const extrusionId = `layer-${layerId}-extrusion`;
+          const arrowId = `layer-${layerId}-arrow`;
           const clusterId = `layer-${layerId}-cluster`;
           const clusterCountId = `layer-${layerId}-cluster-count`;
           if (map.getLayer(mapLayerId)) map.setLayoutProperty(mapLayerId, 'visibility', newVis);
           if (map.getLayer(outlineId)) map.setLayoutProperty(outlineId, 'visibility', newVis);
           if (map.getLayer(labelId)) map.setLayoutProperty(labelId, 'visibility', newVis);
           if (map.getLayer(extrusionId)) map.setLayoutProperty(extrusionId, 'visibility', newVis);
+          if (map.getLayer(arrowId)) map.setLayoutProperty(arrowId, 'visibility', newVis);
           if (map.getLayer(clusterId)) map.setLayoutProperty(clusterId, 'visibility', newVis);
           if (map.getLayer(clusterCountId)) map.setLayoutProperty(clusterCountId, 'visibility', newVis);
         },
@@ -386,6 +388,12 @@ export function useLayerMapSync(
           if (map.getLayer(extrusionId)) {
             map.setFilter(extrusionId, filter);
           }
+          // Also filter the line-arrow companion (B-004) so arrow symbols hide
+          // for features removed by the filter.
+          const arrowId = `layer-${layerId}-arrow`;
+          if (map.getLayer(arrowId)) {
+            map.setFilter(arrowId, filter);
+          }
         },
       );
     },
@@ -407,6 +415,22 @@ export function useLayerMapSync(
         (l) => ({ ...l, label_config: config }),
         (map) => {
           const labelLayerId = `layer-${layerId}-label`;
+
+          // B-008/B-009: symbol-mode point layers carry their text in the
+          // PRIMARY symbol layer (synced by syncLayersToMap on the state change
+          // above); a companion *-label layer would duplicate it for one sync
+          // cycle (flicker). Heatmaps carry no feature labels at all — the UI
+          // gates the Labels tab, but the AI `set_label` action can bypass that
+          // gate. In both modes tear down any stale companion and let
+          // syncLayersToMap own the primary-layer text.
+          const renderMode = (layer.style_config as { render_mode?: string } | null)
+            ?.render_mode;
+          if (renderMode === 'symbol' || renderMode === 'heatmap') {
+            if (map.getLayer(labelLayerId)) {
+              map.removeLayer(labelLayerId);
+            }
+            return;
+          }
 
           // Remove label layer if config is null or column is empty
           if (!config || !config.column) {

@@ -40,8 +40,8 @@ export type NormalizedSavedMap<TLayer = MapLayerResponse | SharedLayerResponse> 
   terrain_config: MapTerrainConfig | null;
   /** Layer array; defaults to [] when input has no layers field. */
   layers: TLayer[];
-  /** Widget list; defaults to null when input has undefined widgets. */
-  widgets: string[] | null;
+  /** Plugin list; defaults to null when input has undefined plugins. */
+  plugins: string[] | null;
   /**
    * Per-group expansion state. Keys are group IDs; values carry { expanded: boolean }.
    * Defaults to {} when absent (all groups start collapsed).
@@ -65,7 +65,7 @@ export type SavedMapInput<TLayer = MapLayerResponse | SharedLayerResponse> =
       basemap_config: MapBasemapConfig | null;
       terrain_config: MapTerrainConfig | null;
       layers: TLayer[];
-      widgets: string[] | null;
+      plugins: string[] | null;
       group_meta?: Record<string, { expanded: boolean }> | null;
     }>);
 
@@ -77,7 +77,7 @@ export type SavedMapInput<TLayer = MapLayerResponse | SharedLayerResponse> =
  * - `basemap_style` is always a non-empty string (falls back to 'default').
  * - `show_basemap_labels` is always a boolean (defaults to true when absent).
  * - `layers` is always an array (defaults to []).
- * - `widgets` is always string[] | null (never undefined).
+ * - `plugins` is always string[] | null (never undefined).
  * - `basemap_config` and `terrain_config` are preserved verbatim.
  *
  * @param input Raw MapResponse or SharedMapResponse from the API.
@@ -130,10 +130,10 @@ export function normalizeSavedMap<TLayer = MapLayerResponse | SharedLayerRespons
   const rawLayers = (input as Record<string, unknown>).layers;
   const layers: TLayer[] = Array.isArray(rawLayers) ? (rawLayers as TLayer[]) : [];
 
-  // widgets: defaults to null when undefined; canonical null over undefined.
-  const rawWidgets = (input as Record<string, unknown>).widgets;
-  const widgets: string[] | null =
-    Array.isArray(rawWidgets) ? (rawWidgets as string[]) : null;
+  // plugins: defaults to null when undefined; canonical null over undefined.
+  const rawPlugins = (input as Record<string, unknown>).plugins;
+  const plugins: string[] | null =
+    Array.isArray(rawPlugins) ? (rawPlugins as string[]) : null;
 
   // group_meta: per-group expansion state; defaults to {} when absent or invalid shape.
   // Individual entries are sanitized: only objects with a boolean `expanded` key pass through.
@@ -157,7 +157,7 @@ export function normalizeSavedMap<TLayer = MapLayerResponse | SharedLayerRespons
     basemap_config,
     terrain_config,
     layers,
-    widgets,
+    plugins,
     group_meta,
   };
 }

@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiFetchBlob, ApiError } from '@/api/client';
 import { isQuicklookKnownMissing, markQuicklookMissing } from '@/lib/quicklook-cache';
@@ -51,7 +52,7 @@ export function useQuicklook(
 // hooks exhaustive-deps lint; all conditional logic happens before any hook calls.
 function useQuicklookQuery(datasetId: string, size: number): UseQuicklookResult {
   const queryClient = useQueryClient();
-  registerBlobUrlRevocation(queryClient);
+  useEffect(() => { registerBlobUrlRevocation(queryClient); }, [queryClient]);
 
   const {
     data,

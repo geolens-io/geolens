@@ -1977,6 +1977,20 @@
             ],
             "title": "Clear Paint"
           },
+          "columns": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Columns"
+          },
           "dataset_id": {
             "anyOf": [
               {
@@ -1987,6 +2001,17 @@
               }
             ],
             "title": "Dataset Id"
+          },
+          "dataset_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dataset Name"
           },
           "expression": {
             "anyOf": [
@@ -2069,6 +2094,32 @@
             ],
             "title": "Replace Paint"
           },
+          "row_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Row Count"
+          },
+          "rows": {
+            "anyOf": [
+              {
+                "items": {
+                  "items": {},
+                  "type": "array"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rows"
+          },
           "style_config": {
             "anyOf": [
               {
@@ -2080,6 +2131,17 @@
               }
             ],
             "title": "Style Config"
+          },
+          "truncated": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Truncated"
           },
           "type": {
             "enum": [
@@ -5457,6 +5519,20 @@
             "title": "Pitch",
             "type": "number"
           },
+          "plugins": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Plugins"
+          },
           "show_basemap_labels": {
             "title": "Show Basemap Labels",
             "type": "boolean"
@@ -5489,20 +5565,6 @@
           },
           "visibility": {
             "$ref": "#/components/schemas/MapVisibility"
-          },
-          "widgets": {
-            "anyOf": [
-              {
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Widgets"
           },
           "zoom": {
             "anyOf": [
@@ -8537,6 +8599,20 @@
             "title": "Pitch",
             "type": "number"
           },
+          "plugins": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Plugins"
+          },
           "show_basemap_labels": {
             "title": "Show Basemap Labels",
             "type": "boolean"
@@ -8569,20 +8645,6 @@
           },
           "visibility": {
             "$ref": "#/components/schemas/MapVisibility"
-          },
-          "widgets": {
-            "anyOf": [
-              {
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Widgets"
           },
           "zoom": {
             "anyOf": [
@@ -9076,6 +9138,22 @@
             "description": "Map tilt in degrees (0-85)",
             "title": "Pitch"
           },
+          "plugins": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "maxItems": 50,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Enabled plugin IDs, e.g. ['measurement']",
+            "title": "Plugins"
+          },
           "show_basemap_labels": {
             "anyOf": [
               {
@@ -9108,22 +9186,6 @@
               }
             ],
             "description": "private, internal, or public"
-          },
-          "widgets": {
-            "anyOf": [
-              {
-                "items": {
-                  "type": "string"
-                },
-                "maxItems": 50,
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Enabled widget IDs, e.g. ['measurement']",
-            "title": "Widgets"
           },
           "zoom": {
             "anyOf": [
@@ -40132,10 +40194,10 @@
         ]
       }
     },
-    "/settings/enabled-widgets/": {
+    "/settings/enabled-plugins/": {
       "get": {
-        "description": "Return enabled widget IDs. null = no restriction (all shown), [] = none, [...ids] = only those.",
-        "operationId": "get_enabled_widgets_settings_enabled_widgets__get",
+        "description": "Return enabled plugin IDs. null = no restriction (all shown), [] = none, [...ids] = only those.",
+        "operationId": "get_enabled_plugins_settings_enabled_plugins__get",
         "responses": {
           "200": {
             "content": {
@@ -40152,7 +40214,7 @@
                       "type": "null"
                     }
                   ],
-                  "title": "Response Get Enabled Widgets Settings Enabled Widgets  Get"
+                  "title": "Response Get Enabled Plugins Settings Enabled Plugins  Get"
                 }
               }
             },
@@ -40225,7 +40287,7 @@
             "description": "Internal server error"
           }
         },
-        "summary": "Get Enabled Widgets",
+        "summary": "Get Enabled Plugins",
         "tags": [
           "Admin"
         ]
@@ -41886,6 +41948,11 @@
             "description": "Internal server error"
           }
         },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
         "summary": "Cluster Tile Endpoint",
         "tags": [
           "Tiles"
@@ -42517,6 +42584,11 @@
             "description": "Internal server error"
           }
         },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
         "summary": "Tile Endpoint",
         "tags": [
           "Tiles"

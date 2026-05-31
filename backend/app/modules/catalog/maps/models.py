@@ -83,8 +83,8 @@ class Map(Base):
         JSONB, nullable=True, default=None
     )
 
-    # Active widget IDs (null = use client defaults, [] = no widgets)
-    widgets: Mapped[list | None] = mapped_column(JSONB, nullable=True, default=None)
+    # Active plugin IDs (null = use client defaults, [] = no plugins)
+    plugins: Mapped[list | None] = mapped_column(JSONB, nullable=True, default=None)
 
     # Map-level terrain configuration (null = terrain disabled/unconfigured)
     terrain_config: Mapped[dict | None] = mapped_column(

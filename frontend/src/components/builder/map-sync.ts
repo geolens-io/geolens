@@ -316,6 +316,9 @@ export function reorderBasemapAboveData(
     // reference detail layers (roads, buildings, boundaries, labels) should
     // float above the data when basemap_position === 'top'.
     if (isLandLayer(layer) || isWaterLayer(layer)) continue;
+    // An imagery basemap is a raster layer (not a data-source layer, already skipped above).
+    // Lifting it above data layers would occlude them — skip it.
+    if (layer.type === 'raster') continue;
     try {
       map.moveLayer(layer.id);
     } catch (err) {

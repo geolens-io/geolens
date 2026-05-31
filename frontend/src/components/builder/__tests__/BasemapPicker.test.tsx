@@ -65,4 +65,16 @@ describe('BasemapPicker', () => {
     const collapsed = imgs[0];
     expect(collapsed.getAttribute('src')).toContain('data:image/svg+xml');
   });
+
+  it('B-016: Escape closes the expanded basemap grid', async () => {
+    const user = userEvent.setup();
+    render(<BasemapPicker value="openfreemap-positron" onChange={vi.fn()} />);
+
+    await user.click(screen.getByRole('button', { expanded: false }));
+    expect(screen.getAllByTestId('basemap-option').length).toBeGreaterThan(0);
+
+    await user.keyboard('{Escape}');
+    expect(screen.queryByTestId('basemap-option')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { expanded: false })).toBeInTheDocument();
+  });
 });

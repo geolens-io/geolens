@@ -4,7 +4,7 @@
  * Verifies:
  * 1. The chip container has max-h-[40vh] + overflow-y-auto so at ≤800px (600px
  *    viewport height) the filter column cannot grow past 240px and collide with
- *    the bottom-left MeasurementWidget.
+ *    the bottom-left MeasurementPlugin.
  * 2. Zero chips renders null (return null preserved).
  * 3. One chip renders the label and layer name.
  * 4. Clicking X calls onClearFilter with the correct layer id.

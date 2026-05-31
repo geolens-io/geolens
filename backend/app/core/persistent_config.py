@@ -125,7 +125,7 @@ class PersistentConfig(Generic[T]):
         if self._env_default_factory is not None:
             return cast(T, self._env_default_factory())
         # ``None`` is a valid default for Optional settings (e.g.
-        # ENABLED_WIDGETS = None means "all widgets enabled"), so we
+        # ENABLED_PLUGINS = None means "all plugins enabled"), so we
         # intentionally cast rather than assert non-None here.
         return cast(T, self._env_default_static)
 
@@ -670,13 +670,13 @@ MAP_DEFAULTS = PersistentConfig[dict[str, float]](
 )
 
 
-# -- Widgets --
-ENABLED_WIDGETS = PersistentConfig[list[str] | None](
-    key="enabled_widgets",
+# -- Plugins --
+ENABLED_PLUGINS = PersistentConfig[list[str] | None](
+    key="enabled_plugins",
     type_=list[str] | None,
     env_default=None,
     tab="map",
-    label="Enabled Widgets",
+    label="Enabled Plugins",
 )
 
 

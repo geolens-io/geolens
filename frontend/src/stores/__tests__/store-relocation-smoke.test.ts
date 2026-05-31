@@ -22,7 +22,7 @@
  */
 import { useAuthStore } from '@/stores/auth-store';
 import { useDrawingStore } from '@/stores/drawing-store';
-import { useWidgetStore } from '@/stores/map-widget-store';
+import { usePluginStore } from '@/stores/map-plugin-store';
 import { useSearchStore } from '@/stores/search-store';
 
 describe('Plan 276-05 — store relocation smoke (CODE-04 + CODE-05)', () => {
@@ -38,9 +38,9 @@ describe('Plan 276-05 — store relocation smoke (CODE-04 + CODE-05)', () => {
       expect(typeof useDrawingStore.getState).toBe('function');
     });
 
-    it('useWidgetStore is a callable zustand store', () => {
-      expect(typeof useWidgetStore).toBe('function');
-      expect(typeof useWidgetStore.getState).toBe('function');
+    it('usePluginStore is a callable zustand store', () => {
+      expect(typeof usePluginStore).toBe('function');
+      expect(typeof usePluginStore.getState).toBe('function');
     });
 
     it('useSearchStore is a callable zustand store', () => {
@@ -82,15 +82,15 @@ describe('Plan 276-05 — store relocation smoke (CODE-04 + CODE-05)', () => {
       expect(useDrawingStore.getState().isDrawing).toBe(false);
     });
 
-    it('map-widget-store: open, toggle, and replace mutate activeWidgets', () => {
-      useWidgetStore.setState({ activeWidgets: new Set<string>() });
-      useWidgetStore.getState().open('legend');
-      expect(useWidgetStore.getState().activeWidgets.has('legend')).toBe(true);
-      useWidgetStore.getState().toggle('legend'); // off
-      expect(useWidgetStore.getState().activeWidgets.has('legend')).toBe(false);
-      useWidgetStore.getState().replace(['scale-bar', 'compass']);
-      expect(useWidgetStore.getState().activeWidgets.has('scale-bar')).toBe(true);
-      expect(useWidgetStore.getState().activeWidgets.has('compass')).toBe(true);
+    it('map-plugin-store: open, toggle, and replace mutate activePlugins', () => {
+      usePluginStore.setState({ activePlugins: new Set<string>() });
+      usePluginStore.getState().open('legend');
+      expect(usePluginStore.getState().activePlugins.has('legend')).toBe(true);
+      usePluginStore.getState().toggle('legend'); // off
+      expect(usePluginStore.getState().activePlugins.has('legend')).toBe(false);
+      usePluginStore.getState().replace(['scale-bar', 'compass']);
+      expect(usePluginStore.getState().activePlugins.has('scale-bar')).toBe(true);
+      expect(usePluginStore.getState().activePlugins.has('compass')).toBe(true);
     });
 
     it('search-store: setQuery, setFilter, and toParams round-trip', () => {

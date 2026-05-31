@@ -60,7 +60,7 @@ function makeMapResponse(overrides: Partial<MapResponse> = {}): MapResponse {
     updated_at: '2024-01-01T00:00:00Z',
     layers: overrides.layers ?? [],
     layer_count: overrides.layers?.length ?? 0,
-    widgets: overrides.widgets ?? null,
+    plugins: overrides.plugins ?? null,
     forked_from_id: null,
     forked_from_name: null,
     ...overrides,
@@ -106,7 +106,7 @@ describe('normalizeSavedMap', () => {
       basemap_config: null,
       terrain_config: null,
       layers: [layer],
-      widgets: ['widget-a'],
+      plugins: ['plugin-a'],
     });
 
     const result = normalizeSavedMap(input);
@@ -116,7 +116,7 @@ describe('normalizeSavedMap', () => {
     expect(result.basemap_config).toBeNull();
     expect(result.terrain_config).toBeNull();
     expect(result.layers).toEqual([layer]);
-    expect(result.widgets).toEqual(['widget-a']);
+    expect(result.plugins).toEqual(['plugin-a']);
   });
 
   it('defaults show_basemap_labels to true when omitted on SharedMapResponse', () => {
@@ -141,17 +141,17 @@ describe('normalizeSavedMap', () => {
       show_basemap_labels: true,
       basemap_config: null,
       terrain_config: null,
-      widgets: null,
+      plugins: null,
       // no layers field
     };
     const result = normalizeSavedMap(input);
     expect(result.layers).toEqual([]);
   });
 
-  it('returns widgets: null when input has undefined widgets', () => {
-    const input = makeMapResponse({ widgets: undefined });
+  it('returns plugins: null when input has undefined plugins', () => {
+    const input = makeMapResponse({ plugins: undefined });
     const result = normalizeSavedMap(input);
-    expect(result.widgets).toBeNull();
+    expect(result.plugins).toBeNull();
   });
 
   it('preserves terrain_config when source_dataset_id has no matching DEM in layers', () => {
@@ -247,7 +247,7 @@ describe('normalizeSavedMap', () => {
         basemap_config: null,
         terrain_config: null,
         layers: [],
-        widgets: null,
+        plugins: null,
         // basemap_style deliberately absent
       };
       const result = normalizeSavedMap(input);
@@ -269,7 +269,7 @@ describe('normalizeSavedMap', () => {
         basemap_config: null,
         terrain_config: null,
         layers: [],
-        widgets: null,
+        plugins: null,
         // basemap_style deliberately absent
       };
       const result = normalizeSavedMap(input);
@@ -286,7 +286,7 @@ describe('normalizeSavedMap', () => {
     const input = makeMapResponse({
       basemap_style: 'positron',
       layers: [layer],
-      widgets: ['w1'],
+      plugins: ['w1'],
     });
     const inputCopy = JSON.parse(JSON.stringify(input)) as typeof input;
 
@@ -297,7 +297,7 @@ describe('normalizeSavedMap', () => {
     // Input is unchanged
     expect(input.basemap_style).toBe(inputCopy.basemap_style);
     expect(input.layers).toHaveLength(inputCopy.layers.length);
-    expect(input.widgets).toEqual(inputCopy.widgets);
+    expect(input.plugins).toEqual(inputCopy.plugins);
   });
 
   it('carries SharedLayerResponse[] through unchanged when input is SharedMapResponse', () => {
@@ -367,7 +367,7 @@ describe('normalizeSavedMap', () => {
     expect(result.basemap_config === null || typeof result.basemap_config === 'object').toBe(true);
     expect(result.terrain_config === null || typeof result.terrain_config === 'object').toBe(true);
     expect(Array.isArray(result.layers)).toBe(true);
-    expect(result.widgets === null || Array.isArray(result.widgets)).toBe(true);
+    expect(result.plugins === null || Array.isArray(result.plugins)).toBe(true);
   });
 
   // -------------------------------------------------------------------------
@@ -407,7 +407,7 @@ describe('normalizeSavedMap', () => {
       show_basemap_labels: false,
       terrain_config: { enabled: true, source_dataset_id: 'dem-1', exaggeration: 2 },
       layers: [layer],
-      widgets: ['w1'],
+      plugins: ['w1'],
     });
     // Attach group_meta via cast
     const inputWithGroupMeta = { ...input, group_meta: { 'g2': { expanded: false } } };
@@ -416,7 +416,7 @@ describe('normalizeSavedMap', () => {
     expect(result.show_basemap_labels).toBe(false);
     expect(result.terrain_config).toEqual({ enabled: true, source_dataset_id: 'dem-1', exaggeration: 2 });
     expect(result.layers).toHaveLength(1);
-    expect(result.widgets).toEqual(['w1']);
+    expect(result.plugins).toEqual(['w1']);
     expect(result.group_meta).toEqual({ 'g2': { expanded: false } });
   });
 

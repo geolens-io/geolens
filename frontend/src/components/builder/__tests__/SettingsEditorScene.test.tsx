@@ -77,12 +77,16 @@ vi.mock('@/components/ui/switch', () => ({
   ),
 }));
 
-vi.mock('@/components/map-widgets/registry', () => ({
-  getWidgets: () => [
-    { id: 'measurement', labelKey: 'widgets.measurement.label', icon: () => null },
-    { id: 'legend', labelKey: 'widgets.legend.label', icon: () => null },
-  ],
-}));
+vi.mock('@/components/map-plugins', () => {
+  const ALL = [
+    { id: 'measurement', labelKey: 'plugins.measurement.label', icon: () => null },
+    { id: 'legend', labelKey: 'plugins.legend.label', icon: () => null },
+  ];
+  return {
+    getEnabledPluginDefinitions: (enabled: string[] | null | undefined) =>
+      enabled == null ? ALL : ALL.filter((p) => enabled.includes(p.id)),
+  };
+});
 
 vi.mock('../StyleColorPicker', () => ({
   StyleColorPicker: ({
@@ -108,8 +112,9 @@ function defaultProps(overrides: Partial<SettingsEditorSceneProps> = {}): Settin
     terrainConfig: null,
     isTerrainActive: false,
     boundLayerName: undefined,
-    activeWidgetIds: new Set<string>(),
-    onToggleWidget: vi.fn(),
+    enabledPluginIds: null,
+    activePluginIds: new Set<string>(),
+    onTogglePlugin: vi.fn(),
     backgroundColor: null,
     onBackgroundColorChange: vi.fn(),
     onBackgroundColorReset: vi.fn(),
@@ -126,13 +131,13 @@ describe('SettingsEditorScene', () => {
 
     expect(screen.getByText('APPEARANCE')).toBeInTheDocument();
     expect(screen.getByText('TERRAIN')).toBeInTheDocument();
-    expect(screen.getByText('WIDGETS')).toBeInTheDocument();
+    expect(screen.getByText('PLUGINS')).toBeInTheDocument();
     expect(screen.getByText('PROJECTION')).toBeInTheDocument();
 
     expect(screen.getByRole('button', { name: 'Background' })).toHaveAttribute('title', '#ffffff');
 
-    // Widget rows visible (all sections expanded)
-    // The t() mock resolves labelKey with defaultValue=widget.id, so labels render as the widget id
+    // Plugin rows visible (all sections expanded)
+    // The t() mock resolves labelKey with defaultValue=plugin.id, so labels render as the plugin id
     expect(screen.getByText('measurement')).toBeInTheDocument();
     expect(screen.getByText('legend')).toBeInTheDocument();
 
@@ -166,15 +171,15 @@ describe('SettingsEditorScene', () => {
     expect(screen.queryByLabelText(/Terrain exaggeration/i)).not.toBeInTheDocument();
   });
 
-  // Test 5: Widget toggles render with correct aria-label (UX-04: "Enable {name}" / "Disable {name}")
-  it('widget toggle rows render with correct aria-label based on active state', () => {
+  // Test 5: Plugin toggles render with correct aria-label (UX-04: "Enable {name}" / "Disable {name}")
+  it('plugin toggle rows render with correct aria-label based on active state', () => {
     render(
       <SettingsEditorScene
-        {...defaultProps({ activeWidgetIds: new Set(['legend']) })}
+        {...defaultProps({ activePluginIds: new Set(['legend']) })}
       />,
     );
 
-    // The t() mock resolves labelKey with defaultValue=widget.id, so labels render as the widget id
+    // The t() mock resolves labelKey with defaultValue=plugin.id, so labels render as the plugin id
     const measurementSwitch = screen.getByRole('switch', { name: 'Enable measurement' });
     expect(measurementSwitch).toBeInTheDocument();
 
@@ -182,20 +187,20 @@ describe('SettingsEditorScene', () => {
     expect(legendSwitch).toBeInTheDocument();
   });
 
-  // Test 6: Clicking widget toggle calls onToggleWidget
-  it('clicking widget toggle calls onToggleWidget with correct widgetId', () => {
-    const onToggleWidget = vi.fn();
+  // Test 6: Clicking plugin toggle calls onTogglePlugin
+  it('clicking plugin toggle calls onTogglePlugin with correct pluginId', () => {
+    const onTogglePlugin = vi.fn();
     render(
       <SettingsEditorScene
-        {...defaultProps({ onToggleWidget })}
+        {...defaultProps({ onTogglePlugin })}
       />,
     );
 
     const measurementSwitch = screen.getByRole('switch', { name: 'Enable measurement' });
     fireEvent.click(measurementSwitch);
 
-    expect(onToggleWidget).toHaveBeenCalledOnce();
-    expect(onToggleWidget).toHaveBeenCalledWith('measurement');
+    expect(onTogglePlugin).toHaveBeenCalledOnce();
+    expect(onTogglePlugin).toHaveBeenCalledWith('measurement');
   });
 
   // Test 7: Projection pill states — mercator active

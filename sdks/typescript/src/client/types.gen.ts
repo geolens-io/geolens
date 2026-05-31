@@ -742,6 +742,10 @@ export type BasemapConfig = {
      */
     background_color?: string | null;
     /**
+     * Whether the basemap renders above ('top') or below ('bottom', default) the data layers. null/undefined loads as 'bottom' on the client. Phase 1051 UX-03 (jsonb-additive, no migration).
+     */
+    basemap_position?: BasemapPosition | null;
+    /**
      * Administrative boundary sublayer visibility where supported.
      */
     boundary_visibility?: BasemapSublayerVisibility;
@@ -765,6 +769,10 @@ export type BasemapConfig = {
      * Master basemap opacity 0.0-1.0
      */
     opacity?: number;
+    /**
+     * Map projection: 'mercator' (default) or experimental 'globe'. null/undefined loads as 'mercator' on the client.
+     */
+    projection?: BasemapProjection | null;
     /**
      * Optional contrast hint for relief-oriented basemap styling.
      */
@@ -792,6 +800,20 @@ export type BasemapLabelMode = 'full' | 'subtle' | 'hidden';
  * BasemapLandWaterTone
  */
 export type BasemapLandWaterTone = 'default' | 'muted' | 'contrast' | 'monochrome';
+
+/**
+ * BasemapPosition
+ *
+ * Whether the basemap renders below ('bottom', default) or above ('top') data layers.
+ */
+export type BasemapPosition = 'bottom' | 'top';
+
+/**
+ * BasemapProjection
+ *
+ * Map projection. 'mercator' (default) or experimental 'globe'.
+ */
+export type BasemapProjection = 'mercator' | 'globe';
 
 /**
  * BasemapPublicResponse
@@ -1222,9 +1244,17 @@ export type ChatAction = {
      */
     clear_paint?: Array<string> | null;
     /**
+     * Columns
+     */
+    columns?: Array<string> | null;
+    /**
      * Dataset Id
      */
     dataset_id?: string | null;
+    /**
+     * Dataset Name
+     */
+    dataset_name?: string | null;
     /**
      * Expression
      */
@@ -1255,11 +1285,23 @@ export type ChatAction = {
      */
     replace_paint?: boolean | null;
     /**
+     * Row Count
+     */
+    row_count?: number | null;
+    /**
+     * Rows
+     */
+    rows?: Array<Array<unknown>> | null;
+    /**
      * Style Config
      */
     style_config?: {
         [key: string]: unknown;
     } | null;
+    /**
+     * Truncated
+     */
+    truncated?: boolean | null;
     /**
      * Type
      */
@@ -3118,6 +3160,10 @@ export type DuplicateMapResponse = {
      */
     pitch: number;
     /**
+     * Plugins
+     */
+    plugins?: Array<string> | null;
+    /**
      * Show Basemap Labels
      */
     show_basemap_labels: boolean;
@@ -3131,10 +3177,6 @@ export type DuplicateMapResponse = {
      */
     updated_at: string;
     visibility: MapVisibility;
-    /**
-     * Widgets
-     */
-    widgets?: Array<string> | null;
     /**
      * Zoom
      */
@@ -4934,6 +4976,10 @@ export type MapResponse = {
      */
     pitch: number;
     /**
+     * Plugins
+     */
+    plugins?: Array<string> | null;
+    /**
      * Show Basemap Labels
      */
     show_basemap_labels: boolean;
@@ -4947,10 +4993,6 @@ export type MapResponse = {
      */
     updated_at: string;
     visibility: MapVisibility;
-    /**
-     * Widgets
-     */
-    widgets?: Array<string> | null;
     /**
      * Zoom
      */
@@ -5198,6 +5240,12 @@ export type MapUpdate = {
      */
     pitch?: number | null;
     /**
+     * Plugins
+     *
+     * Enabled plugin IDs, e.g. ['measurement']
+     */
+    plugins?: Array<string> | null;
+    /**
      * Show Basemap Labels
      */
     show_basemap_labels?: boolean | null;
@@ -5209,12 +5257,6 @@ export type MapUpdate = {
      * private, internal, or public
      */
     visibility?: MapVisibility | null;
-    /**
-     * Widgets
-     *
-     * Enabled widget IDs, e.g. ['measurement']
-     */
-    widgets?: Array<string> | null;
     /**
      * Zoom
      *
@@ -20182,14 +20224,14 @@ export type EditionInfoSettingsEditionGetResponses = {
 
 export type EditionInfoSettingsEditionGetResponse = EditionInfoSettingsEditionGetResponses[keyof EditionInfoSettingsEditionGetResponses];
 
-export type GetEnabledWidgetsSettingsEnabledWidgetsGetData = {
+export type GetEnabledPluginsSettingsEnabledPluginsGetData = {
     body?: never;
     path?: never;
     query?: never;
-    url: '/settings/enabled-widgets/';
+    url: '/settings/enabled-plugins/';
 };
 
-export type GetEnabledWidgetsSettingsEnabledWidgetsGetErrors = {
+export type GetEnabledPluginsSettingsEnabledPluginsGetErrors = {
     /**
      * Bad request — invalid query parameters or payload
      */
@@ -20216,18 +20258,18 @@ export type GetEnabledWidgetsSettingsEnabledWidgetsGetErrors = {
     500: ProblemDetail;
 };
 
-export type GetEnabledWidgetsSettingsEnabledWidgetsGetError = GetEnabledWidgetsSettingsEnabledWidgetsGetErrors[keyof GetEnabledWidgetsSettingsEnabledWidgetsGetErrors];
+export type GetEnabledPluginsSettingsEnabledPluginsGetError = GetEnabledPluginsSettingsEnabledPluginsGetErrors[keyof GetEnabledPluginsSettingsEnabledPluginsGetErrors];
 
-export type GetEnabledWidgetsSettingsEnabledWidgetsGetResponses = {
+export type GetEnabledPluginsSettingsEnabledPluginsGetResponses = {
     /**
-     * Response Get Enabled Widgets Settings Enabled Widgets  Get
+     * Response Get Enabled Plugins Settings Enabled Plugins  Get
      *
      * Successful Response
      */
     200: Array<string> | null;
 };
 
-export type GetEnabledWidgetsSettingsEnabledWidgetsGetResponse = GetEnabledWidgetsSettingsEnabledWidgetsGetResponses[keyof GetEnabledWidgetsSettingsEnabledWidgetsGetResponses];
+export type GetEnabledPluginsSettingsEnabledPluginsGetResponse = GetEnabledPluginsSettingsEnabledPluginsGetResponses[keyof GetEnabledPluginsSettingsEnabledPluginsGetResponses];
 
 export type GetEnterpriseOnlyTabsSettingsEnterpriseTabsGetData = {
     body?: never;

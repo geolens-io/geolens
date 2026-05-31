@@ -157,4 +157,23 @@ describe('useFilteredFeatureCount', () => {
       vi.advanceTimersByTime(500);
     });
   });
+
+  it('B-003 — queries MapLibre using the prefixed `layer-${id}`, not the raw UUID', () => {
+    // Regression: the hook previously queried the bare layer.id UUID, which
+    // never matches the registered MapLibre id `layer-${uuid}`, so the count
+    // stayed null and the zero-features filter hint never fired.
+    const mockMap = createMockMap({
+      getLayerResult: { id: 'layer-abc' },
+      queryRenderedFeaturesResult: [{}, {}],
+    });
+    const layer = makeLayer({ id: 'abc', filter: ['all', ['==', ['get', 'name'], 'x']] });
+    const { result } = renderHook(() =>
+      useFilteredFeatureCount(mockMap as never, layer),
+    );
+    expect(mockMap.getLayer).toHaveBeenCalledWith('layer-abc');
+    expect(mockMap.queryRenderedFeatures).toHaveBeenCalledWith(undefined, {
+      layers: ['layer-abc'],
+    });
+    expect(result.current).toBe(2);
+  });
 });

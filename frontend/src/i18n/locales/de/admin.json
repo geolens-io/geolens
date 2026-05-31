@@ -447,9 +447,9 @@
       "saved": "Kartenvorgaben gespeichert",
       "saveFailed": "Kartenvorgaben konnten nicht gespeichert werden"
     },
-    "widgets": {
-      "title": "Karten-Widgets",
-      "description": "Aktivieren oder deaktivieren Sie Widgets, die im Karteneditor verfügbar sind."
+    "plugins": {
+      "title": "Karten-Plugins",
+      "description": "Aktivieren oder deaktivieren Sie Plugins, die im Karteneditor verfügbar sind."
     },
     "appearance": {
       "branding": {

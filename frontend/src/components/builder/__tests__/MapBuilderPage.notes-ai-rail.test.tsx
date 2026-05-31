@@ -28,14 +28,14 @@ vi.mock('@/components/builder/SharePanel', () => ({
   ShareDialog: () => <div data-testid="share-dialog" />,
 }));
 
-vi.mock('@/components/map-widgets', () => ({
-  WidgetHost: () => null,
-  WidgetSidebar: () => null,
-  getWidgets: () => [],
-  getEnabledWidgetDefinitions: () => [],
-  getDefaultWidgetIds: () => [],
-  resolveAvailableWidgetIds: () => [],
-  usePartitionedWidgets: () => ({ byAnchor: {} }),
+vi.mock('@/components/map-plugins', () => ({
+  PluginHost: () => null,
+  PluginSidebar: () => null,
+  getPlugins: () => [],
+  getEnabledPluginDefinitions: () => [],
+  getDefaultPluginIds: () => [],
+  resolveAvailablePluginIds: () => [],
+  usePartitionedPlugins: () => ({ byAnchor: {} }),
 }));
 
 vi.mock('@/hooks/use-maps', () => ({
@@ -62,7 +62,7 @@ vi.mock('@/hooks/use-document-title', () => ({
 }));
 
 vi.mock('@/hooks/use-settings', () => ({
-  useEnabledWidgets: () => ({ data: null }),
+  useEnabledPlugins: () => ({ data: null }),
   useBasemaps: () => ({ data: [] }),
 }));
 

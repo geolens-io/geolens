@@ -259,6 +259,22 @@ describe('ChatPanel', () => {
     expect(mockSendChat).not.toHaveBeenCalled();
   });
 
+  it('B-014: a streamed error event shows an inline error and does NOT retry via non-streaming', async () => {
+    // Model emitted an SSE error event mid-stream (e.g. tool-loop exhausted).
+    // The non-streaming sendChatMessage fallback must NOT fire — that would
+    // double the (already-failed) LLM call.
+    mockStreamChat.mockImplementation(async function* () {
+      yield { event: 'error', data: { message: 'tool loop exhausted' } };
+    });
+
+    const user = userEvent.setup();
+    renderPanel();
+    await typeAndSend(user, 'trigger a model error');
+
+    expect(await screen.findByText('Something went wrong. Please try again.')).toBeInTheDocument();
+    expect(mockSendChat).not.toHaveBeenCalled();
+  });
+
   it('ignores malformed style paint payloads instead of applying indexed string keys', async () => {
     mockStreamChat.mockImplementation(async function* () {
       yield {
@@ -792,9 +808,12 @@ describe('ChatPanel — inline data-analysis card (Phase 1135 AI-08)', () => {
           actions: [
             {
               type: 'show_query_result',
+              // Real backend contract: rows are arrays of cell values paired
+              // with a separate `columns` array (chat_geojson.py: list[list]).
+              columns: ['county', 'area_sqkm', 'population'],
               rows: [
-                { county: 'Essex', area_sqkm: 4853, population: 38000 },
-                { county: 'Hamilton', area_sqkm: 4757, population: 4400 },
+                ['Essex', 4853, 38000],
+                ['Hamilton', 4757, 4400],
               ],
             },
           ],
@@ -827,11 +846,12 @@ describe('ChatPanel — inline data-analysis card (Phase 1135 AI-08)', () => {
   });
 
   it('caps visible columns at 5 and shows ellipsis indicator when more exist', async () => {
-    const wideRow: Record<string, number> = { a: 1, b: 2, c: 3, d: 4, e: 5, f: 6, g: 7 };
+    const wideColumns = ['a', 'b', 'c', 'd', 'e', 'f', 'g'];
+    const wideRow = [1, 2, 3, 4, 5, 6, 7];
     mockStreamChat.mockImplementation(async function* () {
       yield {
         event: 'actions',
-        data: { actions: [{ type: 'show_query_result', rows: [wideRow] }] },
+        data: { actions: [{ type: 'show_query_result', columns: wideColumns, rows: [wideRow] }] },
       };
       yield { event: 'done', data: { explanation: 'Wide row' } };
     });

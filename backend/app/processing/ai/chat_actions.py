@@ -13,6 +13,7 @@ keep working unchanged when the patch replaces the attribute on the facade.
 import json
 from collections.abc import Callable
 from typing import TYPE_CHECKING
+from uuid import UUID
 
 import structlog
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -226,6 +227,25 @@ async def _execute_chat_tool(
             if warnings:
                 return {"status": "ok", "warnings": warnings, **tool_input}
 
+    # add_layer: resolve the dataset's display title server-side so the staging
+    # chip can show a human name instead of the raw UUID (builder-audit B-002).
+    # Name resolution is best-effort — a lookup miss/error must not block the
+    # add, so we degrade silently to the dataset_id fallback on the frontend.
+    if tool_name == "add_layer":
+        result = {"status": "ok", **tool_input}
+        raw_id = tool_input.get("dataset_id")
+        if raw_id:
+            try:
+                dataset = await port.get_dataset(session, UUID(str(raw_id)))
+                title = getattr(getattr(dataset, "record", None), "title", None)
+                if title:
+                    result["dataset_name"] = title
+            except Exception:  # noqa: BLE001 — name lookup is best-effort; never block the add
+                logger.debug(
+                    "add_layer.dataset_name_lookup_failed", dataset_id=str(raw_id)
+                )
+        return result
+
     # For all other edit tools, return tool_input as-is
     if tool_name in _EDIT_TOOLS:
         return {"status": "ok", **tool_input}
@@ -263,6 +283,15 @@ def _collect_chat_action(tool_name: str, tool_input: dict, result: dict) -> dict
 
     if tool_name == "set_label":
         return _build_label_action(tool_input)
+
+    # add_layer: carry the server-resolved dataset_name (builder-audit B-002) so
+    # the staging chip shows a human name instead of the raw UUID. The name is
+    # resolved during _execute_chat_tool and arrives on `result`, not tool_input.
+    if tool_name == "add_layer":
+        action = {"type": "add_layer", **tool_input}
+        if result.get("dataset_name"):
+            action["dataset_name"] = result["dataset_name"]
+        return action
 
     # Some models pass expression as a JSON string instead of an array
     if tool_name == "set_filter" and isinstance(tool_input.get("expression"), str):

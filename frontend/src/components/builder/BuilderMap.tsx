@@ -1,9 +1,9 @@
 import { useEffect, useRef, useCallback, useState, useMemo, memo } from 'react';
-import { useWidgetStore } from '@/stores/map-widget-store';
-import { isWidgetIdAvailable } from '@/components/map-widgets';
+import { usePluginStore } from '@/stores/map-plugin-store';
+import { isPluginIdAvailable } from '@/components/map-plugins';
 import { toast } from 'sonner';
 import { Map as MapGL, NavigationControl, ScaleControl } from '@vis.gl/react-maplibre';
-import { useBasemaps, useEnabledWidgets, useMapDefaults, useTileConfig } from '@/hooks/use-settings';
+import { useBasemaps, useEnabledPlugins, useMapDefaults, useTileConfig } from '@/hooks/use-settings';
 import {
   findBasemapById,
   isKnownMissingRemoteStyleImage,
@@ -149,7 +149,7 @@ export const BuilderMap = memo(function BuilderMap({
   const { t } = useTranslation('builder');
   const mapRef = useRef<MaplibreMap | null>(null);
   const managedSourcesRef = useRef<Set<string>>(new Set());
-  const errorHandlerRef = useRef<((e: { error: { message?: string; status?: number } }) => void) | null>(null);
+  const errorHandlerRef = useRef<((e: { error: { message?: string; status?: number }; sourceId?: string }) => void) | null>(null);
   const styleImageMissingHandlerRef = useRef<((e: { id: string }) => void) | null>(null);
   // SF-08: latch first-load success so transient 5xx during save don't surface as outage
   const basemapLoadedAtRef = useRef<number | null>(null);
@@ -177,10 +177,10 @@ export const BuilderMap = memo(function BuilderMap({
   const { data: basemaps } = useBasemaps();
   const { data: mapDefaults } = useMapDefaults();
   const { data: tileConfig } = useTileConfig();
-  const enabledWidgetsQuery = useEnabledWidgets();
-  const enabledWidgetIds = useMemo(
-    () => enabledWidgetsQuery.data ?? (enabledWidgetsQuery.isLoading ? [] : null),
-    [enabledWidgetsQuery.data, enabledWidgetsQuery.isLoading],
+  const enabledPluginsQuery = useEnabledPlugins();
+  const enabledPluginIds = useMemo(
+    () => enabledPluginsQuery.data ?? (enabledPluginsQuery.isLoading ? [] : null),
+    [enabledPluginsQuery.data, enabledPluginsQuery.isLoading],
   );
   const isBlank = basemapStyle === BLANK_BASEMAP_ID;
   const basemapEntry = isBlank ? undefined : findBasemapById(basemaps ?? [], basemapStyle);
@@ -392,7 +392,10 @@ export const BuilderMap = memo(function BuilderMap({
         && (layer.style_config as { render_mode?: unknown } | null | undefined)?.render_mode === 'terrain',
     );
     const token = demLayer ? currentTokenMap.get(demLayer.dataset_id) : null;
-    if (!demLayer || token?.kind !== 'raster') {
+    // Honor the layer's visibility eye: treat undefined visible as visible (default-visible semantics).
+    const demLayerVisible = demLayer?.visible !== false;
+    const effectiveTerrainEnabled = currentTerrainConfig.enabled === true && demLayerVisible;
+    if (!demLayer || token?.kind !== 'raster' || !effectiveTerrainEnabled) {
       map.setTerrain(null);
       return;
     }
@@ -413,7 +416,7 @@ export const BuilderMap = memo(function BuilderMap({
   const terrainLayerKey = layers
     .map((layer) => {
       const renderMode = (layer.style_config as { render_mode?: unknown } | null | undefined)?.render_mode;
-      return `${layer.dataset_id}:${String(layer.is_dem)}:${layer.dataset_record_type ?? ''}:${String(renderMode ?? '')}`;
+      return `${layer.dataset_id}:${String(layer.is_dem)}:${layer.dataset_record_type ?? ''}:${String(renderMode ?? '')}:${String(layer.visible)}`;
     })
     .join(',');
 
@@ -427,19 +430,19 @@ export const BuilderMap = memo(function BuilderMap({
   // Cached queryable layer IDs — updated when layers change, read by click/mousemove handlers
   const queryLayerIdsRef = useRef<string[]>([]);
 
-  // Tracks whether measurement widget is active — avoids re-registering map handlers on every toggle
+  // Tracks whether measurement plugin is active — avoids re-registering map handlers on every toggle
   const measureActiveRef = useRef(false);
 
   useEffect(() => {
     measureActiveRef.current =
-      useWidgetStore.getState().activeWidgets.has('measurement') &&
-      isWidgetIdAvailable('measurement', enabledWidgetIds);
-    return useWidgetStore.subscribe((state) => {
+      usePluginStore.getState().activePlugins.has('measurement') &&
+      isPluginIdAvailable('measurement', enabledPluginIds);
+    return usePluginStore.subscribe((state) => {
       measureActiveRef.current =
-        state.activeWidgets.has('measurement') &&
-        isWidgetIdAvailable('measurement', enabledWidgetIds);
+        state.activePlugins.has('measurement') &&
+        isPluginIdAvailable('measurement', enabledPluginIds);
     });
-  }, [enabledWidgetIds]);
+  }, [enabledPluginIds]);
 
   const handleLoad = useCallback(
     (e: MapLibreEvent) => {
@@ -476,7 +479,7 @@ export const BuilderMap = memo(function BuilderMap({
       // Filter expected tile errors (no-data tiles outside extent) and
       // surface anything else as a deduped toast so the editor knows a
       // real error has occurred (RES-3). Previously silenced in production.
-      errorHandlerRef.current = (e: { error: { message?: string; status?: number } }) => {
+      errorHandlerRef.current = (e: { error: { message?: string; status?: number }; sourceId?: string }) => {
         const status = e.error?.status;
         // Suppress expected no-data tiles (404) and other client errors
         if (status && status >= 400 && status < 500) {
@@ -503,9 +506,27 @@ export const BuilderMap = memo(function BuilderMap({
           const loadedAt = basemapLoadedAtRef.current;
           if (loadedAt !== null && Date.now() - loadedAt < 3000) return;
           setBasemapNotice('tiles');
-          toast.error(t('builderMap.mapError', { defaultValue: 'Map tile error — some layers may not render correctly.' }), {
-            id: 'builder-map-error',
-          });
+          // Name the failing layer when the error carries a sourceId.
+          // MapLibre attaches the source id to tile/source errors as they
+          // bubble up; style/glyph errors have no sourceId, so fall back to
+          // the generic message. Match against the current layers ref using
+          // the same getSourceIdForLayer contract the map sync uses.
+          const failingSourceId = e.sourceId;
+          const failingLayer = failingSourceId
+            ? layersRef.current.find((l) => getSourceIdForLayer(l) === failingSourceId)
+            : undefined;
+          const failingName = failingLayer?.display_name || failingLayer?.dataset_name;
+          toast.error(
+            failingName
+              ? t('builderMap.mapErrorNamed', {
+                  name: failingName,
+                  defaultValue: 'Failed to load {{name}} — the layer may not render correctly.',
+                })
+              : t('builderMap.mapError', { defaultValue: 'Map tile error — some layers may not render correctly.' }),
+            {
+              id: 'builder-map-error',
+            },
+          );
         }
       };
       map.on('error', errorHandlerRef.current);

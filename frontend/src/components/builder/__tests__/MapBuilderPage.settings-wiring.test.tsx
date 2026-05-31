@@ -3,10 +3,10 @@ import userEvent from '@testing-library/user-event';
 import { useParams } from 'react-router';
 import { render } from '@/test/test-utils';
 import { MapBuilderPage } from '@/pages/MapBuilderPage';
-import { useWidgetStore } from '@/stores/map-widget-store';
+import { usePluginStore } from '@/stores/map-plugin-store';
 
 // Guards the MapBuilderPage wiring for two QA fixes (2026-05-30):
-//   F2 — Settings widget toggles must mark the map dirty.
+//   F2 — Settings plugin toggles must mark the map dirty.
 //   F3 — Projection (Mercator/Globe) persists on basemap_config.projection:
 //        the toggle writes the config, and the saved value seeds the pill on load.
 // SettingsEditorScene.test.tsx already covers that the pills/switches fire their
@@ -21,7 +21,7 @@ const { mockSetHasUnsavedChanges, mockSetBasemapConfig } = vi.hoisted(() => ({
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
-    // Resolve defaultValue + interpolate {{name}} so widget aria-labels render as
+    // Resolve defaultValue + interpolate {{name}} so plugin aria-labels render as
     // "Enable measurement" etc. (mirrors SettingsEditorScene.test.tsx).
     t: (key: string, options?: { defaultValue?: string } & Record<string, unknown>) => {
       if (options?.defaultValue !== undefined) {
@@ -69,21 +69,19 @@ vi.mock('@/components/ui/switch', () => ({
   ),
 }));
 
-vi.mock('@/components/map-widgets/registry', () => ({
-  getWidgets: () => [
-    { id: 'measurement', labelKey: 'widgets.measurement.label', icon: () => null },
+vi.mock('@/components/map-plugins', () => ({
+  PluginHost: () => null,
+  PluginSidebar: () => null,
+  getPlugins: () => [],
+  // SettingsEditorScene now renders the admin-filtered list via
+  // getEnabledPluginDefinitions; mirror the single built-in this suite asserts.
+  getEnabledPluginDefinitions: () => [
+    { id: 'measurement', labelKey: 'plugins.measurement.label', icon: () => null },
   ],
-}));
-
-vi.mock('@/components/map-widgets', () => ({
-  WidgetHost: () => null,
-  WidgetSidebar: () => null,
-  getWidgets: () => [],
-  getEnabledWidgetDefinitions: () => [],
-  getDefaultWidgetIds: () => [],
-  resolveAvailableWidgetIds: () => [],
-  sameWidgetIds: () => true,
-  usePartitionedWidgets: () => ({ byAnchor: {} }),
+  getDefaultPluginIds: () => [],
+  resolveAvailablePluginIds: () => [],
+  samePluginIds: () => true,
+  usePartitionedPlugins: () => ({ byAnchor: {}, sidebar: [] }),
 }));
 
 vi.mock('@/hooks/use-maps', () => ({
@@ -101,7 +99,7 @@ vi.mock('@/hooks/use-ai-availability', () => ({
 vi.mock('@/hooks/use-document-title', () => ({ useDocumentTitle: vi.fn() }));
 
 vi.mock('@/hooks/use-settings', () => ({
-  useEnabledWidgets: () => ({ data: null }),
+  useEnabledPlugins: () => ({ data: null }),
   useBasemaps: () => ({ data: [] }),
 }));
 
@@ -226,17 +224,17 @@ function makeMapData(overrides: Record<string, unknown> = {}) {
   };
 }
 
-describe('MapBuilderPage settings wiring (widget dirty + projection persistence)', () => {
+describe('MapBuilderPage settings wiring (plugin dirty + projection persistence)', () => {
   beforeEach(() => {
     mockUseParams.mockReturnValue({ id: 'map-1' });
     mockMapData = makeMapData();
     mockSetHasUnsavedChanges.mockClear();
     mockSetBasemapConfig.mockClear();
-    useWidgetStore.getState().replace([]);
+    usePluginStore.getState().replace([]);
     localStorage.clear();
   });
 
-  it('F2: toggling a widget marks the map dirty', async () => {
+  it('F2: toggling a plugin marks the map dirty', async () => {
     render(<MapBuilderPage />, { route: '/maps/map-1' });
 
     const measureSwitch = await screen.findByRole('switch', { name: 'Enable measurement' });

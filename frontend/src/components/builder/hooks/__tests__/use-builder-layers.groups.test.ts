@@ -260,6 +260,32 @@ describe('useBuilderLayers — folder group handlers', () => {
     expect(result.current.hasUnsavedChanges).toBe(true);
   });
 
+  // Test 9b (builder-audit B-007): handleDeleteGroup tears down child companion
+  // MapLibre layers so they don't linger as ghost visuals until the next sync.
+  it('handleDeleteGroup removes child companion MapLibre layers (B-007)', () => {
+    const removed: string[] = [];
+    const mockMap = {
+      isStyleLoaded: () => true,
+      getLayer: (id: string) => ({ id }), // pretend every companion exists
+      removeLayer: (id: string) => { removed.push(id); },
+    } as unknown as MaplibreMap;
+    const mapRef = { current: mockMap } as React.RefObject<MaplibreMap | null>;
+
+    const groupLayer = { ...makeMockLayer({ id: 'group-1' }), layer_type: 'group:folder' } as unknown as MapLayerResponse;
+    const childLayer = { ...makeMockLayer({ id: 'child-1' }), parent_group_id: 'group-1' } as unknown as MapLayerResponse;
+    const { result } = renderBuilderLayers(makeMapData([groupLayer, childLayer]), mapRef);
+
+    act(() => {
+      result.current.handleDeleteGroup('group-1');
+    });
+
+    // The child's base layer + its companions must be removed from the map.
+    expect(removed).toContain('layer-child-1');
+    expect(removed.some((id) => id.startsWith('layer-child-1'))).toBe(true);
+    // And the group is gone from local state.
+    expect(result.current.localLayers.find((l) => l.id === 'child-1')).toBeUndefined();
+  });
+
   // Test 10: handleMoveLayerOutOfGroup clears parent_group_id and marks dirty
   it('handleMoveLayerOutOfGroup clears parent_group_id from the target layer', () => {
     const groupLayer = { ...makeMockLayer({ id: 'group-1' }), layer_type: 'group:folder' } as unknown as MapLayerResponse;

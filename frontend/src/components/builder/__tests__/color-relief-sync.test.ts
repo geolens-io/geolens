@@ -298,4 +298,39 @@ describe('syncColorReliefLayer', () => {
 
     expect(map.addLayer).not.toHaveBeenCalled();
   });
+
+  // BLDR-04: the companion color-relief layer must carry layout.visibility derived
+  // from input.visible. Prior to the fix, addLayer had no layout field so the
+  // companion defaulted to 'visible' even when the parent DEM layer was hidden.
+  it('BLDR-04: companion addLayer carries layout.visibility="none" when input.visible===false', () => {
+    const input = makeInput({
+      visible: false,
+      paint: { '_hypso-enabled': true },
+      style_config: { render_mode: 'hillshade' },
+    });
+
+    syncColorReliefLayer(map as unknown as import('maplibre-gl').Map, input);
+
+    expect(map.addLayer).toHaveBeenCalledOnce();
+    const layerSpec = (map.addLayer as ReturnType<typeof vi.fn>).mock.calls[0][0] as {
+      layout: { visibility: string };
+    };
+    expect(layerSpec.layout.visibility).toBe('none');
+  });
+
+  it('BLDR-04: companion addLayer carries layout.visibility="visible" when input.visible===true', () => {
+    const input = makeInput({
+      visible: true,
+      paint: { '_hypso-enabled': true },
+      style_config: { render_mode: 'hillshade' },
+    });
+
+    syncColorReliefLayer(map as unknown as import('maplibre-gl').Map, input);
+
+    expect(map.addLayer).toHaveBeenCalledOnce();
+    const layerSpec = (map.addLayer as ReturnType<typeof vi.fn>).mock.calls[0][0] as {
+      layout: { visibility: string };
+    };
+    expect(layerSpec.layout.visibility).toBe('visible');
+  });
 });

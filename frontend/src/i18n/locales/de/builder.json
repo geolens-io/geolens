@@ -55,7 +55,7 @@
       "basemapLabels": "Ortsbeschriftungen",
       "dataLabels": "{{name}}-Beschriftungen",
       "layerPopup": "{{name}}-Popup",
-      "mapWidgets": "Karten-Widgets"
+      "mapPlugins": "Karten-Plugins"
     },
     "subtitles": {
       "surfaceBackground": "Grundlage",
@@ -89,7 +89,7 @@
       "unsupported": "Nicht unterstützt",
       "needsAttention": "Benötigt Aufmerksamkeit",
       "copy": "Kopie {{index}} von {{count}}",
-      "widgets": "{{count}} Widget"
+      "plugins": "{{count}} Plugin"
     },
     "actions": {
       "openInspector": "Inspektor öffnen",
@@ -671,7 +671,7 @@
     "save": "Speichern ({{shortcut}})",
     "collapseSidebar": "Seitenleiste einklappen",
     "expandSidebar": "Seitenleiste ausklappen",
-    "widgets": "Widgets",
+    "plugins": "Plugins",
     "moreActions": "Weitere Aktionen",
     "allSaved": "Alle Änderungen gespeichert",
     "retrySave": "Speichern fehlgeschlagen. Änderungen erneut speichern.",
@@ -715,6 +715,7 @@
     "loading": "Karte wird geladen...",
     "authError": "Die Sitzung ist abgelaufen. Laden Sie die Seite neu, um den Kachelzugriff wiederherzustellen.",
     "mapError": "Fehler bei Kartenkacheln. Einige Ebenen werden eventuell nicht richtig dargestellt.",
+    "mapErrorNamed": "{{name}} konnte nicht geladen werden. Die Ebene wird eventuell nicht richtig dargestellt.",
     "basemapIssueTitle": "Verbindungsproblem mit der Grundkarte",
     "basemapIssueDescription": "Ihre Datenebenen bleiben bearbeitbar. Prüfen Sie den Grundkartendienst oder wählen Sie eine andere Grundkarte, wenn der Hintergrund leer bleibt.",
     "clusterFallback": "{{name}} wird als Punkte dargestellt: {{reason}}",
@@ -761,7 +762,7 @@
     "featureCount_other": "{{count}} Features",
     "dismiss": "Abfrageergebnis verwerfen"
   },
-  "widgets": {
+  "plugins": {
     "measurement": {
       "label": "Messen",
       "distance": "Distanz",
@@ -779,8 +780,8 @@
       "weightedBy": "Gewichtet nach: {{column}}",
       "unavailable": "(Legende nicht verfügbar)"
     },
-    "closeWidget": "Widget schließen",
-    "widgetError": "Dieses Widget ist auf einen Fehler gestoßen"
+    "closePlugin": "Plugin schließen",
+    "pluginError": "Dieses Plugin ist auf einen Fehler gestoßen"
   },
   "drawing": {
     "select": "Auswählen",
@@ -1067,20 +1068,20 @@
     "defaultBackgroundColor": "Standard",
     "resetBackgroundColor": "Hintergrundfarbe zurücksetzen",
     "terrainLabel": "TERRAIN",
-    "widgetsLabel": "WIDGETS",
+    "pluginsLabel": "PLUGINS",
     "projectionLabel": "PROJEKTION",
     "terrainActiveHint": "Terrain aktiv",
     "terrainInactiveCollapsedHint": "Kein aktives Terrain",
     "boundTo": "Gebunden an: {{name}}",
     "terrainInactiveHint": "Kein Terrain-Layer ist aktiv.",
-    "widgetsEnabledCount": "{{count}} aktiviert",
-    "noWidgets": "Keine Widgets verfügbar.",
-    "widgetsGroupAria": "Widgets",
+    "pluginsEnabledCount": "{{count}} aktiviert",
+    "noPlugins": "Keine Plugins verfügbar.",
+    "pluginsGroupAria": "Plugins",
     "disableAction": "Deaktivieren",
     "enableAction": "Aktivieren",
-    "enableWidget": "{{name}} aktivieren",
-    "disableWidget": "{{name}} deaktivieren",
-    "widgetsAvailabilityNote": "Steuert, ob jedes Widget auf der Karte erscheint.",
+    "enablePlugin": "{{name}} aktivieren",
+    "disablePlugin": "{{name}} deaktivieren",
+    "pluginsAvailabilityNote": "Steuert, ob jedes Plugin auf der Karte erscheint.",
     "projectionMercator": "Mercator",
     "projectionGlobe": "Globus",
     "projectionAria": "Kartenprojektion",

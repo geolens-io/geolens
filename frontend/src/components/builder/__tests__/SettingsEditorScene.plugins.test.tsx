@@ -1,0 +1,211 @@
+import { fireEvent, render, screen } from '@/test/test-utils';
+import { SettingsEditorScene } from '../SettingsEditorScene';
+import type { SettingsEditorSceneProps } from '../SettingsEditorScene';
+
+// Phase 1051 Plan 07 (UX-04): regression suite covering the refined
+// Map Settings → Plugins section. The Switch row is the SINGLE source
+// of truth for plugin availability; on-map controls (e.g., MapToolbar
+// Measure / Legend buttons) remain functional for live interaction but
+// are NOT a duplicate of the availability toggle.
+//
+// New i18n keys exercised here:
+//   - settings.enablePlugin         → "Enable {{name}}"
+//   - settings.disablePlugin        → "Disable {{name}}"
+//   - settings.pluginsAvailabilityNote → descriptive note paragraph
+
+vi.mock('react-i18next', () => ({
+  useTranslation: () => ({
+    t: (key: string, options?: { defaultValue?: string } & Record<string, unknown>) => {
+      if (options?.defaultValue !== undefined) {
+        let result = options.defaultValue as string;
+        const params = options as Record<string, unknown>;
+        Object.keys(params).forEach((k) => {
+          if (k !== 'defaultValue') {
+            result = result.replace(`{{${k}}}`, String(params[k]));
+          }
+        });
+        return result;
+      }
+      return key;
+    },
+  }),
+}));
+
+vi.mock('@/components/ui/slider', () => ({
+  Slider: ({
+    value,
+    min,
+    max,
+    step,
+    onValueChange,
+    'aria-label': ariaLabel,
+    'aria-valuetext': ariaValuetext,
+    disabled,
+    'aria-disabled': ariaDisabled,
+  }: {
+    value: number[];
+    min: number;
+    max: number;
+    step: number;
+    onValueChange: (value: number[]) => void;
+    'aria-label': string;
+    'aria-valuetext': string;
+    disabled?: boolean;
+    'aria-disabled'?: boolean;
+  }) => (
+    <input
+      type="range"
+      aria-label={ariaLabel}
+      aria-valuetext={ariaValuetext}
+      value={value[0]}
+      min={min}
+      max={max}
+      step={step}
+      disabled={disabled}
+      aria-disabled={ariaDisabled}
+      onChange={(e) => onValueChange([Number(e.currentTarget.value)])}
+    />
+  ),
+}));
+
+vi.mock('@/components/ui/switch', () => ({
+  Switch: ({
+    checked,
+    onCheckedChange,
+    'aria-label': ariaLabel,
+  }: {
+    checked: boolean;
+    onCheckedChange: (checked: boolean) => void;
+    'aria-label': string;
+  }) => (
+    <input
+      type="checkbox"
+      role="switch"
+      aria-label={ariaLabel}
+      checked={checked}
+      onChange={(e) => onCheckedChange(e.currentTarget.checked)}
+    />
+  ),
+}));
+
+vi.mock('@/components/map-plugins', () => {
+  const ALL = [
+    { id: 'measurement', labelKey: 'plugins.measurement.label', icon: () => null },
+    { id: 'legend', labelKey: 'plugins.legend.label', icon: () => null },
+  ];
+  return {
+    // null/undefined ⇒ no restriction (all plugins); an array filters to those ids.
+    getEnabledPluginDefinitions: (enabled: string[] | null | undefined) =>
+      enabled == null ? ALL : ALL.filter((p) => enabled.includes(p.id)),
+  };
+});
+
+vi.mock('../StyleColorPicker', () => ({
+  StyleColorPicker: ({ label, color }: { label: string; color: string }) => (
+    <button type="button" aria-label={label} title={color} />
+  ),
+}));
+
+function defaultProps(overrides: Partial<SettingsEditorSceneProps> = {}): SettingsEditorSceneProps {
+  return {
+    terrainConfig: null,
+    isTerrainActive: false,
+    boundLayerName: undefined,
+    enabledPluginIds: null,
+    activePluginIds: new Set<string>(),
+    onTogglePlugin: vi.fn(),
+    backgroundColor: null,
+    onBackgroundColorChange: vi.fn(),
+    onBackgroundColorReset: vi.fn(),
+    projection: 'mercator',
+    onSetProjection: vi.fn(),
+    ...overrides,
+  };
+}
+
+describe('SettingsEditorScene · Plugins section (UX-04)', () => {
+  // Test 1 — disabled plugin reads "Enable {name}"
+  it('Switch aria-label reads "Enable {name}" when plugin is OFF', () => {
+    render(<SettingsEditorScene {...defaultProps({ activePluginIds: new Set<string>() })} />);
+
+    // Both plugins are OFF — both should read "Enable {label}"
+    expect(screen.getByRole('switch', { name: 'Enable measurement' })).toBeInTheDocument();
+    expect(screen.getByRole('switch', { name: 'Enable legend' })).toBeInTheDocument();
+  });
+
+  // Test 2 — enabled plugin reads "Disable {name}"
+  it('Switch aria-label reads "Disable {name}" when plugin is ON', () => {
+    render(
+      <SettingsEditorScene
+        {...defaultProps({ activePluginIds: new Set<string>(['legend']) })}
+      />,
+    );
+
+    expect(screen.getByRole('switch', { name: 'Disable legend' })).toBeInTheDocument();
+    // The other plugin stays OFF
+    expect(screen.getByRole('switch', { name: 'Enable measurement' })).toBeInTheDocument();
+  });
+
+  // Test 3 — toggling the Switch calls onTogglePlugin with the correct id
+  it('toggling a plugin Switch calls onTogglePlugin once with the plugin id', () => {
+    const onTogglePlugin = vi.fn();
+    render(
+      <SettingsEditorScene
+        {...defaultProps({ activePluginIds: new Set<string>(), onTogglePlugin })}
+      />,
+    );
+
+    const measurementSwitch = screen.getByRole('switch', { name: 'Enable measurement' });
+    fireEvent.click(measurementSwitch);
+
+    expect(onTogglePlugin).toHaveBeenCalledOnce();
+    expect(onTogglePlugin).toHaveBeenCalledWith('measurement');
+  });
+
+  // Test 4 — descriptive note renders in the section
+  it('renders the availability-note paragraph above the plugin rows', () => {
+    render(<SettingsEditorScene {...defaultProps()} />);
+
+    expect(
+      screen.getByText('Controls whether each plugin appears on the map.'),
+    ).toBeInTheDocument();
+  });
+
+  // Test 5 — single Switch per plugin id (no duplicate availability controls)
+  it('renders exactly one Switch element per plugin id within the Settings scene', () => {
+    render(<SettingsEditorScene {...defaultProps()} />);
+
+    // 2 plugins in the mock registry, so exactly 2 Switches must exist
+    const switches = screen.getAllByRole('switch');
+    expect(switches).toHaveLength(2);
+
+    // and none of them share an aria-label (no duplicate availability control for the same plugin)
+    const labels = switches.map((sw) => sw.getAttribute('aria-label'));
+    expect(new Set(labels).size).toBe(labels.length);
+  });
+
+  // Test 6 — plugin-audit finding: the per-map list is filtered by the admin
+  // allowlist (enabledPluginIds), so admin-disabled plugins do not appear as
+  // dead toggles that the user can flip with no on-map effect.
+  it('hides plugins the admin has disabled (enabledPluginIds allowlist)', () => {
+    render(
+      <SettingsEditorScene
+        {...defaultProps({ enabledPluginIds: ['legend'] })}
+      />,
+    );
+
+    // Only the admin-enabled plugin gets a toggle…
+    expect(screen.getByRole('switch', { name: 'Enable legend' })).toBeInTheDocument();
+    // …the disabled plugin has no toggle at all (not a dead "Enable measurement").
+    expect(screen.queryByRole('switch', { name: 'Enable measurement' })).toBeNull();
+    expect(screen.getAllByRole('switch')).toHaveLength(1);
+  });
+
+  // Test 7 — when the admin disables every plugin, the section shows the empty state.
+  it('renders the empty state when the admin allowlist is empty', () => {
+    render(<SettingsEditorScene {...defaultProps({ enabledPluginIds: [] })} />);
+
+    expect(screen.queryAllByRole('switch')).toHaveLength(0);
+    expect(screen.getByText('No plugins available.')).toBeInTheDocument();
+  });
+});

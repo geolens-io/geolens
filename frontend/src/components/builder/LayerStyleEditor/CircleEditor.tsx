@@ -43,7 +43,7 @@ export function CircleEditor({
           label={t('style.radius')}
           value={getEditableNumericPaintValue(paint, 'circle-radius', CIRCLE_DEFAULTS['circle-radius'])}
           defaultValue={CIRCLE_DEFAULTS['circle-radius']}
-          min={1} max={30} step={1} format="px"
+          min={0.5} max={30} step={0.5} format="px"
           onChange={(val) => onPaintProp('circle-radius', val)}
         />
       )}

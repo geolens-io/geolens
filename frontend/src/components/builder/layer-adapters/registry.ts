@@ -22,7 +22,10 @@ const adapters: Record<string, LayerAdapter> = {
 export function getAdapter(type: string): LayerAdapter {
   const adapter = adapters[type];
   if (!adapter) {
-    if (import.meta.env.DEV) console.warn(`[registry] Unknown adapter type: ${type}, falling back to circle`);
+    // B-029: warn unconditionally (not only in DEV) so production also surfaces
+    // an unmapped render mode, while keeping the safe circle fallback rather
+    // than throwing and breaking the whole map render.
+    console.warn(`[registry] Unknown adapter type: ${type}, falling back to circle`);
     return circleAdapter;
   }
   return adapter;

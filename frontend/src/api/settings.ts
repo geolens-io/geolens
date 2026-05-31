@@ -57,8 +57,8 @@ export async function getTileConfig(): Promise<TileConfig> {
   return apiFetch<TileConfig>('/settings/tile-config/');
 }
 
-export async function getEnabledWidgets(): Promise<string[] | null> {
-  return apiFetch<string[] | null>('/settings/enabled-widgets/');
+export async function getEnabledPlugins(): Promise<string[] | null> {
+  return apiFetch<string[] | null>('/settings/enabled-plugins/');
 }
 
 export interface FeatureFlags {
