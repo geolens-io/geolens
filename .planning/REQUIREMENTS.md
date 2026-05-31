@@ -23,9 +23,9 @@
 
 - [x] **FE-RENAME-01**: `frontend/src/components/map-widgets/` is renamed to `map-plugins/` (all 10 entries incl. `__tests__/` and `builtin/`); imports across the app resolve to the new path.
 - [x] **FE-RENAME-02**: Identifiers are renamed to `Plugin*` — `WidgetHost`/`WidgetPanel`/`WidgetErrorBoundary`/`WidgetDefinition`/`WidgetContext`/`registerWidget`/`register-widgets`/`map-widget-store`/`widget-availability`/`registry` exports — across the ~57 frontend files that reference "widget". _(Component/store/consumer surface done in plan 1162-01; the contract-field `widgets`→`plugins` in `types/api.ts` + `useEnabledWidgets` hook + `map-stack.ts` are plan 1162-02 / FE-RENAME-03.)_
-- [ ] **FE-RENAME-03**: `frontend/src/types/api.ts` map type uses `plugins` and settings uses `enabled_plugins`; the settings API client and TanStack query keys are updated to match the renamed contract.
+- [x] **FE-RENAME-03**: `frontend/src/types/api.ts` map type uses `plugins` and settings uses `enabled_plugins`; the settings API client and TanStack query keys are updated to match the renamed contract.
 - [x] **FE-RENAME-04**: The plugin **ID values** `measurement` and `legend` are preserved unchanged (they are registry identifiers, not the word "widget").
-- [ ] **FE-RENAME-05**: `npm run typecheck` is 0 errors and the renamed vitest suites are green.
+- [x] **FE-RENAME-05**: `npm run typecheck` is 0 errors and the renamed vitest suites are green.
 
 ### Internationalization
 
@@ -71,9 +71,9 @@ Which phases cover which requirements. Populated during roadmap creation.
 | BE-RENAME-06 | Phase 1161 | Complete |
 | FE-RENAME-01 | Phase 1162 | Complete |
 | FE-RENAME-02 | Phase 1162 | Complete |
-| FE-RENAME-03 | Phase 1162 | Pending |
+| FE-RENAME-03 | Phase 1162 | Complete |
 | FE-RENAME-04 | Phase 1162 | Complete |
-| FE-RENAME-05 | Phase 1162 | Pending |
+| FE-RENAME-05 | Phase 1162 | Complete |
 | I18N-01 | Phase 1163 | Pending |
 | TOOL-01 | Phase 1164 | Pending |
 | TOOL-02 | Phase 1164 | Pending |
@@ -90,4 +90,4 @@ Which phases cover which requirements. Populated during roadmap creation.
 
 ---
 *Requirements defined: 2026-05-30*
-*Last updated: 2026-05-31 — BE-RENAME-04/05/06 closed by plan 1161-02 (phase 1161 complete)*
+*Last updated: 2026-05-31 — FE-RENAME-03/05 closed by plan 1162-02 (phase 1162 complete: all FE-RENAME-01..05 done)*

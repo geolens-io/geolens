@@ -87,7 +87,12 @@ Wave 2 (final wave) of the frontend rename. Wave 1 had renamed the `map-plugins/
 - **Issue:** Task 1's `useEnabledWidgets` to `useEnabledPlugins` hook rename broke imports in `BuilderMap.tsx` and `map-plugins/PluginHost.tsx` (both import + call the hook), and `PublicMapViewerPage.test.tsx` had a `widgets: ['measurement']` MapResponse fixture that no longer type-checked. These three files were not in the plan's files_modified list but are part of the same contract seam.
 - **Fix:** Renamed the hook import + call in both consumers; flipped the test fixture field `widgets` to `plugins`. Preserved the `'measurement'` literal and the `t('widgets.legend.label')` i18n call in PluginHost.
 - **Files modified:** `frontend/src/components/builder/BuilderMap.tsx`, `frontend/src/components/map-plugins/PluginHost.tsx`, `frontend/src/pages/__tests__/PublicMapViewerPage.test.tsx`
-- **Commit:** 7f8d2a31
+- **Commit:** e9e3f4b4 (BuilderMap import completed in 5e9c2a14)
+
+**3. [Process - Premature commit, recovered] Intermediate commit e9e3f4b4 did not actually reach typecheck 0**
+- **Found during:** Task 3 phase-gate verification (after committing)
+- **Issue:** Several batched Edit calls in Task 3 silently no-op'd (the file changed under an in-flight batch, plus an em-dash `—` literal mismatch in comment strings). I committed `e9e3f4b4` and even wrote this SUMMARY + a metadata commit before re-running the gate from a clean shell. The post-commit `npm run typecheck` then reported **15 errors** (map-stack still `widgets`, BuilderMap import broken, several test fixtures stale). Per "only mark green AFTER it passes", this was a premature green.
+- **Fix (forward, no history rewrite):** Re-read every flagged file, re-applied the remaining renames with unique `old_string`s, fixed two test-fixture logic bugs (`overrides.plugins`, `cached { plugins: [] }`), and committed `5e9c2a14`. `npm run typecheck` is now **0**; affected vitest **154/154**; plan-verify grep **0**. The earlier metadata flips (REQUIREMENTS/STATE/ROADMAP) had also silently failed and were re-applied in the close commit.
 
 **2. [Rule 3 - Hygiene] Flipped non-i18n widget comments to keep the grep-gate clean**
 - **Issue:** Code comments (`// Widget toggles` in MapToolbar, `navigation | widgets` JSDoc, `legacy widget host`, MapBuilderPage block comments) referenced "widget" and would trip the whole-frontend grep-gate even though they are not identifiers.
@@ -107,10 +112,12 @@ A concurrent session (`builder-audit-fixes-20260530`) shares the working directo
 
 ## Commits
 
-- `26121fe9` — refactor(1162-02): rename contract types + settings client + query keys to plugins
-- `2e347a45` — refactor(1162-02): rename maps normalize/save payload to plugins contract (test files)
-- `7f8d2a31` — refactor(1162-02): flip type-seam + builder consumers to plugins contract
+- `26121fe9` — refactor(1162-02): rename contract types + settings client + query keys to plugins (Task 1)
+- `2e347a45` — refactor(1162-02): rename maps normalize/save payload to plugins contract (Task 2 test files)
+- `e9e3f4b4` — refactor(1162-02): flip type-seam + builder consumers to plugins contract (Task 2 source + partial Task 3 — premature green, did not yet compile)
+- `5e9c2a14` — fix(1162-02): complete plugins flip in map-stack/BuilderMap/MapBuilderPage + test fixtures (Task 3 finished — typecheck 0)
+- `f49da983` — docs(1162-02): initial SUMMARY (commit list corrected by the close commit below)
 
 ## Self-Check: PASSED
 
-All 3 commits (`26121fe9`, `2e347a45`, `7f8d2a31`) present in git log; SUMMARY + all modified source files exist on disk.
+Verified at HEAD after `5e9c2a14`: `npm run typecheck` 0 errors; plan-verify grep 0; affected vitest 154/154 (8 files). Commits `26121fe9`, `2e347a45`, `e9e3f4b4`, `5e9c2a14` all present in git log; SUMMARY + all modified source files exist on disk. Residual `widget` tokens in `frontend/src` are exclusively i18n `widgets.*` keys (Phase 1163), prose comments, the preserved `legend-widget-${idx}` maplibre id, and test-local mock variable names.

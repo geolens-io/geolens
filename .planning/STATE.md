@@ -2,11 +2,11 @@
 gsd_state_version: 1.0
 milestone: v1036
 milestone_name: milestone
-status: "executing — phase 1161 complete (plans 1161-01 + 1161-02 shipped; BE-RENAME-01..06 closed); phase 1162 next"
-last_updated: "2026-05-31T01:12:00.000Z"
+status: "executing — phase 1162 complete (plans 1162-01 + 1162-02 shipped; FE-RENAME-01..05 closed); phase 1163 (i18n keys) next"
+last_updated: "2026-05-31T02:30:00.000Z"
 progress:
   total_phases: 5
-  completed_phases: 0
+  completed_phases: 2
   total_plans: 2
   completed_plans: 2
   percent: 100
@@ -24,12 +24,12 @@ progress:
 ```yaml
 milestone: v1036
 status: executing
-current_phase: 1161
+current_phase: 1162
 total_phases: 5
 plans_complete: 2
 plans_total: 2
 progress_pct: 100
-current_focus: "Phase 1161 complete — backend widget→plugin rename done (BE-RENAME-01..06); phase 1162 (frontend rename) next"
+current_focus: "Phase 1162 complete — frontend widget→plugin rename done (FE-RENAME-01..05); phase 1163 (i18n keys) next"
 last_shipped: v1035
 ```
 
@@ -45,9 +45,9 @@ last_shipped: v1035
 
 ## Current Position
 
-**Phase:** 1161 — Backend Rename & Contract (executing)
-**Plan:** 1161-01 complete (wave 1); 1161-02 next (wave 2)
-**Status:** wave 1 shipped — migration 0025 + Map.plugins/ENABLED_PLUGINS + round-trip test (BE-RENAME-01/02/03)
+**Phase:** 1162 — Frontend Rename (complete)
+**Plan:** 1162-01 + 1162-02 both shipped (waves 1 + 2)
+**Status:** Phase 1162 complete — frontend on plugins contract end-to-end; `npm run typecheck` 0; FE-RENAME-01..05 closed. Next: Phase 1163 (i18n `widgets.*`→`plugins.*` keys)
 
 Progress: [██████████] 100%
 
@@ -65,6 +65,8 @@ Progress: [██████████] 100%
 |------------|----------|-------|-------|-----------|
 | 1161-01 | 75m | 3 | 4 | 2026-05-30 |
 | 1161-02 | 35m | 3 | 22 | 2026-05-31 |
+| 1162-01 | ~1 session | 3 | 32 | 2026-05-30 |
+| 1162-02 | ~55m | 3 | 16 | 2026-05-30 |
 
 ---
 
@@ -106,7 +108,7 @@ Progress: [██████████] 100%
 
 ## Session Continuity
 
-**Last session:** Completed plan 1161-02 (wave 2) — Map/Settings API contract + maps consumers + settings validator/router/endpoint renamed to plugins; restored `import app.api.main`; backend tests green (193 passed); regenerated OpenAPI + SDKs (`make openapi-check`/`sdks-check` clean). BE-RENAME-04/05/06 closed → phase 1161 complete (2/2 plans).
-**Next action:** Execute phase 1162 (frontend rename): `map-widgets/`→`map-plugins/`, `Widget*`→`Plugin*`, `frontend/src/types/api.ts` to `plugins`/`enabled_plugins`, then `npm run typecheck` + vitest. Frontend is intentionally broken until this phase (hard cut).
+**Last session:** Completed plan 1162-02 (wave 2) — frontend API-contract seam flipped to plugins: types/api.ts `plugins`, settings client `/settings/enabled-plugins/` + `getEnabledPlugins`/`useEnabledPlugins`, query keys, normalize/save-payload (`plugins:` body key), map-stack `interaction-plugins`, and the builder consumers (MapBuilderPage/MapToolbar/BuilderMap/PluginHost) reading `mapData.plugins`. `npm run typecheck` 0; affected vitest 154/154; whole-frontend grep-clean (only `widgets.*` i18n keys remain → Phase 1163). FE-RENAME-03/05 closed → phase 1162 complete (2/2 plans, FE-RENAME-01..05). Note: an intermediate commit (e9e3f4b4) was premature (batched Edits silently no-op'd → 15 typecheck errors); fixed forward in 5e9c2a14 before closing.
+**Next action:** Execute phase 1163 (i18n key rename): ~64 `widgets.*` keys → `plugins.*` across en/es/fr/de with parity (I18N-01).
 
 ---
