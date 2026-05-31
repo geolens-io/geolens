@@ -1129,5 +1129,5 @@ Avoid false positives on these:
 - `/post-impl` — general code quality. Subagents 8 and 9 of this command overlap for builder-specific performance and conventions; `/post-impl` covers the full codebase.
 - `/sec-audit` — security. Subagent 5 of this command covers builder-specific share/embed security; `/sec-audit` covers the full attack surface.
 - `/perf-profile` — system-wide performance profiling. Subagent 8 of this command focuses on builder-specific rendering and React performance; `/perf-profile` covers tile generation, queries, and infrastructure.
-- `/widget-audit` (→ `/plugin-audit` after the v1036 rename) — the plugin/widget **host** platform (registry, availability, host/panel contract, built-in widgets). This command audits only the builder-side surfacing of plugins/widgets (Settings "Widgets" section, viewer widget availability); host internals are out of scope here.
+- `/plugin-audit` — the plugin **host** platform (registry, availability, host/panel contract, built-in plugins). This command audits only the builder-side surfacing of plugins (Settings "Plugins" section, viewer plugin availability); host internals are out of scope here.
 - `/test-audit` — test coverage. This command does not audit test coverage; use `/test-audit` for that.
