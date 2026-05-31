@@ -57,24 +57,45 @@ _CONFIG_TABLE = "catalog.app_settings"
 _SEED_VALUE = ["legend"]
 
 
-def _base_sync_url() -> str:
-    """psycopg-v3 base URL (no trailing db name) built straight from env.
+def _pg_params() -> tuple[str, str, str, str]:
+    """(user, password, host, port) built straight from env.
 
     Avoids importing app.core.config (which triggers conftest's autouse session
     DB fixture). Mirrors the ``.env.test`` values (POSTGRES_HOST=localhost,
     POSTGRES_PORT=5434).
     """
-    user = os.environ.get("POSTGRES_USER", "geolens")
-    pw = os.environ.get("POSTGRES_PASSWORD", "geolens")
-    host = os.environ.get("POSTGRES_HOST", "localhost")
-    port = os.environ.get("POSTGRES_PORT", "5434")
+    return (
+        os.environ.get("POSTGRES_USER", "geolens"),
+        os.environ.get("POSTGRES_PASSWORD", "geolens"),
+        os.environ.get("POSTGRES_HOST", "localhost"),
+        os.environ.get("POSTGRES_PORT", "5434"),
+    )
+
+
+def _sync_base_url() -> str:
+    """psycopg-v3 (sync) base URL, no trailing db name — for admin + reflection."""
+    user, pw, host, port = _pg_params()
     return f"postgresql+psycopg://{user}:{pw}@{host}:{port}"
 
 
-def _alembic_cfg(db_url: str) -> Config:
+def _async_db_url(db_name: str) -> str:
+    """asyncpg URL for a specific db — REQUIRED for alembic.
+
+    ``alembic/env.py`` runs migrations via ``async_engine_from_config`` (an async
+    engine). It honours the ``sqlalchemy.url`` we set on the Config, but that URL
+    MUST use an async driver: a ``postgresql+psycopg://`` (sync) URL under the
+    async engine silently fails to persist DDL (migrations appear to run but
+    ``catalog.maps`` never materialises). So alembic gets ``+asyncpg`` while our
+    reflection/seed engine stays on ``+psycopg`` (sync).
+    """
+    user, pw, host, port = _pg_params()
+    return f"postgresql+asyncpg://{user}:{pw}@{host}:{port}/{db_name}"
+
+
+def _alembic_cfg(async_db_url: str) -> Config:
     cfg = Config("alembic.ini")
     cfg.set_main_option("script_location", "alembic")
-    cfg.set_main_option("sqlalchemy.url", db_url)
+    cfg.set_main_option("sqlalchemy.url", async_db_url)
     return cfg
 
 
@@ -94,9 +115,13 @@ def _config_rows(engine: sa.Engine) -> dict[str, list]:
 
 
 @pytest.fixture
-def throwaway_db_url() -> Iterator[str]:
-    """Create and drop an isolated throwaway Postgres DB for this test only."""
-    base = _base_sync_url()
+def throwaway_db_name() -> Iterator[str]:
+    """Create and drop an isolated throwaway Postgres DB for this test only.
+
+    Yields the bare db name; the test derives the sync (psycopg, for reflection)
+    and async (asyncpg, for alembic) URLs from it.
+    """
+    base = _sync_base_url()
     db_name = f"geolens_test_mig0025_{uuid.uuid4().hex[:12]}"
 
     try:
@@ -115,15 +140,13 @@ def throwaway_db_url() -> Iterator[str]:
     #     ``geolens_readonly`` (created by init-db.sh, NOT by a migration), and
     #     references schemas ``catalog``/``data``.
     # Replicate exactly that prerequisite set (extensions + role + schemas) so the
-    # full chain replays cleanly on the throwaway DB. The role is cluster-scoped
-    # (CREATE ROLE IF NOT EXISTS is emulated via a DO block, matching init-db.sh).
-    db_url = f"{base}/{db_name}"
-    setup = create_engine(db_url, isolation_level="AUTOCOMMIT")
+    # full chain replays cleanly on the throwaway DB. (env.py also CREATE SCHEMA IF
+    # NOT EXISTS catalog before stamping; the ``data`` schema + role are ours.)
+    setup = create_engine(f"{base}/{db_name}", isolation_level="AUTOCOMMIT")
     try:
         with setup.begin() as conn:
             for ext in ("postgis", "pg_trgm", "vector", "unaccent"):
                 conn.execute(text(f"CREATE EXTENSION IF NOT EXISTS {ext}"))
-            conn.execute(text("CREATE SCHEMA IF NOT EXISTS catalog"))
             conn.execute(text("CREATE SCHEMA IF NOT EXISTS data"))
             conn.execute(
                 text(
@@ -138,7 +161,7 @@ def throwaway_db_url() -> Iterator[str]:
         setup.dispose()
 
     try:
-        yield db_url
+        yield db_name
     finally:
         admin = create_engine(f"{base}/postgres", isolation_level="AUTOCOMMIT")
         with admin.begin() as conn:
@@ -152,9 +175,11 @@ def throwaway_db_url() -> Iterator[str]:
         admin.dispose()
 
 
-def test_0025_upgrade_downgrade_round_trip(throwaway_db_url: str) -> None:
-    cfg = _alembic_cfg(throwaway_db_url)
-    engine = create_engine(throwaway_db_url)
+def test_0025_upgrade_downgrade_round_trip(throwaway_db_name: str) -> None:
+    # alembic (async_engine_from_config) gets the asyncpg URL; reflection/seeding
+    # uses a sync psycopg engine on the same DB.
+    cfg = _alembic_cfg(_async_db_url(throwaway_db_name))
+    engine = create_engine(f"{_sync_base_url()}/{throwaway_db_name}")
 
     try:
         # 1. Upgrade to head — schema should now use the plugin vocabulary.
