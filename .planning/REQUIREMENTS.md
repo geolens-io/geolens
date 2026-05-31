@@ -33,14 +33,14 @@
 
 ### Tooling & Tests
 
-- [ ] **TOOL-01**: `.claude/commands/widget-audit.md` is renamed to `plugin-audit.md`, and cross-references in `builder-audit.md` and `map-audit.md` are updated.
+- [x] **TOOL-01**: `.claude/commands/widget-audit.md` is renamed to `plugin-audit.md`, and cross-references in `builder-audit.md` and `map-audit.md` are updated.
 - [ ] **TOOL-02**: The 2 `.agents/skills` files that reference widgets are updated to plugins.
 - [ ] **TOOL-03**: The 3 widget e2e specs are renamed and their selectors/strings updated; `e2e:smoke:builder` is green.
-- [ ] **TOOL-04**: The 3 plugin-audit.md review findings are folded in — (a) the `docs/plugin-development.md` reference resolves to a real file, (b) `plugin-availability.ts` is added to the Step-2 read list, (c) built-ins are derived from the registry rather than hardcoded as "measurement and legend".
+- [x] **TOOL-04**: The 3 plugin-audit.md review findings are folded in — (a) the `docs/plugin-development.md` reference resolves to a real file, (b) `plugin-availability.ts` is added to the Step-2 read list, (c) built-ins are derived from the registry rather than hardcoded as "measurement and legend".
 
 ### Documentation
 
-- [ ] **DOCS-01**: `docs/plugin-development.md` is written as a real plugin-authoring guide — registry, built-ins, availability gating, the host/panel contract, and how to register a plugin — so the audit reference and contributor onboarding resolve.
+- [x] **DOCS-01**: `docs/plugin-development.md` is written as a real plugin-authoring guide — registry, built-ins, availability gating, the host/panel contract, and how to register a plugin — so the audit reference and contributor onboarding resolve.
 - [ ] **DOCS-02**: A CHANGELOG `[2.0.0]` entry documents the breaking `widgets`→`plugins` API/DB rename and the migration path for operators (run `alembic upgrade head`) and external API clients (switch to `plugins`).
 
 ### QA / Close-Gate
@@ -75,11 +75,11 @@ Which phases cover which requirements. Populated during roadmap creation.
 | FE-RENAME-04 | Phase 1162 | Complete |
 | FE-RENAME-05 | Phase 1162 | Complete |
 | I18N-01 | Phase 1163 | Complete |
-| TOOL-01 | Phase 1164 | Pending |
+| TOOL-01 | Phase 1164 | Complete |
 | TOOL-02 | Phase 1164 | Pending |
 | TOOL-03 | Phase 1164 | Pending |
-| TOOL-04 | Phase 1164 | Pending |
-| DOCS-01 | Phase 1164 | Pending |
+| TOOL-04 | Phase 1164 | Complete |
+| DOCS-01 | Phase 1164 | Complete |
 | DOCS-02 | Phase 1164 | Pending |
 | QA-01 | Phase 1165 | Pending |
 
