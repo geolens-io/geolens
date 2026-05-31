@@ -10,7 +10,8 @@ _Date: 2026-05-31 · Branch: `builder-audit-fixes-v2` · Auditor: automated `/pl
 > - **LOW-5 (leaf-registry import):** `SettingsEditorScene` now imports from the barrel `@/components/map-plugins`.
 > - **Coverage:** added `register-plugins.test.ts`, `MeasurementPlugin.test.ts`, `LegendPlugin.test.ts` + admin-filter regression tests.
 > - **Verification:** full suite 2672/2672 · `tsc -b` 0 · `vite build` ✓ · ESLint clean · 11-agent adversarial review confirmed 0 real defects.
-> - **Still open (deferred, need a live stack):** E2E for admin plugin-enablement flow and builder open→close + save→reload of the `plugins` column. The original snapshot findings below are retained as the point-in-time record.
+> - **E2E (live-verified):** `e2e/plugin-lifecycle.spec.ts` (3/3 green against the live stack) now covers both deferred gaps — the builder toggle→save→reload round-trip through the `plugins` column, and the admin `enabled_plugins` allowlist hiding admin-disabled toggles. Self-contained with precise global-setting restore.
+> - The original snapshot findings below are retained as the point-in-time record.
 
 ## Verdict
 - **Overall: PASS WITH ISSUES**
