@@ -194,8 +194,8 @@ Plans:
 ### Phase 999.17: Builder terrain/legend consistency & DEM dedup (BACKLOG)
 
 **Goal:** Fix the cross-surface inconsistency where `render_mode:"terrain"` DEM layers are excluded from the builder layer stack but still listed in the legend (phantom entries), and stop the terrain-bind flow from accumulating duplicate DEM layers. Fits the *Map Builder Extensibility Refactor* plan.
-**Requirements:** TBD — see ready-to-plan brief: `docs-internal/audits/BUCKET-B-builder-terrain-legend-phase-brief.md`
-**Plans:** 0 plans
+**Requirements:** FIX-1-LEGEND, FIX-2-DEDUP, FIX-3-RESOLVER — brief: `docs-internal/audits/BUCKET-B-builder-terrain-legend-phase-brief.md`
+**Plans:** 3 plans
 
 Three fixes (detail in brief):
 1. Legend excludes terrain-suppressed DEM layers in both `LegendPlugin.tsx:80-83` and the viewer `LayerLegend` (mirror `map-stack.ts:541-543` / `isDemTerrainVisualSuppressed` `map-sync.ts:52-58`).
@@ -205,4 +205,6 @@ Three fixes (detail in brief):
 Gate: unit tests + builder live-MCP close-gate. Source: `/map-audit 8dd6a129` (2026-05-31); confirmed regression (1 hillshade + 1 terrain → 3 terrain layers between 2026-05-28 and 2026-05-31).
 
 Plans:
-- [ ] TBD (promote with /gsd-review-backlog when ready)
+- [ ] 999.17-01-PLAN.md — Fix 1: shared deriveTerrainLegendEntry helper + builder LegendPlugin & viewer LayerLegend exclude terrain-suppressed DEM layers + single synthetic "3D terrain" entry + unit tests + en/es/fr/de i18n (FIX-1-LEGEND, wave 1)
+- [ ] 999.17-02-PLAN.md — Fix 2: terrain-bind/render-mode-switch reuses one DEM layer (no duplicate) + delete-source clears terrain_config with non-blocking toast + reducer/i18n tests (FIX-2-DEDUP, wave 2, depends 999.17-01 for builder.json)
+- [ ] 999.17-03-PLAN.md — Fix 3: drop the render_mode==='terrain' clause from BuilderMap applyTerrainConfig DEM lookup (resolve by source_dataset_id like the viewer) so mesh + visible hillshade coexist; POLISH-02 guard untouched + terrain-visibility test (FIX-3-RESOLVER, wave 1)
