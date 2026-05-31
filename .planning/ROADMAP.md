@@ -44,7 +44,9 @@ Rename the map "widget" platform to "plugin" across the entire stack — DB, API
   2. No `Widget*` platform identifier remains in `frontend/src` (`WidgetHost`/`WidgetPanel`/`WidgetErrorBoundary`/`WidgetDefinition`/`WidgetContext`/`registerWidget`/`register-widgets`/`map-widget-store`/`widget-availability`/`registry` exports → `Plugin*`); `types/api.ts`, the settings api client, and TanStack query keys use `plugins`/`enabled_plugins`.
   3. The plugin ID string values `measurement` and `legend` are unchanged throughout the frontend.
   4. `npm run typecheck` reports 0 errors and the renamed `vitest` suites are green.
-**Plans**: TBD
+**Plans**: 2 plans
+  - [ ] 1162-01-PLAN.md — `git mv` `map-widgets/`→`map-plugins/` (10 entries) + `map-widget-store`→`map-plugin-store`, rename all `Widget*`→`Plugin*` symbols inside, rewrite every component/store consumer import (FE-RENAME-01/02/04) — typecheck 0 + moved/consumer vitest green
+  - [ ] 1162-02-PLAN.md — Rename the API-contract surface (`types/api.ts` `widgets`→`plugins`, settings client `/settings/enabled-plugins/`, `enabled_widgets`→`enabled_plugins`, TanStack query keys, maps/normalize/save-payload) (FE-RENAME-03/04/05) — phase terminal gate: whole-frontend typecheck 0 + zero non-i18n widget refs + renamed suites green
 **UI hint**: yes
 
 ### Phase 1163: i18n Key Rename
@@ -87,7 +89,7 @@ Rename the map "widget" platform to "plugin" across the entire stack — DB, API
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1161. Backend Rename & Contract | 2/2 | Complete |  |
-| 1162. Frontend Rename | 0/TBD | Not started | - |
+| 1162. Frontend Rename | 0/2 | Not started | - |
 | 1163. i18n Key Rename | 0/TBD | Not started | - |
 | 1164. Tooling, Docs & Audit Fixes | 0/TBD | Not started | - |
 | 1165. Live MCP Close-Gate | 0/TBD | Not started | - |
