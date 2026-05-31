@@ -2,20 +2,20 @@
 gsd_state_version: 1.0
 milestone: v1036
 milestone_name: milestone
-status: "executing — phase 1162 complete (plans 1162-01 + 1162-02 shipped; FE-RENAME-01..05 closed); phase 1163 (i18n keys) next"
-last_updated: "2026-05-31T02:30:00.000Z"
+status: "executing — phase 1163 in progress (plan 1163-01 Wave 1 shipped: locale keys renamed; plan 1163-02 Wave 2 call-site repoint next; I18N-01 partial)"
+last_updated: "2026-05-31T04:30:00.000Z"
 progress:
   total_phases: 5
   completed_phases: 2
   total_plans: 2
-  completed_plans: 2
-  percent: 100
+  completed_plans: 1
+  percent: 50
 ---
 
 # Project State
 
-**Milestone:** v1036 (executing — phase 1161)
-**Last updated:** 2026-05-30
+**Milestone:** v1036 (executing — phase 1163)
+**Last updated:** 2026-05-31
 
 ---
 
@@ -24,12 +24,12 @@ progress:
 ```yaml
 milestone: v1036
 status: executing
-current_phase: 1162
+current_phase: 1163
 total_phases: 5
-plans_complete: 2
+plans_complete: 1
 plans_total: 2
-progress_pct: 100
-current_focus: "Phase 1162 complete — frontend widget→plugin rename done (FE-RENAME-01..05); phase 1163 (i18n keys) next"
+progress_pct: 50
+current_focus: "Phase 1163 Wave 1 shipped (1163-01: ~64 widget→plugin locale keys renamed across en/es/fr/de, parity green); Wave 2 (1163-02 call-site repoint) next — I18N-01 partial"
 last_shipped: v1035
 ```
 
@@ -45,11 +45,11 @@ last_shipped: v1035
 
 ## Current Position
 
-**Phase:** 1162 — Frontend Rename (complete)
-**Plan:** 1162-01 + 1162-02 both shipped (waves 1 + 2)
-**Status:** Phase 1162 complete — frontend on plugins contract end-to-end; `npm run typecheck` 0; FE-RENAME-01..05 closed. Next: Phase 1163 (i18n `widgets.*`→`plugins.*` keys)
+**Phase:** 1163 — i18n Key Rename (in progress)
+**Plan:** 1163-01 (Wave 1) shipped; 1163-02 (Wave 2) next
+**Status:** Wave 1 complete — all ~64 `widget*` locale keys renamed to `plugin*` across en/es/fr/de × builder.json/admin.json; values translated per-locale; parity green (builder 905 / admin 534 leaf keys identical); `measurement`/`legend` IDs preserved; zero `widget` in locale dir. I18N-01 is PARTIAL (call-site `t()` repoint + phase parity/typecheck gate is Wave 2). Next: Phase 1163 Plan 02.
 
-Progress: [██████████] 100%
+Progress: [█████░░░░░] 50%
 
 ---
 
@@ -67,6 +67,7 @@ Progress: [██████████] 100%
 | 1161-02 | 35m | 3 | 22 | 2026-05-31 |
 | 1162-01 | ~1 session | 3 | 32 | 2026-05-30 |
 | 1162-02 | ~55m | 3 | 16 | 2026-05-30 |
+| 1163-01 | ~35m | 2 | 8 | 2026-05-31 |
 
 ---
 
@@ -98,6 +99,7 @@ Progress: [██████████] 100%
 
 - 1161-02: 23 residual `widget` grep matches in backend are legitimate (0025 rename migration + its round-trip test must name both vocabularies; 0001 baseline is deployed/untouched). Runtime `app/` is 100% widget-free. No action needed.
 - 1161-02 deviation (resolved): a self-inflicted `git show <fake-sha>` redirect briefly clobbered `settings/router.py` to 0 lines in the working tree; recovered via `git checkout HEAD -- <file>`. No git history / commit impact. See 1161-02-SUMMARY Deviations.
+- 1163-01 (Wave 1): I18N-01 is intentionally LEFT UNCHECKED in REQUIREMENTS.md — only the locale-file half shipped. Wave 2 (Plan 1163-02) must repoint call sites, pass the phase parity+typecheck+grep gate, THEN flip I18N-01 complete + its traceability row.
 - (none from v1035)
 
 ### Blockers
@@ -108,7 +110,7 @@ Progress: [██████████] 100%
 
 ## Session Continuity
 
-**Last session:** Completed plan 1162-02 (wave 2) — frontend API-contract seam flipped to plugins: types/api.ts `plugins`, settings client `/settings/enabled-plugins/` + `getEnabledPlugins`/`useEnabledPlugins`, query keys, normalize/save-payload (`plugins:` body key), map-stack `interaction-plugins`, and the builder consumers (MapBuilderPage/MapToolbar/BuilderMap/PluginHost) reading `mapData.plugins`. `npm run typecheck` 0; affected vitest 154/154; whole-frontend grep-clean (only `widgets.*` i18n keys remain → Phase 1163). FE-RENAME-03/05 closed → phase 1162 complete (2/2 plans, FE-RENAME-01..05). Note: an intermediate commit (e9e3f4b4) was premature (batched Edits silently no-op'd → 15 typecheck errors); fixed forward in 5e9c2a14 before closing.
-**Next action:** Execute phase 1163 (i18n key rename): ~64 `widgets.*` keys → `plugins.*` across en/es/fr/de with parity (I18N-01).
+**Last session:** Completed plan 1163-01 (Wave 1 — locale files only). Renamed ~64 `widget*` i18n keys to `plugin*` across all 8 locale files: builder.json (13 key paths/locale: mapStack.entries.mapPlugins, mapStack.badges.plugins, tooltips.plugins, top-level `plugins` object incl. closePlugin/pluginError, settings.pluginsLabel/pluginsEnabledCount/noPlugins/pluginsGroupAria/enablePlugin/disablePlugin/pluginsAvailabilityNote) + admin.json (settings.plugins object: title+description). Values translated per-locale (Plugin/Plugins loanword in es/fr/de); KEY-only renames kept byte-identical values; `measurement`/`legend` ID literals untouched. Verified: 8/8 valid JSON, `grep -rin widget` in locale dir = 0, parity green (builder 905 / admin 534 leaf keys identical across en/es/fr/de). Commits `896e2d66` (builder ×4) + `ea7a972b` (admin ×4), both on `main`. I18N-01 NOT yet flipped — Wave 2 (call sites + phase gate) completes it. NOTE: do NOT typecheck the frontend now — call sites still reference old keys until Wave 2.
+**Next action:** Execute phase 1163 Plan 02 (Wave 2): repoint all `t('...widget...')` call sites to the new `plugin*` keys, then run the phase gate (`npm run test:i18n` parity + `npm run typecheck` + frontend `widget` grep = 0). Flip I18N-01 complete only after Plan 02's gate passes.
 
 ---
