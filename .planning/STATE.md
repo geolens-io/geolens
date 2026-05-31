@@ -30,7 +30,7 @@ completed_phases: 5
 plans_complete: 13
 plans_total: 13
 progress_pct: 100
-current_focus: "v1036 complete. All 5 phases (1161-1165) shipped, 19/19 requirements satisfied, QA-01 passed (DB-verified API round-trip of the renamed maps.plugins column via the builder's PUT path + deterministic gate green). The audit-flagged TOOL-02 gap (geolens-widget-audit skill never renamed) was closed at milestone-close (commit ce9c3e0); audit verdict upgraded tech_debt -> passed at a genuine 19/19. Ready for the orchestrator to create the local v1036 tag."
+current_focus: "v1036 complete. All 5 phases (1161-1165) shipped, 19/19 requirements satisfied, QA-01 passed (DB-verified API round-trip of the renamed maps.plugins column via the builder's PUT path + deterministic gate green). The audit-flagged TOOL-02 gap (geolens-widget-audit skill never renamed) was closed at milestone-close (commit cfb5eb36); audit verdict upgraded tech_debt -> passed at a genuine 19/19. Ready for the orchestrator to create the local v1036 tag."
 last_shipped: v1035
 ```
 
@@ -55,7 +55,7 @@ last_shipped: v1035
 - **1164 Tooling, Docs & Audit Fixes** — slash cmd `widget-audit`→`plugin-audit`, e2e renames, 3 audit fixes, `docs/plugin-development.md`, CHANGELOG `[2.0.0]`. (The `geolens-widget-audit` SKILL-dir rename was missed in 1164-02 and closed at milestone-close — see below.)
 - **1165 Live MCP Close-Gate** — orchestrator-driven round-trip of `maps.plugins`, proven at the API level via the builder's own PUT path (after MCP UI-click flakiness; an initial fabricated UI-evidence file was caught and corrected before tag) + deterministic gate green.
 
-The milestone audit flagged TOOL-02 as falsely complete (the platform-audit skill `geolens-widget-audit` was never renamed; 1164-02 had only touched a different sketch skill). Closed at milestone-close (commit `ce9c3e0`): dir renamed to `.agents/skills/geolens-plugin-audit/`, SKILL.md rewritten to plugin vocabulary, dead refs repointed to live `.claude/commands/plugin-audit.md` + `frontend/src/components/map-plugins/` + `register-plugins.ts`. Audit verdict upgraded `tech_debt` → `passed`. `measurement`/`legend` plugin IDs preserved.
+The milestone audit flagged TOOL-02 as falsely complete (the platform-audit skill `geolens-widget-audit` was never renamed; 1164-02 had only touched a different sketch skill). Closed at milestone-close (commit `cfb5eb36`): dir renamed to `.agents/skills/geolens-plugin-audit/`, SKILL.md rewritten to plugin vocabulary, dead refs repointed to live `.claude/commands/plugin-audit.md` + `frontend/src/components/map-plugins/` + `register-plugins.ts`. Audit verdict upgraded `tech_debt` → `passed`. `measurement`/`legend` plugin IDs preserved.
 
 Progress: [██████████] 100% (5/5 phases)
 
@@ -118,7 +118,7 @@ Progress: [██████████] 100% (5/5 phases)
 
 ## Session Continuity
 
-**Last session:** Completed the v1036 milestone close. Phase 1165 (QA-01) passed: the live round-trip of the renamed `maps.plugins` column was proven at the API level via the builder's own PUT path (after MCP UI-click flakiness; an initial fabricated UI-evidence file was caught and corrected before tag) and the full deterministic gate was green (typecheck 0, vitest 2640, backend 231, openapi/sdks clean, e2e core 31/31, builder 22/1 pre-existing flake). At milestone-close, the audit-flagged TOOL-02 gap was fixed by hand: `.agents/skills/geolens-widget-audit/` renamed to `geolens-plugin-audit` with SKILL.md vocab + dead refs repointed (commit `ce9c3e0`); audit verdict flipped `tech_debt` → `passed` (19/19 reqs). `measurement`/`legend` plugin IDs preserved.
+**Last session:** Completed the v1036 milestone close. Phase 1165 (QA-01) passed: the live round-trip of the renamed `maps.plugins` column was proven at the API level via the builder's own PUT path (after MCP UI-click flakiness; an initial fabricated UI-evidence file was caught and corrected before tag) and the full deterministic gate was green (typecheck 0, vitest 2640, backend 231, openapi/sdks clean, e2e core 31/31, builder 22/1 pre-existing flake). At milestone-close, the audit-flagged TOOL-02 gap was fixed by hand: `.agents/skills/geolens-widget-audit/` renamed to `geolens-plugin-audit` with SKILL.md vocab + dead refs repointed (commit `cfb5eb36`); audit verdict flipped `tech_debt` → `passed` (19/19 reqs). `measurement`/`legend` plugin IDs preserved.
 **Next action:** Orchestrator creates the local `v1036` git tag, then the project sits between milestones. Carry-forward: BLDR-TILE-RACE (pre-existing v1034 e2e flake).
 
 ---

@@ -19,7 +19,7 @@
 
 **QA-01 close-gate:** Orchestrator-driven round-trip of the renamed `maps.plugins` column proven at the API level via the builder's own PUT path (after MCP UI-click flakiness) + deterministic gate green: typecheck 0 · vitest 2640 · backend 231 · openapi/sdks clean · e2e core 31/31 · builder 22/1 (pre-existing flake).
 
-**Audit verdict:** `passed` (19/19 reqs). The milestone audit caught TOOL-02 falsely marked complete (the platform-audit skill `geolens-widget-audit` was never renamed — 1164-02 had only touched a different sketch skill); fixed at close (commit `ce9c3e0`), verdict upgraded `tech_debt` → `passed`.
+**Audit verdict:** `passed` (19/19 reqs). The milestone audit caught TOOL-02 falsely marked complete (the platform-audit skill `geolens-widget-audit` was never renamed — 1164-02 had only touched a different sketch skill); fixed at close (commit `cfb5eb36`), verdict upgraded `tech_debt` → `passed`.
 
 **Migrations:** `0025` (reversible).
 

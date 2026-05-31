@@ -34,7 +34,7 @@
 ### Tooling & Tests
 
 - [x] **TOOL-01**: `.claude/commands/widget-audit.md` is renamed to `plugin-audit.md`, and cross-references in `builder-audit.md` and `map-audit.md` are updated.
-- [x] **TOOL-02**: The `.agents/skills/geolens-widget-audit/` skill is renamed to `geolens-plugin-audit/` and its `SKILL.md` is updated from widget to plugin vocabulary (dead refs repointed to `plugin-audit.md` + `map-plugins/`). _(Resolved at milestone-close, commit `ce9c3e0` — the skill-dir rename was missed in phase 1164-02 and caught by the milestone audit.)_
+- [x] **TOOL-02**: The `.agents/skills/geolens-widget-audit/` skill is renamed to `geolens-plugin-audit/` and its `SKILL.md` is updated from widget to plugin vocabulary (dead refs repointed to `plugin-audit.md` + `map-plugins/`). _(Resolved at milestone-close, commit `cfb5eb36` — the skill-dir rename was missed in phase 1164-02 and caught by the milestone audit.)_
 - [x] **TOOL-03**: The 3 widget e2e specs are renamed and their selectors/strings updated; `e2e:smoke:builder` is green.
 - [x] **TOOL-04**: The 3 plugin-audit.md review findings are folded in — (a) the `docs/plugin-development.md` reference resolves to a real file, (b) `plugin-availability.ts` is added to the Step-2 read list, (c) built-ins are derived from the registry rather than hardcoded as "measurement and legend".
 
