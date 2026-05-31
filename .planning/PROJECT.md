@@ -922,15 +922,19 @@ Users can find any dataset in the catalog in seconds — search, see it on a map
 
 ## Requirements
 
-### Active (v1036 Widget → Plugin Platform Rename)
+### Active
 
-- Breaking DB rename: `maps.widgets` JSONB → `maps.plugins` + config key `enabled_widgets` → `enabled_plugins` (Alembic migration, forward + downgrade) — v1036
-- Breaking API rename: map `widgets` field + settings `enabled_widgets` validator → `plugins` / `enabled_plugins`; OpenAPI + SDKs regenerated; hard cut, no alias — v1036
-- Frontend refactor: `map-widgets/` → `map-plugins/` + `Widget*` identifiers → `Plugin*` across ~57 files (keep `measurement`/`legend` ID values) — v1036
-- i18n: ~64 widget keys → plugin keys across en/es/fr/de with parity — v1036
-- Tooling: `widget-audit.md` → `plugin-audit.md` (+ cross-refs/skills/e2e) + 3 audit-correctness fixes — v1036
-- New `docs/plugin-development.md` authoring guide — v1036
-- Live Playwright MCP close-gate: plugin set→save→reload round-trips the renamed DB column — v1036
+- (none — between milestones; v1036 shipped 2026-05-31, pending tag)
+
+### Recently Shipped (v1036 Widget → Plugin Platform Rename — 19/19, shipped 2026-05-31)
+
+- Breaking DB rename: `maps.widgets` JSONB → `maps.plugins` + config key `enabled_widgets` → `enabled_plugins` (Alembic migration 0025, forward + downgrade) — v1036 ✓
+- Breaking API rename: map `widgets` field + settings `enabled_widgets` validator → `plugins` / `enabled_plugins`; OpenAPI + SDKs regenerated; hard cut, no alias — v1036 ✓
+- Frontend refactor: `map-widgets/` → `map-plugins/` + `Widget*` identifiers → `Plugin*` across ~57 files (kept `measurement`/`legend` ID values) — v1036 ✓
+- i18n: ~64 widget keys → plugin keys across en/es/fr/de with parity — v1036 ✓
+- Tooling: `widget-audit.md` → `plugin-audit.md` (+ cross-refs/skills/e2e) + `geolens-widget-audit` skill → `geolens-plugin-audit` + 3 audit-correctness fixes — v1036 ✓
+- New `docs/plugin-development.md` authoring guide + CHANGELOG `[2.0.0]` — v1036 ✓
+- Live Playwright MCP close-gate (QA-01): plugin round-trip of the renamed DB column DB-verified via builder PUT path — v1036 ✓
 
 _Full REQ-ID breakdown in `.planning/REQUIREMENTS.md`._
 
@@ -1529,6 +1533,6 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-30 — started milestone v1036 Widget → Plugin Platform Rename (full-platform rename of the map "widget" platform → "plugin" across DB/API/frontend/i18n/docs/tooling; hard breaking cut on shipped 1.0.0, no back-compat alias; CHANGELOG `[2.0.0]`; phase numbering continues from 1160). Prior: v1035 Builder, Maps & Export Bug Sweep shipped 2026-05-30 (local tag `v1035`).*
+*Last updated: 2026-05-31 — shipped milestone v1036 Widget → Plugin Platform Rename (full-platform rename of the map "widget" platform → "plugin" across DB/API/frontend/i18n/docs/tooling; hard breaking cut on shipped 1.0.0, no back-compat alias; CHANGELOG `[2.0.0]`; 5 phases 1161-1165, 19/19 reqs, audit `passed`, pending local tag `v1036`). Now between milestones. Prior: v1035 Builder, Maps & Export Bug Sweep shipped 2026-05-30 (local tag `v1035`).*
 
 *Earlier: 2026-05-29 — started milestone v1034 Raster Stretch & Colormap Completion. Closes the raster stretch/colormap tail carried since v1031/v1032: full per-band multi-band stretch, configurable percentile/σ bounds, a real seeded single-band raster fixture (TESTDATA-01) to verify the colormap/stretch UI, plus v1033 builder dead-code/note cleanup. Phase numbering continues from 1151. Prior: v1033 Builder Terrain, Label & Render-Mode QA shipped 2026-05-29 (local tag `v1033`, CHANGELOG `[1.8.0]`).*
