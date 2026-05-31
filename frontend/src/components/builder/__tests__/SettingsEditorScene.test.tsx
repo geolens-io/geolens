@@ -79,8 +79,8 @@ vi.mock('@/components/ui/switch', () => ({
 
 vi.mock('@/components/map-plugins/registry', () => ({
   getPlugins: () => [
-    { id: 'measurement', labelKey: 'widgets.measurement.label', icon: () => null },
-    { id: 'legend', labelKey: 'widgets.legend.label', icon: () => null },
+    { id: 'measurement', labelKey: 'plugins.measurement.label', icon: () => null },
+    { id: 'legend', labelKey: 'plugins.legend.label', icon: () => null },
   ],
 }));
 
@@ -126,12 +126,12 @@ describe('SettingsEditorScene', () => {
 
     expect(screen.getByText('APPEARANCE')).toBeInTheDocument();
     expect(screen.getByText('TERRAIN')).toBeInTheDocument();
-    expect(screen.getByText('WIDGETS')).toBeInTheDocument();
+    expect(screen.getByText('PLUGINS')).toBeInTheDocument();
     expect(screen.getByText('PROJECTION')).toBeInTheDocument();
 
     expect(screen.getByRole('button', { name: 'Background' })).toHaveAttribute('title', '#ffffff');
 
-    // Widget rows visible (all sections expanded)
+    // Plugin rows visible (all sections expanded)
     // The t() mock resolves labelKey with defaultValue=plugin.id, so labels render as the plugin id
     expect(screen.getByText('measurement')).toBeInTheDocument();
     expect(screen.getByText('legend')).toBeInTheDocument();

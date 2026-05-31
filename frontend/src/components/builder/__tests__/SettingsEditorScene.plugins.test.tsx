@@ -9,9 +9,9 @@ import type { SettingsEditorSceneProps } from '../SettingsEditorScene';
 // are NOT a duplicate of the availability toggle.
 //
 // New i18n keys exercised here:
-//   - settings.enableWidget         → "Enable {{name}}"
-//   - settings.disableWidget        → "Disable {{name}}"
-//   - settings.widgetsAvailabilityNote → descriptive note paragraph
+//   - settings.enablePlugin         → "Enable {{name}}"
+//   - settings.disablePlugin        → "Disable {{name}}"
+//   - settings.pluginsAvailabilityNote → descriptive note paragraph
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -90,8 +90,8 @@ vi.mock('@/components/ui/switch', () => ({
 
 vi.mock('@/components/map-plugins/registry', () => ({
   getPlugins: () => [
-    { id: 'measurement', labelKey: 'widgets.measurement.label', icon: () => null },
-    { id: 'legend', labelKey: 'widgets.legend.label', icon: () => null },
+    { id: 'measurement', labelKey: 'plugins.measurement.label', icon: () => null },
+    { id: 'legend', labelKey: 'plugins.legend.label', icon: () => null },
   ],
 }));
 
@@ -117,7 +117,7 @@ function defaultProps(overrides: Partial<SettingsEditorSceneProps> = {}): Settin
   };
 }
 
-describe('SettingsEditorScene · Widgets section (UX-04)', () => {
+describe('SettingsEditorScene · Plugins section (UX-04)', () => {
   // Test 1 — disabled plugin reads "Enable {name}"
   it('Switch aria-label reads "Enable {name}" when plugin is OFF', () => {
     render(<SettingsEditorScene {...defaultProps({ activePluginIds: new Set<string>() })} />);

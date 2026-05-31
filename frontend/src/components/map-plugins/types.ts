@@ -20,7 +20,7 @@ export interface PluginContext {
 /** A registered plugin */
 export interface PluginDefinition {
   id: string;
-  /** i18n key under the 'builder' namespace, e.g. 'widgets.measurement.label' */
+  /** i18n key under the 'builder' namespace, e.g. 'plugins.measurement.label' */
   labelKey: string;
   icon: React.ComponentType<{ className?: string }>;
   placement: PluginPlacement;

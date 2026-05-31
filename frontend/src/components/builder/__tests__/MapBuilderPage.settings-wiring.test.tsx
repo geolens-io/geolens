@@ -71,7 +71,7 @@ vi.mock('@/components/ui/switch', () => ({
 
 vi.mock('@/components/map-plugins/registry', () => ({
   getPlugins: () => [
-    { id: 'measurement', labelKey: 'widgets.measurement.label', icon: () => null },
+    { id: 'measurement', labelKey: 'plugins.measurement.label', icon: () => null },
   ],
 }));
 

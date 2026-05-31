@@ -34,7 +34,7 @@ function PluginB({ ctx }: { ctx: PluginContext }) {
 }
 
 function CrashingPlugin(): React.ReactElement {
-  throw new Error('Widget crashed!');
+  throw new Error('Plugin crashed!');
 }
 
 function SidebarPlugin() {
@@ -43,10 +43,10 @@ function SidebarPlugin() {
 
 // Register once — registry is module-level
 if (!getPlugins().find((w) => w.id === PLUGIN_A_ID)) {
-  registerPlugin({ id: PLUGIN_A_ID, labelKey: 'widgets.a', icon: LayoutGrid, placement: { mode: 'floating', anchor: 'top-left' }, component: PluginA });
-  registerPlugin({ id: PLUGIN_B_ID, labelKey: 'widgets.b', icon: LayoutGrid, placement: { mode: 'floating', anchor: 'top-right' }, component: PluginB });
-  registerPlugin({ id: PLUGIN_CRASH_ID, labelKey: 'widgets.crash', icon: LayoutGrid, placement: { mode: 'floating', anchor: 'bottom-left' }, component: CrashingPlugin });
-  registerPlugin({ id: PLUGIN_SIDEBAR_ID, labelKey: 'widgets.sidebar', icon: LayoutGrid, placement: { mode: 'sidebar' }, component: SidebarPlugin });
+  registerPlugin({ id: PLUGIN_A_ID, labelKey: 'plugins.a', icon: LayoutGrid, placement: { mode: 'floating', anchor: 'top-left' }, component: PluginA });
+  registerPlugin({ id: PLUGIN_B_ID, labelKey: 'plugins.b', icon: LayoutGrid, placement: { mode: 'floating', anchor: 'top-right' }, component: PluginB });
+  registerPlugin({ id: PLUGIN_CRASH_ID, labelKey: 'plugins.crash', icon: LayoutGrid, placement: { mode: 'floating', anchor: 'bottom-left' }, component: CrashingPlugin });
+  registerPlugin({ id: PLUGIN_SIDEBAR_ID, labelKey: 'plugins.sidebar', icon: LayoutGrid, placement: { mode: 'sidebar' }, component: SidebarPlugin });
 }
 
 const testCtx: PluginContext = {
@@ -134,7 +134,7 @@ describe('PluginHost', () => {
     // Healthy plugin still renders
     expect(screen.getByTestId('plugin-a')).toBeInTheDocument();
     // Crashing plugin shows fallback (i18n value is renamed in Phase 1163, not here)
-    expect(screen.getByText('This widget encountered an error')).toBeInTheDocument();
+    expect(screen.getByText('This plugin encountered an error')).toBeInTheDocument();
     // Error logged with plugin ID
     expect(spy).toHaveBeenCalledWith(
       expect.stringContaining(PLUGIN_CRASH_ID),
