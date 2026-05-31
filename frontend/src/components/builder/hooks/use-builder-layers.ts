@@ -403,6 +403,18 @@ export function useBuilderLayers(
   }, []);
 
   const handleDeleteGroup = useCallback((groupId: string) => {
+    // B-007: collect the group's child layer ids BEFORE the state mutation and
+    // imperatively tear down their MapLibre companions (fill/outline/label/
+    // extrusion/arrow/cluster glyphs), mirroring handleRemove. Without this the
+    // children's paint layers linger as ghost visuals on the map until the next
+    // full syncFromState. Deduped sources are left for the reference-count-aware
+    // prune. (Group delete stays draft-until-Save for server persistence.)
+    const childIds = layersRef.current
+      .filter((l) => (l as GroupedLayer).parent_group_id === groupId && l.id !== groupId)
+      .map((l) => l.id);
+    if (childIds.length > 0) {
+      removePerLayerCompanions(mapInstanceRef.current, childIds);
+    }
     setLocalLayers((prev) => {
       const next = prev.filter((l) => {
         if (l.id === groupId) return false;
@@ -413,7 +425,7 @@ export function useBuilderLayers(
       return next.map((l, i) => ({ ...l, sort_order: i }));
     });
     setHasUnsavedChanges(true);
-  }, []);
+  }, [mapInstanceRef]);
 
   // --- Bulk operation handlers ---
   // Visibility, opacity, group, and ungroup are PURE LOCAL STATE MUTATIONS
