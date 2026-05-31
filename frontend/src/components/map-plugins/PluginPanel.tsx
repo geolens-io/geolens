@@ -16,7 +16,7 @@ interface PluginPanelProps {
  * row with the plugin body in a scrollable region beneath. Closing the panel
  * dispatches `usePluginStore.close()` to remove it from the open-plugin set.
  *
- * Used internally by {@link PluginHost} when rendering each visible widget
+ * Used internally by {@link PluginHost} when rendering each visible plugin
  * from the registry; plugin authors do not import this directly.
  */
 export const PluginPanel = memo(function PluginPanel({ def, children }: PluginPanelProps) {

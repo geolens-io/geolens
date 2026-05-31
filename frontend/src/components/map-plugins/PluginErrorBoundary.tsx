@@ -14,7 +14,7 @@ export class PluginErrorBoundary extends Component<
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {
-    logger.error(`Widget "${this.props.pluginId}" crashed:`, error, info.componentStack);
+    logger.error(`Plugin "${this.props.pluginId}" crashed:`, error, info.componentStack);
   }
 
   render() {

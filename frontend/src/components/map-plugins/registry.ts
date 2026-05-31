@@ -5,7 +5,7 @@ let cache: PluginDefinition[] | null = null;
 
 export function registerPlugin(def: PluginDefinition): void {
   if (registry.has(def.id)) {
-    if (import.meta.env.DEV) console.warn(`Widget "${def.id}" already registered, overwriting.`);
+    if (import.meta.env.DEV) console.warn(`Plugin "${def.id}" already registered, overwriting.`);
   }
   registry.set(def.id, def);
   cache = null;
