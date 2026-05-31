@@ -18,7 +18,7 @@ const mockMutate = vi.fn();
 const mockUpdateMapMutateAsync = vi.fn();
 const mockPatchMapLayersMutateAsync = vi.fn();
 const mockDuplicateMapMutateAsync = vi.fn();
-const mockEnabledWidgets = vi.hoisted(() => ({
+const mockEnabledPlugins = vi.hoisted(() => ({
   value: null as string[] | null | undefined,
 }));
 
@@ -39,7 +39,7 @@ vi.mock('@/hooks/use-maps', () => ({
 }));
 
 vi.mock('@/hooks/use-settings', () => ({
-  useEnabledWidgets: () => ({ data: mockEnabledWidgets.value }),
+  useEnabledPlugins: () => ({ data: mockEnabledPlugins.value }),
 }));
 
 const mockUploadThumbnail = vi.fn((..._args: unknown[]) => Promise.resolve());
@@ -317,7 +317,7 @@ describe('useBuilderSave', () => {
     // SP-16: clear any pending debounced thumbnail captures from a prior test
     // so module-level state doesn't bleed across cases.
     __resetThumbnailDebounceForTests();
-    mockEnabledWidgets.value = null;
+    mockEnabledPlugins.value = null;
     mockEdition.isEnterprise = false;
     mockUpdateMapMutateAsync.mockImplementation(async (payload) => {
       mockMutate(payload);
@@ -774,7 +774,7 @@ describe('useBuilderSave', () => {
     });
 
     const [payload] = mockMutate.mock.calls[0];
-    expect(payload.data.widgets).toBeUndefined();
+    expect(payload.data.plugins).toBeUndefined();
   });
 
   it('sends plugins null when active plugins return to client defaults from explicit state', () => {
@@ -789,7 +789,7 @@ describe('useBuilderSave', () => {
     });
 
     const [payload] = mockMutate.mock.calls[0];
-    expect(payload.data.widgets).toBeNull();
+    expect(payload.data.plugins).toBeNull();
   });
 
   it('persists explicit plugin state when it differs from client defaults', () => {
@@ -803,11 +803,11 @@ describe('useBuilderSave', () => {
     });
 
     const [payload] = mockMutate.mock.calls[0];
-    expect(payload.data.widgets).toEqual(['legend', 'measurement']);
+    expect(payload.data.plugins).toEqual(['legend', 'measurement']);
   });
 
   it('does not persist admin-disabled active plugins', () => {
-    mockEnabledWidgets.value = ['legend'];
+    mockEnabledPlugins.value = ['legend'];
     usePluginStore.getState().open('legend');
     usePluginStore.getState().open('measurement');
     const state = makeSaveState();
@@ -818,7 +818,7 @@ describe('useBuilderSave', () => {
     });
 
     const [payload] = mockMutate.mock.calls[0];
-    expect(payload.data.widgets).toBeUndefined();
+    expect(payload.data.plugins).toBeUndefined();
   });
 
   it('handleSave is a no-op when mapId is undefined', () => {
