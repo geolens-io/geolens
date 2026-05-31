@@ -181,7 +181,7 @@ All generated paint, layout, and filter properties MUST conform to the MapLibre 
 - Explicit map background color MUST win over land/water tone for MapLibre `background` layers; wrapped raster and blank basemaps must still include a background layer so the setting has a target
 - Terrain exaggeration UI and render-time clamps MUST share the same bounds; extreme slider values must not create unusable distortion and missing terrain sources must fail gracefully
 - DEM Hillshade overlays must be audited against layer order and opacity: high-opacity raster imagery above hillshade can mask relief and make working controls appear broken. Verify maps intended for a relief/marketing look place hillshade above imagery or intentionally document the order.
-- Viewer rendering MUST match builder rendering for basemap config, terrain config, layer styles, filters, labels, and widget availability <!-- v1036: "widget" → "plugin" rename pending (RENAME-TOOL-01, phase 1164) -->
+- Viewer rendering MUST match builder rendering for basemap config, terrain config, layer styles, filters, labels, and plugin availability
 
 ### State management patterns
 
