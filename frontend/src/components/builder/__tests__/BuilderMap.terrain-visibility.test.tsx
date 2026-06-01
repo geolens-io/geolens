@@ -190,7 +190,10 @@ const rasterToken: RasterTileToken = {
   format: 'png',
 };
 
-function makeDemLayer(visible: boolean): MapLayerResponse {
+function makeDemLayer(
+  visible: boolean,
+  renderMode: 'terrain' | 'hillshade' = 'terrain',
+): MapLayerResponse {
   return {
     id: 'layer-dem-bldr02',
     dataset_id: DATASET_ID,
@@ -210,7 +213,7 @@ function makeDemLayer(visible: boolean): MapLayerResponse {
     filter: null,
     label_config: null,
     popup_config: null,
-    style_config: { render_mode: 'terrain' } as MapLayerResponse['style_config'],
+    style_config: { render_mode: renderMode } as MapLayerResponse['style_config'],
     layer_type: null,
     dataset_record_type: 'raster_dataset',
     show_in_legend: true,
@@ -279,6 +282,32 @@ describe('BuilderMap BLDR-02: terrain attach/detach on DEM layer visibility togg
     expect(setTerrainCalls.length).toBeGreaterThan(0);
     const lastCall = setTerrainCalls[setTerrainCalls.length - 1];
     expect(lastCall[0]).toBeNull();
+  });
+
+  // FIX-3-RESOLVER (D-06): the builder terrain DEM lookup must resolve by
+  // terrain_config.source_dataset_id + isTerrainCapableDemLayer ONLY — it must
+  // NOT require style_config.render_mode === 'terrain'. This proves a DEM layer
+  // in HILLSHADE mode still drives the 3D mesh (mesh + visible hillshade on one
+  // DEM), matching the proven viewer resolver in use-viewer-terrain.ts. Before
+  // the resolver-alignment fix this test fails (setTerrain(null) instead of the
+  // source object) because the render_mode clause dropped the hillshade layer.
+  it('Test D (FIX-3): setTerrain called with { source } when the terrain DEM layer is in HILLSHADE mode', async () => {
+    const hillshadeDemLayer = makeDemLayer(true, 'hillshade');
+
+    await act(async () => {
+      render(
+        <BuilderMap
+          layers={[hillshadeDemLayer]}
+          basemapStyle="openfreemap-positron"
+          terrainConfig={terrainConfig}
+        />,
+      );
+    });
+
+    const setTerrainCalls = mapState.fakeMap.setTerrain.mock.calls;
+    expect(setTerrainCalls.length).toBeGreaterThan(0);
+    const lastCall = setTerrainCalls[setTerrainCalls.length - 1];
+    expect(lastCall[0]).toMatchObject({ source: TERRAIN_SOURCE_ID });
   });
 
   it('Test C: setTerrain(null) called when terrainConfig.enabled is false (control — no demLayer visibility involvement)', async () => {

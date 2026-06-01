@@ -386,10 +386,14 @@ export const BuilderMap = memo(function BuilderMap({
       return;
     }
 
+    // FIX-3-RESOLVER (D-06): resolve the terrain DEM by source_dataset_id +
+    // isTerrainCapableDemLayer ONLY — do NOT require render_mode === 'terrain'.
+    // This aligns the builder with the proven viewer resolver
+    // (viewer/hooks/use-viewer-terrain.ts) so a DEM layer in hillshade mode can
+    // still drive the 3D mesh, enabling mesh + visible hillshade on one DEM.
     const demLayer = currentLayers.find(
       (layer) => layer.dataset_id === currentTerrainConfig.source_dataset_id
-        && isTerrainCapableDemLayer(layer)
-        && (layer.style_config as { render_mode?: unknown } | null | undefined)?.render_mode === 'terrain',
+        && isTerrainCapableDemLayer(layer),
     );
     const token = demLayer ? currentTokenMap.get(demLayer.dataset_id) : null;
     // Honor the layer's visibility eye: treat undefined visible as visible (default-visible semantics).
