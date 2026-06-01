@@ -177,6 +177,7 @@
       "hide": "Legende ausblenden",
       "showLayer": "{{name}} anzeigen",
       "hideLayer": "{{name}} ausblenden",
+      "terrain3d": "3D-Gelände",
       "geometry": {
         "point": "Punkt",
         "line": "Linie",

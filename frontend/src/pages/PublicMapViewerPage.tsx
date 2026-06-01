@@ -151,6 +151,7 @@ export function PublicMapViewerPage() {
         onToggleVisibility={handleToggleVisibility}
         isOpen={isLegendOpen}
         onToggle={handleLegendToggle}
+        terrainConfig={data.terrain_config ?? null}
       />
 
       <BasemapToggle

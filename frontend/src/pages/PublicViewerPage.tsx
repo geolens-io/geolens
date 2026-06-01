@@ -168,6 +168,7 @@ export function PublicViewerPage() {
           onToggleVisibility={handleToggleVisibility}
           isOpen={isLegendOpen}
           onToggle={handleLegendToggle}
+          terrainConfig={data.terrain_config ?? null}
         />
       )}
 

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef } from 'react';
-import type { SharedLayerResponse, StyleConfig } from '@/types/api';
+import type { MapTerrainConfig, SharedLayerResponse, StyleConfig } from '@/types/api';
 import { useTranslation } from 'react-i18next';
 import { getLayerColors } from '@/components/map/layer-icons';
 import {
@@ -11,10 +11,14 @@ import {
   HeatmapLegend,
 } from '@/components/map/LegendEntries';
 import type { SwatchStyle } from '@/components/map/LegendEntries';
-import { Eye, EyeOff, Layers, X } from 'lucide-react';
+import { Eye, EyeOff, Layers, Mountain, X } from 'lucide-react';
 import { parseStepOrInterpolate } from '@/lib/normalize-style-config';
 import { MAP_COLORS } from '@/lib/map-colors';
 import { createViewerLayerEntries } from '@/components/viewer/layer-identity';
+import {
+  deriveTerrainLegendEntry,
+  isDemTerrainVisualSuppressed,
+} from '@/components/builder/terrain-legend';
 import { getClusterSourceStrategy, isClusterRenderMode } from '@/components/builder/cluster-source';
 
 interface LayerLegendProps {
@@ -23,6 +27,8 @@ interface LayerLegendProps {
   onToggleVisibility: (layerKey: string) => void;
   isOpen: boolean;
   onToggle: () => void;
+  /** Map-level terrain config; drives the synthetic "3D terrain" legend entry. */
+  terrainConfig?: MapTerrainConfig | null;
 }
 
 /** Build SwatchStyle from viewer layer paint for consistent legend rendering. */
@@ -159,16 +165,28 @@ export function LayerLegend({
   onToggleVisibility,
   isOpen,
   onToggle,
+  terrainConfig = null,
 }: LayerLegendProps) {
   const { t } = useTranslation('common');
   const panelRef = useRef<HTMLDivElement>(null);
 
+  // D-02: exclude terrain-suppressed DEM layers (render_mode:"terrain") using
+  // the SAME shared predicate as the stack/builder — never re-derived. The
+  // synthetic entry is injected only here in LayerLegend's local derivation, so
+  // the shared createViewerLayerEntries output (also consumed by ViewerMap for
+  // real map-layer wiring) is never polluted with a non-paintable entry.
   const sorted = useMemo(
     () =>
       createViewerLayerEntries(layers)
-        .filter(({ layer }) => layer.show_in_legend !== false)
+        .filter(({ layer }) => layer.show_in_legend !== false && !isDemTerrainVisualSuppressed(layer))
         .sort((a, b) => a.layer.sort_order - b.layer.sort_order),
     [layers],
+  );
+
+  // D-01: single synthetic "3D terrain" entry driven by terrain_config.
+  const terrainEntry = useMemo(
+    () => deriveTerrainLegendEntry(terrainConfig, { labelKey: 'viewer.legend.terrain3d' }),
+    [terrainConfig],
   );
 
   // Dismiss on Escape
@@ -211,6 +229,22 @@ export function LayerLegend({
           <h3 className="text-sm font-semibold text-foreground">{t('viewer.legend.title')}</h3>
         </div>
         <ul className="divide-y divide-border/50">
+          {/* A1: pin the synthetic terrain entry at the top, mirroring the
+              stack's relief:terrain row at the top of the relief/terrain group. */}
+          {terrainEntry && (
+            <li
+              key={terrainEntry.id}
+              data-testid="legend-terrain-synthetic"
+              className="px-3 py-2 hover:bg-accent/50"
+            >
+              <div className="flex items-center gap-2">
+                <Mountain className="w-4 h-4 text-muted-foreground" aria-hidden="true" />
+                <span className="text-sm text-foreground flex-1">
+                  {t(terrainEntry.labelKey)}
+                </span>
+              </div>
+            </li>
+          )}
           {sorted.map(({ layer, key }) => {
             const isVisible = visibleLayers.has(key);
             const sc = layer.style_config;
