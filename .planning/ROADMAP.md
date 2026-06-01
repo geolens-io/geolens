@@ -96,7 +96,7 @@ Rename the map "widget" platform to "plugin" across the entire stack — DB, API
 | 1162. Frontend Rename | 2/2 | Complete | 2026-05-30 |
 | 1163. i18n Key Rename | 2/2 | Complete   | 2026-05-31 |
 | 1164. Tooling, Docs & Audit Fixes | 2/2 | Complete | 2026-05-31 |
-| 1165. Live MCP Close-Gate | 0/TBD | Not started | - |
+| 1165. Live MCP Close-Gate | ✓ (orchestrator live gate) | Complete | 2026-05-31 |
 
 ## Coverage
 
