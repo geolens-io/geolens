@@ -191,7 +191,7 @@ Plans:
 
 ---
 
-### Phase 999.17: Builder terrain/legend consistency & DEM dedup (BACKLOG)
+### Phase 999.17: Builder terrain/legend consistency & DEM dedup (BUILT — verified 2026-06-01)
 
 **Goal:** Fix the cross-surface inconsistency where `render_mode:"terrain"` DEM layers are excluded from the builder layer stack but still listed in the legend (phantom entries), and stop the terrain-bind flow from accumulating duplicate DEM layers. Fits the *Map Builder Extensibility Refactor* plan.
 **Requirements:** FIX-1-LEGEND, FIX-2-DEDUP, FIX-3-RESOLVER — brief: `docs-internal/audits/BUCKET-B-builder-terrain-legend-phase-brief.md`
@@ -204,7 +204,9 @@ Three fixes (detail in brief):
 
 Gate: unit tests + builder live-MCP close-gate. Source: `/map-audit 8dd6a129` (2026-05-31); confirmed regression (1 hillshade + 1 terrain → 3 terrain layers between 2026-05-28 and 2026-05-31).
 
+**Status:** BUILT & VERIFIED 2026-06-01 via `/gsd-autonomous` (in-place, not formally promoted to an active milestone — v1036 was already complete + tagged). VERIFICATION.md `status: passed`. Deterministic gate green (typecheck 0, vitest 2707✓/8 pre-existing-SharePanel, i18n 2/2, e2e:smoke:builder 26/26). Live MCP close-gate on map `8dd6a129` confirmed Fix 1/2/3 + clean console. Code review found 1 blocker (BL-01: Fix 3 guard was only half-narrowed — caught a real gap) + 1 high + 2 medium; all 4 fixed in a gap-closure wave. Commits: Plan 1 `e065fcbf`/`50af118f`/`77129186`, Plan 2 `6ea5aa5e`/`645980b1`, Plan 3 `df6ba040`, gap-closure `7ec15858`/`09936673`/`6484e716`/`f9599972`.
+
 Plans:
-- [ ] 999.17-01-PLAN.md — Fix 1: shared deriveTerrainLegendEntry helper + builder LegendPlugin & viewer LayerLegend exclude terrain-suppressed DEM layers + single synthetic "3D terrain" entry + unit tests + en/es/fr/de i18n (FIX-1-LEGEND, wave 1)
-- [ ] 999.17-02-PLAN.md — Fix 2: terrain-bind/render-mode-switch reuses one DEM layer (no duplicate) + delete-source clears terrain_config with non-blocking toast + reducer/i18n tests (FIX-2-DEDUP, wave 2, depends 999.17-01 for builder.json)
-- [ ] 999.17-03-PLAN.md — Fix 3: drop the render_mode==='terrain' clause from BuilderMap applyTerrainConfig DEM lookup (resolve by source_dataset_id like the viewer) so mesh + visible hillshade coexist; POLISH-02 guard untouched + terrain-visibility test (FIX-3-RESOLVER, wave 1)
+- [x] 999.17-01-PLAN.md — Fix 1: shared deriveTerrainLegendEntry helper + builder LegendPlugin & viewer LayerLegend exclude terrain-suppressed DEM layers + single synthetic "3D terrain" entry + unit tests + en/es/fr/de i18n (FIX-1-LEGEND, wave 1)
+- [x] 999.17-02-PLAN.md — Fix 2: terrain-bind/render-mode-switch reuses one DEM layer (no duplicate) + delete-source clears terrain_config with non-blocking toast + reducer/i18n tests (FIX-2-DEDUP, wave 2, depends 999.17-01 for builder.json)
+- [x] 999.17-03-PLAN.md — Fix 3: drop the render_mode==='terrain' clause from BuilderMap applyTerrainConfig DEM lookup (resolve by source_dataset_id like the viewer) so mesh + visible hillshade coexist; POLISH-02 guard narrowed (BL-01) for tileSize-matched hillshade + terrain-visibility test (FIX-3-RESOLVER, wave 1)
