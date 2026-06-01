@@ -1,5 +1,6 @@
 import type { FilterSpecification, Map as MaplibreMap } from 'maplibre-gl';
 import { MAP_COLORS } from '@/lib/map-colors';
+import { LABEL_FONT_STACK } from '../label-layer-utils';
 import type { AdapterLayerInput, LayerAdapter } from './types';
 import {
   filterPaintForLayerType,
@@ -156,7 +157,7 @@ function addClusterCountLayer(map: MaplibreMap, input: AdapterLayerInput) {
     layout: {
       'text-field': ['get', 'point_count_abbreviated'],
       'text-size': textSize,
-      'text-font': ['Open Sans Semibold', 'Arial Unicode MS Bold'],
+      'text-font': [...LABEL_FONT_STACK],
       'text-allow-overlap': true,
       'text-ignore-placement': true,
       visibility: input.visible ? 'visible' : 'none',
@@ -211,7 +212,7 @@ function syncClusterCountLayer(map: MaplibreMap, input: AdapterLayerInput) {
   syncOwnedLayoutProperties(map, id, {
     'text-field': ['get', 'point_count_abbreviated'],
     'text-size': textSize,
-    'text-font': ['Open Sans Semibold', 'Arial Unicode MS Bold'],
+    'text-font': [...LABEL_FONT_STACK],
     'text-allow-overlap': true,
     'text-ignore-placement': true,
     visibility: input.visible ? 'visible' : 'none',

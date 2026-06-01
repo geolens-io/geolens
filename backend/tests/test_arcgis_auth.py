@@ -164,3 +164,23 @@ def test_build_gdal_source_default_oid():
         layer_id=0,
     )
     assert "orderByFields=OBJECTID+ASC" in source
+
+
+def test_build_gdal_source_encodes_arcgis_service_paths_with_spaces():
+    """ArcGIS service paths with spaces should be encoded before GDAL sees them."""
+    source, layer_name = build_gdal_source(
+        "ArcGIS FeatureServer",
+        "https://services.arcgis.com/abc/arcgis/rest/services/NJHC Endorsed Plans/FeatureServer",
+        "Plans",
+        layer_id=0,
+        token="abc 123",
+        order_field=None,
+        result_limit=5,
+    )
+
+    assert layer_name == ""
+    assert "NJHC%20Endorsed%20Plans" in source
+    assert "where=1%3D1" in source
+    assert "resultRecordCount=5" in source
+    assert "token=abc+123" in source
+    assert " " not in source

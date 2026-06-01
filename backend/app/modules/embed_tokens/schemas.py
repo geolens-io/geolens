@@ -6,9 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from app.core.edition import is_enterprise
 
-ADVANCED_SHARING_ERROR = (
-    "Advanced sharing controls require the enterprise overlay"
-)
+ADVANCED_SHARING_ERROR = "Advanced sharing controls require the enterprise overlay"
 
 
 def _normalize_origin(origin: str) -> str:

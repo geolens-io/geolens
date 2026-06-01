@@ -18,8 +18,9 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from tests.repo_paths import repo_root
 
-_REPO_ROOT = Path(__file__).resolve().parents[2]
+_REPO_ROOT = repo_root(__file__)
 _HELM_CHART = _REPO_ROOT / "deployment" / "helm" / "geolens"
 _SECRET_TEMPLATE = _HELM_CHART / "templates" / "secret.yaml"
 _VALUES = _HELM_CHART / "values.yaml"

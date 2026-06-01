@@ -52,7 +52,7 @@ class Map(Base):
         # Revisit trigger: EXPLAIN (ANALYZE) on the public-maps list query
         # shows a sequential scan against catalog.maps when row count exceeds
         # ~10k. Until then, the cost of an extra index (write maintenance +
-        # disk) outweighs the latency benefit. See docs/db-index-deferrals.md.
+        # disk) outweighs the latency benefit.
         {"schema": "catalog"},
     )
 

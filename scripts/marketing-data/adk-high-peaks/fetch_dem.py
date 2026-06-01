@@ -31,6 +31,8 @@ except ImportError:
     print("Missing httpx. Install with: pip install httpx", file=sys.stderr)
     sys.exit(1)
 
+from tnm_access import TnmAccessError, fetch_tnm_json
+
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
@@ -78,9 +80,7 @@ async def list_tnm_products(client: httpx.AsyncClient, dataset_name: str, bbox: 
     # TNM expects spaces literally in `datasets` (no URL-encode of spaces -> '+').
     # httpx will quote them as %20 which TNM accepts.
     print(f"Querying TNM API for {dataset_name!r} in bbox {bbox}...")
-    resp = await client.get(TNM_API, params=params, timeout=60)
-    resp.raise_for_status()
-    body = resp.json()
+    body = await fetch_tnm_json(client, TNM_API, params, timeout=60)
     items = body.get("items", [])
     if not items:
         print(f"  No tiles returned. Full response: {json.dumps(body, indent=2)[:500]}")
@@ -191,7 +191,11 @@ async def main(args: argparse.Namespace) -> int:
         headers={"User-Agent": "geolens-marketing-data/1.0"},
         follow_redirects=True,
     ) as client:
-        items = await list_tnm_products(client, ds_cfg["tnm_dataset"], AOI_BBOX)
+        try:
+            items = await list_tnm_products(client, ds_cfg["tnm_dataset"], AOI_BBOX)
+        except TnmAccessError as exc:
+            print(f"TNM API query failed: {exc}", file=sys.stderr)
+            return 1
         if not items:
             print("No tiles returned from TNM API. Aborting.", file=sys.stderr)
             return 1

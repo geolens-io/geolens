@@ -5,9 +5,10 @@ deletion), INF-14 (nginx mime), INF-15 (python pin cross-comments), INF-16 (USER
 """
 
 import re
-from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+from tests.repo_paths import repo_root
+
+REPO_ROOT = repo_root(__file__)
 DOCKERFILE = REPO_ROOT / "Dockerfile"
 FRONTEND_DOCKERFILE_DEV = REPO_ROOT / "frontend" / "Dockerfile.dev"
 FRONTEND_DOCKERFILE_LEGACY = REPO_ROOT / "frontend" / "Dockerfile"

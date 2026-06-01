@@ -6,11 +6,11 @@ failure ("required environment variables not set"), not a silent
 admin/admin foothold.
 """
 
-from pathlib import Path
-
 import pytest
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+from tests.repo_paths import repo_root
+
+REPO_ROOT = repo_root(__file__)
 ENV_EXAMPLE = REPO_ROOT / ".env.example"
 
 

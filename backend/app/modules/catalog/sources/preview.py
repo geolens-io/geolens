@@ -3,6 +3,7 @@
 import asyncio
 import json
 import os
+from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
 
 import structlog
 
@@ -10,6 +11,16 @@ from app.platform.extensions import get_catalog_port
 
 logger = structlog.stdlib.get_logger(__name__)
 IngestionError = get_catalog_port().ingestion_error_class()
+
+
+def _encode_url_for_gdal(url: str) -> str:
+    """Percent-encode URL paths so GDAL/libcurl accepts ArcGIS service names."""
+    parts = urlsplit(url)
+    encoded_path = quote(parts.path, safe="/%:@!$&'()*+,;=")
+    encoded_query = urlencode(parse_qsl(parts.query, keep_blank_values=True))
+    return urlunsplit(
+        (parts.scheme, parts.netloc, encoded_path, encoded_query, parts.fragment)
+    )
 
 
 def build_gdal_source(
@@ -32,13 +43,16 @@ def build_gdal_source(
     elif service_type.startswith("ArcGIS"):
         if layer_id is None:
             raise ValueError("ArcGIS layer preview requires a layer ID")
-        query_url = f"{base_url}/{layer_id}/query?f=json&where=1%3D1"
+        safe_base_url = _encode_url_for_gdal(base_url.rstrip("/"))
+        safe_layer_id = quote(str(layer_id).strip("/"), safe="")
+        params: dict[str, str | int] = {"f": "json", "where": "1=1"}
         if order_field:
-            query_url += f"&orderByFields={order_field}+ASC"
+            params["orderByFields"] = f"{order_field} ASC"
         if result_limit is not None:
-            query_url += f"&resultRecordCount={result_limit}"
+            params["resultRecordCount"] = result_limit
         if token:
-            query_url += f"&token={token}"
+            params["token"] = token
+        query_url = f"{safe_base_url}/{safe_layer_id}/query?{urlencode(params)}"
         return (f"ESRIJSON:{query_url}", "")
     elif service_type.startswith("OGC API"):
         return (f"OAPIF:{base_url}", layer_name)

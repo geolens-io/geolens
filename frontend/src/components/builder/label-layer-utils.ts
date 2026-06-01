@@ -4,8 +4,6 @@ import type { AddLayerObject } from 'maplibre-gl';
 
 export const LABEL_FONT_STACK = [
   'Noto Sans Regular',
-  'Open Sans Regular',
-  'Arial Unicode MS Regular',
 ] as const;
 
 /** Phase 20260526-builder-audit BLD-20260526-11: resolve symbol-placement, enforcing point-only for fill geometries. */

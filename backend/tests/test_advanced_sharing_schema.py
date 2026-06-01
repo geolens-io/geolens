@@ -40,11 +40,12 @@ def test_community_rejects_embed_update_allowed_origins(community_edition):
     _assert_advanced_sharing_error(exc_info)
 
 
-def test_community_rejects_share_expiration(community_edition):
-    with pytest.raises(ValidationError) as exc_info:
-        ShareTokenRequest(expires_at=_future_timestamp())
+def test_community_accepts_share_expiration(community_edition):
+    expires_at = _future_timestamp()
 
-    _assert_advanced_sharing_error(exc_info)
+    request = ShareTokenRequest(expires_at=expires_at)
+
+    assert request.expires_at == expires_at
 
 
 def test_community_accepts_basic_sharing_defaults(community_edition):
@@ -68,9 +69,8 @@ def test_enterprise_accepts_custom_embed_lifetime_and_origins(enterprise_edition
     assert update_request.allowed_origins == ["https://example.org"]
 
 
-def test_enterprise_accepts_share_expiration(enterprise_edition):
-    expires_at = _future_timestamp()
+def test_share_expiration_must_be_future():
+    with pytest.raises(ValidationError) as exc_info:
+        ShareTokenRequest(expires_at=datetime.now(timezone.utc) - timedelta(seconds=1))
 
-    request = ShareTokenRequest(expires_at=expires_at)
-
-    assert request.expires_at == expires_at
+    assert "expires_at must be in the future" in str(exc_info.value)

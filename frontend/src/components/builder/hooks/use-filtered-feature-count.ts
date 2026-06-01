@@ -23,11 +23,13 @@ export function useFilteredFeatureCount(
   layer: MapLayerResponse | null,
 ): number | null {
   const [count, setCount] = useState<number | null>(null);
+  const layerId = layer?.id ?? null;
+  const layerFilter = layer?.filter ?? null;
 
   useEffect(() => {
     if (!map) return;
-    if (!layer) return;
-    if (!layer.filter) {
+    if (!layerId) return;
+    if (!layerFilter) {
       // No filter → "0 features after filter" hint should never fire.
       setCount(null);
       return;
@@ -39,7 +41,6 @@ export function useFilteredFeatureCount(
     function recompute() {
       if (cancelled) return;
       if (!map) return;
-      if (!layer) return;
       // queryRenderedFeatures returns [] when the layer id is not on the
       // map (source still loading, layer hidden, etc.) — treat as null
       // so the hint does not flash false positives during loading.
@@ -47,7 +48,7 @@ export function useFilteredFeatureCount(
       // use-layer-map-sync.ts), NOT the raw layer.id UUID. Querying the bare
       // UUID always missed, so the count was permanently null and the
       // "0 features after filter" hint (EASY-18) never fired.
-      const mapLayerId = `layer-${layer.id}`;
+      const mapLayerId = `layer-${layerId}`;
       const layerExistsOnMap = !!map.getLayer(mapLayerId);
       if (!layerExistsOnMap) {
         setCount(null);
@@ -71,12 +72,12 @@ export function useFilteredFeatureCount(
       if (debounceTimer !== null) clearTimeout(debounceTimer);
       map.off('idle', handleIdle);
     };
-  // Intentionally omits the full `layer` object — it is recreated by
+  // Intentionally depends on scalar layer fields, not the full `layer` object.
+  // The object is recreated by
   // dispatchLayerAction on every mutation (opacity, paint, visibility), which
   // would cause queryRenderedFeatures to fire at ~60 fps during slider drags.
-  // `layer?.id` and `layer?.filter` cover all meaningful change conditions;
-  // the closure still captures the current `layer` reference on each run.
-  }, [map, layer?.id, layer?.filter]);
+  // `layerId` and `layerFilter` cover all meaningful change conditions.
+  }, [map, layerId, layerFilter]);
 
   return count;
 }

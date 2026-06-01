@@ -43,7 +43,6 @@ from __future__ import annotations
 
 import argparse
 import importlib.util
-import pathlib
 import sys
 import types
 from datetime import datetime, timedelta, timezone
@@ -51,6 +50,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import httpx
 import pytest
+from tests.repo_paths import repo_root
 
 
 # ---------------------------------------------------------------------------
@@ -73,12 +73,7 @@ def _load_seed_module() -> types.ModuleType:
     if _SEED_MODULE is not None:
         return _SEED_MODULE
 
-    # tests/ -> backend/ -> repo root -> scripts/seed-natural-earth.py
-    script_path = (
-        pathlib.Path(__file__).resolve().parents[2]
-        / "scripts"
-        / "seed-natural-earth.py"
-    )
+    script_path = repo_root(__file__) / "scripts" / "seed-natural-earth.py"
     assert script_path.exists(), f"seed script not found at {script_path}"
 
     spec = importlib.util.spec_from_file_location("seed_natural_earth", script_path)
@@ -351,6 +346,11 @@ async def test_main_returns_nonzero_when_reconciliation_finds_failures(
     # exit-code wiring.
     monkeypatch.setattr(seed, "fetch_existing_datasets", AsyncMock(return_value={}))
     monkeypatch.setattr(seed, "create_collections", AsyncMock(return_value=None))
+    monkeypatch.setattr(
+        seed,
+        "ingest_raster_fixture",
+        AsyncMock(return_value={"name": "raster-fixture", "status": "skipped"}),
+    )
     # Stub print_summary so the captured stdout stays uncluttered; the
     # function's return value is unused by main().
     monkeypatch.setattr(seed, "print_summary", MagicMock(return_value=None))
@@ -393,6 +393,11 @@ async def test_main_returns_zero_on_clean_run(monkeypatch, _seed_main_args) -> N
 
     monkeypatch.setattr(seed, "fetch_existing_datasets", AsyncMock(return_value={}))
     monkeypatch.setattr(seed, "create_collections", AsyncMock(return_value=None))
+    monkeypatch.setattr(
+        seed,
+        "ingest_raster_fixture",
+        AsyncMock(return_value={"name": "raster-fixture", "status": "skipped"}),
+    )
     monkeypatch.setattr(seed, "print_summary", MagicMock(return_value=None))
     # Reconciliation returns []: no failures found in the run window.
     monkeypatch.setattr(seed, "reconcile_failed_jobs", AsyncMock(return_value=[]))

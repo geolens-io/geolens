@@ -1211,11 +1211,7 @@ async def share_map_endpoint(
     user: Identity = Depends(require_permission("edit_metadata")),
     db: AsyncSession = Depends(get_db),
 ) -> ShareTokenResponse:
-    """Create or retrieve a share token for a public map.
-
-    Community supports basic non-expiring share links. Non-null expiration
-    requires the enterprise edition.
-    """
+    """Create or retrieve a share token for a public map."""
     map_obj = await get_map(db, map_id)
     if map_obj is None:
         raise HTTPException(
@@ -1269,7 +1265,7 @@ async def update_map_share_token_endpoint(
 ) -> ShareTokenResponse:
     """Update expiration on an existing share token. Owner or admin only.
 
-    Null clears expiration. Setting a non-null expiration requires the enterprise edition.
+    Null clears expiration.
     """
     map_obj = await get_map(db, map_id)
     if map_obj is None:

@@ -33,8 +33,6 @@ DEFAULT_ARROW_BASE_SIZE = 14
 CLUSTER_GEOJSON_FEATURE_LIMIT = 5000
 LABEL_FONT_STACK = [
     "Noto Sans Regular",
-    "Open Sans Regular",
-    "Arial Unicode MS Regular",
 ]
 
 _SAFE_ID_RE = re.compile(r"[^A-Za-z0-9_-]+")

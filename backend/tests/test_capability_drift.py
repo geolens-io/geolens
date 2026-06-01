@@ -14,11 +14,11 @@ and the offending change must update both sides in lockstep.
 from __future__ import annotations
 
 import re
-from pathlib import Path
 
 from app.core.permissions import ALL_CAPABILITIES
+from tests.repo_paths import repo_root
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+REPO_ROOT = repo_root(__file__)
 CAPABILITIES_TS = REPO_ROOT / "frontend" / "src" / "lib" / "capabilities.ts"
 
 

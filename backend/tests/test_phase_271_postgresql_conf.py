@@ -1,15 +1,14 @@
 """Static-analysis tests for Phase 271 / DBM-01 + DBM-06 config + doc deliverables."""
 
 import re
-from pathlib import Path
 
+from tests.repo_paths import repo_root
 
-_REPO_ROOT = Path(__file__).resolve().parents[2]
+_REPO_ROOT = repo_root(__file__)
 _POSTGRESQL_CONF = _REPO_ROOT / "db" / "postgresql.conf"
 _MAP_MODEL = (
     _REPO_ROOT / "backend" / "app" / "modules" / "catalog" / "maps" / "models.py"
 )
-_DEFERRALS_DOC = _REPO_ROOT / "docs" / "db-index-deferrals.md"
 
 
 def test_postgresql_conf_sets_hnsw_ef_search_default():
@@ -47,10 +46,7 @@ def test_map_model_documents_dbm_06_deferral():
 
 
 def test_db_index_deferrals_doc_exists_with_dbm_06():
-    """docs/db-index-deferrals.md must exist and contain a DBM-06 section."""
-    assert _DEFERRALS_DOC.exists(), (
-        "Expected docs/db-index-deferrals.md to be created by Plan 271-07."
-    )
-    text = _DEFERRALS_DOC.read_text()
+    """DBM-06 deferral rationale stays inline with the model for public release."""
+    text = _MAP_MODEL.read_text()
     assert "DBM-06" in text
     assert "Map.visibility" in text or "Map visibility" in text

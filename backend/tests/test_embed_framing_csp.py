@@ -358,9 +358,9 @@ def test_e2e_sec_audit_s08_skips_when_no_share_token():
     documents the existence of the e2e coverage and guards against accidental
     deletion of the S08 test block.
     """
-    import pathlib
+    from tests.repo_paths import repo_root
 
-    e2e_path = pathlib.Path(__file__).parents[2] / "e2e" / "sec-audit.spec.ts"
+    e2e_path = repo_root(__file__) / "e2e" / "sec-audit.spec.ts"
     assert e2e_path.exists(), f"sec-audit.spec.ts not found at {e2e_path}"
     content = e2e_path.read_text()
     assert "S08" in content, "S08 test block missing from e2e/sec-audit.spec.ts"

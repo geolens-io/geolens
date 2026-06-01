@@ -1,10 +1,10 @@
 """Static-analysis tests for Phase 271 / DBM-04 pool config + README docs."""
 
 import re
-from pathlib import Path
 
+from tests.repo_paths import repo_root
 
-_REPO_ROOT = Path(__file__).resolve().parents[2]
+_REPO_ROOT = repo_root(__file__)
 _CONFIG_PY = _REPO_ROOT / "backend" / "app" / "core" / "config.py"
 _ENV_EXAMPLE = _REPO_ROOT / ".env.example"
 _DOCKER_COMPOSE = _REPO_ROOT / "docker-compose.yml"

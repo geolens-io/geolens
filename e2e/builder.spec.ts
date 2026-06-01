@@ -318,7 +318,7 @@ test.describe.serial('Map Builder', () => {
     }
     await expect(dialog.getByRole('radio', { name: 'DEM' })).toHaveCount(0);
     for (const unsupportedScope of ['Curated', 'Your imports', 'Public']) {
-      await expect(dialog.getByRole('button', { name: unsupportedScope })).toHaveCount(0);
+      await expect(dialog.getByRole('button', { name: unsupportedScope, exact: true })).toHaveCount(0);
     }
 
     const firstExpand = dialog.getByRole('button', { name: /^Expand / }).first();

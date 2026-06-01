@@ -545,9 +545,9 @@ export function DatasetSearchPanel({
   }
 
   return (
-    <div className="min-h-0">
-      <div className="space-y-2 px-1">
-        <div className="relative">
+    <div className="min-h-0 min-w-0 overflow-hidden">
+      <div className="min-w-0 space-y-2 px-1">
+        <div className="relative min-w-0">
           <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
           <Input
             ref={inputRef}
@@ -563,33 +563,33 @@ export function DatasetSearchPanel({
           type="single"
           value={activeTab}
           onValueChange={handleTabChange}
-          className="grid w-full grid-cols-4 rounded-md bg-muted/50 p-1"
+          className="grid w-full min-w-0 grid-cols-4 rounded-md bg-muted/50 p-1"
         >
-          <ToggleGroupItem value="all" className="h-7 text-xs">
+          <ToggleGroupItem value="all" className="h-7 min-w-0 px-2 text-xs">
             {t('search.allTypes', { defaultValue: 'All' })}
           </ToggleGroupItem>
-          <ToggleGroupItem value="vector" className="h-7 text-xs">
+          <ToggleGroupItem value="vector" className="h-7 min-w-0 px-2 text-xs">
             {t('search.vector', { defaultValue: 'Vector' })}
           </ToggleGroupItem>
-          <ToggleGroupItem value="raster" className="h-7 text-xs">
+          <ToggleGroupItem value="raster" className="h-7 min-w-0 px-2 text-xs">
             {t('search.raster', { defaultValue: 'Raster' })}
           </ToggleGroupItem>
-          <ToggleGroupItem value="basemap" className="h-7 text-xs">
+          <ToggleGroupItem value="basemap" className="h-7 min-w-0 px-2 text-xs">
             {t('search.basemap', { defaultValue: 'Basemap' })}
           </ToggleGroupItem>
         </ToggleGroup>
 
         {activeTab !== 'basemap' && (sourceOptions.length > 0 || keywordOptions.length > 0 || sourceOrganization || keyword) && (
-          <div className="flex flex-wrap items-center gap-1" aria-label={t('search.filters', { defaultValue: 'Filters' })}>
+          <div className="flex min-w-0 flex-wrap items-center gap-1" aria-label={t('search.filters', { defaultValue: 'Filters' })}>
             {sourceOrganization && (
               <Button
                 type="button"
                 variant="secondary"
                 size="sm"
-                className="h-7 rounded px-2 text-xs"
+                className="h-7 min-w-0 max-w-full rounded px-2 text-xs"
                 onClick={() => setSourceOrganization('')}
               >
-                {sourceOrganization}
+                <span className="block truncate">{sourceOrganization}</span>
               </Button>
             )}
             {!sourceOrganization && sourceOptions.map((option) => (
@@ -598,10 +598,10 @@ export function DatasetSearchPanel({
                 type="button"
                 variant="outline"
                 size="sm"
-                className="h-7 rounded px-2 text-xs"
+                className="h-7 min-w-0 max-w-full rounded px-2 text-xs"
                 onClick={() => setSourceOrganization(option)}
               >
-                {option}
+                <span className="block truncate">{option}</span>
               </Button>
             ))}
             {keyword && (

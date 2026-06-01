@@ -1,7 +1,7 @@
 """Phase 275 / API-05 + API-08 + API-10 regression: compose alignment locks.
 
 Pinned by Phase 275 Plan 06. These tests enforce three invariants that the
-inline comments in docker-compose.yml + Dockerfile + .claude/commands/oc-audit.md
+inline comments in docker-compose.yml + Dockerfile
 encode but cannot self-verify:
 
 1. The compose-vs-.env.example dual-default for DB_PORT / API_PORT is
@@ -9,20 +9,17 @@ encode but cannot self-verify:
 2. The titiler / valkey image pins are not stuck at their original (M-25
    era) tags.
 3. The uv installer pin is byte-aligned across every Dockerfile stage.
-4. The oc-audit methodology no longer claims docker-compose.enterprise.yml
-   "exists alongside" the OSS compose files — it lives in the private
-   geolens-enterprise overlay.
+4. Deferred commercial-overlay material is not documented in the public
+   repository surfaces.
 """
 
 from __future__ import annotations
 
 import re
-from pathlib import Path
 
-# Test runs with pytest cwd=`backend/` (per Makefile + planner contract); the
-# files this regression locks live at the repo root. Derive the repo root from
-# this file's location so the test is robust regardless of pytest cwd.
-_REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+from tests.repo_paths import repo_root
+
+_REPO_ROOT = repo_root(__file__)
 
 
 def _read(path: str) -> str:
@@ -104,23 +101,15 @@ def test_uv_installer_pins_are_aligned() -> None:
         )
 
 
-def test_oc_audit_methodology_acknowledges_enterprise_repo() -> None:
-    """API-10 / M-53: oc-audit references the enterprise repo for docker-compose.enterprise.yml."""
-    body = _read(".claude/commands/oc-audit.md")
-    # The OSS repo must NOT carry the file.
+def test_deferred_overlay_not_documented_in_public_surfaces() -> None:
+    """API-10 / M-53: public docs do not advertise deferred commercial overlays."""
+    readme = _read("README.md")
+    env_example = _read(".env.example")
+
     assert not _exists("docker-compose.enterprise.yml"), (
-        "docker-compose.enterprise.yml should NOT be in the OSS repo root — it "
-        "lives in the private geolens-enterprise overlay"
+        "docker-compose.enterprise.yml should not be in the public repo root"
     )
-    # The misleading "# known to exist" comment in Subagent 4 step 1 must be gone.
-    assert "# known to exist" not in body, (
-        ".claude/commands/oc-audit.md Subagent 4 step 1 still has the "
-        "'# known to exist' comment for docker-compose.enterprise.yml. Update "
-        "the cat command to point at the enterprise repo path (API-10 / M-53)."
-    )
-    # The corrected reference to the enterprise repo must be present.
-    assert "~/Code/geolens-enterprise" in body, (
-        ".claude/commands/oc-audit.md must reference the local enterprise overlay "
-        "path '~/Code/geolens-enterprise' so the audit methodology points at where "
-        "docker-compose.enterprise.yml actually lives (API-10 / M-53)."
-    )
+    for body in (readme, env_example):
+        assert "docker-compose.enterprise.yml" not in body
+        assert "geolens-enterprise" not in body
+        assert "Enterprise" not in body

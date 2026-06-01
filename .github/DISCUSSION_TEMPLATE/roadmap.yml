@@ -12,7 +12,7 @@ body:
     id: impact
     attributes:
       label: Who is affected?
-      description: Tell us whether this matters for individual users, small teams, enterprise operators, or public viewers.
+      description: Tell us whether this matters for individual users, small teams, operators, or public viewers.
     validations:
       required: true
   - type: textarea

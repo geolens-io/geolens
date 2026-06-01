@@ -15,9 +15,10 @@ from __future__ import annotations
 
 import re
 import subprocess
-from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+from tests.repo_paths import repo_root
+
+REPO_ROOT = repo_root(__file__)
 
 
 def _read(relative_path: str) -> str:
@@ -32,7 +33,7 @@ def test_no_geolens_io_typos() -> None:
     - CHANGELOG.md                → preserves the Phase 269 fix record
     - this test file               → self-references in docstrings/strings
     """
-    self_path = "backend/tests/test_phase_275_demo_cluster.py"
+    self_filename = "test_phase_275_demo_cluster.py"
     result = subprocess.run(
         [
             "grep",
@@ -59,7 +60,7 @@ def test_no_geolens_io_typos() -> None:
         and ".planning/" not in line
         and "docs-internal/" not in line  # gitignored historical audits
         and "CHANGELOG.md" not in line  # historical fix record from Phase 269
-        and self_path not in line  # this test's own self-references
+        and not line.split(":", 1)[0].endswith(self_filename)
     ]
     assert not hits, (
         f"demo.geolens.io references in active code/docs: {hits}. "

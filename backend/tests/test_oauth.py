@@ -848,9 +848,8 @@ class TestIdpRoleMappingGate:
         with _pytest.raises(ValidationError) as exc_info:
             OAuthProviderCreate(**self._create_payload(group_claim="groups"))
 
-        assert (
-            "Group-based role mapping requires the enterprise overlay"
-            in str(exc_info.value)
+        assert "Group-based role mapping requires the enterprise overlay" in str(
+            exc_info.value
         )
 
     def test_create_rejects_group_role_mapping_in_community(self):
@@ -864,9 +863,8 @@ class TestIdpRoleMappingGate:
                 **self._create_payload(group_role_mapping={"admins": "admin"})
             )
 
-        assert (
-            "Group-based role mapping requires the enterprise overlay"
-            in str(exc_info.value)
+        assert "Group-based role mapping requires the enterprise overlay" in str(
+            exc_info.value
         )
 
     def test_create_accepts_group_mapping_in_enterprise(self):
@@ -894,9 +892,8 @@ class TestIdpRoleMappingGate:
         with _pytest.raises(ValidationError) as exc_info:
             OAuthProviderUpdate(group_role_mapping={"admins": "admin"})
 
-        assert (
-            "Group-based role mapping requires the enterprise overlay"
-            in str(exc_info.value)
+        assert "Group-based role mapping requires the enterprise overlay" in str(
+            exc_info.value
         )
 
     def test_create_with_empty_mapping_allowed_in_community(self):

@@ -29,6 +29,8 @@ except ImportError:
     print("Missing httpx. Install with: pip install httpx", file=sys.stderr)
     sys.exit(1)
 
+from tnm_access import TnmAccessError, fetch_tnm_json
+
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
@@ -57,9 +59,7 @@ async def query_tnm_naip(client: httpx.AsyncClient, evidence_path: Path) -> list
         "max": 100,
         "outputFormat": "JSON",
     }
-    resp = await client.get(TNM_API, params=params, timeout=60)
-    resp.raise_for_status()
-    body = resp.json()
+    body = await fetch_tnm_json(client, TNM_API, params, timeout=60)
     evidence_path.parent.mkdir(parents=True, exist_ok=True)
     evidence_path.write_text(json.dumps({
         "queried_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
@@ -306,7 +306,17 @@ async def amain(args: argparse.Namespace) -> int:
     ) as client:
         if args.source in ("auto", "tnm-naip"):
             print("Querying TNM Access API for NAIP GeoTIFF products...")
-            items = await query_tnm_naip(client, output_dir / "tnm_naip_query.json")
+            try:
+                items = await query_tnm_naip(client, output_dir / "tnm_naip_query.json")
+            except TnmAccessError as exc:
+                if args.source == "tnm-naip":
+                    print(f"TNM NAIP query failed: {exc}", file=sys.stderr)
+                    return 1
+                print(
+                    f"TNM NAIP query failed; continuing with NY orthos fallback: {exc}",
+                    file=sys.stderr,
+                )
+                items = []
             print(f"  TNM NAIP items: {len(items)}")
             if items:
                 count = await download_tnm_products(client, items, output_dir / "naip_tiles")

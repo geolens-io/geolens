@@ -6,6 +6,7 @@ import { useQueryClient, type QueryClient } from '@tanstack/react-query';
 vi.mock('@/api/ingest', () => ({
   uploadFile: vi.fn(),
   getJobStatus: vi.fn(),
+  getJobStatusByDataset: vi.fn(),
   previewFile: vi.fn(),
   commitImport: vi.fn(),
   retryJob: vi.fn(),
@@ -17,18 +18,21 @@ vi.mock('@/api/ingest', () => ({
   createVrt: vi.fn(),
 }));
 
-import { uploadFile, getJobStatus, discoverTables, getUploadConfig, createVrt } from '@/api/ingest';
+import { uploadFile, getJobStatus, getJobStatusByDataset, discoverTables, getUploadConfig, createVrt } from '@/api/ingest';
 import {
   useUploadFile,
   useJobStatus,
+  useDatasetJobStatus,
   useDiscoverTables,
   useUploadConfig,
   useCreateVrt,
 } from '@/components/import/hooks/use-ingest';
 import { queryKeys } from '@/lib/query-keys';
+import { useAuthStore } from '@/stores/auth-store';
 
 const mockUploadFile = vi.mocked(uploadFile);
 const mockGetJobStatus = vi.mocked(getJobStatus);
+const mockGetJobStatusByDataset = vi.mocked(getJobStatusByDataset);
 const mockDiscoverTables = vi.mocked(discoverTables);
 const mockGetUploadConfig = vi.mocked(getUploadConfig);
 const mockCreateVrt = vi.mocked(createVrt);
@@ -98,6 +102,32 @@ describe('useJobStatus', () => {
     const { result } = renderHook(() => useJobStatus('bad-id'));
 
     await waitFor(() => expect(result.current.isError).toBe(true));
+  });
+});
+
+describe('useDatasetJobStatus', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    useAuthStore.setState({ token: null, refreshToken: null, expiresAt: null, user: null });
+  });
+
+  it('does not fetch protected ingest-job metadata for anonymous dataset viewers', () => {
+    const { result } = renderHook(() => useDatasetJobStatus('ds-1'));
+
+    expect(result.current.fetchStatus).toBe('idle');
+    expect(mockGetJobStatusByDataset).not.toHaveBeenCalled();
+  });
+
+  it('fetches dataset job metadata when authenticated', async () => {
+    const status = { job_id: 'j-1', status: 'complete', filename: 'test.geojson' };
+    mockGetJobStatusByDataset.mockResolvedValueOnce(status as never);
+    useAuthStore.setState({ token: 'jwt-token', refreshToken: null, expiresAt: null, user: null });
+
+    const { result } = renderHook(() => useDatasetJobStatus('ds-1'));
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(mockGetJobStatusByDataset).toHaveBeenCalledWith('ds-1');
+    expect(result.current.data).toEqual(status);
   });
 });
 

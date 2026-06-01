@@ -66,6 +66,9 @@ DATASETS = [
     {
         "key": "adk-high-peaks-dem-1m",
         "path": SCRATCH_DIR / "cogs" / "adk_high_peaks_dem_1m.tif",
+        "upload_alternatives": [
+            SCRATCH_DIR / "cogs" / "adk_high_peaks_dem_1m_upload.tif",
+        ],
         "file_type": "raster",
         "title": "ADK High Peaks — 1m DEM (USGS 3DEP)",
         "summary": (
@@ -441,6 +444,33 @@ async def ingest_dataset(
 
     fsize = path.stat().st_size
     size_mb = fsize / (1024 * 1024)
+    max_upload_mb = float(os.environ.get("GEOLENS_UPLOAD_MAX_MB", "500"))
+
+    if size_mb > max_upload_mb:
+        for alt in ds.get("upload_alternatives", []):
+            if alt.exists() and alt.stat().st_size > 0:
+                alt_size_mb = alt.stat().st_size / (1024 * 1024)
+                if alt_size_mb <= max_upload_mb:
+                    print(
+                        f"\n[{ds['key']}] Using upload-sized derivative "
+                        f"{alt.name} ({alt_size_mb:.1f} MB) instead of "
+                        f"{path.name} ({size_mb:.1f} MB; limit {max_upload_mb:.0f} MB)."
+                    )
+                    path = alt
+                    fsize = path.stat().st_size
+                    size_mb = fsize / (1024 * 1024)
+                    break
+        else:
+            return {
+                "key": ds["key"],
+                "status": "failed",
+                "stage": "upload-preflight",
+                "error": (
+                    f"{path.name} is {size_mb:.1f} MB, above GEOLENS_UPLOAD_MAX_MB="
+                    f"{max_upload_mb:.0f}. Run build_dem_cog.sh to create "
+                    "adk_high_peaks_dem_1m_upload.tif or raise the API upload limit."
+                ),
+            }
 
     # 1. Upload (multipart)
     print(f"\n[{ds['key']}] Uploading {path.name} ({size_mb:.1f} MB)...")

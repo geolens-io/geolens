@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { queryKeys } from '@/lib/query-keys';
 import { uploadFile, getJobStatus, getJobStatusByDataset, retryJob, discoverTables, bulkRegisterTables, getUploadConfig, createVrt } from '@/api/ingest';
 import { ApiError, apiFetch } from '@/api/client';
+import { useAuthStore } from '@/stores/auth-store';
 import type { BulkRegisterRequest, VrtCreateRequest, SearchResponse } from '@/types/api';
 
 export function useUploadFile() {
@@ -34,10 +35,12 @@ export function useJobStatus(jobId: string | null) {
  * (no ingest job) — treat it as "no warnings" rather than an error.
  */
 export function useDatasetJobStatus(datasetId: string | null) {
+  const hasToken = useAuthStore((s) => !!s.token);
+
   return useQuery({
     queryKey: queryKeys.ingest.jobStatusByDataset(datasetId),
     queryFn: () => getJobStatusByDataset(datasetId!),
-    enabled: !!datasetId,
+    enabled: !!datasetId && hasToken,
     // The ingest job's warning metadata is immutable once the dataset
     // exists, so cache forever and hold it in memory across tab switches.
     // PERF-2: Infinity staleTime avoids refetch-on-mount; gcTime keeps
@@ -46,8 +49,11 @@ export function useDatasetJobStatus(datasetId: string | null) {
     staleTime: Infinity,
     gcTime: 30 * 60 * 1000,
     // Don't retry on 404 — that's the "no job" case, not a transient failure.
+    // Don't retry on 401 — anonymous public dataset pages should not emit
+    // repeated protected-job endpoint failures if auth state changes mid-load.
     retry: (failureCount, error) => {
       if (error instanceof ApiError && error.status === 404) return false;
+      if (error instanceof ApiError && error.status === 401) return false;
       return failureCount < 2;
     },
   });

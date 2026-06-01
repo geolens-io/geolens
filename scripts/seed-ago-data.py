@@ -647,6 +647,29 @@ MAX_RETRIES = 3
 BACKOFF_BASE = 5  # seconds
 
 
+def _is_retryable_ingest_error(message: str) -> bool:
+    """Return True for transient upstream or GDAL fetch failures."""
+    return bool(
+        re.search(
+            r"\b(?:429|500|502|503|504)\b|gateway|temporar(?:y|ily)|"
+            r"timed? ?out|operation timed out|connection reset|"
+            r"connection aborted|remote host closed",
+            message,
+            re.IGNORECASE,
+        )
+    )
+
+
+async def _retry_delay(tag: str, layer_name: str, attempt: int, reason: str) -> None:
+    delay = BACKOFF_BASE * (3 ** (attempt - 1))
+    jitter = delay * (0.5 + random.random())
+    print(
+        f"  {tag} Retry {attempt}/{MAX_RETRIES} for {layer_name} "
+        f"after transient failure ({reason}; waiting {jitter:.0f}s)"
+    )
+    await asyncio.sleep(jitter)
+
+
 def _format_elapsed(seconds: float) -> str:
     """Format elapsed seconds as mm:ss or hh:mm:ss."""
     m, s = divmod(int(seconds), 60)
@@ -735,19 +758,8 @@ async def process_one(
 
                     if result.get("status") == "failed":
                         error_msg = result.get("error_message", "Unknown ingest error")
-                        # SEED-02: single retry on ogr2ogr timeout-shaped failures.
-                        # The backend uses INGEST_HTTP_TIMEOUT_SECONDS (default 300s)
-                        # as GDAL_HTTP_TIMEOUT; set that env var in the api service to
-                        # control the per-HTTP-request timeout. The seeder cannot adjust
-                        # the server-side timeout via the API — it only triggers a retry.
-                        if (
-                            attempt < 2
-                            and re.search(r"timed? ?out|Operation timed out", error_msg, re.IGNORECASE)
-                        ):
-                            print(
-                                f"  {tag} Retry 1/1 for {layer_name} after timeout "
-                                f"(server raised GDAL_HTTP_TIMEOUT — retrying once)"
-                            )
+                        if attempt < MAX_RETRIES and _is_retryable_ingest_error(error_msg):
+                            await _retry_delay(tag, layer_name, attempt, error_msg)
                             continue
                         raise RuntimeError(error_msg)
 
@@ -770,10 +782,12 @@ async def process_one(
 
                 except httpx.HTTPStatusError as exc:
                     if exc.response.status_code >= 500 and attempt < MAX_RETRIES:
-                        delay = BACKOFF_BASE * (3 ** (attempt - 1))  # 5s, 15s, 45s
-                        jitter = delay * (0.5 + random.random())  # 50-150% of delay
-                        print(f"  {tag} Retry {attempt}/{MAX_RETRIES} for {layer_name} after {exc.response.status_code} (waiting {jitter:.0f}s)")
-                        await asyncio.sleep(jitter)
+                        await _retry_delay(
+                            tag,
+                            layer_name,
+                            attempt,
+                            f"HTTP {exc.response.status_code}",
+                        )
                         continue
                     # Non-5xx or exhausted retries — fall through to outer handler
                     raise
@@ -957,6 +971,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Regex filter on layer names — only import matching layers",
     )
     parser.add_argument(
+        "--skip-filter",
+        default=os.environ.get("ARCGIS_SKIP_FILTER"),
+        help=(
+            "Regex filter on layer or service names to skip before import "
+            "(or set ARCGIS_SKIP_FILTER). Useful for fragile/very large AGO layers."
+        ),
+    )
+    parser.add_argument(
         "--org-search-query",
         help=(
             "Override the AGO search query (default: 'accountid:{org_id} access:public'). "
@@ -1026,6 +1048,25 @@ async def main(args: argparse.Namespace) -> None:
                 e for e in manifest if pattern.search(e["layer_name"])
             ]
             print(f"Filter matched {len(manifest)}/{before} layers")
+
+        if args.skip_filter:
+            skip_pattern = re.compile(args.skip_filter, re.IGNORECASE)
+            before = len(manifest)
+            skipped_entries = [
+                e for e in manifest
+                if skip_pattern.search(e["layer_name"])
+                or skip_pattern.search(e["service_title"])
+            ]
+            manifest = [
+                e for e in manifest
+                if e not in skipped_entries
+            ]
+            print(f"Skip filter removed {len(skipped_entries)}/{before} layers")
+            for entry in skipped_entries:
+                print(
+                    f"  Skipped by filter: {entry['layer_name']} "
+                    f"({entry['service_title']})"
+                )
 
         if not manifest:
             print("No layers match the filter")

@@ -8,12 +8,12 @@ the helper at the top of the test so cases stay order-independent.
 import inspect
 import re
 import time
-from pathlib import Path
 
 import pytest
 
+from tests.repo_paths import repo_root
 
-_REPO_ROOT = Path(__file__).resolve().parents[2]
+_REPO_ROOT = repo_root(__file__)
 
 
 def _reset_schema_cache() -> None:

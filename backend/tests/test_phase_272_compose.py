@@ -7,12 +7,12 @@ INF-01 note below) after commit 90919990 deleted the deploy.resources blocks.
 Static analysis only — no docker daemon required.
 """
 
-from pathlib import Path
-
 import pytest
 import yaml
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+from tests.repo_paths import repo_root
+
+REPO_ROOT = repo_root(__file__)
 COMPOSE_PATH = REPO_ROOT / "docker-compose.yml"
 
 

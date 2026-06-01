@@ -29,7 +29,7 @@ Email **security@getgeolens.com** with:
 
 ## Scope
 
-This policy covers the `geolens` core repository. For enterprise extension issues, contact us at the same email address.
+This policy covers the `geolens` repository.
 
 ## Recognition
 

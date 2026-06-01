@@ -31,12 +31,14 @@ if [[ "$MODE" == "dem" ]]; then
   INPUT_DIR="$REPO_ROOT/.scratch/adk-data/dem"
   GLOB_PATTERN="USGS_1M_*.tif"
   OUTPUT_TIF="$REPO_ROOT/.scratch/adk-data/cogs/adk_high_peaks_dem_1m.tif"
+  UPLOAD_TIF="$REPO_ROOT/.scratch/adk-data/cogs/adk_high_peaks_dem_1m_upload.tif"
   RESAMPLING="bilinear"
   LABEL="DEM 1m"
 else
   INPUT_DIR="$REPO_ROOT/.scratch/adk-data/aerial"
   GLOB_PATTERN="*.tif"
   OUTPUT_TIF="$REPO_ROOT/.scratch/adk-data/cogs/adk_high_peaks_naip_3857.tif"
+  UPLOAD_TIF=""
   RESAMPLING="cubic"
   LABEL="NAIP aerial"
 fi
@@ -46,6 +48,13 @@ mkdir -p "$(dirname "$OUTPUT_TIF")"
 if [[ -f "$OUTPUT_TIF" ]]; then
   size_mb=$(du -m "$OUTPUT_TIF" | cut -f1)
   echo "SKIP: $OUTPUT_TIF already exists (${size_mb} MB)"
+  if [[ "$MODE" == "dem" ]]; then
+    upload_max_mb="${GEOLENS_UPLOAD_MAX_MB:-500}"
+    if [[ "$size_mb" -gt "$upload_max_mb" && ! -f "$UPLOAD_TIF" ]]; then
+      echo "WARN: $OUTPUT_TIF exceeds ${upload_max_mb} MB and $UPLOAD_TIF is missing."
+      echo "      Remove the full COG and rerun this script, or create the upload derivative manually."
+    fi
+  fi
   exit 0
 fi
 
@@ -114,8 +123,32 @@ docker exec "$CONTAINER" gdalinfo "$TIF_PATH" | grep -E "(LAYOUT|TILING_SCHEME|S
 echo "Copying COG back to host..."
 docker cp "$CONTAINER:$TIF_PATH" "$OUTPUT_TIF"
 
+size_mb=$(du -m "$OUTPUT_TIF" | cut -f1)
+upload_max_mb="${GEOLENS_UPLOAD_MAX_MB:-500}"
+if [[ "$MODE" == "dem" && "$size_mb" -gt "$upload_max_mb" ]]; then
+  upload_scale="${GEOLENS_MARKETING_DEM_UPLOAD_SCALE:-35%}"
+  upload_tif_container="$WORKDIR_CONTAINER/cogs/$(basename "$UPLOAD_TIF")"
+  echo "Creating upload-sized DEM derivative (${upload_scale} x ${upload_scale}; limit ${upload_max_mb} MB)..."
+  docker exec "$CONTAINER" bash -c "
+    gdal_translate \
+      $TIF_PATH \
+      $upload_tif_container \
+      -of COG \
+      -outsize $upload_scale $upload_scale \
+      -r bilinear \
+      -co COMPRESS=DEFLATE \
+      -co BLOCKSIZE=512 \
+      -co OVERVIEWS=AUTO \
+      -co RESAMPLING=bilinear
+  "
+  echo "Validating upload derivative COG layout..."
+  docker exec "$CONTAINER" gdalinfo "$upload_tif_container" | grep -E "(LAYOUT|TILING_SCHEME|Size is|Pixel Size)" || true
+  docker cp "$CONTAINER:$upload_tif_container" "$UPLOAD_TIF"
+  upload_size_mb=$(du -m "$UPLOAD_TIF" | cut -f1)
+  echo "DONE: $UPLOAD_TIF (${upload_size_mb} MB)"
+fi
+
 echo "Cleaning up container staging..."
 docker exec "$CONTAINER" rm -rf "$WORKDIR_CONTAINER"
 
-size_mb=$(du -m "$OUTPUT_TIF" | cut -f1)
 echo "DONE: $OUTPUT_TIF (${size_mb} MB)"

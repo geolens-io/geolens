@@ -21,11 +21,7 @@ from app.modules.audit.models import AuditLog
 from app.modules.auth.models import User
 from app.modules.catalog.datasets.domain.models import Dataset, Record
 from app.modules.catalog.maps.models import MapLayer
-from app.modules.catalog.maps.schemas import (
-    ADVANCED_SHARING_ERROR,
-    MapLayerDiffRequest,
-)
-from app.modules.catalog.maps.service import create_share_token, update_share_token
+from app.modules.catalog.maps.schemas import MapLayerDiffRequest
 
 from tests.factories import create_dataset, get_user_id
 
@@ -1447,37 +1443,12 @@ class TestShareToken:
         assert "share_url" in data
         assert data["is_active"] is True
 
-    async def test_share_expiration_requires_enterprise(
+    async def test_share_expiration_allowed(
         self,
         client: AsyncClient,
         admin_auth_header: dict,
-        community_edition,
     ):
-        """Community cannot create expiring share links."""
-        created = await _create_map(client, admin_auth_header)
-        map_id = created["id"]
-
-        await client.put(
-            f"/maps/{map_id}",
-            json={"visibility": "public"},
-            headers=admin_auth_header,
-        )
-        resp = await client.post(
-            f"/maps/{map_id}/share/",
-            json={"expires_at": _future_expires_at().isoformat()},
-            headers=admin_auth_header,
-        )
-
-        assert resp.status_code == 422
-        assert ADVANCED_SHARING_ERROR in resp.text
-
-    async def test_share_expiration_allowed_in_enterprise(
-        self,
-        client: AsyncClient,
-        admin_auth_header: dict,
-        enterprise_edition,
-    ):
-        """Enterprise can create expiring share links."""
+        """Public maps can create expiring share links."""
         created = await _create_map(client, admin_auth_header)
         map_id = created["id"]
         expires_at = _future_expires_at()
@@ -1657,31 +1628,6 @@ class TestShareToken:
         cascade_token = [t for t in tokens if t["id"] == embed_token_id]
         assert len(cascade_token) == 1
         assert cascade_token[0]["is_active"] is False
-
-
-class TestShareTokenServiceGuards:
-    """Service-layer guards for schema bypasses."""
-
-    async def test_create_share_expiration_guard_runs_before_db_lookup(
-        self, community_edition
-    ):
-        with pytest.raises(ValueError, match=ADVANCED_SHARING_ERROR):
-            await create_share_token(
-                object(),
-                uuid.uuid4(),
-                uuid.uuid4(),
-                expires_at=_future_expires_at(),
-            )
-
-    async def test_update_share_expiration_guard_runs_before_db_lookup(
-        self, community_edition
-    ):
-        with pytest.raises(ValueError, match=ADVANCED_SHARING_ERROR):
-            await update_share_token(
-                object(),
-                uuid.uuid4(),
-                _future_expires_at(),
-            )
 
 
 # ---------------------------------------------------------------------------
@@ -2955,8 +2901,6 @@ async def _make_public_map_with_share_token(
 
 
 class TestUpdateShareToken:
-    pytestmark = pytest.mark.usefixtures("enterprise_edition")
-
     async def test_patch_share_token_set_expiration(
         self, client: AsyncClient, admin_auth_header: dict
     ):
@@ -2966,12 +2910,12 @@ class TestUpdateShareToken:
         )
         resp = await client.patch(
             f"/maps/{map_id}/share/",
-            json={"expires_at": "2026-06-01T00:00:00Z"},
+            json={"expires_at": "2030-06-01T00:00:00Z"},
             headers=admin_auth_header,
         )
         assert resp.status_code == 200
         data = resp.json()
-        assert "2026-06-01" in data["expires_at"]
+        assert "2030-06-01" in data["expires_at"]
         # PATCH returns the token hint (8-char prefix), not the full raw token
         assert original_token.startswith(data["token"])
 
@@ -2985,7 +2929,7 @@ class TestUpdateShareToken:
         # First set an expiration
         await client.patch(
             f"/maps/{map_id}/share/",
-            json={"expires_at": "2026-06-01T00:00:00Z"},
+            json={"expires_at": "2030-06-01T00:00:00Z"},
             headers=admin_auth_header,
         )
         # Now remove it
@@ -3010,13 +2954,13 @@ class TestUpdateShareToken:
         # Token was created without expiration (never expires)
         resp = await client.patch(
             f"/maps/{map_id}/share/",
-            json={"expires_at": "2026-06-01T00:00:00Z"},
+            json={"expires_at": "2030-06-01T00:00:00Z"},
             headers=admin_auth_header,
         )
         assert resp.status_code == 200
         data = resp.json()
         assert data["expires_at"] is not None
-        assert "2026-06-01" in data["expires_at"]
+        assert "2030-06-01" in data["expires_at"]
 
     async def test_patch_share_token_no_token_404(
         self, client: AsyncClient, admin_auth_header: dict
@@ -3031,7 +2975,7 @@ class TestUpdateShareToken:
         )
         resp = await client.patch(
             f"/maps/{map_id}/share/",
-            json={"expires_at": "2026-06-01T00:00:00Z"},
+            json={"expires_at": "2030-06-01T00:00:00Z"},
             headers=admin_auth_header,
         )
         assert resp.status_code == 404
@@ -3042,7 +2986,7 @@ class TestUpdateShareToken:
         """PATCH /maps/{id}/share as viewer returns 403."""
         resp = await client.patch(
             f"/maps/{uuid.uuid4()}/share/",
-            json={"expires_at": "2026-06-01T00:00:00Z"},
+            json={"expires_at": "2030-06-01T00:00:00Z"},
             headers=viewer_auth_header,
         )
         assert resp.status_code == 403
@@ -3056,7 +3000,7 @@ class TestUpdateShareToken:
         )
         resp = await client.patch(
             f"/maps/{map_id}/share/",
-            json={"expires_at": "2026-12-31T00:00:00Z"},
+            json={"expires_at": "2030-12-31T00:00:00Z"},
             headers=admin_auth_header,
         )
         assert resp.status_code == 200

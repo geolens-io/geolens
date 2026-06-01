@@ -28,7 +28,9 @@ cd /Users/ishiland/Code/geolens
 # 1. Download DEM tiles (~2.3 GB, 9 tiles)
 .venv/bin/python scripts/marketing-data/adk-high-peaks/fetch_dem.py
 
-# 2. Mosaic + reproject + COG-convert the DEM (~1.4 GB output)
+# 2. Mosaic + reproject + COG-convert the DEM (~1.4 GB full output).
+#    If the full COG exceeds the default 500 MB API upload limit, this also
+#    writes adk_high_peaks_dem_1m_upload.tif for the ingest step.
 bash scripts/marketing-data/adk-high-peaks/build_dem_cog.sh
 
 # 3. Fetch aerial imagery (TNM NAIP first; NY State tiled orthos fallback)
@@ -70,7 +72,8 @@ The pipeline is idempotent: every step skips already-completed work, so re-runni
 | `.scratch/adk-data/aerial/tnm_naip_query.json` | small | Exact TNM NAIP query/response evidence |
 | `.scratch/adk-data/aerial/naip_tiles/` | varies | TNM NAIP GeoTIFFs when available |
 | `.scratch/adk-data/aerial/ny_orthos_tiles/` | varies | NY orthos tiled fallback GeoTIFFs with sidecar `.tfw` + `.prj` |
-| `.scratch/adk-data/cogs/adk_high_peaks_dem_1m.tif` | ~1.4 GB | Mosaicked + EPSG:3857 COG (ingested as DEM raster) |
+| `.scratch/adk-data/cogs/adk_high_peaks_dem_1m.tif` | ~1.4 GB | Mosaicked + EPSG:3857 full DEM COG |
+| `.scratch/adk-data/cogs/adk_high_peaks_dem_1m_upload.tif` | <500 MB | Upload-sized DEM derivative used by `compose_marketing_maps.py` when the full COG exceeds `GEOLENS_UPLOAD_MAX_MB` |
 | `.scratch/adk-data/cogs/adk_high_peaks_ny_orthos_tiled_3857.tif` | varies | EPSG:3857 COG for aerial layer |
 | `.scratch/adk-data/vectors/*.geojson` | ~1.5 MB | Raw + AOI-clipped vectors |
 | `.scratch/adk-data/vectors/adk_46er_peaks.geojson` | ~50 KB | Complete official 46er peaks generated from APA Summits |
@@ -94,5 +97,7 @@ rm -rf .scratch/adk-data/dem .scratch/adk-data/aerial
 ## Known limitations
 
 - **USGS NAIP via TNM API may be unavailable** for this AOI. The pipeline records exact TNM query evidence on every run, then uses the tiled NY State orthos fallback when needed.
+- **TNM API availability is intermittent.** The fetch scripts retry invalid/non-JSON TNM responses and print the response prefix instead of raising a JSON traceback. `fetch_aerial.py --source auto` continues to the NY orthos fallback when TNM NAIP cannot return usable JSON.
+- **The full DEM COG can exceed the default API upload limit.** The DEM build step creates `adk_high_peaks_dem_1m_upload.tif` when needed, and the compose step prefers that derivative unless `GEOLENS_UPLOAD_MAX_MB` is raised.
 - **APA Blue Line is the whole-park polygon**, not just the local arc — the AOI is entirely inside the park interior so clipping the polygon would lose its meaning. The polygon serves as a visual context for "we're inside the Adirondack Park" on the saved map.
 - **APA Summits FeatureServer coordinates are GNIS-derived** and may differ slightly from modern GPS summit points. The complete 46er dataset preserves APA source attributes plus official 46er rank/elevation fields.

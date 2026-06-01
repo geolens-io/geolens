@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import ast
 import re
-from pathlib import Path
 
+from tests.repo_paths import repo_root
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+REPO_ROOT = repo_root(__file__)
 
 
 def _read(rel_path: str) -> str:

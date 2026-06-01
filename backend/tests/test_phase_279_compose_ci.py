@@ -12,11 +12,12 @@ ADMIN-13           — Non-blocking `license-check` job added to ci.yml that
 """
 
 import re
-from pathlib import Path
 
 import yaml
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+from tests.repo_paths import repo_root
+
+REPO_ROOT = repo_root(__file__)
 COMPOSE = REPO_ROOT / "docker-compose.yml"
 CI = REPO_ROOT / ".github" / "workflows" / "ci.yml"
 

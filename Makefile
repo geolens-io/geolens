@@ -50,13 +50,13 @@ migration:
 # Phase 1089 CI-02: defaults to parallel execution per PYTEST-XDIST-PERF-v1020.md Section 5.
 # Use `make test-sequential` to opt into sequential debugging mode.
 test:
-	docker compose exec api uv run pytest -n 4 -v --tb=short
+	docker compose exec api env UV_CACHE_DIR=/app/staging/uv-cache UV_PROJECT_ENVIRONMENT=/app/staging/geolens-api-test-venv uv run pytest -o cache_dir=/app/staging/.pytest_cache -n 4 -v --tb=short
 
 test-sequential:
-	docker compose exec api uv run pytest -v --tb=short
+	docker compose exec api env UV_CACHE_DIR=/app/staging/uv-cache UV_PROJECT_ENVIRONMENT=/app/staging/geolens-api-test-venv uv run pytest -o cache_dir=/app/staging/.pytest_cache -v --tb=short
 
 test-cov:
-	docker compose exec api uv run pytest -v --tb=short --cov=app --cov-report=term-missing
+	docker compose exec api env UV_CACHE_DIR=/app/staging/uv-cache UV_PROJECT_ENVIRONMENT=/app/staging/geolens-api-test-venv uv run pytest -o cache_dir=/app/staging/.pytest_cache -v --tb=short --cov=app --cov-report=term-missing
 
 e2e:
 	npx playwright test
@@ -170,7 +170,7 @@ sdks-test:
 	cd backend && PYTHONPATH=. uv run pytest tests/test_sdks_round_trip.py -v
 
 manifest-contract-check:
-	cd cli && uv run pytest tests/test_manifest_schema.py tests/test_manifest_validate.py tests/test_manifest_apply.py tests/test_manifest_examples.py tests/test_manifest_cli_offline.py -q
+	cd cli && uv run --extra dev python -m pytest tests/test_manifest_schema.py tests/test_manifest_validate.py tests/test_manifest_apply.py tests/test_manifest_examples.py tests/test_manifest_cli_offline.py -q
 	cd backend && PYTHONPATH=. POSTGRES_HOST=localhost POSTGRES_PORT="$${DB_PORT:-5434}" JWT_SECRET_KEY=test-secret-key-for-ci-padding-32chars GEOLENS_ADMIN_USERNAME=admin GEOLENS_ADMIN_PASSWORD=admin uv run pytest tests/test_manifest_apply_api.py tests/test_manifest_apply_service.py tests/test_manifest_apply_vrt.py tests/test_manifest_apply_roundtrip.py tests/test_layering.py::test_manifest_apply_backend_has_no_cli_sdk_or_enterprise_imports tests/test_layering.py::test_manifest_apply_router_uses_upload_permission -q
 	$(MAKE) openapi-check
 	$(MAKE) sdks-check
@@ -190,7 +190,7 @@ cli-build: ## Build the geolens CLI wheel + sdist
 
 # `make cli-test` runs CLI unit tests + round-trip integration test (round-trip lands in Plan 06).
 cli-test: ## Run CLI unit tests + round-trip integration test (round-trip lands in Plan 06)
-	cd cli && uv run pytest -v
+	cd cli && uv run --extra dev python -m pytest -v
 	cd backend && PYTHONPATH=. POSTGRES_HOST=localhost POSTGRES_PORT="$${DB_PORT:-5434}" POSTGRES_USER=geolens POSTGRES_PASSWORD=geolens POSTGRES_DB=geolens JWT_SECRET_KEY=test-secret-key-for-ci-padding-32chars GEOLENS_ADMIN_USERNAME=admin GEOLENS_ADMIN_PASSWORD=admin uv run pytest tests/test_cli_round_trip.py -v
 
 # `make cli-check` — version drift in cli/pyproject.toml is caught by sdks-check

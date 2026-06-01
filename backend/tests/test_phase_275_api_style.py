@@ -3,28 +3,17 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
-# Resolve repo root from this test file's location:
-#   backend/tests/test_phase_275_api_style.py -> parents[2] -> repo root.
-# This lets pytest pass whether it's invoked from the repo root or from backend/
-# (CI's working-directory: backend convention).
-REPO_ROOT = Path(__file__).resolve().parents[2]
+from tests.repo_paths import repo_root
+
+REPO_ROOT = repo_root(__file__)
 
 
-def test_api_style_guide_exists() -> None:
-    """API-03: docs/api-style.md is the public-facing convention reference."""
-    guide = REPO_ROOT / "docs" / "api-style.md"
-    assert guide.exists(), "docs/api-style.md is missing — API-03 deliverable"
-    body = guide.read_text(encoding="utf-8")
-    # Required sections — keep these in sync with the guide's heading text.
-    for required in (
-        "Trailing-Slash Convention",
-        "Status Code Convention",
-        "Health Check Endpoint",
-        "/ingest/manifest/apply",
-    ):
-        assert required in body, f"docs/api-style.md missing section: {required}"
+def test_api_reference_points_to_public_docs_site() -> None:
+    """API-03: public API docs live on docs.getgeolens.com, not root docs/."""
+    readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+    assert "docs.getgeolens.com/guides/api/" in readme
+    assert "docs/api-style.md" not in readme
 
 
 def test_health_endpoint_tagged() -> None:
@@ -40,11 +29,11 @@ def test_health_endpoint_tagged() -> None:
     )
 
 
-def test_maps_namespace_slash_convention_matches_doc() -> None:
-    """Sanity-check: the slash convention documented in api-style.md describes routes that exist.
+def test_maps_namespace_slash_convention_examples_exist() -> None:
+    """Sanity-check: public API example routes exist in the OpenAPI snapshot.
 
-    This isn't an exhaustive lint — it's a static guard that catches drift if a future
-    PR removes one of the cited example routes without updating the doc.
+    This isn't an exhaustive lint. It catches drift if a future PR removes
+    a public example route without updating the external docs/OpenAPI story.
     """
     spec = json.loads(
         (REPO_ROOT / "backend" / "openapi.json").read_text(encoding="utf-8")
@@ -67,6 +56,6 @@ def test_maps_namespace_slash_convention_matches_doc() -> None:
     }
     missing = cited - paths
     assert not missing, (
-        f"docs/api-style.md cites these routes but they're absent from openapi.json: {sorted(missing)}. "
-        "Either restore the route or update the style guide."
+        f"Public API example routes are absent from openapi.json: {sorted(missing)}. "
+        "Either restore the route or update the docs/OpenAPI story."
     )

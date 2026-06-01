@@ -23,8 +23,7 @@ try:
     import httpx  # noqa: F401
 except ImportError:
     print(
-        "Missing required package. Install with:\n"
-        "  pip install httpx",
+        "Missing required package. Install with:\n  pip install httpx",
         file=sys.stderr,
     )
     sys.exit(1)
@@ -61,8 +60,14 @@ DATASETS: list[dict] = [
     {"stem": "ne_10m_admin_0_seams", "theme": "cultural"},
     {"stem": "ne_10m_admin_0_sovereignty", "theme": "cultural"},
     {"stem": "ne_10m_admin_0_disputed_areas", "theme": "cultural"},
-    {"stem": "ne_10m_admin_0_disputed_areas_scale_rank_minor_islands", "theme": "cultural"},
-    {"stem": "ne_10m_admin_0_boundary_lines_maritime_indicator_chn", "theme": "cultural"},
+    {
+        "stem": "ne_10m_admin_0_disputed_areas_scale_rank_minor_islands",
+        "theme": "cultural",
+    },
+    {
+        "stem": "ne_10m_admin_0_boundary_lines_maritime_indicator_chn",
+        "theme": "cultural",
+    },
     {"stem": "ne_10m_admin_0_antarctic_claims", "theme": "cultural"},
     {"stem": "ne_10m_admin_0_antarctic_claim_limit_lines", "theme": "cultural"},
     # Admin 1 (states / provinces)
@@ -228,8 +233,8 @@ RASTER_FIXTURE: dict = {
     # raster-detection heuristic fires — _stamp_raster_metadata matches on
     # .tif/.tiff extension, NOT .zip).  The server stores source_filename as
     # the tif_filename.  The idempotency check uses tif_filename.
-    "filename": "GRAY_50M_SR.zip",        # CDN download filename (cache key)
-    "tif_filename": "GRAY_50M_SR.tif",    # uploaded filename; stored as source_filename
+    "filename": "GRAY_50M_SR.zip",  # CDN download filename (cache key)
+    "tif_filename": "GRAY_50M_SR.tif",  # uploaded filename; stored as source_filename
     "url": "https://naciscdn.org/naturalearth/50m/raster/GRAY_50M_SR.zip",
     "name": "Natural Earth Shaded Relief (1:50m)",
     "tags": ["raster", "shaded-relief", "natural-earth", "grayscale"],
@@ -430,13 +435,22 @@ async def download_dataset(
         except httpx.TransportError as exc:
             if attempt == max_attempts:
                 raise
-            delay = 2 ** attempt
+            delay = 2**attempt
             logger.warning("Retry %d/%d for %s: %s", attempt, max_attempts, url, exc)
             await asyncio.sleep(delay)
         except httpx.HTTPStatusError as exc:
-            if exc.response.status_code in (429, 500, 502, 503) and attempt < max_attempts:
-                delay = 2 ** attempt
-                logger.warning("Retry %d/%d for %s: HTTP %d", attempt, max_attempts, url, exc.response.status_code)
+            if (
+                exc.response.status_code in (429, 500, 502, 503)
+                and attempt < max_attempts
+            ):
+                delay = 2**attempt
+                logger.warning(
+                    "Retry %d/%d for %s: HTTP %d",
+                    attempt,
+                    max_attempts,
+                    url,
+                    exc.response.status_code,
+                )
                 await asyncio.sleep(delay)
             else:
                 raise
@@ -550,9 +564,7 @@ async def poll_job(
 
         elapsed = time.monotonic() - start
         if elapsed >= timeout:
-            raise TimeoutError(
-                f"Job {job_id} did not complete within {timeout}s"
-            )
+            raise TimeoutError(f"Job {job_id} did not complete within {timeout}s")
 
         await asyncio.sleep(3)
 
@@ -653,14 +665,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--api-key",
         default=os.environ.get("GEOLENS_API_KEY"),
         help="GeoLens API key (or set GEOLENS_API_KEY env var). "
-             "Alternative to --username/--password.",
+        "Alternative to --username/--password.",
     )
     parser.add_argument(
         "--username",
         default=os.environ.get("GEOLENS_ADMIN_USERNAME"),
         help="GeoLens username (admin or other upload-permitted user). "
-             "When provided with --password, the script logs in and mints a "
-             "temporary API key for the run, then deletes it on exit.",
+        "When provided with --password, the script logs in and mints a "
+        "temporary API key for the run, then deletes it on exit.",
     )
     parser.add_argument(
         "--password",
@@ -824,9 +836,7 @@ async def reconcile_failed_jobs(
             continue
         try:
             # Accept both "...Z" and "...+00:00" — strip-replace handles "Z".
-            started_at = datetime.fromisoformat(
-                str(started_raw).replace("Z", "+00:00")
-            )
+            started_at = datetime.fromisoformat(str(started_raw).replace("Z", "+00:00"))
         except ValueError:
             logger.warning(
                 "reconcile_failed_jobs: cannot parse started_at=%r on job %r — skipping row",
@@ -1000,12 +1010,14 @@ async def process_one(
     # Idempotency check (no semaphore needed -- read-only check)
     if filename in existing:
         print(f"  {tag} Skipping {stem} (already imported)")
-        results.append({
-            "stem": stem,
-            "status": "skipped",
-            "theme": theme,
-            "dataset_id": existing[filename],
-        })
+        results.append(
+            {
+                "stem": stem,
+                "status": "skipped",
+                "theme": theme,
+                "dataset_id": existing[filename],
+            }
+        )
         return
 
     async with sem:
@@ -1022,37 +1034,47 @@ async def process_one(
             missing_cpg = detect_missing_cpg(data, stem)
             if missing_cpg and stem in ENCODING_OVERRIDE_STEMS:
                 encoding = "UTF-8"
-                print(f"  {tag} Warning: {stem} missing .cpg file, using UTF-8 encoding override")
+                print(
+                    f"  {tag} Warning: {stem} missing .cpg file, using UTF-8 encoding override"
+                )
             elif missing_cpg:
                 print(f"  {tag} Note: {stem} missing .cpg file (encoding auto-detect)")
 
             # Ingest through three-step API
             print(f"  {tag} Ingesting {stem}...")
             result = await ingest_dataset(
-                client, base_url, api_key, stem, data, name, tags,
+                client,
+                base_url,
+                api_key,
+                stem,
+                data,
+                name,
+                tags,
                 encoding=encoding,
             )
 
             if result.get("status") == "failed":
-                raise RuntimeError(
-                    result.get("error_message", "Unknown ingest error")
-                )
+                raise RuntimeError(result.get("error_message", "Unknown ingest error"))
 
-            results.append({
-                "stem": stem,
-                "status": "succeeded",
-                "theme": theme,
-                "dataset_id": result.get("dataset_id"),
-            })
+            results.append(
+                {
+                    "stem": stem,
+                    "status": "succeeded",
+                    "theme": theme,
+                    "dataset_id": result.get("dataset_id"),
+                }
+            )
             print(f"  {tag} Done {stem}")
 
         except Exception as exc:
-            results.append({
-                "stem": stem,
-                "status": "failed",
-                "theme": theme,
-                "error": str(exc),
-            })
+            results.append(
+                {
+                    "stem": stem,
+                    "status": "failed",
+                    "theme": theme,
+                    "error": str(exc),
+                }
+            )
             print(f"  {tag} Failed {stem}: {exc}")
 
 
@@ -1083,7 +1105,9 @@ async def ingest_raster_fixture(
     error (on failure).
     """
     stem = RASTER_FIXTURE["stem"]
-    tif_filename = RASTER_FIXTURE["tif_filename"]  # the filename stored as source_filename
+    tif_filename = RASTER_FIXTURE[
+        "tif_filename"
+    ]  # the filename stored as source_filename
     headers = {"X-Api-Key": api_key}
 
     # Idempotency: reuse existing source_filename map (keyed by the tif filename
@@ -1109,7 +1133,11 @@ async def ingest_raster_fixture(
         # upload route, causing ogrinfo to fail at preview time).
         zip_filename = RASTER_FIXTURE["filename"]
         with zipfile.ZipFile(io.BytesIO(zip_data)) as zf:
-            tif_names = [n for n in zf.namelist() if n.lower().endswith(".tif") or n.lower().endswith(".tiff")]
+            tif_names = [
+                n
+                for n in zf.namelist()
+                if n.lower().endswith(".tif") or n.lower().endswith(".tiff")
+            ]
             if not tif_names:
                 raise RuntimeError(
                     f"No .tif file found inside {zip_filename}; "
@@ -1313,21 +1341,27 @@ async def main(args: argparse.Namespace, datasets: list[dict]) -> int:
             print("  GREEN: 0 failed jobs in /api/admin/jobs/ within run window")
 
         # Ingest the single-band uint8 raster fixture (TESTDATA-01 precondition)
-        # Must run after the vector TaskGroup so the existing idempotency map
-        # (``existing``) is already built. Result is appended to ``results`` so
-        # the summary counters and any future collection grouping see it.
+        # only when this invocation actually seeded vector datasets. The
+        # clean-run verifier can select an empty dataset set, and in that case
+        # importing the fixture would turn a reconciliation-only pass into a
+        # mutating ingest run.
         print()
         print("--- Raster Fixture ---")
-        raster_result = await ingest_raster_fixture(
-            client, base_url, api_key, existing, cache_dir
-        )
-        results.append(raster_result)
-        if raster_result["status"] == "failed":
-            # ``failed`` was aggregated before this append (line ~1277), so
-            # bump it here too — otherwise a failed fixture ingest never
-            # reaches the exit-code guard below and CI gets a false green.
-            failed += 1
-            print(f"  WARN: raster fixture ingest failed: {raster_result.get('error')}")
+        if datasets:
+            raster_result = await ingest_raster_fixture(
+                client, base_url, api_key, existing, cache_dir
+            )
+            results.append(raster_result)
+            if raster_result["status"] == "failed":
+                # ``failed`` was aggregated before this append (line ~1277), so
+                # bump it here too — otherwise a failed fixture ingest never
+                # reaches the exit-code guard below and CI gets a false green.
+                failed += 1
+                print(
+                    f"  WARN: raster fixture ingest failed: {raster_result.get('error')}"
+                )
+        else:
+            print("  SKIP: no vector datasets selected; raster fixture not imported")
 
         # Assign datasets to collections by theme
         print()
@@ -1357,15 +1391,16 @@ if __name__ == "__main__":
     args = parse_args()
 
     # Filter by theme
-    datasets = [
-        d for d in DATASETS if args.theme == "all" or d["theme"] == args.theme
-    ]
+    datasets = [d for d in DATASETS if args.theme == "all" or d["theme"] == args.theme]
 
     # Filter by dataset stem
     if args.dataset:
         datasets = [d for d in datasets if d["stem"] == args.dataset]
         if not datasets:
-            print(f"Error: dataset '{args.dataset}' not found in manifest", file=sys.stderr)
+            print(
+                f"Error: dataset '{args.dataset}' not found in manifest",
+                file=sys.stderr,
+            )
             sys.exit(1)
 
     if args.dry_run:

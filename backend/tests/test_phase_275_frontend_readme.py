@@ -7,10 +7,9 @@ unmodified Vite + React + TypeScript starter README.
 
 from __future__ import annotations
 
-from pathlib import Path
+from tests.repo_paths import repo_root
 
-# backend/tests/test_phase_275_frontend_readme.py -> repo root is parents[2]
-_REPO_ROOT = Path(__file__).resolve().parents[2]
+_REPO_ROOT = repo_root(__file__)
 _FRONTEND_README = _REPO_ROOT / "frontend" / "README.md"
 
 

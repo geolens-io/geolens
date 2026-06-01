@@ -3,9 +3,9 @@
 Pins INF-11 (db/.dockerignore alignment) + INF-12 (root .dockerignore comment header).
 """
 
-from pathlib import Path
+from tests.repo_paths import repo_root
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+REPO_ROOT = repo_root(__file__)
 ROOT_DOCKERIGNORE = REPO_ROOT / ".dockerignore"
 DB_DOCKERIGNORE = REPO_ROOT / "db" / ".dockerignore"
 

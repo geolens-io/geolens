@@ -19,7 +19,7 @@ body:
     id: version
     attributes:
       label: GeoLens version
-      description: e.g. v1.0.2, latest, or commit hash
+      description: e.g. v2.0.0, latest, or commit hash
     validations:
       required: false
   - type: dropdown

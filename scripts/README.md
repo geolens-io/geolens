@@ -39,6 +39,9 @@ python scripts/seed-ago-data.py --api-key <key> --concurrency 3
 
 # Set job poll timeout (default: 1200s)
 python scripts/seed-ago-data.py --api-key <key> --timeout 1800
+
+# Skip known-fragile or very large upstream services
+python scripts/seed-ago-data.py --api-key <key> --skip-filter "contours?|impervious|steep slope"
 ```
 
 | Flag | Default | Description |
@@ -48,6 +51,8 @@ python scripts/seed-ago-data.py --api-key <key> --timeout 1800
 | `--base-url` | `http://localhost:8080` | GeoLens base URL |
 | `--dry-run` | off | List layers without importing |
 | `--update` | off | Upsert mode: import new layers and refresh existing ones from source |
+| `--filter` | unset | Regex of layer names to include |
+| `--skip-filter` | `$ARCGIS_SKIP_FILTER` | Regex of layer or service names to skip before import |
 | `--concurrency` | 1 | Max parallel ingest streams |
 | `--timeout` | 1200 | Job poll timeout in seconds |
 
@@ -65,6 +70,11 @@ python scripts/seed-ago-data.py --api-key <key> --timeout 1800
 | `GEOLENS_API_KEY` | GeoLens API key (alternative to `--api-key`) |
 | `GEOLENS_BASE_URL` | GeoLens base URL (alternative to `--base-url`) |
 | `ARCGIS_ORG_URL` | ArcGIS org URL (alternative to `--org-url`) |
+| `ARCGIS_SKIP_FILTER` | Regex of layer or service names to skip before import |
+
+ArcGIS services whose item URL contains spaces are percent-encoded before GDAL
+preview/import. Transient 429/5xx, gateway, timeout, and connection failures are
+retried with exponential backoff before the layer is reported as failed.
 
 ### `seed-natural-earth.py`
 

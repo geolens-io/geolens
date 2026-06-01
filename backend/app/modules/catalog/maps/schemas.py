@@ -14,12 +14,8 @@ from pydantic import (
     model_validator,
 )
 
-from app.core.edition import is_enterprise
 from app.core.text import normalize_nfc as _nfc
 
-ADVANCED_SHARING_ERROR = (
-    "Advanced sharing controls require the enterprise overlay"
-)
 LEGACY_BUILDER_PAINT_KEYS = {
     "_outline-width": "outline_width",
     "outline-width": "outline_width",
@@ -940,10 +936,7 @@ class SharedMapResponse(BaseModel):
 class ShareTokenRequest(BaseModel):
     expires_at: datetime | None = Field(
         default=None,
-        description=(
-            "Expiration timestamp. Null creates a basic non-expiring share link; "
-            "non-null expiration requires the enterprise edition."
-        ),
+        description="Expiration timestamp. Null creates a non-expiring share link.",
     )
 
     @field_validator("expires_at")
@@ -952,12 +945,6 @@ class ShareTokenRequest(BaseModel):
         if v is not None and v < datetime.now(timezone.utc):
             raise ValueError("expires_at must be in the future")
         return v
-
-    @model_validator(mode="after")
-    def validate_enterprise_controls(self):
-        if not is_enterprise() and self.expires_at is not None:
-            raise ValueError(ADVANCED_SHARING_ERROR)
-        return self
 
 
 class ShareTokenResponse(BaseModel):
