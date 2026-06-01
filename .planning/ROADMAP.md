@@ -191,6 +191,10 @@ Plans:
 
 ---
 
+## Completed Standalone Phases
+
+> Backlog items built ahead of formal milestone promotion — not part of any active milestone's phase list. The `## Backlog` above now lists only not-yet-built items.
+
 ### Phase 999.17: Builder terrain/legend consistency & DEM dedup (BUILT — verified 2026-06-01)
 
 **Goal:** Fix the cross-surface inconsistency where `render_mode:"terrain"` DEM layers are excluded from the builder layer stack but still listed in the legend (phantom entries), and stop the terrain-bind flow from accumulating duplicate DEM layers. Fits the *Map Builder Extensibility Refactor* plan.
