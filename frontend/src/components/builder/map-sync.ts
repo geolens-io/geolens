@@ -629,6 +629,33 @@ export function isHillshadeTerrainBound(
   );
 }
 
+/**
+ * 999.17 BL-01 (D-07 Option b): decides whether to SKIP the hillshade raster-dem
+ * consumer for a DEM that is already powering the active terrain source.
+ *
+ * The original POLISH-02 guard skipped UNCONDITIONALLY whenever the DEM was
+ * terrain-bound, which suppressed the visible hillshade overlay Fix 3 promises.
+ * The narrowed rule: skip ONLY when keeping the hillshade would re-introduce the
+ * backfillBorder "dem dimension mismatch" crash — i.e. when the hillshade
+ * source's tileSize MISMATCHES the active terrain source's tileSize. When the
+ * tileSizes MATCH (the normal case — both default from token.tile_size ?? 256),
+ * the hillshade paints on its own per-layer source alongside the 3D mesh.
+ *
+ * Pure + exported so BOTH branches (match → paint, mismatch → skip) are unit
+ * testable without driving the full syncLayersToMap path (where a terrain-bound
+ * hillshade and the terrain source share a dataset and thus always match).
+ */
+export function shouldSkipHillshadeForTerrain(args: {
+  isTerrainBound: boolean;
+  hillshadeTileSize: number | null | undefined;
+  terrainSourceTileSize: number | null | undefined;
+}): boolean {
+  if (!args.isTerrainBound) return false;
+  const hillshadeTileSize = args.hillshadeTileSize ?? 256;
+  const terrainTileSize = args.terrainSourceTileSize ?? 256;
+  return hillshadeTileSize !== terrainTileSize;
+}
+
 /** Add or update a raster layer on the map. */
 function syncRasterLayer(
   map: MaplibreMap,
@@ -637,14 +664,28 @@ function syncRasterLayer(
   desiredSources: Set<string>,
   terrainConfig?: MapTerrainConfig | null,
   datasetId?: string,
+  terrainSourceTileSize?: number | null,
 ) {
   const renderMode = adapterInput.style_config?.render_mode;
   const useHillshade = adapterInput.is_dem === true && renderMode === 'hillshade';
 
-  // POLISH-02: skip the hillshade raster-dem consumer when this DEM is already
-  // powering a terrain source. Two raster-dem consumers on the same DEM with
-  // mismatched tile sizes cause backfillBorder "dem dimension mismatch" errors.
-  if (useHillshade && datasetId != null && isHillshadeTerrainBound({ dataset_id: datasetId, is_dem: adapterInput.is_dem }, terrainConfig)) {
+  // POLISH-02 (narrowed by 999.17 D-07): when this DEM is already powering the
+  // active terrain source, only SKIP the hillshade raster-dem consumer if keeping
+  // it would re-introduce the backfillBorder "dem dimension mismatch" crash — i.e.
+  // when the hillshade source's tileSize would MISMATCH the terrain source's
+  // tileSize. When the tileSizes MATCH (the normal case — both default from
+  // token.tile_size ?? 256), let the hillshade consumer run on its own per-layer
+  // source (`source-${layer.id}` via getSourceIdForLayer), so the visible hillshade
+  // overlay paints alongside the 3D mesh on a single DEM. The hillshade keeps its
+  // distinct per-layer source (NEVER the shared `terrain-dem` id) so the SF-04
+  // teardown machinery does not orphan it.
+  const isTerrainBound = useHillshade && datasetId != null
+    && isHillshadeTerrainBound({ dataset_id: datasetId, is_dem: adapterInput.is_dem }, terrainConfig);
+  if (shouldSkipHillshadeForTerrain({
+    isTerrainBound,
+    hillshadeTileSize: token.tile_size,
+    terrainSourceTileSize,
+  })) {
     return;
   }
 
@@ -917,6 +958,21 @@ export function syncLayersToMap(
   const currentSources = new Set(managedSourcesRef.current);
   const desiredSources = new Set<string>();
 
+  // 999.17 D-07: resolve the active terrain source's tileSize so the narrowed
+  // POLISH-02 guard can compare it against a same-dataset hillshade layer's
+  // tileSize. The terrain mesh source (ensureRasterDemTerrainSource) defaults its
+  // tileSize from the terrain DEM's raster token (token.tile_size ?? 256); compute
+  // the same value here from tokenMap keyed by terrain_config.source_dataset_id.
+  const terrainSourceDatasetId = options?.terrainConfig?.enabled === true
+    ? options.terrainConfig.source_dataset_id
+    : null;
+  const terrainSourceToken = terrainSourceDatasetId != null
+    ? tokenMap.get(terrainSourceDatasetId)
+    : null;
+  const terrainSourceTileSize = terrainSourceToken?.kind === 'raster'
+    ? terrainSourceToken.tile_size ?? 256
+    : null;
+
   for (const layer of renderableLayers) {
     try {
       if (isDemTerrainVisualSuppressed(layer)) {
@@ -951,7 +1007,7 @@ export function syncLayersToMap(
 
       const rasterToken = token?.kind === 'raster' ? token : rasterTokenFromLayer(layer);
       if (rasterToken) {
-        syncRasterLayer(map, adapterInput, rasterToken, desiredSources, options?.terrainConfig, layer.dataset_id);
+        syncRasterLayer(map, adapterInput, rasterToken, desiredSources, options?.terrainConfig, layer.dataset_id, terrainSourceTileSize);
         // EDITOR-DEM-05: sync companion color-relief layer (hillshade-gated) for DEM layers.
         // Called after syncRasterLayer so the raster-dem source already exists.
         // Layer id: ${layerId}-colorrelief — reuses the existing raster-dem source.

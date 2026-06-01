@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { syncLayersToMap, stripCustomProps, CUSTOM_PAINT_PROPS, isHillshadeTerrainBound } from '@/components/builder/map-sync';
+import { syncLayersToMap, stripCustomProps, CUSTOM_PAINT_PROPS, isHillshadeTerrainBound, shouldSkipHillshadeForTerrain } from '@/components/builder/map-sync';
 import type { SyncLayerInput } from '@/components/builder/map-sync';
 import type { MapLayerResponse, MapTerrainConfig } from '@/types/api';
 import type { TileToken, RasterTileToken, VectorTileToken } from '@/api/tiles';
@@ -860,10 +860,17 @@ describe('POLISH-02 syncRasterLayer hillshade skip guard', () => {
     managedSourcesRef = { current: new Set() };
   });
 
-  it('Test E: when isHillshadeTerrainBound is true + hillshade mode, map.addSource is NOT called', () => {
-    const layer = makeDEMLayer();
+  // 999.17 BL-01: the POLISH-02 guard is now NARROWED. A terrain-bound hillshade
+  // DEM whose source tileSize MATCHES the active terrain source tileSize (the
+  // normal case — both default from token.tile_size ?? 256) must NOT be skipped:
+  // the visible hillshade overlay paints on its own per-layer source alongside the
+  // 3D mesh. This is the user-visible outcome Fix 3 promised but the old blanket
+  // guard suppressed.
+  it('Test E: terrain-bound hillshade with MATCHING tileSize is NOT skipped (addSource called)', () => {
+    const layer = makeDEMLayer(); // dataset_id 'dem-ds-1', render_mode 'hillshade'
     const tokenMap = new Map<string, TileToken>([
-      ['dem-ds-1', makeRasterToken({ tile_url: '/tiles/dem/{z}/{x}/{y}.png' })],
+      // hillshade layer + terrain source resolve the SAME token (same dataset) → tileSize matches
+      ['dem-ds-1', makeRasterToken({ tile_url: '/tiles/dem/{z}/{x}/{y}.png', tile_size: 256 })],
     ]);
     const terrainConfig: MapTerrainConfig = {
       enabled: true,
@@ -875,9 +882,12 @@ describe('POLISH-02 syncRasterLayer hillshade skip guard', () => {
       terrainConfig,
     });
 
-    // The hillshade raster-dem consumer should be skipped entirely
-    expect((map.addSource as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(0);
-    expect((map.addLayer as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(0);
+    // The hillshade consumer runs on its own per-layer source (`source-dem-layer-1`).
+    expect((map.addSource as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThan(0);
+    const addSourceIds = (map.addSource as ReturnType<typeof vi.fn>).mock.calls.map(([id]) => id);
+    expect(addSourceIds).toContain('source-dem-layer-1');
+    const addLayerCall = (map.addLayer as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(addLayerCall.type).toBe('hillshade');
   });
 
   it('Test F: when isHillshadeTerrainBound is false + hillshade mode, normal hillshade path runs', () => {
@@ -898,5 +908,55 @@ describe('POLISH-02 syncRasterLayer hillshade skip guard', () => {
 
     // Normal hillshade path runs: addSource should be called
     expect((map.addSource as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThan(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 999.17 BL-01: shouldSkipHillshadeForTerrain — the narrowed POLISH-02 decision.
+// Through syncLayersToMap a terrain-bound hillshade and the terrain source share
+// a dataset (same token → same tileSize), so the MISMATCH branch is only
+// deterministically reachable at the pure-helper level. Both branches are pinned
+// here; Test E above pins the end-to-end MATCH → paint behavior.
+// ---------------------------------------------------------------------------
+
+describe('999.17 BL-01 shouldSkipHillshadeForTerrain', () => {
+  it('does NOT skip when the DEM is not terrain-bound', () => {
+    expect(shouldSkipHillshadeForTerrain({
+      isTerrainBound: false,
+      hillshadeTileSize: 512,
+      terrainSourceTileSize: 256,
+    })).toBe(false);
+  });
+
+  it('does NOT skip when terrain-bound AND tileSizes MATCH (visible hillshade paints)', () => {
+    expect(shouldSkipHillshadeForTerrain({
+      isTerrainBound: true,
+      hillshadeTileSize: 256,
+      terrainSourceTileSize: 256,
+    })).toBe(false);
+  });
+
+  it('treats undefined/null tileSizes as the 256 default → MATCH → does NOT skip', () => {
+    expect(shouldSkipHillshadeForTerrain({
+      isTerrainBound: true,
+      hillshadeTileSize: undefined,
+      terrainSourceTileSize: null,
+    })).toBe(false);
+  });
+
+  it('SKIPS when terrain-bound AND tileSizes MISMATCH (preserve backfillBorder fix)', () => {
+    expect(shouldSkipHillshadeForTerrain({
+      isTerrainBound: true,
+      hillshadeTileSize: 512,
+      terrainSourceTileSize: 256,
+    })).toBe(true);
+  });
+
+  it('SKIPS when terrain-bound AND hillshade default (256) MISMATCHES a 512 terrain source', () => {
+    expect(shouldSkipHillshadeForTerrain({
+      isTerrainBound: true,
+      hillshadeTileSize: undefined,
+      terrainSourceTileSize: 512,
+    })).toBe(true);
   });
 });
