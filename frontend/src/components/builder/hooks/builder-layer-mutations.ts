@@ -1,6 +1,7 @@
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { MapLayerInput, MapLayerResponse, MapTerrainConfig, StyleConfig } from '@/types/api';
 import { getAdapter } from '@/components/builder/layer-adapters/registry';
+import { isTerrainCapableDemLayer } from '@/components/builder/map-stack';
 
 /**
  * Phase 999.17 Fix 2 (D-05 / Advisory A2): decide whether deleting a layer must
@@ -23,8 +24,13 @@ export function shouldClearTerrainOnDelete(
 ): boolean {
   if (!terrainConfig?.enabled || !terrainConfig.source_dataset_id) return false;
   const sourceDatasetId = terrainConfig.source_dataset_id;
+  // 999.17 MD-02: "still backed" must mean "still RESOLVABLE as a terrain source"
+  // — use the canonical isTerrainCapableDemLayer predicate (is_dem AND a DEM
+  // record type) exactly as the mesh resolver (BuilderMap/use-viewer-terrain) and
+  // the stack compute it. A bare is_dem check could keep terrain_config alive for
+  // a layer the mesh resolver can no longer attach, leaving a dangling config.
   const datasetStillBacked = remainingLayers.some(
-    (layer) => layer.is_dem === true && layer.dataset_id === sourceDatasetId,
+    (layer) => layer.dataset_id === sourceDatasetId && isTerrainCapableDemLayer(layer),
   );
   return !datasetStillBacked;
 }
