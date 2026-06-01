@@ -709,7 +709,8 @@
     "mapForkedExcluded": "Map forked! {{count}} layer(s) excluded -- you don't have access to those datasets",
     "popupConfigInvalidNamed": "Cannot save: layer \"{{layerName}}\" has an invalid popup expression.",
     "popupConfigBackendRejected": "Server rejected the popup configuration ({{field}}). Adjust the layer's popup template and save again.",
-    "layerFallbackName": "Untitled layer"
+    "layerFallbackName": "Untitled layer",
+    "terrainDuplicateBlocked": "3D terrain can't be duplicated — a dataset can only power terrain once."
   },
   "builderMap": {
     "loading": "Loading map...",

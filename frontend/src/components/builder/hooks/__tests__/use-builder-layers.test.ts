@@ -486,6 +486,73 @@ describe('useBuilderLayers', () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// Phase 999.17 Fix 2 (D-04) — terrain DEM dedup on duplicate-rendering
+//
+// Duplicating a render_mode:'terrain' DEM layer would always produce a SECOND
+// render_mode:'terrain' layer on the same dataset (buildDuplicateRenderingInput
+// copies dataset_id + style_config verbatim). That is the duplicate-accumulation
+// vector that drifted map 8dd6a129 to 3 terrain layers. The dedup guard refuses
+// to duplicate a terrain DEM layer (a dataset can only back terrain once).
+// ---------------------------------------------------------------------------
+describe('useBuilderLayers — terrain DEM dedup (D-04)', () => {
+  function makeTerrainDemLayer(overrides: Partial<MapLayerResponse> = {}): MapLayerResponse {
+    return makeMockLayer({
+      id: 'dem-terrain-1',
+      dataset_id: 'dem-ds-1',
+      is_dem: true,
+      style_config: { render_mode: 'terrain' } as MapLayerResponse['style_config'],
+      ...overrides,
+    });
+  }
+
+  it('refuses to duplicate a render_mode:"terrain" DEM layer (no 2nd terrain layer on the same dataset)', () => {
+    const terrainLayer = makeTerrainDemLayer({ sort_order: 0 });
+    const { result, addLayerMutate } = renderBuilderLayers(makeMapData([terrainLayer]));
+
+    act(() => {
+      result.current.handleDuplicateRendering('dem-terrain-1');
+    });
+
+    // Guard short-circuits BEFORE the create mutation fires — the dataset keeps
+    // exactly one render_mode:'terrain' layer.
+    expect(addLayerMutate).not.toHaveBeenCalled();
+    const terrainLayersForDataset = result.current.localLayers.filter(
+      (l) =>
+        l.dataset_id === 'dem-ds-1'
+        && (l.style_config as { render_mode?: unknown } | null | undefined)?.render_mode === 'terrain',
+    );
+    expect(terrainLayersForDataset).toHaveLength(1);
+  });
+
+  it('still duplicates a non-terrain DEM layer (hillshade) normally', () => {
+    const hillshadeLayer = makeTerrainDemLayer({
+      id: 'dem-hillshade-1',
+      style_config: { render_mode: 'hillshade' } as MapLayerResponse['style_config'],
+      sort_order: 0,
+    });
+    const { result, addLayerMutate } = renderBuilderLayers(makeMapData([hillshadeLayer]));
+
+    act(() => {
+      result.current.handleDuplicateRendering('dem-hillshade-1');
+    });
+
+    // Hillshade is a normal visual layer — duplication is allowed.
+    expect(addLayerMutate).toHaveBeenCalledOnce();
+  });
+
+  it('still duplicates an ordinary vector layer normally (no regression)', () => {
+    const layer = makeMockLayer({ id: 'vec-1', dataset_id: 'vec-ds', sort_order: 0 });
+    const { result, addLayerMutate } = renderBuilderLayers(makeMapData([layer]));
+
+    act(() => {
+      result.current.handleDuplicateRendering('vec-1');
+    });
+
+    expect(addLayerMutate).toHaveBeenCalledOnce();
+  });
+});
+
 // BSR-18 handleAddDataset tests live in the dedicated file:
 // use-builder-layers.add-dataset.test.ts
 // (isolated to avoid OOM when running alongside the heavy hook render)

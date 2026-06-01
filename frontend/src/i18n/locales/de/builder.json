@@ -709,7 +709,8 @@
     "mapForkedExcluded": "Karte abgeleitet! {{count}} Layer ausgeschlossen -- Sie haben keinen Zugriff auf diese Datensätze",
     "popupConfigInvalidNamed": "Speichern nicht möglich: Layer \"{{layerName}}\" hat einen ungültigen Popup-Ausdruck.",
     "popupConfigBackendRejected": "Der Server hat die Popup-Konfiguration abgelehnt ({{field}}). Passen Sie die Popup-Vorlage des Layers an und speichern Sie erneut.",
-    "layerFallbackName": "Unbenannter Layer"
+    "layerFallbackName": "Unbenannter Layer",
+    "terrainDuplicateBlocked": "3D-Gelände kann nicht dupliziert werden – ein Datensatz kann Gelände nur einmal erzeugen."
   },
   "builderMap": {
     "loading": "Karte wird geladen...",

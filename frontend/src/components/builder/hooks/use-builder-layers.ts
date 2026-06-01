@@ -1092,6 +1092,16 @@ export function useBuilderLayers(
     const layer = layersRef.current.find((candidate) => candidate.id === layerId);
     if (!layer) return;
 
+    // Phase 999.17 Fix 2 (D-04): a DEM dataset can only back 3D terrain once.
+    // buildDuplicateRenderingInput copies dataset_id + style_config verbatim, so
+    // duplicating a render_mode:'terrain' DEM layer would always create a SECOND
+    // terrain layer on the same dataset — the duplicate-accumulation bug that
+    // drifted map 8dd6a129 to 3 terrain layers. Refuse it (non-blocking toast).
+    if (isDemTerrainVisualSuppressed(layer)) {
+      toast.info(t('toasts.terrainDuplicateBlocked'));
+      return;
+    }
+
     const currentLayers = layersRef.current;
     const data = buildDuplicateRenderingInput(layer, currentLayers);
     const nextSortOrder = data.sort_order ?? currentLayers.length;
