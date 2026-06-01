@@ -280,8 +280,8 @@ export function MapBuilderPage() {
   }, [save.maybeAutoCaptureThumbnail]);
 
   const pluginCtx = useMemo(
-    () => ({ mapInstance, layers: layers.localLayers, mapId: id! }),
-    [mapInstance, layers.localLayers, id],
+    () => ({ mapInstance, layers: layers.localLayers, mapId: id!, terrainConfig: layers.localTerrainConfig }),
+    [mapInstance, layers.localLayers, id, layers.localTerrainConfig],
   );
 
   // Phase 1135 AI-05: subscribe to map idle events with 500ms debounce to update

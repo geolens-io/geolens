@@ -778,7 +778,8 @@
       "low": "Bajo",
       "high": "Alto",
       "weightedBy": "Ponderado por: {{column}}",
-      "unavailable": "(leyenda no disponible)"
+      "unavailable": "(leyenda no disponible)",
+      "terrain3d": "Terreno 3D"
     },
     "closePlugin": "Cerrar plugin",
     "pluginError": "Este plugin encontró un error"

@@ -778,7 +778,8 @@
       "low": "Faible",
       "high": "Élevé",
       "weightedBy": "Pondéré par : {{column}}",
-      "unavailable": "(légende indisponible)"
+      "unavailable": "(légende indisponible)",
+      "terrain3d": "Terrain 3D"
     },
     "closePlugin": "Fermer le plugin",
     "pluginError": "Ce plugin a rencontré une erreur"

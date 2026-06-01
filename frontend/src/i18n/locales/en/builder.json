@@ -778,7 +778,8 @@
       "low": "Low",
       "high": "High",
       "weightedBy": "Weighted by: {{column}}",
-      "unavailable": "(legend unavailable)"
+      "unavailable": "(legend unavailable)",
+      "terrain3d": "3D terrain"
     },
     "closePlugin": "Close plugin",
     "pluginError": "This plugin encountered an error"

@@ -1,6 +1,6 @@
 import type React from 'react';
 import type { Map as MaplibreMap } from 'maplibre-gl';
-import type { MapLayerResponse } from '@/types/api';
+import type { MapLayerResponse, MapTerrainConfig } from '@/types/api';
 
 /** Anchor positions for floating plugins */
 export type PluginAnchor = 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
@@ -15,6 +15,8 @@ export interface PluginContext {
   mapInstance: MaplibreMap | null;
   layers: MapLayerResponse[];
   mapId: string;
+  /** Map-level terrain config; drives the synthetic "3D terrain" legend entry. */
+  terrainConfig?: MapTerrainConfig | null;
 }
 
 /** A registered plugin */

@@ -13,6 +13,11 @@ import type { MapLayerResponse, StyleConfig } from '@/types/api';
 import { MAP_COLORS } from '@/lib/map-colors';
 import { parseStepOrInterpolate } from '@/lib/normalize-style-config';
 import { inferGeometryType } from '@/lib/geo-utils';
+import { Mountain } from 'lucide-react';
+import {
+  deriveTerrainLegendEntry,
+  isDemTerrainVisualSuppressed,
+} from '@/components/builder/terrain-legend';
 import type { PluginContext } from '../types';
 
 /** Extract swatch style properties from layer paint based on geometry type. */
@@ -77,12 +82,23 @@ type LegendLabelStyleConfig = StyleConfig & {
 export function LegendPlugin({ ctx }: { ctx: PluginContext }) {
   const { t } = useTranslation('builder');
 
+  // D-02: exclude terrain-suppressed DEM layers (render_mode:"terrain") — they
+  // have no stack row and paint nothing, so they must not appear as per-layer
+  // legend entries. Consume the shared predicate, never re-derive it.
   const legendLayers = useMemo(
-    () => ctx.layers.filter((l) => l.visible && l.show_in_legend !== false),
+    () => ctx.layers.filter(
+      (l) => l.visible && l.show_in_legend !== false && !isDemTerrainVisualSuppressed(l),
+    ),
     [ctx.layers],
   );
 
-  if (legendLayers.length === 0) {
+  // D-01: single synthetic "3D terrain" entry driven by terrain_config.
+  const terrainEntry = useMemo(
+    () => deriveTerrainLegendEntry(ctx.terrainConfig, { labelKey: 'plugins.legend.terrain3d' }),
+    [ctx.terrainConfig],
+  );
+
+  if (legendLayers.length === 0 && !terrainEntry) {
     return (
       <p className="text-xs text-muted-foreground">{t('plugins.legend.noLayers')}</p>
     );
@@ -90,6 +106,21 @@ export function LegendPlugin({ ctx }: { ctx: PluginContext }) {
 
   return (
     <div className="space-y-0 min-w-44">
+      {/* A1: pin the synthetic terrain entry at the top, mirroring the stack's
+          relief:terrain row at the top of the relief/terrain group. */}
+      {terrainEntry && (
+        <div data-testid="legend-terrain-synthetic">
+          <div className="p-1 text-xs">
+            <div className="flex items-center gap-1.5">
+              <Mountain className="w-4 h-4 text-muted-foreground" aria-hidden="true" />
+              <span className="font-medium text-foreground truncate">
+                {t(terrainEntry.labelKey)}
+              </span>
+            </div>
+          </div>
+          {legendLayers.length > 0 && <div className="border-b" />}
+        </div>
+      )}
       {legendLayers.map((layer, idx) => (
         <LegendLayerEntry
           key={layer.id}
