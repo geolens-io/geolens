@@ -26,6 +26,7 @@ import { bulkDeleteLayersApi } from '@/api/maps';
 import {
   buildDuplicateRenderingInput,
   removePerLayerCompanions,
+  shouldClearTerrainOnDelete,
 } from '@/components/builder/hooks/builder-layer-mutations';
 import {
   hydrateFolderGroupLayers,
@@ -302,6 +303,21 @@ export function useBuilderLayers(
         .map((l, i) => ({ ...l, sort_order: i })),
     );
 
+    // Phase 999.17 Fix 2 (D-05/A2): if this delete removes the last DEM layer
+    // backing active 3D terrain, auto-clear terrain_config and surface a
+    // non-blocking toast. Keys on dataset identity (shouldClearTerrainOnDelete),
+    // so deleting an unrelated DEM/vector layer leaves terrain untouched.
+    const remainingAfterRemove = previousLayers.filter((l) => l.id !== layerId);
+    if (shouldClearTerrainOnDelete(remainingAfterRemove, localTerrainConfig)) {
+      setLocalTerrainConfig((prev) => ({
+        enabled: false,
+        source_dataset_id: null,
+        exaggeration: normalizeTerrainExaggeration(prev?.exaggeration),
+      }));
+      setHasUnsavedChanges(true);
+      toast.success(t('toasts.terrainDisabledSourceRemoved'));
+    }
+
     // WR-01 (Phase 1050-rev): imperatively clean per-layer companions
     // BEFORE the mutation so the visual artifacts (outline/label/extrusion/
     // arrow/cluster glyphs) disappear in lockstep with the user action.
@@ -327,7 +343,7 @@ export function useBuilderLayers(
         },
       },
     );
-  }, [mapId, mapInstanceRef, removeLayerMutation, t]);
+  }, [mapId, mapInstanceRef, removeLayerMutation, localTerrainConfig, t]);
 
   // --- Folder-group handlers ---
   // These operate on the in-memory localLayers array. Group layers are encoded
@@ -634,6 +650,20 @@ export function useBuilderLayers(
         .map((l, i) => ({ ...l, sort_order: i })),
     );
 
+    // Phase 999.17 Fix 2 (D-05/A2): if the batch removes the last DEM layer
+    // backing active 3D terrain, auto-clear terrain_config + non-blocking toast.
+    // Keyed on dataset identity so unrelated DEM/vector deletes leave it intact.
+    const remainingAfterBulk = previousLayers.filter((l) => !idsToDeleteSet.has(l.id));
+    if (shouldClearTerrainOnDelete(remainingAfterBulk, localTerrainConfig)) {
+      setLocalTerrainConfig((prev) => ({
+        enabled: false,
+        source_dataset_id: null,
+        exaggeration: normalizeTerrainExaggeration(prev?.exaggeration),
+      }));
+      setHasUnsavedChanges(true);
+      toast.success(t('toasts.terrainDisabledSourceRemoved'));
+    }
+
     // WR-01 (Phase 1050-rev): imperatively clean per-layer companions for
     // every id in the batch so visual artifacts vanish in lockstep with the
     // optimistic state update. removeStaleSourcesAndLayers cannot derive
@@ -693,7 +723,7 @@ export function useBuilderLayers(
     } finally {
       setIsDeleting(false);
     }
-  }, [mapId, mapInstanceRef, t, queryClient]);
+  }, [mapId, mapInstanceRef, localTerrainConfig, t, queryClient]);
 
   const handleAddLayerToExistingGroup = useCallback((layerId: string, groupId: string) => {
     setLocalLayers((prev) => {

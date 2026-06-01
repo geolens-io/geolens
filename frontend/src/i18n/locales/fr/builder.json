@@ -710,7 +710,8 @@
     "popupConfigInvalidNamed": "Impossible d'enregistrer : la couche \"{{layerName}}\" a une expression de popup invalide.",
     "popupConfigBackendRejected": "Le serveur a rejeté la configuration du popup ({{field}}). Ajustez le modèle de popup de la couche et enregistrez à nouveau.",
     "layerFallbackName": "Couche sans titre",
-    "terrainDuplicateBlocked": "Le terrain 3D ne peut pas être dupliqué : un jeu de données ne peut alimenter le terrain qu'une seule fois."
+    "terrainDuplicateBlocked": "Le terrain 3D ne peut pas être dupliqué : un jeu de données ne peut alimenter le terrain qu'une seule fois.",
+    "terrainDisabledSourceRemoved": "Relief 3D désactivé — sa couche source a été supprimée."
   },
   "builderMap": {
     "loading": "Chargement de la carte...",

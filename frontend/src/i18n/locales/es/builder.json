@@ -710,7 +710,8 @@
     "popupConfigInvalidNamed": "No se puede guardar: la capa \"{{layerName}}\" tiene una expresión de popup inválida.",
     "popupConfigBackendRejected": "El servidor rechazó la configuración del popup ({{field}}). Ajusta la plantilla de popup de la capa y guarda de nuevo.",
     "layerFallbackName": "Capa sin título",
-    "terrainDuplicateBlocked": "El terreno 3D no se puede duplicar: un conjunto de datos solo puede generar terreno una vez."
+    "terrainDuplicateBlocked": "El terreno 3D no se puede duplicar: un conjunto de datos solo puede generar terreno una vez.",
+    "terrainDisabledSourceRemoved": "Terreno 3D desactivado: se eliminó su capa de origen."
   },
   "builderMap": {
     "loading": "Cargando mapa...",

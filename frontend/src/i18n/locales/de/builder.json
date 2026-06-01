@@ -710,7 +710,8 @@
     "popupConfigInvalidNamed": "Speichern nicht möglich: Layer \"{{layerName}}\" hat einen ungültigen Popup-Ausdruck.",
     "popupConfigBackendRejected": "Der Server hat die Popup-Konfiguration abgelehnt ({{field}}). Passen Sie die Popup-Vorlage des Layers an und speichern Sie erneut.",
     "layerFallbackName": "Unbenannter Layer",
-    "terrainDuplicateBlocked": "3D-Gelände kann nicht dupliziert werden – ein Datensatz kann Gelände nur einmal erzeugen."
+    "terrainDuplicateBlocked": "3D-Gelände kann nicht dupliziert werden – ein Datensatz kann Gelände nur einmal erzeugen.",
+    "terrainDisabledSourceRemoved": "3D-Gelände deaktiviert – die Quellebene wurde entfernt."
   },
   "builderMap": {
     "loading": "Karte wird geladen...",

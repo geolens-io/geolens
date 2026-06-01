@@ -1,6 +1,33 @@
 import type { Map as MaplibreMap } from 'maplibre-gl';
-import type { MapLayerInput, MapLayerResponse, StyleConfig } from '@/types/api';
+import type { MapLayerInput, MapLayerResponse, MapTerrainConfig, StyleConfig } from '@/types/api';
 import { getAdapter } from '@/components/builder/layer-adapters/registry';
+
+/**
+ * Phase 999.17 Fix 2 (D-05 / Advisory A2): decide whether deleting a layer must
+ * tear down active 3D terrain.
+ *
+ * Terrain is backed by a DEM dataset (terrain_config.source_dataset_id), not by
+ * a single layer id. The teardown keys on DATASET IDENTITY: terrain is cleared
+ * ONLY when, after the delete, NO remaining layer is a DEM layer for the terrain
+ * source dataset. This correctly:
+ *   - clears when the (last) DEM backing the terrain dataset is removed,
+ *   - PRESERVES terrain when an unrelated DEM/vector layer is deleted (A2),
+ *   - PRESERVES terrain when another DEM layer on the same dataset still exists.
+ *
+ * @param remainingLayers - layers that survive the delete (already filtered)
+ * @param terrainConfig - the current (local) terrain_config
+ */
+export function shouldClearTerrainOnDelete(
+  remainingLayers: MapLayerResponse[],
+  terrainConfig: MapTerrainConfig | null | undefined,
+): boolean {
+  if (!terrainConfig?.enabled || !terrainConfig.source_dataset_id) return false;
+  const sourceDatasetId = terrainConfig.source_dataset_id;
+  const datasetStillBacked = remainingLayers.some(
+    (layer) => layer.is_dem === true && layer.dataset_id === sourceDatasetId,
+  );
+  return !datasetStillBacked;
+}
 
 /**
  * Fallback suffix list used when no render mode is known (preserves back-compat
