@@ -86,14 +86,19 @@ function makeMapRef() {
   return { current: mapInstance } as unknown as React.RefObject<import('maplibre-gl').Map | null>;
 }
 
-function renderBuilderLayers(mapData: MapResponse) {
+function renderBuilderLayers(mapData: MapResponse, opts?: { removeFails?: boolean }) {
   const addLayerMutation = {
     mutate: vi.fn(),
     mutateAsync: vi.fn(),
   } as unknown as Parameters<typeof useBuilderLayers>[3];
   // Default removeLayerMutation: synchronously invoke onSuccess (success path).
+  // When removeFails is set, synchronously invoke onError (rollback path) — used
+  // by the HI-01 failure-rollback tests.
   const removeLayerMutation = {
-    mutate: vi.fn((_vars, opts) => { opts?.onSuccess?.(); }),
+    mutate: vi.fn((_vars, mutOpts) => {
+      if (opts?.removeFails) { mutOpts?.onError?.(new Error('delete failed')); }
+      else { mutOpts?.onSuccess?.(); }
+    }),
     mutateAsync: vi.fn(),
   } as unknown as Parameters<typeof useBuilderLayers>[4];
 
@@ -197,6 +202,31 @@ describe('useBuilderLayers — terrain teardown on handleRemove (D-05/A2)', () =
     expect(result.current.localTerrainConfig?.enabled).toBe(true);
     expect(result.current.localTerrainConfig?.source_dataset_id).toBe('dem-ds-a');
   });
+
+  // HI-01 (999.17 gap-closure): when the optimistic terrain clear is followed by a
+  // FAILED delete, both localLayers AND terrain_config must be restored — a failed
+  // delete must not leave the DEM restored but terrain silently disabled.
+  it('HI-01: restores localLayers AND terrain_config when the delete mutation fails', async () => {
+    const demTerrain = makeDemLayer({ id: 'dem-a', dataset_id: 'dem-ds-a', sort_order: 0 });
+    const { result } = renderBuilderLayers(
+      makeMapWithTerrain([demTerrain], 'dem-ds-a'),
+      { removeFails: true },
+    );
+    await waitForInit();
+
+    expect(result.current.localTerrainConfig?.enabled).toBe(true);
+
+    act(() => {
+      result.current.handleRemove('dem-a');
+    });
+
+    // The DEM layer is restored in the stack.
+    expect(result.current.localLayers.some((l) => l.id === 'dem-a')).toBe(true);
+    // terrain_config is restored to its prior enabled state (NOT left cleared).
+    expect(result.current.localTerrainConfig?.enabled).toBe(true);
+    expect(result.current.localTerrainConfig?.source_dataset_id).toBe('dem-ds-a');
+    expect(toastError).toHaveBeenCalled();
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -260,6 +290,54 @@ describe('useBuilderLayers — terrain teardown on handleBulkDelete (D-05/A2)', 
       await result.current.handleBulkDelete(new Set(['dem-a']));
     });
 
+    expect(result.current.localTerrainConfig?.enabled).toBe(true);
+    expect(result.current.localTerrainConfig?.source_dataset_id).toBe('dem-ds-a');
+  });
+
+  // HI-01: FULL bulk-delete failure — nothing was actually deleted, so both
+  // localLayers and terrain_config must be restored to their prior state.
+  it('HI-01: restores localLayers AND terrain_config on a FULL bulk-delete failure', async () => {
+    bulkDeleteSpy.mockResolvedValue({
+      deleted: [],
+      failed: [{ id: 'dem-a', reason: 'server error' }],
+    });
+    const demTerrain = makeDemLayer({ id: 'dem-a', dataset_id: 'dem-ds-a', sort_order: 0 });
+    const { result } = renderBuilderLayers(
+      makeMapWithTerrain([demTerrain], 'dem-ds-a'),
+    );
+    await waitForInit();
+
+    await act(async () => {
+      await result.current.handleBulkDelete(new Set(['dem-a']));
+    });
+
+    expect(result.current.localLayers.some((l) => l.id === 'dem-a')).toBe(true);
+    expect(result.current.localTerrainConfig?.enabled).toBe(true);
+    expect(result.current.localTerrainConfig?.source_dataset_id).toBe('dem-ds-a');
+  });
+
+  // HI-01: PARTIAL failure where the terrain-source DEM is among the FAILURES —
+  // it is restored to the stack, so terrain is still backed and terrain_config
+  // must be restored rather than left silently disabled.
+  it('HI-01: restores terrain_config when the terrain-source DEM is among the partial failures', async () => {
+    // dem-a (terrain source) fails; vec-1 deletes successfully.
+    bulkDeleteSpy.mockResolvedValue({
+      deleted: ['vec-1'],
+      failed: [{ id: 'dem-a', reason: 'server error' }],
+    });
+    const demTerrain = makeDemLayer({ id: 'dem-a', dataset_id: 'dem-ds-a', sort_order: 0 });
+    const vector = makeBuilderLayer({ id: 'vec-1', dataset_id: 'vec-ds', sort_order: 1 });
+    const { result } = renderBuilderLayers(
+      makeMapWithTerrain([demTerrain, vector], 'dem-ds-a'),
+    );
+    await waitForInit();
+
+    await act(async () => {
+      await result.current.handleBulkDelete(new Set(['dem-a', 'vec-1']));
+    });
+
+    // The terrain-source DEM is restored, so terrain stays backed → config restored.
+    expect(result.current.localLayers.some((l) => l.id === 'dem-a')).toBe(true);
     expect(result.current.localTerrainConfig?.enabled).toBe(true);
     expect(result.current.localTerrainConfig?.source_dataset_id).toBe('dem-ds-a');
   });

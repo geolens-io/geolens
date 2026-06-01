@@ -307,8 +307,14 @@ export function useBuilderLayers(
     // backing active 3D terrain, auto-clear terrain_config and surface a
     // non-blocking toast. Keys on dataset identity (shouldClearTerrainOnDelete),
     // so deleting an unrelated DEM/vector layer leaves terrain untouched.
+    // HI-01 (999.17 gap-closure): snapshot the prior terrain_config alongside
+    // previousLayers so the onError rollback can restore it. Without this, an
+    // optimistic terrain clear that is followed by a failed delete leaves the DEM
+    // layer restored but 3D terrain silently disabled (layers <-> terrain drift).
+    const previousTerrainConfig = localTerrainConfig;
     const remainingAfterRemove = previousLayers.filter((l) => l.id !== layerId);
-    if (shouldClearTerrainOnDelete(remainingAfterRemove, localTerrainConfig)) {
+    const clearedTerrainOnRemove = shouldClearTerrainOnDelete(remainingAfterRemove, localTerrainConfig);
+    if (clearedTerrainOnRemove) {
       setLocalTerrainConfig((prev) => ({
         enabled: false,
         source_dataset_id: null,
@@ -339,6 +345,11 @@ export function useBuilderLayers(
           // Rollback: restore the prior localLayers snapshot so the user
           // sees the layer reappear in the sidebar.
           setLocalLayers(previousLayers);
+          // HI-01: also restore terrain_config if the optimistic delete cleared it,
+          // so a failed delete does not leave terrain silently disabled.
+          if (clearedTerrainOnRemove) {
+            setLocalTerrainConfig(previousTerrainConfig);
+          }
           toast.error(t('toasts.layerRemoveFailed'));
         },
       },
@@ -653,8 +664,13 @@ export function useBuilderLayers(
     // Phase 999.17 Fix 2 (D-05/A2): if the batch removes the last DEM layer
     // backing active 3D terrain, auto-clear terrain_config + non-blocking toast.
     // Keyed on dataset identity so unrelated DEM/vector deletes leave it intact.
+    // HI-01 (999.17 gap-closure): snapshot the prior terrain_config so any
+    // failure/rollback branch below can restore it. Without this, a failed bulk
+    // delete leaves the DEM layer restored but 3D terrain silently disabled.
+    const previousTerrainConfig = localTerrainConfig;
     const remainingAfterBulk = previousLayers.filter((l) => !idsToDeleteSet.has(l.id));
-    if (shouldClearTerrainOnDelete(remainingAfterBulk, localTerrainConfig)) {
+    const clearedTerrainOnBulk = shouldClearTerrainOnDelete(remainingAfterBulk, localTerrainConfig);
+    if (clearedTerrainOnBulk) {
       setLocalTerrainConfig((prev) => ({
         enabled: false,
         source_dataset_id: null,
@@ -690,6 +706,10 @@ export function useBuilderLayers(
       if (result.deleted.length === 0) {
         // Full failure — rollback all layers
         setLocalLayers(previousLayers);
+        // HI-01: nothing was actually deleted, so restore terrain_config too.
+        if (clearedTerrainOnBulk) {
+          setLocalTerrainConfig(previousTerrainConfig);
+        }
         toast.error(t('bulkActions.deleteRollback'));
         return false;
       }
@@ -704,6 +724,17 @@ export function useBuilderLayers(
         merged.sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
         return merged.map((l, i) => ({ ...l, sort_order: i }));
       });
+      // HI-01: the optimistic terrain clear assumed the WHOLE batch was deleted.
+      // Re-evaluate against the layers that ACTUALLY remain after restoring the
+      // failed ones; if terrain is still backed (its source DEM was among the
+      // failures), restore terrain_config so it is not silently disabled.
+      if (clearedTerrainOnBulk) {
+        const deletedIds = new Set(result.deleted);
+        const remainingAfterPartial = previousLayers.filter((l) => !deletedIds.has(l.id));
+        if (!shouldClearTerrainOnDelete(remainingAfterPartial, previousTerrainConfig)) {
+          setLocalTerrainConfig(previousTerrainConfig);
+        }
+      }
       // Partial state differs from server — prevent silent refetch wipe (CR-01)
       setHasUnsavedChanges(true);
       toast.error(
