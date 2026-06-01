@@ -123,7 +123,13 @@ describe('useBuilderLayers — terrain teardown on handleRemove (D-05/A2)', () =
 
     expect(result.current.localTerrainConfig?.enabled).toBe(false);
     expect(result.current.localTerrainConfig?.source_dataset_id).toBeNull();
-    expect(toastSuccess).toHaveBeenCalledTimes(1);
+    // Two distinct success toasts fire: the generic "layer removed" (handleRemove
+    // success path) AND the terrain-disabled teardown toast. Assert the
+    // terrain-specific one fired (by resolved message) rather than a total count.
+    const terrainToastFired = toastSuccess.mock.calls.some(
+      ([msg]) => typeof msg === 'string' && /terrain/i.test(msg),
+    );
+    expect(terrainToastFired).toBe(true);
     expect(toastError).not.toHaveBeenCalled();
   });
 
