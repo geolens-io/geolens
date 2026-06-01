@@ -92,10 +92,12 @@ export function LegendPlugin({ ctx }: { ctx: PluginContext }) {
     [ctx.layers],
   );
 
-  // D-01: single synthetic "3D terrain" entry driven by terrain_config.
+  // D-01: single synthetic "3D terrain" entry driven by terrain_config — only
+  // when a backing terrain-capable DEM layer for the source dataset is present
+  // (999.17 MD-01: no phantom entry for a dangling terrain_config).
   const terrainEntry = useMemo(
-    () => deriveTerrainLegendEntry(ctx.terrainConfig, { labelKey: 'plugins.legend.terrain3d' }),
-    [ctx.terrainConfig],
+    () => deriveTerrainLegendEntry(ctx.terrainConfig, ctx.layers, { labelKey: 'plugins.legend.terrain3d' }),
+    [ctx.terrainConfig, ctx.layers],
   );
 
   if (legendLayers.length === 0 && !terrainEntry) {

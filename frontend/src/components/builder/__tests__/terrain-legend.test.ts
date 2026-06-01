@@ -35,13 +35,20 @@ describe('terrain-legend helper', () => {
   describe('deriveTerrainLegendEntry', () => {
     const labelKey = 'plugins.legend.terrain3d';
 
-    it('returns one synthetic entry when terrain is active (enabled + source)', () => {
+    // A terrain-capable DEM layer backing dataset 'dem-1'.
+    const backingDemLayer = {
+      dataset_id: 'dem-1',
+      is_dem: true,
+      dataset_record_type: 'raster_dataset',
+    };
+
+    it('returns one synthetic entry when terrain is active AND a backing DEM layer is present', () => {
       const terrainConfig: MapTerrainConfig = {
         enabled: true,
         source_dataset_id: 'dem-1',
         exaggeration: 1,
       };
-      const entry = deriveTerrainLegendEntry(terrainConfig, { labelKey });
+      const entry = deriveTerrainLegendEntry(terrainConfig, [backingDemLayer], { labelKey });
       expect(entry).not.toBeNull();
       expect(entry?.id).toBe('relief:terrain');
       expect(entry?.role).toBe('surface-terrain');
@@ -49,13 +56,14 @@ describe('terrain-legend helper', () => {
     });
 
     it('returns null when terrain_config is null', () => {
-      expect(deriveTerrainLegendEntry(null, { labelKey })).toBeNull();
+      expect(deriveTerrainLegendEntry(null, [backingDemLayer], { labelKey })).toBeNull();
     });
 
     it('returns null when terrain is configured but not enabled', () => {
       expect(
         deriveTerrainLegendEntry(
           { enabled: false, source_dataset_id: 'dem-1', exaggeration: 1 },
+          [backingDemLayer],
           { labelKey },
         ),
       ).toBeNull();
@@ -65,6 +73,49 @@ describe('terrain-legend helper', () => {
       expect(
         deriveTerrainLegendEntry(
           { enabled: true, source_dataset_id: null, exaggeration: 1 },
+          [backingDemLayer],
+          { labelKey },
+        ),
+      ).toBeNull();
+    });
+
+    // 999.17 MD-01: dangling terrain_config (legacy maps whose source layer was
+    // deleted) → no backing DEM layer present → NO phantom synthetic entry.
+    it('returns null when enabled with a source but NO backing DEM layer exists (dangling config)', () => {
+      expect(
+        deriveTerrainLegendEntry(
+          { enabled: true, source_dataset_id: 'dem-1', exaggeration: 1 },
+          [], // no layers at all
+          { labelKey },
+        ),
+      ).toBeNull();
+    });
+
+    it('returns null when a layer exists for the dataset but it is NOT terrain-capable (not a DEM)', () => {
+      expect(
+        deriveTerrainLegendEntry(
+          { enabled: true, source_dataset_id: 'dem-1', exaggeration: 1 },
+          [{ dataset_id: 'dem-1', is_dem: false, dataset_record_type: 'vector_dataset' }],
+          { labelKey },
+        ),
+      ).toBeNull();
+    });
+
+    it('returns null when the only DEM layer backs a DIFFERENT dataset', () => {
+      expect(
+        deriveTerrainLegendEntry(
+          { enabled: true, source_dataset_id: 'dem-1', exaggeration: 1 },
+          [{ dataset_id: 'dem-other', is_dem: true, dataset_record_type: 'raster_dataset' }],
+          { labelKey },
+        ),
+      ).toBeNull();
+    });
+
+    it('returns null when layers is null/undefined', () => {
+      expect(
+        deriveTerrainLegendEntry(
+          { enabled: true, source_dataset_id: 'dem-1', exaggeration: 1 },
+          null,
           { labelKey },
         ),
       ).toBeNull();

@@ -183,10 +183,12 @@ export function LayerLegend({
     [layers],
   );
 
-  // D-01: single synthetic "3D terrain" entry driven by terrain_config.
+  // D-01: single synthetic "3D terrain" entry driven by terrain_config — only
+  // when a backing terrain-capable DEM layer for the source dataset is present
+  // (999.17 MD-01: no phantom entry for a dangling terrain_config).
   const terrainEntry = useMemo(
-    () => deriveTerrainLegendEntry(terrainConfig, { labelKey: 'viewer.legend.terrain3d' }),
-    [terrainConfig],
+    () => deriveTerrainLegendEntry(terrainConfig, layers, { labelKey: 'viewer.legend.terrain3d' }),
+    [terrainConfig, layers],
   );
 
   // Dismiss on Escape

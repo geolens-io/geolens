@@ -132,6 +132,9 @@ describe('LayerLegend terrain consistency (Fix 1)', () => {
       style_config: null,
       tile_url: null,
       is_dem: true,
+      // 999.17 MD-01: must be terrain-capable (raster_dataset) so the synthetic
+      // entry's backing-layer check (isTerrainCapableDemLayer) passes.
+      dataset_record_type: 'raster_dataset',
       ...overrides,
     } as SharedLayerResponse;
   }
@@ -182,8 +185,11 @@ describe('LayerLegend terrain consistency (Fix 1)', () => {
   it('shows exactly one synthetic 3D terrain entry when terrain_config is active (D-01)', () => {
     render(
       <LayerLegend
-        layers={[vectorLayer()]}
-        visibleLayers={new Set(['roads'])}
+        layers={[
+          vectorLayer(),
+          demLayer({ style_config: { render_mode: 'terrain' } as SharedLayerResponse['style_config'] }),
+        ]}
+        visibleLayers={new Set(['roads', 'dem-layer'])}
         terrainConfig={activeTerrain}
         onToggleVisibility={vi.fn()}
         isOpen
@@ -210,11 +216,32 @@ describe('LayerLegend terrain consistency (Fix 1)', () => {
     expect(screen.queryByTestId('legend-terrain-synthetic')).not.toBeInTheDocument();
   });
 
-  it('pins the synthetic terrain entry ABOVE per-layer entries (A1 position assertion)', () => {
+  // 999.17 MD-01: dangling terrain_config (enabled + source, NO backing DEM
+  // layer) must NOT render a phantom synthetic entry in the viewer either.
+  it('does NOT show the synthetic entry for a dangling terrain_config (no backing DEM layer)', () => {
     render(
       <LayerLegend
         layers={[vectorLayer()]}
         visibleLayers={new Set(['roads'])}
+        terrainConfig={activeTerrain}
+        onToggleVisibility={vi.fn()}
+        isOpen
+        onToggle={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByTestId('legend-terrain-synthetic')).not.toBeInTheDocument();
+    expect(screen.getByText('Roads')).toBeInTheDocument();
+  });
+
+  it('pins the synthetic terrain entry ABOVE per-layer entries (A1 position assertion)', () => {
+    render(
+      <LayerLegend
+        layers={[
+          vectorLayer(),
+          demLayer({ style_config: { render_mode: 'terrain' } as SharedLayerResponse['style_config'] }),
+        ]}
+        visibleLayers={new Set(['roads', 'dem-layer'])}
         terrainConfig={activeTerrain}
         onToggleVisibility={vi.fn()}
         isOpen

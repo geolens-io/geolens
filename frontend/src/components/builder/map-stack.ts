@@ -213,7 +213,15 @@ function popupEnabled(popupConfig: PopupConfig | null | undefined) {
   return popupConfig?.enabled === true;
 }
 
-function isTerrainCapableDemLayer(layer: MapLayerResponse) {
+// Exported (999.17 MD-01/MD-02): the canonical "is this layer resolvable as a 3D
+// terrain source?" predicate. Both the legend synthetic-entry derivation
+// (terrain-legend.ts) and the delete-time terrain-clear check
+// (builder-layer-mutations.ts) consume THIS one predicate so legend <-> stack
+// <-> mesh-resolver stay in lockstep (the phase invariant).
+export function isTerrainCapableDemLayer(layer: {
+  is_dem?: boolean | null;
+  dataset_record_type?: string | null;
+}) {
   return layer.is_dem === true && DEM_RECORD_TYPES.has(String(layer.dataset_record_type ?? ''));
 }
 
