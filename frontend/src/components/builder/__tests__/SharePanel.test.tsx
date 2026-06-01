@@ -64,6 +64,15 @@ function mutationResult(mutateAsync = vi.fn()) {
   } as never;
 }
 
+// Embed tokens render the "Restrict to domains" control only when an active
+// (non-expired) token exists: SharePanel filters on `new Date(expires_at) > now`.
+// A hardcoded fixture date becomes a time-bomb (failed once 2026-06-01 rolled
+// past the old '2026-06-01T00:00:00Z'). Compute a far-future expiry relative to
+// now so the token is always considered active during the test run.
+const FUTURE_EMBED_EXPIRES_AT = new Date(
+  Date.now() + 365 * 24 * 60 * 60 * 1000,
+).toISOString();
+
 function setup({
   enterprise = false,
   hasShareToken = true,
@@ -100,7 +109,7 @@ function setup({
     id: 'embed-2',
     raw_token: 'raw-token',
     token_hint: 'raw...',
-    expires_at: '2026-06-01T00:00:00Z',
+    expires_at: FUTURE_EMBED_EXPIRES_AT,
     is_active: true,
   });
 
@@ -142,7 +151,7 @@ function setup({
               token_hint: 'emb...',
               scoped_dataset_ids: [],
               allowed_origins: allowedOrigins,
-              expires_at: '2026-06-01T00:00:00Z',
+              expires_at: FUTURE_EMBED_EXPIRES_AT,
               is_active: true,
               use_count: 0,
               created_at: '2026-05-01T00:00:00Z',
