@@ -15,8 +15,8 @@ dependencies = [
     "asyncpg>=0.29.0",
     "alembic>=1.13.0",
     "geoalchemy2>=0.15.0",
-    "pydantic[email]>=2.6.0",
-    "pydantic-settings>=2.0.0",
+    "pydantic[email]>=2.13.4",
+    "pydantic-settings>=2.14.1",
     # >=2.13.0: fixes PYSEC-2026-175/177/178/179 (PyJWKClient SSRF + unbounded
     # JWKS fetch, HMAC key-confusion, detached-JWS DoS). Do not lower this floor.
     "pyjwt>=2.13.0",
@@ -52,7 +52,7 @@ dependencies = [
     # processing/ai/llm_loop.py, processing/tiles/router.py); previously resolved
     # only transitively via fastapi[standard]. Pin keeps it a first-class dep.
     "httpx>=0.27",
-    "sse-starlette>=3.3.2",
+    "sse-starlette>=3.4.4",
     "sqlglot>=29.0.0",
     "itsdangerous>=2.2.0",
     # Security: pin transitive deps to versions without known CVEs
@@ -69,7 +69,7 @@ dependencies = [
     # (CVE-2026-48710 / PYSEC-2026-161 / GHSA-86qp-5c8j-p5mr). Requires
     # prometheus-fastapi-instrumentator>=8.0.0 above; FastAPI (>=0.46.0) and
     # sse-starlette (>=0.49.1) already permit starlette 1.x.
-    "starlette>=1.0.1",
+    "starlette>=1.2.1",
 ]
 
 [dependency-groups]
