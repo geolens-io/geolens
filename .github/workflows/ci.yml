@@ -10,6 +10,11 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# Least-privilege default for every job. The `changes` job widens to add
+# pull-requests:read; no job needs write (publishing lives in publish*.yml).
+permissions:
+  contents: read
+
 jobs:
   # ---------- detect changed paths for conditional jobs ----------
   changes:

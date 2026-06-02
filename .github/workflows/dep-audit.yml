@@ -76,8 +76,8 @@ jobs:
       matrix:
         image:
           - "node:26.3.0-alpine"
-          - "python:3.14.3-slim"
-          - "nginxinc/nginx-unprivileged:1.29.8-alpine"
+          - "python:3.14.5-slim"
+          - "nginxinc/nginx-unprivileged:1.31.1-alpine"
           - "postgis/postgis:17-3.5"
     steps:
       - uses: actions/checkout@v6
@@ -88,7 +88,7 @@ jobs:
       # To enforce as a hard gate: set exit-code "1" (ideally after switching to
       # scan the built images, not the upstream refs).
       - name: Trivy scan (report-only)
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: ${{ matrix.image }}
           format: "table"
