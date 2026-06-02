@@ -35,7 +35,7 @@
     "@turf/area": "^7.3.4",
     "@turf/distance": "^7.3.5",
     "@turf/helpers": "^7.3.4",
-    "@vis.gl/react-maplibre": "^8.1.0",
+    "@vis.gl/react-maplibre": "^8.1.1",
     "chroma-js": "^3.2.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
