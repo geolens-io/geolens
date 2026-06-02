@@ -205,3 +205,53 @@ async def test_create_user_duplicate_username_returns_409(
         "already" in resp.json()["detail"].lower()
         or "exists" in resp.json()["detail"].lower()
     )
+
+
+# ---------------------------------------------------------------------------
+# GET /admin/users/?search=... — accent-insensitive search (T-1/T-2 regression)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_list_users_search_is_accent_insensitive(
+    client: AsyncClient,
+    admin_auth_header: dict,
+):
+    """Admin user search must fold accents on BOTH sides.
+
+    The users trigram indexes are on ``lower(catalog.immutable_unaccent(...))``,
+    so the query unaccents the column; the search PATTERN must be unaccented too,
+    or an accented search term (e.g. ``josé``) would never match an unaccented
+    stored value (``jose``). Regression guard for the admin-search fix: the
+    buggy version (unaccented column vs accent-preserved pattern) returns no
+    match here.
+    """
+    unique = uuid.uuid4().hex[:8]
+    username = f"jose{unique}"  # ASCII stored value
+    resp = await client.post(
+        "/admin/users/",
+        json={"username": username, "password": "TestPass1234!", "role": "viewer"},
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 201, resp.text
+    created_id = resp.json()["id"]
+
+    # Accented search term must still find the unaccented username.
+    resp = await client.get(
+        "/admin/users/",
+        params={"search": f"josé{unique}"},
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 200
+    ids = {u["id"] for u in resp.json()["users"]}
+    assert created_id in ids, "accented search term did not match unaccented username"
+
+    # Plain (unaccented) search term also finds it.
+    resp = await client.get(
+        "/admin/users/",
+        params={"search": f"jose{unique}"},
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 200
+    ids = {u["id"] for u in resp.json()["users"]}
+    assert created_id in ids, "plain search term did not match username"
