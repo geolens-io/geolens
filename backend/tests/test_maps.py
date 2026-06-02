@@ -2374,8 +2374,8 @@ class TestMapLayersTrailingSlash:
     Location header against the in-container ``api:8000`` Host.
 
     The canonical OpenAPI form is the no-slash sub-collection convention
-    from ``docs/api-style.md``; the trailing-slash form is a hidden alias
-    declared on the same handler. The trailing-slash regression guard
+    documented in the GeoLens API guide; the trailing-slash form is a hidden
+    alias declared on the same handler. The trailing-slash regression guard
     below is the load-bearing one — it would have caught the 260508-d6i
     smoke failure (#5, #6). The parity guard ensures both decorators
     stay wired to the same handler with the same response contract.

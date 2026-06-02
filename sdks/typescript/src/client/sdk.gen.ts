@@ -2298,7 +2298,8 @@ export const getMapHistoryEndpointMapsMapIdHistoryGet = <ThrowOnError extends bo
  * header, which would leak the in-container ``api:8000`` hostname
  * through Vite's dev proxy on a 307 redirect. The canonical
  * (OpenAPI-published) form is the no-slash sub-collection convention
- * from ``docs/api-style.md``; the trailing-slash form is a hidden alias.
+ * documented in the GeoLens API guide (https://docs.getgeolens.com/guides/api/);
+ * the trailing-slash form is a hidden alias.
  */
 export const patchMapLayersEndpointMapsMapIdLayersPatch = <ThrowOnError extends boolean = false>(options: Options<PatchMapLayersEndpointMapsMapIdLayersPatchData, ThrowOnError>) => (options.client ?? client).patch<PatchMapLayersEndpointMapsMapIdLayersPatchResponses, PatchMapLayersEndpointMapsMapIdLayersPatchErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }],
@@ -2320,7 +2321,8 @@ export const patchMapLayersEndpointMapsMapIdLayersPatch = <ThrowOnError extends 
  * header that resolves against the request's Host header, leaking the
  * in-container ``api:8000`` hostname through Vite's dev proxy. The
  * canonical (OpenAPI-published) form is the no-slash sub-collection
- * convention from ``docs/api-style.md``; the trailing-slash form is a
+ * convention documented in the GeoLens API guide
+ * (https://docs.getgeolens.com/guides/api/); the trailing-slash form is a
  * hidden alias for callers that send the slash.
  */
 export const addLayerEndpointMapsMapIdLayersPost = <ThrowOnError extends boolean = false>(options: Options<AddLayerEndpointMapsMapIdLayersPostData, ThrowOnError>) => (options.client ?? client).post<AddLayerEndpointMapsMapIdLayersPostResponses, AddLayerEndpointMapsMapIdLayersPostErrors, ThrowOnError>({
