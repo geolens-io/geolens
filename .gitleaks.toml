@@ -1,0 +1,57 @@
+# Gitleaks configuration for GeoLens.
+# Extends the upstream default ruleset and allowlists vendored/generated trees
+# plus the project's known-fake test, example, and CI credentials.
+#
+# Scan locally:  gitleaks dir . -c .gitleaks.toml --redact
+# Pre-commit:    the `gitleaks` hook in .pre-commit-config.yaml reads this file.
+
+title = "GeoLens gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Vendored/generated trees and known-fake test/example/CI credentials"
+
+paths = [
+  # Vendored / generated / dependency trees (never authored secrets here)
+  '''(^|/)node_modules/''',
+  '''(^|/)\.venv/''',
+  '''(^|/)\.git/''',
+  '''(^|/)dist/''',
+  '''(^|/)build/''',
+  '''(^|/)__pycache__/''',
+  '''(^|/)package-lock\.json$''',
+  '''(^|/)uv\.lock$''',
+  '''^sdks/''',                       # generated SDKs
+  '''^backend/openapi\.json$''',      # generated snapshot
+  '''^\.planning/''',                 # local planning docs (gitignored)
+  # Gitignored local noise (coverage output, scratch, playwright auth state)
+  '''(^|/)coverage/''',
+  '''(^|/)\.scratch/''',
+  '''(^|/)playwright/\.auth/''',
+  # Documented example credentials — placeholders, not real secrets
+  '''(^|/)\.env\.example$''',
+  # Test fixtures + intentional secret-detection regression tests use fake creds by design
+  '''^backend/tests/''',
+  '''(^|/)__tests__/''',
+]
+# NOTE: `.env` itself is intentionally NOT allowlisted — it is gitignored, but the
+# pre-commit hook should still flag an accidental `git add -f .env`.
+
+# Match the *secret value* — covers CI padding keys + obvious fake markers
+# regardless of which file they live in.
+regexes = [
+  '''padding''',                                                   # ci.yml JWT_SECRET_KEY=...padding...32chars
+  '''(?i)(test|fake|dummy|example|changeme|placeholder|sample)[-_ ]?(secret|key|token|password)''',
+  '''docs_url=None''',                                             # generic-api-key FP: backend/app/api/main.py
+  '''from_attributes=True''',                                      # generic-api-key FP: embed_tokens/admin_router.py
+]
+
+# Generic stopwords that mark a value as non-sensitive.
+stopwords = [
+  "padding",
+  "example",
+  "changeme",
+  "placeholder",
+]

@@ -82,6 +82,38 @@ jobs:
       - name: Ruff format check
         run: uv run ruff format --check .
 
+  pre-commit:
+    name: Pre-commit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Install pre-commit
+        run: python -m pip install pre-commit
+
+      # Security guardrails (SSRF/IDOR) + generic hygiene. Ruff is covered by the
+      # backend-lint job; gitleaks runs as a dedicated full-tree scan below (the
+      # pre-commit gitleaks hook only inspects staged diffs).
+      - name: Run pre-commit hooks
+        env:
+          SKIP: ruff-check,ruff-format,gitleaks
+        run: pre-commit run --all-files --show-diff-on-failure
+
+      - name: Install gitleaks
+        run: |
+          GL=8.30.1
+          curl -sSL "https://github.com/gitleaks/gitleaks/releases/download/v${GL}/gitleaks_${GL}_linux_x64.tar.gz" \
+            | tar -xz gitleaks
+          sudo install gitleaks /usr/local/bin/gitleaks
+          gitleaks version
+
+      - name: Secret scan (tracked tree)
+        run: gitleaks dir . -c .gitleaks.toml --redact --no-banner
+
   openapi-snapshot:
     name: OpenAPI Snapshot Drift
     needs: changes

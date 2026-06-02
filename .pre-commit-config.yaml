@@ -72,3 +72,45 @@ repos:
           ' --
         types: [python]
         files: '^backend/app/(modules/catalog|standards)/.*\.py$'
+
+      # --- Lint + format (shift-left; CI backend-lint also enforces these) ---
+      - id: ruff-check
+        name: "ruff check (backend)"
+        language: system
+        entry: uv run --project backend ruff check
+        types_or: [python, pyi]
+        files: '^backend/.*\.py$'
+      - id: ruff-format
+        name: "ruff format --check (backend)"
+        language: system
+        entry: uv run --project backend ruff format --check
+        types_or: [python, pyi]
+        files: '^backend/.*\.py$'
+
+  # --- Generic hygiene + secret scanning (Phase 1169 public-release readiness) ---
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      # Auto-fixers — generated/vendored trees excluded so they keep matching their generators.
+      - id: trailing-whitespace
+        exclude: '(^sdks/|^backend/openapi\.json$|^backend/tests/fixtures/|(^|/)package-lock\.json$|(^|/)uv\.lock$|(^|/)skills-lock\.json$|\.snap$)'
+      - id: end-of-file-fixer
+        exclude: '(^sdks/|^backend/openapi\.json$|^backend/tests/fixtures/|(^|/)package-lock\.json$|(^|/)uv\.lock$|(^|/)skills-lock\.json$|\.snap$)'
+      # Validity / safety checks (non-mutating).
+      - id: check-added-large-files
+        args: ['--maxkb=2048']
+      - id: check-merge-conflict
+      - id: check-case-conflict
+      - id: check-json
+        exclude: '(tsconfig.*\.json$|\.code-workspace$)'   # JSONC (comments) — not strict JSON
+      - id: check-toml
+      - id: check-yaml
+        args: ['--allow-multiple-documents']
+        exclude: '^deployment/helm/.*/templates/'          # Helm templates are not valid YAML
+
+  # Secret scanning — guards staged changes against committed credentials.
+  # Config + allowlist: .gitleaks.toml. CI also runs a full-tree `gitleaks dir` scan.
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.1
+    hooks:
+      - id: gitleaks
