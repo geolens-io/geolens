@@ -49,7 +49,7 @@ docker pull ghcr.io/geolens-io/geolens-api:latest
 docker pull ghcr.io/geolens-io/geolens-frontend:latest
 ```
 
-The image tags `1.0`, `1`, and `latest` track the current 1.x release line.
+The `latest` tag tracks the newest published stable release.
 
 ## Why GeoLens?
 
