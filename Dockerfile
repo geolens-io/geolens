@@ -128,7 +128,7 @@ RUN --mount=type=cache,target=/root/.npm \
 COPY frontend/ ./
 RUN npm run build:app
 
-FROM nginxinc/nginx-unprivileged:1.29.8-alpine AS frontend
+FROM nginxinc/nginx-unprivileged:1.31.1-alpine AS frontend
 
 LABEL org.opencontainers.image.title="geolens-frontend"
 LABEL org.opencontainers.image.description="PostGIS-native GIS data catalog frontend"
