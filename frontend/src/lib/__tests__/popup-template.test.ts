@@ -112,4 +112,3 @@ describe('substitutePopupTemplate', () => {
     expect(substitutePopupTemplate('{city}', undefined)).toBe('');
   });
 });
-

@@ -92,4 +92,3 @@ describe('InlineEdit dirty lifecycle', () => {
     expect(onDirtyChange).toHaveBeenCalledWith(false);
   });
 });
-

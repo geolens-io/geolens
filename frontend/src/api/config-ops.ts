@@ -86,4 +86,3 @@ export interface ConnectivityResult {
 export async function validateConnectivity(): Promise<ConnectivityResult> {
   return apiFetch<ConnectivityResult>('/config-ops/validate/', { method: 'POST' });
 }
-

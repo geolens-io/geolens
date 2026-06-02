@@ -57,4 +57,3 @@ export function getTileTokensBatch(datasetIds: string[], apiKey?: string): Promi
     body: JSON.stringify({ dataset_ids: datasetIds }),
   });
 }
-
