@@ -9,7 +9,6 @@ Covers:
   - TAUTH-06: Public bypass / private enforcement
 """
 
-import logging
 import time
 import uuid
 from unittest.mock import patch
@@ -540,7 +539,7 @@ class TestTileAccessLogging:
     """Test that tile access events are logged with expected fields."""
 
     async def test_tile_access_logged(
-        self, client: AsyncClient, admin_auth_header: dict, test_db_session, caplog
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session, monkeypatch
     ):
         """Tile access log entry contains dataset_id, table_name, z, scope."""
         table_name = f"logtest_{uuid.uuid4().hex[:8]}"
@@ -553,18 +552,41 @@ class TestTileAccessLogging:
         )
         await _create_data_table(test_db_session, table_name)
 
-        try:
-            with caplog.at_level(logging.DEBUG, logger="app.processing.tiles.router"):
-                resp = await client.get(f"/tiles/data.{table_name}/0/0/0.pbf")
-                assert resp.status_code == 200
+        # Intercept the tile_access log at the call site by swapping the router's
+        # module-level logger. Neither pytest's stdlib caplog nor
+        # structlog.testing.capture_logs() reliably captures it under the serial
+        # --cov CI run: the structlog logger is created with
+        # cache_logger_on_first_use=True, so once an earlier tile test in the same
+        # process binds app.processing.tiles.router.logger, a later processor swap
+        # (capture_logs) or stdlib-handler bridge (caplog) no longer reaches it ->
+        # the record is silently dropped (got: []). Replacing the module global
+        # is caching-immune: the handler resolves `logger` from module globals at
+        # call time, so it always uses our recorder.
+        import app.processing.tiles.router as _tiles_router
 
-            # Check that tile_access was logged
-            tile_access_logged = any(
-                "tile_access" in record.message for record in caplog.records
-            )
-            assert tile_access_logged, (
-                f"Expected 'tile_access' log entry, got: "
-                f"{[r.message for r in caplog.records]}"
+        class _RecordingLogger:
+            def __init__(self):
+                self.events: list[str] = []
+
+            def debug(self, event=None, *args, **kwargs):
+                self.events.append(event)
+
+            def __getattr__(self, _name):
+                # Other levels / bind() etc.: no-op that supports chaining.
+                def _noop(*args, **kwargs):
+                    return self
+
+                return _noop
+
+        recorder = _RecordingLogger()
+        monkeypatch.setattr(_tiles_router, "logger", recorder)
+
+        try:
+            resp = await client.get(f"/tiles/data.{table_name}/0/0/0.pbf")
+            assert resp.status_code == 200
+
+            assert "tile_access" in recorder.events, (
+                f"Expected 'tile_access' log entry, got: {recorder.events}"
             )
         finally:
             await _cleanup_data_table(test_db_session, table_name)
