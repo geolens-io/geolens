@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://schemas.geolens.io/geolens-manifest/v1/schema.json",
+  "$id": "https://schemas.getgeolens.com/geolens-manifest/v1/schema.json",
   "title": "GeoLens Manifest v1",
   "description": "Versioned geolens.yaml catalog manifest contract.",
   "type": "object",
