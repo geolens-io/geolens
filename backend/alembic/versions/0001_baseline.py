@@ -30,7 +30,23 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
+    # --- Verify minimum PostgreSQL version (CV-2) ---
+    # gen_random_uuid() (used as a column server-default throughout this
+    # baseline, and in 0006/0007) is built into core PostgreSQL 13+. Fail fast
+    # with a clear message on older servers rather than an opaque
+    # "function gen_random_uuid() does not exist" mid-migration.
+    op.execute(
+        "DO $$ BEGIN "
+        "IF current_setting('server_version_num')::int < 130000 THEN "
+        "RAISE EXCEPTION 'GeoLens requires PostgreSQL 13+ (gen_random_uuid)'; "
+        "END IF; END $$"
+    )
+
     # --- Verify required extensions (created by scripts/init-db.sh) ---
+    # NOTE: the 'vector' (pgvector) extension must be >= 0.5.0 -- migration 0011
+    # creates an HNSW index, which pgvector added in 0.5.0. Older pgvector fails
+    # at 0011 with 'access method "hnsw" does not exist'. The >= 0.5 requirement
+    # is documented (README / deployment) and enforced-by-failure at 0011.
     for ext in ("postgis", "pg_trgm", "vector", "unaccent"):
         op.execute(
             f"DO $$ BEGIN "

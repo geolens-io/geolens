@@ -398,7 +398,10 @@ async def list_share_tokens(
 
     conditions: list[ColumnElement[bool]] = []
     if search:
-        conditions.append(Map.name.ilike(f"%{escape_ilike(search)}%", escape="\\"))
+        # T-2: lower() column + pattern to hit ix_maps_name_trgm (on lower(name)).
+        conditions.append(
+            func.lower(Map.name).like(f"%{escape_ilike(search)}%".lower(), escape="\\")
+        )
     if status_filter == "active":
         conditions.append(MapShareToken.is_active.is_(True))
         conditions.append(

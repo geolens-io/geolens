@@ -12,8 +12,8 @@ that other tests (and, under ``-n 4``, other workers) depend on. So this test
 deliberately does NOT use those fixtures.
 
 Instead it provisions its own throwaway Postgres database (uuid-suffixed name,
-parallel-safe), runs the real ``alembic upgrade head`` -> ``downgrade -1`` ->
-``upgrade +1`` cycle against it with a synchronous engine, and drops the
+parallel-safe), runs the real ``alembic upgrade 0025`` -> ``downgrade 0024`` ->
+``upgrade 0025`` cycle against it with a synchronous engine, and drops the
 database in teardown. Nothing shared is touched.
 
 Two deliberate choices keep this test self-contained:
@@ -182,8 +182,10 @@ def test_0025_upgrade_downgrade_round_trip(throwaway_db_name: str) -> None:
     engine = create_engine(f"{_sync_base_url()}/{throwaway_db_name}")
 
     try:
-        # 1. Upgrade to head — schema should now use the plugin vocabulary.
-        command.upgrade(cfg, "head")
+        # 1. Upgrade to exactly 0025 — schema should now use the plugin
+        #    vocabulary. Pinned to the explicit revision (not "head") so the test
+        #    stays scoped to the 0025 rename as later migrations are added.
+        command.upgrade(cfg, "0025_widgets_to_plugins_rename")
         cols = _maps_columns(engine)
         assert "plugins" in cols, "catalog.maps.plugins missing after upgrade"
         assert "widgets" not in cols, (
@@ -206,8 +208,8 @@ def test_0025_upgrade_downgrade_round_trip(throwaway_db_name: str) -> None:
                 {"v": '["legend"]'},
             )
 
-        # 2. Downgrade exactly one step — both renames must reverse.
-        command.downgrade(cfg, "-1")
+        # 2. Downgrade to 0024 (undo 0025) — both renames must reverse.
+        command.downgrade(cfg, "0024")
         cols = _maps_columns(engine)
         assert "widgets" in cols, "catalog.maps.widgets missing after downgrade"
         assert "plugins" not in cols, (
@@ -224,8 +226,8 @@ def test_0025_upgrade_downgrade_round_trip(throwaway_db_name: str) -> None:
             f"config value not preserved on downgrade: {rows['enabled_widgets']!r}"
         )
 
-        # 3. Re-upgrade — round-trip is idempotent and data survives.
-        command.upgrade(cfg, "+1")
+        # 3. Re-upgrade to 0025 — round-trip is idempotent and data survives.
+        command.upgrade(cfg, "0025_widgets_to_plugins_rename")
         cols = _maps_columns(engine)
         assert "plugins" in cols, "catalog.maps.plugins missing after re-upgrade"
         assert "widgets" not in cols, (

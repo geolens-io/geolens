@@ -14,6 +14,7 @@ from app.modules.admin.schemas import (
 from app.modules.auth.models import ApiKey, RefreshToken, Role, User, UserRole
 from app.modules.auth.oauth.models import OAuthAccount, OAuthProvider
 from app.modules.auth.providers.local import hash_password
+from app.modules.catalog._ilike import escape_ilike
 from app.modules.catalog.datasets.domain.models import Dataset, Record
 
 logger = structlog.stdlib.get_logger(__name__)
@@ -296,8 +297,21 @@ class AdminService:
         elif status is not None:
             filters.append(User.status == status)
         if search is not None:
-            pattern = f"%{search}%"
-            filters.append(User.username.ilike(pattern) | User.email.ilike(pattern))
+            # T-2/T-1: lower() + catalog.immutable_unaccent both column and
+            # pattern so the predicate matches the trigram GIN indexes
+            # (ix_users_username_trgm, ix_users_email_trgm) and the OR can
+            # BitmapOr both. escape_ilike() escapes %, _, \ so a literal search
+            # term is not treated as wildcards (consistent with the other search
+            # paths; the bare f"%{search}%" previously leaked wildcards).
+            pattern = f"%{escape_ilike(search)}%".lower()
+            filters.append(
+                func.lower(func.catalog.immutable_unaccent(User.username)).like(
+                    pattern, escape="\\"
+                )
+                | func.lower(func.catalog.immutable_unaccent(User.email)).like(
+                    pattern, escape="\\"
+                )
+            )
 
         count_query = select(func.count()).select_from(User).where(*filters)
         list_query = select(User).where(*filters).order_by(User.created_at)

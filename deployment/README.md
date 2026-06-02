@@ -8,6 +8,19 @@ Compose files at the repository root remain the local development path.
 `deployment/helm/geolens` deploys the API, worker, frontend, and one-shot
 migration job against externally managed Postgres and optional Redis.
 
+### Database requirements
+
+The externally managed PostgreSQL instance must satisfy:
+
+- **PostgreSQL 13+** — `gen_random_uuid()` is used as a column default (core in PG13).
+  The migration job fails fast with `GeoLens requires PostgreSQL 13+ (gen_random_uuid)`
+  on older servers.
+- **pgvector 0.5+** — semantic search uses an HNSW index (migration 0011); older
+  pgvector fails with `access method "hnsw" does not exist`.
+- **Extensions present**: `postgis`, `pg_trgm`, `vector` (pgvector), `unaccent`.
+  On managed services (RDS, Cloud SQL) create them once with a privileged role,
+  e.g. `CREATE EXTENSION IF NOT EXISTS vector;`.
+
 Render locally:
 
 ```bash

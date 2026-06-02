@@ -46,6 +46,15 @@ class User(Base):
                 "lower(catalog.immutable_unaccent(username))": "gin_trgm_ops"
             },
         ),
+        # GIN trigram index for admin user search ILIKE on email (pairs with the
+        # username index so the username-OR-email search BitmapOrs both).
+        # Migration 0027 is the source of truth for the actual DDL.
+        Index(
+            "ix_users_email_trgm",
+            text("lower(catalog.immutable_unaccent(email))"),
+            postgresql_using="gin",
+            postgresql_ops={"lower(catalog.immutable_unaccent(email))": "gin_trgm_ops"},
+        ),
         {"schema": "catalog"},
     )
 
@@ -102,7 +111,11 @@ class Role(Base):
 
 class UserRole(Base):
     __tablename__ = "user_roles"
-    __table_args__ = {"schema": "catalog"}
+    __table_args__ = (
+        # T-3: trailing composite-PK FK; covering index added in migration 0026.
+        Index("ix_user_roles_role_id", "role_id"),
+        {"schema": "catalog"},
+    )
 
     user_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("catalog.users.id", ondelete="CASCADE"), primary_key=True
