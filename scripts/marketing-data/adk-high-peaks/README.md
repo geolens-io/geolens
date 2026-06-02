@@ -23,7 +23,7 @@ Locked bbox (WGS84): `-74.05, 44.08, -73.85, 44.32` — roughly 12 mi east-west 
 ## Run order
 
 ```bash
-cd /Users/ishiland/Code/geolens
+cd /path/to/geolens
 
 # 1. Download DEM tiles (~2.3 GB, 9 tiles)
 .venv/bin/python scripts/marketing-data/adk-high-peaks/fetch_dem.py
