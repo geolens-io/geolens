@@ -12,6 +12,7 @@ __pycache__/
 *.egg-info/
 .venv/
 .ruff_cache/
+.mypy_cache/
 
 # Node
 node_modules/
@@ -25,11 +26,16 @@ Thumbs.db
 .vscode/
 *.swp
 *.swo
+*.code-workspace
 
 # Coverage reports
 htmlcov/
 coverage.xml
 .coverage
+coverage/
+
+# Build output
+dist/
 
 # Playwright
 playwright/.auth/
@@ -45,7 +51,7 @@ tests/load/results/*.txt
 
 # Internal development / assistant state (not for public release)
 .planning/
-.gsd/
+.gsd
 .gsd-id
 .mcp.json
 .bg-shell/
@@ -69,25 +75,17 @@ docs-internal/
 # Product docs live in the getgeolens.com repo.
 docs/
 
-# Stray screenshots
+# Images: ignore stray screenshots, keep curated assets
 *.png
 !.github/assets/*.png
 !frontend/public/*.png
+!frontend/src/assets/**/*.png
 
-# ── GSD baseline (auto-generated) ──
-.gsd
-*~
-*.code-workspace
-.next/
-dist/
-build/
-venv/
-target/
-vendor/
+# Logs / temp
 *.log
-coverage/
-.cache/
+*~
 tmp/
+.cache/
 
 # Marketing data working dir (raw downloads, mosaicked COGs)
 # Used by scripts/marketing-data/*/ — outputs land in .scratch/<topic>/.
