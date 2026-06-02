@@ -53,7 +53,7 @@ dependencies = [
     # only transitively via fastapi[standard]. Pin keeps it a first-class dep.
     "httpx>=0.27",
     "sse-starlette>=3.4.4",
-    "sqlglot>=29.0.0",
+    "sqlglot>=30.8.0",
     "itsdangerous>=2.2.0",
     # Security: pin transitive deps to versions without known CVEs
     # cryptography 46.0.7 patches a buffer-overflow bug affecting
