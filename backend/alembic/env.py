@@ -139,6 +139,23 @@ def do_run_migrations(connection):
         )
     )
     connection.execute(sa.text("COMMIT"))
+    # CV-1: the raw COMMIT above persists the preamble DDL at the DB level, but
+    # SQLAlchemy's autobegin immediately re-arms an implicit transaction on the
+    # connection. If left active, MigrationContext.__init__ (in context.configure
+    # below) snapshots _in_external_transaction=True, which makes
+    # context.begin_transaction() return a nullcontext and never set
+    # ctx._transaction. That breaks the standard
+    # `op.get_context().autocommit_block()` pattern (CREATE INDEX CONCURRENTLY in
+    # migrations) with `assert self._transaction is not None`. Rolling back here
+    # clears SQLAlchemy's empty autobegun transaction (the preamble COMMIT above
+    # already persisted the schema + version table, so nothing real is discarded)
+    # so begin_transaction() owns a real, committing transaction and
+    # autocommit_block() works. Side effect: with _in_external_transaction now
+    # False, the whole migration run becomes a single atomic transaction
+    # (Alembic's default for transactional-DDL Postgres) -- a mid-chain failure
+    # rolls the entire run back instead of leaving a resumable partial state.
+    # See backend/alembic/README.md.
+    connection.rollback()
     context.configure(
         connection=connection,
         target_metadata=target_metadata,

@@ -18,9 +18,21 @@ psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-'
     CREATE EXTENSION IF NOT EXISTS postgis;
     CREATE EXTENSION IF NOT EXISTS pg_trgm;
     CREATE EXTENSION IF NOT EXISTS vector;
-    -- pg_stat_statements: query profiling (requires shared_preload_libraries).
-    -- NOTE: If you have an existing pgdata volume, init-db.sh will NOT re-run.
-    -- Run this manually: CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
+    -- pg_stat_statements: query profiling. This CREATE EXTENSION only runs on a
+    -- FRESH pgdata volume -- init-db.sh is a Postgres docker-entrypoint init
+    -- script and never re-runs against an existing volume (see header comment).
+    --
+    -- E-1 runbook -- adding pg_stat_statements to an EXISTING (pre-existing) volume:
+    --   1. Ensure the library is preloaded. The bundled image sets this via
+    --      db/postgresql.conf (shared_preload_libraries = 'pg_stat_statements').
+    --      For an external/managed Postgres, set it in postgresql.conf (or the
+    --      provider's parameter group), then RESTART the server -- this GUC
+    --      cannot be changed at runtime:
+    --        shared_preload_libraries = 'pg_stat_statements'
+    --   2. After the restart, create the extension once:
+    --        CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
+    --   Without step 1's preload, CREATE EXTENSION succeeds but the view stays
+    --   empty / errors on query -- preload is mandatory for this extension.
     CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
     CREATE EXTENSION IF NOT EXISTS unaccent;
 

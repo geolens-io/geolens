@@ -365,7 +365,13 @@ async def list_admin_embed_tokens(
         base = base.where(EmbedToken.map_id == map_id)
 
     if map_search:
-        base = base.where(Map.name.ilike(f"%{escape_ilike(map_search)}%", escape="\\"))
+        # T-2: lower() column + pattern to hit ix_maps_name_trgm (on lower(name));
+        # a bare ILIKE emits `name ~~* pattern` which the planner cannot match.
+        base = base.where(
+            func.lower(Map.name).like(
+                f"%{escape_ilike(map_search)}%".lower(), escape="\\"
+            )
+        )
 
     if creator:
         base = base.where(User.username == creator)

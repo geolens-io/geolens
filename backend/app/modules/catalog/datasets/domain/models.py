@@ -94,6 +94,30 @@ class Record(Base):
                 "lower(catalog.immutable_unaccent(coalesce(summary, '')))": "gin_trgm_ops"
             },
         ),
+        # D-1: functional GIN on the simple-regconfig tsvector for non-English
+        # (CJK / accented Latin) search. Created in migration
+        # 0020_records_simple_search_vector_idx; declared here so `alembic check`
+        # sees it (it cannot reflect a raw-SQL expression index otherwise and
+        # would propose dropping it).
+        #
+        # The text() must byte-match the expression SQLAlchemy *reflects* for
+        # this index — which is what autogenerate compares — NOT the raw
+        # `pg_get_indexdef` output and NOT the migration's lowercase SQL. They
+        # differ: pg canonicalizes 'simple'->'simple'::regconfig, uppercases
+        # COALESCE, adds ::text casts, and left-associates the || chain; and the
+        # reflected form has ONE FEWER outer paren than `pg_get_indexdef`
+        # (5 vs 6 leading parens here). To regenerate after a change: run
+        # `alembic check` and copy the expression verbatim from the diff error
+        # (or read inspect(conn).get_indexes('records', schema='catalog')), then
+        # confirm `alembic check` is green. No postgresql_ops: this index has no
+        # operator class (plain gin(to_tsvector)).
+        Index(
+            "ix_records_simple_search_vector",
+            text(
+                "to_tsvector('simple'::regconfig, (((((COALESCE(title, ''::text) || ' '::text) || COALESCE(summary, ''::text)) || ' '::text) || COALESCE(lineage_summary, ''::text)) || ' '::text) || COALESCE(catalog.immutable_text_array_join(theme_category, ' '::text), ''::text))"
+            ),
+            postgresql_using="gin",
+        ),
         {"schema": "catalog"},
     )
 
@@ -116,7 +140,12 @@ class Record(Base):
         String(10), default="en", server_default="en"
     )
     spatial_extent: Mapped[str | None] = mapped_column(
-        Geometry("POLYGON", srid=4326), nullable=True
+        # spatial_index=False: the GiST index is declared explicitly in
+        # __table_args__ as idx_records_spatial_extent. Without this, GeoAlchemy2
+        # would ALSO auto-create a same-named index, duplicating it in the model
+        # metadata (harmless for migration-built DBs but breaks create_all()).
+        Geometry("POLYGON", srid=4326, spatial_index=False),
+        nullable=True,
     )
     temporal_start: Mapped[date | None] = mapped_column(Date, nullable=True)
     temporal_end: Mapped[date | None] = mapped_column(Date, nullable=True)
@@ -492,7 +521,11 @@ class AttributeMetadata(Base):
 
 class DatasetGrant(Base):
     __tablename__ = "dataset_grants"
-    __table_args__ = {"schema": "catalog"}
+    __table_args__ = (
+        # T-3: trailing composite-PK FK; covering index added in migration 0026.
+        Index("ix_dataset_grants_role_id", "role_id"),
+        {"schema": "catalog"},
+    )
 
     dataset_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("catalog.datasets.id", ondelete="CASCADE"), primary_key=True

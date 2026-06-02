@@ -14,6 +14,7 @@ from app.modules.admin.schemas import (
 from app.modules.auth.models import ApiKey, RefreshToken, Role, User, UserRole
 from app.modules.auth.oauth.models import OAuthAccount, OAuthProvider
 from app.modules.auth.providers.local import hash_password
+from app.modules.catalog._ilike import escape_ilike
 from app.modules.catalog.datasets.domain.models import Dataset, Record
 
 logger = structlog.stdlib.get_logger(__name__)
@@ -296,8 +297,25 @@ class AdminService:
         elif status is not None:
             filters.append(User.status == status)
         if search is not None:
-            pattern = f"%{search}%"
-            filters.append(User.username.ilike(pattern) | User.email.ilike(pattern))
+            # T-2/T-1: normalize BOTH the column AND the pattern with
+            # lower(catalog.immutable_unaccent(...)) so (a) the predicate matches
+            # the trigram GIN indexes (ix_users_username_trgm,
+            # ix_users_email_trgm, both on lower(immutable_unaccent(col))) and the
+            # OR can BitmapOr both, and (b) accent-insensitive search works -- an
+            # accented term like "José" must itself be unaccented or it would
+            # never match the unaccented index column. escape_ilike() keeps %, _,
+            # \ literal (the bare f"%{search}%" previously leaked wildcards).
+            pattern = func.concat(
+                "%", func.catalog.immutable_unaccent(escape_ilike(search).lower()), "%"
+            )
+            filters.append(
+                func.lower(func.catalog.immutable_unaccent(User.username)).like(
+                    pattern, escape="\\"
+                )
+                | func.lower(func.catalog.immutable_unaccent(User.email)).like(
+                    pattern, escape="\\"
+                )
+            )
 
         count_query = select(func.count()).select_from(User).where(*filters)
         list_query = select(User).where(*filters).order_by(User.created_at)

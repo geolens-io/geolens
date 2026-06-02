@@ -37,7 +37,11 @@ class Collection(Base):
 
 class CollectionDataset(Base):
     __tablename__ = "collection_datasets"
-    __table_args__ = {"schema": "catalog"}
+    __table_args__ = (
+        # T-3: trailing composite-PK FK; covering index added in migration 0026.
+        Index("ix_collection_datasets_dataset_id", "dataset_id"),
+        {"schema": "catalog"},
+    )
 
     collection_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("catalog.collections.id", ondelete="CASCADE"), primary_key=True

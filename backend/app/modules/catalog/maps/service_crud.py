@@ -144,11 +144,20 @@ async def list_maps(
             # replacements do not double-escape already-escaped sequences.
             # escape_ilike() centralises the logic; escape="\\" makes the ESCAPE
             # character explicit in the emitted SQL.
-            pattern = f"%{escape_ilike(search)}%"
+            # T-2: lower() BOTH column and pattern so the predicate matches the
+            # functional trigram indexes (ix_maps_name_trgm on lower(name);
+            # ix_maps_description_trgm on lower(coalesce(description,''))). A bare
+            # ILIKE on the raw column emits `name ~~* pattern`, which the planner
+            # cannot match to lower(name) and falls back to a Seq Scan. Lowering
+            # the pattern is safe: escape_ilike()'s backslash/%/_ escapes are
+            # unaffected by .lower(). escape="\\" keeps the ESCAPE clause explicit.
+            pattern = f"%{escape_ilike(search)}%".lower()
             stmt = stmt.where(
                 or_(
-                    Map.name.ilike(pattern, escape="\\"),
-                    Map.description.ilike(pattern, escape="\\"),
+                    func.lower(Map.name).like(pattern, escape="\\"),
+                    func.lower(func.coalesce(Map.description, "")).like(
+                        pattern, escape="\\"
+                    ),
                 )
             )
         if visibility:

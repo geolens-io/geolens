@@ -15,6 +15,10 @@ from typing import Union
 import sqlalchemy as sa
 from alembic import op
 
+# NOTE (C-2): revision id is intentionally the bare "0024" (not
+# "0024_maps_og_image_uri"). This id shipped in the public v2.0.0 release;
+# renaming it would break `alembic upgrade` for any deployed DB whose
+# alembic_version.version_num='0024'. Frozen for release-compat -- do not rename.
 revision: str = "0024"
 down_revision: Union[str, None] = "0023_geolens_readonly_role"
 branch_labels: Union[str, tuple[str, ...], None] = None

@@ -50,18 +50,27 @@ def _apply_filters(
     if date_to is not None:
         query = query.where(AuditLog.created_at <= date_to)
     if search is not None:
-        # ADMIN-02 (Phase 279 / M-02): rewrite ILIKE to lower(unaccent(...)).like
-        # so the planner picks ix_audit_logs_action_trgm and ix_users_username_trgm
-        # functional GIN indexes from migration 0015. Those indexes are on
-        # lower(catalog.immutable_unaccent(...)); ILIKE on the bare column does
-        # NOT match the indexed expression, so without this rewrite every admin
-        # audit search is a seq scan against a table that grows linearly with
-        # admin activity. Same shape as catalog.search.service_filters.
-        unaccented_like = func.concat("%", func.unaccent(search.lower()), "%")
-        action_match = func.lower(func.unaccent(AuditLog.action)).like(unaccented_like)
+        # ADMIN-02 (Phase 279 / M-02; fixed in T-1): rewrite ILIKE to
+        # lower(catalog.immutable_unaccent(...)).like so the planner picks the
+        # ix_audit_logs_action_trgm and ix_users_username_trgm functional GIN
+        # indexes from migration 0015. Those indexes are built on
+        # lower(catalog.immutable_unaccent(...)) (IMMUTABLE). The query expression
+        # MUST use that exact schema-qualified function: bare ILIKE, OR a plain
+        # func.unaccent() (which renders unqualified and resolves via search_path
+        # to public.unaccent, STABLE), does NOT match the indexed expression and
+        # the planner falls back to a seq scan that grows linearly with admin
+        # activity. Same shape as catalog.search.service_filters.
+        unaccented_like = func.concat(
+            "%", func.catalog.immutable_unaccent(search.lower()), "%"
+        )
+        action_match = func.lower(
+            func.catalog.immutable_unaccent(AuditLog.action)
+        ).like(unaccented_like)
         username_match = AuditLog.user_id.in_(
             select(User.id).where(
-                func.lower(func.unaccent(User.username)).like(unaccented_like)
+                func.lower(func.catalog.immutable_unaccent(User.username)).like(
+                    unaccented_like
+                )
             )
         )
         # resource_type stays ILIKE -- it is a fixed enum-like string column with

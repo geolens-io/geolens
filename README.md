@@ -178,7 +178,10 @@ Connect directly from QGIS: **Layer > Add WFS / OGC API Features** and point at 
 
 ## Quick Start
 
-**Prerequisites:** Docker Engine 24+ and Docker Compose v2.
+**Prerequisites:** Docker Engine 24+ and Docker Compose v2. The bundled stack
+ships PostgreSQL 17. If you point GeoLens at an externally managed database, it
+must be **PostgreSQL 13+** (for `gen_random_uuid()`) with **pgvector 0.5+** (for
+HNSW semantic-search indexes), plus PostGIS, pg_trgm, and unaccent.
 
 ```bash
 git clone https://github.com/geolens-io/geolens.git
@@ -255,7 +258,7 @@ If you already have a long-lived API key (Admin > API Keys > Create New, or via 
 | Raster Tiles | Titiler (COG tile server) |
 | Object Storage | MinIO (S3-compatible, local dev) or any S3 provider |
 | Cache | Valkey (tile and query cache) |
-| Database | PostgreSQL 17 + PostGIS 3.5 + pgvector + pg_trgm |
+| Database | PostgreSQL 17 + PostGIS 3.5 + pgvector + pg_trgm (minimum: PostgreSQL 13, pgvector 0.5) |
 | Reverse Proxy | Nginx (production) / Vite dev proxy (development) |
 
 ## Configuration

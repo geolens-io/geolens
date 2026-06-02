@@ -5,12 +5,15 @@ schema refactors. Without this gate a future "tidy up the validators" PR
 could drop the constraint and rely on the DB column to truncate, which
 silently corrupts user input.
 
-ADMIN-02 (M-02): Pin the admin audit-log search query rewrite from ILIKE to
-lower(unaccent(...)).like(...) against future refactors. Without this gate
-a future "simplify the search filter" PR could revert to ILIKE, breaking
-the planner's match against ix_audit_logs_action_trgm and
-ix_users_username_trgm (migration 0015 GIN trigram indexes) and silently
-regressing admin-search latency from index-scan to seq-scan.
+ADMIN-02 (M-02; corrected in T-1): Pin the admin audit-log search query
+rewrite from ILIKE to lower(catalog.immutable_unaccent(...)).like(...) against
+future refactors. The trigram GIN indexes (ix_audit_logs_action_trgm,
+ix_users_username_trgm from migration 0015) are built on
+lower(catalog.immutable_unaccent(...)) -- the query MUST use that exact
+schema-qualified IMMUTABLE function. A bare ILIKE, OR a plain unaccent()
+(which renders unqualified -> public.unaccent, STABLE), does NOT match the
+indexed expression, so without this gate a refactor could silently regress
+admin-search latency from index-scan to seq-scan.
 """
 
 import pytest
@@ -48,7 +51,7 @@ def test_api_key_create_name_min_length():
 
 
 # -------------------------------------------------------------------
-# ADMIN-02 -- Audit-log search uses indexed lower(unaccent(...)) form
+# ADMIN-02 -- Audit-log search uses indexed lower(catalog.immutable_unaccent(...)) form
 # -------------------------------------------------------------------
 
 
@@ -61,17 +64,17 @@ def _compiled_search_sql(search: str | None) -> str:
 def test_audit_search_query_uses_indexed_action_expression():
     sql = _compiled_search_sql("login")
     # The migration 0015 GIN trigram index is on
-    # lower(catalog.immutable_unaccent(action)). Postgres only uses the
-    # index when the query expression matches lower(unaccent(action)) --
-    # ILIKE on the bare column does NOT match.
-    assert "lower(unaccent(" in sql, sql
+    # lower(catalog.immutable_unaccent(action)). Postgres only uses the index
+    # when the query expression matches that exact schema-qualified function --
+    # bare ILIKE, or a plain unaccent() (-> public.unaccent), does NOT match.
+    assert "lower(catalog.immutable_unaccent(" in sql, sql
     assert "audit_logs.action" in sql or "audit_logs_1.action" in sql, sql
 
 
 def test_audit_search_query_uses_indexed_username_expression():
     sql = _compiled_search_sql("admin")
     # ix_users_username_trgm is on lower(catalog.immutable_unaccent(username)).
-    assert "lower(unaccent(" in sql, sql
+    assert "lower(catalog.immutable_unaccent(" in sql, sql
     assert "users.username" in sql, sql
 
 
@@ -79,4 +82,4 @@ def test_audit_search_query_omits_search_branch_when_search_is_none():
     sql = _compiled_search_sql(None)
     # When search is None we must NOT emit the rewritten expression;
     # this guards against an accidental always-on rewrite.
-    assert "lower(unaccent(" not in sql, sql
+    assert "lower(catalog.immutable_unaccent(" not in sql, sql

@@ -94,15 +94,24 @@ def _build_text_filter(q: str):
         ),
     )
 
-    # unaccent both sides of ILIKE for accent-insensitive matching (cafe = cafe)
-    unaccented_like = func.concat("%", func.unaccent(query_text.lower()), "%")
+    # T-1: use catalog.immutable_unaccent (IMMUTABLE) on BOTH sides of the LIKE so
+    # the predicate matches the functional trigram GIN indexes, which are built on
+    # lower(catalog.immutable_unaccent(<col>)). A plain func.unaccent() renders
+    # unqualified and resolves via search_path to public.unaccent (STABLE), which
+    # the planner cannot match to the indexed expression -> seq scan. Both
+    # functions return identical text (accent-insensitive: cafe = café).
+    unaccented_like = func.concat(
+        "%", func.catalog.immutable_unaccent(query_text.lower()), "%"
+    )
     english_vector_match = Record.search_vector.bool_op("@@")(ts_query)
     simple_vector_match = record_simple_vector.bool_op("@@")(ts_query_simple)
     vector_match = or_(english_vector_match, simple_vector_match)
-    title_match = func.lower(func.unaccent(Record.title)).like(unaccented_like)
-    summary_match = func.lower(func.unaccent(func.coalesce(Record.summary, ""))).like(
+    title_match = func.lower(func.catalog.immutable_unaccent(Record.title)).like(
         unaccented_like
     )
+    summary_match = func.lower(
+        func.catalog.immutable_unaccent(func.coalesce(Record.summary, ""))
+    ).like(unaccented_like)
 
     kw_fts_sel = select(RecordKeyword.id).where(
         RecordKeyword.record_id == Record.id,
@@ -114,7 +123,9 @@ def _build_text_filter(q: str):
     )
     kw_like_sel = select(RecordKeyword.id).where(
         RecordKeyword.record_id == Record.id,
-        func.lower(func.unaccent(RecordKeyword.keyword)).like(unaccented_like),
+        func.lower(func.catalog.immutable_unaccent(RecordKeyword.keyword)).like(
+            unaccented_like
+        ),
     )
     ct_fts_sel = select(RecordContact.id).where(
         RecordContact.record_id == Record.id,
@@ -137,7 +148,7 @@ def _build_text_filter(q: str):
     ct_like_sel = select(RecordContact.id).where(
         RecordContact.record_id == Record.id,
         func.lower(
-            func.unaccent(
+            func.catalog.immutable_unaccent(
                 func.coalesce(RecordContact.name, "")
                 + " "
                 + func.coalesce(RecordContact.organization, "")
