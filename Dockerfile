@@ -6,7 +6,7 @@
 # Build-time deps (apt cache, intermediate uv-sync state) are confined to this
 # stage. The runtime layer rebuilds from a clean python:3.14.3-slim base and
 # only copies the resolved /app venv from this builder.
-FROM python:3.14.3-slim AS backend-builder
+FROM python:3.14.5-slim AS backend-builder
 
 # uv is build-time + runtime: see runtime-stage comment below for runtime rationale.
 # API-08 (Phase 275 / L-21): aligned uv installer pin across builder + runtime stages.
@@ -59,7 +59,7 @@ RUN chmod +x /app/scripts/api-entrypoint.sh /app/scripts/worker-entrypoint.sh
 # adopter flexibility; this image ships 3.14.3 as the project's tested runtime.
 # See backend/pyproject.toml comment at requires-python for the matching note.
 # Per .planning/REQUIREMENTS.md INF-15.
-FROM python:3.14.3-slim AS backend-base
+FROM python:3.14.5-slim AS backend-base
 
 # uv kept for enterprise overlay install (api-entrypoint.sh runs `uv add --editable`).
 # API-08 (Phase 275 / L-21): aligned uv installer pin across builder + runtime stages.
