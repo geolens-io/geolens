@@ -1,19 +1,59 @@
 version: 2
+# Dependency update automation. Covers all three JS surfaces (frontend, root
+# e2e, SDK), the uv-managed Python backend, and every Dockerfile location.
+# Reworked 2026-06-02 (dep-audit): switched backend from "pip" to "uv" so it
+# reads backend/uv.lock; added root + sdks/typescript npm; fixed the docker
+# directories to point at the actual Dockerfile locations (/, /db, /frontend).
 updates:
-  - package-ecosystem: "pip"
+  # --- Python backend (uv) ---
+  - package-ecosystem: "uv"        # was "pip" — uv reads backend/uv.lock
     directory: "/backend"
     schedule:
       interval: "weekly"
     labels: ["dependencies", "backend"]
     open-pull-requests-limit: 10
+    groups:
+      fastapi-ecosystem:
+        patterns: ["fastapi", "uvicorn", "starlette", "pydantic*", "sse-starlette"]
+      sqlalchemy-ecosystem:
+        patterns: ["sqlalchemy*", "alembic", "asyncpg", "psycopg*"]
+      geo-stack:
+        patterns: ["geoalchemy2", "shapely", "pgvector", "rasterio"]
+    ignore:
+      # Major bumps reviewed individually, not auto-grouped.
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
 
+  # --- Frontend React app (npm) ---
   - package-ecosystem: "npm"
     directory: "/frontend"
     schedule:
       interval: "weekly"
     labels: ["dependencies", "frontend"]
     open-pull-requests-limit: 10
+    groups:
+      react-ecosystem:
+        patterns: ["react", "react-dom", "@types/react*"]
+      tanstack:
+        patterns: ["@tanstack/*"]
 
+  # --- Root E2E (Playwright) — was untracked ---
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    labels: ["dependencies", "e2e"]
+    open-pull-requests-limit: 5
+
+  # --- TypeScript SDK — was untracked ---
+  - package-ecosystem: "npm"
+    directory: "/sdks/typescript"
+    schedule:
+      interval: "weekly"
+    labels: ["dependencies", "sdk"]
+    open-pull-requests-limit: 5
+
+  # --- GitHub Actions ---
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
@@ -21,14 +61,23 @@ updates:
     labels: ["dependencies", "ci"]
     open-pull-requests-limit: 5
 
+  # --- Docker images ---
+  # Root multi-stage Dockerfile (python + node + nginx) — was MISSING; this is
+  # the gap that left the root frontend-build node image untracked.
   - package-ecosystem: "docker"
-    directory: "/backend"
+    directory: "/"
     schedule:
-      interval: "monthly"
+      interval: "weekly"
     labels: ["dependencies", "docker"]
-
+  # DB image (postgis + pgvector build) — was MISSING.
+  - package-ecosystem: "docker"
+    directory: "/db"
+    schedule:
+      interval: "weekly"
+    labels: ["dependencies", "docker"]
+  # Frontend Vite dev-server image.
   - package-ecosystem: "docker"
     directory: "/frontend"
     schedule:
-      interval: "monthly"
+      interval: "weekly"
     labels: ["dependencies", "docker"]
