@@ -63,7 +63,7 @@ dependencies = [
     # and drain_conn handling (Dependabot #36 / CVE-2026-44432).
     "urllib3>=2.7.0",
     # idna 3.15 patches a DoS in idna.encode() with crafted inputs (Dependabot #40 / CVE-2026-45409 / GHSA-65pc-fj4g-8rjx).
-    "idna>=3.15",
+    "idna>=3.18",
     # starlette 1.0.1 fixes "BadHost": missing Host-header validation that
     # poisons request.url.path and can bypass path-based auth checks
     # (CVE-2026-48710 / PYSEC-2026-161 / GHSA-86qp-5c8j-p5mr). Requires
