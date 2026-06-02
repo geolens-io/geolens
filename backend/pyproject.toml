@@ -40,7 +40,7 @@ dependencies = [
     "puremagic>=2.0.0",
     "rasterio>=1.4.0",
     "Pillow>=12.2.0",
-    "numpy>=2.0.0",
+    "numpy>=2.4.6",
     # 8.0.0 lifts the starlette<1.0.0 cap (prior 7.x pinned <1.0.0), which was
     # the sole blocker preventing starlette>=1.0.1 from resolving for the
     # CVE-2026-48710 fix below.
