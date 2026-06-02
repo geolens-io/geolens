@@ -9,7 +9,6 @@ Covers:
   - TAUTH-06: Public bypass / private enforcement
 """
 
-import logging
 import time
 import uuid
 from unittest.mock import patch
@@ -18,6 +17,7 @@ import asyncpg
 import pytest
 from httpx import AsyncClient
 from sqlalchemy import text
+from structlog.testing import capture_logs
 
 from app.core.config import settings
 from app.modules.catalog.datasets.domain.models import Dataset, Record
@@ -540,7 +540,7 @@ class TestTileAccessLogging:
     """Test that tile access events are logged with expected fields."""
 
     async def test_tile_access_logged(
-        self, client: AsyncClient, admin_auth_header: dict, test_db_session, caplog
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ):
         """Tile access log entry contains dataset_id, table_name, z, scope."""
         table_name = f"logtest_{uuid.uuid4().hex[:8]}"
@@ -554,17 +554,22 @@ class TestTileAccessLogging:
         await _create_data_table(test_db_session, table_name)
 
         try:
-            with caplog.at_level(logging.DEBUG, logger="app.processing.tiles.router"):
+            # Capture at the structlog layer (not pytest's stdlib caplog). The
+            # stdlib caplog bridge is fragile under the full-suite serial CI run
+            # (global logging-state mutation + coverage tracing) and silently
+            # drops the propagated DEBUG record -> caplog.records == [].
+            # structlog.testing.capture_logs() is context-local and immune to
+            # stdlib handler/level/propagation state and to coverage tracing.
+            with capture_logs() as cap_logs:
                 resp = await client.get(f"/tiles/data.{table_name}/0/0/0.pbf")
                 assert resp.status_code == 200
 
-            # Check that tile_access was logged
             tile_access_logged = any(
-                "tile_access" in record.message for record in caplog.records
+                entry.get("event") == "tile_access" for entry in cap_logs
             )
             assert tile_access_logged, (
                 f"Expected 'tile_access' log entry, got: "
-                f"{[r.message for r in caplog.records]}"
+                f"{[e.get('event') for e in cap_logs]}"
             )
         finally:
             await _cleanup_data_table(test_db_session, table_name)

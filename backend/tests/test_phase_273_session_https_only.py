@@ -6,8 +6,6 @@ could leak the cookie. Gated on settings.log_json (the production indicator
 already used at main.py:407 for _is_production).
 """
 
-import importlib
-
 from starlette.middleware.sessions import SessionMiddleware
 
 
@@ -23,10 +21,13 @@ def test_session_middleware_https_only_true_when_log_json(monkeypatch):
     """When settings.log_json=True, SessionMiddleware is mounted with https_only=True."""
     monkeypatch.setenv("LOG_JSON", "true")
 
-    # Reload config so the new env propagates
+    # Settings() re-reads the environment at instantiation, so the new env var
+    # propagates without an importlib.reload. Reloading the module would replace
+    # the singleton app.core.config.settings that conftest mutates to the
+    # per-worker test DB name, poisoning later tests that re-import settings
+    # (CI staging: InvalidCatalogNameError: database "geolens_test" does not exist).
     from app.core import config as cfg
 
-    importlib.reload(cfg)
     new_settings = cfg.Settings()
     assert new_settings.log_json is True, (
         "test setup: LOG_JSON=true should produce log_json=True"
@@ -54,7 +55,6 @@ def test_session_middleware_https_only_false_in_dev(monkeypatch):
     monkeypatch.delenv("LOG_JSON", raising=False)
     from app.core import config as cfg
 
-    importlib.reload(cfg)
     new_settings = cfg.Settings()
     assert new_settings.log_json is False
 

@@ -221,6 +221,17 @@ export POSTGRES_HOST="localhost"
 export POSTGRES_PORT="${PG_PORT}"
 export POSTGRES_DB="${PG_DB}"
 
+# alembic/env.py does `from app.core.config import settings`, which instantiates
+# Settings() at import. With no repo-root .env present in CI, three required
+# fields (JWT_SECRET_KEY, GEOLENS_ADMIN_USERNAME/PASSWORD) are unset and the
+# fail-fast in app/core/config.py aborts before any migration runs. This smoke
+# only exercises the migration chain against a throwaway DB and never serves
+# auth, so padding values are correct here. ${VAR:-default} preserves any real
+# value. JWT_SECRET_KEY must be >=32 chars and not a known-public literal.
+export JWT_SECRET_KEY="${JWT_SECRET_KEY:-alembic-clean-db-smoke-padding-key-32chars}"
+export GEOLENS_ADMIN_USERNAME="${GEOLENS_ADMIN_USERNAME:-admin}"
+export GEOLENS_ADMIN_PASSWORD="${GEOLENS_ADMIN_PASSWORD:-admin}"
+
 # Phase 1079 VG-01 fix: backend/ has no [build-system] in pyproject.toml, so
 # the `app` package is not installed into the venv's site-packages — it is
 # imported via the cwd entry on sys.path. When `uv run --no-dev` invokes the
