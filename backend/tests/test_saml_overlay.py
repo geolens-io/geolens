@@ -289,13 +289,25 @@ def saml_router_mounted(saml_overlay_registered):
     import app.core.public_urls as public_urls_mod
 
     saved_get_api_url = public_urls_mod.get_public_api_url
+    saved_get_app_url = public_urls_mod.get_public_app_url
 
-    async def _fixture_api_url(db, request=None):  # type: ignore[no-untyped-def]
+    # The overlay now resolves BOTH public URLs with for_external_use=True
+    # (Phase 268 H-27 fail-closed, mirroring oauth_callback), so the stubs must
+    # accept that keyword. get_public_app_url is stubbed too: the real one
+    # raises PublicUrlNotConfiguredError under for_external_use when
+    # PUBLIC_APP_URL is unset (the test DB default), which the overlay would
+    # otherwise surface as a 500 before the ACS logic runs.
+    async def _fixture_api_url(db, request=None, for_external_use=False):  # type: ignore[no-untyped-def]
+        return "https://geolens.test"
+
+    async def _fixture_app_url(db, request=None, for_external_use=False):  # type: ignore[no-untyped-def]
         return "https://geolens.test"
 
     public_urls_mod.get_public_api_url = _fixture_api_url
-    # The SAML router imported the symbol, so patch the imported binding too.
+    public_urls_mod.get_public_app_url = _fixture_app_url
+    # The SAML router imported the symbols, so patch the imported bindings too.
     saml_router_mod.get_public_api_url = _fixture_api_url
+    saml_router_mod.get_public_app_url = _fixture_app_url
 
     try:
         yield saml_overlay_registered
@@ -306,7 +318,9 @@ def saml_router_mounted(saml_overlay_registered):
         replay_cache._seen.clear()
         replay_cache._seen.update(saved_replay)
         public_urls_mod.get_public_api_url = saved_get_api_url
+        public_urls_mod.get_public_app_url = saved_get_app_url
         saml_router_mod.get_public_api_url = saved_get_api_url
+        saml_router_mod.get_public_app_url = saved_get_app_url
         _unmount_saml_router()
 
 
@@ -396,6 +410,77 @@ async def test_saml_acs_signed_assertion_jit_provisions_user(
     user = result.scalar_one_or_none()
     assert user is not None, "JIT provisioning did not create a user"
     assert user.auth_provider == "oauth"
+
+
+async def test_saml_acs_issues_valid_decodable_jwt_regression(
+    client,
+    test_db_session,
+    saml_router_mounted,
+    _cleanup_saml_providers,
+    saml_response_dir,
+):
+    """Regression guard: the ACS redirect fragment must carry a real,
+    signature-valid JWT for the asserted subject -- not a coroutine repr.
+
+    Why this exists (the gap that let SAML ship broken): ``AuthService.
+    create_access_token`` is ``async``. The overlay's ACS once called it
+    WITHOUT ``await``, so the fragment received the coroutine object's repr
+    (``<coroutine object ...>``) instead of a JWT, and every SAML login
+    authenticated no one. The pre-existing happy-path test only asserted
+    ``frag_pairs["token"]`` was non-empty -- which a coroutine repr satisfies --
+    so the broken login passed CI. This test decodes and verifies the token,
+    plus the ``Referrer-Policy: no-referrer`` header (SEC-13) on the
+    token-bearing redirect.
+    """
+    import jwt
+
+    from app.core.config import settings
+
+    await _seed_saml_provider(test_db_session)
+    saml_response = _load_fixture_b64("idp_response_signed.xml.b64", saml_response_dir)
+
+    resp = await client.post(
+        f"/auth/saml/{FIXTURE_SLUG}/acs",
+        data={"SAMLResponse": saml_response},
+        follow_redirects=False,
+    )
+    assert resp.status_code == 302, resp.text
+
+    # SEC-13: the token-bearing redirect must suppress the Referer header so the
+    # tokens (and the IdP SAMLResponse) cannot leak to third-party assets.
+    assert resp.headers.get("referrer-policy") == "no-referrer", (
+        f"missing SEC-13 Referrer-Policy: no-referrer header: {dict(resp.headers)}"
+    )
+
+    fragment = urlparse(resp.headers["location"]).fragment
+    frag_pairs = dict(p.split("=", 1) for p in fragment.split("&") if "=" in p)
+    token = frag_pairs.get("token", "")
+
+    # The exact failure mode of the missing-await bug.
+    assert "coroutine" not in token, (
+        "token fragment is a coroutine repr, not a JWT -- create_access_token "
+        f"was not awaited: {token!r}"
+    )
+    # A real JWT has three dot-separated segments and verifies against the
+    # configured signing secret with the expected claims.
+    assert token.count(".") == 2, f"not a JWT: {token!r}"
+    payload = jwt.decode(
+        token,
+        settings.jwt_secret_key.get_secret_value(),
+        algorithms=[settings.jwt_algorithm],
+    )
+
+    # The JWT subject is the JIT-provisioned user (email treated as verified per
+    # Phase 268 H-30, so provisioning actually completed).
+    result = await test_db_session.execute(
+        select(User).where(User.email == FIXTURE_NAMEID)
+    )
+    user = result.scalar_one_or_none()
+    assert user is not None, "JIT provisioning did not create a user"
+    assert payload["sub"] == str(user.id), (
+        f"JWT sub {payload['sub']!r} != provisioned user id {user.id}"
+    )
+    assert "exp" in payload and "token_version" in payload
 
 
 async def test_saml_acs_rejects_invalid_signature(
