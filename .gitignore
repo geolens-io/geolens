@@ -11,6 +11,7 @@ __pycache__/
 .pytest_cache/
 *.egg-info/
 .venv/
+venv/
 .ruff_cache/
 .mypy_cache/
 
@@ -35,6 +36,7 @@ coverage.xml
 coverage/
 
 # Build output
+build/
 dist/
 
 # Playwright
