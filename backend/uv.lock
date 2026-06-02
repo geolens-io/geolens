@@ -837,6 +837,7 @@ dependencies = [
     { name = "defusedxml" },
     { name = "fastapi", extra = ["standard"] },
     { name = "geoalchemy2" },
+    { name = "httpx" },
     { name = "idna" },
     { name = "itsdangerous" },
     { name = "jsonschema" },
@@ -871,7 +872,6 @@ dependencies = [
 dev = [
     { name = "bandit" },
     { name = "fakeredis" },
-    { name = "httpx" },
     { name = "moto", extra = ["s3"] },
     { name = "pip-audit" },
     { name = "pystac" },
@@ -894,6 +894,7 @@ requires-dist = [
     { name = "defusedxml", specifier = ">=0.7.1" },
     { name = "fastapi", extras = ["standard"], specifier = ">=0.115.0" },
     { name = "geoalchemy2", specifier = ">=0.15.0" },
+    { name = "httpx", specifier = ">=0.27" },
     { name = "idna", specifier = ">=3.15" },
     { name = "itsdangerous", specifier = ">=2.2.0" },
     { name = "jsonschema", specifier = ">=4.19" },
@@ -928,7 +929,6 @@ requires-dist = [
 dev = [
     { name = "bandit", specifier = ">=1.8" },
     { name = "fakeredis", specifier = ">=2.21.0" },
-    { name = "httpx" },
     { name = "moto", extras = ["s3"], specifier = ">=5.0.0" },
     { name = "pip-audit", specifier = ">=2.7" },
     { name = "pystac", specifier = ">=1.14" },

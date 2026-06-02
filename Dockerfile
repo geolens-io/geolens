@@ -119,7 +119,7 @@ USER appuser
 ENTRYPOINT ["/app/scripts/worker-entrypoint.sh"]
 CMD ["sh", "-c", "uv run --no-dev python -m app.worker"]
 
-FROM node:25.9.0-alpine AS frontend-build
+FROM node:26.3.0-alpine AS frontend-build
 
 WORKDIR /app
 COPY frontend/package.json frontend/package-lock.json ./
