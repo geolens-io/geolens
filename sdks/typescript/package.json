@@ -36,7 +36,7 @@
   },
   "devDependencies": {
     "@hey-api/openapi-ts": "0.96.1",
-    "typescript": "^5.6.0"
+    "typescript": "^6.0.3"
   },
   "publishConfig": {
     "access": "public"
