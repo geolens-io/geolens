@@ -113,7 +113,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     ports:
       # Host-port fallback (5434 from .env, 5432 bare) — see
-      # docs/docker-compose-architecture.md#host-port-fallback
+      # docs-internal/docker-compose-architecture.md#host-port-fallback
       - "127.0.0.1:${DB_PORT:-5432}:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
@@ -135,7 +135,7 @@ services:
       dockerfile: Dockerfile
       target: api
     # Empty entrypoint suppresses Dockerfile-inherited api-entrypoint.sh on this
-    # one-shot service — see docs/docker-compose-architecture.md#migrate-empty-entrypoint
+    # one-shot service — see docs-internal/docker-compose-architecture.md#migrate-empty-entrypoint
     entrypoint: []
     command: sh -c "uv run --no-dev alembic upgrade head"
     # One-shot: alembic upgrade is idempotent (re-running is safe). Failure
@@ -186,7 +186,7 @@ services:
     entrypoint: ["/app/scripts/api-entrypoint.sh"]
     ports:
       # Host-port fallback (8001 from .env, 8000 bare) — see
-      # docs/docker-compose-architecture.md#host-port-fallback
+      # docs-internal/docker-compose-architecture.md#host-port-fallback
       - "127.0.0.1:${API_PORT:-8000}:8000"
     volumes:
       - ./.dockerignore:/app/.dockerignore:ro
@@ -314,7 +314,7 @@ services:
 
   titiler:
     # Pinned to 2.x stable (held back from 3.x without contract testing) — see
-    # docs/docker-compose-architecture.md#titiler-image-version
+    # docs-internal/docker-compose-architecture.md#titiler-image-version
     image: ghcr.io/developmentseed/titiler:2.0.2
     init: true
     restart: unless-stopped
@@ -438,7 +438,7 @@ services:
   # not for sharing on a LAN or exposing through Docker port forwarding.
   minio:
     # Pinned by SHA256 digest (tag is documentation); bump procedure at
-    # docs/docker-compose-architecture.md#minio-image-version-bump
+    # docs-internal/docker-compose-architecture.md#minio-image-version-bump
     image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
     profiles: ["cloud-dev"]
     command: server /data --console-address ":9001"
@@ -447,7 +447,7 @@ services:
       - "127.0.0.1:9001:9001"
     environment:
       # Fail-closed creds (no var-default fallback) — see
-      # docs/docker-compose-architecture.md#minio-fail-closed-creds
+      # docs-internal/docker-compose-architecture.md#minio-fail-closed-creds
       MINIO_ROOT_USER: "${MINIO_ROOT_USER:?MINIO_ROOT_USER is required for --profile cloud-dev (set in .env)}"
       MINIO_ROOT_PASSWORD: "${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD is required for --profile cloud-dev}"
     volumes:
@@ -461,13 +461,13 @@ services:
 
   minio-setup:
     # Paired digest pin with the minio service above — see
-    # docs/docker-compose-architecture.md#minio-image-version-bump
+    # docs-internal/docker-compose-architecture.md#minio-image-version-bump
     image: quay.io/minio/mc:RELEASE.2025-08-13T08-35-41Z@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
     profiles: ["cloud-dev"]
     depends_on:
       minio:
         condition: service_healthy
-    # Fail-closed creds; see docs/docker-compose-architecture.md#minio-fail-closed-creds
+    # Fail-closed creds; see docs-internal/docker-compose-architecture.md#minio-fail-closed-creds
     # The `$$VAR` (double-dollar) in entrypoint below is load-bearing — it passes
     # the literal $VAR to the in-container shell, which then expands it.
     environment:
@@ -496,7 +496,7 @@ services:
 
   valkey:
     # 8.x line tip; cloud-dev profile only — see
-    # docs/docker-compose-architecture.md#valkey-image-version
+    # docs-internal/docker-compose-architecture.md#valkey-image-version
     image: valkey/valkey:8.1.7-alpine
     profiles: ["cloud-dev"]
     ports:
