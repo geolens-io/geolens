@@ -12785,7 +12785,7 @@
                 "type": "null"
               }
             ],
-            "description": "Expiration timestamp. Null creates a basic non-expiring share link; non-null expiration requires the enterprise edition.",
+            "description": "Expiration timestamp. Null creates a non-expiring share link.",
             "title": "Expires At"
           }
         },
@@ -35843,7 +35843,7 @@
         ]
       },
       "patch": {
-        "description": "Update expiration on an existing share token. Owner or admin only.\n\nNull clears expiration. Setting a non-null expiration requires the enterprise edition.",
+        "description": "Update expiration on an existing share token. Owner or admin only.\n\nNull clears expiration.",
         "operationId": "update_map_share_token_endpoint_maps__map_id__share__patch",
         "parameters": [
           {
@@ -35967,7 +35967,7 @@
         ]
       },
       "post": {
-        "description": "Create or retrieve a share token for a public map.\n\nCommunity supports basic non-expiring share links. Non-null expiration\nrequires the enterprise edition.",
+        "description": "Create or retrieve a share token for a public map.",
         "operationId": "share_map_endpoint_maps__map_id__share__post",
         "parameters": [
           {

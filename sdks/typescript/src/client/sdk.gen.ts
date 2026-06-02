@@ -2435,7 +2435,7 @@ export const getMapShareTokenEndpointMapsMapIdShareGet = <ThrowOnError extends b
  *
  * Update expiration on an existing share token. Owner or admin only.
  *
- * Null clears expiration. Setting a non-null expiration requires the enterprise edition.
+ * Null clears expiration.
  */
 export const updateMapShareTokenEndpointMapsMapIdSharePatch = <ThrowOnError extends boolean = false>(options: Options<UpdateMapShareTokenEndpointMapsMapIdSharePatchData, ThrowOnError>) => (options.client ?? client).patch<UpdateMapShareTokenEndpointMapsMapIdSharePatchResponses, UpdateMapShareTokenEndpointMapsMapIdSharePatchErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }],
@@ -2451,9 +2451,6 @@ export const updateMapShareTokenEndpointMapsMapIdSharePatch = <ThrowOnError exte
  * Share Map Endpoint
  *
  * Create or retrieve a share token for a public map.
- *
- * Community supports basic non-expiring share links. Non-null expiration
- * requires the enterprise edition.
  */
 export const shareMapEndpointMapsMapIdSharePost = <ThrowOnError extends boolean = false>(options: Options<ShareMapEndpointMapsMapIdSharePostData, ThrowOnError>) => (options.client ?? client).post<ShareMapEndpointMapsMapIdSharePostResponses, ShareMapEndpointMapsMapIdSharePostErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }],

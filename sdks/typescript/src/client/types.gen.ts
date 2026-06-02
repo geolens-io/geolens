@@ -7425,7 +7425,7 @@ export type ShareTokenRequest = {
     /**
      * Expires At
      *
-     * Expiration timestamp. Null creates a basic non-expiring share link; non-null expiration requires the enterprise edition.
+     * Expiration timestamp. Null creates a non-expiring share link.
      */
     expires_at?: string | null;
 };

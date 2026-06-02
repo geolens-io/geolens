@@ -110,9 +110,6 @@ def sync_detailed(
 
      Create or retrieve a share token for a public map.
 
-    Community supports basic non-expiring share links. Non-null expiration
-    requires the enterprise edition.
-
     Args:
         map_id (UUID):
         body (None | ShareTokenRequest | Unset):
@@ -147,9 +144,6 @@ def sync(
 
      Create or retrieve a share token for a public map.
 
-    Community supports basic non-expiring share links. Non-null expiration
-    requires the enterprise edition.
-
     Args:
         map_id (UUID):
         body (None | ShareTokenRequest | Unset):
@@ -178,9 +172,6 @@ async def asyncio_detailed(
     """Share Map Endpoint
 
      Create or retrieve a share token for a public map.
-
-    Community supports basic non-expiring share links. Non-null expiration
-    requires the enterprise edition.
 
     Args:
         map_id (UUID):
@@ -213,9 +204,6 @@ async def asyncio(
     """Share Map Endpoint
 
      Create or retrieve a share token for a public map.
-
-    Community supports basic non-expiring share links. Non-null expiration
-    requires the enterprise edition.
 
     Args:
         map_id (UUID):
