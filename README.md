@@ -226,7 +226,7 @@ The repo ships a small `city-parks.geojson`. Upload and publish it in one comman
 
 ```bash
 pip install geolens-cli                              # installs the `geolens` command
-geolens login http://localhost:8080                  # admin / admin
+geolens login http://localhost:8080/api              # admin / admin
 geolens publish examples/manifests/first-catalog/city-parks.geojson --name "City Parks"
 ```
 
