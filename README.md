@@ -222,17 +222,17 @@ For production deployment, see the [Install Guide](https://docs.getgeolens.com/g
 
 ### Add Your First Dataset
 
-The fastest way from a freshly-started stack to data in the catalog is the **manifest CLI**. A manifest is a YAML file describing one or more datasets and their sources; `geolens apply` validates it locally and uploads the work to the API in one step.
+The repo ships a small `city-parks.geojson`. Upload and publish it in one command with the **GeoLens CLI**:
 
 ```bash
 pip install geolens-cli                              # installs the `geolens` command
 geolens login http://localhost:8080                  # admin / admin
-geolens apply examples/manifests/first-catalog/geolens.yaml
+geolens publish examples/manifests/first-catalog/city-parks.geojson --name "City Parks"
 ```
 
-The example at [`examples/manifests/first-catalog/`](examples/manifests/first-catalog/) ships a small `city-parks.geojson` and a ready-to-apply `geolens.yaml` so the round trip from clone to first dataset is one command.
+`geolens publish` runs the upload → preview → commit ingest flow and prints the new dataset's URL — clone to first dataset in one command.
 
-To start your own catalog, scaffold a fresh manifest with `geolens init` and edit it for your sources:
+For repeatable, multi-dataset catalogs, describe your sources in a **manifest** (`geolens.yaml`) and apply it with `geolens apply`. Manifest sources are referenced by HTTP(S) URL, S3 URI, or a path already staged on the server; the examples in [`examples/manifests/`](examples/manifests/) are templates to adapt. Scaffold a fresh one with `geolens init` and edit it for your sources:
 
 ```bash
 geolens init                       # writes geolens.yaml in the current directory
@@ -335,7 +335,7 @@ is deferred until a real-world adopter request makes it concrete.
 | [Cloud Deployment](https://docs.getgeolens.com/guides/quickstart/cloud-deployment/) | AWS, GCP, and DigitalOcean deployment guides |
 | [Developer Docs](https://docs.getgeolens.com/) | Build custom map builder plugins |
 | [API Reference](https://docs.getgeolens.com/guides/api/) | Auto-generated reference at docs.getgeolens.com; interactive Swagger UI at `/api/docs` when running |
-| [Manifest examples](examples/manifests/) | Working `geolens.yaml` examples — first-catalog, public-cog (remote COG), s3-source, url-source |
+| [Manifest examples](examples/manifests/) | Template `geolens.yaml` manifests to adapt — public-cog (remote COG), url-source, s3-source, publication-states |
 
 ## Community
 

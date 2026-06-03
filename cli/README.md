@@ -20,6 +20,6 @@ geolens publish ./data/cities.geojson
 geolens export stac <dataset-id> -o cities.stac.json
 ```
 
-For the Docker Compose first-catalog walkthrough using `examples/manifests/first-catalog/geolens.yaml`, see [docs.getgeolens.com](https://docs.getgeolens.com/).
+For a one-command quickstart, run `geolens publish examples/manifests/first-catalog/city-parks.geojson` against a running stack. See the full walkthrough at [docs.getgeolens.com](https://docs.getgeolens.com/).
 
 The CLI consumes the [`geolens`](https://pypi.org/project/geolens/) Python SDK package. Manifest apply posts to the generated `POST /ingest/manifest/apply` contract through the SDK-owned client transport; there is no hand-rolled HTTP client.
