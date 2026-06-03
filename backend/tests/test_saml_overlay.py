@@ -297,10 +297,15 @@ def saml_router_mounted(saml_overlay_registered):
     # raises PublicUrlNotConfiguredError under for_external_use when
     # PUBLIC_APP_URL is unset (the test DB default), which the overlay would
     # otherwise surface as a 500 before the ACS logic runs.
-    async def _fixture_api_url(db, request=None, for_external_use=False):  # type: ignore[no-untyped-def]
+    #
+    # The `*` keeps request/for_external_use keyword-only, matching the real
+    # get_public_*_url signatures (public_urls.py) so the double enforces the
+    # same call contract -- a future overlay call passing `request` positionally
+    # would TypeError in production AND here, instead of silently passing.
+    async def _fixture_api_url(db, *, request=None, for_external_use=False):  # type: ignore[no-untyped-def]
         return "https://geolens.test"
 
-    async def _fixture_app_url(db, request=None, for_external_use=False):  # type: ignore[no-untyped-def]
+    async def _fixture_app_url(db, *, request=None, for_external_use=False):  # type: ignore[no-untyped-def]
         return "https://geolens.test"
 
     public_urls_mod.get_public_api_url = _fixture_api_url
