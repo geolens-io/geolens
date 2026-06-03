@@ -2,5 +2,5 @@ apiVersion: v2
 name: geolens
 description: Production deployment chart for GeoLens community services
 type: application
-version: 0.1.0
-appVersion: "1.0.1"
+version: 0.2.0
+appVersion: "2.0.0"
