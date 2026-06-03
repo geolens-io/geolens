@@ -94,3 +94,8 @@ tmp/
 # Scripts + manifest YAML + curated GeoJSONs ARE committed; raw .tif/.zip/.geojson
 # downloads + mosaicked COGs are NOT.
 .scratch/
+
+# License signing keys — NEVER commit the private key
+license-keys/
+*license_private_key.pem
+*.license-key
