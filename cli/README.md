@@ -10,7 +10,7 @@ See [docs.getgeolens.com](https://docs.getgeolens.com/) for the full command ref
 
 ```bash
 pip install geolens-cli
-geolens login https://geolens.example.com
+geolens login https://geolens.example.com/api
 geolens scan ./data
 geolens init
 geolens validate geolens.yaml
