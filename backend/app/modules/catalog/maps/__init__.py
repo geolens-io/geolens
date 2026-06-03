@@ -1,0 +1,1 @@
+"""Catalog maps namespace."""

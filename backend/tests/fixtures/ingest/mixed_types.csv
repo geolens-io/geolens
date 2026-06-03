@@ -1,0 +1,4 @@
+id,name,is_open,visited_at,lat,lon,score
+1,Alpha,true,2024-01-15,48.8566,2.3522,9.5
+2,Beta,false,2024-03-20,51.5074,-0.1278,7.2
+3,Gamma,true,2024-06-01,52.5200,13.4050,8.8

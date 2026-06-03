@@ -1,0 +1,142 @@
+"""AST-based WHERE-clause validator (SEC-S09).
+
+Wraps the user-supplied ``where`` fragment in ``SELECT 1 FROM _t WHERE <fragment>``
+and parses with sqlglot postgres dialect.  Walks the resulting WHERE node and
+raises ValueError if any expression type outside the strict allowlist appears.
+
+This is a peer-companion to ``app.platform.sandbox.validator.validate_sql`` —
+same parser, same dialect, but allowlist-based (statement-level validator is
+blocklist-based because the input shape is broader).  The two share no code
+paths; cross-cutting refactor not justified for SEC-S09 scope.
+
+Allowed WHERE expression types (deny-by-default — anything not in this tuple raises):
+  - Column, Identifier   — column references
+  - Literal, Boolean, Null  — scalar values
+  - EQ, NEQ, LT, LTE, GT, GTE  — comparison operators
+  - And, Or, Not         — logical operators
+  - In, Is, Like, ILike  — containment / null-test / pattern
+  - Between              — range check
+  - Paren                — parenthesised sub-expression
+  - Neg                  — unary minus (e.g. -5)
+  - Where                — the top-level WHERE node itself
+"""
+
+from __future__ import annotations
+
+import sqlglot
+from sqlglot import exp
+
+# Strict allowlist — every node type found during an AST walk of the WHERE
+# subtree must be an instance of one of these.  New types require explicit
+# review before being added.
+ALLOWED_EXPRESSIONS: tuple[type, ...] = (
+    # Column references
+    exp.Column,
+    exp.Identifier,
+    # Scalar literals
+    exp.Literal,
+    exp.Boolean,
+    exp.Null,
+    # Comparison operators
+    exp.EQ,
+    exp.NEQ,
+    exp.LT,
+    exp.LTE,
+    exp.GT,
+    exp.GTE,
+    # Logical operators
+    exp.And,
+    exp.Or,
+    exp.Not,
+    # Containment / null-test / pattern
+    exp.In,
+    exp.Is,
+    exp.Like,
+    exp.ILike,
+    exp.Between,
+    # Structural
+    exp.Paren,
+    # exp.Neg is included ONLY for negative literal values like WHERE col = -5
+    # (unary minus on a numeric literal). Binary arithmetic operators
+    # (exp.Add, exp.Sub, exp.Mul, exp.Div) are intentionally EXCLUDED.
+    # Adding them would allow expression injection into IN-list or comparison
+    # arguments (e.g. WHERE 1+1=2 UNION ...). Do NOT add exp.Add by analogy
+    # with exp.Neg — they serve different purposes.
+    exp.Neg,
+    # exp.Dot (table-qualified column like table.column or schema.table.column)
+    # is intentionally EXCLUDED from the allowlist. NOTE: sqlglot's postgres
+    # dialect parses `tbl.col` into an exp.Column node with .table / .db /
+    # .catalog args populated (not a separate exp.Dot node), so the rejection
+    # is enforced inside validate_where_ast by inspecting Column.table /
+    # Column.db / Column.catalog after the allowlist check (see KNOWN-10
+    # comment block below). Only unqualified column names are accepted; if
+    # table-qualified names are needed in a future version, remove the
+    # Column.table check after a security review, because the downstream
+    # identifier regex would then need to be updated to split on '.' and
+    # validate each component independently.
+    exp.Where,  # the top-level WHERE node itself
+)
+
+
+def validate_where_ast(where: str) -> None:
+    """Validate that ``where`` is a safe WHERE-clause fragment.
+
+    Parses ``SELECT 1 FROM _t WHERE <where>`` with the sqlglot postgres
+    dialect and walks the resulting WHERE node.  Raises ValueError if:
+
+    - ``where`` is empty or blank.
+    - sqlglot cannot parse the fragment (invalid SQL syntax).
+    - The wrapped statement is not a single SELECT (indicates multi-statement
+      injection or UNION grammar).
+    - Any node in the WHERE subtree is not in ALLOWED_EXPRESSIONS (catches
+      subqueries, function calls, DDL fragments, etc.).
+
+    Args:
+        where: SQL WHERE-clause fragment supplied by the caller.
+
+    Raises:
+        ValueError: Description of the disallowed construct.
+    """
+    if not where or not where.strip():
+        raise ValueError("Empty WHERE expression")
+
+    wrapped = f"SELECT 1 FROM _t WHERE {where}"
+    try:
+        statements = sqlglot.parse(wrapped, dialect="postgres")
+    except (sqlglot.errors.ParseError, sqlglot.errors.TokenError) as exc:
+        raise ValueError(f"Invalid WHERE syntax: {exc}") from exc
+
+    statements = [s for s in statements if s is not None]
+
+    # Multi-statement injection produces len > 1.
+    # UNION grammar produces a Union node rather than Select.
+    if len(statements) != 1 or not isinstance(statements[0], exp.Select):
+        raise ValueError("Only a single WHERE expression is allowed")
+
+    where_node = statements[0].args.get("where")
+    if where_node is None:
+        raise ValueError("Empty WHERE expression")
+
+    # Walk every node in the WHERE subtree; reject anything outside allowlist.
+    for node in where_node.walk():
+        if not isinstance(node, ALLOWED_EXPRESSIONS):
+            raise ValueError(
+                f"Disallowed expression in WHERE clause: {type(node).__name__}"
+            )
+        # Table-qualified column references (e.g. `tbl.col` or `cat.tbl.col`)
+        # are rejected even though `exp.Column` is in the allowlist. sqlglot
+        # folds the table/db/catalog parts into the Column node's args
+        # rather than emitting a separate exp.Dot, so the docstring's stated
+        # "exp.Dot rejected at AST level" only takes effect if we inspect
+        # Column.table / Column.db here. Closing this gap defends against a
+        # future refactor of the downstream identifier regex (Phase 1071
+        # KNOWN-10).
+        if isinstance(node, exp.Column) and (
+            node.args.get("table") is not None
+            or node.args.get("db") is not None
+            or node.args.get("catalog") is not None
+        ):
+            raise ValueError(
+                "Disallowed expression in WHERE clause: table-qualified "
+                "column reference (only unqualified column names are accepted)"
+            )

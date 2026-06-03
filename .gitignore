@@ -1,0 +1,101 @@
+# Environment
+.env
+.env.*
+!.env.example
+!.env.test.example
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+*.egg-info/
+.venv/
+venv/
+.ruff_cache/
+.mypy_cache/
+
+# Node
+node_modules/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*.code-workspace
+
+# Coverage reports
+htmlcov/
+coverage.xml
+.coverage
+coverage/
+
+# Build output
+build/
+dist/
+
+# Playwright
+playwright/.auth/
+playwright-report/
+test-results/
+blob-report/
+.playwright-mcp/
+.ux-audit/
+
+# Load test results
+tests/load/results/*.csv
+tests/load/results/*.txt
+
+# Internal development / assistant state (not for public release)
+.planning/
+.gsd
+.gsd-id
+.mcp.json
+.bg-shell/
+skills-lock.json
+.claude/
+.agents/
+.codex/
+docker-compose.enterprise.yml
+plans/
+artifacts/
+data/
+prd.md
+todo.md
+smoke-check.md
+cache/
+!backend/app/platform/cache/
+
+# Internal docs (not for public release)
+docs-internal/
+
+# Product docs live in the getgeolens.com repo.
+docs/
+
+# Images: ignore stray screenshots, keep curated assets
+*.png
+!.github/assets/*.png
+!frontend/public/*.png
+!frontend/src/assets/**/*.png
+
+# Logs / temp
+*.log
+*~
+tmp/
+.cache/
+
+# Marketing data working dir (raw downloads, mosaicked COGs)
+# Used by scripts/marketing-data/*/ — outputs land in .scratch/<topic>/.
+# Scripts + manifest YAML + curated GeoJSONs ARE committed; raw .tif/.zip/.geojson
+# downloads + mosaicked COGs are NOT.
+.scratch/
+
+# License signing keys — NEVER commit the private key
+license-keys/
+*license_private_key.pem
+*.license-key

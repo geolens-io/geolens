@@ -1,0 +1,347 @@
+import { fireEvent, render, screen } from '@/test/test-utils';
+import { BasemapGroupRow } from '../BasemapGroupRow';
+import type { DraggableAttributes, DraggableSyntheticListeners } from '@dnd-kit/core';
+
+vi.mock('react-i18next', () => ({
+  useTranslation: () => ({
+    t: (key: string, options?: { defaultValue?: string } & Record<string, unknown>) => {
+      if (options?.defaultValue !== undefined) {
+        let result = options.defaultValue as string;
+        const params = options as Record<string, unknown>;
+        Object.keys(params).forEach((k) => {
+          if (k !== 'defaultValue') {
+            result = result.replace(`{{${k}}}`, String(params[k]));
+          }
+        });
+        return result;
+      }
+      return key;
+    },
+  }),
+}));
+
+vi.mock('@/components/map/layer-icons', () => ({
+  ColorizedGeometryIcon: ({ layerId }: { layerId: string }) => (
+    <span data-testid={`type-icon-${layerId}`} />
+  ),
+  getLayerColors: () => ({ fill: '#000', stroke: '#fff', outline: '#000' }),
+  extractStyleHints: () => ({}),
+}));
+
+beforeAll(() => {
+  vi.stubGlobal('ResizeObserver', class ResizeObserver {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  });
+});
+
+function makeDragHandleProps() {
+  const attributes: DraggableAttributes = {
+    role: 'button',
+    tabIndex: 0,
+    'aria-pressed': false,
+    'aria-roledescription': 'sortable',
+    'aria-describedby': 'dnd-desc',
+    'aria-disabled': false,
+  };
+  const listeners: DraggableSyntheticListeners = {};
+  const setActivatorNodeRef = vi.fn();
+  return { attributes, listeners, setActivatorNodeRef };
+}
+
+function defaultProps(overrides: Partial<React.ComponentProps<typeof BasemapGroupRow>> = {}) {
+  return {
+    groupId: 'basemap-group-1',
+    presetName: 'Positron',
+    providerLabel: 'OpenFreeMap',
+    visible: true,
+    selected: false,
+    isExpanded: false,
+    isDragging: false,
+    dragHandleProps: makeDragHandleProps(),
+    onSelectGroup: vi.fn(),
+    onToggleExpand: vi.fn(),
+    onToggleVisibility: vi.fn(),
+    onSwapBasemap: vi.fn(),
+    onResetAppearance: vi.fn(),
+    ...overrides,
+  };
+}
+
+describe('BasemapGroupRow', () => {
+  it('Test 1: renders with ⊞ glyph in the type-icon cell', () => {
+    render(<BasemapGroupRow {...defaultProps()} />);
+    const typeIcon = screen.getByText('⊞');
+    expect(typeIcon).toBeInTheDocument();
+    expect(typeIcon).toHaveAttribute('aria-hidden', 'true');
+    expect(typeIcon.tagName.toLowerCase()).toBe('span');
+  });
+
+  it('Test 2: caret button has aria-expanded and aria-controls', () => {
+    const props = defaultProps({ groupId: 'grp-1', isExpanded: false });
+    render(<BasemapGroupRow {...props} />);
+    // Find caret by aria-expanded
+    const buttons = screen.getAllByRole('button');
+    const caretBtn = buttons.find((b) => b.hasAttribute('aria-expanded'));
+    expect(caretBtn).toBeTruthy();
+    expect(caretBtn).toHaveAttribute('aria-expanded', 'false');
+    expect(caretBtn).toHaveAttribute('aria-controls', 'basemap-group-children-grp-1');
+  });
+
+  it('Test 3: caret click calls onToggleExpand but NOT onSelectGroup', () => {
+    const onToggleExpand = vi.fn();
+    const onSelectGroup = vi.fn();
+    render(<BasemapGroupRow {...defaultProps({ groupId: 'grp-2', onToggleExpand, onSelectGroup })} />);
+
+    const buttons = screen.getAllByRole('button');
+    const caretBtn = buttons.find((b) => b.hasAttribute('aria-expanded'));
+    expect(caretBtn).toBeTruthy();
+    fireEvent.click(caretBtn!);
+
+    expect(onToggleExpand).toHaveBeenCalledOnce();
+    expect(onToggleExpand).toHaveBeenCalledWith('grp-2');
+    expect(onSelectGroup).not.toHaveBeenCalled();
+  });
+
+  it('Test 4: row body click calls onSelectGroup(groupId)', () => {
+    const onSelectGroup = vi.fn();
+    render(<BasemapGroupRow {...defaultProps({ groupId: 'grp-3', onSelectGroup })} />);
+
+    // Click on the row name (which is in the row body)
+    const nameSpan = screen.getByText(/Basemap · Positron/);
+    fireEvent.click(nameSpan);
+
+    expect(onSelectGroup).toHaveBeenCalledOnce();
+    expect(onSelectGroup).toHaveBeenCalledWith('grp-3');
+  });
+
+  // Phase 1051 CR-02 regression coverage (Phase 1051 iter-3 WR-02):
+  // The CR-02 fix guards handleRowClick + onKeyDown against firing onSelectGroup
+  // during multi-selection (which would unmount the BulkActionBar mid-selection).
+  // These tests pin that contract so a future refactor cannot silently re-introduce
+  // the bug by removing the isMultiSelectionActive branch.
+  it('Test 4b: Phase 1051 CR-02 row click during multi-selection does NOT fire onSelectGroup', () => {
+    const onSelectGroup = vi.fn();
+    render(
+      <BasemapGroupRow
+        {...defaultProps({ groupId: 'grp-ms', onSelectGroup, isMultiSelectionActive: true })}
+      />,
+    );
+
+    const nameSpan = screen.getByText(/Basemap · Positron/);
+    fireEvent.click(nameSpan);
+
+    expect(onSelectGroup).not.toHaveBeenCalled();
+  });
+
+  it('Test 4c: Phase 1051 CR-02 Enter/Space keydown during multi-selection does NOT fire onSelectGroup', () => {
+    const onSelectGroup = vi.fn();
+    render(
+      <BasemapGroupRow
+        {...defaultProps({ groupId: 'grp-ms', onSelectGroup, isMultiSelectionActive: true })}
+      />,
+    );
+
+    const row = document.getElementById('stack-row-grp-ms')!;
+    expect(row).toBeInTheDocument();
+    fireEvent.keyDown(row, { key: 'Enter' });
+    fireEvent.keyDown(row, { key: ' ' });
+
+    expect(onSelectGroup).not.toHaveBeenCalled();
+  });
+
+  it('Test 5: kebab menu contains exactly "Swap basemap" and "Reset appearance" only', () => {
+    render(<BasemapGroupRow {...defaultProps()} />);
+
+    const kebabTrigger = screen.getByRole('button', { name: /options/i });
+    fireEvent.pointerDown(kebabTrigger, { button: 0, ctrlKey: false });
+
+    const menuItems = screen.getAllByRole('menuitem');
+    const menuTexts = menuItems.map((item) => item.textContent?.trim());
+    expect(menuTexts).toContain('Swap basemap');
+    expect(menuTexts).toContain('Reset appearance');
+    // Should NOT contain other items
+    expect(menuTexts).not.toContain('Rename');
+    expect(menuTexts).not.toContain('Duplicate');
+    expect(menuTexts).not.toContain('Delete');
+    expect(menuTexts).not.toContain('Add to group');
+    expect(menuItems).toHaveLength(2);
+  });
+
+  it('Test 6: kebab "Swap basemap" item click calls onSwapBasemap()', () => {
+    const onSwapBasemap = vi.fn();
+    render(<BasemapGroupRow {...defaultProps({ onSwapBasemap })} />);
+
+    fireEvent.pointerDown(screen.getByRole('button', { name: /options/i }), { button: 0, ctrlKey: false });
+    fireEvent.click(screen.getByRole('menuitem', { name: /Swap basemap/i }));
+
+    expect(onSwapBasemap).toHaveBeenCalledOnce();
+  });
+
+  it('Test 7: kebab "Reset appearance" item click calls onResetAppearance()', () => {
+    const onResetAppearance = vi.fn();
+    render(<BasemapGroupRow {...defaultProps({ onResetAppearance })} />);
+
+    fireEvent.pointerDown(screen.getByRole('button', { name: /options/i }), { button: 0, ctrlKey: false });
+    fireEvent.click(screen.getByRole('menuitem', { name: /Reset appearance/i }));
+
+    expect(onResetAppearance).toHaveBeenCalledOnce();
+  });
+
+  it('Test 8: row name renders "Basemap · {presetName}" with provider label at muted weight', () => {
+    render(<BasemapGroupRow {...defaultProps({ presetName: 'Positron', providerLabel: 'OpenFreeMap' })} />);
+
+    // Main name text
+    expect(screen.getByText(/Basemap · Positron/)).toBeInTheDocument();
+    // Provider label appears as muted span
+    expect(screen.getByText(/OpenFreeMap/)).toBeInTheDocument();
+    const providerSpan = screen.getByText(/OpenFreeMap/);
+    expect(providerSpan.className).toContain('muted');
+  });
+
+  it('Test 10: eye toggle calls onToggleVisibility(groupId) and stopPropagation prevents row click', () => {
+    const onToggleVisibility = vi.fn();
+    const onSelectGroup = vi.fn();
+    render(<BasemapGroupRow {...defaultProps({ groupId: 'grp-eye', onToggleVisibility, onSelectGroup })} />);
+
+    const eyeBtn = screen.getByRole('button', { name: /Toggle visibility/i });
+    fireEvent.click(eyeBtn);
+
+    expect(onToggleVisibility).toHaveBeenCalledOnce();
+    expect(onToggleVisibility).toHaveBeenCalledWith('grp-eye');
+    expect(onSelectGroup).not.toHaveBeenCalled();
+  });
+
+  // SP-10: visibility toggle exposes aria-pressed reflecting visible state.
+  it('Test 10b: eye toggle has aria-pressed=true when visible=true', () => {
+    render(<BasemapGroupRow {...defaultProps({ visible: true })} />);
+    const eyeBtn = screen.getByRole('button', { name: /Toggle visibility/i, pressed: true });
+    expect(eyeBtn).toBeInTheDocument();
+  });
+
+  it('Test 10c: eye toggle has aria-pressed=false when visible=false', () => {
+    render(<BasemapGroupRow {...defaultProps({ visible: false })} />);
+    const eyeBtn = screen.getByRole('button', { name: /Toggle visibility/i, pressed: false });
+    expect(eyeBtn).toBeInTheDocument();
+  });
+
+  // SP-13: visibilityDisabled renders a non-interactive glyph (not a disabled <button>).
+  it('Test 10d: visibilityDisabled renders a non-button glyph with tooltip, no Toggle button', () => {
+    render(<BasemapGroupRow {...defaultProps({ visibilityDisabled: true })} />);
+
+    // The disabled-but-button is gone: no "Toggle visibility" button.
+    expect(
+      screen.queryByRole('button', { name: /Toggle visibility/i }),
+    ).not.toBeInTheDocument();
+
+    // A non-interactive glyph element renders in its place, carrying the explanatory tooltip.
+    const glyph = screen.getByTestId('basemap-visibility-locked');
+    expect(glyph.tagName.toLowerCase()).toBe('span');
+    expect(glyph).toHaveAttribute(
+      'title',
+      'Basemap is always visible — use Remove basemap to hide.',
+    );
+    expect(glyph).toHaveAttribute(
+      'aria-label',
+      'Basemap is always visible — use Remove basemap to hide.',
+    );
+  });
+
+  it('Test 10e: visibilityDisabled glyph does not call onToggleVisibility when clicked', () => {
+    const onToggleVisibility = vi.fn();
+    render(
+      <BasemapGroupRow {...defaultProps({ visibilityDisabled: true, onToggleVisibility })} />,
+    );
+
+    const glyph = screen.getByTestId('basemap-visibility-locked');
+    fireEvent.click(glyph);
+
+    expect(onToggleVisibility).not.toHaveBeenCalled();
+  });
+
+  it('Test 11: when isExpanded=true caret has rotate-90; when false no rotate class', () => {
+    const { rerender } = render(<BasemapGroupRow {...defaultProps({ isExpanded: false })} />);
+    const buttons = screen.getAllByRole('button');
+    let caretBtn = buttons.find((b) => b.hasAttribute('aria-expanded'));
+    expect(caretBtn?.className).not.toContain('rotate-90');
+
+    rerender(<BasemapGroupRow {...defaultProps({ isExpanded: true })} />);
+    const buttonsAfter = screen.getAllByRole('button');
+    caretBtn = buttonsAfter.find((b) => b.hasAttribute('aria-expanded'));
+    expect(caretBtn?.className).toContain('rotate-90');
+  });
+
+  it('Test 12: row has id="stack-row-{groupId}" for focus-return', () => {
+    render(<BasemapGroupRow {...defaultProps({ groupId: 'focus-group' })} />);
+    const row = document.getElementById('stack-row-focus-group');
+    expect(row).toBeInTheDocument();
+  });
+
+  // UX-01 (Phase 1051 Plan 04): caret hit-target ≥24×24 via h-6 w-6 + -mx-1, ChevronRight Lucide glyph.
+  // jsdom cannot measure getBoundingClientRect reliably (per critical_planning_directive #10);
+  // tests assert className tokens and SVG presence — Playwright MCP measures actual rendered geometry.
+  describe('UX-01: caret hit-target & icon', () => {
+    it('Test 13: caret button has h-6 w-6 (≥24px hit area) and -mx-1 (negative margin overflow within 16px grid column)', () => {
+      render(<BasemapGroupRow {...defaultProps()} />);
+      const caretBtn = screen
+        .getAllByRole('button')
+        .find((b) => b.hasAttribute('aria-expanded'));
+      expect(caretBtn).toBeTruthy();
+      // Hit target dimensions
+      expect(caretBtn!.className).toContain('h-6');
+      expect(caretBtn!.className).toContain('w-6');
+      // Negative horizontal margin extends visual box within 16px grid column (sketch 002 A "A-strict")
+      expect(caretBtn!.className).toContain('-mx-1');
+      // Flex centering for icon alignment within hit target
+      expect(caretBtn!.className).toContain('flex');
+      expect(caretBtn!.className).toContain('items-center');
+      expect(caretBtn!.className).toContain('justify-center');
+    });
+
+    it('Test 14: caret button renders a Lucide ChevronRight SVG (not the ▸ text glyph)', () => {
+      render(<BasemapGroupRow {...defaultProps()} />);
+      const caretBtn = screen
+        .getAllByRole('button')
+        .find((b) => b.hasAttribute('aria-expanded'));
+      expect(caretBtn).toBeTruthy();
+      // Lucide icons render as <svg class="lucide lucide-chevron-right ...">
+      const svg = caretBtn!.querySelector('svg');
+      expect(svg).toBeTruthy();
+      expect(svg!.getAttribute('class')).toMatch(/lucide-chevron-right/);
+      // ≥16 px visible glyph
+      expect(svg!.getAttribute('class')).toMatch(/h-4/);
+      expect(svg!.getAttribute('class')).toMatch(/w-4/);
+      // Text glyph removed
+      expect(caretBtn!.textContent?.trim()).not.toContain('▸');
+    });
+
+    it('Test 15: caret still rotates 90deg when isExpanded=true (animation preserved)', () => {
+      const { rerender } = render(<BasemapGroupRow {...defaultProps({ isExpanded: false })} />);
+      let caretBtn = screen
+        .getAllByRole('button')
+        .find((b) => b.hasAttribute('aria-expanded'));
+      expect(caretBtn?.className).not.toContain('rotate-90');
+
+      rerender(<BasemapGroupRow {...defaultProps({ isExpanded: true })} />);
+      caretBtn = screen
+        .getAllByRole('button')
+        .find((b) => b.hasAttribute('aria-expanded'));
+      expect(caretBtn?.className).toContain('rotate-90');
+    });
+
+    it('Test 16: caret aria-expanded reflects isExpanded state', () => {
+      const { rerender } = render(<BasemapGroupRow {...defaultProps({ isExpanded: false })} />);
+      let caretBtn = screen
+        .getAllByRole('button')
+        .find((b) => b.hasAttribute('aria-expanded'));
+      expect(caretBtn).toHaveAttribute('aria-expanded', 'false');
+
+      rerender(<BasemapGroupRow {...defaultProps({ isExpanded: true })} />);
+      caretBtn = screen
+        .getAllByRole('button')
+        .find((b) => b.hasAttribute('aria-expanded'));
+      expect(caretBtn).toHaveAttribute('aria-expanded', 'true');
+    });
+  });
+});

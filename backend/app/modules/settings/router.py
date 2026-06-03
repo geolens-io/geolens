@@ -1,0 +1,844 @@
+"""Settings API endpoints: unified admin settings, public basemaps/map-defaults/tile-config."""
+
+import uuid
+
+import structlog
+from fastapi import APIRouter, Depends, HTTPException, Request, status
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.modules.audit.service import AuditEvent, audit_emit
+from app.core.identity import Identity
+from app.modules.auth.dependencies import require_permission
+from app.modules.auth.oauth import service as oauth_service
+from app.modules.auth.oauth.schemas import (
+    OAuthProviderCreate,
+    OAuthProviderResponse,
+    OAuthProviderUpdate,
+)
+from app.core.config import settings as app_settings
+from app.core.dependencies import get_client_ip, get_db
+from app.core.edition import get_edition, is_enterprise
+from app.core.persistent_config import (
+    BASEMAPS,
+    BRANDING_SHOW_BADGE,
+    EMBEDDING_DIMS,
+    ENABLE_DATASET_EDITING,
+    ENABLED_PLUGINS,
+    MAP_DEFAULTS,
+    REQUIRE_METADATA_FOR_PUBLISH,
+    _registry,
+    get_cached_basemap_proxy_rate_limit,
+)
+from app.modules.auth.router import limiter
+from app.core.public_urls import _is_env_only, get_public_api_url, get_public_app_url
+from app.core.db.models import AppSetting
+from app.modules.settings.schemas import (
+    SETTING_VALIDATORS,
+    ApiKeyStatusResponse,
+    BasemapPublicResponse,
+    BrandingResponse,
+    ConfigModeResponse,
+    DetectEmbeddingDimsResponse,
+    EnterpriseTabsResponse,
+    FeatureFlagsResponse,
+    EditionInfoResponse,
+    MapDefaultsResponse,
+    SettingItem,
+    SettingsAllResponse,
+    SettingsResetRequest,
+    SettingsUpdateRequest,
+    TileConfigResponse,
+)
+from app.standards.ogc.errors import ERROR_RESPONSES_AUTH
+
+logger = structlog.stdlib.get_logger(__name__)
+
+router = APIRouter(prefix="/settings", tags=["Admin"], responses=ERROR_RESPONSES_AUTH)
+
+
+def _basemap_proxy_rate_limit(_request: Request | None = None) -> str:
+    """SEC-S10: per-IP rate limit for the public basemap endpoint (caps key replay)."""
+    return f"{get_cached_basemap_proxy_rate_limit()}/minute"
+
+
+# ---------------------------------------------------------------------------
+# Setting-update helpers (extracted from route handler)
+# ---------------------------------------------------------------------------
+
+
+# Phase 279 ADMIN-03 (M-03): Single source of truth for enterprise-only Settings
+# tabs. Both the backend (_require_enterprise_for_key gate) and the frontend
+# (AdminSidebar conditional render) consult this set. The frontend reaches it
+# via GET /admin/settings/enterprise-tabs/ which returns its keys as a JSON
+# list. Adding a new enterprise-only tab: edit this set.
+#
+# Note: "appearance" was previously hardcoded as enterpriseOnly only on the
+# frontend (AdminSidebar.tsx). The backend gate did not enforce it, allowing a
+# community caller to write appearance keys silently. Adding it here closes
+# that drift before the frontend collapses to read this list.
+_ENTERPRISE_ONLY_TABS = frozenset({"branding", "appearance"})
+
+
+# Phase 279 ADMIN-09 (L-01): The PUT/RESET handlers below intentionally end with
+# `return await get_all_settings(...)` to capture side-effects from
+# rebuild_embedding_column rollback, _auto_detect_embedding_dims write, and
+# request-derived URL computation (public_app_url / public_api_url, computed
+# from `request` in get_all_settings — NOT stored in AppSetting). An inline
+# response construction would have to duplicate get_all_settings's body
+# (registry iteration + value-source resolution + env-only handling). The
+# second SELECT is cheaper to maintain than two parallel response builders.
+# See the inline comment blocks at each return site for the full rationale.
+
+
+def _validate_setting(key: str, value: object) -> object:
+    """Run permission and custom validators for a setting key. Returns validated value."""
+    if key == "role_permissions":
+        from app.modules.auth.permissions import validate_permission_matrix
+
+        validate_permission_matrix(value)
+
+    validator = SETTING_VALIDATORS.get(key)
+    if validator is not None:
+        value = validator(value)
+
+    return value
+
+
+_registry_by_key: dict[str, object] | None = None
+
+
+def _get_registry_map() -> dict[str, object]:
+    """Return a cached key→PersistentConfig lookup."""
+    global _registry_by_key
+    if _registry_by_key is None:
+        _registry_by_key = {cfg.key: cfg for cfg in _registry}
+    return _registry_by_key
+
+
+def _require_enterprise_for_key(key: str) -> None:
+    """Raise 404 if a setting key belongs to an enterprise-only tab.
+
+    Returns 404 (not 403, no detail body) to match the ``require_enterprise()``
+    guard contract — community callers cannot distinguish between "key does
+    not exist" and "key requires enterprise edition", which prevents both
+    feature leakage and trivial enumeration of paid keys.
+    """
+    from app.core.edition import is_enterprise
+
+    if is_enterprise():
+        return
+    cfg = _get_registry_map().get(key)
+    if cfg is not None and cfg.tab in _ENTERPRISE_ONLY_TABS:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+
+
+async def _auto_detect_embedding_dims(
+    db: AsyncSession, user_id: uuid.UUID, ip: str | None
+) -> None:
+    """Probe the current embedding model and persist its dimension count."""
+    try:
+        from app.processing.embeddings.service import probe_embedding_dimensions
+
+        dims = await probe_embedding_dimensions(db)
+        await EMBEDDING_DIMS.set(db, dims, user_id=user_id, ip_address=ip)
+    except Exception:  # broad: embedding probe spans third-party SDK calls; non-fatal so admin can set manually
+        # Non-fatal — admin can still set manually. Log with traceback so
+        # operators can diagnose embedding probe failures (bad API key,
+        # provider outage, network timeout) instead of seeing a silent skip.
+        logger.warning(
+            "Failed to auto-detect embedding dimensions",
+            exc_info=True,
+        )
+
+
+async def _rebuild_embedding_column(db: AsyncSession, new_dims: int) -> None:
+    """Delete incompatible embeddings and rebuild the column + HNSW index."""
+    from sqlalchemy import text as sa_text
+
+    col_check = await db.execute(
+        sa_text(
+            "SELECT atttypmod FROM pg_attribute "
+            "WHERE attrelid = 'catalog.record_embeddings'::regclass "
+            "AND attname = 'embedding'"
+        )
+    )
+    current_dims = col_check.scalar_one_or_none()
+    if current_dims is None or current_dims == new_dims:
+        return
+
+    try:
+        await db.execute(sa_text("DELETE FROM catalog.record_embeddings"))
+        await db.execute(
+            sa_text("DROP INDEX IF EXISTS catalog.ix_record_embeddings_hnsw")
+        )
+        await db.execute(
+            sa_text(
+                f"ALTER TABLE catalog.record_embeddings "
+                f"ALTER COLUMN embedding TYPE vector({new_dims}) "
+                f"USING embedding::vector({new_dims})"
+            )
+        )
+        await db.execute(
+            sa_text(
+                "CREATE INDEX ix_record_embeddings_hnsw "
+                "ON catalog.record_embeddings USING hnsw (embedding vector_cosine_ops) "
+                "WITH (m=16, ef_construction=64)"
+            )
+        )
+        await db.commit()
+    except Exception:  # broad: DDL (DROP/ALTER/CREATE INDEX) can fail for schema/lock reasons; rollback and log
+        logger.error("Failed to rebuild embedding column", exc_info=True)
+        await db.rollback()
+
+
+# ---------------------------------------------------------------------------
+# Unified admin endpoints
+# ---------------------------------------------------------------------------
+
+
+# ROUTE-01 (Phase 1092): dual-shape decorator — both trailing-slash and
+# no-trailing-slash variants register against the same handler. Slash form
+# stays canonical (already in OpenAPI); no-slash is a hidden alias closing
+# the 404 regression introduced by redirect_slashes=False (api/main.py).
+@router.get("/all", response_model=SettingsAllResponse, include_in_schema=False)
+@router.get("/all/", response_model=SettingsAllResponse)
+async def get_all_settings(
+    request: Request,
+    _user: Identity = Depends(require_permission("manage_settings")),
+    db: AsyncSession = Depends(get_db),
+) -> SettingsAllResponse:
+    """Return all settings grouped by tab with source indicators (admin only)."""
+    from app.core.edition import is_enterprise
+
+    env_only = _is_env_only()
+    enterprise = is_enterprise()
+
+    # Bulk-fetch all DB overrides in one query (key + value)
+    result = await db.execute(select(AppSetting.key, AppSetting.value))
+    db_settings: dict[str, object] = {}
+    for row in result.all():
+        raw = row[1]
+        # AppSetting.value is JSONB — unwrap the stored scalar wrapper
+        db_settings[row[0]] = (
+            raw if not isinstance(raw, dict) or "v" not in raw else raw["v"]
+        )
+    db_keys = set(db_settings.keys())
+
+    tabs: dict[str, list[SettingItem]] = {}
+    for cfg in _registry:
+        # Hide enterprise-only tabs in community edition
+        if not enterprise and cfg.tab in _ENTERPRISE_ONLY_TABS:
+            continue
+        if cfg.key == "public_app_url":
+            value = await get_public_app_url(db, request=request)
+        elif cfg.key == "public_api_url":
+            value = await get_public_api_url(db, request=request)
+        elif cfg.key in db_settings:
+            value = db_settings[cfg.key]
+        else:
+            value = cfg.env_default
+
+        if env_only:
+            source = "env_only"
+        elif cfg.key in db_keys:
+            source = "overridden"
+        else:
+            source = "default"
+
+        item = SettingItem(key=cfg.key, value=value, source=source, label=cfg.label)
+        tabs.setdefault(cfg.tab, []).append(item)
+
+    return SettingsAllResponse(env_only=env_only, tabs=tabs)
+
+
+# ROUTE-01 (Phase 1092): dual-shape decorator — see /all above.
+@router.get(
+    "/enterprise-tabs",
+    response_model=EnterpriseTabsResponse,
+    include_in_schema=False,
+)
+@router.get("/enterprise-tabs/", response_model=EnterpriseTabsResponse)
+async def get_enterprise_only_tabs(
+    _user: Identity = Depends(require_permission("manage_settings")),
+) -> EnterpriseTabsResponse:
+    """Return the canonical list of Settings tab keys that are enterprise-only.
+
+    Phase 279 ADMIN-03 (M-03): single source of truth for enterprise-only
+    Settings tabs. The frontend AdminSidebar uses this to conditionally render
+    the tabs in community vs enterprise editions. The backend
+    ``_require_enterprise_for_key`` gate uses the same set to 404 community
+    attempts at writing enterprise-tab settings — keeping these aligned
+    prevents silent UX drift.
+
+    Note: not gated by ``require_enterprise``. Community callers must be able
+    to read the list to render their own sidebar correctly (the response tells
+    them which tabs to HIDE).
+    """
+    # Sort for stable JSON output (downstream tests rely on deterministic order)
+    return EnterpriseTabsResponse(tabs=sorted(_ENTERPRISE_ONLY_TABS))
+
+
+# ROUTE-01 (Phase 1092): dual-shape decorator — see /all above. The empty
+# path "" registers PUT /settings (prefix-only, no trailing slash).
+@router.put("", response_model=SettingsAllResponse, include_in_schema=False)
+@router.put("/", response_model=SettingsAllResponse)
+async def update_settings(
+    body: SettingsUpdateRequest,
+    request: Request,
+    user: Identity = Depends(require_permission("manage_settings")),
+    db: AsyncSession = Depends(get_db),
+) -> SettingsAllResponse:
+    """Update one or more settings (admin only). Returns updated settings."""
+    registry_map = _get_registry_map()
+
+    # Capture old embedding_dims before any changes (needed for rollback)
+    old_dims_value: int | None = None
+    if "embedding_dims" in body.settings:
+        old_dims_value = await EMBEDDING_DIMS.get(db)
+
+    for key, value in body.settings.items():
+        cfg = registry_map.get(key)
+        if cfg is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Unknown setting key: {key}",
+            )
+
+        _require_enterprise_for_key(key)
+
+        try:
+            value = _validate_setting(key, value)
+        except (ValueError, TypeError) as e:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"Validation error for '{key}': {e}",
+            )
+
+        ip = get_client_ip(request)
+        await cfg.set(db, value, user_id=user.id, ip_address=ip, commit=False)
+
+    # Single commit for all setting writes
+    await db.commit()
+
+    # Auto-detect embedding dimensions when embedding_model changes
+    if "embedding_model" in body.settings and "embedding_dims" not in body.settings:
+        ip = get_client_ip(request)
+        await _auto_detect_embedding_dims(db, user.id, ip)
+
+    # Rebuild column + index when embedding dimensions change
+    if "embedding_dims" in body.settings:
+        from app.processing.embeddings.service import rebuild_embedding_column
+
+        new_dims = int(body.settings["embedding_dims"])
+        try:
+            await rebuild_embedding_column(db, new_dims)
+        except Exception as exc:  # broad: DDL rebuild can fail for schema/lock reasons; roll setting back atomically
+            # Roll back the persisted embedding_dims setting to the previous value
+            ip = get_client_ip(request)
+            await EMBEDDING_DIMS.set(db, old_dims_value, user_id=user.id, ip_address=ip)
+            await db.commit()
+            logger.exception(
+                "Embedding column rebuild failed, rolling back embedding_dims",
+                old_dims=old_dims_value,
+                new_dims=new_dims,
+            )
+            raise HTTPException(
+                status_code=503,
+                detail="Embedding column rebuild failed. The embedding_dims setting has been reverted.",
+            ) from exc
+
+    # Phase 279 ADMIN-09 (L-01): The second get_all_settings() call is INTENTIONAL.
+    # update_settings runs three side-effect pathways that mutate AppSetting AFTER
+    # the main registry loop:
+    #   1. _auto_detect_embedding_dims (above) -- writes EMBEDDING_DIMS via .set()
+    #      when embedding_model changes without an explicit dims value.
+    #   2. rebuild_embedding_column failure (above) -- rolls back the
+    #      requested embedding_dims to old_dims_value if the DDL fails.
+    #   3. .set() with commit=False above batches the writes; the final commit
+    #      may differ from the request body if a validator coerced the value.
+    # Additionally, get_all_settings computes public_app_url / public_api_url from
+    # the request object, which the request-body iteration does not. An inline
+    # construction would have to duplicate ALL of that logic; the second SELECT
+    # is cheaper to maintain than two parallel response builders.
+    return await get_all_settings(request=request, _user=user, db=db)
+
+
+# ROUTE-01 (Phase 1092): dual-shape decorator — see /all above.
+@router.post("/reset", response_model=SettingsAllResponse, include_in_schema=False)
+@router.post("/reset/", response_model=SettingsAllResponse)
+async def reset_settings(
+    body: SettingsResetRequest,
+    request: Request,
+    user: Identity = Depends(require_permission("manage_settings")),
+    db: AsyncSession = Depends(get_db),
+) -> SettingsAllResponse:
+    """Reset one or more settings to their defaults (admin only). Returns updated settings."""
+    registry_map = _get_registry_map()
+
+    for key in body.keys:
+        cfg = registry_map.get(key)
+        if cfg is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Unknown setting key: {key}",
+            )
+        _require_enterprise_for_key(key)
+        ip = get_client_ip(request)
+        await cfg.reset(db, user_id=user.id, ip_address=ip)
+
+    # Phase 279 ADMIN-09 (L-01): Intentional second SELECT. cfg.reset() writes
+    # the env_default value back to AppSetting; we re-read to capture the
+    # post-reset state (which may differ from the env_default if a derivation
+    # function -- see public_app_url / public_api_url computation in
+    # get_all_settings -- runs at response-build time).
+    return await get_all_settings(request=request, _user=user, db=db)
+
+
+# ROUTE-01 (Phase 1092): dual-shape decorator — see /all above.
+@router.get(
+    "/api-key-status",
+    response_model=ApiKeyStatusResponse,
+    include_in_schema=False,
+)
+@router.get("/api-key-status/", response_model=ApiKeyStatusResponse)
+async def get_api_key_status(
+    _user: Identity = Depends(require_permission("manage_settings")),
+) -> ApiKeyStatusResponse:
+    """Return which LLM API keys are configured (without exposing values)."""
+    return ApiKeyStatusResponse(
+        anthropic_configured=bool(app_settings.anthropic_api_key),
+        openai_configured=bool(app_settings.openai_api_key),
+    )
+
+
+# ROUTE-01 (Phase 1092): dual-shape decorator — see /all above.
+@router.post(
+    "/detect-embedding-dims",
+    response_model=DetectEmbeddingDimsResponse,
+    include_in_schema=False,
+)
+@router.post("/detect-embedding-dims/", response_model=DetectEmbeddingDimsResponse)
+async def detect_embedding_dims(
+    _user: Identity = Depends(require_permission("manage_settings")),
+    db: AsyncSession = Depends(get_db),
+) -> DetectEmbeddingDimsResponse:
+    """Probe the configured embedding model and return its output dimensions."""
+    from app.processing.embeddings.service import (
+        EmbeddingUnavailableError,
+        probe_embedding_dimensions,
+    )
+
+    try:
+        dims = await probe_embedding_dimensions(db)
+    except EmbeddingUnavailableError as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)
+        )
+    except Exception as e:  # broad: third-party embedding SDK can throw provider-specific errors; map to 502
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Embedding probe failed: {e}",
+        )
+
+    return DetectEmbeddingDimsResponse(dimensions=dims)
+
+
+# ROUTE-01 (Phase 1092): dual-shape decorator — see /all above.
+@router.get("/config-mode", response_model=ConfigModeResponse, include_in_schema=False)
+@router.get("/config-mode/", response_model=ConfigModeResponse)
+async def get_config_mode() -> ConfigModeResponse:
+    """Return whether the app is in env-only config mode (public, no auth)."""
+    return ConfigModeResponse(env_only=_is_env_only())
+
+
+# ---------------------------------------------------------------------------
+# OAuth provider CRUD (admin only)
+# ---------------------------------------------------------------------------
+
+
+# Audit-log redaction allowlist. SECRET_FIELDS is the authoritative set used
+# when diffing old_values snapshots (which contain the internal encrypted
+# column ``client_secret_encrypted``). SECRET_BODY_FIELDS is the user-input
+# subset — body fields a caller can submit; ``client_secret_encrypted`` is
+# excluded because it's an internal column name and would never appear in
+# request bodies (per checker WARNING #3 — iterating it in the body-detection
+# loop is dead code). Pitfall 9 mitigation (HIGH severity, T-217-03-AUDIT-LEAK).
+SECRET_FIELDS = {"idp_certificate", "client_secret_encrypted", "client_secret"}
+SECRET_BODY_FIELDS = {"idp_certificate", "client_secret"}
+
+
+def _snapshot_provider(provider) -> dict:
+    """Snapshot non-secret OAuth/SAML provider fields for audit-log diffing.
+
+    Only includes fields whose old/new values are safe to log verbatim. Secret
+    fields are NEVER included here — they are flagged as "<redacted>" by the
+    body-detection loop in ``update_oauth_provider`` if the request body
+    submitted a new value, OR by the SECRET_FIELDS membership check when
+    comparing old_values to new state. Avoiding them here also dodges the
+    deferred-load trap on community DBs where SAML columns may not exist
+    (Pitfall 11) — we read attributes that are loaded by the default SELECT.
+    """
+    return {
+        "group_claim": provider.group_claim,
+        "group_role_mapping": provider.group_role_mapping,
+        "default_role": provider.default_role,
+        "enabled": provider.enabled,
+        # SAML fields (deferred=True on the ORM); these have already been
+        # loaded by the SAML admin path's undefer_group("saml") call OR by
+        # the previous get_provider_by_id() that the update endpoint did.
+        # Reading from __dict__ avoids triggering an implicit deferred load
+        # (which would fail with MissingGreenlet on community DBs that lack
+        # the columns).
+        "idp_entity_id": provider.__dict__.get("idp_entity_id"),
+        "idp_sso_url": provider.__dict__.get("idp_sso_url"),
+        "sp_entity_id": provider.__dict__.get("sp_entity_id"),
+    }
+
+
+# ROUTE-01 (Phase 1092): dual-shape decorator — see /all above.
+@router.get(
+    "/oauth-providers",
+    response_model=list[OAuthProviderResponse],
+    include_in_schema=False,
+)
+@router.get("/oauth-providers/", response_model=list[OAuthProviderResponse])
+async def list_oauth_providers(
+    _user: Identity = Depends(require_permission("manage_settings")),
+    db: AsyncSession = Depends(get_db),
+) -> list[OAuthProviderResponse]:
+    """List all OAuth providers (admin only)."""
+    providers = await oauth_service.list_providers(db)
+    return [OAuthProviderResponse.model_validate(p) for p in providers]
+
+
+# ROUTE-01 (Phase 1092): dual-shape decorator — see /all above.
+@router.post(
+    "/oauth-providers",
+    response_model=OAuthProviderResponse,
+    status_code=status.HTTP_201_CREATED,
+    include_in_schema=False,
+)
+@router.post(
+    "/oauth-providers/",
+    response_model=OAuthProviderResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_oauth_provider(
+    body: OAuthProviderCreate,
+    request: Request,
+    user: Identity = Depends(require_permission("manage_settings")),
+    db: AsyncSession = Depends(get_db),
+) -> OAuthProviderResponse:
+    """Create a new OAuth or SAML provider (admin only).
+
+    Audit-log payload includes the full ``created`` snapshot with non-secret
+    fields verbatim and ``<redacted>`` markers for secrets that were submitted
+    in the request body (SAML-12 / Pitfall 9 / T-217-03-AUDIT-LEAK).
+    """
+    provider = await oauth_service.create_provider(db, body)
+    ip = get_client_ip(request)
+
+    created_state = {
+        "slug": provider.slug,
+        "display_name": provider.display_name,
+        "provider_type": provider.provider_type,
+        "default_role": provider.default_role,
+        "group_claim": provider.group_claim,
+        "group_role_mapping": provider.group_role_mapping,
+        "enabled": provider.enabled,
+        # SAML fields — read body (input) values directly to avoid deferred
+        # load on the just-created ORM instance. body.idp_entity_id is the
+        # value the admin submitted; for OAuth providers it's None (filtered
+        # out of the snapshot).
+        "idp_entity_id": body.idp_entity_id,
+        "idp_sso_url": body.idp_sso_url,
+        "sp_entity_id": body.sp_entity_id,
+    }
+    # Mark presence (NOT value) of secrets — iterate only over user-input
+    # field names since SECRET_BODY_FIELDS excludes the internal
+    # client_secret_encrypted column.
+    if body.client_secret:
+        created_state["client_secret"] = "<redacted>"
+    if body.idp_certificate:
+        created_state["idp_certificate"] = "<redacted>"
+
+    await audit_emit(
+        db,
+        AuditEvent(
+            user_id=user.id,
+            action="oauth_provider.create",
+            resource_type="oauth_provider",
+            resource_id=provider.id,
+            details={"slug": body.slug, "created": created_state},
+            ip_address=ip,
+        ),
+    )
+    await db.commit()
+    return OAuthProviderResponse.model_validate(provider)
+
+
+@router.put(
+    "/oauth-providers/{provider_id}",
+    response_model=OAuthProviderResponse,
+)
+async def update_oauth_provider(
+    provider_id: uuid.UUID,
+    body: OAuthProviderUpdate,
+    request: Request,
+    user: Identity = Depends(require_permission("manage_settings")),
+    db: AsyncSession = Depends(get_db),
+) -> OAuthProviderResponse:
+    """Update an existing OAuth or SAML provider (admin only).
+
+    Audit-log payload contains ``details.changes`` with per-field
+    ``{"old": ..., "new": ...}`` diffs. Secret fields (idp_certificate,
+    client_secret_encrypted, client_secret) are redacted as
+    ``{"old": "<redacted>", "new": "<redacted>"}`` (Pitfall 9 / SAML-12 /
+    T-217-03-AUDIT-LEAK HIGH severity).
+    """
+    provider = await oauth_service.get_provider_by_id(db, provider_id)
+    if provider is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="OAuth provider not found"
+        )
+    if not is_enterprise() and provider.provider_type == "saml":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+
+    # Snapshot non-secret fields BEFORE the update so we can diff old vs. new.
+    old_values = _snapshot_provider(provider)
+
+    provider = await oauth_service.update_provider(db, provider, body)
+
+    # Build the changes diff. SECRET_FIELDS membership flips any matching
+    # field's diff to <redacted>/<redacted> — protects against future
+    # additions to old_values that accidentally include a secret field.
+    # Read NEW values via __dict__ directly (NOT getattr) to avoid triggering
+    # a deferred lazy-load on community DBs where SAML columns may not exist
+    # (Pitfall 11). Non-deferred fields are populated by the ORM on refresh.
+    changes: dict[str, dict] = {}
+    new_snapshot = _snapshot_provider(provider)
+    for field, old in old_values.items():
+        new = new_snapshot.get(field)
+        if old != new:
+            if field in SECRET_FIELDS:
+                changes[field] = {"old": "<redacted>", "new": "<redacted>"}
+            else:
+                changes[field] = {"old": old, "new": new}
+
+    # Detect secret-field changes via the body (since they're not in old_values
+    # snapshot — we never log secret old values, even pre-redaction). Iterate
+    # ONLY over user-input field names: client_secret_encrypted is internal-only
+    # and would never appear in body.model_dump() (per checker WARNING #3).
+    body_dict = body.model_dump(exclude_unset=True)
+    for secret_field in SECRET_BODY_FIELDS:
+        if body_dict.get(secret_field) is not None:
+            changes[secret_field] = {"old": "<redacted>", "new": "<redacted>"}
+
+    ip = get_client_ip(request)
+    await audit_emit(
+        db,
+        AuditEvent(
+            user_id=user.id,
+            action="oauth_provider.update",
+            resource_type="oauth_provider",
+            resource_id=provider.id,
+            details={"slug": provider.slug, "changes": changes},
+            ip_address=ip,
+        ),
+    )
+    await db.commit()
+    return OAuthProviderResponse.model_validate(provider)
+
+
+@router.delete(
+    "/oauth-providers/{provider_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def delete_oauth_provider(
+    provider_id: uuid.UUID,
+    request: Request,
+    user: Identity = Depends(require_permission("manage_settings")),
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    """Delete an OAuth or SAML provider (admin only).
+
+    Audit-log payload contains a ``deleted`` snapshot with the pre-delete
+    state — non-secret fields verbatim, secret fields marked ``<redacted>``
+    if they were previously set (T-217-03-AUDIT-LEAK mitigation extends to
+    delete events too).
+    """
+    provider = await oauth_service.get_provider_by_id(db, provider_id)
+    if provider is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="OAuth provider not found"
+        )
+    slug = provider.slug
+    deleted_state = {
+        "slug": provider.slug,
+        "display_name": provider.display_name,
+        "provider_type": provider.provider_type,
+        "default_role": provider.default_role,
+        "group_claim": provider.group_claim,
+        "group_role_mapping": provider.group_role_mapping,
+        "enabled": provider.enabled,
+        "idp_entity_id": provider.__dict__.get("idp_entity_id"),
+        "idp_sso_url": provider.__dict__.get("idp_sso_url"),
+        "sp_entity_id": provider.__dict__.get("sp_entity_id"),
+    }
+    # Mark presence of secrets — use SECRET_FIELDS allowlist here because the
+    # snapshot reads from the existing provider row (which DOES carry the
+    # internal client_secret_encrypted column, unlike the body-input loop).
+    if provider.client_secret_encrypted:
+        deleted_state["client_secret"] = "<redacted>"
+    if provider.__dict__.get("idp_certificate"):
+        deleted_state["idp_certificate"] = "<redacted>"
+
+    await oauth_service.delete_provider(db, provider)
+    ip = get_client_ip(request)
+    await audit_emit(
+        db,
+        AuditEvent(
+            user_id=user.id,
+            action="oauth_provider.delete",
+            resource_type="oauth_provider",
+            resource_id=provider_id,
+            details={"slug": slug, "deleted": deleted_state},
+            ip_address=ip,
+        ),
+    )
+    await db.commit()
+
+
+# ---------------------------------------------------------------------------
+# Public endpoints (no auth required)
+# ---------------------------------------------------------------------------
+
+
+# ROUTE-01 (Phase 1092): dual-shape decorator — see /all above.
+@router.get("/edition", response_model=EditionInfoResponse, include_in_schema=False)
+@router.get("/edition/", response_model=EditionInfoResponse)
+async def edition_info() -> EditionInfoResponse:
+    """Return current edition and available features. Public, no auth required."""
+    info = get_edition()
+    return EditionInfoResponse(edition=info.edition, features=list(info.features))
+
+
+# ROUTE-01 (Phase 1092): dual-shape decorator — see /all above.
+@router.get(
+    "/feature-flags", response_model=FeatureFlagsResponse, include_in_schema=False
+)
+@router.get("/feature-flags/", response_model=FeatureFlagsResponse)
+async def get_feature_flags(
+    db: AsyncSession = Depends(get_db),
+) -> FeatureFlagsResponse:
+    """Return public feature flags (no auth required)."""
+    return FeatureFlagsResponse(
+        enable_dataset_editing=await ENABLE_DATASET_EDITING.get(db),
+        require_metadata_for_publish=await REQUIRE_METADATA_FOR_PUBLISH.get(db),
+    )
+
+
+# ROUTE-01 (Phase 1092): dual-shape decorator — see /all above.
+@router.get("/branding", response_model=BrandingResponse, include_in_schema=False)
+@router.get("/branding/", response_model=BrandingResponse)
+async def get_branding(
+    db: AsyncSession = Depends(get_db),
+) -> BrandingResponse:
+    """Return branding configuration (public, no auth required).
+
+    The active ``BrandingExtension`` provides initial defaults for branding
+    keys. PersistentConfig overrides take precedence when set. Community
+    advertises read-only ``show_badge`` only; badge-removal writes and
+    additional branding keys are enterprise controls (enterprise only).
+    """
+    from app.platform.extensions import get_branding_extension
+
+    defaults = get_branding_extension().get_branding_defaults()
+    persisted = await BRANDING_SHOW_BADGE.get(db)
+    show_badge = (
+        persisted if persisted is not None else bool(defaults.get("show_badge", True))
+    )
+    return BrandingResponse(show_badge=show_badge)
+
+
+# ROUTE-01 (Phase 1092): dual-shape decorator — see /all above.
+@router.get(
+    "/basemaps",
+    response_model=list[BasemapPublicResponse],
+    include_in_schema=False,
+)
+@router.get("/basemaps/", response_model=list[BasemapPublicResponse])
+@limiter.limit(_basemap_proxy_rate_limit)
+async def get_basemaps(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> list[BasemapPublicResponse]:
+    """Return the configured basemap list (public, no auth required).
+
+    Basemaps with ``{api_key}`` in the URL are filtered out when no key is
+    configured.  When a key IS set the placeholder is resolved server-side.
+    The response uses ``BasemapPublicResponse`` which excludes ``api_key``.
+
+    SEC-S10 (2026-05-20 audit): the resolved ``url`` field intentionally
+    includes the substituted ``api_key`` value when configured. Client-side
+    tile-provider keys (Mapbox, Stadia, MapTiler) are designed for browser
+    exposure and the frontend MUST receive them to load tiles. Do NOT put a
+    backend-only commercial-tier key in this field — rotate the key in the
+    provider dashboard if it is misused. Rate-limited via
+    ``_basemap_proxy_rate_limit`` to cap replay-cost from anonymous clients.
+    """
+    stored = await BASEMAPS.get(db)
+    result: list[BasemapPublicResponse] = []
+    for entry in stored:
+        url = entry.get("url", "")
+        key_value = entry.get("api_key")
+        if "{api_key}" in url:
+            if not key_value:
+                continue
+            entry = {**entry, "url": url.replace("{api_key}", key_value)}
+        result.append(BasemapPublicResponse(**entry))
+    return result
+
+
+# ROUTE-01 (Phase 1092): dual-shape decorator — see /all above.
+@router.get(
+    "/map-defaults", response_model=MapDefaultsResponse, include_in_schema=False
+)
+@router.get("/map-defaults/", response_model=MapDefaultsResponse)
+async def get_map_defaults(
+    db: AsyncSession = Depends(get_db),
+) -> MapDefaultsResponse:
+    """Return the default map center and zoom (public, no auth required)."""
+    stored = await MAP_DEFAULTS.get(db)
+    return MapDefaultsResponse(**stored)
+
+
+# ROUTE-01 (Phase 1092): dual-shape decorator — see /all above.
+@router.get(
+    "/enabled-plugins", response_model=list[str] | None, include_in_schema=False
+)
+@router.get("/enabled-plugins/", response_model=list[str] | None)
+async def get_enabled_plugins(
+    db: AsyncSession = Depends(get_db),
+) -> list[str] | None:
+    """Return enabled plugin IDs. null = no restriction (all shown), [] = none, [...ids] = only those."""
+    return await ENABLED_PLUGINS.get(db)
+
+
+# ROUTE-01 (Phase 1092): dual-shape decorator — see /all above.
+@router.get("/tile-config", response_model=TileConfigResponse, include_in_schema=False)
+@router.get("/tile-config/", response_model=TileConfigResponse)
+async def get_tile_config(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> TileConfigResponse:
+    """Return tile delivery configuration (public, no auth required)."""
+    public_app_url = await get_public_app_url(db, request=request)
+    public_api_url = await get_public_api_url(db, request=request)
+    return TileConfigResponse(
+        cdn_base_url=app_settings.cdn_base_url,
+        public_app_url=public_app_url,
+        public_api_url=public_api_url,
+        public_base_url=public_api_url,
+    )

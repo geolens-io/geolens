@@ -1,0 +1,133 @@
+[project]
+name = "geolens-backend"
+version = "2.0.0"
+description = "PostGIS-native GIS data catalog"
+# Docker image (Dockerfile) ships python:3.14.3-slim as the project's tested
+# runtime. requires-python>=3.13 is the backward-compat floor for adopters
+# running their own Python (CI matrix could expand to test 3.13.x — deferred
+# to a future test-coverage milestone). Per INF-15.
+requires-python = ">=3.13"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+dependencies = [
+    "fastapi[standard]>=0.115.0",
+    "sqlalchemy[asyncio]>=2.0.50",
+    "asyncpg>=0.29.0",
+    "alembic>=1.13.0",
+    "geoalchemy2>=0.15.0",
+    "pydantic[email]>=2.13.4",
+    "pydantic-settings>=2.14.1",
+    # >=2.13.0: fixes PYSEC-2026-175/177/178/179 (PyJWKClient SSRF + unbounded
+    # JWKS fetch, HMAC key-confusion, detached-JWS DoS). Do not lower this floor.
+    "pyjwt>=2.13.0",
+    "pwdlib[bcrypt]>=0.3.0",
+    "procrastinate>=3.0.0",
+    "psycopg>=3.3.4",
+    "shapely>=2.0",
+    "pygeofilter[backend-sqlalchemy]>=0.3.3",
+    "structlog>=25.4.0",
+    "anthropic>=0.87.0",
+    "openai>=2.0.0,<3",
+    "pgvector>=0.3.6",
+    "defusedxml>=0.7.1",
+    "python-slugify>=8.0.4",
+    "slowapi>=0.1.9",
+    "boto3>=1.43.20",
+    # PERF-01 (Phase 274): in-memory LRU fallback for tile cache when REDIS_URL is unset
+    "cachetools>=5.5.0",
+    "redis>=5.0.0",
+    "jsonschema>=4.19",
+    "puremagic>=2.0.0",
+    "rasterio>=1.4.0",
+    "Pillow>=12.2.0",
+    "numpy>=2.4.6",
+    # 8.0.0 lifts the starlette<1.0.0 cap (prior 7.x pinned <1.0.0), which was
+    # the sole blocker preventing starlette>=1.0.1 from resolving for the
+    # CVE-2026-48710 fix below.
+    "prometheus-fastapi-instrumentator>=8.0.0",
+    "authlib>=1.7.1",  # CVE-2026-44681 (GHSA-r95x-qfjj-fjj2) — OIDC Implicit/Hybrid open redirect, fixed in 1.6.12 / 1.7.1
+    "python-multipart>=0.0.27",
+    # httpx: promoted from [dependency-groups].dev to prod (dep-audit 2026-06-02).
+    # Imported directly by 12 production modules (catalog source adapters,
+    # processing/ai/llm_loop.py, processing/tiles/router.py); previously resolved
+    # only transitively via fastapi[standard]. Pin keeps it a first-class dep.
+    "httpx>=0.27",
+    "sse-starlette>=3.4.4",
+    "sqlglot>=29.0.0",
+    "itsdangerous>=2.2.0",
+    # Security: pin transitive deps to versions without known CVEs
+    # cryptography 46.0.7 patches a buffer-overflow bug affecting
+    # non-contiguous buffers passed to certain APIs (Dependabot #29).
+    "cryptography>=46.0.7",
+    # urllib3 2.7.0 patches decompression-bomb bypasses in streaming reads
+    # and drain_conn handling (Dependabot #36 / CVE-2026-44432).
+    "urllib3>=2.7.0",
+    # idna 3.15 patches a DoS in idna.encode() with crafted inputs (Dependabot #40 / CVE-2026-45409 / GHSA-65pc-fj4g-8rjx).
+    "idna>=3.18",
+    # starlette 1.0.1 fixes "BadHost": missing Host-header validation that
+    # poisons request.url.path and can bypass path-based auth checks
+    # (CVE-2026-48710 / PYSEC-2026-161 / GHSA-86qp-5c8j-p5mr). Requires
+    # prometheus-fastapi-instrumentator>=8.0.0 above; FastAPI (>=0.46.0) and
+    # sse-starlette (>=0.49.1) already permit starlette 1.x.
+    "starlette>=1.2.1",
+]
+
+[project.urls]
+Homepage = "https://github.com/geolens-io/geolens"
+Repository = "https://github.com/geolens-io/geolens"
+Documentation = "https://docs.getgeolens.com"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.3",
+    "pytest-asyncio",
+    "pytest-xdist>=3.6.0",
+    "ruff",
+    "pytest-cov",
+    "bandit>=1.8",
+    "pip-audit>=2.7",
+    "moto[s3]>=5.0.0",
+    "fakeredis>=2.21.0",
+    "pystac>=1.14",
+]
+
+[tool.pytest.ini_options]
+# Let AnyIO own the project’s coroutine tests and plain async fixtures. Keep
+# pytest-asyncio strict so it only handles the explicit asyncio-only unit-test
+# slice and does not hijack DB-backed integration fixtures onto a second runner.
+anyio_mode = "auto"
+asyncio_mode = "strict"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]
+addopts = "-m 'not perf'"
+markers = [
+    "perf: performance regression tests (deselected by default)",
+    "requires_ogr2ogr: tests that invoke ogr2ogr and need build_pg_conn_str redirected to the test database (K2-PRE; fixture lives in tests/conftest.py)",
+    "architecture: layering and boundary tests; opt-out locally with `-m 'not architecture'` (Phase 212 LAYER-01 guard)",
+    "lifecycle: edition deactivation/reactivation tests requiring enterprise overlay (Phase 220 LIFECYCLE-04)",
+]
+
+[tool.coverage.run]
+source = ["app"]
+omit = []
+
+[tool.coverage.report]
+show_missing = true
+# Coverage threshold ratchets upward as the suite grows (TEST-01, Phase 278).
+# Current: 60.0 (raised from 58.5 — v13.2 close baseline was 62.29% actual).
+# To ratchet further: run `make test`, take the lowest stable run's pct,
+# subtract a 1-2 pt buffer, and bump this number. Never lower it without
+# a documented rationale in CHANGELOG.
+fail_under = 60
+exclude_lines = [
+    "pragma: no cover",
+    "if __name__ == .__main__.:",
+    "raise NotImplementedError",
+]
+
+[tool.coverage.html]
+directory = "htmlcov"
+
+[tool.bandit]
+exclude_dirs = ["tests"]
+skips = ["B101"]

@@ -1,0 +1,116 @@
+# Pre-commit hooks for GeoLens security guardrails.
+# Phase 1061 SEC-GUARD-01: pins audit-derived patterns so regressions trip CI.
+# See AGENTS.md "Security pre-commit checklist" and
+# docs-internal/audits/security-lessons.md for the underlying rationale.
+#
+# Run locally:
+#   pip install pre-commit && pre-commit install
+#   pre-commit run --all-files
+
+repos:
+  - repo: local
+    hooks:
+      - id: ssrf-safe-client
+        name: "SSRF Rule 2 — httpx.AsyncClient(follow_redirects=True) outside sources/security.py"
+        description: >
+          Any httpx.AsyncClient with follow_redirects=True must be constructed
+          via make_safe_client() from backend/app/modules/catalog/sources/security.py.
+          The factory installs the per-hop _revalidate_redirect event hook.
+          See AGENTS.md Security pre-commit checklist Rule 2.
+          Phase 1061 CR-02: switched from pygrep (per-line) to a system bash hook
+          so multi-line AsyncClient declarations are caught.  The previous pattern
+          `httpx\.AsyncClient\([^)]*follow_redirects=True` would miss:
+              _client = httpx.AsyncClient(        # line N — no follow_redirects here
+                  follow_redirects=True,          # line N+1 — no AsyncClient( here
+              )
+          The new hook checks both patterns across the whole file, not per-line.
+        language: system
+        entry: >-
+          bash -c '
+          for f in "$@"; do
+            if grep -qE "follow_redirects\s*=\s*True" "$f"; then
+              if grep -qE "httpx\.AsyncClient" "$f" && ! grep -qE "make_safe_client|security\.py" "$f"; then
+                echo "FAIL: $f has follow_redirects=True with AsyncClient outside make_safe_client"
+                echo "  Use make_safe_client() from backend/app/modules/catalog/sources/security.py"
+                echo "  See AGENTS.md Security pre-commit checklist Rule 2."
+                exit 1
+              fi
+            fi
+          done
+          ' --
+        types: [python]
+        files: '^backend/app/.*\.py$'
+        # Excluded files have legitimate follow_redirects=True usage:
+        # - security.py: the canonical factory; defines make_safe_client() itself.
+        # - tiles/router.py: fixed internal URL (http://titiler:8000) — not user-controlled,
+        #   no SSRF risk. Excluded explicitly because its multi-line AsyncClient declaration
+        #   (lines 51-54) is the exact shape the pygrep hook could not catch (Phase 1061 CR-02).
+        #   If the URL source ever changes to user-controlled, remove this exclusion and
+        #   wrap the client in make_safe_client().
+        exclude: '^backend/app/modules/catalog/sources/security\.py$|^backend/app/processing/tiles/router\.py$'
+
+      - id: visibility-filter-coverage
+        name: "Visibility Rule 1 — route files calling get_dataset must reference check_dataset_access or apply_visibility_filter"
+        description: >
+          Any route handler that fetches a Record/Dataset/Map by ID must call
+          check_dataset_access_or_anonymous (read) or check_dataset_access (write)
+          or apply_visibility_filter. See AGENTS.md Security pre-commit checklist Rule 1.
+          Evaluation: Phase 1061 Plan 06 found 1 flagged file (router_reupload.py) with
+          FP count = 0 legitimate exemptions. The file has a tracked IDOR gap (deferred
+          to Phase 1063 as SEC-FU) and is excluded until that phase ships the fix.
+        language: system
+        entry: >-
+          bash -c '
+          for f in "$@"; do
+            if grep -qE "^@(stac_|ogc_|layers_|router)\.(get|post|patch|delete|put)" "$f" \
+              && grep -qE "get_dataset\(" "$f" \
+              && ! grep -qE "check_dataset_access|apply_visibility_filter" "$f"; then
+              echo "FAIL: $f has route handlers calling get_dataset without check_dataset_access or apply_visibility_filter"
+              exit 1
+            fi
+          done
+          ' --
+        types: [python]
+        files: '^backend/app/(modules/catalog|standards)/.*\.py$'
+
+      # --- Lint + format (shift-left; CI backend-lint also enforces these) ---
+      - id: ruff-check
+        name: "ruff check (backend)"
+        language: system
+        entry: uv run --project backend ruff check
+        types_or: [python, pyi]
+        files: '^backend/.*\.py$'
+      - id: ruff-format
+        name: "ruff format --check (backend)"
+        language: system
+        entry: uv run --project backend ruff format --check
+        types_or: [python, pyi]
+        files: '^backend/.*\.py$'
+
+  # --- Generic hygiene + secret scanning (Phase 1169 public-release readiness) ---
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      # Auto-fixers — generated/vendored trees excluded so they keep matching their generators.
+      - id: trailing-whitespace
+        exclude: '(^sdks/|^backend/openapi\.json$|^backend/tests/fixtures/|(^|/)package-lock\.json$|(^|/)uv\.lock$|(^|/)skills-lock\.json$|\.snap$)'
+      - id: end-of-file-fixer
+        exclude: '(^sdks/|^backend/openapi\.json$|^backend/tests/fixtures/|(^|/)package-lock\.json$|(^|/)uv\.lock$|(^|/)skills-lock\.json$|\.snap$)'
+      # Validity / safety checks (non-mutating).
+      - id: check-added-large-files
+        args: ['--maxkb=2048']
+      - id: check-merge-conflict
+      - id: check-case-conflict
+      - id: check-json
+        exclude: '(tsconfig.*\.json$|\.code-workspace$)'   # JSONC (comments) — not strict JSON
+      - id: check-toml
+      - id: check-yaml
+        args: ['--allow-multiple-documents']
+        exclude: '^deployment/helm/.*/templates/'          # Helm templates are not valid YAML
+
+  # Secret scanning — guards staged changes against committed credentials.
+  # Config + allowlist: .gitleaks.toml. CI also runs a full-tree `gitleaks dir` scan.
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.1
+    hooks:
+      - id: gitleaks

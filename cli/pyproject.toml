@@ -1,0 +1,71 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "geolens-cli"
+version = "2.0.0"
+description = "Apache-2.0 command-line interface for the GeoLens API. Login, scan, publish, and export STAC against any GeoLens instance."
+readme = "README.md"
+license = { text = "Apache-2.0" }
+requires-python = ">=3.11"
+authors = [{ name = "GeoLens", email = "noreply@getgeolens.com" }]
+keywords = ["geolens", "geospatial", "cli", "stac", "openapi"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Environment :: Console",
+  "Intended Audience :: Developers",
+  "Intended Audience :: Science/Research",
+  "License :: OSI Approved :: Apache Software License",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Scientific/Engineering :: GIS",
+]
+dependencies = [
+  "typer>=0.25.0,<0.26.0",
+  "rich>=14.0.0,<16.0.0",
+  "keyring>=25.0.0,<26.0.0",
+  "jsonschema>=4.19.0,<5.0.0",
+  "PyYAML>=6.0.0,<7.0.0",
+  "tomli_w>=1.0.0,<2.0.0",
+  "platformdirs>=4.0.0,<5.0.0",
+  "structlog>=25.0.0,<26.0.0",
+  "geolens>=2.0.0,<3.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=9.0.0,<10.0.0",
+]
+
+# Source map for uv-managed development environments. uv honors this when
+# it resolves dependencies from `cli/`; standard pip + the published wheel
+# ignore the [tool.uv] table entirely (this stays a dev/CI-only override).
+#
+# Pre-Phase-228 publish, `geolens` is not yet on PyPI — so a bare
+# `uv sync` / `uv run` from `cli/` would fail to resolve the dependency
+# declared above. Pointing it at the local sibling tree lets uv-managed
+# tooling (CI, contributors, pre-publish smoke) succeed without first
+# uploading the SDK to PyPI. Once the SDK is on PyPI, this entry stays
+# safe — uv prefers the local source for development workflows but
+# published artifacts (which only carry the `dependencies` list) resolve
+# from PyPI for end-users.
+[tool.uv.sources]
+geolens = { path = "../sdks/python", editable = true }
+
+[project.scripts]
+geolens = "geolens_cli.main:app"
+
+[project.urls]
+Homepage = "https://github.com/geolens-io/geolens"
+Repository = "https://github.com/geolens-io/geolens"
+Documentation = "https://docs.getgeolens.com/"
+
+[tool.hatch.build.targets.wheel]
+packages = ["geolens_cli"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

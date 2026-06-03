@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "geolens.fullname" . }}-frontend
+  labels:
+    {{- include "geolens.labels" . | nindent 4 }}
+    app.kubernetes.io/component: frontend
+spec:
+  type: {{ .Values.frontend.service.type }}
+  ports:
+    - name: http
+      port: {{ .Values.frontend.service.port }}
+      targetPort: http
+  selector:
+    {{- include "geolens.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: frontend

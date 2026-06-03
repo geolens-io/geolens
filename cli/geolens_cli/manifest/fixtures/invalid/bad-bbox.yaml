@@ -1,0 +1,13 @@
+manifest_version: "1"
+catalog:
+  title: Bad bbox catalog
+datasets:
+  - key: roads
+    title: Road centerlines
+    sources:
+      - type: vector
+        uri: ./data/roads.geojson
+    metadata:
+      bbox: [-74.1, 40.5, -73.7]
+    publication:
+      intent: draft

@@ -1,0 +1,97 @@
+name: Dependency audit
+
+# Added 2026-06-02 (dep-audit). Fails PRs on high/critical CVEs and strong
+# copyleft; runs Trivy OS-CVE scans the local audit could not (trivy is not on
+# dev machines). Weekly cron catches newly-disclosed CVEs in unchanged deps.
+on:
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: "0 8 * * 1" # Monday 08:00 UTC
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  python-audit:
+    name: Python audit (uv)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@v8.1.0
+        with:
+          version: "0.11.11"
+          enable-cache: true
+          cache-dependency-glob: "backend/uv.lock"
+      - name: Verify lockfile in sync
+        run: uv lock --check
+      - name: Export locked prod requirements
+        run: uv export --locked --no-dev --format requirements-txt -o /tmp/reqs.txt
+      - name: pip-audit (OSV + PyPI advisory DB)
+        run: uv run --with pip-audit pip-audit -r /tmp/reqs.txt --strict
+      - name: License gate (block strong/network copyleft)
+        run: uv run --with pip-licenses pip-licenses --fail-on="GPL-3.0-only;GPL-3.0;GPL-2.0;AGPL-3.0;SSPL-1.0;BSL-1.1"
+
+  js-audit:
+    name: JS audit (${{ matrix.directory }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        directory: [".", "frontend", "sdks/typescript"]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24" # CI tooling runner (LTS); build image is node 26
+          cache: "npm"
+          cache-dependency-path: ${{ matrix.directory }}/package-lock.json
+      - name: Install
+        working-directory: ${{ matrix.directory }}
+        run: npm ci
+      - name: npm audit (block high+)
+        working-directory: ${{ matrix.directory }}
+        run: npm audit --audit-level=high
+      - name: License report (advisory — tune allowlist before enforcing)
+        working-directory: ${{ matrix.directory }}
+        continue-on-error: true
+        run: |
+          npx --yes license-checker --production --summary || true
+          # Hard-gate candidate once the compound-SPDX allowlist is validated:
+          # npx license-checker --production --onlyAllow \
+          #   'MIT;ISC;BSD-2-Clause;BSD-3-Clause;Apache-2.0;CC0-1.0;Unlicense;Python-2.0;PSF-2.0;BlueOak-1.0.0;0BSD;OFL-1.1;MPL-2.0;CUSTOM'
+
+  docker-audit:
+    name: Docker image scan (Trivy)
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        image:
+          - "node:26.3.0-alpine"
+          - "python:3.14.5-slim"
+          - "nginxinc/nginx-unprivileged:1.31.1-alpine"
+          - "postgis/postgis:17-3.5"
+    steps:
+      - uses: actions/checkout@v6
+      # Report-only on introduction: Trivy prints CRITICAL/HIGH findings to the
+      # job log but exits 0, so the check stays green while the base-image CVE
+      # baseline is triaged. NOTE these scan the UPSTREAM base images; the built
+      # images run `apt-get upgrade`/`apk upgrade`, so real exposure is lower.
+      # To enforce as a hard gate: set exit-code "1" (ideally after switching to
+      # scan the built images, not the upstream refs).
+      - name: Trivy scan (report-only)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: ${{ matrix.image }}
+          format: "table"
+          severity: "CRITICAL,HIGH"
+          exit-code: "0"
+          ignore-unfixed: true

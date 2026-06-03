@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#3b6fd4" />
+    <script src="/env-config.js"></script>
+    <!-- FOUC prevention: apply dark class before CSS renders -->
+    <!-- Must match ThemeProvider storageKey -->
+    <script>
+      (function() {
+        try {
+          var stored = localStorage.getItem('geolens-theme');
+          var prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+          var isDark = stored === 'dark' || (stored !== 'light' && prefersDark);
+          if (isDark) document.documentElement.classList.add('dark');
+          // Sync lang attribute before React hydration (must match i18n config supportedLngs)
+          var lang = localStorage.getItem('i18nextLng');
+          if (lang && /^(en|de|fr|es)$/.test(lang)) {
+            document.documentElement.lang = lang;
+          }
+        } catch(e) {}
+      })();
+    </script>
+    <link rel="icon" type="image/svg+xml" sizes="any" href="/favicon.svg" />
+    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
+    <link rel="icon" type="image/png" sizes="64x64" href="/favicon-64.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="description" content="Open-source spatial data catalog with search, map builder, and OGC standards compliance. Upload, discover, visualize, and share geospatial data." />
+    <meta property="og:title" content="GeoLens" />
+    <meta property="og:description" content="Open-source spatial data catalog with search, map builder, and OGC standards compliance." />
+    <meta property="og:type" content="website" />
+    <meta property="og:image" content="/og-image.png" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="GeoLens" />
+    <meta name="twitter:description" content="Open-source spatial data catalog with search, map builder, and OGC standards compliance." />
+    <title>GeoLens</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

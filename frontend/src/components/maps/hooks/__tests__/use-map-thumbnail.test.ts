@@ -1,0 +1,178 @@
+import { renderHook, waitFor } from '@testing-library/react';
+import { vi } from 'vitest';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { createElement, type ReactNode } from 'react';
+
+vi.mock('@/api/client', () => ({
+  apiFetchBlob: vi.fn(),
+}));
+
+import { apiFetchBlob } from '@/api/client';
+import { useMapThumbnail } from '@/components/maps/hooks/use-map-thumbnail';
+
+const mockApiFetchBlob = vi.mocked(apiFetchBlob);
+
+const fakeBlob = new Blob(['img'], { type: 'image/png' });
+
+function createWrapper() {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  return ({ children }: { children: ReactNode }) =>
+    createElement(QueryClientProvider, { client: queryClient }, children);
+}
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:http://localhost/thumb');
+  vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
+describe('useMapThumbnail', () => {
+  it('returns null initially then blob URL after fetch', async () => {
+    mockApiFetchBlob.mockResolvedValueOnce(fakeBlob);
+
+    const { result } = renderHook(() => useMapThumbnail('/api/maps/1/thumbnail/'), {
+      wrapper: createWrapper(),
+    });
+
+    expect(result.current).toBeNull();
+
+    await waitFor(() => expect(result.current).toBe('blob:http://localhost/thumb'));
+    expect(mockApiFetchBlob).toHaveBeenCalledWith('/api/maps/1/thumbnail/', {
+      cache: 'reload',
+    });
+    expect(URL.createObjectURL).toHaveBeenCalledWith(fakeBlob);
+  });
+
+  it('adds a version query when updated_at is provided', async () => {
+    mockApiFetchBlob.mockResolvedValueOnce(fakeBlob);
+
+    renderHook(
+      () => useMapThumbnail('/api/maps/1/thumbnail/', '2026-01-02T00:00:00Z'),
+      { wrapper: createWrapper() },
+    );
+
+    await waitFor(() => expect(mockApiFetchBlob).toHaveBeenCalled());
+    expect(mockApiFetchBlob).toHaveBeenCalledWith(
+      '/api/maps/1/thumbnail/?v=2026-01-02T00%3A00%3A00Z',
+      { cache: 'reload' },
+    );
+  });
+
+  it('returns null when thumbnailUrl is null', () => {
+    const { result } = renderHook(() => useMapThumbnail(null), {
+      wrapper: createWrapper(),
+    });
+    expect(result.current).toBeNull();
+    expect(mockApiFetchBlob).not.toHaveBeenCalled();
+  });
+
+  it('returns null when fetch fails', async () => {
+    mockApiFetchBlob.mockRejectedValueOnce(new Error('404'));
+
+    const { result } = renderHook(() => useMapThumbnail('/api/maps/1/thumbnail/'), {
+      wrapper: createWrapper(),
+    });
+
+    // Query stays null on error (default value)
+    await waitFor(() => expect(mockApiFetchBlob).toHaveBeenCalled());
+    expect(result.current).toBeNull();
+  });
+
+  it('returns blob URL for different thumbnailUrl', async () => {
+    mockApiFetchBlob.mockResolvedValue(fakeBlob);
+
+    const { result, rerender } = renderHook(
+      ({ url }: { url: string }) => useMapThumbnail(url),
+      { initialProps: { url: '/api/maps/1/thumbnail/' }, wrapper: createWrapper() },
+    );
+
+    await waitFor(() => expect(result.current).toBe('blob:http://localhost/thumb'));
+
+    rerender({ url: '/api/maps/2/thumbnail/' });
+
+    await waitFor(() => {
+      expect(mockApiFetchBlob).toHaveBeenCalledTimes(2);
+      expect(result.current).toBe('blob:http://localhost/thumb');
+    });
+  });
+
+  it('refetches when the thumbnail version changes', async () => {
+    mockApiFetchBlob.mockResolvedValue(fakeBlob);
+
+    const { rerender } = renderHook(
+      ({ version }: { version: string }) =>
+        useMapThumbnail('/api/maps/1/thumbnail/', version),
+      { initialProps: { version: '2026-01-02T00:00:00Z' }, wrapper: createWrapper() },
+    );
+
+    await waitFor(() => expect(mockApiFetchBlob).toHaveBeenCalledTimes(1));
+
+    rerender({ version: '2026-01-03T00:00:00Z' });
+
+    await waitFor(() => expect(mockApiFetchBlob).toHaveBeenCalledTimes(2));
+    expect(mockApiFetchBlob).toHaveBeenLastCalledWith(
+      '/api/maps/1/thumbnail/?v=2026-01-03T00%3A00%3A00Z',
+      { cache: 'reload' },
+    );
+  });
+
+  // Blob URL lifecycle is tied to the React Query cache, not the component:
+  // revocation happens when the cache entry is evicted/replaced, never on
+  // unmount (revoking on unmount caused the ERR_FILE_NOT_FOUND regression
+  // because the dead URL stayed cached for the next consumer).
+  it('revokes a blob URL when its cache entry is evicted', async () => {
+    mockApiFetchBlob.mockResolvedValueOnce(fakeBlob);
+
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const wrapper = ({ children }: { children: ReactNode }) =>
+      createElement(QueryClientProvider, { client: queryClient }, children);
+
+    const { result } = renderHook(() => useMapThumbnail('/api/maps/1/thumbnail/'), { wrapper });
+
+    await waitFor(() => expect(result.current).toBe('blob:http://localhost/thumb'));
+
+    queryClient.removeQueries({ queryKey: ['map-thumbnail'] });
+
+    await waitFor(() =>
+      expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:http://localhost/thumb'),
+    );
+  });
+
+  it('does NOT call revokeObjectURL on unmount (kept valid in cache for reuse)', async () => {
+    mockApiFetchBlob.mockResolvedValueOnce(fakeBlob);
+
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const wrapper = ({ children }: { children: ReactNode }) =>
+      createElement(QueryClientProvider, { client: queryClient }, children);
+
+    const { result, unmount } = renderHook(
+      () => useMapThumbnail('/api/maps/1/thumbnail/'),
+      { wrapper },
+    );
+
+    await waitFor(() => expect(result.current).toBe('blob:http://localhost/thumb'));
+
+    unmount();
+
+    expect(URL.revokeObjectURL).not.toHaveBeenCalled();
+  });
+
+  it('does NOT call revokeObjectURL when data is undefined', () => {
+    // No mock resolution — query stays in loading state with undefined data
+    mockApiFetchBlob.mockImplementation(() => new Promise(() => {}));
+
+    const { result } = renderHook(
+      () => useMapThumbnail('/api/maps/1/thumbnail/'),
+      { wrapper: createWrapper() },
+    );
+
+    expect(result.current).toBeNull();
+    expect(URL.revokeObjectURL).not.toHaveBeenCalled();
+  });
+});

@@ -1,0 +1,7 @@
+# Build artifacts
+node_modules/
+dist/
+*.tgz
+
+# Editor
+.DS_Store

@@ -1,0 +1,413 @@
+"""Phase 223 — BillingExtension protocol + dispatch tests.
+
+Covers:
+  - BILLING-01 (Plan 01: this file's Wave-0 unit tests — Protocol shape + no-op
+    default + accessor lazy fallback)
+  - BILLING-04 (Plan 02: dispatch loop happy path / raising / hanging /
+    isolated)
+  - BILLING-05 (Plan 03: settings removal verification)
+  - Enterprise overlay registration pattern (Plan 05: setdefault+append
+    integration test)
+
+BILLING-02 architecture guard lives in test_layering.py (Plan 04).
+"""
+
+from __future__ import annotations
+
+import asyncio
+import inspect
+
+import pytest
+
+
+def test_billing_extension_protocol_shape() -> None:
+    """BILLING-01: BillingExtension Protocol + DefaultBillingExtension exist with correct shape."""
+    from app.platform.extensions.defaults import DefaultBillingExtension
+    from app.platform.extensions.protocols import BillingExtension
+
+    # Protocol is runtime_checkable (D-06)
+    assert hasattr(BillingExtension, "_is_runtime_protocol") or hasattr(
+        BillingExtension, "_is_protocol"
+    ), "BillingExtension must be a runtime_checkable Protocol (D-06)"
+
+    # DefaultBillingExtension satisfies the protocol structurally
+    assert isinstance(DefaultBillingExtension(), BillingExtension), (
+        "DefaultBillingExtension must structurally satisfy BillingExtension Protocol"
+    )
+
+    # on_startup is async (D-08 — async-only)
+    assert inspect.iscoroutinefunction(DefaultBillingExtension().on_startup), (
+        "DefaultBillingExtension.on_startup must be async (D-08)"
+    )
+
+
+@pytest.mark.anyio
+async def test_default_billing_extension_is_noop() -> None:
+    """BILLING-01 / D-07: DefaultBillingExtension.on_startup is a literal no-op.
+
+    Calling it returns None and does not raise. Mirrors DefaultIdentityExtension
+    discipline — community default behavior is identical to today's behavior
+    when AWS_MARKETPLACE_PRODUCT_CODE is unset (zero AWS API calls, zero side
+    effects).
+    """
+    from app.platform.extensions.defaults import DefaultBillingExtension
+
+    ext = DefaultBillingExtension()
+    # Pass any object as app — default doesn't use it (loose typing on default
+    # parameter; precedent: DefaultIdentityExtension)
+    result = await ext.on_startup(object())
+
+    assert result is None, (
+        "DefaultBillingExtension.on_startup must return None (no-op contract — D-07)"
+    )
+
+
+def test_get_billing_extensions_default_fallback() -> None:
+    """BILLING-01: get_billing_extensions() returns [DefaultBillingExtension()] when slot missing.
+
+    Mirrors Phase 222's get_audit_sinks() lazy-default behavior. The accessor
+    must NEVER return None — call sites (lifespan dispatch loop, Plan 02)
+    expect a non-empty list to iterate over.
+    """
+    from app.platform.extensions import _extensions, get_billing_extensions
+    from app.platform.extensions.defaults import DefaultBillingExtension
+
+    # Snapshot + clear slot to simulate community deployment with no overlay
+    saved = _extensions.get("billing_extensions")
+    _extensions.pop("billing_extensions", None)
+    try:
+        exts = get_billing_extensions()
+        assert isinstance(exts, list), "get_billing_extensions must return list"
+        assert len(exts) == 1, (
+            f"Expected exactly one DefaultBillingExtension when slot is missing; "
+            f"got len={len(exts)}"
+        )
+        assert isinstance(exts[0], DefaultBillingExtension), (
+            f"Expected DefaultBillingExtension; got {type(exts[0]).__name__}"
+        )
+    finally:
+        if saved is not None:
+            _extensions["billing_extensions"] = saved
+
+
+# ---------------------------------------------------------------------------
+# Plan 02 dispatch tests (BILLING-04 / D-10 / D-12 / D-15)
+# ---------------------------------------------------------------------------
+
+
+class FixtureBillingExtension:
+    """Stand-in for a future enterprise BillingExtension.
+
+    Records every (app) it received so tests can assert dispatch coverage.
+    """
+
+    def __init__(self) -> None:
+        self.received: list = []
+
+    async def on_startup(self, app) -> None:
+        self.received.append(app)
+
+
+class RaisingBillingExtension:
+    """Simulates a broken overlay whose on_startup raises.
+
+    Per D-10 / D-12, the dispatch loop must catch the exception, log a
+    structlog warning, and continue to the next extension.
+    """
+
+    async def on_startup(self, app) -> None:
+        raise RuntimeError("simulated billing extension failure for BILLING-04")
+
+
+class HangingBillingExtension:
+    """Simulates a runaway overlay whose on_startup blocks indefinitely.
+
+    Per D-10 / D-11, the dispatch loop must time out after 10s, log a
+    structlog warning, and continue to the next extension.
+    """
+
+    async def on_startup(self, app) -> None:
+        await asyncio.sleep(15.0)  # exceeds 10.0s timeout
+
+
+async def _dispatch(extensions, app, timeout: float = 10.0) -> None:
+    """Inline replica of the dispatch loop in api/main.py.
+
+    Mirrors the production code at backend/app/api/main.py (Plan 02 Task 1
+    replacement). Tests inline-call this helper with a pre-populated extension
+    list, avoiding the cost of spinning up the full lifespan with a TestClient.
+
+    Per D-10: each extension is awaited inside asyncio.wait_for(timeout); both
+    TimeoutError and general Exception are swallowed (per-extension isolation —
+    D-12). Failures would normally be logged via structlog; here we silently
+    swallow because the tests assert behavior (subsequent extensions ran),
+    not log content. Plan 04 architecture guard verifies the production loop
+    matches this shape.
+    """
+    for ext in extensions:
+        try:
+            await asyncio.wait_for(ext.on_startup(app), timeout=timeout)
+        except (asyncio.TimeoutError, Exception):
+            # Production code splits these into two `except` clauses with
+            # different log messages; for the test we collapse them since
+            # we assert behavior, not log shape.
+            pass
+
+
+@pytest.mark.anyio
+async def test_dispatch_runs_all_registered_extensions() -> None:
+    """BILLING-04 / D-10 happy path: every registered extension's on_startup runs.
+
+    Verifies the dispatch loop iterates over `[DefaultBillingExtension(),
+    FixtureBillingExtension()]` and each ext sees the same `app` argument.
+    """
+    from app.platform.extensions import _extensions
+    from app.platform.extensions.defaults import DefaultBillingExtension
+
+    fixture = FixtureBillingExtension()
+    saved = _extensions.get("billing_extensions")
+    _extensions["billing_extensions"] = [DefaultBillingExtension(), fixture]
+    try:
+        mock_app = object()  # FastAPI app stand-in; default ext doesn't use it
+        from app.platform.extensions import get_billing_extensions
+
+        await _dispatch(get_billing_extensions(), mock_app)
+
+        assert fixture.received == [mock_app], (
+            f"FixtureBillingExtension.on_startup did not receive the app argument; "
+            f"received={fixture.received}"
+        )
+    finally:
+        if saved is None:
+            _extensions.pop("billing_extensions", None)
+        else:
+            _extensions["billing_extensions"] = saved
+
+
+@pytest.mark.anyio
+async def test_raising_extension_isolated() -> None:
+    """BILLING-04 / D-10 / D-12: a raising extension does NOT abort dispatch.
+
+    Order matters: RaisingBillingExtension is FIRST in the list. If the
+    dispatch loop wraps the entire iteration in one try/except (instead of
+    per-extension), FixtureBillingExtension never runs and `fixture.received`
+    stays empty — the test would fail.
+    """
+    from app.platform.extensions import _extensions
+
+    fixture = FixtureBillingExtension()
+    saved = _extensions.get("billing_extensions")
+    _extensions["billing_extensions"] = [RaisingBillingExtension(), fixture]
+    try:
+        mock_app = object()
+        from app.platform.extensions import get_billing_extensions
+
+        await _dispatch(get_billing_extensions(), mock_app)
+
+        assert fixture.received == [mock_app], (
+            "FixtureBillingExtension did not run after RaisingBillingExtension raised — "
+            "per-extension isolation broken (D-12: each ext's try/except must be "
+            "scoped per-iteration, NOT around the whole for-loop)."
+        )
+    finally:
+        if saved is None:
+            _extensions.pop("billing_extensions", None)
+        else:
+            _extensions["billing_extensions"] = saved
+
+
+@pytest.mark.anyio
+async def test_hanging_extension_timeout() -> None:
+    """BILLING-04 / D-10 / D-11: a hanging extension is timed out at the configured timeout.
+
+    Order matters: HangingBillingExtension is FIRST. After the configured timeout
+    elapses, the dispatch loop swallows the TimeoutError and proceeds to
+    FixtureBillingExtension. To keep the test fast, we use a short test-only
+    timeout (0.5s) — the contract under test is "the dispatch loop times out
+    and continues", not the literal 10.0s value (D-11 hardcodes the production
+    value; the dispatch shape is what's asserted here).
+
+    Production timeout=10.0 is verified by an architecture-guard grep in
+    test_layering.py (Plan 04 Task 1).
+    """
+    import time
+
+    from app.platform.extensions import _extensions
+
+    fixture = FixtureBillingExtension()
+    saved = _extensions.get("billing_extensions")
+    _extensions["billing_extensions"] = [HangingBillingExtension(), fixture]
+    try:
+        mock_app = object()
+        from app.platform.extensions import get_billing_extensions
+
+        start = time.monotonic()
+        # Use a 0.5s timeout for fast tests — production uses 10.0 (D-11)
+        await _dispatch(get_billing_extensions(), mock_app, timeout=0.5)
+        elapsed = time.monotonic() - start
+
+        assert elapsed < 2.0, (
+            f"Dispatch loop did not honor the timeout — elapsed {elapsed:.2f}s "
+            f"with 0.5s timeout. The wait_for wrapper is missing or wrapping "
+            f"the wrong scope (D-10)."
+        )
+        assert fixture.received == [mock_app], (
+            "FixtureBillingExtension did not run after HangingBillingExtension "
+            "timed out — per-extension isolation broken (D-12: TimeoutError "
+            "must be caught and the loop must continue)."
+        )
+    finally:
+        if saved is None:
+            _extensions.pop("billing_extensions", None)
+        else:
+            _extensions["billing_extensions"] = saved
+
+
+# ---------------------------------------------------------------------------
+# Plan 03 settings-removal test (BILLING-05 / D-03 / D-15)
+# ---------------------------------------------------------------------------
+
+
+def test_settings_has_no_marketplace_fields() -> None:
+    """BILLING-05 / D-03: aws_marketplace_* fields removed from core Settings.
+
+    Phase 223 deletes:
+      - `aws_marketplace_product_code: str | None = None` (was at config.py:87)
+      - `aws_marketplace_public_key_version: int = 1` (was at config.py:88)
+      - The `aws_marketplace_product_code` entry inside the @field_validator(...)
+        whitelist (was at config.py:~108).
+
+    The enterprise overlay (geolens-enterprise) reads these env vars via
+    `os.environ.get("AWS_MARKETPLACE_PRODUCT_CODE")` directly inside its
+    `MarketplaceBillingExtension.on_startup` (D-04 / D-13). Core has zero
+    knowledge of these env vars after this phase.
+
+    Asserts:
+      (a) No `aws_marketplace_product_code` attribute on Settings instance.
+      (b) No `aws_marketplace_public_key_version` attribute on Settings instance.
+      (c) Neither field name appears in `Settings.model_fields` (Pydantic v2
+          field registry — catches the case where someone adds the field back
+          via SettingsConfigDict tomfoolery).
+
+    Negative-control: any regression that re-adds either field will fail this
+    test, surfacing the boundary breach immediately at CI time.
+    """
+    from app.core.config import Settings, settings
+
+    # (a) + (b): instance attributes absent
+    assert not hasattr(settings, "aws_marketplace_product_code"), (
+        "Settings.aws_marketplace_product_code must be REMOVED in Phase 223 "
+        "(D-03 / BILLING-05). The enterprise overlay reads "
+        "AWS_MARKETPLACE_PRODUCT_CODE directly via os.environ.get."
+    )
+    assert not hasattr(settings, "aws_marketplace_public_key_version"), (
+        "Settings.aws_marketplace_public_key_version must be REMOVED in Phase 223 "
+        "(D-03 / BILLING-05). The enterprise overlay reads "
+        "AWS_MARKETPLACE_PUBLIC_KEY_VERSION directly via os.environ.get."
+    )
+
+    # (c): Pydantic v2 model_fields registry confirms the fields are gone at
+    # the SCHEMA level, not just hasattr-shadowed. Catches `extra='allow'`
+    # tomfoolery where unrecognized env vars become dynamic attributes.
+    assert "aws_marketplace_product_code" not in Settings.model_fields, (
+        f"Settings.model_fields still contains 'aws_marketplace_product_code'; "
+        f"present fields: {sorted(Settings.model_fields.keys())}"
+    )
+    assert "aws_marketplace_public_key_version" not in Settings.model_fields, (
+        f"Settings.model_fields still contains 'aws_marketplace_public_key_version'; "
+        f"present fields: {sorted(Settings.model_fields.keys())}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Plan 05 enterprise-overlay-pattern integration test (D-15 / D-06)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_enterprise_overlay_register_pattern() -> None:
+    """BILLING-04 / D-06 / D-15: enterprise overlay's setdefault+append produces
+    a [Default, Enterprise] iteration.
+
+    Simulates `geolens_enterprise.__init__.register_extensions(registry)` WITHOUT
+    requiring geolens-enterprise to be installed. The test inline-registers a
+    fixture class that mirrors `MarketplaceBillingExtension`'s shape (async
+    on_startup that records receipt) and verifies:
+
+      (a) After register: `_extensions["billing_extensions"]` is a list of length
+          2: [DefaultBillingExtension, EnterpriseShapeBillingExtension]
+      (b) `get_billing_extensions()` returns both (defensive copy of length 2)
+      (c) Running the dispatch loop awakens BOTH — the fixture's `received` list
+          grows by 1 AND DefaultBillingExtension's no-op runs without error
+
+    Pitfall C (Phase 222 mirror): if the overlay had used `registry["billing_extensions"] = [MarketplaceBillingExtension()]`
+    (overwrite, NOT setdefault+append), DefaultBillingExtension would disappear
+    from the iteration. This test asserts the iteration shape directly so any
+    overlay-side regression to the wrong idiom is caught here.
+    """
+    from app.platform.extensions import _extensions, get_billing_extensions
+    from app.platform.extensions.defaults import DefaultBillingExtension
+
+    class EnterpriseShapeBillingExtension:
+        """Stand-in for geolens_enterprise.billing.MarketplaceBillingExtension."""
+
+        def __init__(self) -> None:
+            self.received: list = []
+
+        async def on_startup(self, app) -> None:
+            self.received.append(app)
+
+    # Snapshot pre-test state so the fixture restores cleanly
+    saved = _extensions.get("billing_extensions")
+    _extensions.pop("billing_extensions", None)
+    try:
+        # Simulate geolens_enterprise.register_extensions(registry):
+        #   billing_extensions = registry.setdefault(
+        #       "billing_extensions", [DefaultBillingExtension()]
+        #   )
+        #   billing_extensions.append(MarketplaceBillingExtension())
+        enterprise_ext = EnterpriseShapeBillingExtension()
+        billing_extensions = _extensions.setdefault(
+            "billing_extensions", [DefaultBillingExtension()]
+        )
+        billing_extensions.append(enterprise_ext)
+
+        # (a) After register: list of length 2 with the right types
+        registered = _extensions["billing_extensions"]
+        assert isinstance(registered, list), (
+            f"billing_extensions must be a list (D-06); got {type(registered).__name__}"
+        )
+        assert len(registered) == 2, (
+            f"Expected [Default, Enterprise]; got len={len(registered)}. "
+            f"If len=1, the overlay overwrote (registry[...] = [...]) instead of "
+            f"setdefault+append — Pitfall C."
+        )
+        assert isinstance(registered[0], DefaultBillingExtension), (
+            f"index 0 must be DefaultBillingExtension; got {type(registered[0]).__name__}"
+        )
+        assert isinstance(registered[1], EnterpriseShapeBillingExtension), (
+            f"index 1 must be EnterpriseShapeBillingExtension; got {type(registered[1]).__name__}"
+        )
+
+        # (b) get_billing_extensions returns defensive copy of both
+        accessed = get_billing_extensions()
+        assert len(accessed) == 2
+        assert accessed is not registered, (
+            "get_billing_extensions must return a defensive copy, not the slot itself"
+        )
+
+        # (c) Dispatch loop awakens both — Default's no-op runs cleanly,
+        # Enterprise's on_startup appends the app argument
+        mock_app = object()
+        for ext in accessed:
+            await ext.on_startup(mock_app)
+
+        assert enterprise_ext.received == [mock_app], (
+            f"EnterpriseShapeBillingExtension.on_startup did not receive the app; "
+            f"received={enterprise_ext.received}"
+        )
+    finally:
+        if saved is None:
+            _extensions.pop("billing_extensions", None)
+        else:
+            _extensions["billing_extensions"] = saved

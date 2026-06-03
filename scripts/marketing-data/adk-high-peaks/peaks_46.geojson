@@ -1,0 +1,78 @@
+{
+  "type": "FeatureCollection",
+  "name": "ADK 46er High Peaks (AOI subset)",
+  "crs": {
+    "type": "name",
+    "properties": {
+      "name": "urn:ogc:def:crs:OGC:1.3:CRS84"
+    }
+  },
+  "metadata": {
+    "description": "Curated subset of the Adirondack 46ers (peaks above 4000 ft) that fall within the High Peaks marketing AOI bbox -74.05,44.08,-73.85,44.32. Hand-authored from the canonical ADK 46ers list with coordinates from the USGS GNIS database. is_official_46er=true means traditional 46-peak set (per Bob Marshall's 1925 list, including peaks later resurveyed below 4000 ft).",
+    "source": "Coordinates from USGS GNIS / APA Summits FeatureServer cross-referenced with the canonical 46er list at https://adk46r.org/the-46ers/",
+    "compiled": "2026-05-24",
+    "aoi_bbox_wgs84": [-74.05, 44.08, -73.85, 44.32]
+  },
+  "features": [
+    {
+      "type": "Feature",
+      "geometry": {"type": "Point", "coordinates": [-73.9237, 44.1127]},
+      "properties": {"name": "Mt. Marcy", "elev_ft": 5344, "elev_m": 1629, "rank": 1, "is_official_46er": true, "notes": "Highest peak in NY State. Summit benchmark since 1837."}
+    },
+    {
+      "type": "Feature",
+      "geometry": {"type": "Point", "coordinates": [-73.9866, 44.1432]},
+      "properties": {"name": "Algonquin Peak", "elev_ft": 5114, "elev_m": 1559, "rank": 2, "is_official_46er": true, "notes": "Second highest in NY; MacIntyre Range high point."}
+    },
+    {
+      "type": "Feature",
+      "geometry": {"type": "Point", "coordinates": [-73.9819, 44.1314]},
+      "properties": {"name": "Iroquois Peak", "elev_ft": 4840, "elev_m": 1475, "rank": 8, "is_official_46er": true, "notes": "Trailless. South of Algonquin via the MacIntyre Range."}
+    },
+    {
+      "type": "Feature",
+      "geometry": {"type": "Point", "coordinates": [-73.9886, 44.1505]},
+      "properties": {"name": "Wright Peak", "elev_ft": 4580, "elev_m": 1396, "rank": 16, "is_official_46er": true, "notes": "Easiest of the MacIntyres; on the standard Heart Lake trail."}
+    },
+    {
+      "type": "Feature",
+      "geometry": {"type": "Point", "coordinates": [-73.9576, 44.1283]},
+      "properties": {"name": "Mt. Colden", "elev_ft": 4714, "elev_m": 1437, "rank": 11, "is_official_46er": true, "notes": "Between Avalanche Lake and the Opalescent. Trap Dike route."}
+    },
+    {
+      "type": "Feature",
+      "geometry": {"type": "Point", "coordinates": [-73.9495, 44.1158]},
+      "properties": {"name": "Skylight", "elev_ft": 4926, "elev_m": 1501, "rank": 4, "is_official_46er": true, "notes": "South of Marcy; classic stone-pile summit cairn."}
+    },
+    {
+      "type": "Feature",
+      "geometry": {"type": "Point", "coordinates": [-73.9504, 44.1077]},
+      "properties": {"name": "Mt. Redfield", "elev_ft": 4606, "elev_m": 1404, "rank": 15, "is_official_46er": true, "notes": "Trailless. Approach via Uphill Brook from Flowed Lands."}
+    },
+    {
+      "type": "Feature",
+      "geometry": {"type": "Point", "coordinates": [-73.9396, 44.1054]},
+      "properties": {"name": "Cliff Mountain", "elev_ft": 3960, "elev_m": 1207, "rank": 44, "is_official_46er": true, "notes": "Trailless. Lowest 46er after resurvey (technically below 4000 ft but on the original Marshall list)."}
+    },
+    {
+      "type": "Feature",
+      "geometry": {"type": "Point", "coordinates": [-73.9531, 44.1184]},
+      "properties": {"name": "Gray Peak", "elev_ft": 4840, "elev_m": 1475, "rank": 7, "is_official_46er": true, "notes": "Trailless. North of Skylight; herd path from Lake Tear of the Clouds."}
+    },
+    {
+      "type": "Feature",
+      "geometry": {"type": "Point", "coordinates": [-73.9743, 44.1224]},
+      "properties": {"name": "Mt. Marshall", "elev_ft": 4360, "elev_m": 1329, "rank": 25, "is_official_46er": true, "notes": "Trailless. SW of Iroquois on the MacIntyre Range."}
+    },
+    {
+      "type": "Feature",
+      "geometry": {"type": "Point", "coordinates": [-73.9476, 44.1481]},
+      "properties": {"name": "Phelps Mountain", "elev_ft": 4161, "elev_m": 1268, "rank": 32, "is_official_46er": true, "notes": "Trailed. North side of Phelps Brook from the Van Hoevenberg Trail."}
+    },
+    {
+      "type": "Feature",
+      "geometry": {"type": "Point", "coordinates": [-73.9355, 44.1338]},
+      "properties": {"name": "Tabletop Mountain", "elev_ft": 4413, "elev_m": 1345, "rank": 19, "is_official_46er": true, "notes": "Trailed. South of Indian Falls; gentle climb."}
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+.git
+.env
+.env.*
+node_modules/
+dist/
+*.md
+.claude/
+npm-debug.log*
+.npm/
+coverage/
+.eslintcache

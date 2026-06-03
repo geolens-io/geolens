@@ -1,0 +1,172 @@
+import { useState, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
+import { useParams, Navigate } from 'react-router';
+import { PageHeader } from '@/components/layout/PageHeader';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { EnvOnlyBanner } from '@/components/admin/settings/EnvOnlyBanner';
+import { SettingsGeneralTab } from '@/components/admin/settings/SettingsGeneralTab';
+import { SettingsAuthTab } from '@/components/admin/settings/SettingsAuthTab';
+import { SettingsAITab } from '@/components/admin/settings/SettingsAITab';
+import { SettingsNetworkTab } from '@/components/admin/settings/SettingsNetworkTab';
+import { SettingsStorageTab } from '@/components/admin/settings/SettingsStorageTab';
+import { SettingsMapTab } from '@/components/admin/settings/SettingsMapTab';
+import { SettingsPermissionsTab } from '@/components/admin/settings/SettingsPermissionsTab';
+import { SettingsAppearanceTab } from '@/components/admin/settings/SettingsAppearanceTab';
+import { useAllSettings, useConfigMode, useUpdateSettings, useResetSettings } from '@/hooks/use-settings';
+import { useUnsavedGuard } from '@/hooks/use-unsaved-guard';
+import { useEdition } from '@/hooks/use-edition';
+import type { SettingItem } from '@/api/settings';
+import { useDocumentTitle } from '@/hooks/use-document-title';
+
+const ALL_TAB_KEYS = ['general', 'auth', 'ai', 'network', 'storage', 'map', 'permissions', 'appearance'] as const;
+type TabKey = typeof ALL_TAB_KEYS[number];
+
+const TAB_LABELS: Record<TabKey, string> = {
+  general: 'settings.tabs.general',
+  auth: 'settings.tabs.auth',
+  ai: 'settings.tabs.ai',
+  network: 'settings.tabs.network',
+  storage: 'settings.tabs.storage',
+  map: 'settings.tabs.map',
+  permissions: 'settings.tabs.permissions',
+  appearance: 'settings.tabs.appearance',
+};
+
+const TAB_COMPONENTS: Record<TabKey, React.ComponentType<{
+  settings: SettingItem[];
+  envOnly: boolean;
+  onSave: (changes: Record<string, unknown>) => void;
+  onReset: (key: string) => void;
+  isSaving: boolean;
+  onDirtyChange?: (dirty: boolean) => void;
+}>> = {
+  general: SettingsGeneralTab,
+  auth: SettingsAuthTab,
+  ai: SettingsAITab,
+  network: SettingsNetworkTab,
+  storage: SettingsStorageTab,
+  map: SettingsMapTab,
+  permissions: SettingsPermissionsTab,
+  appearance: SettingsAppearanceTab,
+};
+
+export function AdminSettingsPage() {
+  const { t } = useTranslation('admin');
+  useDocumentTitle(t('common:pageTitle.adminSettings'));
+  const { tab } = useParams<{ tab: string }>();
+  const { data: allSettings, isLoading, isError, error } = useAllSettings();
+  const { data: configMode } = useConfigMode();
+  const updateMutation = useUpdateSettings();
+  const resetMutation = useResetSettings();
+  const { isEnterprise } = useEdition();
+  const [isDirty, setIsDirty] = useState(false);
+  const blocker = useUnsavedGuard(isDirty);
+
+  const handleDirtyChange = useCallback((dirty: boolean) => setIsDirty(dirty), []);
+
+  // Explicit ``readonly TabKey[]`` annotation prevents TS from narrowing
+  // ``.filter(t => t !== 'appearance')`` to ``Exclude<TabKey, 'appearance'>[]``,
+  // which would then reject ``.includes(tab as TabKey)`` below when the
+  // runtime value actually is ``'appearance'``.
+  const visibleTabs: readonly TabKey[] = isEnterprise
+    ? ALL_TAB_KEYS
+    : ALL_TAB_KEYS.filter(t => t !== 'appearance');
+  const activeTab = (tab && visibleTabs.includes(tab as TabKey) ? tab : null) as TabKey | null;
+
+  if (!activeTab) {
+    return <Navigate to="/admin/settings/general" replace />;
+  }
+
+  const envOnly = configMode?.env_only ?? allSettings?.env_only ?? false;
+
+  function handleSave(changes: Record<string, unknown>) {
+    updateMutation.mutate(changes);
+  }
+
+  function handleReset(key: string) {
+    resetMutation.mutate([key]);
+  }
+
+  if (isLoading) {
+    return (
+      <>
+        <PageHeader
+          title={t(TAB_LABELS[activeTab], activeTab)}
+          breadcrumbs={[
+            { label: t('common:adminNav.admin'), to: '/admin' },
+            { label: t('settings.page.title', 'Settings'), to: '/admin/settings/general' },
+          ]}
+        />
+        <div className="space-y-4">
+          <Skeleton className="h-10 w-96" />
+          <Skeleton className="h-64 w-full" />
+        </div>
+      </>
+    );
+  }
+
+  if (isError) {
+    return (
+      <>
+        <PageHeader
+          title={t(TAB_LABELS[activeTab], activeTab)}
+          breadcrumbs={[
+            { label: t('common:adminNav.admin'), to: '/admin' },
+            { label: t('settings.page.title', 'Settings'), to: '/admin/settings/general' },
+          ]}
+        />
+        <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-4 text-sm text-destructive">
+          {t('settings.page.loadFailed', { message: error?.message ?? t('settings.page.unknownError') })}
+        </div>
+      </>
+    );
+  }
+
+  const tabs = allSettings?.tabs ?? {};
+  const TabComponent = TAB_COMPONENTS[activeTab];
+
+  return (
+    <>
+      <PageHeader
+        title={t(TAB_LABELS[activeTab], activeTab)}
+        breadcrumbs={[
+          { label: t('common:adminNav.admin'), to: '/admin' },
+          { label: t('settings.page.title', 'Settings'), to: '/admin/settings/general' },
+        ]}
+      />
+
+      <div className="space-y-6">
+        <EnvOnlyBanner />
+
+        <TabComponent
+          settings={tabs[activeTab] ?? []}
+          envOnly={envOnly}
+          onSave={handleSave}
+          onReset={handleReset}
+          isSaving={updateMutation.isPending}
+          onDirtyChange={handleDirtyChange}
+        />
+      </div>
+
+      {/* Unsaved changes navigation guard */}
+      <Dialog open={blocker.state === 'blocked'} onOpenChange={() => blocker.reset?.()}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>{t('settings.unsaved.title')}</DialogTitle>
+            <DialogDescription>{t('settings.unsaved.description')}</DialogDescription>
+          </DialogHeader>
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => blocker.reset?.()}>
+              {t('settings.unsaved.stay')}
+            </Button>
+            <Button variant="destructive" onClick={() => blocker.proceed?.()}>
+              {t('settings.unsaved.leave')}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}

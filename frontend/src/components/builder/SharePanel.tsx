@@ -1,0 +1,1140 @@
+import { useState, useEffect, useRef, useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
+import { Globe, Lock, Copy, Loader2, Code, Link as LinkIcon, Info, Trash2, Shield, ExternalLink, ChevronRight, Users, AlertTriangle, AlertCircle, RotateCcw, X, Plus } from 'lucide-react';
+import { toast } from 'sonner';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Switch } from '@/components/ui/switch';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { ApiError } from '@/api/client';
+import { formatDate } from '@/lib/format';
+import { cn } from '@/lib/utils';
+import { useEdition } from '@/hooks/use-edition';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { usePublishMap, useCreateShareToken, useRevokeShareToken, useMapShareToken, useUpdateShareToken } from '@/hooks/use-maps';
+import { checkMapVisibility } from '@/api/maps';
+import { useCreateEmbedToken, useMapEmbedTokens, useUpdateEmbedToken, useRevokeEmbedToken } from '@/components/builder/hooks/use-embed-tokens';
+import { normalizeOrigin, WildcardOriginError } from '@/lib/builder/url-normalize';
+import type { MapVisibility } from '@/types/api';
+
+/**
+ * Generate the iframe embed snippet for a shared map.
+ *
+ * SEC-07 / M-70: deliberately omits `allow-same-origin` from the sandbox
+ * attribute. Per MDN, combining `allow-scripts` with `allow-same-origin`
+ * lets the iframe remove its own sandboxing (it can rewrite the parent
+ * document's storage / cookies for the iframe's origin), neutralizing
+ * the protection. The embedded map viewer authenticates via the
+ * `et=<token>` query param and does not need same-origin access — so we
+ * keep the iframe in the strongest sandbox that still allows MapLibre
+ * GL JS to run.
+ *
+ * Exported so SharePanel.test.tsx can pin the rendered snippet shape
+ * without mounting the full ShareDialog component.
+ */
+export function generateEmbedCode({
+  shareToken,
+  embedTokenRaw,
+  origin,
+}: {
+  shareToken: string;
+  embedTokenRaw: string;
+  origin: string;
+}): string {
+  if (!shareToken) return '';
+  const params = new URLSearchParams({ embed: 'true' });
+  if (embedTokenRaw) {
+    params.set('et', embedTokenRaw);
+  }
+  const url = `${origin}/m/${shareToken}?${params.toString()}`;
+  return `<iframe src="${url}" width="800" height="600" sandbox="allow-scripts" style="border:none;"></iframe>`;
+}
+
+const VISIBILITY_OPTIONS: Array<{
+  value: MapVisibility;
+  icon: typeof Lock;
+  iconClass: string;
+  titleKey: string;
+  descKey: string;
+}> = [
+  {
+    value: 'private',
+    icon: Lock,
+    iconClass: 'text-muted-foreground',
+    titleKey: 'share.privateTitle',
+    descKey: 'share.privateDescription',
+  },
+  {
+    value: 'internal',
+    icon: Users,
+    iconClass: 'text-warning',
+    titleKey: 'share.internalTitle',
+    descKey: 'share.internalDescription',
+  },
+  {
+    value: 'public',
+    icon: Globe,
+    iconClass: 'text-success',
+    titleKey: 'share.publicTitle',
+    descKey: 'share.publicDescription',
+  },
+];
+
+/* ------------------------------------------------------------------ */
+/*  ShareLinkSettings – collapsible expiration / domain / revoke      */
+/* ------------------------------------------------------------------ */
+
+interface ShareLinkSettingsProps {
+  mapId: string;
+  shareExpires: string | null;
+  configOrigins: string[];
+  resolvedEmbedTokenId: string | null;
+  canUseAdvancedSharing: boolean;
+  onRevoked: () => void;
+}
+
+function ShareLinkSettings({
+  mapId,
+  shareExpires,
+  configOrigins,
+  resolvedEmbedTokenId,
+  canUseAdvancedSharing,
+  onRevoked,
+}: ShareLinkSettingsProps) {
+  const { t } = useTranslation('builder');
+  const revokeShareToken = useRevokeShareToken();
+  const updateShareToken = useUpdateShareToken();
+  const updateEmbedToken = useUpdateEmbedToken();
+
+  const [showSettings, setShowSettings] = useState(false);
+  const [expiresValue, setExpiresValue] = useState('');
+  const [showDomainRestrict, setShowDomainRestrict] = useState(false);
+
+  // Expiration preset Select state
+  type ExpirationPreset = 'never' | '1d' | '7d' | '30d' | '1y' | 'custom';
+  const [expirationPreset, setExpirationPreset] = useState<ExpirationPreset>('never');
+
+  /**
+   * Detect which preset bucket a given shareExpires ISO string falls into.
+   * Uses ±1 day tolerance for matching preset windows (presets target T23:59:59Z).
+   * Returns 'never' for null, the matching preset key if within tolerance, or 'custom'.
+   */
+  function detectPreset(shareExpiresIso: string | null): ExpirationPreset {
+    if (!shareExpiresIso) return 'never';
+    const target = new Date(shareExpiresIso);
+    const now = new Date();
+    const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+    const PRESET_DAYS: Array<[number, ExpirationPreset]> = [
+      [1, '1d'],
+      [7, '7d'],
+      [30, '30d'],
+      [365, '1y'],
+    ];
+    for (const [days, key] of PRESET_DAYS) {
+      const presetDate = new Date(now.getTime() + days * ONE_DAY_MS);
+      if (Math.abs(target.getTime() - presetDate.getTime()) < ONE_DAY_MS) {
+        return key;
+      }
+    }
+    return 'custom';
+  }
+
+  // Chip-based allowed-origins state
+  const [origins, setOrigins] = useState<string[]>(configOrigins);
+  const [originInput, setOriginInput] = useState('');
+  const [originError, setOriginError] = useState<string | null>(null);
+
+  // Sync origins when configOrigins prop changes (e.g. after PATCH resolves)
+  useEffect(() => {
+    setOrigins(configOrigins);
+  }, [configOrigins]);
+
+  /**
+   * Save the expiration value typed into the Custom date Input.
+   *
+   * Pitfall #6 contract: this handler does NOT modify rawShareToken or
+   * embedTokenRaw state. Expiration is updated on the share token only via
+   * useUpdateShareToken — those raw tokens survive across dialog open/close
+   * cycles and across expiration changes per the 3ed5ceb3 separation.
+   *
+   * Regression pin: SharePanel.test.tsx Pitfall #6 tests assert that after
+   * a preset Select change the Copy Link / embed textarea remain visible
+   * (proxy for raw-token state).
+   */
+  async function handleSaveExpiration() {
+    try {
+      const newExpires = expiresValue ? new Date(expiresValue + 'T23:59:59Z').toISOString() : null;
+      await updateShareToken.mutateAsync({ mapId, expiresAt: newExpires });
+      // Phase 20260526-builder-audit BLD-20260526-11: distinct message when expiration is cleared vs. updated.
+      if (newExpires) {
+        toast.success(t('share.expirationUpdated'));
+      } else {
+        toast.success(t('share.expirationCleared', { defaultValue: 'Link expiration removed — link never expires' }));
+      }
+    } catch {
+      toast.error(t('share.updateFailed'));
+    }
+  }
+
+  /**
+   * Apply an expiration preset by computing expiresAt and firing updateShareToken.
+   *
+   * Pitfall #6 contract: does NOT modify rawShareToken or embedTokenRaw — those
+   * survive independently per the 3ed5ceb3 separation. Expiration is updated on
+   * the share token only via the useUpdateShareToken mutation.
+   *
+   * Regression pin: SharePanel.test.tsx Pitfall #6 tests assert that after this
+   * handler resolves, rawShareToken and embedTokenRaw remain non-null (Copy Link
+   * button and embed textarea stay visible).
+   */
+  async function handleApplyPreset(preset: Exclude<ExpirationPreset, 'custom'>) {
+    const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+    const PRESET_MS: Record<Exclude<ExpirationPreset, 'custom' | 'never'>, number> = {
+      '1d': 1 * ONE_DAY_MS,
+      '7d': 7 * ONE_DAY_MS,
+      '30d': 30 * ONE_DAY_MS,
+      '1y': 365 * ONE_DAY_MS,
+    };
+    let expiresAt: string | null = null;
+    if (preset !== 'never') {
+      const datePart = new Date(Date.now() + PRESET_MS[preset]).toISOString().split('T')[0];
+      expiresAt = `${datePart}T23:59:59.000Z`;
+    }
+    try {
+      await updateShareToken.mutateAsync({ mapId, expiresAt });
+      if (expiresAt) {
+        toast.success(t('share.expirationUpdated', { defaultValue: 'Expiration updated' }));
+      } else {
+        toast.success(t('share.expirationCleared', { defaultValue: 'Link expiration removed — link never expires' }));
+      }
+    } catch {
+      toast.error(t('share.updateFailed'));
+    }
+  }
+
+  async function handleAddOrigin(input: string) {
+    if (!resolvedEmbedTokenId) return;
+    const trimmed = input.trim().replace(/,$/, '');
+    if (!trimmed) return;
+
+    let canonical: string;
+    try {
+      canonical = normalizeOrigin(trimmed);
+    } catch (err) {
+      if (err instanceof WildcardOriginError) {
+        setOriginError(t('share.originWildcardError', { defaultValue: 'Wildcard origin not allowed' }));
+      } else {
+        setOriginError(t('share.originInvalid', { defaultValue: 'Invalid URL' }));
+      }
+      return;
+    }
+
+    // Silently dedupe — canonical form already in list
+    if (origins.includes(canonical)) return;
+
+    const newOrigins = [...origins, canonical];
+    // Optimistic update
+    setOrigins(newOrigins);
+    setOriginInput('');
+    setOriginError(null);
+
+    const addedCanonical = canonical; // capture what was added for functional rollback
+    try {
+      await updateEmbedToken.mutateAsync({
+        mapId,
+        tokenId: resolvedEmbedTokenId,
+        allowedOrigins: newOrigins,
+      });
+    } catch (err) {
+      // Rollback optimistic update using functional setState so concurrent adds
+      // are not discarded (WR-01: stale-closure rollback race).
+      setOrigins((current) => current.filter((o) => o !== addedCanonical));
+      if (err instanceof ApiError && err.status === 422 && /Wildcard/i.test(err.message)) {
+        setOriginError(t('share.originWildcardError', { defaultValue: 'Wildcard origin not allowed' }));
+      } else {
+        toast.error(t('share.updateFailed'));
+      }
+    }
+  }
+
+  async function handleRemoveOrigin(target: string) {
+    if (!resolvedEmbedTokenId) return;
+    const removedOrigin = target; // capture for functional rollback
+    const newOrigins = origins.filter((o) => o !== target);
+    // Optimistic update
+    setOrigins(newOrigins);
+
+    try {
+      await updateEmbedToken.mutateAsync({
+        mapId,
+        tokenId: resolvedEmbedTokenId,
+        allowedOrigins: newOrigins.length > 0 ? newOrigins : null,
+      });
+    } catch {
+      // Rollback using functional setState — re-insert what was removed so
+      // concurrent removes are not discarded (WR-01: stale-closure race).
+      setOrigins((current) =>
+        current.includes(removedOrigin) ? current : [...current, removedOrigin],
+      );
+      toast.error(t('share.updateFailed'));
+    }
+  }
+
+  async function handleRevokeShareLink() {
+    try {
+      await revokeShareToken.mutateAsync(mapId);
+      setExpiresValue('');
+      setOrigins([]);
+      setOriginInput('');
+      setOriginError(null);
+      setShowDomainRestrict(false);
+      setShowSettings(false);
+      onRevoked();
+      toast.success(t('toasts.shareLinkRevoked'));
+    } catch {
+      toast.error(t('toasts.revokeFailed'));
+    }
+  }
+
+  return (
+    <div className="space-y-3">
+      <button
+        type="button"
+        className="flex cursor-pointer items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
+        onClick={() => {
+          const next = !showSettings;
+          setShowSettings(next);
+          if (next) {
+            const detected = detectPreset(shareExpires);
+            setExpirationPreset(detected);
+            setExpiresValue(shareExpires ? shareExpires.split('T')[0] : '');
+            setShowDomainRestrict(configOrigins.length > 0);
+          }
+        }}
+      >
+        <ChevronRight className={cn('h-3 w-3 transition-transform', showSettings ? 'rotate-90' : 'rtl-mirror')} />
+        {t('share.linkSettings')}
+      </button>
+
+      {showSettings && (
+        <div className="space-y-4 ps-4 border-s-2 border-border">
+          {/* Expiration */}
+          {canUseAdvancedSharing && (
+            <div className="space-y-2">
+              <label className="text-xs font-medium">{t('share.expirationLabel')}</label>
+              <Select
+                value={expirationPreset}
+                onValueChange={(v) => {
+                  const next = v as ExpirationPreset;
+                  setExpirationPreset(next);
+                  if (next !== 'custom') {
+                    void handleApplyPreset(next as Exclude<ExpirationPreset, 'custom'>);
+                  }
+                }}
+              >
+                <SelectTrigger size="sm" className="w-full h-8">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="never">{t('share.expirationNever', { defaultValue: 'Never' })}</SelectItem>
+                  <SelectItem value="1d">{t('share.expiration1Day', { defaultValue: '1 day' })}</SelectItem>
+                  <SelectItem value="7d">{t('share.expiration7Days', { defaultValue: '7 days' })}</SelectItem>
+                  <SelectItem value="30d">{t('share.expiration30Days', { defaultValue: '30 days' })}</SelectItem>
+                  <SelectItem value="1y">{t('share.expiration1Year', { defaultValue: '1 year' })}</SelectItem>
+                  <SelectItem value="custom">{t('share.expirationCustom', { defaultValue: 'Custom date…' })}</SelectItem>
+                </SelectContent>
+              </Select>
+              {expirationPreset === 'custom' && (
+                <div className="flex gap-2">
+                  <Input
+                    type="date"
+                    value={expiresValue}
+                    onChange={(e) => setExpiresValue(e.target.value)}
+                    min={new Date().toISOString().split('T')[0]}
+                    className="h-8 text-sm flex-1"
+                    placeholder={t('share.expirationPlaceholder')}
+                  />
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleSaveExpiration}
+                    disabled={updateShareToken.isPending}
+                  >
+                    {updateShareToken.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : t('share.save')}
+                  </Button>
+                </div>
+              )}
+              <p className="text-xs text-muted-foreground">{t('share.expirationHint')}</p>
+            </div>
+          )}
+
+          {/* Domain restriction */}
+          {canUseAdvancedSharing && resolvedEmbedTokenId && (
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-1.5">
+                  <Shield className="h-3 w-3 text-muted-foreground" />
+                  <label className="text-xs font-medium">{t('share.restrictToDomains')}</label>
+                </div>
+                <Switch
+                  checked={showDomainRestrict}
+                  onCheckedChange={(checked) => {
+                    setShowDomainRestrict(checked);
+                    if (!checked && configOrigins.length > 0) {
+                      // Clear all origins when switch is turned off
+                      setOrigins([]);
+                      setOriginInput('');
+                      setOriginError(null);
+                      if (resolvedEmbedTokenId) {
+                        updateEmbedToken.mutateAsync({
+                          mapId,
+                          tokenId: resolvedEmbedTokenId,
+                          allowedOrigins: null,
+                        }).catch(() => {
+                          toast.error(t('toasts.domainClearFailed', { defaultValue: 'Failed to clear domain restrictions' }));
+                        });
+                      }
+                    }
+                  }}
+                  aria-label={t('share.restrictToDomains')}
+                />
+              </div>
+              {showDomainRestrict && (
+                <div className="space-y-2">
+                  {/* Chip list */}
+                  {origins.length > 0 && (
+                    <div role="list" className="flex flex-wrap gap-2">
+                      {origins.map((o) => (
+                        <span
+                          key={o}
+                          role="listitem"
+                          className="inline-flex items-center gap-1 rounded-full border border-border bg-muted px-3 py-1 text-xs"
+                        >
+                          <span className="font-mono truncate max-w-[16rem]" title={o}>{o}</span>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveOrigin(o)}
+                            aria-label={t('share.removeOrigin', { origin: o, defaultValue: 'Remove {{origin}}' })}
+                            className="h-4 w-4 rounded-full -mr-1 hover:bg-destructive/10 hover:text-destructive inline-flex items-center justify-center"
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  {/* Input row */}
+                  <div className="flex gap-2">
+                    <Input
+                      value={originInput}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        if (v.endsWith(',')) {
+                          void handleAddOrigin(v.slice(0, -1));
+                        } else {
+                          setOriginInput(v);
+                          setOriginError(null);
+                        }
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          void handleAddOrigin(originInput);
+                        }
+                      }}
+                      placeholder={t('share.originsInputPlaceholder', { defaultValue: 'Paste a URL like https://example.com' })}
+                      className="h-8 text-sm font-mono flex-1"
+                      aria-label={t('share.originsInputLabel', { defaultValue: 'Allowed origin URL' })}
+                      aria-describedby="origins-hint"
+                    />
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="outline"
+                      className="h-8 w-8 shrink-0"
+                      onClick={() => void handleAddOrigin(originInput)}
+                      aria-label={t('share.addOrigin', { defaultValue: 'Add origin' })}
+                    >
+                      <Plus className="h-3 w-3" />
+                    </Button>
+                  </div>
+                  {/* Inline error */}
+                  {originError && (
+                    <p className="text-xs text-destructive">{originError}</p>
+                  )}
+                  {/* Hint */}
+                  <p id="origins-hint" className="text-xs text-muted-foreground">
+                    {origins.length === 0
+                      ? t('share.originsEmptyHint', { defaultValue: 'No origins yet — paste a URL like https://example.com to allow embedding.' })
+                      : t('share.originsNormHint', { defaultValue: 'Each origin is normalized to scheme + host + port before saving.' })}
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Revoke */}
+          <div className="pt-2 border-t">
+            <Button
+              variant="outline"
+              size="sm"
+              className="w-full text-destructive hover:text-destructive hover:bg-destructive/5"
+              onClick={handleRevokeShareLink}
+              disabled={revokeShareToken.isPending}
+            >
+              {revokeShareToken.isPending ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin me-1.5" />
+              ) : (
+                <Trash2 className="h-3.5 w-3.5 me-1.5" />
+              )}
+              {t('share.revokeShareLink')}
+            </Button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  EmbedPreviewPane – collapsible iframe preview (SHARE-03 / SEC-07) */
+/* ------------------------------------------------------------------ */
+
+interface EmbedPreviewPaneProps {
+  shareToken: string;
+  embedTokenRaw: string;
+  origin: string;
+}
+
+function EmbedPreviewPane({ shareToken, embedTokenRaw, origin }: EmbedPreviewPaneProps) {
+  const { t } = useTranslation('builder');
+  const [expanded, setExpanded] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+  const [errored, setErrored] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
+
+  // 8-second onLoad timeout fallback — if the iframe never fires onLoad
+  // (e.g. viewer error page), transition to error state with Reload affordance.
+  useEffect(() => {
+    if (!expanded || loaded || errored) return;
+    const timer = setTimeout(() => setErrored(true), 8000);
+    return () => clearTimeout(timer);
+  }, [expanded, loaded, errored, reloadKey]);
+
+  // Use URLSearchParams to match generateEmbedCode — prevents drift if the
+  // token format ever gains percent-encodable characters (IN-01).
+  const src = (() => {
+    const params = new URLSearchParams({ embed: 'true' });
+    if (embedTokenRaw) params.set('et', embedTokenRaw);
+    return `${origin}/m/${shareToken}?${params.toString()}`;
+  })();
+
+  return (
+    <div className="space-y-2 border-t pt-3">
+      <button
+        type="button"
+        onClick={() => setExpanded(!expanded)}
+        className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1"
+        aria-expanded={expanded}
+        aria-label={t('share.iframePreviewToggle', { defaultValue: 'Preview' })}
+      >
+        <ChevronRight className={cn('h-3 w-3 transition-transform', expanded && 'rotate-90')} />
+        {t('share.iframePreviewToggle', { defaultValue: 'Preview' })}
+      </button>
+      {expanded && (
+        <div className="rounded-lg border border-border overflow-hidden">
+          {!errored ? (
+            <div className="relative h-[300px] bg-muted">
+              {!loaded && (
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" aria-hidden="true" />
+                </div>
+              )}
+              {/* SEC-07 / M-70: sandbox="allow-scripts" ONLY. NEVER add allow-same-origin — see SharePanel.tsx generateEmbedCode docstring. */}
+              <iframe
+                key={reloadKey}
+                data-testid="share-preview-iframe"
+                src={src}
+                sandbox="allow-scripts"
+                title={t('share.iframePreviewTitle', { defaultValue: 'Map embed preview' })}
+                loading="lazy"
+                style={{ border: 'none' }}
+                className={cn('w-full h-[300px] transition-opacity', loaded ? 'opacity-100' : 'opacity-0')}
+                onLoad={() => setLoaded(true)}
+              />
+            </div>
+          ) : (
+            <div className="h-[300px] bg-muted flex flex-col items-center justify-center gap-2 px-4">
+              <AlertCircle className="h-5 w-5 text-muted-foreground" aria-hidden="true" />
+              <p className="text-sm text-muted-foreground text-center">
+                {t('share.iframeErrorTitle', { defaultValue: 'Preview unavailable' })}
+              </p>
+              <p className="text-xs text-muted-foreground/80 text-center">
+                {t('share.iframeErrorBody', { defaultValue: 'Check that the embed token is valid and the share link is active. Reload to retry.' })}
+              </p>
+              <button
+                type="button"
+                onClick={() => { setErrored(false); setLoaded(false); setReloadKey((k) => k + 1); }}
+                className="text-xs text-primary underline"
+              >
+                {t('share.iframeReload', { defaultValue: 'Reload' })}
+              </button>
+            </div>
+          )}
+          <div className="flex items-center gap-1 px-3 py-2 text-xs text-muted-foreground border-t border-border">
+            <Shield className="h-3 w-3" aria-hidden="true" />
+            {t('share.iframeSandboxNote', { defaultValue: 'sandbox="allow-scripts" only — SEC-07 contract' })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  ShareDialog                                                        */
+/* ------------------------------------------------------------------ */
+
+interface ShareDialogProps {
+  mapId: string;
+  visibility: string;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  hasUnsavedChanges?: boolean;
+  saveStatus?: 'saved' | 'unsaved' | 'saving' | 'failed';
+}
+
+export function ShareDialog({
+  mapId,
+  visibility,
+  open,
+  onOpenChange,
+  hasUnsavedChanges = false,
+  saveStatus = hasUnsavedChanges ? 'unsaved' : 'saved',
+}: ShareDialogProps) {
+  const { t } = useTranslation('builder');
+  const { isEnterprise } = useEdition();
+  const publishMap = usePublishMap();
+  const createShareToken = useCreateShareToken();
+  const revokeShareToken = useRevokeShareToken();
+  const createEmbedToken = useCreateEmbedToken();
+  const revokeEmbedToken = useRevokeEmbedToken();
+
+  const [hasNonPublic, setHasNonPublic] = useState(false);
+  const [embedTokenRaw, setEmbedTokenRaw] = useState<string | null>(null);
+  const [rawShareToken, setRawShareToken] = useState<string | null>(null);
+
+  // Pitfall #7: single-flight guard for concurrent createEmbedToken invocations.
+  // Mirrors ChatPanel.tsx inflightRef pattern (v1010.2 lift).
+  const inflightEmbedCreate = useRef<Promise<{ raw_token: string }> | null>(null);
+
+  // Queries as source of truth — only fetch when dialog is open
+  const shareTokenQuery = useMapShareToken(open ? mapId : undefined);
+  const persistedShareTokenHint = shareTokenQuery.data?.token ?? null;
+  const hasShareToken = Boolean(rawShareToken || persistedShareTokenHint);
+  const shareExpires = shareTokenQuery.data?.expires_at ?? null;
+  const isExpired = shareExpires ? new Date(shareExpires) < new Date() : false;
+
+  const embedTokensQuery = useMapEmbedTokens(open && hasShareToken ? mapId : undefined);
+  const activeEmbedToken = embedTokensQuery.data?.tokens?.find(
+    t => t.is_active && new Date(t.expires_at) > new Date()
+  );
+  const resolvedEmbedTokenId = activeEmbedToken?.id ?? null;
+  // Stabilize with useMemo so the array reference is only new when the data
+  // actually changes. Without memoization, `?? []` produces a new [] reference
+  // on every render, causing the sync useEffect in ShareLinkSettings to fire
+  // every render and wipe in-flight optimistic chip state (WR-02).
+  const configOrigins = useMemo(
+    () => activeEmbedToken?.allowed_origins ?? [],
+    [activeEmbedToken?.allowed_origins],
+  );
+
+  const isPublic = visibility === 'public';
+  const canUseAdvancedSharing = isEnterprise;
+
+  async function handleVisibilityChange(newVisibility: MapVisibility) {
+    if (newVisibility === visibility) return;
+    try {
+      await publishMap.mutateAsync({ id: mapId, visibility: newVisibility });
+      if (newVisibility === 'public') {
+        toast.success(t('toasts.mapNowPublic'));
+      } else if (newVisibility === 'internal') {
+        toast.success(t('toasts.mapNowInternal'));
+      } else {
+        toast.success(t('toasts.mapNowPrivate'));
+      }
+      if (newVisibility !== 'public') {
+        setHasNonPublic(false);
+        setEmbedTokenRaw(null);
+        setRawShareToken(null);
+      }
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 400) {
+        let datasets = err.message;
+        try {
+          const parsed = JSON.parse(err.message);
+          if (parsed.datasets) datasets = parsed.datasets.join(', ');
+        } catch {
+          // Legacy format or unparseable — use raw message
+        }
+        toast.error(t('share.cannotPublish', { datasets }));
+      } else {
+        toast.error(t('toasts.visibilityFailed'));
+      }
+    }
+  }
+
+  async function runVisibilityCheck() {
+    try {
+      const check = await checkMapVisibility(mapId);
+      setHasNonPublic(check.has_non_public);
+      return check;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Create an embed token if one does not already exist.
+   *
+   * Pitfall #7 contract: deduplicates concurrent invocations via
+   * inflightEmbedCreate ref. Two callers racing through this function (e.g.,
+   * React StrictMode double-mount, or rapid double-click on Generate Share
+   * Link) share the same in-flight promise instead of firing parallel
+   * createEmbedToken mutations that would both succeed and orphan one of the
+   * resulting tokens in the DB.
+   *
+   * Mirror of ChatPanel.tsx inflightRef pattern lifted in v1010.2.
+   *
+   * Regression pin: SharePanel.test.tsx Pitfall #7 test asserts call count
+   * equals 1 under a 2-concurrent-click scenario.
+   */
+  async function maybeCreateEmbedToken() {
+    if (embedTokenRaw) return;
+    if (activeEmbedToken) return;
+    // Pitfall #7: dedupe concurrent calls. Mirrors ChatPanel inflightRef.
+    if (inflightEmbedCreate.current) {
+      try {
+        await inflightEmbedCreate.current;
+      } catch {
+        // primary call already toasted; secondary callers stay silent
+      }
+      return;
+    }
+    try {
+      // Allowed origins are managed via the chip input in ShareLinkSettings;
+      // no origins at creation time (WR-03: domainInput was dead state).
+      const promise = createEmbedToken.mutateAsync({ mapId });
+      inflightEmbedCreate.current = promise;
+      const tokenResult = await promise;
+      setEmbedTokenRaw(tokenResult.raw_token);
+    } catch {
+      toast.error(t('share.embedTokenFailed'));
+    } finally {
+      inflightEmbedCreate.current = null;
+    }
+  }
+
+  async function handleGetShareLink() {
+    if (hasShareToken) {
+      const check = await runVisibilityCheck();
+      if (check?.has_non_public) await maybeCreateEmbedToken();
+      return;
+    }
+    try {
+      const created = await createShareToken.mutateAsync({ mapId });
+      setRawShareToken(created.share_url ? created.token : null);
+      const check = await runVisibilityCheck();
+      if (check?.has_non_public) await maybeCreateEmbedToken();
+    } catch {
+      toast.error(t('toasts.shareLinkFailed'));
+    }
+  }
+
+  async function handleRegenerateShareLink() {
+    try {
+      await revokeShareToken.mutateAsync(mapId);
+      setEmbedTokenRaw(null);
+      const created = await createShareToken.mutateAsync({ mapId });
+      setRawShareToken(created.share_url ? created.token : null);
+      const check = await runVisibilityCheck();
+      if (check?.has_non_public) {
+        // Allowed origins are managed via chip input in ShareLinkSettings;
+        // no origins at creation time (WR-03: domainInput was dead state).
+        const tokenResult = await createEmbedToken.mutateAsync({ mapId });
+        setEmbedTokenRaw(tokenResult.raw_token);
+      }
+      toast.success(t('toasts.shareLinkCreated', { defaultValue: 'Share link created' }));
+    } catch {
+      toast.error(t('toasts.shareLinkFailed'));
+    }
+  }
+
+  function handleRevoked() {
+    setRawShareToken(null);
+    setEmbedTokenRaw(null);
+    setHasNonPublic(false);
+  }
+
+  // Phase 20260526-builder-audit BLD-20260526-11: regenerate embed token when the raw value was lost.
+  async function handleRegenerateEmbedToken() {
+    if (!activeEmbedToken) return;
+    try {
+      await revokeEmbedToken.mutateAsync({ mapId, tokenId: activeEmbedToken.id });
+      // Allowed origins are managed via chip input in ShareLinkSettings;
+      // no origins at creation time (WR-03: domainInput was dead state).
+      const tokenResult = await createEmbedToken.mutateAsync({ mapId });
+      setEmbedTokenRaw(tokenResult.raw_token);
+      toast.success(t('share.embedTokenRegenerated', { defaultValue: 'Embed token regenerated' }));
+    } catch {
+      toast.error(t('share.embedTokenFailed'));
+    }
+  }
+
+  function getShareUrl() {
+    if (!rawShareToken) return '';
+    return `${window.location.origin}/m/${rawShareToken}`;
+  }
+
+  /** SHARE-08 (Phase 1142): returns the crawler-unfurlable /card URL so the
+   *  copied link emits OG/Twitter meta tags when pasted into Slack, Twitter etc.
+   *  Human visitors are redirected to the SPA viewer via the card route's
+   *  <meta http-equiv="refresh"> (Plan 1142-01 backend).
+   *
+   *  The /m/{token} viewer URL is preserved in getShareUrl() for the "Open in
+   *  new tab" affordance (direct, redirect-free viewer load). The embed iframe
+   *  src is unchanged (see generateEmbedCode). */
+  function getShareCardUrl() {
+    if (!rawShareToken) return '';
+    return `${window.location.origin}/api/maps/shared/${rawShareToken}/card`;
+  }
+
+  function getEmbedCode() {
+    return generateEmbedCode({
+      shareToken: rawShareToken || '',
+      embedTokenRaw: embedTokenRaw || '',
+      origin: window.location.origin,
+    });
+  }
+
+  async function handleCopyShareLink() {
+    // SHARE-08: copy the /card URL so the pasted link unfurls in social clients.
+    // The label ("Copy Link") is unchanged — only the copied value changes.
+    const url = getShareCardUrl();
+    if (!url) return;
+    try {
+      await navigator.clipboard.writeText(url);
+      toast.success(t('toasts.shareLinkCopied'));
+    } catch {
+      toast.error(t('toasts.copyFailed'));
+    }
+  }
+
+  async function handleCopyEmbedCode() {
+    const code = getEmbedCode();
+    if (!code) return;
+    try {
+      await navigator.clipboard.writeText(code);
+      toast.success(t('toasts.embedCodeCopied'));
+    } catch {
+      toast.error(t('toasts.copyFailed'));
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md max-h-[calc(100dvh-2rem)] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>{t('share.title')}</DialogTitle>
+          <DialogDescription>{t('share.dialogDescription')}</DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-5">
+          {(hasUnsavedChanges || saveStatus === 'failed' || saveStatus === 'saving') && (
+            <div
+              data-testid="share-output-save-state"
+              className={cn(
+                'flex items-start gap-2 rounded-md border px-3 py-2 text-xs',
+                saveStatus === 'failed'
+                  ? 'border-destructive/30 bg-destructive/5 text-foreground'
+                  : 'border-warning/30 bg-warning/5 text-foreground',
+              )}
+            >
+              {saveStatus === 'saving' ? (
+                <Loader2 className="mt-0.5 h-3.5 w-3.5 shrink-0 animate-spin text-muted-foreground" aria-hidden="true" />
+              ) : (
+                <AlertTriangle
+                  className={cn(
+                    'mt-0.5 h-3.5 w-3.5 shrink-0',
+                    saveStatus === 'failed' ? 'text-destructive' : 'text-warning',
+                  )}
+                  aria-hidden="true"
+                />
+              )}
+              <p>
+                {saveStatus === 'failed'
+                  ? t('share.saveFailedWarning', { defaultValue: 'Save failed. Share links and embeds still show the last saved map until you retry successfully.' })
+                  : saveStatus === 'saving'
+                    ? t('share.savingWarning', { defaultValue: 'Saving changes. Share links and embeds update after this save finishes.' })
+                    : t('share.unsavedWarning', { defaultValue: 'Unsaved changes are only in the builder preview. Save before copying links or embeds.' })}
+              </p>
+            </div>
+          )}
+
+          {/* Visibility selector */}
+          <div className="space-y-2">
+            <p className="text-sm font-semibold">{t('share.visibilityTitle')}</p>
+            <div className="space-y-1.5" role="radiogroup" aria-label={t('share.visibilityTitle')}>
+              {VISIBILITY_OPTIONS.map((opt) => {
+                const Icon = opt.icon;
+                const isActive = visibility === opt.value;
+                return (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    role="radio"
+                    aria-checked={isActive}
+                    className={cn(
+                      'cursor-pointer w-full flex items-start gap-3 rounded-lg border px-3 py-2.5 text-start transition-colors',
+                      isActive
+                        ? 'ring-2 ring-primary border-primary bg-primary/5'
+                        : 'border-border hover:border-muted-foreground/30 hover:bg-accent/50',
+                    )}
+                    onClick={() => handleVisibilityChange(opt.value)}
+                    disabled={publishMap.isPending}
+                  >
+                    <Icon className={cn('h-4 w-4 mt-0.5 shrink-0', opt.iconClass)} />
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold">{t(opt.titleKey)}</p>
+                      <p className="text-xs text-muted-foreground">{t(opt.descKey)}</p>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+            {!isPublic && (
+              <p className="text-xs text-muted-foreground mt-2">{t('share.makePublicHint', { defaultValue: 'Make this map public to generate a share link' })}</p>
+            )}
+          </div>
+
+          {publishMap.isPending && (
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <Loader2 className="h-3 w-3 animate-spin" />
+              {t('share.updatingVisibility')}
+            </div>
+          )}
+
+          {/* Share link section (only for public maps) */}
+          {isPublic && (
+            <>
+              <div className="border-t pt-4 space-y-3">
+                <div className="flex items-center gap-1.5">
+                  <LinkIcon className="h-3.5 w-3.5 text-muted-foreground" />
+                  <span className="text-sm font-semibold">{t('share.shareLink')}</span>
+                </div>
+
+                {hasShareToken ? (
+                  <div className="space-y-3">
+                    {rawShareToken ? (
+                      <div className="flex gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="flex-1"
+                          onClick={handleCopyShareLink}
+                          disabled={isExpired}
+                        >
+                          <Copy className="h-3.5 w-3.5 me-1.5" />
+                          {t('share.copyLink')}
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            const url = getShareUrl();
+                            if (url) window.open(url, '_blank');
+                          }}
+                          disabled={isExpired}
+                        >
+                          <ExternalLink className="h-3.5 w-3.5 me-1.5" />
+                          {t('share.open')}
+                        </Button>
+                      </div>
+                    ) : (
+                      <div className="space-y-2 rounded-md border border-warning/30 bg-warning/5 px-3 py-2">
+                        <div className="flex items-start gap-2">
+                          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" aria-hidden="true" />
+                          <p className="text-xs text-foreground">
+                            {t('share.rawTokenUnavailable', {
+                              defaultValue: 'For security, the full share link is only shown when it is created. Regenerate the link to copy it again.',
+                            })}
+                          </p>
+                        </div>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-7 text-xs"
+                          onClick={handleRegenerateShareLink}
+                          disabled={revokeShareToken.isPending || createShareToken.isPending}
+                        >
+                          {(revokeShareToken.isPending || createShareToken.isPending) ? (
+                            <Loader2 className="h-3 w-3 animate-spin me-1.5" />
+                          ) : (
+                            <RotateCcw className="h-3 w-3 me-1.5" />
+                          )}
+                          {t('share.regenerateLink', { defaultValue: 'Regenerate link' })}
+                        </Button>
+                      </div>
+                    )}
+
+                    {/* Status summary */}
+                    {isExpired && (
+                      <div className="flex items-center gap-1.5 text-xs text-destructive">
+                        <AlertTriangle className="h-3.5 w-3.5" aria-hidden="true" />
+                        <span>{t('share.expired')}</span>
+                      </div>
+                    )}
+                    <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                      <span className={isExpired ? 'text-destructive' : undefined}>
+                        {t('share.summaryExpires')}: {shareExpires ? formatDate(shareExpires) : t('share.summaryNever')}
+                      </span>
+                      {configOrigins.length > 0 && (
+                        <>
+                          <span className="text-border">|</span>
+                          <span className="truncate">{t('share.summaryDomains')}: {configOrigins.join(', ')}</span>
+                        </>
+                      )}
+                    </div>
+
+                    {/* Link Settings -- collapsible */}
+                    <ShareLinkSettings
+                      mapId={mapId}
+                      shareExpires={shareExpires}
+                      configOrigins={configOrigins}
+                      resolvedEmbedTokenId={resolvedEmbedTokenId}
+                      canUseAdvancedSharing={canUseAdvancedSharing}
+                      onRevoked={handleRevoked}
+                    />
+                  </div>
+                ) : (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="w-full"
+                    onClick={handleGetShareLink}
+                    disabled={createShareToken.isPending}
+                  >
+                    {createShareToken.isPending ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin me-1.5" />
+                    ) : (
+                      <LinkIcon className="h-3.5 w-3.5 me-1.5" />
+                    )}
+                    {t('share.generateShareLink')}
+                  </Button>
+                )}
+              </div>
+
+              {/* Embed code section (only when share token exists) */}
+              {hasShareToken && rawShareToken && (
+                <div className="border-t pt-4 space-y-3">
+                  <div className="flex items-center gap-1.5">
+                    <Code className="h-3.5 w-3.5 text-muted-foreground" />
+                    <span className="text-sm font-semibold">{t('share.embedCode')}</span>
+                  </div>
+                  <div className="relative">
+                    <textarea
+                      readOnly
+                      value={getEmbedCode()}
+                      rows={3}
+                      className="w-full rounded-md border border-input bg-muted/30 px-3 py-2 text-xs font-mono resize-none focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:border-ring"
+                    />
+                    <Button
+                      variant="outline"
+                      size="icon-xs"
+                      className="absolute top-1.5 end-1.5"
+                      onClick={handleCopyEmbedCode}
+                      title={t('share.copyEmbedCode')}
+                    >
+                      <Copy className="h-3 w-3" />
+                    </Button>
+                  </div>
+                  {hasNonPublic && (
+                    <div className="flex items-start gap-2 rounded-md border border-info/30 bg-info/5 px-3 py-2">
+                      <Info className="h-3.5 w-3.5 text-info mt-0.5 flex-shrink-0" />
+                      <p className="text-xs text-foreground">
+                        {t('share.embedTokenInfo')}
+                      </p>
+                    </div>
+                  )}
+                  {hasNonPublic && !embedTokenRaw && (
+                    <div className="flex items-start gap-2 rounded-md border border-warning/30 bg-warning/5 px-3 py-2">
+                      <AlertTriangle className="h-3.5 w-3.5 text-warning mt-0.5 flex-shrink-0" />
+                      <p className="text-xs text-foreground">
+                        {t('share.embedTokenMissing', { defaultValue: 'This map contains non-public layers. Viewers may not be able to see all layers without an embed token.' })}
+                      </p>
+                    </div>
+                  )}
+                  {/* Phase 20260526-builder-audit BLD-20260526-11: warn when embed token was created in a previous session. */}
+                  {!embedTokenRaw && activeEmbedToken && (
+                    <div className="flex items-start gap-2 rounded-md border border-warning/30 bg-warning/5 px-3 py-2">
+                      <AlertTriangle className="h-3.5 w-3.5 text-warning mt-0.5 flex-shrink-0" />
+                      <div className="flex-1 space-y-1.5">
+                        <p className="text-xs text-foreground">
+                          {t('share.embedTokenNotAvailable', {
+                            defaultValue: 'The embed token was created in a previous session. Regenerate to get the embed code.',
+                          })}
+                        </p>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-7 text-xs"
+                          onClick={handleRegenerateEmbedToken}
+                          disabled={revokeEmbedToken.isPending || createEmbedToken.isPending}
+                        >
+                          {(revokeEmbedToken.isPending || createEmbedToken.isPending) ? (
+                            <Loader2 className="h-3 w-3 animate-spin me-1.5" />
+                          ) : (
+                            <RotateCcw className="h-3 w-3 me-1.5" />
+                          )}
+                          {t('share.regenerate', { defaultValue: 'Regenerate' })}
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                  <div className="space-y-1">
+                    <p className="text-xs font-medium text-muted-foreground">{t('share.customizeTitle')}</p>
+                    <ul className="text-xs text-muted-foreground space-y-0.5 ms-3">
+                      <li><code className="bg-muted px-1 rounded text-[11px]">zoom=N</code> {t('share.customizeZoom')}</li>
+                      <li><code className="bg-muted px-1 rounded text-[11px]">center=lng,lat</code> {t('share.customizeCenter')}</li>
+                      <li><code className="bg-muted px-1 rounded text-[11px]">legend=true|false</code> {t('share.customizeLegend')}</li>
+                    </ul>
+                  </div>
+                  {/* SHARE-03: embed preview pane — gated on embedTokenRaw to ensure et= param is available */}
+                  {embedTokenRaw && (
+                    <EmbedPreviewPane
+                      shareToken={rawShareToken}
+                      embedTokenRaw={embedTokenRaw}
+                      origin={window.location.origin}
+                    />
+                  )}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}

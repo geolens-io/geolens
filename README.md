@@ -1,0 +1,360 @@
+# GeoLens
+
+[English](README.md) | [Español](README.es.md) | [Français](README.fr.md) | [Deutsch](README.de.md)
+
+**Your team's spatial data, searchable in one place.**
+
+Upload Shapefiles, GeoTIFFs, GeoPackages, or CSVs. GeoLens stores everything in PostGIS, indexes it with pgvector + pg_trgm for semantic and fuzzy search, and serves OGC APIs that QGIS, ArcGIS, and MapLibre clients connect to natively. Built on FastAPI and React. Deployed with one command.
+
+[![CI](https://github.com/geolens-io/geolens/actions/workflows/ci.yml/badge.svg)](https://github.com/geolens-io/geolens/actions/workflows/ci.yml)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+[![Python: backend 3.13 / SDK 3.10+](https://img.shields.io/badge/python-3.13_backend_%7C_3.10%2B_SDK-blue.svg)]()
+[![PostgreSQL 17 + PostGIS 3.5](https://img.shields.io/badge/PostGIS_3.5-PostgreSQL_17-336791.svg)](https://postgis.net/)
+[![OGC Compliant](https://img.shields.io/badge/OGC_API-Features_%7C_Records-green.svg)](https://ogcapi.ogc.org/)
+
+```bash
+git clone https://github.com/geolens-io/geolens.git && cd geolens
+bash scripts/install.sh
+# Open http://localhost:8080 — login with the credentials you chose
+```
+
+<p align="center">
+  <img src=".github/assets/geolens-adk-3d-relief-hero.jpg" alt="GeoLens map builder editing an Adirondack High Peaks DEM hillshade layer over a 3D terrain map" width="900" />
+  <br />
+  <em>Tune DEM, imagery, and vector layers in the map builder, then share interactive 3D maps</em>
+</p>
+
+## Documentation
+
+Full user, admin, and API documentation lives at **[docs.getgeolens.com](https://docs.getgeolens.com)**.
+
+- **Install & quickstart:** [docs.getgeolens.com/guides/quickstart](https://docs.getgeolens.com/guides/quickstart/)
+- **Admin guide:** [docs.getgeolens.com/guides/admin](https://docs.getgeolens.com/guides/admin/)
+- **API reference:** [docs.getgeolens.com/guides/api](https://docs.getgeolens.com/guides/api/)
+
+## Published Artifacts
+
+GeoLens is published through the standard package registries:
+
+```bash
+pip install geolens          # Python SDK
+pip install geolens-cli      # CLI; installs the `geolens` command
+npm install @geolens/sdk     # TypeScript/JavaScript SDK
+```
+
+Prebuilt public API and frontend images are published to GitHub Container Registry:
+
+```bash
+docker pull ghcr.io/geolens-io/geolens-api:latest
+docker pull ghcr.io/geolens-io/geolens-frontend:latest
+```
+
+The `latest` tag tracks the newest published stable release.
+
+## Why GeoLens?
+
+Spatial data ends up scattered — shapefiles on shared drives, tables in database schemas, rasters in cloud buckets, metadata in spreadsheets. Finding the right dataset means asking Slack or grepping file servers. Sharing it means exporting, emailing, and hoping the CRS matches.
+
+GeoLens replaces that workflow:
+
+- **One catalog** — upload Shapefiles, GeoPackages, GeoTIFFs, or CSVs and they become searchable, previewable, and exportable in minutes
+- **Works with your tools** — OGC API Features/Records, STAC API 1.0, direct tile URLs for QGIS, ArcGIS, and MapLibre
+- **Semantic + spatial search** — find datasets by meaning, not just keywords, powered by pgvector and pg_trgm full-text search
+- **Built-in map builder** — compose multi-layer maps, style them, and share via public link or embeddable iframe
+- **AI-assisted (optional)** — chat with your maps, auto-generate descriptions, search by natural language. Bring any OpenAI-compatible API key or skip it entirely
+
+## See It in Action
+
+The examples below use a JWT bearer token. Mint one against the local stack (the login endpoint accepts an OAuth2 password form, so use `-d` with form fields, not JSON):
+
+```bash
+TOKEN=$(curl -s -X POST http://localhost:8080/api/auth/login/ \
+  -d 'username=admin&password=admin' | jq -r '.access_token')
+```
+
+Search datasets by meaning, not just keywords:
+
+```bash
+# Semantic search — finds "hydrology" datasets even when you search "rivers"
+curl "http://localhost:8080/api/search/datasets/?q=rivers+near+mountains&limit=3" \
+  -H "Authorization: Bearer $TOKEN" | jq '.features[].properties.title'
+```
+
+Every dataset is also a standard OGC API Features endpoint:
+
+```bash
+# GeoJSON features with bbox filter — works in QGIS, ArcGIS, any OGC client
+curl 'http://localhost:8080/api/collections/ne_10m_admin_0_countries/items?bbox=-10,35,30,60&limit=5'
+```
+
+Use PostGIS + pgvector together when you need semantic ranking inside a spatial window. The sample vector below is only a runnable placeholder; replace it with an embedding from the same model configured for GeoLens:
+
+```sql
+WITH query_embedding AS (
+  SELECT ('[' || array_to_string(array_fill(0.001::float8, ARRAY[1536]), ',') || ']')::vector AS value
+)
+SELECT
+  d.id,
+  r.title,
+  1 - (e.embedding <=> query_embedding.value) AS semantic_score
+FROM catalog.datasets d
+JOIN catalog.records r ON r.id = d.record_id
+JOIN catalog.record_embeddings e ON e.record_id = r.id
+CROSS JOIN query_embedding
+WHERE r.spatial_extent && ST_MakeEnvelope(-125, 24, -66, 50, 4326)
+ORDER BY e.embedding <=> query_embedding.value
+LIMIT 5;
+```
+
+The result is the five catalog records whose metadata embeddings are nearest to the query vector, limited to records intersecting the bounding box.
+
+Connect directly from QGIS: **Layer > Add WFS / OGC API Features** and point at `http://localhost:8080/api/`.
+
+## Features
+
+### Map Builder and Sharing
+
+- Multi-layer interactive maps with drag-and-drop ordering, styling, and per-layer filters
+- Point, line, and polygon styling with color ramps and category breaks
+- Share maps via public links or embeddable `<iframe>` snippets
+- Raster (COG) and vector layers side by side
+
+### AI-Powered (Optional)
+
+- Chat with your maps — ask natural-language questions, AI adds and styles layers
+- Semantic vector search across metadata using pgvector with HNSW indexing
+- Auto-generated dataset descriptions and tags on ingest
+- Works with any OpenAI-compatible API (OpenAI, Anthropic, Ollama); fully functional without it
+
+### Search and Discovery
+
+- Full-text and trigram search (pg_trgm) across dataset names, descriptions, and metadata
+- Spatial search with bounding box and map-drawn filters
+- Faceted filtering by format, tags, collections, and record type
+- Semantic search powered by pgvector (optional)
+- Saved searches for repeated workflows
+
+### Data Ingestion and Export
+
+- **Vector:** Shapefile, GeoPackage, GeoJSON, CSV, XLSX upload and ingestion
+- **Raster:** GeoTIFF and Cloud-Optimized GeoTIFF (COG) with automatic conversion
+- **Mosaics:** VRT-based raster mosaics from multiple source files
+- **Export:** GeoJSON, Shapefile, GeoPackage, CSV, with CRS reprojection
+- Provenance tracking and metadata editing
+
+### Standards and Interop
+
+- OGC API - Features and OGC API - Records compliant
+- STAC API 1.0 catalog endpoint
+- Direct tile URLs for QGIS, ArcGIS, MapLibre, and any OGC client
+- API key authentication for external tool integration
+- JWT + OAuth 2.0/OIDC, RBAC with per-dataset permissions
+
+<details>
+<summary>Security</summary>
+
+- JWT authentication with refresh tokens
+- API key management per user
+- OAuth 2.0 / OIDC support (Google, Microsoft, generic providers)
+- Role-based access control (RBAC) with per-dataset permissions
+- Audit logging for all administrative actions
+- Internationalization: English, Spanish, French, German
+
+</details>
+
+## Screenshots
+
+<p align="center">
+  <img src=".github/assets/geolens-map-builder.png" alt="GeoLens Map Builder" width="900" />
+  <br />
+  <em>Map builder — drag-orderable layer stack, per-layer styling, and shareable interactive maps</em>
+</p>
+
+<p align="center">
+  <img src=".github/assets/geolens-catalog.png" alt="GeoLens Catalog View" width="900" />
+  <br />
+  <em>Catalog view with search, spatial filters, and dataset cards</em>
+</p>
+
+<p align="center">
+  <img src=".github/assets/geolens-dataset.png" alt="GeoLens Dataset Detail" width="900" />
+  <br />
+  <em>Dataset detail with map preview, metadata, and attribute table</em>
+</p>
+
+## Quick Start
+
+**Prerequisites:** Docker Engine 24+ and Docker Compose v2. The bundled stack
+ships PostgreSQL 17. If you point GeoLens at an externally managed database, it
+must be **PostgreSQL 13+** (for `gen_random_uuid()`) with **pgvector 0.5+** (for
+HNSW semantic-search indexes), plus PostGIS, pg_trgm, and unaccent.
+
+```bash
+git clone https://github.com/geolens-io/geolens.git
+cd geolens
+bash scripts/install.sh
+```
+
+`scripts/install.sh` copies `.env.example` to `.env`, generates a JWT signing
+secret, prompts for admin credentials (defaults to `admin` / `admin`), and runs
+`docker compose up -d`. For unattended installs, set `GEOLENS_ADMIN_USERNAME` and
+`GEOLENS_ADMIN_PASSWORD` in the environment before running and the prompts are
+skipped. Re-running the script is idempotent — existing values in `.env` are
+preserved.
+
+Wait about 60 seconds for services to start, then open [http://localhost:8080](http://localhost:8080). Log in with the admin credentials you set.
+
+Verify all services are healthy:
+
+```bash
+docker compose ps
+```
+
+First-run troubleshooting:
+
+- If ports are already taken, change `DB_PORT`, `API_PORT`, or `FRONTEND_PORT` in `.env`; the default quickstart uses 5434 for Postgres, 8001 for the API, and 8080 for the frontend.
+- If startup looks stuck, run `docker compose ps` and wait until `db`, `api`, `worker`, and `frontend` are healthy or running.
+- Check logs with `docker compose logs api`, `docker compose logs frontend`, and `docker compose logs worker`.
+- Slow first builds and health delays are usually image build, migration, or raster dependency startup work; rerun `docker compose ps` after a minute before restarting services.
+- **Cold-build time:** the first `docker compose up -d` takes 5-10 minutes (image builds + GDAL + Postgres extensions). Subsequent starts settle in ~60 seconds. Run `docker compose ps` to confirm `db`, `api`, `worker`, and `frontend` are healthy before troubleshooting.
+
+For production deployment, see the [Install Guide](https://docs.getgeolens.com/guides/quickstart/install/). A Kubernetes [Helm chart](deployment/helm/geolens/) is also available under [`deployment/`](deployment/). For upgrading, see the [Upgrade Guide](https://docs.getgeolens.com/guides/quickstart/upgrade/).
+
+### Add Your First Dataset
+
+The repo ships a small `city-parks.geojson`. Upload and publish it in one command with the **GeoLens CLI**:
+
+```bash
+pip install geolens-cli                              # installs the `geolens` command
+geolens login http://localhost:8080/api              # admin / admin
+geolens publish examples/manifests/first-catalog/city-parks.geojson --name "City Parks"
+```
+
+`geolens publish` runs the upload → preview → commit ingest flow and prints the new dataset's URL — clone to first dataset in one command.
+
+For repeatable, multi-dataset catalogs, describe your sources in a **manifest** (`geolens.yaml`) and apply it with `geolens apply`. Manifest sources are referenced by HTTP(S) URL, S3 URI, or a path already staged on the server; the examples in [`examples/manifests/`](examples/manifests/) are templates to adapt. Scaffold a fresh one with `geolens init` and edit it for your sources:
+
+```bash
+geolens init                       # writes geolens.yaml in the current directory
+geolens validate geolens.yaml      # local schema check, no API call
+geolens apply geolens.yaml         # validates + applies via /ingest/manifest/apply
+```
+
+See the [CLI guide](https://docs.getgeolens.com/guides/cli/) for the full manifest schema, source kinds, and CI integration patterns.
+
+### Seed Data
+
+Populate the catalog with [Natural Earth](https://www.naturalearthdata.com/) 1:10m vector datasets:
+
+```bash
+pip install httpx  # one-time dependency on the host
+python scripts/seed-natural-earth.py --username admin --password admin
+```
+
+The script logs in, mints a temporary API key for the run, ingests every Natural Earth 1:10m dataset, and deletes the temporary key on exit. It downloads from the [NACIS CDN](https://naciscdn.org/naturalearth/), skips duplicates on re-run, and creates two collections (Cultural 10m, Physical 10m). Use `--dry-run` to preview or `--theme cultural` to filter by theme.
+
+If you already have a long-lived API key (Admin > API Keys > Create New, or via `POST /api/auth/api-keys/`), pass `--api-key <plaintext>` instead of `--username/--password`.
+
+## Architecture
+
+| Component | Technology |
+|-----------|-----------|
+| Frontend | React 19, Vite, MapLibre GL v5, TanStack Query, Tailwind CSS |
+| Backend API | FastAPI (Python), GDAL/ogr2ogr, Procrastinate (task queue) |
+| Raster Tiles | Titiler (COG tile server) |
+| Object Storage | MinIO (S3-compatible, local dev) or any S3 provider |
+| Cache | Valkey (tile and query cache) |
+| Database | PostgreSQL 17 + PostGIS 3.5 + pgvector + pg_trgm (minimum: PostgreSQL 13, pgvector 0.5) |
+| Reverse Proxy | Nginx (production) / Vite dev proxy (development) |
+
+## Configuration
+
+All configuration is managed through environment variables in `.env`. See the [Configuration Reference](https://docs.getgeolens.com/guides/quickstart/configuration/) for the full list of options with defaults and descriptions.
+
+### Connection Pool Budget
+
+GeoLens runs against a single PostgreSQL instance. The connection budget below
+is sized to fit `max_connections` (default 30, set in `db/postgresql.conf`)
+with the per-process pool defaults shown — total in-flight stays at the
+worst-case envelope without unused memory in the slot table.
+
+Per-process budget (current defaults — PERF-05 / Phase 274, paired with DBM-04 / Phase 271):
+
+| Process | `db_pool_size` | `db_max_overflow` | Procrastinate | Worst-case |
+|---------|---------------:|------------------:|--------------:|-----------:|
+| API     | 10             | 3                 | 3 (periodic)  | **16**     |
+| Worker  | 10             | 0 *(no overflow)* | 3             | **13**     |
+| Admin / psql / CLI | — | — | — | ~1 |
+
+**Total worst-case in-flight:** `16 + 13 + 1 = 30` of `30 max_connections`
+— headroom achieved by lowering the ceiling rather than the workload.
+
+The two changes that produced this envelope:
+
+1. **DBM-04 (Phase 271):** `db_max_overflow` 5 → 3, reclaiming 14 connections
+   of headroom under Procrastinate spikes.
+2. **PERF-05 (Phase 274):** `max_connections` 50 → 30, reclaiming ~10MiB of
+   shared memory per dropped slot (~200MiB total).
+
+Operators expecting frequent ad-hoc admin sessions on top of full worker + API
+saturation should bump `max_connections` back to 35-40 in their own
+`postgresql.conf` overlay; the `db_pool_size` / `db_max_overflow` defaults stay
+healthy at the original 50 too.
+
+Override per environment:
+
+```env
+DB_POOL_SIZE=10
+DB_MAX_OVERFLOW=3
+```
+
+See `backend/app/core/config.py` for runtime defaults.
+
+### Backup S3 Compatibility
+
+`scripts/backup-entrypoint.sh` uploads to S3-compatible storage using AWS
+Signature Version 2 (HMAC-SHA1). This works with **MinIO, Cloudflare R2,
+older AWS buckets, and any S3 implementation that still accepts Sig-V2**.
+
+New AWS S3 buckets (created post-2018) accept only Signature Version 4.
+For new AWS buckets, mount a sidecar container with `aws-cli` and replace
+the `upload_to_s3` function with `aws s3 cp <file> s3://<bucket>/<key>`
+(the AWS CLI uses Sig-V4 by default).
+
+DBM-11 (Phase 271) tracks this as a documented limitation; a Sig-V4 rewrite
+is deferred until a real-world adopter request makes it concrete.
+
+## Reference
+
+| Guide | Description |
+|-------|-------------|
+| [Install Guide](https://docs.getgeolens.com/guides/quickstart/install/) | Step-by-step deployment with Docker Compose |
+| [Upgrade Guide](https://docs.getgeolens.com/guides/quickstart/upgrade/) | Upgrading between versions with rollback procedures |
+| [Configuration Reference](https://docs.getgeolens.com/guides/quickstart/configuration/) | All environment variables and their defaults |
+| [Admin Guide](https://docs.getgeolens.com/guides/admin/) | User management, datasets, system health |
+| [Cloud Deployment](https://docs.getgeolens.com/guides/quickstart/cloud-deployment/) | AWS, GCP, and DigitalOcean deployment guides |
+| [Developer Docs](https://docs.getgeolens.com/) | Build custom map builder plugins |
+| [API Reference](https://docs.getgeolens.com/guides/api/) | Auto-generated reference at docs.getgeolens.com; interactive Swagger UI at `/api/docs` when running |
+| [Manifest examples](examples/manifests/) | Template `geolens.yaml` manifests to adapt — public-cog (remote COG), url-source, s3-source, publication-states |
+
+## Community
+
+- [GitHub Discussions](https://github.com/geolens-io/geolens/discussions) — questions, ideas, show and tell
+- [Contributing Guide](.github/CONTRIBUTING.md) — development setup, code style, and PR guidelines
+
+## Branding
+
+Brand assets — favicon, app icons, color tokens, and typography — sync from the
+canonical [`geolens-io/branding`](https://github.com/geolens-io/branding)
+repository via copy-on-release. The currently-pinned version lives at
+[`BRANDING-VERSION`](./BRANDING-VERSION) at the repo root. Bump procedure: re-run
+the `cp` for any changed source files, re-run `sips -z N N` for PWA icon
+downscales if the 1024×1024 source dimensions change, then update
+`BRANDING-VERSION`'s version + sync date lines.
+
+The brand assets carry their own license (see the upstream repo); this is
+distinct from the Apache 2.0 license that covers the GeoLens source code below.
+
+## License
+
+GeoLens is licensed under the [Apache License 2.0](LICENSE).

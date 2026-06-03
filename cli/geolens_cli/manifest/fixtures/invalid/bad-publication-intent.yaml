@@ -1,0 +1,11 @@
+manifest_version: "1"
+catalog:
+  title: Bad publication catalog
+datasets:
+  - key: roads
+    title: Road centerlines
+    sources:
+      - type: vector
+        uri: ./data/roads.geojson
+    publication:
+      intent: approval_required

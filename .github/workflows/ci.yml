@@ -1,0 +1,837 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Least-privilege default for every job. The `changes` job widens to add
+# pull-requests:read; no job needs write (publishing lives in publish*.yml).
+permissions:
+  contents: read
+
+jobs:
+  # ---------- detect changed paths for conditional jobs ----------
+  changes:
+    name: Detect Changes
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+      frontend: ${{ steps.filter.outputs.frontend }}
+      e2e: ${{ steps.filter.outputs.e2e }}
+      cli: ${{ steps.filter.outputs.cli }}
+      alembic: ${{ steps.filter.outputs.alembic }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dorny/paths-filter@v4
+        id: filter
+        with:
+          filters: |
+            backend:
+              - 'backend/**'
+              - 'docker-compose*.yml'
+              - 'Dockerfile*'
+            frontend:
+              - 'frontend/**'
+            e2e:
+              - 'backend/**'
+              - 'frontend/**'
+              - 'e2e/**'
+              - 'playwright.config.ts'
+              - 'docker-compose*.yml'
+            cli:
+              - 'cli/**'
+              - 'sdks/python/**'
+            alembic:
+              - 'backend/alembic/**'
+              - 'backend/scripts/test_alembic_upgrade_clean_db.sh'
+              - 'backend/app/models/**'
+              - 'db/**'
+
+  # ---------- backend ----------
+  backend-lint:
+    name: Backend Lint
+    needs: changes
+    if: needs.changes.outputs.backend == 'true' || github.event_name == 'push'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: astral-sh/setup-uv@v8.1.0
+        with:
+          version: "0.10.2"
+          enable-cache: true
+          cache-dependency-glob: "backend/uv.lock"
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Install dependencies
+        run: uv sync --locked --dev
+
+      - name: Ruff check
+        run: uv run ruff check .
+
+      - name: Ruff format check
+        run: uv run ruff format --check .
+
+  pre-commit:
+    name: Pre-commit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Install pre-commit
+        run: python -m pip install pre-commit
+
+      # Security guardrails (SSRF/IDOR) + generic hygiene. Ruff is covered by the
+      # backend-lint job; gitleaks runs as a dedicated full-tree scan below (the
+      # pre-commit gitleaks hook only inspects staged diffs).
+      - name: Run pre-commit hooks
+        env:
+          SKIP: ruff-check,ruff-format,gitleaks
+        run: pre-commit run --all-files --show-diff-on-failure
+
+      - name: Install gitleaks
+        run: |
+          GL=8.30.1
+          curl -sSL "https://github.com/gitleaks/gitleaks/releases/download/v${GL}/gitleaks_${GL}_linux_x64.tar.gz" \
+            | tar -xz gitleaks
+          sudo install gitleaks /usr/local/bin/gitleaks
+          gitleaks version
+
+      - name: Secret scan (tracked tree)
+        run: gitleaks dir . -c .gitleaks.toml --redact --no-banner
+
+  openapi-snapshot:
+    name: OpenAPI Snapshot Drift
+    needs: changes
+    if: needs.changes.outputs.backend == 'true' || github.event_name == 'push'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      # Padding values to satisfy app.core.config.Settings() validation —
+      # this job imports the FastAPI app to dump the schema; it never
+      # connects to a DB or runs admin auth.
+      JWT_SECRET_KEY: openapi-snapshot-padding-key-32chars
+      POSTGRES_PASSWORD: ci-padding-no-db
+      GEOLENS_ADMIN_USERNAME: admin
+      GEOLENS_ADMIN_PASSWORD: admin
+      PYTHONPATH: .
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: astral-sh/setup-uv@v8.1.0
+        with:
+          version: "0.10.2"
+          enable-cache: true
+          cache-dependency-glob: "backend/uv.lock"
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Install dependencies
+        run: uv sync --locked --dev
+
+      - name: Verify openapi.json is up to date
+        run: uv run python scripts/dump_openapi.py --check
+
+  sdks-check:
+    name: SDKs Drift Gate
+    needs: changes
+    if: needs.changes.outputs.backend == 'true' || github.event_name == 'push'
+    runs-on: ubuntu-latest
+    env:
+      # Match the OpenAPI snapshot job's env so dump_openapi.py runs
+      JWT_SECRET_KEY: sdks-check-padding-key-32characters-here
+      POSTGRES_PASSWORD: ci-padding-no-db
+      GEOLENS_ADMIN_USERNAME: admin
+      GEOLENS_ADMIN_PASSWORD: admin
+      PYTHONPATH: backend
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: astral-sh/setup-uv@v8.1.0
+        with:
+          version: "0.10.2"
+          enable-cache: true
+          cache-dependency-glob: "backend/uv.lock"
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: sdks/typescript/package-lock.json
+
+      - name: Install backend dependencies (for dump_openapi.py)
+        working-directory: backend
+        run: uv sync --locked --dev
+
+      - name: Install TypeScript SDK dependencies (locked)
+        working-directory: sdks/typescript
+        run: npm ci
+
+      - name: Regenerate SDKs and check for drift
+        run: make sdks-check
+
+  # ---------- CLI ----------
+  # Phase 216 / OCCLI-06: structural enforcement that the CLI never grows
+  # a direct httpx/requests dependency. Runs on cli/** OR sdks/python/**
+  # changes (the SDK is the CLI's only HTTP surface — a regression in the
+  # SDK can ripple into the CLI through a behavior change in the wrapper).
+  cli-test:
+    name: CLI Tests
+    needs: changes
+    if: needs.changes.outputs.cli == 'true' || needs.changes.outputs.backend == 'true' || github.event_name == 'push'
+    runs-on: ubuntu-latest
+    env:
+      # CLI round-trip tests import the FastAPI app and exercise DB-backed
+      # routes; point the test lifecycle at the local CI PostgreSQL container.
+      JWT_SECRET_KEY: cli-test-padding-key-32characters-here
+      POSTGRES_USER: geolens
+      POSTGRES_PASSWORD: geolens_test
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: postgres
+      GEOLENS_ADMIN_USERNAME: admin
+      GEOLENS_ADMIN_PASSWORD: admin
+      PYTHONPATH: backend
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Start PostgreSQL with PostGIS + pgvector
+        working-directory: .
+        run: |
+          docker build -t geolens-cli-test-db -f - . <<'DOCKERFILE'
+          FROM postgis/postgis:17-3.5
+          RUN apt-get update \
+              && apt-get install -y --no-install-recommends postgresql-17-pgvector \
+              && rm -rf /var/lib/apt/lists/*
+          DOCKERFILE
+          docker run -d --name cli-test-postgres \
+            -e POSTGRES_DB=postgres \
+            -e POSTGRES_USER=geolens \
+            -e POSTGRES_PASSWORD=geolens_test \
+            -p 5432:5432 \
+            geolens-cli-test-db
+          for i in $(seq 1 30); do
+            if docker exec cli-test-postgres pg_isready -U geolens -d postgres >/dev/null 2>&1; then
+              echo "PostgreSQL is ready"
+              break
+            fi
+            echo "Waiting for PostgreSQL... ($i/30)"
+            sleep 2
+          done
+
+      - uses: astral-sh/setup-uv@v8.1.0
+        with:
+          version: "0.10.2"
+          enable-cache: true
+          cache-dependency-glob: "backend/uv.lock"
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      # Install backend + SDK + CLI editable into ONE shared venv
+      # (backend/.venv). The round-trip test in backend/tests/ imports
+      # geolens_cli, so all three packages need to coexist in the env
+      # that pytest uses. Using `uv pip install -e ../...` from backend/
+      # places SDK + CLI editable into backend's venv (uv-sources in
+      # cli/pyproject.toml resolves the geolens SDK dep against the
+      # local sibling tree.
+      - name: Install backend + SDK + CLI into shared venv
+        working-directory: backend
+        run: |
+          uv sync --locked --dev
+          uv pip install -e ../sdks/python
+          uv pip install -e "../cli[dev]"
+
+      # OCCLI-06 structural gate (1/2): no direct httpx/requests imports.
+      # `grep -rE` returns exit 1 when no matches → success for us; flip
+      # to fail if we DID match.
+      - name: OCCLI-06 — no httpx/requests imports in cli/geolens_cli/
+        working-directory: cli
+        run: |
+          if grep -rE '^(import|from) (httpx|requests)' geolens_cli/; then
+            echo "FAIL: CLI imports httpx or requests directly (OCCLI-06)"
+            exit 1
+          fi
+          echo "OK: zero direct httpx/requests imports in cli/geolens_cli/"
+
+      # OCCLI-06 structural gate (2/2): cli/pyproject.toml declares no
+      # httpx or requests dep (transitive via the geolens SDK is fine).
+      # Use system python (not `uv run`) — the script only needs stdlib
+      # tomllib, and `uv run` from cli/ would force a separate cli/.venv
+      # resolution distinct from the shared backend/.venv used elsewhere.
+      - name: OCCLI-06 — no httpx/requests in cli/pyproject.toml deps
+        working-directory: cli
+        run: |
+          python -c "
+          import tomllib
+          with open('pyproject.toml', 'rb') as f:
+              d = tomllib.load(f)
+          deps = d['project']['dependencies']
+          forbidden = [x for x in deps if 'httpx' in x or 'requests' in x]
+          assert not forbidden, f'FAIL: cli/pyproject.toml declares forbidden direct deps: {forbidden}'
+          print('OK: no httpx/requests direct deps in cli/pyproject.toml')
+          "
+
+      - name: Manifest CLI contract tests
+        working-directory: cli
+        run: |
+          uv run --project ../backend pytest -v \
+            tests/test_manifest_schema.py \
+            tests/test_manifest_validate.py \
+            tests/test_manifest_apply.py \
+            tests/test_manifest_examples.py \
+            tests/test_manifest_cli_offline.py
+
+      # CLI unit tests: run from cli/ so pytest picks up cli/pyproject.toml's
+      # [tool.pytest.ini_options] testpaths, but use the SHARED backend venv
+      # (which has cli + sdk + cli's deps installed editable) via
+      # `--project ../backend` so pytest doesn't try to resolve a fresh
+      # cli/.venv from PyPI.
+      - name: CLI unit tests
+        working-directory: cli
+        run: uv run --project ../backend pytest -v
+
+      - name: Manifest CLI round-trip contract test
+        working-directory: backend
+        run: uv run pytest tests/test_cli_round_trip.py::TestManifestApplyRoundTrip -v
+
+      - name: CLI round-trip integration test
+        working-directory: backend
+        run: uv run pytest tests/test_cli_round_trip.py -v
+
+  backend-test:
+    name: Backend Tests
+    needs: changes
+    if: needs.changes.outputs.backend == 'true' || github.event_name == 'push'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      POSTGRES_USER: geolens
+      POSTGRES_PASSWORD: geolens_test
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: postgres
+      # Must be ≥ 32 chars to satisfy the Settings validator (backend/app/config.py).
+      JWT_SECRET_KEY: test-secret-key-for-ci-padding-32chars
+      GEOLENS_ADMIN_USERNAME: admin
+      GEOLENS_ADMIN_PASSWORD: admin
+      PYTHONPATH: .
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Probe enterprise token availability
+        env:
+          ENTERPRISE_TOKEN: ${{ secrets.GEOLENS_ENTERPRISE_TOKEN }}
+        run: |
+          if [ -n "${ENTERPRISE_TOKEN}" ]; then
+            echo "HAS_ENTERPRISE_TOKEN=1" >> $GITHUB_ENV
+          else
+            echo "HAS_ENTERPRISE_TOKEN=0" >> $GITHUB_ENV
+          fi
+
+      - name: Checkout geolens-enterprise (skip on fork PRs without secret)
+        if: env.HAS_ENTERPRISE_TOKEN == '1'
+        uses: actions/checkout@v6
+        with:
+          repository: geolens-io/geolens-enterprise
+          token: ${{ secrets.GEOLENS_ENTERPRISE_TOKEN }}
+          path: geolens-enterprise
+
+      - name: Start PostgreSQL with PostGIS + pgvector
+        working-directory: .
+        run: |
+          docker build -t geolens-test-db -f - . <<'DOCKERFILE'
+          FROM postgis/postgis:17-3.5
+          RUN apt-get update \
+              && apt-get install -y --no-install-recommends postgresql-17-pgvector \
+              && rm -rf /var/lib/apt/lists/*
+          DOCKERFILE
+          docker run -d --name test-postgres \
+            -e POSTGRES_DB=postgres \
+            -e POSTGRES_USER=geolens \
+            -e POSTGRES_PASSWORD=geolens_test \
+            -p 5432:5432 \
+            geolens-test-db
+          for i in $(seq 1 30); do
+            if docker exec test-postgres pg_isready -U geolens -d postgres >/dev/null 2>&1; then
+              echo "PostgreSQL is ready"
+              break
+            fi
+            echo "Waiting for PostgreSQL... ($i/30)"
+            sleep 2
+          done
+
+      - uses: astral-sh/setup-uv@v8.1.0
+        with:
+          version: "0.10.2"
+          enable-cache: true
+          cache-dependency-glob: "backend/uv.lock"
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y gdal-bin xmlsec1
+
+      - name: Install Python dependencies
+        run: uv sync --locked --dev
+
+      - name: Install enterprise overlay (if available)
+        run: |
+          if [ -d "../geolens-enterprise" ] && [ -f "../geolens-enterprise/pyproject.toml" ]; then
+            uv add --editable ../geolens-enterprise
+            # pysaml2 7.5.4 can resolve pyOpenSSL 22.x, which breaks against
+            # the backend's patched cryptography line in CI. Force a compatible
+            # runtime wheel after installing the editable overlay and keep uv
+            # from syncing the resolver's stale transitive choice back in.
+            uv pip install "pyOpenSSL>=25.3.0"
+            echo "UV_NO_SYNC=1" >> $GITHUB_ENV
+            echo "OVERLAY_INSTALLED=1" >> $GITHUB_ENV
+            echo "geolens-enterprise installed; lifecycle marker will be collected"
+          else
+            echo "OVERLAY_INSTALLED=0" >> $GITHUB_ENV
+            echo "geolens-enterprise not available (fork PR or missing GEOLENS_ENTERPRISE_TOKEN secret) -- lifecycle marker deselected"
+          fi
+
+      - name: Set up database extensions, roles, and schemas
+        run: |
+          PGPASSWORD=geolens_test psql -h localhost -U geolens -d postgres -c "
+            CREATE EXTENSION IF NOT EXISTS postgis;
+            CREATE EXTENSION IF NOT EXISTS pg_trgm;
+            CREATE EXTENSION IF NOT EXISTS vector;
+            CREATE EXTENSION IF NOT EXISTS unaccent;
+            CREATE SCHEMA IF NOT EXISTS catalog;
+            CREATE SCHEMA IF NOT EXISTS data;
+            ALTER DATABASE postgres SET search_path TO catalog, data, public;
+            DO \$\$ BEGIN
+              IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'geolens_reader') THEN
+                CREATE ROLE geolens_reader NOLOGIN;
+              END IF;
+            END \$\$;
+            GRANT USAGE ON SCHEMA data TO geolens_reader;
+            ALTER DEFAULT PRIVILEGES IN SCHEMA data GRANT SELECT ON TABLES TO geolens_reader;
+          "
+
+      - name: Run migrations
+        run: uv run alembic upgrade head
+
+      - name: Manifest backend apply contract tests
+        run: |
+          uv run pytest -v \
+            tests/test_manifest_apply_api.py \
+            tests/test_manifest_apply_service.py \
+            tests/test_manifest_apply_vrt.py \
+            tests/test_manifest_apply_roundtrip.py \
+            tests/test_layering.py::test_manifest_apply_backend_has_no_cli_sdk_or_enterprise_imports \
+            tests/test_layering.py::test_manifest_apply_router_uses_upload_permission
+
+      - name: Run tests with coverage
+        run: |
+          if [ "${OVERLAY_INSTALLED:-0}" = "1" ]; then
+            echo "Running pytest with lifecycle marker INCLUDED (overlay installed)"
+            uv run pytest -v --tb=short -m 'not perf' --cov=app --cov-report=term-missing --cov-report=html:htmlcov --cov-report=xml:coverage.xml --cov-fail-under=58.5
+          else
+            echo "Running pytest with lifecycle marker DESELECTED (overlay unavailable on fork PR)"
+            uv run pytest -v --tb=short -m 'not perf and not lifecycle' --cov=app --cov-report=term-missing --cov-report=html:htmlcov --cov-report=xml:coverage.xml --cov-fail-under=58.5
+          fi
+
+      - name: Verify SAML fixtures unchanged after pytest
+        run: |
+          # Catch BOTH modified-tracked-files (the original regression) AND
+          # newly-created fixture files like idp_response_*.xml.b64 — those
+          # are untracked after Phase 227 renamed the originals to .template,
+          # and `git diff --quiet` would silently miss them (Phase 227 WR-02).
+          DIRTY=$(git status --porcelain -- tests/fixtures/saml/)
+          if [ -n "$DIRTY" ]; then
+            echo "::error::SAML fixture dir mutated by pytest run -- regression of phase 227 (saml-test-fixture-tmp-path)."
+            echo "$DIRTY"
+            git diff --stat -- tests/fixtures/saml/
+            git diff -- tests/fixtures/saml/ | head -200
+            exit 1
+          fi
+
+      - name: Upload backend coverage report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: backend-coverage
+          path: backend/htmlcov/
+          retention-days: 14
+
+  # ---------- alembic clean-DB upgrade smoke ----------
+  # Phase 1078 CI-01 / SEC-OBSV-03: exercise the full migration chain
+  # against a freshly-initialized PostGIS container via the v1016 Phase 1071
+  # script. Builds the project's custom PostGIS+pgvector image, spins up a
+  # throwaway DB, and runs `alembic upgrade head` from a clean state.
+  # Catches migration-on-clean-DB breakage that the backend-test job can miss
+  # because backend-test runs migrations on a DB that already saw earlier
+  # migrations in test scope.
+  alembic-clean-db:
+    name: Alembic Clean-DB Upgrade
+    needs: changes
+    if: needs.changes.outputs.alembic == 'true' || github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: astral-sh/setup-uv@v8.1.0
+        with:
+          version: "0.10.2"
+          enable-cache: true
+          cache-dependency-glob: "backend/uv.lock"
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: uv sync --locked
+
+      - name: Run alembic clean-DB upgrade smoke
+        run: ./backend/scripts/test_alembic_upgrade_clean_db.sh
+        env:
+          # The script reads these for the throwaway container; explicit
+          # is better than relying on bash defaults.
+          ALEMBIC_TEST_DB_PORT: 54399
+          ALEMBIC_TEST_TIMEOUT: 90
+
+  # ---------- pytest parallel-isolation gate (v1020 CI-01) ----------
+  # Phase 1089 CI-01: defend the Phase 1088 fixture-isolation fixes against regression.
+  # Runs `pytest -n 4` against the backend test suite (post-Phase-1088 HEAD
+  # baseline: 76 residual failures, mostly the flake-class deferred to Phase 1090 HYG-02).
+  # Recommended `-n` value drives from .planning/audits/PYTEST-XDIST-PERF-v1020.md Section 5
+  # (PERF-01 baseline). Sister-shape to alembic-clean-db (line 462).
+  pytest-parallel-isolation:
+    name: Pytest Parallel Isolation
+    needs: changes
+    if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.alembic == 'true' || github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      POSTGRES_USER: geolens
+      POSTGRES_PASSWORD: geolens_test
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: postgres
+      # Must be ≥ 32 chars to satisfy the Settings validator (backend/app/config.py).
+      JWT_SECRET_KEY: test-secret-key-for-ci-padding-32chars
+      GEOLENS_ADMIN_USERNAME: admin
+      GEOLENS_ADMIN_PASSWORD: admin
+      PYTHONPATH: .
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Start PostgreSQL with PostGIS + pgvector
+        working-directory: .
+        run: |
+          docker build -t geolens-test-db -f - . <<'DOCKERFILE'
+          FROM postgis/postgis:17-3.5
+          RUN apt-get update \
+              && apt-get install -y --no-install-recommends postgresql-17-pgvector \
+              && rm -rf /var/lib/apt/lists/*
+          DOCKERFILE
+          docker run -d --name test-postgres \
+            -e POSTGRES_DB=postgres \
+            -e POSTGRES_USER=geolens \
+            -e POSTGRES_PASSWORD=geolens_test \
+            -p 5432:5432 \
+            geolens-test-db
+          for i in $(seq 1 30); do
+            if docker exec test-postgres pg_isready -U geolens -d postgres >/dev/null 2>&1; then
+              echo "PostgreSQL is ready"
+              break
+            fi
+            echo "Waiting for PostgreSQL... ($i/30)"
+            sleep 2
+          done
+
+      - uses: astral-sh/setup-uv@v8.1.0
+        with:
+          version: "0.10.2"
+          enable-cache: true
+          cache-dependency-glob: "backend/uv.lock"
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y gdal-bin xmlsec1
+
+      - name: Install Python dependencies
+        run: uv sync --locked --dev
+
+      - name: Set up database extensions, roles, and schemas
+        run: |
+          PGPASSWORD=geolens_test psql -h localhost -U geolens -d postgres -c "
+            CREATE EXTENSION IF NOT EXISTS postgis;
+            CREATE EXTENSION IF NOT EXISTS pg_trgm;
+            CREATE EXTENSION IF NOT EXISTS vector;
+            CREATE EXTENSION IF NOT EXISTS unaccent;
+            CREATE SCHEMA IF NOT EXISTS catalog;
+            CREATE SCHEMA IF NOT EXISTS data;
+            ALTER DATABASE postgres SET search_path TO catalog, data, public;
+            DO \$\$ BEGIN
+              IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'geolens_reader') THEN
+                CREATE ROLE geolens_reader NOLOGIN;
+              END IF;
+            END \$\$;
+            GRANT USAGE ON SCHEMA data TO geolens_reader;
+            ALTER DEFAULT PRIVILEGES IN SCHEMA data GRANT SELECT ON TABLES TO geolens_reader;
+          "
+
+      - name: Run migrations
+        run: uv run alembic upgrade head
+
+      - name: Run tests with -n 4
+        # Phase 1089 CI-01 gate: defends against regressions to Phase 1088 fixture-isolation work.
+        # `-n` value sourced from .planning/audits/PYTEST-XDIST-PERF-v1020.md Section 5.
+        # No coverage flags here — backend-test job already covers coverage; this job is a regression gate only.
+        # Skips enterprise overlay (CONTEXT.md decision: simpler is better; overlay-specific fixture races
+        # are tracked separately in Phase 1090 HYG-02 if they surface).
+        run: uv run pytest -n 4 -v --tb=short -m 'not perf'
+
+  # ---------- frontend ----------
+  frontend-lint:
+    name: Frontend Lint & Typecheck
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true' || github.event_name == 'push'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Locale parity
+        run: npm run test:i18n
+
+      - name: Changed namespaces exist in all languages
+        run: npm run check:i18n:changed
+
+      - name: ESLint
+        run: npm run lint
+
+      - name: TypeScript check
+        run: npx tsc --noEmit
+
+  frontend-test:
+    name: Frontend Tests
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true' || github.event_name == 'push'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests with coverage
+        run: npm run test:coverage
+
+      - name: Upload frontend coverage report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: frontend-coverage
+          path: frontend/coverage/
+          retention-days: 14
+
+  # ---------- license-check ----------
+  # Phase 279 ADMIN-13 (L-22): non-blocking license-checker against the
+  # frontend dependency tree. Failure does not block PR merge — reviewers
+  # consult the uploaded artifact when a license-relevant change is suspected
+  # (new package added, license clause changed in lockfile, etc.). Promote to
+  # blocking once a curated allowlist is in place.
+  license-check:
+    name: License Check (frontend)
+    runs-on: ubuntu-latest
+    if: always()  # run even if other jobs fail
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies (locked)
+        working-directory: frontend
+        run: npm ci
+
+      - name: Run license-checker (non-blocking)
+        working-directory: frontend
+        # Non-blocking: license-list changes shouldn't fail CI until we have a
+        # curated allowlist. Output is a JSON file uploaded as an artifact.
+        continue-on-error: true
+        run: |
+          mkdir -p ../artifacts
+          npx --yes license-checker --json --out ../artifacts/license-report.json
+          echo "Top-level license summary:"
+          npx --yes license-checker --summary || true
+
+      - name: Upload license report
+        uses: actions/upload-artifact@v7
+        with:
+          name: license-report
+          path: artifacts/license-report.json
+          retention-days: 30
+
+  # ---------- security ----------
+  security-scan:
+    name: Security Scan
+    needs: changes
+    if: needs.changes.outputs.backend == 'true' || github.event_name == 'push'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: astral-sh/setup-uv@v8.1.0
+        with:
+          version: "0.10.2"
+          enable-cache: true
+          cache-dependency-glob: "backend/uv.lock"
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Install dependencies
+        run: uv sync --locked --dev
+
+      - name: Run bandit (static security analysis)
+        run: uv run bandit -r app/ -c pyproject.toml --severity-level high --confidence-level high
+
+      - name: Run pip-audit (dependency vulnerability scan)
+        run: uv run pip-audit --strict --desc
+
+  # ---------- E2E (LOCAL-ONLY GATE — see .github/CONTRIBUTING.md "End-to-end (Playwright)") ----------
+  # Disabled to save CI minutes: the dockerized stack + browser fixtures push the per-PR runtime
+  # well past the free-tier Actions budget. Reviewers run `npm run e2e:smoke[:audit]` locally
+  # before approving user-flow changes (PR description should note which suites passed).
+  # Re-enable on a nightly cron schedule if a CI signal is needed.
+  e2e-test:
+    name: E2E Tests
+    if: false
+    runs-on: ubuntu-latest
+    needs: [backend-lint, backend-test, pytest-parallel-isolation, frontend-lint, frontend-test, security-scan]
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Create .env file
+        run: |
+          cp .env.example .env
+          # Override the dev defaults with CI-distinct values. JWT_SECRET_KEY must
+          # be ≥ 32 chars to satisfy the Settings validator (backend/app/config.py).
+          sed -i -E 's|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=geolens_dev|' .env
+          sed -i -E 's|^JWT_SECRET_KEY=.*|JWT_SECRET_KEY=e2e-test-secret-key-padding-32chars-min|' .env
+          sed -i -E 's|^GEOLENS_ADMIN_PASSWORD=.*|GEOLENS_ADMIN_PASSWORD=admin|' .env
+          echo "DATABASE_SSL_MODE=disable" >> .env
+
+      - name: Export admin credentials for E2E
+        run: |
+          echo "GEOLENS_ADMIN_USERNAME=admin" >> $GITHUB_ENV
+          echo "GEOLENS_ADMIN_PASSWORD=admin" >> $GITHUB_ENV
+
+      - name: Start services
+        run: docker compose up -d --wait --wait-timeout 120
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright Browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Run E2E tests
+        run: npx playwright test
+
+      - name: Upload test results
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-test-results
+          path: test-results/
+          retention-days: 14
+
+      - name: Upload Playwright report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 14
+
+      - name: Docker Compose logs
+        if: failure()
+        run: docker compose logs --tail=200
+
+      - name: Stop services
+        if: always()
+        run: docker compose down

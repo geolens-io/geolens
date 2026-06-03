@@ -1,0 +1,1 @@
+"""Platform jobs namespace."""

@@ -1,0 +1,916 @@
+import type { ComponentProps } from 'react';
+import userEvent from '@testing-library/user-event';
+import { fireEvent, render, screen, waitFor } from '@/test/test-utils';
+import { checkMapVisibility } from '@/api/maps';
+import { ApiError } from '@/api/client';
+import { ShareDialog, generateEmbedCode } from '@/components/builder/SharePanel';
+import {
+  useCreateEmbedToken,
+  useMapEmbedTokens,
+  useRevokeEmbedToken,
+  useUpdateEmbedToken,
+} from '@/components/builder/hooks/use-embed-tokens';
+import { useEdition } from '@/hooks/use-edition';
+import {
+  useCreateShareToken,
+  useMapShareToken,
+  usePublishMap,
+  useRevokeShareToken,
+  useUpdateShareToken,
+} from '@/hooks/use-maps';
+import { toast } from 'sonner';
+
+vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
+
+vi.mock('@/hooks/use-edition', () => ({
+  useEdition: vi.fn(),
+}));
+
+vi.mock('@/api/maps', () => ({
+  checkMapVisibility: vi.fn(),
+}));
+
+vi.mock('@/hooks/use-maps', () => ({
+  usePublishMap: vi.fn(),
+  useCreateShareToken: vi.fn(),
+  useRevokeShareToken: vi.fn(),
+  useMapShareToken: vi.fn(),
+  useUpdateShareToken: vi.fn(),
+}));
+
+vi.mock('@/components/builder/hooks/use-embed-tokens', () => ({
+  useCreateEmbedToken: vi.fn(),
+  useMapEmbedTokens: vi.fn(),
+  useUpdateEmbedToken: vi.fn(),
+  useRevokeEmbedToken: vi.fn(),
+}));
+
+const mockedUseEdition = vi.mocked(useEdition);
+const mockedCheckMapVisibility = vi.mocked(checkMapVisibility);
+const mockedUsePublishMap = vi.mocked(usePublishMap);
+const mockedUseCreateShareToken = vi.mocked(useCreateShareToken);
+const mockedUseRevokeShareToken = vi.mocked(useRevokeShareToken);
+const mockedUseMapShareToken = vi.mocked(useMapShareToken);
+const mockedUseUpdateShareToken = vi.mocked(useUpdateShareToken);
+const mockedUseCreateEmbedToken = vi.mocked(useCreateEmbedToken);
+const mockedUseMapEmbedTokens = vi.mocked(useMapEmbedTokens);
+const mockedUseUpdateEmbedToken = vi.mocked(useUpdateEmbedToken);
+const mockedUseRevokeEmbedToken = vi.mocked(useRevokeEmbedToken);
+
+function mutationResult(mutateAsync = vi.fn()) {
+  return {
+    mutateAsync,
+    isPending: false,
+  } as never;
+}
+
+// Embed tokens render the "Restrict to domains" control only when an active
+// (non-expired) token exists: SharePanel filters on `new Date(expires_at) > now`.
+// A hardcoded fixture date becomes a time-bomb (failed once 2026-06-01 rolled
+// past the old '2026-06-01T00:00:00Z'). Compute a far-future expiry relative to
+// now so the token is always considered active during the test run.
+const FUTURE_EMBED_EXPIRES_AT = new Date(
+  Date.now() + 365 * 24 * 60 * 60 * 1000,
+).toISOString();
+
+function setup({
+  enterprise = false,
+  hasShareToken = true,
+  hasNonPublic = false,
+  hasUnsavedChanges = false,
+  saveStatus = hasUnsavedChanges ? 'unsaved' : 'saved',
+  allowedOrigins = ['https://example.com'],
+  updateEmbedTokenFn = vi.fn().mockResolvedValue({}),
+  updateShareTokenFn = vi.fn().mockResolvedValue({}),
+  shareExpires = null,
+  createEmbedTokenFn,
+}: {
+  enterprise?: boolean;
+  hasShareToken?: boolean;
+  hasNonPublic?: boolean;
+  hasUnsavedChanges?: boolean;
+  saveStatus?: ComponentProps<typeof ShareDialog>['saveStatus'];
+  allowedOrigins?: string[];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  updateEmbedTokenFn?: (...args: any[]) => any;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  updateShareTokenFn?: (...args: any[]) => any;
+  shareExpires?: string | null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  createEmbedTokenFn?: (...args: any[]) => any;
+} = {}) {
+  const createShareToken = vi.fn().mockResolvedValue({
+    token: 'share-token',
+    share_url: '/m/share-token',
+    expires_at: null,
+    is_active: true,
+  });
+  const createEmbedToken = createEmbedTokenFn ?? vi.fn().mockResolvedValue({
+    id: 'embed-2',
+    raw_token: 'raw-token',
+    token_hint: 'raw...',
+    expires_at: FUTURE_EMBED_EXPIRES_AT,
+    is_active: true,
+  });
+
+  mockedUseEdition.mockReturnValue({
+    edition: enterprise ? 'enterprise' : 'community',
+    features: enterprise ? ['advanced-sharing'] : [],
+    isEnterprise: enterprise,
+    isLoading: false,
+  });
+  mockedUsePublishMap.mockReturnValue(mutationResult());
+  mockedUseCreateShareToken.mockReturnValue(mutationResult(createShareToken));
+  mockedUseRevokeShareToken.mockReturnValue(mutationResult());
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  mockedUseUpdateShareToken.mockReturnValue(mutationResult(updateShareTokenFn as any));
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  mockedUseCreateEmbedToken.mockReturnValue(mutationResult(createEmbedToken as any));
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  mockedUseUpdateEmbedToken.mockReturnValue(mutationResult(updateEmbedTokenFn as any));
+  mockedUseRevokeEmbedToken.mockReturnValue(mutationResult());
+  mockedUseMapShareToken.mockReturnValue({
+    data: hasShareToken
+      ? {
+          token: 'share-token',
+          share_url: 'http://test/m/share-token',
+          expires_at: shareExpires,
+          is_active: true,
+        }
+      : null,
+    isLoading: false,
+    isError: false,
+  } as never);
+  mockedUseMapEmbedTokens.mockReturnValue({
+    data: {
+      tokens: hasShareToken
+        ? [
+            {
+              id: 'embed-1',
+              map_id: 'map-1',
+              token_hint: 'emb...',
+              scoped_dataset_ids: [],
+              allowed_origins: allowedOrigins,
+              expires_at: FUTURE_EMBED_EXPIRES_AT,
+              is_active: true,
+              use_count: 0,
+              created_at: '2026-05-01T00:00:00Z',
+            },
+          ]
+        : [],
+      total: hasShareToken ? 1 : 0,
+    },
+    isLoading: false,
+    isError: false,
+  } as never);
+  mockedCheckMapVisibility.mockResolvedValue({
+    has_non_public: hasNonPublic,
+    non_public_datasets: hasNonPublic ? ['Private dataset'] : [],
+  });
+
+  render(
+    <ShareDialog
+      mapId="map-1"
+      visibility="public"
+      open
+      onOpenChange={vi.fn()}
+      hasUnsavedChanges={hasUnsavedChanges}
+      saveStatus={saveStatus}
+    />,
+  );
+
+  return { createShareToken, createEmbedToken: createEmbedToken as ReturnType<typeof vi.fn>, updateEmbedTokenFn, updateShareTokenFn };
+}
+
+describe('ShareDialog edition gates', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('hides advanced sharing controls in community', async () => {
+    const user = userEvent.setup();
+    setup({ enterprise: false });
+
+    await user.click(screen.getByRole('button', { name: /link settings/i }));
+
+    expect(screen.queryByText('Expiration')).not.toBeInTheDocument();
+    expect(screen.queryByText('Restrict to domains')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /revoke share link/i })).toBeInTheDocument();
+  });
+
+  it('keeps community share-link generation basic', async () => {
+    const user = userEvent.setup();
+    const { createShareToken, createEmbedToken } = setup({
+      enterprise: false,
+      hasShareToken: false,
+      hasNonPublic: true,
+    });
+
+    await user.click(screen.getByRole('button', { name: /generate share link/i }));
+
+    await waitFor(() => {
+      expect(createShareToken).toHaveBeenCalledWith({ mapId: 'map-1' });
+    });
+    expect(createEmbedToken).toHaveBeenCalledWith({
+      mapId: 'map-1',
+      allowedOrigins: undefined,
+    });
+  });
+
+  it('shows advanced sharing controls in enterprise', async () => {
+    const user = userEvent.setup();
+    setup({ enterprise: true });
+
+    await user.click(screen.getByRole('button', { name: /link settings/i }));
+
+    expect(screen.getByText('Expiration')).toBeInTheDocument();
+    expect(screen.getByRole('switch', { name: /restrict to domains/i })).toBeInTheDocument();
+  });
+
+  it('warns when share output is behind unsaved builder changes', () => {
+    setup({ hasUnsavedChanges: true, saveStatus: 'unsaved' });
+
+    expect(screen.getByTestId('share-output-save-state')).toHaveTextContent(
+      'Unsaved changes are only in the builder preview',
+    );
+  });
+
+  it('does not expose copy/open actions when only a stored token hint is available', () => {
+    setup({ hasShareToken: true });
+
+    expect(screen.getByText(/full share link is only shown when it is created/i)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /copy link/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^open$/i })).not.toBeInTheDocument();
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/*  SEC-07 / M-70: embed iframe sandbox attribute                      */
+/* ------------------------------------------------------------------ */
+//
+// Pins the v13.13 closure of M-70. The combination of `allow-scripts` +
+// `allow-same-origin` neutralizes the iframe sandbox (MDN-documented
+// anti-pattern) — embed iframes loaded by external sites would have
+// access to cookies/localStorage of the GeoLens deployment, defeating
+// share-token isolation.
+describe('SEC-07: embed code sandbox attribute', () => {
+  it('uses allow-scripts only, no allow-same-origin', () => {
+    const code = generateEmbedCode({
+      shareToken: 'abc123',
+      embedTokenRaw: 'tok-456',
+      origin: 'https://geolens.example.com',
+    });
+    expect(code).toContain('sandbox="allow-scripts"');
+    expect(code).not.toContain('allow-same-origin');
+  });
+
+  it('returns empty string when shareToken is missing', () => {
+    const code = generateEmbedCode({
+      shareToken: '',
+      embedTokenRaw: '',
+      origin: 'https://geolens.example.com',
+    });
+    expect(code).toBe('');
+  });
+
+  it('includes et=<token> when embedTokenRaw is provided', () => {
+    const code = generateEmbedCode({
+      shareToken: 'abc123',
+      embedTokenRaw: 'tok-456',
+      origin: 'https://geolens.example.com',
+    });
+    expect(code).toContain('et=tok-456');
+  });
+
+  it('omits et= param when embedTokenRaw is empty', () => {
+    const code = generateEmbedCode({
+      shareToken: 'abc123',
+      embedTokenRaw: '',
+      origin: 'https://geolens.example.com',
+    });
+    expect(code).not.toContain('et=');
+  });
+
+  // DOM-level assertion: render ShareDialog and read the embed-code textarea
+  // value. Substitutes for the deferred Playwright MCP UAT — confirms the
+  // sandbox value reaches the rendered DOM exactly as the unit-tested pure
+  // function emits it (no later string-rewriting in the component layer).
+  it('rendered embed textarea contains sandbox="allow-scripts" only after creating a raw share token', async () => {
+    const user = userEvent.setup();
+    setup({ enterprise: false, hasShareToken: false });
+
+    await user.click(screen.getByRole('button', { name: /generate share link/i }));
+
+    const textarea = await screen.findByRole('textbox') as HTMLTextAreaElement;
+    expect(textarea).toBeTruthy();
+    expect(textarea.value).toContain('sandbox="allow-scripts"');
+    expect(textarea.value).not.toContain('allow-same-origin');
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/*  SHARE-02 / SHARE-06: chip-based allowed-origins input             */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Helper: open Link Settings and enable the Restrict to domains switch.
+ * Returns the user-event instance.
+ */
+async function openChipBlock(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(screen.getByRole('button', { name: /link settings/i }));
+  const restrictSwitch = screen.getByRole('switch', { name: /restrict to domains/i });
+  // Only click if not already checked (existing origins may pre-enable it)
+  if (restrictSwitch.getAttribute('aria-checked') !== 'true') {
+    await user.click(restrictSwitch);
+  }
+}
+
+describe('SHARE-02 chip-based allowed-origins input', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('test_chip_input_adds_canonical_chip_on_enter: typing a URL and pressing Enter renders chip in canonical form', async () => {
+    const user = userEvent.setup();
+    const { updateEmbedTokenFn } = setup({ enterprise: true, allowedOrigins: [] });
+    await openChipBlock(user);
+
+    const input = screen.getByRole('textbox', { name: /allowed origin url/i });
+    await user.type(input, 'Example.com');
+    await user.keyboard('{Enter}');
+
+    // Chip with canonical form should appear
+    expect(screen.getByText('https://example.com')).toBeInTheDocument();
+    // Input should be cleared
+    expect(input).toHaveValue('');
+    // PATCH should fire with canonical origin
+    await waitFor(() => {
+      expect(updateEmbedTokenFn).toHaveBeenCalledOnce();
+      expect(updateEmbedTokenFn).toHaveBeenCalledWith({
+        mapId: 'map-1',
+        tokenId: 'embed-1',
+        allowedOrigins: ['https://example.com'],
+      });
+    });
+  });
+
+  it('test_chip_input_adds_chip_on_comma: trailing comma triggers add', async () => {
+    const user = userEvent.setup();
+    const { updateEmbedTokenFn } = setup({ enterprise: true, allowedOrigins: [] });
+    await openChipBlock(user);
+
+    const input = screen.getByRole('textbox', { name: /allowed origin url/i });
+    // Type the URL then a comma — the comma triggers the add
+    await user.type(input, 'https://other.io,');
+
+    expect(screen.getByText('https://other.io')).toBeInTheDocument();
+    await waitFor(() => {
+      expect(updateEmbedTokenFn).toHaveBeenCalledOnce();
+    });
+  });
+
+  it('test_chip_remove_X_button_fires_patch: clicking remove X removes chip and fires PATCH', async () => {
+    const user = userEvent.setup();
+    // Pre-populate with one origin (default allowedOrigins = ['https://example.com'])
+    const { updateEmbedTokenFn } = setup({ enterprise: true });
+    await openChipBlock(user);
+
+    // Chip should be visible
+    expect(screen.getByText('https://example.com')).toBeInTheDocument();
+
+    // Click the remove button
+    const removeBtn = screen.getByRole('button', { name: /remove https:\/\/example\.com/i });
+    await user.click(removeBtn);
+
+    expect(screen.queryByText('https://example.com')).not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(updateEmbedTokenFn).toHaveBeenCalledOnce();
+      expect(updateEmbedTokenFn).toHaveBeenCalledWith({
+        mapId: 'map-1',
+        tokenId: 'embed-1',
+        allowedOrigins: null,
+      });
+    });
+  });
+
+  it('test_chip_input_dedupes_canonical_form: adding a duplicate canonical origin is silently discarded', async () => {
+    const user = userEvent.setup();
+    // Pre-populate with one origin
+    const { updateEmbedTokenFn } = setup({ enterprise: true });
+    await openChipBlock(user);
+
+    // 1 chip from pre-populated origins
+    expect(screen.getAllByRole('listitem')).toHaveLength(1);
+
+    const input = screen.getByRole('textbox', { name: /allowed origin url/i });
+    await user.type(input, 'HTTPS://Example.com/');
+    await user.keyboard('{Enter}');
+
+    // Still 1 chip, no mutation fired
+    expect(screen.getAllByRole('listitem')).toHaveLength(1);
+    expect(updateEmbedTokenFn).not.toHaveBeenCalled();
+  });
+
+  it('test_chip_input_rejects_wildcard_inline: wildcard shows inline error, no chip, no PATCH', async () => {
+    const user = userEvent.setup();
+    const { updateEmbedTokenFn } = setup({ enterprise: true, allowedOrigins: [] });
+    await openChipBlock(user);
+
+    const input = screen.getByRole('textbox', { name: /allowed origin url/i });
+    await user.type(input, '*');
+    await user.keyboard('{Enter}');
+
+    expect(screen.getByText(/wildcard origin not allowed/i)).toBeInTheDocument();
+    expect(screen.queryByRole('listitem')).not.toBeInTheDocument();
+    expect(updateEmbedTokenFn).not.toHaveBeenCalled();
+  });
+
+  it('test_chip_input_surfaces_backend_wildcard_422_inline: backend 422 with wildcard message shows same inline error', async () => {
+    const user = userEvent.setup();
+    const updateEmbedTokenFn = vi.fn().mockRejectedValue(
+      new ApiError('Wildcard origin not allowed', 422)
+    );
+    setup({ enterprise: true, allowedOrigins: [], updateEmbedTokenFn });
+    await openChipBlock(user);
+
+    const input = screen.getByRole('textbox', { name: /allowed origin url/i });
+    await user.type(input, 'https://valid.com');
+    await user.keyboard('{Enter}');
+
+    // Optimistic chip appears, then rollback happens after rejection
+    await waitFor(() => {
+      expect(screen.queryByText('https://valid.com')).not.toBeInTheDocument();
+    });
+    // Same inline error as frontend wildcard rejection
+    expect(screen.getByText(/wildcard origin not allowed/i)).toBeInTheDocument();
+  });
+
+  it('test_chip_PATCH_failure_rolls_back: non-422 PATCH failure rolls back chip and surfaces toast', async () => {
+    const user = userEvent.setup();
+    const updateEmbedTokenFn = vi.fn().mockRejectedValue(
+      new ApiError('Internal Server Error', 500)
+    );
+    setup({ enterprise: true, allowedOrigins: [], updateEmbedTokenFn });
+    await openChipBlock(user);
+
+    const input = screen.getByRole('textbox', { name: /allowed origin url/i });
+    await user.type(input, 'https://test.com');
+    await user.keyboard('{Enter}');
+
+    // Chip should be rolled back after error
+    await waitFor(() => {
+      expect(screen.queryByText('https://test.com')).not.toBeInTheDocument();
+    });
+    // Toast with updateFailed key
+    expect(vi.mocked(toast.error)).toHaveBeenCalled();
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/*  SHARE-04: Expiration preset Select + Pitfall #6 regression pins    */
+/* ------------------------------------------------------------------ */
+
+// Radix Select requires pointer capture / scroll polyfills in JSDOM.
+// Use plain function stubs (not vi.fn) so vi.clearAllMocks() in beforeEach
+// does not clear their implementations between tests.
+Element.prototype.hasPointerCapture = () => false;
+Element.prototype.releasePointerCapture = () => undefined;
+Element.prototype.scrollIntoView = () => undefined;
+
+/**
+ * Open the Link Settings disclosure and return the user-event instance.
+ * Reusable helper for SHARE-04 tests (parallel to openChipBlock above).
+ */
+async function openLinkSettings(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(screen.getByRole('button', { name: /link settings/i }));
+}
+
+/**
+ * Open the Radix Select for expiration by clicking the trigger button.
+ * Uses fireEvent.click (Radix Select in JSDOM requires synchronous click dispatch).
+ * Returns the trigger element.
+ */
+function openExpirationSelect() {
+  const trigger = screen.getByRole('combobox');
+  fireEvent.click(trigger);
+  return trigger;
+}
+
+describe('SHARE-04 expiration presets', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.useRealTimers();
+  });
+
+  it('test_expiration_select_renders_six_options: Select exposes 6 options (Never, 1 day, 7 days, 30 days, 1 year, Custom date…)', async () => {
+    const user = userEvent.setup();
+    setup({ enterprise: true });
+
+    await openLinkSettings(user);
+    openExpirationSelect();
+
+    // After opening the Select, options should be in the DOM
+    const options = screen.getAllByRole('option');
+    expect(options).toHaveLength(6);
+    const labels = options.map((o) => o.textContent);
+    expect(labels).toContain('Never');
+    expect(labels).toContain('1 day');
+    expect(labels).toContain('7 days');
+    expect(labels).toContain('30 days');
+    expect(labels).toContain('1 year');
+    expect(labels).toContain('Custom date…');
+  });
+
+  it('test_select_seven_days_preset_fires_updateShareToken: selecting "7 days" fires mutateAsync with ISO at T23:59:59Z ~7 days from now', async () => {
+    const user = userEvent.setup();
+    const { updateShareTokenFn } = setup({ enterprise: true });
+    const beforeClick = Date.now();
+
+    await openLinkSettings(user);
+    openExpirationSelect();
+    fireEvent.click(screen.getByRole('option', { name: '7 days' }));
+
+    await waitFor(() => {
+      expect(updateShareTokenFn).toHaveBeenCalledOnce();
+    });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const call = (updateShareTokenFn as unknown as { mock: { calls: any[][] } }).mock.calls[0][0] as { mapId: string; expiresAt: string | null };
+    expect(call.mapId).toBe('map-1');
+    expect(call.expiresAt).toMatch(/T23:59:59\.000Z$/);
+    // The date should be approximately 7 days from the time of click
+    const expiresMs = new Date(call.expiresAt as string).getTime();
+    const sevenDaysMs = 7 * 24 * 60 * 60 * 1000;
+    expect(expiresMs - beforeClick).toBeGreaterThanOrEqual(sevenDaysMs - 1000);
+    expect(expiresMs - beforeClick).toBeLessThan(sevenDaysMs + 24 * 60 * 60 * 1000);
+  });
+
+  it('test_select_never_preset_clears_expiration: selecting "Never" fires mutateAsync with expiresAt: null', async () => {
+    const user = userEvent.setup();
+    // Set shareExpires so the Select opens at "30 days" — then switching to "Never" fires onChange
+    const thirtyDaysFromNow = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
+      .toISOString()
+      .split('T')[0] + 'T23:59:59.000Z';
+    const { updateShareTokenFn } = setup({ enterprise: true, shareExpires: thirtyDaysFromNow });
+
+    await openLinkSettings(user);
+    openExpirationSelect();
+    // Select starts at "30 days" → clicking "Never" changes value → fires onValueChange
+    fireEvent.click(screen.getByRole('option', { name: 'Never' }));
+
+    await waitFor(() => {
+      expect(updateShareTokenFn).toHaveBeenCalledOnce();
+      expect(updateShareTokenFn).toHaveBeenCalledWith({
+        mapId: 'map-1',
+        expiresAt: null,
+      });
+    });
+  });
+
+  it('test_select_custom_reveals_date_input: selecting "Custom date…" reveals date Input and Save button without firing mutateAsync', async () => {
+    const user = userEvent.setup();
+    const { updateShareTokenFn } = setup({ enterprise: true });
+
+    await openLinkSettings(user);
+    openExpirationSelect();
+    fireEvent.click(screen.getByRole('option', { name: 'Custom date…' }));
+
+    // Date input (type="date") should be visible
+    const allInputs = document.querySelectorAll<HTMLInputElement>('input[type="date"]');
+    expect(allInputs.length).toBeGreaterThan(0);
+    const dateInput = allInputs[0];
+    expect(dateInput).toBeInTheDocument();
+    // Save button should be visible for custom path
+    expect(screen.getByRole('button', { name: /^save$/i })).toBeInTheDocument();
+    // updateShareToken should NOT have been called yet
+    expect(updateShareTokenFn).not.toHaveBeenCalled();
+  });
+
+  it('test_select_pre_populates_to_custom_when_shareExpires_off_preset: shareExpires at T12:00 (off-preset) → Select shows "Custom date…" and date input shows the date', async () => {
+    const user = userEvent.setup();
+    // shareExpires at T12:00 — outside preset ±1 day tolerance (presets use T23:59:59)
+    setup({ enterprise: true, shareExpires: '2026-06-15T12:00:00Z' });
+
+    await openLinkSettings(user);
+
+    // The Select trigger should show "Custom date…"
+    const trigger = screen.getByRole('combobox');
+    expect(trigger).toHaveTextContent(/custom date/i);
+
+    // The date input should be pre-populated with the date portion
+    const dateInputs = document.querySelectorAll<HTMLInputElement>('input[type="date"]');
+    expect(dateInputs.length).toBeGreaterThan(0);
+    expect(dateInputs[0]).toHaveValue('2026-06-15');
+  });
+
+  it('test_select_pre_populates_to_seven_days_when_within_preset_window: shareExpires = (now + 7d at T23:59:59Z) → Select shows "7 days"', async () => {
+    const user = userEvent.setup();
+    // Compute real 7-day preset ISO: now + 7 days at T23:59:59Z
+    // detectPreset uses ±1 day tolerance, so this should hit the '7d' bucket
+    const sevenDaysIso = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
+      .toISOString()
+      .split('T')[0] + 'T23:59:59.000Z';
+    setup({ enterprise: true, shareExpires: sevenDaysIso });
+
+    await openLinkSettings(user);
+
+    // The Select trigger should show "7 days" (detected from shareExpires)
+    const trigger = screen.getByRole('combobox');
+    expect(trigger).toHaveTextContent('7 days');
+  });
+
+  /**
+   * Pitfall #6 regression pin (rawShareToken survival).
+   *
+   * Contract: selecting a preset fires updateShareToken but does NOT touch
+   * rawShareToken or embedTokenRaw state. The "Copy Link" button is gated on
+   * rawShareToken being non-null — if it survives, the button stays visible.
+   */
+  it('test_rawShareToken_survives_preset_selection (Pitfall #6 LOAD-BEARING): rawShareToken state unchanged after preset select', async () => {
+    const user = userEvent.setup();
+    // hasShareToken:false so we generate a fresh raw token via the button click
+    setup({ enterprise: true, hasShareToken: false });
+
+    // Generate a share link — this sets rawShareToken='share-token' in state
+    await user.click(screen.getByRole('button', { name: /generate share link/i }));
+
+    // Wait until Copy Link is visible (proxy for rawShareToken being non-null)
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /copy link/i })).toBeInTheDocument();
+    });
+
+    // Now open Link Settings and apply a preset
+    await openLinkSettings(user);
+    openExpirationSelect();
+    fireEvent.click(screen.getByRole('option', { name: '7 days' }));
+
+    // rawShareToken must still be non-null — Copy Link stays visible
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /copy link/i })).toBeInTheDocument();
+    });
+  });
+
+  /**
+   * Pitfall #6 mirror (embedTokenRaw survival).
+   *
+   * Both rawShareToken and embedTokenRaw are independent of expiration mutations.
+   * The embed code textarea is gated on embedTokenRaw being non-null.
+   */
+  it('test_embedTokenRaw_survives_preset_selection (Pitfall #6 mirror): embedTokenRaw state unchanged after preset select', async () => {
+    const user = userEvent.setup();
+    // hasNonPublic:true so embedTokenRaw is created during link generation
+    setup({ enterprise: true, hasShareToken: false, hasNonPublic: true });
+
+    // Generate a share link — this creates both rawShareToken and embedTokenRaw
+    await user.click(screen.getByRole('button', { name: /generate share link/i }));
+
+    // Wait for the embed code textarea to appear (proxy for embedTokenRaw non-null)
+    await waitFor(() => {
+      const textarea = screen.queryByRole('textbox');
+      expect(textarea).toBeInTheDocument();
+      expect((textarea as HTMLTextAreaElement).value).toContain('et=raw-token');
+    });
+
+    // Open Link Settings and select "30 days" preset
+    await openLinkSettings(user);
+    openExpirationSelect();
+    fireEvent.click(screen.getByRole('option', { name: '30 days' }));
+
+    // embedTokenRaw must still be non-null — embed textarea still shows et=raw-token
+    await waitFor(() => {
+      const textarea = screen.queryByRole('textbox');
+      expect(textarea).toBeInTheDocument();
+      expect((textarea as HTMLTextAreaElement).value).toContain('et=raw-token');
+    });
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/*  SHARE-03: embed-preview iframe pane                               */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Helper: click "Generate Share Link" and wait until rawShareToken is set
+ * (the "Copy Link" button appearing is the proxy).
+ */
+async function generateShareLinkAndWait(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(screen.getByRole('button', { name: /generate share link/i }));
+  await waitFor(() => {
+    expect(screen.getByRole('button', { name: /copy link/i })).toBeInTheDocument();
+  });
+}
+
+describe('SHARE-03 embed-preview iframe', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.useRealTimers();
+  });
+
+  it('test_preview_pane_collapsed_by_default: Preview toggle visible but iframe NOT in DOM after generating link', async () => {
+    const user = userEvent.setup();
+    // hasNonPublic:true so embedTokenRaw is created (preview pane requires embedTokenRaw)
+    setup({ enterprise: false, hasShareToken: false, hasNonPublic: true });
+
+    await generateShareLinkAndWait(user);
+
+    // Preview disclosure toggle should be visible
+    expect(screen.getByRole('button', { name: /preview/i })).toBeInTheDocument();
+    // iframe NOT yet in DOM (collapsed by default)
+    expect(screen.queryByTestId('share-preview-iframe')).not.toBeInTheDocument();
+  });
+
+  it('test_preview_pane_expands_on_click: clicking Preview disclosure reveals the iframe element', async () => {
+    const user = userEvent.setup();
+    // hasNonPublic:true so embedTokenRaw is set (required for preview pane)
+    setup({ enterprise: false, hasShareToken: false, hasNonPublic: true });
+
+    await generateShareLinkAndWait(user);
+
+    const previewToggle = screen.getByRole('button', { name: /preview/i });
+    await user.click(previewToggle);
+
+    // iframe appears with data-testid
+    await waitFor(() => {
+      expect(screen.getByTestId('share-preview-iframe')).toBeInTheDocument();
+    });
+  });
+
+  it('test_iframe_sandbox_is_allow_scripts_only: sandbox attribute is exactly "allow-scripts" (no allow-same-origin — SEC-07 contract)', async () => {
+    const user = userEvent.setup();
+    setup({ enterprise: false, hasShareToken: false, hasNonPublic: true });
+
+    await generateShareLinkAndWait(user);
+    await user.click(screen.getByRole('button', { name: /preview/i }));
+
+    const iframe = await screen.findByTestId('share-preview-iframe');
+    expect(iframe.getAttribute('sandbox')).toBe('allow-scripts');
+    expect(iframe.getAttribute('sandbox')).not.toContain('allow-same-origin');
+  });
+
+  it('test_iframe_title_attribute_set: iframe has title="Map embed preview" (a11y)', async () => {
+    const user = userEvent.setup();
+    setup({ enterprise: false, hasShareToken: false, hasNonPublic: true });
+
+    await generateShareLinkAndWait(user);
+    await user.click(screen.getByRole('button', { name: /preview/i }));
+
+    const iframe = await screen.findByTestId('share-preview-iframe');
+    expect(iframe.getAttribute('title')).toBe('Map embed preview');
+  });
+
+  it('test_iframe_src_matches_embed_url_shape: src contains embed=true&et=<token>', async () => {
+    const user = userEvent.setup();
+    setup({ enterprise: false, hasShareToken: false, hasNonPublic: true });
+
+    await generateShareLinkAndWait(user);
+    await user.click(screen.getByRole('button', { name: /preview/i }));
+
+    const iframe = await screen.findByTestId('share-preview-iframe') as HTMLIFrameElement;
+    expect(iframe.src).toContain('embed=true');
+    expect(iframe.src).toContain('et=raw-token');
+    expect(iframe.src).toContain('/m/share-token');
+  });
+
+  it('test_security_indicator_footer_present: security indicator shows sandbox note below iframe container', async () => {
+    const user = userEvent.setup();
+    setup({ enterprise: false, hasShareToken: false, hasNonPublic: true });
+
+    await generateShareLinkAndWait(user);
+    await user.click(screen.getByRole('button', { name: /preview/i }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('share-preview-iframe')).toBeInTheDocument();
+    });
+
+    // Security indicator footer: contains sandbox note text
+    expect(screen.getByText(/sandbox="allow-scripts" only/)).toBeInTheDocument();
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/*  Pitfall #7: inflightEmbedCreate race guard                        */
+/* ------------------------------------------------------------------ */
+
+/* ------------------------------------------------------------------ */
+/*  SHARE-08: Copy Link emits /card URL; embed + Open unchanged        */
+/* ------------------------------------------------------------------ */
+
+describe('SHARE-08 Copy Link emits /card URL', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.useRealTimers();
+  });
+
+  it('Copy Link button writes the /card URL to the clipboard (not the /m/ viewer URL)', async () => {
+    const user = userEvent.setup();
+    const writeTextMock = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText: writeTextMock },
+      writable: true,
+      configurable: true,
+    });
+
+    // Generate a share token so rawShareToken = 'share-token'
+    setup({ enterprise: false, hasShareToken: false });
+    await generateShareLinkAndWait(user);
+
+    await user.click(screen.getByRole('button', { name: /copy link/i }));
+
+    await waitFor(() => {
+      expect(writeTextMock).toHaveBeenCalledOnce();
+    });
+    const [copiedUrl] = writeTextMock.mock.calls[0] as [string];
+    // Must match the /card URL shape
+    expect(copiedUrl).toMatch(/\/api\/maps\/shared\/[^/]+\/card/);
+    // Must NOT be the /m/ viewer URL
+    expect(copiedUrl).not.toMatch(/\/m\//);
+  });
+
+  it('embed code textarea still contains /m/ and embed=true (embed iframe src unchanged)', async () => {
+    const user = userEvent.setup();
+    setup({ enterprise: false, hasShareToken: false, hasNonPublic: true });
+    await generateShareLinkAndWait(user);
+
+    const textarea = screen.getByRole('textbox') as HTMLTextAreaElement;
+    expect(textarea.value).toContain('/m/share-token');
+    expect(textarea.value).toContain('embed=true');
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/*  SHARE-10: 2-weight typography system (font-semibold + font-medium) */
+/* ------------------------------------------------------------------ */
+
+describe('SHARE-10 font-weight hierarchy', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.useRealTimers();
+  });
+
+  it('rendered ShareDialog contains font-semibold (section headers) and no font-bold (no third weight)', async () => {
+    const user = userEvent.setup();
+    // hasShareToken: false so we generate a token, mounting the Share Link + Embed sections
+    setup({ enterprise: false, hasShareToken: false, hasNonPublic: true });
+    await generateShareLinkAndWait(user);
+
+    // Get the rendered dialog container
+    const dialog = document.querySelector('[role="dialog"]');
+    expect(dialog).not.toBeNull();
+
+    // At least one font-semibold element must exist (section headers)
+    const semiboldEls = dialog!.querySelectorAll('.font-semibold');
+    expect(semiboldEls.length).toBeGreaterThan(0);
+
+    // No font-bold — two-weight system enforced
+    const boldEls = dialog!.querySelectorAll('.font-bold');
+    expect(boldEls.length).toBe(0);
+  });
+});
+
+describe('Pitfall #7 inflightEmbedCreate race guard', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.useRealTimers();
+  });
+
+  it('test_pitfall_7_inflightEmbedCreate_dedupes_concurrent_calls: two concurrent Generate clicks fire createEmbedToken exactly once', async () => {
+    const user = userEvent.setup();
+
+    // Slow-resolving createEmbedToken so the race window is real (50ms).
+    // Both clicks arrive while the first promise is still in-flight.
+    const slowCreateEmbedToken = vi.fn().mockImplementation(
+      () => new Promise<{ id: string; raw_token: string; token_hint: string; expires_at: string; is_active: boolean }>(
+        (resolve) => setTimeout(() => resolve({
+          id: 'embed-2',
+          raw_token: 'raw-token',
+          token_hint: 'raw...',
+          expires_at: '2026-06-01T00:00:00Z',
+          is_active: true,
+        }), 50)
+      )
+    );
+
+    setup({
+      enterprise: false,
+      hasShareToken: false,
+      hasNonPublic: true,
+      createEmbedTokenFn: slowCreateEmbedToken,
+    });
+
+    const generateBtn = screen.getByRole('button', { name: /generate share link/i });
+
+    // Fire two clicks concurrently — the second arrives while the first is still in-flight.
+    // Promise.all ensures both clicks are initiated before either resolves.
+    await Promise.all([
+      user.click(generateBtn),
+      user.click(generateBtn),
+    ]);
+
+    // Wait for the token to fully resolve
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /copy link/i })).toBeInTheDocument();
+    });
+
+    // KEY ASSERTION: exactly ONE backend POST should have fired despite 2 clicks
+    expect(slowCreateEmbedToken).toHaveBeenCalledTimes(1);
+  });
+});

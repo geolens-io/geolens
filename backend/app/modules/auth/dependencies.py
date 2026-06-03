@@ -1,0 +1,319 @@
+"""FastAPI dependencies for JWT authentication and role-based access control."""
+
+import hashlib
+import uuid
+from datetime import datetime, timedelta, timezone
+from typing import Annotated
+
+import jwt
+from fastapi import Depends, HTTPException, Request, status
+from fastapi.security import OAuth2PasswordBearer
+from sqlalchemy import select, update
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.config import settings
+from app.core.dependencies import get_db
+from app.core.identity import Identity
+from app.modules.auth.models import ApiKey, User
+from app.modules.catalog.authorization import get_user_roles
+from app.platform.extensions import get_identity_extension, get_permission_extension
+
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
+oauth2_scheme_optional = OAuth2PasswordBearer(tokenUrl="/auth/login", auto_error=False)
+
+
+async def _resolve_api_key(request: Request, db: AsyncSession) -> User | None:
+    """Try to resolve a user from X-Api-Key header or api_key query parameter."""
+    api_key = request.headers.get("X-Api-Key")
+    if not api_key:
+        api_key = request.query_params.get("api_key")
+    if not api_key:
+        return None
+    key_hash = hashlib.sha256(api_key.encode()).hexdigest()
+    result = await db.execute(
+        select(ApiKey).where(ApiKey.key_hash == key_hash, ApiKey.is_active == True)  # noqa: E712
+    )
+    api_key_obj = result.scalar_one_or_none()
+    if api_key_obj is None:
+        return None
+    user = api_key_obj.user
+    if user is None or not user.is_active or user.status != "active":
+        return None
+    # Only update last_used_at if it's been more than 60 seconds (reduce write amplification).
+    # Use a separate session so we don't flush the request-scoped session early —
+    # an early commit on `db` would release advisory locks the route handler
+    # may still need, and would persist any uncommitted state from prior
+    # dependencies before the route's own logic decides whether to commit.
+    now = datetime.now(timezone.utc)
+    if api_key_obj.last_used_at is None or (now - api_key_obj.last_used_at) > timedelta(
+        seconds=60
+    ):
+        from app.core.db import async_session
+
+        api_key_id = api_key_obj.id
+        async with async_session() as side_session:
+            await side_session.execute(
+                update(ApiKey).where(ApiKey.id == api_key_id).values(last_used_at=now)
+            )
+            await side_session.commit()
+        api_key_obj.last_used_at = now
+    return user
+
+
+async def get_optional_user(
+    request: Request,
+    token: Annotated[str | None, Depends(oauth2_scheme_optional)],
+    db: AsyncSession = Depends(get_db),
+) -> Identity | None:
+    """Try to extract the current user from an API key or JWT token.
+
+    Returns None if no credentials are provided or they are invalid.
+    Used on endpoints that should be accessible anonymously (public datasets)
+    but can show additional data when authenticated.
+    """
+    # Try API key first
+    user = await _resolve_api_key(request, db)
+    if user is not None:
+        return user
+
+    # IdentityExtension hook (Phase 214 D-15): if an enterprise overlay
+    # registered an alternate identity backend, give it a chance to resolve
+    # the bearer token before the existing JWT decode path. Default impl
+    # returns None -> falls through to JWT below. Extension is bearer-token
+    # only (D-17 — API keys remain a community concern).
+    if token is not None:
+        ext_identity = await get_identity_extension().resolve_identity_from_token(
+            token, request, db
+        )
+        if ext_identity is not None:
+            return ext_identity
+
+    if token is None:
+        return None
+    try:
+        payload = jwt.decode(
+            token,
+            settings.jwt_secret_key.get_secret_value(),
+            algorithms=[settings.jwt_algorithm],
+        )
+        user_id_str: str | None = payload.get("sub")
+        if user_id_str is None:
+            return None
+    except jwt.PyJWTError:
+        return None
+
+    try:
+        user_id = uuid.UUID(user_id_str)
+    except (ValueError, AttributeError):
+        return None
+
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+
+    if user is None or not user.is_active or user.status != "active":
+        return None
+
+    # SEC-S15 (Phase 1062-01): reject stale access JWTs.
+    # A missing token_version claim (legacy / forged tokens) is treated as
+    # version 0, which is always less than the minimum stored version of 1.
+    jwt_token_version: int = payload.get("token_version", 0)
+    if jwt_token_version < user.token_version:
+        return None
+
+    return user
+
+
+async def get_current_user(
+    request: Request,
+    token: Annotated[str | None, Depends(oauth2_scheme_optional)],
+    db: AsyncSession = Depends(get_db),
+) -> Identity:
+    """Decode a JWT Bearer token (or API key) and return the corresponding User.
+
+    Raises 401 if credentials are invalid, expired, or the user does not exist.
+    Uses oauth2_scheme_optional so that X-Api-Key requests without a Bearer
+    token are not rejected before the function body runs.
+    """
+    # Try API key first
+    user = await _resolve_api_key(request, db)
+    if user is not None:
+        return user
+
+    # IdentityExtension hook (Phase 214 D-15): same pattern as
+    # get_optional_user. Duplicated across both deps to preserve the
+    # expired-token UX (RFC 6750 silent-refresh hint at lines below)
+    # rather than refactoring get_current_user to delegate to
+    # get_optional_user (Pitfall 9 recommendation).
+    if token is not None:
+        ext_identity = await get_identity_extension().resolve_identity_from_token(
+            token, request, db
+        )
+        if ext_identity is not None:
+            return ext_identity
+
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
+    if token is None:
+        raise credentials_exception
+
+    try:
+        payload = jwt.decode(
+            token,
+            settings.jwt_secret_key.get_secret_value(),
+            algorithms=[settings.jwt_algorithm],
+        )
+        user_id_str: str | None = payload.get("sub")
+        if user_id_str is None:
+            raise credentials_exception
+    except jwt.ExpiredSignatureError:
+        # Distinguish expired-token from invalid-token per RFC 6750 so the
+        # frontend can drive a silent refresh instead of forcing re-login.
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="The access token expired",
+            headers={
+                "WWW-Authenticate": (
+                    'Bearer error="invalid_token", '
+                    'error_description="The access token expired"'
+                )
+            },
+        )
+    except jwt.PyJWTError:
+        raise credentials_exception
+
+    try:
+        user_id = uuid.UUID(user_id_str)
+    except (ValueError, AttributeError):
+        raise credentials_exception
+
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+
+    if user is None or not user.is_active or user.status != "active":
+        raise credentials_exception
+
+    # SEC-S15 (Phase 1062-01): reject stale access JWTs.
+    # A missing token_version claim (legacy / forged tokens) is treated as
+    # version 0, which is always less than the minimum stored version of 1.
+    jwt_token_version: int = payload.get("token_version", 0)
+    if jwt_token_version < user.token_version:
+        raise credentials_exception
+
+    return user
+
+
+async def get_current_active_user(
+    current_user: Annotated[Identity, Depends(get_current_user)],
+) -> Identity:
+    """Ensure the current user is active."""
+    if not current_user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Inactive user",
+        )
+    return current_user
+
+
+async def get_cached_user_roles(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    user: Identity | None = Depends(get_optional_user),
+) -> set[str]:
+    """Return user roles, cached for the lifetime of this request.
+
+    Prevents repeated DB hits when require_role/require_permission are
+    called multiple times on the same request path.
+    """
+    if user is None:
+        return set()
+    cached = getattr(request.state, "_user_roles", None)
+    if cached is not None:
+        return cached
+    roles = await get_user_roles(db, user)
+    request.state._user_roles = roles
+    return roles
+
+
+def require_role(*roles: str):
+    """Factory that returns a dependency enforcing role-based access.
+
+    Usage::
+
+        @router.get("/admin", dependencies=[Depends(require_role("admin"))])
+        async def admin_only(): ...
+
+    The dependency resolves to the current User so endpoints can also
+    consume it as a parameter.
+    """
+
+    async def _role_checker(
+        request: Request,
+        current_user: Annotated[Identity, Depends(get_current_active_user)],
+        db: AsyncSession = Depends(get_db),
+    ) -> Identity:
+        user_roles = await get_cached_user_roles(request, db, current_user)
+
+        if not user_roles.intersection(roles):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Insufficient permissions",
+            )
+        return current_user
+
+    return _role_checker
+
+
+def require_permission(*capabilities: str):
+    """Factory that returns a dependency enforcing capability-based access.
+
+    Checks the permission matrix to see if ANY of the user's roles grants
+    the requested capabilities.
+
+    Usage::
+
+        @router.post("/upload", dependencies=[Depends(require_permission("upload"))])
+        async def upload(): ...
+    """
+
+    async def _permission_checker(
+        request: Request,
+        current_user: Annotated[Identity, Depends(get_current_active_user)],
+        db: AsyncSession = Depends(get_db),
+    ) -> Identity:
+        from app.modules.auth.permissions import get_effective_permissions
+
+        # Get user roles (cached per-request)
+        user_roles = await get_cached_user_roles(request, db, current_user)
+
+        # Get effective permission matrix (cached per-request)
+        cached = getattr(request.state, "_effective_permissions", None)
+        if cached is not None:
+            matrix = cached
+        else:
+            matrix = await get_effective_permissions(db)
+            request.state._effective_permissions = matrix
+
+        permission_ext = get_permission_extension()
+
+        # Check each requested capability
+        for cap in capabilities:
+            granted = await permission_ext.check_permission(
+                db,
+                current_user,
+                cap,
+                user_roles=user_roles,
+                permission_matrix=matrix,
+            )
+            if not granted:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail=f"Missing permission: {cap}",
+                )
+
+        return current_user
+
+    return _permission_checker

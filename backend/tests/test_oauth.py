@@ -1,0 +1,1097 @@
+"""Tests for OAuth/OIDC integration (Phase 118)."""
+
+import uuid
+
+import pytest
+from sqlalchemy import select
+
+
+# ---------------------------------------------------------------------------
+# Edition-state isolation (D-10)
+# Mirrors backend/tests/test_edition.py:11-22. Local autouse fixture so
+# edition mutations in tests do not leak across the module.
+# ---------------------------------------------------------------------------
+
+
+def _reset_edition():
+    """Reset edition singleton to pristine community state."""
+    import app.core.edition as ed_mod
+
+    ed_mod._info = None
+
+
+@pytest.fixture(autouse=True)
+def _clean_edition():
+    _reset_edition()
+    yield
+    _reset_edition()
+
+
+# ---------------------------------------------------------------------------
+# Phase 1099 / OAUTH-01/02/03: client_session fixture override (D-04a)
+#
+# test_db_session opens a SEPARATE asyncpg connection from client's
+# override_get_db (each NullPool session_factory() call yields a fresh
+# connection). Under -n 4 / -n auto, the client's connection may have an
+# in-progress READ COMMITTED snapshot taken BEFORE test_db_session.commit(),
+# so the new OAuth provider is invisible to the subsequent client.get(...)
+# → 404 instead of the expected 302.
+#
+# client_session resolves the SAME override_get_db factory client uses, so
+# commit() is immediately visible to the subsequent client.get(...). This is
+# the smallest-blast-radius fix per D-04a (test-isolation layer only; no
+# production-code change per D-02 + D-07c; no broader fixture refactor
+# per D-07b).
+#
+# See .planning/phases/1099-oauth-parallel-mode-stabilization/1099-01-SUMMARY.md
+# for the T2 diagnostic findings + verify-gate evidence.
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+async def client_session(client):
+    """Yield an async session that shares client's override_get_db factory.
+
+    Forces single-factory writes-then-reads so commit() is immediately
+    visible to subsequent client.get() calls under -n 4 / -n auto. Replaces
+    test_db_session for OAUTH-01/02/03 (Phase 1099) where direct DB writes
+    and HTTP requests in the same test body race the connection-pool
+    snapshot under parallel mode.
+
+    Per D-04a (Phase 1099 CONTEXT.md): smallest blast radius — only this
+    file changes; sibling tests in test_oauth.py keep test_db_session.
+
+    Implementation note: httpx AsyncClient does not expose .app directly;
+    we import the FastAPI app from app.api.main (same import path used by
+    the `client` fixture in conftest.py:1312). The `client` parameter is
+    declared to enforce fixture ordering so dependency_overrides[get_db]
+    is installed before this fixture resolves the override.
+    """
+    from app.core.dependencies import get_db
+    from app.api.main import app
+
+    overridden_get_db = app.dependency_overrides[get_db]
+    async for session in overridden_get_db():
+        yield session
+
+
+# ---------------------------------------------------------------------------
+# Phase 1099 T3-iter-2 / OAUTH-01/02/03: ensure public_app_url is configured
+#
+# The OAuth login + callback handlers call get_public_app_url(..., for_external_use=True)
+# which raises PublicUrlNotConfiguredError when settings.public_app_url is None
+# (the v13.12 SEC-13 / H-27 hardening — refuses to fall back to request-origin
+# for external-use URLs to prevent X-Forwarded-Host hijacking).
+#
+# In full sequential pytest, these 3 OAuth tests "accidentally" passed because
+# an earlier test (somewhere in test_dataset_metadata_idor.py family) primed
+# the _PUBLIC_URL_CACHE module-global. Under -n 4 / -n auto, the worker that
+# runs the OAuth tests may NOT be the same worker that ran the priming test,
+# so the cache is empty and OAuth callback returns 500.
+#
+# `_ensure_public_app_url` fixture pins settings.public_app_url for the duration
+# of the 3 OAuth callback/login tests, making them self-contained regardless
+# of test-order or worker scheduling. This is the Rule 1 inline iteration over
+# the initial D-04a-only fix (commit f57f1a76), since the T4 verify gate
+# surfaced that the snapshot gap was NOT the actual root cause — the actual
+# root cause is the order-dependent public_app_url priming.
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def _ensure_public_app_url(monkeypatch):
+    """Set settings.public_app_url so OAuth login/callback handlers don't 500.
+
+    OAuth's get_public_app_url(for_external_use=True) requires explicit
+    PUBLIC_APP_URL configuration per Phase 268 H-27 / SEC-13. This fixture
+    pins it to a test URL for the 3 OAuth callback/login tests so they are
+    deterministic across sequential, -n 4, and -n auto modes (Phase 1099
+    OAUTH-01/02/03).
+    """
+    import app.core.public_urls as public_urls
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "public_app_url", "http://test", raising=False)
+    monkeypatch.setattr(settings, "public_api_url", "http://test/api", raising=False)
+    # Reset the module-global URL cache so the next call re-reads from settings
+    # (the cache may have been populated by an earlier test in this process
+    # with whatever happened to be in settings at that moment).
+    saved = public_urls._PUBLIC_URL_CACHE
+    public_urls._PUBLIC_URL_CACHE = None
+    yield
+    public_urls._PUBLIC_URL_CACHE = saved
+
+
+# ---------------------------------------------------------------------------
+# OAUTH-02: Encryption roundtrip
+# ---------------------------------------------------------------------------
+
+
+class TestSecretEncryption:
+    def test_encrypt_returns_different_string(self):
+        from app.modules.auth.oauth.encryption import encrypt_secret
+
+        result = encrypt_secret("my-secret")
+        assert result != "my-secret"
+        assert len(result) > 0
+
+    def test_decrypt_roundtrip(self):
+        from app.modules.auth.oauth.encryption import decrypt_secret, encrypt_secret
+
+        original = "my-secret"
+        encrypted = encrypt_secret(original)
+        assert decrypt_secret(encrypted) == original
+
+    def test_encryption_key_derived_via_hkdf(self):
+        """Key derivation uses HKDF, not raw JWT secret."""
+        from app.modules.auth.oauth.encryption import _get_fernet
+        from app.core.config import settings
+
+        fernet = _get_fernet()
+        # The Fernet key should NOT be a simple encoding of jwt_secret_key
+        import base64
+
+        raw_key = base64.urlsafe_b64encode(
+            settings.jwt_secret_key.get_secret_value().encode()[:32].ljust(32, b"\x00")
+        )
+        assert fernet._signing_key != raw_key[:16]
+
+
+# ---------------------------------------------------------------------------
+# Models: OAuthProvider columns
+# ---------------------------------------------------------------------------
+
+
+class TestOAuthProviderModel:
+    def test_has_required_columns(self):
+        from app.modules.auth.oauth.models import OAuthProvider
+
+        mapper = OAuthProvider.__table__
+        col_names = {c.name for c in mapper.columns}
+        expected = {
+            "id",
+            "slug",
+            "display_name",
+            "provider_type",
+            "client_id",
+            "client_secret_encrypted",
+            "discovery_url",
+            "authorize_url",
+            "token_url",
+            "userinfo_url",
+            "scopes",
+            "default_role",
+            "group_claim",
+            "group_role_mapping",
+            "enabled",
+            "created_at",
+            "updated_at",
+        }
+        assert expected.issubset(col_names), f"Missing: {expected - col_names}"
+
+
+class TestOAuthAccountModel:
+    def test_has_unique_constraint(self):
+        from app.modules.auth.oauth.models import OAuthAccount
+
+        table = OAuthAccount.__table__
+        constraints = [
+            c.name for c in table.constraints if hasattr(c, "name") and c.name
+        ]
+        assert "uq_oauth_account_provider_subject" in constraints
+
+    def test_has_provider_and_user_fks(self):
+        from app.modules.auth.oauth.models import OAuthAccount
+
+        col_names = {c.name for c in OAuthAccount.__table__.columns}
+        assert "provider_id" in col_names
+        assert "user_id" in col_names
+        assert "subject" in col_names
+
+
+class TestUserAuthProviderColumn:
+    def test_user_has_auth_provider(self):
+        from app.modules.auth.models import User
+
+        col_names = {c.name for c in User.__table__.columns}
+        assert "auth_provider" in col_names
+
+    def test_auth_provider_defaults_to_local(self):
+        from app.modules.auth.models import User
+
+        col = User.__table__.c.auth_provider
+        assert col.server_default is not None
+        assert "local" in str(col.server_default.arg)
+
+
+# ---------------------------------------------------------------------------
+# OAUTH-01: CRUD service tests
+# ---------------------------------------------------------------------------
+
+
+class TestOAuthProviderCRUD:
+    """Test provider CRUD operations via service layer."""
+
+    async def test_create_provider_encrypts_secret(self, client, test_db_session):
+        from app.modules.auth.oauth.schemas import OAuthProviderCreate
+        from app.modules.auth.oauth.service import create_provider
+
+        data = OAuthProviderCreate(
+            slug="test-google",
+            display_name="Google",
+            provider_type="google",
+            client_id="google-client-id",
+            client_secret="super-secret-123",
+            discovery_url="https://accounts.google.com/.well-known/openid-configuration",
+        )
+        provider = await create_provider(test_db_session, data)
+
+        assert provider.slug == "test-google"
+        assert provider.client_id == "google-client-id"
+        # Secret must be encrypted, not stored in plaintext
+        assert provider.client_secret_encrypted != "super-secret-123"
+        assert len(provider.client_secret_encrypted) > 0
+
+    async def test_get_provider_by_slug(self, client, test_db_session):
+        from app.modules.auth.oauth.schemas import OAuthProviderCreate
+        from app.modules.auth.oauth.service import create_provider, get_provider_by_slug
+
+        data = OAuthProviderCreate(
+            slug=f"slug-test-{uuid.uuid4().hex[:6]}",
+            display_name="Test Provider",
+            provider_type="oidc",
+            client_id="test-client",
+            client_secret="test-secret",
+        )
+        created = await create_provider(test_db_session, data)
+
+        found = await get_provider_by_slug(test_db_session, data.slug)
+        assert found is not None
+        assert found.id == created.id
+        assert found.slug == data.slug
+
+    async def test_get_provider_by_slug_not_found(self, client, test_db_session):
+        from app.modules.auth.oauth.service import get_provider_by_slug
+
+        result = await get_provider_by_slug(test_db_session, "nonexistent")
+        assert result is None
+
+    async def test_update_provider_re_encrypts_secret(self, client, test_db_session):
+        from app.modules.auth.oauth.encryption import decrypt_secret
+        from app.modules.auth.oauth.schemas import (
+            OAuthProviderCreate,
+            OAuthProviderUpdate,
+        )
+        from app.modules.auth.oauth.service import create_provider, update_provider
+
+        data = OAuthProviderCreate(
+            slug=f"update-test-{uuid.uuid4().hex[:6]}",
+            display_name="Update Test",
+            provider_type="oidc",
+            client_id="old-client",
+            client_secret="old-secret",
+        )
+        provider = await create_provider(test_db_session, data)
+        old_encrypted = provider.client_secret_encrypted
+
+        update_data = OAuthProviderUpdate(
+            client_secret="new-secret",
+            display_name="Updated Name",
+        )
+        updated = await update_provider(test_db_session, provider, update_data)
+
+        assert updated.display_name == "Updated Name"
+        assert updated.client_secret_encrypted != old_encrypted
+        assert decrypt_secret(updated.client_secret_encrypted) == "new-secret"
+
+    async def test_delete_provider(self, client, test_db_session):
+        from app.modules.auth.oauth.schemas import OAuthProviderCreate
+        from app.modules.auth.oauth.service import (
+            create_provider,
+            delete_provider,
+            get_provider_by_slug,
+        )
+
+        data = OAuthProviderCreate(
+            slug=f"delete-test-{uuid.uuid4().hex[:6]}",
+            display_name="Delete Test",
+            provider_type="oidc",
+            client_id="del-client",
+            client_secret="del-secret",
+        )
+        provider = await create_provider(test_db_session, data)
+        slug = provider.slug
+
+        await delete_provider(test_db_session, provider)
+        result = await get_provider_by_slug(test_db_session, slug)
+        assert result is None
+
+    async def test_list_enabled_providers(self, client, test_db_session):
+        from app.modules.auth.oauth.schemas import OAuthProviderCreate
+        from app.modules.auth.oauth.service import create_provider, list_providers
+
+        suffix = uuid.uuid4().hex[:6]
+        # Create enabled provider
+        enabled_data = OAuthProviderCreate(
+            slug=f"enabled-{suffix}",
+            display_name="Enabled",
+            provider_type="google",
+            client_id="en-client",
+            client_secret="en-secret",
+            enabled=True,
+        )
+        await create_provider(test_db_session, enabled_data)
+
+        # Create disabled provider
+        disabled_data = OAuthProviderCreate(
+            slug=f"disabled-{suffix}",
+            display_name="Disabled",
+            provider_type="microsoft",
+            client_id="dis-client",
+            client_secret="dis-secret",
+            enabled=False,
+        )
+        await create_provider(test_db_session, disabled_data)
+
+        enabled_list = await list_providers(test_db_session, enabled_only=True)
+        enabled_slugs = {p.slug for p in enabled_list}
+        assert f"enabled-{suffix}" in enabled_slugs
+        assert f"disabled-{suffix}" not in enabled_slugs
+
+    async def test_crud_lifecycle(self, client, test_db_session):
+        """Full CRUD lifecycle: create -> read -> update -> delete."""
+        from app.modules.auth.oauth.encryption import decrypt_secret
+        from app.modules.auth.oauth.schemas import (
+            OAuthProviderCreate,
+            OAuthProviderUpdate,
+        )
+        from app.modules.auth.oauth.service import (
+            create_provider,
+            delete_provider,
+            get_provider_by_slug,
+            update_provider,
+        )
+
+        slug = f"lifecycle-{uuid.uuid4().hex[:6]}"
+
+        # Create
+        provider = await create_provider(
+            test_db_session,
+            OAuthProviderCreate(
+                slug=slug,
+                display_name="Lifecycle",
+                provider_type="oidc",
+                client_id="lc-client",
+                client_secret="lc-secret",
+            ),
+        )
+        assert provider.id is not None
+        assert decrypt_secret(provider.client_secret_encrypted) == "lc-secret"
+
+        # Read
+        found = await get_provider_by_slug(test_db_session, slug)
+        assert found is not None
+        assert found.id == provider.id
+
+        # Update
+        updated = await update_provider(
+            test_db_session,
+            found,
+            OAuthProviderUpdate(display_name="Updated Lifecycle"),
+        )
+        assert updated.display_name == "Updated Lifecycle"
+
+        # Delete
+        await delete_provider(test_db_session, updated)
+        assert await get_provider_by_slug(test_db_session, slug) is None
+
+    async def test_encryption_roundtrip_in_crud(self, client, test_db_session):
+        """Verify encrypt/decrypt works through the full CRUD path."""
+        from app.modules.auth.oauth.encryption import decrypt_secret
+        from app.modules.auth.oauth.schemas import OAuthProviderCreate
+        from app.modules.auth.oauth.service import create_provider
+
+        secret = "my-super-secret-client-key-12345"
+        provider = await create_provider(
+            test_db_session,
+            OAuthProviderCreate(
+                slug=f"enc-roundtrip-{uuid.uuid4().hex[:6]}",
+                display_name="Enc Test",
+                provider_type="google",
+                client_id="enc-client",
+                client_secret=secret,
+            ),
+        )
+
+        # Encrypted value in DB is not plaintext
+        assert provider.client_secret_encrypted != secret
+        # Decrypted value matches original
+        assert decrypt_secret(provider.client_secret_encrypted) == secret
+
+
+# ---------------------------------------------------------------------------
+# Schema tests
+# ---------------------------------------------------------------------------
+
+
+class TestOAuthSchemas:
+    def test_response_excludes_client_secret(self):
+        from app.modules.auth.oauth.schemas import OAuthProviderResponse
+
+        field_names = set(OAuthProviderResponse.model_fields.keys())
+        assert "client_secret" not in field_names
+        assert "client_secret_encrypted" not in field_names
+        assert "client_id" in field_names
+
+    def test_public_schema_minimal(self):
+        from app.modules.auth.oauth.schemas import OAuthProviderPublic
+
+        field_names = set(OAuthProviderPublic.model_fields.keys())
+        assert field_names == {"slug", "display_name", "provider_type"}
+
+
+# ---------------------------------------------------------------------------
+# OAUTH-04 through OAUTH-07: OAuth flow tests
+# ---------------------------------------------------------------------------
+
+
+class TestFindOrCreateOAuthUser:
+    """Test user find-or-create logic for OAuth login."""
+
+    async def _create_test_provider(self, db, **overrides):
+        """Helper: create an OAuthProvider in the test DB."""
+        from app.modules.auth.oauth.schemas import OAuthProviderCreate
+        from app.modules.auth.oauth.service import create_provider
+
+        suffix = uuid.uuid4().hex[:6]
+        defaults = dict(
+            slug=f"test-provider-{suffix}",
+            display_name="Test Provider",
+            provider_type="oidc",
+            client_id=f"client-{suffix}",
+            client_secret="test-secret",
+            enabled=True,
+            default_role="viewer",
+        )
+        defaults.update(overrides)
+        return await create_provider(db, OAuthProviderCreate(**defaults))
+
+    async def test_auto_create_user(self, client, test_db_session):
+        """OAUTH-05: New verified email auto-creates user with default role
+        and auth_provider='oauth'. Phase 268 H-30: email_verified=True is
+        required for the email to be claimed on the new user."""
+        from app.modules.auth.oauth.service import find_or_create_oauth_user
+
+        provider = await self._create_test_provider(test_db_session)
+        await test_db_session.commit()
+
+        userinfo = {
+            "sub": "new-user-sub-123",
+            "email": f"newuser-{uuid.uuid4().hex[:6]}@example.com",
+            "email_verified": True,  # H-30: required for email to persist
+            "name": "New User",
+        }
+        user = await find_or_create_oauth_user(test_db_session, provider, userinfo, {})
+        await test_db_session.commit()
+
+        assert user is not None
+        assert user.email == userinfo["email"]
+        assert user.auth_provider == "oauth"
+        assert user.password_hash is None
+        assert user.is_active is True
+        assert user.status == "active"
+
+        # Should have the provider's default_role
+        role_names = {r.name for r in user.roles}
+        assert "viewer" in role_names
+
+    async def test_email_linking(self, client, test_db_session):
+        """OAUTH-06: OAuth login with existing email + verified email links
+        to existing user. Phase 268 H-30: also requires email_verified=True."""
+        from app.modules.auth.models import User
+        from app.modules.auth.oauth.models import OAuthAccount
+        from app.modules.auth.oauth.service import find_or_create_oauth_user
+        from app.modules.auth.providers.local import hash_password
+
+        email = f"existing-{uuid.uuid4().hex[:6]}@example.com"
+
+        # Create local user first
+        local_user = User(
+            username=f"localuser-{uuid.uuid4().hex[:6]}",
+            email=email,
+            password_hash=hash_password("password123"),
+            is_active=True,
+            status="active",
+            auth_provider="local",
+        )
+        test_db_session.add(local_user)
+        await test_db_session.flush()
+
+        provider = await self._create_test_provider(test_db_session)
+        await test_db_session.commit()
+
+        userinfo = {
+            "sub": "existing-user-sub-456",
+            "email": email,
+            "email_verified": True,  # H-30: required for auto-link
+            "name": "Existing User",
+        }
+        user = await find_or_create_oauth_user(test_db_session, provider, userinfo, {})
+        await test_db_session.commit()
+
+        # Should be the same user, not a new one
+        assert user.id == local_user.id
+        assert user.email == email
+
+        # Should have created an OAuthAccount link
+        result = await test_db_session.execute(
+            select(OAuthAccount).where(
+                OAuthAccount.provider_id == provider.id,
+                OAuthAccount.user_id == local_user.id,
+            )
+        )
+        link = result.scalar_one_or_none()
+        assert link is not None
+        assert link.subject == "existing-user-sub-456"
+
+    async def test_email_linking_blocked_when_email_unverified_with_collision(
+        self, client, test_db_session
+    ):
+        """Phase 268 H-30: an OAuth login with an existing-email collision
+        but email_verified=False MUST be refused entirely (raises
+        OAuthEmailUnverifiedError) — neither auto-linking the victim's
+        account nor creating a new account with the duplicate email."""
+        from app.modules.auth.models import User
+        from app.modules.auth.oauth.service import (
+            OAuthEmailUnverifiedError,
+            find_or_create_oauth_user,
+        )
+        from app.modules.auth.providers.local import hash_password
+
+        email = f"victim-{uuid.uuid4().hex[:6]}@example.com"
+
+        local_user = User(
+            username=f"victim-{uuid.uuid4().hex[:6]}",
+            email=email,
+            password_hash=hash_password("password123"),
+            is_active=True,
+            status="active",
+            auth_provider="local",
+        )
+        test_db_session.add(local_user)
+        await test_db_session.flush()
+
+        provider = await self._create_test_provider(test_db_session)
+        await test_db_session.commit()
+
+        # Attacker's IdP-side userinfo with the same email but UNVERIFIED.
+        userinfo = {
+            "sub": "attacker-sub-999",
+            "email": email,
+            "email_verified": False,
+            "name": "Attacker",
+        }
+
+        with pytest.raises(OAuthEmailUnverifiedError):
+            await find_or_create_oauth_user(test_db_session, provider, userinfo, {})
+
+    async def test_email_linking_blocked_when_email_verified_missing(
+        self, client, test_db_session
+    ):
+        """Phase 268 H-30: missing email_verified claim is treated the same
+        as email_verified=False — collision case raises."""
+        from app.modules.auth.models import User
+        from app.modules.auth.oauth.service import (
+            OAuthEmailUnverifiedError,
+            find_or_create_oauth_user,
+        )
+        from app.modules.auth.providers.local import hash_password
+
+        email = f"missing-claim-{uuid.uuid4().hex[:6]}@example.com"
+
+        local_user = User(
+            username=f"victim2-{uuid.uuid4().hex[:6]}",
+            email=email,
+            password_hash=hash_password("password123"),
+            is_active=True,
+            status="active",
+            auth_provider="local",
+        )
+        test_db_session.add(local_user)
+        await test_db_session.flush()
+
+        provider = await self._create_test_provider(test_db_session)
+        await test_db_session.commit()
+
+        # Note: no `email_verified` key at all
+        userinfo = {
+            "sub": "missing-claim-sub",
+            "email": email,
+            "name": "Unknown Verification",
+        }
+        with pytest.raises(OAuthEmailUnverifiedError):
+            await find_or_create_oauth_user(test_db_session, provider, userinfo, {})
+
+    async def test_unverified_email_no_collision_creates_user_without_email(
+        self, client, test_db_session
+    ):
+        """Phase 268 H-30: when no local user has the unverified email,
+        create the new user without claiming that email (set email=None).
+        Allows IdPs that don't set email_verified to still be usable for
+        net-new accounts without the auto-link risk."""
+        from app.modules.auth.oauth.service import find_or_create_oauth_user
+
+        provider = await self._create_test_provider(test_db_session)
+        await test_db_session.commit()
+
+        # No local user with this email.
+        new_email = f"newuser-h30-{uuid.uuid4().hex[:6]}@example.com"
+        userinfo = {
+            "sub": "h30-new-user-sub",
+            "email": new_email,
+            # email_verified intentionally omitted
+            "name": "New User No Verification",
+        }
+        user = await find_or_create_oauth_user(test_db_session, provider, userinfo, {})
+        await test_db_session.commit()
+
+        assert user is not None
+        # The user is created but does NOT claim the unverified email.
+        assert user.email is None, (
+            f"H-30: expected email=None but got {user.email!r} — the "
+            "validator allowed an unverified email to be claimed."
+        )
+
+    async def test_existing_oauth_link_returns_user(self, client, test_db_session):
+        """Returning OAuth user with existing link returns the linked user directly."""
+        from app.modules.auth.oauth.service import find_or_create_oauth_user
+
+        provider = await self._create_test_provider(test_db_session)
+        await test_db_session.commit()
+
+        userinfo = {
+            "sub": f"returning-sub-{uuid.uuid4().hex[:6]}",
+            "email": f"returning-{uuid.uuid4().hex[:6]}@example.com",
+            "name": "Returning User",
+        }
+
+        # First login creates user
+        user1 = await find_or_create_oauth_user(test_db_session, provider, userinfo, {})
+        await test_db_session.commit()
+
+        # Second login returns same user
+        user2 = await find_or_create_oauth_user(test_db_session, provider, userinfo, {})
+        await test_db_session.commit()
+
+        assert user1.id == user2.id
+
+    async def test_group_role_mapping_community_uses_default_role(
+        self, client, test_db_session
+    ):
+        """OAUTH-07 community: Group mapping present in DB is IGNORED; default_role applied.
+
+        Provider is seeded via direct ORM (NOT _create_test_provider) to bypass
+        the new D-01 schema validator and simulate a legacy/direct-DB row.
+        This tests the service-layer defense-in-depth gate (D-08, RESEARCH Pitfall 2).
+        """
+        from app.modules.auth.oauth.models import OAuthProvider
+        from app.modules.auth.oauth.service import find_or_create_oauth_user
+        from app.modules.auth.oauth.encryption import encrypt_secret
+
+        suffix = uuid.uuid4().hex[:6]
+        provider = OAuthProvider(
+            slug=f"grp-community-{suffix}",
+            display_name="Group Community Provider",
+            provider_type="oidc",
+            client_id=f"client-{suffix}",
+            client_secret_encrypted=encrypt_secret("test-secret"),
+            scopes="openid profile email",
+            default_role="viewer",
+            group_claim="groups",
+            group_role_mapping={"admins": "admin", "editors": "editor"},
+            enabled=True,
+        )
+        test_db_session.add(provider)
+        await test_db_session.flush()
+        await test_db_session.commit()
+
+        userinfo = {
+            "sub": f"group-community-sub-{uuid.uuid4().hex[:6]}",
+            "email": f"groupcommunity-{uuid.uuid4().hex[:6]}@example.com",
+            "name": "Group Community User",
+            "groups": ["admins", "other-group"],
+        }
+        user = await find_or_create_oauth_user(test_db_session, provider, userinfo, {})
+        await test_db_session.commit()
+
+        # In community, mapping is ignored — must get default_role ("viewer"), NOT "admin"
+        role_names = {r.name for r in user.roles}
+        assert "viewer" in role_names
+        assert "admin" not in role_names
+
+    async def test_group_role_mapping_enterprise_applies_mapping(
+        self, client, test_db_session
+    ):
+        """OAUTH-07 enterprise: Group claims in userinfo map to GeoLens roles.
+
+        Initialises enterprise edition so _resolve_role() is invoked (D-08).
+        Provider is seeded via direct ORM to bypass the schema validator
+        (which would also accept in enterprise, but ORM is cleaner for isolation).
+        """
+        from app.core.edition import init_edition
+        from app.modules.auth.oauth.models import OAuthProvider
+        from app.modules.auth.oauth.service import find_or_create_oauth_user
+        from app.modules.auth.oauth.encryption import encrypt_secret
+
+        init_edition(["enterprise"])
+
+        suffix = uuid.uuid4().hex[:6]
+        provider = OAuthProvider(
+            slug=f"grp-enterprise-{suffix}",
+            display_name="Group Enterprise Provider",
+            provider_type="oidc",
+            client_id=f"client-{suffix}",
+            client_secret_encrypted=encrypt_secret("test-secret"),
+            scopes="openid profile email",
+            default_role="viewer",
+            group_claim="groups",
+            group_role_mapping={"admins": "admin", "editors": "editor"},
+            enabled=True,
+        )
+        test_db_session.add(provider)
+        await test_db_session.flush()
+        await test_db_session.commit()
+
+        userinfo = {
+            "sub": f"group-enterprise-sub-{uuid.uuid4().hex[:6]}",
+            "email": f"groupenterprise-{uuid.uuid4().hex[:6]}@example.com",
+            "name": "Group Enterprise User",
+            "groups": ["admins", "other-group"],
+        }
+        user = await find_or_create_oauth_user(test_db_session, provider, userinfo, {})
+        await test_db_session.commit()
+
+        # In enterprise, mapping is applied — "admins" group maps to "admin" role
+        role_names = {r.name for r in user.roles}
+        assert "admin" in role_names
+
+    async def test_username_collision_handled(self, client, test_db_session):
+        """Auto-generated username handles collisions by appending random suffix."""
+        from app.modules.auth.models import User
+        from app.modules.auth.oauth.service import find_or_create_oauth_user
+        from app.modules.auth.providers.local import hash_password
+
+        # Create a user with the username that would be derived from email
+        base_username = f"collision-{uuid.uuid4().hex[:4]}"
+        existing = User(
+            username=base_username,
+            password_hash=hash_password("pass"),
+            is_active=True,
+            status="active",
+        )
+        test_db_session.add(existing)
+        await test_db_session.flush()
+
+        provider = await self._create_test_provider(test_db_session)
+        await test_db_session.commit()
+
+        userinfo = {
+            "sub": f"collision-sub-{uuid.uuid4().hex[:6]}",
+            "email": f"{base_username}@example.com",
+            "email_verified": True,  # H-30: required so email drives username
+            "name": "Collision User",
+        }
+        user = await find_or_create_oauth_user(test_db_session, provider, userinfo, {})
+        await test_db_session.commit()
+
+        # Should have created a new user with a suffixed username
+        assert user.id != existing.id
+        assert user.username.startswith(base_username)
+        assert len(user.username) > len(base_username)
+
+
+# ---------------------------------------------------------------------------
+# Schema-validator gate tests (D-09)
+# ---------------------------------------------------------------------------
+
+
+class TestIdpRoleMappingGate:
+    """Schema-layer gate: OAuthProviderCreate/Update reject IdP mapping in community.
+
+    Edition state is reset before/after every test by the module-level
+    _clean_edition autouse fixture (D-10).
+    """
+
+    def _create_payload(self, **overrides):
+        """Base community-safe create payload."""
+        import uuid as _uuid
+
+        suffix = _uuid.uuid4().hex[:6]
+        return (
+            dict(
+                slug=f"gate-test-{suffix}",
+                display_name="Gate Test Provider",
+                provider_type="oidc",
+                client_id=f"client-{suffix}",
+                client_secret="test-secret",
+                enabled=True,
+            )
+            | overrides
+        )
+
+    def test_create_rejects_group_claim_in_community(self):
+        """OAuthProviderCreate raises ValueError for group_claim in community edition."""
+        import pytest as _pytest
+        from pydantic import ValidationError
+        from app.modules.auth.oauth.schemas import OAuthProviderCreate
+
+        with _pytest.raises(ValidationError) as exc_info:
+            OAuthProviderCreate(**self._create_payload(group_claim="groups"))
+
+        assert "Group-based role mapping requires the enterprise overlay" in str(
+            exc_info.value
+        )
+
+    def test_create_rejects_group_role_mapping_in_community(self):
+        """OAuthProviderCreate raises ValueError for non-empty group_role_mapping in community."""
+        import pytest as _pytest
+        from pydantic import ValidationError
+        from app.modules.auth.oauth.schemas import OAuthProviderCreate
+
+        with _pytest.raises(ValidationError) as exc_info:
+            OAuthProviderCreate(
+                **self._create_payload(group_role_mapping={"admins": "admin"})
+            )
+
+        assert "Group-based role mapping requires the enterprise overlay" in str(
+            exc_info.value
+        )
+
+    def test_create_accepts_group_mapping_in_enterprise(self):
+        """OAuthProviderCreate accepts group_claim + group_role_mapping in enterprise."""
+        from app.core.edition import init_edition
+        from app.modules.auth.oauth.schemas import OAuthProviderCreate
+
+        init_edition(["enterprise"])
+
+        schema = OAuthProviderCreate(
+            **self._create_payload(
+                group_claim="groups",
+                group_role_mapping={"admins": "admin"},
+            )
+        )
+        assert schema.group_claim == "groups"
+        assert schema.group_role_mapping == {"admins": "admin"}
+
+    def test_update_rejects_group_role_mapping_in_community(self):
+        """OAuthProviderUpdate raises ValueError for non-empty group_role_mapping in community."""
+        import pytest as _pytest
+        from pydantic import ValidationError
+        from app.modules.auth.oauth.schemas import OAuthProviderUpdate
+
+        with _pytest.raises(ValidationError) as exc_info:
+            OAuthProviderUpdate(group_role_mapping={"admins": "admin"})
+
+        assert "Group-based role mapping requires the enterprise overlay" in str(
+            exc_info.value
+        )
+
+    def test_create_with_empty_mapping_allowed_in_community(self):
+        """Empty group_role_mapping ({}) is accepted in community (D-02 clear-mapping carve-out)."""
+        from app.modules.auth.oauth.schemas import OAuthProviderCreate
+
+        schema = OAuthProviderCreate(**self._create_payload(group_role_mapping={}))
+        assert schema.group_role_mapping == {}
+
+    def test_update_with_none_group_claim_allowed_in_community(self):
+        """group_claim=None (default) in OAuthProviderUpdate is accepted in community."""
+        from app.modules.auth.oauth.schemas import OAuthProviderUpdate
+
+        # No group_claim set — should not raise
+        schema = OAuthProviderUpdate(display_name="Updated Name")
+        assert schema.group_claim is None
+
+
+class TestOAuthLoginEndpoint:
+    """Test the GET /auth/oauth/{slug}/login endpoint."""
+
+    async def test_oauth_login_redirect(
+        self, client, client_session, _ensure_public_app_url
+    ):
+        """OAUTH-04: Login endpoint returns redirect to IdP.
+
+        Phase 1099 / OAUTH-03: uses client_session (shares client's
+        override_get_db factory) so commit() is immediately visible to
+        the subsequent client.get(...) under -n 4 / -n auto. The
+        _ensure_public_app_url fixture pins settings.public_app_url so
+        the test is self-contained regardless of test order (the OAuth
+        for_external_use=True path refuses request-origin fallback per
+        SEC-13 / H-27).
+        """
+        from app.modules.auth.oauth.schemas import OAuthProviderCreate
+        from app.modules.auth.oauth.service import create_provider
+
+        suffix = uuid.uuid4().hex[:6]
+        data = OAuthProviderCreate(
+            slug=f"login-test-{suffix}",
+            display_name="Login Test",
+            provider_type="oidc",
+            client_id=f"client-{suffix}",
+            client_secret="test-secret",
+            authorize_url="https://idp.example.com/authorize",
+            token_url="https://idp.example.com/token",
+            userinfo_url="https://idp.example.com/userinfo",
+            enabled=True,
+        )
+        await create_provider(client_session, data)
+        await client_session.commit()
+
+        resp = await client.get(
+            f"/auth/oauth/login-test-{suffix}/login",
+            follow_redirects=False,
+        )
+        # Should redirect (302/307) to the IdP authorize URL
+        assert resp.status_code in (302, 307)
+        location = resp.headers.get("location", "")
+        assert "idp.example.com/authorize" in location
+        # PKCE: should contain code_challenge param
+        assert "code_challenge" in location
+
+    async def test_oauth_login_not_found(self, client):
+        """Login with nonexistent provider returns 404."""
+        resp = await client.get(
+            "/auth/oauth/nonexistent-provider/login",
+            follow_redirects=False,
+        )
+        assert resp.status_code == 404
+
+
+class TestOAuthCallbackCSRF:
+    """Test that OAuth callback rejects invalid state/code parameters."""
+
+    async def test_callback_missing_state_returns_error(
+        self, client, client_session, _ensure_public_app_url
+    ):
+        """OAuth callback with no state/code params returns error redirect, not account takeover.
+
+        Phase 1099 / OAUTH-01: uses client_session (shares client's
+        override_get_db factory) so commit() is immediately visible to
+        the subsequent client.get(...) under -n 4 / -n auto. The
+        _ensure_public_app_url fixture pins settings.public_app_url so
+        the test is self-contained regardless of test order.
+        """
+        from app.modules.auth.oauth.schemas import OAuthProviderCreate
+        from app.modules.auth.oauth.service import create_provider
+
+        suffix = uuid.uuid4().hex[:6]
+        await create_provider(
+            client_session,
+            OAuthProviderCreate(
+                slug=f"csrf-test-{suffix}",
+                display_name="CSRF Test",
+                provider_type="oidc",
+                client_id=f"client-{suffix}",
+                client_secret="test-secret",
+                authorize_url="https://idp.example.com/authorize",
+                token_url="https://idp.example.com/token",
+                userinfo_url="https://idp.example.com/userinfo",
+                enabled=True,
+            ),
+        )
+        await client_session.commit()
+
+        # Call callback with no state/code — should error, not create a session
+        resp = await client.get(
+            f"/auth/oauth/csrf-test-{suffix}/callback",
+            follow_redirects=False,
+        )
+        # The callback catches exceptions and redirects with error fragment
+        assert resp.status_code == 302
+        location = resp.headers.get("location", "")
+        assert "error" in location
+
+    async def test_callback_invalid_code_returns_error(
+        self, client, client_session, _ensure_public_app_url
+    ):
+        """OAuth callback with an invalid authorization code returns error redirect.
+
+        Phase 1099 / OAUTH-02: uses client_session (shares client's
+        override_get_db factory) so commit() is immediately visible to
+        the subsequent client.get(...) under -n 4 / -n auto. The
+        _ensure_public_app_url fixture pins settings.public_app_url so
+        the test is self-contained regardless of test order.
+        """
+        from app.modules.auth.oauth.schemas import OAuthProviderCreate
+        from app.modules.auth.oauth.service import create_provider
+
+        suffix = uuid.uuid4().hex[:6]
+        await create_provider(
+            client_session,
+            OAuthProviderCreate(
+                slug=f"badcode-test-{suffix}",
+                display_name="Bad Code Test",
+                provider_type="oidc",
+                client_id=f"client-{suffix}",
+                client_secret="test-secret",
+                authorize_url="https://idp.example.com/authorize",
+                token_url="https://idp.example.com/token",
+                userinfo_url="https://idp.example.com/userinfo",
+                enabled=True,
+            ),
+        )
+        await client_session.commit()
+
+        # Call callback with bogus code and state — should error
+        resp = await client.get(
+            f"/auth/oauth/badcode-test-{suffix}/callback?code=bogus&state=malicious",
+            follow_redirects=False,
+        )
+        assert resp.status_code == 302
+        location = resp.headers.get("location", "")
+        assert "error" in location
+
+
+class TestOAuthProvidersEndpoint:
+    """Test the GET /auth/oauth/providers endpoint."""
+
+    async def test_list_enabled_providers(self, client, test_db_session):
+        """Only enabled providers are returned."""
+        from app.modules.auth.oauth.schemas import OAuthProviderCreate
+        from app.modules.auth.oauth.service import create_provider
+
+        suffix = uuid.uuid4().hex[:6]
+        # Create enabled
+        await create_provider(
+            test_db_session,
+            OAuthProviderCreate(
+                slug=f"pub-enabled-{suffix}",
+                display_name="Enabled Pub",
+                provider_type="google",
+                client_id=f"pub-en-{suffix}",
+                client_secret="secret",
+                enabled=True,
+            ),
+        )
+        # Create disabled
+        await create_provider(
+            test_db_session,
+            OAuthProviderCreate(
+                slug=f"pub-disabled-{suffix}",
+                display_name="Disabled Pub",
+                provider_type="microsoft",
+                client_id=f"pub-dis-{suffix}",
+                client_secret="secret",
+                enabled=False,
+            ),
+        )
+        await test_db_session.commit()
+
+        resp = await client.get("/auth/oauth/providers/")
+        assert resp.status_code == 200
+        data = resp.json()
+        slugs = {p["slug"] for p in data}
+        assert f"pub-enabled-{suffix}" in slugs
+        assert f"pub-disabled-{suffix}" not in slugs
+        # Each item should only have slug, display_name, provider_type
+        for p in data:
+            assert set(p.keys()) == {"slug", "display_name", "provider_type"}

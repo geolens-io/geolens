@@ -1,0 +1,26 @@
+manifest_version: "1"
+catalog:
+  title: Public COG starter catalog
+  description: Example manifest that registers a public Cloud-Optimized GeoTIFF.
+  organization: GeoLens Examples
+datasets:
+  - key: sentinel-2-uluru-true-color
+    title: Sentinel-2 true color near Uluru
+    description: Public Sentinel-2 L2A true-color Cloud-Optimized GeoTIFF for testing raster catalog ingestion.
+    sources:
+      - type: raster_cog
+        uri: https://sentinel-cogs.s3.us-west-2.amazonaws.com/sentinel-s2-l2a-cogs/52/J/FS/2023/5/S2A_52JFS_20230501_0_L2A/TCI.tif
+        format: geotiff
+    metadata:
+      tags:
+        - sentinel-2
+        - cog
+        - raster
+        - example
+      organization: Copernicus Sentinel-2
+      crs: EPSG:32752
+      license: Copernicus Sentinel data terms
+      attribution: Contains modified Copernicus Sentinel data 2023, hosted by the public sentinel-cogs AWS Open Data dataset.
+      bbox: [130.7, -25.8, 132.0, -24.8]
+    publication:
+      intent: ready

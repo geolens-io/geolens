@@ -1,0 +1,170 @@
+# Manual-trigger publish workflow for the GeoLens SDKs.
+# Phase 228 ships the cold-start credentials:
+#   1. PyPI Trusted Publishing configured for `geolens` at https://pypi.org/manage/account/publishing/
+#   2. npm granular token (Bypass 2FA + Read/Write) in repo secret NPM_TOKEN
+#   3. The @geolens npm org claimed by the maintainer (one-time)
+# See docs.getgeolens.com for the full first-publish runbook.
+name: Publish SDKs
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: 'Which SDK to publish'
+        required: true
+        type: choice
+        options:
+          - python
+          - typescript
+          - both
+        default: 'both'
+      dry_run:
+        description: 'Build only, do not publish'
+        required: false
+        type: boolean
+        default: false
+      force_publish:
+        description: 'Override pre-flight gate (allow re-publishing over an existing version). Only set true after confirming the existing version is intentionally being re-published.'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  id-token: write  # for PyPI Trusted Publishing (Phase 228 — active)
+
+jobs:
+  publish-python:
+    if: inputs.target == 'python' || inputs.target == 'both'
+    name: Publish Python SDK to PyPI
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: astral-sh/setup-uv@v8.1.0
+        with:
+          version: "0.10.2"
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Build wheel + sdist
+        working-directory: sdks/python
+        run: uv build
+
+      - name: List built artifacts
+        working-directory: sdks/python
+        run: ls -la dist/
+
+      - name: Pre-flight version gate (geolens on PyPI)
+        if: ${{ !inputs.dry_run }}
+        working-directory: sdks/python
+        run: |
+          set -e
+          PROJECT_NAME=$(python - <<'PY'
+          import tomllib
+          with open("pyproject.toml", "rb") as f:
+              print(tomllib.load(f)["project"]["name"])
+          PY
+          )
+          PACKAGE_VERSION=$(python - <<'PY'
+          import tomllib
+          with open("pyproject.toml", "rb") as f:
+              print(tomllib.load(f)["project"]["version"])
+          PY
+          )
+          VERSION_PATTERN=$(printf '%s\n' "$PACKAGE_VERSION" | python -c 'import re, sys; print(re.escape(sys.stdin.read().strip()))')
+          if PIP_OUTPUT=$(pip3 index versions "$PROJECT_NAME" 2>&1); then
+            echo "$PIP_OUTPUT"
+            if echo "$PIP_OUTPUT" | grep -Eq "(^|[ ,(])${VERSION_PATTERN}([, )]|$)"; then
+              if [ "${{ inputs.force_publish }}" = "true" ]; then
+                echo "::warning::PyPI $PROJECT_NAME already has $PACKAGE_VERSION — force_publish=true override active; proceeding"
+              else
+                echo "::error::PyPI $PROJECT_NAME already has $PACKAGE_VERSION. Refusing to re-publish without force_publish=true."
+                exit 1
+              fi
+            else
+              echo "PyPI $PROJECT_NAME exists but $PACKAGE_VERSION is not present; proceeding with first publish of this version"
+            fi
+          elif echo "$PIP_OUTPUT" | grep -q "No matching distribution"; then
+            echo "PyPI $PROJECT_NAME: unclaimed (safe to publish)"
+          elif [ "${{ inputs.force_publish }}" = "true" ]; then
+            echo "::warning::PyPI $PROJECT_NAME lookup failed — force_publish=true override active; proceeding"
+          else
+            echo "::error::Could not determine PyPI state for $PROJECT_NAME:"
+            echo "$PIP_OUTPUT"
+            exit 1
+          fi
+
+      - name: Publish to PyPI
+        if: ${{ !inputs.dry_run }}
+        working-directory: sdks/python
+        run: uv publish --trusted-publishing automatic
+
+  publish-typescript:
+    if: inputs.target == 'typescript' || inputs.target == 'both'
+    name: Publish TypeScript SDK to npm
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          registry-url: 'https://registry.npmjs.org'
+          cache: npm
+          cache-dependency-path: sdks/typescript/package-lock.json
+
+      - name: Pre-flight version gate (@geolens/sdk on npm)
+        if: ${{ !inputs.dry_run }}
+        run: |
+          set -e
+          PACKAGE_VERSION=$(node -p "require('./sdks/typescript/package.json').version")
+          if CURRENT=$(npm view @geolens/sdk version 2>/dev/null); then
+            if [ "${CURRENT}" = "${PACKAGE_VERSION}" ]; then
+              if [ "${{ inputs.force_publish }}" = "true" ]; then
+                echo "::warning::npm @geolens/sdk already has $PACKAGE_VERSION — force_publish=true override active; proceeding"
+              else
+                echo "::error::npm @geolens/sdk already has $PACKAGE_VERSION. Refusing to re-publish without force_publish=true."
+                exit 1
+              fi
+            else
+              echo "npm @geolens/sdk exists at $CURRENT; proceeding with first publish of $PACKAGE_VERSION"
+            fi
+          else
+            echo "npm @geolens/sdk: unclaimed (safe to publish)"
+          fi
+
+      - name: Install dependencies (locked)
+        working-directory: sdks/typescript
+        run: npm ci
+
+      - name: Build
+        working-directory: sdks/typescript
+        run: npm run build
+
+      - name: Verify package contents (dry run)
+        working-directory: sdks/typescript
+        run: npm pack --dry-run
+
+      - name: Publish to npm
+        if: ${{ !inputs.dry_run }}
+        working-directory: sdks/typescript
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          REPO_VISIBILITY: ${{ github.event.repository.visibility }}
+        # publishConfig.access=public in package.json + explicit flag = belt-and-suspenders
+        # for first-time publish of @geolens/sdk (RESEARCH Pitfall 10).
+        # --provenance emits a signed build-attestation (job has id-token: write) and
+        # surfaces the verified-supply-chain badge on npmjs.com — but npm provenance
+        # requires a PUBLIC source repository, so gate it on visibility. This keeps a
+        # pre-public-cut first publish from failing while the repo is still private,
+        # and auto-enables provenance once the repo is public (Codex review, PR #178).
+        run: |
+          if [ "$REPO_VISIBILITY" = "public" ]; then
+            npm publish --access public --provenance
+          else
+            echo "::notice::Repository is '$REPO_VISIBILITY' — publishing without --provenance (npm provenance requires a public source repository)."
+            npm publish --access public
+          fi

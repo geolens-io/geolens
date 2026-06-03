@@ -1,0 +1,27 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Riverfront Park",
+        "category": "neighborhood"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [-77.0365, 38.8977]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Market Square",
+        "category": "plaza"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [-77.0091, 38.8895]
+      }
+    }
+  ]
+}

@@ -1,0 +1,928 @@
+"""Admin API endpoints: user management and catalog stats (admin-only)."""
+
+import asyncio
+import uuid
+from typing import NoReturn
+
+import structlog
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.modules.admin.schemas import (
+    AdminApiKeyCreateRequest,
+    AdminApiKeyListItem,
+    AdminApiKeyListResponse,
+    AdminJobListResponse,
+    AdminJobResponse,
+    AdminUserCreate,
+    AIStatusResponse,
+    AIStatusUpdate,
+    ApproveRequest,
+    BackfillResponse,
+    CatalogStatsResponse,
+    EmbeddingStatsResponse,
+    InfrastructureConfig,
+    InfrastructureResponse,
+    SamlToLocalConversion,
+    UserListResponse,
+    UserNameItem,
+    UserUpdate,
+)
+from app.modules.admin.service import AdminService
+from app.modules.audit.service import AuditEvent, audit_emit
+from app.modules.auth.dependencies import require_permission
+from app.modules.auth.models import ApiKey, User
+from app.modules.auth.schemas import ApiKeyCreateResponse, UserResponse
+from app.core.config import settings as app_settings
+from app.core.dependencies import get_client_ip, get_db
+from app.modules.catalog.maps.schemas import (
+    AdminShareTokenListResponse,
+    AdminShareTokenResponse,
+)
+from app.standards.ogc.errors import ERROR_RESPONSES_AUTH
+
+logger = structlog.stdlib.get_logger(__name__)
+
+router = APIRouter(prefix="/admin", tags=["Admin"], responses=ERROR_RESPONSES_AUTH)
+
+
+def _user_response(user: User) -> UserResponse:
+    """Convert a User ORM object to a UserResponse schema."""
+    return UserResponse(
+        id=user.id,
+        username=user.username,
+        email=user.email,
+        is_active=user.is_active,
+        status=user.status,
+        last_login_at=user.last_login_at,
+        created_at=user.created_at,
+        roles=sorted(r.name for r in user.roles),
+    )
+
+
+def _api_key_response(key: ApiKey) -> AdminApiKeyListItem:
+    """Convert an ApiKey ORM object to an AdminApiKeyListItem schema."""
+    return AdminApiKeyListItem(
+        id=key.id,
+        user_id=key.user_id,
+        name=key.name,
+        is_active=key.is_active,
+        created_at=key.created_at,
+        last_used_at=key.last_used_at,
+    )
+
+
+def _raise_on_error(exc: ValueError, default_status: int) -> NoReturn:
+    """Map a service-layer ValueError to an HTTPException.
+
+    'not found' messages map to 404; everything else uses default_status.
+    """
+    detail = str(exc)
+    if "not found" in detail.lower():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=detail)
+    raise HTTPException(status_code=default_status, detail=detail)
+
+
+# ROUTE-01 (Phase 1092): dual-shape decorator — both trailing-slash and
+# no-trailing-slash variants register against the same handler. Slash form
+# stays canonical (already in OpenAPI); no-slash is a hidden alias closing
+# the 404 regression introduced by redirect_slashes=False (api/main.py).
+@router.post(
+    "/users",
+    response_model=UserResponse,
+    status_code=status.HTTP_201_CREATED,
+    include_in_schema=False,
+)
+@router.post(
+    "/users/",
+    response_model=UserResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_user(
+    body: AdminUserCreate,
+    request: Request,
+    current_user: User = Depends(require_permission("manage_users")),
+    db: AsyncSession = Depends(get_db),
+) -> UserResponse:
+    """Create a new user with the specified role (admin only)."""
+    service = AdminService(db)
+    try:
+        user = await service.create_user(
+            username=body.username,
+            password=body.password,
+            email=body.email,
+            role_name=body.role,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        )
+    ip = get_client_ip(request)
+    await audit_emit(
+        db,
+        AuditEvent(
+            user_id=current_user.id,
+            action="user.create",
+            resource_type="user",
+            resource_id=user.id,
+            details={"username": body.username, "role": body.role},
+            ip_address=ip,
+        ),
+    )
+    await db.commit()
+    return _user_response(user)
+
+
+# ROUTE-01 (Phase 1092): dual-shape decorator — see /users above.
+@router.get(
+    "/users",
+    response_model=UserListResponse,
+    dependencies=[Depends(require_permission("manage_users"))],
+    include_in_schema=False,
+)
+@router.get(
+    "/users/",
+    response_model=UserListResponse,
+    dependencies=[Depends(require_permission("manage_users"))],
+)
+async def list_users(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
+    status_filter: str | None = Query(None, alias="status", max_length=50),
+    search: str | None = Query(None, max_length=200),
+    db: AsyncSession = Depends(get_db),
+) -> UserListResponse:
+    """List all users with pagination and optional status/search filter (admin only)."""
+    service = AdminService(db)
+    users, total = await service.list_users(
+        skip=skip, limit=limit, status=status_filter, search=search
+    )
+    return UserListResponse(
+        users=[_user_response(u) for u in users],
+        total=total,
+    )
+
+
+# ROUTE-01 (Phase 1092): dual-shape decorator — see /users above.
+@router.get(
+    "/users/names",
+    response_model=list[UserNameItem],
+    dependencies=[Depends(require_permission("manage_users"))],
+    include_in_schema=False,
+)
+@router.get(
+    "/users/names/",
+    response_model=list[UserNameItem],
+    dependencies=[Depends(require_permission("manage_users"))],
+)
+async def list_user_names(
+    db: AsyncSession = Depends(get_db),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(500, ge=1, le=1000),
+) -> list[UserNameItem]:
+    """Return lightweight id+username list for filter dropdowns.
+
+    Paginated to bound response size on deployments with many users. Default
+    page size of 500 is enough for typical admin dropdowns; the limit cap of
+    1000 matches the previous hard cap. Clients needing the full list should
+    page by incrementing ``skip``.
+    """
+    result = await db.execute(
+        select(User.id, User.username).order_by(User.username).offset(skip).limit(limit)
+    )
+    return [UserNameItem(id=row.id, username=row.username) for row in result.all()]
+
+
+@router.get(
+    "/users/{user_id}",
+    response_model=UserResponse,
+    dependencies=[Depends(require_permission("manage_users"))],
+)
+async def get_user(
+    user_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+) -> UserResponse:
+    """Get a specific user by ID (admin only)."""
+    service = AdminService(db)
+    try:
+        user = await service.get_user(user_id)
+    except ValueError as exc:
+        _raise_on_error(exc, status.HTTP_404_NOT_FOUND)
+    return _user_response(user)
+
+
+@router.patch(
+    "/users/{user_id}",
+    response_model=UserResponse,
+)
+async def update_user(
+    user_id: uuid.UUID,
+    body: UserUpdate,
+    request: Request,
+    current_user: User = Depends(require_permission("manage_users")),
+    db: AsyncSession = Depends(get_db),
+) -> UserResponse:
+    """Update a user's fields and/or role (admin only)."""
+    if user_id == current_user.id and body.role is not None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Cannot change your own role",
+        )
+    service = AdminService(db)
+    try:
+        user = await service.update_user(user_id, body)
+    except ValueError as exc:
+        _raise_on_error(exc, status.HTTP_409_CONFLICT)
+    ip = get_client_ip(request)
+    await audit_emit(
+        db,
+        AuditEvent(
+            user_id=current_user.id,
+            action="user.update",
+            resource_type="user",
+            resource_id=user_id,
+            details=body.model_dump(exclude_none=True),
+            ip_address=ip,
+        ),
+    )
+    await db.commit()
+    return _user_response(user)
+
+
+# ROUTE-01 (Phase 1092): dual-shape decorator — see /users above.
+@router.post(
+    "/users/{user_id}/deactivate",
+    response_model=UserResponse,
+    include_in_schema=False,
+)
+@router.post(
+    "/users/{user_id}/deactivate/",
+    response_model=UserResponse,
+)
+async def deactivate_user(
+    user_id: uuid.UUID,
+    request: Request,
+    current_user: User = Depends(require_permission("manage_users")),
+    db: AsyncSession = Depends(get_db),
+) -> UserResponse:
+    """Deactivate a user (admin only)."""
+    service = AdminService(db)
+    try:
+        user = await service.deactivate_user(user_id, current_user.id)
+    except ValueError as exc:
+        _raise_on_error(exc, status.HTTP_400_BAD_REQUEST)
+    ip = get_client_ip(request)
+    await audit_emit(
+        db,
+        AuditEvent(
+            user_id=current_user.id,
+            action="user.deactivate",
+            resource_type="user",
+            resource_id=user_id,
+            details={"username": user.username},
+            ip_address=ip,
+        ),
+    )
+    await db.commit()
+    return _user_response(user)
+
+
+# ROUTE-01 (Phase 1092): dual-shape decorator — see /users above.
+@router.post(
+    "/users/{user_id}/convert-saml-to-local",
+    response_model=UserResponse,
+    include_in_schema=False,
+)
+@router.post(
+    "/users/{user_id}/convert-saml-to-local/",
+    response_model=UserResponse,
+)
+async def convert_saml_to_local(
+    user_id: uuid.UUID,
+    body: SamlToLocalConversion,
+    request: Request,
+    current_user: User = Depends(require_permission("manage_users")),
+    db: AsyncSession = Depends(get_db),
+) -> UserResponse:
+    """Convert a SAML-authenticated user to local-password (admin only).
+
+    Phase 221 LIFECYCLE-06. The conversion happens in a single DB transaction:
+    validate -> set password -> flip auth_provider -> delete SAML oauth_accounts
+    row -> write audit_log row. The audit_log write is the LAST step before
+    commit (per D-05) so failed conversions never leave an orphan audit entry.
+
+    Audit details are an explicit allow-list ({"from", "to", "provider_slug"})
+    -- password material is never logged.
+
+    Self-conversion is blocked with 422 to prevent admin self-lockout when an
+    admin fat-fingers the new password (Phase 221 Risk Surfaces / Pitfall 7).
+    """
+    # Self-conversion guard -- mirrors update_user's self-action guard at
+    # router.py:180-184. 422 (NOT 400/403) per the existing convention.
+    if user_id == current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Cannot convert your own account; use a different admin account",
+        )
+
+    service = AdminService(db)
+    try:
+        user, provider_slug = await service.convert_saml_user_to_local(
+            user_id, body.password
+        )
+    except ValueError as exc:
+        # All non-"not found" ValueErrors (auth_provider mismatch, no SAML linkage) -> 422
+        _raise_on_error(exc, status.HTTP_422_UNPROCESSABLE_ENTITY)
+
+    ip = get_client_ip(request)
+    await audit_emit(
+        db,
+        AuditEvent(
+            user_id=current_user.id,
+            action="user.convert_saml_to_local",
+            resource_type="user",
+            resource_id=user_id,
+            details={"from": "saml", "to": "local", "provider_slug": provider_slug},
+            ip_address=ip,
+        ),
+    )
+    try:
+        await db.commit()
+    except Exception:  # broad: commit can fail with diverse asyncpg/transaction errors; log and bubble for handler
+        # Service mutations + audit_log row written but commit failed --
+        # leaves no persisted record. Log with request_id correlation so
+        # operators can reconcile against client-side state.
+        logger.exception(
+            "convert_saml_to_local commit failed",
+            user_id=str(user_id),
+            admin_id=str(current_user.id),
+            provider_slug=provider_slug,
+        )
+        raise
+    return _user_response(user)
+
+
+# ROUTE-01 (Phase 1092): dual-shape decorator — see /users above.
+@router.post(
+    "/users/{user_id}/approve",
+    response_model=UserResponse,
+    include_in_schema=False,
+)
+@router.post(
+    "/users/{user_id}/approve/",
+    response_model=UserResponse,
+)
+async def approve_user(
+    user_id: uuid.UUID,
+    body: ApproveRequest,
+    request: Request,
+    current_user: User = Depends(require_permission("manage_users")),
+    db: AsyncSession = Depends(get_db),
+) -> UserResponse:
+    """Approve a pending user with the specified role (admin only)."""
+    service = AdminService(db)
+    try:
+        user = await service.approve_user(user_id, body.role)
+    except ValueError as exc:
+        _raise_on_error(exc, status.HTTP_400_BAD_REQUEST)
+    ip = get_client_ip(request)
+    await audit_emit(
+        db,
+        AuditEvent(
+            user_id=current_user.id,
+            action="user.approve",
+            resource_type="user",
+            resource_id=user_id,
+            details={"username": user.username, "role": body.role},
+            ip_address=ip,
+        ),
+    )
+    await db.commit()
+    return _user_response(user)
+
+
+# ROUTE-01 (Phase 1092): dual-shape decorator — see /users above.
+@router.post(
+    "/users/{user_id}/reject",
+    status_code=status.HTTP_204_NO_CONTENT,
+    include_in_schema=False,
+)
+@router.post(
+    "/users/{user_id}/reject/",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def reject_user(
+    user_id: uuid.UUID,
+    request: Request,
+    current_user: User = Depends(require_permission("manage_users")),
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    """Reject a pending user by hard-deleting them (admin only)."""
+    service = AdminService(db)
+    try:
+        await service.reject_user(user_id)
+    except ValueError as exc:
+        _raise_on_error(exc, status.HTTP_400_BAD_REQUEST)
+    ip = get_client_ip(request)
+    await audit_emit(
+        db,
+        AuditEvent(
+            user_id=current_user.id,
+            action="user.reject",
+            resource_type="user",
+            resource_id=user_id,
+            ip_address=ip,
+        ),
+    )
+    await db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.delete(
+    "/users/{user_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def delete_user(
+    user_id: uuid.UUID,
+    request: Request,
+    current_user: User = Depends(require_permission("manage_users")),
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    """Hard-delete a user (admin only). Returns 400 for self-deletion or last-admin."""
+    service = AdminService(db)
+    try:
+        deleted_username = await service.delete_user(user_id, current_user.id)
+    except ValueError as exc:
+        _raise_on_error(exc, status.HTTP_400_BAD_REQUEST)
+    ip = get_client_ip(request)
+    await audit_emit(
+        db,
+        AuditEvent(
+            user_id=current_user.id,
+            action="user.delete",
+            resource_type="user",
+            resource_id=user_id,
+            details={"username": deleted_username},
+            ip_address=ip,
+        ),
+    )
+    await db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+# ROUTE-01 (Phase 1092): dual-shape decorator — see /users above.
+@router.get(
+    "/stats",
+    response_model=CatalogStatsResponse,
+    include_in_schema=False,
+)
+@router.get(
+    "/stats/",
+    response_model=CatalogStatsResponse,
+)
+async def get_catalog_stats(
+    user: User = Depends(require_permission("manage_users")),
+    db: AsyncSession = Depends(get_db),
+) -> CatalogStatsResponse:
+    """Return catalog statistics: counts, storage, breakdowns (admin only)."""
+    service = AdminService(db)
+    return await service.get_catalog_stats()
+
+
+# ROUTE-01 (Phase 1092): dual-shape decorator — see /users above.
+@router.get(
+    "/jobs",
+    response_model=AdminJobListResponse,
+    dependencies=[Depends(require_permission("manage_users"))],
+    include_in_schema=False,
+)
+@router.get(
+    "/jobs/",
+    response_model=AdminJobListResponse,
+    dependencies=[Depends(require_permission("manage_users"))],
+)
+async def list_admin_jobs(
+    status: str | None = Query(None),
+    user_id: uuid.UUID | None = Query(None),
+    search: str | None = Query(None),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
+    db: AsyncSession = Depends(get_db),
+) -> AdminJobListResponse:
+    """List all ingestion jobs with optional status/user/search filters (admin only)."""
+    service = AdminService(db)
+    rows, total = await service.list_jobs(
+        status=status, user_id=user_id, search=search, skip=skip, limit=limit
+    )
+    jobs = [
+        AdminJobResponse(
+            id=job.id,
+            status=job.status,
+            source_filename=job.source_filename,
+            dataset_id=job.dataset_id,
+            error_message=job.error_message,
+            user_metadata=job.user_metadata,
+            created_by=job.created_by,
+            username=username,
+            started_at=job.started_at,
+            completed_at=job.completed_at,
+            created_at=job.created_at,
+        )
+        for job, username in rows
+    ]
+    return AdminJobListResponse(jobs=jobs, total=total)
+
+
+# ---------------------------------------------------------------------------
+# API Key management endpoints
+# ---------------------------------------------------------------------------
+
+
+# ROUTE-01 (Phase 1092): dual-shape decorator — see /users above.
+@router.post(
+    "/api-keys",
+    response_model=ApiKeyCreateResponse,
+    status_code=status.HTTP_201_CREATED,
+    include_in_schema=False,
+)
+@router.post(
+    "/api-keys/",
+    response_model=ApiKeyCreateResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_api_key(
+    body: AdminApiKeyCreateRequest,
+    request: Request,
+    current_user: User = Depends(require_permission("manage_users")),
+    db: AsyncSession = Depends(get_db),
+) -> ApiKeyCreateResponse:
+    """Create an API key for a user (admin only).
+
+    The raw key is returned only in this response and cannot be retrieved again.
+    """
+    from app.modules.auth.service import create_api_key_for_user
+
+    api_key, raw_key = await create_api_key_for_user(db, body.user_id, body.name)
+
+    ip = get_client_ip(request)
+    await audit_emit(
+        db,
+        AuditEvent(
+            user_id=current_user.id,
+            action="api_key.create",
+            resource_type="api_key",
+            resource_id=api_key.id,
+            details={"name": body.name, "target_user_id": str(body.user_id)},
+            ip_address=ip,
+        ),
+    )
+    await db.commit()
+
+    return ApiKeyCreateResponse(
+        id=api_key.id,
+        key=raw_key,
+        name=api_key.name,
+        created_at=api_key.created_at,
+    )
+
+
+# ROUTE-01 (Phase 1092): dual-shape decorator — see /users above.
+@router.get(
+    "/api-keys",
+    response_model=AdminApiKeyListResponse,
+    dependencies=[Depends(require_permission("manage_users"))],
+    include_in_schema=False,
+)
+@router.get(
+    "/api-keys/",
+    response_model=AdminApiKeyListResponse,
+    dependencies=[Depends(require_permission("manage_users"))],
+)
+async def list_api_keys(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
+    user_id: uuid.UUID | None = Query(None, description="Filter by user ID"),
+    db: AsyncSession = Depends(get_db),
+) -> AdminApiKeyListResponse:
+    """List all API keys (admin only). Never returns the raw key."""
+    stmt = select(ApiKey)
+    if user_id is not None:
+        stmt = stmt.where(ApiKey.user_id == user_id)
+    total = (
+        await db.execute(select(func.count()).select_from(stmt.subquery()))
+    ).scalar_one()
+    result = await db.execute(stmt.offset(skip).limit(limit))
+    keys = result.scalars().all()
+    return AdminApiKeyListResponse(
+        items=[_api_key_response(k) for k in keys],
+        total=total,
+    )
+
+
+# ---------------------------------------------------------------------------
+# AI Status endpoints
+# ---------------------------------------------------------------------------
+
+
+def _ai_status(
+    enabled: bool,
+    semantic_search_enabled: bool = False,
+    has_embeddings: bool = False,
+) -> AIStatusResponse:
+    """Build AIStatusResponse from current env config + DB toggle."""
+    if app_settings.anthropic_api_key:
+        provider = "anthropic"
+        model = app_settings.llm_model
+    elif app_settings.openai_api_key:
+        provider = "openai"
+        model = app_settings.openai_model
+    else:
+        provider = None
+        model = None
+
+    configured = bool(app_settings.anthropic_api_key or app_settings.openai_api_key)
+    return AIStatusResponse(
+        provider=provider,
+        model=model,
+        enabled=enabled,
+        configured=configured,
+        semantic_search_enabled=semantic_search_enabled,
+        has_embeddings=has_embeddings,
+    )
+
+
+# ROUTE-01 (Phase 1092): dual-shape decorator — see /users above.
+@router.get(
+    "/ai-status",
+    response_model=AIStatusResponse,
+    dependencies=[Depends(require_permission("manage_users"))],
+    include_in_schema=False,
+)
+@router.get(
+    "/ai-status/",
+    response_model=AIStatusResponse,
+    dependencies=[Depends(require_permission("manage_users"))],
+)
+async def get_ai_status(
+    db: AsyncSession = Depends(get_db),
+) -> AIStatusResponse:
+    """Return single-deployment AI status; no provider-routing policy controls (admin only)."""
+    from app.core.persistent_config import AI_ENABLED, SEMANTIC_SEARCH_ENABLED
+
+    from app.processing.embeddings.helpers import has_embeddings
+
+    enabled = await AI_ENABLED.get(db)
+    semantic = await SEMANTIC_SEARCH_ENABLED.get(db)
+    has_embeds = await has_embeddings(db)
+    return _ai_status(
+        enabled, semantic_search_enabled=semantic, has_embeddings=has_embeds
+    )
+
+
+# ROUTE-01 (Phase 1092): dual-shape decorator — see /users above.
+@router.patch(
+    "/ai-status",
+    response_model=AIStatusResponse,
+    include_in_schema=False,
+)
+@router.patch(
+    "/ai-status/",
+    response_model=AIStatusResponse,
+)
+async def update_ai_status(
+    body: AIStatusUpdate,
+    user: User = Depends(require_permission("manage_users")),
+    db: AsyncSession = Depends(get_db),
+) -> AIStatusResponse:
+    """Toggle base AI features on/off at runtime; no provider-routing policy controls (admin only)."""
+    from app.processing.embeddings.helpers import has_embeddings
+    from app.core.persistent_config import AI_ENABLED, SEMANTIC_SEARCH_ENABLED
+
+    await AI_ENABLED.set(db, body.enabled, user_id=user.id)
+    semantic = await SEMANTIC_SEARCH_ENABLED.get(db)
+    has_embeds = await has_embeddings(db)
+    return _ai_status(
+        body.enabled, semantic_search_enabled=semantic, has_embeddings=has_embeds
+    )
+
+
+# ROUTE-01 (Phase 1092): dual-shape decorator — see /users above.
+@router.get(
+    "/embedding-stats",
+    response_model=EmbeddingStatsResponse,
+    dependencies=[Depends(require_permission("manage_users"))],
+    include_in_schema=False,
+)
+@router.get(
+    "/embedding-stats/",
+    response_model=EmbeddingStatsResponse,
+    dependencies=[Depends(require_permission("manage_users"))],
+)
+async def get_embedding_stats(
+    db: AsyncSession = Depends(get_db),
+) -> EmbeddingStatsResponse:
+    """Return semantic-search embedding coverage statistics (admin only)."""
+    service = AdminService(db)
+    return await service.get_embedding_stats()
+
+
+# ROUTE-01 (Phase 1092): dual-shape decorator — see /users above.
+@router.post(
+    "/backfill-embeddings",
+    response_model=BackfillResponse,
+    include_in_schema=False,
+)
+@router.post(
+    "/backfill-embeddings/",
+    response_model=BackfillResponse,
+)
+async def trigger_backfill(
+    db: AsyncSession = Depends(get_db),
+    force: bool = False,
+    current_user: User = Depends(require_permission("manage_users")),
+) -> BackfillResponse:
+    """Trigger semantic-search embedding generation for records (admin only).
+
+    Pass ?force=true to delete all existing embeddings and regenerate from
+    scratch (required after changing the embedding model or dimensions).
+    """
+    from app.processing.embeddings.backfill import backfill_embeddings
+
+    try:
+        result = await backfill_embeddings(db, force=force)
+    except Exception:  # broad: backfill spans embedding SDK + DB writes — diverse errors map to 502 without leaking traceback
+        # RES-2: don't leak raw exception text (can contain asyncpg internals,
+        # file paths, DB server info) to admin clients. Log full traceback,
+        # return a generic 502.
+        logger.exception(
+            "Embedding backfill failed",
+            user_id=str(current_user.id),
+            force=force,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Embedding backfill failed. See server logs for details.",
+        )
+    return BackfillResponse(**result)
+
+
+@router.delete(
+    "/api-keys/{key_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def revoke_api_key(
+    key_id: uuid.UUID,
+    request: Request,
+    current_user: User = Depends(require_permission("manage_users")),
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    """Revoke (soft-delete) an API key (admin only)."""
+    result = await db.execute(select(ApiKey).where(ApiKey.id == key_id))
+    api_key = result.scalar_one_or_none()
+    if api_key is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="API key not found",
+        )
+    api_key.is_active = False
+    ip = get_client_ip(request)
+    await audit_emit(
+        db,
+        AuditEvent(
+            user_id=current_user.id,
+            action="api_key.revoke",
+            resource_type="api_key",
+            resource_id=key_id,
+            details={"name": api_key.name, "target_user_id": str(api_key.user_id)},
+            ip_address=ip,
+        ),
+    )
+    await db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+# ---------------------------------------------------------------------------
+# Infrastructure endpoint
+# ---------------------------------------------------------------------------
+
+
+# ROUTE-01 (Phase 1092): dual-shape decorator — see /users above.
+@router.get(
+    "/infrastructure",
+    response_model=InfrastructureResponse,
+    dependencies=[Depends(require_permission("manage_users"))],
+    include_in_schema=False,
+)
+@router.get(
+    "/infrastructure/",
+    response_model=InfrastructureResponse,
+    dependencies=[Depends(require_permission("manage_users"))],
+)
+async def get_infrastructure(
+    db: AsyncSession = Depends(get_db),
+) -> InfrastructureResponse:
+    """Return infrastructure configuration, live health status, and OIDC provider connectivity."""
+    from app.observability.health.service import check_health, check_oidc_health
+
+    health, oidc_health = await asyncio.gather(
+        check_health(),
+        check_oidc_health(db),
+    )
+
+    config = InfrastructureConfig(
+        storage_provider=app_settings.storage_provider,
+        cache_provider="redis" if app_settings.redis_url else "memory",
+        database_type="external"
+        if app_settings.database_url_override
+        else "docker-compose",
+        database_pooler="external"
+        if app_settings.db_use_external_pooler
+        else "internal",
+        tile_cache="cdn",
+        tile_cache_ttl=app_settings.tile_cache_ttl,
+        cdn_configured=bool(app_settings.cdn_base_url),
+    )
+
+    return InfrastructureResponse(
+        config=config,
+        health=health["providers"],
+        oidc_providers=oidc_health,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Share token management endpoints
+# ---------------------------------------------------------------------------
+
+
+# ROUTE-01 (Phase 1092): dual-shape decorator — see /users above.
+@router.get(
+    "/share-tokens",
+    response_model=AdminShareTokenListResponse,
+    dependencies=[Depends(require_permission("manage_users"))],
+    include_in_schema=False,
+)
+@router.get(
+    "/share-tokens/",
+    response_model=AdminShareTokenListResponse,
+    dependencies=[Depends(require_permission("manage_users"))],
+)
+async def list_share_tokens_endpoint(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
+    search: str | None = Query(None, max_length=200),
+    status: str | None = Query(None, pattern="^(active|expired|revoked)$"),
+    db: AsyncSession = Depends(get_db),
+) -> AdminShareTokenListResponse:
+    """List basic share-token inventory with map info; no quotas or domain controls (admin only)."""
+    from app.modules.catalog.maps.service import list_share_tokens
+
+    tokens, total = await list_share_tokens(
+        db, skip, limit, search=search, status_filter=status
+    )
+    return AdminShareTokenListResponse(
+        tokens=[AdminShareTokenResponse(**t) for t in tokens],
+        total=total,
+    )
+
+
+@router.delete(
+    "/share-tokens/{token_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def admin_revoke_share_token(
+    token_id: uuid.UUID,
+    request: Request,
+    current_user: User = Depends(require_permission("manage_users")),
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    """Revoke a basic share token and cascade to its embed tokens; no quota controls (admin only)."""
+    service = AdminService(db)
+    result = await service.revoke_share_token_with_cascade(token_id)
+    if result is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Share token not found",
+        )
+    revoked_token_id, map_id, cascade_count = result
+
+    ip = get_client_ip(request)
+    await audit_emit(
+        db,
+        AuditEvent(
+            user_id=current_user.id,
+            action="map.admin_share_revoke",
+            resource_type="map_share_token",
+            resource_id=revoked_token_id,
+            details={
+                "map_id": str(map_id),
+                "cascade_embed_count": cascade_count,
+            },
+            ip_address=ip,
+        ),
+    )
+
+    await db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
