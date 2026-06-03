@@ -6,7 +6,7 @@
 SHELL := /bin/bash
 .SHELLFLAGS := -o pipefail -c
 
-.PHONY: dev down reset-db migrate migration test test-sequential test-cov e2e logs logs-db logs-api status doctor preflight openapi openapi-check sdks sdks-check sdks-test manifest-contract-check publish-sdks-py publish-sdks-ts cli-build cli-test cli-check publish-cli audit-sink-discipline billing-extraction-discipline catalog-domain-discipline validate-v13-8
+.PHONY: dev down reset-db migrate migration test test-sequential test-cov e2e logs logs-db logs-api status doctor preflight openapi openapi-check sdks sdks-check sdks-test manifest-contract-check publish-sdks-py publish-sdks-ts cli-build cli-test cli-check publish-cli audit-sink-discipline billing-extraction-discipline catalog-domain-discipline
 
 # Pre-flight: verify boot-required env vars are non-empty in .env before any
 # `docker compose` build (which takes 5-10 minutes on a cold cache only to crash
@@ -229,10 +229,3 @@ billing-extraction-discipline: ## Verify app.core.marketplace is absent + dispat
 # no DB required).
 catalog-domain-discipline: ## Verify no external imports of catalog/datasets/domain/service_X sub-modules (Phase 224 DECOUPLE-04)
 	cd backend && PYTHONPATH=. uv run pytest tests/test_layering.py::test_no_external_imports_of_dataset_domain_submodules -v
-
-# Phase 253 VALID-07 invariant: a reviewer can run all six v13.8 phase VALIDATION.md
-# files end-to-end via a single command and observe them all pass against current main.
-# Delegates to scripts/validate-v13-8.sh which iterates Phases 246..251 and exits non-zero
-# on the first failing check. Pre-flight checks the API container is up.
-validate-v13-8: ## Run all six v13.8 phase VALIDATION.md files end-to-end (VALID-07)
-	bash scripts/validate-v13-8.sh
