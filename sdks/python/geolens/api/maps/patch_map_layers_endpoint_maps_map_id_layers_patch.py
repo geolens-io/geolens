@@ -112,7 +112,8 @@ def sync_detailed(
     header, which would leak the in-container ``api:8000`` hostname
     through Vite's dev proxy on a 307 redirect. The canonical
     (OpenAPI-published) form is the no-slash sub-collection convention
-    from ``docs/api-style.md``; the trailing-slash form is a hidden alias.
+    documented in the GeoLens API guide (https://docs.getgeolens.com/guides/api/);
+    the trailing-slash form is a hidden alias.
 
     Args:
         map_id (UUID):
@@ -154,7 +155,8 @@ def sync(
     header, which would leak the in-container ``api:8000`` hostname
     through Vite's dev proxy on a 307 redirect. The canonical
     (OpenAPI-published) form is the no-slash sub-collection convention
-    from ``docs/api-style.md``; the trailing-slash form is a hidden alias.
+    documented in the GeoLens API guide (https://docs.getgeolens.com/guides/api/);
+    the trailing-slash form is a hidden alias.
 
     Args:
         map_id (UUID):
@@ -191,7 +193,8 @@ async def asyncio_detailed(
     header, which would leak the in-container ``api:8000`` hostname
     through Vite's dev proxy on a 307 redirect. The canonical
     (OpenAPI-published) form is the no-slash sub-collection convention
-    from ``docs/api-style.md``; the trailing-slash form is a hidden alias.
+    documented in the GeoLens API guide (https://docs.getgeolens.com/guides/api/);
+    the trailing-slash form is a hidden alias.
 
     Args:
         map_id (UUID):
@@ -231,7 +234,8 @@ async def asyncio(
     header, which would leak the in-container ``api:8000`` hostname
     through Vite's dev proxy on a 307 redirect. The canonical
     (OpenAPI-published) form is the no-slash sub-collection convention
-    from ``docs/api-style.md``; the trailing-slash form is a hidden alias.
+    documented in the GeoLens API guide (https://docs.getgeolens.com/guides/api/);
+    the trailing-slash form is a hidden alias.
 
     Args:
         map_id (UUID):

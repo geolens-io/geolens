@@ -72,6 +72,11 @@ dependencies = [
     "starlette>=1.2.1",
 ]
 
+[project.urls]
+Homepage = "https://github.com/geolens-io/geolens"
+Repository = "https://github.com/geolens-io/geolens"
+Documentation = "https://docs.getgeolens.com"
+
 [dependency-groups]
 dev = [
     "pytest>=9.0.3",

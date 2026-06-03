@@ -943,7 +943,8 @@ async def patch_map_layers_endpoint(
     header, which would leak the in-container ``api:8000`` hostname
     through Vite's dev proxy on a 307 redirect. The canonical
     (OpenAPI-published) form is the no-slash sub-collection convention
-    from ``docs/api-style.md``; the trailing-slash form is a hidden alias.
+    documented in the GeoLens API guide (https://docs.getgeolens.com/guides/api/);
+    the trailing-slash form is a hidden alias.
     """
     map_obj = await get_map(db, map_id)
     if map_obj is None:
@@ -1637,7 +1638,8 @@ async def add_layer_endpoint(
     header that resolves against the request's Host header, leaking the
     in-container ``api:8000`` hostname through Vite's dev proxy. The
     canonical (OpenAPI-published) form is the no-slash sub-collection
-    convention from ``docs/api-style.md``; the trailing-slash form is a
+    convention documented in the GeoLens API guide
+    (https://docs.getgeolens.com/guides/api/); the trailing-slash form is a
     hidden alias for callers that send the slash.
     """
     map_obj = await get_map(db, map_id)
