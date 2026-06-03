@@ -6,6 +6,8 @@ import sqlalchemy as sa
 from sqlalchemy import pool
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
+from pgvector.sqlalchemy import Vector
+
 from app.core.config import settings
 from app.core.db import Base
 
@@ -156,6 +158,10 @@ def do_run_migrations(connection):
     # rolls the entire run back instead of leaving a resumable partial state.
     # See backend/alembic/README.md.
     connection.rollback()
+    # Register pgvector's column type for reflection so autogenerate / `alembic
+    # check` recognise the `vector` type instead of warning "Did not recognize
+    # type vector" and reporting phantom drift on record_embeddings.embedding.
+    connection.dialect.ischema_names["vector"] = Vector
     context.configure(
         connection=connection,
         target_metadata=target_metadata,
@@ -163,6 +169,8 @@ def do_run_migrations(connection):
         include_schemas=True,
         include_name=include_name,
         include_object=include_object,
+        compare_type=True,
+        compare_server_default=True,
     )
     with context.begin_transaction():
         context.run_migrations()

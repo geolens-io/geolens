@@ -269,8 +269,26 @@ if [ "${alembic_rc}" -ne 0 ]; then
 fi
 
 # -----------------------------------------------------------------------
+# Drift gate: the freshly-upgraded schema must match the ORM models. This
+# catches a baseline (or any migration) that has drifted from the models —
+# e.g. a column added to a model without a corresponding migration. With the
+# squashed single baseline this is the gate that keeps 0001_baseline and the
+# models in lockstep. `alembic check` exits non-zero on any pending diff.
+# -----------------------------------------------------------------------
+echo ""
+echo "==> Running 'alembic check' (model/migration drift gate)..."
+check_rc=0
+uv run --no-dev alembic check || check_rc=$?
+if [ "${check_rc}" -ne 0 ]; then
+  echo ""
+  echo "FAIL: alembic check found drift between the migrations and the ORM models (exit ${check_rc})." >&2
+  echo "      Run 'alembic revision --autogenerate' and fold the diff in, or fix the model." >&2
+  exit "${check_rc}"
+fi
+
+# -----------------------------------------------------------------------
 # Success
 # -----------------------------------------------------------------------
 echo ""
-echo "OK: alembic upgrade head applied cleanly against a fresh DB (${TEST_IMAGE})"
+echo "OK: alembic upgrade head + check passed against a fresh DB (${TEST_IMAGE})"
 exit 0
