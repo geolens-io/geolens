@@ -9,27 +9,35 @@ cryptographically **signed, offline** license token.
 Design:
 
 - The token is an EdDSA (Ed25519) JWT carrying ``edition`` + ``exp`` (+ optional
-  ``customer``, ``seats``, ``features``, ``license_id``).
-- It is verified against an Ed25519 **public** key bundled/configured in the
-  deployment. The matching **private** signing key never ships with the product
-  — it lives only with the vendor's license-minting tooling
-  (``scripts/license_tool.py``). Shipping the public key in the (soon Apache-2.0)
-  core is safe: that is the whole point of asymmetric signatures.
-- Verification is fully **offline** — no phone-home — so it works air-gapped.
+  ``customer``, ``seats``, ``features``, ``license_id``, ``aud``).
+- It is verified against the **bundled, immutable** Ed25519 public key at
+  ``app/core/license_public_key.pem``. The matching **private** signing key
+  never ships — it lives only with the vendor's minting tooling
+  (``scripts/license_tool.py``). Shipping the public key in the (soon
+  Apache-2.0) core is safe — that is the point of asymmetric signatures.
+- The verifier key is deliberately **NOT** environment-configurable. The party
+  that supplies the license token (the operator) must not also be able to
+  choose the key it is checked against — otherwise they could mint their own
+  enterprise token against their own key and the entitlement check is moot
+  (it would just re-create the env-only bypass it is meant to close).
+- Verification is fully **offline** — no phone-home — so it works air-gapped,
+  with a small ``leeway`` to tolerate clock skew between signer and verifier.
 - It is **graceful**: a missing / malformed / expired / forged token, or a
-  missing public key, yields ``None`` (→ community). It never raises into the
+  missing bundled key, yields ``None`` (→ community). It never raises into the
   app lifespan.
 
 Inputs (all optional; absence → no license → community):
 
-- ``GEOLENS_LICENSE_KEY``        — the signed license token (preferred), or
-- ``GEOLENS_LICENSE_FILE``       — path to a file containing the token.
-- ``GEOLENS_LICENSE_PUBLIC_KEY`` — the verifying Ed25519 public key (PEM), or
-- ``GEOLENS_LICENSE_PUBLIC_KEY_FILE`` — path to the public-key PEM, else the
-  bundled default at ``app/core/license_public_key.pem`` if present.
+- ``GEOLENS_LICENSE_KEY``      — the signed license token (preferred), or
+- ``GEOLENS_LICENSE_FILE``     — path to a file containing the token.
+- ``GEOLENS_LICENSE_AUDIENCE`` — optional deployment identifier. When set, the
+  token's ``aud`` claim MUST match it, binding a license to this deployment so a
+  token issued for one customer cannot be replayed on another.
 
 This module owns verification only; :mod:`app.core.edition` owns the policy of
-how a verified (or absent) license maps to the running edition.
+how a verified (or absent) license maps to the running edition, including the
+**runtime** re-check of ``expires_at`` (a token valid at startup must stop
+unlocking enterprise once it expires, without a restart).
 """
 
 from __future__ import annotations
@@ -49,7 +57,14 @@ logger = structlog.stdlib.get_logger(__name__)
 # HMAC secret (the classic "alg confusion" attack).
 _ALGORITHM = "EdDSA"
 
-_DEFAULT_PUBLIC_KEY_PATH = Path(__file__).with_name("license_public_key.pem")
+# The bundled, immutable verifier trust root. The vendor commits THEIR public
+# key here in the enterprise build. Intentionally a code/asset constant, never
+# an env var (see module docstring).
+_TRUSTED_PUBLIC_KEY_PATH = Path(__file__).with_name("license_public_key.pem")
+
+# Tolerate modest clock skew between the signer and the verifying host for the
+# time-based claims (exp / nbf / iat). Small relative to a multi-month license.
+_LEEWAY_SECONDS = 300
 
 
 @dataclass(frozen=True)
@@ -73,26 +88,21 @@ def _read_first(*candidates: str | None) -> str | None:
     return None
 
 
-def _load_public_key() -> str | None:
-    """Resolve the verifying Ed25519 public key (PEM), or None if unconfigured.
+def _load_trusted_public_key() -> str | None:
+    """Return the bundled verifier public key (PEM), or None if not present.
 
-    Order: explicit PEM env > explicit file env > bundled default file. A
-    deployment with no public key configured can never be enterprise — the safe
-    default — so this returns None silently in that case.
+    Read ONLY from the committed trust-root path — never from the environment.
+    A build with no bundled key can never grant enterprise via a license (the
+    safe default), so this returns None silently in that case.
     """
-    inline = _read_first(os.environ.get("GEOLENS_LICENSE_PUBLIC_KEY"))
-    if inline:
-        return inline
-
-    file_env = _read_first(os.environ.get("GEOLENS_LICENSE_PUBLIC_KEY_FILE"))
-    candidates = [Path(file_env)] if file_env else []
-    candidates.append(_DEFAULT_PUBLIC_KEY_PATH)
-    for path in candidates:
-        try:
-            if path.is_file():
-                return path.read_text()
-        except OSError:
-            logger.warning("Could not read license public key", path=str(path))
+    try:
+        if _TRUSTED_PUBLIC_KEY_PATH.is_file():
+            return _TRUSTED_PUBLIC_KEY_PATH.read_text()
+    except OSError:
+        logger.warning(
+            "Could not read bundled license public key",
+            path=str(_TRUSTED_PUBLIC_KEY_PATH),
+        )
     return None
 
 
@@ -114,24 +124,35 @@ def _load_token() -> str | None:
     return None
 
 
-def verify_license_token(token: str, public_key_pem: str) -> LicenseInfo | None:
+def verify_license_token(
+    token: str, public_key_pem: str, *, audience: str | None = None
+) -> LicenseInfo | None:
     """Verify a token against the public key. Return LicenseInfo or None.
 
     Returns None (never raises) for any verification failure: bad signature,
-    expired, missing required claims, wrong algorithm, or a non-enterprise
-    edition claim. ``exp`` is enforced by PyJWT; ``edition`` is required and
-    must be ``"enterprise"`` (the only paid edition today).
+    expired, immature, missing required claims, wrong algorithm, audience
+    mismatch, or a non-enterprise edition claim. ``exp`` and ``edition`` are
+    always required. When ``audience`` is given, ``aud`` is required and must
+    match (binds the license to this deployment); otherwise ``aud`` is not
+    checked. ``_LEEWAY_SECONDS`` of clock skew is tolerated.
     """
+    required = ["exp", "edition"]
+    options: dict = {"require": required}
+    decode_kwargs: dict = {"algorithms": [_ALGORITHM], "leeway": _LEEWAY_SECONDS}
+    if audience:
+        decode_kwargs["audience"] = audience
+        required.append("aud")
+    else:
+        # No audience configured for this deployment: don't reject tokens that
+        # happen to carry an `aud` claim (PyJWT verifies aud by default).
+        options["verify_aud"] = False
+
     try:
-        claims = jwt.decode(
-            token,
-            public_key_pem,
-            algorithms=[_ALGORITHM],
-            options={"require": ["exp", "edition"]},
-        )
+        claims = jwt.decode(token, public_key_pem, options=options, **decode_kwargs)
     except jwt.PyJWTError as exc:
-        # Includes ExpiredSignatureError, InvalidSignatureError,
-        # MissingRequiredClaimError, InvalidAlgorithmError, etc.
+        # Includes ExpiredSignatureError, ImmatureSignatureError,
+        # InvalidSignatureError, MissingRequiredClaimError, InvalidAudienceError,
+        # InvalidAlgorithmError, etc.
         logger.warning("License token rejected", reason=type(exc).__name__)
         return None
 
@@ -162,24 +183,26 @@ def verify_license_token(token: str, public_key_pem: str) -> LicenseInfo | None:
 def load_license() -> LicenseInfo | None:
     """Load + verify the license from the environment. None if absent/invalid.
 
-    Fully graceful: any problem (no token, no public key, bad signature,
-    expired) returns None so the caller falls back to community. Never raises.
+    Fully graceful: any problem (no token, no bundled key, bad signature,
+    expired, audience mismatch) returns None so the caller falls back to
+    community. Never raises.
     """
     token = _load_token()
     if not token:
         return None
 
-    public_key = _load_public_key()
+    public_key = _load_trusted_public_key()
     if not public_key:
-        # A token is present but the deployment has no verifying key configured.
-        # We cannot trust an unverifiable token -> community.
+        # A token is present but this build bundles no verifying key. We cannot
+        # trust an unverifiable token -> community.
         logger.warning(
-            "GEOLENS_LICENSE_KEY is set but no license public key is configured; "
-            "set GEOLENS_LICENSE_PUBLIC_KEY(_FILE). Treating as unlicensed."
+            "GEOLENS_LICENSE_KEY is set but this build bundles no license "
+            "public key; treating as unlicensed."
         )
         return None
 
-    info = verify_license_token(token, public_key)
+    audience = _read_first(os.environ.get("GEOLENS_LICENSE_AUDIENCE"))
+    info = verify_license_token(token, public_key, audience=audience)
     if info is not None:
         logger.info(
             "Enterprise license verified",

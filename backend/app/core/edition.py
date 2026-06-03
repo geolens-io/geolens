@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 
 import structlog
 
@@ -112,9 +112,21 @@ def init_edition(loaded_extensions: list[str]) -> None:
 
 
 def get_edition() -> EditionInfo:
-    """Return the current edition info, defaulting to community."""
+    """Return the current edition info, defaulting to community.
+
+    A *licensed* enterprise edition is re-checked against the license's
+    ``expires_at`` on every read, so a long-running / always-on process stops
+    unlocking enterprise once the license expires — without needing a restart.
+    The legacy env/extension path carries no ``expires_at`` and is unaffected.
+    """
     if _info is None:
         return EditionInfo(edition="community", features=())
+    if (
+        _info.licensed
+        and _info.expires_at is not None
+        and datetime.now(UTC) >= _info.expires_at
+    ):
+        return EditionInfo(edition="community", features=_info.features, licensed=False)
     return _info
 
 

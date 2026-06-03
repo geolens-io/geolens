@@ -9,9 +9,10 @@ needed to run GeoLens.
   #   -> license-keys/license_private_key.pem   (SECRET — never commit/ship)
   #   -> license-keys/license_public_key.pem    (ship this with the product)
 
-  # Install the PUBLIC key where deployments verify against it, e.g.:
+  # Bundle the PUBLIC key as the verifier trust root in the enterprise build.
+  # It is read ONLY from this committed path (never an env var), so an operator
+  # cannot swap in their own key:
   cp license-keys/license_public_key.pem backend/app/core/license_public_key.pem
-  #   (or distribute via GEOLENS_LICENSE_PUBLIC_KEY / _FILE)
 
   # 2. Per customer: mint a signed license token.
   python scripts/license_tool.py mint \
@@ -94,6 +95,11 @@ def _cmd_mint(args: argparse.Namespace) -> int:
         claims["seats"] = args.seats
     if args.features:
         claims["features"] = args.features
+    if args.audience:
+        # Binds the license to a deployment: the customer sets
+        # GEOLENS_LICENSE_AUDIENCE to the same value so the token can't be
+        # replayed on another instance.
+        claims["aud"] = args.audience
 
     token = jwt.encode(claims, key, algorithm=_ALGORITHM)
     print(token)
@@ -130,6 +136,11 @@ def main(argv: list[str] | None = None) -> int:
         nargs="*",
         default=None,
         help="Optional entitled feature/seam names.",
+    )
+    mt.add_argument(
+        "--audience",
+        help="Optional deployment id bound into the `aud` claim. The customer "
+        "sets GEOLENS_LICENSE_AUDIENCE to the same value to enforce it.",
     )
     mt.set_defaults(func=_cmd_mint)
 
