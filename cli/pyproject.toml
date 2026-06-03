@@ -33,7 +33,7 @@ dependencies = [
   "tomli_w>=1.0.0,<2.0.0",
   "platformdirs>=4.0.0,<5.0.0",
   "structlog>=25.0.0,<26.0.0",
-  "geolens>=1.0.0,<2.0.0",
+  "geolens>=2.0.0,<3.0.0",
 ]
 
 [project.optional-dependencies]

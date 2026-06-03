@@ -155,4 +155,6 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         # publishConfig.access=public in package.json + explicit flag = belt-and-suspenders
         # for first-time publish of @geolens/sdk (RESEARCH Pitfall 10).
-        run: npm publish --access public
+        # --provenance emits a signed build-attestation (job has id-token: write);
+        # surfaces the verified-supply-chain badge on npmjs.com.
+        run: npm publish --access public --provenance

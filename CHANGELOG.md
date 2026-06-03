@@ -7,12 +7,7 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
-### Changed
-
-- Public repository documentation now focuses on the open-source GeoLens app,
-  API, CLI, SDKs, and operator workflows.
-
-## [2.0.0] - 2026-05-31
+## [2.0.0] - 2026-06-02
 
 ### Added
 
