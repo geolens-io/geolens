@@ -414,21 +414,17 @@ services:
     build:
       context: ./db
     restart: unless-stopped
-    # D03 (docker-audit-20260604): backup runs cron + pg_dump + S3 upload with DB
-    # and S3 creds in env — harden like the app trio. init:true gives a PID-1
-    # reaper for the cron/sleep loop; cap_drop ALL + the gosu-drop set tightens
-    # kernel surface. No read_only — backup-entrypoint.sh writes a crontab under
-    # /var/spool/cron (add a tmpfs there if a read-only root is later wanted).
+    # D03 (docker-audit-20260604): backup-entrypoint.sh runs as root throughout
+    # (pg_dump/cp/curl/openssl/sleep on files it owns under /backups; cron falls
+    # back to a sleep loop on the postgis image). It never drops privilege or
+    # chowns across uids, so it needs NO added capabilities — cap_drop ALL just
+    # removes the unused kernel surface. init:true reaps the sleep/cron loop.
+    # No read_only — the cron path writes a crontab under /var/spool/cron.
     init: true
     security_opt:
       - no-new-privileges:true
     cap_drop:
       - ALL
-    cap_add:
-      - CHOWN
-      - DAC_OVERRIDE
-      - SETGID
-      - SETUID
     volumes:
       - ./scripts:/scripts:ro
       - backup_data:/backups
