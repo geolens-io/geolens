@@ -4,6 +4,16 @@ on:
   push:
     tags:
       - "v*.*.*"
+  # Manual trigger to exercise the build + multi-arch Trivy gate on demand.
+  # Default is a SCAN-ONLY dry run (no push) — the amd64 + arm64 images are
+  # built and Trivy-scanned, but the push/SBOM/attest steps are skipped. Set
+  # push_images=true only to perform a real manual publish.
+  workflow_dispatch:
+    inputs:
+      push_images:
+        description: "Also push images to GHCR (real publish). Leave false for a scan-only dry run."
+        type: boolean
+        default: false
 
 env:
   REGISTRY: ghcr.io
@@ -106,9 +116,12 @@ jobs:
           severity: CRITICAL,HIGH
           ignore-unfixed: true
 
-      # Push multi-arch images (only runs if BOTH scans pass)
+      # Push multi-arch images — only on a tag push, or a manual run with
+      # push_images=true. Skipped on the scan-only dry run (both scans above
+      # still execute, so the gate is exercised without publishing).
       - name: Build and push
         id: push
+        if: ${{ github.event_name == 'push' || github.event.inputs.push_images == 'true' }}
         uses: docker/build-push-action@v7
         with:
           context: .
@@ -123,8 +136,9 @@ jobs:
           cache-from: type=gha,scope=${{ matrix.image }}
           cache-to: type=gha,mode=max,scope=${{ matrix.image }}
 
-      # Generate SBOM from pushed image
+      # Generate SBOM from pushed image (only when we actually pushed)
       - name: Generate SBOM
+        if: ${{ github.event_name == 'push' || github.event.inputs.push_images == 'true' }}
         uses: anchore/sbom-action@v0
         with:
           image: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ matrix.image }}:${{ steps.meta.outputs.version }}
@@ -132,9 +146,9 @@ jobs:
           upload-artifact: false
           upload-release-assets: false
 
-      # Attest SBOM to the published image
+      # Attest SBOM to the published image (only when we pushed AND repo is public)
       - name: Attest SBOM
-        if: ${{ !github.event.repository.private }}
+        if: ${{ (github.event_name == 'push' || github.event.inputs.push_images == 'true') && !github.event.repository.private }}
         uses: actions/attest-sbom@v4
         with:
           subject-name: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ matrix.image }}
