@@ -304,7 +304,7 @@ async def discover_layers(
     summarized in the Import Summary as "Data quality skips: N".
     """
     downloadable = item_types or DEFAULT_ITEM_TYPES
-    # SEED-03: accumulate data-quality skips for summary reporting
+    # Accumulate data-quality skips for summary reporting
     data_quality_skips: list[str] = []
 
     # Resolve Hub/Open Data sites to their underlying AGO portal
@@ -910,7 +910,7 @@ def print_summary(
         print(f"  Updated:   {updated}")
     print(f"  Skipped:   {skipped}")
     print(f"  Failed:    {failed}")
-    # SEED-03: surface AGO data-quality skips so users see them at a glance
+    # Surface AGO data-quality skips so users see them at a glance
     if data_quality_skips:
         print(
             f"  Data quality skips: {len(data_quality_skips)} "

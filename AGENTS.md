@@ -4,7 +4,7 @@
 
 GeoLens mixes Python and TypeScript. Backend source is in `backend/app/`: `modules/` holds domain areas, `platform/` shared services, `processing/` ingest/export/tile work, and `standards/` OGC/STAC/DCAT integrations. Migrations are in `backend/alembic/`; tests are in `backend/tests/`.
 
-The React/Vite frontend is in `frontend/src/`: `components/`, `pages/`, `hooks/`, `stores/`, `api/`, `assets/`, `i18n/`, and colocated `__tests__/`. Playwright specs are in `e2e/`. The CLI is in `cli/geolens_cli/`; generated SDKs are in `sdks/`; operations files are in `scripts/`, `docker/`, `db/`, and `.github/`.
+The React/Vite frontend is in `frontend/src/`: `components/`, `pages/`, `hooks/`, `stores/`, `api/`, `assets/`, `i18n/`, and colocated `__tests__/`. Playwright specs are in `e2e/`. The CLI is in `cli/geolens_cli/`; generated SDKs are in `sdks/`; operations files are in `scripts/`, `db/`, and `.github/`.
 
 ## Build, Test, and Development Commands
 
@@ -24,15 +24,13 @@ Frontend code uses TypeScript, React, ESLint, React Hooks rules, and JSX accessi
 
 ### Inline review-comment convention
 
-When leaving an in-source comment that references a finding from a code review, audit, or smoke check, qualify the finding id with the phase id so future readers can locate the context:
+When an in-source comment references a finding from a code review or audit, anchor it to a stable, lookup-able reference (a PR or issue number) plus a one-line context, so future readers can find the rationale:
 
 ```
-// Phase {PHASE-ID} {FINDING-ID}: <one-line context>
-// Phase 1050-rev WR-01: imperative companion sweep — getSourceIdForLayer …
-// Phase 1051 CR-02: suppress basemap row click during multi-selection
+// fix(#1234): suppress basemap row click during multi-selection
 ```
 
-Bare `// WR-02: …` references (without a phase id) are ambiguous because finding ids are scoped per phase. Prefer the qualified form in all new code; opportunistically upgrade legacy bare references when editing nearby code.
+Avoid bare, unscoped finding ids that only resolve in a private tracker.
 
 ## Testing Guidelines
 
@@ -42,9 +40,9 @@ Frontend tests use Vitest and Testing Library as `*.test.ts(x)` files or under `
 
 ## Commit & Pull Request Guidelines
 
-History follows a Conventional Commit-like pattern, for example `feat(234-01): add schema gates for advanced sharing` or `docs(phase-233): complete phase execution`. Use an imperative subject and meaningful scope.
+History follows a Conventional Commit-like pattern, for example `feat(sharing): add schema gates for advanced sharing` or `docs(readme): clarify the install steps`. Use an imperative subject and meaningful scope.
 
-Pull requests should describe the change, call out schema/API/config impacts, link issues or phases, include screenshots for UI work, and list verification commands. Commit `backend/openapi.json` or SDK output only when the source change requires it.
+Pull requests should describe the change, call out schema/API/config impacts, link issues, include screenshots for UI work, and list verification commands. Commit `backend/openapi.json` or SDK output only when the source change requires it.
 
 ## Cross-Repo Brand Assets
 
@@ -54,7 +52,7 @@ Brand assets (logos, color tokens, font references, brand-usage rules, press mat
 
 Use `.env.example` and `.env.test.example` as templates. Never commit secrets, coverage output, Playwright reports, virtual environments, or dependency directories.
 
-Keep assistant and internal planning state out of git. `.gitignore` must continue to cover `.claude/`, `.codex/`, `.agents/`, `.planning/`, `.gsd/`, and `docs-internal/`; if any of those paths become tracked again, untrack them before public release work continues.
+Keep assistant and internal-notes state out of git. `.gitignore` covers AI-assistant and internal directories (e.g. `.claude/`, `.planning/`, `docs-internal/`); if any of those become tracked, untrack them before committing.
 
 Keep root repository docs single-purpose: `README.md` is the public overview, `SUPPORT.md` is support routing, and `CHANGELOG.md` is the release-note source of truth. README images live in `.github/assets/`, detailed product docs live on docs.getgeolens.com, and private/internal notes stay in ignored `docs-internal/`. Do not reintroduce a root `docs/` directory or standalone narrative feature docs that duplicate the docs site.
 
@@ -62,7 +60,7 @@ Keep root repository docs single-purpose: `README.md` is the public overview, `S
 
 The rules below codify recurring security-review patterns. Any code change that touches catalog data access, external URL fetching, or boot-time credential validation must satisfy them.
 
-**Rule 1 — Visibility-filter coverage** *(audit's #1 regression surface; 5 of 7 HIGHs in the 2026-05-19 audit clustered here)*
+**Rule 1 — Visibility-filter coverage** *(the most common access-control regression surface)*
 
 Any new FastAPI handler that fetches a `Record`, `Dataset`, `Map`, or `RecordEmbedding` by ID must do ONE of:
 
@@ -72,7 +70,7 @@ Any new FastAPI handler that fetches a `Record`, `Dataset`, `Map`, or `RecordEmb
 
 Reference implementations:
 - `backend/app/standards/ogc/router.py` — OGC Features peer router (read path).
-- `backend/app/standards/stac/router.py` — STAC router (read path; fixed in Phase 1061).
+- `backend/app/standards/stac/router.py` — STAC router (read path).
 - `backend/app/modules/catalog/datasets/api/router_metadata.py` — 5 sibling mutation handlers (write path).
 
 **Rule 2 — SSRF redirect-revalidation**
@@ -83,11 +81,11 @@ The same applies to ogr2ogr / GDAL subprocess calls that fetch user-supplied URL
 
 **Rule 3 — Never reintroduce known-public credential literals**
 
-The following literals leaked through git history when a demo deployment template shipped: `demo-only-do-not-use-in-production-change-me` (JWT), `demodemo` (admin password), `geolens-demo-2026` (postgres password), and `minioadmin/minioadmin` (MinIO root). Anyone with repo read access knows them. Never reintroduce any of these as a default, fallback, example, or test value.
+A handful of demo credential literals leaked through git history when an early demo deployment template shipped, so they must be treated as public knowledge. Never reintroduce a known-leaked credential as a default, fallback, example, or test value. The canonical list and the boot-time check live in `validate_known_bad_credentials` in `backend/app/core/config.py`.
 
-**Two distinct enforcement layers (Phase 1061 WR-01 correction):**
+**Two distinct enforcement layers:**
 
-- **Python boot guard** (`validate_known_bad_credentials` in `backend/app/core/config.py`): refuses to boot if `JWT_SECRET_KEY`, `GEOLENS_ADMIN_PASSWORD`, or `POSTGRES_PASSWORD` matches one of the three known-public literals. MinIO credentials are **not** `Settings` fields and are **not** inspected by this guard.
-- **Docker Compose required-variable syntax** (`MINIO_ROOT_USER:?required` in `docker-compose.yml`): prevents `docker compose --profile cloud-dev up` from succeeding if the variable is unset. This does **not** block the Docker default of `minioadmin/minioadmin` if `MINIO_ROOT_USER=minioadmin` is explicitly set — the operator must supply a non-default value (e.g., via `openssl rand -base64 24`).
+- **Python boot guard** (`validate_known_bad_credentials` in `backend/app/core/config.py`): refuses to boot if `JWT_SECRET_KEY`, `GEOLENS_ADMIN_PASSWORD`, or `POSTGRES_PASSWORD` matches a known-public literal. MinIO credentials are **not** `Settings` fields and are **not** inspected by this guard.
+- **Docker Compose required-variable syntax** (`MINIO_ROOT_USER:?required` in `docker-compose.yml`): prevents `docker compose --profile cloud-dev up` from succeeding if the variable is unset. The operator must supply a non-default value (e.g. via `openssl rand -base64 24`).
 
-**Enforcement.** Both Rule 1 and Rule 2 have pre-commit grep hooks in `.pre-commit-config.yaml` (shipped in Phase 1061 Plan 06). Rule 1's hook excludes `backend/app/modules/catalog/datasets/api/router_reupload.py` — that file has a tracked IDOR gap (Phase 1061 SEC-FU, deferred to Phase 1063) and is intentionally in the exclude list until it is fixed. Rule 3 is enforced at backend boot — boot-failure is the signal.
+**Enforcement.** Both Rule 1 and Rule 2 have pre-commit grep hooks in `.pre-commit-config.yaml`. Rule 1's hook excludes one file with a tracked, separately-managed access-control gap until it is fixed. Rule 3 is enforced at backend boot — boot-failure is the signal.

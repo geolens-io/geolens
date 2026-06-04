@@ -1,4 +1,4 @@
-# Phase 254 BL-01: Use bash with pipefail so `make sdks`'s
+# Use bash with pipefail so `make sdks`'s
 # `uvx openapi-python-client ... 2>&1 | tee /tmp/...log` propagates the
 # generator's non-zero exit instead of `tee`'s 0. Applies to all recipes;
 # existing recipes are pipefail-safe (no recipe relies on partial-pipeline
@@ -47,7 +47,7 @@ migrate:
 migration:
 	docker compose exec api uv run alembic revision --autogenerate -m "$(msg)"
 
-# Phase 1089 CI-02: defaults to parallel execution per PYTEST-XDIST-PERF-v1020.md Section 5.
+# Defaults to parallel execution (the -n value was chosen from xdist benchmarking).
 # Use `make test-sequential` to opt into sequential debugging mode.
 test:
 	docker compose exec api env UV_CACHE_DIR=/app/staging/uv-cache UV_PROJECT_ENVIRONMENT=/app/staging/geolens-api-test-venv uv run pytest -o cache_dir=/app/staging/.pytest_cache -n 4 -v --tb=short
@@ -78,7 +78,7 @@ openapi:
 openapi-check:
 	cd backend && PYTHONPATH=. uv run python scripts/dump_openapi.py --check
 
-# ----- SDK generation (Phase 215) -----
+# ----- SDK generation -----
 # `make sdks` regenerates Python + TypeScript SDKs from backend/openapi.json.
 #
 # Pipeline:
@@ -126,13 +126,13 @@ sdks:
 	-cp /tmp/_geolens_auth.ts sdks/typescript/src/auth.ts 2>/dev/null
 	-cp /tmp/_geolens_index.ts sdks/typescript/src/index.ts 2>/dev/null
 	uv run --no-project python scripts/sync_sdk_versions.py
-	# Phase 254 SDK-02 gate: openapi-python-client emits `WARNING parsing <METHOD> <ROUTE>`
+	# SDK-gen gate: openapi-python-client emits `WARNING parsing <METHOD> <ROUTE>`
 	# when a route's body shape is unparseable (e.g., text/plain), and silently drops the
 	# endpoint from the generated Python SDK. The gate fails the build on any such line.
 	# Pattern is anchored to openapi-python-client's literal emission format to avoid
 	# false-positives on AuthlibDeprecationWarning / uv VIRTUAL_ENV / other env noise.
 	#
-	# Phase 254 WR-02: explicitly assert the log file exists before grep, so
+	# Explicitly assert the log file exists before grep, so
 	# a missing log (e.g., generator crashed before tee opened the file, or
 	# the build env wiped /tmp between recipe lines) prints a clear error
 	# rather than the misleading "emitted  warning(s)" with empty count.
@@ -146,7 +146,7 @@ sdks:
 	    echo "ERROR: openapi-python-client emitted $$_count warning(s) — endpoint(s) silently dropped from Python SDK:" >&2; \
 	    grep '^WARNING parsing' /tmp/openapi-python-client.log >&2; \
 	    echo "" >&2; \
-	    echo "Fix the FastAPI route schema at the source (typically by replacing a non-JSON body shape with a Pydantic JSON body). See Phase 254 / SDK-02." >&2; \
+	    echo "Fix the FastAPI route schema at the source (typically by replacing a non-JSON body shape with a Pydantic JSON body)." >&2; \
 	    exit 1; \
 	  fi
 
@@ -164,8 +164,7 @@ sdks-check:
 	  ':!sdks/python/LICENSE' \
 	  ':!sdks/typescript/LICENSE'
 
-# `make sdks-test` runs the round-trip integration test (added in Plan 04).
-# Stub today; Plan 04 creates backend/tests/test_sdks_round_trip.py.
+# `make sdks-test` runs the SDK round-trip integration test.
 sdks-test:
 	cd backend && PYTHONPATH=. uv run pytest tests/test_sdks_round_trip.py -v
 
@@ -175,26 +174,25 @@ manifest-contract-check:
 	$(MAKE) openapi-check
 	$(MAKE) sdks-check
 
-# Publish targets — require local registry credentials.
-# Phase 215 ships the recipe; running it is a manual user action (D-16).
+# Publish targets — require local registry credentials. Running them is a
+# manual maintainer action.
 publish-sdks-py:
 	cd sdks/python && uv build && uv publish
 
 publish-sdks-ts:
 	cd sdks/typescript && npm install && npm run build && npm publish --access public
 
-# ----- CLI (Phase 216) -----
+# ----- CLI -----
 # `make cli-build` builds the geolens CLI wheel + sdist.
 cli-build: ## Build the geolens CLI wheel + sdist
 	cd cli && uv build
 
-# `make cli-test` runs CLI unit tests + round-trip integration test (round-trip lands in Plan 06).
-cli-test: ## Run CLI unit tests + round-trip integration test (round-trip lands in Plan 06)
+# `make cli-test` runs CLI unit tests + the round-trip integration test.
+cli-test: ## Run CLI unit tests + round-trip integration test
 	cd cli && uv run --extra dev python -m pytest -v
 	cd backend && PYTHONPATH=. POSTGRES_HOST=localhost POSTGRES_PORT="$${DB_PORT:-5434}" POSTGRES_USER=geolens POSTGRES_PASSWORD=geolens POSTGRES_DB=geolens JWT_SECRET_KEY=test-secret-key-for-ci-padding-32chars GEOLENS_ADMIN_USERNAME=admin GEOLENS_ADMIN_PASSWORD=admin uv run pytest tests/test_cli_round_trip.py -v
 
-# `make cli-check` — version drift in cli/pyproject.toml is caught by sdks-check
-# (sync_sdk_versions extension lands in Plan 06).
+# `make cli-check` — version drift in cli/pyproject.toml is caught by sdks-check.
 cli-check: sdks-check ## Alias — version drift in cli/pyproject.toml is caught by sdks-check
 	@echo "cli-check OK (drift gate is sdks-check; sync_sdk_versions extension catches CLI version drift)"
 
@@ -202,23 +200,23 @@ cli-check: sdks-check ## Alias — version drift in cli/pyproject.toml is caught
 publish-cli: ## Build + publish geolens-cli to PyPI
 	cd cli && uv build && uv publish
 
-# Phase 222 AUDIT-02 invariant: log_action() is called only by DefaultAuditSink.emit().
+# Invariant: log_action() is called only by DefaultAuditSink.emit().
 # All 65 historical emit sites must route through audit_emit(session, AuditEvent(...)) instead.
 # This target runs the architecture-guard test in isolation — quick local verification
 # without spinning up the full pytest suite.
-audit-sink-discipline: ## Verify no `await log_action(` calls exist outside audit/service.py + extensions/defaults.py (Phase 222 AUDIT-02)
+audit-sink-discipline: ## Verify no `await log_action(` calls exist outside audit/service.py + extensions/defaults.py
 	cd backend && PYTHONPATH=. uv run pytest tests/test_layering.py::test_no_log_action_calls_outside_audit_service -v
 
-# Phase 223 BILLING-02 / BILLING-04 invariants:
+# Invariants:
 #   - app.core.marketplace must not exist as a module under backend/app/
 #   - No `from app.core.marketplace` import anywhere in backend/app/
 #   - The production dispatch loop in api/main.py uses literal timeout=10.0 (D-11)
 # This target runs both architecture-guard tests in isolation — quick local
 # verification without spinning up the full pytest suite.
-billing-extraction-discipline: ## Verify app.core.marketplace is absent + dispatch hardcodes timeout=10.0 (Phase 223 BILLING-02 / BILLING-04)
+billing-extraction-discipline: ## Verify app.core.marketplace is absent + dispatch hardcodes timeout=10.0
 	cd backend && PYTHONPATH=. uv run pytest tests/test_layering.py::test_no_core_marketplace_import tests/test_layering.py::test_billing_dispatch_uses_hardcoded_timeout -v
 
-# Phase 224 DECOUPLE-04 invariant: no external module imports from the
+# Invariant: no external module imports from the
 # catalog/datasets/domain/service_X sub-modules directly. The 1407-LOC
 # god-module was split into 5 cohesive sub-modules behind a thin re-export
 # façade in service.py. All 22 consumer files in backend/app/ must continue
@@ -227,5 +225,5 @@ billing-extraction-discipline: ## Verify app.core.marketplace is absent + dispat
 # This target runs the architecture-guard test in isolation — quick local
 # verification without spinning up the full pytest suite (uses git grep,
 # no DB required).
-catalog-domain-discipline: ## Verify no external imports of catalog/datasets/domain/service_X sub-modules (Phase 224 DECOUPLE-04)
+catalog-domain-discipline: ## Verify no external imports of catalog/datasets/domain/service_X sub-modules
 	cd backend && PYTHONPATH=. uv run pytest tests/test_layering.py::test_no_external_imports_of_dataset_domain_submodules -v

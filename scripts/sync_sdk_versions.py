@@ -8,7 +8,7 @@ Touches four files:
   - sdks/python/pyproject.toml          ([project] version)
   - sdks/python/.openapi-python-client.yaml  (package_version_override)
   - sdks/typescript/package.json        (.version)
-  - cli/pyproject.toml                  ([project] version — Phase 216 D-03)
+  - cli/pyproject.toml                  ([project] version — lockstep with the SDK)
 
 NEVER add timestamps, build numbers, hashes, or environment-derived suffixes.
 The drift gate is a static equality check — every variation breaks CI.
@@ -115,7 +115,7 @@ def main() -> int:
         TS_PACKAGE.write_text(new_ts_text)
         print(f"Updated {TS_PACKAGE.relative_to(REPO_ROOT)} version → {version}")
 
-    # CLI pyproject.toml (Phase 216 / D-03 — lockstep version with the SDK).
+    # CLI pyproject.toml (lockstep version with the SDK).
     # Guarded with .exists() so an interim state where this script is run
     # before cli/pyproject.toml lands does not break the sync.
     if CLI_PYPROJECT.exists():

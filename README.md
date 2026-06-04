@@ -278,7 +278,7 @@ is sized to fit `max_connections` (default 30, set in `db/postgresql.conf`)
 with the per-process pool defaults shown — total in-flight stays at the
 worst-case envelope without unused memory in the slot table.
 
-Per-process budget (current defaults — PERF-05 / Phase 274, paired with DBM-04 / Phase 271):
+Per-process budget (current defaults):
 
 | Process | `db_pool_size` | `db_max_overflow` | Procrastinate | Worst-case |
 |---------|---------------:|------------------:|--------------:|-----------:|
@@ -291,10 +291,10 @@ Per-process budget (current defaults — PERF-05 / Phase 274, paired with DBM-04
 
 The two changes that produced this envelope:
 
-1. **DBM-04 (Phase 271):** `db_max_overflow` 5 → 3, reclaiming 14 connections
-   of headroom under Procrastinate spikes.
-2. **PERF-05 (Phase 274):** `max_connections` 50 → 30, reclaiming ~10MiB of
-   shared memory per dropped slot (~200MiB total).
+1. **`db_max_overflow` 5 → 3** — reclaiming 14 connections of headroom under
+   Procrastinate spikes.
+2. **`max_connections` 50 → 30** — reclaiming ~10MiB of shared memory per
+   dropped slot (~200MiB total).
 
 Operators expecting frequent ad-hoc admin sessions on top of full worker + API
 saturation should bump `max_connections` back to 35-40 in their own
@@ -321,7 +321,7 @@ For new AWS buckets, mount a sidecar container with `aws-cli` and replace
 the `upload_to_s3` function with `aws s3 cp <file> s3://<bucket>/<key>`
 (the AWS CLI uses Sig-V4 by default).
 
-DBM-11 (Phase 271) tracks this as a documented limitation; a Sig-V4 rewrite
+This is a documented limitation; a Sig-V4 rewrite
 is deferred until a real-world adopter request makes it concrete.
 
 ## Reference

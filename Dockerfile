@@ -9,7 +9,7 @@
 FROM python:3.14.5-slim AS backend-builder
 
 # uv is build-time + runtime: see runtime-stage comment below for runtime rationale.
-# API-08 (Phase 275 / L-21): aligned uv installer pin across builder + runtime stages.
+# Aligned uv installer pin across builder + runtime stages.
 COPY --from=ghcr.io/astral-sh/uv:0.11.11 /uv /uvx /bin/
 
 WORKDIR /app
@@ -45,24 +45,23 @@ RUN chmod +x /app/scripts/api-entrypoint.sh /app/scripts/worker-entrypoint.sh
 # ==============================================================================
 # Stage 2: backend-base — clean python:3.14.3-slim runtime; venv from builder
 # ==============================================================================
-# True multi-stage split per INF-06: runtime starts from a fresh
+# True multi-stage split: runtime starts from a fresh
 # python:3.14.3-slim base (no apt-cache layer from builder, no intermediate
 # uv-sync state). Only the resolved /app/.venv + code arrive via COPY --from.
 #
 # Note: uv is INTENTIONALLY KEPT in the runtime layer because
 # api-entrypoint.sh runs `uv add --editable ${ENTERPRISE_PATH}` to install the
 # enterprise overlay at startup. Removing uv from runtime breaks the enterprise
-# install path (M-32 audit subset deferred per 272-RESEARCH-NOTES.md §INF-06).
+# install path.
 # gcc/dev libs are still excluded from the runtime layer.
 #
 # Pin: python:3.14.3-slim. backend/pyproject.toml requires-python>=3.13 for
 # adopter flexibility; this image ships 3.14.3 as the project's tested runtime.
 # See backend/pyproject.toml comment at requires-python for the matching note.
-# Per .planning/REQUIREMENTS.md INF-15.
 FROM python:3.14.5-slim AS backend-base
 
 # uv kept for enterprise overlay install (api-entrypoint.sh runs `uv add --editable`).
-# API-08 (Phase 275 / L-21): aligned uv installer pin across builder + runtime stages.
+# Aligned uv installer pin across builder + runtime stages.
 COPY --from=ghcr.io/astral-sh/uv:0.11.11 /uv /uvx /bin/
 
 # Runtime apt deps — clean install on a fresh layer (no apt cache from builder).
