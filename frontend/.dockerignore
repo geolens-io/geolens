@@ -9,3 +9,11 @@ npm-debug.log*
 .npm/
 coverage/
 .eslintcache
+
+# secrets / TLS material (D05, docker-audit-20260604) — Dockerfile.dev does
+# `COPY . .`, so a stray key/cert here would bake into the dev image layer.
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx

@@ -62,28 +62,51 @@ jobs:
             org.opencontainers.image.description=${{ matrix.description }}
             org.opencontainers.image.licenses=Apache-2.0
 
-      # Build local image for security scanning (single platform)
-      - name: Build image for scanning
+      # Gate BOTH published arches on Trivy. `load: true` can only materialize a
+      # single-platform image, so amd64 and arm64 are built + scanned separately
+      # (QEMU is set up above for the arm64 build). The push below ships
+      # linux/amd64,linux/arm64, so each arch must clear the gate first.
+      - name: Build amd64 image for scanning
         uses: docker/build-push-action@v7
         with:
           context: .
           file: Dockerfile
           target: ${{ matrix.target }}
+          platforms: linux/amd64
           load: true
-          tags: ${{ matrix.image }}:scan
+          tags: ${{ matrix.image }}:scan-amd64
           cache-from: type=gha,scope=${{ matrix.image }}
 
-      # Fail on HIGH/CRITICAL vulnerabilities before pushing
-      - name: Trivy vulnerability scan
+      - name: Trivy vulnerability scan (amd64)
         uses: aquasecurity/trivy-action@v0.36.0
         with:
-          image-ref: ${{ matrix.image }}:scan
+          image-ref: ${{ matrix.image }}:scan-amd64
           format: table
           exit-code: '1'
           severity: CRITICAL,HIGH
           ignore-unfixed: true
 
-      # Push multi-arch images (only runs if scan passes)
+      - name: Build arm64 image for scanning
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: Dockerfile
+          target: ${{ matrix.target }}
+          platforms: linux/arm64
+          load: true
+          tags: ${{ matrix.image }}:scan-arm64
+          cache-from: type=gha,scope=${{ matrix.image }}
+
+      - name: Trivy vulnerability scan (arm64)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: ${{ matrix.image }}:scan-arm64
+          format: table
+          exit-code: '1'
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+
+      # Push multi-arch images (only runs if BOTH scans pass)
       - name: Build and push
         id: push
         uses: docker/build-push-action@v7

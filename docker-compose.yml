@@ -128,6 +128,18 @@ services:
     restart: unless-stopped
     security_opt:
       - no-new-privileges:true
+    # D02 (docker-audit-20260604): drop ALL caps; re-add only what the postgres
+    # entrypoint needs (initdb chowns the data dir, then gosu-drops to postgres).
+    # no-new-privileges permits this de-escalation. Verify on a FRESH pgdata
+    # volume — these caps surface during initdb/chown.
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+      - SETGID
+      - SETUID
 
   migrate:
     build:
@@ -402,6 +414,21 @@ services:
     build:
       context: ./db
     restart: unless-stopped
+    # D03 (docker-audit-20260604): backup runs cron + pg_dump + S3 upload with DB
+    # and S3 creds in env — harden like the app trio. init:true gives a PID-1
+    # reaper for the cron/sleep loop; cap_drop ALL + the gosu-drop set tightens
+    # kernel surface. No read_only — backup-entrypoint.sh writes a crontab under
+    # /var/spool/cron (add a tmpfs there if a read-only root is later wanted).
+    init: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - SETGID
+      - SETUID
     volumes:
       - ./scripts:/scripts:ro
       - backup_data:/backups
@@ -442,6 +469,12 @@ services:
     image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
     profiles: ["cloud-dev"]
     command: server /data --console-address ":9001"
+    # D04 (docker-audit-20260604): cloud-dev is opt-in + loopback-only, but minio
+    # holds root S3 creds — drop caps + block privilege gain as cheap insurance.
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     ports:
       - "127.0.0.1:9000:9000"
       - "127.0.0.1:9001:9001"
@@ -464,6 +497,12 @@ services:
     # docs-internal/docker-compose-architecture.md#minio-image-version-bump
     image: quay.io/minio/mc:RELEASE.2025-08-13T08-35-41Z@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
     profiles: ["cloud-dev"]
+    # D04 (docker-audit-20260604): one-shot setup, but no-new-privileges + cap_drop
+    # are free hardening.
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     depends_on:
       minio:
         condition: service_healthy
@@ -499,6 +538,11 @@ services:
     # docs-internal/docker-compose-architecture.md#valkey-image-version
     image: valkey/valkey:8.1.7-alpine
     profiles: ["cloud-dev"]
+    # D04 (docker-audit-20260604): drop caps + block privilege gain (opt-in dev cache).
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     ports:
       - "127.0.0.1:6379:6379"
     volumes:
