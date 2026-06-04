@@ -4,6 +4,19 @@ on:
   push:
     tags:
       - "v*.*.*"
+  # Manual trigger to exercise the build + multi-arch Trivy gate on demand.
+  # Default is a SCAN-ONLY dry run (no push) — the amd64 + arm64 images are
+  # built and Trivy-scanned, but the push/SBOM/attest steps are skipped.
+  # push_images=true performs a real manual publish and MUST be run from a tag
+  # ref (the metadata step emits only type=semver tags, which require a semver
+  # Git tag): `gh workflow run publish.yml --ref vX.Y.Z -f push_images=true`.
+  # A guard step below fails fast if push_images=true is dispatched off a branch.
+  workflow_dispatch:
+    inputs:
+      push_images:
+        description: "Real publish to GHCR — REQUIRES a tag ref (--ref vX.Y.Z). Leave false for a scan-only dry run."
+        type: boolean
+        default: false
 
 env:
   REGISTRY: ghcr.io
@@ -33,6 +46,16 @@ jobs:
             description: "PostGIS-native GIS data catalog frontend"
 
     steps:
+      # Fail fast (with guidance) if a real manual publish is dispatched off a
+      # branch — type=semver emits no tags there, so the push would otherwise
+      # fail later with a cryptic empty-tags buildx error. Tag pushes and the
+      # scan-only dry run (push_images=false) are unaffected.
+      - name: Require a tag ref for manual publishes
+        if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.push_images == 'true' && github.ref_type != 'tag' }}
+        run: |
+          echo "::error::push_images=true requires a tag ref so metadata-action can emit semver tags. Re-run as: gh workflow run publish.yml --ref vX.Y.Z -f push_images=true"
+          exit 1
+
       - name: Checkout
         uses: actions/checkout@v6
 
@@ -106,9 +129,12 @@ jobs:
           severity: CRITICAL,HIGH
           ignore-unfixed: true
 
-      # Push multi-arch images (only runs if BOTH scans pass)
+      # Push multi-arch images — only on a tag push, or a manual run with
+      # push_images=true. Skipped on the scan-only dry run (both scans above
+      # still execute, so the gate is exercised without publishing).
       - name: Build and push
         id: push
+        if: ${{ github.event_name == 'push' || github.event.inputs.push_images == 'true' }}
         uses: docker/build-push-action@v7
         with:
           context: .
@@ -123,8 +149,9 @@ jobs:
           cache-from: type=gha,scope=${{ matrix.image }}
           cache-to: type=gha,mode=max,scope=${{ matrix.image }}
 
-      # Generate SBOM from pushed image
+      # Generate SBOM from pushed image (only when we actually pushed)
       - name: Generate SBOM
+        if: ${{ github.event_name == 'push' || github.event.inputs.push_images == 'true' }}
         uses: anchore/sbom-action@v0
         with:
           image: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ matrix.image }}:${{ steps.meta.outputs.version }}
@@ -132,9 +159,9 @@ jobs:
           upload-artifact: false
           upload-release-assets: false
 
-      # Attest SBOM to the published image
+      # Attest SBOM to the published image (only when we pushed AND repo is public)
       - name: Attest SBOM
-        if: ${{ !github.event.repository.private }}
+        if: ${{ (github.event_name == 'push' || github.event.inputs.push_images == 'true') && !github.event.repository.private }}
         uses: actions/attest-sbom@v4
         with:
           subject-name: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ matrix.image }}
