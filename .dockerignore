@@ -49,3 +49,14 @@ frontend/.eslintcache
 frontend/npm-debug.log*
 
 scripts/**/__pycache__/
+
+# secrets / TLS material (D05, docker-audit-20260604) — root is the build context
+# for the PUBLISHED api/worker/frontend images (root Dockerfile COPYs backend/ +
+# frontend/), and `!frontend/**` above re-includes that tree, so the cert excludes
+# must live here, not only in the per-context .dockerignore files. `**/` matches
+# at any depth (also keeps backend/tests SAML fixtures out of the shipped image).
+**/*.pem
+**/*.key
+**/*.crt
+**/*.p12
+**/*.pfx
