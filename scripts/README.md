@@ -93,13 +93,27 @@ Creates minimal test datasets for end-to-end test suites.
 | Script | Purpose |
 |--------|---------|
 | `install.sh` | First-run installer — see below |
-| `init-db.sh` | Initialize the PostGIS database schema |
-| `init-test-db.sh` | Initialize a host-accessible `geolens_test` database with the extensions, schemas, and roles expected by CI and local debugging |
+| `preflight-env.sh` | Statically validate `.env` (JWT secret, admin creds) before boot — `make preflight` / `make dev` |
+| `check-env.sh` | Probe the running stack's env, DB connectivity, and GDAL — `make doctor` (requires the stack up) |
+| `init-db.sh` | Initialize the PostGIS database schema (mounted into the db container's init) |
+| `init-test-db.sh` | Initialize a host-accessible `geolens_test` database (extensions, schemas, roles) for local `psql` debugging. Not used by CI — CI and pytest each bootstrap their own test databases. |
+| `backup-entrypoint.sh` | Scheduled `pg_dump` backups with retention + optional S3 upload — the Docker Compose backup-profile service |
 | `restore.sh` | Restore a database backup |
-| `check-env.sh` | Validate required environment variables |
 | `run-baseline.sh` | Run performance baselines |
 | `analyze-query-plans.sh` | Analyze slow query plans |
-| `cleanup-test-pollution.sql` | Remove leftover test data |
+| `cleanup-test-pollution.sql` | Remove leftover test data (manual `psql`) |
+
+## Build & Release Glue
+
+Wired into the `Makefile` / `package.json`, not run by operators directly:
+
+| Script | Purpose |
+|--------|---------|
+| `flatten_openapi_defs.py` | Post-process `backend/openapi.json` for the SDK generators. Runs stdlib-only via `uv run --no-project` (outside the backend venv) — `make sdks` |
+| `sync_sdk_versions.py` | Sync the generated SDK package versions — `make sdks` |
+| `check-readme-locales.mjs` | Verify the README locale stubs stay in sync — `npm run check:readme-locales` |
+
+> `scripts/marketing-data/` is internal marketing-asset tooling (hardcoded AOI / dev credentials, not operator-facing) and is not part of the supported self-host surface.
 
 ### `install.sh`
 

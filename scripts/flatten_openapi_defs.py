@@ -191,12 +191,6 @@ def _walk(
         local_frame: dict[str, str] = {}
         defs_block = node.get("$defs")
         if isinstance(defs_block, dict):
-            for defs_name, defs_schema in defs_block.items():
-                # Recurse into the schema body FIRST so any nested
-                # $defs/$refs inside it are resolved. We do this before
-                # pushing the local frame because the schema body must
-                # see its OWN sibling defs.
-                pass  # handled below
             # Two-pass resolution:
             # Pass 1: tentatively bind names so siblings can refer to
             # each other in any order.

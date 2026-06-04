@@ -810,10 +810,6 @@ async def main(args: argparse.Namespace) -> None:
             plan = generate_dataset_plan(i, ne_sources, geom_type_counts)
             plans.append(plan)
 
-        if args.dry_run:
-            run_dry_run(plans)
-            return
-
         # Check idempotency
         print("Checking existing datasets...")
         existing = await fetch_existing_datasets(client, base_url, api_key)
