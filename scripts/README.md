@@ -113,8 +113,6 @@ Wired into the `Makefile` / `package.json`, not run by operators directly:
 | `sync_sdk_versions.py` | Sync the generated SDK package versions — `make sdks` |
 | `check-readme-locales.mjs` | Verify the README locale stubs stay in sync — `npm run check:readme-locales` |
 
-> `scripts/marketing-data/` is internal marketing-asset tooling (hardcoded AOI / dev credentials, not operator-facing) and is not part of the supported self-host surface.
-
 ### `install.sh`
 
 First-run installer for a self-hosted GeoLens stack. Verifies prerequisites
