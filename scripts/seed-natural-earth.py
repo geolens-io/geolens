@@ -1231,7 +1231,7 @@ async def main(args: argparse.Namespace, datasets: list[dict]) -> int:
         sem = asyncio.Semaphore(3)
         total = len(datasets)
 
-        # OPS-01: capture run start so reconcile_failed_jobs can filter out
+        # Capture run start so reconcile_failed_jobs can filter out
         # stale failures from prior runs. Captured BEFORE the TaskGroup so
         # any job enqueued by this run will have started_at > run_start_time.
         run_start_time = datetime.now(timezone.utc)
@@ -1267,7 +1267,7 @@ async def main(args: argparse.Namespace, datasets: list[dict]) -> int:
 
         print_summary(total, succeeded, skipped, failed, failures)
 
-        # OPS-01: post-loop reconciliation against /api/admin/jobs/?status=failed.
+        # Post-loop reconciliation against /api/admin/jobs/?status=failed.
         # Surfaces any persisted-failed job-rows the per-dataset polling missed.
         # See reconcile_failed_jobs docstring + quick task 260523-at1 SUMMARY §1.
         print()
@@ -1380,7 +1380,7 @@ if __name__ == "__main__":
                 file=sys.stderr,
             )
             sys.exit(1)
-        # OPS-01: surface main()'s return code so a failed reconciliation
+        # Surface main()'s return code so a failed reconciliation
         # (or per-dataset failure) exits the process non-zero, letting
         # CI/operator scripts pick up the signal.
         sys.exit(asyncio.run(main(args, datasets)) or 0)

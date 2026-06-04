@@ -199,7 +199,7 @@ jobs:
         run: make sdks-check
 
   # ---------- CLI ----------
-  # Phase 216 / OCCLI-06: structural enforcement that the CLI never grows
+  # Structural enforcement that the CLI never grows
   # a direct httpx/requests dependency. Runs on cli/** OR sdks/python/**
   # changes (the SDK is the CLI's only HTTP surface — a regression in the
   # SDK can ripple into the CLI through a behavior change in the wrapper).
@@ -470,8 +470,8 @@ jobs:
         run: |
           # Catch BOTH modified-tracked-files (the original regression) AND
           # newly-created fixture files like idp_response_*.xml.b64 — those
-          # are untracked after Phase 227 renamed the originals to .template,
-          # and `git diff --quiet` would silently miss them (Phase 227 WR-02).
+          # are untracked after the originals were renamed to .template,
+          # and `git diff --quiet` would silently miss them.
           DIRTY=$(git status --porcelain -- tests/fixtures/saml/)
           if [ -n "$DIRTY" ]; then
             echo "::error::SAML fixture dir mutated by pytest run -- regression of phase 227 (saml-test-fixture-tmp-path)."
@@ -490,8 +490,8 @@ jobs:
           retention-days: 14
 
   # ---------- alembic clean-DB upgrade smoke ----------
-  # Phase 1078 CI-01 / SEC-OBSV-03: exercise the full migration chain
-  # against a freshly-initialized PostGIS container via the v1016 Phase 1071
+  # Exercise the full migration chain against a freshly-initialized PostGIS
+  # container via the clean-DB upgrade
   # script. Builds the project's custom PostGIS+pgvector image, spins up a
   # throwaway DB, and runs `alembic upgrade head` from a clean state.
   # Catches migration-on-clean-DB breakage that the backend-test job can miss
@@ -528,12 +528,12 @@ jobs:
           ALEMBIC_TEST_DB_PORT: 54399
           ALEMBIC_TEST_TIMEOUT: 90
 
-  # ---------- pytest parallel-isolation gate (v1020 CI-01) ----------
-  # Phase 1089 CI-01: defend the Phase 1088 fixture-isolation fixes against regression.
-  # Runs `pytest -n 4` against the backend test suite (post-Phase-1088 HEAD
-  # baseline: 76 residual failures, mostly the flake-class deferred to Phase 1090 HYG-02).
-  # Recommended `-n` value drives from .planning/audits/PYTEST-XDIST-PERF-v1020.md Section 5
-  # (PERF-01 baseline). Sister-shape to alembic-clean-db (line 462).
+  # ---------- pytest parallel-isolation gate ----------
+  # Defends the fixture-isolation fixes against regression.
+  # Runs `pytest -n 4` against the backend test suite (the known residual
+  # failures are a tracked flake-class, not regressions from this gate).
+  # The `-n 4` value was chosen from local xdist performance benchmarking.
+  # Sister-shape to alembic-clean-db (line 462).
   pytest-parallel-isolation:
     name: Pytest Parallel Isolation
     needs: changes
@@ -620,11 +620,11 @@ jobs:
         run: uv run alembic upgrade head
 
       - name: Run tests with -n 4
-        # Phase 1089 CI-01 gate: defends against regressions to Phase 1088 fixture-isolation work.
-        # `-n` value sourced from .planning/audits/PYTEST-XDIST-PERF-v1020.md Section 5.
+        # Regression gate for the fixture-isolation work.
+        # The `-n 4` value was chosen from local xdist performance benchmarking.
         # No coverage flags here — backend-test job already covers coverage; this job is a regression gate only.
-        # Skips enterprise overlay (CONTEXT.md decision: simpler is better; overlay-specific fixture races
-        # are tracked separately in Phase 1090 HYG-02 if they surface).
+        # Skips the enterprise overlay (simpler is better; overlay-specific fixture races
+        # are tracked separately if they surface).
         run: uv run pytest -n 4 -v --tb=short -m 'not perf'
 
   # ---------- frontend ----------
@@ -694,7 +694,7 @@ jobs:
           retention-days: 14
 
   # ---------- license-check ----------
-  # Phase 279 ADMIN-13 (L-22): non-blocking license-checker against the
+  # Non-blocking license-checker against the
   # frontend dependency tree. Failure does not block PR merge — reviewers
   # consult the uploaded artifact when a license-relevant change is suspected
   # (new package added, license clause changed in lockfile, etc.). Promote to

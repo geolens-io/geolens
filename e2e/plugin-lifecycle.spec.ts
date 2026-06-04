@@ -1,6 +1,6 @@
 /**
- * Plugin lifecycle E2E — closes the live-verification gaps flagged by
- * /plugin-audit (docs-internal/audits/plugin-audit-20260531.md):
+ * Plugin lifecycle E2E — covers the plugin enable/disable + persistence
+ * round-trip:
  *
  *   MED-1/round-trip — toggling a plugin in the builder Settings panel, saving,
  *   and reloading round-trips through the `catalog.maps.plugins` column.

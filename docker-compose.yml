@@ -27,10 +27,10 @@ x-db-ssl-env: &db-ssl-env
   DATABASE_URL_OVERRIDE: "${DATABASE_URL_OVERRIDE:-}"
   DATABASE_SSL_MODE: "${DATABASE_SSL_MODE:-prefer}"
   DATABASE_SSL_CA_CERT: "${DATABASE_SSL_CA_CERT:-}"
-  DATABASE_POOL_PRE_PING: "${DATABASE_POOL_PRE_PING:-true}"  # CONF-02 (Phase 277): aligned with Settings.database_pool_pre_ping=True default and .env.example commented default
+  DATABASE_POOL_PRE_PING: "${DATABASE_POOL_PRE_PING:-true}"  # aligned with the Settings default and the .env.example commented default
   DB_USE_EXTERNAL_POOLER: "${DB_USE_EXTERNAL_POOLER:-false}"
   DB_POOL_SIZE: "${DB_POOL_SIZE:-10}"
-  DB_MAX_OVERFLOW: "${DB_MAX_OVERFLOW:-3}"  # DBM-04: see README §"Connection Pool Budget"
+  DB_MAX_OVERFLOW: "${DB_MAX_OVERFLOW:-3}"  # see README §"Connection Pool Budget"
   DB_POOL_TIMEOUT: "${DB_POOL_TIMEOUT:-30}"
   DB_POOL_RECYCLE: "${DB_POOL_RECYCLE:-1800}"
 

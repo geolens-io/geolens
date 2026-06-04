@@ -6,7 +6,7 @@
 # Flags sequential scans, stale statistics, missing gid indexes, and
 # top queries by execution time. Run from the project root.
 #
-# Phase 180 OPT-05: permanent project fixture.
+# Permanent project fixture.
 # =============================================================================
 
 set -euo pipefail

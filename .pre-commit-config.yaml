@@ -16,8 +16,8 @@ repos:
           via make_safe_client() from backend/app/modules/catalog/sources/security.py.
           The factory installs the per-hop _revalidate_redirect event hook.
           See AGENTS.md Security pre-commit checklist Rule 2.
-          Phase 1061 CR-02: switched from pygrep (per-line) to a system bash hook
-          so multi-line AsyncClient declarations are caught.  The previous pattern
+          Uses a system bash hook (not pygrep) so multi-line AsyncClient
+          declarations are caught. The previous per-line pattern
           `httpx\.AsyncClient\([^)]*follow_redirects=True` would miss:
               _client = httpx.AsyncClient(        # line N — no follow_redirects here
                   follow_redirects=True,          # line N+1 — no AsyncClient( here
@@ -43,7 +43,7 @@ repos:
         # - security.py: the canonical factory; defines make_safe_client() itself.
         # - tiles/router.py: fixed internal URL (http://titiler:8000) — not user-controlled,
         #   no SSRF risk. Excluded explicitly because its multi-line AsyncClient declaration
-        #   (lines 51-54) is the exact shape the pygrep hook could not catch (Phase 1061 CR-02).
+        #   (lines 51-54) is the exact shape the pygrep hook could not catch.
         #   If the URL source ever changes to user-controlled, remove this exclusion and
         #   wrap the client in make_safe_client().
         exclude: '^backend/app/modules/catalog/sources/security\.py$|^backend/app/processing/tiles/router\.py$'
@@ -54,9 +54,9 @@ repos:
           Any route handler that fetches a Record/Dataset/Map by ID must call
           check_dataset_access_or_anonymous (read) or check_dataset_access (write)
           or apply_visibility_filter. See AGENTS.md Security pre-commit checklist Rule 1.
-          Evaluation: Phase 1061 Plan 06 found 1 flagged file (router_reupload.py) with
-          FP count = 0 legitimate exemptions. The file has a tracked IDOR gap (deferred
-          to Phase 1063 as SEC-FU) and is excluded until that phase ships the fix.
+          One file (router_reupload.py) is excluded: it has a tracked,
+          separately-managed access-control gap and stays excluded until that
+          fix ships.
         language: system
         entry: >-
           bash -c '
@@ -86,7 +86,7 @@ repos:
         types_or: [python, pyi]
         files: '^backend/.*\.py$'
 
-  # --- Generic hygiene + secret scanning (Phase 1169 public-release readiness) ---
+  # --- Generic hygiene + secret scanning ---
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0
     hooks:

@@ -135,8 +135,7 @@ test.describe('Dataset Detail', () => {
     await expect(page.getByRole('dialog', { name: /Re-Upload Dataset/i })).toHaveCount(0);
   });
 
-  // Two tests removed in v13.12 H-33 / v13.13 Phase 278-06 TEST-10 Path B.
-  // Coverage moved to vitest (DatasetPage.edit-affordances, PendingEditsBar,
-  // EditableFieldShell, ValidationStatus, QualityScoreCard). See
-  // .planning/milestones/v13.13-MILESTONE-AUDIT.md (TEST-10) for rationale.
+  // Two tests were removed here; coverage moved to vitest
+  // (DatasetPage.edit-affordances, PendingEditsBar, EditableFieldShell,
+  // ValidationStatus, QualityScoreCard).
 });
