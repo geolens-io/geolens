@@ -58,7 +58,6 @@ RUN chmod +x /app/scripts/api-entrypoint.sh /app/scripts/worker-entrypoint.sh
 # Pin: python:3.14.3-slim. backend/pyproject.toml requires-python>=3.13 for
 # adopter flexibility; this image ships 3.14.3 as the project's tested runtime.
 # See backend/pyproject.toml comment at requires-python for the matching note.
-# Per .planning/REQUIREMENTS.md INF-15.
 FROM python:3.14.5-slim AS backend-base
 
 # uv kept for enterprise overlay install (api-entrypoint.sh runs `uv add --editable`).

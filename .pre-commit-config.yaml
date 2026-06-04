@@ -1,7 +1,6 @@
 # Pre-commit hooks for GeoLens security guardrails.
-# Phase 1061 SEC-GUARD-01: pins audit-derived patterns so regressions trip CI.
-# See AGENTS.md "Security pre-commit checklist" and
-# docs-internal/audits/security-lessons.md for the underlying rationale.
+# Pins audit-derived patterns so security regressions trip CI.
+# See AGENTS.md "Security pre-commit checklist" for the rules these hooks enforce.
 #
 # Run locally:
 #   pip install pre-commit && pre-commit install

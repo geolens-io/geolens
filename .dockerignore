@@ -20,9 +20,6 @@
 !frontend/**
 !scripts/
 !scripts/**
-!docker/
-!docker/seeder/
-!docker/seeder/**
 
 .git/
 .env

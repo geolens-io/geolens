@@ -164,8 +164,7 @@ sdks-check:
 	  ':!sdks/python/LICENSE' \
 	  ':!sdks/typescript/LICENSE'
 
-# `make sdks-test` runs the round-trip integration test (added in Plan 04).
-# Stub today; Plan 04 creates backend/tests/test_sdks_round_trip.py.
+# `make sdks-test` runs the SDK round-trip integration test.
 sdks-test:
 	cd backend && PYTHONPATH=. uv run pytest tests/test_sdks_round_trip.py -v
 
@@ -175,8 +174,8 @@ manifest-contract-check:
 	$(MAKE) openapi-check
 	$(MAKE) sdks-check
 
-# Publish targets — require local registry credentials.
-# Phase 215 ships the recipe; running it is a manual user action (D-16).
+# Publish targets — require local registry credentials. Running them is a
+# manual maintainer action.
 publish-sdks-py:
 	cd sdks/python && uv build && uv publish
 
@@ -188,13 +187,12 @@ publish-sdks-ts:
 cli-build: ## Build the geolens CLI wheel + sdist
 	cd cli && uv build
 
-# `make cli-test` runs CLI unit tests + round-trip integration test (round-trip lands in Plan 06).
-cli-test: ## Run CLI unit tests + round-trip integration test (round-trip lands in Plan 06)
+# `make cli-test` runs CLI unit tests + the round-trip integration test.
+cli-test: ## Run CLI unit tests + round-trip integration test
 	cd cli && uv run --extra dev python -m pytest -v
 	cd backend && PYTHONPATH=. POSTGRES_HOST=localhost POSTGRES_PORT="$${DB_PORT:-5434}" POSTGRES_USER=geolens POSTGRES_PASSWORD=geolens POSTGRES_DB=geolens JWT_SECRET_KEY=test-secret-key-for-ci-padding-32chars GEOLENS_ADMIN_USERNAME=admin GEOLENS_ADMIN_PASSWORD=admin uv run pytest tests/test_cli_round_trip.py -v
 
-# `make cli-check` — version drift in cli/pyproject.toml is caught by sdks-check
-# (sync_sdk_versions extension lands in Plan 06).
+# `make cli-check` — version drift in cli/pyproject.toml is caught by sdks-check.
 cli-check: sdks-check ## Alias — version drift in cli/pyproject.toml is caught by sdks-check
 	@echo "cli-check OK (drift gate is sdks-check; sync_sdk_versions extension catches CLI version drift)"
 
