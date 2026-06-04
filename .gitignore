@@ -89,10 +89,8 @@ docs/
 tmp/
 .cache/
 
-# Marketing data working dir (raw downloads, mosaicked COGs)
-# Used by scripts/marketing-data/*/ — outputs land in .scratch/<topic>/.
-# Scripts + manifest YAML + curated GeoJSONs ARE committed; raw .tif/.zip/.geojson
-# downloads + mosaicked COGs are NOT.
+# Local scratch / working dir for data-generation scripts
+# (raw downloads, mosaicked COGs, etc.) — never committed.
 .scratch/
 
 # License signing keys — NEVER commit the private key

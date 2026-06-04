@@ -106,11 +106,11 @@ upload_to_s3() {
     fi
 
     local protocol="https"
-    if [ "$S3_ALLOW_HTTP" = "true" ]; then
+    if [ "${S3_ALLOW_HTTP:-false}" = "true" ]; then
         protocol="http"
     fi
 
-    local endpoint="${S3_ENDPOINT:-https://s3.${S3_REGION}.amazonaws.com}"
+    local endpoint="${S3_ENDPOINT:-${protocol}://s3.${S3_REGION}.amazonaws.com}"
     local date_value
     date_value="$(date -R)"
     local content_type="application/octet-stream"

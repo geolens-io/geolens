@@ -500,37 +500,6 @@ async def download_or_load_cache(
 
 
 # ---------------------------------------------------------------------------
-# Encoding detection
-# ---------------------------------------------------------------------------
-
-# Stems known to have non-ASCII attribute values (city names, country names)
-# that may be misdetected by GDAL if the .cpg file is absent.
-# Intentionally conservative -- add stems here if encoding failures are observed.
-ENCODING_OVERRIDE_STEMS: set[str] = {
-    "ne_10m_populated_places",
-    "ne_10m_populated_places_simple",
-    "ne_10m_admin_0_countries",
-    "ne_10m_admin_1_states_provinces",
-}
-
-
-def detect_missing_cpg(data: bytes, stem: str) -> bool:
-    """Check if a ZIP archive is missing a .cpg codepage file.
-
-    Returns True if NO .cpg file is found (encoding detection may fail).
-    """
-    try:
-        with zipfile.ZipFile(io.BytesIO(data)) as zf:
-            for name in zf.namelist():
-                if name.lower().endswith(".cpg"):
-                    return False
-    except zipfile.BadZipFile:
-        logger.warning("%s: invalid ZIP file, cannot check for .cpg", stem)
-        return False
-    return True
-
-
-# ---------------------------------------------------------------------------
 # Job polling
 # ---------------------------------------------------------------------------
 
@@ -582,7 +551,6 @@ async def ingest_dataset(
     data: bytes,
     name: str,
     tags: list[str],
-    encoding: str | None = None,
 ) -> dict:
     """Ingest a dataset through the GeoLens three-step API.
 
@@ -1029,17 +997,6 @@ async def process_one(
             name = generate_name(stem)
             tags = generate_tags(stem, theme)
 
-            # Encoding detection (ING-04)
-            encoding: str | None = None
-            missing_cpg = detect_missing_cpg(data, stem)
-            if missing_cpg and stem in ENCODING_OVERRIDE_STEMS:
-                encoding = "UTF-8"
-                print(
-                    f"  {tag} Warning: {stem} missing .cpg file, using UTF-8 encoding override"
-                )
-            elif missing_cpg:
-                print(f"  {tag} Note: {stem} missing .cpg file (encoding auto-detect)")
-
             # Ingest through three-step API
             print(f"  {tag} Ingesting {stem}...")
             result = await ingest_dataset(
@@ -1050,7 +1007,6 @@ async def process_one(
                 data,
                 name,
                 tags,
-                encoding=encoding,
             )
 
             if result.get("status") == "failed":
