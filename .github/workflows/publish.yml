@@ -6,12 +6,15 @@ on:
       - "v*.*.*"
   # Manual trigger to exercise the build + multi-arch Trivy gate on demand.
   # Default is a SCAN-ONLY dry run (no push) — the amd64 + arm64 images are
-  # built and Trivy-scanned, but the push/SBOM/attest steps are skipped. Set
-  # push_images=true only to perform a real manual publish.
+  # built and Trivy-scanned, but the push/SBOM/attest steps are skipped.
+  # push_images=true performs a real manual publish and MUST be run from a tag
+  # ref (the metadata step emits only type=semver tags, which require a semver
+  # Git tag): `gh workflow run publish.yml --ref vX.Y.Z -f push_images=true`.
+  # A guard step below fails fast if push_images=true is dispatched off a branch.
   workflow_dispatch:
     inputs:
       push_images:
-        description: "Also push images to GHCR (real publish). Leave false for a scan-only dry run."
+        description: "Real publish to GHCR — REQUIRES a tag ref (--ref vX.Y.Z). Leave false for a scan-only dry run."
         type: boolean
         default: false
 
@@ -43,6 +46,16 @@ jobs:
             description: "PostGIS-native GIS data catalog frontend"
 
     steps:
+      # Fail fast (with guidance) if a real manual publish is dispatched off a
+      # branch — type=semver emits no tags there, so the push would otherwise
+      # fail later with a cryptic empty-tags buildx error. Tag pushes and the
+      # scan-only dry run (push_images=false) are unaffected.
+      - name: Require a tag ref for manual publishes
+        if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.push_images == 'true' && github.ref_type != 'tag' }}
+        run: |
+          echo "::error::push_images=true requires a tag ref so metadata-action can emit semver tags. Re-run as: gh workflow run publish.yml --ref vX.Y.Z -f push_images=true"
+          exit 1
+
       - name: Checkout
         uses: actions/checkout@v6
 
