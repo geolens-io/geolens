@@ -306,7 +306,27 @@ def build_matterhorn(api: Api) -> str:
         "dry_run": False,
     }
     results = api.manifest_apply(manifest)
-    tile_ids = [api.poll(r["job_id"])["dataset_id"] for r in results if r.get("job_id")]
+    # The manifest API returns 200 with per-entry action results; a failed entry
+    # is action="error" (no job_id). Abort before mosaicking rather than silently
+    # build a VRT from a partial tile set. Resolve each tile's dataset_id by
+    # polling queued jobs (create/update) or reusing the dataset_id of already-
+    # ingested tiles (action="skip" on a re-run).
+    errored = [r for r in results if r.get("action") == "error"]
+    if errored:
+        detail = "; ".join(
+            f"{r.get('dataset_key')}: {r.get('message') or r.get('errors')}" for r in errored
+        )
+        raise RuntimeError(f"{len(errored)}/{len(results)} swissALTI3D manifest entries failed: {detail}")
+    tile_ids = []
+    for r in results:
+        if r.get("job_id"):
+            tile_ids.append(api.poll(r["job_id"])["dataset_id"])
+        elif r.get("dataset_id"):
+            tile_ids.append(r["dataset_id"])
+    if len(tile_ids) != len(tiles):
+        raise RuntimeError(
+            f"expected {len(tiles)} swissALTI3D tiles but only {len(tile_ids)} resolved to "
+            "datasets; aborting before VRT mosaic")
     print(f"  mosaicking {len(tile_ids)} tiles into a VRT...")
     vrt_job = api.vrt_create(tile_ids, "swissALTI3D Matterhorn DEM (2m mosaic)",
                              "VRT mosaic of swissALTI3D 2m tiles around the Matterhorn. swisstopo OGD.")
