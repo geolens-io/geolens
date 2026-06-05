@@ -116,13 +116,19 @@ export function ReportProblemWizard({ open, onOpenChange, entries }: ReportProbl
     });
   }
 
-  async function handleOpenIssue() {
+  function handleOpenIssue() {
     const context = assembleContext();
     const version = includeVersion ? APP_VERSION : '';
     const { url, truncated } = buildIssueUrl({ title, description, steps, expected, area, version, context });
     if (truncated) {
-      await copyToClipboard(buildClipboardReport({ title, description, steps, expected, area, version, context }));
-      toast.message(t('step3.truncatedToast'));
+      // Initiate the clipboard copy within the user gesture but do NOT await it
+      // before window.open — an await boundary here drops the gesture context,
+      // so a popup blocker can kill the GitHub issue tab (the primary action).
+      // The write is kicked off in-gesture (while this tab still has focus),
+      // then the tab opens synchronously.
+      void copyToClipboard(
+        buildClipboardReport({ title, description, steps, expected, area, version, context }),
+      ).then(() => toast.message(t('step3.truncatedToast')));
     }
     window.open(url, '_blank', 'noopener,noreferrer');
     onOpenChange(false);
