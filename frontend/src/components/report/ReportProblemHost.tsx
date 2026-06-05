@@ -1,26 +1,27 @@
-import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { LifeBuoy } from 'lucide-react';
 import { useAuthStore } from '@/stores/auth-store';
-import { useReportEntries } from '@/lib/report';
+import { useReportDialog, useReportEntries } from '@/lib/report';
 import { cn } from '@/lib/utils';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { ReportProblemWizard } from './ReportProblemWizard';
 
 /**
- * App-wide entry point for the in-app problem reporter. Renders a quiet
- * bottom-right button that stays out of the way until something is captured,
- * then surfaces an error count. Gated to authenticated users — the public
- * login / shared-map views never show it.
+ * App-wide host for the in-app problem reporter. Owns the report wizard, which
+ * is opened from two entry points:
+ *   - the user-menu "Report a problem" item (always available — see Navbar), and
+ *   - a floating button that appears ONLY once errors are captured, surfacing a
+ *     count badge so a user notices a problem the moment it happens.
  *
- * Capture itself runs app-wide via initReportCapture() (main.tsx); this only
- * owns the affordance and the wizard.
+ * Gated to authenticated users. Capture runs app-wide via initReportCapture()
+ * (main.tsx); this only owns the affordance + wizard.
  */
 export function ReportProblemHost() {
   const token = useAuthStore((s) => s.token);
   const entries = useReportEntries();
   const { t } = useTranslation('report');
-  const [open, setOpen] = useState(false);
+  const open = useReportDialog((s) => s.open);
+  const setOpen = useReportDialog((s) => s.setOpen);
 
   if (!token) return null;
 
@@ -30,22 +31,22 @@ export function ReportProblemHost() {
 
   return (
     <>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <button
-            type="button"
-            aria-label={hasErrors ? t('button.ariaWithCount', { count: errorCount }) : t('button.aria')}
-            onClick={() => setOpen(true)}
-            className={cn(
-              // bottom-10 (not bottom-4) clears the MapLibre attribution bar that
-              // hugs the bottom-right corner of every map view — attribution must
-              // stay unobstructed, and its compact toggle sits exactly here.
-              'fixed bottom-10 right-4 z-40 inline-flex size-10 items-center justify-center rounded-full border bg-background/90 text-muted-foreground shadow-sm backdrop-blur transition-all duration-200 hover:text-foreground hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-              hasErrors ? 'border-destructive/50 text-destructive opacity-100' : 'opacity-60',
-            )}
-          >
-            <LifeBuoy className="size-5" aria-hidden />
-            {hasErrors && (
+      {/* Floating button: only present when something is captured, so the idle
+          UI footprint is zero and a real problem still surfaces proactively. */}
+      {hasErrors && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              aria-label={t('button.ariaWithCount', { count: errorCount })}
+              onClick={() => setOpen(true)}
+              className={cn(
+                // bottom-10 (not bottom-4) clears the MapLibre attribution bar
+                // that hugs the bottom-right corner of every map view.
+                'fixed bottom-10 right-4 z-40 inline-flex size-10 items-center justify-center rounded-full border border-destructive/50 bg-background/90 text-destructive shadow-sm backdrop-blur transition-all duration-200 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+              )}
+            >
+              <LifeBuoy className="size-5" aria-hidden />
               <span
                 aria-live="polite"
                 aria-atomic="true"
@@ -53,11 +54,11 @@ export function ReportProblemHost() {
               >
                 {badge}
               </span>
-            )}
-          </button>
-        </TooltipTrigger>
-        <TooltipContent side="left">{t('button.tooltip')}</TooltipContent>
-      </Tooltip>
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="left">{t('button.tooltip')}</TooltipContent>
+        </Tooltip>
+      )}
       <ReportProblemWizard open={open} onOpenChange={setOpen} entries={entries} />
     </>
   );
