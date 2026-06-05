@@ -32,7 +32,7 @@ python scripts/seed-showcase.py --only income
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--base-url` | `http://localhost:8080` (`$GEOLENS_URL`) | GeoLens base URL |
+| `--base-url` | `http://localhost:8080` (`$GEOLENS_BASE_URL`, fallback `$GEOLENS_URL`) | GeoLens base URL |
 | `--username` | `admin` (`$GEOLENS_ADMIN_USERNAME`) | Admin username |
 | `--password` | `admin` (`$GEOLENS_ADMIN_PASSWORD`) | Admin password |
 | `--with-terrain` | off | Also build the Matterhorn terrain hero |
