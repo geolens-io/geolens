@@ -99,13 +99,10 @@ def test_readme_em_dash_consistency_in_six_known_lines() -> None:
 
 
 def test_cli_flags_preserved_in_readme() -> None:
-    """API-14: CLI flag instances like --username, --api-key must NOT have been mutated."""
+    """API-14: CLI flag instances like --username must NOT have been mutated."""
     body = _read("README.md")
-    # These appear in the seed-natural-earth example; they're real flags
+    # Appears in the seed-showcase example; a real flag (em-dash sweep guard).
     assert "--username admin" in body or "--username/--password" in body, (
         "CLI flag --username is missing from README.md — "
         "em-dash sweep may have over-corrected"
-    )
-    assert "--api-key" in body, (
-        "CLI flag --api-key is missing from README.md — em-dash sweep may have over-corrected"
     )

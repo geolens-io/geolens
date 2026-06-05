@@ -28,6 +28,16 @@ GOTCHAS this script encodes (learned the hard way):
   * Map camera is set via PUT /maps/{id}; bearing must be within [-180, 180].
   * A VRT mosaic does NOT inherit is_dem from its source tiles - PATCH the VRT
     dataset {"is_dem": true} or map terrain silently refuses to engage.
+  * Terrain only deforms where the DEM source has tiles. Outside the footprint
+    MapLibre fills the mesh at the mapbox-encoding floor (-10000 m), so a small
+    DEM looks like a floating slab. Keep draped vectors clipped to the DEM bbox
+    and frame the camera inside it (both done for the Matterhorn below).
+  * GeoLens renders ONE MapLibre layer per dataset, so a colored line + a wide
+    casing line must come from TWO datasets (the same geometry ingested twice -
+    done for the Matterhorn route below).
+  * The live viewer's layer stack draws LOWER sort_order ON TOP (the inverse of
+    the backend style order), so the line you want on top gets the LOWER
+    sort_order: route=1 over casing=2, with peaks=3 underneath.
 """
 
 import argparse
@@ -172,6 +182,86 @@ def step_expr(column: str, breaks: list, colors: list) -> list:
     for b, c in zip(breaks, colors[1:]):
         expr += [b, c]
     return expr
+
+
+OVERPASS_URL = "https://overpass-api.de/api/interpreter"
+
+
+def fetch_osm_overlays(bbox: tuple) -> tuple:
+    """Fetch OSM hiking/climbing routes + named peaks within `bbox` (W, S, E, N),
+    CLIPPED to the bbox, as two GeoJSON FeatureCollections (routes, peaks).
+
+    Why the clip matters: any vector draped on MapLibre terrain must stay inside
+    the DEM footprint. Outside the footprint there are no DEM tiles, and MapLibre
+    renders those areas at the mapbox-encoding floor (-10000 m), so a line leaving
+    the footprint would plunge into that void. We keep only the in-bbox vertices.
+
+    Best-effort: returns empty FeatureCollections (so the terrain map still builds)
+    if Overpass is unreachable.
+    """
+    w, s, e, n = bbox
+    empty = {"type": "FeatureCollection", "features": []}
+    q = (
+        "[out:json][timeout:60];"
+        f'(way["highway"~"path|footway|track|steps"]({s},{w},{n},{e}););out geom;'
+        f'node["natural"="peak"]({s},{w},{n},{e});out;'
+    )
+    try:
+        # Overpass rejects requests without a User-Agent (HTTP 406).
+        r = httpx.post(OVERPASS_URL, data={"data": q}, timeout=120.0,
+                       headers={"User-Agent": "geolens-showcase-seeder/1.0"})
+        r.raise_for_status()
+        elements = r.json().get("elements", [])
+    except Exception as ex:  # noqa: BLE001 - overlays are best-effort decoration
+        print(f"  ! OSM overlay fetch failed ({ex}); building terrain without trails")
+        return dict(empty), dict(empty)
+
+    def inside(lat, lng):
+        return s <= lat <= n and w <= lng <= e
+
+    def emit(run, tags, out):
+        if len(run) >= 2:
+            out.append({
+                "type": "Feature",
+                "properties": {"name": tags.get("name") or tags.get("ref") or "Alpine route",
+                               "sac_scale": tags.get("sac_scale", "")},
+                "geometry": {"type": "LineString",
+                             "coordinates": [[p["lon"], p["lat"]] for p in run]},
+            })
+
+    routes = []
+    for el in elements:
+        if el.get("type") != "way":
+            continue
+        tags = el.get("tags", {})
+        run = []
+        for p in el.get("geometry") or []:
+            if inside(p["lat"], p["lon"]):
+                run.append(p)
+            else:
+                emit(run, tags, routes)
+                run = []
+        emit(run, tags, routes)
+
+    peaks = []
+    for el in elements:
+        if el.get("type") != "node" or "lat" not in el:
+            continue
+        if not inside(el["lat"], el["lon"]):
+            continue
+        t = el.get("tags", {})
+        nm = t.get("name")
+        ele = t.get("ele", "")
+        if not nm or nm == "peak":  # skip unnamed summits
+            continue
+        peaks.append({
+            "type": "Feature",
+            "properties": {"label": f"{nm} ({ele} m)" if ele else nm, "name": nm, "ele": ele},
+            "geometry": {"type": "Point", "coordinates": [el["lon"], el["lat"]]},
+        })
+
+    return ({"type": "FeatureCollection", "features": routes},
+            {"type": "FeatureCollection", "features": peaks})
 
 
 # --- showcase builders -------------------------------------------------------
@@ -350,10 +440,63 @@ def build_matterhorn(api: Api) -> str:
                   "hillshade-shadow-color": "#16203a", "hillshade-highlight-color": "#ffffff",
                   "hillshade-accent-color": "#3a4a63"},
     })
+    # Drape OSM climbing routes + named peaks on the terrain. Clip to the DEM
+    # footprint (W,S,E,N of the swissALTI3D tile grid) so vectors sit on the mesh
+    # rather than plunging into the out-of-coverage void (see fetch_osm_overlays).
+    routes_fc, peaks_fc = fetch_osm_overlays((7.645, 45.961, 7.684, 45.988))
+    if routes_fc["features"]:
+        routes_bytes = json.dumps(routes_fc).encode()
+        # A white casing under the red route makes it pop on the busy hillshade.
+        # GeoLens renders ONE MapLibre layer per dataset, so the casing must be the
+        # SAME geometry ingested as a SECOND dataset (one layer each). And the live
+        # viewer's stack draws LOWER sort_order ON TOP, so the route (wanted on top)
+        # takes the lower sort_order and the casing the higher.
+        routes_ds = api.ingest_geojson(
+            "matterhorn_routes.geojson", routes_bytes,
+            "Matterhorn Climbing Routes",
+            "OSM alpine routes clipped to the swissALTI3D DEM footprint (incl. the "
+            "Lion Ridge / cresta Leone Cervino). Source: OpenStreetMap contributors.")
+        casing_ds = api.ingest_geojson(
+            "matterhorn_route_casing.geojson", routes_bytes,
+            "Matterhorn Route Casing",
+            "White casing under the climbing-route line (same geometry as the routes "
+            "dataset; separate so MapLibre renders it as its own layer).")
+        api.add_layer(map_id, {
+            "dataset_id": routes_ds, "sort_order": 1, "opacity": 1.0,
+            "display_name": "Climbing routes (OSM)",
+            "paint": {"line-color": "#ff3b30", "line-width": 3.5, "line-opacity": 1.0},
+            "layout": {"line-cap": "round", "line-join": "round"},
+        })
+        api.add_layer(map_id, {
+            "dataset_id": casing_ds, "sort_order": 2, "opacity": 1.0,
+            "display_name": "Route casing",
+            "paint": {"line-color": "#ffffff", "line-width": 7.0, "line-opacity": 0.95},
+            "layout": {"line-cap": "round", "line-join": "round"},
+        })
+        print(f"  + {len(routes_fc['features'])} route segments (white-cased) on the terrain")
+    if peaks_fc["features"]:
+        peaks_ds = api.ingest_geojson(
+            "matterhorn_peaks.geojson", json.dumps(peaks_fc).encode(),
+            "Matterhorn Peaks",
+            "Named summits within the swissALTI3D DEM footprint. Source: OpenStreetMap.")
+        api.add_layer(map_id, {
+            "dataset_id": peaks_ds, "sort_order": 3, "opacity": 1.0,
+            "display_name": "Peaks",
+            # POINT marker (circle) + a single-column text label "Name (ele m)".
+            "paint": {"circle-color": "#ffffff", "circle-radius": 4,
+                      "circle-stroke-color": "#0b0f14", "circle-stroke-width": 1.5},
+            "label_config": {"column": "label", "fontSize": 12, "textColor": "#0b0f14",
+                             "haloColor": "#ffffff", "haloWidth": 1.8,
+                             "textAnchor": "bottom", "textOffset": [0, -0.8],
+                             "allowOverlap": False},
+        })
+        print(f"  + {len(peaks_fc['features'])} named peaks labeled")
+    # Camera tightened onto the summit so the DEM-footprint edge (and its -10000 m
+    # void) stays out of frame; terrain exaggeration 1.6x.
     api.set_view(map_id, visibility="public",
                  terrain_config={"enabled": True, "source_dataset_id": vrt_ds,
                                  "exaggeration": 1.6},
-                 center_lng=7.6605, center_lat=45.9725, zoom=14.0, pitch=66, bearing=-150,
+                 center_lng=7.6586, center_lat=45.9750, zoom=15.3, pitch=66, bearing=-150,
                  basemap_style="openfreemap-positron", show_basemap_labels=False)
     print(f"  -> map {map_id}")
     return map_id

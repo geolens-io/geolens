@@ -4,89 +4,42 @@ Utility scripts for GeoLens administration and data seeding.
 
 ## Seed Scripts
 
-### `seed-ago-data.py`
+### `seed-showcase.py`
 
-Imports public datasets from an ArcGIS Online organization into GeoLens via the service connector API.
+Builds three capability-showcase maps from public, openly-licensed data, end-to-end
+against a running stack:
 
-Discovers all public Feature/Map Services in the org and ingests each layer directly from the ArcGIS REST endpoint using GDAL's ESRIJSON driver (no intermediate GeoJSON download). This stores the `source_url` on each dataset, enabling future updates via the UI's Re-Upload dialog or the `--update` flag.
-
-After import, each dataset is enriched with AGO metadata:
-- **Source organization** from `accessInformation`
-- **License** from `licenseInfo` (HTML stripped)
-- **Keywords** from AGO `tags`
-- **Summary** from layer `description` or item `snippet`
-
-Layers are assigned to a collection named after the organization.
+- **Manhattan Skyline** — every Lower + Midtown building footprint extruded to its real
+  surveyed roof height and color-graded by height (NYC Open Data).
+- **New York Income** — a data-driven quantile choropleth of median household income by
+  county (USDA ERS Atlas of Rural & Small-Town America).
+- **The Matterhorn** (`--with-terrain`) — a 3D terrain mesh + hillshade from a swisstopo
+  swissALTI3D VRT mosaic, with OpenStreetMap climbing routes (white-cased) and named peaks
+  draped on the terrain.
 
 ```bash
-# Prerequisites
 pip install httpx
 
-# Dry run — list discoverable layers without importing
-python scripts/seed-ago-data.py --dry-run
+# Build the Manhattan + income maps
+python scripts/seed-showcase.py --username admin --password admin
 
-# Import all layers
-python scripts/seed-ago-data.py --api-key <key>
+# Also build the Matterhorn 3D-terrain hero (downloads ~9 swissALTI3D COG tiles)
+python scripts/seed-showcase.py --username admin --password admin --with-terrain
 
-# Import from a different org
-python scripts/seed-ago-data.py --org-url https://otherorg.maps.arcgis.com --api-key <key>
-
-# Upsert — import new layers AND refresh existing ones
-python scripts/seed-ago-data.py --api-key <key> --update
-
-# Control parallelism (default: 1)
-python scripts/seed-ago-data.py --api-key <key> --concurrency 3
-
-# Set job poll timeout (default: 1200s)
-python scripts/seed-ago-data.py --api-key <key> --timeout 1800
-
-# Skip known-fragile or very large upstream services
-python scripts/seed-ago-data.py --api-key <key> --skip-filter "contours?|impervious|steep slope"
+# Build just one map
+python scripts/seed-showcase.py --only income
 ```
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--org-url` | `https://njhighlands.maps.arcgis.com` | ArcGIS Online organization URL |
-| `--api-key` | `$GEOLENS_API_KEY` | GeoLens API key (or env var) |
-| `--base-url` | `http://localhost:8080` | GeoLens base URL |
-| `--dry-run` | off | List layers without importing |
-| `--update` | off | Upsert mode: import new layers and refresh existing ones from source |
-| `--filter` | unset | Regex of layer names to include |
-| `--skip-filter` | `$ARCGIS_SKIP_FILTER` | Regex of layer or service names to skip before import |
-| `--concurrency` | 1 | Max parallel ingest streams |
-| `--timeout` | 1200 | Job poll timeout in seconds |
+| `--base-url` | `http://localhost:8080` (`$GEOLENS_URL`) | GeoLens base URL |
+| `--username` | `admin` (`$GEOLENS_ADMIN_USERNAME`) | Admin username |
+| `--password` | `admin` (`$GEOLENS_ADMIN_PASSWORD`) | Admin password |
+| `--with-terrain` | off | Also build the Matterhorn terrain hero |
+| `--only` | unset | Build only `manhattan`, `income`, or `matterhorn` |
 
-**Behavior by mode:**
-
-| Layer state | Default | `--update` |
-|-------------|---------|------------|
-| New (not in catalog) | Import | Import |
-| Exists (matched by `source_url`) | Skip | Refresh via reupload API |
-
-**Environment variables:**
-
-| Variable | Description |
-|----------|-------------|
-| `GEOLENS_API_KEY` | GeoLens API key (alternative to `--api-key`) |
-| `GEOLENS_BASE_URL` | GeoLens base URL (alternative to `--base-url`) |
-| `ARCGIS_ORG_URL` | ArcGIS org URL (alternative to `--org-url`) |
-| `ARCGIS_SKIP_FILTER` | Regex of layer or service names to skip before import |
-
-ArcGIS services whose item URL contains spaces are percent-encoded before GDAL
-preview/import. Transient 429/5xx, gateway, timeout, and connection failures are
-retried with exponential backoff before the layer is reported as failed.
-
-### `seed-natural-earth.py`
-
-Imports Natural Earth vector datasets (countries, states, coastlines, etc.) for base map data.
-
-### `seed-perf-data.py`
-
-Generates synthetic large datasets for performance testing.
-
-### `seed-e2e.py`
-
-Creates minimal test datasets for end-to-end test suites.
+Requires internet access to the upstream open-data sources (NYC Open Data, USDA ERS,
+OpenStreetMap, swisstopo). The script is non-idempotent — each run POSTs new maps.
 
 ## Shell Scripts
 

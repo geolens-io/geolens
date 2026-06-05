@@ -55,7 +55,6 @@ DATASET_COUNT=$(db_psql -tAc "SELECT count(*) FROM catalog.datasets" 2>/dev/null
 DATASET_COUNT=$(echo "$DATASET_COUNT" | tr -d '[:space:]')
 if [[ "$DATASET_COUNT" -lt 100 ]]; then
   echo "WARNING: Only $DATASET_COUNT datasets found (expected 100+)."
-  echo "Consider running: python scripts/seed-perf-data.py"
 fi
 
 echo "  API key: set"
