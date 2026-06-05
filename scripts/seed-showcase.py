@@ -230,7 +230,9 @@ def build_manhattan(api: Api) -> str:
             },
         },
     })
-    api.set_view(map_id, center_lng=-73.978, center_lat=40.753, zoom=15.0,
+    # Publish in this final PUT (maps default to private) so the showcase URLs
+    # open for anonymous viewers; all referenced datasets are committed public.
+    api.set_view(map_id, visibility="public", center_lng=-73.978, center_lat=40.753, zoom=15.0,
                  pitch=62, bearing=-28, basemap_style="openfreemap-dark",
                  show_basemap_labels=False)
     print(f"  -> map {map_id}")
@@ -270,7 +272,7 @@ def build_income(api: Api) -> str:
             "builder": {"outline_color": "#0b0f14", "outline_width": 0.5},
         },
     })
-    api.set_view(map_id, center_lng=-75.4, center_lat=42.6, zoom=6.2,
+    api.set_view(map_id, visibility="public", center_lng=-75.4, center_lat=42.6, zoom=6.2,
                  pitch=0, bearing=0, basemap_style="openfreemap-positron",
                  show_basemap_labels=True)
     print(f"  -> map {map_id}  (breaks={breaks})")
@@ -348,8 +350,9 @@ def build_matterhorn(api: Api) -> str:
                   "hillshade-shadow-color": "#16203a", "hillshade-highlight-color": "#ffffff",
                   "hillshade-accent-color": "#3a4a63"},
     })
-    api.set_view(map_id, terrain_config={"enabled": True, "source_dataset_id": vrt_ds,
-                                         "exaggeration": 1.6},
+    api.set_view(map_id, visibility="public",
+                 terrain_config={"enabled": True, "source_dataset_id": vrt_ds,
+                                 "exaggeration": 1.6},
                  center_lng=7.6605, center_lat=45.9725, zoom=14.0, pitch=66, bearing=-150,
                  basemap_style="openfreemap-positron", show_basemap_labels=False)
     print(f"  -> map {map_id}")
