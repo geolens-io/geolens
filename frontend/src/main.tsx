@@ -72,17 +72,22 @@ async function bootstrap() {
   container.__glRoot = root;
   root.render(
     <React.StrictMode>
-      <AppErrorBoundary>
-        <QueryClientProvider client={queryClient}>
-          <ThemeProvider defaultTheme="system" storageKey="geolens-theme">
-            <TooltipProvider>
+      <QueryClientProvider client={queryClient}>
+        <ThemeProvider defaultTheme="system" storageKey="geolens-theme">
+          <TooltipProvider>
+            <AppErrorBoundary>
               <RouterProvider router={router} />
-              <ThemedToaster />
-              <ReportProblemHost />
-            </TooltipProvider>
-          </ThemeProvider>
-        </QueryClientProvider>
-      </AppErrorBoundary>
+            </AppErrorBoundary>
+            {/* Mounted OUTSIDE AppErrorBoundary (but inside the shared
+                providers) so the problem reporter and its toasts survive an
+                app-level crash: componentDidCatch records the crash in the
+                buffer, and the floating button overlays the error fallback so
+                the user can still open a pre-filled report. */}
+            <ThemedToaster />
+            <ReportProblemHost />
+          </TooltipProvider>
+        </ThemeProvider>
+      </QueryClientProvider>
     </React.StrictMode>,
   );
 }
