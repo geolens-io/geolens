@@ -1,0 +1,50 @@
+{
+  "button": {
+    "tooltip": "Signaler un problème",
+    "aria": "Signaler un problème",
+    "ariaWithCount": "Signaler un problème ({{count}} erreurs détectées)"
+  },
+  "title": "Signaler un problème",
+  "description": "Dites-nous ce qui n'a pas fonctionné — nous joindrons les détails techniques pour vous.",
+  "stepIndicator": "Étape {{current}} sur {{total}}",
+  "noticed": "Problèmes détectés : {{count}}. Les détails seront joints à votre signalement.",
+  "noticedNone": "Rien n'a été détecté automatiquement — c'est votre description qui compte le plus.",
+  "technicalDetails": "Détails techniques ({{count}})",
+  "technicalEmpty": "Rien n'a encore été capturé.",
+  "step1": {
+    "heading": "Que s'est-il passé ?",
+    "areaLabel": "Où cela s'est-il produit ?",
+    "titleLabel": "Résumé court",
+    "titlePlaceholder": "ex. Les couches disparaissent quand je zoome",
+    "descriptionLabel": "Qu'est-ce qui n'a pas fonctionné ?",
+    "descriptionPlaceholder": "Décrivez ce que vous avez vu…",
+    "stepsLabel": "Que faisiez-vous ?",
+    "stepsPlaceholder": "1. \n2. \n3. ",
+    "expectedLabel": "À quoi vous attendiez-vous ?",
+    "expectedPlaceholder": "ex. La couche devrait rester visible"
+  },
+  "step2": {
+    "heading": "Vérifiez ce que nous allons envoyer",
+    "subtitle": "Tout ce qui suit est facultatif — décochez ce que vous préférez ne pas inclure.",
+    "includeErrors": "Erreurs capturées ({{count}})",
+    "includePage": "La page sur laquelle vous êtes",
+    "includeEnv": "Votre navigateur et la taille de l'écran",
+    "includeVersion": "Version de l'application ({{version}})",
+    "privacyNote": "Nous supprimons automatiquement votre jeton de connexion et vos informations personnelles avant que quoi que ce soit ne quitte votre navigateur.",
+    "privacyMore": "Qu'est-ce qui est supprimé ?",
+    "privacyDetail": "Les jetons de connexion, les clés d'API et les adresses e-mail sont retirés du rapport avant son envoi."
+  },
+  "step3": {
+    "heading": "Envoyez votre signalement",
+    "subtitle": "Nous ouvrirons un ticket GitHub pré-rempli. Vérifiez-le, puis envoyez-le.",
+    "openIssue": "Ouvrir un ticket GitHub",
+    "copyReport": "Copier le rapport",
+    "copied": "Rapport copié dans le presse-papiers",
+    "truncatedToast": "Les journaux étaient trop longs pour le lien — le rapport complet a été copié dans votre presse-papiers. Collez-le dans le ticket."
+  },
+  "nav": {
+    "back": "Retour",
+    "next": "Suivant",
+    "cancel": "Annuler"
+  }
+}

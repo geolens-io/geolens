@@ -1,0 +1,50 @@
+{
+  "button": {
+    "tooltip": "Informar de un problema",
+    "aria": "Informar de un problema",
+    "ariaWithCount": "Informar de un problema ({{count}} errores detectados)"
+  },
+  "title": "Informar de un problema",
+  "description": "Cuéntanos qué ha fallado: adjuntaremos los detalles técnicos por ti.",
+  "stepIndicator": "Paso {{current}} de {{total}}",
+  "noticed": "Problemas detectados: {{count}}. Los detalles se adjuntarán a tu informe.",
+  "noticedNone": "No se detectó nada automáticamente: lo que más importa es tu descripción.",
+  "technicalDetails": "Detalles técnicos ({{count}})",
+  "technicalEmpty": "Todavía no se ha capturado nada.",
+  "step1": {
+    "heading": "¿Qué ha ocurrido?",
+    "areaLabel": "¿Dónde ha ocurrido?",
+    "titleLabel": "Resumen breve",
+    "titlePlaceholder": "p. ej. Las capas desaparecen al acercar el zoom",
+    "descriptionLabel": "¿Qué ha fallado?",
+    "descriptionPlaceholder": "Describe lo que has visto…",
+    "stepsLabel": "¿Qué estabas haciendo?",
+    "stepsPlaceholder": "1. \n2. \n3. ",
+    "expectedLabel": "¿Qué esperabas que ocurriera?",
+    "expectedPlaceholder": "p. ej. La capa debería seguir visible"
+  },
+  "step2": {
+    "heading": "Revisa lo que vamos a enviar",
+    "subtitle": "Todo lo siguiente es opcional: desmarca lo que prefieras no incluir.",
+    "includeErrors": "Errores capturados ({{count}})",
+    "includePage": "En qué página estás",
+    "includeEnv": "Tu navegador y tamaño de pantalla",
+    "includeVersion": "Versión de la app ({{version}})",
+    "privacyNote": "Eliminamos automáticamente tu token de inicio de sesión y tus datos personales antes de que nada salga de tu navegador.",
+    "privacyMore": "¿Qué se elimina?",
+    "privacyDetail": "Los tokens de inicio de sesión, las claves de API y las direcciones de correo se eliminan del informe antes de enviarlo."
+  },
+  "step3": {
+    "heading": "Envía tu informe",
+    "subtitle": "Abriremos una incidencia de GitHub ya rellenada. Revísala y envíala.",
+    "openIssue": "Abrir una incidencia en GitHub",
+    "copyReport": "Copiar informe",
+    "copied": "Informe copiado al portapapeles",
+    "truncatedToast": "Los registros eran demasiado largos para el enlace: el informe completo se copió a tu portapapeles. Pégalo en la incidencia."
+  },
+  "nav": {
+    "back": "Atrás",
+    "next": "Siguiente",
+    "cancel": "Cancelar"
+  }
+}

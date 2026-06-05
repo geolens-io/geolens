@@ -13,6 +13,14 @@ const apiProxyTarget =
   process.env.API_PROXY_TARGET ||
   'http://localhost:8000'
 
+// Stamp the frontend package version into the bundle at build time so the
+// in-app "Report a problem" flow can auto-fill the GitHub issue version field
+// without a runtime fetch. Exposed as the `__APP_VERSION__` global (see
+// src/@types/build-globals.d.ts).
+const appVersion = JSON.parse(
+  fs.readFileSync(path.resolve(__dirname, 'package.json'), 'utf-8'),
+).version as string
+
 function resolveExistingPath(target: string): string[] {
   if (!fs.existsSync(target)) return []
 
@@ -62,6 +70,9 @@ function manualChunks(id: string) {
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  define: {
+    __APP_VERSION__: JSON.stringify(appVersion),
+  },
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),

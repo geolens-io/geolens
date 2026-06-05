@@ -1,0 +1,50 @@
+{
+  "button": {
+    "tooltip": "Report a problem",
+    "aria": "Report a problem",
+    "ariaWithCount": "Report a problem ({{count}} errors detected)"
+  },
+  "title": "Report a problem",
+  "description": "Tell us what went wrong — we'll attach the technical details for you.",
+  "stepIndicator": "Step {{current}} of {{total}}",
+  "noticed": "Problems detected: {{count}}. The details will be attached to your report.",
+  "noticedNone": "Nothing was detected automatically — your description is what matters most.",
+  "technicalDetails": "Technical details ({{count}})",
+  "technicalEmpty": "Nothing has been captured yet.",
+  "step1": {
+    "heading": "What happened?",
+    "areaLabel": "Where did this happen?",
+    "titleLabel": "Short summary",
+    "titlePlaceholder": "e.g. Layers disappear when I zoom in",
+    "descriptionLabel": "What went wrong?",
+    "descriptionPlaceholder": "Describe what you saw…",
+    "stepsLabel": "What were you doing?",
+    "stepsPlaceholder": "1. \n2. \n3. ",
+    "expectedLabel": "What did you expect to happen?",
+    "expectedPlaceholder": "e.g. The layer should stay visible"
+  },
+  "step2": {
+    "heading": "Review what we'll send",
+    "subtitle": "Everything below is optional — uncheck anything you'd rather not include.",
+    "includeErrors": "Captured errors ({{count}})",
+    "includePage": "Which page you're on",
+    "includeEnv": "Your browser and screen size",
+    "includeVersion": "App version ({{version}})",
+    "privacyNote": "We automatically remove your login token and personal info before anything leaves your browser.",
+    "privacyMore": "What gets removed?",
+    "privacyDetail": "Login tokens, API keys, and email addresses are stripped from the report before it is sent."
+  },
+  "step3": {
+    "heading": "Send your report",
+    "subtitle": "We'll open a pre-filled GitHub issue. Review it, then submit.",
+    "openIssue": "Open a GitHub issue",
+    "copyReport": "Copy report",
+    "copied": "Report copied to clipboard",
+    "truncatedToast": "The logs were too long for the link — the full report was copied to your clipboard. Paste it into the issue."
+  },
+  "nav": {
+    "back": "Back",
+    "next": "Next",
+    "cancel": "Cancel"
+  }
+}
