@@ -118,6 +118,10 @@ class RasterMetadata(BaseModel):
         default=None, description="Pixel resolution in Y (CRS units)"
     )
     band_count: int | None = None
+    is_dem: bool | None = Field(
+        default=None,
+        description="True if this raster is a DEM (single-band float) usable for 3D terrain/hillshade",
+    )
     nodata: str | None = Field(default=None, description="Global nodata sentinel value")
     compression: str | None = Field(
         default=None, description="Internal compression, e.g. DEFLATE, LZW"
