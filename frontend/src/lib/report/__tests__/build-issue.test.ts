@@ -65,6 +65,37 @@ describe('buildIssueUrl', () => {
     expect(url).not.toContain('context=');
     expect(url).toContain('description=D');
   });
+
+  it('redacts secrets pasted into the user-provided fields', () => {
+    const { url } = buildIssueUrl({
+      title: 'crash',
+      description: 'failing call api_key=PASTEDSECRET happened',
+      steps: '',
+      expected: '',
+      area: 'Other',
+      version: '',
+      context: '',
+    });
+    const decoded = decodeURIComponent(url);
+    expect(decoded).not.toContain('PASTEDSECRET');
+    expect(decoded).toContain('api_key=[redacted]');
+  });
+
+  it('stays under the limit even when the user text alone is too long', () => {
+    const huge = 'A'.repeat(9000);
+    const { url, truncated } = buildIssueUrl({
+      title: 'T',
+      description: huge,
+      steps: '',
+      expected: '',
+      area: 'Other',
+      version: '',
+      context: '',
+    });
+    expect(truncated).toBe(true);
+    expect(url.length).toBeLessThanOrEqual(7000);
+    expect(url).toContain('template=bug_report.yml');
+  });
 });
 
 describe('buildContext', () => {

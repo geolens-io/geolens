@@ -141,24 +141,42 @@ export interface BuildIssueParams {
 export function buildIssueUrl(params: BuildIssueParams): { url: string; truncated: boolean } {
   const base = params.baseUrl ?? GEOLENS_BUG_REPORT_URL;
 
-  const compose = (includeContext: boolean): string => {
+  // Scrub the user's OWN typed fields too — a token/email pasted into the
+  // description must not reach the public issue URL. The captured-entry and
+  // page-URL redaction doesn't cover free text, but the privacy note promises
+  // it does, so run these through redact() as well.
+  const title = redact(params.title);
+  const description = redact(params.description);
+  const steps = redact(params.steps);
+  const expected = redact(params.expected);
+
+  // Progressively shed payload until the URL fits under GitHub's ceiling:
+  // level 0 = everything, 1 = drop context, 2 = drop the long free-text fields.
+  // If even the minimal form is too long, fall back to the bare template URL.
+  // Whenever anything is shed, `truncated` tells the caller to copy the full
+  // report to the clipboard instead — so the link ALWAYS opens.
+  const compose = (level: 0 | 1 | 2): string => {
     const search = new URLSearchParams();
-    if (params.title) search.set('title', params.title);
-    if (params.description) search.set('description', params.description);
-    if (params.steps) search.set('steps', params.steps);
-    if (params.expected) search.set('expected', params.expected);
+    if (title) search.set('title', title);
     if (params.area) search.set('area', params.area);
     if (params.version) search.set('version', params.version);
-    if (includeContext && params.context) search.set('context', params.context);
+    if (level < 2) {
+      if (description) search.set('description', description);
+      if (steps) search.set('steps', steps);
+      if (expected) search.set('expected', expected);
+    }
+    if (level < 1 && params.context) search.set('context', params.context);
     // base already carries `?template=bug_report.yml`, so append with `&`.
     return `${base}&${search.toString()}`;
   };
 
-  const full = compose(true);
-  if (full.length <= MAX_URL_LENGTH) {
-    return { url: full, truncated: false };
-  }
-  return { url: compose(false), truncated: true };
+  const full = compose(0);
+  if (full.length <= MAX_URL_LENGTH) return { url: full, truncated: false };
+  const withoutContext = compose(1);
+  if (withoutContext.length <= MAX_URL_LENGTH) return { url: withoutContext, truncated: true };
+  const minimal = compose(2);
+  if (minimal.length <= MAX_URL_LENGTH) return { url: minimal, truncated: true };
+  return { url: base, truncated: true };
 }
 
 export interface ClipboardReportParams {
@@ -173,15 +191,17 @@ export interface ClipboardReportParams {
 
 /** Full markdown report for the "Copy report" action and the truncation fallback. */
 export function buildClipboardReport(params: ClipboardReportParams): string {
+  // User-typed fields are scrubbed here too (the clipboard report is shared as
+  // well); context is already redacted at build time.
   const sections: string[] = [];
-  sections.push(`# ${params.title || 'Bug report'}`);
+  sections.push(`# ${redact(params.title) || 'Bug report'}`);
   const meta: string[] = [];
   if (params.area) meta.push(`**Area:** ${params.area}`);
   if (params.version) meta.push(`**GeoLens version:** ${params.version}`);
   if (meta.length) sections.push(meta.join('  \n'));
-  if (params.description) sections.push(`## Describe the bug\n\n${params.description}`);
-  if (params.steps) sections.push(`## Steps to reproduce\n\n${params.steps}`);
-  if (params.expected) sections.push(`## Expected behavior\n\n${params.expected}`);
+  if (params.description) sections.push(`## Describe the bug\n\n${redact(params.description)}`);
+  if (params.steps) sections.push(`## Steps to reproduce\n\n${redact(params.steps)}`);
+  if (params.expected) sections.push(`## Expected behavior\n\n${redact(params.expected)}`);
   if (params.context) sections.push(`## Additional context\n\n${params.context}`);
   return sections.join('\n\n');
 }
