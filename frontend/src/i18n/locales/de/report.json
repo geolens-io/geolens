@@ -1,0 +1,50 @@
+{
+  "button": {
+    "tooltip": "Ein Problem melden",
+    "aria": "Ein Problem melden",
+    "ariaWithCount": "Ein Problem melden ({{count}} Fehler erkannt)"
+  },
+  "title": "Ein Problem melden",
+  "description": "Sagen Sie uns, was schiefgelaufen ist — die technischen Details fügen wir für Sie hinzu.",
+  "stepIndicator": "Schritt {{current}} von {{total}}",
+  "noticed": "Erkannte Probleme: {{count}}. Die Details werden Ihrer Meldung beigefügt.",
+  "noticedNone": "Es wurde nichts automatisch erkannt — Ihre Beschreibung ist am wichtigsten.",
+  "technicalDetails": "Technische Details ({{count}})",
+  "technicalEmpty": "Es wurde noch nichts erfasst.",
+  "step1": {
+    "heading": "Was ist passiert?",
+    "areaLabel": "Wo ist das passiert?",
+    "titleLabel": "Kurze Zusammenfassung",
+    "titlePlaceholder": "z. B. Ebenen verschwinden beim Hineinzoomen",
+    "descriptionLabel": "Was ist schiefgelaufen?",
+    "descriptionPlaceholder": "Beschreiben Sie, was Sie gesehen haben…",
+    "stepsLabel": "Was haben Sie gerade getan?",
+    "stepsPlaceholder": "1. \n2. \n3. ",
+    "expectedLabel": "Was hatten Sie erwartet?",
+    "expectedPlaceholder": "z. B. Die Ebene sollte sichtbar bleiben"
+  },
+  "step2": {
+    "heading": "Prüfen Sie, was wir senden",
+    "subtitle": "Alles Folgende ist optional — entfernen Sie das Häkchen bei allem, was Sie nicht senden möchten.",
+    "includeErrors": "Erfasste Fehler ({{count}})",
+    "includePage": "Auf welcher Seite Sie sind",
+    "includeEnv": "Ihr Browser und Ihre Bildschirmgröße",
+    "includeVersion": "App-Version ({{version}})",
+    "privacyNote": "Wir entfernen automatisch Ihr Anmeldetoken und Ihre persönlichen Daten, bevor irgendetwas Ihren Browser verlässt.",
+    "privacyMore": "Was wird entfernt?",
+    "privacyDetail": "Anmeldetokens, API-Schlüssel und E-Mail-Adressen werden vor dem Senden aus der Meldung entfernt."
+  },
+  "step3": {
+    "heading": "Senden Sie Ihre Meldung",
+    "subtitle": "Wir öffnen ein vorausgefülltes GitHub-Issue. Prüfen Sie es und senden Sie es ab.",
+    "openIssue": "GitHub-Issue öffnen",
+    "copyReport": "Bericht kopieren",
+    "copied": "Bericht in die Zwischenablage kopiert",
+    "truncatedToast": "Die Protokolle waren zu lang für den Link — der vollständige Bericht wurde in Ihre Zwischenablage kopiert. Fügen Sie ihn in das Issue ein."
+  },
+  "nav": {
+    "back": "Zurück",
+    "next": "Weiter",
+    "cancel": "Abbrechen"
+  }
+}

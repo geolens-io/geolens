@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { AlertCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { logger } from '@/lib/logger';
+import { pushReportEntry } from '@/lib/report';
 import { ErrorReportButton } from './ErrorReportButton';
 
 interface AppErrorBoundaryState {
@@ -59,6 +60,12 @@ export class AppErrorBoundary extends Component<AppErrorBoundaryProps, AppErrorB
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo): void {
     logger.error('[AppErrorBoundary]', error, errorInfo);
+    pushReportEntry({
+      severity: 'error',
+      source: 'react',
+      message: error.message || 'Application crash',
+      detail: errorInfo.componentStack ?? error.stack ?? undefined,
+    });
   }
 
   render() {

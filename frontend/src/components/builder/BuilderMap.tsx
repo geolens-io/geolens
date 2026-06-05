@@ -14,6 +14,7 @@ import {
 import { buildClusterTileUrl, buildSignedTileUrl } from '@/lib/tile-utils';
 import { useTileTokens } from '@/hooks/use-tile-token';
 import { getEnvConfig } from '@/lib/env';
+import { pushReportEntry } from '@/lib/report';
 import { useAuthStore } from '@/stores/auth-store';
 import { useWebGLRecovery } from '@/hooks/use-webgl-recovery';
 import i18n from '@/i18n/i18n';
@@ -485,6 +486,18 @@ export const BuilderMap = memo(function BuilderMap({
       // real error has occurred (RES-3). Previously silenced in production.
       errorHandlerRef.current = (e: { error: { message?: string; status?: number }; sourceId?: string }) => {
         const status = e.error?.status;
+        // Capture EVERY map error into the problem-reporter buffer before the
+        // suppression/early-return logic below — suppressed errors (expected
+        // no-data tiles, terrain/DEM mismatches) are frequently the actual bug
+        // an engineer needs, so we flag rather than drop them here.
+        const isClientError = Boolean(status && status >= 400 && status < 500);
+        pushReportEntry({
+          severity: isClientError ? 'warning' : 'error',
+          source: 'maplibre',
+          message: e.error?.message || (status ? `Map error (HTTP ${status})` : 'Map error'),
+          detail: e.sourceId ? `source: ${e.sourceId}` : undefined,
+          suppressed: isClientError || shouldSuppressBuilderMapError(e.error),
+        });
         // Suppress expected no-data tiles (404) and other client errors
         if (status && status >= 400 && status < 500) {
           if (status === 401 || status === 403) {

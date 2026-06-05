@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { AlertCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { logger } from '@/lib/logger';
+import { pushReportEntry } from '@/lib/report';
 
 interface MapErrorBoundaryState {
   hasError: boolean;
@@ -56,6 +57,12 @@ export class MapErrorBoundary extends Component<MapErrorBoundaryProps, MapErrorB
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo): void {
     logger.error('[MapErrorBoundary]', error, errorInfo);
+    pushReportEntry({
+      severity: 'error',
+      source: 'react',
+      message: error.message || 'Map crash',
+      detail: errorInfo.componentStack ?? error.stack ?? undefined,
+    });
   }
 
   private handleReset = () => {
