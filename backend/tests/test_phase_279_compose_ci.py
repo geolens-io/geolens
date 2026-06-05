@@ -12,6 +12,7 @@ ADMIN-13           — Non-blocking `license-check` job added to ci.yml that
 """
 
 import re
+import tomllib
 
 import yaml
 
@@ -20,6 +21,7 @@ from tests.repo_paths import repo_root
 REPO_ROOT = repo_root(__file__)
 COMPOSE = REPO_ROOT / "docker-compose.yml"
 CI = REPO_ROOT / ".github" / "workflows" / "ci.yml"
+UV_LOCK = REPO_ROOT / "backend" / "uv.lock"
 
 
 # -------------------------------------------------------------------
@@ -92,37 +94,16 @@ def test_pip_audit_no_longer_ignores_cve_2026_4539():
     )
 
 
-def test_security_scan_upgrades_pip_before_pip_audit():
-    """The security scan patches pip before auditing the uv-managed venv."""
-    doc = yaml.safe_load(CI.read_text())
-    steps = doc["jobs"]["security-scan"]["steps"]
+def test_security_scan_lockfile_pins_patched_pip():
+    """The locked dev env keeps pip patched for the pip-audit venv scan."""
+    doc = tomllib.loads(UV_LOCK.read_text())
+    pip_packages = [package for package in doc["package"] if package["name"] == "pip"]
+    assert len(pip_packages) == 1, "Expected one locked pip package."
 
-    pip_upgrade_index = next(
-        (
-            index
-            for index, step in enumerate(steps)
-            if "pip install --upgrade" in step.get("run", "")
-            and "pip>=26.1.2" in step.get("run", "")
-        ),
-        None,
-    )
-    pip_audit_index = next(
-        (
-            index
-            for index, step in enumerate(steps)
-            if "pip-audit" in step.get("run", "")
-        ),
-        None,
-    )
-
-    assert pip_upgrade_index is not None, (
-        "Security Scan must upgrade pip to a version fixed for PYSEC-2026-196 "
-        "before pip-audit scans the uv-managed venv."
-    )
-    assert pip_audit_index is not None, "Security Scan must run pip-audit."
-    assert pip_upgrade_index < pip_audit_index, (
-        "pip must be upgraded before pip-audit runs so the audit does not fail "
-        "on CI's vulnerable toolchain package."
+    version = tuple(int(part) for part in pip_packages[0]["version"].split("."))
+    assert version >= (26, 1, 2), (
+        "backend/uv.lock must keep pip at a version fixed for PYSEC-2026-196 "
+        "because Security Scan audits the locked uv-managed dev environment."
     )
 
 
