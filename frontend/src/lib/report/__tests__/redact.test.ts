@@ -24,6 +24,13 @@ describe('redact', () => {
     expect(redact('{"password":"hunter2","ok":true}')).not.toContain('hunter2');
   });
 
+  it('strips the full quoted value even when it contains spaces', () => {
+    expect(redact('password="correct horse battery staple"')).toBe('password="[redacted]"');
+    expect(redact("token: 'a b c d e'")).not.toContain('a b c d e');
+    // surrounding text must survive
+    expect(redact('{"password":"correct horse","ok":true}')).toContain('"ok":true');
+  });
+
   it('strips unquoted / object-literal secret fields', () => {
     expect(redact('{ token: "secret_token_123", apiKey: "key_456" }')).not.toContain('secret_token_123');
     expect(redact('{ token: "secret_token_123", apiKey: "key_456" }')).not.toContain('key_456');

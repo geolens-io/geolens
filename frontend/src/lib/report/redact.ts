@@ -48,12 +48,20 @@ const RULES: RedactionRule[] = [
   // would otherwise leak the part after the space.
   { pattern: /Bearer\s+[A-Za-z0-9._~+/=-]+/gi, replacement: 'Bearer [redacted]' },
   { pattern: /Basic\s+[A-Za-z0-9+/=]+/gi, replacement: 'Basic [redacted]' },
-  // <sensitive-key>=value or <sensitive-key>: value (value optionally quoted).
-  // The \b before the key keeps `token=` from matching the tail of unrelated
-  // keys like csrf_token=; alternation order lets access_token/signature win
-  // over their token/sig prefixes.
+  // <sensitive-key> = "quoted value" / : 'quoted value' — redact the WHOLE
+  // quoted value, which may contain spaces (e.g. a passphrase or JSON string).
+  // Must run before the unquoted rule. Group 3 captures the quote char so the
+  // matching closing quote is preserved.
   {
-    pattern: new RegExp(`\\b(${SENSITIVE_KEYS})(["']?\\s*[:=]\\s*["']?)[^\\s"'\`&,}\\])]+`, 'gi'),
+    pattern: new RegExp(`\\b(${SENSITIVE_KEYS})(["']?\\s*[:=]\\s*)(["'])(?:\\\\.|(?!\\3).)*\\3`, 'gi'),
+    replacement: '$1$2$3[redacted]$3',
+  },
+  // <sensitive-key>=value (unquoted: query strings, log lines). The \b before
+  // the key keeps `token=` from matching the tail of unrelated keys like
+  // csrf_token=; alternation order lets access_token/signature win over their
+  // token/sig prefixes.
+  {
+    pattern: new RegExp(`\\b(${SENSITIVE_KEYS})(["']?\\s*[:=]\\s*)[^\\s"'\`&,}\\])]+`, 'gi'),
     replacement: '$1$2[redacted]',
   },
   // Share / embed tokens that live in the URL PATH, not a query param:
