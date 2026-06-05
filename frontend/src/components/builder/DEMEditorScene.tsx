@@ -17,15 +17,17 @@ import {
   TERRAIN_EXAGGERATION_MIN,
   normalizeTerrainExaggeration,
 } from './map-sync';
+import { effectiveDemRenderMode } from '@/lib/dem-render-mode';
 import type { MapLayerResponse, StyleConfig } from '@/types/api';
 
 /** DEM render mode union. Assignable to StyleConfig['render_mode'] without cast. */
-export type DemRenderMode = 'image' | 'hillshade' | 'terrain';
+export type DemRenderMode = 'hillshade' | 'terrain';
 
 export interface DEMEditorSceneProps {
   layer: MapLayerResponse;
-  // Render mode is derived from layer.style_config.render_mode by the component
-  // (image when null/undefined or any non-DEM value)
+  // Render mode is derived from layer.style_config.render_mode by the component.
+  // Missing/legacy image DEM modes are treated as hillshade because raw DEM
+  // image tiles are encoded elevation data, not inspectable imagery.
   onPaintChange: (paint: Record<string, unknown>) => void;
   onStyleConfigChange: (config: StyleConfig | null, paint: Record<string, unknown>) => void;
   onOpacityChange: (opacity: number) => void;
@@ -51,10 +53,9 @@ export interface DEMEditorSceneProps {
 }
 
 function currentMode(layer: MapLayerResponse): DemRenderMode {
-  const m = (layer.style_config as Record<string, unknown> | null | undefined)?.render_mode;
-  if (m === 'hillshade') return 'hillshade';
-  if (m === 'terrain') return 'terrain';
-  return 'image';
+  return effectiveDemRenderMode(layer.style_config, layer.is_dem) === 'terrain'
+    ? 'terrain'
+    : 'hillshade';
 }
 
 function getNumber(paint: Record<string, unknown>, key: string, fallback: number): number {
@@ -167,11 +168,7 @@ export const DEMEditorScene = memo(function DEMEditorScene({
     if (current === nextMode) return;
 
     const nextConfig: Record<string, unknown> = { ...(layer.style_config ?? {}) };
-    if (nextMode === 'image') {
-      delete nextConfig.render_mode;
-    } else {
-      nextConfig.render_mode = nextMode;
-    }
+    nextConfig.render_mode = nextMode;
 
     // Source binding (the layer dataset_id + paint object) is intentionally preserved unchanged
     // across mode switches. Mode-specific paint values stay in layer.paint; reading the paint dict
@@ -196,7 +193,6 @@ export const DEMEditorScene = memo(function DEMEditorScene({
   }, [paint, onPaintChange]);
 
   const pills: { id: DemRenderMode; label: string }[] = [
-    { id: 'image', label: t('demEditor.renderAsImage', { defaultValue: '▦ Image' }) },
     { id: 'hillshade', label: t('demEditor.renderAsHillshade', { defaultValue: '⛰ Hillshade' }) },
     { id: 'terrain', label: t('demEditor.renderAsTerrain', { defaultValue: '◬ Terrain' }) },
   ];
@@ -267,12 +263,6 @@ export const DEMEditorScene = memo(function DEMEditorScene({
           >
             {t('layerEditor.section.appearance', { defaultValue: 'Appearance' })}
           </p>
-
-          {mode === 'image' && (
-            <p className="text-xs text-muted-foreground">
-              {t('demEditor.imageHint', { defaultValue: 'No additional appearance controls for image mode' })}
-            </p>
-          )}
 
           {mode === 'hillshade' && (
             <div className="space-y-4">
@@ -415,56 +405,53 @@ export const DEMEditorScene = memo(function DEMEditorScene({
       </section>
 
       {/* 3. HYPSOMETRIC TINT section — hillshade (full control) and terrain (hint only) modes */}
-      {/* Image mode: section not rendered at all (UI-SPEC A-01 / A-02 / critical_constraint) */}
-      {(mode === 'hillshade' || mode === 'terrain') && (
-        <section
-          aria-labelledby={`section-hypso-dem-${layer.id}`}
-          className="border-b"
-        >
-          <div className="px-4 py-2">
-            <p
-              id={`section-hypso-dem-${layer.id}`}
-              className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground mb-2"
-            >
-              {t('demEditor.sectionHypsometricTint', { defaultValue: 'HYPSOMETRIC TINT' })}
+      <section
+        aria-labelledby={`section-hypso-dem-${layer.id}`}
+        className="border-b"
+      >
+        <div className="px-4 py-2">
+          <p
+            id={`section-hypso-dem-${layer.id}`}
+            className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground mb-2"
+          >
+            {t('demEditor.sectionHypsometricTint', { defaultValue: 'HYPSOMETRIC TINT' })}
+          </p>
+
+          {/* Terrain mode: inline hint only — color-relief requires hillshade mode */}
+          {mode === 'terrain' && (
+            <p className="text-xs text-muted-foreground">
+              {t('demEditor.hypsometricTerrainHint', {
+                defaultValue: 'Elevation tint is not available in Terrain mode',
+              })}
             </p>
+          )}
 
-            {/* Terrain mode: inline hint only — color-relief requires hillshade mode */}
-            {mode === 'terrain' && (
-              <p className="text-xs text-muted-foreground">
-                {t('demEditor.hypsometricTerrainHint', {
-                  defaultValue: 'Elevation tint is not available in Terrain mode',
-                })}
-              </p>
-            )}
-
-            {/* Hillshade mode: full toggle + ramp picker */}
-            {mode === 'hillshade' && (
-              <div className="space-y-3">
-                {/* Enable toggle */}
-                <div className="flex items-center justify-between">
-                  <Label className="text-xs text-muted-foreground">
-                    {t('demEditor.hypsometricEnable', { defaultValue: 'Elevation tint' })}
-                  </Label>
-                  <Switch
-                    checked={paint['_hypso-enabled'] === true}
-                    onCheckedChange={(next) => handlePaintValue('_hypso-enabled', next)}
-                    aria-label={t('demEditor.hypsometricEnable', { defaultValue: 'Elevation tint' })}
-                  />
-                </div>
-                {/* Ramp picker — conditionally rendered (mount/unmount) when enabled */}
-                {paint['_hypso-enabled'] === true && (
-                  <ColorRampPicker
-                    mode="graduated"
-                    rampName={getString(paint, '_hypso-ramp', 'Viridis')}
-                    onChange={(name) => handlePaintValue('_hypso-ramp', name)}
-                  />
-                )}
+          {/* Hillshade mode: full toggle + ramp picker */}
+          {mode === 'hillshade' && (
+            <div className="space-y-3">
+              {/* Enable toggle */}
+              <div className="flex items-center justify-between">
+                <Label className="text-xs text-muted-foreground">
+                  {t('demEditor.hypsometricEnable', { defaultValue: 'Elevation tint' })}
+                </Label>
+                <Switch
+                  checked={paint['_hypso-enabled'] === true}
+                  onCheckedChange={(next) => handlePaintValue('_hypso-enabled', next)}
+                  aria-label={t('demEditor.hypsometricEnable', { defaultValue: 'Elevation tint' })}
+                />
               </div>
-            )}
-          </div>
-        </section>
-      )}
+              {/* Ramp picker — conditionally rendered (mount/unmount) when enabled */}
+              {paint['_hypso-enabled'] === true && (
+                <ColorRampPicker
+                  mode="graduated"
+                  rampName={getString(paint, '_hypso-ramp', 'Viridis')}
+                  onChange={(name) => handlePaintValue('_hypso-ramp', name)}
+                />
+              )}
+            </div>
+          )}
+        </div>
+      </section>
 
       {/* 5. VISIBILITY section — always expanded */}
       <section

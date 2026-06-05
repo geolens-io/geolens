@@ -170,9 +170,8 @@ describe('RasterLayerControls', () => {
     expect(onOpacityChange).toHaveBeenCalledWith(1);
   });
 
-  it('shows DEM render mode and hillshade controls', () => {
+  it('shows DEM hillshade controls without a raw raster render switch', () => {
     const onPaintChange = vi.fn();
-    const onStyleConfigChange = vi.fn();
     render(
       <RasterLayerControls
         paint={{
@@ -185,10 +184,10 @@ describe('RasterLayerControls', () => {
         styleConfig={{ render_mode: 'hillshade' }}
         onPaintChange={onPaintChange}
         onOpacityChange={vi.fn()}
-        onStyleConfigChange={onStyleConfigChange}
       />,
     );
 
+    expect(screen.queryByRole('combobox', { name: 'Render' })).not.toBeInTheDocument();
     expect(screen.getByRole('slider', { name: 'Direction' })).toBeInTheDocument();
     expect(screen.getByRole('slider', { name: 'Relief' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Shadow' })).toBeInTheDocument();
@@ -205,8 +204,7 @@ describe('RasterLayerControls', () => {
     }));
   });
 
-  it('writes DEM render mode changes to style config', () => {
-    const onStyleConfigChange = vi.fn();
+  it('treats DEMs with no style config as hillshade', () => {
     render(
       <RasterLayerControls
         paint={{}}
@@ -215,12 +213,11 @@ describe('RasterLayerControls', () => {
         styleConfig={null}
         onPaintChange={vi.fn()}
         onOpacityChange={vi.fn()}
-        onStyleConfigChange={onStyleConfigChange}
       />,
     );
 
-    fireEvent.change(screen.getAllByRole('combobox')[0], { target: { value: 'hillshade' } });
-
-    expect(onStyleConfigChange).toHaveBeenCalledWith({ render_mode: 'hillshade' }, {});
+    expect(screen.queryByRole('combobox', { name: 'Render' })).not.toBeInTheDocument();
+    expect(screen.getByRole('slider', { name: 'Direction' })).toBeInTheDocument();
+    expect(screen.queryByRole('slider', { name: 'Brightness min' })).not.toBeInTheDocument();
   });
 });

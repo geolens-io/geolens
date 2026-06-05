@@ -56,6 +56,36 @@ describe('reorderDataLayers', () => {
     expect(calls).toEqual(['layer-a', 'layer-a-extrusion']);
   });
 
+  it('keeps DEM color relief immediately below its hillshade layer when reordering', () => {
+    const map = createMockMap(['layer-dem-colorrelief', 'layer-dem']);
+    const layers = [{ id: 'dem' }];
+
+    reorderDataLayers(map, layers);
+
+    const calls = (map.moveLayer as ReturnType<typeof vi.fn>).mock.calls.map(
+      (c: string[]) => c[0],
+    );
+    expect(calls).toEqual(['layer-dem-colorrelief', 'layer-dem']);
+  });
+
+  it('moves color-relief companions with each DEM layer in reverse layer order', () => {
+    const map = createMockMap([
+      'layer-a-colorrelief', 'layer-a',
+      'layer-b-colorrelief', 'layer-b',
+    ]);
+    const layers = [{ id: 'a' }, { id: 'b' }];
+
+    reorderDataLayers(map, layers);
+
+    const calls = (map.moveLayer as ReturnType<typeof vi.fn>).mock.calls.map(
+      (c: string[]) => c[0],
+    );
+    expect(calls).toEqual([
+      'layer-b-colorrelief', 'layer-b',
+      'layer-a-colorrelief', 'layer-a',
+    ]);
+  });
+
   it('does nothing for empty layers array', () => {
     const map = createMockMap([]);
 

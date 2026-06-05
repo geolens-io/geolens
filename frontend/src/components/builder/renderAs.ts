@@ -187,13 +187,6 @@ export const RENDERER_CAPABILITIES: readonly RendererCapability[] = [
     viewerSupport: 'native',
     styleJsonSupport: 'native',
   }),
-  capability('image', 'Image', 'raster-dem', {
-    backend: 'maplibre',
-    sourceRequirement: 'raster-dem',
-    companionLayers: [],
-    viewerSupport: 'native',
-    styleJsonSupport: 'native',
-  }),
   capability('hillshade', 'Hillshade', 'raster-dem', {
     backend: 'maplibre',
     sourceRequirement: 'raster-dem',
@@ -368,7 +361,7 @@ export function getCurrentRenderAs(layer: RenderAsLayer): RenderAsId | null {
   const renderMode = layer.style_config?.render_mode;
 
   if (source === 'raster-dem') {
-    return renderMode === 'hillshade' ? 'hillshade' : 'image';
+    return 'hillshade';
   }
 
   if (source === 'raster') {

@@ -16,6 +16,7 @@ import {
 import { buildSignedTileUrl } from '@/lib/tile-utils';
 import { buildLabelLayerSpec } from '@/components/builder/label-layer-utils';
 import { resolveBasemapId } from '@/lib/basemap-utils';
+import { normalizeDemStyleConfig } from '@/lib/dem-render-mode';
 import type { MapBasemapConfig, MapLayerResponse, MapResponse, MapTerrainConfig, StyleConfig } from '@/types/api';
 import type { useAddLayer, useRemoveLayer } from '@/hooks/use-maps';
 import { useEphemeralLayers } from '@/components/builder/hooks/use-ephemeral-layers';
@@ -908,8 +909,12 @@ export function useBuilderLayers(
     const mapLayerId = `layer-${layer.id}`;
     const sourceId = getSourceIdForLayer(layer);
     const labelId = `layer-${layer.id}-label`;
+    const colorReliefId = `layer-${layer.id}-colorrelief`;
 
     // Remove old layer
+    if (map.getLayer(colorReliefId)) {
+      map.removeLayer(colorReliefId);
+    }
     if (map.getLayer(mapLayerId)) {
       map.removeLayer(mapLayerId);
     }
@@ -1005,7 +1010,10 @@ export function useBuilderLayers(
       ...mutation.patch,
       paint: mutation.patch.paint ?? layer.paint,
       layout: mutation.patch.layout ?? layer.layout,
-      style_config: mutation.patch.style_config ?? layer.style_config,
+      style_config: normalizeDemStyleConfig(
+        'style_config' in mutation.patch ? mutation.patch.style_config : layer.style_config,
+        layer.is_dem,
+      ),
       layer_type: mutation.patch.layer_type ?? layer.layer_type,
     };
 

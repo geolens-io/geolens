@@ -22,6 +22,7 @@ from app.modules.auth.models import User
 from app.modules.catalog.datasets.domain.models import Dataset, Record
 from app.modules.catalog.maps.models import MapLayer
 from app.modules.catalog.maps.schemas import MapLayerDiffRequest
+from app.processing.raster.models import RasterAsset
 
 from tests.factories import create_dataset, get_user_id
 
@@ -143,6 +144,31 @@ def test_maps_service_facade_exports_public_api() -> None:
 
 def _future_expires_at() -> datetime:
     return datetime.now(timezone.utc) + timedelta(days=7)
+
+
+async def _create_dem_dataset(test_db_session, *, created_by: uuid.UUID) -> Dataset:
+    ds = await create_dataset(
+        test_db_session,
+        created_by=created_by,
+        name="DEM Layer",
+        geometry_type=None,
+        source_format="geotiff",
+        source_filename="dem.tif",
+    )
+    record = await test_db_session.get(Record, ds.record_id)
+    assert record is not None
+    record.record_type = "raster_dataset"
+    test_db_session.add(
+        RasterAsset(
+            dataset_id=ds.id,
+            asset_uri=f"rasters/{ds.id}/source.cog.tif",
+            storage_backend="local",
+            is_dem=True,
+            band_count=1,
+        )
+    )
+    await test_db_session.commit()
+    return ds
 
 
 def test_layer_diff_schema_rejects_duplicate_layer_ids() -> None:
@@ -1794,6 +1820,74 @@ class TestMapLayers:
         assert data["visible"] is True
         assert data["opacity"] == 1.0
         assert "id" in data
+
+    async def test_add_dem_layer_persists_hillshade_render_mode(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+    ):
+        """POST /maps/{id}/layers stores DEMs as hillshade, not raw raster image."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_dem_dataset(test_db_session, created_by=admin_id)
+
+        created = await _create_map(client, admin_auth_header)
+        map_id = created["id"]
+
+        resp = await client.post(
+            f"/maps/{map_id}/layers",
+            json={"dataset_id": str(ds.id)},
+            headers=admin_auth_header,
+        )
+
+        assert resp.status_code == 201, resp.text
+        data = resp.json()
+        assert data["is_dem"] is True
+        assert data["style_config"] == {"render_mode": "hillshade"}
+
+        stored = await test_db_session.get(MapLayer, uuid.UUID(data["id"]))
+        assert stored is not None
+        assert stored.style_config == {"render_mode": "hillshade"}
+
+        style_resp = await client.get(
+            f"/maps/{map_id}/style.json",
+            headers=admin_auth_header,
+        )
+        assert style_resp.status_code == 200, style_resp.text
+        source = style_resp.json()["sources"][f"geolens-{ds.id}"]
+        assert source["type"] == "raster-dem"
+
+    async def test_patch_add_dem_layer_persists_hillshade_render_mode(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+    ):
+        """PATCH /maps/{id}/layers stores added DEMs as hillshade."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_dem_dataset(test_db_session, created_by=admin_id)
+        created = await _create_map(client, admin_auth_header)
+        map_id = created["id"]
+
+        resp = await client.patch(
+            f"/maps/{map_id}/layers",
+            json={
+                "added": [{"dataset_id": str(ds.id), "sort_order": 0}],
+                "updated": [],
+                "removed": [],
+                "order": None,
+            },
+            headers=admin_auth_header,
+        )
+
+        assert resp.status_code == 200, resp.text
+        layer = resp.json()["layers"][0]
+        assert layer["is_dem"] is True
+        assert layer["style_config"] == {"render_mode": "hillshade"}
+
+        stored = await test_db_session.get(MapLayer, uuid.UUID(layer["id"]))
+        assert stored is not None
+        assert stored.style_config == {"render_mode": "hillshade"}
 
     async def test_add_layer_assigns_next_sort_order_when_omitted(
         self,

@@ -168,6 +168,7 @@ describe('syncLayersToMap', () => {
   let managedSourcesRef: { current: Set<string> };
 
   beforeEach(() => {
+    mockSyncColorReliefLayer.mockClear();
     map = createMockMap();
     managedSourcesRef = { current: new Set() };
   });
@@ -752,6 +753,49 @@ describe('syncLayersToMap', () => {
     expect(map.removeSource).toHaveBeenCalledWith('source-dem-wr01');
   });
 
+  it('removes color-relief before replacing a DEM hillshade source', () => {
+    const layer = makeLayer({
+      id: 'dem-source-swap',
+      layer_type: 'raster_geolens',
+      dataset_geometry_type: null,
+      is_dem: true,
+      style_config: null,
+    });
+    const sourceId = 'source-dem-source-swap';
+    const baseLayerId = 'layer-dem-source-swap';
+    const colorReliefId = `${baseLayerId}-colorrelief`;
+    const tokenMap = new Map<string, TileToken>([['ds-1', makeRasterToken()]]);
+
+    (map.getLayer as ReturnType<typeof vi.fn>).mockImplementation((id: string) => {
+      if (id === baseLayerId) return { id, type: 'hillshade' };
+      if (id === colorReliefId) return { id, type: 'color-relief' };
+      return null;
+    });
+    (map.getSource as ReturnType<typeof vi.fn>).mockImplementation((id: string) => {
+      if (id === sourceId) {
+        return {
+          type: 'raster-dem',
+          tiles: ['http://localhost:8080/tiles/old-dem/{z}/{x}/{y}.png'],
+          tileSize: 256,
+          minzoom: 0,
+          maxzoom: 18,
+        };
+      }
+      return null;
+    });
+
+    syncLayersToMap(map, [layer], tokenMap, undefined, managedSourcesRef, { current: '' });
+
+    expect(map.removeLayer).toHaveBeenCalledWith(colorReliefId);
+    expect(map.removeLayer).toHaveBeenCalledWith(baseLayerId);
+    expect(map.removeSource).toHaveBeenCalledWith(sourceId);
+    const colorReliefRemoveOrder = (map.removeLayer as ReturnType<typeof vi.fn>).mock.invocationCallOrder[
+      (map.removeLayer as ReturnType<typeof vi.fn>).mock.calls.findIndex(([id]) => id === colorReliefId)
+    ];
+    const sourceRemoveOrder = (map.removeSource as ReturnType<typeof vi.fn>).mock.invocationCallOrder[0];
+    expect(colorReliefRemoveOrder).toBeLessThan(sourceRemoveOrder);
+  });
+
   it('polygon layer with non-prefixed outline-width strips it from fill paint', () => {
     const layer = makeLayer({
       id: 'legacy1',
@@ -856,6 +900,7 @@ describe('POLISH-02 syncRasterLayer hillshade skip guard', () => {
   }
 
   beforeEach(() => {
+    mockSyncColorReliefLayer.mockClear();
     map = createMockMap();
     managedSourcesRef = { current: new Set() };
   });
@@ -886,6 +931,38 @@ describe('POLISH-02 syncRasterLayer hillshade skip guard', () => {
     expect((map.addSource as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThan(0);
     const addSourceIds = (map.addSource as ReturnType<typeof vi.fn>).mock.calls.map(([id]) => id);
     expect(addSourceIds).toContain('source-dem-layer-1');
+    const addLayerCall = (map.addLayer as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(addLayerCall.type).toBe('hillshade');
+  });
+
+  it('normalizes legacy DEM image mode to hillshade before rendering', () => {
+    const layer = makeDEMLayer({
+      style_config: { render_mode: 'image' } as unknown as MapLayerResponse['style_config'],
+    });
+    const tokenMap = new Map<string, TileToken>([
+      ['dem-ds-1', makeRasterToken({ tile_url: '/tiles/dem/{z}/{x}/{y}.png' })],
+    ]);
+
+    syncLayersToMap(map, [layer], tokenMap, undefined, managedSourcesRef, { current: '' });
+
+    const addLayerCall = (map.addLayer as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(addLayerCall.type).toBe('hillshade');
+    expect(mockSyncColorReliefLayer).toHaveBeenCalledWith(
+      map,
+      expect.objectContaining({
+        style_config: expect.objectContaining({ render_mode: 'hillshade' }),
+      }),
+    );
+  });
+
+  it('normalizes missing DEM render mode to hillshade before rendering', () => {
+    const layer = makeDEMLayer({ style_config: null });
+    const tokenMap = new Map<string, TileToken>([
+      ['dem-ds-1', makeRasterToken({ tile_url: '/tiles/dem/{z}/{x}/{y}.png' })],
+    ]);
+
+    syncLayersToMap(map, [layer], tokenMap, undefined, managedSourcesRef, { current: '' });
+
     const addLayerCall = (map.addLayer as ReturnType<typeof vi.fn>).mock.calls[0][0];
     expect(addLayerCall.type).toBe('hillshade');
   });

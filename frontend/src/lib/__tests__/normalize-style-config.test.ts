@@ -108,25 +108,39 @@ describe('normalizeLayerStyleState', () => {
     });
   });
 
-  it('preserves render_mode terrain for DEM/raster adapters', () => {
+  it('preserves render_mode terrain for DEM adapters', () => {
     const normalized = normalizeLayerStyleState(
       { render_mode: 'terrain' },
       {},
       null,
+      { isDem: true },
     );
 
     expect(normalized.paint).toEqual({});
     expect(normalized.style_config).toEqual({ render_mode: 'terrain' });
   });
 
-  it('preserves render_mode image for DEM/raster adapters', () => {
+  it('normalizes missing and image DEM render modes to hillshade', () => {
+    const missing = normalizeLayerStyleState(null, {}, null, { isDem: true });
+    const normalized = normalizeLayerStyleState(
+      { render_mode: 'image' },
+      {},
+      null,
+      { isDem: true },
+    );
+
+    expect(missing.style_config).toEqual({ render_mode: 'hillshade' });
+    expect(normalized.paint).toEqual({});
+    expect(normalized.style_config).toEqual({ render_mode: 'hillshade' });
+  });
+
+  it('preserves render_mode image for non-DEM raster adapters', () => {
     const normalized = normalizeLayerStyleState(
       { render_mode: 'image' },
       {},
       null,
     );
 
-    expect(normalized.paint).toEqual({});
     expect(normalized.style_config).toEqual({ render_mode: 'image' });
   });
 });
@@ -236,10 +250,12 @@ describe('normalizeLayerStyleState — raster stretch/colormap round-trip (v1034
       { builder: { hypso_enabled: true, hypso_ramp: 'Inferno' } },
       { 'raster-opacity': 1 },
       null,
+      { isDem: true },
     );
     expect(paint['_hypso-enabled']).toBe(true);
     expect(paint['_hypso-ramp']).toBe('Inferno');
     // The builder values survive in style_config too.
+    expect(style_config?.render_mode).toBe('hillshade');
     expect(style_config?.builder?.hypso_enabled).toBe(true);
     expect(style_config?.builder?.hypso_ramp).toBe('Inferno');
   });

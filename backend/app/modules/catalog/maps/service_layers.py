@@ -14,6 +14,7 @@ from app.modules.catalog.maps.service_shared import (
     _infer_layer_type,
     generate_default_style,
     get_dataset_meta,
+    normalize_dem_style_config,
 )
 
 
@@ -98,6 +99,10 @@ async def add_layer(
             style_config = defaults.get("style_config")
 
     paint, style_config = split_legacy_builder_paint(paint, style_config)
+    style_config = normalize_dem_style_config(
+        style_config,
+        is_dem=meta.is_dem if meta else None,
+    )
     sort_order = body.sort_order
     if "sort_order" not in body.model_fields_set:
         result = await session.execute(

@@ -2,7 +2,7 @@
  * Phase 1134 Plan 02 — removePerLayerCompanions per-render-mode regression tests (MAP-17).
  *
  * Verifies that removePerLayerCompanions uses the LayerAdapter registry (getLayerIds)
- * when a renderModeByLayerId map is provided, and falls back to the 7-suffix sweep
+ * when a renderModeByLayerId map is provided, and falls back to the suffix sweep
  * when it is not.
  */
 
@@ -95,10 +95,11 @@ describe('removePerLayerCompanions — per-render-mode regression (MAP-17)', () 
 
     // 'arrow' is not a registry key → getAdapter('arrow') returns circleAdapter fallback
     // whose type === 'circle', not 'arrow', so the type guard fails and the code falls
-    // through to the FALLBACK_SUFFIXES sweep (7 calls including the -arrow companion).
-    expect(removeLayer).toHaveBeenCalledTimes(7);
+    // through to the FALLBACK_SUFFIXES sweep (8 calls including optional companions).
+    expect(removeLayer).toHaveBeenCalledTimes(8);
     expect(removeLayer).toHaveBeenCalledWith('layer-l1');
     expect(removeLayer).toHaveBeenCalledWith('layer-l1-arrow');
+    expect(removeLayer).toHaveBeenCalledWith('layer-l1-colorrelief');
     expect(removeLayer).toHaveBeenCalledWith('layer-l1-outline');
     expect(removeLayer).toHaveBeenCalledWith('layer-l1-label');
     expect(removeLayer).toHaveBeenCalledWith('layer-l1-extrusion');
@@ -114,15 +115,28 @@ describe('removePerLayerCompanions — per-render-mode regression (MAP-17)', () 
     // Called WITHOUT renderModeByLayerId — falls back to suffix list
     removePerLayerCompanions(map as never, ['l1']);
 
-    // 7 suffixes: '', -outline, -label, -extrusion, -arrow, -cluster, -cluster-count
-    expect(removeLayer).toHaveBeenCalledTimes(7);
+    // Fallback suffixes: base + optional companions.
+    expect(removeLayer).toHaveBeenCalledTimes(8);
     expect(removeLayer).toHaveBeenCalledWith('layer-l1');
     expect(removeLayer).toHaveBeenCalledWith('layer-l1-outline');
     expect(removeLayer).toHaveBeenCalledWith('layer-l1-label');
     expect(removeLayer).toHaveBeenCalledWith('layer-l1-extrusion');
     expect(removeLayer).toHaveBeenCalledWith('layer-l1-arrow');
+    expect(removeLayer).toHaveBeenCalledWith('layer-l1-colorrelief');
     expect(removeLayer).toHaveBeenCalledWith('layer-l1-cluster');
     expect(removeLayer).toHaveBeenCalledWith('layer-l1-cluster-count');
+  });
+
+  it('Test 4b: hillshade render mode removes optional color-relief companion', () => {
+    const removeLayer = vi.fn();
+    const map = makeMap({ removeLayer });
+    const renderModeByLayerId = new Map([['l1', 'hillshade']]);
+
+    removePerLayerCompanions(map as never, ['l1'], renderModeByLayerId);
+
+    expect(removeLayer).toHaveBeenCalledTimes(2);
+    expect(removeLayer).toHaveBeenCalledWith('layer-l1');
+    expect(removeLayer).toHaveBeenCalledWith('layer-l1-colorrelief');
   });
 
   it('Test 5: getLayer returns null for some companions → skipped without error', () => {

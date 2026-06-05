@@ -151,40 +151,36 @@ function defaultProps(
 }
 
 describe('DEMEditorScene', () => {
-  // Test 1: Renders RENDER AS pill strip with 3 pills
-  it('renders RENDER AS pill strip with 3 pills (▦ Image, ⛰ Hillshade, ◬ Terrain) with radiogroup role', () => {
+  // Test 1: Renders RENDER AS pill strip with DEM-safe modes
+  it('renders RENDER AS pill strip with Hillshade and Terrain pills with radiogroup role', () => {
     render(<DEMEditorScene {...defaultProps()} />);
 
     const group = screen.getByRole('radiogroup');
     expect(group).toBeInTheDocument();
 
-    // All three pills should be present
-    expect(screen.getByText(/Image/)).toBeInTheDocument();
+    expect(screen.queryByText(/Image/)).not.toBeInTheDocument();
     expect(screen.getByText(/Hillshade/)).toBeInTheDocument();
     expect(screen.getByText(/Terrain/)).toBeInTheDocument();
   });
 
   // Test 2: Active pill matches layer's render mode
-  it('active pill matches layer render_mode: null/undefined → Image, hillshade → Hillshade, terrain → Terrain', () => {
-    // No render_mode → Image active
+  it('active pill matches layer render_mode: null/image → Hillshade, terrain → Terrain', () => {
+    // No render_mode → Hillshade active
     const { rerender } = render(
       <DEMEditorScene {...defaultProps({ layer: makeDEMLayer({ style_config: null }) })} />,
     );
-    let imagePill = screen.getByRole('radio', { name: /Image/i });
-    expect(imagePill).toHaveAttribute('aria-checked', 'true');
+    const hillshadePill = screen.getByRole('radio', { name: /Hillshade/i });
+    expect(hillshadePill).toHaveAttribute('aria-checked', 'true');
 
-    // Hillshade
+    // Legacy image render_mode → Hillshade active
     rerender(
       <DEMEditorScene
         {...defaultProps({
-          layer: makeDEMLayer({ style_config: { render_mode: 'hillshade' } }),
+          layer: makeDEMLayer({ style_config: { render_mode: 'image' } as unknown as MapLayerResponse['style_config'] }),
         })}
       />,
     );
-    const hillshadePill = screen.getByRole('radio', { name: /Hillshade/i });
     expect(hillshadePill).toHaveAttribute('aria-checked', 'true');
-    imagePill = screen.getByRole('radio', { name: /Image/i });
-    expect(imagePill).toHaveAttribute('aria-checked', 'false');
 
     // Terrain
     rerender(
@@ -198,14 +194,16 @@ describe('DEMEditorScene', () => {
     expect(terrainPill).toHaveAttribute('aria-checked', 'true');
   });
 
-  // Test 3: Clicking Hillshade pill calls onStyleConfigChange with render_mode='hillshade'
-  it('clicking Hillshade pill calls onStyleConfigChange with render_mode=hillshade and shows Hillshade appearance', () => {
+  // Test 3: Clicking Hillshade from Terrain calls onStyleConfigChange with render_mode='hillshade'
+  it('clicking Hillshade from Terrain calls onStyleConfigChange with render_mode=hillshade', () => {
     const onStyleConfigChange = vi.fn();
+    const onTerrainUnbind = vi.fn();
     render(
       <DEMEditorScene
         {...defaultProps({
-          layer: makeDEMLayer({ style_config: null }),
+          layer: makeDEMLayer({ id: 'dem-terrain-test', style_config: { render_mode: 'terrain' } as unknown as MapLayerResponse['style_config'] }),
           onStyleConfigChange,
+          onTerrainUnbind,
         })}
       />,
     );
@@ -216,6 +214,7 @@ describe('DEMEditorScene', () => {
     expect(onStyleConfigChange).toHaveBeenCalledOnce();
     const [config] = onStyleConfigChange.mock.calls[0] as [{ render_mode: string } | null, Record<string, unknown>];
     expect(config?.render_mode).toBe('hillshade');
+    expect(onTerrainUnbind).toHaveBeenCalledWith('dem-terrain-test');
   });
 
   // Test 4: Clicking Terrain pill calls onTerrainBind AND onStyleConfigChange
@@ -258,16 +257,16 @@ describe('DEMEditorScene', () => {
     expect(onTerrainUnbind).toHaveBeenCalledWith('dem-terrain-test');
   });
 
-  // Test 5: Image mode shows image hint only
-  it('in Image mode, Appearance section shows image hint and no compass/colors', () => {
+  // Test 5: Missing/legacy Image mode falls back to Hillshade controls
+  it('in missing/legacy Image mode, Appearance section shows Hillshade controls', () => {
     render(
       <DEMEditorScene
-        {...defaultProps({ layer: makeDEMLayer({ style_config: null }) })}
+        {...defaultProps({ layer: makeDEMLayer({ style_config: { render_mode: 'image' } as unknown as MapLayerResponse['style_config'] }) })}
       />,
     );
 
-    expect(screen.getByText('No additional appearance controls for image mode')).toBeInTheDocument();
-    expect(screen.queryByRole('img', { name: /Sun azimuth/i })).not.toBeInTheDocument();
+    expect(screen.queryByText('No additional appearance controls for image mode')).not.toBeInTheDocument();
+    expect(screen.getByRole('img', { name: /Sun azimuth/i })).toBeInTheDocument();
   });
 
   // Test 6: Hillshade mode shows Sun Position and Shading Colors
@@ -500,10 +499,10 @@ describe('DEMEditorScene', () => {
   // section never renders in any DEM render mode.
 
   describe('CONTOUR LINES section (removed — stays gone)', () => {
-    it('section is absent in image mode (always absent regardless of gate)', () => {
+    it('section is absent in legacy image mode after hillshade fallback', () => {
       render(
         <DEMEditorScene
-          {...defaultProps({ layer: makeDEMLayer({ style_config: null }) })}
+          {...defaultProps({ layer: makeDEMLayer({ style_config: { render_mode: 'image' } as unknown as MapLayerResponse['style_config'] }) })}
         />,
       );
       expect(screen.queryByText('CONTOUR LINES')).not.toBeInTheDocument();
@@ -538,13 +537,14 @@ describe('DEMEditorScene', () => {
   // --- HYPSOMETRIC TINT section tests (EDITOR-DEM-05) ---
 
   describe('HYPSOMETRIC TINT section', () => {
-    it('section is absent in image mode', () => {
+    it('section is present in legacy image mode after hillshade fallback', () => {
       render(
         <DEMEditorScene
-          {...defaultProps({ layer: makeDEMLayer({ style_config: null }) })}
+          {...defaultProps({ layer: makeDEMLayer({ style_config: { render_mode: 'image' } as unknown as MapLayerResponse['style_config'] }) })}
         />,
       );
-      expect(screen.queryByText('HYPSOMETRIC TINT')).not.toBeInTheDocument();
+      expect(screen.getByText('HYPSOMETRIC TINT')).toBeInTheDocument();
+      expect(screen.getByRole('switch', { name: 'Elevation tint' })).toBeInTheDocument();
     });
 
     it('section is present in hillshade mode with toggle + no picker when disabled', () => {
@@ -653,10 +653,10 @@ describe('DEMEditorScene', () => {
   });
 
   // Test 14: Switching render mode preserves style_config keys not under current mode
-  it('switching image→hillshade→image preserves other style_config keys', () => {
+  it('switching terrain→hillshade preserves other style_config keys', () => {
     const onStyleConfigChange = vi.fn();
     const layer = makeDEMLayer({
-      style_config: { render_mode: 'hillshade', some_other_key: 'preserved' } as unknown as MapLayerResponse['style_config'],
+      style_config: { render_mode: 'terrain', some_other_key: 'preserved' } as unknown as MapLayerResponse['style_config'],
     });
 
     render(
@@ -665,14 +665,12 @@ describe('DEMEditorScene', () => {
       />,
     );
 
-    // Switch to Image (removes render_mode, but other keys stay)
-    const imagePill = screen.getByRole('radio', { name: /Image/i });
-    fireEvent.click(imagePill);
+    const hillshadePill = screen.getByRole('radio', { name: /Hillshade/i });
+    fireEvent.click(hillshadePill);
 
     expect(onStyleConfigChange).toHaveBeenCalledOnce();
     const [config] = onStyleConfigChange.mock.calls[0] as [Record<string, unknown> | null, Record<string, unknown>];
-    // render_mode should be absent; other keys should remain
-    expect(config?.render_mode).toBeUndefined();
+    expect(config?.render_mode).toBe('hillshade');
     expect(config?.some_other_key).toBe('preserved');
   });
 });
