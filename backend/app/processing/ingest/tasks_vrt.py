@@ -101,6 +101,10 @@ async def create_vrt_dataset(
         epsg=meta.get("epsg"),
         band_count=meta.get("band_count"),
         dtype=meta.get("dtype"),
+        # A VRT mosaic of single-band float DEM tiles is itself a DEM. Mirror the
+        # raster ingest path (tasks_raster) so terrain + hillshade light up; without
+        # this the mosaic lands is_dem=false and is unusable as terrain (#185).
+        is_dem=meta.get("is_dem_candidate", False),
         nodata=nodata_str,
         res_x=meta.get("res_x"),
         res_y=meta.get("res_y"),
@@ -602,6 +606,9 @@ async def regenerate_vrt(
                 vrt_asset.epsg = meta.get("epsg")
                 vrt_asset.band_count = meta.get("band_count")
                 vrt_asset.dtype = meta.get("dtype")
+                # Recompute the DEM flag on regenerate so adding/removing a source
+                # flips it correctly when the band/dtype profile changes (#185).
+                vrt_asset.is_dem = meta.get("is_dem_candidate", False)
                 vrt_asset.nodata = str(nodata_val) if nodata_val is not None else None
                 vrt_asset.res_x = meta.get("res_x")
                 vrt_asset.res_y = meta.get("res_y")

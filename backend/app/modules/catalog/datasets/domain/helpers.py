@@ -95,6 +95,7 @@ def _build_raster_metadata(
         res_x=raster_asset.res_x,
         res_y=raster_asset.res_y,
         band_count=raster_asset.band_count,
+        is_dem=raster_asset.is_dem,
         nodata=raster_asset.nodata,
         compression=raster_asset.compression,
         width=raster_asset.width,

@@ -11400,6 +11400,18 @@
             "description": "Raster height in pixels",
             "title": "Height"
           },
+          "is_dem": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "True if this raster is a DEM (single-band float) usable for 3D terrain/hillshade",
+            "title": "Is Dem"
+          },
           "nodata": {
             "anyOf": [
               {

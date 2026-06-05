@@ -6568,6 +6568,12 @@ export type RasterMetadata = {
      */
     height?: number | null;
     /**
+     * Is Dem
+     *
+     * True if this raster is a DEM (single-band float) usable for 3D terrain/hillshade
+     */
+    is_dem?: boolean | null;
+    /**
      * Nodata
      *
      * Global nodata sentinel value

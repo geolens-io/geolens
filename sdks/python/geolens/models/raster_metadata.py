@@ -28,6 +28,7 @@ class RasterMetadata:
         connect (None | RasterConnect | Unset):
         epsg (int | None | Unset): EPSG code of the raster CRS
         height (int | None | Unset): Raster height in pixels
+        is_dem (bool | None | Unset): True if this raster is a DEM (single-band float) usable for 3D terrain/hillshade
         nodata (None | str | Unset): Global nodata sentinel value
         res_x (float | None | Unset): Pixel resolution in X (CRS units)
         res_y (float | None | Unset): Pixel resolution in Y (CRS units)
@@ -46,6 +47,7 @@ class RasterMetadata:
     connect: None | RasterConnect | Unset = UNSET
     epsg: int | None | Unset = UNSET
     height: int | None | Unset = UNSET
+    is_dem: bool | None | Unset = UNSET
     nodata: None | str | Unset = UNSET
     res_x: float | None | Unset = UNSET
     res_y: float | None | Unset = UNSET
@@ -99,6 +101,12 @@ class RasterMetadata:
             height = UNSET
         else:
             height = self.height
+
+        is_dem: bool | None | Unset
+        if isinstance(self.is_dem, Unset):
+            is_dem = UNSET
+        else:
+            is_dem = self.is_dem
 
         nodata: None | str | Unset
         if isinstance(self.nodata, Unset):
@@ -175,6 +183,8 @@ class RasterMetadata:
             field_dict["epsg"] = epsg
         if height is not UNSET:
             field_dict["height"] = height
+        if is_dem is not UNSET:
+            field_dict["is_dem"] = is_dem
         if nodata is not UNSET:
             field_dict["nodata"] = nodata
         if res_x is not UNSET:
@@ -266,6 +276,15 @@ class RasterMetadata:
             return cast(int | None | Unset, data)
 
         height = _parse_height(d.pop("height", UNSET))
+
+        def _parse_is_dem(data: object) -> bool | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(bool | None | Unset, data)
+
+        is_dem = _parse_is_dem(d.pop("is_dem", UNSET))
 
         def _parse_nodata(data: object) -> None | str | Unset:
             if data is None:
@@ -366,6 +385,7 @@ class RasterMetadata:
             connect=connect,
             epsg=epsg,
             height=height,
+            is_dem=is_dem,
             nodata=nodata,
             res_x=res_x,
             res_y=res_y,
