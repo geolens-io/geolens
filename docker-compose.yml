@@ -221,7 +221,7 @@ services:
       - ./e2e:/app/e2e:ro
       - ./examples:/app/examples:ro
       - ./frontend:/app/frontend:ro
-      - ./scripts/seed-natural-earth.py:/app/scripts/seed-natural-earth.py:ro
+      - ./scripts/seed-showcase.py:/app/scripts/seed-showcase.py:ro
       - ./sdks:/app/sdks:ro
       - upload_staging:/app/staging
     # UVICORN_WORKERS=1 is the dev default to keep --reload working (uvicorn forbids

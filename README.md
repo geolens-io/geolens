@@ -244,16 +244,15 @@ See the [CLI guide](https://docs.getgeolens.com/guides/cli/) for the full manife
 
 ### Seed Data
 
-Populate the catalog with [Natural Earth](https://www.naturalearthdata.com/) 1:10m vector datasets:
+Build three capability-showcase maps from public, openly-licensed data — a Manhattan 3D skyline (NYC Open Data), a New York income choropleth (USDA ERS), and an optional Matterhorn 3D-terrain hero (swisstopo swissALTI3D + OpenStreetMap routes/peaks):
 
 ```bash
 pip install httpx  # one-time dependency on the host
-python scripts/seed-natural-earth.py --username admin --password admin
+python scripts/seed-showcase.py --username admin --password admin
+python scripts/seed-showcase.py --username admin --password admin --with-terrain  # + Matterhorn
 ```
 
-The script logs in, mints a temporary API key for the run, ingests every Natural Earth 1:10m dataset, and deletes the temporary key on exit. It downloads from the [NACIS CDN](https://naciscdn.org/naturalearth/), skips duplicates on re-run, and creates two collections (Cultural 10m, Physical 10m). Use `--dry-run` to preview or `--theme cultural` to filter by theme.
-
-If you already have a long-lived API key (Admin > API Keys > Create New, or via `POST /api/auth/api-keys/`), pass `--api-key <plaintext>` instead of `--username/--password`.
+The script logs in, downloads each public source, ingests the datasets, and composes the maps end-to-end against the running stack. Use `--only manhattan|income|matterhorn` to build a single map. Requires internet access to the upstream open-data sources.
 
 ## Architecture
 

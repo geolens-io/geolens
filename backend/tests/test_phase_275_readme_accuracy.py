@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import ast
 import re
 
 from tests.repo_paths import repo_root
@@ -12,31 +11,6 @@ REPO_ROOT = repo_root(__file__)
 
 def _read(rel_path: str) -> str:
     return (REPO_ROOT / rel_path).read_text(encoding="utf-8")
-
-
-def _natural_earth_count() -> int:
-    """Read scripts/seed-natural-earth.py and count DATASETS list entries."""
-    src = _read("scripts/seed-natural-earth.py")
-    tree = ast.parse(src)
-    for node in ast.iter_child_nodes(tree):
-        if isinstance(node, ast.AnnAssign):
-            target = getattr(node, "target", None)
-            if isinstance(target, ast.Name) and target.id == "DATASETS":
-                if isinstance(node.value, ast.List):
-                    return len(node.value.elts)
-    raise AssertionError("DATASETS list not found in seed-natural-earth.py")
-
-
-def test_readme_natural_earth_count_matches_seed_script() -> None:
-    """API-04 / M-22: README must not cite a stale Natural Earth count."""
-    body = _read("README.md")
-    # The script ships 109 datasets at plan-authoring time. The exact number
-    # may grow; the test asserts no STALE numeric counts are claimed.
-    for stale in ("130 Natural Earth datasets", "123 Natural Earth datasets"):
-        assert stale not in body, f"Stale count found in README.md: {stale}"
-    # Sanity: the seed script still has its DATASETS list and is parseable.
-    count = _natural_earth_count()
-    assert count > 0, "DATASETS list in seed-natural-earth.py is empty"
 
 
 def test_readme_api_reference_link_is_external() -> None:

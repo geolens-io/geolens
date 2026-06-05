@@ -12,6 +12,7 @@ ADMIN-13           — Non-blocking `license-check` job added to ci.yml that
 """
 
 import re
+import tomllib
 
 import yaml
 
@@ -20,6 +21,7 @@ from tests.repo_paths import repo_root
 REPO_ROOT = repo_root(__file__)
 COMPOSE = REPO_ROOT / "docker-compose.yml"
 CI = REPO_ROOT / ".github" / "workflows" / "ci.yml"
+UV_LOCK = REPO_ROOT / "backend" / "uv.lock"
 
 
 # -------------------------------------------------------------------
@@ -89,6 +91,19 @@ def test_pip_audit_no_longer_ignores_cve_2026_4539():
         "CI pip-audit step must not ignore CVE-2026-4539 — Phase 279 ADMIN-11 "
         "removed this carve-out because pip is patched and the CVE no longer "
         "surfaces in pip-audit output."
+    )
+
+
+def test_security_scan_lockfile_pins_patched_pip():
+    """The locked dev env keeps pip patched for the pip-audit venv scan."""
+    doc = tomllib.loads(UV_LOCK.read_text())
+    pip_packages = [package for package in doc["package"] if package["name"] == "pip"]
+    assert len(pip_packages) == 1, "Expected one locked pip package."
+
+    version = tuple(int(part) for part in pip_packages[0]["version"].split("."))
+    assert version >= (26, 1, 2), (
+        "backend/uv.lock must keep pip at a version fixed for PYSEC-2026-196 "
+        "because Security Scan audits the locked uv-managed dev environment."
     )
 
 
