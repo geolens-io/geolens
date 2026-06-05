@@ -8,6 +8,7 @@ import { buildClusterTileUrl, buildSignedTileUrl } from '@/lib/tile-utils';
 import { applyBasemapConfigToStyle, isLandLayer, isWaterLayer } from '@/lib/basemap-utils';
 import { sanitizeNullableNumericFilter } from '@/lib/maplibre-filter-utils';
 import { isFolderGroupLayer } from '@/lib/layer-capabilities';
+import { effectiveDemRenderMode, normalizeDemStyleConfig } from '@/lib/dem-render-mode';
 import { getAdapter } from './layer-adapters/registry';
 import type { AdapterLayerInput } from './layer-adapters/types';
 import { buildLabelLayerSpec, syncLabelLayer } from './label-layer-utils';
@@ -421,6 +422,11 @@ function removeClusterCompanionLayers(map: MaplibreMap, layerId: string) {
   if (map.getLayer(clusterCircleId)) map.removeLayer(clusterCircleId);
 }
 
+function removeColorReliefCompanionLayer(map: MaplibreMap, layerId: string) {
+  const colorReliefId = `${layerId}-colorrelief`;
+  if (map.getLayer(colorReliefId)) map.removeLayer(colorReliefId);
+}
+
 function signatureStore(map: MaplibreMap) {
   let store = clusterSourceSignatures.get(map);
   if (!store) {
@@ -666,7 +672,8 @@ function syncRasterLayer(
   datasetId?: string,
   terrainSourceTileSize?: number | null,
 ) {
-  const renderMode = adapterInput.style_config?.render_mode;
+  adapterInput.style_config = normalizeDemStyleConfig(adapterInput.style_config, adapterInput.is_dem);
+  const renderMode = effectiveDemRenderMode(adapterInput.style_config, adapterInput.is_dem);
   const useHillshade = adapterInput.is_dem === true && renderMode === 'hillshade';
 
   // POLISH-02 (narrowed by 999.17 D-07): when this DEM is already powering the
@@ -725,6 +732,7 @@ function syncRasterLayer(
       !sameNumberArray(currentSourceSpec.bounds, desiredBounds)
     ))
   ) {
+    removeColorReliefCompanionLayer(map, adapterInput.layerId);
     if (map.getLayer(adapterInput.layerId)) map.removeLayer(adapterInput.layerId);
     if (map.getSource(adapterInput.sourceId)) map.removeSource(adapterInput.sourceId);
   }
@@ -923,8 +931,7 @@ function removeStaleSourcesAndLayers(
     // EDITOR-DEM-05: color-relief companion has no own source (it reuses the
     // raster-dem source), so it is not found by the source-keyed loop and must
     // be removed explicitly here.
-    const colorReliefId = `${layerId}-colorrelief`;
-    if (map.getLayer(colorReliefId)) map.removeLayer(colorReliefId);
+    removeColorReliefCompanionLayer(map, layerId);
     if (map.getLayer(labelId)) map.removeLayer(labelId);
     if (map.getLayer(arrowId)) map.removeLayer(arrowId);
     if (map.getLayer(extrusionId)) map.removeLayer(extrusionId);
@@ -1069,10 +1076,12 @@ function reorderDataGeometry(
     const oid = prefixed('outline', layers[i].id, idPrefix);
     const eid = prefixed('extrusion', layers[i].id, idPrefix);
     const aid = prefixed('arrow', layers[i].id, idPrefix);
+    const colorReliefId = `${lid}-colorrelief`;
     const cid = clusterCircleLayerId(lid);
     const ccid = clusterCountLayerId(lid);
     if (map.getLayer(cid)) map.moveLayer(cid);
     if (map.getLayer(ccid)) map.moveLayer(ccid);
+    if (map.getLayer(colorReliefId)) map.moveLayer(colorReliefId);
     if (map.getLayer(lid)) map.moveLayer(lid);
     if (map.getLayer(aid)) map.moveLayer(aid);
     if (map.getLayer(eid)) map.moveLayer(eid);

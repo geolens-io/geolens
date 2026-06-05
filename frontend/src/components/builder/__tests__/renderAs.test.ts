@@ -168,7 +168,7 @@ describe('renderAs view model', () => {
     }))).toBe('extrusion-3d');
   });
 
-  it('offers image for raster layers and image plus hillshade for DEM rasters', () => {
+  it('offers image for raster layers and hillshade for DEM rasters', () => {
     const raster = layer({
       dataset_geometry_type: null,
       dataset_record_type: 'raster_dataset',
@@ -187,7 +187,8 @@ describe('renderAs view model', () => {
     expect(getCurrentRenderAs(raster)).toBe('image');
 
     expect(getRenderAsSource(dem)).toBe('raster-dem');
-    expect(optionIds(dem)).toEqual(['image', 'hillshade']);
+    expect(optionIds(dem)).toEqual(['hillshade']);
+    expect(getCurrentRenderAs(dem)).toBe('hillshade');
     expect(getCurrentRenderAs({
       ...dem,
       style_config: { render_mode: 'hillshade' } as StyleConfig,
@@ -349,7 +350,13 @@ describe('renderAs view model', () => {
     });
   });
 
-  it('builds raster DEM image and hillshade patches', () => {
+  it('builds raster image and DEM hillshade patches', () => {
+    const raster = layer({
+      dataset_geometry_type: null,
+      dataset_record_type: 'raster_dataset',
+      layer_type: 'raster_geolens',
+      is_dem: false,
+    });
     const dem = layer({
       dataset_geometry_type: null,
       dataset_record_type: 'raster_dataset',
@@ -357,12 +364,13 @@ describe('renderAs view model', () => {
       is_dem: true,
     });
 
-    expect(buildRenderAsPatch(dem, 'image')).toMatchObject({
+    expect(buildRenderAsPatch(raster, 'image')).toMatchObject({
       adapterType: 'raster',
       patch: {
         layer_type: 'raster_geolens',
       },
     });
+    expect(buildRenderAsPatch(dem, 'image')).toBeNull();
     expect(buildRenderAsPatch(dem, 'hillshade')).toMatchObject({
       adapterType: 'hillshade',
       patch: {

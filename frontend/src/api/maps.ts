@@ -55,7 +55,9 @@ export async function getMap(id: string): Promise<MapResponse> {
   const resp = await apiFetch<MapResponse>(`/maps/${id}`);
   if (resp.layers) {
     for (const l of resp.layers) {
-      const normalized = normalizeLayerStyleState(l.style_config, l.paint, l.dataset_geometry_type);
+      const normalized = normalizeLayerStyleState(l.style_config, l.paint, l.dataset_geometry_type, {
+        isDem: l.is_dem,
+      });
       l.style_config = normalized.style_config;
       l.paint = normalized.paint;
     }
@@ -115,7 +117,9 @@ export async function patchMapLayers(
   });
   if (resp.layers) {
     for (const l of resp.layers) {
-      const normalized = normalizeLayerStyleState(l.style_config, l.paint, l.dataset_geometry_type);
+      const normalized = normalizeLayerStyleState(l.style_config, l.paint, l.dataset_geometry_type, {
+        isDem: l.is_dem,
+      });
       l.style_config = normalized.style_config;
       l.paint = normalized.paint;
     }
@@ -139,10 +143,16 @@ export async function addLayerToMapApi(
   mapId: string,
   data: MapLayerInput,
 ): Promise<MapLayerResponse> {
-  return apiFetch<MapLayerResponse>(`/maps/${mapId}/layers`, {
+  const layer = await apiFetch<MapLayerResponse>(`/maps/${mapId}/layers`, {
     method: 'POST',
     body: JSON.stringify(data),
   });
+  const normalized = normalizeLayerStyleState(layer.style_config, layer.paint, layer.dataset_geometry_type, {
+    isDem: layer.is_dem,
+  });
+  layer.style_config = normalized.style_config;
+  layer.paint = normalized.paint;
+  return layer;
 }
 
 export async function removeLayerFromMapApi(
@@ -197,7 +207,9 @@ export async function getSharedMap(token: string, apiKey?: string): Promise<Shar
   }
   if (resp.layers) {
     for (const l of resp.layers) {
-      const normalized = normalizeLayerStyleState(l.style_config, l.paint, l.geometry_type);
+      const normalized = normalizeLayerStyleState(l.style_config, l.paint, l.geometry_type, {
+        isDem: l.is_dem,
+      });
       l.style_config = normalized.style_config;
       l.paint = normalized.paint;
     }

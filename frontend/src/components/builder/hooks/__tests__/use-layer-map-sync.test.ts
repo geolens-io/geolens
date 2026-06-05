@@ -4,8 +4,8 @@
  * Asserts that `handleToggleVisibility` from `useLayerMapSync` dispatches the
  * expected `map.setLayoutProperty(...)` calls on every click — both on the main
  * layer id AND on each companion suffix layer (`-outline`, `-label`,
- * `-extrusion`, `-arrow`, `-cluster`, `-cluster-count`) when those companion
- * layers exist in the MapLibre style. (`-arrow` added for builder-audit B-004.)
+ * `-extrusion`, `-arrow`, `-colorrelief`, `-cluster`, `-cluster-count`) when
+ * those companion layers exist in the MapLibre style.
  *
  * Mirrors the test setup pattern from `use-layer-map-sync.raf.test.ts` (vi.mock
  * for layer-adapters + map-sync + label-utils + filter-utils, minimal MaplibreMap
@@ -53,7 +53,7 @@ vi.mock('@/components/builder/label-layer-utils', () => ({
 // Fixtures
 // ---------------------------------------------------------------------------
 const LAYER_ID = 'layer-uuid-123';
-const COMPANION_SUFFIXES = ['', '-outline', '-label', '-extrusion', '-arrow', '-cluster', '-cluster-count'] as const;
+const COMPANION_SUFFIXES = ['', '-outline', '-label', '-extrusion', '-arrow', '-colorrelief', '-cluster', '-cluster-count'] as const;
 const ALL_COMPANION_IDS = COMPANION_SUFFIXES.map((suffix) => `layer-${LAYER_ID}${suffix}`);
 
 const makeLayer = (overrides: Partial<MapLayerResponse> = {}): MapLayerResponse => ({
@@ -197,7 +197,7 @@ describe('useLayerMapSync — handleToggleVisibility (BUG-01 regression)', () =>
     for (const cid of ALL_COMPANION_IDS) {
       expect(mapStub.setLayoutProperty).toHaveBeenCalledWith(cid, 'visibility', 'none');
     }
-    // Exactly 6 calls — one per companion that exists
+    // Exactly one call per layer id that exists.
     expect(mapStub.setLayoutProperty).toHaveBeenCalledTimes(ALL_COMPANION_IDS.length);
   });
 
@@ -315,7 +315,7 @@ describe('useLayerMapSync — handleToggleVisibility (BUG-01 regression)', () =>
       is_dem: true,
       style_config: { render_mode: 'hillshade' } as MapLayerResponse['style_config'],
     });
-    const mapStub = makeMapStub([`layer-${LAYER_ID}`]);
+    const mapStub = makeMapStub([`layer-${LAYER_ID}`, `layer-${LAYER_ID}-colorrelief`]);
     (mapStub.getSource as ReturnType<typeof vi.fn>).mockImplementation((id: string) => (
       id === `source-${LAYER_ID}`
         ? { type: 'raster-dem', tiles: ['http://localhost:8080/raster-tiles/dem/{z}/{x}/{y}.png'] }
@@ -334,8 +334,13 @@ describe('useLayerMapSync — handleToggleVisibility (BUG-01 regression)', () =>
       );
     });
 
+    expect(mapStub.removeLayer).toHaveBeenCalledWith(`layer-${LAYER_ID}-colorrelief`);
     expect(mapStub.removeLayer).toHaveBeenCalledWith(`layer-${LAYER_ID}`);
     expect(mapStub.removeSource).toHaveBeenCalledWith(`source-${LAYER_ID}`);
+    const removeLayerCalls = (mapStub.removeLayer as ReturnType<typeof vi.fn>).mock.calls.map(([id]) => id);
+    expect(removeLayerCalls.indexOf(`layer-${LAYER_ID}-colorrelief`)).toBeLessThan(
+      removeLayerCalls.indexOf(`layer-${LAYER_ID}`),
+    );
     expect(mockAdapter.addLayers).not.toHaveBeenCalled();
   });
 

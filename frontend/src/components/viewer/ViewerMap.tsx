@@ -37,6 +37,7 @@ import type { SyncLayerInput } from '@/components/builder/map-sync';
 import { asFeatureCollection, fetchBoundedGeoJson } from '@/api/geojson-z';
 import { createViewerLayerEntries } from '@/components/viewer/layer-identity';
 import { getClusterSourceEligibility, getClusterSourceStrategy, isClusterRenderMode, shouldFetchClusterGeoJson } from '@/components/builder/cluster-source';
+import { effectiveDemRenderMode } from '@/lib/dem-render-mode';
 import 'maplibre-gl/dist/maplibre-gl.css';
 
 /**
@@ -702,7 +703,7 @@ export const ViewerMap = memo(function ViewerMap({
       const isVisible = visibleLayers.has(key);
       if (wasVisible === isVisible) continue;
 
-      const type = layer.is_dem === true && layer.style_config?.render_mode === 'hillshade'
+      const type = layer.is_dem === true && effectiveDemRenderMode(layer.style_config, layer.is_dem) === 'hillshade'
         ? 'hillshade'
         : resolveAdapterType(layer.geometry_type, layer.style_config, layer.paint as Record<string, unknown>);
       const adapter = getAdapter(type);

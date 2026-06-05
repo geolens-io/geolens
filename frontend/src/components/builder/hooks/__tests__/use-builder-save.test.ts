@@ -301,6 +301,25 @@ describe('buildLayerDiff', () => {
     expect(result.diff).toEqual({});
   });
 
+  it('normalizes legacy DEM image mode to hillshade before comparing save diffs', () => {
+    const baseline = makeLayer({
+      id: 'dem-1',
+      layer_type: 'raster_geolens',
+      dataset_geometry_type: null,
+      dataset_record_type: 'raster_dataset',
+      is_dem: true,
+      style_config: { render_mode: 'hillshade' } as MapLayerResponse['style_config'],
+    });
+    const current = makeLayer({
+      ...baseline,
+      style_config: { render_mode: 'image' } as unknown as MapLayerResponse['style_config'],
+    });
+
+    const result = buildLayerDiff([baseline], [current]);
+
+    expect(result.diff.updated).toBeUndefined();
+  });
+
   it('ignores dataset metadata changes that are not saved on map layers', () => {
     const baseline = makeLayer({ id: 'layer-1', dataset_name: 'Old name', dataset_feature_count: 10 });
     const current = makeLayer({ id: 'layer-1', dataset_name: 'New name', dataset_feature_count: 25 });

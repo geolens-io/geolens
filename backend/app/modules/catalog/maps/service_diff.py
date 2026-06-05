@@ -27,7 +27,9 @@ from app.modules.catalog.maps.service_shared import (
     _infer_layer_type,
     _resolve_save_response_metadata,
     generate_default_style,
+    normalize_dem_style_config,
 )
+from app.platform.extensions import get_catalog_port
 
 _NULLABLE_PATCH_FIELDS = {
     "display_name",
@@ -40,10 +42,10 @@ _NULLABLE_PATCH_FIELDS = {
 
 def _prepare_layer_storage(
     layer_data: dict,
-    ds_meta: dict[uuid.UUID, tuple[str | None, str | None]],
+    ds_meta: dict[uuid.UUID, tuple[str | None, str | None, bool | None]],
 ) -> dict:
     dataset_id = layer_data["dataset_id"]
-    record_type, geometry_type = ds_meta.get(dataset_id, (None, None))
+    record_type, geometry_type, is_dem = ds_meta.get(dataset_id, (None, None, None))
 
     explicit_lt = layer_data.get("layer_type")
     if explicit_lt is not None:
@@ -70,6 +72,7 @@ def _prepare_layer_storage(
             style_config = defaults.get("style_config")
 
     paint, style_config = split_legacy_builder_paint(paint, style_config)
+    style_config = normalize_dem_style_config(style_config, is_dem=is_dem)
 
     return {
         **layer_data,
@@ -137,6 +140,24 @@ async def apply_layer_diff(
             )
         )
 
+    style_patch_dataset_ids = {
+        existing_by_id[layer_data["id"]].dataset_id
+        for layer_data in updated
+        if "style_config" in layer_data
+    }
+    dem_by_dataset_id: dict[uuid.UUID, bool | None] = {}
+    if style_patch_dataset_ids:
+        RasterAsset = get_catalog_port().raster_asset_orm_class()
+        dem_result = await session.execute(
+            select(RasterAsset.dataset_id, RasterAsset.is_dem).where(
+                RasterAsset.dataset_id.in_(style_patch_dataset_ids)
+            )
+        )
+        dem_by_dataset_id = {
+            row[0]: bool(row[1]) if row[1] is not None else None
+            for row in dem_result.all()
+        }
+
     for layer_data in updated:
         layer = existing_by_id[layer_data["id"]]
         patch = {
@@ -150,16 +171,31 @@ async def apply_layer_diff(
             popup_config = patch["popup_config"]
             if hasattr(popup_config, "model_dump"):
                 patch["popup_config"] = popup_config.model_dump()
+        if "style_config" in patch:
+            patch["style_config"] = normalize_dem_style_config(
+                patch["style_config"],
+                is_dem=dem_by_dataset_id.get(layer.dataset_id),
+            )
         for key, value in patch.items():
             setattr(layer, key, value)
 
     if added:
+        RasterAsset = get_catalog_port().raster_asset_orm_class()
         ds_meta_result = await session.execute(
-            select(Dataset.id, Record.record_type, Dataset.geometry_type)
+            select(
+                Dataset.id,
+                Record.record_type,
+                Dataset.geometry_type,
+                RasterAsset.is_dem,
+            )
             .join(Record, Record.id == Dataset.record_id)
+            .outerjoin(RasterAsset, RasterAsset.dataset_id == Dataset.id)
             .where(Dataset.id.in_(added_dataset_ids))
         )
-        ds_meta = {row[0]: (row[1], row[2]) for row in ds_meta_result.all()}
+        ds_meta = {
+            row[0]: (row[1], row[2], bool(row[3]) if row[3] is not None else None)
+            for row in ds_meta_result.all()
+        }
 
         for layer_data in added:
             prepared = _prepare_layer_storage(layer_data, ds_meta)
@@ -222,12 +258,22 @@ async def _replace_layers(
 
     # Bulk-fetch record_type + geometry_type for all datasets in one query
     dataset_ids = [ld["dataset_id"] for ld in layers]
+    RasterAsset = get_catalog_port().raster_asset_orm_class()
     ds_meta_result = await session.execute(
-        select(Dataset.id, Record.record_type, Dataset.geometry_type)
+        select(
+            Dataset.id,
+            Record.record_type,
+            Dataset.geometry_type,
+            RasterAsset.is_dem,
+        )
         .join(Record, Record.id == Dataset.record_id)
+        .outerjoin(RasterAsset, RasterAsset.dataset_id == Dataset.id)
         .where(Dataset.id.in_(dataset_ids))
     )
-    ds_meta = {row[0]: (row[1], row[2]) for row in ds_meta_result.all()}
+    ds_meta = {
+        row[0]: (row[1], row[2], bool(row[3]) if row[3] is not None else None)
+        for row in ds_meta_result.all()
+    }
 
     for layer_data in layers:
         prepared = _prepare_layer_storage(layer_data, ds_meta)

@@ -29,6 +29,7 @@ class DatasetMeta(NamedTuple):
     feature_count: int | None
     sample_values: dict | None
     is_3d: bool | None
+    is_dem: bool | None
 
 
 class LayerRow(NamedTuple):
@@ -72,6 +73,7 @@ async def get_dataset_meta(
     dataset_id: uuid.UUID,
 ) -> DatasetMeta | None:
     """Fetch dataset metadata for building a layer response. Single query."""
+    RasterAsset = get_catalog_port().raster_asset_orm_class()
     result = await session.execute(
         select(
             Record.record_type,
@@ -83,12 +85,38 @@ async def get_dataset_meta(
             Dataset.feature_count,
             Dataset.sample_values,
             Dataset.is_3d,
+            RasterAsset.is_dem,
         )
         .join(Record, Dataset.record_id == Record.id)
+        .outerjoin(RasterAsset, RasterAsset.dataset_id == Dataset.id)
         .where(Dataset.id == dataset_id)
     )
     row = result.one_or_none()
-    return DatasetMeta(*row) if row else None
+    if row is None:
+        return None
+    values = list(row)
+    values[9] = bool(values[9]) if values[9] is not None else None
+    return DatasetMeta(*values)
+
+
+def normalize_dem_style_config(
+    style_config: dict | None,
+    *,
+    is_dem: bool | None,
+) -> dict | None:
+    """Persist canonical DEM render modes so backend exports match the builder UI."""
+    if is_dem is not True:
+        return style_config
+    if not isinstance(style_config, dict):
+        return {"render_mode": "hillshade"}
+
+    render_mode = style_config.get("render_mode")
+    if render_mode in {"terrain", "hillshade"}:
+        return style_config
+
+    normalized = dict(style_config)
+    normalized["render_mode"] = "hillshade"
+    return normalized
 
 
 def generate_default_style(geometry_type: str | None) -> dict[str, dict | None]:

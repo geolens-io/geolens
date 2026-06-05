@@ -19,6 +19,7 @@ import { usePluginStore } from '@/stores/map-plugin-store';
 import { useAuthStore } from '@/stores/auth-store';
 import { getDefaultPluginIds, resolveAvailablePluginIds, samePluginIds } from '@/components/map-plugins';
 import { prepareLayersForPersistence, type FolderGroupMeta } from '@/components/builder/folder-groups';
+import { normalizeDemStyleConfig } from '@/lib/dem-render-mode';
 
 /** Center-crop `srcCanvas` to the given target dimensions and return the
  *  resulting offscreen canvas. Crops from the center without distortion
@@ -290,7 +291,7 @@ function toLayerInput(layer: MapLayerResponse): MapLayerInput {
     filter: layer.filter ?? null,
     label_config: layer.label_config ?? null,
     popup_config: layer.popup_config ?? null,
-    style_config: layer.style_config ?? null,
+    style_config: normalizeDemStyleConfig(layer.style_config, layer.is_dem),
     layer_type: layer.layer_type ?? null,
     show_in_legend: layer.show_in_legend ?? true,
   };
@@ -309,7 +310,7 @@ function toLayerSnapshot(layer: MapLayerResponse): LayerSnapshot {
     filter: layer.filter ?? null,
     label_config: layer.label_config ?? null,
     popup_config: layer.popup_config ?? null,
-    style_config: layer.style_config ?? null,
+    style_config: normalizeDemStyleConfig(layer.style_config, layer.is_dem),
     layer_type: layer.layer_type ?? null,
     show_in_legend: layer.show_in_legend ?? true,
   };

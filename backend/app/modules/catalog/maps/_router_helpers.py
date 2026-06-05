@@ -85,7 +85,7 @@ def _meta_to_kwargs(meta) -> DatasetMetaKwargs:
         sample_values=meta.sample_values,
         record_type=meta.record_type,
         is_3d=meta.is_3d,
-        is_dem=None,
+        is_dem=meta.is_dem,
         dem_vertical_units=None,
         band_count=None,
     )

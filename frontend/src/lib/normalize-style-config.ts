@@ -1,6 +1,7 @@
 import type { StyleConfig } from '@/types/api';
 import { getColorProperty, getSizeProperty } from './color-ramps';
 import { inferGeometryType } from './geo-utils';
+import { normalizeDemStyleConfig } from './dem-render-mode';
 
 /**
  * Extract breaks and values from a MapLibre "step" or "interpolate" expression.
@@ -323,8 +324,12 @@ export function normalizeLayerStyleState(
   raw: Record<string, unknown> | null | undefined,
   paint: Record<string, unknown> | null | undefined,
   geometryType: string | null,
+  options: { isDem?: boolean | null } = {},
 ): NormalizedLayerStyleState {
-  const style_config = normalizeStyleConfig(raw, paint, geometryType);
+  const style_config = normalizeDemStyleConfig(
+    normalizeStyleConfig(raw, paint, geometryType),
+    options.isDem,
+  );
   const cleanPaint = stripLegacyBuilderPaint(paint);
   // Re-hydrate the raster colormap/stretch builder-private keys back onto the
   // in-memory paint view. The backend stores them in style_config.builder (the

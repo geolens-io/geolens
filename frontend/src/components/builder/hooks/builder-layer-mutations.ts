@@ -40,9 +40,11 @@ export function shouldClearTerrainOnDelete(
  * for the 3 existing call sites in use-builder-layers.ts that do not yet pass
  * renderModeByLayerId). The label companion is intentionally kept here because
  * no current adapter declares it in getLayerIds — labels are managed by
- * map-sync.ts syncLayersToMap, not by adapters.
+ * map-sync.ts syncLayersToMap, not by adapters. Color-relief is included because
+ * DEM hillshade layers can create it as a conditional companion on the same
+ * raster-dem source.
  */
-const FALLBACK_SUFFIXES = ['', '-outline', '-label', '-extrusion', '-arrow', '-cluster', '-cluster-count'];
+const FALLBACK_SUFFIXES = ['', '-outline', '-label', '-extrusion', '-arrow', '-colorrelief', '-cluster', '-cluster-count'];
 
 /**
  * Derive the full set of MapLibre layer ids that the adapter owns for a given
@@ -68,7 +70,10 @@ function deriveCompanionIds(prefixedLayerId: string, renderMode: string | null |
       // the adapter only when its registered type matches exactly.
       const adapter = getAdapter(renderMode);
       if (adapter.type === renderMode) {
-        return adapter.getLayerIds(prefixedLayerId);
+        const ids = adapter.getLayerIds(prefixedLayerId);
+        return renderMode === 'hillshade'
+          ? [...ids, `${prefixedLayerId}-colorrelief`]
+          : ids;
       }
     } catch {
       // Defensive — getAdapter should never throw, but fall through to suffix list

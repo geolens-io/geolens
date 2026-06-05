@@ -3,6 +3,7 @@ import type { Map as MaplibreMap, FilterSpecification } from 'maplibre-gl';
 import { getLayerType, getSourceIdForLayer, resolveAdapterType, getCompoundOpacity, isDemTerrainVisualSuppressed } from '@/components/builder/map-sync';
 import { getAdapter } from '@/components/builder/layer-adapters/registry';
 import { coalesceFrame } from '@/lib/builder/raf-coalesce';
+import { effectiveDemRenderMode, normalizeDemStyleConfig } from '@/lib/dem-render-mode';
 import type { AdapterLayerInput } from '@/components/builder/layer-adapters/types';
 import { buildLabelLayerSpec, syncLabelLayer } from '@/components/builder/label-layer-utils';
 import type { MapLayerResponse, LabelConfig, PopupConfig, StyleConfig } from '@/types/api';
@@ -11,9 +12,16 @@ import { sanitizeNullableNumericFilter } from '@/lib/maplibre-filter-utils';
 type LayerUpdater = (layer: MapLayerResponse) => MapLayerResponse;
 type LayerSideEffect = (map: MaplibreMap, updated: MapLayerResponse) => void;
 
+function removeColorReliefLayer(map: MaplibreMap, layerId: string) {
+  const colorReliefId = `${layerId}-colorrelief`;
+  if (map.getLayer(colorReliefId)) map.removeLayer(colorReliefId);
+}
+
 function resolveLayerAdapterType(layer: MapLayerResponse, paint: Record<string, unknown>, styleConfig?: StyleConfig | null): string {
   if (layer.layer_type === 'raster_geolens') {
-    return layer.is_dem === true && styleConfig?.render_mode === 'hillshade' ? 'hillshade' : 'raster';
+    return layer.is_dem === true && effectiveDemRenderMode(styleConfig, layer.is_dem) === 'hillshade'
+      ? 'hillshade'
+      : 'raster';
   }
   return resolveAdapterType(layer.dataset_geometry_type, styleConfig ?? layer.style_config, paint);
 }
@@ -79,6 +87,7 @@ export function useLayerMapSync(
           const labelId = `layer-${layerId}-label`;
           const extrusionId = `layer-${layerId}-extrusion`;
           const arrowId = `layer-${layerId}-arrow`;
+          const colorReliefId = `layer-${layerId}-colorrelief`;
           const clusterId = `layer-${layerId}-cluster`;
           const clusterCountId = `layer-${layerId}-cluster-count`;
           if (map.getLayer(mapLayerId)) map.setLayoutProperty(mapLayerId, 'visibility', newVis);
@@ -86,6 +95,7 @@ export function useLayerMapSync(
           if (map.getLayer(labelId)) map.setLayoutProperty(labelId, 'visibility', newVis);
           if (map.getLayer(extrusionId)) map.setLayoutProperty(extrusionId, 'visibility', newVis);
           if (map.getLayer(arrowId)) map.setLayoutProperty(arrowId, 'visibility', newVis);
+          if (map.getLayer(colorReliefId)) map.setLayoutProperty(colorReliefId, 'visibility', newVis);
           if (map.getLayer(clusterId)) map.setLayoutProperty(clusterId, 'visibility', newVis);
           if (map.getLayer(clusterCountId)) map.setLayoutProperty(clusterCountId, 'visibility', newVis);
         },
@@ -137,9 +147,8 @@ export function useLayerMapSync(
     (layerId: string, config: StyleConfig | null, paint: Record<string, unknown>) => {
       applyLayerUpdate(
         layerId,
-        (l) => ({
-          ...l,
-          style_config: config
+        (l) => {
+          const mergedConfig = config
             ? {
                 ...config,
                 ...(config.builder === undefined && l.style_config?.builder
@@ -148,15 +157,20 @@ export function useLayerMapSync(
               }
             : l.style_config?.builder
               ? ({ builder: l.style_config.builder } as StyleConfig)
-              : null,
-          paint,
-        }),
+              : null;
+          return {
+            ...l,
+            style_config: normalizeDemStyleConfig(mergedConfig, l.is_dem),
+            paint,
+          };
+        },
         (map, layer) => {
           const mapLayerId = `layer-${layerId}`;
           const nextConfig = layer.style_config;
           const sourceId = getSourceIdForLayer(layer);
 
           if (isDemTerrainVisualSuppressed({ is_dem: layer.is_dem, style_config: nextConfig })) {
+            removeColorReliefLayer(map, mapLayerId);
             if (map.getLayer(mapLayerId)) map.removeLayer(mapLayerId);
             if (map.getSource(sourceId)) map.removeSource(sourceId);
             return;
@@ -191,6 +205,7 @@ export function useLayerMapSync(
           input.style_config = nextConfig;
 
           if (layer.layer_type === 'raster_geolens' && tileUrl) {
+            removeColorReliefLayer(map, mapLayerId);
             if (map.getLayer(mapLayerId)) map.removeLayer(mapLayerId);
             if (map.getSource(sourceId)) map.removeSource(sourceId);
             adapter.addLayers(map, input);

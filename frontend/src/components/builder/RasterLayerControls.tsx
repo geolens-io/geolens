@@ -52,11 +52,9 @@ export function RasterLayerControls({
   onOpacityChange,
   isDem = false,
   bandCount = null,
-  styleConfig = null,
-  onStyleConfigChange,
 }: RasterLayerControlsProps) {
   const { t } = useTranslation('builder');
-  const renderMode = isDem && styleConfig?.render_mode === 'hillshade' ? 'hillshade' : 'raster';
+  const renderMode = isDem ? 'hillshade' : 'raster';
   const brightnessMin = getNumber('raster-brightness-min', 0);
   const brightnessMax = getNumber('raster-brightness-max', 1);
   const hasBrightnessRangeError = renderMode === 'raster' && brightnessMin > brightnessMax;
@@ -74,16 +72,6 @@ export function RasterLayerControls({
       ? normalizeHillshadeExaggeration(value)
       : value;
     onPaintChange({ ...paint, [key]: nextValue });
-  }
-
-  function setRenderMode(mode: 'raster' | 'hillshade') {
-    const nextConfig = { ...(styleConfig ?? {}) } as Record<string, unknown>;
-    if (mode === 'hillshade') {
-      nextConfig.render_mode = 'hillshade';
-    } else {
-      delete nextConfig.render_mode;
-    }
-    onStyleConfigChange?.(Object.keys(nextConfig).length > 0 ? nextConfig as StyleConfig : null, paint);
   }
 
   function handleReset() {
@@ -120,33 +108,6 @@ export function RasterLayerControls({
           ? t('style.hillshade.help', { defaultValue: 'Tune the relief overlay generated from this DEM layer.' })
           : t('style.raster.help', { defaultValue: 'Adjust imagery appearance for this layer only.' })}
       </p>
-
-      {isDem && (
-        <div className="flex items-center gap-2">
-          <span className="w-28 shrink-0 text-xs text-muted-foreground">
-            {t('style.raster.renderMode', { defaultValue: 'Render' })}
-          </span>
-          <Select
-            value={renderMode}
-            onValueChange={(v) => setRenderMode(v as 'raster' | 'hillshade')}
-          >
-            <SelectTrigger
-              aria-label={t('style.raster.renderMode', { defaultValue: 'Render' })}
-              className="h-8 flex-1 text-xs"
-            >
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="raster" className="text-xs">
-                {t('style.raster.renderRaster', { defaultValue: 'Raster' })}
-              </SelectItem>
-              <SelectItem value="hillshade" className="text-xs">
-                {t('style.raster.renderHillshade', { defaultValue: 'Hillshade' })}
-              </SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-      )}
 
       {renderMode === 'hillshade' ? (
         <>
