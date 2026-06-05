@@ -14,7 +14,7 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 import { initializeI18n } from '@/i18n';
 import { AppErrorBoundary } from '@/components/error';
 import { ApiError } from '@/api/client';
-import { initReportCapture, pushReportEntry, reportNetworkError } from '@/lib/report';
+import { initReportCapture, pushReportEntry, redact, reportNetworkError } from '@/lib/report';
 import { ReportProblemHost } from '@/components/report/ReportProblemHost';
 import { appRoutes } from './App';
 import './index.css';
@@ -24,9 +24,17 @@ import './index.css';
 initReportCapture();
 
 function reportQueryKey(key: unknown): string | undefined {
-  if (Array.isArray(key)) return key.map((part) => String(part)).join('/');
-  if (key == null) return undefined;
-  return String(key);
+  // Surface only the query's namespace (the first string segment, e.g.
+  // 'shared-map'). Later segments are parameters — ids, share tokens, api keys —
+  // that can carry secrets and aren't reliably distinguishable from safe ids by
+  // shape, so they're dropped rather than serialized into the report. redact()
+  // is a belt-and-suspenders pass in case a namespace ever becomes dynamic.
+  if (Array.isArray(key)) {
+    const namespace = key.find((part) => typeof part === 'string');
+    return typeof namespace === 'string' ? redact(namespace) : undefined;
+  }
+  if (typeof key === 'string') return redact(key);
+  return undefined;
 }
 
 function captureQueryError(error: unknown, key: unknown): void {
