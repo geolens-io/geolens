@@ -116,6 +116,10 @@ jobs:
           cache: npm
           cache-dependency-path: sdks/typescript/package-lock.json
 
+      # OIDC Trusted Publishing requires npm >= 11.5.1; Node 22 ships an older npm.
+      - name: Upgrade npm (OIDC trusted publishing support)
+        run: npm install -g npm@latest
+
       - name: Pre-flight version gate (@geolens/sdk on npm)
         if: ${{ !inputs.dry_run }}
         run: |
@@ -148,23 +152,14 @@ jobs:
         working-directory: sdks/typescript
         run: npm pack --dry-run
 
-      - name: Publish to npm
+      - name: Publish to npm (OIDC Trusted Publishing)
         if: ${{ !inputs.dry_run }}
         working-directory: sdks/typescript
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-          REPO_VISIBILITY: ${{ github.event.repository.visibility }}
-        # publishConfig.access=public in package.json + explicit flag = belt-and-suspenders
-        # for first-time publish of @geolens/sdk (RESEARCH Pitfall 10).
-        # --provenance emits a signed build-attestation (job has id-token: write) and
-        # surfaces the verified-supply-chain badge on npmjs.com — but npm provenance
-        # requires a PUBLIC source repository, so gate it on visibility. This keeps a
-        # pre-public-cut first publish from failing while the repo is still private,
-        # and auto-enables provenance once the repo is public (Codex review, PR #178).
-        run: |
-          if [ "$REPO_VISIBILITY" = "public" ]; then
-            npm publish --access public --provenance
-          else
-            echo "::notice::Repository is '$REPO_VISIBILITY' — publishing without --provenance (npm provenance requires a public source repository)."
-            npm publish --access public
-          fi
+        # Trusted Publishing: the workflow's `id-token: write` permission plus the npm
+        # trusted publisher configured for @geolens/sdk (geolens-io/geolens · this
+        # workflow, no environment) let npm authenticate via OIDC — no NPM_TOKEN secret.
+        # npm >= 11.5.1 (installed above) also generates + attaches provenance
+        # automatically, so no explicit --provenance flag is needed. OIDC + provenance
+        # both require a public source repository (it is). `--access public` is kept for
+        # the scoped package. NPM_TOKEN secret is now unused (kept as a manual fallback).
+        run: npm publish --access public
