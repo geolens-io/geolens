@@ -14,7 +14,7 @@
 
 - [ ] Backend (API, services, models)
 - [ ] Frontend (UI, components, hooks)
-- [ ] Infrastructure (Docker, nginx, Helm)
+- [ ] Infrastructure (Docker, nginx)
 - [ ] Tiles / Rendering
 - [ ] Auth / Permissions
 - [ ] Import / Ingestion

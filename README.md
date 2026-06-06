@@ -218,7 +218,7 @@ First-run troubleshooting:
 - Slow first builds and health delays are usually image build, migration, or raster dependency startup work; rerun `docker compose ps` after a minute before restarting services.
 - **Cold-build time:** the first `docker compose up -d` takes 5-10 minutes (image builds + GDAL + Postgres extensions). Subsequent starts settle in ~60 seconds. Run `docker compose ps` to confirm `db`, `api`, `worker`, and `frontend` are healthy before troubleshooting.
 
-For production deployment, see the [Install Guide](https://docs.getgeolens.com/guides/quickstart/install/). A Kubernetes [Helm chart](deployment/helm/geolens/) is also available under [`deployment/`](deployment/). For upgrading, see the [Upgrade Guide](https://docs.getgeolens.com/guides/quickstart/upgrade/).
+For production deployment, see the [Install Guide](https://docs.getgeolens.com/guides/quickstart/install/). A community-maintained Kubernetes [Helm chart](https://github.com/geolens-io/geolens-deployments) lives in the separate [`geolens-deployments`](https://github.com/geolens-io/geolens-deployments) repo. For upgrading, see the [Upgrade Guide](https://docs.getgeolens.com/guides/quickstart/upgrade/).
 
 ### Add Your First Dataset
 
