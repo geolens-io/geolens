@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
 import { Link, NavLink, useLocation } from 'react-router';
 import { useTranslation } from 'react-i18next';
-import { ChevronDown, User, LogOut, Settings, Shield, Plus, Database, FolderOpen, Map, Menu, Layers, Upload, LogIn } from 'lucide-react';
+import { ChevronDown, User, LogOut, Settings, Shield, Plus, Database, FolderOpen, Map, Menu, Layers, Upload, LogIn, LifeBuoy } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
+import { useReportDialog } from '@/lib/report';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useFeatureFlags } from '@/hooks/use-settings';
 import { Button } from '@/components/ui/button';
@@ -117,6 +118,8 @@ function UserMenu() {
   const { can } = usePermissions();
   const { t } = useTranslation();
   const { t: tAuth } = useTranslation('auth');
+  const { t: tReport } = useTranslation('report');
+  const openReport = useReportDialog((s) => s.openReport);
 
   // Anonymous: show sign-in button instead of user dropdown
   if (!user) {
@@ -191,6 +194,14 @@ function UserMenu() {
             </DropdownMenuItem>
           </>
         )}
+
+        <DropdownMenuSeparator />
+
+        {/* Report a problem — opens the in-app problem reporter */}
+        <DropdownMenuItem onClick={openReport}>
+          <LifeBuoy className="h-4 w-4" />
+          {tReport('title')}
+        </DropdownMenuItem>
 
         <DropdownMenuSeparator />
 

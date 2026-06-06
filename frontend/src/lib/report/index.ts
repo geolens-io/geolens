@@ -13,6 +13,7 @@ export type {
   ReportSource,
 } from './report-buffer';
 export { initReportCapture } from './capture';
+export { useReportDialog } from './use-report-dialog';
 export {
   ISSUE_AREAS,
   mapAreaFromPath,
