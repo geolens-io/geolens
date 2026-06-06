@@ -71,7 +71,7 @@ body:
       label: Deployment method
       options:
         - Docker Compose
-        - Kubernetes / Helm
+        - Kubernetes
         - Cloud VM / custom image
         - Other
     validations:

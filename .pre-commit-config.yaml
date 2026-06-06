@@ -105,7 +105,6 @@ repos:
       - id: check-toml
       - id: check-yaml
         args: ['--allow-multiple-documents']
-        exclude: '^deployment/helm/.*/templates/'          # Helm templates are not valid YAML
 
   # Secret scanning — guards staged changes against committed credentials.
   # Config + allowlist: .gitleaks.toml. CI also runs a full-tree `gitleaks dir` scan.

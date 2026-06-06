@@ -24,6 +24,11 @@ bash scripts/install.sh
   <em>Tune DEM, imagery, and vector layers in the map builder, then share interactive 3D maps</em>
 </p>
 
+> [!NOTE]
+> **Early release** — GeoLens is production-grade and actively maintained, and newly
+> open-sourced. The self-hosted distribution is young, so expect active iteration —
+> please [open an issue](https://github.com/geolens-io/geolens/issues) if you hit a rough edge.
+
 ## Documentation
 
 Full user, admin, and API documentation lives at **[docs.getgeolens.com](https://docs.getgeolens.com)**.
@@ -216,7 +221,7 @@ seconds. If ports 5434/8001/8080 are already taken, change `DB_PORT`, `API_PORT`
 or `FRONTEND_PORT` in `.env`. For port conflicts, stuck startups, out-of-memory,
 and migration warnings, see the [Troubleshooting guide](https://docs.getgeolens.com/guides/quickstart/install/#troubleshooting).
 
-For production deployment, see the [Install Guide](https://docs.getgeolens.com/guides/quickstart/install/). A Kubernetes [Helm chart](deployment/helm/geolens/) is also available under [`deployment/`](deployment/). For upgrading, see the [Upgrade Guide](https://docs.getgeolens.com/guides/quickstart/upgrade/).
+For production deployment, see the [Install Guide](https://docs.getgeolens.com/guides/quickstart/install/). A community-maintained Kubernetes [Helm chart](https://github.com/geolens-io/geolens-deployments) lives in the separate [`geolens-deployments`](https://github.com/geolens-io/geolens-deployments) repo. For upgrading, see the [Upgrade Guide](https://docs.getgeolens.com/guides/quickstart/upgrade/).
 
 ### Add Your First Dataset
 
