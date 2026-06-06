@@ -215,13 +215,11 @@ Verify all services are healthy:
 docker compose ps
 ```
 
-First-run troubleshooting:
-
-- If ports are already taken, change `DB_PORT`, `API_PORT`, or `FRONTEND_PORT` in `.env`; the default quickstart uses 5434 for Postgres, 8001 for the API, and 8080 for the frontend.
-- If startup looks stuck, run `docker compose ps` and wait until `db`, `api`, `worker`, and `frontend` are healthy or running.
-- Check logs with `docker compose logs api`, `docker compose logs frontend`, and `docker compose logs worker`.
-- Slow first builds and health delays are usually image build, migration, or raster dependency startup work; rerun `docker compose ps` after a minute before restarting services.
-- **Cold-build time:** the first `docker compose up -d` takes 5-10 minutes (image builds + GDAL + Postgres extensions). Subsequent starts settle in ~60 seconds. Run `docker compose ps` to confirm `db`, `api`, `worker`, and `frontend` are healthy before troubleshooting.
+First-run notes: the initial `docker compose up -d` cold-build takes 5-10 minutes
+(image builds + GDAL + Postgres extensions); subsequent starts settle in ~60
+seconds. If ports 5434/8001/8080 are already taken, change `DB_PORT`, `API_PORT`,
+or `FRONTEND_PORT` in `.env`. For port conflicts, stuck startups, out-of-memory,
+and migration warnings, see the [Troubleshooting guide](https://docs.getgeolens.com/guides/quickstart/install/#troubleshooting).
 
 For production deployment, see the [Install Guide](https://docs.getgeolens.com/guides/quickstart/install/). A community-maintained Kubernetes [Helm chart](https://github.com/geolens-io/geolens-deployments) lives in the separate [`geolens-deployments`](https://github.com/geolens-io/geolens-deployments) repo. For upgrading, see the [Upgrade Guide](https://docs.getgeolens.com/guides/quickstart/upgrade/).
 
@@ -261,6 +259,42 @@ The script logs in, downloads each public source, ingests the datasets, and comp
 
 ## Architecture
 
+GeoLens is a small set of services around a single PostgreSQL/PostGIS database: the
+API serves the catalog, search, and OGC/STAC endpoints; a worker handles ingestion;
+and Titiler serves raster tiles from object storage.
+
+```mermaid
+flowchart TB
+    B["Browser — React + MapLibre app"]
+    OGC["QGIS · ArcGIS · OGC/STAC clients"]
+
+    NG["Nginx — reverse proxy<br/>serves the React build, routes /api and tiles"]
+
+    subgraph Application
+      API["FastAPI<br/>catalog · semantic search · OGC/STAC · vector tiles"]
+      W["Worker<br/>GDAL/ogr2ogr ingestion"]
+      TT["Titiler<br/>COG raster tiles"]
+    end
+
+    subgraph store [Data and storage]
+      PG[("PostgreSQL 17<br/>PostGIS · pgvector · pg_trgm<br/>+ Procrastinate queue")]
+      OBJ[("Object storage<br/>local files or S3/MinIO")]
+      CACHE[("Valkey cache")]
+    end
+
+    B --> NG
+    OGC --> NG
+    NG --> API
+    NG --> TT
+    API <--> PG
+    API --> OBJ
+    API -. tile/query cache .-> CACHE
+    PG == job ==> W
+    W --> PG
+    W --> OBJ
+    TT --> OBJ
+```
+
 | Component | Technology |
 |-----------|-----------|
 | Frontend | React 19, Vite, MapLibre GL v5, TanStack Query, Tailwind CSS |
@@ -277,56 +311,17 @@ All configuration is managed through environment variables in `.env`. See the [C
 
 ### Connection Pool Budget
 
-GeoLens runs against a single PostgreSQL instance. The connection budget below
-is sized to fit `max_connections` (default 30, set in `db/postgresql.conf`)
-with the per-process pool defaults shown — total in-flight stays at the
-worst-case envelope without unused memory in the slot table.
-
-Per-process budget (current defaults):
-
-| Process | `db_pool_size` | `db_max_overflow` | Procrastinate | Worst-case |
-|---------|---------------:|------------------:|--------------:|-----------:|
-| API     | 10             | 3                 | 3 (periodic)  | **16**     |
-| Worker  | 10             | 0 *(no overflow)* | 3             | **13**     |
-| Admin / psql / CLI | — | — | — | ~1 |
-
-**Total worst-case in-flight:** `16 + 13 + 1 = 30` of `30 max_connections`
-— headroom achieved by lowering the ceiling rather than the workload.
-
-The two changes that produced this envelope:
-
-1. **`db_max_overflow` 5 → 3** — reclaiming 14 connections of headroom under
-   Procrastinate spikes.
-2. **`max_connections` 50 → 30** — reclaiming ~10MiB of shared memory per
-   dropped slot (~200MiB total).
-
-Operators expecting frequent ad-hoc admin sessions on top of full worker + API
-saturation should bump `max_connections` back to 35-40 in their own
-`postgresql.conf` overlay; the `db_pool_size` / `db_max_overflow` defaults stay
-healthy at the original 50 too.
-
-Override per environment:
-
-```env
-DB_POOL_SIZE=10
-DB_MAX_OVERFLOW=3
-```
-
-See `backend/app/core/config.py` for runtime defaults.
+GeoLens ships tuned for a **single PostgreSQL** instance — its pool defaults fit
+`max_connections = 30` (API + worker + admin) out of the box. See
+[Connection Pool Tuning](https://docs.getgeolens.com/guides/quickstart/configuration/#connection-pool-tuning)
+for the per-process budget and how to raise the ceiling.
 
 ### Backup S3 Compatibility
 
-`scripts/backup-entrypoint.sh` uploads to S3-compatible storage using AWS
-Signature Version 2 (HMAC-SHA1). This works with **MinIO, Cloudflare R2,
-older AWS buckets, and any S3 implementation that still accepts Sig-V2**.
-
-New AWS S3 buckets (created post-2018) accept only Signature Version 4.
-For new AWS buckets, mount a sidecar container with `aws-cli` and replace
-the `upload_to_s3` function with `aws s3 cp <file> s3://<bucket>/<key>`
-(the AWS CLI uses Sig-V4 by default).
-
-This is a documented limitation; a Sig-V4 rewrite
-is deferred until a real-world adopter request makes it concrete.
+Automated off-site backups to S3-compatible storage (MinIO, Cloudflare R2, AWS S3)
+ship via the `backup` Compose profile. New AWS buckets require Signature V4 — see
+[Backups & Restore](https://docs.getgeolens.com/guides/admin/backups/#backup-destinations)
+for the Sig-V2 compatibility note and the `aws-cli` workaround.
 
 ## Reference
 
@@ -337,7 +332,7 @@ is deferred until a real-world adopter request makes it concrete.
 | [Configuration Reference](https://docs.getgeolens.com/guides/quickstart/configuration/) | All environment variables and their defaults |
 | [Admin Guide](https://docs.getgeolens.com/guides/admin/) | User management, datasets, system health |
 | [Cloud Deployment](https://docs.getgeolens.com/guides/quickstart/cloud-deployment/) | AWS, GCP, and DigitalOcean deployment guides |
-| [Developer Docs](https://docs.getgeolens.com/) | Build custom map builder plugins |
+| [CLI & Manifests](https://docs.getgeolens.com/guides/cli/) | Publish files and manage catalogs with the `geolens` CLI |
 | [API Reference](https://docs.getgeolens.com/guides/api/) | Auto-generated reference at docs.getgeolens.com; interactive Swagger UI at `/api/docs` when running |
 | [Manifest examples](examples/manifests/) | Template `geolens.yaml` manifests to adapt — public-cog (remote COG), url-source, s3-source, publication-states |
 
