@@ -19,9 +19,9 @@ bash scripts/install.sh
 ```
 
 <p align="center">
-  <img src=".github/assets/geolens-adk-3d-relief-hero.jpg" alt="GeoLens map builder editing an Adirondack High Peaks DEM hillshade layer over a 3D terrain map" width="900" />
+  <img src=".github/assets/geolens-manhattan-3d-hero.jpg" alt="GeoLens map builder with Manhattan building footprints extruded into a 3D skyline, color-graded by roof height, the layer style editor open beside the map" width="900" />
   <br />
-  <em>Tune DEM, imagery, and vector layers in the map builder, then share interactive 3D maps</em>
+  <em>The map builder — Manhattan's building footprints extruded to roof height and color-graded by a data-driven style, built from open data with <code>scripts/seed-showcase.py</code></em>
 </p>
 
 > [!NOTE]
@@ -31,11 +31,7 @@ bash scripts/install.sh
 
 ## Documentation
 
-Full user, admin, and API documentation lives at **[docs.getgeolens.com](https://docs.getgeolens.com)**.
-
-- **Install & quickstart:** [docs.getgeolens.com/guides/quickstart](https://docs.getgeolens.com/guides/quickstart/)
-- **Admin guide:** [docs.getgeolens.com/guides/admin](https://docs.getgeolens.com/guides/admin/)
-- **API reference:** [docs.getgeolens.com/guides/api](https://docs.getgeolens.com/guides/api/)
+Full user, admin, and API documentation lives at **[docs.getgeolens.com](https://docs.getgeolens.com)** — the [Reference](#reference) table below links each guide.
 
 ## Published Artifacts
 
@@ -92,56 +88,17 @@ Every dataset is also a standard OGC API Features endpoint:
 curl 'http://localhost:8080/api/collections/ne_10m_admin_0_countries/items?bbox=-10,35,30,60&limit=5'
 ```
 
-Use PostGIS + pgvector together when you need semantic ranking inside a spatial window. The sample vector below is only a runnable placeholder; replace it with an embedding from the same model configured for GeoLens:
-
-```sql
-WITH query_embedding AS (
-  SELECT ('[' || array_to_string(array_fill(0.001::float8, ARRAY[1536]), ',') || ']')::vector AS value
-)
-SELECT
-  d.id,
-  r.title,
-  1 - (e.embedding <=> query_embedding.value) AS semantic_score
-FROM catalog.datasets d
-JOIN catalog.records r ON r.id = d.record_id
-JOIN catalog.record_embeddings e ON e.record_id = r.id
-CROSS JOIN query_embedding
-WHERE r.spatial_extent && ST_MakeEnvelope(-125, 24, -66, 50, 4326)
-ORDER BY e.embedding <=> query_embedding.value
-LIMIT 5;
-```
-
-The result is the five catalog records whose metadata embeddings are nearest to the query vector, limited to records intersecting the bounding box.
+PostGIS and pgvector share one database, so you can rank datasets by meaning *inside* a spatial window in a single query — see the [search guide](https://docs.getgeolens.com/guides/user/search/) for how semantic and spatial search work together.
 
 Connect directly from QGIS: **Layer > Add WFS / OGC API Features** and point at `http://localhost:8080/api/`.
 
 ## Features
 
-### Map Builder and Sharing
-
-- Multi-layer interactive maps with drag-and-drop ordering, styling, and per-layer filters
-- Point, line, and polygon styling with color ramps and category breaks
-- Share maps via public links or embeddable `<iframe>` snippets
-- Raster (COG) and vector layers side by side
-
-### AI-Powered (Optional)
-
-- Chat with your maps — ask natural-language questions, AI adds and styles layers
-- Semantic vector search across metadata using pgvector with HNSW indexing
-- Auto-generated dataset descriptions and tags on ingest
-- Works with any OpenAI-compatible API (OpenAI, Anthropic, Ollama); fully functional without it
-
-### Search and Discovery
-
-- Full-text and trigram search (pg_trgm) across dataset names, descriptions, and metadata
-- Spatial search with bounding box and map-drawn filters
-- Faceted filtering by format, tags, collections, and record type
-- Semantic search powered by pgvector (optional)
-- Saved searches for repeated workflows
+The highlights above each have a full guide in the [docs](https://docs.getgeolens.com/guides/). What GeoLens reads, writes, and exposes:
 
 ### Data Ingestion and Export
 
-- **Vector:** Shapefile, GeoPackage, GeoJSON, CSV, XLSX upload and ingestion
+- **Vector:** Shapefile, GeoPackage, GeoJSON, CSV, XLSX
 - **Raster:** GeoTIFF and Cloud-Optimized GeoTIFF (COG) with automatic conversion
 - **Mosaics:** VRT-based raster mosaics from multiple source files
 - **Export:** GeoJSON, Shapefile, GeoPackage, CSV, with CRS reprojection
@@ -149,10 +106,8 @@ Connect directly from QGIS: **Layer > Add WFS / OGC API Features** and point at 
 
 ### Standards and Interop
 
-- OGC API - Features and OGC API - Records compliant
-- STAC API 1.0 catalog endpoint
-- Direct tile URLs for QGIS, ArcGIS, MapLibre, and any OGC client
-- API key authentication for external tool integration
+- OGC API - Features and OGC API - Records; STAC API 1.0 catalog endpoint
+- Direct tile URLs and per-user API keys for QGIS, ArcGIS, MapLibre, and any OGC client
 - JWT + OAuth 2.0/OIDC, RBAC with per-dataset permissions
 
 <details>
@@ -170,9 +125,9 @@ Connect directly from QGIS: **Layer > Add WFS / OGC API Features** and point at 
 ## Screenshots
 
 <p align="center">
-  <img src=".github/assets/geolens-map-builder.png" alt="GeoLens Map Builder" width="900" />
+  <img src=".github/assets/geolens-adk-3d-relief.jpg" alt="GeoLens map builder editing a DEM hillshade layer over 3D terrain, with the drag-orderable layer stack and per-layer style controls" width="900" />
   <br />
-  <em>Map builder — drag-orderable layer stack, per-layer styling, and shareable interactive maps</em>
+  <em>Map builder — drag-orderable layer stack and per-layer render-mode editors (here: a DEM hillshade tuned over 3D terrain)</em>
 </p>
 
 <p align="center">
@@ -247,15 +202,14 @@ See the [CLI guide](https://docs.getgeolens.com/guides/cli/) for the full manife
 
 ### Seed Data
 
-Build three capability-showcase maps from public, openly-licensed data — a Manhattan 3D skyline (NYC Open Data), a New York income choropleth (USDA ERS), and an optional Matterhorn 3D-terrain hero (swisstopo swissALTI3D + OpenStreetMap routes/peaks):
+`scripts/seed-showcase.py` builds three showcase maps from public open data — a Manhattan 3D skyline (the hero above), a New York income choropleth, and an optional Matterhorn 3D-terrain hero:
 
 ```bash
-pip install httpx  # one-time dependency on the host
-python scripts/seed-showcase.py --username admin --password admin
-python scripts/seed-showcase.py --username admin --password admin --with-terrain  # + Matterhorn
+pip install httpx
+python scripts/seed-showcase.py --username admin --password admin [--with-terrain] [--only manhattan|income|matterhorn]
 ```
 
-The script logs in, downloads each public source, ingests the datasets, and composes the maps end-to-end against the running stack. Use `--only manhattan|income|matterhorn` to build a single map. Requires internet access to the upstream open-data sources.
+Requires internet access to the upstream open-data sources.
 
 ## Architecture
 
@@ -341,19 +295,6 @@ for the Sig-V2 compatibility note and the `aws-cli` workaround.
 - [GitHub Discussions](https://github.com/geolens-io/geolens/discussions) — questions, ideas, show and tell
 - [Contributing Guide](.github/CONTRIBUTING.md) — development setup, code style, and PR guidelines
 
-## Branding
-
-Brand assets — favicon, app icons, color tokens, and typography — sync from the
-canonical [`geolens-io/branding`](https://github.com/geolens-io/branding)
-repository via copy-on-release. The currently-pinned version lives at
-[`BRANDING-VERSION`](./BRANDING-VERSION) at the repo root. Bump procedure: re-run
-the `cp` for any changed source files, re-run `sips -z N N` for PWA icon
-downscales if the 1024×1024 source dimensions change, then update
-`BRANDING-VERSION`'s version + sync date lines.
-
-The brand assets carry their own license (see the upstream repo); this is
-distinct from the Apache 2.0 license that covers the GeoLens source code below.
-
 ## License
 
-GeoLens is licensed under the [Apache License 2.0](LICENSE).
+GeoLens is licensed under the [Apache License 2.0](LICENSE). The GeoLens name, logo, and brand assets are not covered by this license.
