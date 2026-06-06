@@ -21,9 +21,9 @@ bash scripts/install.sh
 ```
 
 <p align="center">
-  <img src=".github/assets/geolens-adk-3d-relief-hero.jpg" alt="Constructeur de cartes GeoLens modifiant une couche DEM hillshade des Adirondack High Peaks sur une carte de terrain 3D" width="900" />
+  <img src=".github/assets/geolens-manhattan-3d-hero.jpg" alt="Constructeur de cartes GeoLens : empreintes des bâtiments de Manhattan extrudées en une skyline 3D, colorées selon la hauteur du toit, avec l'éditeur de style de couche ouvert à côté de la carte" width="900" />
   <br />
-  <em>Ajustez les couches DEM, l'imagerie et les vecteurs dans le constructeur de cartes, puis partagez des cartes 3D interactives</em>
+  <em>Le constructeur de cartes — les empreintes des bâtiments de Manhattan extrudées selon la hauteur du toit et colorées par un style fondé sur les données, créé à partir de données ouvertes avec <code>scripts/seed-showcase.py</code></em>
 </p>
 
 ## Documentation

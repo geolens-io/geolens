@@ -21,9 +21,9 @@ bash scripts/install.sh
 ```
 
 <p align="center">
-  <img src=".github/assets/geolens-adk-3d-relief-hero.jpg" alt="Constructor de mapas de GeoLens editando una capa DEM hillshade de Adirondack High Peaks sobre un mapa de terreno 3D" width="900" />
+  <img src=".github/assets/geolens-manhattan-3d-hero.jpg" alt="Constructor de mapas de GeoLens: huellas de edificios de Manhattan extruidas en un horizonte 3D, coloreadas según la altura del tejado, con el editor de estilo de capa abierto junto al mapa" width="900" />
   <br />
-  <em>Ajusta capas DEM, imágenes y vectores en el constructor de mapas y comparte mapas 3D interactivos</em>
+  <em>El constructor de mapas — las huellas de edificios de Manhattan extruidas según la altura del tejado y coloreadas mediante un estilo basado en datos, creado a partir de datos abiertos con <code>scripts/seed-showcase.py</code></em>
 </p>
 
 ## Documentación

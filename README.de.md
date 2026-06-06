@@ -21,9 +21,9 @@ bash scripts/install.sh
 ```
 
 <p align="center">
-  <img src=".github/assets/geolens-adk-3d-relief-hero.jpg" alt="GeoLens Map Builder beim Bearbeiten eines DEM-Hillshade-Layers der Adirondack High Peaks über einer 3D-Geländekarte" width="900" />
+  <img src=".github/assets/geolens-manhattan-3d-hero.jpg" alt="GeoLens Map Builder: Gebäudegrundrisse von Manhattan zu einer 3D-Skyline extrudiert, nach Dachhöhe eingefärbt, mit geöffnetem Layer-Stil-Editor neben der Karte" width="900" />
   <br />
-  <em>Passen Sie DEM-, Bild- und Vektor-Layer im Map Builder an und teilen Sie interaktive 3D-Karten</em>
+  <em>Der Map Builder — Manhattans Gebäudegrundrisse, extrudiert nach Dachhöhe und durch einen datengesteuerten Stil eingefärbt, erstellt aus offenen Daten mit <code>scripts/seed-showcase.py</code></em>
 </p>
 
 ## Dokumentation
