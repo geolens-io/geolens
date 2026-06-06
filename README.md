@@ -254,6 +254,42 @@ The script logs in, downloads each public source, ingests the datasets, and comp
 
 ## Architecture
 
+GeoLens is a small set of services around a single PostgreSQL/PostGIS database: the
+API serves the catalog, search, and OGC/STAC endpoints; a worker handles ingestion;
+and Titiler serves raster tiles from object storage.
+
+```mermaid
+flowchart TB
+    B["Browser — React + MapLibre app"]
+    OGC["QGIS · ArcGIS · OGC/STAC clients"]
+
+    NG["Nginx — reverse proxy<br/>serves the React build, routes /api and tiles"]
+
+    subgraph Application
+      API["FastAPI<br/>catalog · semantic search · OGC/STAC · vector tiles"]
+      W["Worker<br/>GDAL/ogr2ogr ingestion"]
+      TT["Titiler<br/>COG raster tiles"]
+    end
+
+    subgraph store [Data and storage]
+      PG[("PostgreSQL 17<br/>PostGIS · pgvector · pg_trgm<br/>+ Procrastinate queue")]
+      OBJ[("Object storage<br/>local files or S3/MinIO")]
+      CACHE[("Valkey cache")]
+    end
+
+    B --> NG
+    OGC --> NG
+    NG --> API
+    NG --> TT
+    API <--> PG
+    API --> OBJ
+    API -. tile/query cache .-> CACHE
+    PG == job ==> W
+    W --> PG
+    W --> OBJ
+    TT --> OBJ
+```
+
 | Component | Technology |
 |-----------|-----------|
 | Frontend | React 19, Vite, MapLibre GL v5, TanStack Query, Tailwind CSS |
