@@ -7,7 +7,7 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
-## [2.0.0] - 2026-06-02
+## [1.2.0] - 2026-06-02
 
 ### Added
 
@@ -21,7 +21,7 @@ and releases use semantic versioning.
 
 - Renamed the legacy map-widget vocabulary to map plugins across API schemas,
   database columns, frontend labels, and generated SDK surfaces.
-- Updated public package metadata to version `2.0.0` across the backend,
+- Updated public package metadata to version `1.2.0` across the backend,
   frontend, CLI, and SDK packages.
 - Simplified public documentation around installation, support routing, and
   release notes.

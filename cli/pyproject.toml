@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "geolens-cli"
-version = "2.0.0"
+version = "1.2.0"
 description = "Apache-2.0 command-line interface for the GeoLens API. Login, scan, publish, and export STAC against any GeoLens instance."
 readme = "README.md"
 license = { text = "Apache-2.0" }
@@ -12,7 +12,7 @@ requires-python = ">=3.11"
 authors = [{ name = "GeoLens", email = "noreply@getgeolens.com" }]
 keywords = ["geolens", "geospatial", "cli", "stac", "openapi"]
 classifiers = [
-  "Development Status :: 4 - Beta",
+  "Development Status :: 5 - Production/Stable",
   "Environment :: Console",
   "Intended Audience :: Developers",
   "Intended Audience :: Science/Research",
@@ -33,7 +33,7 @@ dependencies = [
   "tomli_w>=1.0.0,<2.0.0",
   "platformdirs>=4.0.0,<5.0.0",
   "structlog>=25.0.0,<26.0.0",
-  "geolens>=2.0.0,<3.0.0",
+  "geolens>=1.2.0,<2.0.0",
 ]
 
 [project.optional-dependencies]

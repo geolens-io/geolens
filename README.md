@@ -24,6 +24,11 @@ bash scripts/install.sh
   <em>Tune DEM, imagery, and vector layers in the map builder, then share interactive 3D maps</em>
 </p>
 
+> [!NOTE]
+> **Early release** — GeoLens is production-grade and actively maintained, and newly
+> open-sourced. The self-hosted distribution is young, so expect active iteration —
+> please [open an issue](https://github.com/geolens-io/geolens/issues) if you hit a rough edge.
+
 ## Documentation
 
 Full user, admin, and API documentation lives at **[docs.getgeolens.com](https://docs.getgeolens.com)**.
