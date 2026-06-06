@@ -53,6 +53,7 @@ tests/load/results/*.txt
 
 # Internal development / assistant state (not for public release)
 .planning/
+graphify-out/
 .gsd
 .gsd-id
 .mcp.json
