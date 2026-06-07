@@ -86,8 +86,12 @@ curl "http://localhost:8080/api/search/datasets/?q=hydrology&limit=3" \
 Every dataset is also a standard OGC API Features endpoint:
 
 ```bash
-# GeoJSON features with bbox filter — works in QGIS, ArcGIS, any OGC client
-curl 'http://localhost:8080/api/collections/ne_10m_admin_0_countries/items?bbox=-10,35,30,60&limit=5'
+# Grab a collection id from the catalog (the items endpoint itself needs no auth)
+CID=$(curl -s "http://localhost:8080/api/search/datasets/?q=countries&limit=1" \
+  -H "Authorization: Bearer $TOKEN" | jq -r '.features[0].id')
+
+# GeoJSON features with a bbox filter — works in QGIS, ArcGIS, any OGC client
+curl "http://localhost:8080/api/collections/$CID/items?bbox=-10,35,30,60&limit=5"
 ```
 
 PostGIS and pgvector share one database, so you can rank datasets by meaning *inside* a spatial window in a single query — see the [search guide](https://docs.getgeolens.com/guides/user/search/) for how semantic and spatial search work together.
