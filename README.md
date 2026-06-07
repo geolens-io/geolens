@@ -4,7 +4,7 @@
 
 **Your team's spatial data — searchable, mappable, and shareable in one place.**
 
-Upload Shapefiles, GeoTIFFs, GeoPackages, or CSVs. GeoLens stores everything in PostGIS, indexes it with pgvector + pg_trgm for semantic and fuzzy search, and serves OGC APIs that QGIS, ArcGIS, and MapLibre clients connect to natively. Compose, style, and share multi-layer maps right in the browser. Built on FastAPI and React. Deployed with one command.
+GeoLens is an open-source, self-hosted catalog and map builder for GIS and data teams — a single home for spatial data that you run on infrastructure you control, with no telemetry and nothing leaving your network. Upload Shapefiles, GeoTIFFs, GeoPackages, or CSVs (or register data you already have); GeoLens stores everything in PostGIS, indexes it with pgvector + pg_trgm for semantic and fuzzy search, and serves OGC/STAC APIs that QGIS, ArcGIS, and MapLibre clients connect to natively. Compose, style, and share multi-layer maps right in the browser. Built on FastAPI and React. Deployed with one command.
 
 [![CI](https://github.com/geolens-io/geolens/actions/workflows/ci.yml/badge.svg)](https://github.com/geolens-io/geolens/actions/workflows/ci.yml)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
@@ -25,9 +25,10 @@ bash scripts/install.sh
 </p>
 
 > [!NOTE]
-> **Early release** — GeoLens is production-grade and actively maintained, and newly
-> open-sourced. The self-hosted distribution is young, so expect active iteration —
-> please [open an issue](https://github.com/geolens-io/geolens/issues) if you hit a rough edge.
+> **Early release** — GeoLens is actively developed and maintained, and newly
+> open-sourced. The core has run in production, but the self-hosted distribution is
+> young and some features and APIs may still change — please
+> [open an issue](https://github.com/geolens-io/geolens/issues) if you hit a rough edge.
 
 ## Documentation
 
@@ -76,16 +77,22 @@ TOKEN=$(curl -s -X POST http://localhost:8080/api/auth/login/ \
 Search datasets by meaning, not just keywords:
 
 ```bash
-# Semantic search — finds "hydrology" datasets even when you search "rivers"
-curl "http://localhost:8080/api/search/datasets/?q=rivers+near+mountains&limit=3" \
+# Semantic search ranks by meaning — "hydrology" surfaces subwatersheds, lakes,
+# and river networks whose titles never mention the word
+curl "http://localhost:8080/api/search/datasets/?q=hydrology&limit=3" \
   -H "Authorization: Bearer $TOKEN" | jq '.features[].properties.title'
 ```
 
 Every dataset is also a standard OGC API Features endpoint:
 
 ```bash
-# GeoJSON features with bbox filter — works in QGIS, ArcGIS, any OGC client
-curl 'http://localhost:8080/api/collections/ne_10m_admin_0_countries/items?bbox=-10,35,30,60&limit=5'
+# Grab a public collection id from the catalog. Search anonymously (no token) so
+# the id is one anyone can read — matching the unauthenticated items request below.
+CID=$(curl -s "http://localhost:8080/api/search/datasets/?q=countries&limit=1" \
+  | jq -r '.features[0].id')
+
+# GeoJSON features with a bbox filter — works in QGIS, ArcGIS, any OGC client
+curl "http://localhost:8080/api/collections/$CID/items?bbox=-10,35,30,60&limit=5"
 ```
 
 PostGIS and pgvector share one database, so you can rank datasets by meaning *inside* a spatial window in a single query — see the [search guide](https://docs.getgeolens.com/guides/user/search/) for how semantic and spatial search work together.
@@ -125,21 +132,27 @@ The highlights above each have a full guide in the [docs](https://docs.getgeolen
 ## Screenshots
 
 <p align="center">
-  <img src=".github/assets/geolens-adk-3d-relief.jpg" alt="GeoLens map builder editing a DEM hillshade layer over 3D terrain, with the drag-orderable layer stack and per-layer style controls" width="900" />
+  <img src=".github/assets/geolens-search.png" alt="GeoLens catalog search for 'hydrology' returning ranked hydrology datasets — subwatersheds, lakes, and river networks — with type and spatial filters" width="900" />
   <br />
-  <em>Map builder — drag-orderable layer stack and per-layer render-mode editors (here: a DEM hillshade tuned over 3D terrain)</em>
+  <em><strong>Find</strong> — search by meaning: a query for "hydrology" ranks subwatersheds, lakes, and river networks, with type, spatial, and temporal filters</em>
 </p>
 
 <p align="center">
-  <img src=".github/assets/geolens-catalog.png" alt="GeoLens Catalog View" width="900" />
+  <img src=".github/assets/geolens-dataset.png" alt="GeoLens dataset detail for Natural Earth river centerlines: a global map preview above a typed attribute table with per-column filters" width="900" />
   <br />
-  <em>Catalog view with search, spatial filters, and dataset cards</em>
+  <em><strong>Inspect</strong> — every dataset gets a map preview, schema stats, and a typed, filterable attribute table (here: 1,473 river centerlines, 38 columns)</em>
 </p>
 
 <p align="center">
-  <img src=".github/assets/geolens-dataset.png" alt="GeoLens Dataset Detail" width="900" />
+  <img src=".github/assets/geolens-matterhorn-terrain.jpg" alt="GeoLens map builder rendering the Matterhorn as a 3D terrain mesh from swissALTI3D lidar, with labeled peaks, climbing routes, the drag-orderable layer stack, and a legend" width="900" />
   <br />
-  <em>Dataset detail with map preview, metadata, and attribute table</em>
+  <em><strong>Build</strong> — compose multi-layer maps in the browser with a drag-orderable layer stack and per-layer editors (here: the Matterhorn as a 3D terrain mesh from swissALTI3D lidar)</em>
+</p>
+
+<p align="center">
+  <img src=".github/assets/geolens-ai-labels.png" alt="GeoLens Ask AI panel adding county-name labels to a New York median-income choropleth from the natural-language request 'Add area labels'" width="900" />
+  <br />
+  <em><strong>Ask AI</strong> — edit maps in natural language: "add area labels" puts county names on a New York income choropleth (optional — bring your own OpenAI-compatible key)</em>
 </p>
 
 ## Quick Start
