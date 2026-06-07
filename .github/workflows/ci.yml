@@ -39,6 +39,16 @@ jobs:
               - 'backend/**'
               - 'docker-compose*.yml'
               - 'Dockerfile*'
+              # Files the backend introspection tests (test_phase_27*) assert
+              # against — a change here can break Backend Tests, so they must
+              # run on PRs that touch these even with no backend/** change.
+              - 'README.md'
+              - 'frontend/README.md'
+              - 'CHANGELOG.md'
+              - '.env.example'
+              - '.dockerignore'
+              - 'nginx.conf'
+              - 'db/**'
             frontend:
               - 'frontend/**'
             e2e:
