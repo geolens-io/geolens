@@ -136,7 +136,7 @@ say "Install directory: $INSTALL_DIR"
 need_command git
 need_command docker
 
-docker compose --version >/dev/null 2>&1 || fail "Docker Compose v2 is required. Install Docker Desktop or the docker compose plugin."
+docker compose up --detach --help >/dev/null 2>&1 || fail "Docker Compose v2 is required. Install Docker Desktop or the docker compose plugin."
 
 # If the user already cd'd into a checkout, use it. Otherwise honor INSTALL_DIR.
 PROJECT_HINT=""
@@ -193,7 +193,7 @@ check_port "$api_port"
 check_port "$fe_port"
 
 say "Starting GeoLens..."
-docker compose up -d
+docker compose up --detach
 
 # Wait up to 90s for the stack to become healthy. The migrate one-shot must
 # exit 0; every healthcheck-having service must report (healthy). If migrate
