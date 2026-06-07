@@ -814,7 +814,12 @@ function syncVectorLayer(
   if (!canUseCluster) {
     removeClusterCompanionLayers(map, layerId);
     signatureMap.delete(sourceId);
-    signatureMap.delete(`${sourceId}::tileurl`);
+    // NOTE: do NOT delete the `${sourceId}::tileurl` key here. This block runs on
+    // every sync for non-cluster vector layers (the common case); clearing the key
+    // each pass would make the guarded refresh below always see `undefined` and
+    // call setTiles on every syncLayersToMap pass, defeating the flicker/refetch
+    // guard. The key is cleared only when the source is actually removed/recreated
+    // (the type-change block above) and is updated in place when the URL changes.
   }
 
   const layerLayout = layer.layout ?? {};
