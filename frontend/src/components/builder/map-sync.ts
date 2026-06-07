@@ -809,10 +809,12 @@ function syncVectorLayer(
     removeKnownVectorLayers(map, layerId, layer.id, prefix);
     map.removeSource(sourceId);
     signatureMap.delete(sourceId);
+    signatureMap.delete(`${sourceId}::tileurl`);
   }
   if (!canUseCluster) {
     removeClusterCompanionLayers(map, layerId);
     signatureMap.delete(sourceId);
+    signatureMap.delete(`${sourceId}::tileurl`);
   }
 
   const layerLayout = layer.layout ?? {};
@@ -864,6 +866,8 @@ function syncVectorLayer(
     } else {
       signatureMap.delete(sourceId);
     }
+    // Seed the tileUrl so the first post-create sync does not redundantly re-fire setTiles.
+    signatureMap.set(`${sourceId}::tileurl`, adapterInput.tileUrl);
     adapter.addLayers(map, adapterInput);
   } else {
     adapterInput.sourceType = 'vector';
@@ -873,6 +877,19 @@ function syncVectorLayer(
         source.setTiles([adapterInput.tileUrl]);
       }
       if (desiredClusterSignature) signatureMap.set(sourceId, desiredClusterSignature);
+    } else if (!canUseServerCluster) {
+      // Non-cluster vector path: refresh tiles only when the computed tileUrl
+      // changes (e.g. a label column was added, changing the cols= param).
+      // Guarded by signature to avoid needless refetch / flicker on unchanged URLs.
+      const tileUrlKey = `${sourceId}::tileurl`;
+      const storedTileUrl = signatureMap.get(tileUrlKey);
+      if (storedTileUrl !== adapterInput.tileUrl) {
+        const source = map.getSource(sourceId) as { type?: string; setTiles?: (tiles: string[]) => void } | undefined;
+        if (source?.type === 'vector' && typeof source.setTiles === 'function') {
+          source.setTiles([adapterInput.tileUrl]);
+        }
+        signatureMap.set(tileUrlKey, adapterInput.tileUrl);
+      }
     }
     adapter.syncPaint(map, adapterInput);
   }
