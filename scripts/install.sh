@@ -149,7 +149,26 @@ elif [ -d "$INSTALL_DIR/.git" ]; then
 elif [ -e "$INSTALL_DIR" ]; then
   fail "$INSTALL_DIR exists but is not a Git checkout. Move it or set GEOLENS_INSTALL_DIR."
 else
-  git clone --depth 1 "$REPO_URL" "$INSTALL_DIR"
+  # Install the latest published release tag for a reproducible build. Resolve it
+  # from the remote so no full clone is needed first; semver tags are sorted
+  # numerically (not lexically, so v1.10.0 > v1.9.0). Fall back to the default
+  # branch when no release tag resolves (offline, or a fork with no releases).
+  # Override with GEOLENS_REF=<tag|branch> to pin a specific ref or track main.
+  ref="${GEOLENS_REF:-}"
+  if [ -z "$ref" ]; then
+    ref="$(git ls-remote --tags --refs "$REPO_URL" 2>/dev/null \
+      | awk -F/ '{print $NF}' \
+      | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' \
+      | sort -t. -k1.2,1n -k2,2n -k3,3n \
+      | tail -n 1)"
+  fi
+  if [ -n "$ref" ]; then
+    say "Installing release $ref"
+    git clone --depth 1 --branch "$ref" "$REPO_URL" "$INSTALL_DIR"
+  else
+    warn "Could not resolve a release tag; cloning the default branch."
+    git clone --depth 1 "$REPO_URL" "$INSTALL_DIR"
+  fi
   cd "$INSTALL_DIR"
   PROJECT_HINT="$INSTALL_DIR"
 fi
@@ -233,7 +252,11 @@ wait_for_healthy() {
       fi
     fi
 
-    unhealthy=$(docker compose ps --format '{{.Service}}|{{.Status}}' 2>/dev/null | grep -v '|.*(healthy)' | grep -v '^$' || true)
+    # Treat as unhealthy any service that is neither reporting (healthy) nor a
+    # successfully-exited one-shot. The migrate one-shot exits 0 (its failure is
+    # caught above); some Compose versions list exited containers in `ps` without
+    # `-a`, so exclude `Exited (0)` explicitly rather than relying on that.
+    unhealthy=$(docker compose ps --format '{{.Service}}|{{.Status}}' 2>/dev/null | grep -v '|.*(healthy)' | grep -v '|Exited (0)' | grep -v '^$' || true)
     if [ -z "$unhealthy" ]; then
       printf '\n'
       return 0
