@@ -135,6 +135,12 @@ export interface LayerActions {
   onAddDataset: (datasetId: string) => void;
   onRemove: (layerId: string) => void;
   onOpacityChange?: (layerId: string, opacity: number) => void;
+  /**
+   * Atomically restore the full state of each supplied layer (matched by id).
+   * Used by undo to revert all fields in a single update — restoring field-by-field
+   * through the individual handlers clobbers earlier reverts (see handleUndo).
+   */
+  onRestoreLayers: (layers: MapLayerResponse[]) => void;
 }
 
 interface ChatPanelProps {
@@ -167,6 +173,7 @@ export function ChatPanel({
     onAddDataset,
     onRemove,
     onOpacityChange,
+    onRestoreLayers,
   } = layerActions;
   const { t, i18n } = useTranslation('builder');
   const [messages, setMessages] = useState<ChatMessage[]>(() => {
@@ -309,25 +316,17 @@ export function ChatPanel({
       }
     }
 
-    for (const layer of snapshot.layers) {
-      // Restore paint
-      if (layer.paint) onPaintChange(layer.id, layer.paint);
-      // Restore filter
-      onFilterChange(layer.id, layer.filter ?? null);
-      // Restore label config
-      onLabelChange(layer.id, layer.label_config ?? null);
-      // Restore visibility
-      onToggleVisibility(layer.id, layer.visible);
-      // Restore style config
-      if (layer.style_config) {
-        onStyleConfigChange(layer.id, layer.style_config, layer.paint);
-      }
-      // Restore opacity
-      if (onOpacityChange) onOpacityChange(layer.id, layer.opacity);
-    }
+    // Restore every snapshotted layer's full state in ONE atomic update.
+    // Restoring field-by-field via the individual handlers clobbered earlier
+    // reverts: each handler rebuilds the layer from a ref that only refreshes
+    // between renders, so a later partial spread (e.g. the unconditional
+    // style_config restore on a data-driven layer) re-stamped the stale
+    // label_config / paint and silently dropped those reverts — the map showed
+    // the change still applied even though undo reported success.
+    onRestoreLayers(snapshot.layers);
     lastSnapshotRef.current = null;
     toast.success(t('chat.undoApplied'));
-  }, [onPaintChange, onFilterChange, onLabelChange, onToggleVisibility, onStyleConfigChange, onOpacityChange, onRemove, onAddDataset, t]);
+  }, [onRestoreLayers, onRemove, onAddDataset, t]);
 
   function handleChatAction(action: ChatAction) {
     const layerId = getActionLayerId(action);

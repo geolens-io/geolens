@@ -676,6 +676,7 @@ export const ViewerMap = memo(function ViewerMap({
           : getDataDrivenColumnsForLayer({
               style_config: layer.style_config ?? null,
               paint: (layer.paint as Record<string, unknown> | undefined) ?? {},
+              label_config: layer.label_config ?? null,
             });
         const newUrl = strategy.kind === 'server-tile'
           ? buildClusterTileUrl(layer.table_name, token, tileBaseUrl, undefined, {

@@ -1251,6 +1251,21 @@ export function useBuilderLayers(
     handleToggleVisibility,
   ]);
 
+  // Atomic multi-field restore for chat undo. Restoring a snapshot field-by-field
+  // through the individual dispatch handlers clobbered earlier restores: each
+  // handler rebuilds the layer from `layersRef.current`, which only refreshes
+  // between renders, so successive synchronous spreads re-stamp stale values and
+  // silently drop the label/paint reverts (the undo-does-nothing bug). Replacing
+  // every snapshotted layer wholesale in ONE setState avoids the clobber; the map
+  // reconciles via BuilderMap's declarative syncLayersToMap effect (which adds /
+  // updates / removes the companion label layer to match the restored state).
+  const handleRestoreLayers = useCallback((restored: MapLayerResponse[]) => {
+    if (restored.length === 0) return;
+    const byId = new Map(restored.map((l) => [l.id, l]));
+    setLocalLayers((prev) => prev.map((l) => byId.get(l.id) ?? l));
+    setHasUnsavedChanges(true);
+  }, [setLocalLayers, setHasUnsavedChanges]);
+
   const chatLayerActions: LayerActions = useMemo(() => ({
     onFilterChange: (layerId, expression) => dispatchLayerAction({
       type: 'set_filter',
@@ -1300,7 +1315,8 @@ export function useBuilderLayers(
       layerId,
       opacity,
     }),
-  }), [dispatchLayerAction]);
+    onRestoreLayers: handleRestoreLayers,
+  }), [dispatchLayerAction, handleRestoreLayers]);
 
   return {
     localName, setLocalName,

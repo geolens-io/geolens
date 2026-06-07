@@ -499,9 +499,11 @@ export interface SourceIdLayer {
  *  - paint `_heatmap-weight-column` — heatmap weighting (custom builder prop)
  *  - paint `_height_column` — 3D fill-extrusion height (custom builder prop)
  *  - paint expressions of shape `["get", "<colname>"]` — generic catch-all
+ *  - `label_config.column` — label text-field is a LAYOUT property the paint
+ *    walk cannot see, which is exactly why an explicit read is required here
  */
 export function getDataDrivenColumnsForLayer(
-  layer: { style_config?: StyleConfig | null; paint?: Record<string, unknown> },
+  layer: { style_config?: StyleConfig | null; paint?: Record<string, unknown>; label_config?: LabelConfig | null },
 ): string[] {
   const cols = new Set<string>();
   const styleCol = layer.style_config?.column;
@@ -511,6 +513,10 @@ export function getDataDrivenColumnsForLayer(
   if (typeof heatmapWeight === 'string' && heatmapWeight) cols.add(heatmapWeight);
   const heightCol = paint['_height_column'];
   if (typeof heightCol === 'string' && heightCol) cols.add(heightCol);
+  // label_config.column drives the companion symbol layer's text-field layout
+  // property — a LAYOUT expression the paint walk below cannot reach.
+  const labelCol = layer.label_config?.column;
+  if (typeof labelCol === 'string' && labelCol) cols.add(labelCol);
   // Walk paint expressions for `["get", "<name>"]` references.
   // ["get", x] is the canonical MapLibre way to read a feature property.
   function walk(node: unknown): void {
@@ -537,6 +543,7 @@ export function getDataDrivenColumnsForSource(
     const layerWithStyle = layer as SourceIdLayer & {
       style_config?: StyleConfig | null;
       paint?: Record<string, unknown>;
+      label_config?: LabelConfig | null;
     };
     for (const c of getDataDrivenColumnsForLayer(layerWithStyle)) cols.add(c);
   }
@@ -802,10 +809,17 @@ function syncVectorLayer(
     removeKnownVectorLayers(map, layerId, layer.id, prefix);
     map.removeSource(sourceId);
     signatureMap.delete(sourceId);
+    signatureMap.delete(`${sourceId}::tileurl`);
   }
   if (!canUseCluster) {
     removeClusterCompanionLayers(map, layerId);
     signatureMap.delete(sourceId);
+    // NOTE: do NOT delete the `${sourceId}::tileurl` key here. This block runs on
+    // every sync for non-cluster vector layers (the common case); clearing the key
+    // each pass would make the guarded refresh below always see `undefined` and
+    // call setTiles on every syncLayersToMap pass, defeating the flicker/refetch
+    // guard. The key is cleared only when the source is actually removed/recreated
+    // (the type-change block above) and is updated in place when the URL changes.
   }
 
   const layerLayout = layer.layout ?? {};
@@ -857,6 +871,8 @@ function syncVectorLayer(
     } else {
       signatureMap.delete(sourceId);
     }
+    // Seed the tileUrl so the first post-create sync does not redundantly re-fire setTiles.
+    signatureMap.set(`${sourceId}::tileurl`, adapterInput.tileUrl);
     adapter.addLayers(map, adapterInput);
   } else {
     adapterInput.sourceType = 'vector';
@@ -866,6 +882,19 @@ function syncVectorLayer(
         source.setTiles([adapterInput.tileUrl]);
       }
       if (desiredClusterSignature) signatureMap.set(sourceId, desiredClusterSignature);
+    } else if (!canUseServerCluster) {
+      // Non-cluster vector path: refresh tiles only when the computed tileUrl
+      // changes (e.g. a label column was added, changing the cols= param).
+      // Guarded by signature to avoid needless refetch / flicker on unchanged URLs.
+      const tileUrlKey = `${sourceId}::tileurl`;
+      const storedTileUrl = signatureMap.get(tileUrlKey);
+      if (storedTileUrl !== adapterInput.tileUrl) {
+        const source = map.getSource(sourceId) as { type?: string; setTiles?: (tiles: string[]) => void } | undefined;
+        if (source?.type === 'vector' && typeof source.setTiles === 'function') {
+          source.setTiles([adapterInput.tileUrl]);
+        }
+        signatureMap.set(tileUrlKey, adapterInput.tileUrl);
+      }
     }
     adapter.syncPaint(map, adapterInput);
   }

@@ -50,6 +50,7 @@ function renderPanel(
     onAddDataset = vi.fn(),
     onRemove = vi.fn(),
     onOpacityChange,
+    onRestoreLayers = vi.fn(),
     ...rest
   } = propOverrides;
   const layerActions = {
@@ -60,6 +61,7 @@ function renderPanel(
     onToggleVisibility,
     onAddDataset,
     onRemove,
+    onRestoreLayers,
     ...(onOpacityChange ? { onOpacityChange } : {}),
   };
   const props = {
@@ -429,12 +431,25 @@ describe('ChatPanel', () => {
 
     await user.click(await screen.findByRole('button', { name: /undo/i }));
 
-    expect(props.onPaintChange).toHaveBeenLastCalledWith('layer-1', originalLayer.paint);
-    expect(props.onFilterChange).toHaveBeenCalledWith('layer-1', originalLayer.filter);
-    expect(props.onLabelChange).toHaveBeenCalledWith('layer-1', originalLayer.label_config);
-    expect(props.onToggleVisibility).toHaveBeenCalledWith('layer-1', false);
-    expect(props.onStyleConfigChange).toHaveBeenCalledWith('layer-1', originalLayer.style_config, originalLayer.paint);
-    expect(props.onOpacityChange).toHaveBeenCalledWith('layer-1', 0.35);
+    // Undo restores the full pre-mutation snapshot in a SINGLE atomic call.
+    // (Restoring field-by-field clobbered earlier reverts — a later partial
+    // update re-stamped stale label_config/paint and the change visibly stuck.)
+    const restoreFn = vi.mocked(props.onRestoreLayers);
+    expect(restoreFn).toHaveBeenCalledTimes(1);
+    const restored = restoreFn.mock.calls[0][0];
+    expect(restored).toHaveLength(1);
+    expect(restored[0]).toMatchObject({
+      id: 'layer-1',
+      paint: originalLayer.paint,
+      filter: originalLayer.filter,
+      label_config: originalLayer.label_config,
+      visible: false,
+      style_config: originalLayer.style_config,
+      opacity: 0.35,
+    });
+    // The clobbering per-field restore handlers are no longer used by undo.
+    expect(props.onStyleConfigChange).not.toHaveBeenCalled();
+    expect(props.onLabelChange).not.toHaveBeenCalled();
   });
 
   it('does not offer undo for remove_layer actions (requires staging accept)', async () => {

@@ -79,6 +79,50 @@ describe('getDataDrivenColumnsForLayer', () => {
     });
     expect(cols.sort()).toEqual(['category', 'opacity_factor']);
   });
+
+  it('returns label_config.column when style_config and paint have no columns', () => {
+    const cols = getDataDrivenColumnsForLayer({
+      style_config: null,
+      paint: {},
+      label_config: { column: 'NAME', fontSize: 12, placement: 'point', minZoom: 0, maxZoom: 22, allowOverlap: false },
+    });
+    expect(cols).toEqual(['NAME']);
+  });
+
+  it('dedupes label_config.column when it equals the style_config column', () => {
+    const cols = getDataDrivenColumnsForLayer({
+      style_config: { mode: 'graduated', column: 'pop_est', ramp: 'YlOrRd', breaks: [] },
+      paint: {},
+      label_config: { column: 'pop_est', fontSize: 12, placement: 'point', minZoom: 0, maxZoom: 22, allowOverlap: false },
+    });
+    expect(cols).toEqual(['pop_est']);
+  });
+
+  it('contributes nothing when label_config is null', () => {
+    const cols = getDataDrivenColumnsForLayer({
+      style_config: null,
+      paint: {},
+      label_config: null,
+    });
+    expect(cols).toEqual([]);
+  });
+
+  it('contributes nothing when label_config is undefined', () => {
+    const cols = getDataDrivenColumnsForLayer({
+      style_config: null,
+      paint: {},
+    });
+    expect(cols).toEqual([]);
+  });
+
+  it('contributes nothing when label_config has an empty column string', () => {
+    const cols = getDataDrivenColumnsForLayer({
+      style_config: null,
+      paint: {},
+      label_config: { column: '', fontSize: 12, placement: 'point', minZoom: 0, maxZoom: 22, allowOverlap: false },
+    });
+    expect(cols).toEqual([]);
+  });
 });
 
 describe('getDataDrivenColumnsForSource', () => {
@@ -87,6 +131,7 @@ describe('getDataDrivenColumnsForSource', () => {
     dataset_table_name: string,
     style_config: SyncLayerInput['style_config'] = null,
     paint: SyncLayerInput['paint'] = {},
+    label_config: SyncLayerInput['label_config'] = null,
   ): SyncLayerInput {
     return {
       id,
@@ -99,6 +144,7 @@ describe('getDataDrivenColumnsForSource', () => {
       layout: {},
       filter: null,
       style_config,
+      label_config,
     };
   }
 
@@ -110,6 +156,21 @@ describe('getDataDrivenColumnsForSource', () => {
     ];
     const cols = getDataDrivenColumnsForSource('source-data-countries', layers);
     expect(cols.sort()).toEqual(['economy', 'pop_est']);
+  });
+
+  it('unions label_config.column from layers sharing a deduped source', () => {
+    const layers: SyncLayerInput[] = [
+      makeLayer(
+        'l1',
+        'counties',
+        { mode: 'graduated', column: 'median_income', ramp: 'YlOrRd', breaks: [] },
+        {},
+        { column: 'NAME', fontSize: 12, placement: 'point', minZoom: 0, maxZoom: 22, allowOverlap: false },
+      ),
+      makeLayer('l2', 'counties', null, {}, null),
+    ];
+    const cols = getDataDrivenColumnsForSource('source-data-counties', layers);
+    expect(cols.sort()).toEqual(['NAME', 'median_income']);
   });
 
   it('returns empty array when no layer matches the source', () => {
