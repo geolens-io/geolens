@@ -136,7 +136,14 @@ say "Install directory: $INSTALL_DIR"
 need_command git
 need_command docker
 
-docker compose up --help >/dev/null 2>&1 || fail "Docker Compose v2 is required. Install Docker Desktop or the docker compose plugin."
+# Verify the Compose v2 plugin via the `version` SUBCOMMAND, not a `--version`/
+# `--help` flag. `docker --version` and `docker --help` are answered by the
+# docker root command and exit 0 even when no `compose` plugin is installed, so
+# flag-based checks false-pass — then the install dies cryptically at the first
+# real `docker compose` call ("unknown flag" / "unknown shorthand flag" with
+# docker's root usage). `docker compose version` only exits 0 when the plugin is
+# actually present.
+docker compose version >/dev/null 2>&1 || fail "Docker Compose v2 is required. Install Docker Desktop or the docker compose plugin."
 
 # If the user already cd'd into a checkout, use it. Otherwise honor INSTALL_DIR.
 PROJECT_HINT=""
