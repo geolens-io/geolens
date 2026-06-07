@@ -179,6 +179,18 @@ else
   say ".env already has admin credentials; leaving unchanged."
 fi
 
+# Docker Compose interpolates required MinIO variables even when the cloud-dev
+# profile is inactive, so populate generated values unless the operator already
+# supplied them for local S3 testing.
+existing_minio_user="$(get_env_value MINIO_ROOT_USER)"
+existing_minio_pass="$(get_env_value MINIO_ROOT_PASSWORD)"
+if [ -z "$existing_minio_user" ]; then
+  update_env_value MINIO_ROOT_USER "$(generate_jwt_secret)"
+fi
+if [ -z "$existing_minio_pass" ]; then
+  update_env_value MINIO_ROOT_PASSWORD "$(generate_jwt_secret)"
+fi
+
 # Read the configured ports from .env so the in-use check matches what compose
 # will actually bind, even if the user changed DB_PORT/API_PORT/FRONTEND_PORT.
 db_port="$(get_env_value DB_PORT)"
