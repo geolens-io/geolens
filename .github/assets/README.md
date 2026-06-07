@@ -21,12 +21,17 @@ Displayed at `width="900"`; sources are ~1200 px wide. Use **PNG** for UI shots
 
 ## Seeding the data
 
-Both seeders live in this repo:
+`scripts/seed-showcase.py` builds the showcase maps behind the **hero**,
+**Build** (Matterhorn), and **Ask AI** (NY income) shots:
 
 ```bash
-python scripts/seed-showcase.py --username admin --password admin --with-terrain  # Manhattan, NY income, Matterhorn maps
-python scripts/seed-natural-earth.py                                              # vector/raster catalog incl. rivers/hydrology
+python scripts/seed-showcase.py --username admin --password admin --with-terrain
 ```
+
+The **Find** (search) and **Inspect** (dataset) shots use a Natural Earth vector
+catalog — rivers, lakes, subwatersheds. There is no bundled seeder for those;
+load them into the catalog via the import flow (`geolens publish` / a manifest,
+see the main README) before capturing.
 
 ## Capture notes
 
