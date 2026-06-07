@@ -224,7 +224,10 @@ check_port "$api_port"
 check_port "$fe_port"
 
 say "Starting GeoLens..."
-docker compose up --detach
+# Use the short `-d` flag, not `--detach`: `-d` is accepted by every Docker
+# Compose version, while some older Compose builds reject the `--detach` long
+# form with "unknown flag: --detach".
+docker compose up -d
 
 # Wait up to 90s for the stack to become healthy. The migrate one-shot must
 # exit 0; every healthcheck-having service must report (healthy). If migrate
