@@ -136,7 +136,7 @@ say "Install directory: $INSTALL_DIR"
 need_command git
 need_command docker
 
-docker compose --version >/dev/null 2>&1 || fail "Docker Compose v2 is required. Install Docker Desktop or the docker compose plugin."
+docker compose up --help >/dev/null 2>&1 || fail "Docker Compose v2 is required. Install Docker Desktop or the docker compose plugin."
 
 # If the user already cd'd into a checkout, use it. Otherwise honor INSTALL_DIR.
 PROJECT_HINT=""
@@ -179,6 +179,18 @@ else
   say ".env already has admin credentials; leaving unchanged."
 fi
 
+# Docker Compose interpolates required MinIO variables even when the cloud-dev
+# profile is inactive, so populate generated values unless the operator already
+# supplied them for local S3 testing.
+existing_minio_user="$(get_env_value MINIO_ROOT_USER)"
+existing_minio_pass="$(get_env_value MINIO_ROOT_PASSWORD)"
+if [ -z "$existing_minio_user" ]; then
+  update_env_value MINIO_ROOT_USER "$(generate_jwt_secret)"
+fi
+if [ -z "$existing_minio_pass" ]; then
+  update_env_value MINIO_ROOT_PASSWORD "$(generate_jwt_secret)"
+fi
+
 # Read the configured ports from .env so the in-use check matches what compose
 # will actually bind, even if the user changed DB_PORT/API_PORT/FRONTEND_PORT.
 db_port="$(get_env_value DB_PORT)"
@@ -193,7 +205,7 @@ check_port "$api_port"
 check_port "$fe_port"
 
 say "Starting GeoLens..."
-docker compose up -d
+docker compose up --detach
 
 # Wait up to 90s for the stack to become healthy. The migrate one-shot must
 # exit 0; every healthcheck-having service must report (healthy). If migrate

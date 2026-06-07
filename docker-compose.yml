@@ -119,7 +119,7 @@ services:
       - ./scripts/init-db.sh:/docker-entrypoint-initdb.d/10-init.sh
       - ./db/postgresql.conf:/etc/postgresql/custom.conf:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -p 5432 -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 5s
       timeout: 5s
       retries: 5
