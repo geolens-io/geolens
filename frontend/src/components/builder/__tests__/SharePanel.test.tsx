@@ -587,8 +587,16 @@ describe('SHARE-04 expiration presets', () => {
 
   it('test_select_pre_populates_to_custom_when_shareExpires_off_preset: shareExpires at T12:00 (off-preset) → Select shows "Custom date…" and date input shows the date', async () => {
     const user = userEvent.setup();
-    // shareExpires at T12:00 — outside preset ±1 day tolerance (presets use T23:59:59)
-    setup({ enterprise: true, shareExpires: '2026-06-15T12:00:00Z' });
+    // shareExpires off every preset (7/30/90d ±1 day) AND at T12:00 (presets use
+    // T23:59:59). Computed relative to now (not hardcoded) so it can't drift into a
+    // preset window as the calendar advances — a previously hardcoded 2026-06-15
+    // started failing once "now" reached 2026-06-07 and the 7-day preset landed
+    // within the ±1-day tolerance of it. 45 days is safely between the 30d and 90d
+    // presets.
+    const offPresetDate = new Date(Date.now() + 45 * 24 * 60 * 60 * 1000)
+      .toISOString()
+      .split('T')[0];
+    setup({ enterprise: true, shareExpires: `${offPresetDate}T12:00:00.000Z` });
 
     await openLinkSettings(user);
 
@@ -599,7 +607,7 @@ describe('SHARE-04 expiration presets', () => {
     // The date input should be pre-populated with the date portion
     const dateInputs = document.querySelectorAll<HTMLInputElement>('input[type="date"]');
     expect(dateInputs.length).toBeGreaterThan(0);
-    expect(dateInputs[0]).toHaveValue('2026-06-15');
+    expect(dateInputs[0]).toHaveValue(offPresetDate);
   });
 
   it('test_select_pre_populates_to_seven_days_when_within_preset_window: shareExpires = (now + 7d at T23:59:59Z) → Select shows "7 days"', async () => {
