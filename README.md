@@ -86,9 +86,10 @@ curl "http://localhost:8080/api/search/datasets/?q=hydrology&limit=3" \
 Every dataset is also a standard OGC API Features endpoint:
 
 ```bash
-# Grab a collection id from the catalog (the items endpoint itself needs no auth)
+# Grab a public collection id from the catalog. Search anonymously (no token) so
+# the id is one anyone can read — matching the unauthenticated items request below.
 CID=$(curl -s "http://localhost:8080/api/search/datasets/?q=countries&limit=1" \
-  -H "Authorization: Bearer $TOKEN" | jq -r '.features[0].id')
+  | jq -r '.features[0].id')
 
 # GeoJSON features with a bbox filter — works in QGIS, ArcGIS, any OGC client
 curl "http://localhost:8080/api/collections/$CID/items?bbox=-10,35,30,60&limit=5"
