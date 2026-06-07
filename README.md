@@ -265,8 +265,10 @@ All configuration is managed through environment variables in `.env`. See the [C
 
 ### Connection Pool Budget
 
-GeoLens ships tuned for a **single PostgreSQL** instance — its pool defaults fit
-`max_connections = 30` (API + worker + admin) out of the box. See
+GeoLens ships tuned for a **single PostgreSQL** instance: the API, worker, and admin
+pools fit within **30 of 30 max_connections** out of the box (PERF-05 — Postgres
+`max_connections` lowered from 50 → 30), sized by `DB_POOL_SIZE` (`pool_size`) and
+`DB_MAX_OVERFLOW` (`max_overflow`, default 3). See
 [Connection Pool Tuning](https://docs.getgeolens.com/guides/quickstart/configuration/#connection-pool-tuning)
 for the per-process budget and how to raise the ceiling.
 
