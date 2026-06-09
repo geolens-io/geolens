@@ -162,15 +162,36 @@ else
   # branch when no release tag resolves (offline, or a fork with no releases).
   # Override with GEOLENS_REF=<tag|branch> to pin a specific ref or track main.
   ref="${GEOLENS_REF:-}"
+  ref_is_tag=false
   if [ -z "$ref" ]; then
     ref="$(git ls-remote --tags --refs "$REPO_URL" 2>/dev/null \
       | awk -F/ '{print $NF}' \
       | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' \
       | sort -t. -k1.2,1n -k2,2n -k3,3n \
       | tail -n 1)"
+    if [ -n "$ref" ]; then
+      ref_is_tag=true
+    fi
+  elif git ls-remote --tags --refs "$REPO_URL" 2>/dev/null \
+      | awk -F/ '{print $NF}' | grep -qxF "$ref"; then
+    # An explicit GEOLENS_REF that names a real release tag is checked out as a
+    # tag (shadow-safe, below) rather than tracked as a branch.
+    ref_is_tag=true
   fi
-  if [ -n "$ref" ]; then
+  if [ "$ref_is_tag" = "true" ]; then
     say "Installing release $ref"
+    # Check out the tag via an explicit refs/tags/ fetch into a detached HEAD,
+    # NOT `git clone --branch "$ref"`. Git resolves `--branch <name>` as a branch
+    # first and only falls back to a tag, so a malicious refs/heads/<tag> pushed
+    # to the remote would shadow the real refs/tags/<tag> and get built in place
+    # of the release. A fully-qualified refs/tags/ fetch cannot be shadowed.
+    git init -q "$INSTALL_DIR"
+    git -C "$INSTALL_DIR" remote add origin "$REPO_URL"
+    git -C "$INSTALL_DIR" fetch -q --depth 1 origin "refs/tags/$ref:refs/tags/$ref"
+    git -C "$INSTALL_DIR" checkout -q --detach "refs/tags/$ref"
+  elif [ -n "$ref" ]; then
+    # A GEOLENS_REF that is not a release tag (e.g. a branch like main) — track it.
+    say "Installing ref $ref"
     git clone --depth 1 --branch "$ref" "$REPO_URL" "$INSTALL_DIR"
   else
     warn "Could not resolve a release tag; cloning the default branch."
