@@ -89,6 +89,7 @@ GEOLENS_ADMIN_USERNAME=admin GEOLENS_ADMIN_PASSWORD='change-me' bash scripts/ins
 |----------|---------|
 | `GEOLENS_REPO_URL` | Override the clone URL (default: `https://github.com/geolens-io/geolens.git`) |
 | `GEOLENS_INSTALL_DIR` | Directory to clone into when not already in a checkout (default: `geolens`) |
+| `GEOLENS_REF` | Install a specific ref instead of the latest release tag — a tag (e.g. `v1.2.0`) or a branch (e.g. `main`). Tags are checked out by their fully-qualified `refs/tags/` ref so a same-named branch cannot shadow them. |
 | `GEOLENS_ADMIN_USERNAME` | Skip the admin-username prompt with this value |
 | `GEOLENS_ADMIN_PASSWORD` | Skip the admin-password prompt with this value |
 

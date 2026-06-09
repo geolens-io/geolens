@@ -29,6 +29,7 @@ jobs:
       e2e: ${{ steps.filter.outputs.e2e }}
       cli: ${{ steps.filter.outputs.cli }}
       alembic: ${{ steps.filter.outputs.alembic }}
+      installer: ${{ steps.filter.outputs.installer }}
     steps:
       - uses: actions/checkout@v6
       - uses: dorny/paths-filter@v4
@@ -66,6 +67,9 @@ jobs:
               - 'backend/scripts/test_alembic_upgrade_clean_db.sh'
               - 'backend/app/models/**'
               - 'db/**'
+            installer:
+              - 'scripts/install.sh'
+              - 'scripts/tests/test-install-tag-resolution.sh'
 
   # ---------- backend ----------
   backend-lint:
@@ -129,6 +133,22 @@ jobs:
 
       - name: Secret scan (tracked tree)
         run: gitleaks dir . -c .gitleaks.toml --redact --no-banner
+
+  # ---------- installer ----------
+  # Regression guard for the release-tag checkout in scripts/install.sh: a remote
+  # branch named identically to a release tag must not shadow the tag. Pure
+  # shell + git (no Docker/DB), so it is fast and only runs when the installer or
+  # its test changes.
+  installer-test:
+    name: Installer Tag Resolution
+    needs: changes
+    if: needs.changes.outputs.installer == 'true' || github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Tag/branch shadowing regression test
+        run: sh scripts/tests/test-install-tag-resolution.sh
 
   openapi-snapshot:
     name: OpenAPI Snapshot Drift
