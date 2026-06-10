@@ -22,9 +22,17 @@ FAIL=0
 ok()  { PASS=$((PASS + 1)); printf 'ok %d - %s\n' "$((PASS + FAIL))" "$1"; }
 bad() { FAIL=$((FAIL + 1)); printf 'not ok %d - %s\n' "$((PASS + FAIL))" "$1"; }
 
-# Deterministic git invocation: pinned default branch + identity, so the test
-# does not depend on the runner's global git config.
-g() { git -c init.defaultBranch=main -c user.email=ci@geolens.test -c user.name=ci "$@"; }
+# Deterministic git invocation: pin default branch + identity + disable commit/tag
+# signing, so fixture creation does not depend on (or fail under) the runner's
+# global git config (e.g. a global commit.gpgsign=true with no key).
+g() {
+  git -c init.defaultBranch=main -c user.email=ci@geolens.test -c user.name=ci \
+      -c commit.gpgsign=false -c tag.gpgsign=false "$@"
+}
+
+# The real git binary, captured before any PATH shim is prepended (the atomicity
+# case below runs the installer with a git wrapper that fails only `fetch`).
+REAL_GIT="$(command -v git)"
 
 # Fake `docker` so the installer's `docker compose version/up/ps` calls succeed
 # instantly (empty `ps` output => no unhealthy services => health gate passes).
@@ -93,6 +101,13 @@ run_installer() {
 }
 
 marker_of() { cat "$WORK/run-$1/install/marker.txt" 2>/dev/null; }
+expect_exit0() {  # assert a case completed cleanly (catches post-checkout regressions)
+  if [ "$(cat "$WORK/run-$1/code.txt")" = "0" ]; then
+    ok "$1 installer exits 0"
+  else
+    bad "$1 installer exit=$(cat "$WORK/run-$1/code.txt")"
+  fi
+}
 
 # 1) PRIMARY GUARD: auto-resolve must check out the release TAG, never the
 #    same-named shadow branch.
@@ -121,6 +136,7 @@ if [ "$(marker_of pin)" = "TAG_RELEASE" ]; then
 else
   bad "tag pin installed '$(marker_of pin)' (expected TAG_RELEASE)"
 fi
+expect_exit0 pin
 
 # 3) Non-tag GEOLENS_REF must still track the branch (no regression).
 run_installer branch "file://$REMOTE" feature-x
@@ -129,6 +145,7 @@ if [ "$(marker_of branch)" = "FEATURE_X" ]; then
 else
   bad "branch override installed '$(marker_of branch)' (expected FEATURE_X)"
 fi
+expect_exit0 branch
 
 # 4) No release tags => default-branch fallback.
 run_installer notags "file://$NOTAGS"
@@ -136,6 +153,38 @@ if [ "$(marker_of notags)" = "DEFAULT_BRANCH" ]; then
   ok "no-tags remote falls back to the default branch"
 else
   bad "no-tags fallback installed '$(marker_of notags)' (expected DEFAULT_BRANCH)"
+fi
+expect_exit0 notags
+
+# 5) ATOMICITY: a tag-path fetch failure must leave NO INSTALL_DIR behind, so a
+#    re-run is not wedged (the tag checkout builds in a temp dir and only moves
+#    into place on success). Inject the failure with a git wrapper that fails
+#    only `fetch` (ls-remote classification still passes through to real git).
+FAILBIN="$WORK/failbin"
+mkdir -p "$FAILBIN"
+printf '#!/bin/sh\nexit 0\n' > "$FAILBIN/docker"
+chmod +x "$FAILBIN/docker"
+{
+  printf '#!/bin/sh\n'
+  printf 'for a in "$@"; do\n'
+  printf '  if [ "$a" = fetch ]; then echo "fatal: simulated fetch failure" >&2; exit 128; fi\n'
+  printf 'done\n'
+  printf 'exec %s "$@"\n' "$REAL_GIT"
+} > "$FAILBIN/git"
+chmod +x "$FAILBIN/git"
+atomic_dir="$WORK/run-atomic"
+mkdir -p "$atomic_dir"
+( cd "$atomic_dir" \
+  && env "PATH=$FAILBIN:$PATH" GEOLENS_REPO_URL="file://$REMOTE" GEOLENS_REF=v9.9.9 \
+       GEOLENS_INSTALL_DIR="$atomic_dir/install" \
+       GEOLENS_ADMIN_USERNAME=admin GEOLENS_ADMIN_PASSWORD=admin \
+       sh "$INSTALL_SH" </dev/null > "$atomic_dir/out.txt" 2>&1 )
+atomic_code=$?
+if [ "$atomic_code" -ne 0 ] && [ ! -e "$atomic_dir/install" ]; then
+  ok "failed tag fetch exits non-zero and leaves no INSTALL_DIR (atomic, re-runnable)"
+else
+  bad "fetch failure was not atomic (exit=$atomic_code, INSTALL_DIR exists=$([ -e "$atomic_dir/install" ] && echo yes || echo no))"
+  sed 's/^/    # /' "$atomic_dir/out.txt"
 fi
 
 echo "1..$((PASS + FAIL))"

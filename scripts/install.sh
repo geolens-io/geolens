@@ -185,10 +185,22 @@ else
     # first and only falls back to a tag, so a malicious refs/heads/<tag> pushed
     # to the remote would shadow the real refs/tags/<tag> and get built in place
     # of the release. A fully-qualified refs/tags/ fetch cannot be shadowed.
-    git init -q "$INSTALL_DIR"
-    git -C "$INSTALL_DIR" remote add origin "$REPO_URL"
-    git -C "$INSTALL_DIR" fetch -q --depth 1 origin "refs/tags/$ref:refs/tags/$ref"
-    git -C "$INSTALL_DIR" checkout -q --detach "refs/tags/$ref"
+    #
+    # Build into a temp dir and move into place only after checkout succeeds, so a
+    # failed or interrupted fetch never leaves a half-initialized INSTALL_DIR that
+    # the next run would mistake for a valid checkout (git clone is atomic this
+    # way). The earlier `[ -e "$INSTALL_DIR" ]` guard guarantees INSTALL_DIR does
+    # not exist yet, so building a sibling temp dir and moving it in is safe.
+    tmp="${INSTALL_DIR}.tmp.$$"
+    rm -rf "$tmp"
+    if ! { git init -q "$tmp" \
+        && git -C "$tmp" remote add origin "$REPO_URL" \
+        && git -C "$tmp" fetch -q --depth 1 origin "refs/tags/$ref:refs/tags/$ref" \
+        && git -C "$tmp" checkout -q --detach "refs/tags/$ref"; }; then
+      rm -rf "$tmp"
+      fail "Could not fetch release $ref from $REPO_URL"
+    fi
+    mv "$tmp" "$INSTALL_DIR"
   elif [ -n "$ref" ]; then
     # A GEOLENS_REF that is not a release tag (e.g. a branch like main) — track it.
     say "Installing ref $ref"
