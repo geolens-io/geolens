@@ -7,6 +7,8 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+## [1.2.3] - 2026-06-10
+
 ### Security
 
 - Map read endpoints, including anonymous and shared-map views, now re-authorize
