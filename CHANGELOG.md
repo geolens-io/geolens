@@ -7,6 +7,21 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+### Security
+
+- Map read endpoints, including anonymous and shared-map views, now re-authorize
+  each layer's dataset. Layers backed by datasets the caller cannot access are
+  omitted, and their signed vector-tile URLs no longer expose private tile data.
+- OGC API – Records item lookup by `externalId` now enforces dataset visibility,
+  so private catalog records are no longer disclosed to unauthenticated requests.
+- Virtual raster (VRT) creation and source addition now authorize each source
+  dataset against the caller, preventing one user from compositing another user's
+  private raster into a VRT they own and reading its pixels back. VRT
+  source-listing and status responses now omit members the caller cannot access.
+- AI metadata-assist endpoints now authorize the requested dataset, preventing a
+  user from generating drafts against another user's private dataset, which
+  previously exposed that dataset's metadata, source, schema, and sample values.
+
 ## [1.2.0] - 2026-06-02
 
 ### Added
