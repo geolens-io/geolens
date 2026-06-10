@@ -360,6 +360,33 @@ def _make_vrt_asset(status: str = "ready") -> MagicMock:
 class TestVrtSourceOrphanGuard:
     """Verify VRT add/remove defer failures revert asset state + mark job failed."""
 
+    @pytest.fixture(autouse=True)
+    def _stub_vrt_source_authz(self):
+        """SEC-C (Phase 1172): add_vrt_source now authorizes the new source and
+        the parent VRT (check_dataset_access + get_user_roles + get_dataset),
+        each of which issues its own ``db.execute`` calls that would shift the
+        call-count-ordered mock ``db`` sequence in the add test. Stub them to
+        make ZERO db.execute calls (and always allow) so the sequence stays
+        valid; the authorization behavior is covered by
+        ``tests/test_vrt_source_authz_1172.py``. Harmless for the
+        remove_vrt_source test (which never invokes these helpers).
+        """
+        with (
+            patch(
+                "app.modules.catalog.authorization.get_user_roles",
+                new=AsyncMock(return_value=set()),
+            ),
+            patch(
+                "app.modules.catalog.authorization.check_dataset_access",
+                new=AsyncMock(return_value=set()),
+            ),
+            patch(
+                "app.modules.catalog.datasets.domain.service.get_dataset",
+                new=AsyncMock(return_value=MagicMock()),
+            ),
+        ):
+            yield
+
     def test_add_vrt_source_defer_failure_reverts_state_and_raises_503(self):
         """VRT add_source defer crash must revert ``vrt_asset.status``, delete
         the inserted source link, mark the IngestJob failed, and raise 503."""
