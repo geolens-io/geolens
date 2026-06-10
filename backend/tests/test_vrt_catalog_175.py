@@ -364,6 +364,24 @@ class TestQuicklookVrt:
 class TestVrtSourcesEndpoint:
     """list_vrt_sources returns ordered VrtSourceItems; 404 for non-VRT / non-existent."""
 
+    @pytest.fixture(autouse=True)
+    def _stub_vrt_member_authz(self):
+        """SEC-E (Phase 1172): list_vrt_sources now drops members the caller
+        cannot access via get_permission_extension().can_access_dataset(per
+        member). These unit tests mock the SQL rows and ``check_dataset_access``
+        (which they set to return None), then assert the FULL returned list, so
+        stub the per-member check to allow-all — otherwise can_access_dataset
+        would run for real against a None user_roles and raise. The filtering
+        behavior itself is covered by tests/test_vrt_source_authz_1172.py.
+        """
+        ext = MagicMock()
+        ext.can_access_dataset = AsyncMock(return_value=True)
+        with patch(
+            "app.modules.catalog.datasets.api.router_vrt.get_permission_extension",
+            return_value=ext,
+        ):
+            yield
+
     @pytest.mark.asyncio
     async def test_returns_ordered_source_list_for_vrt_dataset(self):
         """list_vrt_sources returns VrtSourceListResponse with correct fields."""
