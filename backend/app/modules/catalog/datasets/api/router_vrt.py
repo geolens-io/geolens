@@ -28,7 +28,7 @@ from app.modules.catalog.datasets.domain.schemas import (
 )
 from app.modules.catalog.datasets.domain.service import get_dataset
 from app.core.dependencies import get_db
-from app.platform.extensions import get_catalog_port
+from app.platform.extensions import get_catalog_port, get_permission_extension
 from app.standards.ogc.errors import ERROR_RESPONSES_WRITE
 
 router = APIRouter(
@@ -55,7 +55,7 @@ async def list_vrt_sources(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found"
         )
-    await check_dataset_access(db, dataset, dataset_id, user)
+    user_roles = await check_dataset_access(db, dataset, dataset_id, user)
     rows = await db.execute(
         text("""
             SELECT vsl.source_dataset_id AS dataset_id, rec.title, vsl.position,
@@ -70,8 +70,20 @@ async def list_vrt_sources(
         """),
         {"vrt_id": str(dataset_id)},
     )
+    # SEC-E: SEC-C authorizes sources only at link time and there is no
+    # migration re-authorizing pre-existing vrt_source_links, so a VRT may hold
+    # member rows the caller cannot access (created before the fix, or a source
+    # later flipped private / lost a grant). Drop those members here so their
+    # title/CRS/resolution/extent never leak. Non-raising (can_access_dataset)
+    # — a 404 would abort the whole listing.
+    ext = get_permission_extension()
     sources = []
     for row in rows.all():
+        src_dataset = await get_dataset(db, row.dataset_id)
+        if src_dataset is None or not await ext.can_access_dataset(
+            db, src_dataset, row.dataset_id, user, user_roles=user_roles
+        ):
+            continue
         extent_bbox = None
         if row.extent_wkt:
             try:
@@ -112,7 +124,7 @@ async def get_vrt_status(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found"
         )
-    await check_dataset_access(db, dataset, dataset_id, user)
+    user_roles = await check_dataset_access(db, dataset, dataset_id, user)
 
     # Load VRT RasterAsset
     asset_result = await db.execute(
@@ -139,7 +151,10 @@ async def get_vrt_status(
     last_gen = gen_result.scalar_one_or_none()
     last_generation_at = last_gen.completed_at if last_gen else None
 
-    # Source count
+    # Source count — raw total link count. This intentionally reflects ALL
+    # links, while source_health below reflects only members the caller can
+    # access (SEC-E). Recomputing the count from the filtered set would leak
+    # the size of the unauthorized delta, so the totals are allowed to diverge.
     count_result = await db.execute(
         text(
             "SELECT COUNT(*) FROM catalog.vrt_source_links WHERE vrt_dataset_id = :id"
@@ -190,12 +205,17 @@ async def get_vrt_status(
     )
     source_health_list = []
     storage = get_storage()
+    # SEC-E: drop members the caller cannot access (legacy links / authz drift)
+    # before probing storage, so their existence/health never leaks.
+    ext = get_permission_extension()
 
     # Collect sources and their URIs for parallel checks
     sources_to_check = []
     for row in source_rows.all():
         if row.ds_id is None:
-            # Source dataset was deleted
+            # Source dataset was deleted. Keep this "missing" health branch and
+            # the None-guard below so can_access_dataset never deref's
+            # None.record for a source whose dataset row no longer exists.
             source_health_list.append(
                 VrtSourceHealth(
                     dataset_id=row.source_dataset_id,
@@ -203,8 +223,14 @@ async def get_vrt_status(
                     status="missing",
                 )
             )
-        else:
-            sources_to_check.append(row)
+            continue
+        src_dataset = await get_dataset(db, row.source_dataset_id)
+        if src_dataset is None or not await ext.can_access_dataset(
+            db, src_dataset, row.source_dataset_id, user, user_roles=user_roles
+        ):
+            # SEC-E: omit unauthorized members before any storage.exists probe.
+            continue
+        sources_to_check.append(row)
 
     # Parallel storage.exists() checks for non-missing sources
     if sources_to_check:

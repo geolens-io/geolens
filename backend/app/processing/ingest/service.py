@@ -486,6 +486,24 @@ async def create_vrt_job(
                 detail=f"Source dataset {sid} not found or not a raster dataset",
             )
 
+    # 3b. SEC-C: authorize EVERY source dataset against the caller before
+    # mosaicking. The worker compiles all source pixels into a single served
+    # asset, so a foreign private source cannot be filtered at read time —
+    # authorize at write/link time (mirrors #234's create_relationship). On
+    # denial, check_dataset_access raises 404. This runs BEFORE
+    # validate_sources so a foreign source 404s rather than leaking a 422
+    # compatibility error about a dataset the caller cannot see.
+    from app.modules.catalog.authorization import (
+        check_dataset_access,
+        get_user_roles,
+    )
+    from app.modules.catalog.datasets.domain.service import get_dataset
+
+    user_roles = await get_user_roles(db, user)
+    for sid in request.source_dataset_ids:
+        src_dataset = await get_dataset(db, sid)  # existence proven above; non-None
+        await check_dataset_access(db, src_dataset, sid, user, user_roles=user_roles)
+
     # 4. Validate source compatibility
     errors = validate_sources(request.vrt_type, list(found_assets))
     if errors:
