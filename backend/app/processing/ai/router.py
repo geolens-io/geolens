@@ -465,6 +465,37 @@ async def _call_metadata_ai(coro: Awaitable[_T], error_prefix: str) -> _T:
     return await _call_llm_endpoint(coro, error_prefix=error_prefix)
 
 
+async def _authorize_metadata_dataset(
+    db: AsyncSession, dataset_id: str, user: Identity
+) -> None:
+    """SEC-D: authorize the attacker-controlled body.dataset_id before AI metadata
+    generation. Without this, an editor (the default role has ``use_ai_chat``) can
+    read ANY user's PRIVATE dataset — its metadata, source_url/filename, column
+    schema, and sample values — because ``_build_dataset_context`` loads the dataset
+    with no visibility filter and renders it into the LLM prompt, which is echoed in
+    the response. Authorize in the handler (NOT inside ``_build_dataset_context``:
+    that has a ``dataset_id``-keyed TTL cache and no ``user`` param, so a cache hit
+    would bypass an in-service check). On denial ``check_dataset_access`` raises 404
+    — same response as a nonexistent dataset, so this is not an existence oracle.
+    """
+    from app.modules.catalog.authorization import check_dataset_access
+    from app.modules.catalog.datasets.domain.service import get_dataset
+
+    try:
+        dsid = uuid_mod.UUID(dataset_id)
+    except (ValueError, AttributeError, TypeError):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Invalid dataset_id",
+        )
+    dataset = await get_dataset(db, dsid)
+    if dataset is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found"
+        )
+    await check_dataset_access(db, dataset, dsid, user)
+
+
 @router.post("/metadata/summary/", response_model=SummaryDraftResponse)
 @limiter.limit(_AI_METADATA_LIMIT)
 async def generate_metadata_summary(
@@ -476,6 +507,7 @@ async def generate_metadata_summary(
 ) -> SummaryDraftResponse:
     """Generate an AI-drafted summary for a dataset."""
     await _check_ai_available(db)
+    await _authorize_metadata_dataset(db, body.dataset_id, user)  # SEC-D
     return await _call_metadata_ai(
         generate_summary_draft(db, body.dataset_id, port=port),
         "AI metadata summary generation",
@@ -493,6 +525,7 @@ async def generate_metadata_keywords(
 ) -> KeywordSuggestionsResponse:
     """Generate AI-suggested keywords for a dataset."""
     await _check_ai_available(db)
+    await _authorize_metadata_dataset(db, body.dataset_id, user)  # SEC-D
     return await _call_metadata_ai(
         generate_keyword_suggestions(db, body.dataset_id, port=port),
         "AI metadata keyword generation",
@@ -510,6 +543,7 @@ async def generate_metadata_lineage(
 ) -> LineageDraftResponse:
     """Generate an AI-drafted lineage summary for a dataset."""
     await _check_ai_available(db)
+    await _authorize_metadata_dataset(db, body.dataset_id, user)  # SEC-D
     return await _call_metadata_ai(
         generate_lineage_draft(db, body.dataset_id, port=port),
         "AI metadata lineage generation",
@@ -529,6 +563,7 @@ async def generate_metadata_quality_statement(
 ) -> QualityStatementDraftResponse:
     """Generate an AI-drafted quality statement for a dataset."""
     await _check_ai_available(db)
+    await _authorize_metadata_dataset(db, body.dataset_id, user)  # SEC-D
     return await _call_metadata_ai(
         generate_quality_statement_draft(db, body.dataset_id, port=port),
         "AI metadata quality statement generation",

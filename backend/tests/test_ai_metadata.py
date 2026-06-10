@@ -311,23 +311,23 @@ async def test_returns_401_unauthenticated(client: AsyncClient):
 
 
 @pytest.mark.anyio
-async def test_returns_422_invalid_dataset(
+async def test_returns_404_nonexistent_dataset(
     client: AsyncClient,
     admin_auth_header: dict,
 ):
-    """POST with nonexistent dataset_id returns 422."""
+    """POST with a nonexistent dataset_id returns 404 (SEC-D, Phase 1173).
+
+    The endpoint now authorizes the requested dataset (``_authorize_metadata_dataset``)
+    before invoking the generation service: a well-formed UUID that maps to no dataset
+    is loaded as ``None`` and rejected with 404 — the SAME response a caller gets for a
+    dataset they may not access, so existence is not disclosed. (Pre-1173 this surfaced
+    as 422 from the service's ``ValueError``; the authz check now fires first.)
+    """
     fake_id = str(uuid.uuid4())
 
-    with (
-        patch(
-            "app.processing.ai.router._check_ai_available",
-            new_callable=AsyncMock,
-        ),
-        patch(
-            "app.processing.ai.router.generate_summary_draft",
-            new_callable=AsyncMock,
-            side_effect=ValueError("Dataset not found"),
-        ),
+    with patch(
+        "app.processing.ai.router._check_ai_available",
+        new_callable=AsyncMock,
     ):
         resp = await client.post(
             "/ai/metadata/summary/",
@@ -335,5 +335,5 @@ async def test_returns_422_invalid_dataset(
             headers=admin_auth_header,
         )
 
-    assert resp.status_code == 422
+    assert resp.status_code == 404
     assert "not found" in resp.json()["detail"].lower()
