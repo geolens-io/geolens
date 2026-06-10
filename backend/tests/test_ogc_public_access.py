@@ -367,3 +367,96 @@ async def test_admin_sees_all_drafts(
     feature_ids = [f["id"] for f in list_resp.json()["features"]]
     if list_resp.json().get("numberMatched", len(feature_ids)) <= 100:
         assert str(draft.id) in feature_ids
+
+
+# ---------------------------------------------------------------------------
+# SEC-B: externalId lookup must enforce dataset visibility (mirror path-param item)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_externalid_no_auth_private_returns_404(
+    client: AsyncClient,
+    test_db_session,
+):
+    """Anon GET /collections/datasets/items?externalId=<private uuid> returns 404
+    (no metadata leak). Fails on pre-fix code (returns 200 + full OGC Record)."""
+    admin_id = await get_user_id(test_db_session, "admin")
+    priv = await create_dataset(
+        test_db_session,
+        created_by=admin_id,
+        name="Private ExternalId Leak",
+        visibility="private",
+    )
+    resp = await client.get(
+        "/collections/datasets/items", params={"externalId": str(priv.id)}
+    )
+    assert resp.status_code == 404
+    assert str(priv.id) not in resp.text
+
+
+@pytest.mark.anyio
+async def test_externalid_no_auth_draft_returns_404(
+    client: AsyncClient,
+    test_db_session,
+):
+    """Anon externalId lookup of a public-but-unpublished (draft) dataset returns 404."""
+    admin_id = await get_user_id(test_db_session, "admin")
+    draft = await create_dataset(
+        test_db_session,
+        created_by=admin_id,
+        name="Draft ExternalId Leak",
+        visibility="public",
+        record_status="draft",
+    )
+    resp = await client.get(
+        "/collections/datasets/items", params={"externalId": str(draft.id)}
+    )
+    assert resp.status_code == 404
+
+
+@pytest.mark.anyio
+async def test_externalid_owner_admin_private_returns_200(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+):
+    """Owner/admin externalId lookup of a private dataset still returns 200 (the gate
+    must not over-block authorized callers)."""
+    admin_id = await get_user_id(test_db_session, "admin")
+    priv = await create_dataset(
+        test_db_session,
+        created_by=admin_id,
+        name="Owner ExternalId OK",
+        visibility="private",
+    )
+    resp = await client.get(
+        "/collections/datasets/items",
+        params={"externalId": str(priv.id)},
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["id"] == str(priv.id)
+    assert body["type"] == "Feature"
+
+
+@pytest.mark.anyio
+async def test_externalid_no_auth_public_returns_200(
+    client: AsyncClient,
+    test_db_session,
+):
+    """Anon externalId lookup of a public+published dataset still returns 200
+    (public happy path preserved; the gate 404s only on denial)."""
+    admin_id = await get_user_id(test_db_session, "admin")
+    pub = await create_dataset(
+        test_db_session,
+        created_by=admin_id,
+        name="Public ExternalId OK",
+        visibility="public",
+    )
+    resp = await client.get(
+        "/collections/datasets/items", params={"externalId": str(pub.id)}
+    )
+    assert resp.status_code == 200
+    assert resp.json()["id"] == str(pub.id)
