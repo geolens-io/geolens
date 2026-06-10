@@ -81,6 +81,7 @@ from app.modules.catalog.maps.service import (
     create_map,
     create_share_token,
     delete_map,
+    filter_layer_rows_by_dataset_visibility,
     get_active_share_token,
     get_dataset_meta,
     duplicate_map,
@@ -632,6 +633,7 @@ async def get_map_endpoint(
         )
 
     await _check_map_read_access(map_obj, user, db)
+    layer_tuples = await filter_layer_rows_by_dataset_visibility(db, layer_tuples, user)
     layers = _layers_from_tuples(layer_tuples)
     return _build_map_response(
         map_obj,
@@ -700,6 +702,7 @@ async def export_map_style_endpoint(
             detail="Map not found",
         )
     await _check_map_read_access(map_obj, user, db)
+    layer_tuples = await filter_layer_rows_by_dataset_visibility(db, layer_tuples, user)
     style = build_maplibre_style(map_obj, _layers_from_tuples(layer_tuples))
     return JSONResponse(
         content=style,

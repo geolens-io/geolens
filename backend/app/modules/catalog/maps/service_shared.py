@@ -9,8 +9,10 @@ from sqlalchemy import Select, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
+from app.core.identity import Identity
 from app.modules.auth.models import User
-from app.modules.catalog.datasets.domain.models import Dataset, Record
+from app.modules.catalog.authorization import apply_visibility_filter, get_user_roles
+from app.modules.catalog.datasets.domain.models import Dataset, DatasetGrant, Record
 from app.modules.catalog.maps.models import Map, MapLayer
 from app.platform.extensions import get_catalog_port
 
@@ -222,6 +224,36 @@ async def _fetch_layer_rows_ordered(
         )
         for row in result.all()
     ]
+
+
+async def filter_layer_rows_by_dataset_visibility(
+    session: AsyncSession,
+    layer_rows: list[LayerRow],
+    user: Identity | None,
+) -> list[LayerRow]:
+    """Drop layer rows whose backing dataset is not visible to ``user``.
+
+    SEC-A: ``GET /maps/{id}`` and ``/style.json`` gate only the MAP, so a public
+    map referencing a private dataset would otherwise leak that dataset's metadata
+    (and, via the signed tile URL in style.json, its actual tiles) to anonymous
+    callers. This mirrors ``get_shared_map`` (service_public.py), which filters each
+    layer's dataset through ``apply_visibility_filter``. Layer order is preserved.
+
+    Do NOT swap this for ``bulk_check_dataset_access``: that dereferences ``user.id``
+    (crashes on anonymous ``user is None``) and lacks the published-status nuance.
+    """
+    if not layer_rows:
+        return layer_rows
+    user_roles = await get_user_roles(session, user) if user is not None else set()
+    layer_dataset_ids = {row.layer.dataset_id for row in layer_rows}
+    stmt = (
+        select(Dataset.id)
+        .join(Record, Dataset.record_id == Record.id)
+        .where(Dataset.id.in_(layer_dataset_ids))
+    )
+    stmt = apply_visibility_filter(stmt, user, user_roles, Record, DatasetGrant)
+    visible_ids = set((await session.execute(stmt)).scalars().all())
+    return [row for row in layer_rows if row.layer.dataset_id in visible_ids]
 
 
 async def _resolve_save_response_metadata(

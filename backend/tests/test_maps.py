@@ -20,7 +20,7 @@ from sqlalchemy import select
 from app.modules.audit.models import AuditLog
 from app.modules.auth.models import User
 from app.modules.catalog.datasets.domain.models import Dataset, Record
-from app.modules.catalog.maps.models import MapLayer
+from app.modules.catalog.maps.models import Map, MapLayer
 from app.modules.catalog.maps.schemas import MapLayerDiffRequest
 from app.processing.raster.models import RasterAsset
 
@@ -417,6 +417,112 @@ class TestGetMap:
         """GET /maps/{id} without auth returns 404 (anonymous access allowed, map not found)."""
         resp = await client.get(f"/maps/{uuid.uuid4()}")
         assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# SEC-A: map READ endpoints must re-authorize each layer's dataset
+# ---------------------------------------------------------------------------
+
+
+class TestMapLayerDatasetVisibilityLeak:
+    """SEC-A (Phase 1170): a public map referencing a PRIVATE dataset must not
+    leak that dataset's metadata or a replayable signed tile URL to anonymous
+    callers. The map READ endpoints must filter layers by per-caller dataset
+    visibility, mirroring get_shared_map.
+    """
+
+    async def _public_map_with_layer(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        *,
+        dataset_visibility: str,
+    ) -> tuple[str, Dataset]:
+        """Build a PUBLIC map whose single layer references a dataset of the given
+        visibility. The map is flipped public via a direct DB write — the add-layer
+        guard now blocks adding a non-public dataset to an already-public map, so the
+        leaked state is constructed deterministically (add to a private map, then flip).
+        """
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await create_dataset(
+            test_db_session,
+            created_by=admin_id,
+            name=f"SEC-A {dataset_visibility} DS {uuid.uuid4().hex[:6]}",
+            visibility=dataset_visibility,
+        )
+        created = await _create_map(client, admin_auth_header)
+        map_id = created["id"]
+        # Map is private here, so add-layer is allowed for any dataset visibility.
+        resp = await client.post(
+            f"/maps/{map_id}/layers",
+            json={"dataset_id": str(ds.id)},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 201, resp.text
+        m = await test_db_session.get(Map, uuid.UUID(map_id))
+        m.visibility = "public"
+        await test_db_session.commit()
+        return map_id, ds
+
+    async def test_anon_get_map_hides_private_dataset_layer(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        """REG-1: anon GET /maps/{id} omits a private-dataset layer (no table_name/
+        column_info/sample_values leak). Fails on main (unfiltered fetch)."""
+        map_id, ds = await self._public_map_with_layer(
+            client, admin_auth_header, test_db_session, dataset_visibility="private"
+        )
+        resp = await client.get(f"/maps/{map_id}")  # anonymous (no headers)
+        assert resp.status_code == 200, resp.text
+        assert all(
+            layer["dataset_id"] != str(ds.id) for layer in resp.json()["layers"]
+        ), "private dataset layer leaked to anonymous caller"
+
+    async def test_anon_style_json_omits_private_dataset_source(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        """REG-2: anon GET /maps/{id}/style.json omits the private dataset's source
+        (and its replayable signed .pbf URL). Fails on main."""
+        map_id, ds = await self._public_map_with_layer(
+            client, admin_auth_header, test_db_session, dataset_visibility="private"
+        )
+        resp = await client.get(f"/maps/{map_id}/style.json")  # anonymous
+        assert resp.status_code == 200, resp.text
+        assert f"geolens-{ds.id}" not in resp.json()["sources"], (
+            "private dataset source with replayable signed tile URL leaked anonymously"
+        )
+
+    async def test_anon_keeps_public_dataset_layer(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        """REG-3 (control): a PUBLIC dataset layer is STILL visible to anon on both
+        endpoints — guards against over-filtering."""
+        map_id, ds = await self._public_map_with_layer(
+            client, admin_auth_header, test_db_session, dataset_visibility="public"
+        )
+        map_resp = await client.get(f"/maps/{map_id}")
+        assert map_resp.status_code == 200, map_resp.text
+        assert any(
+            layer["dataset_id"] == str(ds.id) for layer in map_resp.json()["layers"]
+        ), "public dataset layer wrongly filtered for anonymous caller"
+        style_resp = await client.get(f"/maps/{map_id}/style.json")
+        assert style_resp.status_code == 200, style_resp.text
+        assert f"geolens-{ds.id}" in style_resp.json()["sources"]
+
+    async def test_owner_still_sees_own_private_layer(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        """REG-4: the owner/admin STILL sees their own private layer (the filter must
+        honor the owner/admin bypass, not strip legitimate access)."""
+        map_id, ds = await self._public_map_with_layer(
+            client, admin_auth_header, test_db_session, dataset_visibility="private"
+        )
+        resp = await client.get(f"/maps/{map_id}", headers=admin_auth_header)
+        assert resp.status_code == 200, resp.text
+        assert any(
+            layer["dataset_id"] == str(ds.id) for layer in resp.json()["layers"]
+        ), "owner lost visibility of their own private layer"
 
 
 # ---------------------------------------------------------------------------
