@@ -1169,6 +1169,7 @@ async def _lookup_by_external_id(
     db: AsyncSession,
     external_id: str,
     request: Request,
+    user: Identity | None,
 ) -> JSONResponse:
     """Lookup a single OGC record by externalId (dataset UUID).
 
@@ -1202,6 +1203,10 @@ async def _lookup_by_external_id(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Record not found"
         )
+    # Visibility check (raises 404 if access denied) — mirror get_collection_item.
+    # Without this, an anonymous caller could read any private/restricted/unpublished
+    # dataset's full OGC metadata by UUID via ?externalId=.
+    await check_dataset_access_or_anonymous(db, dataset, record_uuid, user)
     public_api_url = await get_public_api_url(db, request=request)
     content = dataset_to_ogc_record(dataset, public_api_url)
     return JSONResponse(
@@ -1268,7 +1273,7 @@ async def collection_items(
     """OGC API Records items endpoint -- mirrors /search/datasets."""
     # OGC externalId -> fetch single record by UUID
     if external_id:
-        return await _lookup_by_external_id(db, external_id, request)
+        return await _lookup_by_external_id(db, external_id, request, user)
 
     # Apply OGC-specific overrides via model_copy to keep params immutable
     overrides: dict[str, object] = {}
