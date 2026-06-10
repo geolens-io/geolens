@@ -84,6 +84,26 @@ g init -q "$SRC2"
 NOTAGS="$WORK/notags.git"
 g clone -q --bare "$SRC2" "$NOTAGS" 2>/dev/null
 
+# --- Remote C: a real release tag v1.2.0 plus a NESTED decoy tag
+#     refs/tags/decoy/v9.9.99 whose basename (v9.9.99) sorts above the real
+#     release. A correct resolver matches the full refs/tags/ ref and ignores it.
+SRC3="$WORK/src3"
+mkdir -p "$SRC3"
+g init -q "$SRC3"
+(
+  cd "$SRC3" || exit 1
+  seed_common
+  printf 'REAL_REL\n' > marker.txt
+  g add -A && g commit -qm c1
+  g tag -a v1.2.0 -m 'release 1.2.0'
+  printf 'DECOY\n' > marker.txt
+  g add -A && g commit -qm c2
+  g tag -a decoy/v9.9.99 -m 'nested decoy'   # refs/tags/decoy/v9.9.99
+  g checkout -q main
+)
+DECOY="$WORK/decoy.git"
+g clone -q --bare "$SRC3" "$DECOY" 2>/dev/null
+
 # Run the real installer non-interactively with the docker shim on PATH.
 # $1 = case name, $2 = repo url, $3 = optional GEOLENS_REF
 run_installer() {
@@ -185,6 +205,54 @@ if [ "$atomic_code" -ne 0 ] && [ ! -e "$atomic_dir/install" ]; then
 else
   bad "fetch failure was not atomic (exit=$atomic_code, INSTALL_DIR exists=$([ -e "$atomic_dir/install" ] && echo yes || echo no))"
   sed 's/^/    # /' "$atomic_dir/out.txt"
+fi
+
+# 6) SLASH-TAG DECOY: a nested refs/tags/decoy/v9.9.99 must NOT outrank the real
+#    top-level v1.2.0 release (basename matching would pick the decoy, mis-announce
+#    it, then fail the fetch).
+run_installer decoy "file://$DECOY"
+if [ "$(marker_of decoy)" = "REAL_REL" ]; then
+  ok "nested decoy tag is ignored; real top-level release is installed"
+else
+  bad "decoy test installed '$(marker_of decoy)' (expected REAL_REL)"
+  sed 's/^/    # /' "$WORK/run-decoy/out.txt"
+fi
+if grep -q 'Installing release v1.2.0' "$WORK/run-decoy/out.txt"; then
+  ok "decoy test announces the real release (v1.2.0), not the decoy"
+else
+  bad "decoy test announced the wrong release"
+fi
+
+# 7) FAIL-CLOSED: if the tag list cannot be queried for an explicit tag-shaped
+#    GEOLENS_REF, the installer must FAIL — never silently fall back to the
+#    shadowable `clone --branch`. Inject via a git wrapper that fails only
+#    `ls-remote` (clone/fetch pass through), against Remote A where a v9.9.9
+#    branch shadows the v9.9.9 tag: pre-fix code would clone the malicious branch.
+NOLSBIN="$WORK/nolsbin"
+mkdir -p "$NOLSBIN"
+printf '#!/bin/sh\nexit 0\n' > "$NOLSBIN/docker"
+chmod +x "$NOLSBIN/docker"
+{
+  printf '#!/bin/sh\n'
+  printf 'for a in "$@"; do\n'
+  printf '  if [ "$a" = ls-remote ]; then echo "fatal: simulated ls-remote failure" >&2; exit 128; fi\n'
+  printf 'done\n'
+  printf 'exec %s "$@"\n' "$REAL_GIT"
+} > "$NOLSBIN/git"
+chmod +x "$NOLSBIN/git"
+fc_dir="$WORK/run-failclosed"
+mkdir -p "$fc_dir"
+( cd "$fc_dir" \
+  && env "PATH=$NOLSBIN:$PATH" GEOLENS_REPO_URL="file://$REMOTE" GEOLENS_REF=v9.9.9 \
+       GEOLENS_INSTALL_DIR="$fc_dir/install" \
+       GEOLENS_ADMIN_USERNAME=admin GEOLENS_ADMIN_PASSWORD=admin \
+       sh "$INSTALL_SH" </dev/null > "$fc_dir/out.txt" 2>&1 )
+fc_code=$?
+if [ "$fc_code" -ne 0 ] && [ ! -e "$fc_dir/install" ]; then
+  ok "unqueryable remote with an explicit tag ref fails closed (no shadowable fallback)"
+else
+  bad "fail-closed not honored (exit=$fc_code, INSTALL_DIR exists=$([ -e "$fc_dir/install" ] && echo yes || echo no))"
+  sed 's/^/    # /' "$fc_dir/out.txt"
 fi
 
 echo "1..$((PASS + FAIL))"

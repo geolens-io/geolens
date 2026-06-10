@@ -164,19 +164,28 @@ else
   ref="${GEOLENS_REF:-}"
   ref_is_tag=false
   if [ -z "$ref" ]; then
+    # Auto-resolve the highest semver release tag. Match the FULL refs/tags/<name>
+    # ref (via `awk '{print $2}'`), not just the basename, so a nested decoy tag
+    # like refs/tags/evil/v9.9.9 cannot masquerade as a top-level v9.9.9 release.
     ref="$(git ls-remote --tags --refs "$REPO_URL" 2>/dev/null \
-      | awk -F/ '{print $NF}' \
-      | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' \
+      | awk '{print $2}' \
+      | grep -E '^refs/tags/v[0-9]+\.[0-9]+\.[0-9]+$' \
+      | sed 's#^refs/tags/##' \
       | sort -t. -k1.2,1n -k2,2n -k3,3n \
       | tail -n 1)"
     if [ -n "$ref" ]; then
       ref_is_tag=true
     fi
-  elif git ls-remote --tags --refs "$REPO_URL" 2>/dev/null \
-      | awk -F/ '{print $NF}' | grep -qxF "$ref"; then
-    # An explicit GEOLENS_REF that names a real release tag is checked out as a
-    # tag (shadow-safe, below) rather than tracked as a branch.
-    ref_is_tag=true
+  else
+    # Explicit GEOLENS_REF: classify it against the remote's tag list. Capture the
+    # query result separately from the membership test so a remote-query FAILURE
+    # fails closed — never silently downgrade a ref that might be a release tag to
+    # the shadowable `clone --branch` path below. Match the full refs/tags/ ref.
+    remote_tags="$(git ls-remote --tags --refs "$REPO_URL" 2>/dev/null)" \
+      || fail "Could not query $REPO_URL to classify GEOLENS_REF=$ref"
+    if printf '%s\n' "$remote_tags" | awk '{print $2}' | grep -qxF "refs/tags/$ref"; then
+      ref_is_tag=true
+    fi
   fi
   if [ "$ref_is_tag" = "true" ]; then
     say "Installing release $ref"
