@@ -1,0 +1,442 @@
+# ==============================================================================
+# Production / pull-prebuilt-images compose
+# ==============================================================================
+# This is the compose `scripts/install.sh` uses for a RELEASE install: it PULLS
+# the version-pinned, multi-arch, Trivy-scanned images published by
+# `.github/workflows/publish.yml` instead of building from source. It is the
+# fast, reproducible path for self-hosters.
+#
+#   docker compose -f docker-compose.prod.yml pull
+#   GEOLENS_VERSION=1.2.3 docker compose -f docker-compose.prod.yml up -d
+#
+# The dev/build compose is `docker-compose.yml` (bind-mounts, --reload, Vite dev
+# server, locally-built db). Use that for development or as the offline / fork /
+# unreleased-`main` fallback. install.sh falls back to it automatically when no
+# release image is available.
+#
+# DRIFT: the third-party services (titiler, minio, valkey, backup) and the
+# shared env anchors are duplicated from docker-compose.yml on purpose — a
+# standalone file avoids compose-override list-merge traps (you cannot drop a
+# bind-mount or replace a port via override). Keep db/titiler/minio/valkey/backup
+# blocks in sync with docker-compose.yml when they change.
+#
+# GEOLENS_VERSION pins the image tag. install.sh sets it to the resolved release
+# tag (e.g. 1.2.3). Defaults to `latest` for a manual `docker compose` invocation.
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# Shared environment anchors (kept in sync with docker-compose.yml)
+# ------------------------------------------------------------------------------
+x-db-env: &db-env
+  POSTGRES_USER: ${POSTGRES_USER}
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+  POSTGRES_HOST: db
+  POSTGRES_PORT: 5432
+  POSTGRES_DB: ${POSTGRES_DB}
+
+x-auth-env: &auth-env
+  JWT_SECRET_KEY: ${JWT_SECRET_KEY}
+  GEOLENS_ADMIN_USERNAME: ${GEOLENS_ADMIN_USERNAME}
+  GEOLENS_ADMIN_PASSWORD: ${GEOLENS_ADMIN_PASSWORD}
+  JWT_ALGORITHM: "${JWT_ALGORITHM:-HS256}"
+  ACCESS_TOKEN_EXPIRE_MINUTES: "${ACCESS_TOKEN_EXPIRE_MINUTES:-15}"
+  REFRESH_TOKEN_EXPIRE_DAYS: "${REFRESH_TOKEN_EXPIRE_DAYS:-7}"
+  PASSWORD_MIN_LENGTH: "${PASSWORD_MIN_LENGTH:-12}"
+  PASSWORD_REQUIRE_CLASSES: "${PASSWORD_REQUIRE_CLASSES:-3}"
+
+x-db-ssl-env: &db-ssl-env
+  DATABASE_URL_OVERRIDE: "${DATABASE_URL_OVERRIDE:-}"
+  DATABASE_SSL_MODE: "${DATABASE_SSL_MODE:-prefer}"
+  DATABASE_SSL_CA_CERT: "${DATABASE_SSL_CA_CERT:-}"
+  DATABASE_POOL_PRE_PING: "${DATABASE_POOL_PRE_PING:-true}"
+  DB_USE_EXTERNAL_POOLER: "${DB_USE_EXTERNAL_POOLER:-false}"
+  DB_POOL_SIZE: "${DB_POOL_SIZE:-10}"
+  DB_MAX_OVERFLOW: "${DB_MAX_OVERFLOW:-3}"
+  DB_POOL_TIMEOUT: "${DB_POOL_TIMEOUT:-30}"
+  DB_POOL_RECYCLE: "${DB_POOL_RECYCLE:-1800}"
+
+x-storage-env: &storage-env
+  STORAGE_PROVIDER: "${STORAGE_PROVIDER:-local}"
+  S3_ENDPOINT: "${S3_ENDPOINT:-}"
+  S3_BUCKET: "${S3_BUCKET:-}"
+  S3_ACCESS_KEY_ID: "${S3_ACCESS_KEY_ID:-}"
+  S3_SECRET_ACCESS_KEY: "${S3_SECRET_ACCESS_KEY:-}"
+  S3_REGION: "${S3_REGION:-us-east-1}"
+  S3_ALLOW_HTTP: "${S3_ALLOW_HTTP:-false}"
+  S3_ADDRESSING_STYLE: "${S3_ADDRESSING_STYLE:-auto}"
+
+x-logging-env: &logging-env
+  LOG_JSON: "${LOG_JSON:-false}"
+  LOG_LEVEL: "${LOG_LEVEL:-INFO}"
+
+x-ai-env: &ai-env
+  ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
+  LLM_MODEL: "${LLM_MODEL:-claude-sonnet-4-20250514}"
+  OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
+  OPENAI_MODEL: "${OPENAI_MODEL:-gpt-4o}"
+  OPENAI_BASE_URL: "${OPENAI_BASE_URL:-}"
+  EMBEDDING_MODEL: "${EMBEDDING_MODEL:-text-embedding-3-small}"
+  EMBEDDING_DIMS: "${EMBEDDING_DIMS:-1536}"
+  EMBEDDING_BASE_URL: "${EMBEDDING_BASE_URL:-}"
+
+# Shared hardening profile for the FastAPI-image trio (api, worker, migrate).
+# Identical to docker-compose.yml: start as root, chown the upload_staging
+# volume, then setpriv-drop to uid 1001. read_only root fs + dropped caps.
+x-hardened-base: &hardened-base
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+  cap_add:
+    - CHOWN
+    - DAC_OVERRIDE
+    - FOWNER
+    - SETGID
+    - SETUID
+  read_only: true
+
+# Registry + owner for the published images. Override REGISTRY/IMAGE_OWNER only
+# for a fork or a mirror; defaults point at the canonical GHCR namespace.
+x-image-base: &image-registry ${REGISTRY:-ghcr.io}/${IMAGE_OWNER:-geolens-io}
+
+# ==============================================================================
+# Services
+# ==============================================================================
+services:
+  db:
+    # PostGIS 17 + pgvector, built locally from ./db — a thin layer on the
+    # OFFICIAL postgis/postgis image (the source maintainer) plus the pgvector
+    # apt package. No single upstream image bundles both PostGIS and pgvector,
+    # and we deliberately do NOT publish a custom db image, so this stays a
+    # local build — the only build in a release install (~20s). The official
+    # postgis image is amd64-only; arm64 hosts run it emulated (unchanged from
+    # docker-compose.yml). Same db service as the dev compose.
+    build:
+      context: ./db
+    command: postgres -c config_file=/etc/postgresql/custom.conf
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "127.0.0.1:${DB_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./scripts/init-db.sh:/docker-entrypoint-initdb.d/10-init.sh
+      - ./db/postgresql.conf:/etc/postgresql/custom.conf:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -p 5432 -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+      - SETGID
+      - SETUID
+
+  migrate:
+    # One-shot alembic upgrade, runs from the baked api image (alembic/ +
+    # alembic.ini are COPYed into /app — Dockerfile backend-base).
+    image: ${REGISTRY:-ghcr.io}/${IMAGE_OWNER:-geolens-io}/geolens-api:${GEOLENS_VERSION:-latest}
+    entrypoint: []
+    command: sh -c "uv run --no-dev alembic upgrade head"
+    restart: "no"
+    <<: *hardened-base
+    tmpfs:
+      - /tmp:size=256m,mode=1777
+      - /home/appuser:size=64m,uid=1001,gid=1001
+      - /app/staging:size=8m,uid=1001,gid=1001
+    environment:
+      <<: [*db-env, *auth-env, *db-ssl-env]
+      PYTHONPATH: /app
+    depends_on:
+      db:
+        condition: service_healthy
+
+  api:
+    # Image CMD is the prod uvicorn (no --reload); ENTRYPOINT is the baked
+    # api-entrypoint.sh — both come from the image, so no override here.
+    image: ${REGISTRY:-ghcr.io}/${IMAGE_OWNER:-geolens-io}/geolens-api:${GEOLENS_VERSION:-latest}
+    user: "0:0"
+    init: true
+    stop_grace_period: 30s
+    restart: unless-stopped
+    <<: *hardened-base
+    tmpfs:
+      - /tmp:size=512m,mode=1777
+      - /home/appuser:size=128m,uid=1001,gid=1001
+      - /var/run:size=8m
+    ports:
+      - "127.0.0.1:${API_PORT:-8000}:8000"
+    volumes:
+      - upload_staging:/app/staging
+    environment:
+      <<: [*db-env, *auth-env, *db-ssl-env, *storage-env, *logging-env, *ai-env]
+      PYTHONPATH: /app
+      # Prod default 2 workers (dev uses 1 to keep --reload working).
+      UVICORN_WORKERS: "${UVICORN_WORKERS:-2}"
+      UVICORN_TIMEOUT_KEEP_ALIVE: "${UVICORN_TIMEOUT_KEEP_ALIVE:-5}"
+      UVICORN_TIMEOUT_GRACEFUL_SHUTDOWN: "${UVICORN_TIMEOUT_GRACEFUL_SHUTDOWN:-30}"
+      PUBLIC_APP_URL: ${PUBLIC_APP_URL:-http://localhost:8080}
+      PUBLIC_API_URL: ${PUBLIC_API_URL:-http://localhost:8080/api}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-}
+      REDIS_URL: "${REDIS_URL:-}"
+      CDN_BASE_URL: "${CDN_BASE_URL:-}"
+      PRESIGNED_MULTIPART_THRESHOLD_MB: "${PRESIGNED_MULTIPART_THRESHOLD_MB:-100}"
+      TILE_CACHE_TTL: "${TILE_CACHE_TTL:-300}"
+      TILE_SIGNING_SECRET: "${TILE_SIGNING_SECRET:-}"
+      UPLOAD_MAX_SIZE_MB: "${UPLOAD_MAX_SIZE_MB:-500}"
+      UPLOAD_STAGING_DIR: "${UPLOAD_STAGING_DIR:-/app/staging}"
+      UPLOAD_ALLOWED_EXTENSIONS: "${UPLOAD_ALLOWED_EXTENSIONS:-.zip,.gpkg,.geojson,.json,.csv,.tif,.tiff,.xlsx,.xls}"
+      REGISTRATION_ENABLED: "${REGISTRATION_ENABLED:-false}"
+      TILE_POOL_MIN_SIZE: "${TILE_POOL_MIN_SIZE:-2}"
+      TILE_POOL_MAX_SIZE: "${TILE_POOL_MAX_SIZE:-10}"
+      ENV_ONLY_CONFIG: "${ENV_ONLY_CONFIG:-false}"
+      CORS_ALLOWED_ORIGINS: "${CORS_ALLOWED_ORIGINS:-}"
+      INGEST_HTTP_TIMEOUT_SECONDS: "${INGEST_HTTP_TIMEOUT_SECONDS:-300}"
+      PROCRASTINATE_SCHEMA: "${PROCRASTINATE_SCHEMA:-catalog}"
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  worker:
+    # The worker is the SAME image as api — identical backend-base; the published
+    # geolens-worker image differs only in its baked ENTRYPOINT/CMD/HEALTHCHECK.
+    # Run it from the PUBLIC geolens-api image with those three overridden (the
+    # same pattern the migrate service uses). This keeps a release install pulling
+    # only public images — no dependency on the geolens-worker package visibility.
+    image: ${REGISTRY:-ghcr.io}/${IMAGE_OWNER:-geolens-io}/geolens-api:${GEOLENS_VERSION:-latest}
+    entrypoint: ["/app/scripts/worker-entrypoint.sh"]
+    command: ["sh", "-c", "uv run --no-dev python -m app.worker"]
+    user: "0:0"
+    init: true
+    stop_grace_period: 35s
+    restart: unless-stopped
+    <<: *hardened-base
+    tmpfs:
+      - /tmp:size=512m,mode=1777
+      - /home/appuser:size=128m,uid=1001,gid=1001
+      - /var/run:size=8m
+    volumes:
+      - upload_staging:/app/staging
+    environment:
+      <<: [*db-env, *auth-env, *db-ssl-env, *storage-env, *logging-env, *ai-env]
+      PYTHONPATH: /app
+      REDIS_URL: "${REDIS_URL:-}"
+      UPLOAD_STAGING_DIR: "${UPLOAD_STAGING_DIR:-/app/staging}"
+      WORKER_SHUTDOWN_TIMEOUT: "${WORKER_SHUTDOWN_TIMEOUT:-30}"
+      INGEST_HTTP_TIMEOUT_SECONDS: "${INGEST_HTTP_TIMEOUT_SECONDS:-300}"
+      PROCRASTINATE_SCHEMA: "${PROCRASTINATE_SCHEMA:-catalog}"
+    healthcheck:
+      # The api image's baked healthcheck targets :8000 (uvicorn); the worker
+      # process serves :8001/health/live, so override it here to match the
+      # geolens-worker image's baked check.
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8001/health/live')\""]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  titiler:
+    # Third-party image — identical to docker-compose.yml.
+    image: ghcr.io/developmentseed/titiler:2.0.2
+    init: true
+    restart: unless-stopped
+    stop_grace_period: 15s
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp:size=128m,mode=1777
+    command: uvicorn titiler.application.main:app --host 0.0.0.0 --port 8000 --workers 1
+    environment:
+      GDAL_CACHEMAX: "200"
+      GDAL_DISABLE_READDIR_ON_OPEN: "EMPTY_DIR"
+      CPL_VSIL_CURL_ALLOWED_EXTENSIONS: ".tif,.tiff,.cog,.vrt"
+      GDAL_VRT_RAWRASTERBAND_ALLOWED_SOURCE: "NETWORK_OR_LOCAL"
+      VSI_CACHE: "TRUE"
+      CPL_VSIL_CURL_CACHE_SIZE: "16777216"
+      GDAL_HTTP_MERGE_CONSECUTIVE_RANGES: "YES"
+      AWS_ACCESS_KEY_ID: "${S3_ACCESS_KEY_ID:-}"
+      AWS_SECRET_ACCESS_KEY: "${S3_SECRET_ACCESS_KEY:-}"
+      AWS_DEFAULT_REGION: "${S3_REGION:-us-east-1}"
+      TITILER_API_ROOT_PATH: ""
+    volumes:
+      - upload_staging:/app/staging
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz')\""]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    depends_on:
+      db:
+        condition: service_healthy
+
+  frontend:
+    # Published nginx image: serves the built SPA on :8080 and proxies /api ->
+    # api:8000 and /raster-tiles/* -> the api raster proxy internally (see
+    # frontend/nginx.conf). No build, no bind-mounts, no Vite.
+    image: ${REGISTRY:-ghcr.io}/${IMAGE_OWNER:-geolens-io}/geolens-frontend:${GEOLENS_VERSION:-latest}
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    ports:
+      - "127.0.0.1:${FRONTEND_PORT:-8080}:8080"
+    environment:
+      # The SPA calls relative /api (nginx proxies to api:8000), so a relative
+      # base works for any host the stack is reached on. Override for a CDN.
+      API_BASE_URL: "${FRONTEND_API_BASE_URL:-/api}"
+      TILE_BASE_URL: "${FRONTEND_TILE_BASE_URL:-/api}"
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://127.0.0.1:8080/ || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    depends_on:
+      api:
+        condition: service_healthy
+
+  backup:
+    # Opt-in via `--profile backup`. Built from ./db (no published image) —
+    # same as docker-compose.yml.
+    profiles: ["backup"]
+    build:
+      context: ./db
+    restart: unless-stopped
+    init: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    volumes:
+      - ./scripts:/scripts:ro
+      - backup_data:/backups
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-geolens}
+      POSTGRES_HOST: db
+      BACKUP_SCHEDULE: ${BACKUP_SCHEDULE:-0 2 * * *}
+      BACKUP_RETENTION_DAILY: ${BACKUP_RETENTION_DAILY:-7}
+      BACKUP_RETENTION_WEEKLY: ${BACKUP_RETENTION_WEEKLY:-4}
+      BACKUP_S3_ENABLED: ${BACKUP_S3_ENABLED:-false}
+      S3_ENDPOINT: ${S3_ENDPOINT:-}
+      S3_BUCKET: ${S3_BUCKET:-}
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-}
+      S3_REGION: ${S3_REGION:-us-east-1}
+      S3_ALLOW_HTTP: ${S3_ALLOW_HTTP:-false}
+    entrypoint: ["/scripts/backup-entrypoint.sh"]
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -f backup-entrypoint || pgrep -f sleep || exit 1"]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    depends_on:
+      db:
+        condition: service_healthy
+
+  # --- cloud-dev profile: local S3 + cache (identical to docker-compose.yml) ---
+  minio:
+    image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
+    profiles: ["cloud-dev"]
+    command: server /data --console-address ":9001"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    ports:
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
+    environment:
+      MINIO_ROOT_USER: "${MINIO_ROOT_USER:?MINIO_ROOT_USER is required for --profile cloud-dev (set in .env)}"
+      MINIO_ROOT_PASSWORD: "${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD is required for --profile cloud-dev}"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+  minio-setup:
+    image: quay.io/minio/mc:RELEASE.2025-08-13T08-35-41Z@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+    profiles: ["cloud-dev"]
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      MINIO_ROOT_USER: "${MINIO_ROOT_USER:?MINIO_ROOT_USER is required for --profile cloud-dev}"
+      MINIO_ROOT_PASSWORD: "${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD is required for --profile cloud-dev}"
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 \"$$MINIO_ROOT_USER\" \"$$MINIO_ROOT_PASSWORD\";
+      mc mb --ignore-existing local/geolens;
+      cat > /tmp/cors.json << 'CORSJSON'
+      {
+        \"CORSRules\": [
+          {
+            \"AllowedOrigins\": [\"*\"],
+            \"AllowedMethods\": [\"GET\", \"PUT\", \"POST\", \"DELETE\"],
+            \"AllowedHeaders\": [\"*\"],
+            \"ExposeHeaders\": [\"ETag\"],
+            \"MaxAgeSeconds\": 3600
+          }
+        ]
+      }
+      CORSJSON
+      mc anonymous set-json /tmp/cors.json local/geolens || true;
+      exit 0;
+      "
+
+  valkey:
+    image: valkey/valkey:8.1.7-alpine
+    profiles: ["cloud-dev"]
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - valkey_data:/data
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+volumes:
+  pgdata:
+  upload_staging:
+  backup_data:
+  minio_data:
+  valkey_data:

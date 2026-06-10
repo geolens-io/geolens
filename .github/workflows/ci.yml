@@ -70,6 +70,8 @@ jobs:
             installer:
               - 'scripts/install.sh'
               - 'scripts/tests/test-install-tag-resolution.sh'
+              - 'docker-compose.yml'
+              - 'docker-compose.prod.yml'
 
   # ---------- backend ----------
   backend-lint:
@@ -149,6 +151,21 @@ jobs:
 
       - name: Tag/branch shadowing regression test
         run: sh scripts/tests/test-install-tag-resolution.sh
+
+      - name: Validate compose files parse
+        env:
+          GEOLENS_VERSION: 0.0.0-ci
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: ci
+          JWT_SECRET_KEY: ci-compose-validate-padding-32chars
+          GEOLENS_ADMIN_USERNAME: admin
+          GEOLENS_ADMIN_PASSWORD: admin
+          MINIO_ROOT_USER: ci
+          MINIO_ROOT_PASSWORD: ci-padding
+        run: |
+          docker compose -f docker-compose.yml config -q
+          docker compose -f docker-compose.prod.yml config -q
 
   openapi-snapshot:
     name: OpenAPI Snapshot Drift

@@ -4,6 +4,19 @@ set -eu
 REPO_URL="${GEOLENS_REPO_URL:-https://github.com/geolens-io/geolens.git}"
 INSTALL_DIR="${GEOLENS_INSTALL_DIR:-geolens}"
 
+# Compose file selection. docker-compose.yml builds every service from source;
+# docker-compose.prod.yml pulls the prebuilt, version-pinned release images
+# (api/worker/frontend) and only builds the small db layer. We switch to the
+# prod file below when installing a release tag whose checkout ships it, and
+# fall back to the source build if the pull fails. `compose` wraps every call
+# so the selected file is used consistently (up, pull, ps, logs).
+COMPOSE_FILE="docker-compose.yml"
+RELEASE_VERSION=""
+
+compose() {
+  docker compose -f "$COMPOSE_FILE" "$@"
+}
+
 # Restore terminal echo if interrupted between stty -echo / stty echo.
 trap 'stty echo </dev/tty 2>/dev/null; exit 130' INT TERM
 
@@ -189,6 +202,9 @@ else
   fi
   if [ "$ref_is_tag" = "true" ]; then
     say "Installing release $ref"
+    # Strip the leading v: published image tags are bare semver (1.2.3), matching
+    # publish.yml's type=semver,pattern={{version}}.
+    RELEASE_VERSION="${ref#v}"
     # Check out the tag via an explicit refs/tags/ fetch into a detached HEAD,
     # NOT `git clone --branch "$ref"`. Git resolves `--branch <name>` as a branch
     # first and only falls back to a tag, so a malicious refs/heads/<tag> pushed
@@ -272,11 +288,49 @@ check_port "$db_port"
 check_port "$api_port"
 check_port "$fe_port"
 
+# If we're sitting on an exact release tag (an in-place install, or a re-run in
+# an existing vX.Y.Z checkout) but RELEASE_VERSION wasn't set by the
+# fresh-clone-by-tag path above, detect it now — otherwise an in-place or repeat
+# install silently rebuilds from source instead of reusing the prebuilt images.
+if [ -z "$RELEASE_VERSION" ]; then
+  detected_tag="$(git describe --exact-match --tags HEAD 2>/dev/null || true)"
+  case "$detected_tag" in
+    v[0-9]*.[0-9]*.[0-9]*) RELEASE_VERSION="${detected_tag#v}" ;;
+  esac
+fi
+
+# Prefer prebuilt release images: when installing a release tag whose checkout
+# ships docker-compose.prod.yml, pull the version-pinned images instead of
+# building from source. Falls back to the source build for dev checkouts, branch
+# installs, older releases without the prod compose, or when the pull fails
+# (private/unavailable registry, offline, or a Compose too old for
+# --ignore-buildable). The db layer always builds locally (no published image).
+if [ -n "$RELEASE_VERSION" ] && [ -f docker-compose.prod.yml ]; then
+  COMPOSE_FILE="docker-compose.prod.yml"
+  export GEOLENS_VERSION="$RELEASE_VERSION"
+  say "Pulling prebuilt images for GeoLens ${RELEASE_VERSION} (skips the source build)..."
+  if compose pull --ignore-buildable; then
+    # Persist BOTH the pin and the compose file so the operator's later bare
+    # `docker compose ...` in this dir targets the prod (prebuilt-image) file at
+    # the same version. Without COMPOSE_FILE in .env, bare compose auto-discovers
+    # docker-compose.yml (the dev source-build file) and silently rebuilds.
+    update_env_value GEOLENS_VERSION "$RELEASE_VERSION"
+    update_env_value COMPOSE_FILE "docker-compose.prod.yml"
+  else
+    warn "Could not pull prebuilt images; building from source instead."
+    COMPOSE_FILE="docker-compose.yml"
+    unset GEOLENS_VERSION 2>/dev/null || true
+    # Overwrite any stale prod pin from a previous run so bare `docker compose`
+    # matches the source build we actually ran.
+    update_env_value COMPOSE_FILE "docker-compose.yml"
+  fi
+fi
+
 say "Starting GeoLens..."
 # Use the short `-d` flag, not `--detach`: `-d` is accepted by every Docker
 # Compose version, while some older Compose builds reject the `--detach` long
-# form with "unknown flag: --detach".
-docker compose up -d
+# form with "unknown flag: --detach". `compose` adds -f "$COMPOSE_FILE".
+compose up -d
 
 # Wait up to 90s for the stack to become healthy. The migrate one-shot must
 # exit 0; every healthcheck-having service must report (healthy). If migrate
@@ -290,7 +344,7 @@ wait_for_healthy() {
   while [ "$i" -lt "$attempts" ]; do
     i=$((i + 1))
 
-    migrate_cid=$(docker compose ps -aq migrate 2>/dev/null | head -n 1)
+    migrate_cid=$(compose ps -aq migrate 2>/dev/null | head -n 1)
     if [ -n "$migrate_cid" ]; then
       migrate_state=$(docker inspect --format '{{.State.Status}}' "$migrate_cid" 2>/dev/null || printf '')
       if [ "$migrate_state" = "exited" ]; then
@@ -298,7 +352,7 @@ wait_for_healthy() {
         if [ "$migrate_exit" != "0" ]; then
           printf '\n' >&2
           warn "migrate one-shot exited with code $migrate_exit. Last 30 log lines:"
-          docker compose logs --tail 30 migrate 2>&1 | sed 's/^/  /' >&2
+          compose logs --tail 30 migrate 2>&1 | sed 's/^/  /' >&2
           return 1
         fi
       fi
@@ -308,7 +362,7 @@ wait_for_healthy() {
     # successfully-exited one-shot. The migrate one-shot exits 0 (its failure is
     # caught above); some Compose versions list exited containers in `ps` without
     # `-a`, so exclude `Exited (0)` explicitly rather than relying on that.
-    unhealthy=$(docker compose ps --format '{{.Service}}|{{.Status}}' 2>/dev/null | grep -v '|.*(healthy)' | grep -v '|Exited (0)' | grep -v '^$' || true)
+    unhealthy=$(compose ps --format '{{.Service}}|{{.Status}}' 2>/dev/null | grep -v '|.*(healthy)' | grep -v '|Exited (0)' | grep -v '^$' || true)
     if [ -z "$unhealthy" ]; then
       printf '\n'
       return 0
@@ -324,7 +378,7 @@ wait_for_healthy() {
 
   printf '\n' >&2
   warn "timed out after $((attempts * sleep_s))s waiting for services. Current status:"
-  docker compose ps 2>&1 | sed 's/^/  /' >&2
+  compose ps 2>&1 | sed 's/^/  /' >&2
   warn "Inspect with: docker compose ps  /  docker compose logs <service>"
   return 1
 }

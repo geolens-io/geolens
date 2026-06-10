@@ -81,6 +81,7 @@ jobs:
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=semver,pattern={{major}}
+            type=raw,value=latest,enable=${{ github.event_name == 'push' && github.ref_type == 'tag' }}
           labels: |
             org.opencontainers.image.description=${{ matrix.description }}
             org.opencontainers.image.licenses=Apache-2.0
