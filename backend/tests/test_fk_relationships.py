@@ -8,7 +8,13 @@ import uuid
 
 import pytest
 from httpx import AsyncClient
+from sqlalchemy import select, text
 
+from app.modules.catalog.datasets.domain.models import (
+    AttributeMetadata,
+    DatasetRelationship,
+)
+from app.modules.catalog.datasets.domain.service import auto_detect_relationships
 from tests.factories import create_dataset, get_user_id
 
 
@@ -87,6 +93,196 @@ class TestFKRelationships:
         assert isinstance(items, list)
         assert len(items) >= 1
         assert any(r["source_column"] == "ref_id" for r in items)
+
+    async def test_list_relationships_hides_private_targets_from_anonymous(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+    ):
+        """Anonymous source access must not reveal private target metadata."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        source = await create_dataset(
+            test_db_session,
+            created_by=admin_id,
+            name="Public Relationship Source",
+            visibility="public",
+            record_status="published",
+        )
+        target = await create_dataset(
+            test_db_session,
+            created_by=admin_id,
+            name="Private Relationship Target",
+            visibility="private",
+            record_status="published",
+        )
+
+        create_resp = await client.post(
+            f"/datasets/{source.id}/relationships/",
+            json={
+                "target_dataset_id": str(target.record_id),
+                "source_column": "private_ref_id",
+            },
+            headers=admin_auth_header,
+        )
+        assert create_resp.status_code == 201, create_resp.text
+
+        resp = await client.get(f"/datasets/{source.id}/relationships/")
+
+        assert resp.status_code == 200, resp.text
+        assert resp.json() == []
+
+    async def test_related_records_rejects_private_target_for_anonymous(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+    ):
+        """Related-record reads require access to both source and target datasets."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        source = await create_dataset(
+            test_db_session,
+            created_by=admin_id,
+            name="Public Related Source",
+            visibility="public",
+            record_status="published",
+        )
+        target = await create_dataset(
+            test_db_session,
+            created_by=admin_id,
+            name="Private Related Target",
+            visibility="private",
+            record_status="published",
+        )
+        await test_db_session.execute(
+            text(
+                f"CREATE TABLE data.{source.table_name} "
+                "(gid integer PRIMARY KEY, private_ref_id integer)"
+            )
+        )
+        await test_db_session.execute(
+            text(
+                f"CREATE TABLE data.{target.table_name} "
+                "(gid integer PRIMARY KEY, private_ref_id integer, secret text)"
+            )
+        )
+        await test_db_session.execute(
+            text(
+                f"INSERT INTO data.{source.table_name} "
+                "(gid, private_ref_id) VALUES (1, 7)"
+            )
+        )
+        await test_db_session.execute(
+            text(
+                f"INSERT INTO data.{target.table_name} "
+                "(gid, private_ref_id, secret) VALUES (1, 7, 'hidden')"
+            )
+        )
+        await test_db_session.commit()
+
+        create_resp = await client.post(
+            f"/datasets/{source.id}/relationships/",
+            json={
+                "target_dataset_id": str(target.record_id),
+                "source_column": "private_ref_id",
+                "target_column": "private_ref_id",
+            },
+            headers=admin_auth_header,
+        )
+        assert create_resp.status_code == 201, create_resp.text
+        rel_id = create_resp.json()["id"]
+
+        resp = await client.get(f"/datasets/{source.id}/features/1/related/{rel_id}/")
+
+        assert resp.status_code == 404, resp.text
+
+    async def test_related_records_rejects_relationship_for_different_source(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+    ):
+        """Relationship ids cannot be replayed through a different source dataset URL."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        source = await create_dataset(
+            test_db_session, created_by=admin_id, name="Bound Source"
+        )
+        other_source = await create_dataset(
+            test_db_session, created_by=admin_id, name="Wrong Source"
+        )
+        target = await create_dataset(
+            test_db_session, created_by=admin_id, name="Bound Target"
+        )
+
+        create_resp = await client.post(
+            f"/datasets/{source.id}/relationships/",
+            json={
+                "target_dataset_id": str(target.record_id),
+                "source_column": "target_id",
+                "target_column": "target_id",
+            },
+            headers=admin_auth_header,
+        )
+        assert create_resp.status_code == 201, create_resp.text
+        rel_id = create_resp.json()["id"]
+
+        resp = await client.get(
+            f"/datasets/{other_source.id}/features/1/related/{rel_id}/",
+            headers=admin_auth_header,
+        )
+
+        assert resp.status_code == 404, resp.text
+
+    async def test_auto_detect_relationships_skips_private_targets_for_public_source(
+        self,
+        test_db_session,
+    ):
+        """Auto-detection must not create public-to-private relationships."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        source = await create_dataset(
+            test_db_session,
+            created_by=admin_id,
+            name="Public Auto Source",
+            visibility="public",
+            record_status="published",
+        )
+        target = await create_dataset(
+            test_db_session,
+            created_by=admin_id,
+            name="Private Auto Target",
+            visibility="private",
+            record_status="published",
+        )
+        test_db_session.add(
+            AttributeMetadata(
+                dataset_id=target.id,
+                field_name="private_ref_id",
+                semantic_role="identifier",
+            )
+        )
+        await test_db_session.commit()
+
+        created = await auto_detect_relationships(
+            test_db_session,
+            source.id,
+            source.record_id,
+            [{"name": "private_ref_id"}],
+        )
+        await test_db_session.commit()
+
+        relationships = (
+            (
+                await test_db_session.execute(
+                    select(DatasetRelationship).where(
+                        DatasetRelationship.source_dataset_id == source.record_id
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert created == []
+        assert relationships == []
 
     async def test_delete_relationship(
         self,

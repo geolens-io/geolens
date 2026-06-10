@@ -27,7 +27,7 @@ from app.modules.catalog.datasets.domain.models import (
     Record,
 )
 from app.modules.catalog.datasets.domain.service_query import get_dataset
-from app.platform.extensions import get_catalog_port
+from app.platform.extensions import get_catalog_port, get_permission_extension
 
 logger = structlog.stdlib.get_logger(__name__)
 
@@ -37,6 +37,7 @@ __all__ = [
     "delete_relationship",
     "get_related_datasets",
     "get_related_records",
+    "get_relationship_datasets",
     "list_relationships",
 ]
 
@@ -175,32 +176,44 @@ async def list_relationships(
     session: AsyncSession,
     dataset_id: uuid.UUID,
     *,
+    user: Identity | None = None,
+    user_roles: set[str] | None = None,
     skip: int = 0,
     limit: int | None = None,
 ) -> list:
     """List FK relationships where this dataset is the source.
 
-    Joins with records table to include target_dataset_title. Supports
-    optional ``skip``/``limit`` pagination (PERF-N16) to bound response
-    size for datasets with hundreds of auto-detected relationships.
+    Joins with records table to include target_dataset_title. Each relationship's
+    target dataset is filtered through the permission policy so that callers never
+    see relationships (or target metadata) for datasets they cannot access — a
+    public source dataset must not leak the id/title of a private target. Because
+    visibility is enforced per-row, ``skip``/``limit`` pagination (PERF-N16) is
+    applied to the *visible* subset after filtering.
     """
     from app.modules.catalog.datasets.domain.models import DatasetRelationship
 
+    user_roles = user_roles or set()
+    # Inner-join Dataset (and its Record, eager-loaded via lazy="joined") so the
+    # target dataset object is available for the access check below. Relationships
+    # whose target has no backing Dataset are dropped (fail-closed).
     stmt = (
-        select(DatasetRelationship, Record.title)
-        .outerjoin(Record, DatasetRelationship.target_dataset_id == Record.id)
+        select(DatasetRelationship, Dataset, Record.title)
+        .join(Dataset, DatasetRelationship.target_dataset_id == Dataset.record_id)
+        .join(Record, Dataset.record_id == Record.id)
         .where(DatasetRelationship.source_dataset_id == dataset_id)
         .order_by(DatasetRelationship.created_at)
     )
-    if skip:
-        stmt = stmt.offset(skip)
-    if limit is not None:
-        stmt = stmt.limit(limit)
     result = await session.execute(stmt)
     rows = result.all()
-    items = []
-    for rel, title in rows:
-        items.append(
+
+    permission_ext = get_permission_extension()
+    visible_items = []
+    for rel, target_ds, title in rows:
+        if not await permission_ext.can_access_dataset(
+            session, target_ds, target_ds.id, user, user_roles=user_roles
+        ):
+            continue
+        visible_items.append(
             {
                 "id": rel.id,
                 "source_dataset_id": rel.source_dataset_id,
@@ -212,7 +225,44 @@ async def list_relationships(
                 "target_dataset_title": title,
             }
         )
-    return items
+
+    if skip:
+        visible_items = visible_items[skip:]
+    if limit is not None:
+        visible_items = visible_items[:limit]
+    return visible_items
+
+
+async def get_relationship_datasets(
+    session: AsyncSession,
+    relationship_id: uuid.UUID,
+) -> tuple["DatasetRelationship", Dataset, Dataset] | None:
+    """Load a relationship together with its source and target Dataset objects.
+
+    Returns ``None`` if the relationship is missing or either endpoint has no
+    backing Dataset. Used by the API layer to enforce source-binding and
+    target-visibility checks before exposing related records.
+    """
+    from app.modules.catalog.datasets.domain.models import DatasetRelationship
+
+    result = await session.execute(
+        select(DatasetRelationship).where(DatasetRelationship.id == relationship_id)
+    )
+    rel = result.scalar_one_or_none()
+    if rel is None:
+        return None
+
+    source_result = await session.execute(
+        select(Dataset).where(Dataset.record_id == rel.source_dataset_id)
+    )
+    source_ds = source_result.scalar_one_or_none()
+    target_result = await session.execute(
+        select(Dataset).where(Dataset.record_id == rel.target_dataset_id)
+    )
+    target_ds = target_result.scalar_one_or_none()
+    if source_ds is None or target_ds is None:
+        return None
+    return rel, source_ds, target_ds
 
 
 async def delete_relationship(
@@ -256,18 +306,40 @@ async def _detect_fk_candidates(
     if not candidates:
         return {}
 
-    match_result = await session.execute(
+    # A public source dataset must not auto-link to private/unpublished targets:
+    # the resulting relationship would let anonymous callers reach the private
+    # target's rows via the related-records endpoint. Restrict matches to
+    # public+published targets when the source itself is public+published.
+    source_visibility_result = await session.execute(
+        select(Record.visibility, Record.record_status).where(Record.id == record_id)
+    )
+    source_visibility = source_visibility_result.one_or_none()
+    source_is_public = (
+        source_visibility is not None
+        and source_visibility[0] == "public"
+        and source_visibility[1] == "published"
+    )
+
+    match_stmt = (
         select(
             AttributeMetadata.field_name,
             Dataset.record_id,
         )
         .join(Dataset, AttributeMetadata.dataset_id == Dataset.id)
+        .join(Record, Dataset.record_id == Record.id)
         .where(
             AttributeMetadata.field_name.in_(candidates),
             AttributeMetadata.semantic_role == "identifier",
             Dataset.record_id != record_id,  # skip self-references
         )
     )
+    if source_is_public:
+        match_stmt = match_stmt.where(
+            Record.visibility == "public",
+            Record.record_status == "published",
+        )
+
+    match_result = await session.execute(match_stmt)
 
     matches_by_col: dict[str, list[uuid.UUID]] = {}
     for field_name, target_record_id in match_result.all():
@@ -401,6 +473,7 @@ async def get_related_records(
     feature_gid: int,
     relationship_id: uuid.UUID,
     *,
+    source_record_id: uuid.UUID | None = None,
     limit: int = 50,
     after: int = 0,
 ) -> dict:
@@ -408,6 +481,12 @@ async def get_related_records(
 
     Looks up the FK value in the source table, then queries the target table
     for matching rows.
+
+    ``source_record_id`` binds the relationship to the source dataset in the
+    URL: a relationship id cannot be replayed through an unrelated source
+    dataset to read its target. Callers (the API layer) must pass the
+    authorized source record id; access to the target dataset is authorized
+    separately at the call site.
     """
     from app.modules.catalog.datasets.domain.models import DatasetRelationship
 
@@ -418,11 +497,15 @@ async def get_related_records(
     rel = result.scalar_one_or_none()
     if rel is None:
         raise ValueError("Relationship not found")
+    if source_record_id is not None and rel.source_dataset_id != source_record_id:
+        raise ValueError("Relationship not found")
 
     # 2. Load source dataset to get table_name
     source_ds = await get_dataset(session, dataset_id)
     if source_ds is None:
         raise ValueError("Source dataset not found")
+    if rel.source_dataset_id != source_ds.record_id:
+        raise ValueError("Relationship not found")
 
     # 3. Load target dataset to get table_name
     # target_dataset_id points to a Record, need to find its Dataset

@@ -10,6 +10,7 @@ from fastapi import (
     Response,
     status,
 )
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.audit.service import AuditEvent, audit_emit
@@ -356,11 +357,13 @@ async def list_dataset_relationships(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found"
         )
-    await check_dataset_access_or_anonymous(db, dataset, dataset_id, user)
+    user_roles = await check_dataset_access_or_anonymous(db, dataset, dataset_id, user)
 
     from app.modules.catalog.datasets.domain.service import list_relationships
 
-    items = await list_relationships(db, dataset.record_id, skip=skip, limit=limit)
+    items = await list_relationships(
+        db, dataset.record_id, user=user, user_roles=user_roles, skip=skip, limit=limit
+    )
     return [DatasetRelationshipResponse(**item) for item in items]
 
 
@@ -384,6 +387,21 @@ async def create_dataset_relationship(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found"
         )
+    user_roles = await check_dataset_access(db, dataset, dataset_id, current_user)
+
+    from app.modules.catalog.datasets.domain.models import Dataset
+
+    target_result = await db.execute(
+        select(Dataset).where(Dataset.record_id == body.target_dataset_id)
+    )
+    target_dataset = target_result.scalar_one_or_none()
+    if target_dataset is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Target dataset not found"
+        )
+    await check_dataset_access(
+        db, target_dataset, target_dataset.id, current_user, user_roles=user_roles
+    )
 
     rel = await create_relationship(db, dataset.record_id, body)
     await db.commit()
@@ -397,7 +415,23 @@ async def delete_dataset_relationship(
     current_user: Identity = Depends(require_permission("edit_metadata")),
 ) -> Response:
     """Delete a FK relationship. Editor+ required."""
-    from app.modules.catalog.datasets.domain.service import delete_relationship
+    from app.modules.catalog.datasets.domain.service import (
+        delete_relationship,
+        get_relationship_datasets,
+    )
+
+    relationship = await get_relationship_datasets(db, relationship_id)
+    if relationship is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Relationship not found"
+        )
+    _rel, source_dataset, target_dataset = relationship
+    user_roles = await check_dataset_access(
+        db, source_dataset, source_dataset.id, current_user
+    )
+    await check_dataset_access(
+        db, target_dataset, target_dataset.id, current_user, user_roles=user_roles
+    )
 
     try:
         await delete_relationship(db, relationship_id)
@@ -430,11 +464,32 @@ async def get_feature_related_records(
         )
     await check_dataset_access_or_anonymous(db, dataset, dataset_id, user)
 
-    from app.modules.catalog.datasets.domain.service import get_related_records
+    from app.modules.catalog.datasets.domain.service import (
+        get_related_records,
+        get_relationship_datasets,
+    )
+
+    relationship = await get_relationship_datasets(db, relationship_id)
+    if relationship is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Relationship not found"
+        )
+    rel, _source_dataset, target_dataset = relationship
+    if rel.source_dataset_id != dataset.record_id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Relationship not found"
+        )
+    await check_dataset_access_or_anonymous(db, target_dataset, target_dataset.id, user)
 
     try:
         result = await get_related_records(
-            db, dataset_id, gid, relationship_id, limit=limit, after=after
+            db,
+            dataset_id,
+            gid,
+            relationship_id,
+            source_record_id=dataset.record_id,
+            limit=limit,
+            after=after,
         )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
