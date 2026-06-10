@@ -15,8 +15,7 @@ Importez des Shapefiles, GeoTIFFs, GeoPackages ou CSVs. GeoLens stocke tout dans
 [![OGC Compliant](https://img.shields.io/badge/OGC_API-Features_%7C_Records-green.svg)](https://ogcapi.ogc.org/)
 
 ```bash
-git clone https://github.com/geolens-io/geolens.git && cd geolens
-bash scripts/install.sh
+curl -fsSL https://getgeolens.com/install.sh | sh
 # Ouvrez http://localhost:8080 — connectez-vous avec les identifiants choisis
 ```
 
