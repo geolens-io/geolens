@@ -57,6 +57,7 @@ from app.modules.catalog.datasets.domain.service_relationships import (
     delete_relationship,
     get_related_datasets,
     get_related_records,
+    get_relationship_datasets,
     list_relationships,
 )
 
@@ -77,6 +78,7 @@ __all__ = [
     "get_datasets_list",
     "get_related_datasets",
     "get_related_records",
+    "get_relationship_datasets",
     "list_attributes",
     "list_datasets",
     "list_relationships",

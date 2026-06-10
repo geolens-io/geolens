@@ -780,7 +780,11 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # time. Caps set ~20-30 LOC above current size to allow modest growth
         # while still tripping CI on substantial regrowth back toward the
         # original 1407-LOC god module.
-        "backend/app/modules/catalog/datasets/domain/service_relationships.py": 480,
+        # Security fix (relationship target authz): +83 LOC for target-visibility
+        # filtering in list_relationships, the get_relationship_datasets loader,
+        # source/target binding in get_related_records, and the public-source
+        # auto-detect guard. Cap raised 480 -> 580 for ~30 LOC headroom.
+        "backend/app/modules/catalog/datasets/domain/service_relationships.py": 580,
         "backend/app/modules/catalog/datasets/domain/service_metadata.py": 460,
         "backend/app/modules/catalog/datasets/domain/service_query.py": 390,
         # Phase 276 CODE-02: chat_*.py sub-modules are all under the 350
