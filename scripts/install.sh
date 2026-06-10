@@ -162,15 +162,57 @@ else
   # branch when no release tag resolves (offline, or a fork with no releases).
   # Override with GEOLENS_REF=<tag|branch> to pin a specific ref or track main.
   ref="${GEOLENS_REF:-}"
+  ref_is_tag=false
   if [ -z "$ref" ]; then
+    # Auto-resolve the highest semver release tag. Match the FULL refs/tags/<name>
+    # ref (via `awk '{print $2}'`), not just the basename, so a nested decoy tag
+    # like refs/tags/evil/v9.9.9 cannot masquerade as a top-level v9.9.9 release.
     ref="$(git ls-remote --tags --refs "$REPO_URL" 2>/dev/null \
-      | awk -F/ '{print $NF}' \
-      | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' \
+      | awk '{print $2}' \
+      | grep -E '^refs/tags/v[0-9]+\.[0-9]+\.[0-9]+$' \
+      | sed 's#^refs/tags/##' \
       | sort -t. -k1.2,1n -k2,2n -k3,3n \
       | tail -n 1)"
+    if [ -n "$ref" ]; then
+      ref_is_tag=true
+    fi
+  else
+    # Explicit GEOLENS_REF: classify it against the remote's tag list. Capture the
+    # query result separately from the membership test so a remote-query FAILURE
+    # fails closed — never silently downgrade a ref that might be a release tag to
+    # the shadowable `clone --branch` path below. Match the full refs/tags/ ref.
+    remote_tags="$(git ls-remote --tags --refs "$REPO_URL" 2>/dev/null)" \
+      || fail "Could not query $REPO_URL to classify GEOLENS_REF=$ref"
+    if printf '%s\n' "$remote_tags" | awk '{print $2}' | grep -qxF "refs/tags/$ref"; then
+      ref_is_tag=true
+    fi
   fi
-  if [ -n "$ref" ]; then
+  if [ "$ref_is_tag" = "true" ]; then
     say "Installing release $ref"
+    # Check out the tag via an explicit refs/tags/ fetch into a detached HEAD,
+    # NOT `git clone --branch "$ref"`. Git resolves `--branch <name>` as a branch
+    # first and only falls back to a tag, so a malicious refs/heads/<tag> pushed
+    # to the remote would shadow the real refs/tags/<tag> and get built in place
+    # of the release. A fully-qualified refs/tags/ fetch cannot be shadowed.
+    #
+    # Build into a temp dir and move into place only after checkout succeeds, so a
+    # failed or interrupted fetch never leaves a half-initialized INSTALL_DIR that
+    # the next run would mistake for a valid checkout (git clone is atomic this
+    # way). The earlier `[ -e "$INSTALL_DIR" ]` guard guarantees INSTALL_DIR does
+    # not exist yet, so building a sibling temp dir and moving it in is safe.
+    tmp="${INSTALL_DIR}.tmp.$$"
+    rm -rf "$tmp"
+    if ! { git init -q "$tmp" \
+        && git -C "$tmp" remote add origin "$REPO_URL" \
+        && git -C "$tmp" fetch -q --depth 1 origin "refs/tags/$ref:refs/tags/$ref" \
+        && git -C "$tmp" checkout -q --detach "refs/tags/$ref"; }; then
+      rm -rf "$tmp"
+      fail "Could not fetch release $ref from $REPO_URL"
+    fi
+    mv "$tmp" "$INSTALL_DIR"
+  elif [ -n "$ref" ]; then
+    # A GEOLENS_REF that is not a release tag (e.g. a branch like main) — track it.
+    say "Installing ref $ref"
     git clone --depth 1 --branch "$ref" "$REPO_URL" "$INSTALL_DIR"
   else
     warn "Could not resolve a release tag; cloning the default branch."
