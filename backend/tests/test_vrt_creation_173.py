@@ -42,6 +42,38 @@ def _make_subprocess_result(returncode: int = 0, stderr: str = "") -> MagicMock:
     return result
 
 
+@pytest.fixture(autouse=True)
+def _stub_vrt_source_authz():
+    """SEC-C (Phase 1172): ``create_vrt_job`` now authorizes every source
+    dataset against the caller (check_dataset_access + get_user_roles +
+    get_dataset). Those helpers issue their own ``db.execute`` calls, which
+    would shift the call-count-ordered / single-return mock ``db`` sequences
+    these pure unit tests rely on. Stub them to make ZERO ``db.execute`` calls
+    (and always allow) so the existing sequences stay valid. The authorization
+    behavior itself is covered by the DB-backed
+    ``tests/test_vrt_source_authz_1172.py``. The stubs no-op when the function
+    under test never reaches the authz block (e.g. the <2-sources guard), so
+    this is safe to apply module-wide.
+    """
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    with (
+        patch(
+            "app.modules.catalog.authorization.get_user_roles",
+            new=AsyncMock(return_value=set()),
+        ),
+        patch(
+            "app.modules.catalog.authorization.check_dataset_access",
+            new=AsyncMock(return_value=set()),
+        ),
+        patch(
+            "app.modules.catalog.datasets.domain.service.get_dataset",
+            new=AsyncMock(return_value=MagicMock()),
+        ),
+    ):
+        yield
+
+
 # ---------------------------------------------------------------------------
 # TestVrtSchemas
 # ---------------------------------------------------------------------------
