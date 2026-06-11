@@ -13,9 +13,8 @@ GeoLens is an open-source, self-hosted catalog and map builder for GIS and data 
 [![OGC Compliant](https://img.shields.io/badge/OGC_API-Features_%7C_Records-green.svg)](https://ogcapi.ogc.org/)
 
 ```bash
-git clone https://github.com/geolens-io/geolens.git && cd geolens
-bash scripts/install.sh
-# Open http://localhost:8080 — login with the credentials you chose
+curl -fsSL https://getgeolens.com/install.sh | sh
+# Open http://localhost:8080 — log in with the credentials you chose
 ```
 
 <p align="center">
@@ -162,13 +161,21 @@ ships PostgreSQL 17. If you point GeoLens at an externally managed database, it
 must be **PostgreSQL 13+** (for `gen_random_uuid()`) with **pgvector 0.5+** (for
 HNSW semantic-search indexes), plus PostGIS, pg_trgm, and unaccent.
 
+The one-line install pulls the prebuilt, version-pinned images and starts the stack:
+
+```bash
+curl -fsSL https://getgeolens.com/install.sh | sh
+```
+
+Prefer to read the script or build from source first? Clone the repo and run the same installer — it builds the images locally instead of pulling them:
+
 ```bash
 git clone https://github.com/geolens-io/geolens.git
 cd geolens
 bash scripts/install.sh
 ```
 
-`scripts/install.sh` copies `.env.example` to `.env`, generates a JWT signing
+Either way, `scripts/install.sh` copies `.env.example` to `.env`, generates a JWT signing
 secret, prompts for admin credentials (defaults to `admin` / `admin`), and runs
 `docker compose up -d`. For unattended installs, set `GEOLENS_ADMIN_USERNAME` and
 `GEOLENS_ADMIN_PASSWORD` in the environment before running and the prompts are
@@ -183,9 +190,12 @@ Verify all services are healthy:
 docker compose ps
 ```
 
-First-run notes: the initial `docker compose up -d` cold-build takes 5-10 minutes
-(image builds + GDAL + Postgres extensions); subsequent starts settle in ~60
-seconds. If ports 5434/8001/8080 are already taken, change `DB_PORT`, `API_PORT`,
+First-run notes: the one-line install **pulls** prebuilt images and is up in about
+a minute (only the small PostGIS + pgvector database layer builds locally). Cloning
+and running `bash scripts/install.sh` instead **builds** every image from source —
+5-10 minutes on the first run (GDAL + Postgres extensions + the frontend bundle);
+subsequent starts settle in ~60 seconds either way. If ports 5434/8001/8080 are
+already taken, change `DB_PORT`, `API_PORT`,
 or `FRONTEND_PORT` in `.env`. For port conflicts, stuck startups, out-of-memory,
 and migration warnings, see the [Troubleshooting guide](https://docs.getgeolens.com/guides/quickstart/install/#troubleshooting).
 
