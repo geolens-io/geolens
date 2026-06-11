@@ -422,6 +422,7 @@ jobs:
           repository: geolens-io/geolens-enterprise
           token: ${{ secrets.GEOLENS_ENTERPRISE_TOKEN }}
           path: geolens-enterprise
+          persist-credentials: false
 
       - name: Start PostgreSQL with PostGIS + pgvector
         working-directory: .
