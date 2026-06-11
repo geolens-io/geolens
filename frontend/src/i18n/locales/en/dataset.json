@@ -28,7 +28,8 @@
     "membersPlaceholder": "Collection member listing coming soon."
   },
   "inline": {
-    "noDescription": "Add a description..."
+    "noDescription": "Add a description...",
+    "saveFailed": "Failed to save — please try again."
   },
   "affordances": {
     "sectionHint": {

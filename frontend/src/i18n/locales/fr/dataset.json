@@ -28,7 +28,8 @@
     "membersPlaceholder": "Liste des membres de la collection bientôt disponible."
   },
   "inline": {
-    "noDescription": "Ajouter une description..."
+    "noDescription": "Ajouter une description...",
+    "saveFailed": "Échec de la sauvegarde — veuillez réessayer."
   },
   "affordances": {
     "sectionHint": {

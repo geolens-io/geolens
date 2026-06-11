@@ -28,7 +28,8 @@
     "membersPlaceholder": "Auflistung der Sammlungsmitglieder kommt bald."
   },
   "inline": {
-    "noDescription": "Beschreibung hinzufügen..."
+    "noDescription": "Beschreibung hinzufügen...",
+    "saveFailed": "Speichern fehlgeschlagen — bitte erneut versuchen."
   },
   "affordances": {
     "sectionHint": {

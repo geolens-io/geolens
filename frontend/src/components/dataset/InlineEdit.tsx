@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
+import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 
 interface InlineEditProps {
@@ -70,12 +71,19 @@ export function InlineEdit({
 
   const save = useCallback(async () => {
     const trimmed = draft.trim();
-    if (trimmed && trimmed !== value) {
-      await onSave(trimmed);
+    try {
+      if (trimmed && trimmed !== value) {
+        // BUG-040: wrap onSave in try/catch so a rejected mutation never
+        // strands the editor open or produces an unhandled rejection.
+        await onSave(trimmed);
+      }
+    } catch {
+      toast.error(t('dataset:inline.saveFailed'));
+    } finally {
+      emitDirtyChange(false);
+      setEditing(false);
     }
-    emitDirtyChange(false);
-    setEditing(false);
-  }, [draft, value, onSave, emitDirtyChange]);
+  }, [draft, value, onSave, emitDirtyChange, t]);
 
   const cancel = useCallback(() => {
     setDraft(value);
