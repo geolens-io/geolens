@@ -277,6 +277,15 @@ async def import_config(
     Raises ConfigLockedError if ENV_ONLY_CONFIG is true.
     Validates role_permissions to prevent admin lockout.
     Skips unknown setting keys for forward compatibility.
+
+    BUG-010 (Phase 1181): Atomic — pre-validates ALL keys first (pure, no DB
+    writes).  On any validation failure, raises ConfigValidationError before
+    touching the DB, guaranteeing zero-keys-applied on error.  When fully
+    valid, applies all keys with commit=False then performs a SINGLE commit.
+
+    BUG-011 (Phase 1181): Edition-gated — mirrors the ``_require_enterprise_for_key``
+    gate from the normal settings PUT path so community callers cannot write
+    enterprise-only (branding/appearance) keys via import.
     """
     from app.core.persistent_config import _registry
     from app.core.public_urls import _is_env_only
@@ -285,6 +294,9 @@ async def import_config(
         audit_emit,
     )  # LAZY — preserved per D-17
 
+    # BUG-011: import the same enterprise gate the normal settings PUT uses.
+    from app.modules.settings.router import _require_enterprise_for_key
+
     if _is_env_only():
         raise ConfigLockedError("Configuration locked to environment variables")
 
@@ -292,26 +304,26 @@ async def import_config(
     import_settings = data.get("settings") or {}
     import_providers = data.get("oauth_providers") or []
 
-    settings_applied = 0
     settings_skipped = 0
-    oauth_created = 0
-    oauth_updated = 0
-    oauth_deleted = 0
 
-    # --- Validate role_permissions before applying anything ---
+    # ---------------------------------------------------------------------------
+    # BUG-010 + BUG-011 — Pass 1: validate ALL settings before any DB write.
+    #
+    # Pre-validate every key through:
+    #   (a) role_permissions structural check (admin-lockout prevention)
+    #   (b) per-key custom validator from SETTING_VALIDATORS (range/format)
+    #   (c) enterprise edition gate (_require_enterprise_for_key) — BUG-011
+    #
+    # On any failure, raise immediately with NOTHING written to the DB.
+    # Unknown keys are skipped (forward-compat), not counted as errors.
+    # ---------------------------------------------------------------------------
+    validated: dict[str, Any] = {}
+
     if "role_permissions" in import_settings:
         try:
             validate_permission_matrix(import_settings["role_permissions"])
         except ValueError as e:
             raise ConfigValidationError(str(e))
-
-    # --- Settings ---
-    if mode == "overwrite":
-        # Reset all known settings first
-        for cfg in _registry:
-            if cfg.key in import_settings:
-                continue  # will be set below
-            await cfg.reset(db, user_id=user_id, ip_address=ip_address)
 
     for key, value in import_settings.items():
         cfg = registry_map.get(key)
@@ -319,7 +331,10 @@ async def import_config(
             settings_skipped += 1
             continue
 
-        # Run per-key validator if one exists
+        # BUG-011: edition gate (mirrors settings PUT _require_enterprise_for_key)
+        _require_enterprise_for_key(key)
+
+        # Custom validator (range checks, format checks, etc.)
         validator = SETTING_VALIDATORS.get(key)
         if validator is not None:
             try:
@@ -327,18 +342,39 @@ async def import_config(
             except (ValueError, TypeError) as e:
                 raise ConfigValidationError(f"Validation failed for '{key}': {e}")
 
-        await cfg.set(db, value, user_id=user_id, ip_address=ip_address)
+        validated[key] = value
+
+    # ---------------------------------------------------------------------------
+    # Pass 2: apply all validated keys with commit=False, single commit at end.
+    # On any apply failure, re-raise (no commit issued → DB sees nothing).
+    # ---------------------------------------------------------------------------
+    settings_applied = 0
+    oauth_created = 0
+    oauth_updated = 0
+    oauth_deleted = 0
+
+    if mode == "overwrite":
+        # Reset all known settings first (commit=False — part of the atomic batch)
+        for cfg in _registry:
+            if cfg.key in validated:
+                continue  # will be overwritten below
+            await cfg.reset(db, user_id=user_id, ip_address=ip_address)
+
+    for key, value in validated.items():
+        cfg = registry_map[key]
+        await cfg.set(db, value, user_id=user_id, ip_address=ip_address, commit=False)
         settings_applied += 1
 
-    # --- OAuth providers ---
+    # --- OAuth providers (also part of the same atomic batch) ---
     created, updated, deleted = await _apply_oauth_providers(db, import_providers, mode)
     oauth_created = created
     oauth_updated = updated
     oauth_deleted = deleted
 
+    # Single commit for ALL setting + OAuth changes (BUG-010 atomicity)
     await db.commit()
 
-    # Audit log
+    # Audit log (separate commit so audit survives even if the caller rolls back)
     await audit_emit(
         db,
         AuditEvent(
