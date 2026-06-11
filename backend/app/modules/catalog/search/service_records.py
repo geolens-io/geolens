@@ -140,6 +140,11 @@ def _build_stac_assets(
             public_api_url=public_api_url,
             storage_provider=storage_provider,
         )
+        # GAP-031: resolve_asset_url returns None when no safe authorized URL
+        # exists (e.g. local-storage proxy path that has no backend route).
+        # Skip the asset entry rather than publishing a dead/colliding href.
+        if resolved_href is None:
+            continue
         entry: dict = {"href": resolved_href}
         if row.get("media_type"):
             entry["type"] = row["media_type"]
