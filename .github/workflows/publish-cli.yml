@@ -1,4 +1,11 @@
-# Manual-trigger publish workflow for the GeoLens CLI.
+# Publish workflow for the GeoLens CLI (PyPI `geolens-cli`).
+#
+# Triggers:
+#   - push a `v*.*.*` tag → publish job queues behind the `publish` environment
+#     and pauses for required-reviewer approval (one click) before publishing.
+#   - workflow_dispatch → same gate; for ad-hoc / re-publish, run from a tag ref:
+#     `gh workflow run publish-cli.yml --ref vX.Y.Z`
+#
 # One-time cold-start credentials required before the first publish:
 #   1. PyPI Trusted Publishing configured for `geolens-cli` at https://pypi.org/manage/account/publishing/
 #   2. The maintainer claims the `geolens-cli` PyPI name (one-time, automatic on first publish via pending-publisher OIDC)
@@ -6,6 +13,9 @@
 name: Publish CLI
 
 on:
+  push:
+    tags:
+      - 'v*.*.*'
   workflow_dispatch:
     inputs:
       dry_run:
@@ -27,6 +37,7 @@ jobs:
   publish-cli:
     name: Publish geolens-cli to PyPI
     runs-on: ubuntu-latest
+    environment: publish  # required-reviewer approval gate (see repo Settings → Environments)
     steps:
       - uses: actions/checkout@v6
 
@@ -37,6 +48,23 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.13"
+
+      - name: Assert tag matches package version (tag push only)
+        if: ${{ github.event_name == 'push' }}
+        working-directory: cli
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          PKG=$(python - <<'PY'
+          import tomllib
+          with open("pyproject.toml", "rb") as f:
+              print(tomllib.load(f)["project"]["version"])
+          PY
+          )
+          if [ "${TAG}" != "${PKG}" ]; then
+            echo "::error::tag v${TAG} != cli version ${PKG} — refusing to publish a mismatched version"
+            exit 1
+          fi
+          echo "tag v${TAG} matches cli version ${PKG}"
 
       - name: Build wheel + sdist
         working-directory: cli
