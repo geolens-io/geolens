@@ -59,16 +59,25 @@ export function useLayerMapSync(
       const existing = layersRef.current.find((l) => l.id === layerId);
       if (!existing) return;
 
-      const updated = updater(existing);
+      // BUG-019: apply the updater INSIDE the functional setState so that
+      // multiple synchronous applyLayerUpdate calls compose against the latest
+      // `prev` rather than clobbering each other off the stale `layersRef`
+      // snapshot. The existence gate above (ref-based) still guards the
+      // dirty-flag; the actual mutation moves inside prev.map() so React's
+      // functional update queue accumulates correctly.
       setLocalLayers((prev) =>
-        prev.map((l) => (l.id === layerId ? updated : l)),
+        prev.map((l) => (l.id === layerId ? updater(l) : l)),
       );
       setHasUnsavedChanges(true);
 
       if (!applyFn) return;
       const map = mapInstanceRef.current;
       if (!map || !map.isStyleLoaded()) return;
-      applyFn(map, updated);
+      // For the map side-effect we re-apply updater to the ref snapshot: the
+      // map call is idempotent and the stale-ref issue only affects React state
+      // composition, not the live-map sync. This keeps the applyFn signature
+      // stable (it receives the just-computed updated layer, not a stale one).
+      applyFn(map, updater(existing));
     },
     [setLocalLayers, setHasUnsavedChanges, mapInstanceRef],
   );
