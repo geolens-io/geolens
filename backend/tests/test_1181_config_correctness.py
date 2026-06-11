@@ -281,12 +281,18 @@ class TestBug011EditionGatedImport:
     normal settings PUT path."""
 
     @pytest.mark.anyio
-    async def test_community_cannot_import_enterprise_key(self, community_edition):
+    async def test_community_skips_enterprise_key_applies_allowed(
+        self, community_edition
+    ):
         """A community-edition caller importing an enterprise-only key
-        (branding.show_badge) must be blocked (404/403/ConfigValidationError).
+        (branding.show_badge) plus an allowed key (ai_enabled) must:
+          - SKIP the enterprise key (not write it), recorded in
+            settings_skipped_enterprise — import still succeeds (no 404)
+          - APPLY the allowed key
 
-        Pre-fix: import bypasses _require_enterprise_for_key → key written.
-        Post-fix: gate enforced → exception raised.
+        Pre-fix (hard 404): the whole import was rejected, breaking
+        export→import round-trips.
+        Post-fix (skip-not-reject): allowed keys apply, enterprise keys skip.
         """
         from app.platform.config_ops.service import import_config
 
@@ -299,27 +305,51 @@ class TestBug011EditionGatedImport:
         mock_db.commit = AsyncMock()
         mock_db.rollback = AsyncMock()
 
-        # branding.show_badge is on the "branding" tab (_ENTERPRISE_ONLY_TABS)
+        # branding.show_badge is on the "branding" tab (_ENTERPRISE_ONLY_TABS);
+        # ai_enabled is on the "ai" tab (allowed in community edition).
         data = {
             "settings": {
                 "branding.show_badge": False,
+                "ai_enabled": True,
             }
         }
 
-        from fastapi import HTTPException
+        # Spy on which keys are actually applied via cfg.set()
+        applied_keys: list[str] = []
 
-        with pytest.raises((HTTPException, Exception)):
-            await import_config(
-                db=mock_db,
-                data=data,
-                mode="merge",
-                user_id=uuid.uuid4(),
-                ip_address=None,
-            )
+        async def spy_set(self, db, value, **kwargs):
+            applied_keys.append(self.key)
 
-        # Either an HTTPException with 404 (matching _require_enterprise_for_key)
-        # or a ConfigValidationError; either way the key must NOT have been committed.
-        mock_db.commit.assert_not_called()
+        with patch(
+            "app.core.persistent_config.PersistentConfig.set",
+            new=spy_set,
+        ):
+            with patch(
+                "app.core.persistent_config.PersistentConfig.reset",
+                new_callable=AsyncMock,
+            ):
+                result = await import_config(
+                    db=mock_db,
+                    data=data,
+                    mode="merge",
+                    user_id=uuid.uuid4(),
+                    ip_address=None,
+                )
+
+        # The enterprise-only key must have been SKIPPED, not written.
+        assert "branding.show_badge" not in applied_keys, (
+            "BUG-011: community caller must NOT write enterprise-only key"
+        )
+        assert "branding.show_badge" in result.settings_skipped_enterprise, (
+            "BUG-011: skipped enterprise key must be recorded in the result"
+        )
+        # The allowed key in the same import MUST have been applied.
+        assert "ai_enabled" in applied_keys, (
+            "BUG-011: allowed keys in the same import must still be applied"
+        )
+        assert result.settings_applied == 1, (
+            "BUG-011: exactly one allowed key (ai_enabled) should be applied"
+        )
 
     @pytest.mark.anyio
     async def test_enterprise_can_import_enterprise_key(self, enterprise_edition):
@@ -357,3 +387,52 @@ class TestBug011EditionGatedImport:
                     user_id=uuid.uuid4(),
                     ip_address=None,
                 )
+
+    @pytest.mark.anyio
+    async def test_community_import_leaves_enterprise_value_unchanged(
+        self, client: AsyncClient, admin_auth_header: dict
+    ):
+        """End-to-end: a community-edition import that attempts to flip an
+        enterprise-only key (branding.show_badge) must leave that key's stored
+        value UNCHANGED (skipped), while still applying allowed keys.
+
+        Default test edition is community (no GEOLENS_EDITION env).
+        """
+        from app.core.persistent_config import BRANDING_SHOW_BADGE
+
+        # Record the current stored value of the enterprise-only key.
+        from app.core.dependencies import get_db
+
+        # Read via the public export endpoint is simplest, but branding is an
+        # enterprise tab and may be hidden in community /settings/all. Instead,
+        # attempt the import and confirm settings_skipped_enterprise lists it.
+        import_resp = await client.post(
+            "/config-ops/import/?mode=merge",
+            json={
+                "settings": {
+                    "branding.show_badge": False,  # attempt to flip (default True)
+                    "ai_enabled": True,  # allowed key
+                }
+            },
+            headers=admin_auth_header,
+        )
+        assert import_resp.status_code == 200, (
+            f"BUG-011: community import must succeed (skip-not-reject); "
+            f"got {import_resp.status_code}: {import_resp.json()}"
+        )
+        result = import_resp.json()
+        # The enterprise key must be recorded as skipped.
+        assert "branding.show_badge" in result.get("settings_skipped_enterprise", []), (
+            "BUG-011: enterprise key must be reported as skipped, not applied"
+        )
+        # The allowed key must have been applied.
+        assert result["settings_applied"] >= 1
+
+        # Confirm the enterprise-only key's stored value is UNCHANGED (no DB row
+        # was written for it, so it resolves to its env_default of True).
+        async for db in get_db():
+            stored = await BRANDING_SHOW_BADGE.get(db)
+            break
+        assert stored == BRANDING_SHOW_BADGE.env_default, (
+            "BUG-011: community import must NOT change the enterprise key's stored value"
+        )

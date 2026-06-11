@@ -283,10 +283,14 @@ async def import_config(
     touching the DB, guaranteeing zero-keys-applied on error.  When fully
     valid, applies all keys with commit=False then performs a SINGLE commit.
 
-    BUG-011 (Phase 1181): Edition-gated — mirrors the ``_require_enterprise_for_key``
-    gate from the normal settings PUT path so community callers cannot write
-    enterprise-only (branding/appearance) keys via import.
+    BUG-011 (Phase 1181): Edition-gated — community-edition callers cannot
+    WRITE enterprise-only (branding/appearance) keys via import. Rather than
+    rejecting the whole import (which would break export→import round-trips,
+    since a community export includes enterprise-only keys at their defaults),
+    each enterprise-only key is SKIPPED for community callers and recorded in
+    ``settings_skipped_enterprise``. Enterprise-edition callers apply all keys.
     """
+    from app.core.edition import is_enterprise
     from app.core.persistent_config import _registry
     from app.core.public_urls import _is_env_only
     from app.modules.audit.service import (
@@ -294,8 +298,8 @@ async def import_config(
         audit_emit,
     )  # LAZY — preserved per D-17
 
-    # BUG-011: import the same enterprise gate the normal settings PUT uses.
-    from app.modules.settings.router import _require_enterprise_for_key
+    # BUG-011: mirror the same enterprise-only tab set the settings PUT gate uses.
+    from app.modules.settings.router import _ENTERPRISE_ONLY_TABS
 
     if _is_env_only():
         raise ConfigLockedError("Configuration locked to environment variables")
@@ -305,16 +309,22 @@ async def import_config(
     import_providers = data.get("oauth_providers") or []
 
     settings_skipped = 0
+    skipped_enterprise: list[str] = []
+    caller_is_enterprise = is_enterprise()
 
     # ---------------------------------------------------------------------------
-    # BUG-010 + BUG-011 — Pass 1: validate ALL settings before any DB write.
+    # BUG-010 + BUG-011 — Pass 1: gate + validate ALL settings before any DB write.
     #
     # Pre-validate every key through:
     #   (a) role_permissions structural check (admin-lockout prevention)
-    #   (b) per-key custom validator from SETTING_VALIDATORS (range/format)
-    #   (c) enterprise edition gate (_require_enterprise_for_key) — BUG-011
+    #   (b) BUG-011 edition gate — SKIP (do not apply) enterprise-only keys for
+    #       community callers; record the names. This keeps export→import
+    #       round-trips working while still preventing community writes.
+    #   (c) per-key custom validator from SETTING_VALIDATORS (range/format)
     #
-    # On any failure, raise immediately with NOTHING written to the DB.
+    # On any VALIDATION failure of a non-skipped key, raise immediately with
+    # NOTHING written to the DB (BUG-010 atomicity). Skipping happens here, in
+    # the gate pass, before any apply.
     # Unknown keys are skipped (forward-compat), not counted as errors.
     # ---------------------------------------------------------------------------
     validated: dict[str, Any] = {}
@@ -331,8 +341,12 @@ async def import_config(
             settings_skipped += 1
             continue
 
-        # BUG-011: edition gate (mirrors settings PUT _require_enterprise_for_key)
-        _require_enterprise_for_key(key)
+        # BUG-011: community callers cannot write enterprise-only keys. Skip
+        # (don't apply) rather than reject the whole import.
+        if not caller_is_enterprise and cfg.tab in _ENTERPRISE_ONLY_TABS:
+            settings_skipped += 1
+            skipped_enterprise.append(key)
+            continue
 
         # Custom validator (range checks, format checks, etc.)
         validator = SETTING_VALIDATORS.get(key)
@@ -384,6 +398,7 @@ async def import_config(
             details={
                 "mode": mode,
                 "settings_applied": settings_applied,
+                "settings_skipped_enterprise": skipped_enterprise,
                 "oauth_created": oauth_created,
                 "oauth_updated": oauth_updated,
                 "oauth_deleted": oauth_deleted,
@@ -398,6 +413,7 @@ async def import_config(
         mode=mode,
         settings_applied=settings_applied,
         settings_skipped=settings_skipped,
+        settings_skipped_enterprise=skipped_enterprise,
         oauth_created=oauth_created,
         oauth_updated=oauth_updated,
         oauth_deleted=oauth_deleted,
@@ -406,6 +422,7 @@ async def import_config(
     return ImportResult(
         settings_applied=settings_applied,
         settings_skipped=settings_skipped,
+        settings_skipped_enterprise=skipped_enterprise,
         oauth_created=oauth_created,
         oauth_updated=oauth_updated,
         oauth_deleted=oauth_deleted,
