@@ -85,7 +85,7 @@ x-hardened-base: &hardened-base
 # ==============================================================================
 # Services at a glance:
 #   db        — PostgreSQL 17 + PostGIS 3.5 (catalog data, pgvector, pg_trgm)
-#   migrate   — one-shot alembic upgrade head, exits when done
+#   migrate   — one-shot alembic upgrade heads, exits when done
 #   api       — FastAPI REST + OGC API + Records (host :8001 -> container :8000)
 #   worker    — Procrastinate job queue (GDAL ingest, embeddings, exports)
 #   titiler   — Raster tile server (internal only, reachable at http://titiler:8000)
@@ -148,7 +148,11 @@ services:
     # Empty entrypoint suppresses Dockerfile-inherited api-entrypoint.sh on this
     # one-shot service.
     entrypoint: []
-    command: sh -c "uv run --no-dev alembic upgrade head"
+    # `upgrade heads` (plural) applies every branch head — with the enterprise
+    # overlay installed the graph has two heads (core 0003 + enterprise e002);
+    # bare `head` errors "Multiple head revisions present". Single-head OSS is
+    # unaffected (heads == head).
+    command: sh -c "uv run --no-dev alembic upgrade heads"
     # One-shot: alembic upgrade is idempotent (re-running is safe). Failure
     # should stop the dependency chain, not retry blindly.
     restart: "no"

@@ -42,7 +42,7 @@ reset-db:
 	docker compose up --build
 
 migrate:
-	docker compose exec api uv run alembic upgrade head
+	docker compose exec api uv run alembic upgrade heads
 
 migration:
 	docker compose exec api uv run alembic revision --autogenerate -m "$(msg)"

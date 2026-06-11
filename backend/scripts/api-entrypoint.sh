@@ -63,12 +63,12 @@ echo "Running database migrations..."
 migration_rc=0
 if [ "$(id -u)" -eq 0 ]; then
     setpriv --reuid="${APP_UID}" --regid="${APP_GID}" --clear-groups \
-        uv run --no-dev alembic upgrade head 2>&1 || migration_rc=$?
+        uv run --no-dev alembic upgrade heads 2>&1 || migration_rc=$?
 else
-    uv run --no-dev alembic upgrade head 2>&1 || migration_rc=$?
+    uv run --no-dev alembic upgrade heads 2>&1 || migration_rc=$?
 fi
 if [ "${migration_rc}" -ne 0 ]; then
-    echo "WARNING: alembic upgrade head exited with code ${migration_rc} — migrations may already be applied by the migrate service, or a real error occurred. Check migrate service logs if the API fails to start." >&2
+    echo "WARNING: alembic upgrade heads exited with code ${migration_rc} — migrations may already be applied by the migrate service, or a real error occurred. Check migrate service logs if the API fails to start." >&2
 fi
 
 if [ "$#" -eq 0 ]; then
