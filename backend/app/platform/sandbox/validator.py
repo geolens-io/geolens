@@ -21,51 +21,252 @@ from app.platform.sandbox.schemas import SandboxError, ValidatedQuery
 
 logger = structlog.stdlib.get_logger(__name__)
 
-# Functions blocked in LLM-generated SQL for defense-in-depth.
-# READ ONLY transactions prevent most damage, but these can still
-# leak server metadata or waste connections.
-_BLOCKED_FUNCTIONS: set[str] = {
-    # Filesystem access
-    "pg_read_file",
-    "pg_read_binary_file",
-    "pg_ls_dir",
-    "pg_stat_file",
-    # Large object operations
-    "lo_import",
-    "lo_export",
-    "lo_create",
-    "lo_unlink",
-    "lo_open",
-    "lo_read",
-    "lo_write",
-    "lo_close",
-    "lo_lseek",
-    "lo_tell",
-    # External connections
-    "dblink",
-    "dblink_exec",
-    "dblink_connect",
-    "dblink_send_query",
-    # Server info disclosure
-    "current_setting",
-    "set_config",
-    "inet_server_addr",
-    "inet_server_port",
-    "inet_client_addr",
-    "inet_client_port",
-    # DoS / admin
-    "pg_sleep",
-    "pg_terminate_backend",
-    "pg_cancel_backend",
-    "pg_reload_conf",
-    # Advisory locks (connection-held resource)
-    "pg_advisory_lock",
-    "pg_advisory_unlock",
-    "pg_try_advisory_lock",
-    # Copy
-    "copy_to",
-    "copy_from",
-}
+# ---------------------------------------------------------------------------
+# Defense-in-depth: always denied regardless of allowlist membership.
+#
+# These are checked FIRST so that a future accidental addition of one of
+# these names to _ALLOWED_FUNCTIONS would still be blocked. The allowlist
+# already excludes all of them; this is a belt-and-suspenders guard.
+# ---------------------------------------------------------------------------
+_BLOCKED_FUNCTIONS: frozenset[str] = frozenset(
+    {
+        # Filesystem access
+        "pg_read_file",
+        "pg_read_binary_file",
+        "pg_ls_dir",
+        "pg_stat_file",
+        # Large object operations
+        "lo_import",
+        "lo_export",
+        "lo_create",
+        "lo_unlink",
+        "lo_open",
+        "lo_read",
+        "lo_write",
+        "lo_close",
+        "lo_lseek",
+        "lo_tell",
+        # External connections
+        "dblink",
+        "dblink_exec",
+        "dblink_connect",
+        "dblink_send_query",
+        # Server info disclosure (Anonymous nodes)
+        "current_setting",
+        "set_config",
+        "inet_server_addr",
+        "inet_server_port",
+        "inet_client_addr",
+        "inet_client_port",
+        # DoS / admin
+        "pg_sleep",
+        "pg_terminate_backend",
+        "pg_cancel_backend",
+        "pg_reload_conf",
+        # Advisory locks (connection-held resource)
+        "pg_advisory_lock",
+        "pg_advisory_unlock",
+        "pg_try_advisory_lock",
+        # Copy
+        "copy_to",
+        "copy_from",
+    }
+)
+
+# ---------------------------------------------------------------------------
+# Fail-closed allowlist (SEC-025)
+#
+# Every function name that validate_sql may encounter as a sqlglot sql_name()
+# (for named Func subclasses) or Anonymous.name (for pass-through calls) is
+# enumerated here.  Any function NOT in this set — AND not covered by the
+# "st_" prefix shortcut — is rejected as invalid_query.
+#
+# IMPORTANT: All names are lowercased and match what sqlglot produces:
+#
+#   • Named Func subclasses use fn.sql_name().lower() — which is the
+#     canonical sqlglot identifier (e.g. COUNT → "count",
+#     STRING_AGG → "group_concat", BOOL_AND → "logical_and",
+#     NOW/CURRENT_TIMESTAMP → "current_timestamp",
+#     TO_CHAR → "time_to_str", GENERATE_SERIES → "exploding_generate_series").
+#     Always verify with sqlglot.parse(...).find_all(exp.Func) when adding new
+#     entries — the sqlglot name may differ from the SQL keyword.
+#
+#   • Anonymous Func nodes use fn.name.lower() — the raw SQL keyword
+#     (e.g. "similarity", "jsonb_agg", "st_area").
+#
+#   • PostGIS functions are covered by the "st_" prefix check in
+#     validate_sql, so individual "st_*" names are NOT listed here.
+#
+#   • CAST, CASE, COALESCE etc. ARE exp.Func subclasses in sqlglot and DO
+#     appear in find_all(exp.Func), so they must be in this set
+#     ("cast", "case", "if", "coalesce").
+#
+# How this list was built:
+#   1. AI system prompt (backend/app/processing/ai/sql_generator.py) enumerates
+#      the intended function set for LLM queries.
+#   2. Every function used in existing passing sandbox/AI tests was harvested.
+#   3. Safe function families from the CONTEXT were included generously.
+#   4. sqlglot AST was probed to obtain the canonical sql_name() for each.
+#
+# NEVER add: pg_*, current_setting, version/current_version, current_database,
+#            txid_current, inet_*, pg_postmaster_start_time, set_config,
+#            or any server-introspection/admin function.
+# ---------------------------------------------------------------------------
+_ALLOWED_FUNCTIONS: frozenset[str] = frozenset(
+    {
+        # -- Structural (sqlglot Func subclasses for SQL keywords) -----------
+        "cast",  # CAST(x AS type), x::type
+        "case",  # CASE WHEN ... THEN ... END
+        "if",  # sqlglot maps CASE WHEN single-branch to If
+        "coalesce",  # COALESCE(x, default)
+        "nullif",  # NULLIF(x, y)
+        # -- Aggregates (sqlglot named Func subclasses) ---------------------
+        "count",  # COUNT(*), COUNT(col)
+        "sum",  # SUM(col)
+        "avg",  # AVG(col)
+        "min",  # MIN(col)
+        "max",  # MAX(col)
+        "array_agg",  # ARRAY_AGG(col)
+        "group_concat",  # STRING_AGG(col, sep) — sqlglot maps to group_concat
+        "j_s_o_n_array_agg",  # JSON_AGG(col) — sqlglot internal name
+        "logical_and",  # BOOL_AND(expr) — sqlglot maps to logical_and
+        "logical_or",  # BOOL_OR(expr) — sqlglot maps to logical_or
+        "every",  # EVERY(expr) — Anonymous, same semantics as bool_and
+        "corr",  # CORR(x, y)
+        "covar_pop",  # COVAR_POP(x, y)
+        "covar_samp",  # COVAR_SAMP(x, y)
+        "regr_slope",  # REGR_SLOPE(y, x)
+        "regr_intercept",  # REGR_INTERCEPT(y, x)
+        "regr_avgx",  # REGR_AVGX(y, x)
+        "regr_avgy",  # REGR_AVGY(y, x)
+        "regr_count",  # REGR_COUNT(y, x)
+        "regr_r2",  # REGR_R2(y, x)
+        "regr_sxx",  # REGR_SXX(y, x)
+        "regr_sxy",  # REGR_SXY(y, x)
+        "regr_syy",  # REGR_SYY(y, x)
+        "percentile_cont",  # PERCENTILE_CONT(f) WITHIN GROUP (ORDER BY col)
+        "percentile_disc",  # PERCENTILE_DISC(f) WITHIN GROUP (ORDER BY col)
+        "mode",  # MODE() WITHIN GROUP (ORDER BY col)
+        "stddev",  # STDDEV(col)
+        "stddev_pop",  # STDDEV_POP(col)
+        "stddev_samp",  # STDDEV_SAMP(col)
+        "variance",  # VARIANCE(col) / VAR_SAMP(col) → both map here
+        "variance_pop",  # VAR_POP(col)
+        # -- Window functions -----------------------------------------------
+        "row_number",  # ROW_NUMBER() OVER (...)
+        "rank",  # RANK() OVER (...)
+        "dense_rank",  # DENSE_RANK() OVER (...)
+        "ntile",  # NTILE(n) OVER (...)
+        "lag",  # LAG(col) OVER (...)
+        "lead",  # LEAD(col) OVER (...)
+        "first_value",  # FIRST_VALUE(col) OVER (...)
+        "last_value",  # LAST_VALUE(col) OVER (...)
+        # -- Math (sqlglot named Func subclasses) --------------------------
+        "abs",
+        "ceil",  # CEIL() and CEILING() both → sql_name "ceil"
+        "floor",
+        "round",
+        "trunc",  # TRUNC(x)
+        "power",  # POWER(x, n) → sql_name "power" (internal Pow)
+        "sqrt",
+        "exp",
+        "ln",
+        "log",
+        "sign",
+        "greatest",
+        "least",
+        "width_bucket",
+        "pi",
+        "degrees",
+        "radians",
+        "sin",
+        "cos",
+        "tan",
+        "asin",
+        "acos",
+        "atan",
+        "atan2",
+        "cbrt",
+        # -- String (sqlglot named Func subclasses) ------------------------
+        "lower",
+        "upper",
+        "length",  # LENGTH, CHAR_LENGTH, CHARACTER_LENGTH → "length"
+        "trim",  # TRIM, LTRIM, RTRIM → "trim"
+        "btrim",  # BTRIM → Anonymous("btrim")
+        "substring",  # SUBSTRING → "substring"; SUBSTR → "substring"
+        "split_part",
+        "concat",
+        "concat_ws",
+        "left",
+        "right",
+        "pad",  # LPAD, RPAD → sql_name "pad"
+        "str_position",  # STRPOS, POSITION → sql_name "str_position"
+        "initcap",
+        "time_to_str",  # TO_CHAR → sqlglot sql_name "time_to_str"
+        "format",
+        "replace",
+        "regexp_replace",
+        "starts_with",
+        "md5",
+        "reverse",
+        "ascii",
+        "chr",
+        "repeat",
+        "translate",
+        # String fns that remain Anonymous in sqlglot:
+        "regexp_match",
+        "regexp_matches",
+        "regexp_split_to_array",
+        # -- Date/time (sqlglot named Func subclasses) --------------------
+        "current_timestamp",  # NOW(), CURRENT_TIMESTAMP → sql_name "current_timestamp"
+        "current_date",  # CURRENT_DATE → sql_name "current_date"
+        "current_time",  # CURRENT_TIME → sql_name "current_time"
+        "localtime",  # LOCALTIME → sql_name "localtime"
+        "localtimestamp",  # LOCALTIMESTAMP → sql_name "localtimestamp"
+        "timestamp_trunc",  # DATE_TRUNC → sql_name "timestamp_trunc"
+        "extract",  # EXTRACT(...), DATE_PART → sql_name "extract"
+        "str_to_date",  # TO_DATE → sql_name "str_to_date"
+        "str_to_time",  # TO_TIMESTAMP → sql_name "str_to_time"
+        "time_from_parts",  # MAKE_TIME → sql_name "time_from_parts"
+        "timestamp_from_parts",  # MAKE_TIMESTAMP → sql_name "timestamp_from_parts"
+        "make_interval",
+        "justify_days",
+        "justify_hours",
+        # Date fns that remain Anonymous in sqlglot:
+        "age",  # AGE(d1, d2)
+        "make_date",  # MAKE_DATE(y, m, d)
+        # -- JSON/array (mix of named Func and Anonymous) -----------------
+        "json_extract",  # JSON_EXTRACT_PATH → sql_name "json_extract"
+        "json_extract_scalar",  # JSON_EXTRACT_PATH_TEXT → sql_name "json_extract_scalar"
+        "array_size",  # ARRAY_LENGTH → sql_name "array_size"
+        "array_position",
+        "array_to_string",
+        "explode",  # UNNEST → sql_name "explode"
+        "exploding_generate_series",  # GENERATE_SERIES → sql_name
+        # JSON/array fns that remain Anonymous in sqlglot:
+        "json_build_object",
+        "jsonb_build_object",
+        "jsonb_extract_path",
+        "jsonb_extract_path_text",
+        "jsonb_object_keys",
+        "json_array_length",
+        "jsonb_array_length",
+        "jsonb_agg",  # JSONB_AGG → Anonymous("jsonb_agg")
+        "cardinality",
+        # -- pg_trgm (text similarity) ------------------------------------
+        "similarity",
+        "word_similarity",
+        "strict_word_similarity",
+        # -- pgvector (vector distance — named Func subclasses) -----------
+        "cosine_distance",  # CosineDistance → sql_name "cosine_distance"
+        # pgvector fns that remain Anonymous:
+        "l2_distance",
+        "inner_product",
+        "l1_distance",
+        "vector_dims",
+        "vector_norm",
+    }
+)
 
 
 def validate_sql(sql: str) -> ValidatedQuery:
@@ -101,14 +302,34 @@ def validate_sql(sql: str) -> ValidatedQuery:
         logger.info("sandbox.select_into", sql=sql)
         raise SandboxError("invalid_query", "Only SELECT queries are allowed")
 
-    # Check for blocked function calls (single AST walk — Anonymous is a Func subclass)
+    # Fail-closed function check (SEC-025).
+    #
+    # For each Func node in the AST, extract its canonical lowercase name:
+    #   • Anonymous nodes  → fn.name.lower()  (the raw SQL identifier)
+    #   • Named Func nodes → fn.sql_name().lower()  (sqlglot's canonical name,
+    #     which may differ from the SQL keyword — see _ALLOWED_FUNCTIONS docs)
+    #
+    # Then apply three-stage logic (order matters):
+    #   1. BLOCKED  → always reject (defense-in-depth; checked before allowlist)
+    #   2. "st_" prefix → allow (covers the entire PostGIS function family)
+    #   3. In _ALLOWED_FUNCTIONS → allow
+    #   4. Otherwise → reject (fail-closed)
     for func in stmt.find_all(exp.Func):
         if isinstance(func, exp.Anonymous):
             fn_name = func.name.lower() if hasattr(func, "name") else ""
         else:
             fn_name = func.sql_name().lower() if hasattr(func, "sql_name") else ""
+
         if fn_name in _BLOCKED_FUNCTIONS:
             logger.info("sandbox.blocked_function", sql=sql, function=fn_name)
+            raise SandboxError("invalid_query", "Query uses a disallowed function")
+
+        if fn_name.startswith("st_"):
+            # PostGIS family — allowed by prefix
+            continue
+
+        if fn_name not in _ALLOWED_FUNCTIONS:
+            logger.info("sandbox.unlisted_function", sql=sql, function=fn_name)
             raise SandboxError("invalid_query", "Query uses a disallowed function")
 
     # Extract CTE names to exclude from table validation
