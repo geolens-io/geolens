@@ -21,6 +21,12 @@
 !scripts/
 !scripts/**
 
+# enterprise/ is excluded from the OSS build context by default.
+# For an enterprise image build (BUG-003 build-time bake path), temporarily
+# add the following two lines and place the overlay source at ./enterprise/:
+#   !enterprise/
+#   !enterprise/**
+
 .git/
 .env
 .env.*

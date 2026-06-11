@@ -43,16 +43,64 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 RUN chmod +x /app/scripts/api-entrypoint.sh /app/scripts/worker-entrypoint.sh
 
 # ==============================================================================
+# Enterprise overlay — BUILD-TIME bake (BUG-003)
+# ==============================================================================
+# The runtime container runs with read_only: true rootfs (see docker-compose.yml
+# x-hardened-base anchor).  A runtime `uv add --editable` cannot write into
+# the baked /app/.venv — it silently fails, and BUG-003's startup check then
+# refuses to boot as OSS when GEOLENS_EDITION=enterprise was set.
+#
+# The architecturally correct solution is to pre-bake the overlay INTO the image
+# at BUILD time so the read_only runtime never needs to write.
+#
+# Usage (enterprise build — two steps):
+#
+#   1. Place the overlay source in the build context and allow it in .dockerignore:
+#        cp -r /path/to/geolens-enterprise ./enterprise
+#        # Temporarily append to .dockerignore for the enterprise build:
+#        #   !enterprise/
+#        #   !enterprise/**
+#
+#   2. Build with the ARG set:
+#        docker build \
+#            --build-arg INSTALL_ENTERPRISE_OVERLAY=1 \
+#            -t geolens-api:enterprise .
+#
+# For a repeatable enterprise CI pipeline, commit a docker-compose.enterprise.yml
+# override that sets the build arg and mounts a known overlay path.
+#
+# When the ARG is unset (empty string, the default) this block is a no-op and
+# the OSS image is byte-for-byte unchanged.  CI always builds without the ARG
+# so the OSS path is exercised on every run.
+#
+# NOTE: enterprise/ is excluded from the build context by .dockerignore (default
+# deny-then-allow pattern).  For an enterprise build the COPY below picks it up
+# only when the operator has added !enterprise/ to .dockerignore per step 1.
+ARG INSTALL_ENTERPRISE_OVERLAY=
+RUN --mount=type=cache,target=/root/.cache/uv \
+    if [ -n "${INSTALL_ENTERPRISE_OVERLAY:-}" ]; then \
+        if [ ! -d "/enterprise" ] || [ ! -f "/enterprise/pyproject.toml" ]; then \
+            echo "ERROR: INSTALL_ENTERPRISE_OVERLAY=1 but /enterprise is missing or empty." >&2; \
+            echo "Ensure enterprise/ is in the build context (add !enterprise/ to .dockerignore)" >&2; \
+            echo "and add 'COPY enterprise/ /enterprise/' before this RUN in your derived image." >&2; \
+            exit 1; \
+        fi; \
+        echo "Baking enterprise overlay into image at build time..." && \
+        uv add --editable /enterprise --no-dev; \
+    fi
+
+# ==============================================================================
 # Stage 2: backend-base — clean python:3.14.3-slim runtime; venv from builder
 # ==============================================================================
 # True multi-stage split: runtime starts from a fresh
 # python:3.14.3-slim base (no apt-cache layer from builder, no intermediate
 # uv-sync state). Only the resolved /app/.venv + code arrive via COPY --from.
 #
-# Note: uv is INTENTIONALLY KEPT in the runtime layer because
-# api-entrypoint.sh runs `uv add --editable ${ENTERPRISE_PATH}` to install the
-# enterprise overlay at startup. Removing uv from runtime breaks the enterprise
-# install path.
+# Note: uv is kept in the runtime layer because the entrypoints and CMD use
+# `uv run --no-dev` to launch uvicorn/worker inside the project environment.
+# The enterprise overlay is NOT installed at runtime (read_only rootfs prevents
+# it — see BUG-003); use the build-time bake path above (ARG
+# INSTALL_ENTERPRISE_OVERLAY) to pre-bake the overlay into an enterprise image.
 # gcc/dev libs are still excluded from the runtime layer.
 #
 # Pin: python:3.14.3-slim. backend/pyproject.toml requires-python>=3.13 for
@@ -60,7 +108,7 @@ RUN chmod +x /app/scripts/api-entrypoint.sh /app/scripts/worker-entrypoint.sh
 # See backend/pyproject.toml comment at requires-python for the matching note.
 FROM python:3.14.5-slim AS backend-base
 
-# uv kept for enterprise overlay install (api-entrypoint.sh runs `uv add --editable`).
+# uv kept for `uv run --no-dev` launch pattern (entrypoints + CMD).
 # Aligned uv installer pin across builder + runtime stages.
 COPY --from=ghcr.io/astral-sh/uv:0.11.11 /uv /uvx /bin/
 
