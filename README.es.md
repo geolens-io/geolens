@@ -15,8 +15,7 @@ Sube Shapefiles, GeoTIFFs, GeoPackages o CSVs. GeoLens guarda todo en PostGIS, i
 [![OGC Compliant](https://img.shields.io/badge/OGC_API-Features_%7C_Records-green.svg)](https://ogcapi.ogc.org/)
 
 ```bash
-git clone https://github.com/geolens-io/geolens.git && cd geolens
-bash scripts/install.sh
+curl -fsSL https://getgeolens.com/install.sh | sh
 # Abre http://localhost:8080 — inicia sesión con las credenciales que elegiste
 ```
 
