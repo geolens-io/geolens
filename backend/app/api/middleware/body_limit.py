@@ -8,13 +8,18 @@ BUG-007 (Phase 1181): The effective limit is resolved PER-REQUEST from the
 cached PersistentConfig value instead of the boot-time env value, so an
 admin-raised UPLOAD_MAX_SIZE_MB takes effect without a process restart.
 
-The resolution helper `_get_upload_limit` is intentionally kept as a plain
-module-level function with a clear seam for Phase 1184's per-route override:
+GAP-001 (Phase 1184): Per-route body cap. Non-upload routes get a small
+default cap (DEFAULT_BODY_LIMIT_BYTES = 10 MB). Upload/reupload routes use
+the admin-configurable UPLOAD_MAX_SIZE_MB (500 MB default) resolved via
+_get_upload_limit(). The upload route paths are detected by path-prefix match
+against UPLOAD_PATH_PREFIXES — any request whose path starts with one of
+those prefixes uses the large upload limit; all others use the small default.
+
+The resolution helper `_get_upload_limit` accepts a `route_override` seam:
 
     route_override or _get_upload_limit() or _FALLBACK_LIMIT_BYTES
 
-Phase 1184 can pass `route_override` (e.g. a smaller cap for non-upload
-endpoints) without touching any other middleware logic.
+`route_override=DEFAULT_BODY_LIMIT_BYTES` is passed for non-upload routes.
 """
 
 import time
@@ -32,12 +37,49 @@ _LIMIT_CACHE_TTL = 30  # seconds — matches PersistentConfig cache TTL
 # (e.g. during lifespan startup before the pool is initialised).
 _FALLBACK_LIMIT_BYTES = 500 * 1024 * 1024  # 500 MB
 
+# GAP-001: small default cap for non-upload routes (protects JSON/form endpoints
+# from large-body DoS while leaving file-upload paths unrestricted).
+DEFAULT_BODY_LIMIT_BYTES = 10 * 1024 * 1024  # 10 MB
+
+# GAP-001: path prefixes that should receive the large upload limit.
+# Matches:
+#   /api/ingest/upload          — new-file upload (router prefix /ingest, path /upload*)
+#   /api/ingest/upload/presigned — presigned upload initiation
+#   /api/datasets/{id}/reupload — reupload (router prefix /datasets, path /{id}/reupload*)
+# Use lowercase; comparison below also lowercases the request path.
+UPLOAD_PATH_PREFIXES: tuple[str, ...] = (
+    "/api/ingest/upload",
+    "/api/datasets/",  # covers /{dataset_id}/reupload* paths
+)
+
+
+def _is_upload_route(path: str) -> bool:
+    """Return True if *path* is an upload or reupload endpoint.
+
+    GAP-001: upload routes need the large UPLOAD_MAX_SIZE_MB limit; all other
+    routes get DEFAULT_BODY_LIMIT_BYTES.  The match is deliberately liberal on
+    /api/datasets/ — only reupload paths POST a large body, but the other
+    dataset paths post small JSON.  Restricting /api/datasets/ further would
+    require parsing the path segments; accepting a slightly wider match is safe
+    because the body check is still bounded by UPLOAD_MAX_SIZE_MB (500 MB).
+    We keep the match simple and correct for the actual upload paths.
+    """
+    lower = path.lower()
+    # /api/ingest/upload* — all upload-initiation paths
+    if lower.startswith("/api/ingest/upload"):
+        return True
+    # /api/datasets/{id}/reupload* — dataset reupload paths
+    # Match the literal "/reupload" segment inside a /datasets/... path.
+    if lower.startswith("/api/datasets/") and "/reupload" in lower:
+        return True
+    return False
+
 
 def _get_upload_limit(route_override: int | None = None) -> int:
     """Return the effective upload limit in bytes.
 
     Resolution order (Phase 1184 seam):
-        1. route_override  — per-route cap (Phase 1184 will supply this)
+        1. route_override  — per-route cap (non-upload routes supply DEFAULT_BODY_LIMIT_BYTES)
         2. cached config   — PersistentConfig UPLOAD_MAX_SIZE_MB (30 s TTL)
         3. fallback        — _FALLBACK_LIMIT_BYTES (boot-time env default)
 
@@ -93,6 +135,9 @@ class RequestBodyLimitMiddleware:
     The limit is resolved per-request from the cached PersistentConfig value
     (BUG-007).  ``max_bytes`` passed at construction is used only as the
     initial fallback until the first async cache refresh completes.
+
+    GAP-001: non-upload routes get DEFAULT_BODY_LIMIT_BYTES (10 MB); upload
+    and reupload routes get the full UPLOAD_MAX_SIZE_MB limit.
     """
 
     def __init__(self, app: Any, max_bytes: int) -> None:
@@ -109,10 +154,17 @@ class RequestBodyLimitMiddleware:
 
         # Resolve limit per-request (async cache refresh, TTL 30 s).
         # _refresh_limit_cache populates the sync _limit_cache; _get_upload_limit
-        # reads it.  Keeping them separate lets Phase 1184 inject a route_override
-        # into _get_upload_limit without touching this call site.
+        # reads it.  Per GAP-001, non-upload routes use DEFAULT_BODY_LIMIT_BYTES
+        # as the route_override so the large upload limit never applies to them.
         await _refresh_limit_cache()
-        max_bytes = _get_upload_limit()
+
+        path = scope.get("path", "")
+        if _is_upload_route(path):
+            # Upload/reupload: use the admin-configurable limit (500 MB default)
+            max_bytes = _get_upload_limit()
+        else:
+            # All other routes: small default cap (10 MB)
+            max_bytes = _get_upload_limit(route_override=DEFAULT_BODY_LIMIT_BYTES)
 
         # Fast path: Content-Length header present — reject before reading the body
         headers = dict(scope.get("headers", []))

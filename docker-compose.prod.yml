@@ -124,6 +124,10 @@ services:
       - pgdata:/var/lib/postgresql/data
       - ./scripts/init-db.sh:/docker-entrypoint-initdb.d/10-init.sh
       - ./db/postgresql.conf:/etc/postgresql/custom.conf:ro
+    # GAP-001: memory limit prevents the DB from consuming all host RAM under
+    # heavy query load. 2 GB covers shared_buffers (512 MB) + work_mem headroom
+    # for concurrent queries. Raise on hosts with > 8 GB RAM.
+    mem_limit: "2g"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -p 5432 -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 5s
@@ -172,6 +176,9 @@ services:
     init: true
     stop_grace_period: 30s
     restart: unless-stopped
+    # GAP-001: 2 GB covers the Python process + Uvicorn workers + ORM caches.
+    # Raise if ingesting very large files with many concurrent workers.
+    mem_limit: "2g"
     <<: *hardened-base
     tmpfs:
       - /tmp:size=512m,mode=1777
@@ -225,6 +232,9 @@ services:
     init: true
     stop_grace_period: 35s
     restart: unless-stopped
+    # GAP-001: 4 GB covers the worker process + GDAL/OGR buffers during large
+    # file ingestion (GeoTIFF COG conversion can be RAM-intensive).
+    mem_limit: "4g"
     <<: *hardened-base
     tmpfs:
       - /tmp:size=512m,mode=1777
@@ -265,6 +275,9 @@ services:
       - no-new-privileges:true
     cap_drop:
       - ALL
+    # GAP-001: 1 GB covers GDAL_CACHEMAX (200 MB) + Python process overhead for
+    # concurrent tile rendering. Raise for very large raster catalogs.
+    mem_limit: "1g"
     read_only: true
     tmpfs:
       - /tmp:size=128m,mode=1777
