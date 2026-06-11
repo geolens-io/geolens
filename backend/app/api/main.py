@@ -27,7 +27,11 @@ from app.platform.cache.provider import init_tile_cache
 from app.core.db import async_session, engine
 from app.core.logging_config import setup_logging
 from app.core.runtime.staging import ensure_staging_ready
-from app.core.edition import get_edition, init_edition
+from app.core.edition import (
+    check_enterprise_overlay_requested,
+    get_edition,
+    init_edition,
+)
 from app.platform.extensions import (
     get_billing_extensions,
     get_extension_routers,
@@ -158,6 +162,11 @@ async def lifespan(app: FastAPI):
     _warn_if_cors_unset(settings, logger)
 
     load_extensions()
+    # BUG-003: fail loudly if Enterprise is explicitly requested but the overlay
+    # is not loaded. Must run after load_extensions() so the full extension list
+    # is known. Raises RuntimeError → container exits non-zero instead of
+    # silently booting OSS when the operator intended Enterprise.
+    check_enterprise_overlay_requested(list_extensions())
     init_edition(list_extensions())
     edition_info = get_edition()
     logger.info(
