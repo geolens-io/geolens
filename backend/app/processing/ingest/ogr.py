@@ -694,6 +694,14 @@ async def run_ogr2ogr_service(
     # HTTP; GDAL_HTTP_FOLLOWLOCATION=NO is the only way to disable
     # redirect-following in libcurl under GDAL.
     #
+    # SEC-008: unlike the httpx path (make_safe_client pins the validated IP via
+    # _SSRFGuardTransport), libcurl under GDAL resolves DNS itself with no
+    # per-request pin hook, so a connect-time DNS-rebinding TOCTOU between
+    # submission-time validation and this subprocess fetch remains. It is
+    # bounded by GDAL_HTTP_FOLLOWLOCATION=NO (no redirect rebinding) and must be
+    # mitigated operationally (egress firewall / blocking link-local metadata
+    # IPs at the network layer).
+    #
     # IA-P1-06 (Phase 1068): Authorization headers MUST NOT pass through the
     # subprocess env (visible via /proc/<pid>/environ for the lifetime of the
     # process). Switch to GDAL_HTTP_HEADER_FILE pointed at a 0600 tempfile
