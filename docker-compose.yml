@@ -242,12 +242,21 @@ services:
     # single spaces. Mismatched indent makes YAML preserve the newlines and
     # sh then sees a multi-line script (uvicorn flags become "command not
     # found" lines and uvicorn binds to its 127.0.0.1 default).
+    # GAP-003: --proxy-headers tells uvicorn to populate request.client from
+    # X-Forwarded-For / X-Real-IP headers set by the nginx reverse proxy.
+    # --forwarded-allow-ips='*' is safe here because the api port is NOT
+    # published to the host — it is only reachable from other containers on the
+    # internal Docker network (nginx proxies to it). An external attacker cannot
+    # spoof X-Forwarded-For headers because the api is not internet-accessible.
+    # rate-limit (slowapi get_remote_address) + audit logs (request.client.host)
+    # both read request.client, which uvicorn populates only with --proxy-headers.
     command: >
       sh -c "uv run --no-dev uvicorn app.api.main:app
       --host 0.0.0.0 --port 8000
       --workers $${UVICORN_WORKERS:-1}
       --timeout-keep-alive $${UVICORN_TIMEOUT_KEEP_ALIVE:-5}
       --timeout-graceful-shutdown $${UVICORN_TIMEOUT_GRACEFUL_SHUTDOWN:-30}
+      --proxy-headers --forwarded-allow-ips='*'
       --reload --reload-dir /app/app"
     environment:
       <<: [*db-env, *auth-env, *db-ssl-env, *storage-env, *logging-env, *ai-env]

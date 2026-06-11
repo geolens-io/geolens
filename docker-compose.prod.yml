@@ -169,9 +169,20 @@ services:
         condition: service_healthy
 
   api:
-    # Image CMD is the prod uvicorn (no --reload); ENTRYPOINT is the baked
-    # api-entrypoint.sh — both come from the image, so no override here.
     image: ${REGISTRY:-ghcr.io}/${IMAGE_OWNER:-geolens-io}/geolens-api:${GEOLENS_VERSION:-latest}
+    # GAP-003: override the baked image CMD to add --proxy-headers so uvicorn
+    # populates request.client from X-Forwarded-For / X-Real-IP sent by the
+    # nginx frontend. --forwarded-allow-ips='*' is safe because the api port is
+    # only reachable from the Docker-internal network (nginx to api). Without
+    # this flag, rate-limit buckets collapse to nginx's container IP and audit
+    # logs record the proxy address instead of the real client IP.
+    command: >
+      sh -c "uv run --no-dev uvicorn app.api.main:app
+      --host 0.0.0.0 --port 8000
+      --workers $${UVICORN_WORKERS:-2}
+      --timeout-keep-alive $${UVICORN_TIMEOUT_KEEP_ALIVE:-5}
+      --timeout-graceful-shutdown $${UVICORN_TIMEOUT_GRACEFUL_SHUTDOWN:-30}
+      --proxy-headers --forwarded-allow-ips='*'"
     user: "0:0"
     init: true
     stop_grace_period: 30s
