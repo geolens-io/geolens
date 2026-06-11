@@ -271,6 +271,16 @@ def apply_manifest_command(
         raise typer.Exit(EXIT_GENERIC)
 
 
+def _read_secret_from_stdin() -> str:
+    """Read a secret from stdin (strips trailing newline/whitespace).
+
+    Supports piping: echo $TOKEN | geolens login <url> --token -
+    """
+    import sys
+
+    return sys.stdin.readline().rstrip("\r\n")
+
+
 @app.command()
 def login(
     ctx: typer.Context,
@@ -279,17 +289,37 @@ def login(
     ],
     token: Annotated[
         Optional[str],
-        typer.Option("--token", help="Skip prompt; store this JWT directly"),
+        typer.Option(
+            "--token",
+            help=(
+                "Skip prompt; store this JWT directly. "
+                "Pass '-' to read from stdin (e.g. echo $TOKEN | geolens login <url> --token -). "
+                "Prefer the GEOLENS_TOKEN env var for non-interactive use."
+            ),
+        ),
     ] = None,
     api_key: Annotated[
-        Optional[str], typer.Option("--api-key", help="Skip prompt; store as API key")
+        Optional[str],
+        typer.Option(
+            "--api-key",
+            help=(
+                "Skip prompt; store as API key. "
+                "Pass '-' to read from stdin."
+            ),
+        ),
     ] = None,
     no_keyring: Annotated[
         bool,
         typer.Option("--no-keyring", help="Use credentials.toml instead of OS keyring"),
     ] = False,
 ) -> None:
-    """Log in to a GeoLens instance and store credentials."""
+    """Log in to a GeoLens instance and store credentials.
+
+    Secrets can be passed on the command line (--token <value>) or read
+    from stdin by passing the special value '-' (--token -). The preferred
+    non-interactive approach is the GEOLENS_TOKEN environment variable,
+    which avoids the secret appearing in argv or shell history.
+    """
     state: AppState = ctx.obj
 
     try:
@@ -301,6 +331,13 @@ def login(
     if token and api_key:
         state.output.error("--token and --api-key are mutually exclusive")
         raise typer.Exit(2)
+
+    # SEC-016: '-' sentinel reads the secret from stdin so it does not appear
+    # in argv or shell history.
+    if token == "-":
+        token = _read_secret_from_stdin()
+    if api_key == "-":
+        api_key = _read_secret_from_stdin()
 
     if api_key:
         backend = _auth.store_api_key(instance, api_key, no_keyring=no_keyring)

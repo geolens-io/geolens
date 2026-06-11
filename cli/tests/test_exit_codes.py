@@ -109,6 +109,48 @@ class TestAuthCommandExitCodes:
         assert result.exit_code == EXIT_AUTH, result.output
 
 
+class TestLoginStdinSecret:
+    """SEC-016: login accepts the secret via stdin (--token -)."""
+
+    def test_login_token_dash_reads_from_stdin(
+        self, runner, tmp_xdg_home, mock_keyring
+    ) -> None:
+        """--token - reads the bearer token from stdin, not argv."""
+        result = runner.invoke(
+            app,
+            ["login", "https://x.example.com", "--token", "-", "--no-keyring"],
+            input="stdin-token-value\n",
+        )
+        assert result.exit_code == 0, result.output
+        # Token stored from stdin must be the stdin value, NOT the literal "-"
+        creds_text = (tmp_xdg_home / "geolens" / "credentials.toml").read_text()
+        assert "stdin-token-value" in creds_text
+        assert '"-"' not in creds_text
+
+    def test_login_api_key_dash_reads_from_stdin(
+        self, runner, tmp_xdg_home, mock_keyring
+    ) -> None:
+        """--api-key - reads the API key from stdin."""
+        result = runner.invoke(
+            app,
+            ["login", "https://x.example.com", "--api-key", "-", "--no-keyring"],
+            input="stdin-api-key-value\n",
+        )
+        assert result.exit_code == 0, result.output
+        creds_text = (tmp_xdg_home / "geolens" / "credentials.toml").read_text()
+        assert "stdin-api-key-value" in creds_text
+
+    def test_login_token_argv_still_works(
+        self, runner, tmp_xdg_home, mock_keyring
+    ) -> None:
+        """Backward compat: --token <value> on argv continues to work."""
+        result = runner.invoke(
+            app,
+            ["login", "https://x.example.com", "--token", "argv-token", "--no-keyring"],
+        )
+        assert result.exit_code == 0, result.output
+
+
 class TestManifestCommandExitCodes:
     """Offline manifest commands use usage errors for local input problems."""
 
