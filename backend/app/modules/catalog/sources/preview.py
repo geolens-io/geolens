@@ -117,13 +117,16 @@ async def run_service_preview(
             # Passing the bearer via GDAL_HTTP_HEADERS leaks it through the
             # subprocess env (visible in /proc/<pid>/environ for the process
             # lifetime) and lets a CR/LF in the token inject arbitrary outbound
-            # HTTP headers under libcurl. Sanitize the token to the base64url
-            # charset and hand it to GDAL via a 0600 GDAL_HTTP_HEADER_FILE — the
+            # HTTP headers under libcurl. Re-validate the token (reject CR/LF /
+            # control chars — the same sources-layer validator the request schema
+            # applies) and hand it to GDAL via a 0600 GDAL_HTTP_HEADER_FILE so the
             # env var carries the file PATH, not the secret. The tempfile is
-            # unlinked in the finally below.
-            from app.processing.ingest.ogr import _sanitize_authorization_token
+            # unlinked in the finally below. Validator lives in this module's
+            # `schemas` (not app.processing) to respect the catalog↔processing
+            # layering boundary.
+            from app.modules.catalog.sources.schemas import _validate_safe_token
 
-            safe_token = _sanitize_authorization_token(token)
+            safe_token = _validate_safe_token(token)
             import tempfile
 
             fd, header_file_path = tempfile.mkstemp(prefix="gdal_auth_", suffix=".hdr")
