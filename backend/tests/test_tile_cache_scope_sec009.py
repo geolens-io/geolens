@@ -10,6 +10,7 @@ These are pure-function tests (no DB / pool / Titiler): they call the authorizer
 directly with a valid signature mocked and assert the resolved cache scope.
 """
 
+import types
 import uuid
 
 import pytest
@@ -18,6 +19,7 @@ import app.processing.tiles.router as tile_router
 from app.processing.tiles.router import (
     _DatasetMeta,
     _authorize_vector_tile_request,
+    _is_publicly_cacheable,
     _tile_headers,
 )
 
@@ -102,3 +104,65 @@ async def test_non_public_without_signature_is_rejected(monkeypatch):
             user=None,
         )
     assert exc.value.status_code == 403
+
+
+# ---------------------------------------------------------------------------
+# SEC-002 follow-up (Codex P1 on PR #243): public BUT unpublished previews are
+# owner/admin-only and must NOT be shared-cached.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "visibility,record_status,expected",
+    [
+        ("public", "published", True),
+        ("public", "draft", False),  # owner/admin preview — not shared-cacheable
+        ("public", "internal", False),
+        ("private", "published", False),
+        ("restricted", "published", False),
+        ("internal", "published", False),
+    ],
+)
+def test_is_publicly_cacheable(visibility, record_status, expected):
+    """Raster cache scope: publicly cacheable only when public AND published."""
+    assert _is_publicly_cacheable(visibility, record_status) is expected
+
+
+@pytest.mark.anyio
+async def test_public_unpublished_owner_preview_is_private_scope(monkeypatch):
+    """Vector: an owner previewing an UNPUBLISHED public dataset is authorized
+    but its tiles must not be shared-cached (scope 'private')."""
+    meta = _meta("public", "draft")
+    owner = types.SimpleNamespace(id=meta.created_by)
+
+    async def _roles(_db, _user):
+        return set()
+
+    monkeypatch.setattr(
+        tile_router,
+        "get_processing_port",
+        lambda: types.SimpleNamespace(get_user_roles=_roles),
+    )
+    scope = await _authorize_vector_tile_request(
+        _FakeRequest(), meta, db=None, sig=None, exp=None, scope=None, user=owner
+    )
+    assert scope == "private"
+    assert _tile_headers(scope, 300)["Cache-Control"].startswith("private")
+
+
+@pytest.mark.anyio
+async def test_public_unpublished_anonymous_is_rejected():
+    """GUARD: anon still cannot reach an unpublished public dataset (404)."""
+    from fastapi import HTTPException
+
+    with pytest.raises(HTTPException) as exc:
+        await _authorize_vector_tile_request(
+            _FakeRequest(),
+            _meta("public", "draft"),
+            db=None,
+            sig=None,
+            exp=None,
+            scope=None,
+            user=None,
+        )
+    assert exc.value.status_code == 404

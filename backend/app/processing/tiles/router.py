@@ -353,6 +353,19 @@ def _apply_stretch_rescale(render_params: str, rescale_parts: list[str]) -> str:
     return "&".join(kept + rescale_parts)
 
 
+def _is_publicly_cacheable(visibility: str | None, record_status: str | None) -> bool:
+    """Whether a tile may be stored in the shared (auth-less) cache.
+
+    Only datasets that are BOTH public AND published are safe to cache publicly.
+    A public-but-unpublished dataset is an owner/admin-only preview: anonymous
+    callers are rejected, but if its tiles were marked `public` they would
+    populate the auth-less nginx cache key and replay to later anonymous
+    requests (SEC-002; raised as a Codex P1 on PR #243). Non-public datasets are
+    never publicly cacheable.
+    """
+    return visibility == "public" and record_status == "published"
+
+
 async def _resolve_raster_access(
     db: AsyncSession,
     dataset_id: uuid.UUID,
@@ -514,7 +527,11 @@ async def raster_auth_check(
     else:
         open_path = f"{settings.upload_staging_dir}/{asset_uri}"
 
-    cache_status = "public" if row["visibility"] == "public" else "private"
+    cache_status = (
+        "public"
+        if _is_publicly_cacheable(row["visibility"], row["record_status"])
+        else "private"
+    )
     if row.get("is_dem"):
         # DEM terrain: use terrainrgb algorithm with NO rescale — the algorithm
         # reads raw elevation values and encodes them into RGB channels directly.
@@ -1132,6 +1149,10 @@ async def _authorize_vector_tile_request(
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found"
             )
+        # Owner/admin previewing an UNPUBLISHED public dataset: authorized, but
+        # the tiles must not enter the shared (auth-less) cache or they would
+        # replay to anonymous callers. (Codex P1 on PR #243.)
+        return "private"
 
     return "public"
 
