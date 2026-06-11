@@ -722,7 +722,8 @@
     "basemapIssueDescription": "Ihre Datenebenen bleiben bearbeitbar. Prüfen Sie den Grundkartendienst oder wählen Sie eine andere Grundkarte, wenn der Hintergrund leer bleibt.",
     "clusterFallback": "{{name}} wird als Punkte dargestellt: {{reason}}",
     "clusterTruncated": "die Cluster-Quelle hat das begrenzte GeoJSON-Limit überschritten",
-    "clusterLoadError": "{{name}} wird als Punkte dargestellt, weil die Cluster-Daten nicht geladen werden konnten."
+    "clusterLoadError": "{{name}} wird als Punkte dargestellt, weil die Cluster-Daten nicht geladen werden konnten.",
+    "tokenError": "Kachel-Tokens konnten nicht geladen werden — einige Ebenen werden eventuell nicht angezeigt."
   },
   "mapCreate": {
     "title": "Karte erstellen",

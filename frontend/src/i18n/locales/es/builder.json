@@ -722,7 +722,8 @@
     "basemapIssueDescription": "Tus capas de datos siguen siendo editables. Revisa el servicio del mapa base o elige otro mapa base si el fondo sigue en blanco.",
     "clusterFallback": "{{name}} se renderiza como puntos: {{reason}}",
     "clusterTruncated": "la fuente agrupada superó el límite de GeoJSON acotado",
-    "clusterLoadError": "{{name}} se renderiza como puntos porque no se pudieron cargar los datos agrupados."
+    "clusterLoadError": "{{name}} se renderiza como puntos porque no se pudieron cargar los datos agrupados.",
+    "tokenError": "No se pudieron cargar los tokens de mosaico — es posible que algunas capas no se muestren."
   },
   "mapCreate": {
     "title": "Crear mapa",

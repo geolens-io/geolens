@@ -722,7 +722,8 @@
     "basemapIssueDescription": "Vos couches de données restent modifiables. Vérifiez le service de fond de carte ou choisissez un autre fond si l'arrière-plan reste vide.",
     "clusterFallback": "{{name}} s'affiche sous forme de points : {{reason}}",
     "clusterTruncated": "la source d'agrégats dépasse la limite GeoJSON bornée",
-    "clusterLoadError": "{{name}} s'affiche sous forme de points, car les données d'agrégats n'ont pas pu être chargées."
+    "clusterLoadError": "{{name}} s'affiche sous forme de points, car les données d'agrégats n'ont pas pu être chargées.",
+    "tokenError": "Impossible de charger les jetons de tuiles — certaines couches peuvent ne pas s'afficher."
   },
   "mapCreate": {
     "title": "Créer une carte",

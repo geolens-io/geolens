@@ -722,7 +722,8 @@
     "basemapIssueDescription": "Your data layers are still editable. Check the basemap service or choose another basemap if the background stays blank.",
     "clusterFallback": "{{name}} is rendering as points: {{reason}}",
     "clusterTruncated": "cluster source exceeded the bounded GeoJSON limit",
-    "clusterLoadError": "{{name}} is rendering as points because cluster data could not load."
+    "clusterLoadError": "{{name}} is rendering as points because cluster data could not load.",
+    "tokenError": "Failed to load tile tokens — some layers may not display."
   },
   "mapCreate": {
     "title": "Create Map",

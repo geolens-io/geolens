@@ -13,6 +13,7 @@ import {
 } from '@/lib/basemap-utils';
 import { buildClusterTileUrl, buildSignedTileUrl } from '@/lib/tile-utils';
 import { useTileTokens } from '@/hooks/use-tile-token';
+import { useTileTokenError } from './hooks/use-tile-token-error';
 import { getEnvConfig } from '@/lib/env';
 import { pushReportEntry } from '@/lib/report';
 import { useAuthStore } from '@/stores/auth-store';
@@ -274,6 +275,11 @@ export const BuilderMap = memo(function BuilderMap({
     () => tokenQueries.map((q) => q.data ? (q.data.kind === 'vector' ? q.data.sig : q.data.tile_url) : '').join(','),
     [tokenQueries],
   );
+
+  // GAP-004: surface a deduped toast when the tile-token batch query fails so
+  // the user sees an error instead of a silent empty map.
+  const tokenBatchIsError = tokenQueries.length > 0 && tokenQueries.some((q) => q.isError);
+  useTileTokenError(tokenBatchIsError);
 
   const clusterGeoJsonDataRef = useRef<Map<string, GeoJSON.FeatureCollection>>(new Map());
   const clusterFallbackNotifiedRef = useRef<Set<string>>(new Set());

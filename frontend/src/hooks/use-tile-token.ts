@@ -57,6 +57,9 @@ export function useTileTokens(datasetIds: string[]) {
     queryFn: () => getTileTokensBatch(uniqueIds),
     enabled: uniqueIds.length > 0,
     staleTime: 60_000,
+    // GAP-004: bounded backoff retry — 3 attempts with exponential delay so a
+    // transient network hiccup recovers without spamming the server.
+    retry: 3,
     refetchInterval: (query) => {
       const data = query.state.data?.tokens;
       if (!data) return false;
