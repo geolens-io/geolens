@@ -376,6 +376,10 @@ async def visibility_check_endpoint(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Map not found",
         )
+    # SEC-007: gate on read access to THIS map before disclosing its non-public
+    # dataset names. Without it, any editor could enumerate the private dataset
+    # titles of any map (incl. maps they cannot read) by UUID.
+    await _check_map_read_access(map_obj, user, db)
     non_public_names = await validate_public_visibility(db, map_id)
     return VisibilityCheckResponse(
         non_public_datasets=non_public_names,
