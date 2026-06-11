@@ -197,6 +197,98 @@ class TestTileSigningModule:
             exp2 = round_expiry()
         assert exp1 == exp2
 
+    # BUG-012 regression tests — minimum-validity guard -------------------
+
+    def test_round_expiry_min_validity_skips_near_boundary(self):
+        """BUG-012: when now is within min_validity seconds of the next boundary,
+        round_expiry skips to the FOLLOWING boundary so the token never has
+        near-zero validity.
+
+        Scenario: now = 900 * k - 5 (5 s before the next boundary).
+        Pre-fix: returns 900*k (5 s validity → < 60 s min).
+        Post-fix: returns 900*(k+1) (905 s validity → ≥ 60 s min).
+        """
+        from app.processing.tiles.signing import round_expiry
+
+        # Pick a time 5 seconds before a 15-min boundary.
+        k = 1889  # arbitrary; 1700100 / 900 = 1889.0
+        boundary = 900 * k
+        near_boundary_now = boundary - 5  # 5 s before the next boundary
+
+        with patch(
+            "app.processing.tiles.signing.time.time",
+            return_value=float(near_boundary_now),
+        ):
+            exp = round_expiry()
+
+        # Must skip to the FOLLOWING boundary
+        assert exp == boundary + 900, (
+            f"Expected {boundary + 900} (following boundary), got {exp}. "
+            f"Token would have had only {boundary - near_boundary_now} s validity."
+        )
+        # Invariant: still a multiple of 900
+        assert exp % 900 == 0
+        # Invariant: validity is at least min_validity (default 60 s)
+        assert exp - near_boundary_now >= 60
+
+    def test_round_expiry_far_from_boundary_returns_next_boundary(self):
+        """BUG-012: when now is comfortably far from the next boundary,
+        round_expiry still returns the NEXT boundary (no change from pre-fix).
+
+        Scenario: now is 450 s into a window → next boundary is 450 s away.
+        """
+        from app.processing.tiles.signing import round_expiry
+
+        k = 1889
+        boundary = 900 * k
+        mid_window_now = boundary - 450  # 450 s before the boundary
+
+        with patch(
+            "app.processing.tiles.signing.time.time", return_value=float(mid_window_now)
+        ):
+            exp = round_expiry()
+
+        assert exp == boundary, f"Expected {boundary}, got {exp}"
+        assert exp % 900 == 0
+        assert exp - mid_window_now >= 60
+
+    def test_round_expiry_exactly_at_min_validity_boundary_returns_next(self):
+        """BUG-012: when (next_boundary - now) == min_validity exactly, the next
+        boundary is acceptable (edge case: equality means valid, not rejected).
+        """
+        from app.processing.tiles.signing import round_expiry
+
+        k = 1889
+        boundary = 900 * k
+        # Exactly 60 s before the boundary (== min_validity default)
+        now = boundary - 60
+
+        with patch("app.processing.tiles.signing.time.time", return_value=float(now)):
+            exp = round_expiry()
+
+        # Exactly at the boundary should be accepted (>= 60 is satisfied)
+        assert exp == boundary
+        assert exp % 900 == 0
+        assert exp - now >= 60
+
+    def test_round_expiry_result_always_multiple_of_900_near_boundary(self):
+        """BUG-012: the skipped result must remain a multiple of 900."""
+        from app.processing.tiles.signing import round_expiry
+
+        # Test several near-boundary times
+        for k in (100, 500, 1000, 2000):
+            boundary = 900 * k
+            near_now = boundary - 1  # 1 s before boundary
+            with patch(
+                "app.processing.tiles.signing.time.time", return_value=float(near_now)
+            ):
+                exp = round_expiry()
+            assert exp % 900 == 0, f"k={k}: {exp} is not a multiple of 900"
+            assert exp > near_now, f"k={k}: exp {exp} is not > now {near_now}"
+            assert exp - near_now >= 60, (
+                f"k={k}: validity {exp - near_now} s < 60 s min"
+            )
+
 
 # ---------------------------------------------------------------------------
 # Integration tests: token endpoint

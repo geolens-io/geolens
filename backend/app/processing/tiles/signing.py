@@ -47,14 +47,36 @@ def _get_signing_key() -> bytes:
     return secret.get_secret_value().encode()
 
 
-def round_expiry(ttl_seconds: int = 900) -> int:
-    """Round expiry to the NEXT 15-minute boundary.
+_MIN_VALIDITY_SECONDS: int = 60
+"""Minimum number of seconds a minted token must be valid for.
 
-    Returns a Unix timestamp that is always a multiple of 900 and
-    strictly greater than the current time.
+When the next 15-minute boundary is closer than this threshold the function
+skips to the FOLLOWING boundary so clients always have a meaningful validity
+window.  BUG-012: previously a token minted 5 s before a boundary had only
+5 s validity — well below the client refresh floor — causing deterministic 403
+bursts every 15 minutes.
+"""
+
+
+def round_expiry(
+    ttl_seconds: int = 900, min_validity: int = _MIN_VALIDITY_SECONDS
+) -> int:
+    """Round expiry to the next 15-minute boundary that is at least min_validity seconds away.
+
+    Returns a Unix timestamp that is always a multiple of 900 and at least
+    min_validity seconds greater than the current time (BUG-012).
+
+    Args:
+        ttl_seconds: Boundary interval in seconds (default 900 = 15 min).
+        min_validity: Minimum seconds of validity the returned timestamp must
+            provide.  When the next boundary is closer than this value, the
+            FOLLOWING boundary is returned instead.
     """
     now = int(time.time())
-    return ((now // 900) + 1) * 900
+    nxt = ((now // ttl_seconds) + 1) * ttl_seconds
+    if (nxt - now) >= min_validity:
+        return nxt
+    return nxt + ttl_seconds
 
 
 def generate_tile_signature(scope: str, exp: int) -> str:
