@@ -158,6 +158,77 @@ prune_old_backups() {
 }
 
 # ---------------------------------------------------------------------------
+# GAP-005 (Phase 1184): BACKUP_SCHEDULE validation
+# ---------------------------------------------------------------------------
+# The sleep-loop fallback scheduler (used when no cron daemon is available)
+# only supports expressions of the form "M H * * *" (a literal minute + hour,
+# with all three remaining fields set to *). Any other form silently never
+# fires — the comparison `[ "$current_min" = "*/15" ]` never matches.
+#
+# Validation approach: FAIL FAST at startup if BACKUP_SCHEDULE uses a form the
+# simple scheduler cannot honour. If crond/cron is available the expression is
+# passed through to the system cron, which handles the full 5-field syntax —
+# but we still validate so that a misconfigured schedule surfacing on a crond
+# host does not silently break when run on an image without crond.
+#
+# Supported: M H * * *   where M is 0-59 and H is 0-23 (literal integers)
+# Unsupported: */N steps, ranges, lists, or non-* dom/month/dow fields.
+validate_cron_expr() {
+    local expr="$1"
+
+    # Split into exactly 5 fields
+    field_count="$(echo "$expr" | awk '{print NF}')"
+    if [ "$field_count" -ne 5 ]; then
+        log "ERROR: BACKUP_SCHEDULE must have exactly 5 fields (got ${field_count}): '${expr}'" >&2
+        log "Supported format: 'M H * * *'  (e.g. '0 2 * * *' for 02:00 daily)" >&2
+        exit 1
+    fi
+
+    f_min="$(echo "$expr" | awk '{print $1}')"
+    f_hour="$(echo "$expr" | awk '{print $2}')"
+    f_dom="$(echo "$expr" | awk '{print $3}')"
+    f_month="$(echo "$expr" | awk '{print $4}')"
+    f_dow="$(echo "$expr" | awk '{print $5}')"
+
+    # Validate: minute must be a plain integer 0-59
+    case "$f_min" in
+        ''|*[!0-9]*)
+            log "ERROR: BACKUP_SCHEDULE minute field '${f_min}' is not a plain integer." >&2
+            log "The built-in sleep-loop scheduler only supports literal 'M H * * *'." >&2
+            log "Examples: '0 2 * * *' (02:00), '30 6 * * *' (06:30)" >&2
+            log "To use step/range expressions, ensure crond is available in the container." >&2
+            exit 1
+            ;;
+    esac
+    if [ "$f_min" -lt 0 ] || [ "$f_min" -gt 59 ]; then
+        log "ERROR: BACKUP_SCHEDULE minute field '${f_min}' out of range 0-59." >&2
+        exit 1
+    fi
+
+    # Validate: hour must be a plain integer 0-23
+    case "$f_hour" in
+        ''|*[!0-9]*)
+            log "ERROR: BACKUP_SCHEDULE hour field '${f_hour}' is not a plain integer." >&2
+            log "The built-in sleep-loop scheduler only supports literal 'M H * * *'." >&2
+            exit 1
+            ;;
+    esac
+    if [ "$f_hour" -lt 0 ] || [ "$f_hour" -gt 23 ]; then
+        log "ERROR: BACKUP_SCHEDULE hour field '${f_hour}' out of range 0-23." >&2
+        exit 1
+    fi
+
+    # Validate: dom, month, dow must all be '*'
+    if [ "$f_dom" != "*" ] || [ "$f_month" != "*" ] || [ "$f_dow" != "*" ]; then
+        log "ERROR: BACKUP_SCHEDULE fields 3-5 must all be '*' for the built-in scheduler." >&2
+        log "Got: dom='${f_dom}' month='${f_month}' dow='${f_dow}'" >&2
+        log "The sleep-loop scheduler only fires once per day at a fixed hour:minute." >&2
+        log "To use day-of-week or monthly schedules, ensure crond is available." >&2
+        exit 1
+    fi
+}
+
+# ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 CRON_EXPR="${BACKUP_SCHEDULE:-0 2 * * *}"
@@ -167,6 +238,10 @@ if [ "${1:-}" = "--run-backup" ]; then
     run_backup
     exit $?
 fi
+
+# GAP-005: validate the schedule expression before doing anything else so
+# an unsupported expression fails loudly instead of silently never firing.
+validate_cron_expr "$CRON_EXPR"
 
 # First-run entry point
 log "GeoLens backup service starting"
