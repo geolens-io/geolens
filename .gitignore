@@ -98,3 +98,7 @@ tmp/
 license-keys/
 *license_private_key.pem
 *.license-key
+
+# SAML test fixture private key — generated on demand via generate_fixtures.py;
+# only the public cert and signed templates are committed.
+backend/tests/fixtures/saml/idp_key.pem
