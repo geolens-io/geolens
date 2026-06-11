@@ -34,6 +34,13 @@ async def _clean_settings(client: AsyncClient):
     except RuntimeError:
         pass
 
+    # BUG-008: the per-process sync rate-limit cache is now warmed on
+    # set()/reset(); clear it between tests so a warmed value never leaks into
+    # an unrelated case.
+    from app.core.persistent_config import _sync_rate_limit_cache
+
+    _sync_rate_limit_cache.clear()
+
 
 # ---------------------------------------------------------------------------
 # Unit / Integration tests for PersistentConfig class
@@ -273,6 +280,41 @@ async def test_sync_rate_limit_accessor(client: AsyncClient):
         # Sync accessor should return same value
         sync_val = get_cached_login_rate_limit()
         assert sync_val == val
+
+
+@pytest.mark.anyio
+async def test_set_warms_sync_cache_with_new_value(client: AsyncClient):
+    """BUG-008: set() must warm the sync rate-limit cache with the NEW value.
+
+    On main, set() warmed the sync cache only with the OLD value (via the
+    get(db) at the top of set()) and never the new one, so slowapi kept
+    enforcing the previous limit until the 30s TTL expired — and because no
+    request-path code ever calls .get() for these keys, the admin's new value
+    was effectively never applied in this process. This test fails on main (the
+    accessor still returns the old default right after set()).
+    """
+    from app.core.persistent_config import (
+        _DEFAULT_LOGIN_RATE_LIMIT,
+        _sync_rate_limit_cache,
+        LOGIN_RATE_LIMIT,
+        get_cached_login_rate_limit,
+    )
+
+    from app.api.main import app
+    from app.core.dependencies import get_db
+
+    _sync_rate_limit_cache.pop("login_rate_limit", None)
+    new_value = _DEFAULT_LOGIN_RATE_LIMIT + 7
+
+    async for db in app.dependency_overrides[get_db]():
+        await LOGIN_RATE_LIMIT.set(db, new_value)
+        # Immediately (well within the TTL) the slowapi accessor must observe
+        # the value just set, not the old default.
+        assert get_cached_login_rate_limit() == new_value
+
+        # reset() must warm the sync cache back to env_default.
+        await LOGIN_RATE_LIMIT.reset(db)
+        assert get_cached_login_rate_limit() == _DEFAULT_LOGIN_RATE_LIMIT
 
 
 # ---------------------------------------------------------------------------
