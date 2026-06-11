@@ -328,7 +328,7 @@ class Settings(BaseSettings):
     @property
     def procrastinate_conninfo(self) -> str:
         if self.database_url_override:
-            from urllib.parse import urlparse
+            from urllib.parse import parse_qs, urlparse
 
             raw = self.database_url_override
             for prefix in ("postgresql+asyncpg://", "postgresql+psycopg://"):
@@ -353,6 +353,21 @@ class Settings(BaseSettings):
                 parts.append(f"sslmode={self.database_ssl_mode}")
             if self.database_ssl_ca_cert:
                 parts.append(f"sslrootcert={self.database_ssl_ca_cert}")
+            # BUG-002: the non-override branch sets
+            # options='-c search_path=<schema>,public' so procrastinate's
+            # unqualified objects resolve in the catalog schema. The override
+            # branch dropped it entirely, breaking the job queue on managed
+            # Postgres (UndefinedTable/UndefinedFunction on every defer and
+            # worker start). Re-add it, preserving any caller-supplied
+            # ?options= — our search_path is applied last so it always wins.
+            search_path_opt = f"-c search_path={self.procrastinate_schema},public"
+            caller_options = parse_qs(parsed.query).get("options", [""])[0]
+            combined_options = (
+                f"{caller_options} {search_path_opt}".strip()
+                if caller_options.strip()
+                else search_path_opt
+            )
+            parts.append(f"options='{combined_options}'")
             return " ".join(parts)
         return (
             f"host={self.postgres_host} port={self.postgres_port} "
