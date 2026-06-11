@@ -1,18 +1,19 @@
 # Clean-machine smoke verification of published GeoLens packages.
 #
-# Run this AFTER a release is fully published — including the *manual* PyPI/npm
-# SDK + CLI publishes (publish-sdks.yml / publish-cli.yml), which do NOT run on
-# tag push. Jobs run inside fresh Docker images (python:3.13-slim, node:22-slim)
-# — no repo context, no runner pollution; mimics what a downstream user gets.
-# Each check polls with a bounded retry to absorb registry/CDN propagation lag.
+# Runs automatically after the gated SDK/CLI publishes complete (workflow_run,
+# below), and can be run manually any time. Jobs run inside fresh Docker images
+# (python:3.13-slim, node:22-slim) — no repo context, no runner pollution; mimics
+# what a downstream user gets. Each check polls with a bounded retry to absorb
+# registry/CDN propagation lag.
 #
-# Usage:
+# Manual usage:
 #   gh workflow run verify-published.yml -f version=vX.Y.Z
 # Omit version (or pass 'latest') to verify whatever each registry calls latest.
 #
 # This intentionally does NOT trigger on `push: tags`. On a tag push the GHCR
-# images are still building and the PyPI/npm packages are not published at all
-# (manual workflow_dispatch), so an automatic run would always race and fail.
+# images are still building and the PyPI/npm publishes are still waiting on the
+# `publish` environment's approval gate, so a tag-triggered run would always
+# race/expire. Triggering after the publishes finish is the correct ordering.
 # See docs.getgeolens.com for the release runbook.
 name: Verify Published Packages
 
@@ -24,12 +25,27 @@ on:
         required: false
         type: string
         default: 'latest'
+  # Auto-run after a gated publish completes. The two publish workflows finish at
+  # different times; the concurrency group below collapses the duplicate triggers
+  # into a single verify run once both are done.
+  workflow_run:
+    workflows: ["Publish SDKs", "Publish CLI"]
+    types: [completed]
 
 permissions:
   contents: read
 
+# Collapse the two publish-completion triggers (and any manual run) for the same
+# version into one in-flight verify; a later trigger supersedes an earlier one.
+concurrency:
+  group: verify-published-${{ inputs.version || github.event.workflow_run.head_branch || github.run_id }}
+  cancel-in-progress: true
+
 env:
-  VERIFY_VERSION: ${{ inputs.version || 'latest' }}
+  # Manual dispatch → the version input. workflow_run after a tag publish →
+  # head_branch is the tag (e.g. v1.2.4), used only when it looks like a version
+  # tag; a non-tag publish (e.g. dispatched from a branch) falls back to 'latest'.
+  VERIFY_VERSION: ${{ inputs.version || (startsWith(github.event.workflow_run.head_branch, 'v') && github.event.workflow_run.head_branch) || 'latest' }}
   # Bounded retry to absorb registry/CDN propagation lag after a publish.
   # 20 × 15s ≈ 5 min ceiling per check.
   MAX_ATTEMPTS: '20'
@@ -37,6 +53,8 @@ env:
 
 jobs:
   verify-python:
+    # Manual dispatch always runs; an auto-trigger only runs if the publish succeeded.
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
     name: Verify Python packages on python:3.13-slim
     runs-on: ubuntu-latest
     steps:
@@ -76,6 +94,7 @@ jobs:
           done
 
   verify-typescript:
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
     name: Verify TypeScript package on node:22-slim
     runs-on: ubuntu-latest
     steps:
@@ -114,6 +133,7 @@ jobs:
           done
 
   verify-ghcr:
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
     name: Verify GHCR images
     runs-on: ubuntu-latest
     steps:
@@ -145,6 +165,7 @@ jobs:
           done
 
   verify-github-release:
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
     name: Verify GitHub Release
     runs-on: ubuntu-latest
     steps:

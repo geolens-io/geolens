@@ -1,12 +1,22 @@
-# Manual-trigger publish workflow for the GeoLens SDKs.
+# Publish workflow for the GeoLens SDKs (PyPI `geolens` + npm `@geolens/sdk`).
+#
+# Triggers:
+#   - push a `v*.*.*` tag → publish jobs queue behind the `publish` environment
+#     and pause for required-reviewer approval (one click) before publishing.
+#   - workflow_dispatch → same gate; for ad-hoc / re-publish, run from a tag ref:
+#     `gh workflow run publish-sdks.yml --ref vX.Y.Z -f target=both`
+#
 # One-time cold-start credentials required before the first publish:
 #   1. PyPI Trusted Publishing configured for `geolens` at https://pypi.org/manage/account/publishing/
-#   2. npm granular token (Bypass 2FA + Read/Write) in repo secret NPM_TOKEN
+#   2. npm Trusted Publisher (OIDC) configured for `@geolens/sdk` (NPM_TOKEN secret is a fallback)
 #   3. The @geolens npm org claimed by the maintainer (one-time)
 # See docs.getgeolens.com for the full first-publish runbook.
 name: Publish SDKs
 
 on:
+  push:
+    tags:
+      - 'v*.*.*'
   workflow_dispatch:
     inputs:
       target:
@@ -35,9 +45,11 @@ permissions:
 
 jobs:
   publish-python:
-    if: inputs.target == 'python' || inputs.target == 'both'
+    # Tag push → always (target defaults to both). Manual dispatch → honor target.
+    if: ${{ github.event_name == 'push' || inputs.target == 'python' || inputs.target == 'both' }}
     name: Publish Python SDK to PyPI
     runs-on: ubuntu-latest
+    environment: publish  # required-reviewer approval gate (see repo Settings → Environments)
     steps:
       - uses: actions/checkout@v6
 
@@ -48,6 +60,23 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.13"
+
+      - name: Assert tag matches package version (tag push only)
+        if: ${{ github.event_name == 'push' }}
+        working-directory: sdks/python
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          PKG=$(python - <<'PY'
+          import tomllib
+          with open("pyproject.toml", "rb") as f:
+              print(tomllib.load(f)["project"]["version"])
+          PY
+          )
+          if [ "${TAG}" != "${PKG}" ]; then
+            echo "::error::tag v${TAG} != sdks/python version ${PKG} — refusing to publish a mismatched version"
+            exit 1
+          fi
+          echo "tag v${TAG} matches sdks/python version ${PKG}"
 
       - name: Build wheel + sdist
         working-directory: sdks/python
@@ -103,9 +132,11 @@ jobs:
         run: uv publish --trusted-publishing automatic
 
   publish-typescript:
-    if: inputs.target == 'typescript' || inputs.target == 'both'
+    # Tag push → always (target defaults to both). Manual dispatch → honor target.
+    if: ${{ github.event_name == 'push' || inputs.target == 'typescript' || inputs.target == 'both' }}
     name: Publish TypeScript SDK to npm
     runs-on: ubuntu-latest
+    environment: publish  # required-reviewer approval gate (see repo Settings → Environments)
     steps:
       - uses: actions/checkout@v6
 
@@ -119,6 +150,17 @@ jobs:
       # OIDC Trusted Publishing requires npm >= 11.5.1; Node 22 ships an older npm.
       - name: Upgrade npm (OIDC trusted publishing support)
         run: npm install -g npm@latest
+
+      - name: Assert tag matches package version (tag push only)
+        if: ${{ github.event_name == 'push' }}
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          PKG=$(node -p "require('./sdks/typescript/package.json').version")
+          if [ "${TAG}" != "${PKG}" ]; then
+            echo "::error::tag v${TAG} != @geolens/sdk version ${PKG} — refusing to publish a mismatched version"
+            exit 1
+          fi
+          echo "tag v${TAG} matches @geolens/sdk version ${PKG}"
 
       - name: Pre-flight version gate (@geolens/sdk on npm)
         if: ${{ !inputs.dry_run }}
