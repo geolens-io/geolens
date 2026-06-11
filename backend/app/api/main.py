@@ -80,14 +80,15 @@ def _warn_if_cors_unset(settings_obj, log) -> None:
     production. DynamicCORSMiddleware will still respond (no breakage),
     but the operator likely INTENDED to lock down origins and forgot.
 
-    Gated on log_json so dev/test runs don't get the warning. log_json is
-    the same production indicator used at line 407 for `_is_production`.
+    Gated on is_production so dev/test runs don't get the warning. SEC-005:
+    previously gated on log_json (the de-facto production indicator); now uses
+    the explicit settings.is_production.
     """
-    if settings_obj.log_json and not settings_obj.cors_allowed_origins:
+    if settings_obj.is_production and not settings_obj.cors_allowed_origins:
         log.warning(
             "cors_allowed_origins_unset",
             message=(
-                "CORS_ALLOWED_ORIGINS is empty in production (LOG_JSON=true). "
+                "CORS_ALLOWED_ORIGINS is empty in production. "
                 "All origins will pass the request-origin check; this is "
                 "likely a misconfiguration. Set "
                 "CORS_ALLOWED_ORIGINS=<comma-separated origins> to restrict."
@@ -438,7 +439,10 @@ _OPENAPI_TAGS = [
     },
 ]
 
-_is_production = settings.log_json
+# SEC-005: docs exposure (and the Secure session cookie below) are gated on the
+# explicit ENVIRONMENT setting, not the LOG_JSON log-format flag. is_production
+# falls back to LOG_JSON when ENVIRONMENT is unset (backward compatibility).
+_is_production = settings.is_production
 
 app = FastAPI(
     title="GeoLens API",
@@ -508,15 +512,15 @@ async def _rate_limit_handler(request: Request, exc: RateLimitExceeded) -> JSONR
 
 app.add_exception_handler(RateLimitExceeded, _rate_limit_handler)
 
-# SEC-02 / M-64: gate https_only on the production indicator. Local-dev and
-# test runs use log_json=False (no TLS terminator), so https_only=True would
-# cause SessionMiddleware to silently strip the cookie. Production sets
-# LOG_JSON=true (json-logging deploy config) so https_only=True flows through
-# unchanged. _is_production at line 407 uses the same signal.
+# SEC-02 / M-64 / SEC-005: gate https_only on the production indicator. Local-dev
+# and test runs use the development posture (no TLS terminator), so
+# https_only=True would cause SessionMiddleware to silently strip the cookie.
+# Production (ENVIRONMENT=production, or legacy LOG_JSON=true) sets
+# https_only=True. Same settings.is_production used for docs gating above.
 app.add_middleware(
     SessionMiddleware,
     secret_key=settings.jwt_secret_key.get_secret_value(),
-    https_only=settings.log_json,
+    https_only=settings.is_production,
 )
 app.add_middleware(RequestLoggingMiddleware)
 app.add_middleware(SlowAPIMiddleware)

@@ -1,5 +1,6 @@
 import sys
 from pathlib import Path
+from typing import Literal
 
 from pydantic import Field, SecretStr, ValidationError, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -75,6 +76,16 @@ class Settings(BaseSettings):
 
     log_json: bool = False
     log_level: str = "INFO"
+
+    # SEC-005: explicit deployment environment. Controls security-sensitive
+    # behaviors — API docs exposure (/docs, /redoc) and the Secure flag on the
+    # OAuth session cookie (SessionMiddleware https_only). Previously these were
+    # keyed off LOG_JSON, an innocuously-documented log-format flag.
+    #   "production"  -> hardened posture (docs hidden, Secure cookie)
+    #   "development" -> open posture (docs shown, no Secure cookie)
+    #   unset (None)  -> fall back to LOG_JSON for backward compatibility
+    # Set ENVIRONMENT=production on any public, TLS-terminated deployment.
+    environment: Literal["development", "production"] | None = None
 
     anthropic_api_key: SecretStr | None = None
     llm_model: str = "claude-sonnet-4-20250514"
@@ -241,6 +252,21 @@ class Settings(BaseSettings):
         if not self.cors_allowed_origins:
             return []
         return [o.strip() for o in self.cors_allowed_origins.split(",") if o.strip()]
+
+    @property
+    def is_production(self) -> bool:
+        """Whether to enforce the production security posture (API docs hidden,
+        Secure session cookie).
+
+        SEC-005: driven by the explicit ENVIRONMENT setting. When ENVIRONMENT is
+        unset, fall back to LOG_JSON (the de-facto production switch before this
+        setting) so no existing deployment silently loses its hardened posture.
+        An explicit ENVIRONMENT (development or production) decouples fully —
+        LOG_JSON no longer affects security.
+        """
+        if self.environment is not None:
+            return self.environment == "production"
+        return self.log_json
 
     @staticmethod
     def _strip_ssl_from_url(url: str) -> str:
