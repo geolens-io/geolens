@@ -291,7 +291,8 @@
     "copiedCogUrl": "URL COG copiada",
     "copiedXyzUrl": "URL de tesela XYZ copiada",
     "copyCogUrl": "Copiar URL COG",
-    "copyXyzUrl": "Copiar URL de tesela XYZ"
+    "copyXyzUrl": "Copiar URL de tesela XYZ",
+    "cogDownloadFailed": "No se pudo iniciar la descarga de COG — inténtelo de nuevo"
   },
   "review": {
     "headerStatus": "Detection complete",

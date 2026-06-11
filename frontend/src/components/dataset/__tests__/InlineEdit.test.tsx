@@ -6,8 +6,7 @@
  * Tests are RED pre-fix (onSave throw → unhandled rejection, editing stays true
  * but no toast) and GREEN post-fix.
  */
-import React from 'react';
-import { render, fireEvent, waitFor, screen } from '@testing-library/react';
+import { render, fireEvent, waitFor } from '@testing-library/react';
 import { InlineEdit } from '@/components/dataset/InlineEdit';
 
 vi.mock('react-i18next', () => ({

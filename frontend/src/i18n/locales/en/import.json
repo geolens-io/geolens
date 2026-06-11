@@ -291,7 +291,8 @@
     "copiedCogUrl": "Copied COG URL",
     "copiedXyzUrl": "Copied XYZ Tile URL",
     "copyCogUrl": "Copy COG URL",
-    "copyXyzUrl": "Copy XYZ Tile URL"
+    "copyXyzUrl": "Copy XYZ Tile URL",
+    "cogDownloadFailed": "Could not start COG download — try again"
   },
   "review": {
     "headerStatus": "Detection complete",

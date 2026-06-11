@@ -291,7 +291,8 @@
     "copiedCogUrl": "URL COG copiée",
     "copiedXyzUrl": "URL tuile XYZ copiée",
     "copyCogUrl": "Copier l'URL COG",
-    "copyXyzUrl": "Copier l'URL tuile XYZ"
+    "copyXyzUrl": "Copier l'URL tuile XYZ",
+    "cogDownloadFailed": "Impossible de démarrer le téléchargement COG — réessayez"
   },
   "review": {
     "headerStatus": "Detection complete",
