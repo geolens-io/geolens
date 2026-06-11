@@ -57,16 +57,16 @@ jobs:
           exit 1
 
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
 
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
+        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130  # v3
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3
 
       - name: Log in to GHCR
-        uses: docker/login-action@v4
+        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee  # v4
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
@@ -74,7 +74,7 @@ jobs:
 
       - name: Extract metadata
         id: meta
-        uses: docker/metadata-action@v6
+        uses: docker/metadata-action@80c7e94dd9b9319bd5eb7a0e0fe9291e23a2a2e9  # v6
         with:
           images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ matrix.image }}
           tags: |
@@ -91,7 +91,7 @@ jobs:
       # (QEMU is set up above for the arm64 build). The push below ships
       # linux/amd64,linux/arm64, so each arch must clear the gate first.
       - name: Build amd64 image for scanning
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf  # v7
         with:
           context: .
           file: Dockerfile
@@ -102,7 +102,7 @@ jobs:
           cache-from: type=gha,scope=${{ matrix.image }}
 
       - name: Trivy vulnerability scan (amd64)
-        uses: aquasecurity/trivy-action@v0.36.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
         with:
           image-ref: ${{ matrix.image }}:scan-amd64
           format: table
@@ -111,7 +111,7 @@ jobs:
           ignore-unfixed: true
 
       - name: Build arm64 image for scanning
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf  # v7
         with:
           context: .
           file: Dockerfile
@@ -122,7 +122,7 @@ jobs:
           cache-from: type=gha,scope=${{ matrix.image }}
 
       - name: Trivy vulnerability scan (arm64)
-        uses: aquasecurity/trivy-action@v0.36.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
         with:
           image-ref: ${{ matrix.image }}:scan-arm64
           format: table
@@ -136,7 +136,7 @@ jobs:
       - name: Build and push
         id: push
         if: ${{ github.event_name == 'push' || github.event.inputs.push_images == 'true' }}
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf  # v7
         with:
           context: .
           file: Dockerfile
@@ -153,7 +153,7 @@ jobs:
       # Generate SBOM from pushed image (only when we actually pushed)
       - name: Generate SBOM
         if: ${{ github.event_name == 'push' || github.event.inputs.push_images == 'true' }}
-        uses: anchore/sbom-action@v0
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610  # v0
         with:
           image: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ matrix.image }}:${{ steps.meta.outputs.version }}
           output-file: sbom-${{ matrix.image }}.spdx.json
@@ -163,7 +163,7 @@ jobs:
       # Attest SBOM to the published image (only when we pushed AND repo is public)
       - name: Attest SBOM
         if: ${{ (github.event_name == 'push' || github.event.inputs.push_images == 'true') && !github.event.repository.private }}
-        uses: actions/attest-sbom@v4
+        uses: actions/attest-sbom@c604332985a26aa8cf1bdc465b92731239ec6b9e  # v4
         with:
           subject-name: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ matrix.image }}
           subject-digest: ${{ steps.push.outputs.digest }}
