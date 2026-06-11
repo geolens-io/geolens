@@ -70,10 +70,62 @@ EOSQL
 echo "Stopping API to prevent write conflicts during restore..."
 docker compose -f "$PROJECT_ROOT/docker-compose.yml" stop api worker 2>/dev/null || true
 
+# BUG-022 (Phase 1184): ensure api/worker are always restarted, even on failure.
+# pg_restore --clean --if-exists exits nonzero on EXPECTED warnings (e.g. "object
+# does not exist" when dropping objects absent from a fresh DB). Under `set -e`
+# that nonzero exit aborted the script, leaving api/worker stopped and skipping
+# post-restore validation.
+#
+# Fix strategy:
+#   1. A trap on EXIT restarts api/worker on every exit path (normal + error).
+#   2. pg_restore is run with `|| RESTORE_RC=$?` (disabling -e for that call)
+#      so we can inspect its exit code manually.
+#   3. pg_restore exit code handling:
+#      - 0            → success
+#      - nonzero with ONLY warning lines (no "ERROR:" lines in stderr) → treat as
+#        success (expected warnings from --clean --if-exists on a fresh DB)
+#      - nonzero with real ERROR lines in stderr → hard failure, abort
+#
+# The trap fires before the EXIT signal is delivered to the shell, so
+# api/worker are restarted regardless of whether the script exits normally,
+# via `exit 1` (hard pg_restore error), or via another `set -e` abort.
+_cleanup() {
+    echo ""
+    echo "Restarting services..."
+    docker compose -f "$PROJECT_ROOT/docker-compose.yml" start api worker 2>/dev/null || true
+}
+trap _cleanup EXIT
+
 echo "Restoring from: $BACKUP_FILE"
 
+# Capture pg_restore stderr for warning vs error analysis; also capture exit code.
+RESTORE_STDERR="$(mktemp)"
+RESTORE_RC=0
+set +e
 docker compose -f "$PROJECT_ROOT/docker-compose.yml" exec -T db \
-    pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" --clean --if-exists --no-owner < "$BACKUP_FILE"
+    pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" --clean --if-exists --no-owner \
+    < "$BACKUP_FILE" 2>"$RESTORE_STDERR"
+RESTORE_RC=$?
+set -e
+
+if [ "$RESTORE_RC" -ne 0 ]; then
+    # Distinguish expected warnings (nonzero due to --clean on a fresh DB) from
+    # hard errors. pg_restore prefixes hard errors with "pg_restore: error:" or
+    # "ERROR:" (the latter from psql-layer output forwarded through pg_restore).
+    if grep -qi "error:" "$RESTORE_STDERR" 2>/dev/null; then
+        echo "" >&2
+        echo "ERROR: pg_restore failed (exit code ${RESTORE_RC}). Stderr:" >&2
+        cat "$RESTORE_STDERR" >&2
+        rm -f "$RESTORE_STDERR"
+        # _cleanup trap will restart api/worker before exit
+        exit 1
+    else
+        echo "pg_restore exited with code ${RESTORE_RC} (warnings only — --clean --if-exists on fresh DB is expected)."
+        echo "Warnings:"
+        cat "$RESTORE_STDERR"
+    fi
+fi
+rm -f "$RESTORE_STDERR"
 
 # Post-restore validation
 echo ""
@@ -84,8 +136,8 @@ docker compose -f "$PROJECT_ROOT/docker-compose.yml" exec -T db \
     2>/dev/null || echo "WARNING: Post-restore validation query failed (non-fatal)"
 
 echo ""
-echo "Restore complete. Restarting services..."
-docker compose -f "$PROJECT_ROOT/docker-compose.yml" start api worker 2>/dev/null || true
+echo "Restore complete."
+# _cleanup trap restarts api/worker on exit (runs here too — normal exit).
 
 # ==============================================================================
 # WAL Archiving (Optional PITR Upgrade)
