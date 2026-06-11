@@ -115,7 +115,13 @@ upload_to_s3() {
     date_value="$(date -R)"
     local content_type="application/octet-stream"
     local resource="/${S3_BUCKET}/backups/${s3_key}"
-    local string_to_sign="PUT\n\n${content_type}\n${date_value}\n${resource}"
+    # BUG-004: the AWS SigV2 string-to-sign must contain REAL newlines. Bash
+    # double quotes do NOT expand "\n", and `printf '%s'` prints its argument
+    # verbatim, so the previous "PUT\n\n..." form signed over the literal
+    # two-character sequence backslash-n — every PUT was rejected with
+    # SignatureDoesNotMatch and offsite backups silently never happened. Use
+    # ANSI-C quoting ($'\n') so the separators are actual newline bytes.
+    local string_to_sign=$'PUT\n\n'"${content_type}"$'\n'"${date_value}"$'\n'"${resource}"
     local signature
     signature="$(printf '%s' "$string_to_sign" | openssl dgst -sha1 -hmac "$S3_SECRET_ACCESS_KEY" -binary | base64)"
 
