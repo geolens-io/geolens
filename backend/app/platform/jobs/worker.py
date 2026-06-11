@@ -203,13 +203,24 @@ async def recover_stale_jobs() -> None:
                 job_id=str(job.id),
             )
 
+        # GAP-002: sweep VRT assets stuck in status='regenerating' past the timeout.
+        # Uses the same stale_cutoff as the running-jobs sweep so the window is
+        # consistent — mirrors the fail_stale_jobs periodic sweep.
+        from app.platform.jobs.router import sweep_stale_vrt_assets
+
+        vrt_assets_recovered, vrt_gens_failed = await sweep_stale_vrt_assets(
+            session, stale_cutoff
+        )
+
         await session.commit()
         total = len(stale_jobs) + len(orphaned_jobs)
-        if total:
+        if total or vrt_assets_recovered:
             log.info(
                 "Stale job recovery complete",
                 running_recovered=len(stale_jobs),
                 pending_recovered=len(orphaned_jobs),
+                vrt_assets_recovered=vrt_assets_recovered,
+                vrt_gens_failed=vrt_gens_failed,
             )
 
 
