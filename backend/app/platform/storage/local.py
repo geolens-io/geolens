@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import shutil
 from pathlib import Path
 from typing import AsyncIterator, BinaryIO
@@ -19,9 +20,38 @@ class LocalStorageProvider:
         self.base_dir = Path(base_dir)
         self.base_dir.mkdir(parents=True, exist_ok=True)
 
+    def _resolve_contained(self, key: str) -> Path:
+        """Return the resolved path for *key*, asserting it stays inside base_dir.
+
+        Rejects:
+        - Absolute keys (``/etc/passwd``).
+        - Keys containing a null byte (``foo\\x00bar``).
+        - Path-traversal sequences that escape base_dir (``../../etc/passwd``).
+
+        Raises ``ValueError`` for any rejected key.  The caller should map this
+        to a 400/403 HTTP response; the storage layer never reaches the
+        filesystem for disallowed keys.
+
+        SEC-026: called at the top of every IO method so none is a bypass.
+        """
+        if "\x00" in key:
+            raise ValueError(f"Storage key contains a null byte: {key!r}")
+        if os.path.isabs(key):
+            raise ValueError(
+                f"Storage key must be relative, got absolute path: {key!r}"
+            )
+        candidate = (self.base_dir / key).resolve()
+        resolved_base = self.base_dir.resolve()
+        if candidate != resolved_base and not candidate.is_relative_to(resolved_base):
+            raise ValueError(
+                f"Storage key {key!r} escapes base directory "
+                f"({resolved_base}): resolved to {candidate}"
+            )
+        return candidate
+
     async def put(self, key: str, data: BinaryIO | bytes) -> str:
         """Store data at key. Returns the absolute path as a string."""
-        dest = self.base_dir / key
+        dest = self._resolve_contained(key)
         if not isinstance(data, bytes):
             data = data.read()  # read in async context before thread handoff
 
@@ -34,7 +64,7 @@ class LocalStorageProvider:
 
     async def get(self, key: str) -> bytes:
         """Retrieve raw bytes for a key."""
-        path = self.base_dir / key
+        path = self._resolve_contained(key)
         return await asyncio.to_thread(path.read_bytes)
 
     async def get_stream(self, key: str) -> AsyncIterator[bytes]:
@@ -51,7 +81,7 @@ class LocalStorageProvider:
         missing — matches the ``get()`` exception shape so the router's
         existing ``except FileNotFoundError`` branch can stay unchanged.
         """
-        path = self.base_dir / key
+        path = self._resolve_contained(key)
         if not await asyncio.to_thread(path.exists):
             raise FileNotFoundError(f"Storage key not found: {key}")
 
@@ -67,7 +97,7 @@ class LocalStorageProvider:
 
     async def get_to_file(self, key: str, dest: Path) -> Path:
         """Copy file to dest. If src == dest, return as-is."""
-        src = self.base_dir / key
+        src = self._resolve_contained(key)
         if src == dest:
             return src
 
@@ -80,12 +110,12 @@ class LocalStorageProvider:
 
     async def delete(self, key: str) -> None:
         """Delete a key. No error if missing."""
-        path = self.base_dir / key
+        path = self._resolve_contained(key)
         await asyncio.to_thread(path.unlink, True)  # missing_ok=True
 
     async def exists(self, key: str) -> bool:
         """Check if a key exists."""
-        path = self.base_dir / key
+        path = self._resolve_contained(key)
         return await asyncio.to_thread(path.exists)
 
     async def list(self, prefix: str) -> list[str]:
