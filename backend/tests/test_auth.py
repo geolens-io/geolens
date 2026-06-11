@@ -79,7 +79,12 @@ class TestRegistration:
         assert resp.status_code == 403
 
     async def test_register_duplicate_username(self, client: AsyncClient, monkeypatch):
-        """Duplicate username returns 409 Conflict."""
+        """Duplicate username returns the same 201 pending-approval response (SEC-012).
+
+        Updated from the old contract (409 Conflict) to the uniform response that
+        prevents username enumeration — the caller cannot distinguish a collision
+        from a genuine new registration.
+        """
         monkeypatch.setattr(
             REGISTRATION_ENABLED,
             "get",
@@ -95,12 +100,15 @@ class TestRegistration:
         )
         assert resp1.status_code == 201
 
-        # Second registration with same username
+        # Second registration with same username — must be uniform (SEC-012)
         resp2 = await client.post(
             "/auth/register/",
             json={"username": username, "password": "SecurePass123!"},
         )
-        assert resp2.status_code == 409
+        assert resp2.status_code == 201
+        data = resp2.json()
+        assert "message" in data
+        assert "awaiting" in data["message"].lower()
 
 
 # ---------------------------------------------------------------------------
