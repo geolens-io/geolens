@@ -395,7 +395,23 @@ def validate_tile_cache_ttl(v: Any) -> int:
     return _validate_bounded_int(v, "tile_cache_ttl", 0, 86400)
 
 
+_VALID_LOG_LEVELS = frozenset({"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"})
+
+
+def validate_log_level(v: Any) -> str:
+    """Accept only standard Python logging level names (case-insensitive)."""
+    if not isinstance(v, str):
+        raise ValueError("log_level must be a string")
+    upper = v.strip().upper()
+    if upper not in _VALID_LOG_LEVELS:
+        raise ValueError(
+            f"Invalid log_level {v!r}. Must be one of: {', '.join(sorted(_VALID_LOG_LEVELS))}"
+        )
+    return upper
+
+
 SETTING_VALIDATORS: dict[str, Any] = {
+    "log_level": validate_log_level,
     "login_rate_limit": validate_login_rate_limit,
     "global_rate_limit": validate_global_rate_limit,
     "semantic_search_rate_limit": validate_semantic_search_rate_limit,
