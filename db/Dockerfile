@@ -1,34 +1,23 @@
-# The --platform=linux/amd64 pin on the FROM line is intentional. pgvector
-# 0.8.2 builds reproducibly against the postgis/postgis:17-3.5 base image's
-# amd64 variant; a multi-arch postgis+pgvector image build pipeline
-# (cross-build matrix + registry tagging + signature distribution) is future
-# work.
+# PostGIS 17 + pgvector, built on the OFFICIAL postgis/postgis image (the source
+# maintainer). pgvector is installed from its official PGDG apt package
+# (postgresql-17-pgvector), NOT compiled from source — same extension version
+# (0.8.x), a small/fast layer, and no build toolchain left in the final image.
 #
-# Expected build warnings (these are NOT bugs):
-#   - WARN: FromPlatformFlagConstDisallowed: FROM --platform flag should not
-#     use constant value "linux/amd64" (line 1)
-#   - The requested image's platform (linux/amd64) does not match the
-#     detected host platform (linux/arm64/v8) — emitted at runtime on Apple
-#     Silicon hosts (Rosetta/QEMU emulation; functional, slightly degraded
-#     postgres performance, acceptable for dev workflow).
+# The --platform=linux/amd64 pin is required: postgis/postgis:17-3.5 only
+# publishes an amd64 manifest (no arm64 variant), so arm64 hosts run this under
+# emulation. This is unchanged from the previous source-compile Dockerfile.
 #
-# TODO: build a multi-arch postgis+pgvector image so `--platform=linux/amd64`
-# can be removed and the warnings disappear (requires a CI cross-build matrix
-# + signature distribution).
+# Expected build/runtime warnings (NOT bugs):
+#   - WARN: FromPlatformFlagConstDisallowed: FROM --platform flag should not use
+#     a constant value "linux/amd64" (line below).
+#   - "The requested image's platform (linux/amd64) does not match the detected
+#     host platform (linux/arm64/v8)" on Apple Silicon — Rosetta/QEMU emulation,
+#     functional, slightly degraded postgres performance, acceptable for dev.
 FROM --platform=linux/amd64 postgis/postgis:17-3.5
 
-# Install pgvector extension for semantic search embeddings
+# pgvector for semantic-search embeddings, from the PGDG apt repository that the
+# official postgres/postgis base image already configures.
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-        build-essential \
-        postgresql-server-dev-17 \
-        git \
-        ca-certificates && \
-    git clone --branch v0.8.2 https://github.com/pgvector/pgvector.git /tmp/pgvector && \
-    cd /tmp/pgvector && \
-    make && \
-    make install && \
-    rm -rf /tmp/pgvector && \
-    apt-get purge -y build-essential postgresql-server-dev-17 git && \
-    apt-get autoremove -y && \
+        postgresql-17-pgvector && \
     rm -rf /var/lib/apt/lists/*
