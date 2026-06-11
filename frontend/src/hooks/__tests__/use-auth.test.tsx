@@ -1,6 +1,10 @@
 import { renderHook, act, waitFor } from '@/test/test-utils';
 import { useAuth } from '@/hooks/use-auth';
 import { useAuthStore } from '@/stores/auth-store';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { queryKeys } from '@/lib/query-keys';
+import { MemoryRouter } from 'react-router';
+import { TooltipProvider } from '@/components/ui/tooltip';
 import type { TokenResponse, UserResponse } from '@/types/api';
 
 const mockNavigate = vi.fn();
@@ -130,6 +134,83 @@ describe('useAuth', () => {
 
     expect(result.current.isAdmin).toBe(false);
     expect(result.current.isEditor).toBe(true);
+  });
+
+  // BUG-021: query cache must be cleared on logout and invalidated on login
+  // so a new login never shows the previous user's stale identity.
+  describe('BUG-021: auth query cache management', () => {
+    /** Helper — renders useAuth with a shared, observable queryClient. */
+    function renderWithQueryClient(queryClient: QueryClient) {
+      function Wrapper({ children }: { children: React.ReactNode }) {
+        return (
+          <QueryClientProvider client={queryClient}>
+            <TooltipProvider>
+              <MemoryRouter>
+                {children}
+              </MemoryRouter>
+            </TooltipProvider>
+          </QueryClientProvider>
+        );
+      }
+      return renderHook(() => useAuth(), { wrapper: Wrapper });
+    }
+
+    it('invalidates [auth,me] query on login so cached stale identity is not used', async () => {
+      const queryClient = new QueryClient({
+        defaultOptions: { queries: { retry: false, gcTime: 0 } },
+      });
+
+      const userA = mockUser({ id: 'A', username: 'userA' });
+      const userB = mockUser({ id: 'B', username: 'userB' });
+
+      // Seed stale user A into the cache
+      queryClient.setQueryData(queryKeys.auth.me, userA);
+
+      const tokenRes: TokenResponse = {
+        access_token: 'token-B',
+        refresh_token: 'refresh-B',
+        token_type: 'bearer',
+        expires_in: 900,
+      };
+      mockLogin.mockResolvedValueOnce(tokenRes);
+      // getMe is called twice: once inside login() for setAuth, once by the
+      // meQuery refetch triggered by invalidateQueries.
+      mockGetMe.mockResolvedValue(userB);
+
+      const { result } = renderWithQueryClient(queryClient);
+
+      await act(async () => {
+        await result.current.login('userB', 'pw');
+      });
+
+      // The cache for ['auth','me'] must either be empty (invalidated + no
+      // in-flight refetch completed) or contain user B — NEVER user A.
+      const cached = queryClient.getQueryData(queryKeys.auth.me);
+      if (cached !== undefined) {
+        expect((cached as UserResponse).id).toBe('B');
+      }
+      // Auth store must reflect user B
+      expect(useAuthStore.getState().user?.id).toBe('B');
+    });
+
+    it('removes [auth,me] from cache on logout', async () => {
+      const queryClient = new QueryClient({
+        defaultOptions: { queries: { retry: false, gcTime: 0 } },
+      });
+
+      const user = mockUser();
+      queryClient.setQueryData(queryKeys.auth.me, user);
+      useAuthStore.setState({ token: 'tok', refreshToken: 'ref', expiresAt: 999, user });
+
+      const { result } = renderWithQueryClient(queryClient);
+
+      act(() => {
+        result.current.logout();
+      });
+
+      // Cache for ['auth','me'] must be gone after logout
+      expect(queryClient.getQueryData(queryKeys.auth.me)).toBeUndefined();
+    });
   });
 
   it('restores user state when a persisted token validates successfully', async () => {

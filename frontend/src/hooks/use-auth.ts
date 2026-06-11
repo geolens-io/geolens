@@ -1,13 +1,14 @@
 import { useCallback, useEffect } from 'react';
 import { queryKeys } from '@/lib/query-keys';
 import { useNavigate } from 'react-router';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAuthStore } from '@/stores/auth-store';
 import { login as apiLogin, getMe } from '@/api/auth';
 import { tryRefresh } from '@/api/client';
 
 export function useAuth() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const token = useAuthStore((s) => s.token);
   const user = useAuthStore((s) => s.user);
   const expiresAt = useAuthStore((s) => s.expiresAt);
@@ -58,6 +59,10 @@ export function useAuth() {
       const tokenResponse = await apiLogin(username, password);
       // Temporarily set token so getMe can use it
       useAuthStore.setState({ token: tokenResponse.access_token });
+      // BUG-021: invalidate the ['auth','me'] cache so a new login never shows
+      // the previous user's stale identity. Must happen BEFORE setAuth so the
+      // meQuery re-fetch races the new token, not the old cached data.
+      await queryClient.invalidateQueries({ queryKey: queryKeys.auth.me });
       const userResponse = await getMe();
       setAuth(
         tokenResponse.access_token,
@@ -66,13 +71,16 @@ export function useAuth() {
         userResponse,
       );
     },
-    [setAuth],
+    [setAuth, queryClient],
   );
 
   const logout = useCallback(() => {
+    // BUG-021: clear the ['auth','me'] cache on logout so a subsequent login
+    // does not see the previous user's cached identity.
+    queryClient.removeQueries({ queryKey: queryKeys.auth.me });
     storeLogout();
     navigate('/login');
-  }, [storeLogout, navigate]);
+  }, [storeLogout, navigate, queryClient]);
 
   return { token, user, isAdmin, isEditor, login, logout };
 }
