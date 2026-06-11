@@ -35,7 +35,7 @@ dependencies = [
     "boto3>=1.43.20",
     # PERF-01 (Phase 274): in-memory LRU fallback for tile cache when REDIS_URL is unset
     "cachetools>=5.5.0",
-    "redis>=5.0.0",
+    "redis>=7.4.1",
     "jsonschema>=4.19",
     "puremagic>=2.0.0",
     "rasterio>=1.4.0",
