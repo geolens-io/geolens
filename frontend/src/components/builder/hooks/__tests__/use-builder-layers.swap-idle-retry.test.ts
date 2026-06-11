@@ -229,7 +229,7 @@ describe('swapLayerOnMap — idle-retry during style transition (BUG-018)', () =
     });
 
     const idleCalls = (mapStub.once as ReturnType<typeof vi.fn>).mock.calls.filter(
-      ([event]: [string]) => event === 'idle',
+      (args: unknown[]) => args[0] === 'idle',
     );
     expect(idleCalls).toHaveLength(1);
   });
