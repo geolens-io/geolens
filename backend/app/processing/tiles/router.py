@@ -643,6 +643,10 @@ async def raster_tile_proxy(
         )
 
     render_params = auth_resp.headers.get("X-GeoLens-Render-Params", "")
+    # SEC-002: carry the dataset's public/private cache scope through to the tile
+    # response so private rasters are never stored by a shared cache. Default to
+    # "private" if the header is somehow absent (fail safe).
+    cache_status = auth_resp.headers.get("X-GeoLens-Cache-Status", "private")
 
     # Read band_count from the auth response header (emitted by raster_auth_check).
     # Absent / non-numeric → fall back to 1. Cap at 3 for Titiler RGB rendering.
@@ -778,10 +782,17 @@ async def raster_tile_proxy(
         )
         raise HTTPException(status_code=resp.status_code, detail="Tile fetch failed")
 
+    # SEC-002: private/restricted rasters must never be retained by the shared
+    # nginx cache (its key carries no auth). Emit `no-store` so nginx skips
+    # caching (frontend/nginx.conf honors it); only public datasets are cacheable.
+    if cache_status == "public":
+        cache_control = "public, max-age=3600"
+    else:
+        cache_control = "private, no-store"
     return Response(
         content=resp.content,
         media_type=resp.headers.get("content-type", "image/png"),
-        headers={"Cache-Control": "public, max-age=3600"},
+        headers={"Cache-Control": cache_control},
     )
 
 
@@ -1100,21 +1111,27 @@ async def _authorize_vector_tile_request(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Invalid or expired signature",
             )
-    else:
-        # Public dataset: still block non-published for unauthenticated users
-        if meta.record_status != "published":
-            # Unauthenticated users cannot see unpublished public datasets
-            if user is None:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found"
-                )
-            # Authenticated non-owners cannot see unpublished
-            port = get_processing_port()
-            user_roles = await port.get_user_roles(db, user)
-            if "admin" not in user_roles and meta.created_by != user.id:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found"
-                )
+        # SEC-009: a valid signature authorizes a single caller for this
+        # non-public dataset; the tile bytes must not be retained by a shared
+        # cache. Return "private" so _tile_headers emits Cache-Control: private
+        # (previously this fell through to "public", letting shared caches store
+        # private vector tiles under an auth-less key).
+        return "private"
+
+    # Public dataset: still block non-published for unauthenticated users
+    if meta.record_status != "published":
+        # Unauthenticated users cannot see unpublished public datasets
+        if user is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found"
+            )
+        # Authenticated non-owners cannot see unpublished
+        port = get_processing_port()
+        user_roles = await port.get_user_roles(db, user)
+        if "admin" not in user_roles and meta.created_by != user.id:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found"
+            )
 
     return "public"
 
