@@ -70,6 +70,7 @@ jobs:
             installer:
               - 'scripts/install.sh'
               - 'scripts/tests/test-install-tag-resolution.sh'
+              - 'scripts/tests/test-install-secret-generation.sh'
               - 'docker-compose.yml'
               - 'docker-compose.prod.yml'
 
@@ -151,6 +152,9 @@ jobs:
 
       - name: Tag/branch shadowing regression test
         run: sh scripts/tests/test-install-tag-resolution.sh
+
+      - name: Installer secret-generation regression test
+        run: sh scripts/tests/test-install-secret-generation.sh
 
       - name: Validate compose files parse
         env:
