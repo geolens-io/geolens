@@ -16,6 +16,26 @@ def _validate_http_url(v: str) -> str:
     return v
 
 
+def _validate_safe_token(v: str | None) -> str | None:
+    """Reject control characters / whitespace in auth tokens (SEC-021).
+
+    Tokens flow into a GDAL_HTTP_HEADER_FILE (WFS/OAPIF bearer) and into service
+    query URLs (ArcGIS). A CR/LF or other control character could smuggle
+    additional outbound HTTP headers through the libcurl pipeline. Legitimate
+    JWT / base64url / ArcGIS tokens never contain control characters or
+    whitespace, so reject them at the API boundary (422).
+    """
+    if v is None:
+        return v
+    if not v.isprintable():
+        raise ValueError(
+            "token contains control characters (possible header injection)"
+        )
+    if any(c.isspace() for c in v):
+        raise ValueError("token contains whitespace")
+    return v
+
+
 class ProbeRequest(BaseModel):
     url: str = Field(
         min_length=1,
@@ -28,6 +48,7 @@ class ProbeRequest(BaseModel):
         max_length=1000,
         description="Optional auth token for protected services (passed as query parameter or bearer token depending on service type).",
     )
+    _validate_token = field_validator("token")(_validate_safe_token)
 
 
 class LayerInfo(BaseModel):
@@ -116,6 +137,7 @@ class ServicePreviewRequest(BaseModel):
         max_length=1000,
         description="Optional auth token for protected services.",
     )
+    _validate_token = field_validator("token")(_validate_safe_token)
     object_id_field: str | None = Field(
         default=None,
         max_length=200,
