@@ -60,8 +60,10 @@ jobs:
   publish-python:
     needs: [gate]
     # Run after approval (gate success) or on a build-only dry run (gate skipped).
+    # `!cancelled()` is REQUIRED: without a status-check function the `if` gets an
+    # implicit success() that skips this job whenever gate is skipped (dry run).
     # Tag push → always (target defaults to both). Manual dispatch → honor target.
-    if: ${{ (needs.gate.result == 'success' || needs.gate.result == 'skipped') && (github.event_name == 'push' || inputs.target == 'python' || inputs.target == 'both') }}
+    if: ${{ !cancelled() && (needs.gate.result == 'success' || needs.gate.result == 'skipped') && (github.event_name == 'push' || inputs.target == 'python' || inputs.target == 'both') }}
     name: Publish Python SDK to PyPI
     runs-on: ubuntu-latest
     steps:
@@ -148,8 +150,10 @@ jobs:
   publish-typescript:
     needs: [gate]
     # Run after approval (gate success) or on a build-only dry run (gate skipped).
+    # `!cancelled()` is REQUIRED: without a status-check function the `if` gets an
+    # implicit success() that skips this job whenever gate is skipped (dry run).
     # Tag push → always (target defaults to both). Manual dispatch → honor target.
-    if: ${{ (needs.gate.result == 'success' || needs.gate.result == 'skipped') && (github.event_name == 'push' || inputs.target == 'typescript' || inputs.target == 'both') }}
+    if: ${{ !cancelled() && (needs.gate.result == 'success' || needs.gate.result == 'skipped') && (github.event_name == 'push' || inputs.target == 'typescript' || inputs.target == 'both') }}
     name: Publish TypeScript SDK to npm
     runs-on: ubuntu-latest
     steps:

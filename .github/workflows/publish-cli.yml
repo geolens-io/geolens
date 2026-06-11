@@ -50,7 +50,9 @@ jobs:
   publish-cli:
     needs: [gate]
     # Run after approval (gate success) or on a build-only dry run (gate skipped).
-    if: ${{ needs.gate.result == 'success' || needs.gate.result == 'skipped' }}
+    # `!cancelled()` is REQUIRED: without a status-check function the `if` gets an
+    # implicit success() that skips this job whenever a `needs` is skipped (dry run).
+    if: ${{ !cancelled() && (needs.gate.result == 'success' || needs.gate.result == 'skipped') }}
     name: Publish geolens-cli to PyPI
     runs-on: ubuntu-latest
     steps:
