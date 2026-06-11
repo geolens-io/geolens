@@ -1,27 +1,39 @@
 # Clean-machine smoke verification of published GeoLens packages.
-# Runs alongside the first hot publish.
-# Jobs run inside fresh Docker images (python:3.13-slim, node:22-slim) — no
-# repo context, no runner pollution; mimics what a downstream user gets.
-# See docs.getgeolens.com for context.
+#
+# Run this AFTER a release is fully published — including the *manual* PyPI/npm
+# SDK + CLI publishes (publish-sdks.yml / publish-cli.yml), which do NOT run on
+# tag push. Jobs run inside fresh Docker images (python:3.13-slim, node:22-slim)
+# — no repo context, no runner pollution; mimics what a downstream user gets.
+# Each check polls with a bounded retry to absorb registry/CDN propagation lag.
+#
+# Usage:
+#   gh workflow run verify-published.yml -f version=vX.Y.Z
+# Omit version (or pass 'latest') to verify whatever each registry calls latest.
+#
+# This intentionally does NOT trigger on `push: tags`. On a tag push the GHCR
+# images are still building and the PyPI/npm packages are not published at all
+# (manual workflow_dispatch), so an automatic run would always race and fail.
+# See docs.getgeolens.com for the release runbook.
 name: Verify Published Packages
 
 on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Package version to verify (default: latest)'
+        description: 'Package version to verify (e.g. v1.2.4; default: latest)'
         required: false
         type: string
         default: 'latest'
-  push:
-    tags:
-      - 'v*.*.*'
 
 permissions:
   contents: read
 
 env:
-  VERIFY_VERSION: ${{ inputs.version || (github.ref_type == 'tag' && github.ref_name) || 'latest' }}
+  VERIFY_VERSION: ${{ inputs.version || 'latest' }}
+  # Bounded retry to absorb registry/CDN propagation lag after a publish.
+  # 20 × 15s ≈ 5 min ceiling per check.
+  MAX_ATTEMPTS: '20'
+  RETRY_DELAY: '15'
 
 jobs:
   verify-python:
@@ -41,14 +53,27 @@ jobs:
             CLI_SPEC="geolens-cli==${PACKAGE_VERSION}"
           fi
 
-          docker run --rm \
-            -e SDK_SPEC="${SDK_SPEC}" \
-            -e CLI_SPEC="${CLI_SPEC}" \
-            python:3.13-slim sh -c "
-            pip install --no-cache-dir \"\${SDK_SPEC}\" \"\${CLI_SPEC}\" &&
-            geolens --version &&
-            python -c 'from geolens import GeolensClient; print(GeolensClient)'
-          "
+          attempt=1
+          while true; do
+            if docker run --rm \
+              -e SDK_SPEC="${SDK_SPEC}" \
+              -e CLI_SPEC="${CLI_SPEC}" \
+              python:3.13-slim sh -c '
+              pip install --no-cache-dir "${SDK_SPEC}" "${CLI_SPEC}" &&
+              geolens --version &&
+              python -c "from geolens import GeolensClient; print(GeolensClient)"
+            '; then
+              echo "verified ${SDK_SPEC} + ${CLI_SPEC} on attempt ${attempt}"
+              break
+            fi
+            if [ "${attempt}" -ge "${MAX_ATTEMPTS}" ]; then
+              echo "::error::${SDK_SPEC} / ${CLI_SPEC} not installable after ${attempt} attempts (~$((MAX_ATTEMPTS * RETRY_DELAY))s)"
+              exit 1
+            fi
+            echo "attempt ${attempt}/${MAX_ATTEMPTS} failed; retrying in ${RETRY_DELAY}s (registry may still be propagating)"
+            attempt=$((attempt + 1))
+            sleep "${RETRY_DELAY}"
+          done
 
   verify-typescript:
     name: Verify TypeScript package on node:22-slim
@@ -65,15 +90,28 @@ jobs:
             SDK_SPEC="@geolens/sdk@${PACKAGE_VERSION}"
           fi
 
-          docker run --rm \
-            -e SDK_SPEC="${SDK_SPEC}" \
-            node:22-slim sh -c "
-            mkdir -p /tmp/geolens-sdk-smoke &&
-            cd /tmp/geolens-sdk-smoke &&
-            npm init -y >/dev/null &&
-            npm install --no-save \"\${SDK_SPEC}\" &&
-            node -e 'import(\"@geolens/sdk\").then(m => { if (typeof m.createGeolensClient !== \"function\") throw new Error(\"createGeolensClient export missing\"); console.log(\"createGeolensClient export ok\") })'
-          "
+          attempt=1
+          while true; do
+            if docker run --rm \
+              -e SDK_SPEC="${SDK_SPEC}" \
+              node:22-slim sh -c '
+              mkdir -p /tmp/geolens-sdk-smoke &&
+              cd /tmp/geolens-sdk-smoke &&
+              npm init -y >/dev/null &&
+              npm install --no-save "${SDK_SPEC}" &&
+              node -e "import(\"@geolens/sdk\").then(m => { if (typeof m.createGeolensClient !== \"function\") throw new Error(\"createGeolensClient export missing\"); console.log(\"createGeolensClient export ok\") })"
+            '; then
+              echo "verified ${SDK_SPEC} on attempt ${attempt}"
+              break
+            fi
+            if [ "${attempt}" -ge "${MAX_ATTEMPTS}" ]; then
+              echo "::error::${SDK_SPEC} not installable after ${attempt} attempts (~$((MAX_ATTEMPTS * RETRY_DELAY))s)"
+              exit 1
+            fi
+            echo "attempt ${attempt}/${MAX_ATTEMPTS} failed; retrying in ${RETRY_DELAY}s (registry may still be propagating)"
+            attempt=$((attempt + 1))
+            sleep "${RETRY_DELAY}"
+          done
 
   verify-ghcr:
     name: Verify GHCR images
@@ -84,9 +122,27 @@ jobs:
           VERSION: ${{ env.VERIFY_VERSION }}
           OWNER: ${{ github.repository_owner }}
         run: |
-          IMAGE_TAG="${VERSION#v}"
-          docker pull "ghcr.io/${OWNER}/geolens-api:${IMAGE_TAG}"
-          docker pull "ghcr.io/${OWNER}/geolens-frontend:${IMAGE_TAG}"
+          if [ "${VERSION}" = "latest" ]; then
+            IMAGE_TAG="latest"
+          else
+            IMAGE_TAG="${VERSION#v}"
+          fi
+
+          attempt=1
+          while true; do
+            if docker pull "ghcr.io/${OWNER}/geolens-api:${IMAGE_TAG}" \
+              && docker pull "ghcr.io/${OWNER}/geolens-frontend:${IMAGE_TAG}"; then
+              echo "verified geolens-api + geolens-frontend @ ${IMAGE_TAG} on attempt ${attempt}"
+              break
+            fi
+            if [ "${attempt}" -ge "${MAX_ATTEMPTS}" ]; then
+              echo "::error::GHCR images @ ${IMAGE_TAG} not pullable after ${attempt} attempts (~$((MAX_ATTEMPTS * RETRY_DELAY))s)"
+              exit 1
+            fi
+            echo "attempt ${attempt}/${MAX_ATTEMPTS} failed; retrying in ${RETRY_DELAY}s (images may still be building/propagating)"
+            attempt=$((attempt + 1))
+            sleep "${RETRY_DELAY}"
+          done
 
   verify-github-release:
     name: Verify GitHub Release
@@ -99,11 +155,26 @@ jobs:
           REPOSITORY: ${{ github.repository }}
         run: |
           if [ "${VERSION}" = "latest" ]; then
-            gh release view --repo "${REPOSITORY}" --json tagName,isDraft,isPrerelease,url
+            VIEW_ARGS=""
           else
             case "${VERSION}" in
               v*) TAG="${VERSION}" ;;
               *) TAG="v${VERSION}" ;;
             esac
-            gh release view "${TAG}" --repo "${REPOSITORY}" --json tagName,isDraft,isPrerelease,url
+            VIEW_ARGS="${TAG}"
           fi
+
+          attempt=1
+          while true; do
+            if gh release view ${VIEW_ARGS} --repo "${REPOSITORY}" --json tagName,isDraft,isPrerelease,url; then
+              echo "release verified on attempt ${attempt}"
+              break
+            fi
+            if [ "${attempt}" -ge "${MAX_ATTEMPTS}" ]; then
+              echo "::error::release ${VIEW_ARGS:-latest} not found after ${attempt} attempts (~$((MAX_ATTEMPTS * RETRY_DELAY))s)"
+              exit 1
+            fi
+            echo "attempt ${attempt}/${MAX_ATTEMPTS} failed; retrying in ${RETRY_DELAY}s"
+            attempt=$((attempt + 1))
+            sleep "${RETRY_DELAY}"
+          done
