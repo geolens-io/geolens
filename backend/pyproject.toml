@@ -46,7 +46,7 @@ dependencies = [
     # CVE-2026-48710 fix below.
     "prometheus-fastapi-instrumentator>=8.0.0",
     "authlib>=1.7.1",  # CVE-2026-44681 (GHSA-r95x-qfjj-fjj2) — OIDC Implicit/Hybrid open redirect, fixed in 1.6.12 / 1.7.1
-    "python-multipart>=0.0.27",
+    "python-multipart>=0.0.32",
     # httpx: promoted from [dependency-groups].dev to prod (dep-audit 2026-06-02).
     # Imported directly by 12 production modules (catalog source adapters,
     # processing/ai/llm_loop.py, processing/tiles/router.py); previously resolved
