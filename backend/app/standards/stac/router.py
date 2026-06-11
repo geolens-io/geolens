@@ -16,7 +16,7 @@ from urllib.parse import urlencode
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import JSONResponse
 from starlette.responses import Response
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -1165,6 +1165,22 @@ class StacSearchBody(BaseModel):
         ge=0,
         description="Number of items to skip for pagination.",
     )
+
+    @field_validator("intersects")
+    @classmethod
+    def _cap_intersects_size(cls, v: dict | None) -> dict | None:
+        # SEC-023 (sibling of SEC-FU-05): the GET `intersects` query param is
+        # capped at max_length=10000, but the POST body `intersects` dict
+        # bypassed any bound and reached the same anonymous ST_GeomFromGeoJSON
+        # predicate — a multi-megabyte GeoJSON could pin CPU/memory + a DB
+        # connection. Cap the serialized size to match the GET handler.
+        max_serialized = 10000
+        if v is not None and len(json.dumps(v)) > max_serialized:
+            raise ValueError(
+                f"intersects GeoJSON too large (max {max_serialized} "
+                "serialized characters)"
+            )
+        return v
 
 
 @stac_router.post(
