@@ -622,33 +622,34 @@ class TestVrtSourcesEndpoint:
 class TestTileTokenVrt:
     """CAT-04: raster tile auth accepts vrt_dataset record_type (regression guard).
 
-    The record_type guard was refactored out of ``raster_auth_check`` into the
-    shared ``_resolve_raster_access`` helper so both the auth_request endpoint
-    and the API-side raster proxy share one code path. Tests inspect the
-    helper's source since that is where the guard lives now.
+    The record_type guard lives in ``_resolve_raster_meta`` (the cached metadata
+    resolver) which is called by ``_resolve_raster_access``.  Tests inspect the
+    metadata resolver's source since that is where the guard lives.
     """
 
     def test_resolve_raster_access_accepts_vrt_dataset_record_type(self):
-        """_resolve_raster_access accepts both raster_dataset and vrt_dataset."""
+        """_resolve_raster_meta accepts both raster_dataset and vrt_dataset."""
         import inspect
 
         import app.processing.tiles.router as tiles_module
 
-        source = inspect.getsource(tiles_module._resolve_raster_access)
+        # PERF-002: guard moved to _resolve_raster_meta (cached metadata resolver).
+        source = inspect.getsource(tiles_module._resolve_raster_meta)
 
         # Guard condition must include vrt_dataset
         assert "vrt_dataset" in source, (
-            "_resolve_raster_access must accept 'vrt_dataset' record_type — "
+            "_resolve_raster_meta must accept 'vrt_dataset' record_type — "
             "CAT-04 regression: guard was updated in Phase 171"
         )
 
     def test_resolve_raster_access_uses_tuple_guard_for_both_types(self):
-        """_resolve_raster_access uses 'in' check including both record types."""
+        """_resolve_raster_meta uses 'in' check including both record types."""
         import inspect
 
         import app.processing.tiles.router as tiles_module
 
-        source = inspect.getsource(tiles_module._resolve_raster_access)
+        # PERF-002: guard moved to _resolve_raster_meta (cached metadata resolver).
+        source = inspect.getsource(tiles_module._resolve_raster_meta)
 
         # Must reject non-raster types; both raster_dataset and vrt_dataset must be in guard
         assert "raster_dataset" in source
@@ -660,7 +661,8 @@ class TestTileTokenVrt:
 
         import app.processing.tiles.router as tiles_module
 
-        source = inspect.getsource(tiles_module._resolve_raster_access)
+        # PERF-002: guard moved to _resolve_raster_meta (cached metadata resolver).
+        source = inspect.getsource(tiles_module._resolve_raster_meta)
 
         # Find the guard line that checks record_type
         lines = [ln.strip() for ln in source.splitlines() if "vrt_dataset" in ln]
