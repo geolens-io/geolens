@@ -1,5 +1,6 @@
 import sys
 from pathlib import Path
+from typing import Literal
 
 from pydantic import Field, SecretStr, ValidationError, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -75,6 +76,16 @@ class Settings(BaseSettings):
 
     log_json: bool = False
     log_level: str = "INFO"
+
+    # SEC-005: explicit deployment environment. Controls security-sensitive
+    # behaviors — API docs exposure (/docs, /redoc) and the Secure flag on the
+    # OAuth session cookie (SessionMiddleware https_only). Previously these were
+    # keyed off LOG_JSON, an innocuously-documented log-format flag.
+    #   "production"  -> hardened posture (docs hidden, Secure cookie)
+    #   "development" -> open posture (docs shown, no Secure cookie)
+    #   unset (None)  -> fall back to LOG_JSON for backward compatibility
+    # Set ENVIRONMENT=production on any public, TLS-terminated deployment.
+    environment: Literal["development", "production"] | None = None
 
     anthropic_api_key: SecretStr | None = None
     llm_model: str = "claude-sonnet-4-20250514"
@@ -242,6 +253,21 @@ class Settings(BaseSettings):
             return []
         return [o.strip() for o in self.cors_allowed_origins.split(",") if o.strip()]
 
+    @property
+    def is_production(self) -> bool:
+        """Whether to enforce the production security posture (API docs hidden,
+        Secure session cookie).
+
+        SEC-005: driven by the explicit ENVIRONMENT setting. When ENVIRONMENT is
+        unset, fall back to LOG_JSON (the de-facto production switch before this
+        setting) so no existing deployment silently loses its hardened posture.
+        An explicit ENVIRONMENT (development or production) decouples fully —
+        LOG_JSON no longer affects security.
+        """
+        if self.environment is not None:
+            return self.environment == "production"
+        return self.log_json
+
     @staticmethod
     def _strip_ssl_from_url(url: str) -> str:
         from urllib.parse import parse_qs, urlencode, urlsplit, urlunsplit
@@ -328,7 +354,7 @@ class Settings(BaseSettings):
     @property
     def procrastinate_conninfo(self) -> str:
         if self.database_url_override:
-            from urllib.parse import urlparse
+            from urllib.parse import parse_qs, urlparse
 
             raw = self.database_url_override
             for prefix in ("postgresql+asyncpg://", "postgresql+psycopg://"):
@@ -353,6 +379,21 @@ class Settings(BaseSettings):
                 parts.append(f"sslmode={self.database_ssl_mode}")
             if self.database_ssl_ca_cert:
                 parts.append(f"sslrootcert={self.database_ssl_ca_cert}")
+            # BUG-002: the non-override branch sets
+            # options='-c search_path=<schema>,public' so procrastinate's
+            # unqualified objects resolve in the catalog schema. The override
+            # branch dropped it entirely, breaking the job queue on managed
+            # Postgres (UndefinedTable/UndefinedFunction on every defer and
+            # worker start). Re-add it, preserving any caller-supplied
+            # ?options= — our search_path is applied last so it always wins.
+            search_path_opt = f"-c search_path={self.procrastinate_schema},public"
+            caller_options = parse_qs(parsed.query).get("options", [""])[0]
+            combined_options = (
+                f"{caller_options} {search_path_opt}".strip()
+                if caller_options.strip()
+                else search_path_opt
+            )
+            parts.append(f"options='{combined_options}'")
             return " ".join(parts)
         return (
             f"host={self.postgres_host} port={self.postgres_port} "

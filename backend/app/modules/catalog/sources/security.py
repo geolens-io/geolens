@@ -30,6 +30,29 @@ def _is_blocked_ip(
     )
 
 
+async def _resolve_and_validate(host: str, port: int | None) -> str:
+    """Resolve *host*, validate every resolved IP, and return one validated IP.
+
+    SEC-008: returns the exact address the connection should use so the caller
+    can PIN it — eliminating the gap between validation-time DNS and connect-time
+    DNS. Raises SSRFError if resolution fails or ANY resolved address is blocked
+    (matching validate_url_for_ssrf's conservative semantics).
+    """
+    try:
+        results = await asyncio.to_thread(
+            socket.getaddrinfo, host, port, proto=socket.IPPROTO_TCP
+        )
+    except socket.gaierror:
+        raise SSRFError(f"Could not resolve hostname: {host}")
+    if not results:
+        raise SSRFError(f"Could not resolve hostname: {host}")
+    for _family, _type, _proto, _canon, sockaddr in results:
+        ip = ipaddress.ip_address(sockaddr[0])
+        if _is_blocked_ip(ip):
+            raise SSRFError("URLs targeting private/internal networks are not allowed")
+    return str(ipaddress.ip_address(results[0][4][0]))
+
+
 async def validate_url_for_ssrf(url: str) -> None:
     """Validate a URL is safe to fetch (no SSRF).
 
@@ -91,22 +114,50 @@ async def _revalidate_redirect(response: httpx.Response) -> None:
     await validate_url_for_ssrf(target)
 
 
+class _SSRFGuardTransport(httpx.AsyncHTTPTransport):
+    """Transport that re-resolves, re-validates, and PINS the IP at connect time.
+
+    SEC-008: validate_url_for_ssrf resolves DNS once at submission time, but the
+    client performs its OWN DNS lookup when it actually connects. A low-TTL
+    attacker domain can answer with a public IP at validation and a private IP
+    (169.254.169.254 / 127.x / 10.x) at connect — DNS rebinding. This transport
+    resolves + validates immediately before connecting and pins the connection
+    to the exact validated IP by rewriting the URL host to that IP while keeping
+    the original hostname for the Host header and TLS SNI/verification. httpx
+    builds a fresh request per redirect hop, so every hop is independently
+    re-resolved, re-validated, and re-pinned.
+    """
+
+    async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+        host = request.url.host
+        validated_ip = await _resolve_and_validate(host, request.url.port)
+        # Pin to the validated address. The Host header was already set from the
+        # original URL at request-build time (left intact); sni_hostname keeps
+        # the hostname for TLS SNI and certificate verification.
+        request.url = request.url.copy_with(host=validated_ip)
+        request.extensions["sni_hostname"] = host
+        return await super().handle_async_request(request)
+
+
 def make_safe_client(
     timeout: float | httpx.Timeout = PROBE_TIMEOUT,
 ) -> httpx.AsyncClient:
-    """Construct an httpx.AsyncClient with per-hop SSRF revalidation.
+    """Construct an httpx.AsyncClient with SSRF IP-pinning and per-hop revalidation.
 
     Phase 1061 SEC-S04: use this factory instead of `httpx.AsyncClient(
     follow_redirects=True, ...)` for any request handler that fetches
     user-supplied URLs (service probes, STAC adapters, OGC API adapters).
 
-    The response hook _revalidate_redirect intercepts every 3xx hop and
-    re-validates the Location against validate_url_for_ssrf — the same gate
-    that runs at submission time.
+    SEC-008: the client uses _SSRFGuardTransport, which re-resolves and validates
+    the host at connect time and pins the connection to the validated IP — so a
+    DNS-rebinding answer between submission-time validation and connect cannot
+    reach an internal IP. The response hook _revalidate_redirect additionally
+    re-validates each 3xx Location, and the transport re-pins each redirect hop.
     """
     return httpx.AsyncClient(
         timeout=timeout,
         follow_redirects=True,
         max_redirects=5,
         event_hooks={"response": [_revalidate_redirect]},
+        transport=_SSRFGuardTransport(),
     )

@@ -107,29 +107,62 @@ async def run_service_preview(
         layer_name=layer_name,
     )
 
-    env = None
-    if token and (gdal_source.startswith("WFS:") or gdal_source.startswith("OAPIF:")):
-        env = {**os.environ, "GDAL_HTTP_HEADERS": f"Authorization: Bearer {token}"}
-
-    proc = await asyncio.create_subprocess_exec(
-        *cmd,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-        env=env,
-    )
-
+    header_file_path: str | None = None
     try:
-        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
-    except asyncio.TimeoutError:
-        proc.kill()
-        await proc.wait()
-        logger.warning(
-            "ogrinfo timed out for service preview",
-            gdal_source=gdal_source,
-            layer_name=layer_name,
-            timeout=timeout,
+        env = {**os.environ}
+        if token and (
+            gdal_source.startswith("WFS:") or gdal_source.startswith("OAPIF:")
+        ):
+            # SEC-021: mirror the ogr2ogr commit path (IA-P1-06 / SEC-FU-04).
+            # Passing the bearer via GDAL_HTTP_HEADERS leaks it through the
+            # subprocess env (visible in /proc/<pid>/environ for the process
+            # lifetime) and lets a CR/LF in the token inject arbitrary outbound
+            # HTTP headers under libcurl. Re-validate the token (reject CR/LF /
+            # control chars — the same sources-layer validator the request schema
+            # applies) and hand it to GDAL via a 0600 GDAL_HTTP_HEADER_FILE so the
+            # env var carries the file PATH, not the secret. The tempfile is
+            # unlinked in the finally below. Validator lives in this module's
+            # `schemas` (not app.processing) to respect the catalog↔processing
+            # layering boundary.
+            from app.modules.catalog.sources.schemas import _validate_safe_token
+
+            safe_token = _validate_safe_token(token)
+            import tempfile
+
+            fd, header_file_path = tempfile.mkstemp(prefix="gdal_auth_", suffix=".hdr")
+            try:
+                os.write(fd, f"Authorization: Bearer {safe_token}\n".encode("ascii"))
+            finally:
+                os.close(fd)
+            os.chmod(header_file_path, 0o600)
+            env["GDAL_HTTP_HEADER_FILE"] = header_file_path
+
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            env=env,
         )
-        return empty_fallback
+
+        try:
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+        except asyncio.TimeoutError:
+            proc.kill()
+            await proc.wait()
+            logger.warning(
+                "ogrinfo timed out for service preview",
+                gdal_source=gdal_source,
+                layer_name=layer_name,
+                timeout=timeout,
+            )
+            return empty_fallback
+    finally:
+        if header_file_path is not None:
+            try:
+                os.unlink(header_file_path)
+            except OSError:
+                # Already removed; contents were only the bearer + file was 0600.
+                pass
 
     if proc.returncode != 0:
         error_msg = stderr.decode().strip() if stderr else "unknown error"

@@ -58,6 +58,14 @@ generate_jwt_secret() {
   fail "cannot generate JWT_SECRET_KEY: install openssl, or run on a host with /dev/urandom."
 }
 
+# Generate a strong password from the same entropy source as the JWT secret.
+# The "Aa" prefix + "_1" suffix guarantee 4 character classes (upper, lower,
+# digit, symbol) so the value satisfies a multi-class complexity policy, and
+# uses only .env / connection-string-safe characters (no = $ " ' @ : / space).
+generate_password() {
+  printf 'Aa%s_1\n' "$(generate_jwt_secret)"
+}
+
 check_port() {
   port="$1"
   if command -v lsof >/dev/null 2>&1 && lsof -iTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1; then
@@ -238,8 +246,10 @@ else
   PROJECT_HINT="$INSTALL_DIR"
 fi
 
+ENV_CREATED=false
 if [ ! -f .env ]; then
   cp .env.example .env
+  ENV_CREATED=true
 fi
 
 # JWT_SECRET_KEY: generate iff missing or empty. Existing real values are kept.
@@ -250,15 +260,44 @@ if [ -z "$existing_jwt" ]; then
   say "Generated JWT_SECRET_KEY."
 fi
 
-# Admin credentials: prompt only if either is empty. Honors GEOLENS_ADMIN_USERNAME /
+# POSTGRES_PASSWORD (SEC-010): .env.example ships the publicly-known default
+# `geolens`. On a FRESH install replace it with a strong value so the database
+# is initialized with a real password. On a re-run we must NOT rotate it — the
+# pgdata volume is already initialized with the existing value and changing it
+# would lock the app out.
+existing_pg_pw="$(get_env_value POSTGRES_PASSWORD)"
+if [ "$ENV_CREATED" = "true" ] && { [ -z "$existing_pg_pw" ] || [ "$existing_pg_pw" = "geolens" ]; }; then
+  update_env_value POSTGRES_PASSWORD "$(generate_password)"
+  say "Generated POSTGRES_PASSWORD."
+elif [ "$existing_pg_pw" = "geolens" ]; then
+  warn "POSTGRES_PASSWORD is still the public default 'geolens'. If the database has not been initialized yet, set a strong value in .env before first start."
+fi
+
+# Admin credentials: set only if either is empty. Honors GEOLENS_ADMIN_USERNAME /
 # GEOLENS_ADMIN_PASSWORD env vars for non-interactive installs.
 existing_admin_user="$(get_env_value GEOLENS_ADMIN_USERNAME)"
 existing_admin_pass="$(get_env_value GEOLENS_ADMIN_PASSWORD)"
+generated_admin_pw=false
 if [ -z "$existing_admin_user" ] || [ -z "$existing_admin_pass" ]; then
   admin_user="$(prompt_value 'Admin username' 'admin' false GEOLENS_ADMIN_USERNAME)"
-  admin_password="$(prompt_value 'Admin password' 'admin' true GEOLENS_ADMIN_PASSWORD)"
+  # Password (SEC-011): honor an explicitly-provided GEOLENS_ADMIN_PASSWORD;
+  # interactively let the operator type one (blank = generate). Otherwise
+  # GENERATE a strong password — never silently default to 'admin', which a
+  # headless `curl | sh` install would otherwise do for an internet-facing app.
+  admin_password="${GEOLENS_ADMIN_PASSWORD:-}"
+  if [ -z "$admin_password" ] && [ "$HAS_TTY" = "true" ]; then
+    admin_password="$(prompt_value 'Admin password (blank = generate a strong one)' '' true)"
+  fi
+  if [ -z "$admin_password" ]; then
+    admin_password="$(generate_password)"
+    generated_admin_pw=true
+  fi
   update_env_value GEOLENS_ADMIN_USERNAME "$admin_user"
   update_env_value GEOLENS_ADMIN_PASSWORD "$admin_password"
+  if [ "$generated_admin_pw" = "true" ]; then
+    # Do not echo the secret to stdout/logs; it is stored in .env.
+    say "Generated a strong admin password — retrieve it with: grep '^GEOLENS_ADMIN_PASSWORD=' .env"
+  fi
 else
   say ".env already has admin credentials; leaving unchanged."
 fi

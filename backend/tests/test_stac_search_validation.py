@@ -106,14 +106,15 @@ class TestSecFu05StacIntersectsMaxLength:
             f"9000-char intersects rejected with 422 (should not hit max_length cap): {resp.text}"
         )
 
-    async def test_sec_fu_05_post_body_unaffected(self, client: AsyncClient):
-        """POST /stac/search body.intersects dict is NOT capped by max_length.
+    async def test_sec_fu_05_post_body_is_capped(self, client: AsyncClient):
+        """POST /stac/search body.intersects dict IS now capped (SEC-023).
 
-        The POST handler accepts StacSearchBody.intersects: dict — bounded by
-        the application-wide RequestBodyLimitMiddleware (default 500 MB) and
-        the nginx proxy (client_max_body_size 500m), NOT by a 1MB uvicorn limit
-        (uvicorn has no built-in body size cap). The Query max_length constraint
-        applies only to GET query-string parameters, not to POST body fields.
+        SEC-FU-05 capped only the GET `intersects` query param (max_length=10000);
+        the POST body dict bypassed any bound and reached the same anonymous
+        ST_GeomFromGeoJSON predicate (a multi-megabyte GeoJSON DoS amplifier).
+        SEC-023 adds a matching serialized-size cap on StacSearchBody.intersects,
+        so an oversized body now returns 422 before any spatial query runs. This
+        test previously asserted the body was *unaffected* — that was the bug.
         """
         # Build a large polygon dict whose JSON representation exceeds 10000 chars
         coords = [[i * 0.01, j * 0.01] for i in range(50) for j in range(50)]
@@ -131,10 +132,10 @@ class TestSecFu05StacIntersectsMaxLength:
             "/stac/search",
             json={"intersects": intersects_dict},
         )
-        # Must not 422 — the body path has no max_length constraint
-        assert resp.status_code != 422, (
-            f"POST with large intersects dict returned 422 — "
-            f"body path must not apply max_length: {resp.text}"
+        # Must 422 — the body cap rejects the oversized GeoJSON before PostGIS.
+        assert resp.status_code == 422, (
+            f"POST with oversized intersects dict must be capped (422), "
+            f"got {resp.status_code}: {resp.text}"
         )
 
 

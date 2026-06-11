@@ -3,14 +3,19 @@
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import joinedload
 
 from app.core.identity import Identity
 from app.modules.auth.dependencies import get_optional_user, require_permission
-from app.modules.catalog.authorization import get_user_roles
+from app.modules.catalog.authorization import (
+    check_dataset_access_or_anonymous,
+    get_user_roles,
+)
 from app.core.dependencies import get_db
-from app.modules.catalog.datasets.domain.models import Record
+from app.modules.catalog.datasets.domain.models import Dataset, Record
 from app.modules.catalog.records.schemas import (
     ContactCreate,
     ContactListResponse,
@@ -51,18 +56,60 @@ async def _check_record_read_access(
     record_id: uuid.UUID,
     user: Identity | None,
 ) -> None:
-    """Verify the record exists and is visible to the caller. Raises 404."""
+    """Verify the record is visible to the caller. Raises 404 on denial.
+
+    Record sub-resources (contacts/keywords/distributions) carry the same
+    visibility as the dataset they back, so authorization is delegated to the
+    shared per-dataset RBAC the dataset endpoints use — public/private/
+    restricted, owner, admin, and anonymous (public+published only), including
+    grants. This closes the gap where ANY authenticated user could read a
+    private record by gating only `user is None`.
+    """
     record = await get_record(db, record_id)
     if record is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Record not found"
         )
-    if user is None and (
-        record.visibility != "public" or record.record_status != "published"
-    ):
+
+    # Delegate to the dataset that backs this record, mirroring the dataset
+    # read endpoints (get_dataset + check_dataset_access_or_anonymous).
+    dataset = (
+        (
+            await db.execute(
+                select(Dataset)
+                .options(joinedload(Dataset.record))
+                .where(Dataset.record_id == record_id)
+            )
+        )
+        .scalars()
+        .first()
+    )
+    if dataset is not None:
+        try:
+            await check_dataset_access_or_anonymous(db, dataset, dataset.id, user)
+        except HTTPException:
+            # Normalize the denial to the record's own 404 (don't leak that a
+            # backing dataset exists).
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Record not found"
+            )
+        return
+
+    # Orphan record with no backing dataset (e.g. mid-ingest): only public +
+    # published is world-readable; otherwise owner or admin only.
+    if record.visibility == "public" and record.record_status == "published":
+        return
+    if user is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Record not found"
         )
+    if record.created_by == user.id:
+        return
+    if "admin" in await get_user_roles(db, user):
+        return
+    raise HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND, detail="Record not found"
+    )
 
 
 async def _check_record_ownership(

@@ -111,6 +111,29 @@ class TestProcrastinateConninfo:
         assert "sslrootcert=/path/to/ca.pem" in conninfo
         assert "sslmode=verify-full" in conninfo
 
+    def test_override_includes_search_path(self):
+        # BUG-002: the override branch previously dropped the search_path
+        # option, so procrastinate could not resolve its unqualified objects on
+        # managed Postgres (DATABASE_URL_OVERRIDE) and the job queue broke. The
+        # override branch must mirror the default branch and pin the catalog
+        # schema. (Fails on main — the override conninfo had no search_path.)
+        s = _make_settings(database_url_override="postgresql://u:p@host:5432/db")
+        conninfo = s.procrastinate_conninfo
+        assert "options='-c search_path=catalog,public'" in conninfo
+
+    def test_override_preserves_caller_options(self):
+        # An operator can still pass extra libpq options via ?options=; our
+        # search_path is appended (and applied last so procrastinate's schema
+        # always wins) rather than discarding the caller's value.
+        s = _make_settings(
+            database_url_override=(
+                "postgresql://u:p@host/db?options=-c%20statement_timeout%3D5000"
+            )
+        )
+        conninfo = s.procrastinate_conninfo
+        assert "statement_timeout=5000" in conninfo
+        assert "search_path=catalog,public" in conninfo
+
 
 class TestOgrConnectionString:
     """Test ogr_connection_string property."""

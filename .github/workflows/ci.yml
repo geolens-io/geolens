@@ -69,7 +69,10 @@ jobs:
               - 'db/**'
             installer:
               - 'scripts/install.sh'
+              - 'scripts/backup-entrypoint.sh'
               - 'scripts/tests/test-install-tag-resolution.sh'
+              - 'scripts/tests/test-install-secret-generation.sh'
+              - 'scripts/tests/test-backup-s3-signature.sh'
               - 'docker-compose.yml'
               - 'docker-compose.prod.yml'
 
@@ -151,6 +154,12 @@ jobs:
 
       - name: Tag/branch shadowing regression test
         run: sh scripts/tests/test-install-tag-resolution.sh
+
+      - name: Installer secret-generation regression test
+        run: sh scripts/tests/test-install-secret-generation.sh
+
+      - name: Backup S3 signature regression test
+        run: sh scripts/tests/test-backup-s3-signature.sh
 
       - name: Validate compose files parse
         env:

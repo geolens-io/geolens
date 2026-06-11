@@ -226,6 +226,15 @@ class PersistentConfig(Generic[T]):
         # Side effect hook
         self._on_change(value)
 
+        # BUG-008: warm the sync rate-limit cache with the NEW value. set()
+        # only ever warmed it with the OLD value (via the get(db) above), so
+        # slowapi kept enforcing the previous limit until the 30s TTL expired —
+        # and because no request-path code calls .get() for these keys, the new
+        # value was otherwise never applied in this process. _update_sync_cache
+        # no-ops for non-rate-limit keys. (Per-process cache: other workers
+        # still lag by up to _CACHE_TTL until their entry expires.)
+        self._update_sync_cache(value)
+
     async def reset(
         self,
         db: AsyncSession,
@@ -270,6 +279,10 @@ class PersistentConfig(Generic[T]):
                 await cache.delete(f"{_CACHE_PREFIX}{self.key}")
 
             self._on_change(self.env_default)
+
+            # BUG-008: warm the sync cache with the reverted env_default so
+            # slowapi picks it up immediately (same rationale as set()).
+            self._update_sync_cache(self.env_default)
 
     def _on_change(self, value: T) -> None:
         """Override in subclasses for side effects on set()."""
@@ -731,7 +744,9 @@ def get_cached_semantic_search_rate_limit() -> int:
 
     SEC-S11: caps OpenAI embedding cost-DoS by limiting unique novel queries per IP.
     Default 30/min matches the audit recommendation for cost-sensitive endpoints.
-    Configurable via SEMANTIC_SEARCH_RATE_LIMIT env var.
+    Configurable at runtime via the admin Settings UI / PUT /settings/ with key
+    `semantic_search_rate_limit` (there is no SEMANTIC_SEARCH_RATE_LIMIT env var;
+    Settings uses extra="ignore").
     """
     cached = _sync_rate_limit_cache.get("semantic_search_rate_limit")
     if cached and (time.monotonic() - cached[1]) < _CACHE_TTL:
@@ -745,7 +760,9 @@ def get_cached_basemap_proxy_rate_limit() -> int:
     SEC-S10: caps commercial-tier basemap key replay from anonymous clients.
     Default 120/min is loose enough for the SPA boot path (one call per page load
     across users behind a shared NAT) while still bounding attacker throughput.
-    Configurable via BASEMAP_PROXY_RATE_LIMIT env var.
+    Configurable at runtime via the admin Settings UI / PUT /settings/ with key
+    `basemap_proxy_rate_limit` (there is no BASEMAP_PROXY_RATE_LIMIT env var;
+    Settings uses extra="ignore").
     """
     cached = _sync_rate_limit_cache.get("basemap_proxy_rate_limit")
     if cached and (time.monotonic() - cached[1]) < _CACHE_TTL:
