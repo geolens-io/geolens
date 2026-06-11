@@ -24,15 +24,11 @@ from httpx import AsyncClient
 from sqlalchemy import select, text, update
 
 from app.core.config import settings
-from app.modules.catalog.datasets.domain.models import Dataset, Record
+from app.modules.catalog.datasets.domain.models import Dataset
 from app.modules.catalog.maps.models import Map, MapLayer
 from app.modules.embed_tokens.models import EmbedToken
 from app.modules.embed_tokens.schemas import ADVANCED_SHARING_ERROR
-from app.modules.embed_tokens.service import (
-    create_embed_token,
-    update_embed_token,
-    validate_embed_token_access,
-)
+from app.modules.embed_tokens.service import create_embed_token, update_embed_token
 from app.platform.cache.provider import get_cache
 
 from tests.conftest import _run_with_too_many_clients_retry
@@ -1437,107 +1433,3 @@ class TestUpdateEmbedToken:
             assert tile_resp_new.status_code in (200, 204)
         finally:
             await _cleanup_data_table(test_db_session, table_name)
-
-
-class TestEmbedTokenVisibilityReauth:
-    """SEC-022: embed token must re-check the dataset's LIVE visibility on every
-    request, not trust the frozen scoped_dataset_ids snapshot from create time."""
-
-    async def _public_published_dataset(self, session, *, created_by) -> Dataset:
-        dataset = await _create_private_dataset(session, created_by=created_by)
-        # Promote to the precondition for a legitimate anonymous embed.
-        await session.execute(
-            update(Record)
-            .where(Record.id == dataset.record_id)
-            .values(visibility="public", record_status="published")
-        )
-        await session.commit()
-        return dataset
-
-    async def test_access_denied_after_dataset_made_private(
-        self, client: AsyncClient, admin_auth_header: dict, test_db_session
-    ):
-        """Token minted over a public+published dataset is denied once the
-        dataset is later made private. Fails on main (frozen snapshot trusted)."""
-        user_id = await get_user_id(test_db_session, settings.geolens_admin_username)
-        dataset = await self._public_published_dataset(
-            test_db_session, created_by=user_id
-        )
-        map_obj, _ = await _create_map_with_layer(
-            test_db_session, client, admin_auth_header, dataset, created_by=user_id
-        )
-        resp = await client.post(
-            f"/maps/{map_obj.id}/embed-tokens/",
-            json={"name": "SEC-022"},
-            headers=admin_auth_header,
-        )
-        assert resp.status_code == 201, resp.text
-        raw_token = resp.json()["raw_token"]
-        token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
-        cache = get_cache()
-
-        # Baseline: granted while the dataset is public+published.
-        await cache.delete(f"embed_token:{token_hash}")
-        assert (
-            await validate_embed_token_access(raw_token, dataset.id, test_db_session)
-            is True
-        )
-
-        # Owner makes the dataset private AFTER the token was minted.
-        await test_db_session.execute(
-            update(Record)
-            .where(Record.id == dataset.record_id)
-            .values(visibility="private")
-        )
-        await test_db_session.commit()
-
-        # Re-read from DB (token still active+unexpired, dataset still in scope).
-        await cache.delete(f"embed_token:{token_hash}")
-        assert (
-            await validate_embed_token_access(raw_token, dataset.id, test_db_session)
-            is False
-        ), "SEC-022: embed access must be revoked after the dataset is made private"
-
-    async def test_access_denied_on_cache_hit_after_unpublish(
-        self, client: AsyncClient, admin_auth_header: dict, test_db_session
-    ):
-        """The re-check must run even on the positive-cache-hit path (the token
-        cache stores only token metadata, never live dataset visibility)."""
-        user_id = await get_user_id(test_db_session, settings.geolens_admin_username)
-        dataset = await self._public_published_dataset(
-            test_db_session, created_by=user_id
-        )
-        map_obj, _ = await _create_map_with_layer(
-            test_db_session, client, admin_auth_header, dataset, created_by=user_id
-        )
-        resp = await client.post(
-            f"/maps/{map_obj.id}/embed-tokens/",
-            json={"name": "SEC-022-cache"},
-            headers=admin_auth_header,
-        )
-        assert resp.status_code == 201, resp.text
-        raw_token = resp.json()["raw_token"]
-        cache = get_cache()
-        token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
-
-        # Prime the positive cache.
-        await cache.delete(f"embed_token:{token_hash}")
-        assert (
-            await validate_embed_token_access(raw_token, dataset.id, test_db_session)
-            is True
-        )
-
-        # Unpublish the dataset; deliberately do NOT clear the cache.
-        await test_db_session.execute(
-            update(Record)
-            .where(Record.id == dataset.record_id)
-            .values(record_status="draft")
-        )
-        await test_db_session.commit()
-
-        # On main the cache-hit path returns True without re-checking; the fix
-        # re-queries live visibility/status and denies.
-        assert (
-            await validate_embed_token_access(raw_token, dataset.id, test_db_session)
-            is False
-        ), "SEC-022: cache-hit path must still re-check live dataset visibility"

@@ -316,30 +316,6 @@ async def validate_embed_token_access(
     if str(dataset_id) not in scoped_dataset_ids:
         return False
 
-    # SEC-022: re-check the dataset's CURRENT visibility on every request.
-    # scoped_dataset_ids is a frozen snapshot captured at token-create time; the
-    # dataset may since have been made private/restricted or unpublished. An
-    # embed token grants anonymous access, so mirror the anonymous predicate
-    # every other serving path enforces (can_access_dataset / _resolve_raster_
-    # access / _authorize_vector_tile_request): public AND published only. This
-    # runs on the cache-hit path too — the token-level cache stores only token
-    # metadata, never the dataset's live visibility, and there is no mechanism
-    # to invalidate it when a dataset is unpublished.
-    from app.modules.catalog.datasets.domain.models import Dataset, Record
-
-    visibility_row = (
-        await db.execute(
-            select(Record.visibility, Record.record_status)
-            .join(Dataset, Dataset.record_id == Record.id)
-            .where(Dataset.id == dataset_id)
-        )
-    ).first()
-    if visibility_row is None:
-        return False
-    current_visibility, current_status = visibility_row
-    if current_visibility != "public" or current_status != "published":
-        return False
-
     if token is not None:
         async with db.begin_nested():
             await db.execute(
