@@ -17,10 +17,10 @@ from unittest.mock import MagicMock
 
 
 def test_cors_warning_fires_in_production_with_empty_cors():
-    """log_json=True + cors_allowed_origins='' → cors_allowed_origins_unset warning."""
+    """is_production=True + cors_allowed_origins='' → cors_allowed_origins_unset warning."""
     from app.api import main as main_module
 
-    fake_settings = SimpleNamespace(log_json=True, cors_allowed_origins="")
+    fake_settings = SimpleNamespace(is_production=True, cors_allowed_origins="")
     fake_logger = MagicMock()
 
     main_module._warn_if_cors_unset(fake_settings, fake_logger)
@@ -31,7 +31,7 @@ def test_cors_warning_fires_in_production_with_empty_cors():
     fake_logger.warning.assert_called_once_with(
         "cors_allowed_origins_unset",
         message=(
-            "CORS_ALLOWED_ORIGINS is empty in production (LOG_JSON=true). "
+            "CORS_ALLOWED_ORIGINS is empty in production. "
             "All origins will pass the request-origin check; this is "
             "likely a misconfiguration. Set "
             "CORS_ALLOWED_ORIGINS=<comma-separated origins> to restrict."
@@ -40,10 +40,10 @@ def test_cors_warning_fires_in_production_with_empty_cors():
 
 
 def test_cors_warning_silent_in_dev():
-    """log_json=False (dev) → no CORS warning fires regardless of value."""
+    """is_production=False (dev) → no CORS warning fires regardless of value."""
     from app.api import main as main_module
 
-    fake_settings = SimpleNamespace(log_json=False, cors_allowed_origins="")
+    fake_settings = SimpleNamespace(is_production=False, cors_allowed_origins="")
     fake_logger = MagicMock()
 
     main_module._warn_if_cors_unset(fake_settings, fake_logger)
@@ -54,11 +54,11 @@ def test_cors_warning_silent_in_dev():
 
 
 def test_cors_warning_silent_with_origins_configured():
-    """log_json=True + cors_allowed_origins='https://app.example.com' → no warning."""
+    """is_production=True + cors_allowed_origins='https://app.example.com' → no warning."""
     from app.api import main as main_module
 
     fake_settings = SimpleNamespace(
-        log_json=True, cors_allowed_origins="https://app.example.com"
+        is_production=True, cors_allowed_origins="https://app.example.com"
     )
     fake_logger = MagicMock()
 
