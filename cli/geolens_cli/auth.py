@@ -70,6 +70,7 @@ def _write_credentials_file(data: dict) -> None:
         _config.credentials_path(),
         tomli_w.dumps(data),
         mode=0o600,
+        tighten_parent=True,
     )
 
 
