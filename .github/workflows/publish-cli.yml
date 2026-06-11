@@ -34,10 +34,25 @@ permissions:
   id-token: write  # for PyPI Trusted Publishing
 
 jobs:
-  publish-cli:
-    name: Publish geolens-cli to PyPI
+  # Approval checkpoint. This is the ONLY job that targets the `publish`
+  # environment, so it alone pauses for required-reviewer approval. The publish
+  # job depends on it but deliberately does NOT set `environment:` itself —
+  # that keeps its OIDC token free of an `environment` claim, so it continues to
+  # match the PyPI trusted publisher (configured with no environment).
+  gate:
+    if: ${{ !inputs.dry_run }}
+    name: Approve release publish
     runs-on: ubuntu-latest
     environment: publish  # required-reviewer approval gate (see repo Settings → Environments)
+    steps:
+      - run: echo "Release publish approved (ref ${GITHUB_REF_NAME})"
+
+  publish-cli:
+    needs: [gate]
+    # Run after approval (gate success) or on a build-only dry run (gate skipped).
+    if: ${{ needs.gate.result == 'success' || needs.gate.result == 'skipped' }}
+    name: Publish geolens-cli to PyPI
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
 

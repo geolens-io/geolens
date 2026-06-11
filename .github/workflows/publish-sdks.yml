@@ -44,12 +44,26 @@ permissions:
   id-token: write  # for PyPI Trusted Publishing
 
 jobs:
-  publish-python:
-    # Tag push → always (target defaults to both). Manual dispatch → honor target.
-    if: ${{ github.event_name == 'push' || inputs.target == 'python' || inputs.target == 'both' }}
-    name: Publish Python SDK to PyPI
+  # Approval checkpoint. This is the ONLY job that targets the `publish`
+  # environment, so it alone pauses for required-reviewer approval. The publish
+  # jobs depend on it but deliberately do NOT set `environment:` themselves —
+  # that keeps their OIDC tokens free of an `environment` claim, so they continue
+  # to match the PyPI/npm trusted publishers (configured with no environment).
+  gate:
+    if: ${{ !inputs.dry_run }}
+    name: Approve release publish
     runs-on: ubuntu-latest
     environment: publish  # required-reviewer approval gate (see repo Settings → Environments)
+    steps:
+      - run: echo "Release publish approved (ref ${GITHUB_REF_NAME})"
+
+  publish-python:
+    needs: [gate]
+    # Run after approval (gate success) or on a build-only dry run (gate skipped).
+    # Tag push → always (target defaults to both). Manual dispatch → honor target.
+    if: ${{ (needs.gate.result == 'success' || needs.gate.result == 'skipped') && (github.event_name == 'push' || inputs.target == 'python' || inputs.target == 'both') }}
+    name: Publish Python SDK to PyPI
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
 
@@ -132,11 +146,12 @@ jobs:
         run: uv publish --trusted-publishing automatic
 
   publish-typescript:
+    needs: [gate]
+    # Run after approval (gate success) or on a build-only dry run (gate skipped).
     # Tag push → always (target defaults to both). Manual dispatch → honor target.
-    if: ${{ github.event_name == 'push' || inputs.target == 'typescript' || inputs.target == 'both' }}
+    if: ${{ (needs.gate.result == 'success' || needs.gate.result == 'skipped') && (github.event_name == 'push' || inputs.target == 'typescript' || inputs.target == 'both') }}
     name: Publish TypeScript SDK to npm
     runs-on: ubuntu-latest
-    environment: publish  # required-reviewer approval gate (see repo Settings → Environments)
     steps:
       - uses: actions/checkout@v6
 
