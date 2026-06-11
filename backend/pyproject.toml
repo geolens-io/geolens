@@ -32,7 +32,7 @@ dependencies = [
     "defusedxml>=0.7.1",
     "python-slugify>=8.0.4",
     "slowapi>=0.1.9",
-    "boto3>=1.43.20",
+    "boto3>=1.43.27",
     # PERF-01 (Phase 274): in-memory LRU fallback for tile cache when REDIS_URL is unset
     "cachetools>=5.5.0",
     "redis>=5.0.0",
