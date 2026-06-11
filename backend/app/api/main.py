@@ -446,7 +446,7 @@ _is_production = settings.is_production
 
 app = FastAPI(
     title="GeoLens API",
-    version="1.2.3",
+    version="1.2.4",
     summary="PostGIS-native geospatial data catalog with OGC API Features compliance",
     description=_DESCRIPTION,
     root_path="/api",

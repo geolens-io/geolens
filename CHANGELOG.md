@@ -7,6 +7,59 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+## [1.2.4] - 2026-06-11
+
+### Security
+
+- Record contact, keyword, and distribution sub-resources now re-authorize the
+  backing dataset, so a private record's contact details and related metadata
+  are no longer disclosed to authenticated users who cannot access that record.
+- Private raster and vector tiles are no longer served with shared-cache
+  headers. Tiles for non-public datasets are marked private so a shared cache
+  (a CDN or the bundled reverse proxy) cannot retain and replay them to later
+  unauthenticated requests, including unpublished public-dataset previews.
+- The map visibility-check endpoint now authorizes read access to the map
+  before reporting its non-public dataset names, so the titles of private
+  datasets can no longer be enumerated through maps the caller cannot read.
+- Outbound fetches of user-supplied URLs (service probes, STAC and OGC API
+  sources, manifest downloads) now pin the validated IP address at connection
+  time, closing a DNS-rebinding window where a hostname could resolve to a
+  public address during validation and a private address at fetch time.
+- The remote-service preview path now passes authorization tokens to GDAL
+  through a private (0600) header file and rejects tokens containing control
+  characters, preventing token disclosure through the process environment and
+  HTTP header injection.
+- The deployment's production security posture — API documentation exposure and
+  the Secure flag on the OAuth session cookie — is now controlled by an explicit
+  `ENVIRONMENT` setting instead of the `LOG_JSON` logging flag. Deployments that
+  have not set `ENVIRONMENT` retain their previous behavior.
+- The bundled reverse proxy now redacts the `api_key` query parameter from its
+  access logs, so API keys passed in the query string are no longer written to
+  logs in cleartext.
+- The web application now ships a Content-Security-Policy restricting script
+  sources, a defense-in-depth backstop against token exfiltration should a
+  cross-site scripting issue ever be introduced.
+- The STAC `POST /search` endpoint now caps the size of GeoJSON `intersects`
+  geometries, matching the existing `GET` limit, to prevent an unauthenticated
+  geometry-based denial of service.
+- A fresh install now generates strong, unique database and admin passwords
+  instead of keeping the published defaults, and no longer silently retains a
+  default admin password on a headless (`curl | sh`) install.
+
+### Fixed
+
+- Database migrations upgrade cleanly on enterprise deployments of the core
+  package; a migration-graph fork that caused `alembic upgrade head` to fail has
+  been resolved.
+- The background job queue now works on managed/external PostgreSQL configured
+  via `DATABASE_URL_OVERRIDE`; the connection's schema search path was dropped,
+  which broke job processing and data ingestion on those deployments.
+- Admin-configured rate limits (login, global, semantic search, and basemap
+  proxy) now take effect when changed, instead of being ignored until the
+  service restarted.
+- Automated off-site backups to S3-compatible storage now upload successfully;
+  the request signature was computed incorrectly and every upload was rejected.
+
 ## [1.2.3] - 2026-06-10
 
 ### Security
