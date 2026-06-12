@@ -37,6 +37,20 @@ function invalidateMapHistory(qc: QueryClient, mapId: string | undefined) {
   qc.invalidateQueries({ queryKey: queryKeys.maps.historyPrefix(mapId) });
 }
 
+/**
+ * BUG-039: a dataset's "used in maps" list (useDatasetMaps) is keyed under the
+ * 'datasets' root — queryKeys.datasets.maps(id) = ['datasets', id, 'maps'] —
+ * so the 'maps'-rooted invalidations on map mutations never match it. After a
+ * map create/delete/rename the panel kept showing stale entries (clicking a
+ * deleted one 404s). The dataset ids aren't reliably available on every
+ * mutation, so invalidate the 'datasets' root broadly; this matches the
+ * dataset-scoped map lists (and the browse list) without over-invalidating
+ * the 'dataset'-rooted detail caches.
+ */
+function invalidateDatasetMapLists(qc: QueryClient) {
+  qc.invalidateQueries({ queryKey: queryKeys.datasets.all });
+}
+
 export function useMaps(params: MapBrowseParams = {}) {
   return useQuery({
     queryKey: queryKeys.maps.list(params),
@@ -82,6 +96,7 @@ export function useCreateMap() {
     mutationFn: createMap,
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: queryKeys.maps.all });
+      invalidateDatasetMapLists(qc);
     },
     onError: () => { toast.error(i18n.t('builder:mapCreate.createFailed')); },
   });
@@ -96,6 +111,7 @@ export function useUpdateMap() {
       qc.invalidateQueries({ queryKey: queryKeys.maps.detail(variables.id) });
       qc.invalidateQueries({ queryKey: queryKeys.maps.all });
       invalidateMapHistory(qc, variables.id);
+      invalidateDatasetMapLists(qc);
     },
     onError: (err: unknown) => {
       // Surface backend validator messages (e.g. popup_config: "expression
@@ -127,6 +143,7 @@ export function useDuplicateMap() {
     mutationFn: (mapId: string) => duplicateMap(mapId),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: queryKeys.maps.all });
+      invalidateDatasetMapLists(qc);
     },
     onError: () => { toast.error(i18n.t('builder:toasts.mapDuplicateFailed')); },
   });
@@ -153,6 +170,7 @@ export function useDeleteMap() {
       qc.removeQueries({ queryKey: queryKeys.maps.embedTokens(id) });
       qc.removeQueries({ queryKey: queryKeys.maps.historyPrefix(id) });
       qc.invalidateQueries({ queryKey: queryKeys.maps.all });
+      invalidateDatasetMapLists(qc);
     },
     onError: () => { toast.error(i18n.t('common:maps.deleteFailed')); },
   });
