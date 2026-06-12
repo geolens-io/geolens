@@ -410,6 +410,53 @@ async def test_get_all_settings_returns_grouped(
 
 
 @pytest.mark.anyio
+async def test_get_all_settings_env_only_shows_env_default_not_db_override(
+    client: AsyncClient, admin_auth_header: dict
+):
+    """BUG-030: GET /settings/all in ENV_ONLY_CONFIG mode shows the effective
+    env_default, not the stale DB override.
+
+    PersistentConfig.get short-circuits to env_default when env_only is set, so
+    any DB override is dead data at runtime. Before the fix, get_all_settings
+    still resolved the value from the DB row (labeled env_only), showing config
+    that is NOT in effect. After the fix it shows env_default.
+    """
+    from app.core.persistent_config import REGISTRATION_ENABLED
+
+    from app.core.dependencies import get_db
+    from app.api.main import app
+
+    # registration_enabled env_default is False; write a True DB override.
+    async for db in app.dependency_overrides[get_db]():
+        await REGISTRATION_ENABLED.set(db, True)
+        break
+
+    # Sanity: with env_only OFF, the override IS reflected (overridden source).
+    resp = await client.get("/settings/all/", headers=admin_auth_header)
+    auth = resp.json()["tabs"]["auth"]
+    reg = next(s for s in auth if s["key"] == "registration_enabled")
+    assert reg["value"] is True
+    assert reg["source"] == "overridden"
+
+    # With env_only ON, the running system uses env_default (False) — the
+    # screen must show that, not the dead DB override.
+    with patch.object(settings, "env_only_config", True):
+        resp = await client.get("/settings/all/", headers=admin_auth_header)
+        assert resp.json()["env_only"] is True
+        auth = resp.json()["tabs"]["auth"]
+        reg = next(s for s in auth if s["key"] == "registration_enabled")
+        assert reg["value"] is False, (
+            "ENV_ONLY_CONFIG must show env_default, not the stale DB override"
+        )
+        assert reg["source"] == "env_only"
+
+    # Clean up the override.
+    async for db in app.dependency_overrides[get_db]():
+        await REGISTRATION_ENABLED.set(db, False)
+        break
+
+
+@pytest.mark.anyio
 async def test_put_settings_updates_value_with_audit(
     client: AsyncClient, admin_auth_header: dict
 ):

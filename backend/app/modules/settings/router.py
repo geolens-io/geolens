@@ -194,7 +194,11 @@ async def get_all_settings(
             value = await get_public_app_url(db, request=request)
         elif cfg.key == "public_api_url":
             value = await get_public_api_url(db, request=request)
-        elif cfg.key in db_settings:
+        elif not env_only and cfg.key in db_settings:
+            # BUG-030: in ENV_ONLY_CONFIG mode, PersistentConfig.get short-
+            # circuits to env_default and DB rows are dead data at runtime.
+            # Resolving from db_settings here would surface stale overrides
+            # that are NOT in effect; show the effective env_default instead.
             value = db_settings[cfg.key]
         else:
             value = cfg.env_default
