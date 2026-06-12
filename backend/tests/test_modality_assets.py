@@ -78,8 +78,13 @@ class TestModalityAssets:
 
         assert assets == {}
 
-    def test_stac_asset_rows_merged(self):
-        """DatasetAsset rows are merged into the unified assets dict."""
+    def test_stac_asset_rows_local_storage_omitted(self):
+        """GAP-031: local-storage DatasetAsset rows are omitted (no dead /assets/ URL).
+
+        dataset_assets is never populated (BUG-041), so this tests the path
+        that would have been taken had it been populated. The fix ensures no
+        /assets/{key} proxy URL is emitted for local storage.
+        """
         ds = _make_dataset(record_type="raster_dataset")
         stac_rows = [
             {
@@ -91,20 +96,22 @@ class TestModalityAssets:
                 "description": None,
             },
         ]
+        # Default storage_backend="local" → all stac rows skipped (no proxy URL)
         assets = build_assets(ds, API_URL, stac_asset_rows=stac_rows)
 
-        # Should have both computed and merged assets
+        # Computed raster_tiles still present; local storage "data" asset omitted
         assert "raster_tiles" in assets
-        assert "data" in assets
-        assert (
-            assets["data"]["href"]
-            == "http://localhost:8080/api/assets/storage/file.tif"
+        assert "data" not in assets, (
+            "GAP-031: local storage asset must not appear in output"
         )
 
-    def test_stac_asset_precedence(self):
-        """DatasetAsset rows win on key conflict with computed assets."""
+    def test_stac_asset_precedence_local_does_not_override(self):
+        """GAP-031: local-storage DatasetAsset row does NOT override computed keys.
+
+        Previously a local-storage row could clobber the computed raster_tiles
+        entry with a /assets/ proxy URL.  After GAP-031 the row is skipped.
+        """
         ds = _make_dataset(record_type="raster_dataset")
-        # Override the computed raster_tiles key
         stac_rows = [
             {
                 "key": "raster_tiles",
@@ -115,14 +122,14 @@ class TestModalityAssets:
                 "description": None,
             },
         ]
+        # Default storage_backend="local" → stac row skipped
         assets = build_assets(ds, API_URL, stac_asset_rows=stac_rows)
 
-        # DatasetAsset row should override computed value
-        assert (
-            assets["raster_tiles"]["href"]
-            == "http://localhost:8080/api/assets/custom/tiles"
+        # Computed raster_tiles is preserved; local storage row was not applied
+        assert "raster_tiles" in assets
+        assert assets["raster_tiles"]["title"] == "Raster tiles", (
+            "GAP-031: computed raster_tiles should not be overridden by local-storage row"
         )
-        assert assets["raster_tiles"]["title"] == "Custom Tiles"
 
     def test_default_record_type_fallback(self):
         """When record_type is None, defaults to vector_dataset behavior."""

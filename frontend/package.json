@@ -12,7 +12,7 @@
     "preview": "vite preview",
     "test": "vitest run --passWithNoTests",
     "typecheck": "tsc -b --noEmit",
-    "test:i18n": "vitest run src/i18n/resources.test.ts",
+    "test:i18n": "node ./scripts/check-i18n-source-keys.mjs && vitest run src/i18n/resources.test.ts",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage --passWithNoTests",
     "check:i18n:changed": "node ./scripts/check-i18n-changed-namespaces.mjs",

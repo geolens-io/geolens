@@ -11,6 +11,7 @@
  * for layer-adapters + map-sync + label-utils + filter-utils, minimal MaplibreMap
  * stub via vi.fn(), renderHook with handcrafted props).
  */
+import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import { useLayerMapSync } from '../use-layer-map-sync';
@@ -557,5 +558,99 @@ describe('adapter.addLayers respects input.visible (BUG-01 root cause)', () => {
     const vis = (map as unknown as { getLayoutProperty: (id: string, prop: string) => unknown })
       .getLayoutProperty('layer-hidden-heatmap', 'visibility');
     expect(vis).toBe('none');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// BUG-019 regression: applyLayerUpdate composes multi-field updates inside
+// functional setState.
+//
+// Pre-fix: `const updated = updater(layersRef.current.find(...))` captured the
+// stale ref snapshot OUTSIDE the functional setState. Two synchronous
+// applyLayerUpdate calls for different fields both captured from the same stale
+// ref, so the second call's setState clobbered the first call's paint changes.
+//
+// Post-fix: the updater is applied INSIDE prev.map() so React's functional
+// update composition applies each updater against the latest prev, not the
+// stale ref snapshot. Both field changes land in the final state.
+//
+// The test uses a wrapper hook that owns real useState so we can assert the
+// accumulated state (not just spy calls). The wrapper mirrors the pattern
+// used throughout this file but adds a `getCurrentLayer()` helper so the
+// test can inspect state after act().
+// ---------------------------------------------------------------------------
+
+describe('applyLayerUpdate — multi-field composition (BUG-019)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('Test 1 (BUG-019): two synchronous applyLayerUpdate calls compose — both fields land in final state', () => {
+    /**
+     * Setup: layer with paint={} and opacity=1.
+     * Two synchronous handlePaintChange + handleOpacityChange calls inside
+     * one act().
+     *
+     * Pre-fix: both calls captured from the same stale layersRef snapshot.
+     *   After act(): paint={} (lost!), opacity=0.5 — only the LAST field wins.
+     * Post-fix: updater() runs inside prev.map() so React's queue applies
+     *   paint update, then opacity update against that result.
+     *   After act(): paint={'fill-color':'red'}, opacity=0.5 — BOTH fields land.
+     */
+    const initialLayer = makeLayer({ paint: {}, opacity: 1 });
+    let finalLayers: MapLayerResponse[] = [initialLayer];
+
+    // Wrapper hook that owns real React state and exposes the accumulated result.
+    const { result } = renderHook(() => {
+      const [layers, setLayers] = React.useState([initialLayer]);
+      finalLayers = layers;
+      return useLayerMapSync(
+        layers,
+        setLayers as React.Dispatch<React.SetStateAction<MapLayerResponse[]>>,
+        vi.fn(),
+        { current: null } as unknown as React.RefObject<import('maplibre-gl').Map | null>,
+      );
+    });
+
+    act(() => {
+      // Two synchronous calls with different fields — must both apply
+      result.current.handlePaintChange(LAYER_ID, { 'fill-color': '#ff0000' });
+      result.current.handleOpacityChange(LAYER_ID, 0.5);
+    });
+
+    const finalLayer = finalLayers.find((l) => l.id === LAYER_ID);
+    // Both fields must be present in the final state
+    expect(finalLayer?.paint).toEqual({ 'fill-color': '#ff0000' });
+    expect(finalLayer?.opacity).toBe(0.5);
+  });
+
+  it('Test 2 (BUG-019): non-matching layerId early-exits without state mutation (existence gate still works)', () => {
+    const initialLayer = makeLayer({ paint: {}, opacity: 1 });
+    let finalLayers: MapLayerResponse[] = [initialLayer];
+    const setHasUnsavedChanges = vi.fn();
+
+    const { result } = renderHook(() => {
+      const [layers, setLayers] = React.useState([initialLayer]);
+      finalLayers = layers;
+      return useLayerMapSync(
+        layers,
+        setLayers as React.Dispatch<React.SetStateAction<MapLayerResponse[]>>,
+        setHasUnsavedChanges,
+        { current: null } as unknown as React.RefObject<import('maplibre-gl').Map | null>,
+      );
+    });
+
+    act(() => {
+      result.current.handlePaintChange('no-such-layer', { 'fill-color': '#ff0000' });
+    });
+
+    // Existence gate: no state mutation, no dirty flag
+    expect(setHasUnsavedChanges).not.toHaveBeenCalled();
+    const layer = finalLayers.find((l) => l.id === LAYER_ID);
+    expect(layer?.paint).toEqual({});
   });
 });

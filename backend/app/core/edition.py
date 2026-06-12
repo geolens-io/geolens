@@ -133,3 +133,64 @@ def get_edition() -> EditionInfo:
 def is_enterprise() -> bool:
     """Return True if running in enterprise edition."""
     return get_edition().edition == "enterprise"
+
+
+def check_enterprise_overlay_requested(loaded_extensions: list[str]) -> None:
+    """Fail loudly when Enterprise is explicitly requested but the overlay is absent.
+
+    BUG-003 — The silent OSS fallback was the root of the problem: an operator
+    sets ``GEOLENS_EDITION=enterprise`` (or relies on the env var path), mounts
+    the enterprise directory, but the ``read_only: true`` rootfs prevents
+    ``uv add --editable`` from writing into the baked venv. The entrypoint
+    silently continues; ``load_extensions()`` finds no entry-points; the app
+    boots as community edition with no visible error. Operators believe they are
+    running Enterprise while they are on OSS.
+
+    This check is called from the app lifespan *after* ``load_extensions()``
+    so the full set of loaded extensions is known before the check runs.
+
+    Resolution order (checked in priority):
+    1. No ``GEOLENS_EDITION`` env var set → default OSS → no error (silent, healthy).
+    2. ``GEOLENS_EDITION=community`` explicitly → no error.
+    3. ``GEOLENS_EDITION=enterprise`` → overlay MUST be loaded (non-empty
+       ``loaded_extensions``); if not, raise ``RuntimeError`` so the process
+       exits non-zero and the container scheduler marks the pod as failed
+       instead of silently serving community features.
+
+    The check intentionally ignores ``GEOLENS_LICENSE_ENFORCE`` and the license
+    path — those affect *which* edition is the *final* edition; this check fires
+    on the *operator intent signal* alone, before edition resolution.
+
+    Args:
+        loaded_extensions: The list of extension names discovered by
+            ``load_extensions()`` via the ``geolens.extensions`` entry-point
+            group. An empty list means no overlay package registered itself.
+
+    Raises:
+        RuntimeError: When Enterprise is explicitly requested via
+            ``GEOLENS_EDITION=enterprise`` but no overlay extension is loaded.
+            The correct remedy is to pre-bake the overlay into the image at
+            build time (see ``ARG INSTALL_ENTERPRISE_OVERLAY`` in Dockerfile)
+            rather than attempting a runtime ``uv add`` under a read-only rootfs.
+    """
+    env_val = os.environ.get("GEOLENS_EDITION", "").lower().strip()
+
+    if env_val != "enterprise":
+        # Not explicitly requesting enterprise — OSS default or community explicit.
+        return
+
+    if loaded_extensions:
+        # Enterprise requested and at least one overlay extension is registered.
+        return
+
+    raise RuntimeError(
+        "GEOLENS_EDITION=enterprise is set but no enterprise overlay extension "
+        "was loaded (the geolens.extensions entry-point group is empty). "
+        "A runtime 'uv add --editable' cannot install the overlay under a "
+        "read_only container rootfs. "
+        "Pre-bake the overlay into the image at build time instead: "
+        "use 'docker build --build-arg INSTALL_ENTERPRISE_OVERLAY=1 ...' "
+        "(see ARG INSTALL_ENTERPRISE_OVERLAY in the Dockerfile). "
+        "The app is refusing to start as community edition when enterprise "
+        "was explicitly requested."
+    )

@@ -17,17 +17,42 @@ class SSRFError(ValueError):
     """URL targets a private/internal network or uses a disallowed scheme."""
 
 
+# SEC-013: additional ranges that Python's ipaddress module does NOT flag via
+# the standard is_private / is_reserved predicates but must be blocked for SSRF.
+#
+# RFC 6598 CGNAT shared address space — 100.64.0.0/10
+#   ip.is_private returns False for this range in Python ≤ 3.10; Python 3.11+
+#   includes it via the updated RFC 1918 list, but we guard explicitly so the
+#   check is correct regardless of Python version.
+# IPv6 ULA — fc00::/7
+#   ip.is_private includes this on Python 3.11+ but not all older builds.
+# NAT64 well-known prefix — 64:ff9b::/96
+#   Used to embed IPv4 addresses in IPv6 (RFC 6146); targets an IPv4 private IP
+#   when the embedded address is in a blocked range.
+_EXTRA_BLOCKED_NETWORKS: tuple[ipaddress.IPv4Network | ipaddress.IPv6Network, ...] = (
+    ipaddress.ip_network("100.64.0.0/10"),  # RFC 6598 CGNAT
+    ipaddress.ip_network("fc00::/7"),  # IPv6 ULA
+    ipaddress.ip_network("64:ff9b::/96"),  # NAT64 well-known prefix
+)
+
+
 def _is_blocked_ip(
     ip: ipaddress.IPv4Address | ipaddress.IPv6Address,
 ) -> bool:
     """Check if an IP address falls within a blocked range."""
-    return (
+    if (
         ip.is_private
         or ip.is_loopback
         or ip.is_link_local
         or ip.is_reserved
         or ip.is_multicast
-    )
+    ):
+        return True
+    # SEC-013: check ranges not covered by the standard predicates above.
+    for network in _EXTRA_BLOCKED_NETWORKS:
+        if ip in network:
+            return True
+    return False
 
 
 async def _resolve_and_validate(host: str, port: int | None) -> str:

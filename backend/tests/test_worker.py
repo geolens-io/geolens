@@ -142,7 +142,9 @@ async def test_recover_stale_jobs_marks_running_as_failed():
     fake_job.completed_at = None
     fake_job.started_at = None  # IA-P0-04: query uses started_at, not heartbeat
 
-    mock_session = _make_mock_session([fake_job], [])
+    # Two extra empty results for the GAP-002 VRT stale sweep
+    # (stale regenerating RasterAssets, stale VrtGeneration rows).
+    mock_session = _make_mock_session([fake_job], [], [], [])
 
     with patch("app.core.db.async_session", return_value=mock_session):
         await recover_stale_jobs()
@@ -164,7 +166,8 @@ async def test_recover_stale_jobs_marks_orphaned_pending_as_failed():
     fake_job.error_message = None
     fake_job.completed_at = None
 
-    mock_session = _make_mock_session([], [fake_job])
+    # Two extra empty results for the GAP-002 VRT stale sweep.
+    mock_session = _make_mock_session([], [fake_job], [], [])
 
     with patch("app.core.db.async_session", return_value=mock_session):
         await recover_stale_jobs()
@@ -208,7 +211,8 @@ async def test_recover_stale_jobs_rolling_deploy_survives_6min_ingest():
 
     # The new query is `started_at < now - 1h`. A 6-minute job DOES NOT match,
     # so the mock returns the empty list — i.e., no jobs were stale.
-    mock_session = _make_mock_session([], [])
+    # Two extra empty results for the GAP-002 VRT stale sweep.
+    mock_session = _make_mock_session([], [], [], [])
 
     with patch("app.core.db.async_session", return_value=mock_session):
         await recover_stale_jobs()
@@ -241,7 +245,8 @@ async def test_recover_stale_jobs_logs_individual_job_ids():
     job2.completed_at = None
     job2.started_at = None
 
-    mock_session = _make_mock_session([job1, job2], [])
+    # Two extra empty results for the GAP-002 VRT stale sweep.
+    mock_session = _make_mock_session([job1, job2], [], [], [])
 
     with patch("app.core.db.async_session", return_value=mock_session):
         with patch("app.platform.jobs.worker.log") as mock_log:

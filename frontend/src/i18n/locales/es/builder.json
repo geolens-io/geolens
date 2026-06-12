@@ -18,7 +18,8 @@
   "layers": {
     "title": "Capas",
     "emptyState": "Agregue conjuntos de datos del catálogo para comenzar",
-    "addData": "Agregar datos"
+    "addData": "Agregar datos",
+    "unnamed": "Capa sin nombre"
   },
   "mapStack": {
     "title": "Pila del mapa",
@@ -250,7 +251,8 @@
       "weightNone": "Ninguno (peso igual)",
       "colorRamp": "Rampa de color",
       "radius": "Radio",
-      "intensity": "Intensidad"
+      "intensity": "Intensidad",
+      "opacity": "Opacidad"
     },
     "cluster": {
       "radius": "Radio de agrupación",
@@ -352,7 +354,9 @@
       "notInList": "no en lista",
       "exists": "existe"
     },
-    "removeCondition": "Eliminar condición"
+    "removeCondition": "Eliminar condición",
+    "clear": "Borrar filtro",
+    "combinator": "Condición de coincidencia"
   },
   "labels": {
     "title": "Etiquetas",
@@ -383,7 +387,9 @@
     "zoomRange": "Rango de zoom",
     "minZoom": "Zoom mínimo",
     "maxZoom": "Zoom máximo",
-    "noColumns": "Esta capa no tiene columnas disponibles para etiquetas."
+    "noColumns": "Esta capa no tiene columnas disponibles para etiquetas.",
+    "enable": "Habilitar etiquetas",
+    "textOpacity": "Opacidad del texto"
   },
   "popup": {
     "enable": "Activar popup para esta capa",
@@ -428,7 +434,8 @@
     "targetWidth": "Ancho",
     "sizeMin": "Tamaño mín.",
     "sizeMax": "Tamaño máx.",
-    "colors": "Colores"
+    "colors": "Colores",
+    "customColors": "Colores personalizados"
   },
   "search": {
     "title": "Agregar conjunto de datos",
@@ -534,7 +541,16 @@
     "iframeErrorTitle": "Vista previa no disponible",
     "iframeErrorBody": "Verifique que el token de incrustación sea válido y que el enlace compartido esté activo. Recargue para reintentar.",
     "iframeReload": "Recargar",
-    "iframeSandboxNote": "sandbox=\"allow-scripts\" only — SEC-07 contract"
+    "iframeSandboxNote": "sandbox=\"allow-scripts\" only — SEC-07 contract",
+    "embedTokenMissing": "Este mapa contiene capas no públicas. Los visitantes puede que no vean todas las capas sin un token de inserción.",
+    "embedTokenNotAvailable": "El token de inserción se creó en una sesión anterior. Regénéralo para obtener el código de inserción.",
+    "embedTokenRegenerated": "Token de inserción regenerado",
+    "expirationCleared": "Vencimiento del enlace eliminado — el enlace no expira nunca",
+    "expired": "Enlace vencido",
+    "makePublicHint": "Haz pública esta mapa para generar un enlace de compartición",
+    "rawTokenUnavailable": "Por seguridad, el enlace completo solo se muestra cuando se crea. Vuelve a generar el enlace para copiarlo de nuevo.",
+    "regenerate": "Regenerar",
+    "regenerateLink": "Regenerar enlace"
   },
   "chat": {
     "experimental": "Experimental",
@@ -592,7 +608,8 @@
       "chipAddBelow": "Add \"{{name}}\" below \"{{ref}}\"",
       "chipRemove": "Remove \"{{name}}\"",
       "chipRemoveFeatures_one": "Remove \"{{name}}\" ({{count}} feature)",
-      "chipRemoveFeatures_other": "Remove \"{{name}}\" ({{count}} features)"
+      "chipRemoveFeatures_other": "Remove \"{{name}}\" ({{count}} features)",
+      "regionLabel": "Acciones de IA pendientes"
     },
     "queryResult": {
       "empty": "The AI query returned no rows.",
@@ -611,7 +628,14 @@
   "basemap": {
     "title": "Mapa base",
     "showLabels": "Mostrar etiquetas de lugares",
-    "blank": "Ninguno"
+    "blank": "Ninguno",
+    "appearance": "Apariencia",
+    "labels": "Etiquetas",
+    "roads": "Carreteras",
+    "boundaries": "Límites",
+    "landWater": "Tierra / agua",
+    "relief": "Relieve",
+    "buildings": "Edificios"
   },
   "terrain": {
     "title": "Terreno",
@@ -621,7 +645,15 @@
     "exaggeration": "Exageración",
     "noDem": "Agregue una capa ráster DEM para activar el terreno.",
     "unitsUnknown": "Las unidades verticales no están disponibles; la escala del terreno es aproximada.",
-    "unitsNonMeter": "Las unidades verticales son {{unit}}, no metros; la escala del terreno es aproximada."
+    "unitsNonMeter": "Las unidades verticales son {{unit}}, no metros; la escala del terreno es aproximada.",
+    "surfaceTitle": "Superficie de elevación",
+    "surfaceDescription": "El terreno cubre la superficie del mapa; las capas de relieve proporcionan sombreado visible.",
+    "selectedDem": "DEM seleccionado",
+    "noSource": "Ninguno",
+    "visualRelief": "Relieve visual",
+    "reliefLayerCount_one": "{{count}} capa DEM visible",
+    "reliefLayerCount_other": "{{count}} capas DEM visibles",
+    "noReliefLayer": "Sin capa de relieve visible"
   },
   "featurePopup": {
     "noAttributes": "Sin atributos",
@@ -643,7 +675,10 @@
       "unsaved": "Cambios sin guardar",
       "saving": "Guardando...",
       "failed": "Error al guardar"
-    }
+    },
+    "description": "Descripción",
+    "unsavedDot": "Cambios sin guardar",
+    "untitled": "Mapa sin título"
   },
   "visibility": {
     "public": "Público",
@@ -711,7 +746,9 @@
     "popupConfigBackendRejected": "El servidor rechazó la configuración del popup ({{field}}). Ajusta la plantilla de popup de la capa y guarda de nuevo.",
     "layerFallbackName": "Capa sin título",
     "terrainDuplicateBlocked": "El terreno 3D no se puede duplicar: un conjunto de datos solo puede generar terreno una vez.",
-    "terrainDisabledSourceRemoved": "Terreno 3D desactivado: se eliminó su capa de origen."
+    "terrainDisabledSourceRemoved": "Terreno 3D desactivado: se eliminó su capa de origen.",
+    "domainClearFailed": "No se pudieron borrar las restricciones de dominio",
+    "shareLinkCreated": "Enlace de compartición creado"
   },
   "builderMap": {
     "loading": "Cargando mapa...",
@@ -722,7 +759,8 @@
     "basemapIssueDescription": "Tus capas de datos siguen siendo editables. Revisa el servicio del mapa base o elige otro mapa base si el fondo sigue en blanco.",
     "clusterFallback": "{{name}} se renderiza como puntos: {{reason}}",
     "clusterTruncated": "la fuente agrupada superó el límite de GeoJSON acotado",
-    "clusterLoadError": "{{name}} se renderiza como puntos porque no se pudieron cargar los datos agrupados."
+    "clusterLoadError": "{{name}} se renderiza como puntos porque no se pudieron cargar los datos agrupados.",
+    "tokenError": "No se pudieron cargar los tokens de mosaico — es posible que algunas capas no se muestren."
   },
   "mapCreate": {
     "title": "Crear mapa",
@@ -762,7 +800,8 @@
     "queryResult": "Resultado de consulta",
     "featureCount_one": "{{count}} entidad",
     "featureCount_other": "{{count}} entidades",
-    "dismiss": "Descartar resultado de consulta"
+    "dismiss": "Descartar resultado de consulta",
+    "featureCountTruncated": "{{count}} de {{total}} elementos"
   },
   "plugins": {
     "measurement": {
@@ -799,7 +838,9 @@
     "saveChanges": "Guardar cambios",
     "cancelEditing": "Cancelar edición",
     "editAttributes": "Editar atributos",
-    "deleteFeature": "Eliminar entidad"
+    "deleteFeature": "Eliminar entidad",
+    "modeActive": "Modo {{mode}} activo",
+    "toolbar": "Herramientas de dibujo"
   },
   "actions": {
     "save": "Guardar",
@@ -930,7 +971,8 @@
     "aiPermissionTitle": "AI unavailable",
     "aiPermissionBody": "You don't have permission to use AI chat.",
     "aiGoToSettings": "Go to Settings",
-    "aiConfigureSettings": "Configure in Settings"
+    "aiConfigureSettings": "Configure in Settings",
+    "closePanel": "Cerrar panel"
   },
   "stackRow": {
     "dragHandle": "Arrastrar para reordenar {{name}}",
@@ -946,7 +988,8 @@
     "kebabUngroup": "Desagrupar",
     "kebabDeleteGroup": "Eliminar grupo",
     "kebabMoveOutOfGroup": "Mover fuera del grupo",
-    "labelsIndicator": "Etiquetas activadas: {{column}}"
+    "labelsIndicator": "Etiquetas activadas: {{column}}",
+    "kebabGroupTrigger": "Opciones de grupo para {{name}}"
   },
   "basemapGroup": {
     "addCustomBasemap": "＋ Agregar mapa base personalizado…",
@@ -981,7 +1024,8 @@
     "strokeLabel": "TRAZO",
     "strokeWidth": "Ancho",
     "strokeWidthLabel": "Ancho del trazo",
-    "zoomLabel": "RANGO DE ZOOM"
+    "zoomLabel": "RANGO DE ZOOM",
+    "resetAction": "Restablecer al valor predeterminado"
   },
   "demEditor": {
     "renderAsLabel": "RENDERIZAR COMO",
@@ -1009,7 +1053,8 @@
     "deleteConfirmMessage": "¿Eliminar este grupo y todas sus capas?",
     "deleteConfirmAction": "Eliminar todo",
     "deleteConfirmCancel": "Conservar grupo",
-    "newGroupItem": "＋ Nuevo grupo…"
+    "newGroupItem": "＋ Nuevo grupo…",
+    "toggleExpand": "Alternar grupo de carpetas"
   },
   "layerEditor": {
     "close": "Cerrar editor de capa",
@@ -1060,7 +1105,11 @@
       "title": "0 elementos — revisa tu filtro",
       "help": "El filtro actual eliminó todos los elementos de esta capa. Ajusta una condición o limpia el filtro para volver a ver elementos.",
       "clear": "Limpiar filtro"
-    }
+    },
+    "deleteLayer": "Eliminar capa",
+    "deleteLayerConfirmMessage": "¿Eliminar esta capa? No se puede deshacer.",
+    "deleteLayerConfirmAction": "Eliminar",
+    "deleteLayerConfirmCancel": "Mantener capa"
   },
   "settings": {
     "regionLabel": "Configuración del mapa",
@@ -1089,5 +1138,15 @@
     "projectionGlobe": "Globo",
     "projectionAria": "Proyección del mapa",
     "globeDisclaimer": "La proyección de globo es experimental. Es posible que algunas capas no se rendericen correctamente."
+  },
+  "common": {
+    "reload": "Recargar"
+  },
+  "errors": {
+    "mapMessage": "Error de mapa — recarga la página para restaurar el acceso a los tiles."
+  },
+  "toolbar": {
+    "pan": "Desplazar",
+    "styleJson": "JSON de estilo"
   }
 }

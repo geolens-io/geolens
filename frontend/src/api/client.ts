@@ -111,7 +111,11 @@ async function authenticatedFetch(
         ...options,
         headers: buildHeaders(),
       });
-      if (retry.ok) return retry;
+      // BUG-016: only treat a retry that is STILL 401 as an auth failure.
+      // Non-auth errors (403, 404, 422, 500, …) must be returned to the
+      // caller so they can be handled normally — not silently converted into
+      // a spurious logout.
+      if (retry.status !== 401) return retry;
     }
     useAuthStore.getState().logout();
     throw new ApiError('Unauthorized', 401);

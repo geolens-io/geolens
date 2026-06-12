@@ -48,7 +48,8 @@
       "dtype_mismatch": "Datentyp-Abweichung: {{source}} vs {{expected}}",
       "nodata_inconsistent": "NoData-Wert stimmt nicht überein",
       "grid_misaligned": "Gitterabmessungen stimmen nicht überein"
-    }
+    },
+    "searchError": "Ergebnisse konnten nicht geladen werden"
   },
   "upload": {
     "startOver": "Neu beginnen",
@@ -94,7 +95,10 @@
     "sizeLimit": "Maximal 500 MB pro Datei",
     "sizeLimitDynamic": "Maximal {{size}} MB pro Datei",
     "batchLimit": "Bis zu 10 Dateien pro Stapel",
-    "fileRejected": "{{filename}}: {{reason}}"
+    "fileRejected": "{{filename}}: {{reason}}",
+    "browse": "Durchsuchen",
+    "toUpload": "zum Hochladen",
+    "subtext": "GeoLens erkennt Geometrie, KRS und Schema, bevor es in den Katalog übernommen wird. Stapel bis zu 10 Dateien."
   },
   "stac": {
     "label": "STAC-API-URL — Katalog-Stammendpunkt einfügen",
@@ -164,10 +168,16 @@
     "importStarted": "Import gestartet",
     "connectFailed": "Verbindung zum Dienst fehlgeschlagen",
     "previewFailed": "Layer-Vorschau fehlgeschlagen",
-    "commitFailed": "Import konnte nicht gestartet werden"
+    "commitFailed": "Import konnte nicht gestartet werden",
+    "detectedLabel": "Service-URL — erkannt",
+    "clear": "Löschen",
+    "layersAvailable": "{{count}} Ebenen verfügbar",
+    "noLayers": "In diesem Service wurden keine Ebenen gefunden.",
+    "probe": "Prüfen →",
+    "supported": "Unterstützt:"
   },
   "register": {
-    "helpText": "Katalogisieren Sie vorhandene PostGIS-Tabellen aus Ihrer Datenbank als Datens\u00e4tze in GeoLens. Verwenden Sie diese Option, wenn Sie bereits geografische Daten in der Datenbank haben, die nicht \u00fcber GeoLens importiert wurden. Ausgew\u00e4hlte Tabellen werden mit automatischer Metadatenerkennung zum Katalog hinzugef\u00fcgt.",
+    "helpText": "Katalogisieren Sie vorhandene PostGIS-Tabellen aus Ihrer Datenbank als Datensätze in GeoLens. Verwenden Sie diese Option, wenn Sie bereits geografische Daten in der Datenbank haben, die nicht über GeoLens importiert wurden. Ausgewählte Tabellen werden mit automatischer Metadatenerkennung zum Katalog hinzugefügt.",
     "discovering": "Tabellen werden ermittelt...",
     "discoverFailed": "Tabellenerkennung fehlgeschlagen:",
     "emptyState": "Keine nicht registrierten Tabellen in der Datenbank gefunden.",
@@ -195,7 +205,10 @@
     "successToast_one": "{{count}} Tabelle erfolgreich registriert",
     "successToast_other": "{{count}} Tabellen erfolgreich registriert",
     "registerFailed": "Tabellen konnten nicht registriert werden",
-    "unknownError": "Unbekannter Fehler"
+    "unknownError": "Unbekannter Fehler",
+    "searchPlaceholder": "Tabellen suchen…",
+    "selectHint": "Eine Tabelle aus der Liste auswählen, um ihr Schema zu sehen und sie zu registrieren.",
+    "detailDesc": "Als GeoLens-Datensatz registrieren — direkt aus Tabellen gekachelt, keine Kopie."
   },
   "layerPicker": {
     "title": "Layer auswählen",
@@ -275,7 +288,8 @@
     "latLng": "Lat/Lng",
     "wkt": "WKT",
     "importing": "Wird importiert...",
-    "importDataset": "Datensatz importieren"
+    "importDataset": "Datensatz importieren",
+    "crsDetected": "Erkanntes KRS: EPSG:{{crs}} (automatisch erkannt — keine Überschreibung nötig)"
   },
   "jobProgress": {
     "loadingStatus": "Auftragsstatus wird geladen...",
@@ -291,7 +305,8 @@
     "copiedCogUrl": "COG-URL kopiert",
     "copiedXyzUrl": "XYZ-Tile-URL kopiert",
     "copyCogUrl": "COG-URL kopieren",
-    "copyXyzUrl": "XYZ-Tile-URL kopieren"
+    "copyXyzUrl": "XYZ-Tile-URL kopieren",
+    "cogDownloadFailed": "COG-Download konnte nicht gestartet werden — bitte erneut versuchen"
   },
   "review": {
     "headerStatus": "Detection complete",
@@ -370,6 +385,54 @@
     "rasterDatasetsReady": "{{count}} Rasterdatensätze bereit",
     "createVrtMosaic": "VRT-Mosaik erstellen",
     "importAsVrt": "Als VRT-Mosaik importieren",
-    "ingestAllLayers": "Alle {{count}} Ebenen als separate Datensätze importieren"
+    "ingestAllLayers": "Alle {{count}} Ebenen als separate Datensätze importieren",
+    "activeJobs": "Aktive und aktuelle Jobs",
+    "detectingHint": "Hochladen & Erkennen…",
+    "importingFiles": "{{count}} Dateien werden importiert",
+    "progressDetail": "{{done}} abgeschlossen · {{active}} in Bearbeitung · {{queued}} in Warteschlange"
+  },
+  "eyebrow": "Importieren",
+  "pageDescription": "Dateien hochladen, Tabellen aus Ihrem Postgres registrieren oder einen Remote-Service verbinden. GeoLens erkennt Geometrie, Schema und KRS und macht die Daten abfragbar, stilisierbar und einbettbar.",
+  "complete": {
+    "heroTitle": "{{count}} Datensätze zum Katalog hinzugefügt",
+    "heroDesc": "Alle Dateien aufgenommen, gekachelt und indiziert. Bereit zum Abfragen, Gestalten und Kartografieren.",
+    "statDatasets": "Datensätze",
+    "statVector": "Vektor",
+    "statRaster": "Raster",
+    "statTabular": "Tabellarisch",
+    "next": "Weiter:",
+    "viewCatalog": "Im Katalog anzeigen",
+    "importMore": "Mehr importieren"
+  },
+  "rail": {
+    "stageTitle": "Dateien bereitstellen",
+    "stageDesc": "Dateien ablegen oder auswählen. Noch kein Commit — Sie können beliebige vor der Erkennung entfernen.",
+    "reviewTitle": "Erkennung prüfen",
+    "reviewDesc": "Geometrietyp, KRS, Schema und Vorschau für jede Datei bestätigen.",
+    "importTitle": "Importieren & katalogisieren",
+    "importDesc": "Kacheln, indizieren, veröffentlichen — Datensätze erscheinen sofort im Katalog.",
+    "workflow": "Arbeitsablauf",
+    "whatImported": "Was importiert wird",
+    "vectorLabel": "Vektor",
+    "vectorDesc": "in MVT gekachelt, räumlicher Index, bei Lesezugriff nach 3857 reprojiziiert.",
+    "rasterLabel": "Raster",
+    "rasterDesc": "in COG konvertiert, Übersichten erstellt, Bänder erhalten.",
+    "tableLabel": "Tabellarisch",
+    "tableDesc": "als verbindbare Tabelle aufgenommen. Optional Geometriespalten beim Import angeben.",
+    "tip": "Tipp",
+    "tipText": "Mehrere Dateien gleichzeitig ablegen, um einen Stapel zu erstellen. Jede Datei wird ein eigener Datensatz — Sie können Metadaten vor dem Commit prüfen und anpassen.",
+    "registerHint": "Bestehende Infrastruktur registrieren",
+    "stacHint": "Import aus STAC",
+    "serviceHint": "Remote-Services verbinden",
+    "registerDesc": "Vorhandene PostGIS-Tabellen als Datensätze registrieren — GeoLens kachelt sie direkt aus Ihrer Datenbank.",
+    "stacDesc": "Einen STAC-Katalog oder eine Sammlung verbinden und ausgewählte Assets in GeoLens importieren.",
+    "serviceDesc": "Einen Remote-WFS, ArcGIS FeatureServer oder OGC API Features Service verbinden. GeoLens importiert die Ebene in den Katalog zur Kachelung und Abfrage.",
+    "registerNote": "Keine Daten kopiert · Kacheln direkt aus Ihren Tabellen generiert",
+    "stacNote": "STAC-Metadaten werden zuerst ermittelt, dann ausgewählte Assets importiert",
+    "serviceNote": "Service-Tokens werden nur beim Import verwendet und nicht gespeichert",
+    "comparedToUpload": "Im Vergleich zum Upload",
+    "compareRegister": "Upload nimmt aus einer Datei auf. Registrieren zeigt auf eine vorhandene Tabelle — keine Duplizierung, aber die Tabelle muss in Ihrer Datenbank bleiben.",
+    "compareStac": "Upload nimmt lokale Dateien auf. STAC-Import erkennt zuerst Remote-Assets und stellt ausgewählte Elemente dann für den Katalog bereit.",
+    "compareService": "Upload nimmt aus einer Datei auf. Service-URL ruft von einer Remote-API ab und importiert die Daten in GeoLens zur lokalen Kachelung und Abfrage."
   }
 }

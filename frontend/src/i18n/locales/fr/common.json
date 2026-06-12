@@ -136,7 +136,9 @@
     "sharedMapExpired": "Ce lien de carte partagée a expiré ou a été révoqué",
     "forbidden": "403",
     "forbiddenAdmin": "Interdit — Accès administrateur requis",
-    "forbiddenEditor": "Interdit — Accès éditeur ou administrateur requis"
+    "forbiddenEditor": "Interdit — Accès éditeur ou administrateur requis",
+    "loadFailed": "Échec du chargement",
+    "mapMessage": "Erreur de carte — certains calques pourraient ne pas s'afficher correctement."
   },
   "settings": {
     "tabs": {
@@ -189,7 +191,16 @@
     "showDescription": "Afficher la description",
     "hideDescription": "Masquer la description",
     "changeBasemap": "Changer le fond de carte",
-    "loadFailed": "Impossible de charger la carte"
+    "loadFailed": "Impossible de charger la carte",
+    "accessDenied": "Accès refusé",
+    "authMapRecovery": "Ouvrez votre liste de cartes pour confirmer l'accès, ou revenez au catalogue pour continuer à travailler.",
+    "browseCatalog": "Parcourir le catalogue",
+    "geoJsonLoadError": "Impossible de charger les données du calque",
+    "linkRecovery": "Demandez au propriétaire de la carte un nouveau lien de partage si vous avez encore besoin d'accès.",
+    "mapError": "Erreur de tuile — certains calques pourraient ne pas s'afficher correctement.",
+    "openMaps": "Ouvrir les cartes",
+    "signIn": "Se connecter",
+    "tokenError": "Impossible de charger les jetons de calque — certains calques pourraient ne pas s'afficher."
   },
   "maps": {
     "title": "Cartes",
@@ -391,5 +402,28 @@
   "export": {
     "poweredBy": "Powered by GeoLens",
     "legendHeader": "Légende"
-  }
+  },
+  "actions": {
+    "editGeometry": "Modifier la géométrie"
+  },
+  "map": {
+    "ariaLabel": "Carte du jeu de données",
+    "changeBasemap": "Changer le fond de carte",
+    "deleteFeatureTitle": "Supprimer l'élément",
+    "deleteFeatureDescription": "Supprimer cet élément ? Cette action est irréversible.",
+    "discardChangesTitle": "Ignorer les modifications non sauvegardées ?",
+    "discardChangesDescription": "Vos modifications de géométrie n'ont pas été sauvegardées. Vous pouvez continuer à modifier ou les ignorer.",
+    "discardChangesAction": "Ignorer les modifications",
+    "exitFullscreen": "Quitter le plein écran",
+    "fullscreen": "Plein écran",
+    "unsavedDiscarded": "Modifications non sauvegardées ignorées",
+    "zoomToExtent": "Zoom sur l'étendue du jeu de données"
+  },
+  "moreActions": "Plus d'actions",
+  "notSet": "Non défini",
+  "notSpecified": "Non spécifié",
+  "page": {
+    "noSpatialExtent": "Aucune étendue spatiale disponible"
+  },
+  "unknown": "Inconnu"
 }

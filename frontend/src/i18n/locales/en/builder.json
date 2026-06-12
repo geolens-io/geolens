@@ -18,7 +18,8 @@
   "layers": {
     "title": "Layers",
     "emptyState": "Add datasets from the catalog to get started",
-    "addData": "Add Data"
+    "addData": "Add Data",
+    "unnamed": "Unnamed layer"
   },
   "mapStack": {
     "title": "Map Stack",
@@ -250,7 +251,8 @@
       "weightNone": "None (equal weight)",
       "colorRamp": "Color ramp",
       "radius": "Radius",
-      "intensity": "Intensity"
+      "intensity": "Intensity",
+      "opacity": "Opacity"
     },
     "cluster": {
       "radius": "Cluster radius",
@@ -330,6 +332,8 @@
   "filters": {
     "title": "Filters",
     "layerTitle": "Layer filter",
+    "clear": "Clear filter",
+    "combinator": "Match condition",
     "thisLayer": "this layer",
     "scopeHelp": "Applies only to {{layer}}. Duplicate layers from the same dataset keep separate filters and public output follows the saved layer filter.",
     "noColumns": "This layer has no filterable columns.",
@@ -357,6 +361,8 @@
   "labels": {
     "title": "Labels",
     "scopeHelp": "Label settings apply only to this layer.",
+    "enable": "Enable labels",
+    "textOpacity": "Text opacity",
     "column": "Column",
     "fontSize": "Font size",
     "textColor": "Text color",
@@ -428,7 +434,8 @@
     "targetWidth": "Width",
     "sizeMin": "Min size",
     "sizeMax": "Max size",
-    "colors": "Colors"
+    "colors": "Colors",
+    "customColors": "Custom colors"
   },
   "search": {
     "title": "Add Dataset",
@@ -534,7 +541,16 @@
     "iframeErrorTitle": "Preview unavailable",
     "iframeErrorBody": "Check that the embed token is valid and the share link is active. Reload to retry.",
     "iframeReload": "Reload",
-    "iframeSandboxNote": "sandbox=\"allow-scripts\" only — SEC-07 contract"
+    "iframeSandboxNote": "sandbox=\"allow-scripts\" only — SEC-07 contract",
+    "embedTokenMissing": "This map contains non-public layers. Viewers may not be able to see all layers without an embed token.",
+    "embedTokenNotAvailable": "The embed token was created in a previous session. Regenerate to get the embed code.",
+    "embedTokenRegenerated": "Embed token regenerated",
+    "expirationCleared": "Link expiration removed — link never expires",
+    "expired": "Link expired",
+    "makePublicHint": "Make this map public to generate a share link",
+    "rawTokenUnavailable": "For security, the full share link is only shown when it is created. Regenerate the link to copy it again.",
+    "regenerate": "Regenerate",
+    "regenerateLink": "Regenerate link"
   },
   "chat": {
     "experimental": "Experimental",
@@ -584,6 +600,7 @@
     "staging": {
       "header_one": "{{count}} pending change — review before applying",
       "header_other": "{{count}} pending changes — review before applying",
+      "regionLabel": "Pending AI actions",
       "acceptAll": "Accept all",
       "rejectAll": "Reject all",
       "accept": "Accept",
@@ -611,7 +628,14 @@
   "basemap": {
     "title": "Basemap",
     "showLabels": "Show place labels",
-    "blank": "None"
+    "blank": "None",
+    "appearance": "Appearance",
+    "labels": "Labels",
+    "roads": "Roads",
+    "boundaries": "Boundaries",
+    "landWater": "Land / water",
+    "relief": "Relief",
+    "buildings": "Buildings"
   },
   "terrain": {
     "title": "Terrain",
@@ -621,7 +645,15 @@
     "exaggeration": "Exaggeration",
     "noDem": "Add a DEM raster layer to enable terrain.",
     "unitsUnknown": "Vertical units are unavailable; terrain scale is approximate.",
-    "unitsNonMeter": "Vertical units are {{unit}}, not meters; terrain scale is approximate."
+    "unitsNonMeter": "Vertical units are {{unit}}, not meters; terrain scale is approximate.",
+    "surfaceTitle": "Elevation surface",
+    "surfaceDescription": "Terrain drapes the map surface; Relief layers provide visible shading.",
+    "selectedDem": "Selected DEM",
+    "noSource": "None",
+    "visualRelief": "Visual relief",
+    "reliefLayerCount_one": "{{count}} visible DEM layer",
+    "reliefLayerCount_other": "{{count}} visible DEM layers",
+    "noReliefLayer": "No visible relief layer"
   },
   "featurePopup": {
     "noAttributes": "No attributes",
@@ -638,6 +670,9 @@
     "saved": "Saved",
     "retry": "Retry",
     "retrySave": "Retry save",
+    "description": "Description",
+    "unsavedDot": "Unsaved changes",
+    "untitled": "Untitled Map",
     "saveStatus": {
       "saved": "Saved",
       "unsaved": "Unsaved changes",
@@ -711,7 +746,9 @@
     "popupConfigBackendRejected": "Server rejected the popup configuration ({{field}}). Adjust the layer's popup template and save again.",
     "layerFallbackName": "Untitled layer",
     "terrainDuplicateBlocked": "3D terrain can't be duplicated — a dataset can only power terrain once.",
-    "terrainDisabledSourceRemoved": "3D terrain disabled — its source layer was removed."
+    "terrainDisabledSourceRemoved": "3D terrain disabled — its source layer was removed.",
+    "domainClearFailed": "Failed to clear domain restrictions",
+    "shareLinkCreated": "Share link created"
   },
   "builderMap": {
     "loading": "Loading map...",
@@ -722,7 +759,8 @@
     "basemapIssueDescription": "Your data layers are still editable. Check the basemap service or choose another basemap if the background stays blank.",
     "clusterFallback": "{{name}} is rendering as points: {{reason}}",
     "clusterTruncated": "cluster source exceeded the bounded GeoJSON limit",
-    "clusterLoadError": "{{name}} is rendering as points because cluster data could not load."
+    "clusterLoadError": "{{name}} is rendering as points because cluster data could not load.",
+    "tokenError": "Failed to load tile tokens — some layers may not display."
   },
   "mapCreate": {
     "title": "Create Map",
@@ -762,6 +800,7 @@
     "queryResult": "Query result",
     "featureCount_one": "{{count}} feature",
     "featureCount_other": "{{count}} features",
+    "featureCountTruncated": "{{count}} of {{total}} features",
     "dismiss": "Dismiss query result"
   },
   "plugins": {
@@ -788,6 +827,8 @@
   },
   "drawing": {
     "select": "Select",
+    "modeActive": "{{mode}} mode active",
+    "toolbar": "Drawing tools",
     "point": "Point",
     "line": "Line",
     "polygon": "Polygon",
@@ -804,6 +845,10 @@
   "actions": {
     "save": "Save",
     "export": "Export"
+  },
+  "toolbar": {
+    "pan": "Pan",
+    "styleJson": "Style JSON"
   },
   "export": {
     "legendHeader": "Legend",
@@ -919,6 +964,7 @@
   },
   "rail": {
     "aiDisabled": "AI disabled by admin",
+    "closePanel": "Close panel",
     "aiUnavailable": "AI unavailable",
     "aiUnavailableTitle": "AI is unavailable",
     "aiUnavailableDescription": "An administrator needs to enable an AI provider before Ask AI can be used in this builder.",
@@ -934,6 +980,7 @@
   },
   "stackRow": {
     "dragHandle": "Drag to reorder {{name}}",
+    "kebabGroupTrigger": "Group options for {{name}}",
     "toggleVisibility": "Toggle visibility for {{name}}",
     "opacitySlider": "Opacity for {{name}}",
     "kebabTrigger": "Layer options for {{name}}",
@@ -967,6 +1014,7 @@
   },
   "basemapSublayer": {
     "breadcrumbLabel": "Back to basemap group",
+    "resetAction": "Reset to default",
     "casingColor": "Casing color",
     "casingLabel": "CASING",
     "casingWidth": "Width",
@@ -1005,6 +1053,7 @@
   },
   "folderGroup": {
     "defaultName": "Group {{n}}",
+    "toggleExpand": "Toggle folder group",
     "renameInputPlaceholder": "Group name",
     "deleteConfirmMessage": "Delete this group and all its layers?",
     "deleteConfirmAction": "Delete all",
@@ -1013,6 +1062,10 @@
   },
   "layerEditor": {
     "close": "Close layer editor",
+    "deleteLayer": "Delete layer",
+    "deleteLayerConfirmMessage": "Delete this layer? This cannot be undone.",
+    "deleteLayerConfirmAction": "Delete",
+    "deleteLayerConfirmCancel": "Keep layer",
     "tabsLabel": "Layer editor tabs",
     "section": {
       "renderAs": "Render as",
@@ -1061,6 +1114,12 @@
       "help": "The current filter eliminated every feature in this layer. Adjust a condition or clear the filter to see features again.",
       "clear": "Clear filter"
     }
+  },
+  "errors": {
+    "mapMessage": "Map error — refresh the page to restore tile access."
+  },
+  "common": {
+    "reload": "Reload"
   },
   "settings": {
     "regionLabel": "Map settings",

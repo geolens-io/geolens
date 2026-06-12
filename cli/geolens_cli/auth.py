@@ -70,6 +70,7 @@ def _write_credentials_file(data: dict) -> None:
         _config.credentials_path(),
         tomli_w.dumps(data),
         mode=0o600,
+        tighten_parent=True,
     )
 
 
@@ -192,15 +193,35 @@ def delete_credentials(instance: str) -> None:
 
 # ---------- Refresh ----------
 
+def _detect_credential_backend(instance: str) -> bool:
+    """Return True (no_keyring=True / file backend) if the refresh token was
+    read from credentials.toml, False (keyring backend) otherwise.
+
+    We check the credentials file first because load_refresh_token uses the
+    same file-before-keyring precedence — if the file has a refresh token,
+    the credential lives in the file backend.
+    """
+    file_data = _read_credentials_file().get(instance, {})
+    return "refresh_token" in file_data
+
+
 def try_refresh(instance: str) -> Optional[str]:
     """Attempt a single refresh; return new access token or None on failure.
 
     Per CONTEXT D-13, this is called once on a 401. If it fails, the caller
     prints "Session expired" and exits with EXIT_AUTH (3).
+
+    BUG-013 fix: rotated tokens are written back to the SAME backend that
+    held the original credential (file vs keyring) so that a file-backed
+    credential is not shadowed by a newly keyring-written token.
     """
     refresh = load_refresh_token(instance)
     if not refresh:
         return None
+
+    # Detect the backend BEFORE the HTTP call so we know where to write back.
+    no_keyring = _detect_credential_backend(instance)
+
     from geolens import GeolensClient
     from geolens.api.auth import refresh_auth_refresh_post
     from geolens.models.refresh_request import RefreshRequest
@@ -218,8 +239,8 @@ def try_refresh(instance: str) -> Optional[str]:
     if parsed is None or not getattr(parsed, "access_token", None):
         return None
     new_access = parsed.access_token
-    store_bearer_token(instance, new_access, no_keyring=False)
+    store_bearer_token(instance, new_access, no_keyring=no_keyring)
     new_refresh = getattr(parsed, "refresh_token", None)
     if new_refresh:
-        store_refresh_token(instance, new_refresh, no_keyring=False)
+        store_refresh_token(instance, new_refresh, no_keyring=no_keyring)
     return new_access

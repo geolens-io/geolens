@@ -191,34 +191,39 @@ async def register(
     )  # LAZY — preserved per D-17
 
     service = AuthService(db)
+    # SEC-012: on a username/email collision the service raises ValueError and
+    # does NOT create a duplicate row (register_user flushes only on success).
+    # We silently swallow the collision and return the SAME pending-approval
+    # response a genuine new registration returns — this prevents username/email
+    # enumeration via distinguishable error codes or messages.
+    collision = False
+    new_user_id: uuid.UUID | None = None
     try:
         new_user_id = await service.register_user(
             username=body.username,
             password=body.password,
             email=body.email,
         )
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=str(exc),
-        )
+    except ValueError:
+        collision = True
 
-    # Phase 279 ADMIN-05 (L-02): the registrant is the actor (no acting admin
-    # exists yet). resource_id == user_id == the new pending user. ip_address
-    # is captured for funnel + abuse-detection visibility.
-    ip = get_client_ip(request)
-    await audit_emit(
-        db,
-        AuditEvent(
-            user_id=new_user_id,
-            action="user.register",
-            resource_type="user",
-            resource_id=new_user_id,
-            details={"username": body.username, "email": body.email},
-            ip_address=ip,
-        ),
-    )
-    await db.commit()
+    if not collision:
+        # Phase 279 ADMIN-05 (L-02): the registrant is the actor (no acting admin
+        # exists yet). resource_id == user_id == the new pending user. ip_address
+        # is captured for funnel + abuse-detection visibility.
+        ip = get_client_ip(request)
+        await audit_emit(
+            db,
+            AuditEvent(
+                user_id=new_user_id,
+                action="user.register",
+                resource_type="user",
+                resource_id=new_user_id,
+                details={"username": body.username, "email": body.email},
+                ip_address=ip,
+            ),
+        )
+        await db.commit()
 
     return RegisterResponse(
         message="Registration submitted. Your account is awaiting admin approval."

@@ -188,8 +188,8 @@ class TestStacAssetsRemoved:
 
 
 class TestBuildStacAssets:
-    def test_build_stac_assets_full(self):
-        """_build_stac_assets produces correct structure from row dicts."""
+    def test_build_stac_assets_local_returns_empty(self):
+        """GAP-031: local storage rows produce no href (no dead /assets/ proxy route)."""
         rows = [
             {
                 "key": "data",
@@ -200,24 +200,45 @@ class TestBuildStacAssets:
                 "description": "Main file",
             },
         ]
+        # Default storage_backend="local" → resolve_asset_url returns None → entry skipped
         result = _build_stac_assets(rows, public_api_url="http://localhost:8080/api")
-        assert result == {
-            "data": {
-                "href": "http://localhost:8080/api/assets/storage/file.tif",
-                "type": "image/tiff",
+        assert result == {}, (
+            "GAP-031: local storage assets must be omitted, not emitted as /assets/ hrefs"
+        )
+
+    def test_build_stac_assets_local_minimal_returns_empty(self):
+        """GAP-031: local storage minimal rows also produce empty dict."""
+        rows = [{"key": "raw", "href": "/storage/raw.dat"}]
+        result = _build_stac_assets(rows, public_api_url="http://localhost:8080/api")
+        assert result == {}, "GAP-031: local storage assets must be omitted"
+
+    def test_build_stac_assets_s3_published_with_provider(self):
+        """S3 published data with a storage_provider produces a presigned href."""
+        from unittest.mock import MagicMock
+
+        mock_provider = MagicMock()
+        mock_provider.generate_presigned_get_url.return_value = (
+            "https://s3.example.com/signed"
+        )
+        rows = [
+            {
+                "key": "data",
+                "href": "s3://mybucket/storage/file.tif",
+                "media_type": "image/tiff",
                 "roles": ["data"],
                 "title": "COG",
                 "description": "Main file",
             },
-        }
-
-    def test_build_stac_assets_minimal(self):
-        """_build_stac_assets with only href produces minimal entry."""
-        rows = [{"key": "raw", "href": "/storage/raw.dat"}]
-        result = _build_stac_assets(rows, public_api_url="http://localhost:8080/api")
-        assert result == {
-            "raw": {"href": "http://localhost:8080/api/assets/storage/raw.dat"}
-        }
+        ]
+        result = _build_stac_assets(
+            rows,
+            public_api_url="http://localhost:8080/api",
+            storage_backend="s3",
+            record_status="published",
+            storage_provider=mock_provider,
+        )
+        assert "data" in result
+        assert result["data"]["href"] == "https://s3.example.com/signed"
 
     def test_build_stac_assets_empty(self):
         """_build_stac_assets with None returns empty dict."""

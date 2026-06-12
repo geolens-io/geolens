@@ -89,6 +89,24 @@ def saml_response_dir(tmp_path_factory) -> Path:
     return session_dir
 
 
+@pytest.fixture(scope="session")
+def saml_idp_cert_pem(saml_response_dir) -> str:
+    """IdP signing cert matching the fixtures in ``saml_response_dir``.
+
+    ``generate_fixtures.main`` self-mints a throwaway keypair when no cert/key
+    is committed (SEC-015) and writes the signing ``idp_cert.pem`` alongside
+    the regenerated responses. A test that submits the *signed* fixture and
+    expects it to validate must seed THIS cert -- pysaml2 rejects a mismatched
+    cert with SignatureError. Falls back to the committed cert for the template
+    path (pysaml2/xmlsec1 unavailable), where the overlay is absent and these
+    ACS tests skip anyway.
+    """
+    regenerated = saml_response_dir / "idp_cert.pem"
+    if regenerated.exists():
+        return regenerated.read_text()
+    return FIXTURE_CERT_PEM
+
+
 FIXTURE_IDP_ENTITY_ID = "https://fixture-idp.geolens.test/idp"
 FIXTURE_SP_ENTITY_ID = "https://geolens.test/auth/saml/fixture"
 FIXTURE_SLUG = "fixture"
@@ -354,6 +372,7 @@ async def test_saml_acs_signed_assertion_jit_provisions_user(
     saml_router_mounted,
     _cleanup_saml_providers,
     saml_response_dir,
+    saml_idp_cert_pem,
 ):
     """SAML-11: signed assertion JIT-provisions user + issues JWT + redirects.
 
@@ -362,7 +381,7 @@ async def test_saml_acs_signed_assertion_jit_provisions_user(
     ``_cleanup_saml_providers`` between tests to avoid the slug
     UNIQUE-constraint collision.
     """
-    await _seed_saml_provider(test_db_session)
+    await _seed_saml_provider(test_db_session, idp_certificate=saml_idp_cert_pem)
     saml_response = _load_fixture_b64("idp_response_signed.xml.b64", saml_response_dir)
 
     resp = await client.post(
@@ -484,6 +503,7 @@ async def test_saml_acs_rejects_replayed_assertion(
     saml_router_mounted,
     _cleanup_saml_providers,
     saml_response_dir,
+    saml_idp_cert_pem,
 ):
     """SAML-11 / Pitfall 5: same assertion submitted twice is rejected on the
     second attempt by ReplayCache. The fixture's outstanding-request entry
@@ -491,7 +511,7 @@ async def test_saml_acs_rejects_replayed_assertion(
     attributable to ReplayCache rather than the consumed reqid."""
     from geolens_enterprise.auth.saml import router as saml_router_mod
 
-    await _seed_saml_provider(test_db_session)
+    await _seed_saml_provider(test_db_session, idp_certificate=saml_idp_cert_pem)
     saml_response = _load_fixture_b64("idp_response_signed.xml.b64", saml_response_dir)
 
     # First submission succeeds.
@@ -577,6 +597,7 @@ async def test_saml_acs_redirect_includes_source_query_param(
     saml_router_mounted,
     _cleanup_saml_providers,
     saml_response_dir,
+    saml_idp_cert_pem,
 ):
     """Pitfall 8 / D-15: post-ACS redirect URL must include ?source=saml so
     the frontend OAuth callback handler can distinguish SAML callbacks.
@@ -586,7 +607,7 @@ async def test_saml_acs_redirect_includes_source_query_param(
     """
     from geolens_enterprise.auth.saml import router as saml_router_mod
 
-    await _seed_saml_provider(test_db_session)
+    await _seed_saml_provider(test_db_session, idp_certificate=saml_idp_cert_pem)
 
     # Happy path.
     happy = await client.post(
@@ -948,6 +969,7 @@ async def test_saml_attribute_to_role_mapping_via_provider_group_claim(
     saml_router_mounted,
     _cleanup_saml_providers,
     saml_response_dir,
+    saml_idp_cert_pem,
 ):
     """SAML-12 / SC#4 behavior coverage: a SAML user whose assertion contains
     ``groups=['editors']`` and whose provider has
@@ -965,6 +987,7 @@ async def test_saml_attribute_to_role_mapping_via_provider_group_claim(
         group_claim="groups",
         group_role_mapping={"editors": "editor"},
         default_role="viewer",  # default would be viewer; mapping takes precedence
+        idp_certificate=saml_idp_cert_pem,
     )
     saml_response = _load_fixture_b64("idp_response_signed.xml.b64", saml_response_dir)
 

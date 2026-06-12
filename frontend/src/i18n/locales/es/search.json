@@ -58,7 +58,15 @@
     "noKeywords": "No hay palabras clave disponibles",
     "clearKeywords": "Borrar todas",
     "keywordsCount": "Palabras clave ({{count}})",
-    "sheetDescription": "Refinar resultados sin salir de la página de búsqueda."
+    "sheetDescription": "Refinar resultados sin salir de la página de búsqueda.",
+    "anyCollection": "Cualquier colección",
+    "areaSelected": "Área seleccionada",
+    "clearLocation": "Borrar ubicación",
+    "filtersButton": "Filtros",
+    "filtersLabel": "filtros",
+    "locationApplied": "Un área del mapa está limitando actualmente los resultados.",
+    "spatialResultCount": "Mostrando {{count}} en el área seleccionada",
+    "updateLocation": "Actualizar área de ubicación"
   },
   "collection": {
     "datasetCount_one": "{{count}} conjunto de datos",
@@ -122,15 +130,20 @@
     "dialogDescription": "Asigne un nombre a esta búsqueda para acceder a ella rápidamente.",
     "namePlaceholder": "Nombre de la búsqueda",
     "saving": "Guardando...",
-    "removeSavedSearch": "Eliminar búsqueda guardada"
+    "removeSavedSearch": "Eliminar búsqueda guardada",
+    "loadError": "No se pudieron cargar las búsquedas guardadas",
+    "savedSearchesLabel": "Búsquedas guardadas",
+    "saveShort": "Guardar"
   },
   "bbox": {
     "noExtent": "Sin extensión",
-    "instruction": "Haz clic y arrastra para dibujar un cuadro delimitador"
+    "instruction": "Haz clic y arrastra para dibujar un cuadro delimitador",
+    "loading": "Cargando mapa..."
   },
   "typeahead": {
     "searching": "Buscando...",
-    "noResults": "No se encontraron resultados"
+    "noResults": "No se encontraron resultados",
+    "error": "No se pudieron cargar los resultados"
   },
   "quality": {
     "label": "Calidad: {{score}}%"
@@ -165,5 +178,22 @@
       "duplicateColumn": "Nombre de columna duplicado: {{name}}",
       "createFailed": "Error al crear el conjunto de datos"
     }
+  },
+  "clearSearch": "Borrar búsqueda",
+  "results": "Resultados de búsqueda",
+  "workspaceTitle": "Buscar en el catálogo GeoLens",
+  "spatial": {
+    "title": "Área de búsqueda",
+    "description": "Dibuja un rectángulo o polígono para limitar los resultados de búsqueda a un área específica.",
+    "close": "Cerrar",
+    "rectangle": "Rectángulo",
+    "polygon": "Polígono",
+    "rectangleInstruction": "Haz clic y arrastra para dibujar un cuadro delimitador",
+    "polygonInstruction": "Haz clic para añadir puntos, doble clic para finalizar",
+    "predicate": "Modo:",
+    "intersects": "Interseca",
+    "within": "Dentro",
+    "useExtent": "Usar extensión actual del mapa",
+    "clearArea": "Borrar área"
   }
 }

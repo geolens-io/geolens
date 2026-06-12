@@ -62,9 +62,27 @@ class TestFileModes:
         assert actual_mode == 0o600, f"got {oct(actual_mode)}"
 
     def test_parent_dir_mode_0700(self, tmp_xdg_home) -> None:
-        atomic_write_text(credentials_path(), "x = 1\n", mode=0o600)
+        atomic_write_text(credentials_path(), "x = 1\n", mode=0o600, tighten_parent=True)
         actual_mode = stat.S_IMODE(credentials_path().parent.stat().st_mode)
         assert actual_mode == 0o700, f"got {oct(actual_mode)}"
+
+    def test_non_secret_write_does_not_tighten_parent(self, tmp_path: Path) -> None:
+        """BUG-014: atomic_write_text for non-secret outputs must NOT chmod the parent."""
+        # Pre-set the parent to a wide-open mode so we can detect any narrowing.
+        tmp_path.chmod(0o755)
+        target = tmp_path / "output.json"
+        atomic_write_text(target, '{"a": 1}\n', mode=0o644)
+        actual_parent_mode = stat.S_IMODE(tmp_path.stat().st_mode)
+        assert actual_parent_mode == 0o755, (
+            f"BUG-014: atomic_write_text chmoded parent to {oct(actual_parent_mode)}; "
+            "non-secret exports must leave the parent dir mode unchanged"
+        )
+
+    def test_secret_write_tightens_parent(self, tmp_xdg_home) -> None:
+        """Secret files (credentials) still tighten the parent dir to 0700."""
+        atomic_write_text(credentials_path(), "x = 1\n", mode=0o600, tighten_parent=True)
+        actual_parent_mode = stat.S_IMODE(credentials_path().parent.stat().st_mode)
+        assert actual_parent_mode == 0o700, f"got {oct(actual_parent_mode)}"
 
 
 class TestEnvOverrides:

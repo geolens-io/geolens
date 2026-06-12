@@ -56,16 +56,31 @@ export const createGeolensClient = (
       'Provide either bearerToken or apiKey, not both.',
     );
   }
-  const headers: Record<string, string> = {};
+
+  // BUG-023: explicitly clear headers that are NOT provided so that a prior
+  // call's credentials do not persist on the shared singleton. The
+  // @hey-api/client-fetch mergeHeaders implementation deletes a header when
+  // its value is null — passing null removes a previously-set header.
+  const headers: Record<string, string | null> = {
+    Authorization: null,
+    'X-API-Key': null,
+  };
+
+  const publicHeaders: Record<string, string> = {};
+
   if (opts.bearerToken) {
     headers['Authorization'] = `Bearer ${opts.bearerToken}`;
+    publicHeaders['Authorization'] = `Bearer ${opts.bearerToken}`;
   }
   if (opts.apiKey) {
     headers['X-API-Key'] = opts.apiKey;
+    publicHeaders['X-API-Key'] = opts.apiKey;
   }
 
   // Configure the generated singleton client so all generated SDK
   // function calls inherit the auth headers + base URL.
+  // We pass the full headers (with nulls) to setConfig so stale entries
+  // are removed, but return only non-null headers in the public surface.
   client.setConfig({
     baseUrl: opts.baseUrl,
     headers,
@@ -73,7 +88,7 @@ export const createGeolensClient = (
 
   return {
     baseUrl: opts.baseUrl,
-    headers,
+    headers: publicHeaders,
     client,
   };
 };

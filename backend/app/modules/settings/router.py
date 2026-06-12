@@ -292,11 +292,16 @@ async def update_settings(
     """Update one or more settings (admin only). Returns updated settings."""
     registry_map = _get_registry_map()
 
-    # Capture old embedding_dims before any changes (needed for rollback)
-    old_dims_value: int | None = None
-    if "embedding_dims" in body.settings:
-        old_dims_value = await EMBEDDING_DIMS.get(db)
-
+    # BUG-009 (Phase 1181): Validate ALL keys BEFORE applying any side effect.
+    # Previously, the loop applied each key inline — if key N was invalid, keys
+    # 0..N-1 were already persisted (or their side effects fired), producing
+    # partial/corrupt state.  The two-pass approach below:
+    #   Pass 1 — validate every key (unknown-key check, enterprise gate,
+    #             custom validators, TypeAdapter type-level validation).
+    #             On any error, raise 400/422 immediately with NOTHING applied.
+    #   Pass 2 — apply all validated values (commit=False per key, single
+    #             commit at the end — no change from before).
+    validated_settings: dict[str, object] = {}
     for key, value in body.settings.items():
         cfg = registry_map.get(key)
         if cfg is None:
@@ -307,6 +312,7 @@ async def update_settings(
 
         _require_enterprise_for_key(key)
 
+        # Custom validators (range checks, format checks, etc.)
         try:
             value = _validate_setting(key, value)
         except (ValueError, TypeError) as e:
@@ -315,27 +321,53 @@ async def update_settings(
                 detail=f"Validation error for '{key}': {e}",
             )
 
-        ip = get_client_ip(request)
+        # Type-level validation via the PersistentConfig TypeAdapter.
+        # This catches values that pass the custom validator but are wrong
+        # for the registered type (e.g. "NOTALEVEL" for log_level, which
+        # has no custom range-check validator but has type=str — a string
+        # passes here; for int/bool keys this blocks non-coercible garbage).
+        # Also validates enum-like constraints defined in the type annotation.
+        from pydantic import ValidationError as PydanticValidationError
+
+        try:
+            value = cfg._adapter.validate_python(value)
+        except PydanticValidationError as e:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"Validation error for '{key}': {e.errors()}",
+            )
+
+        validated_settings[key] = value
+
+    # Capture old embedding_dims before any changes (needed for rollback)
+    old_dims_value: int | None = None
+    if "embedding_dims" in validated_settings:
+        old_dims_value = await EMBEDDING_DIMS.get(db)
+
+    ip = get_client_ip(request)
+    for key, value in validated_settings.items():
+        cfg = registry_map[key]
         await cfg.set(db, value, user_id=user.id, ip_address=ip, commit=False)
 
     # Single commit for all setting writes
     await db.commit()
 
     # Auto-detect embedding dimensions when embedding_model changes
-    if "embedding_model" in body.settings and "embedding_dims" not in body.settings:
-        ip = get_client_ip(request)
+    if (
+        "embedding_model" in validated_settings
+        and "embedding_dims" not in validated_settings
+    ):
         await _auto_detect_embedding_dims(db, user.id, ip)
 
     # Rebuild column + index when embedding dimensions change
-    if "embedding_dims" in body.settings:
+    if "embedding_dims" in validated_settings:
         from app.processing.embeddings.service import rebuild_embedding_column
 
-        new_dims = int(body.settings["embedding_dims"])
+        new_dims = int(validated_settings["embedding_dims"])
         try:
             await rebuild_embedding_column(db, new_dims)
         except Exception as exc:  # broad: DDL rebuild can fail for schema/lock reasons; roll setting back atomically
             # Roll back the persisted embedding_dims setting to the previous value
-            ip = get_client_ip(request)
             await EMBEDDING_DIMS.set(db, old_dims_value, user_id=user.id, ip_address=ip)
             await db.commit()
             logger.exception(

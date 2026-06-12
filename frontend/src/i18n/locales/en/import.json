@@ -48,7 +48,8 @@
       "dtype_mismatch": "Data type mismatch: {{source}} vs {{expected}}",
       "nodata_inconsistent": "NoData value mismatch",
       "grid_misaligned": "Grid dimensions do not match"
-    }
+    },
+    "searchError": "Failed to load results"
   },
   "upload": {
     "startOver": "Start Over",
@@ -87,8 +88,22 @@
       "description": "The following temporal values could not be parsed as ISO-8601 dates and were dropped. Re-enter them in the dataset metadata editor to restore them."
     }
   },
+  "complete": {
+    "heroTitle": "{{count}} datasets added to the catalog",
+    "heroDesc": "All files ingested, tiled, and indexed. Ready to query, style, and map.",
+    "statDatasets": "Datasets",
+    "statVector": "Vector",
+    "statRaster": "Raster",
+    "statTabular": "Tabular",
+    "next": "Next:",
+    "viewCatalog": "View in Catalog",
+    "importMore": "Import more"
+  },
   "dropzone": {
     "instructions": "Drag and drop files here, or click to browse",
+    "browse": "browse",
+    "toUpload": "to upload",
+    "subtext": "GeoLens will detect geometry, CRS, and schema before committing to the catalog. Batches up to 10 files.",
     "dropHere": "Drop files here",
     "unsupportedType": "This file type is not supported",
     "sizeLimit": "Max 500 MB per file",
@@ -154,6 +169,12 @@
     "label": "Service URL",
     "placeholder": "https://example.com/wfs, ArcGIS FeatureServer, or OGC API endpoint",
     "helpText": "Paste a WFS, ArcGIS Feature Service, or OGC API Features URL",
+    "detectedLabel": "Service URL — detected",
+    "clear": "Clear",
+    "layersAvailable": "{{count}} layers available",
+    "noLayers": "No layers were found in this service.",
+    "probe": "Probe →",
+    "supported": "Supported:",
     "tokenLabel": "Access Token (optional)",
     "tokenPlaceholder": "ArcGIS token, API key, or WFS access token",
     "tokenHelpText": "For ArcGIS Online: create an API key at developers.arcgis.com, or generate a short-lived token at your-org.maps.arcgis.com/sharing/rest/generateToken. For WFS, use your provider's access token. Tokens are not stored.",
@@ -165,6 +186,37 @@
     "connectFailed": "Failed to connect to service",
     "previewFailed": "Failed to preview layer",
     "commitFailed": "Failed to start import"
+  },
+  "rail": {
+    "stageTitle": "Stage files",
+    "stageDesc": "Drop or pick files. No commit yet — you can remove any before detection.",
+    "reviewTitle": "Review detection",
+    "reviewDesc": "Confirm geometry type, CRS, schema, and preview for each file.",
+    "importTitle": "Import & catalog",
+    "importDesc": "Tile, index, publish — datasets appear in the Catalog immediately.",
+    "workflow": "Workflow",
+    "whatImported": "What gets imported",
+    "vectorLabel": "Vector",
+    "vectorDesc": "tiled to MVT, spatial index, reprojected to 3857 on read.",
+    "rasterLabel": "Raster",
+    "rasterDesc": "converted to COG, overviews built, bands kept intact.",
+    "tableLabel": "Tabular",
+    "tableDesc": "ingested as a joinable table. Optionally specify geometry columns during import.",
+    "tip": "Tip",
+    "tipText": "Drop multiple files at once to create a batch. Each file becomes its own dataset — you can review and adjust metadata before committing.",
+    "registerHint": "Registering existing infrastructure",
+    "stacHint": "Importing from STAC",
+    "serviceHint": "Connecting remote services",
+    "registerDesc": "Register existing PostGIS tables as datasets — GeoLens tiles them on the fly from your database.",
+    "stacDesc": "Connect a STAC catalog or collection and import selected assets into GeoLens.",
+    "serviceDesc": "Connect a remote WFS, ArcGIS FeatureServer, or OGC API Features service. GeoLens imports the layer into the catalog for tiling and querying.",
+    "registerNote": "No data copied · tiles generated directly from your tables",
+    "stacNote": "STAC metadata is discovered first, then selected assets are imported",
+    "serviceNote": "Service tokens are used during import only and are not persisted",
+    "comparedToUpload": "Compared to Upload",
+    "compareRegister": "Upload ingests from a file. Register points at an existing table — no duplication, but the table must stay in your database.",
+    "compareStac": "Upload ingests local files. STAC imports discover remote assets first, then stages selected items for catalog use.",
+    "compareService": "Upload ingests from a file. Service URL fetches from a remote API and imports the data into GeoLens for local tiling and querying."
   },
   "register": {
     "helpText": "Catalog existing PostGIS tables from your database as datasets in GeoLens. Use this when you have geographic data already in the database that wasn't imported through GeoLens. Selected tables will be added to the dataset catalog with automatic metadata detection.",
@@ -195,7 +247,10 @@
     "successToast_one": "{{count}} table registered successfully",
     "successToast_other": "{{count}} tables registered successfully",
     "registerFailed": "Failed to register tables",
-    "unknownError": "Unknown error"
+    "unknownError": "Unknown error",
+    "searchPlaceholder": "Search tables…",
+    "selectHint": "Select a table from the list to see its schema and register it.",
+    "detailDesc": "Register to expose as a GeoLens dataset — tiled on the fly, no copy."
   },
   "layerPicker": {
     "title": "Select Layer",
@@ -238,6 +293,7 @@
   },
   "metadata": {
     "title": "Import Settings",
+    "crsDetected": "Detected CRS: EPSG:{{crs}} (auto-detected — no override needed)",
     "nameLabel": "Name *",
     "descriptionLabel": "Description",
     "descriptionPlaceholder": "Optional description",
@@ -291,7 +347,8 @@
     "copiedCogUrl": "Copied COG URL",
     "copiedXyzUrl": "Copied XYZ Tile URL",
     "copyCogUrl": "Copy COG URL",
-    "copyXyzUrl": "Copy XYZ Tile URL"
+    "copyXyzUrl": "Copy XYZ Tile URL",
+    "cogDownloadFailed": "Could not start COG download — try again"
   },
   "review": {
     "headerStatus": "Detection complete",
@@ -341,9 +398,15 @@
       "type": "Type"
     }
   },
+  "eyebrow": "Import",
+  "pageDescription": "Upload files, register tables from your Postgres, or connect a remote service. GeoLens detects geometry, schema, and CRS, then makes it queryable, styleable, and embeddable.",
   "bulk": {
     "uploading_one": "Uploading {{count}} file...",
     "uploading_other": "Uploading {{count}} files...",
+    "activeJobs": "Active and recent jobs",
+    "detectingHint": "Uploading & detecting…",
+    "importingFiles": "Importing {{count}} files",
+    "progressDetail": "{{done}} complete · {{active}} in progress · {{queued}} queued",
     "statusUploading": "Uploading...",
     "statusPreviewing": "Generating preview...",
     "statusReady": "Ready",

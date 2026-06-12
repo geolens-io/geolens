@@ -58,7 +58,15 @@
     "noKeywords": "Aucun mot-clé disponible",
     "clearKeywords": "Tout effacer",
     "keywordsCount": "Mots-clés ({{count}})",
-    "sheetDescription": "Affiner les résultats sans quitter la page de recherche."
+    "sheetDescription": "Affiner les résultats sans quitter la page de recherche.",
+    "anyCollection": "N'importe quelle collection",
+    "areaSelected": "Zone sélectionnée",
+    "clearLocation": "Effacer l'emplacement",
+    "filtersButton": "Filtres",
+    "filtersLabel": "filtres",
+    "locationApplied": "Une zone de la carte limite actuellement les résultats.",
+    "spatialResultCount": "Affichage de {{count}} dans la zone sélectionnée",
+    "updateLocation": "Mettre à jour la zone de localisation"
   },
   "collection": {
     "datasetCount_one": "{{count}} jeu de données",
@@ -122,15 +130,20 @@
     "dialogDescription": "Donnez un nom à cette recherche pour y accéder rapidement plus tard.",
     "namePlaceholder": "Nom de la recherche",
     "saving": "Enregistrement...",
-    "removeSavedSearch": "Supprimer la recherche enregistrée"
+    "removeSavedSearch": "Supprimer la recherche enregistrée",
+    "loadError": "Impossible de charger les recherches sauvegardées",
+    "savedSearchesLabel": "Recherches sauvegardées",
+    "saveShort": "Enregistrer"
   },
   "bbox": {
     "noExtent": "Pas d'étendue",
-    "instruction": "Cliquez et faites glisser pour dessiner un cadre de sélection"
+    "instruction": "Cliquez et faites glisser pour dessiner un cadre de sélection",
+    "loading": "Chargement de la carte..."
   },
   "typeahead": {
     "searching": "Recherche en cours...",
-    "noResults": "Aucun resultat"
+    "noResults": "Aucun resultat",
+    "error": "Impossible de charger les résultats"
   },
   "quality": {
     "label": "Qualité : {{score}} %"
@@ -165,5 +178,22 @@
       "duplicateColumn": "Nom de colonne en double : {{name}}",
       "createFailed": "Échec de la création du jeu de données"
     }
+  },
+  "clearSearch": "Effacer la recherche",
+  "results": "Résultats de recherche",
+  "workspaceTitle": "Rechercher dans le catalogue GeoLens",
+  "spatial": {
+    "title": "Zone de recherche",
+    "description": "Dessinez un rectangle ou un polygone pour limiter les résultats de recherche à une zone spécifique.",
+    "close": "Fermer",
+    "rectangle": "Rectangle",
+    "polygon": "Polygone",
+    "rectangleInstruction": "Cliquez et faites glisser pour dessiner une boîte englobante",
+    "polygonInstruction": "Cliquez pour ajouter des points, double-cliquez pour terminer",
+    "predicate": "Mode :",
+    "intersects": "Intersecte",
+    "within": "Dans",
+    "useExtent": "Utiliser l'étendue de la carte actuelle",
+    "clearArea": "Effacer la zone"
   }
 }

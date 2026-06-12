@@ -96,6 +96,41 @@ _dataset_cache: dict[str, tuple[float, _DatasetMeta]] = {}
 # threading.Lock is safe here — dict reads/writes are synchronous, no await inside lock
 _dataset_cache_lock = threading.Lock()
 
+# ---------------------------------------------------------------------------
+# PERF-002: Short-TTL cache for raster dataset/asset metadata.
+# Mirrors the vector _dataset_cache pattern.  The whole DB row is cached,
+# INCLUDING the access-control fields (visibility, record_status) — per-request
+# authz reads them from this cached snapshot rather than re-querying.  This is a
+# deliberate tile-cache tradeoff with CDN max-age semantics: after a dataset is
+# made private/unpublished, anonymous tile requests are rejected within at most
+# _RASTER_META_CACHE_TTL seconds, not instantly.  The same bounded window
+# applies to the vector cache.  Keep the TTL short.
+# ---------------------------------------------------------------------------
+_RASTER_META_CACHE_TTL = 60  # seconds — same TTL as the vector cache
+
+
+class _RasterMeta(NamedTuple):
+    """Snapshot of raster dataset+record+asset fields for tile serving.
+
+    Includes the mutable access-control fields (visibility, record_status); see
+    the _RASTER_META_CACHE_TTL note for the bounded-staleness tradeoff.
+    """
+
+    visibility: str
+    record_status: str
+    created_by: uuid.UUID
+    record_type: str
+    asset_uri: str
+    storage_backend: str
+    band_count: int | None
+    dtype: str | None
+    is_dem: bool | None
+    band_info: list | None
+
+
+_raster_meta_cache: dict[str, tuple[float, _RasterMeta]] = {}
+_raster_meta_cache_lock = threading.Lock()
+
 
 _DTYPE_MAX = {
     "uint8": 255,
@@ -366,21 +401,31 @@ def _is_publicly_cacheable(visibility: str | None, record_status: str | None) ->
     return visibility == "public" and record_status == "published"
 
 
-async def _resolve_raster_access(
+async def _resolve_raster_meta(
     db: AsyncSession,
     dataset_id: uuid.UUID,
-    request: Request,
-    user: Identity | None,
-) -> tuple[dict, str]:
-    """Validate RBAC access to a raster dataset and return row metadata + storage backend.
+) -> _RasterMeta:
+    """Look up raster dataset/asset metadata with a short in-memory cache.
 
-    Performs the dataset lookup, raster type validation, embed-token / user /
-    RBAC checks (3 auth priority branches), and returns the raw SQL row
-    mapping together with the resolved storage_backend string.
+    PERF-002: mirrors the vector _resolve_dataset_meta / _dataset_cache pattern.
+    The cached snapshot INCLUDES the access-control fields (visibility,
+    record_status); per-request authz reads them from the cache, so a
+    visibility/status change takes effect only after the entry expires — at most
+    _RASTER_META_CACHE_TTL seconds (a deliberate tile-cache tradeoff, same
+    bounded window as the vector path).
 
-    Raises HTTPException on any auth or lookup failure.
+    Raises HTTPException(404) when the dataset is missing, is not a raster, or
+    has no raster asset.
     """
-    # Single query: join datasets + records + raster_assets
+    cache_key = str(dataset_id)
+    now = time.monotonic()
+    with _raster_meta_cache_lock:
+        cached_entry = _raster_meta_cache.get(cache_key)
+        if cached_entry is not None:
+            ts, cached_meta = cached_entry
+            if now - ts < _RASTER_META_CACHE_TTL:
+                return cached_meta
+
     result = await db.execute(
         text(
             """
@@ -420,10 +465,44 @@ async def _resolve_raster_access(
             status_code=status.HTTP_404_NOT_FOUND, detail="No raster asset"
         )
 
-    visibility = row["visibility"]
-    record_status = row["record_status"]
-    created_by = row["created_by"]
-    storage_backend = row["storage_backend"] or "local"
+    meta = _RasterMeta(
+        visibility=row["visibility"],
+        record_status=row["record_status"],
+        created_by=row["created_by"],
+        record_type=row["record_type"],
+        asset_uri=row["asset_uri"],
+        storage_backend=row["storage_backend"] or "local",
+        band_count=row["band_count"],
+        dtype=row["dtype"],
+        is_dem=row["is_dem"],
+        band_info=row["band_info"],
+    )
+    with _raster_meta_cache_lock:
+        _raster_meta_cache[cache_key] = (now, meta)
+    return meta
+
+
+async def _resolve_raster_access(
+    db: AsyncSession,
+    dataset_id: uuid.UUID,
+    request: Request,
+    user: Identity | None,
+) -> tuple[_RasterMeta, str]:
+    """Validate RBAC access to a raster dataset and return row metadata + storage backend.
+
+    Performs the dataset lookup (cached via _resolve_raster_meta), raster type
+    validation, embed-token / user / RBAC checks (3 auth priority branches), and
+    returns the _RasterMeta together with the resolved storage_backend string.
+
+    Raises HTTPException on any auth or lookup failure.
+    """
+    # PERF-002: metadata resolved from cache; auth checks always run per-request.
+    meta = await _resolve_raster_meta(db, dataset_id)
+
+    visibility = meta.visibility
+    record_status = meta.record_status
+    created_by = meta.created_by
+    storage_backend = meta.storage_backend
 
     # Auth priority 1: embed token
     embed_token_header = request.headers.get("X-Embed-Token")
@@ -493,7 +572,7 @@ async def _resolve_raster_access(
                     status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found"
                 )
 
-    return row, storage_backend
+    return meta, storage_backend
 
 
 @router.get("/raster-auth-check/", response_model=None)
@@ -515,10 +594,10 @@ async def raster_auth_check(
         403 if embed token is invalid
         404 if dataset not found, not a raster, or has no raster asset
     """
-    row, storage_backend = await _resolve_raster_access(db, dataset_id, request, user)
+    meta, storage_backend = await _resolve_raster_access(db, dataset_id, request, user)
 
     # Resolve COG open-path for Titiler
-    asset_uri = row["asset_uri"]
+    asset_uri = meta.asset_uri
     if storage_backend == "remote":
         # STAC import: asset_uri is already a full URL to a remote COG
         open_path = asset_uri
@@ -529,18 +608,18 @@ async def raster_auth_check(
 
     cache_status = (
         "public"
-        if _is_publicly_cacheable(row["visibility"], row["record_status"])
+        if _is_publicly_cacheable(meta.visibility, meta.record_status)
         else "private"
     )
-    if row.get("is_dem"):
+    if meta.is_dem:
         # DEM terrain: use terrainrgb algorithm with NO rescale — the algorithm
         # reads raw elevation values and encodes them into RGB channels directly.
         render_params = "algorithm=terrainrgb"
-    elif storage_backend == "remote" and row.get("band_info"):
+    elif storage_backend == "remote" and meta.band_info:
         # Remote STAC import with statistics — use actual data min/max
         # for rescaling instead of fixed dtype max
-        bi = row["band_info"]
-        bc = row["band_count"] or 1
+        bi = meta.band_info
+        bc = meta.band_count or 1
         parts: list[str] = []
         if bc >= 3:
             parts.extend(["bidx=1", "bidx=2", "bidx=3"])
@@ -549,7 +628,7 @@ async def raster_auth_check(
                 parts.append(f"rescale={bi[i]['min']},{bi[i]['max']}")
         render_params = "&".join(parts)
     else:
-        render_params = _titiler_render_params(row["band_count"], row["dtype"])
+        render_params = _titiler_render_params(meta.band_count, meta.dtype)
 
     return Response(
         status_code=status.HTTP_200_OK,
@@ -557,7 +636,7 @@ async def raster_auth_check(
             "X-GeoLens-Asset-OpenPath": open_path,
             "X-GeoLens-Cache-Status": cache_status,
             "X-GeoLens-Render-Params": render_params,
-            "X-GeoLens-Band-Count": str(row["band_count"] or 1),
+            "X-GeoLens-Band-Count": str(meta.band_count or 1),
         },
     )
 

@@ -29,6 +29,7 @@
   "scripts": {
     "generate": "openapi-ts",
     "build": "tsc",
+    "test": "node --test test/auth_stale_headers.test.mjs",
     "prepublishOnly": "npm run build"
   },
   "dependencies": {

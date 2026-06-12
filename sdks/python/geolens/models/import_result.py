@@ -6,6 +6,10 @@ from typing import Any, TypeVar
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 
+from ..types import UNSET, Unset
+
+from typing import cast
+
 
 T = TypeVar("T", bound="ImportResult")
 
@@ -19,7 +23,10 @@ class ImportResult:
         oauth_deleted (int): Number of OAuth providers deleted (overwrite mode only).
         oauth_updated (int): Number of existing OAuth providers updated.
         settings_applied (int): Number of settings successfully updated.
-        settings_skipped (int): Number of settings skipped (no change or unknown key).
+        settings_skipped (int): Number of settings skipped (no change, unknown key, or enterprise-only key in community
+            edition).
+        settings_skipped_enterprise (list[str] | Unset): Names of enterprise-only setting keys that were skipped because
+            the caller is on the community edition (BUG-011). Empty on enterprise edition.
     """
 
     oauth_created: int
@@ -27,6 +34,7 @@ class ImportResult:
     oauth_updated: int
     settings_applied: int
     settings_skipped: int
+    settings_skipped_enterprise: list[str] | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -40,6 +48,10 @@ class ImportResult:
 
         settings_skipped = self.settings_skipped
 
+        settings_skipped_enterprise: list[str] | Unset = UNSET
+        if not isinstance(self.settings_skipped_enterprise, Unset):
+            settings_skipped_enterprise = self.settings_skipped_enterprise
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -51,6 +63,8 @@ class ImportResult:
                 "settings_skipped": settings_skipped,
             }
         )
+        if settings_skipped_enterprise is not UNSET:
+            field_dict["settings_skipped_enterprise"] = settings_skipped_enterprise
 
         return field_dict
 
@@ -67,12 +81,17 @@ class ImportResult:
 
         settings_skipped = d.pop("settings_skipped")
 
+        settings_skipped_enterprise = cast(
+            list[str], d.pop("settings_skipped_enterprise", UNSET)
+        )
+
         import_result = cls(
             oauth_created=oauth_created,
             oauth_deleted=oauth_deleted,
             oauth_updated=oauth_updated,
             settings_applied=settings_applied,
             settings_skipped=settings_skipped,
+            settings_skipped_enterprise=settings_skipped_enterprise,
         )
 
         import_result.additional_properties = d

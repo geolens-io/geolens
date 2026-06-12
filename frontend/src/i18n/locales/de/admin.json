@@ -162,14 +162,18 @@
       "user": "Benutzer",
       "filename": "Dateiname",
       "status": "Status",
-      "duration": "Dauer"
+      "duration": "Dauer",
+      "details": "Details",
+      "keyboardHint": "Tab zur Detailsteuerung, dann Pfeiltasten zum Navigieren zwischen Zeilen."
     },
     "detail": {
       "errorMessage": "Fehlermeldung",
       "userMetadata": "Benutzer-Metadaten"
     },
     "retry": "Wiederholen",
-    "retrying": "Wird wiederholt..."
+    "retrying": "Wird wiederholt...",
+    "hideDetails": "Details ausblenden für {{name}}",
+    "showDetails": "Details anzeigen für {{name}}"
   },
   "audit": {
     "title": "Protokoll",
@@ -194,7 +198,9 @@
       "action": "Aktion",
       "resource": "Ressource",
       "resourceId": "Ressourcen-ID",
-      "ipAddress": "IP-Adresse"
+      "ipAddress": "IP-Adresse",
+      "details": "Details",
+      "keyboardHint": "Tab zur Detailsteuerung, dann Pfeiltasten zum Navigieren zwischen Zeilen."
     },
     "detailsHint": "Details (Zeile anklicken zum Einklappen)",
     "export": {
@@ -204,7 +210,10 @@
       "errorTitle": "Export fehlgeschlagen",
       "errorBody": "Etwas ist schiefgelaufen. Versuchen Sie es erneut oder schränken Sie den Datumsbereich ein.",
       "formatOptions": "Exportformat-Optionen"
-    }
+    },
+    "detailsDescription": "Erweiterte Protokolldetails",
+    "hideDetails": "Details ausblenden für {{action}}",
+    "showDetails": "Details anzeigen für {{action}}"
   },
   "ai": {
     "title": "KI",
@@ -427,7 +436,7 @@
       "removeBasemap": "Basiskarte entfernen",
       "add": "Hinzufügen",
       "attributionLabel": "Quellenangabe",
-      "attributionPlaceholder": "\u00a9 Anbietername",
+      "attributionPlaceholder": "© Anbietername",
       "attributionHelp": "Optional. HTML für Links erlaubt.",
       "apiKeyLabel": "API-Schlüssel",
       "apiKeyPlaceholder": "Optional — erforderlich wenn URL {api_key} enthält",
@@ -570,7 +579,8 @@
         "viewer": "Betrachter",
         "editor": "Bearbeiter",
         "admin": "Administrator"
-      }
+      },
+      "loadFailed": "OAuth-Anbieter konnten nicht geladen werden"
     }
   },
   "infrastructure": {
@@ -595,7 +605,8 @@
     "degraded": "Eingeschränkte Leistung",
     "autoRefresh": "Automatische Aktualisierung alle 30s",
     "noCdn": "Kein CDN",
-    "oidc": "OIDC"
+    "oidc": "OIDC",
+    "refresh": "Infrastrukturstatus aktualisieren"
   },
   "saml": {
     "title": "SAML SSO",

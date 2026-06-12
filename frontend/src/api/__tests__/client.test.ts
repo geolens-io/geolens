@@ -164,6 +164,75 @@ describe('apiFetch', () => {
     expect(retryHeaders.get('Authorization')).toBe('Bearer new-token');
   });
 
+  // BUG-016: after a successful refresh, a retry that returns a non-401 error
+  // (e.g. 403 Forbidden) must be RETURNED to the caller — NOT treated as an
+  // auth failure. Pre-fix this fell through to logout(); post-fix it returns
+  // the retry response.
+  describe('BUG-016: non-401 retry after refresh is returned, not a logout', () => {
+    it('returns 403 retry response without logging out', async () => {
+      const { refreshAccessToken } = await import('@/api/auth');
+      vi.mocked(refreshAccessToken).mockResolvedValueOnce({
+        access_token: 'new-token',
+        refresh_token: 'new-refresh',
+        token_type: 'bearer',
+        expires_in: 900,
+      });
+
+      useAuthStore.setState({ token: 'expired-token', refreshToken: 'my-refresh' });
+
+      // First call: 401. Refresh succeeds. Retry: 403 (authorization, not auth).
+      mockFetch
+        .mockResolvedValueOnce(errorResponse(401))
+        .mockResolvedValueOnce(errorResponse(403));
+
+      // apiFetch wraps non-ok responses in ApiError AFTER authenticatedFetch returns —
+      // but authenticatedFetch must RETURN the 403 response instead of logging out.
+      // The resulting ApiError should have status 403, not 401, and the user must
+      // still be logged in.
+      await expect(apiFetch('/protected/')).rejects.toMatchObject({ status: 403 });
+      expect(useAuthStore.getState().token).toBe('new-token'); // NOT logged out
+    });
+
+    it('returns 500 retry response without logging out', async () => {
+      const { refreshAccessToken } = await import('@/api/auth');
+      vi.mocked(refreshAccessToken).mockResolvedValueOnce({
+        access_token: 'new-token',
+        refresh_token: 'new-refresh',
+        token_type: 'bearer',
+        expires_in: 900,
+      });
+
+      useAuthStore.setState({ token: 'expired-token', refreshToken: 'my-refresh' });
+
+      mockFetch
+        .mockResolvedValueOnce(errorResponse(401))
+        .mockResolvedValueOnce(errorResponse(500, 'Internal Server Error'));
+
+      await expect(apiFetch('/protected/')).rejects.toMatchObject({ status: 500 });
+      expect(useAuthStore.getState().token).toBe('new-token'); // NOT logged out
+    });
+
+    it('still logs out when retry is ALSO 401', async () => {
+      const { refreshAccessToken } = await import('@/api/auth');
+      vi.mocked(refreshAccessToken).mockResolvedValueOnce({
+        access_token: 'new-token',
+        refresh_token: 'new-refresh',
+        token_type: 'bearer',
+        expires_in: 900,
+      });
+
+      useAuthStore.setState({ token: 'expired-token', refreshToken: 'my-refresh' });
+
+      // Refresh "succeeds" but retry is still 401 → logout
+      mockFetch
+        .mockResolvedValueOnce(errorResponse(401))
+        .mockResolvedValueOnce(errorResponse(401));
+
+      await expect(apiFetch('/protected/')).rejects.toMatchObject({ status: 401 });
+      expect(useAuthStore.getState().token).toBeNull(); // logged out
+    });
+  });
+
   it('logs out and throws on 401 when no refresh token', async () => {
     useAuthStore.setState({ token: 'expired-token', refreshToken: null });
     mockFetch.mockResolvedValueOnce(errorResponse(401));

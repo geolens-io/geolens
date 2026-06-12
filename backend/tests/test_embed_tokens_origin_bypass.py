@@ -69,7 +69,10 @@ class TestEmbedTokenOriginBypassRequiresLoopbackPeer:
         """An attacker on a remote host who sets ``Origin: http://localhost``
         must fail the allowed_origins check — the legacy bypass is now
         gated on TCP peer being loopback."""
+        from datetime import datetime, timedelta, timezone
+
         # Patch the cache to return a positive cache hit with allowed_origins.
+        # SEC-014: cache entry must include expires_at so the expiry re-check passes.
         cache = AsyncMock()
         cache.get = AsyncMock(
             return_value={
@@ -77,9 +80,13 @@ class TestEmbedTokenOriginBypassRequiresLoopbackPeer:
                 "scoped_dataset_ids": ["00000000-0000-0000-0000-000000000001"],
                 "allowed_origins": ["https://customer.example.com"],
                 "map_id": "00000000-0000-0000-0000-000000000002",
+                "expires_at": (
+                    datetime.now(timezone.utc) + timedelta(days=1)
+                ).isoformat(),
             }
         )
         cache.set = AsyncMock()
+        cache.delete = AsyncMock()
         monkeypatch.setattr(embed_service, "get_cache", lambda: cache)
 
         # Forged Origin from a REMOTE peer.
@@ -102,6 +109,7 @@ class TestEmbedTokenOriginBypassRequiresLoopbackPeer:
         Origin and loopback TCP peer is allowed (preserves the original
         dev-ergonomics goal)."""
         import uuid
+        from datetime import datetime, timedelta, timezone
 
         dataset_id = uuid.UUID("00000000-0000-0000-0000-000000000001")
         cache = AsyncMock()
@@ -111,9 +119,13 @@ class TestEmbedTokenOriginBypassRequiresLoopbackPeer:
                 "scoped_dataset_ids": [str(dataset_id)],
                 "allowed_origins": ["https://customer.example.com"],
                 "map_id": "00000000-0000-0000-0000-000000000002",
+                "expires_at": (
+                    datetime.now(timezone.utc) + timedelta(days=1)
+                ).isoformat(),
             }
         )
         cache.set = AsyncMock()
+        cache.delete = AsyncMock()
         monkeypatch.setattr(embed_service, "get_cache", lambda: cache)
 
         request = _make_request(origin="http://localhost:3000", client_host="127.0.0.1")
@@ -130,6 +142,8 @@ class TestEmbedTokenOriginBypassRequiresLoopbackPeer:
     async def test_unlisted_origin_from_loopback_peer_still_rejected(self, monkeypatch):
         """A loopback TCP peer with a non-localhost, non-allowlisted Origin
         is still rejected — the bypass only applies to localhost Origins."""
+        from datetime import datetime, timedelta, timezone
+
         cache = AsyncMock()
         cache.get = AsyncMock(
             return_value={
@@ -137,9 +151,13 @@ class TestEmbedTokenOriginBypassRequiresLoopbackPeer:
                 "scoped_dataset_ids": ["00000000-0000-0000-0000-000000000001"],
                 "allowed_origins": ["https://customer.example.com"],
                 "map_id": "00000000-0000-0000-0000-000000000002",
+                "expires_at": (
+                    datetime.now(timezone.utc) + timedelta(days=1)
+                ).isoformat(),
             }
         )
         cache.set = AsyncMock()
+        cache.delete = AsyncMock()
         monkeypatch.setattr(embed_service, "get_cache", lambda: cache)
 
         request = _make_request(

@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Literal, cast
 
+import structlog
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -23,6 +24,8 @@ from app.platform.jobs.schemas import (
 )
 from app.standards.ogc.errors import ERROR_RESPONSES_AUTH
 
+log = structlog.get_logger()
+
 # Contract: only these two keys may appear in temporal_parse_errors. The
 # alias lets ``cast`` narrow dict writes without triggering ruff F821 on
 # string literals inside the ``Literal[...]`` expression.
@@ -36,12 +39,104 @@ JOB_TIMEOUT_SECONDS = 3600  # 60 minutes (accommodates remote service imports)
 PENDING_TIMEOUT_SECONDS = 3600  # 60 minutes
 
 
+async def sweep_stale_vrt_assets(
+    db: AsyncSession,
+    stale_cutoff: datetime,
+) -> tuple[int, int]:
+    """Reset RasterAsset rows stuck in status='regenerating' past ``stale_cutoff``.
+
+    GAP-002: a worker crash mid-regeneration leaves the VRT asset permanently
+    stuck in ``status='regenerating'``, causing all future link/regenerate
+    calls to 409. This helper mirrors the IngestJob stale-recovery pattern and
+    uses the same ``stale_cutoff = now - JOB_TIMEOUT_SECONDS`` threshold.
+
+    Staleness is measured via the associated ``VrtGeneration.started_at`` for
+    the asset's ``current_generation_id``, falling back to querying all
+    ``VrtGeneration`` rows whose ``started_at`` predates the cutoff and whose
+    ``status`` is still pending/running.
+
+    Recovery status: ``'failed'`` — mirrors the explicit failure-handler path
+    in ``tasks_vrt.regenerate_vrt`` (which sets ``status='failed'`` on any
+    exception). The regeneration did not finish; an operator or retry call
+    can re-trigger it.
+
+    Also marks orphaned ``VrtGeneration`` rows (status pending/running past
+    the cutoff) as ``'failed'`` so the generation table stays consistent.
+
+    Args:
+        db: The active async session (must NOT be committed before returning
+            — the caller is responsible for the final ``await db.commit()``).
+        stale_cutoff: Any regenerating asset whose generation started before
+            this timestamp is considered stale.
+
+    Returns:
+        ``(assets_recovered, gens_failed)``
+    """
+    from app.processing.raster.models import RasterAsset, VrtGeneration
+
+    now = datetime.now(timezone.utc)
+
+    # --- 1. Find stale regenerating RasterAssets ---
+    # A VRT asset is stale when:
+    #   - status = 'regenerating'
+    #   - its latest VrtGeneration (matched by vrt_dataset_id) has
+    #     started_at older than stale_cutoff.
+    # We query via VrtGeneration so the staleness signal is the
+    # regeneration start time, not the asset's last_regenerated_at
+    # (which is only written on successful completion).
+    stale_asset_result = await db.execute(
+        select(RasterAsset).where(
+            RasterAsset.status == "regenerating",
+            RasterAsset.dataset_id.in_(
+                select(VrtGeneration.vrt_dataset_id).where(
+                    VrtGeneration.status.in_(["pending", "running"]),
+                    VrtGeneration.started_at < stale_cutoff,
+                )
+            ),
+        )
+    )
+    stale_assets = list(stale_asset_result.scalars())
+    for asset in stale_assets:
+        asset.status = "failed"
+        asset.current_generation_id = None
+        log.warning(
+            "Recovered stale regenerating VRT asset",
+            dataset_id=str(asset.dataset_id),
+            stale_cutoff=str(stale_cutoff),
+        )
+
+    # --- 2. Mark orphaned VrtGeneration rows as failed ---
+    stale_gen_result = await db.execute(
+        select(VrtGeneration).where(
+            VrtGeneration.status.in_(["pending", "running"]),
+            VrtGeneration.started_at < stale_cutoff,
+        )
+    )
+    stale_gens = list(stale_gen_result.scalars())
+    for gen in stale_gens:
+        gen.status = "failed"
+        gen.completed_at = now
+        gen.error_message = (
+            f"Stale: regeneration running for over {JOB_TIMEOUT_SECONDS // 60} minutes"
+        )
+        log.warning(
+            "Marked stale VrtGeneration as failed",
+            generation_id=str(gen.id),
+        )
+
+    return len(stale_assets), len(stale_gens)
+
+
 async def fail_stale_jobs(db: AsyncSession) -> tuple[int, int]:
     """Mark stale ingest jobs as failed. Returns (pending_failed, running_failed).
 
     Stale rules:
       - status='pending' and created_at older than PENDING_TIMEOUT_SECONDS (orphan, never queued)
       - status='running' and started_at older than JOB_TIMEOUT_SECONDS (worker crashed mid-job)
+
+    Also sweeps VRT RasterAsset rows stuck in status='regenerating' past
+    JOB_TIMEOUT_SECONDS (GAP-002) via the shared ``sweep_stale_vrt_assets``
+    helper. The VRT sweep uses the same stale_cutoff as the running-jobs sweep.
 
     Used by both the admin cleanup endpoint and the background lifespan sweeper.
     """
@@ -74,6 +169,9 @@ async def fail_stale_jobs(db: AsyncSession) -> tuple[int, int]:
             f"Stale: running for over {JOB_TIMEOUT_SECONDS // 60} minutes"
         )
         job.completed_at = now
+
+    # GAP-002: sweep stale VRT regenerating assets using the same cutoff.
+    await sweep_stale_vrt_assets(db, running_cutoff)
 
     await db.commit()
     return len(pending_jobs), len(running_jobs)

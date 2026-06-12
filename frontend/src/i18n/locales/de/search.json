@@ -58,7 +58,15 @@
     "noKeywords": "Keine Schlagworte verfügbar",
     "clearKeywords": "Alle löschen",
     "keywordsCount": "Schlagworte ({{count}})",
-    "sheetDescription": "Ergebnisse verfeinern, ohne die Suchseite zu verlassen."
+    "sheetDescription": "Ergebnisse verfeinern, ohne die Suchseite zu verlassen.",
+    "anyCollection": "Beliebige Sammlung",
+    "areaSelected": "Bereich ausgewählt",
+    "clearLocation": "Ort löschen",
+    "filtersButton": "Filter",
+    "filtersLabel": "Filter",
+    "locationApplied": "Ein Kartenbereich schränkt derzeit die Ergebnisse ein.",
+    "spatialResultCount": "{{count}} im ausgewählten Bereich anzeigen",
+    "updateLocation": "Kartenbereich aktualisieren"
   },
   "collection": {
     "datasetCount_one": "{{count}} Datensatz",
@@ -122,15 +130,20 @@
     "dialogDescription": "Benennen Sie diese Suche, um sie später schnell aufzurufen.",
     "namePlaceholder": "Suchname",
     "saving": "Wird gespeichert...",
-    "removeSavedSearch": "Gespeicherte Suche entfernen"
+    "removeSavedSearch": "Gespeicherte Suche entfernen",
+    "loadError": "Gespeicherte Suchen konnten nicht geladen werden",
+    "savedSearchesLabel": "Gespeicherte Suchen",
+    "saveShort": "Speichern"
   },
   "bbox": {
     "noExtent": "Keine Ausdehnung",
-    "instruction": "Klicken und ziehen, um einen Begrenzungsrahmen zu zeichnen"
+    "instruction": "Klicken und ziehen, um einen Begrenzungsrahmen zu zeichnen",
+    "loading": "Karte wird geladen..."
   },
   "typeahead": {
     "searching": "Suche...",
-    "noResults": "Keine Ergebnisse gefunden"
+    "noResults": "Keine Ergebnisse gefunden",
+    "error": "Ergebnisse konnten nicht geladen werden"
   },
   "quality": {
     "label": "Qualität: {{score}}%"
@@ -165,5 +178,22 @@
       "duplicateColumn": "Doppelter Spaltenname: {{name}}",
       "createFailed": "Datensatz konnte nicht erstellt werden"
     }
+  },
+  "clearSearch": "Suche löschen",
+  "results": "Suchergebnisse",
+  "workspaceTitle": "GeoLens-Katalog durchsuchen",
+  "spatial": {
+    "title": "Suchbereich",
+    "description": "Rechteck oder Polygon zeichnen, um Suchergebnisse auf einen bestimmten Bereich zu begrenzen.",
+    "close": "Schließen",
+    "rectangle": "Rechteck",
+    "polygon": "Polygon",
+    "rectangleInstruction": "Klicken und ziehen, um einen Begrenzungsrahmen zu zeichnen",
+    "polygonInstruction": "Klicken, um Punkte hinzuzufügen, Doppelklick zum Beenden",
+    "predicate": "Modus:",
+    "intersects": "Schneidet",
+    "within": "Innerhalb",
+    "useExtent": "Aktuellen Kartenausschnitt verwenden",
+    "clearArea": "Bereich löschen"
   }
 }

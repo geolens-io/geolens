@@ -16,6 +16,14 @@
   },
   "filters": {
     "geometry": "Geometry Type",
+    "anyCollection": "Any collection",
+    "areaSelected": "Area selected",
+    "clearLocation": "Clear location",
+    "filtersButton": "Filters",
+    "filtersLabel": "filters",
+    "locationApplied": "A map area is currently limiting the results.",
+    "spatialResultCount": "Showing {{count}} in selected area",
+    "updateLocation": "Update location area",
     "anyGeometry": "Any geometry",
     "point": "Point",
     "lineString": "LineString",
@@ -122,15 +130,37 @@
     "dialogDescription": "Give this search a name to quickly access it later.",
     "namePlaceholder": "Search name",
     "saving": "Saving...",
-    "removeSavedSearch": "Remove saved search"
+    "removeSavedSearch": "Remove saved search",
+    "loadError": "Failed to load saved searches",
+    "savedSearchesLabel": "Saved searches",
+    "saveShort": "Save"
+  },
+  "spatial": {
+    "title": "Search area",
+    "description": "Draw a rectangle or polygon to limit search results to a specific area.",
+    "close": "Close",
+    "rectangle": "Rectangle",
+    "polygon": "Polygon",
+    "rectangleInstruction": "Click and drag to draw a bounding box",
+    "polygonInstruction": "Click to add points, double-click to finish",
+    "predicate": "Mode:",
+    "intersects": "Intersects",
+    "within": "Within",
+    "useExtent": "Use current map extent",
+    "clearArea": "Clear area"
   },
   "bbox": {
     "noExtent": "No extent",
-    "instruction": "Click and drag to draw a bounding box"
+    "instruction": "Click and drag to draw a bounding box",
+    "loading": "Loading map..."
   },
+  "clearSearch": "Clear search",
+  "results": "Search results",
+  "workspaceTitle": "Search the GeoLens catalog",
   "typeahead": {
     "searching": "Searching...",
-    "noResults": "No results found"
+    "noResults": "No results found",
+    "error": "Failed to load results"
   },
   "quality": {
     "label": "Completeness: {{score}}%"

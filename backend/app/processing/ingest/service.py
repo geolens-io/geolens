@@ -7,9 +7,9 @@ and table registration for existing PostGIS tables.
 from __future__ import annotations
 
 import asyncio
-import io
 import os
 import re
+import tempfile
 import uuid
 from pathlib import Path
 from typing import Any
@@ -38,6 +38,13 @@ from app.platform.jobs.defer_guard import (
     make_ingest_job_failed_rollback,
 )
 from app.platform.jobs.models import IngestJob
+
+# Spool threshold for S3 uploads (PERF-001): SpooledTemporaryFile buffers this
+# many bytes in memory before spilling to a real temp file on disk.  16 MiB is
+# a reasonable balance — small files stay fully in RAM while large uploads
+# (e.g. a 200 MB GeoTIFF) do not consume hundreds of MB of heap per concurrent
+# request.
+_UPLOAD_SPOOL_MAX_BYTES: int = 16 * 1024 * 1024  # 16 MiB
 
 
 async def discover_unregistered_tables(
@@ -120,7 +127,13 @@ async def save_upload_file(
 ) -> Path | str:
     """Save an uploaded file to staging (local) or S3.
 
-    In S3 mode, uploads directly to S3 and returns the S3 key string.
+    In S3 mode with ``max_size_bytes`` set, streams chunks into a
+    ``tempfile.SpooledTemporaryFile`` (threshold ``_UPLOAD_SPOOL_MAX_BYTES``).
+    Small files stay in memory; large files spill to disk so heap usage is
+    bounded regardless of upload size (PERF-001).  Without ``max_size_bytes``,
+    the raw ``file.file`` handle is streamed directly to S3.  Returns the S3
+    key string in both cases.
+
     In local mode, reads chunks asynchronously (64 KiB) and writes via
     ``run_in_executor`` so synchronous file I/O does not block the event
     loop.  On write failure the partial file is removed before the
@@ -152,23 +165,37 @@ async def save_upload_file(
         safe_name = Path(file.filename).name  # strip path traversal
         s3_key = f"staging/{job_id}/{safe_name}"
         if max_size_bytes is not None:
-            # Stream-and-accumulate so S3 mode enforces the same limit as
-            # local mode without buffering the whole file in memory first.
+            # Stream-and-accumulate with a SpooledTemporaryFile so S3 mode
+            # enforces the same size limit as local mode without holding the
+            # entire upload in memory.  SpooledTemporaryFile buffers up to
+            # _UPLOAD_SPOOL_MAX_BYTES in RAM; once that threshold is exceeded
+            # it spills to a real temp file on disk, bounding heap usage to the
+            # spool threshold regardless of upload size (PERF-001).
+            #
+            # The per-chunk 413 check fires BEFORE the chunk is written so
+            # over-limit uploads are rejected mid-stream, matching the existing
+            # local-mode and presigned-URL behavior.  The try/finally ensures
+            # the temp file is closed (and therefore deleted, since
+            # delete=True is the default) on both the success path and the
+            # 413 raise path.
             total = 0
-            buffered = io.BytesIO()
-            while chunk := await file.read(65536):
-                total += len(chunk)
-                if total > max_size_bytes:
-                    raise HTTPException(
-                        status_code=status.HTTP_413_CONTENT_TOO_LARGE,
-                        detail=(
-                            f"File size exceeds maximum allowed "
-                            f"({max_size_bytes / (1024 * 1024):.1f} MB)."
-                        ),
-                    )
-                buffered.write(chunk)
-            buffered.seek(0)
-            await storage.put(s3_key, buffered)
+            spooled = tempfile.SpooledTemporaryFile(max_size=_UPLOAD_SPOOL_MAX_BYTES)
+            try:
+                while chunk := await file.read(65536):
+                    total += len(chunk)
+                    if total > max_size_bytes:
+                        raise HTTPException(
+                            status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+                            detail=(
+                                f"File size exceeds maximum allowed "
+                                f"({max_size_bytes / (1024 * 1024):.1f} MB)."
+                            ),
+                        )
+                    spooled.write(chunk)
+                spooled.seek(0)
+                await storage.put(s3_key, spooled)
+            finally:
+                spooled.close()
         else:
             await storage.put(s3_key, file.file)
         return s3_key

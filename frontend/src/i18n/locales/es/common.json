@@ -136,7 +136,9 @@
     "sharedMapExpired": "Este enlace de mapa compartido ha caducado o ha sido revocado",
     "forbidden": "403",
     "forbiddenAdmin": "Prohibido — Se requiere acceso de administrador",
-    "forbiddenEditor": "Prohibido — Se requiere acceso de editor o administrador"
+    "forbiddenEditor": "Prohibido — Se requiere acceso de editor o administrador",
+    "loadFailed": "Error al cargar",
+    "mapMessage": "Error de mapa — algunas capas pueden no mostrarse correctamente."
   },
   "settings": {
     "tabs": {
@@ -189,7 +191,16 @@
     "showDescription": "Mostrar descripción del mapa",
     "hideDescription": "Ocultar descripción del mapa",
     "changeBasemap": "Cambiar mapa base",
-    "loadFailed": "No se pudo cargar el mapa"
+    "loadFailed": "No se pudo cargar el mapa",
+    "accessDenied": "Acceso denegado",
+    "authMapRecovery": "Abre tu lista de mapas para confirmar el acceso, o vuelve al catálogo para seguir trabajando.",
+    "browseCatalog": "Explorar catálogo",
+    "geoJsonLoadError": "No se pudieron cargar los datos de la capa",
+    "linkRecovery": "Pide al propietario del mapa un nuevo enlace de compartición si aún necesitas acceso.",
+    "mapError": "Error de tile — algunas capas podrían no mostrarse correctamente.",
+    "openMaps": "Abrir mapas",
+    "signIn": "Iniciar sesión",
+    "tokenError": "No se pudieron cargar los tokens de capa — algunas capas podrían no mostrarse."
   },
   "maps": {
     "title": "Mapas",
@@ -391,5 +402,28 @@
   "export": {
     "poweredBy": "Powered by GeoLens",
     "legendHeader": "Leyenda"
-  }
+  },
+  "actions": {
+    "editGeometry": "Editar geometría"
+  },
+  "map": {
+    "ariaLabel": "Mapa del conjunto de datos",
+    "changeBasemap": "Cambiar mapa base",
+    "deleteFeatureTitle": "Eliminar elemento",
+    "deleteFeatureDescription": "¿Eliminar este elemento? No se puede deshacer.",
+    "discardChangesTitle": "¿Descartar ediciones de mapa sin guardar?",
+    "discardChangesDescription": "Los cambios de geometría no se han guardado. Puedes continuar editando o descartarlos.",
+    "discardChangesAction": "Descartar cambios",
+    "exitFullscreen": "Salir de pantalla completa",
+    "fullscreen": "Pantalla completa",
+    "unsavedDiscarded": "Cambios sin guardar descartados",
+    "zoomToExtent": "Zoom a la extensión del conjunto de datos"
+  },
+  "moreActions": "Más acciones",
+  "notSet": "No establecido",
+  "notSpecified": "No especificado",
+  "page": {
+    "noSpatialExtent": "No hay extensión espacial disponible"
+  },
+  "unknown": "Desconocido"
 }

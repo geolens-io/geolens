@@ -11,7 +11,10 @@
     "mapPreview": "Aperçu de la carte",
     "export": "Exporter",
     "attributeData": "Données attributaires",
-    "noSpatialExtent": "Aucune étendue spatiale disponible"
+    "noSpatialExtent": "Aucune étendue spatiale disponible",
+    "dataFirstTitle": "Jeu de données tabulaire orienté données",
+    "dataFirstDescription": "Cet enregistrement est une table non spatiale. Examinez les lignes ci-dessous, inspectez le schéma dans Structure et utilisez Connecter pour l'accès en aval.",
+    "noMapPreview": "Aucun aperçu de carte"
   },
   "tabs": {
     "overview": "Aperçu",
@@ -28,7 +31,11 @@
     "membersPlaceholder": "Liste des membres de la collection bientôt disponible."
   },
   "inline": {
-    "noDescription": "Ajouter une description..."
+    "noDescription": "Ajouter une description...",
+    "saveFailed": "Échec de la sauvegarde — veuillez réessayer.",
+    "clickToAdd": "Cliquer pour ajouter {{field}}",
+    "noSummaryYet": "Aucun résumé ajouté pour l'instant.",
+    "addSummary": "Ajouter un résumé"
   },
   "affordances": {
     "sectionHint": {
@@ -86,7 +93,10 @@
     "reuploadTooltip": "Remplacer le fichier source de ce jeu de données",
     "createVrtTooltip": "Créer une mosaïque VRT à partir de ce raster",
     "delete": "Supprimer",
-    "deleteTooltip": "Supprimer ce jeu de données"
+    "deleteTooltip": "Supprimer ce jeu de données",
+    "connect": "Connecter",
+    "createVrt": "Créer VRT",
+    "downloadCog": "Télécharger COG"
   },
   "header": {
     "more": "Plus",
@@ -138,7 +148,14 @@
     "provenanceRestricted": "Utilisateur restreint",
     "provenanceSystem": "Système",
     "temporalExtent": "Étendue temporelle",
-    "noTemporalExtent": "Non défini"
+    "noTemporalExtent": "Non défini",
+    "features": "Éléments",
+    "geometry": "Géométrie",
+    "resolutionStrategy": "Résolution",
+    "rows": "Lignes",
+    "sourceCount": "Sources",
+    "updated": "Mis à jour",
+    "version": "Version"
   },
   "metadataEdit": {
     "title": "Modifier les métadonnées",
@@ -166,7 +183,8 @@
     "shp": "Shapefile",
     "csv": "CSV",
     "button": "Exporter",
-    "failed": "Échec de l'exportation"
+    "failed": "Échec de l'exportation",
+    "formatLabel": "Format d'exportation"
   },
   "attributes": {
     "noData": "Aucune donnée disponible",
@@ -178,7 +196,8 @@
     "noResults": "Aucune ligne correspondante trouvée.",
     "showingExact": "Affichage {{start}}-{{end}} sur {{total}} lignes",
     "rowsPerPage": "Lignes par page",
-    "columns": "Colonnes"
+    "columns": "Colonnes",
+    "loadFailed": "Impossible de charger les données. Veuillez réessayer."
   },
   "changeHistory": {
     "title": "Historique des modifications ({{count}})",
@@ -238,7 +257,15 @@
     "genTriggeredBy": "Déclenché par",
     "healthHealthy": "Sain",
     "healthMissing": "Jeu de données source supprimé",
-    "healthInaccessible": "Fichier source inaccessible"
+    "healthInaccessible": "Fichier source inaccessible",
+    "healthHealthyShort": "Sain",
+    "healthMissingShort": "Manquant",
+    "healthInaccessibleShort": "Inaccessible",
+    "healthUnknownShort": "Inconnu",
+    "noSources": "Aucune source",
+    "searchError": "Impossible de rechercher des jeux de données.",
+    "sourcesLoadError": "Impossible de charger les sources VRT.",
+    "sourceTableHealth": "Santé"
   },
   "deleteDialog": {
     "title": "Supprimer le jeu de données",
@@ -514,7 +541,8 @@
     "noDistributions": "Aucune distribution disponible.",
     "auto": "auto",
     "primary": "Principal",
-    "copyUrl": "Copier l'URL"
+    "copyUrl": "Copier l'URL",
+    "loadError": "Impossible de charger les distributions."
   },
   "publish": {
     "publish": "Publier",
@@ -523,7 +551,8 @@
     "success": "Jeu de données publié avec succès.",
     "unpublished": "Jeu de données déplacé en brouillon.",
     "failed": "Échec de la mise à jour du statut de publication.",
-    "validationBlocker": "Impossible de publier — résolvez d'abord ces problèmes :"
+    "validationBlocker": "Impossible de publier — résolvez d'abord ces problèmes :",
+    "unpublishTitle": "Dépublier le jeu de données ?"
   },
   "iso": {
     "lineage": "Lignage",
@@ -587,7 +616,12 @@
     }
   },
   "relatedDatasets": {
-    "title": "Jeux de données liés"
+    "title": "Jeux de données liés",
+    "featureCount": "{{count}} éléments",
+    "featureCount_one": "{{count}} élément",
+    "featureCount_other": "{{count}} éléments",
+    "similarDatasets": "Jeux de données similaires",
+    "similarityMatch": "{{percent}}% de correspondance"
   },
   "relatedRecords": {
     "title": "Enregistrements associes",
@@ -603,7 +637,40 @@
     "unknown": "Inconnu",
     "provenanceTitle": "Provenance",
     "provenanceUpload": "Téléversement de données",
-    "provenanceFeatures": "entités"
+    "provenanceFeatures": "entités",
+    "aboutTitle": "À propos de ce jeu de données",
+    "apiTitle": "Accès via API",
+    "appearsIn": "Apparaît dans",
+    "bandColor": "Couleur",
+    "bandDetails": "Détails des bandes",
+    "bandNodata": "Nodata",
+    "bands": "Bandes",
+    "bandType": "Type",
+    "bbox": "BBox",
+    "cadence": "Cadence",
+    "compression": "Compression",
+    "created": "Créé",
+    "crs": "SCR",
+    "dimensions": "Dimensions",
+    "fileSize": "Taille du fichier",
+    "generationStatus": "Statut",
+    "lastRegenerated": "Dernière régénération",
+    "maintainer": "Responsable",
+    "metadataTitle": "Métadonnées",
+    "nextFillIn": "Suivant : remplir {{field}}",
+    "nodata": "Nodata",
+    "ogcApiFeatures": "OGC API Features",
+    "percentComplete": "{{percent}}% complet",
+    "rasterProperties": "Propriétés raster",
+    "recommendedCount_one": "{{count}} recommandé",
+    "recommendedCount_other": "{{count}} recommandés",
+    "requiredCount_one": "{{count}} requis",
+    "requiredCount_other": "{{count}} requis",
+    "resolution": "Résolution",
+    "reviewIssues": "Réviser les problèmes",
+    "source": "Source",
+    "tagsTitle": "Étiquettes",
+    "vrtType": "Type VRT"
   },
   "sources": {
     "system": "Système",
@@ -636,7 +703,8 @@
     "boundingBox": "Boîte englobante",
     "sourceInformation": "Informations sur la source",
     "quality": "Qualité",
-    "governance": "Gouvernance"
+    "governance": "Gouvernance",
+    "identityAndDerivation": "Dérivation"
   },
   "ai": {
     "assist": "Assistance IA",
@@ -652,6 +720,22 @@
     "keywordsAlreadyExist": "Les mots-clés existent déjà",
     "keywordsAddFailed": "Impossible d'ajouter les mots-clés",
     "lineageFailed": "Impossible de générer la filiation",
-    "qualityStatementFailed": "Impossible de générer la déclaration de qualité"
+    "qualityStatementFailed": "Impossible de générer la déclaration de qualité",
+    "generateSummary": "Générer un résumé",
+    "draftLineage": "Rédiger la lignée",
+    "draftQualityStatement": "Rédiger une déclaration de qualité"
+  },
+  "common": {
+    "cancel": "Annuler"
+  },
+  "temporal": {
+    "startDate": "Début de la période des données",
+    "endDate": "Fin de la période des données"
+  },
+  "unsaved": {
+    "title": "Modifications non sauvegardées",
+    "description": "Vous avez des modifications non sauvegardées. Êtes-vous sûr de vouloir quitter ? Vos modifications seront perdues.",
+    "stay": "Rester",
+    "leave": "Quitter"
   }
 }

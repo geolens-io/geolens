@@ -6401,9 +6401,17 @@
             "type": "integer"
           },
           "settings_skipped": {
-            "description": "Number of settings skipped (no change or unknown key).",
+            "description": "Number of settings skipped (no change, unknown key, or enterprise-only key in community edition).",
             "title": "Settings Skipped",
             "type": "integer"
+          },
+          "settings_skipped_enterprise": {
+            "description": "Names of enterprise-only setting keys that were skipped because the caller is on the community edition (BUG-011). Empty on enterprise edition.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Settings Skipped Enterprise",
+            "type": "array"
           }
         },
         "required": [

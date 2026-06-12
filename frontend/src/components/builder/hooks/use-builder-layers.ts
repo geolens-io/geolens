@@ -904,7 +904,15 @@ export function useBuilderLayers(
     updatedPaint: Record<string, unknown>,
   ) => {
     const map = mapInstanceRef.current;
-    if (!map || !map.isStyleLoaded()) return;
+    if (!map) return;
+    // BUG-018: mirror the idle-retry pattern from BuilderMap.tsx (~:923).
+    // A render-mode switch during a basemap style transition must not be silently
+    // dropped. Register a one-shot `idle` listener so the swap is retried as soon
+    // as the map settles (idle fires after style.load + tiles + transitions).
+    if (!map.isStyleLoaded()) {
+      map.once('idle', () => swapLayerOnMap(layer, adapterType, updatedPaint));
+      return;
+    }
 
     const mapLayerId = `layer-${layer.id}`;
     const sourceId = getSourceIdForLayer(layer);

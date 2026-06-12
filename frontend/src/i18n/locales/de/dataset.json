@@ -11,7 +11,10 @@
     "mapPreview": "Kartenvorschau",
     "export": "Exportieren",
     "attributeData": "Attributdaten",
-    "noSpatialExtent": "Keine räumliche Ausdehnung verfügbar"
+    "noSpatialExtent": "Keine räumliche Ausdehnung verfügbar",
+    "dataFirstTitle": "Datenorientierter Tabellendatensatz",
+    "dataFirstDescription": "Dies ist eine nicht-räumliche Tabelle. Zeilen unten prüfen, Schema in Struktur inspizieren und Verbinden für nachgelagerten Zugriff verwenden.",
+    "noMapPreview": "Keine Kartenvorschau"
   },
   "tabs": {
     "overview": "Übersicht",
@@ -28,7 +31,11 @@
     "membersPlaceholder": "Auflistung der Sammlungsmitglieder kommt bald."
   },
   "inline": {
-    "noDescription": "Beschreibung hinzufügen..."
+    "noDescription": "Beschreibung hinzufügen...",
+    "saveFailed": "Speichern fehlgeschlagen — bitte erneut versuchen.",
+    "clickToAdd": "{{field}} hinzufügen",
+    "noSummaryYet": "Noch keine Zusammenfassung hinzugefügt.",
+    "addSummary": "Zusammenfassung hinzufügen"
   },
   "affordances": {
     "sectionHint": {
@@ -86,7 +93,10 @@
     "reuploadTooltip": "Quelldatei dieses Datensatzes ersetzen",
     "createVrtTooltip": "VRT-Mosaik aus diesem Raster erstellen",
     "delete": "Löschen",
-    "deleteTooltip": "Diesen Datensatz löschen"
+    "deleteTooltip": "Diesen Datensatz löschen",
+    "connect": "Verbinden",
+    "createVrt": "VRT erstellen",
+    "downloadCog": "COG herunterladen"
   },
   "header": {
     "more": "Mehr",
@@ -138,7 +148,14 @@
     "provenanceRestricted": "Eingeschränkter Benutzer",
     "provenanceSystem": "System",
     "temporalExtent": "Zeitliche Ausdehnung",
-    "noTemporalExtent": "Nicht festgelegt"
+    "noTemporalExtent": "Nicht festgelegt",
+    "features": "Elemente",
+    "geometry": "Geometrie",
+    "resolutionStrategy": "Auflösung",
+    "rows": "Zeilen",
+    "sourceCount": "Quellen",
+    "updated": "Aktualisiert",
+    "version": "Version"
   },
   "metadataEdit": {
     "title": "Metadaten bearbeiten",
@@ -166,7 +183,8 @@
     "shp": "Shapefile",
     "csv": "CSV",
     "button": "Exportieren",
-    "failed": "Export fehlgeschlagen"
+    "failed": "Export fehlgeschlagen",
+    "formatLabel": "Exportformat"
   },
   "attributes": {
     "noData": "Keine Daten verfügbar",
@@ -178,7 +196,8 @@
     "noResults": "Keine passenden Zeilen gefunden.",
     "showingExact": "{{start}}-{{end}} von {{total}} Zeilen",
     "rowsPerPage": "Zeilen pro Seite",
-    "columns": "Spalten"
+    "columns": "Spalten",
+    "loadFailed": "Daten konnten nicht geladen werden. Bitte erneut versuchen."
   },
   "changeHistory": {
     "title": "Änderungsverlauf ({{count}})",
@@ -238,7 +257,15 @@
     "genTriggeredBy": "Ausgelöst von",
     "healthHealthy": "Gesund",
     "healthMissing": "Quelldatensatz gelöscht",
-    "healthInaccessible": "Quelldatei nicht zugänglich"
+    "healthInaccessible": "Quelldatei nicht zugänglich",
+    "healthHealthyShort": "Gesund",
+    "healthMissingShort": "Fehlend",
+    "healthInaccessibleShort": "Nicht erreichbar",
+    "healthUnknownShort": "Unbekannt",
+    "noSources": "Keine Quellen",
+    "searchError": "Datensätze konnten nicht durchsucht werden.",
+    "sourcesLoadError": "VRT-Quellen konnten nicht geladen werden.",
+    "sourceTableHealth": "Gesundheit"
   },
   "deleteDialog": {
     "title": "Datensatz löschen",
@@ -514,7 +541,8 @@
     "noDistributions": "Keine Distributionen verfügbar.",
     "auto": "auto",
     "primary": "Primär",
-    "copyUrl": "URL kopieren"
+    "copyUrl": "URL kopieren",
+    "loadError": "Verteilungen konnten nicht geladen werden."
   },
   "publish": {
     "publish": "Veröffentlichen",
@@ -523,7 +551,8 @@
     "success": "Datensatz erfolgreich veröffentlicht.",
     "unpublished": "Datensatz in Entwurf verschoben.",
     "failed": "Veröffentlichungsstatus konnte nicht aktualisiert werden.",
-    "validationBlocker": "Veröffentlichung nicht möglich — beheben Sie zuerst diese Probleme:"
+    "validationBlocker": "Veröffentlichung nicht möglich — beheben Sie zuerst diese Probleme:",
+    "unpublishTitle": "Datensatz depublizieren?"
   },
   "iso": {
     "lineage": "Herkunft",
@@ -587,7 +616,12 @@
     }
   },
   "relatedDatasets": {
-    "title": "Verwandte Datensätze"
+    "title": "Verwandte Datensätze",
+    "featureCount": "{{count}} Elemente",
+    "featureCount_one": "{{count}} Element",
+    "featureCount_other": "{{count}} Elemente",
+    "similarDatasets": "Ähnliche Datensätze",
+    "similarityMatch": "{{percent}}% Übereinstimmung"
   },
   "relatedRecords": {
     "title": "Verknuepfte Datensaetze",
@@ -603,7 +637,40 @@
     "unknown": "Unbekannt",
     "provenanceTitle": "Herkunft",
     "provenanceUpload": "Datei-Upload",
-    "provenanceFeatures": "Features"
+    "provenanceFeatures": "Features",
+    "aboutTitle": "Über diesen Datensatz",
+    "apiTitle": "Zugang über API",
+    "appearsIn": "Erscheint in",
+    "bandColor": "Farbe",
+    "bandDetails": "Banddetails",
+    "bandNodata": "Nodata",
+    "bands": "Bänder",
+    "bandType": "Typ",
+    "bbox": "BBox",
+    "cadence": "Aktualisierungshäufigkeit",
+    "compression": "Komprimierung",
+    "created": "Erstellt",
+    "crs": "KRS",
+    "dimensions": "Abmessungen",
+    "fileSize": "Dateigröße",
+    "generationStatus": "Status",
+    "lastRegenerated": "Zuletzt neu generiert",
+    "maintainer": "Betreuer",
+    "metadataTitle": "Metadaten",
+    "nextFillIn": "Nächstes: {{field}} ausfüllen",
+    "nodata": "Nodata",
+    "ogcApiFeatures": "OGC API Features",
+    "percentComplete": "{{percent}}% vollständig",
+    "rasterProperties": "Raster-Eigenschaften",
+    "recommendedCount_one": "{{count}} empfohlen",
+    "recommendedCount_other": "{{count}} empfohlen",
+    "requiredCount_one": "{{count}} erforderlich",
+    "requiredCount_other": "{{count}} erforderlich",
+    "resolution": "Auflösung",
+    "reviewIssues": "Probleme prüfen",
+    "source": "Quelle",
+    "tagsTitle": "Tags",
+    "vrtType": "VRT-Typ"
   },
   "sources": {
     "system": "System",
@@ -636,7 +703,8 @@
     "boundingBox": "Begrenzungsrahmen",
     "sourceInformation": "Quellinformationen",
     "quality": "Qualität",
-    "governance": "Governance"
+    "governance": "Governance",
+    "identityAndDerivation": "Herleitung"
   },
   "ai": {
     "assist": "KI-Assistent",
@@ -652,6 +720,22 @@
     "keywordsAlreadyExist": "Schlagwörter sind bereits vorhanden",
     "keywordsAddFailed": "Schlagwörter konnten nicht hinzugefügt werden",
     "lineageFailed": "Herkunftsbeschreibung konnte nicht erstellt werden",
-    "qualityStatementFailed": "Qualitätsbeschreibung konnte nicht erstellt werden"
+    "qualityStatementFailed": "Qualitätsbeschreibung konnte nicht erstellt werden",
+    "generateSummary": "Zusammenfassung generieren",
+    "draftLineage": "Herkunft entwerfen",
+    "draftQualityStatement": "Qualitätsaussage entwerfen"
+  },
+  "common": {
+    "cancel": "Abbrechen"
+  },
+  "temporal": {
+    "startDate": "Datenvintage Start",
+    "endDate": "Datenvintage Ende"
+  },
+  "unsaved": {
+    "title": "Nicht gespeicherte Änderungen",
+    "description": "Sie haben nicht gespeicherte Änderungen. Möchten Sie die Seite wirklich verlassen? Ihre Änderungen gehen verloren.",
+    "stay": "Bleiben",
+    "leave": "Verlassen"
   }
 }

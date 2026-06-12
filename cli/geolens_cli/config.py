@@ -69,23 +69,39 @@ def write_default_instance(instance: str, username: Optional[str]) -> None:
     if username is not None:
         section["username"] = username
     payload = {"default": section}
-    atomic_write_text(config_path(), tomli_w.dumps(payload), mode=0o600)
+    atomic_write_text(config_path(), tomli_w.dumps(payload), mode=0o600, tighten_parent=True)
 
 
-def atomic_write_text(path: Path, content: str, *, mode: int = 0o600) -> None:
+def atomic_write_text(
+    path: Path,
+    content: str,
+    *,
+    mode: int = 0o600,
+    tighten_parent: bool = False,
+) -> None:
     """Write content to path atomically with the given file mode.
 
-    Per RESEARCH Pattern 4: tempfile in same dir + chmod + os.replace. Parent
-    directory is created at 0o700 if missing. On any failure the tempfile is
-    removed before the exception propagates.
+    Per RESEARCH Pattern 4: tempfile in same dir + chmod + os.replace.
+
+    Args:
+        path: Destination file path.
+        content: Text content to write.
+        mode: File permission mode (default 0o600 for secrets).
+        tighten_parent: When True, create/chmod the parent directory to 0o700.
+            Use this only for SECRET files (e.g. credentials.toml). For
+            non-secret outputs (e.g. ``geolens export stac -o file``), leave
+            this False so the parent directory's mode is not changed.
+            (BUG-014)
     """
-    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-    # Tighten parent dir mode in case it pre-existed at a different mode.
-    try:
-        os.chmod(path.parent, 0o700)
-    except OSError:
-        # On some platforms (Windows) chmod is a no-op; not fatal.
-        pass
+    if tighten_parent:
+        path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        try:
+            os.chmod(path.parent, 0o700)
+        except OSError:
+            # On some platforms (Windows) chmod is a no-op; not fatal.
+            pass
+    else:
+        path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp_path = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
     try:
         os.write(fd, content.encode("utf-8"))

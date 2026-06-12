@@ -257,9 +257,28 @@ async def validate_embed_token_access(
     if cached is not None:
         if not cached.get("is_valid", False):
             return False
-        allowed_origins = cached.get("allowed_origins")
-        scoped_dataset_ids = cached.get("scoped_dataset_ids", [])
-    else:
+
+        # SEC-014: re-check expiry on every cache hit so a token cannot stay
+        # valid for up to the 5-minute positive-cache TTL past its real
+        # expires_at.  The cached dict now stores expires_at as an ISO string;
+        # if the entry pre-dates the fix (no expires_at key) treat it as a
+        # miss so the token is re-validated from the DB.
+        now = datetime.now(timezone.utc)
+        cached_expires_at_str = cached.get("expires_at")
+        if cached_expires_at_str is None:
+            # Stale cache entry without expiry info — evict and fall through.
+            await cache.delete(cache_key)
+            cached = None
+        else:
+            cached_expires_at = datetime.fromisoformat(cached_expires_at_str)
+            if now >= cached_expires_at:
+                # Token has expired since it was cached — evict and deny.
+                await cache.delete(cache_key)
+                return False
+            allowed_origins = cached.get("allowed_origins")
+            scoped_dataset_ids = cached.get("scoped_dataset_ids", [])
+
+    if cached is None:
         # Cache miss -- query DB
         now = datetime.now(timezone.utc)
         result = await db.execute(
@@ -279,7 +298,10 @@ async def validate_embed_token_access(
         allowed_origins = token.allowed_origins
         scoped_dataset_ids = token.scoped_dataset_ids
 
-        # Cache positive result
+        # Cache positive result — include expires_at so every cache hit can
+        # re-check expiry (SEC-014).
+        seconds_until_expiry = (token.expires_at - now).total_seconds()
+        cache_ttl = int(min(300, max(0, seconds_until_expiry)))
         await cache.set(
             cache_key,
             {
@@ -287,8 +309,9 @@ async def validate_embed_token_access(
                 "scoped_dataset_ids": scoped_dataset_ids,
                 "allowed_origins": allowed_origins,
                 "map_id": str(token.map_id),
+                "expires_at": token.expires_at.isoformat(),
             },
-            ttl=300,
+            ttl=cache_ttl,
         )
 
     # Domain-locking check (before dataset scope check).

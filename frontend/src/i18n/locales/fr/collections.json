@@ -35,7 +35,9 @@
     "datasetCount_one": "{{count}} jeu de données",
     "datasetCount_other": "{{count}} jeux de données",
     "created": "Créé le {{date}}",
-    "temporalPresent": "présent"
+    "temporalPresent": "présent",
+    "emptyBadge": "Vide",
+    "emptyHint": "Cette collection n'a pas encore de jeux de données."
   },
   "createDialog": {
     "title": "Créer une collection",
@@ -97,5 +99,11 @@
     "addDatasetsFailed": "Failed to add datasets to collection",
     "removeError": "Échec du retrait du jeu de données",
     "addError": "Échec de l'ajout du jeu de données"
+  },
+  "sort": {
+    "label": "Trier par",
+    "lastUpdated": "Dernière mise à jour",
+    "dateCreated": "Date de création",
+    "name": "Nom"
   }
 }

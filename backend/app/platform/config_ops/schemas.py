@@ -80,7 +80,14 @@ class ImportResult(BaseModel):
         description="Number of settings successfully updated."
     )
     settings_skipped: int = Field(
-        description="Number of settings skipped (no change or unknown key)."
+        description="Number of settings skipped (no change, unknown key, or "
+        "enterprise-only key in community edition)."
+    )
+    settings_skipped_enterprise: list[str] = Field(
+        default_factory=list,
+        description="Names of enterprise-only setting keys that were skipped "
+        "because the caller is on the community edition (BUG-011). Empty on "
+        "enterprise edition.",
     )
     oauth_created: int = Field(description="Number of new OAuth providers created.")
     oauth_updated: int = Field(

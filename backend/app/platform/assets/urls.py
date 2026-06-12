@@ -3,8 +3,17 @@
 Rules:
   - Published thumbnails: public URL (no auth, cacheable)
   - S3 + published data assets: presigned URL (time-limited)
-  - Local storage: always proxy through API
-  - Draft/ready/internal records: always proxy regardless of storage
+  - Local storage: no unauthenticated proxy URL emitted (GAP-031)
+  - Draft/ready/internal records: no unauthenticated proxy URL emitted (GAP-031)
+
+GAP-031 — The previous implementation emitted ``/assets/{key}`` for all
+local-storage and non-published paths.  That URL has no backend route: the
+nginx ``location /assets/`` block serves the SPA bundle directory, not
+storage files, so the URL was both dead and a potential collision surface.
+Because ``dataset_assets`` is never populated (BUG-041, Tier-2), this change
+has no live output impact.  Returning ``None`` for the unsafe proxy path lets
+callers (e.g. ``_build_stac_assets``) omit the asset entry rather than emit a
+broken href.
 """
 
 from __future__ import annotations
@@ -24,7 +33,7 @@ def resolve_asset_url(
     public_api_url: str,
     storage_provider: "StorageProvider | None" = None,
     presign_ttl: int = 3600,
-) -> str:
+) -> str | None:
     """Resolve an asset href to the correct URL form.
 
     Args:
@@ -37,34 +46,23 @@ def resolve_asset_url(
         presign_ttl: Presigned URL TTL in seconds (default 3600).
 
     Returns:
-        Resolved URL string.
+        Resolved URL string, or None when no safe authorized URL exists
+        (e.g. local-storage paths that would collide with the SPA /assets/
+        nginx location — GAP-031).
     """
-    is_thumbnail = roles is not None and "thumbnail" in roles
+    # S3 + published data assets: signed URL (always safe — signed by provider)
     is_published = record_status == "published"
-
-    # Non-published records: always proxy
-    if not is_published:
-        return _proxy_url(href, public_api_url)
-
-    # Published thumbnails: public URL (no auth required)
-    if is_thumbnail:
-        return _proxy_url(href, public_api_url)
-
-    # S3 + published data assets: signed URL
-    if storage_backend == "s3" and storage_provider is not None:
+    if is_published and storage_backend == "s3" and storage_provider is not None:
         key = _extract_storage_key(href)
         return storage_provider.generate_presigned_get_url(key, expiration=presign_ttl)
 
-    # Fallback: proxy through API
-    return _proxy_url(href, public_api_url)
-
-
-def _proxy_url(href: str, public_api_url: str) -> str:
-    """Build a proxy URL through the API."""
-    key = _extract_storage_key(href)
-    base = public_api_url.rstrip("/") if public_api_url else ""
-    path = f"/assets/{key}"
-    return f"{base}{path}"
+    # GAP-031: Do NOT emit a bare /assets/{key} proxy URL.  No backend route
+    # exists for that path; nginx serves the SPA bundle at /assets/ and would
+    # return the SPA index or a 404 — never the storage file.  Return None so
+    # callers can omit the asset entry rather than publish a dead href.
+    # This covers: local storage (any status), non-S3, and S3 without a
+    # signed-URL provider.
+    return None
 
 
 def _extract_storage_key(href: str) -> str:

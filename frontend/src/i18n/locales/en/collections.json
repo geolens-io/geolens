@@ -35,7 +35,15 @@
     "datasetCount_one": "{{count}} dataset",
     "datasetCount_other": "{{count}} datasets",
     "created": "Created {{date}}",
-    "temporalPresent": "present"
+    "temporalPresent": "present",
+    "emptyBadge": "Empty",
+    "emptyHint": "This collection has no datasets yet."
+  },
+  "sort": {
+    "label": "Sort by",
+    "lastUpdated": "Last updated",
+    "dateCreated": "Date created",
+    "name": "Name"
   },
   "createDialog": {
     "title": "Create Collection",

@@ -40,14 +40,30 @@ export XDG_CACHE_HOME="${APP_CACHE_DIR}"
 export UV_CACHE_DIR
 export PYTHONPATH="/app${PYTHONPATH:+:${PYTHONPATH}}"
 
-# Install enterprise extensions if mounted
-# Uses `uv add --editable --no-dev` so the package is visible in the
-# uv-managed production venv that `uv run --no-dev python -m app.worker` uses.
+# Enterprise overlay — runtime install path (legacy / dev only).
+#
+# WARNING (BUG-003): This runtime `uv add --editable` CANNOT succeed when the
+# container runs with read_only: true rootfs (the default hardened deployment).
+# The baked /app/.venv is on the read-only layer and uv cannot write into it.
+# If this block runs and the install fails, the app will boot as community
+# edition; GEOLENS_EDITION=enterprise will now trigger a loud startup failure
+# rather than a silent OSS fallback.
+#
+# The architecturally correct path for production Enterprise deployments is to
+# pre-bake the overlay into the image at BUILD TIME using:
+#   docker build --build-arg INSTALL_ENTERPRISE_OVERLAY=1 ...
+# (see ARG INSTALL_ENTERPRISE_OVERLAY in Dockerfile)
+#
+# This block is retained for dev/CI scenarios where the container runs without
+# read_only (e.g. `docker compose up` for local development with a mounted
+# enterprise directory).  It will fail silently under read_only — the startup
+# check added in BUG-003 will then refuse to boot as OSS.
 ENTERPRISE_PATH="${GEOLENS_ENTERPRISE_PATH:-/enterprise}"
 if [ -d "${ENTERPRISE_PATH}" ] && [ -f "${ENTERPRISE_PATH}/pyproject.toml" ]; then
-    echo "Installing enterprise extensions..."
+    echo "Installing enterprise extensions (runtime path — only works without read_only rootfs)..."
     uv add --editable "${ENTERPRISE_PATH}" --no-dev 2>&1 || {
-        echo "WARNING: Enterprise package install failed" >&2
+        echo "WARNING: Enterprise package install failed. Under read_only rootfs this is expected." >&2
+        echo "Use the build-time bake path (ARG INSTALL_ENTERPRISE_OVERLAY in Dockerfile) for production." >&2
     }
     # Re-own cache after root install so appuser can access it later
     if [ "$(id -u)" -eq 0 ]; then
