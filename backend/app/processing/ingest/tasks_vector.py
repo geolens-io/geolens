@@ -22,6 +22,34 @@ from app.processing.ingest.tasks_common import (
 )
 
 
+def _should_unlink_staging(
+    *,
+    file_path: str,
+    original_file_path: str,
+    final_status: str,
+    is_fan_out_child: bool,
+) -> bool:
+    """Decide whether the local staging file should be unlinked on task exit.
+
+    Three cases:
+      - Per-child S3 download (``file_path != original_file_path``): a private
+        copy resolved by ``resolve_file_path`` as ``{job_id}_{name}``. No
+        sibling shares it, so it is always safe to unlink — including for
+        fan-out children (GAP-018) and on failure (S3 is the source of truth).
+      - Shared local-staging file (``file_path == original_file_path``) of a
+        fan-out child: NEVER unlink — siblings read the same file; the staging
+        retention policy reaps it later (GPKG-03 close-gate fix).
+      - Shared local-staging file of a non-fan-out job: unlink only on success;
+        keep on failure so a retry can re-read it.
+    """
+    is_private_s3_download = file_path != original_file_path
+    if is_private_s3_download:
+        return True
+    if is_fan_out_child:
+        return False
+    return final_status == "complete"
+
+
 @task_app.task(queue="ingest", retry=0, aliases=["app.ingest.tasks.ingest_file"])
 async def ingest_file(job_id: str, file_path: str, user_id: str, **kwargs) -> None:
     """Background task: run ogr2ogr, extract metadata, register dataset.
@@ -347,13 +375,19 @@ async def ingest_file(job_id: str, file_path: str, user_id: str, **kwargs) -> No
         # local copy). Local-only uploads are kept for retry.
         #
         # Phase 1060 close-gate fix (GPKG-03 fan-out): multiple fan-out
-        # sibling jobs share the same staging file. When one sibling
-        # completes and unlinks the file, the next sibling fails with
-        # FileNotFoundError. Skip the local unlink when this job is part
-        # of a fan-out (identified by fan_out_parent_id in user_metadata).
-        # Orphan-file cleanup for fan-out staging files is a v1014 followup
-        # (tracked as TECH-DEBT-GPKG-03-ORPHAN-CLEANUP) — for now the
-        # staging dir retention policy handles eventual cleanup.
+        # sibling jobs that read from the SHARED LOCAL staging file
+        # (file_path == original_file_path) must not unlink it — when one
+        # sibling completes and unlinks, the next sibling fails with
+        # FileNotFoundError. So the shared-local-staging file is preserved
+        # for fan-out children and reaped later by the staging retention
+        # policy.
+        #
+        # GAP-018 (Tier-2): in S3 mode each child resolves its OWN per-child
+        # download (resolve_file_path -> "{child_job_id}_{name}", so
+        # file_path != original_file_path). That copy is PRIVATE to this
+        # child — no sibling shares it — so it is always safe to unlink even
+        # for fan-out children. Previously the is_fan_out_child guard skipped
+        # cleanup unconditionally, leaking every child's S3 download on disk.
         is_fan_out_child = False
         try:
             # REMED-03 / P2-05: route through _job_phase_session. The helper
@@ -369,10 +403,12 @@ async def ingest_file(job_id: str, file_path: str, user_id: str, **kwargs) -> No
         except Exception:  # broad: cleanup decision is best-effort, never block completion on this query
             is_fan_out_child = False
 
-        if final_status == "complete" and not is_fan_out_child:
-            Path(file_path).unlink(missing_ok=True)
-        elif file_path != original_file_path and not is_fan_out_child:
-            # Downloaded from S3 for processing -- safe to clean up
+        if _should_unlink_staging(
+            file_path=file_path,
+            original_file_path=original_file_path,
+            final_status=final_status,
+            is_fan_out_child=is_fan_out_child,
+        ):
             Path(file_path).unlink(missing_ok=True)
 
 
