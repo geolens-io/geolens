@@ -385,7 +385,12 @@ export async function reuploadPresigned(
 // ---------------------------------------------------------------------------
 
 export async function listRelationships(datasetId: string): Promise<import('@/types/api').DatasetRelationship[]> {
-  return apiFetch<import('@/types/api').DatasetRelationship[]>(`/datasets/${datasetId}/relationships/`);
+  // GAP-033: the endpoint now returns the standard list envelope
+  // ({ relationships, total }); unwrap to keep this helper's array contract.
+  const res = await apiFetch<import('@/types/api').DatasetRelationshipListResponse>(
+    `/datasets/${datasetId}/relationships/`,
+  );
+  return res.relationships;
 }
 
 export async function createRelationship(

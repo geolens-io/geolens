@@ -31,6 +31,7 @@ from app.modules.catalog.datasets.domain.schemas import (
     ColumnStatsResponse,
     ColumnValuesResponse,
     DatasetRelationshipCreate,
+    DatasetRelationshipListResponse,
     DatasetRelationshipResponse,
     DatasetRowsResponse,
     DatasetVersionListResponse,
@@ -333,7 +334,7 @@ async def get_column_stats_endpoint(
 
 @router.get(
     "/{dataset_id}/relationships/",
-    response_model=list[DatasetRelationshipResponse],
+    response_model=DatasetRelationshipListResponse,
 )
 async def list_dataset_relationships(
     dataset_id: uuid.UUID,
@@ -346,11 +347,14 @@ async def list_dataset_relationships(
     ),
     user: Identity | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
-) -> list[DatasetRelationshipResponse]:
+) -> DatasetRelationshipListResponse:
     """List FK relationships for a dataset.
 
     Paginated via ``skip`` and ``limit`` to bound response size for datasets
-    with large numbers of auto-detected relationships.
+    with large numbers of auto-detected relationships. Returns the standard
+    list envelope (``relationships`` + ``total``) so callers can detect whether
+    more pages exist (GAP-033); ``total`` counts the visible relationships before
+    pagination.
     """
     dataset = await get_dataset(db, dataset_id)
     if dataset is None:
@@ -359,12 +363,17 @@ async def list_dataset_relationships(
         )
     user_roles = await check_dataset_access_or_anonymous(db, dataset, dataset_id, user)
 
-    from app.modules.catalog.datasets.domain.service import list_relationships
+    from app.modules.catalog.datasets.domain.service import (
+        list_relationships_with_total,
+    )
 
-    items = await list_relationships(
+    items, total = await list_relationships_with_total(
         db, dataset.record_id, user=user, user_roles=user_roles, skip=skip, limit=limit
     )
-    return [DatasetRelationshipResponse(**item) for item in items]
+    return DatasetRelationshipListResponse(
+        relationships=[DatasetRelationshipResponse(**item) for item in items],
+        total=total,
+    )
 
 
 @router.post(

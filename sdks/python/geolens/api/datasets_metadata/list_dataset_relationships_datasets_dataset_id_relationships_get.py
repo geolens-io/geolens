@@ -8,7 +8,7 @@ from ...client import AuthenticatedClient, Client
 from ...types import Response, UNSET
 from ... import errors
 
-from ...models.dataset_relationship_response import DatasetRelationshipResponse
+from ...models.dataset_relationship_list_response import DatasetRelationshipListResponse
 from ...models.problem_detail import ProblemDetail
 from ...types import Unset
 from uuid import UUID
@@ -42,16 +42,9 @@ def _get_kwargs(
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> ProblemDetail | list[DatasetRelationshipResponse] | None:
+) -> DatasetRelationshipListResponse | ProblemDetail | None:
     if response.status_code == 200:
-        response_200 = []
-        _response_200 = response.json()
-        for response_200_item_data in _response_200:
-            response_200_item = DatasetRelationshipResponse.from_dict(
-                response_200_item_data
-            )
-
-            response_200.append(response_200_item)
+        response_200 = DatasetRelationshipListResponse.from_dict(response.json())
 
         return response_200
 
@@ -98,7 +91,7 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[ProblemDetail | list[DatasetRelationshipResponse]]:
+) -> Response[DatasetRelationshipListResponse | ProblemDetail]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -113,13 +106,16 @@ def sync_detailed(
     client: AuthenticatedClient,
     skip: int | Unset = 0,
     limit: int | Unset = 100,
-) -> Response[ProblemDetail | list[DatasetRelationshipResponse]]:
+) -> Response[DatasetRelationshipListResponse | ProblemDetail]:
     """List Dataset Relationships
 
      List FK relationships for a dataset.
 
     Paginated via ``skip`` and ``limit`` to bound response size for datasets
-    with large numbers of auto-detected relationships.
+    with large numbers of auto-detected relationships. Returns the standard
+    list envelope (``relationships`` + ``total``) so callers can detect whether
+    more pages exist (GAP-033); ``total`` counts the visible relationships before
+    pagination.
 
     Args:
         dataset_id (UUID):
@@ -131,7 +127,7 @@ def sync_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[ProblemDetail | list[DatasetRelationshipResponse]]
+        Response[DatasetRelationshipListResponse | ProblemDetail]
     """
 
     kwargs = _get_kwargs(
@@ -153,13 +149,16 @@ def sync(
     client: AuthenticatedClient,
     skip: int | Unset = 0,
     limit: int | Unset = 100,
-) -> ProblemDetail | list[DatasetRelationshipResponse] | None:
+) -> DatasetRelationshipListResponse | ProblemDetail | None:
     """List Dataset Relationships
 
      List FK relationships for a dataset.
 
     Paginated via ``skip`` and ``limit`` to bound response size for datasets
-    with large numbers of auto-detected relationships.
+    with large numbers of auto-detected relationships. Returns the standard
+    list envelope (``relationships`` + ``total``) so callers can detect whether
+    more pages exist (GAP-033); ``total`` counts the visible relationships before
+    pagination.
 
     Args:
         dataset_id (UUID):
@@ -171,7 +170,7 @@ def sync(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        ProblemDetail | list[DatasetRelationshipResponse]
+        DatasetRelationshipListResponse | ProblemDetail
     """
 
     return sync_detailed(
@@ -188,13 +187,16 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     skip: int | Unset = 0,
     limit: int | Unset = 100,
-) -> Response[ProblemDetail | list[DatasetRelationshipResponse]]:
+) -> Response[DatasetRelationshipListResponse | ProblemDetail]:
     """List Dataset Relationships
 
      List FK relationships for a dataset.
 
     Paginated via ``skip`` and ``limit`` to bound response size for datasets
-    with large numbers of auto-detected relationships.
+    with large numbers of auto-detected relationships. Returns the standard
+    list envelope (``relationships`` + ``total``) so callers can detect whether
+    more pages exist (GAP-033); ``total`` counts the visible relationships before
+    pagination.
 
     Args:
         dataset_id (UUID):
@@ -206,7 +208,7 @@ async def asyncio_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[ProblemDetail | list[DatasetRelationshipResponse]]
+        Response[DatasetRelationshipListResponse | ProblemDetail]
     """
 
     kwargs = _get_kwargs(
@@ -226,13 +228,16 @@ async def asyncio(
     client: AuthenticatedClient,
     skip: int | Unset = 0,
     limit: int | Unset = 100,
-) -> ProblemDetail | list[DatasetRelationshipResponse] | None:
+) -> DatasetRelationshipListResponse | ProblemDetail | None:
     """List Dataset Relationships
 
      List FK relationships for a dataset.
 
     Paginated via ``skip`` and ``limit`` to bound response size for datasets
-    with large numbers of auto-detected relationships.
+    with large numbers of auto-detected relationships. Returns the standard
+    list envelope (``relationships`` + ``total``) so callers can detect whether
+    more pages exist (GAP-033); ``total`` counts the visible relationships before
+    pagination.
 
     Args:
         dataset_id (UUID):
@@ -244,7 +249,7 @@ async def asyncio(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        ProblemDetail | list[DatasetRelationshipResponse]
+        DatasetRelationshipListResponse | ProblemDetail
     """
 
     return (

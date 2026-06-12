@@ -2411,6 +2411,27 @@ export type DatasetRelationshipCreate = {
 };
 
 /**
+ * DatasetRelationshipListResponse
+ *
+ * Paginated list envelope for dataset FK relationships (GAP-033).
+ *
+ * Mirrors the ``{<entity>: [...], total: int}`` convention used by every other
+ * paginated list endpoint (e.g. AttributeMetadataListResponse,
+ * VrtGenerationListResponse) so callers can detect whether more pages exist.
+ * ``total`` is the count of *visible* relationships before skip/limit.
+ */
+export type DatasetRelationshipListResponse = {
+    /**
+     * Relationships
+     */
+    relationships: Array<DatasetRelationshipResponse>;
+    /**
+     * Total
+     */
+    total: number;
+};
+
+/**
  * DatasetRelationshipResponse
  */
 export type DatasetRelationshipResponse = {
@@ -14795,11 +14816,9 @@ export type ListDatasetRelationshipsDatasetsDatasetIdRelationshipsGetError = Lis
 
 export type ListDatasetRelationshipsDatasetsDatasetIdRelationshipsGetResponses = {
     /**
-     * Response List Dataset Relationships Datasets  Dataset Id  Relationships  Get
-     *
      * Successful Response
      */
-    200: Array<DatasetRelationshipResponse>;
+    200: DatasetRelationshipListResponse;
 };
 
 export type ListDatasetRelationshipsDatasetsDatasetIdRelationshipsGetResponse = ListDatasetRelationshipsDatasetsDatasetIdRelationshipsGetResponses[keyof ListDatasetRelationshipsDatasetsDatasetIdRelationshipsGetResponses];

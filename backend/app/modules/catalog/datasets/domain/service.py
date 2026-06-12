@@ -59,6 +59,7 @@ from app.modules.catalog.datasets.domain.service_relationships import (
     get_related_records,
     get_relationship_datasets,
     list_relationships,
+    list_relationships_with_total,
 )
 
 __all__ = [
@@ -82,6 +83,7 @@ __all__ = [
     "list_attributes",
     "list_datasets",
     "list_relationships",
+    "list_relationships_with_total",
     "reset_attribute",
     "update_attribute",
     "update_auto_metadata",

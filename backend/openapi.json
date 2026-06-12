@@ -4093,6 +4093,28 @@
         "title": "DatasetRelationshipCreate",
         "type": "object"
       },
+      "DatasetRelationshipListResponse": {
+        "description": "Paginated list envelope for dataset FK relationships (GAP-033).\n\nMirrors the ``{<entity>: [...], total: int}`` convention used by every other\npaginated list endpoint (e.g. AttributeMetadataListResponse,\nVrtGenerationListResponse) so callers can detect whether more pages exist.\n``total`` is the count of *visible* relationships before skip/limit.",
+        "properties": {
+          "relationships": {
+            "items": {
+              "$ref": "#/components/schemas/DatasetRelationshipResponse"
+            },
+            "title": "Relationships",
+            "type": "array"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "relationships",
+          "total"
+        ],
+        "title": "DatasetRelationshipListResponse",
+        "type": "object"
+      },
       "DatasetRelationshipResponse": {
         "properties": {
           "id": {
@@ -28011,7 +28033,7 @@
     },
     "/datasets/{dataset_id}/relationships/": {
       "get": {
-        "description": "List FK relationships for a dataset.\n\nPaginated via ``skip`` and ``limit`` to bound response size for datasets\nwith large numbers of auto-detected relationships.",
+        "description": "List FK relationships for a dataset.\n\nPaginated via ``skip`` and ``limit`` to bound response size for datasets\nwith large numbers of auto-detected relationships. Returns the standard\nlist envelope (``relationships`` + ``total``) so callers can detect whether\nmore pages exist (GAP-033); ``total`` counts the visible relationships before\npagination.",
         "operationId": "list_dataset_relationships_datasets__dataset_id__relationships__get",
         "parameters": [
           {
@@ -28057,11 +28079,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/DatasetRelationshipResponse"
-                  },
-                  "title": "Response List Dataset Relationships Datasets  Dataset Id  Relationships  Get",
-                  "type": "array"
+                  "$ref": "#/components/schemas/DatasetRelationshipListResponse"
                 }
               }
             },
