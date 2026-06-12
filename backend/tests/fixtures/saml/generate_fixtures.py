@@ -4,13 +4,23 @@ Run with::
 
     cd backend && uv run python tests/fixtures/saml/generate_fixtures.py
 
-(or, when running outside a uv sync that includes pysaml2, inside the API
-docker container with the enterprise overlay installed -- see Phase 217
-RESEARCH.md S10.)
+(requires pysaml2 + xmlsec1 -- available via the enterprise overlay; see
+Phase 217 RESEARCH.md S10.)
 
 Produces 5 base64-encoded SAMLResponse XML fixtures used by tests in
-``backend/tests/test_saml_overlay.py``. Re-run only when the fixture cert
-rotates or new fixtures are needed.
+``backend/tests/test_saml_overlay.py``.
+
+Signing keypair (SEC-015)
+-------------------------
+No private key is tracked in the repo. ``main()`` resolves the IdP signing
+keypair via ``_resolve_keypair``: it prefers a committed ``idp_cert.pem`` +
+``idp_key.pem`` pair (manual rotation / back-compat) and otherwise
+self-generates a throwaway RSA pair into the output dir. At test time the
+session fixture routes output to a temp dir, so a fresh pair is minted there
+and the matching cert is published next to the fixtures for SP-side
+validation. Running this module directly refreshes only the PUBLIC committed
+fallback (``idp_cert.pem`` + the signed ``.xml.b64.template`` files) from a
+throwaway keypair that is never written to the tracked tree.
 
 Outputs
 -------
@@ -95,8 +105,13 @@ def _xmlsec_binary() -> str:
     return "xmlsec1"
 
 
-def _make_server(sp_metadata_path: Path) -> Server:
-    """Construct a pysaml2 Server (IdP simulator) loaded with the fixture cert/key."""
+def _make_server(sp_metadata_path: Path, cert_path: Path, key_path: Path) -> Server:
+    """Construct a pysaml2 Server (IdP simulator) loaded with the fixture cert/key.
+
+    ``cert_path`` / ``key_path`` are resolved by ``_resolve_keypair`` -- either
+    a committed pair (manual rotation / back-compat) or a throwaway pair
+    self-generated into the output dir (SEC-015: no private key tracked).
+    """
     config = IdPConfig()
     config.load(
         {
@@ -121,8 +136,8 @@ def _make_server(sp_metadata_path: Path) -> Server:
                     "want_authn_requests_signed": False,
                 },
             },
-            "key_file": str(KEY_PEM),
-            "cert_file": str(CERT_PEM),
+            "key_file": str(key_path),
+            "cert_file": str(cert_path),
             "metadata": {"local": [str(sp_metadata_path)]},
             "xmlsec_binary": _xmlsec_binary(),
             "valid_for": 24,
@@ -288,23 +303,83 @@ def _build_xsw_attack_xml(signed_xml: str) -> str:
     return signed_xml.replace(legit_assertion, evil_assertion, 1)
 
 
-def main(output_dir: Path | None = None) -> None:
-    if not CERT_PEM.exists() or not KEY_PEM.exists():
-        raise SystemExit(
-            f"Missing fixture cert/key: {CERT_PEM}, {KEY_PEM}. "
-            "Generate with: openssl req -x509 -newkey rsa:2048 "
-            f"-keyout {KEY_PEM.name} -out {CERT_PEM.name} -days 36500 -nodes "
-            '-subj "/CN=fixture-idp.geolens.test"'
-        )
+def _generate_keypair(target: Path) -> tuple[Path, Path]:
+    """Self-generate a throwaway RSA-2048 keypair + self-signed cert into ``target``.
 
+    SEC-015: no private key is tracked in the repo. When the committed cert/key
+    are absent, the IdP simulator signs with a freshly-minted pair written
+    alongside the generated fixtures, and the SP-side test seeds the matching
+    ``idp_cert.pem`` so signature validation passes. (A *different* cert is
+    rejected with a SignatureError -- that asymmetry is exactly what the
+    negative fixtures rely on.)
+
+    The cert validity window is fixed (2020-01-01 .. 2120-01-01) so the cert
+    never expires; assertion freshness comes from pysaml2's 15-minute policy
+    lifetime applied at signing time.
+    """
+    import datetime
+
+    from cryptography import x509
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+    from cryptography.x509.oid import NameOID
+
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    name = x509.Name(
+        [x509.NameAttribute(NameOID.COMMON_NAME, "fixture-idp.geolens.test")]
+    )
+    cert = (
+        x509.CertificateBuilder()
+        .subject_name(name)
+        .issuer_name(name)
+        .public_key(key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(datetime.datetime(2020, 1, 1))
+        .not_valid_after(datetime.datetime(2120, 1, 1))
+        .sign(key, hashes.SHA256())
+    )
+    cert_path = target / "idp_cert.pem"
+    key_path = target / "idp_key.pem"
+    key_path.write_bytes(
+        key.private_bytes(
+            serialization.Encoding.PEM,
+            serialization.PrivateFormat.PKCS8,
+            serialization.NoEncryption(),
+        )
+    )
+    cert_path.write_bytes(cert.public_bytes(serialization.Encoding.PEM))
+    return cert_path, key_path
+
+
+def _resolve_keypair(target: Path) -> tuple[Path, Path]:
+    """Resolve the IdP signing keypair as ``(cert_path, key_path)``.
+
+    Prefers a committed ``idp_cert.pem`` + ``idp_key.pem`` (manual rotation /
+    back-compat); otherwise self-generates a throwaway pair into ``target``
+    (SEC-015 -- no private key tracked in the repo).
+    """
+    if CERT_PEM.exists() and KEY_PEM.exists():
+        return CERT_PEM, KEY_PEM
+    return _generate_keypair(target)
+
+
+def main(output_dir: Path | None = None) -> None:
     target = output_dir if output_dir is not None else HERE
     target.mkdir(parents=True, exist_ok=True)
 
     import tempfile
 
+    cert_path, key_path = _resolve_keypair(target)
+    # Always publish the signing cert next to the generated fixtures so the
+    # SP-side test validates against the cert that actually signed them
+    # (committed cert when a tracked pair exists, fresh cert otherwise).
+    published_cert = target / "idp_cert.pem"
+    if cert_path.resolve() != published_cert.resolve():
+        published_cert.write_bytes(cert_path.read_bytes())
+
     tmpdir = Path(tempfile.mkdtemp(prefix="saml_fixture_gen_"))
     sp_meta = _write_sp_metadata(tmpdir)
-    server = _make_server(sp_meta)
+    server = _make_server(sp_meta, cert_path, key_path)
 
     # 1. Signed (happy path)
     signed_xml = _build_signed_response_xml(server)
@@ -336,4 +411,23 @@ def main(output_dir: Path | None = None) -> None:
 
 
 if __name__ == "__main__":
-    main()  # output_dir=None → target = HERE; manual CLI behavior preserved.
+    # Refresh the committed PUBLIC fallback (idp_cert.pem + signed
+    # .xml.b64.template files). A throwaway keypair is minted in a temp dir,
+    # used to sign, then discarded -- only the public cert + templates are
+    # copied into the tracked tree (SEC-015: the private key is never written
+    # to the repo). This keeps the committed cert and templates mutually
+    # consistent after a rotation.
+    import tempfile as _tempfile
+
+    _staging = Path(_tempfile.mkdtemp(prefix="saml_fixture_publish_"))
+    main(output_dir=_staging)
+    shutil.copyfile(_staging / "idp_cert.pem", HERE / "idp_cert.pem")
+    for _name in (
+        "idp_response_signed.xml.b64",
+        "idp_response_replay.xml.b64",
+        "idp_response_expired.xml.b64",
+        "idp_response_unsigned.xml.b64",
+        "idp_response_xsw.xml.b64",
+    ):
+        shutil.copyfile(_staging / _name, HERE / f"{_name}.template")
+    print(f"refreshed committed cert + templates in {HERE}")
