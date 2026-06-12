@@ -92,8 +92,13 @@ class _DatasetMeta(NamedTuple):
     tile_columns: list[str] | None
 
 
-_dataset_cache: dict[str, tuple[float, _DatasetMeta]] = {}
-# threading.Lock is safe here — dict reads/writes are synchronous, no await inside lock
+# PERF-006: bounded LRU so a long-lived tile worker does not grow one entry per
+# distinct table_name ever tiled and never shrink. Mirrors the adjacent
+# _band_stats_cache = LRUCache(maxsize=256) (HYG-01); LRUCache supports the same
+# .get() / [] / assignment interface as dict. The per-entry TTL check on read is
+# unchanged — LRU bounds the count, the timestamp bounds staleness.
+_dataset_cache: LRUCache[str, tuple[float, _DatasetMeta]] = LRUCache(maxsize=256)
+# threading.Lock is safe here — cache reads/writes are synchronous, no await inside lock
 _dataset_cache_lock = threading.Lock()
 
 # ---------------------------------------------------------------------------
