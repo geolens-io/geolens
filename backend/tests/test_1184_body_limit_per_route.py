@@ -378,3 +378,36 @@ class TestGap001PerRouteBodyCap:
             "GAP-001: 5 MB body to non-upload route must not be 413 "
             f"(default cap is 10 MB); got {resp.status_code}"
         )
+
+
+class TestGap032ProblemDetailShape:
+    """GAP-032: the 413 body-limit response must be RFC 7807 ProblemDetail.
+
+    The body-limit middleware fires before register_error_handlers installs the
+    shared exception handlers, so it builds the error body itself. It must match
+    the app-wide convention exactly — the type/title/status/detail envelope and
+    the application/problem+json media type — or SDK consumers that branch on the
+    uniform error shape get a non-conforming bare {"detail": ...} on 413.
+
+    FAILS pre-fix (bare body, application/json), PASSES post-fix.
+    """
+
+    @pytest.mark.anyio
+    async def test_413_is_problem_json_envelope(self, client: AsyncClient):
+        """The Content-Length 413 path returns the ProblemDetail envelope."""
+        resp = await client.post(
+            "/health",
+            content=b"x",
+            headers={"Content-Length": str(_11MB)},
+        )
+        assert resp.status_code == 413
+        assert resp.headers["content-type"].startswith("application/problem+json"), (
+            "GAP-032: 413 must use application/problem+json media type; "
+            f"got {resp.headers.get('content-type')!r}"
+        )
+        body = resp.json()
+        # RFC 7807 ProblemDetail keys (mirrors app.standards.ogc.errors.ProblemDetail).
+        assert body["type"] == "about:blank"
+        assert body["title"] == "Payload Too Large"
+        assert body["status"] == 413
+        assert "too large" in body["detail"].lower()
