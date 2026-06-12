@@ -372,6 +372,14 @@ async def import_config(
         for cfg in _registry:
             if cfg.key in validated:
                 continue  # will be overwritten below
+            # BUG-011 parity: a community caller cannot mutate enterprise-only
+            # keys, so it must not RESET them either. They were skipped (not
+            # applied) in the validation pass above; without this gate, overwrite
+            # mode would still call reset() on them — reverting enterprise-only
+            # branding/appearance settings to env defaults despite reporting them
+            # as skipped.
+            if not caller_is_enterprise and cfg.tab in _ENTERPRISE_ONLY_TABS:
+                continue
             await cfg.reset(db, user_id=user_id, ip_address=ip_address)
 
     for key, value in validated.items():

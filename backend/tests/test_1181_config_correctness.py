@@ -352,6 +352,72 @@ class TestBug011EditionGatedImport:
         )
 
     @pytest.mark.anyio
+    async def test_community_overwrite_does_not_reset_enterprise_keys(
+        self, community_edition
+    ):
+        """OVERWRITE-mode regression (Codex P2 on PR #248): a community caller
+        importing in overwrite mode must NOT reset enterprise-only keys.
+
+        Overwrite mode resets every registered key not present in the import.
+        Enterprise-only keys are skipped by the validation gate (never in
+        ``validated``), so without an equivalent gate on the reset loop they
+        would still be reset() — reverting enterprise branding/appearance to env
+        defaults despite being reported as skipped.
+
+        Pre-fix: branding.* (and every other enterprise-only key) is reset.
+        Post-fix: enterprise-only keys are excluded from the reset loop, while
+        allowed non-imported keys are still reset (overwrite semantics kept).
+        """
+        from app.core.persistent_config import _registry
+        from app.modules.settings.router import _ENTERPRISE_ONLY_TABS
+        from app.platform.config_ops.service import import_config
+
+        mock_db = AsyncMock(spec=AsyncSession)
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = None
+        mock_result.scalars.return_value.all.return_value = []
+        mock_result.all.return_value = []
+        mock_db.execute = AsyncMock(return_value=mock_result)
+        mock_db.commit = AsyncMock()
+        mock_db.rollback = AsyncMock()
+
+        reset_keys: list[str] = []
+
+        async def spy_reset(self, db, **kwargs):
+            reset_keys.append(self.key)
+
+        # Import only an allowed key; every other registered key is a reset
+        # candidate in overwrite mode.
+        data = {"settings": {"ai_enabled": True}}
+
+        with patch(
+            "app.core.persistent_config.PersistentConfig.set",
+            new_callable=AsyncMock,
+        ):
+            with patch(
+                "app.core.persistent_config.PersistentConfig.reset",
+                new=spy_reset,
+            ):
+                await import_config(
+                    db=mock_db,
+                    data=data,
+                    mode="overwrite",
+                    user_id=uuid.uuid4(),
+                    ip_address=None,
+                )
+
+        enterprise_keys = {c.key for c in _registry if c.tab in _ENTERPRISE_ONLY_TABS}
+        assert enterprise_keys, "expected the registry to define enterprise-only keys"
+        leaked = enterprise_keys & set(reset_keys)
+        assert not leaked, (
+            "community overwrite import must NOT reset enterprise-only keys; "
+            f"reset: {sorted(leaked)}"
+        )
+        # Overwrite semantics preserved: at least one allowed, non-imported key
+        # was still reset (guards against a vacuous pass).
+        assert reset_keys, "overwrite mode should still reset allowed non-imported keys"
+
+    @pytest.mark.anyio
     async def test_enterprise_can_import_enterprise_key(self, enterprise_edition):
         """An enterprise-edition caller importing a branding key must succeed."""
         from app.platform.config_ops.service import import_config

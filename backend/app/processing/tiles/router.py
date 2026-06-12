@@ -98,15 +98,23 @@ _dataset_cache_lock = threading.Lock()
 
 # ---------------------------------------------------------------------------
 # PERF-002: Short-TTL cache for raster dataset/asset metadata.
-# Mirrors the vector _dataset_cache pattern.  Authorization is NEVER cached —
-# only the static DB row (visibility, record_status, asset_uri, …) is stored.
-# Per-request access checks always run against the cached metadata fields.
+# Mirrors the vector _dataset_cache pattern.  The whole DB row is cached,
+# INCLUDING the access-control fields (visibility, record_status) — per-request
+# authz reads them from this cached snapshot rather than re-querying.  This is a
+# deliberate tile-cache tradeoff with CDN max-age semantics: after a dataset is
+# made private/unpublished, anonymous tile requests are rejected within at most
+# _RASTER_META_CACHE_TTL seconds, not instantly.  The same bounded window
+# applies to the vector cache.  Keep the TTL short.
 # ---------------------------------------------------------------------------
 _RASTER_META_CACHE_TTL = 60  # seconds — same TTL as the vector cache
 
 
 class _RasterMeta(NamedTuple):
-    """Immutable metadata extracted from a raster dataset+record+asset DB row."""
+    """Snapshot of raster dataset+record+asset fields for tile serving.
+
+    Includes the mutable access-control fields (visibility, record_status); see
+    the _RASTER_META_CACHE_TTL note for the bounded-staleness tradeoff.
+    """
 
     visibility: str
     record_status: str
@@ -400,8 +408,11 @@ async def _resolve_raster_meta(
     """Look up raster dataset/asset metadata with a short in-memory cache.
 
     PERF-002: mirrors the vector _resolve_dataset_meta / _dataset_cache pattern.
-    Only immutable metadata is cached.  Per-request authorization always runs
-    against the returned fields — it is never cached.
+    The cached snapshot INCLUDES the access-control fields (visibility,
+    record_status); per-request authz reads them from the cache, so a
+    visibility/status change takes effect only after the entry expires — at most
+    _RASTER_META_CACHE_TTL seconds (a deliberate tile-cache tradeoff, same
+    bounded window as the vector path).
 
     Raises HTTPException(404) when the dataset is missing, is not a raster, or
     has no raster asset.

@@ -53,7 +53,7 @@ RUN chmod +x /app/scripts/api-entrypoint.sh /app/scripts/worker-entrypoint.sh
 # The architecturally correct solution is to pre-bake the overlay INTO the image
 # at BUILD time so the read_only runtime never needs to write.
 #
-# Usage (enterprise build — two steps):
+# Usage (enterprise build — derived image, three steps):
 #
 #   1. Place the overlay source in the build context and allow it in .dockerignore:
 #        cp -r /path/to/geolens-enterprise ./enterprise
@@ -61,7 +61,14 @@ RUN chmod +x /app/scripts/api-entrypoint.sh /app/scripts/worker-entrypoint.sh
 #        #   !enterprise/
 #        #   !enterprise/**
 #
-#   2. Build with the ARG set:
+#   2. In a DERIVED Dockerfile (or a patched copy of this one) add a COPY that
+#      stages the overlay into the image BEFORE the INSTALL_ENTERPRISE_OVERLAY
+#      RUN below.  The OSS image intentionally omits it — an unconditional
+#      `COPY enterprise/ /enterprise/` would fail the OSS build, where the path
+#      is absent / .dockerignore-excluded:
+#        COPY enterprise/ /enterprise/
+#
+#   3. Build with the ARG set:
 #        docker build \
 #            --build-arg INSTALL_ENTERPRISE_OVERLAY=1 \
 #            -t geolens-api:enterprise .
@@ -74,8 +81,10 @@ RUN chmod +x /app/scripts/api-entrypoint.sh /app/scripts/worker-entrypoint.sh
 # so the OSS path is exercised on every run.
 #
 # NOTE: enterprise/ is excluded from the build context by .dockerignore (default
-# deny-then-allow pattern).  For an enterprise build the COPY below picks it up
-# only when the operator has added !enterprise/ to .dockerignore per step 1.
+# deny-then-allow pattern), and this OSS Dockerfile intentionally has NO
+# `COPY enterprise/` (an unconditional copy would break the OSS build).  The
+# guard below therefore fails closed unless the operator both allows enterprise/
+# in .dockerignore (step 1) AND adds the COPY in a derived image (step 2).
 ARG INSTALL_ENTERPRISE_OVERLAY=
 RUN --mount=type=cache,target=/root/.cache/uv \
     if [ -n "${INSTALL_ENTERPRISE_OVERLAY:-}" ]; then \
