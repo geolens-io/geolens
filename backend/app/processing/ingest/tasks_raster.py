@@ -161,6 +161,32 @@ async def create_raster_dataset(
     return record, dataset, raster_asset
 
 
+async def _cleanup_orphaned_storage_keys(keys: list[str], *, job_id: str) -> None:
+    """Best-effort delete storage keys written before a failed/rolled-back commit.
+
+    GAP-017: raster ingest puts COG/quicklook bytes to storage BEFORE the
+    terminal DB commit. If the commit (or any later step) fails, the dataset row
+    is rolled back and ``delete_dataset`` never runs for it, orphaning the bytes.
+    This reaps exactly the keys that were written. Failures here are swallowed —
+    cleanup must never mask the original ingest error.
+    """
+    from app.platform.storage import get_storage
+
+    try:
+        storage = get_storage()
+    except Exception:  # broad: storage may be unavailable; nothing to clean then
+        return
+    for key in keys:
+        try:
+            await storage.delete(key)
+        except Exception:  # broad: best-effort per-key cleanup, keep going
+            structlog.get_logger().warning(
+                "Failed to clean up orphaned raster asset",
+                job_id=job_id,
+                storage_key=key,
+            )
+
+
 @task_app.task(queue="raster", retry=0, aliases=["app.ingest.tasks.ingest_raster"])
 async def ingest_raster(job_id: str, file_path: str, user_id: str, **kwargs) -> None:
     """Background task: validate GeoTIFF, convert to COG, extract metadata, register dataset.
@@ -204,6 +230,12 @@ async def ingest_raster(job_id: str, file_path: str, user_id: str, **kwargs) -> 
     tmp_dir: str | None = None
     original_file_path = file_path
     final_status: str = "pending"
+    # GAP-017: storage keys written BEFORE the terminal DB commit. base_key
+    # embeds dataset.id, a flushed-but-uncommitted UUID — if the commit (or any
+    # step after the puts) fails the dataset row is rolled back, so delete_dataset
+    # never reaps these assets. Track them and clean up on the failure path so a
+    # crash mid-ingest doesn't orphan COG/quicklook bytes under rasters/.
+    written_storage_keys: list[str] = []
 
     try:
         # ----------------------------------------------------------------- #
@@ -446,10 +478,15 @@ async def ingest_raster(job_id: str, file_path: str, user_id: str, **kwargs) -> 
             ql256_key = f"{base_key}/quicklook_256.png"
             ql512_key = f"{base_key}/quicklook_512.png"
 
+            # GAP-017: record each key right after its put so the failure
+            # path can delete exactly what was written (and nothing more).
             with open(local_cog_path, "rb") as fobj:
                 await storage.put(cog_key, fobj)
+            written_storage_keys.append(cog_key)
             await storage.put(ql256_key, io.BytesIO(ql256))
+            written_storage_keys.append(ql256_key)
             await storage.put(ql512_key, io.BytesIO(ql512))
+            written_storage_keys.append(ql512_key)
 
             # 11. Update asset URIs and create distribution
             raster_asset.asset_uri = cog_key
@@ -519,6 +556,13 @@ async def ingest_raster(job_id: str, file_path: str, user_id: str, **kwargs) -> 
         final_status = "failed"
         raise
     finally:
+        # GAP-017: orphan-asset cleanup. If we wrote COG/quicklook bytes to
+        # storage but did NOT reach a successful terminal commit, the dataset
+        # row those keys belong to was rolled back — delete_dataset will never
+        # reap them. Remove them here so a crash/commit-failure mid-ingest does
+        # not leave bytes under a rasters/{dataset_id}/ prefix with no DB row.
+        if final_status != "complete" and written_storage_keys:
+            await _cleanup_orphaned_storage_keys(written_storage_keys, job_id=job_id)
         # Clean up temp COG dir
         if tmp_dir:
             shutil.rmtree(tmp_dir, ignore_errors=True)
