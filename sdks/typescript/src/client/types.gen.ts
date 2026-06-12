@@ -3741,9 +3741,15 @@ export type ImportResult = {
     /**
      * Settings Skipped
      *
-     * Number of settings skipped (no change or unknown key).
+     * Number of settings skipped (no change, unknown key, or enterprise-only key in community edition).
      */
     settings_skipped: number;
+    /**
+     * Settings Skipped Enterprise
+     *
+     * Names of enterprise-only setting keys that were skipped because the caller is on the community edition (BUG-011). Empty on enterprise edition.
+     */
+    settings_skipped_enterprise?: Array<string>;
 };
 
 /**
