@@ -64,8 +64,10 @@ export const queryKeys = {
       ['shared-map', token, apiKey] as const,
     columnValues: (datasetId: string | undefined, col: string | undefined) =>
       ['column-values', datasetId, col] as const,
+    columnValuesPrefix: (datasetId: string) => ['column-values', datasetId] as const,
     columnStats: (datasetId: string | undefined, col: string | undefined) =>
       ['column-stats', datasetId, col] as const,
+    columnStatsPrefix: (datasetId: string) => ['column-stats', datasetId] as const,
   },
 
   // -------------------------------------------------------------------------
