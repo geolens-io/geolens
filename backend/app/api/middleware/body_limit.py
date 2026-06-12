@@ -34,6 +34,7 @@ The resolution helper `_get_upload_limit` accepts a `route_override` seam:
 """
 
 import time
+import uuid
 from typing import Any
 
 from starlette.responses import JSONResponse
@@ -62,13 +63,24 @@ def _strip_api_prefix(path: str) -> str:
     ``rewrite: p.replace(/^\\/api/, '')``). So ``scope["path"]`` is the
     un-prefixed form in production, while a direct hit on the API container keeps
     the prefix. Normalising both to the un-prefixed form lets the upload-route
-    classifier fire in every case. Expects an already-lowercased path.
+    classifier fire in every case. The prefix match is case-sensitive, mirroring
+    the proxy rewrites and FastAPI's case-sensitive routing.
     """
     if path.startswith("/api/"):
         return path[len("/api") :]  # drop "/api", keep the leading slash
     if path == "/api":
         return "/"
     return path
+
+
+def _is_uuid(value: str) -> bool:
+    """True if *value* parses as a UUID — mirrors the ``dataset_id: uuid.UUID``
+    path parameter on the reupload route (FastAPI 422s a non-UUID segment)."""
+    try:
+        uuid.UUID(value)
+    except ValueError:
+        return False
+    return True
 
 
 def _is_upload_route(path: str, method: str = "POST") -> bool:
@@ -94,22 +106,30 @@ def _is_upload_route(path: str, method: str = "POST") -> bool:
 
     The optional ``/api`` prefix is normalised away first (see _strip_api_prefix)
     so the classifier fires on the proxy-stripped paths real deployments produce,
-    not just on a direct hit against the API container. The match is exact: both
-    routes are registered WITHOUT a trailing slash and the app runs with
-    redirect_slashes=False plus no trailing-slash alias, so a trailing-slash
-    variant (/ingest/upload/) 404s — it must stay on the default cap, not be
-    handed the large allowance ahead of that 404 (PR #249 review).
+    not just on a direct hit against the API container. The match mirrors FastAPI
+    routing EXACTLY so the large cap is never handed to a request routing will
+    reject anyway: case-sensitive, no trailing slash (the routes are registered
+    no-slash with redirect_slashes=False and no reverse alias), and the reupload
+    dataset_id must parse as a UUID (the path param is typed uuid.UUID). Each
+    otherwise let a variant that 404s/422s receive the large allowance (PR #249
+    review rounds).
     """
     if method.upper() != "POST":
         return False
-    norm = _strip_api_prefix(path.lower())
+    norm = _strip_api_prefix(path)
     # POST /ingest/upload — the multipart new-file upload (NOT /upload/presigned*).
     if norm == "/ingest/upload":
         return True
     # POST /datasets/{dataset_id}/reupload — the multipart reupload. Match exactly
-    # /datasets/<one-segment>/reupload, excluding the JSON sub-routes beneath it.
+    # /datasets/<uuid>/reupload: a non-UUID segment 422s and the JSON sub-routes
+    # beneath it (presigned/commit/preview) carry only small JSON.
     segments = norm.split("/")
-    if len(segments) == 4 and segments[1] == "datasets" and segments[3] == "reupload":
+    if (
+        len(segments) == 4
+        and segments[1] == "datasets"
+        and segments[3] == "reupload"
+        and _is_uuid(segments[2])
+    ):
         return True
     return False
 

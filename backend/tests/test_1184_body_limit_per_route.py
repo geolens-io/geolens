@@ -26,6 +26,10 @@ from app.api.middleware.body_limit import (
 
 _11MB = 11 * 1024 * 1024  # 11 MB — over the 10 MB default cap
 
+# A valid dataset UUID for the reupload route (dataset_id: uuid.UUID). A non-UUID
+# segment is NOT matched — FastAPI 422s it — see the non_uuid_reupload tests.
+_UUID = "12345678-1234-5678-1234-567812345678"
+
 
 # ---------------------------------------------------------------------------
 # Unit tests: _is_upload_route path classifier
@@ -35,9 +39,12 @@ _11MB = 11 * 1024 * 1024  # 11 MB — over the 10 MB default cap
 class TestIsUploadRoute:
     """_is_upload_route matches ONLY the two multipart file-byte endpoints.
 
-    POST /ingest/upload and POST /datasets/{id}/reupload stream file bytes and get
-    the large cap; the JSON-only presigned/commit/preview sub-routes of those
-    flows — and everything else — stay on the default 10 MB cap (PR #249 review).
+    POST /ingest/upload and POST /datasets/{uuid}/reupload stream file bytes and
+    get the large cap. Everything else — the JSON-only presigned/commit/preview
+    sub-routes, non-POST methods, trailing-slash or wrong-case variants, and
+    non-UUID dataset segments — stays on the default 10 MB cap. The match mirrors
+    FastAPI routing exactly so the large cap never reaches a request routing will
+    reject (PR #249 review rounds).
     """
 
     # --- the two real file-upload endpoints get the large cap ---
@@ -45,33 +52,40 @@ class TestIsUploadRoute:
         assert _is_upload_route("/api/ingest/upload") is True
 
     def test_datasets_reupload_is_upload(self):
-        assert _is_upload_route("/api/datasets/abc123/reupload") is True
-
-    def test_trailing_slash_is_not_upload(self):
-        # Registered no-slash with redirect_slashes=False (no alias), so the
-        # trailing-slash variant 404s — it must NOT get the large cap (PR #249).
-        assert _is_upload_route("/api/ingest/upload/") is False
-        assert _is_upload_route("/api/datasets/abc123/reupload/") is False
-
-    def test_case_insensitive(self):
-        assert _is_upload_route("/API/INGEST/UPLOAD") is True
-        assert _is_upload_route("/API/DATASETS/ABC/REUPLOAD") is True
-
-    # --- the upload endpoints are POST-only; a non-POST request to the same path
-    # is NOT a file upload and must fall back to the default cap (PR #249 review,
-    # else a large body slips past the cap before the 405). ---
-    def test_non_post_method_is_not_upload(self):
-        assert _is_upload_route("/api/ingest/upload", "GET") is False
-        assert _is_upload_route("/api/ingest/upload", "PUT") is False
-        assert _is_upload_route("/api/datasets/abc123/reupload", "GET") is False
-        assert _is_upload_route("/api/datasets/abc123/reupload", "HEAD") is False
+        assert _is_upload_route(f"/api/datasets/{_UUID}/reupload") is True
 
     def test_post_method_is_upload(self):
         assert _is_upload_route("/api/ingest/upload", "POST") is True
-        assert _is_upload_route("/api/datasets/abc123/reupload", "POST") is True
-        assert (
-            _is_upload_route("/api/ingest/upload", "post") is True
-        )  # case-insensitive
+        assert _is_upload_route(f"/api/datasets/{_UUID}/reupload", "POST") is True
+        # HTTP methods are upper-case over ASGI; tolerate any case defensively.
+        assert _is_upload_route("/api/ingest/upload", "post") is True
+
+    # --- trailing slash: routes are registered no-slash (redirect_slashes=False,
+    # no reverse alias), so the slash variant 404s and stays on the default cap. ---
+    def test_trailing_slash_is_not_upload(self):
+        assert _is_upload_route("/api/ingest/upload/") is False
+        assert _is_upload_route(f"/api/datasets/{_UUID}/reupload/") is False
+
+    # --- case-sensitive, like FastAPI routing: an upper-case variant 404s, so it
+    # must NOT get the large cap (PR #249 review). ---
+    def test_uppercase_path_is_not_upload(self):
+        assert _is_upload_route("/API/INGEST/UPLOAD") is False
+        assert _is_upload_route(f"/api/datasets/{_UUID}/REUPLOAD") is False
+        assert _is_upload_route("/api/INGEST/upload") is False
+
+    # --- non-POST methods 405 on these paths, so they stay on the default cap. ---
+    def test_non_post_method_is_not_upload(self):
+        assert _is_upload_route("/api/ingest/upload", "GET") is False
+        assert _is_upload_route("/api/ingest/upload", "PUT") is False
+        assert _is_upload_route(f"/api/datasets/{_UUID}/reupload", "GET") is False
+        assert _is_upload_route(f"/api/datasets/{_UUID}/reupload", "HEAD") is False
+
+    # --- reupload dataset_id is typed uuid.UUID: a non-UUID segment 422s, so it
+    # must stay on the default cap (PR #249 review). ---
+    def test_non_uuid_reupload_is_not_upload(self):
+        assert _is_upload_route("/api/datasets/not-a-uuid/reupload") is False
+        assert _is_upload_route("/api/datasets/abc123/reupload") is False
+        assert _is_upload_route("/api/datasets//reupload") is False
 
     # --- JSON-only sub-routes of the upload/reupload flows are NOT file uploads
     # (PR #249 review): the bytes go straight to object storage, so a large JSON
@@ -86,14 +100,16 @@ class TestIsUploadRoute:
         )
 
     def test_datasets_reupload_presigned_is_not_upload(self):
-        assert _is_upload_route("/api/datasets/abc123/reupload/presigned") is False
+        assert _is_upload_route(f"/api/datasets/{_UUID}/reupload/presigned") is False
 
     def test_datasets_reupload_commit_is_not_upload(self):
-        assert _is_upload_route("/api/datasets/abc123/reupload/job-id/commit") is False
+        assert (
+            _is_upload_route(f"/api/datasets/{_UUID}/reupload/job-id/commit") is False
+        )
 
     def test_datasets_reupload_service_preview_is_not_upload(self):
         assert (
-            _is_upload_route("/api/datasets/abc123/reupload/service/preview") is False
+            _is_upload_route(f"/api/datasets/{_UUID}/reupload/service/preview") is False
         )
 
     # --- other non-upload routes ---
@@ -105,7 +121,7 @@ class TestIsUploadRoute:
         assert _is_upload_route("/api/datasets/") is False
 
     def test_api_datasets_detail_is_not_upload(self):
-        assert _is_upload_route("/api/datasets/abc123") is False
+        assert _is_upload_route(f"/api/datasets/{_UUID}") is False
 
     def test_api_maps_is_not_upload(self):
         assert _is_upload_route("/api/maps") is False
@@ -130,20 +146,25 @@ class TestIsUploadRouteProxyStripped:
         assert _is_upload_route("/ingest/upload") is True
 
     def test_stripped_datasets_reupload_is_upload(self):
-        assert _is_upload_route("/datasets/abc123/reupload") is True
+        assert _is_upload_route(f"/datasets/{_UUID}/reupload") is True
 
+    # --- same exact-match exclusions on the stripped form ---
     def test_stripped_trailing_slash_is_not_upload(self):
         assert _is_upload_route("/ingest/upload/") is False
-        assert _is_upload_route("/datasets/abc123/reupload/") is False
+        assert _is_upload_route(f"/datasets/{_UUID}/reupload/") is False
 
-    def test_stripped_case_insensitive(self):
-        assert _is_upload_route("/INGEST/UPLOAD") is True
-        assert _is_upload_route("/DATASETS/ABC/REUPLOAD") is True
+    def test_stripped_uppercase_is_not_upload(self):
+        assert _is_upload_route("/INGEST/UPLOAD") is False
+        assert _is_upload_route(f"/datasets/{_UUID}/REUPLOAD") is False
 
     def test_stripped_non_post_method_is_not_upload(self):
         assert _is_upload_route("/ingest/upload", "GET") is False
         assert _is_upload_route("/ingest/upload", "PUT") is False
-        assert _is_upload_route("/datasets/abc123/reupload", "DELETE") is False
+        assert _is_upload_route(f"/datasets/{_UUID}/reupload", "DELETE") is False
+
+    def test_stripped_non_uuid_reupload_is_not_upload(self):
+        assert _is_upload_route("/datasets/not-a-uuid/reupload") is False
+        assert _is_upload_route("/datasets/abc123/reupload") is False
 
     # --- stripped JSON sub-routes must NOT get the large cap (PR #249 review) ---
     def test_stripped_ingest_upload_presigned_is_not_upload(self):
@@ -155,17 +176,17 @@ class TestIsUploadRouteProxyStripped:
         )
 
     def test_stripped_datasets_reupload_presigned_is_not_upload(self):
-        assert _is_upload_route("/datasets/abc123/reupload/presigned") is False
+        assert _is_upload_route(f"/datasets/{_UUID}/reupload/presigned") is False
 
     def test_stripped_datasets_reupload_commit_is_not_upload(self):
-        assert _is_upload_route("/datasets/abc123/reupload/job-id/commit") is False
+        assert _is_upload_route(f"/datasets/{_UUID}/reupload/job-id/commit") is False
 
     # --- stripped non-upload paths must NOT over-match (still get the 10 MB cap) ---
     def test_stripped_datasets_list_is_not_upload(self):
         assert _is_upload_route("/datasets/") is False
 
     def test_stripped_datasets_detail_is_not_upload(self):
-        assert _is_upload_route("/datasets/abc123") is False
+        assert _is_upload_route(f"/datasets/{_UUID}") is False
 
     def test_stripped_maps_is_not_upload(self):
         assert _is_upload_route("/maps") is False
@@ -323,6 +344,25 @@ class TestGap001PerRouteBodyCap:
         assert resp.status_code == 413, (
             "PR #249: trailing-slash upload path with 11 MB must hit the 10 MB "
             f"default cap (413), not the large cap ahead of a 404; got {resp.status_code}"
+        )
+
+    @pytest.mark.anyio
+    async def test_non_uuid_reupload_path_over_10mb_is_413(self, client: AsyncClient):
+        """A non-UUID reupload path (which 422s) must hit the default cap.
+
+        PR #249 review: dataset_id is typed uuid.UUID, so
+        /datasets/not-a-uuid/reupload 422s. Before the UUID check it got the
+        500 MB cap; now it falls back to the 10 MB default. FAILS pre-fix (422),
+        PASSES post-fix (413).
+        """
+        resp = await client.post(
+            "/datasets/not-a-uuid/reupload",
+            content=b"x",
+            headers={"Content-Length": str(_11MB)},
+        )
+        assert resp.status_code == 413, (
+            "PR #249: non-UUID reupload path with 11 MB must hit the 10 MB default "
+            f"cap (413), not the large cap ahead of a 422; got {resp.status_code}"
         )
 
     @pytest.mark.anyio
