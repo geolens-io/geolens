@@ -161,6 +161,72 @@ async def create_raster_dataset(
     return record, dataset, raster_asset
 
 
+# Media types for the STAC-aligned dataset_assets rows (BUG-041).
+_COG_MEDIA_TYPE = "image/tiff; application=geotiff; profile=cloud-optimized"
+_VRT_MEDIA_TYPE = "application/x-vrt+xml"
+_PNG_MEDIA_TYPE = "image/png"
+
+
+def _build_dataset_asset_rows(
+    *,
+    dataset_id: uuid.UUID,
+    cog_key: str,
+    ql256_key: str,
+    ql512_key: str,
+    cog_size: int | None,
+    is_manifest_vrt: bool,
+) -> list[dict]:
+    """Build STAC-aligned ``dataset_assets`` rows for a freshly ingested raster.
+
+    BUG-041: ``dataset_assets`` is read by the search/STAC/OGC asset-output path
+    but was never written by ingest, so STAC item assets were never advertised.
+    This produces the rows the read path expects, using the stable keys defined
+    on ``DatasetAsset``:
+
+      - ``data`` / ``vrt``: the primary COG (or VRT) source
+      - ``thumbnail``: 256px quicklook
+      - ``overview``: 512px quicklook
+
+    hrefs are storage keys (storage-relative); ``resolve_asset_url`` turns them
+    into presigned/public URLs at read time (or omits them on local storage per
+    GAP-031).
+    """
+    primary_key = "vrt" if is_manifest_vrt else "data"
+    primary_media = _VRT_MEDIA_TYPE if is_manifest_vrt else _COG_MEDIA_TYPE
+    primary_title = (
+        "GDAL Virtual Raster" if is_manifest_vrt else "Cloud-Optimized GeoTIFF"
+    )
+
+    rows: list[dict] = [
+        {
+            "dataset_id": dataset_id,
+            "key": primary_key,
+            "href": cog_key,
+            "media_type": primary_media,
+            "title": primary_title,
+            "roles": ["data"],
+            "size_bytes": cog_size,
+        },
+        {
+            "dataset_id": dataset_id,
+            "key": "thumbnail",
+            "href": ql256_key,
+            "media_type": _PNG_MEDIA_TYPE,
+            "title": "Quicklook (256px)",
+            "roles": ["thumbnail"],
+        },
+        {
+            "dataset_id": dataset_id,
+            "key": "overview",
+            "href": ql512_key,
+            "media_type": _PNG_MEDIA_TYPE,
+            "title": "Quicklook (512px)",
+            "roles": ["overview"],
+        },
+    ]
+    return rows
+
+
 async def _cleanup_orphaned_storage_keys(keys: list[str], *, job_id: str) -> None:
     """Best-effort delete storage keys written before a failed/rolled-back commit.
 
@@ -494,7 +560,26 @@ async def ingest_raster(job_id: str, file_path: str, user_id: str, **kwargs) -> 
             raster_asset.quicklook_512_uri = ql512_key
             await session.flush()
 
+            # BUG-041: populate the STAC-aligned dataset_assets table. The read
+            # path (search/STAC/OGC `_build_stac_assets`) was always operating on
+            # an empty input because ingest never wrote these rows. Insert them
+            # in this same transaction so STAC item assets are advertised
+            # (data/vrt + thumbnail + overview). On local storage these still
+            # resolve to None per GAP-031; on S3-published deployments they
+            # become presigned hrefs.
             from app.platform.extensions import get_processing_port as _get_port
+
+            DatasetAsset = _get_port().dataset_asset_orm_class()
+            for asset_row in _build_dataset_asset_rows(
+                dataset_id=dataset.id,
+                cog_key=cog_key,
+                ql256_key=ql256_key,
+                ql512_key=ql512_key,
+                cog_size=cog_size,
+                is_manifest_vrt=is_manifest_vrt,
+            ):
+                session.add(DatasetAsset(**asset_row))
+            await session.flush()
 
             RecordDistribution = _get_port().get_record_distribution_orm_class()
 
