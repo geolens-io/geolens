@@ -143,6 +143,44 @@ export default defineConfig({
               )
             }
           });
+          // Dev-proxy resilience for large request bodies. In production nginx
+          // buffers the full request body (`proxy_request_buffering on`) before
+          // forwarding, so when the API rejects a large upload early — 413 (body
+          // too large) or 401 (auth) — the browser still receives that real
+          // status. Vite's dev proxy STREAMS the body instead, so an early
+          // upstream response + socket close races the still-uploading body and
+          // http-proxy raises ECONNRESET. With no 'error' listener that surfaces
+          // as an opaque 502 (and an unhandled error in the dev console). Convert
+          // it into a clean, explained response. The true upstream status is not
+          // recoverable once the socket resets mid-upload — this only affects
+          // requests the API was already going to reject, and only in dev.
+          proxy.on('error', (err, _req, res) => {
+            const code = (err as NodeJS.ErrnoException)?.code
+            // For proxied WebSocket upgrades `res` is a raw Socket (no writeHead).
+            if (res && 'writeHead' in res) {
+              if (!res.headersSent) {
+                res.writeHead(502, { 'Content-Type': 'application/json' })
+                res.end(
+                  JSON.stringify({
+                    error: 'dev_proxy_upstream_reset',
+                    detail:
+                      'The API closed the connection before the request body ' +
+                      'finished uploading (usually an early rejection of a large ' +
+                      'body: size limit or auth). This streaming dev proxy cannot ' +
+                      'recover the real status code; production buffers the body ' +
+                      'and returns it directly.',
+                  }),
+                )
+              }
+            } else if (res && typeof res.destroy === 'function') {
+              res.destroy()
+            }
+            console.warn(
+              `[vite] /api proxy upstream error${code ? ` (${code})` : ''}: ${
+                err?.message ?? String(err)
+              }`,
+            )
+          });
         },
       },
       '/raster-tiles': {
