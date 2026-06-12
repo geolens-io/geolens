@@ -44,7 +44,7 @@
     "i18next": "^26.0.2",
     "lucide-react": "^1.17.0",
     "maplibre-gl": "^5.24.0",
-    "radix-ui": "^1.4.3",
+    "radix-ui": "^1.5.0",
     "react": "^19.2.0",
     "react-colorful": "^5.7.0",
     "react-dom": "^19.2.7",
