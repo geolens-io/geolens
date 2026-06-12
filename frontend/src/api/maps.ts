@@ -1,4 +1,4 @@
-import { apiFetch, ApiError } from './client';
+import { apiFetch, ApiError, authenticatedRawFetch } from './client';
 import type {
   MapResponse,
   DuplicateMapResponse,
@@ -26,7 +26,6 @@ import type {
   MapAccessResponse,
 } from '@/types/api';
 import { API_BASE } from '@/lib/constants';
-import { useAuthStore } from '@/stores/auth-store';
 import { normalizeLayerStyleState } from '@/lib/normalize-style-config';
 import { normalizeSavedMap } from '@/lib/normalize-saved-map';
 
@@ -320,20 +319,18 @@ export async function* streamGenerateMap(
   data: MapGenerateRequest,
   signal?: AbortSignal,
 ): AsyncGenerator<StreamEvent> {
-  const token = useAuthStore.getState().token;
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-  };
-  if (token) {
-    headers['Authorization'] = `Bearer ${token}`;
-  }
-
-  const response = await fetch(`${API_BASE}/ai/generate-map/stream/`, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify(data),
-    signal,
-  });
+  // BUG-035: route through the refresh-aware raw fetch so a stream issued as
+  // the first request after a long idle transparently refreshes the JWT
+  // instead of hard-failing with a 401. Authorization header is set inside.
+  const response = await authenticatedRawFetch(
+    `${API_BASE}/ai/generate-map/stream/`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+      signal,
+    },
+  );
 
   if (!response.ok) {
     let detail = response.statusText;
@@ -469,17 +466,10 @@ export async function* streamChatMessage(
 ): AsyncGenerator<StreamEvent> {
   const chatLayers = toChatLayers(layers);
 
-  const token = useAuthStore.getState().token;
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-  };
-  if (token) {
-    headers['Authorization'] = `Bearer ${token}`;
-  }
-
-  const response = await fetch(`${API_BASE}/ai/chat/stream/`, {
+  // BUG-035: refresh-aware raw fetch (see streamGenerateMap).
+  const response = await authenticatedRawFetch(`${API_BASE}/ai/chat/stream/`, {
     method: 'POST',
-    headers,
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       message,
       map_id: mapId,
