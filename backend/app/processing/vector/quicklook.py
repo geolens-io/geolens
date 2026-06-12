@@ -186,14 +186,38 @@ async def generate_vector_quicklook(
         min(maxy + margin_y, 90),
     )
 
+    # PERF-007: the parse → make_valid → draw → encode work below is CPU-bound
+    # Python with no suspension points. Running it inline on the worker event
+    # loop means asyncio.wait_for in the timeout wrapper cannot interrupt a
+    # pathological geometry (up to `max_features` features incl. large
+    # multipolygons via make_valid). Offload it to a worker thread so the loop
+    # stays responsive AND the wait_for timeout fires at this await boundary.
+    # Matches the asyncio.to_thread convention used across the processing modules.
+    geojson_strings = [row.geojson for row in rows]
+    return await asyncio.to_thread(
+        _render_quicklook_png, geojson_strings, view_bounds, size
+    )
+
+
+def _render_quicklook_png(
+    geojson_strings: list[str | None],
+    view_bounds: tuple[float, float, float, float],
+    size: int,
+) -> bytes:
+    """Parse GeoJSON rows, validate, draw, and encode a PNG. CPU-bound, sync.
+
+    Extracted from ``generate_vector_quicklook`` so the timeout wrapper can run
+    it via ``asyncio.to_thread`` (PERF-007). Output bytes are identical to the
+    prior inline implementation.
+    """
     # Parse geometries
     geometries = []
     num_points = 0
-    for row in rows:
-        if row.geojson is None:
+    for raw in geojson_strings:
+        if raw is None:
             continue
         try:
-            geom = shape(json.loads(row.geojson))
+            geom = shape(json.loads(raw))
             if not geom.is_valid:
                 geom = make_valid(geom)
             if not geom.is_empty:
