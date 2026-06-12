@@ -4,8 +4,9 @@ GAP-001: Non-upload routes must enforce a small default cap (10 MB);
          upload/reupload routes must allow up to the configured upload max.
 
 Design:
-  - The middleware now detects upload routes by path-prefix and applies either
-    DEFAULT_BODY_LIMIT_BYTES (10 MB) or the cached UPLOAD_MAX_SIZE_MB limit.
+  - The middleware grants the large UPLOAD_MAX_SIZE_MB limit to exactly the two
+    multipart file endpoints (/ingest/upload, /datasets/{id}/reupload) and the
+    small DEFAULT_BODY_LIMIT_BYTES (10 MB) to everything else.
   - We verify the RED case (non-upload with 11 MB → 413) and the GREEN case
     (upload path with 11 MB → NOT 413) without needing a real file upload.
 """
@@ -32,29 +33,52 @@ _11MB = 11 * 1024 * 1024  # 11 MB — over the 10 MB default cap
 
 
 class TestIsUploadRoute:
-    """_is_upload_route must correctly classify upload vs non-upload paths."""
+    """_is_upload_route matches ONLY the two multipart file-byte endpoints.
 
+    POST /ingest/upload and POST /datasets/{id}/reupload stream file bytes and get
+    the large cap; the JSON-only presigned/commit/preview sub-routes of those
+    flows — and everything else — stay on the default 10 MB cap (PR #249 review).
+    """
+
+    # --- the two real file-upload endpoints get the large cap ---
     def test_ingest_upload_is_upload(self):
         assert _is_upload_route("/api/ingest/upload") is True
-
-    def test_ingest_upload_presigned_is_upload(self):
-        assert _is_upload_route("/api/ingest/upload/presigned") is True
-
-    def test_ingest_upload_complete_is_upload(self):
-        assert (
-            _is_upload_route("/api/ingest/upload/presigned/some-job-id/complete")
-            is True
-        )
 
     def test_datasets_reupload_is_upload(self):
         assert _is_upload_route("/api/datasets/abc123/reupload") is True
 
-    def test_datasets_reupload_presigned_is_upload(self):
-        assert _is_upload_route("/api/datasets/abc123/reupload/presigned") is True
+    def test_trailing_slash_ignored(self):
+        assert _is_upload_route("/api/ingest/upload/") is True
+        assert _is_upload_route("/api/datasets/abc123/reupload/") is True
 
-    def test_datasets_reupload_commit_is_upload(self):
-        assert _is_upload_route("/api/datasets/abc123/reupload/job-id/commit") is True
+    def test_case_insensitive(self):
+        assert _is_upload_route("/API/INGEST/UPLOAD") is True
+        assert _is_upload_route("/API/DATASETS/ABC/REUPLOAD") is True
 
+    # --- JSON-only sub-routes of the upload/reupload flows are NOT file uploads
+    # (PR #249 review): the bytes go straight to object storage, so a large JSON
+    # body on these routes must be stopped by the default cap. ---
+    def test_ingest_upload_presigned_is_not_upload(self):
+        assert _is_upload_route("/api/ingest/upload/presigned") is False
+
+    def test_ingest_upload_presigned_complete_is_not_upload(self):
+        assert (
+            _is_upload_route("/api/ingest/upload/presigned/some-job-id/complete")
+            is False
+        )
+
+    def test_datasets_reupload_presigned_is_not_upload(self):
+        assert _is_upload_route("/api/datasets/abc123/reupload/presigned") is False
+
+    def test_datasets_reupload_commit_is_not_upload(self):
+        assert _is_upload_route("/api/datasets/abc123/reupload/job-id/commit") is False
+
+    def test_datasets_reupload_service_preview_is_not_upload(self):
+        assert (
+            _is_upload_route("/api/datasets/abc123/reupload/service/preview") is False
+        )
+
+    # --- other non-upload routes ---
     def test_health_is_not_upload(self):
         assert _is_upload_route("/health") is False
 
@@ -72,10 +96,6 @@ class TestIsUploadRoute:
         # /api/ingest/commit is not an upload route
         assert _is_upload_route("/api/ingest/commit/some-job-id") is False
 
-    def test_case_insensitive(self):
-        assert _is_upload_route("/API/INGEST/UPLOAD") is True
-        assert _is_upload_route("/API/DATASETS/ABC/REUPLOAD") is True
-
 
 class TestIsUploadRouteProxyStripped:
     """The /api prefix is stripped by both proxies before the app sees the path.
@@ -84,29 +104,40 @@ class TestIsUploadRouteProxyStripped:
     dev Vite proxy (`rewrite: p.replace(/^\\/api/, '')`) both remove `/api`, so
     in every real deployment scope["path"] is the un-prefixed form. Matching only
     the `/api/...` prefix never fired, silently capping uploads at 10 MB. The
-    classifier must recognise the stripped form too.
+    classifier must recognise the stripped form too — for the file endpoints only.
     """
 
+    # --- the two file endpoints, stripped, get the large cap ---
     def test_stripped_ingest_upload_is_upload(self):
         assert _is_upload_route("/ingest/upload") is True
-
-    def test_stripped_ingest_upload_presigned_is_upload(self):
-        assert _is_upload_route("/ingest/upload/presigned") is True
-
-    def test_stripped_ingest_upload_complete_is_upload(self):
-        assert _is_upload_route("/ingest/upload/presigned/some-job-id/complete") is True
 
     def test_stripped_datasets_reupload_is_upload(self):
         assert _is_upload_route("/datasets/abc123/reupload") is True
 
-    def test_stripped_datasets_reupload_presigned_is_upload(self):
-        assert _is_upload_route("/datasets/abc123/reupload/presigned") is True
+    def test_stripped_trailing_slash_ignored(self):
+        assert _is_upload_route("/ingest/upload/") is True
+        assert _is_upload_route("/datasets/abc123/reupload/") is True
 
     def test_stripped_case_insensitive(self):
         assert _is_upload_route("/INGEST/UPLOAD") is True
         assert _is_upload_route("/DATASETS/ABC/REUPLOAD") is True
 
-    # Stripped non-upload paths must NOT over-match (still get the 10 MB cap).
+    # --- stripped JSON sub-routes must NOT get the large cap (PR #249 review) ---
+    def test_stripped_ingest_upload_presigned_is_not_upload(self):
+        assert _is_upload_route("/ingest/upload/presigned") is False
+
+    def test_stripped_ingest_upload_complete_is_not_upload(self):
+        assert (
+            _is_upload_route("/ingest/upload/presigned/some-job-id/complete") is False
+        )
+
+    def test_stripped_datasets_reupload_presigned_is_not_upload(self):
+        assert _is_upload_route("/datasets/abc123/reupload/presigned") is False
+
+    def test_stripped_datasets_reupload_commit_is_not_upload(self):
+        assert _is_upload_route("/datasets/abc123/reupload/job-id/commit") is False
+
+    # --- stripped non-upload paths must NOT over-match (still get the 10 MB cap) ---
     def test_stripped_datasets_list_is_not_upload(self):
         assert _is_upload_route("/datasets/") is False
 
