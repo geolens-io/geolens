@@ -17,6 +17,7 @@ from sqlalchemy import func, update
 
 from app.modules.catalog.datasets.domain.models import Dataset, Record
 
+from tests.conftest import _create_test_user
 from tests.factories import get_user_id
 
 
@@ -267,6 +268,97 @@ class TestCollectionMembership:
         ds_ids = {d["id"] for d in data["datasets"]}
         assert str(ds1.id) in ds_ids
         assert str(ds2.id) in ds_ids
+
+    async def test_add_unauthorized_private_dataset_rejected(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+    ):
+        """GAP-014: editor cannot link ANOTHER user's PRIVATE dataset.
+
+        manage_collections gates the action but not the link target. Without the
+        write-time per-dataset re-auth (mirroring the FK-relationship / VRT
+        SEC-C pattern) an editor could attach a private dataset they cannot read.
+        check_dataset_access raises 404 for the unauthorized link target.
+        """
+        owner_headers, owner_id = await _create_test_user(
+            client, admin_auth_header, "editor"
+        )
+        attacker_headers, _ = await _create_test_user(
+            client, admin_auth_header, "editor"
+        )
+        private = await _create_dataset(
+            test_db_session,
+            created_by=uuid.UUID(owner_id),
+            name="Owner private DS",
+            visibility="private",
+        )
+
+        # Attacker (editor B) creates their own collection
+        resp = await client.post(
+            "/catalog/collections/",
+            json={"name": f"Attacker Coll {uuid.uuid4().hex[:6]}"},
+            headers=attacker_headers,
+        )
+        assert resp.status_code == 201
+        coll_id = resp.json()["id"]
+
+        # Attempt to link editor A's private dataset → denied
+        resp = await client.post(
+            f"/catalog/collections/{coll_id}/datasets/",
+            json={"dataset_ids": [str(private.id)]},
+            headers=attacker_headers,
+        )
+        assert resp.status_code in (403, 404), (
+            f"editor linked ANOTHER user's private dataset to a collection, "
+            f"got {resp.status_code}: {resp.text}"
+        )
+
+        # Confirm nothing was actually linked
+        list_resp = await client.get(
+            f"/catalog/collections/{coll_id}/datasets/",
+            headers=attacker_headers,
+        )
+        assert list_resp.status_code == 200
+        assert list_resp.json()["total"] == 0
+
+    async def test_add_authorized_dataset_still_succeeds(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+    ):
+        """GAP-014 GUARD: linking a PUBLIC dataset still succeeds for an editor.
+
+        The new write-time authz must not over-block legitimate links.
+        """
+        editor_headers, _editor_id = await _create_test_user(
+            client, admin_auth_header, "editor"
+        )
+        admin_id = await get_user_id(test_db_session, "admin")
+        public = await _create_dataset(
+            test_db_session,
+            created_by=admin_id,
+            name="Public DS",
+            visibility="public",
+        )
+
+        resp = await client.post(
+            "/catalog/collections/",
+            json={"name": f"Editor Coll {uuid.uuid4().hex[:6]}"},
+            headers=editor_headers,
+        )
+        assert resp.status_code == 201
+        coll_id = resp.json()["id"]
+
+        resp = await client.post(
+            f"/catalog/collections/{coll_id}/datasets/",
+            json={"dataset_ids": [str(public.id)]},
+            headers=editor_headers,
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["added"] == 1
 
     async def test_remove_dataset_from_collection(
         self,
