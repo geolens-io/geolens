@@ -95,11 +95,22 @@ async def test_phase_session_loads_existing_job(test_db_session):
 
 
 @pytest.mark.anyio
-async def test_phase_session_yields_none_when_job_missing():
+async def test_phase_session_yields_none_when_job_missing(client):
     """A missing row yields ``(session, None)`` rather than raising.
 
     Mirrors the existing "Ingest job vanished between phases" / "Ingest job
     not found" pattern that all four call sites depend on for early-return.
+
+    Full-suite event-loop binding (v1039): this test exercises
+    ``_job_phase_session`` against the PRODUCTION ``app.core.db.async_session``
+    factory (no ``test_db_session`` is passed), so it is subject to the same
+    loop-binding hazard documented on
+    ``test_job_phase_session_none_branch_rolls_back_on_exception`` below. The
+    ``client`` fixture pins that factory to THIS test's loop, preventing a prior
+    test's defunct loop from surfacing ``RuntimeError: Task got Future attached
+    to a different loop`` under CI's Python 3.13 xdist scheduling (the
+    isolation-only flake exposed when v1039 added ~30 test files and shifted
+    worker distribution). See the TD-06 note on the sibling test.
     """
     missing_id = _uuid.uuid4()
 
