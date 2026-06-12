@@ -9,11 +9,22 @@ cached PersistentConfig value instead of the boot-time env value, so an
 admin-raised UPLOAD_MAX_SIZE_MB takes effect without a process restart.
 
 GAP-001 (Phase 1184): Per-route body cap. Non-upload routes get a small
-default cap (DEFAULT_BODY_LIMIT_BYTES = 10 MB). Upload/reupload routes use
-the admin-configurable UPLOAD_MAX_SIZE_MB (500 MB default) resolved via
-_get_upload_limit(). The upload route paths are detected by path-prefix match
-against UPLOAD_PATH_PREFIXES — any request whose path starts with one of
-those prefixes uses the large upload limit; all others use the small default.
+default cap (DEFAULT_BODY_LIMIT_BYTES = 10 MB). Only the two endpoints that
+stream a multipart file body — POST /ingest/upload and POST
+/datasets/{id}/reupload — get the admin-configurable UPLOAD_MAX_SIZE_MB
+(500 MB default) resolved via _get_upload_limit(). Everything else, including
+the JSON-only presigned / commit / preview sub-routes of those flows, stays on
+the small default so a large JSON body cannot slip past the DoS cap (PR #249
+review).
+
+GAP-001 fix: the app runs with root_path="/api", but every deployment fronts
+it with a proxy that STRIPS the /api prefix before the request reaches the
+ASGI app (prod nginx `rewrite ^/api/(.*) /$1`; dev Vite proxy
+`rewrite: p.replace(/^\\/api/, '')`). So scope["path"] is the un-prefixed
+form (/ingest/upload) in real deployments, and matching against a literal
+/api/ingest/upload prefix never fired — every upload was silently capped at
+the 10 MB default. _is_upload_route normalises away the optional /api prefix
+so the limit applies whether or not the proxy stripped it.
 
 The resolution helper `_get_upload_limit` accepts a `route_override` seam:
 
@@ -23,6 +34,7 @@ The resolution helper `_get_upload_limit` accepts a `route_override` seam:
 """
 
 import time
+import uuid
 from typing import Any
 
 from starlette.responses import JSONResponse
@@ -41,36 +53,83 @@ _FALLBACK_LIMIT_BYTES = 500 * 1024 * 1024  # 500 MB
 # from large-body DoS while leaving file-upload paths unrestricted).
 DEFAULT_BODY_LIMIT_BYTES = 10 * 1024 * 1024  # 10 MB
 
-# GAP-001: path prefixes that should receive the large upload limit.
-# Matches:
-#   /api/ingest/upload          — new-file upload (router prefix /ingest, path /upload*)
-#   /api/ingest/upload/presigned — presigned upload initiation
-#   /api/datasets/{id}/reupload — reupload (router prefix /datasets, path /{id}/reupload*)
-# Use lowercase; comparison below also lowercases the request path.
-UPLOAD_PATH_PREFIXES: tuple[str, ...] = (
-    "/api/ingest/upload",
-    "/api/datasets/",  # covers /{dataset_id}/reupload* paths
-)
 
+def _strip_api_prefix(path: str) -> str:
+    """Strip the optional ``/api`` root_path prefix from *path*.
 
-def _is_upload_route(path: str) -> bool:
-    """Return True if *path* is an upload or reupload endpoint.
-
-    GAP-001: upload routes need the large UPLOAD_MAX_SIZE_MB limit; all other
-    routes get DEFAULT_BODY_LIMIT_BYTES.  The match is deliberately liberal on
-    /api/datasets/ — only reupload paths POST a large body, but the other
-    dataset paths post small JSON.  Restricting /api/datasets/ further would
-    require parsing the path segments; accepting a slightly wider match is safe
-    because the body check is still bounded by UPLOAD_MAX_SIZE_MB (500 MB).
-    We keep the match simple and correct for the actual upload paths.
+    The app is mounted with ``root_path="/api"``, but every deployment fronts it
+    with a proxy that removes ``/api`` before the request reaches the ASGI app
+    (prod nginx ``rewrite ^/api/(.*) /$1``; dev Vite proxy
+    ``rewrite: p.replace(/^\\/api/, '')``). So ``scope["path"]`` is the
+    un-prefixed form in production, while a direct hit on the API container keeps
+    the prefix. Normalising both to the un-prefixed form lets the upload-route
+    classifier fire in every case. The prefix match is case-sensitive, mirroring
+    the proxy rewrites and FastAPI's case-sensitive routing.
     """
-    lower = path.lower()
-    # /api/ingest/upload* — all upload-initiation paths
-    if lower.startswith("/api/ingest/upload"):
+    if path.startswith("/api/"):
+        return path[len("/api") :]  # drop "/api", keep the leading slash
+    if path == "/api":
+        return "/"
+    return path
+
+
+def _is_uuid(value: str) -> bool:
+    """True if *value* parses as a UUID — mirrors the ``dataset_id: uuid.UUID``
+    path parameter on the reupload route (FastAPI 422s a non-UUID segment)."""
+    try:
+        uuid.UUID(value)
+    except ValueError:
+        return False
+    return True
+
+
+def _is_upload_route(path: str, method: str = "POST") -> bool:
+    """Return True only for the two POST endpoints that receive file BYTES.
+
+    GAP-001: file-upload routes need the large UPLOAD_MAX_SIZE_MB limit; every
+    other route gets DEFAULT_BODY_LIMIT_BYTES so a large body cannot slip past
+    the DoS cap. Exactly two endpoints stream a multipart file body:
+
+        POST /ingest/upload                   (ingest.upload_file)
+        POST /datasets/{dataset_id}/reupload  (datasets.reupload_dataset)
+
+    The presigned initiate/complete, commit and preview sub-routes of those two
+    flows carry only small JSON — the bytes go straight to object storage — so
+    they stay on the default cap (PR #249 review: the previous /ingest/upload*
+    prefix and "/reupload"-substring match let a 500 MB JSON body through on
+    those routes).
+
+    Both upload endpoints are POST-only, so the method is part of the match: a
+    non-POST request to the same path (e.g. PUT /ingest/upload) would otherwise
+    get the large cap and be rejected only as 405 *after* the large body was
+    allowed through (PR #249 review).
+
+    The optional ``/api`` prefix is normalised away first (see _strip_api_prefix)
+    so the classifier fires on the proxy-stripped paths real deployments produce,
+    not just on a direct hit against the API container. The match mirrors FastAPI
+    routing EXACTLY so the large cap is never handed to a request routing will
+    reject anyway: case-sensitive, no trailing slash (the routes are registered
+    no-slash with redirect_slashes=False and no reverse alias), and the reupload
+    dataset_id must parse as a UUID (the path param is typed uuid.UUID). Each
+    otherwise let a variant that 404s/422s receive the large allowance (PR #249
+    review rounds).
+    """
+    if method.upper() != "POST":
+        return False
+    norm = _strip_api_prefix(path)
+    # POST /ingest/upload — the multipart new-file upload (NOT /upload/presigned*).
+    if norm == "/ingest/upload":
         return True
-    # /api/datasets/{id}/reupload* — dataset reupload paths
-    # Match the literal "/reupload" segment inside a /datasets/... path.
-    if lower.startswith("/api/datasets/") and "/reupload" in lower:
+    # POST /datasets/{dataset_id}/reupload — the multipart reupload. Match exactly
+    # /datasets/<uuid>/reupload: a non-UUID segment 422s and the JSON sub-routes
+    # beneath it (presigned/commit/preview) carry only small JSON.
+    segments = norm.split("/")
+    if (
+        len(segments) == 4
+        and segments[1] == "datasets"
+        and segments[3] == "reupload"
+        and _is_uuid(segments[2])
+    ):
         return True
     return False
 
@@ -159,7 +218,8 @@ class RequestBodyLimitMiddleware:
         await _refresh_limit_cache()
 
         path = scope.get("path", "")
-        if _is_upload_route(path):
+        method = scope.get("method", "")
+        if _is_upload_route(path, method):
             # Upload/reupload: use the admin-configurable limit (500 MB default)
             max_bytes = _get_upload_limit()
         else:
