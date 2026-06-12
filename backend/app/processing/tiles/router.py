@@ -1392,7 +1392,11 @@ async def cluster_tile_endpoint(
         scope=scope or cache_scope,
     )
 
-    compressed = gzip.compress(tile_data, compresslevel=6)
+    # PERF-005: gzip level-6 is CPU-bound; offload to a worker thread so the
+    # event loop is not stalled while compressing wide low-zoom tiles (up to the
+    # 50K-feature LIMIT). Matches the asyncio.to_thread convention used across
+    # the processing modules.
+    compressed = await asyncio.to_thread(gzip.compress, tile_data, 6)
     if tile_cache is not None:
         await tile_cache.set(cluster_cache_key, z, x, y, compressed, ttl=cache_ttl)
 
@@ -1555,8 +1559,12 @@ async def tile_endpoint(
         scope=scope or "public",
     )
 
-    # Compress and return with proper headers
-    compressed = gzip.compress(tile_data, compresslevel=6)
+    # Compress and return with proper headers.
+    # PERF-005: gzip level-6 is CPU-bound; offload to a worker thread so the
+    # event loop is not stalled while compressing wide low-zoom tiles (up to the
+    # 50K-feature LIMIT). Matches the asyncio.to_thread convention used across
+    # the processing modules.
+    compressed = await asyncio.to_thread(gzip.compress, tile_data, 6)
 
     # Cache the compressed tile bytes for subsequent requests
     if tile_cache is not None:
