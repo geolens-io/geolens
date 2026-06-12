@@ -424,7 +424,14 @@ class AdminService:
         if user_id is not None:
             filters.append(IngestJob.created_by == user_id)
         if search is not None:
-            filters.append(IngestJob.source_filename.ilike(f"%{search}%"))
+            # escape_ilike() keeps %, _, \ literal (the bare f"%{search}%"
+            # previously leaked wildcards); escape="\\" matches the sibling
+            # call sites (list_users above, maps/audit/embed-token searches).
+            filters.append(
+                IngestJob.source_filename.ilike(
+                    f"%{escape_ilike(search)}%", escape="\\"
+                )
+            )
 
         count_stmt = select(func.count()).select_from(IngestJob).where(*filters)
         total = (await self.db.execute(count_stmt)).scalar_one()
