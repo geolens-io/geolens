@@ -35,7 +35,9 @@
     "datasetCount_one": "{{count}} conjunto de datos",
     "datasetCount_other": "{{count}} conjuntos de datos",
     "created": "Creado {{date}}",
-    "temporalPresent": "presente"
+    "temporalPresent": "presente",
+    "emptyBadge": "Vacía",
+    "emptyHint": "Esta colección aún no tiene conjuntos de datos."
   },
   "createDialog": {
     "title": "Crear colección",
@@ -97,5 +99,11 @@
     "addDatasetsFailed": "Failed to add datasets to collection",
     "removeError": "Error al eliminar el conjunto de datos",
     "addError": "Error al agregar el conjunto de datos"
+  },
+  "sort": {
+    "label": "Ordenar por",
+    "lastUpdated": "Última actualización",
+    "dateCreated": "Fecha de creación",
+    "name": "Nombre"
   }
 }

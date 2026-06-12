@@ -53,6 +53,9 @@ const bundles = Object.fromEntries(NAMESPACES.map((ns) => [ns, loadBundle(ns)]))
 
 /**
  * Check if a dotted key path exists in a nested object.
+ * Also handles i18next plural suffixes: if `foo.bar` is missing but
+ * `foo.bar_one`, `foo.bar_other`, `foo.bar_zero`, etc. exist, consider it found.
+ * This prevents false-positives for keys used with `{ count: N }` options.
  */
 function keyExists(bundle, keyPath) {
   if (!bundle) return false;
@@ -60,6 +63,13 @@ function keyExists(bundle, keyPath) {
   let cur = bundle;
   for (const part of parts) {
     if (cur === null || typeof cur !== 'object' || !(part in cur)) {
+      // Not found directly — check plural suffixes
+      if (cur && typeof cur === 'object') {
+        const pluralSuffixes = ['_one', '_other', '_zero', '_two', '_few', '_many'];
+        if (pluralSuffixes.some((sfx) => `${part}${sfx}` in cur)) {
+          return true; // plural variant exists
+        }
+      }
       return false;
     }
     cur = cur[part];

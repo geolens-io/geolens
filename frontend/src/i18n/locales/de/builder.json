@@ -18,7 +18,8 @@
   "layers": {
     "title": "Layer",
     "emptyState": "Datensätze aus dem Katalog hinzufügen, um zu beginnen",
-    "addData": "Daten hinzufügen"
+    "addData": "Daten hinzufügen",
+    "unnamed": "Unbenannte Ebene"
   },
   "mapStack": {
     "title": "Kartenstapel",
@@ -250,7 +251,8 @@
       "weightNone": "Keine (gleiche Gewichtung)",
       "colorRamp": "Farbverlauf",
       "radius": "Radius",
-      "intensity": "Intensität"
+      "intensity": "Intensität",
+      "opacity": "Deckkraft"
     },
     "cluster": {
       "radius": "Cluster-Radius",
@@ -352,7 +354,9 @@
       "notInList": "nicht in Liste",
       "exists": "vorhanden"
     },
-    "removeCondition": "Bedingung entfernen"
+    "removeCondition": "Bedingung entfernen",
+    "clear": "Filter löschen",
+    "combinator": "Verknüpfungsbedingung"
   },
   "labels": {
     "title": "Beschriftungen",
@@ -383,7 +387,9 @@
     "zoomRange": "Zoombereich",
     "minZoom": "Min. Zoom",
     "maxZoom": "Max. Zoom",
-    "noColumns": "Dieser Layer hat keine Spalten für Beschriftungen."
+    "noColumns": "Dieser Layer hat keine Spalten für Beschriftungen.",
+    "enable": "Beschriftungen aktivieren",
+    "textOpacity": "Textdeckkraft"
   },
   "popup": {
     "enable": "Popup für diesen Layer aktivieren",
@@ -428,7 +434,8 @@
     "targetWidth": "Breite",
     "sizeMin": "Min. Größe",
     "sizeMax": "Max. Größe",
-    "colors": "Farben"
+    "colors": "Farben",
+    "customColors": "Benutzerdefinierte Farben"
   },
   "search": {
     "title": "Datensatz hinzufügen",
@@ -534,7 +541,16 @@
     "iframeErrorTitle": "Vorschau nicht verfügbar",
     "iframeErrorBody": "Bitte überprüfen Sie, ob das Einbettungs-Token gültig und der Freigabelink aktiv ist. Zum Wiederholen neu laden.",
     "iframeReload": "Neu laden",
-    "iframeSandboxNote": "sandbox=\"allow-scripts\" only — SEC-07 contract"
+    "iframeSandboxNote": "sandbox=\"allow-scripts\" only — SEC-07 contract",
+    "embedTokenMissing": "Diese Karte enthält nicht-öffentliche Ebenen. Betrachter können nicht alle Ebenen ohne ein Einbettungstoken sehen.",
+    "embedTokenNotAvailable": "Das Einbettungstoken wurde in einer früheren Sitzung erstellt. Neu generieren, um den Einbettungscode zu erhalten.",
+    "embedTokenRegenerated": "Einbettungstoken neu generiert",
+    "expirationCleared": "Link-Ablauf entfernt — Link läuft nie ab",
+    "expired": "Link abgelaufen",
+    "makePublicHint": "Karte öffentlich machen, um einen Freigabelink zu erstellen",
+    "rawTokenUnavailable": "Aus Sicherheitsgründen wird der vollständige Freigabelink nur beim Erstellen angezeigt. Link neu generieren, um ihn erneut zu kopieren.",
+    "regenerate": "Neu generieren",
+    "regenerateLink": "Link neu generieren"
   },
   "chat": {
     "experimental": "Experimentell",
@@ -592,7 +608,8 @@
       "chipAddBelow": "Add \"{{name}}\" below \"{{ref}}\"",
       "chipRemove": "Remove \"{{name}}\"",
       "chipRemoveFeatures_one": "Remove \"{{name}}\" ({{count}} feature)",
-      "chipRemoveFeatures_other": "Remove \"{{name}}\" ({{count}} features)"
+      "chipRemoveFeatures_other": "Remove \"{{name}}\" ({{count}} features)",
+      "regionLabel": "Ausstehende KI-Aktionen"
     },
     "queryResult": {
       "empty": "The AI query returned no rows.",
@@ -611,7 +628,14 @@
   "basemap": {
     "title": "Basiskarte",
     "showLabels": "Ortsbeschriftungen anzeigen",
-    "blank": "Keine"
+    "blank": "Keine",
+    "appearance": "Erscheinungsbild",
+    "labels": "Beschriftungen",
+    "roads": "Straßen",
+    "boundaries": "Grenzen",
+    "landWater": "Land / Wasser",
+    "relief": "Relief",
+    "buildings": "Gebäude"
   },
   "terrain": {
     "title": "Terrain",
@@ -621,7 +645,15 @@
     "exaggeration": "Überhöhung",
     "noDem": "Einen DEM-Raster-Layer hinzufügen, um Terrain zu aktivieren.",
     "unitsUnknown": "Vertikale Einheiten nicht verfügbar; die Terrainskalierung ist näherungsweise.",
-    "unitsNonMeter": "Vertikale Einheiten sind {{unit}}, nicht Meter; die Terrainskalierung ist näherungsweise."
+    "unitsNonMeter": "Vertikale Einheiten sind {{unit}}, nicht Meter; die Terrainskalierung ist näherungsweise.",
+    "surfaceTitle": "Geländeoberfläche",
+    "surfaceDescription": "Terrain legt sich über die Kartenoberfläche; Relief-Ebenen bieten sichtbare Schattierung.",
+    "selectedDem": "Ausgewähltes DEM",
+    "noSource": "Keine",
+    "visualRelief": "Visuelles Relief",
+    "reliefLayerCount_one": "{{count}} sichtbare DEM-Ebene",
+    "reliefLayerCount_other": "{{count}} sichtbare DEM-Ebenen",
+    "noReliefLayer": "Keine sichtbare Relief-Ebene"
   },
   "featurePopup": {
     "noAttributes": "Keine Attribute",
@@ -643,7 +675,10 @@
       "unsaved": "Ungespeicherte Änderungen",
       "saving": "Speichern...",
       "failed": "Speichern fehlgeschlagen"
-    }
+    },
+    "description": "Beschreibung",
+    "unsavedDot": "Nicht gespeicherte Änderungen",
+    "untitled": "Unbenannte Karte"
   },
   "visibility": {
     "public": "Öffentlich",
@@ -711,7 +746,9 @@
     "popupConfigBackendRejected": "Der Server hat die Popup-Konfiguration abgelehnt ({{field}}). Passen Sie die Popup-Vorlage des Layers an und speichern Sie erneut.",
     "layerFallbackName": "Unbenannter Layer",
     "terrainDuplicateBlocked": "3D-Gelände kann nicht dupliziert werden – ein Datensatz kann Gelände nur einmal erzeugen.",
-    "terrainDisabledSourceRemoved": "3D-Gelände deaktiviert – die Quellebene wurde entfernt."
+    "terrainDisabledSourceRemoved": "3D-Gelände deaktiviert – die Quellebene wurde entfernt.",
+    "domainClearFailed": "Domain-Einschränkungen konnten nicht gelöscht werden",
+    "shareLinkCreated": "Freigabelink erstellt"
   },
   "builderMap": {
     "loading": "Karte wird geladen...",
@@ -763,7 +800,8 @@
     "queryResult": "Abfrageergebnis",
     "featureCount_one": "{{count}} Feature",
     "featureCount_other": "{{count}} Features",
-    "dismiss": "Abfrageergebnis verwerfen"
+    "dismiss": "Abfrageergebnis verwerfen",
+    "featureCountTruncated": "{{count}} von {{total}} Elementen"
   },
   "plugins": {
     "measurement": {
@@ -800,7 +838,9 @@
     "saveChanges": "Änderungen speichern",
     "cancelEditing": "Bearbeitung abbrechen",
     "editAttributes": "Attribute bearbeiten",
-    "deleteFeature": "Feature löschen"
+    "deleteFeature": "Feature löschen",
+    "modeActive": "{{mode}}-Modus aktiv",
+    "toolbar": "Zeichenwerkzeuge"
   },
   "actions": {
     "save": "Speichern",
@@ -931,7 +971,8 @@
     "aiPermissionTitle": "AI unavailable",
     "aiPermissionBody": "You don't have permission to use AI chat.",
     "aiGoToSettings": "Go to Settings",
-    "aiConfigureSettings": "Configure in Settings"
+    "aiConfigureSettings": "Configure in Settings",
+    "closePanel": "Panel schließen"
   },
   "stackRow": {
     "dragHandle": "Ziehen zum Neuanordnen von {{name}}",
@@ -947,7 +988,8 @@
     "kebabUngroup": "Gruppierung aufheben",
     "kebabDeleteGroup": "Gruppe löschen",
     "kebabMoveOutOfGroup": "Aus Gruppe verschieben",
-    "labelsIndicator": "Beschriftungen an: {{column}}"
+    "labelsIndicator": "Beschriftungen an: {{column}}",
+    "kebabGroupTrigger": "Gruppenoptionen für {{name}}"
   },
   "basemapGroup": {
     "addCustomBasemap": "＋ Benutzerdefinierte Basiskarte hinzufügen…",
@@ -982,7 +1024,8 @@
     "strokeLabel": "STRICH",
     "strokeWidth": "Breite",
     "strokeWidthLabel": "Strichbreite",
-    "zoomLabel": "ZOOMBEREICH"
+    "zoomLabel": "ZOOMBEREICH",
+    "resetAction": "Auf Standard zurücksetzen"
   },
   "demEditor": {
     "renderAsLabel": "DARSTELLUNG",
@@ -1010,7 +1053,8 @@
     "deleteConfirmMessage": "Diese Gruppe und alle ihre Layer löschen?",
     "deleteConfirmAction": "Alle löschen",
     "deleteConfirmCancel": "Gruppe behalten",
-    "newGroupItem": "＋ Neue Gruppe…"
+    "newGroupItem": "＋ Neue Gruppe…",
+    "toggleExpand": "Ordnergruppe umschalten"
   },
   "layerEditor": {
     "close": "Layer-Editor schließen",
@@ -1061,7 +1105,11 @@
       "title": "0 Objekte — überprüfen Sie Ihren Filter",
       "help": "Der aktuelle Filter hat alle Objekte in dieser Ebene ausgeschlossen. Passen Sie eine Bedingung an oder löschen Sie den Filter, um Objekte wieder anzuzeigen.",
       "clear": "Filter löschen"
-    }
+    },
+    "deleteLayer": "Ebene löschen",
+    "deleteLayerConfirmMessage": "Diese Ebene löschen? Das kann nicht rückgängig gemacht werden.",
+    "deleteLayerConfirmAction": "Löschen",
+    "deleteLayerConfirmCancel": "Ebene behalten"
   },
   "settings": {
     "regionLabel": "Karteneinstellungen",
@@ -1090,5 +1138,15 @@
     "projectionGlobe": "Globus",
     "projectionAria": "Kartenprojektion",
     "globeDisclaimer": "Die Globusprojektion ist experimentell. Einige Layer werden möglicherweise nicht korrekt dargestellt."
+  },
+  "common": {
+    "reload": "Neu laden"
+  },
+  "errors": {
+    "mapMessage": "Kartenfehler – Seite neu laden, um Kachelzugriff wiederherzustellen."
+  },
+  "toolbar": {
+    "pan": "Schwenken",
+    "styleJson": "Style-JSON"
   }
 }

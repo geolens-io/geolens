@@ -35,7 +35,9 @@
     "datasetCount_one": "{{count}} Datensatz",
     "datasetCount_other": "{{count}} Datensätze",
     "created": "Erstellt {{date}}",
-    "temporalPresent": "heute"
+    "temporalPresent": "heute",
+    "emptyBadge": "Leer",
+    "emptyHint": "Diese Sammlung enthält noch keine Datensätze."
   },
   "createDialog": {
     "title": "Sammlung erstellen",
@@ -97,5 +99,11 @@
     "addDatasetsFailed": "Failed to add datasets to collection",
     "removeError": "Datensatz konnte nicht entfernt werden",
     "addError": "Datensatz konnte nicht hinzugefügt werden"
+  },
+  "sort": {
+    "label": "Sortieren nach",
+    "lastUpdated": "Zuletzt aktualisiert",
+    "dateCreated": "Erstellungsdatum",
+    "name": "Name"
   }
 }

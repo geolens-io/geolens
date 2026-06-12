@@ -108,10 +108,44 @@
     "showDescription": "Show map description",
     "hideDescription": "Hide map description",
     "changeBasemap": "Change basemap",
-    "loadFailed": "Unable to load map"
+    "loadFailed": "Unable to load map",
+    "accessDenied": "Access denied",
+    "authMapRecovery": "Open your maps list to confirm access, or head back to the catalog to keep working.",
+    "browseCatalog": "Browse catalog",
+    "geoJsonLoadError": "Failed to load layer data",
+    "linkRecovery": "Ask the map owner for a fresh share link if you still need access.",
+    "mapError": "Map tile error — some layers may not display correctly.",
+    "openMaps": "Open maps",
+    "signIn": "Sign in",
+    "tokenError": "Failed to load map layer tokens — some layers may not display."
   },
+  "actions": {
+    "editGeometry": "Edit Features"
+  },
+  "map": {
+    "ariaLabel": "Dataset map",
+    "changeBasemap": "Change basemap",
+    "deleteFeatureTitle": "Delete Feature",
+    "deleteFeatureDescription": "Delete this feature? This cannot be undone.",
+    "discardChangesTitle": "Discard unsaved map edits?",
+    "discardChangesDescription": "Your geometry changes have not been saved. You can continue editing or discard them.",
+    "discardChangesAction": "Discard changes",
+    "exitFullscreen": "Exit fullscreen",
+    "fullscreen": "Enter fullscreen",
+    "unsavedDiscarded": "Unsaved changes discarded",
+    "zoomToExtent": "Zoom to dataset extent"
+  },
+  "page": {
+    "noSpatialExtent": "No spatial extent available"
+  },
+  "moreActions": "More actions",
+  "notSet": "Not set",
+  "notSpecified": "Not specified",
+  "unknown": "Unknown",
   "errors": {
     "unexpected": "An unexpected error occurred",
+    "loadFailed": "Failed to load",
+    "mapMessage": "Map error — some layers may not display correctly.",
     "datasetNotFound": "Dataset not found",
     "collectionNotFound": "Collection not found",
     "mapNotFound": "Map not found",

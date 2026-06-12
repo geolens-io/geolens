@@ -162,14 +162,18 @@
       "user": "Utilisateur",
       "filename": "Nom du fichier",
       "status": "Statut",
-      "duration": "Durée"
+      "duration": "Durée",
+      "details": "Détails",
+      "keyboardHint": "Tab vers le contrôle des détails, puis flèches pour naviguer entre les lignes."
     },
     "detail": {
       "errorMessage": "Message d'erreur",
       "userMetadata": "Métadonnées utilisateur"
     },
     "retry": "Réessayer",
-    "retrying": "Nouvelle tentative..."
+    "retrying": "Nouvelle tentative...",
+    "hideDetails": "Masquer les détails de {{name}}",
+    "showDetails": "Afficher les détails de {{name}}"
   },
   "audit": {
     "title": "Journal d'audit",
@@ -194,7 +198,9 @@
       "action": "Action",
       "resource": "Ressource",
       "resourceId": "ID de ressource",
-      "ipAddress": "Adresse IP"
+      "ipAddress": "Adresse IP",
+      "details": "Détails",
+      "keyboardHint": "Tab vers le contrôle des détails, puis flèches pour naviguer entre les lignes."
     },
     "detailsHint": "Détails (cliquez sur la ligne pour réduire)",
     "export": {
@@ -204,7 +210,10 @@
       "errorTitle": "Échec de l'exportation",
       "errorBody": "Une erreur est survenue. Réessayez ou réduisez la plage de dates.",
       "formatOptions": "Options de format d'exportation"
-    }
+    },
+    "detailsDescription": "Détails de journal développés",
+    "hideDetails": "Masquer les détails de {{action}}",
+    "showDetails": "Afficher les détails de {{action}}"
   },
   "ai": {
     "title": "IA",
@@ -427,7 +436,7 @@
       "removeBasemap": "Supprimer le fond de carte",
       "add": "Ajouter",
       "attributionLabel": "Attribution",
-      "attributionPlaceholder": "\u00a9 Nom du fournisseur",
+      "attributionPlaceholder": "© Nom du fournisseur",
       "attributionHelp": "Facultatif. HTML autorisé pour les liens.",
       "apiKeyLabel": "Clé API",
       "apiKeyPlaceholder": "Facultatif — requis si l'URL contient {api_key}",
@@ -570,7 +579,8 @@
         "viewer": "Lecteur",
         "editor": "Éditeur",
         "admin": "Administrateur"
-      }
+      },
+      "loadFailed": "Impossible de charger les fournisseurs OAuth"
     }
   },
   "infrastructure": {
@@ -595,7 +605,8 @@
     "degraded": "Performances dégradées",
     "autoRefresh": "Actualisation automatique toutes les 30s",
     "noCdn": "Pas de CDN",
-    "oidc": "OIDC"
+    "oidc": "OIDC",
+    "refresh": "Actualiser le statut de l'infrastructure"
   },
   "saml": {
     "title": "SSO SAML",

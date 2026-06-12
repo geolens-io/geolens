@@ -11,7 +11,10 @@
     "mapPreview": "Map Preview",
     "export": "Export",
     "attributeData": "Attribute Data",
-    "noSpatialExtent": "No spatial extent available"
+    "noSpatialExtent": "No spatial extent available",
+    "dataFirstTitle": "Data-first table dataset",
+    "dataFirstDescription": "This record is a non-spatial table. Review rows below, inspect schema in Structure, and use Connect for downstream access.",
+    "noMapPreview": "No map preview"
   },
   "tabs": {
     "overview": "Overview",
@@ -29,7 +32,10 @@
   },
   "inline": {
     "noDescription": "Add a description...",
-    "saveFailed": "Failed to save — please try again."
+    "saveFailed": "Failed to save — please try again.",
+    "clickToAdd": "Click to add {{field}}",
+    "noSummaryYet": "No summary added yet.",
+    "addSummary": "Add summary"
   },
   "affordances": {
     "sectionHint": {
@@ -85,9 +91,12 @@
     "stopDrawing": "Stop Drawing",
     "reupload": "Re-Upload",
     "reuploadTooltip": "Replace this dataset's source file",
+    "createVrt": "Create VRT",
     "createVrtTooltip": "Create a VRT mosaic from this raster",
+    "downloadCog": "Download COG",
     "delete": "Delete",
-    "deleteTooltip": "Delete this dataset"
+    "deleteTooltip": "Delete this dataset",
+    "connect": "Connect"
   },
   "header": {
     "more": "More",
@@ -139,7 +148,14 @@
     "never": "Never",
     "provenanceUnknown": "Unknown",
     "provenanceRestricted": "Restricted user",
-    "provenanceSystem": "System"
+    "provenanceSystem": "System",
+    "features": "Features",
+    "geometry": "Geometry",
+    "resolutionStrategy": "Resolution",
+    "rows": "Rows",
+    "sourceCount": "Sources",
+    "updated": "Updated",
+    "version": "Version"
   },
   "metadataEdit": {
     "title": "Edit Metadata",
@@ -167,7 +183,8 @@
     "shp": "Shapefile",
     "csv": "CSV",
     "button": "Export",
-    "failed": "Export failed"
+    "failed": "Export failed",
+    "formatLabel": "Export format"
   },
   "attributes": {
     "noData": "No data available",
@@ -179,7 +196,8 @@
     "noResults": "No matching rows found.",
     "showingExact": "Showing {{start}}-{{end}} of {{total}} rows",
     "rowsPerPage": "Rows per page",
-    "columns": "Columns"
+    "columns": "Columns",
+    "loadFailed": "Failed to load data. Please try again."
   },
   "changeHistory": {
     "title": "Change History ({{count}})",
@@ -477,11 +495,13 @@
     "noDistributions": "No distributions available.",
     "auto": "auto",
     "primary": "Primary",
-    "copyUrl": "Copy URL"
+    "copyUrl": "Copy URL",
+    "loadError": "Failed to load distributions."
   },
   "publish": {
     "publish": "Publish",
     "unpublish": "Unpublish",
+    "unpublishTitle": "Unpublish Dataset?",
     "confirmUnpublish": "Unpublish this dataset? It will no longer appear in search results.",
     "success": "Dataset published successfully.",
     "unpublished": "Dataset moved to draft.",
@@ -489,7 +509,12 @@
     "validationBlocker": "Cannot publish — resolve these issues first:"
   },
   "relatedDatasets": {
-    "title": "Related Datasets"
+    "title": "Related Datasets",
+    "similarDatasets": "Similar datasets",
+    "featureCount": "{{count}} features",
+    "featureCount_one": "{{count}} feature",
+    "featureCount_other": "{{count}} features",
+    "similarityMatch": "{{percent}}% match"
   },
   "relatedRecords": {
     "title": "Related Records",
@@ -566,7 +591,40 @@
     "unknown": "Unknown",
     "provenanceTitle": "Provenance",
     "provenanceUpload": "Data upload",
-    "provenanceFeatures": "features"
+    "provenanceFeatures": "features",
+    "aboutTitle": "About this dataset",
+    "apiTitle": "Access via API",
+    "appearsIn": "Appears in",
+    "bandColor": "Color",
+    "bandDetails": "Band Details",
+    "bandNodata": "Nodata",
+    "bands": "Bands",
+    "bandType": "Type",
+    "bbox": "BBox",
+    "cadence": "Cadence",
+    "compression": "Compression",
+    "created": "Created",
+    "crs": "CRS",
+    "dimensions": "Dimensions",
+    "fileSize": "File Size",
+    "generationStatus": "Status",
+    "lastRegenerated": "Last Regenerated",
+    "maintainer": "Maintainer",
+    "metadataTitle": "Metadata",
+    "nextFillIn": "Next: fill in {{field}}",
+    "nodata": "Nodata",
+    "ogcApiFeatures": "OGC API Features",
+    "percentComplete": "{{percent}}% complete",
+    "rasterProperties": "Raster Properties",
+    "recommendedCount_one": "{{count}} recommended",
+    "recommendedCount_other": "{{count}} recommended",
+    "requiredCount_one": "{{count}} required",
+    "requiredCount_other": "{{count}} required",
+    "resolution": "Resolution",
+    "reviewIssues": "Review issues",
+    "source": "Source",
+    "tagsTitle": "Tags",
+    "vrtType": "VRT Type"
   },
   "sources": {
     "system": "System",
@@ -599,7 +657,8 @@
     "boundingBox": "Bounding Box",
     "sourceInformation": "Source Information",
     "quality": "Quality",
-    "governance": "Governance"
+    "governance": "Governance",
+    "identityAndDerivation": "Derivation"
   },
   "vrt": {
     "regeneratingBanner": "VRT is regenerating. Source changes are disabled until complete.",
@@ -637,7 +696,15 @@
     "genTriggeredBy": "Triggered By",
     "healthHealthy": "Healthy",
     "healthMissing": "Source dataset deleted",
-    "healthInaccessible": "Source file inaccessible"
+    "healthInaccessible": "Source file inaccessible",
+    "healthHealthyShort": "Healthy",
+    "healthMissingShort": "Missing",
+    "healthInaccessibleShort": "Inaccessible",
+    "healthUnknownShort": "Unknown",
+    "noSources": "No sources",
+    "searchError": "Failed to search datasets.",
+    "sourcesLoadError": "Failed to load VRT sources.",
+    "sourceTableHealth": "Health"
   },
   "ai": {
     "assist": "AI Assist",
@@ -645,6 +712,9 @@
     "accept": "Accept",
     "discard": "Discard",
     "addSelected": "Add selected",
+    "generateSummary": "Generate summary",
+    "draftLineage": "Draft lineage",
+    "draftQualityStatement": "Draft quality statement",
     "summaryFailed": "Failed to generate summary",
     "keywordsNoneSuggested": "No new keywords suggested",
     "keywordsGenerateFailed": "Failed to generate keywords",
@@ -654,5 +724,18 @@
     "keywordsAddFailed": "Failed to add keywords",
     "lineageFailed": "Failed to generate lineage",
     "qualityStatementFailed": "Failed to generate quality statement"
+  },
+  "common": {
+    "cancel": "Cancel"
+  },
+  "temporal": {
+    "startDate": "Data vintage start",
+    "endDate": "Data vintage end"
+  },
+  "unsaved": {
+    "title": "Unsaved Changes",
+    "description": "You have unsaved changes. Are you sure you want to leave? Your changes will be lost.",
+    "stay": "Stay",
+    "leave": "Leave"
   }
 }

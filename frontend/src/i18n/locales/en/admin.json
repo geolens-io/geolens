@@ -162,8 +162,12 @@
       "user": "User",
       "filename": "Filename",
       "status": "Status",
-      "duration": "Duration"
+      "duration": "Duration",
+      "details": "Details",
+      "keyboardHint": "Tab to the details control, then use Up and Down arrows to move between rows."
     },
+    "hideDetails": "Hide details for {{name}}",
+    "showDetails": "Show details for {{name}}",
     "detail": {
       "errorMessage": "Error Message",
       "userMetadata": "User Metadata"
@@ -194,9 +198,14 @@
       "action": "Action",
       "resource": "Resource",
       "resourceId": "Resource ID",
-      "ipAddress": "IP Address"
+      "ipAddress": "IP Address",
+      "details": "Details",
+      "keyboardHint": "Tab to the details control, then use Up and Down arrows to move between rows."
     },
     "detailsHint": "Details (click row to collapse)",
+    "detailsDescription": "Expanded log details",
+    "hideDetails": "Hide details for {{action}}",
+    "showDetails": "Show details for {{action}}",
     "export": {
       "csv": "Export CSV",
       "json": "Export as JSON",
@@ -228,7 +237,8 @@
     "degraded": "Degraded Performance",
     "autoRefresh": "Auto-refreshes every 30s",
     "noCdn": "No CDN",
-    "oidc": "OIDC"
+    "oidc": "OIDC",
+    "refresh": "Refresh infrastructure status"
   },
   "ai": {
     "title": "AI",
@@ -542,6 +552,7 @@
     },
     "oauth": {
       "title": "OAuth Providers",
+      "loadFailed": "Failed to load OAuth providers",
       "description": "Configure external identity providers for single sign-on.",
       "addProvider": "Add Provider",
       "loading": "Loading providers...",

@@ -162,14 +162,18 @@
       "user": "Usuario",
       "filename": "Nombre de archivo",
       "status": "Estado",
-      "duration": "Duración"
+      "duration": "Duración",
+      "details": "Detalles",
+      "keyboardHint": "Tab al control de detalles, luego flechas para navegar entre filas."
     },
     "detail": {
       "errorMessage": "Mensaje de error",
       "userMetadata": "Metadatos del usuario"
     },
     "retry": "Reintentar",
-    "retrying": "Reintentando..."
+    "retrying": "Reintentando...",
+    "hideDetails": "Ocultar detalles de {{name}}",
+    "showDetails": "Mostrar detalles de {{name}}"
   },
   "audit": {
     "title": "Registros de auditoría",
@@ -194,7 +198,9 @@
       "action": "Acción",
       "resource": "Recurso",
       "resourceId": "ID del recurso",
-      "ipAddress": "Dirección IP"
+      "ipAddress": "Dirección IP",
+      "details": "Detalles",
+      "keyboardHint": "Tab al control de detalles, luego flechas para navegar entre filas."
     },
     "detailsHint": "Detalles (haga clic en la fila para contraer)",
     "export": {
@@ -204,7 +210,10 @@
       "errorTitle": "Error de exportación",
       "errorBody": "Algo salió mal. Inténtelo de nuevo o reduzca el rango de fechas.",
       "formatOptions": "Opciones de formato de exportación"
-    }
+    },
+    "detailsDescription": "Detalles de registro ampliados",
+    "hideDetails": "Ocultar detalles de {{action}}",
+    "showDetails": "Mostrar detalles de {{action}}"
   },
   "ai": {
     "title": "IA",
@@ -427,7 +436,7 @@
       "removeBasemap": "Eliminar mapa base",
       "add": "Agregar",
       "attributionLabel": "Atribución",
-      "attributionPlaceholder": "\u00a9 Nombre del proveedor",
+      "attributionPlaceholder": "© Nombre del proveedor",
       "attributionHelp": "Opcional. Se permite HTML para enlaces.",
       "apiKeyLabel": "Clave API",
       "apiKeyPlaceholder": "Opcional — requerida si la URL contiene {api_key}",
@@ -570,7 +579,8 @@
         "viewer": "Lector",
         "editor": "Editor",
         "admin": "Administrador"
-      }
+      },
+      "loadFailed": "No se pudieron cargar los proveedores OAuth"
     }
   },
   "infrastructure": {
@@ -595,7 +605,8 @@
     "degraded": "Rendimiento degradado",
     "autoRefresh": "Se actualiza automáticamente cada 30s",
     "noCdn": "Sin CDN",
-    "oidc": "OIDC"
+    "oidc": "OIDC",
+    "refresh": "Actualizar estado de infraestructura"
   },
   "saml": {
     "title": "SSO SAML",

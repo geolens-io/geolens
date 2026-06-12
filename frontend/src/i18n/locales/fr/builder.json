@@ -18,7 +18,8 @@
   "layers": {
     "title": "Couches",
     "emptyState": "Ajoutez des jeux de données du catalogue pour commencer",
-    "addData": "Ajouter des données"
+    "addData": "Ajouter des données",
+    "unnamed": "Calque sans nom"
   },
   "mapStack": {
     "title": "Pile de carte",
@@ -250,7 +251,8 @@
       "weightNone": "Aucun (poids égal)",
       "colorRamp": "Palette de couleurs",
       "radius": "Rayon",
-      "intensity": "Intensité"
+      "intensity": "Intensité",
+      "opacity": "Opacité"
     },
     "cluster": {
       "radius": "Rayon d'agrégat",
@@ -352,7 +354,9 @@
       "notInList": "pas dans la liste",
       "exists": "existe"
     },
-    "removeCondition": "Supprimer la condition"
+    "removeCondition": "Supprimer la condition",
+    "clear": "Effacer le filtre",
+    "combinator": "Condition de correspondance"
   },
   "labels": {
     "title": "Étiquettes",
@@ -383,7 +387,9 @@
     "zoomRange": "Plage de zoom",
     "minZoom": "Zoom min",
     "maxZoom": "Zoom max",
-    "noColumns": "Cette couche n'a aucune colonne disponible pour les étiquettes."
+    "noColumns": "Cette couche n'a aucune colonne disponible pour les étiquettes.",
+    "enable": "Activer les étiquettes",
+    "textOpacity": "Opacité du texte"
   },
   "popup": {
     "enable": "Activer la popup pour cette couche",
@@ -428,7 +434,8 @@
     "targetWidth": "Largeur",
     "sizeMin": "Taille min",
     "sizeMax": "Taille max",
-    "colors": "Couleurs"
+    "colors": "Couleurs",
+    "customColors": "Couleurs personnalisées"
   },
   "search": {
     "title": "Ajouter un jeu de données",
@@ -534,7 +541,16 @@
     "iframeErrorTitle": "Aperçu indisponible",
     "iframeErrorBody": "Vérifiez que le jeton d'intégration est valide et que le lien de partage est actif. Rechargez pour réessayer.",
     "iframeReload": "Recharger",
-    "iframeSandboxNote": "sandbox=\"allow-scripts\" only — SEC-07 contract"
+    "iframeSandboxNote": "sandbox=\"allow-scripts\" only — SEC-07 contract",
+    "embedTokenMissing": "Cette carte contient des calques non publics. Les visiteurs pourraient ne pas voir tous les calques sans jeton d'intégration.",
+    "embedTokenNotAvailable": "Le jeton d'intégration a été créé lors d'une session précédente. Régénérez-le pour obtenir le code d'intégration.",
+    "embedTokenRegenerated": "Jeton d'intégration régénéré",
+    "expirationCleared": "Expiration du lien supprimée — le lien n'expire jamais",
+    "expired": "Lien expiré",
+    "makePublicHint": "Rendez cette carte publique pour générer un lien de partage",
+    "rawTokenUnavailable": "Pour des raisons de sécurité, le lien complet n'est affiché qu'à sa création. Régénérez le lien pour le copier à nouveau.",
+    "regenerate": "Régénérer",
+    "regenerateLink": "Régénérer le lien"
   },
   "chat": {
     "experimental": "Expérimental",
@@ -592,7 +608,8 @@
       "chipAddBelow": "Add \"{{name}}\" below \"{{ref}}\"",
       "chipRemove": "Remove \"{{name}}\"",
       "chipRemoveFeatures_one": "Remove \"{{name}}\" ({{count}} feature)",
-      "chipRemoveFeatures_other": "Remove \"{{name}}\" ({{count}} features)"
+      "chipRemoveFeatures_other": "Remove \"{{name}}\" ({{count}} features)",
+      "regionLabel": "Actions IA en attente"
     },
     "queryResult": {
       "empty": "The AI query returned no rows.",
@@ -611,7 +628,14 @@
   "basemap": {
     "title": "Fond de carte",
     "showLabels": "Afficher les libellés des lieux",
-    "blank": "Aucun"
+    "blank": "Aucun",
+    "appearance": "Apparence",
+    "labels": "Étiquettes",
+    "roads": "Routes",
+    "boundaries": "Frontières",
+    "landWater": "Terre / eau",
+    "relief": "Relief",
+    "buildings": "Bâtiments"
   },
   "terrain": {
     "title": "Terrain",
@@ -621,7 +645,15 @@
     "exaggeration": "Exagération",
     "noDem": "Ajoutez une couche raster DEM pour activer le terrain.",
     "unitsUnknown": "Les unités verticales sont indisponibles ; l'échelle du terrain est approximative.",
-    "unitsNonMeter": "Les unités verticales sont {{unit}}, pas des mètres ; l'échelle du terrain est approximative."
+    "unitsNonMeter": "Les unités verticales sont {{unit}}, pas des mètres ; l'échelle du terrain est approximative.",
+    "surfaceTitle": "Surface d'élévation",
+    "surfaceDescription": "Le terrain drape la surface de la carte ; les calques de relief fournissent un ombrage visible.",
+    "selectedDem": "MNT sélectionné",
+    "noSource": "Aucun",
+    "visualRelief": "Relief visuel",
+    "reliefLayerCount_one": "{{count}} calque MNT visible",
+    "reliefLayerCount_other": "{{count}} calques MNT visibles",
+    "noReliefLayer": "Aucun calque de relief visible"
   },
   "featurePopup": {
     "noAttributes": "Aucun attribut",
@@ -643,7 +675,10 @@
       "unsaved": "Modifications non enregistrées",
       "saving": "Enregistrement...",
       "failed": "Échec de l'enregistrement"
-    }
+    },
+    "description": "Description",
+    "unsavedDot": "Modifications non sauvegardées",
+    "untitled": "Carte sans titre"
   },
   "visibility": {
     "public": "Public",
@@ -711,7 +746,9 @@
     "popupConfigBackendRejected": "Le serveur a rejeté la configuration du popup ({{field}}). Ajustez le modèle de popup de la couche et enregistrez à nouveau.",
     "layerFallbackName": "Couche sans titre",
     "terrainDuplicateBlocked": "Le terrain 3D ne peut pas être dupliqué : un jeu de données ne peut alimenter le terrain qu'une seule fois.",
-    "terrainDisabledSourceRemoved": "Relief 3D désactivé — sa couche source a été supprimée."
+    "terrainDisabledSourceRemoved": "Relief 3D désactivé — sa couche source a été supprimée.",
+    "domainClearFailed": "Impossible d'effacer les restrictions de domaine",
+    "shareLinkCreated": "Lien de partage créé"
   },
   "builderMap": {
     "loading": "Chargement de la carte...",
@@ -763,7 +800,8 @@
     "queryResult": "Résultat de requête",
     "featureCount_one": "{{count}} entité",
     "featureCount_other": "{{count}} entités",
-    "dismiss": "Fermer le résultat de requête"
+    "dismiss": "Fermer le résultat de requête",
+    "featureCountTruncated": "{{count}} sur {{total}} éléments"
   },
   "plugins": {
     "measurement": {
@@ -800,7 +838,9 @@
     "saveChanges": "Enregistrer les modifications",
     "cancelEditing": "Annuler la modification",
     "editAttributes": "Modifier les attributs",
-    "deleteFeature": "Supprimer l'entité"
+    "deleteFeature": "Supprimer l'entité",
+    "modeActive": "Mode {{mode}} actif",
+    "toolbar": "Outils de dessin"
   },
   "actions": {
     "save": "Enregistrer",
@@ -931,7 +971,8 @@
     "aiPermissionTitle": "AI unavailable",
     "aiPermissionBody": "You don't have permission to use AI chat.",
     "aiGoToSettings": "Go to Settings",
-    "aiConfigureSettings": "Configure in Settings"
+    "aiConfigureSettings": "Configure in Settings",
+    "closePanel": "Fermer le panneau"
   },
   "stackRow": {
     "dragHandle": "Glisser pour réorganiser {{name}}",
@@ -947,7 +988,8 @@
     "kebabUngroup": "Dégrouper",
     "kebabDeleteGroup": "Supprimer le groupe",
     "kebabMoveOutOfGroup": "Déplacer hors du groupe",
-    "labelsIndicator": "Étiquettes activées : {{column}}"
+    "labelsIndicator": "Étiquettes activées : {{column}}",
+    "kebabGroupTrigger": "Options de groupe pour {{name}}"
   },
   "basemapGroup": {
     "addCustomBasemap": "＋ Ajouter un fond de carte personnalisé…",
@@ -982,7 +1024,8 @@
     "strokeLabel": "TRAIT",
     "strokeWidth": "Largeur",
     "strokeWidthLabel": "Largeur du trait",
-    "zoomLabel": "PLAGE DE ZOOM"
+    "zoomLabel": "PLAGE DE ZOOM",
+    "resetAction": "Réinitialiser par défaut"
   },
   "demEditor": {
     "renderAsLabel": "AFFICHER COMME",
@@ -1010,7 +1053,8 @@
     "deleteConfirmMessage": "Supprimer ce groupe et toutes ses couches ?",
     "deleteConfirmAction": "Tout supprimer",
     "deleteConfirmCancel": "Conserver le groupe",
-    "newGroupItem": "＋ Nouveau groupe…"
+    "newGroupItem": "＋ Nouveau groupe…",
+    "toggleExpand": "Basculer le groupe de dossiers"
   },
   "layerEditor": {
     "close": "Fermer l'éditeur de couche",
@@ -1061,7 +1105,11 @@
       "title": "0 entité — vérifiez votre filtre",
       "help": "Le filtre actuel a éliminé toutes les entités de cette couche. Ajustez une condition ou effacez le filtre pour revoir les entités.",
       "clear": "Effacer le filtre"
-    }
+    },
+    "deleteLayer": "Supprimer le calque",
+    "deleteLayerConfirmMessage": "Supprimer ce calque ? Cette action est irréversible.",
+    "deleteLayerConfirmAction": "Supprimer",
+    "deleteLayerConfirmCancel": "Conserver le calque"
   },
   "settings": {
     "regionLabel": "Paramètres de carte",
@@ -1090,5 +1138,15 @@
     "projectionGlobe": "Globe",
     "projectionAria": "Projection de la carte",
     "globeDisclaimer": "La projection globe est expérimentale. Certaines couches peuvent ne pas s'afficher correctement."
+  },
+  "common": {
+    "reload": "Recharger"
+  },
+  "errors": {
+    "mapMessage": "Erreur de carte — rechargez la page pour restaurer l'accès aux tuiles."
+  },
+  "toolbar": {
+    "pan": "Déplacer",
+    "styleJson": "JSON de style"
   }
 }

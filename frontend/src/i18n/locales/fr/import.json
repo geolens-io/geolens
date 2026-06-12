@@ -48,7 +48,8 @@
       "dtype_mismatch": "Écart de type de données : {{source}} vs {{expected}}",
       "nodata_inconsistent": "Valeur NoData non concordante",
       "grid_misaligned": "Les dimensions de la grille ne correspondent pas"
-    }
+    },
+    "searchError": "Impossible de charger les résultats"
   },
   "upload": {
     "startOver": "Recommencer",
@@ -94,7 +95,10 @@
     "sizeLimit": "500 Mo maximum par fichier",
     "sizeLimitDynamic": "{{size}} Mo maximum par fichier",
     "batchLimit": "Jusqu'à 10 fichiers par lot",
-    "fileRejected": "{{filename}} : {{reason}}"
+    "fileRejected": "{{filename}} : {{reason}}",
+    "browse": "Parcourir",
+    "toUpload": "pour charger",
+    "subtext": "GeoLens détectera la géométrie, le SCR et le schéma avant de valider dans le catalogue. Lots jusqu'à 10 fichiers."
   },
   "stac": {
     "label": "URL de l'API STAC — collez le point d'accès racine du catalogue",
@@ -164,10 +168,16 @@
     "importStarted": "Importation lancée",
     "connectFailed": "Échec de la connexion au service",
     "previewFailed": "Échec de l'aperçu de la couche",
-    "commitFailed": "Échec du lancement de l'importation"
+    "commitFailed": "Échec du lancement de l'importation",
+    "detectedLabel": "URL de service — détectée",
+    "clear": "Effacer",
+    "layersAvailable": "{{count}} calques disponibles",
+    "noLayers": "Aucun calque trouvé dans ce service.",
+    "probe": "Vérifier →",
+    "supported": "Supporté :"
   },
   "register": {
-    "helpText": "Cataloguez des tables PostGIS existantes de votre base de donn\u00e9es en tant que jeux de donn\u00e9es dans GeoLens. Utilisez cette option lorsque vous avez des donn\u00e9es g\u00e9ographiques d\u00e9j\u00e0 dans la base de donn\u00e9es qui n'ont pas \u00e9t\u00e9 import\u00e9es via GeoLens. Les tables s\u00e9lectionn\u00e9es seront ajout\u00e9es au catalogue avec d\u00e9tection automatique des m\u00e9tadonn\u00e9es.",
+    "helpText": "Cataloguez des tables PostGIS existantes de votre base de données en tant que jeux de données dans GeoLens. Utilisez cette option lorsque vous avez des données géographiques déjà dans la base de données qui n'ont pas été importées via GeoLens. Les tables sélectionnées seront ajoutées au catalogue avec détection automatique des métadonnées.",
     "discovering": "Recherche des tables...",
     "discoverFailed": "Échec de la découverte des tables :",
     "emptyState": "Aucune table non enregistrée trouvée dans la base de données.",
@@ -183,7 +193,7 @@
     "visibilityPrivate": "Privé",
     "visibilityRestricted": "Restreint",
     "visibilityPublic": "Publique",
-    "visibilityHelp": "Publique = visible par tous. Restreint = utilisateurs connect\u00e9s uniquement. Priv\u00e9 = \u00e9diteurs et administrateurs uniquement.",
+    "visibilityHelp": "Publique = visible par tous. Restreint = utilisateurs connectés uniquement. Privé = éditeurs et administrateurs uniquement.",
     "registering": "Enregistrement...",
     "registerButton_one": "Enregistrer {{count}} table",
     "registerButton_other": "Enregistrer {{count}} tables",
@@ -195,7 +205,10 @@
     "successToast_one": "{{count}} table enregistrée avec succès",
     "successToast_other": "{{count}} tables enregistrées avec succès",
     "registerFailed": "Échec de l'enregistrement des tables",
-    "unknownError": "Erreur inconnue"
+    "unknownError": "Erreur inconnue",
+    "searchPlaceholder": "Rechercher des tables…",
+    "selectHint": "Sélectionnez une table dans la liste pour voir son schéma et l'enregistrer.",
+    "detailDesc": "Enregistrer comme jeu de données GeoLens — tuilé à la volée, aucune copie."
   },
   "layerPicker": {
     "title": "Sélectionner une couche",
@@ -252,14 +265,14 @@
     "crsPlaceholderDetected": "Laissez vide pour utiliser le SCR détecté ({{crs}})",
     "crsPlaceholderEmpty": "Code EPSG",
     "crsHelpText": "Remplacez le SCR détecté (code EPSG). Laissez vide pour utiliser la valeur détectée.",
-    "temporalStartLabel": "Date de d\u00e9but",
+    "temporalStartLabel": "Date de début",
     "temporalEndLabel": "Date de fin",
-    "temporalHelpText": "Plage de dates pour ce jeu de donn\u00e9es. Utilis\u00e9e pour la recherche temporelle.",
-    "advancedOptions": "Options avanc\u00e9es",
+    "temporalHelpText": "Plage de dates pour ce jeu de données. Utilisée pour la recherche temporelle.",
+    "advancedOptions": "Options avancées",
     "compressionLabel": "Compression",
-    "compressionHelp": "Compression de sortie COG. DEFLATE par d\u00e9faut. ZSTD pour la vitesse, JPEG/WEBP pour les images.",
-    "resamplingLabel": "R\u00e9\u00e9chantillonnage",
-    "resamplingHelp": "M\u00e9thode pour la g\u00e9n\u00e9ration des aper\u00e7us et la reprojection. Auto s\u00e9lectionne selon le type de donn\u00e9es.",
+    "compressionHelp": "Compression de sortie COG. DEFLATE par défaut. ZSTD pour la vitesse, JPEG/WEBP pour les images.",
+    "resamplingLabel": "Rééchantillonnage",
+    "resamplingHelp": "Méthode pour la génération des aperçus et la reprojection. Auto sélectionne selon le type de données.",
     "nodataLabel": "Valeur NoData",
     "nodataHelp": "Remplacer ou attribuer une valeur NoData pour ce raster.",
     "geometryColumns": "Colonnes de geometrie",
@@ -275,7 +288,8 @@
     "latLng": "Lat/Lng",
     "wkt": "WKT",
     "importing": "Importation...",
-    "importDataset": "Importer le jeu de données"
+    "importDataset": "Importer le jeu de données",
+    "crsDetected": "SCR détecté : EPSG:{{crs}} (détection automatique — aucun remplacement nécessaire)"
   },
   "jobProgress": {
     "loadingStatus": "Chargement du statut de la tâche...",
@@ -371,6 +385,54 @@
     "rasterDatasetsReady": "{{count}} jeux de données raster prêts",
     "createVrtMosaic": "Créer un mosaïque VRT",
     "importAsVrt": "Importer en mosaïque VRT",
-    "ingestAllLayers": "Ingérer les {{count}} couches comme jeux de données séparés"
+    "ingestAllLayers": "Ingérer les {{count}} couches comme jeux de données séparés",
+    "activeJobs": "Tâches actives et récentes",
+    "detectingHint": "Chargement & détection…",
+    "importingFiles": "Importation de {{count}} fichiers",
+    "progressDetail": "{{done}} terminé · {{active}} en cours · {{queued}} en attente"
+  },
+  "eyebrow": "Importer",
+  "pageDescription": "Chargez des fichiers, enregistrez des tables depuis votre Postgres ou connectez un service distant. GeoLens détecte la géométrie, le schéma et le SCR, puis rend les données interrogeables, stylisables et intégrables.",
+  "complete": {
+    "heroTitle": "{{count}} jeux de données ajoutés au catalogue",
+    "heroDesc": "Tous les fichiers ingérés, tuilés et indexés. Prêts à être interrogés, stylisés et cartographiés.",
+    "statDatasets": "Jeux de données",
+    "statVector": "Vecteur",
+    "statRaster": "Raster",
+    "statTabular": "Tabulaire",
+    "next": "Suivant :",
+    "viewCatalog": "Voir dans le catalogue",
+    "importMore": "Importer davantage"
+  },
+  "rail": {
+    "stageTitle": "Préparer les fichiers",
+    "stageDesc": "Déposez ou choisissez des fichiers. Pas encore de validation — vous pouvez en supprimer avant la détection.",
+    "reviewTitle": "Examiner la détection",
+    "reviewDesc": "Confirmez le type de géométrie, le SCR, le schéma et l'aperçu pour chaque fichier.",
+    "importTitle": "Importer et cataloguer",
+    "importDesc": "Tuiler, indexer, publier — les jeux de données apparaissent immédiatement dans le catalogue.",
+    "workflow": "Flux de travail",
+    "whatImported": "Ce qui est importé",
+    "vectorLabel": "Vecteur",
+    "vectorDesc": "tuilé en MVT, index spatial, reprojeté en 3857 à la lecture.",
+    "rasterLabel": "Raster",
+    "rasterDesc": "converti en COG, aperçus construits, bandes conservées.",
+    "tableLabel": "Tabulaire",
+    "tableDesc": "ingéré comme table joignable. Spécifiez optionnellement des colonnes de géométrie lors de l'importation.",
+    "tip": "Conseil",
+    "tipText": "Déposez plusieurs fichiers à la fois pour créer un lot. Chaque fichier devient son propre jeu de données — vous pouvez examiner et ajuster les métadonnées avant de valider.",
+    "registerHint": "Enregistrement d'infrastructure existante",
+    "stacHint": "Importation depuis STAC",
+    "serviceHint": "Connexion de services distants",
+    "registerDesc": "Enregistrez les tables PostGIS existantes comme jeux de données — GeoLens les tuile directement depuis votre base de données.",
+    "stacDesc": "Connectez un catalogue ou une collection STAC et importez les ressources sélectionnées dans GeoLens.",
+    "serviceDesc": "Connectez un WFS distant, ArcGIS FeatureServer ou OGC API Features. GeoLens importe le calque dans le catalogue pour le tuilage et les requêtes.",
+    "registerNote": "Aucune donnée copiée · tuiles générées directement depuis vos tables",
+    "stacNote": "Les métadonnées STAC sont découvertes d'abord, puis les ressources sélectionnées importées",
+    "serviceNote": "Les jetons de service ne sont utilisés que lors de l'importation et ne sont pas conservés",
+    "comparedToUpload": "Comparé au chargement",
+    "compareRegister": "Le chargement ingère depuis un fichier. L'enregistrement pointe vers une table existante — pas de duplication, mais la table doit rester dans votre base de données.",
+    "compareStac": "Le chargement ingère des fichiers locaux. Les importations STAC découvrent d'abord les ressources distantes, puis préparent les éléments sélectionnés pour le catalogue.",
+    "compareService": "Le chargement ingère depuis un fichier. L'URL de service récupère depuis une API distante et importe les données dans GeoLens pour le tuilage et les requêtes locaux."
   }
 }
