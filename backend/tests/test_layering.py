@@ -774,7 +774,10 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # Phase 1062 CR-04: +13 lines from non-expiring embed-token CSP fix
         # (or_ IS NULL predicate, _create_non_expiring_embed_token helper).
         # Cap raised from 575 → 600 to allow ~12 lines of headroom above 588.
-        "backend/app/modules/catalog/maps/service_public.py": 600,
+        # Phase 1176 SEC-024: +20 lines for _redact_terrain_config (strip the
+        # private DEM source_dataset_id from shared/public map responses when the
+        # DEM is not a visible layer). Cap raised 600 → 625 (~5 LOC headroom).
+        "backend/app/modules/catalog/maps/service_public.py": 625,
         "backend/app/modules/catalog/search/service_records.py": 500,
         # Phase 269 H-05: dataset-domain modules over the 350 default at audit
         # time. Caps set ~20-30 LOC above current size to allow modest growth
@@ -875,6 +878,11 @@ def test_router_orchestrator_modules_stay_within_loc_cap() -> None:
         # queued. HARD ceiling — do NOT raise past 1900 without decomposing.
         "backend/app/modules/catalog/maps/router.py": 1900,
         "backend/app/modules/catalog/search/router.py": 1600,
+        # Phase 1176 PERF-002: +~60 lines for the raster tile auth/metadata
+        # TTLCache (_RasterMeta + _resolve_raster_meta), mirroring the vector
+        # tile meta cache so raster tiles aren't asymmetric. Cap 1580 (~20 LOC
+        # headroom above 1560). HARD ceiling — decompose before raising further.
+        "backend/app/processing/tiles/router.py": 1580,
     }
 
     violations: list[str] = []

@@ -121,7 +121,7 @@ async def _refresh_limit_cache() -> int:
             mb = await UPLOAD_MAX_SIZE_MB.get(db)
 
         limit_bytes = mb * 1024 * 1024
-    except Exception:
+    except Exception:  # broad: dynamic UPLOAD_MAX_SIZE_MB read can fail during startup/test isolation; fall back to cached/default limit
         # Cache unavailable (startup, test isolation) — keep current or use fallback
         limit_bytes = cached_bytes or _FALLBACK_LIMIT_BYTES
 

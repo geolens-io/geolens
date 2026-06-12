@@ -33,8 +33,13 @@ def _reset_has_embeddings_cache() -> None:
 # --- PERF-05: postgresql.conf max_connections --------------------------------
 
 
-def test_postgresql_conf_max_connections_is_30():
-    """PERF-05: max_connections lowered from 50 to 30."""
+def test_postgresql_conf_max_connections_is_70():
+    """PERF-05 + v1039 PERF-003: max_connections recomputed to 70.
+
+    v1039 PERF-003 found the old budget (30) undercounted the asyncpg tile pool
+    + procrastinate connectors (worst case ~64). Raised to 70 with itemized math
+    in db/postgresql.conf.
+    """
     conf = (_REPO_ROOT / "db" / "postgresql.conf").read_text()
     # Strip comment-only lines so prose doesn't self-invalidate the gate.
     non_comment_lines = [
@@ -46,9 +51,9 @@ def test_postgresql_conf_max_connections_is_30():
     assert len(max_conn_lines) == 1, (
         f"Expected exactly one max_connections directive; found {max_conn_lines}"
     )
-    # Match `max_connections = 30` allowing trailing whitespace + inline comment.
-    assert re.match(r"^max_connections\s*=\s*30(\s|$|#)", max_conn_lines[0]), (
-        f"PERF-05: expected max_connections = 30, got: {max_conn_lines[0]}"
+    # Match `max_connections = 70` allowing trailing whitespace + inline comment.
+    assert re.match(r"^max_connections\s*=\s*70(\s|$|#)", max_conn_lines[0]), (
+        f"v1039 PERF-003: expected max_connections = 70, got: {max_conn_lines[0]}"
     )
 
 
