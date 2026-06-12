@@ -862,6 +862,60 @@ class TestTileDomainLocking:
         )
         assert resp.status_code in (200, 204)
 
+    async def test_tile_ipv6_loopback_auto_allowed(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        cleanup_data_tables,
+    ):
+        """BUG-028: IPv6 loopback Origin 'http://[::1]:8080' resolves the localhost
+        bypass on a domain-locked token.
+
+        Before the fix, _LOCALHOST_HOSTS held the bracketed '[::1]' but
+        _is_localhost_origin compared urlparse(...).hostname == '::1' (brackets
+        stripped), so the IPv6 entry was a dead branch and this request 403'd.
+        """
+        table_name, raw_token = await self._setup(
+            test_db_session,
+            client,
+            admin_auth_header,
+            ["https://example.com"],
+            cleanup_data_tables,
+        )
+        resp = await client.get(
+            f"/tiles/data.{table_name}/0/0/0.pbf",
+            headers={"X-Embed-Token": raw_token, "Origin": "http://[::1]:8080"},
+        )
+        assert resp.status_code in (200, 204)
+
+    async def test_tile_ipv6_origin_in_allowlist_matches(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        cleanup_data_tables,
+    ):
+        """BUG-028: an IPv6 origin in the allowlist byte-matches the request origin.
+
+        The stored allowed_origins (schema normalizer, bracket-preserving) and the
+        live request origin (service extraction) previously used DIFFERENT
+        normalizers — storage kept '[::1]', extraction produced '::1' — so an
+        IPv6-locked token always denied. Both paths now share one normalizer.
+        """
+        table_name, raw_token = await self._setup(
+            test_db_session,
+            client,
+            admin_auth_header,
+            ["http://[fe80::1]:9000"],
+            cleanup_data_tables,
+        )
+        resp = await client.get(
+            f"/tiles/data.{table_name}/0/0/0.pbf",
+            headers={"X-Embed-Token": raw_token, "Origin": "http://[fe80::1]:9000"},
+        )
+        assert resp.status_code in (200, 204)
+
     async def test_tile_referer_fallback(
         self,
         client: AsyncClient,

@@ -323,3 +323,63 @@ def test_normalize_origin_ipv6_brackets():
     assert _normalize_origin("http://[::1]:80") == "http://[::1]", (
         "IPv6 with default port 80 must strip port but keep brackets"
     )
+
+
+def test_bug028_service_and_schema_normalizers_are_the_same():
+    """BUG-028: storage and request-origin extraction must use ONE normalizer.
+
+    The service previously had its own bracket-stripping _normalize_origin while
+    storage used the bracket-preserving schema one, so IPv6 origins never matched.
+    They must now be the same callable.
+    """
+    from app.modules.embed_tokens.schemas import _normalize_origin as schema_norm
+    from app.modules.embed_tokens.service import _normalize_origin as service_norm
+
+    assert service_norm is schema_norm, (
+        "service._normalize_origin must be the shared schema normalizer"
+    )
+
+
+def test_bug028_ipv6_loopback_is_localhost_origin():
+    """BUG-028: 'http://[::1]:8080' must be recognised as a localhost origin.
+
+    Before the fix _LOCALHOST_HOSTS held the bracketed '[::1]' while
+    _is_localhost_origin compared the UNBRACKETED urlparse hostname '::1' — a
+    dead branch. The set now stores '::1' so IPv6 loopback is detected.
+    """
+    from app.modules.embed_tokens.service import _is_localhost_origin
+
+    assert _is_localhost_origin("http://[::1]:8080") is True, (
+        "IPv6 loopback origin must be detected as localhost"
+    )
+    # Sanity: the IPv4/hostname loopbacks still resolve, non-loopback does not.
+    assert _is_localhost_origin("http://localhost:3000") is True
+    assert _is_localhost_origin("http://127.0.0.1") is True
+    assert _is_localhost_origin("http://evil.example.com") is False
+
+
+def test_bug028_stored_ipv6_allowlist_matches_extracted_request_origin():
+    """BUG-028: stored allowlist form must byte-match the extracted request origin.
+
+    allowed_origins are stored through the schema normalizer; request origins are
+    extracted via extract_request_origin. For an IPv6 host the two must produce the
+    identical string, or an IPv6-locked token would always deny.
+    """
+    from starlette.datastructures import Headers
+    from starlette.requests import Request
+
+    from app.modules.embed_tokens.schemas import _normalize_origin
+    from app.modules.embed_tokens.service import extract_request_origin
+
+    raw = "http://[fe80::1]:9000"
+    stored = _normalize_origin(raw)
+
+    scope = {
+        "type": "http",
+        "headers": Headers({"origin": raw}).raw,
+    }
+    extracted = extract_request_origin(Request(scope))
+
+    assert extracted == stored, (
+        f"request origin {extracted!r} must byte-match stored allowlist {stored!r}"
+    )
