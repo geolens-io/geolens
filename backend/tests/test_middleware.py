@@ -109,7 +109,13 @@ async def test_rate_limiting(client: AsyncClient):
 
 @pytest.mark.anyio
 async def test_rate_limit_health_excluded(client: AsyncClient):
-    """GET /health is exempt from rate limiting when decorated with @limiter.exempt."""
+    """GET /health is not subject to the tight global default rate limit.
+
+    GAP-016: /health carries its own explicit @limiter.limit("60/minute")
+    instead of @limiter.exempt. A route-specific limit overrides the global
+    default in slowapi, so a tight 2/second default never trips the Docker
+    healthcheck / LB polling — exactly the property this test guards.
+    """
     from app.modules.auth.router import limiter
 
     original_enabled = limiter.enabled

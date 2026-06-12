@@ -826,8 +826,11 @@ async def get_infrastructure(
     """Return infrastructure configuration, live health status, and OIDC provider connectivity."""
     from app.observability.health.service import check_health, check_oidc_health
 
+    # include_errors=True: this is the authenticated admin view, so operators
+    # keep the raw provider error detail (GAP-016 sanitizes only the
+    # unauthenticated /health path).
     health, oidc_health = await asyncio.gather(
-        check_health(),
+        check_health(include_errors=True),
         check_oidc_health(db),
     )
 
