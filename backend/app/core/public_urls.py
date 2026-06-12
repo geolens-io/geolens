@@ -231,6 +231,28 @@ def get_env_public_api_url(request: Request | None = None) -> str:
 _PUBLIC_URL_CACHE: tuple[float, dict[str, str | None]] | None = None
 _PUBLIC_URL_CACHE_TTL = 60  # seconds
 
+# BUG-025: the three keys whose AppSetting rows feed _PUBLIC_URL_CACHE. A write
+# to any of them must invalidate the cache (see invalidate_public_url_cache).
+PUBLIC_URL_KEYS = frozenset(
+    {PUBLIC_APP_URL_KEY, PUBLIC_API_URL_KEY, LEGACY_PUBLIC_API_URL_KEY}
+)
+
+
+def invalidate_public_url_cache() -> None:
+    """Clear the public-URL override cache.
+
+    BUG-025: ``_PUBLIC_URL_CACHE`` is a 60s module-global memoization of the
+    public_app_url / public_api_url / public_base_url AppSetting rows. The
+    ``config:`` cache invalidated by ``PersistentConfig.set``/``reset`` is a
+    SEPARATE layer; without clearing this one too, a settings write keeps
+    returning the OLD public URL (in the PUT response, /settings/tile-config,
+    OGC self-links, share links) for up to ``_PUBLIC_URL_CACHE_TTL`` per
+    process. PersistentConfig.set/reset call this when one of
+    ``PUBLIC_URL_KEYS`` is written.
+    """
+    global _PUBLIC_URL_CACHE
+    _PUBLIC_URL_CACHE = None
+
 
 async def _load_public_url_overrides(db: AsyncSession) -> dict[str, str | None]:
     global _PUBLIC_URL_CACHE

@@ -186,6 +186,47 @@ async def test_set_invalidates_cache(client: AsyncClient):
 
 
 @pytest.mark.anyio
+async def test_set_public_url_invalidates_public_url_cache(client: AsyncClient):
+    """BUG-025: writing a public-URL key invalidates the public_urls module cache.
+
+    public_urls._PUBLIC_URL_CACHE is a SEPARATE 60s memoization from the
+    config: cache. Before the fix, PUBLIC_APP_URL.set() cleared only the
+    config: key, so get_public_urls() kept returning the OLD value for up to
+    60s — the PUT /settings response and tile-config appeared to ignore the
+    save. After the fix, the next read reflects the new value immediately.
+    """
+    from unittest.mock import patch
+
+    from app.core import public_urls
+    from app.core.persistent_config import PUBLIC_APP_URL
+
+    from app.core.dependencies import get_db
+    from app.api.main import app
+
+    public_urls._PUBLIC_URL_CACHE = None
+    # ENV_ONLY_CONFIG must be off for DB overrides to flow through.
+    with patch.object(public_urls.settings, "env_only_config", False):
+        async for db in app.dependency_overrides[get_db]():
+            try:
+                await PUBLIC_APP_URL.set(db, "https://old.example.com")
+                # Prime the public_urls module cache with the OLD value.
+                app_url, _ = await public_urls.get_public_urls(db)
+                assert app_url == "https://old.example.com"
+                assert public_urls._PUBLIC_URL_CACHE is not None
+
+                # Writing the key must clear the module cache (the fix).
+                await PUBLIC_APP_URL.set(db, "https://new.example.com")
+                assert public_urls._PUBLIC_URL_CACHE is None
+
+                # And the next read must reflect the NEW value, not the stale one.
+                app_url_after, _ = await public_urls.get_public_urls(db)
+                assert app_url_after == "https://new.example.com"
+            finally:
+                await PUBLIC_APP_URL.reset(db)
+                public_urls._PUBLIC_URL_CACHE = None
+
+
+@pytest.mark.anyio
 async def test_get_uses_cache_with_ttl(client: AsyncClient):
     """get() uses cache with 30s TTL -- second call within TTL returns cached value."""
     from app.platform.cache import init_cache, get_cache
