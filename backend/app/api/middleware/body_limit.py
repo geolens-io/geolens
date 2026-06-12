@@ -71,8 +71,8 @@ def _strip_api_prefix(path: str) -> str:
     return path
 
 
-def _is_upload_route(path: str) -> bool:
-    """Return True only for the endpoints that actually receive file BYTES.
+def _is_upload_route(path: str, method: str = "POST") -> bool:
+    """Return True only for the two POST endpoints that receive file BYTES.
 
     GAP-001: file-upload routes need the large UPLOAD_MAX_SIZE_MB limit; every
     other route gets DEFAULT_BODY_LIMIT_BYTES so a large body cannot slip past
@@ -87,11 +87,18 @@ def _is_upload_route(path: str) -> bool:
     prefix and "/reupload"-substring match let a 500 MB JSON body through on
     those routes).
 
+    Both upload endpoints are POST-only, so the method is part of the match: a
+    non-POST request to the same path (e.g. PUT /ingest/upload) would otherwise
+    get the large cap and be rejected only as 405 *after* the large body was
+    allowed through (PR #249 review).
+
     The optional ``/api`` prefix is normalised away first (see _strip_api_prefix)
     so the classifier fires on the proxy-stripped paths real deployments produce,
     not just on a direct hit against the API container. A trailing slash is
     ignored — FastAPI resolves both shapes (redirect_slashes=False).
     """
+    if method.upper() != "POST":
+        return False
     norm = _strip_api_prefix(path.lower()).rstrip("/")
     # POST /ingest/upload — the multipart new-file upload (NOT /upload/presigned*).
     if norm == "/ingest/upload":
@@ -188,7 +195,8 @@ class RequestBodyLimitMiddleware:
         await _refresh_limit_cache()
 
         path = scope.get("path", "")
-        if _is_upload_route(path):
+        method = scope.get("method", "")
+        if _is_upload_route(path, method):
             # Upload/reupload: use the admin-configurable limit (500 MB default)
             max_bytes = _get_upload_limit()
         else:

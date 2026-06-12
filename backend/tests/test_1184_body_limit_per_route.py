@@ -55,6 +55,22 @@ class TestIsUploadRoute:
         assert _is_upload_route("/API/INGEST/UPLOAD") is True
         assert _is_upload_route("/API/DATASETS/ABC/REUPLOAD") is True
 
+    # --- the upload endpoints are POST-only; a non-POST request to the same path
+    # is NOT a file upload and must fall back to the default cap (PR #249 review,
+    # else a large body slips past the cap before the 405). ---
+    def test_non_post_method_is_not_upload(self):
+        assert _is_upload_route("/api/ingest/upload", "GET") is False
+        assert _is_upload_route("/api/ingest/upload", "PUT") is False
+        assert _is_upload_route("/api/datasets/abc123/reupload", "GET") is False
+        assert _is_upload_route("/api/datasets/abc123/reupload", "HEAD") is False
+
+    def test_post_method_is_upload(self):
+        assert _is_upload_route("/api/ingest/upload", "POST") is True
+        assert _is_upload_route("/api/datasets/abc123/reupload", "POST") is True
+        assert (
+            _is_upload_route("/api/ingest/upload", "post") is True
+        )  # case-insensitive
+
     # --- JSON-only sub-routes of the upload/reupload flows are NOT file uploads
     # (PR #249 review): the bytes go straight to object storage, so a large JSON
     # body on these routes must be stopped by the default cap. ---
@@ -121,6 +137,11 @@ class TestIsUploadRouteProxyStripped:
     def test_stripped_case_insensitive(self):
         assert _is_upload_route("/INGEST/UPLOAD") is True
         assert _is_upload_route("/DATASETS/ABC/REUPLOAD") is True
+
+    def test_stripped_non_post_method_is_not_upload(self):
+        assert _is_upload_route("/ingest/upload", "GET") is False
+        assert _is_upload_route("/ingest/upload", "PUT") is False
+        assert _is_upload_route("/datasets/abc123/reupload", "DELETE") is False
 
     # --- stripped JSON sub-routes must NOT get the large cap (PR #249 review) ---
     def test_stripped_ingest_upload_presigned_is_not_upload(self):
@@ -258,6 +279,26 @@ class TestGap001PerRouteBodyCap:
             "GAP-001 fix: proxy-stripped upload path (/ingest/upload) with 11 MB "
             f"body must not be 413; got {resp.status_code}. Both proxies strip "
             "/api, so this is the path real deployments actually produce."
+        )
+
+    @pytest.mark.anyio
+    async def test_non_post_to_upload_path_over_10mb_is_413(self, client: AsyncClient):
+        """A non-POST request to an upload PATH must hit the 10 MB default cap.
+
+        PR #249 review: the upload endpoints are POST-only. Before the method
+        gate, PUT /ingest/upload with 11 MB got the 500 MB cap and was rejected
+        only as 405 *after* the body was allowed through; now it falls back to the
+        10 MB default and is stopped at the body limit. FAILS pre-fix (405),
+        PASSES post-fix (413).
+        """
+        resp = await client.put(
+            "/ingest/upload",
+            content=b"x",
+            headers={"Content-Length": str(_11MB)},
+        )
+        assert resp.status_code == 413, (
+            "PR #249: non-POST to an upload path with 11 MB must hit the 10 MB "
+            f"default cap (413), not the large upload cap; got {resp.status_code}"
         )
 
     @pytest.mark.anyio
