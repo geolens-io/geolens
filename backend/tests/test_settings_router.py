@@ -120,6 +120,71 @@ async def test_put_settings_unauthenticated_returns_401(
 
 
 # ---------------------------------------------------------------------------
+# BUG-029: dead _rebuild_embedding_column shadow removed
+# ---------------------------------------------------------------------------
+
+
+def test_router_has_no_dead_rebuild_embedding_column_shadow():
+    """BUG-029: the local _rebuild_embedding_column that shadowed the real
+    implementation (and silently swallowed DDL failures) must not exist.
+
+    The route imports rebuild_embedding_column from
+    app.processing.embeddings.service, which RE-RAISES on DDL failure. A local
+    same-purpose copy in the router was dead code (zero callers) whose
+    swallow-and-rollback contract contradicted the live 503 path — a future
+    mis-edit could silently break the rebuild. Guard against re-introduction.
+    """
+    from app.modules.settings import router as settings_router
+
+    assert not hasattr(settings_router, "_rebuild_embedding_column"), (
+        "Dead _rebuild_embedding_column shadow reintroduced in settings/router.py"
+    )
+
+
+@pytest.mark.anyio
+async def test_put_settings_embedding_rebuild_failure_propagates_as_503(
+    client: AsyncClient,
+    admin_auth_header: dict,
+):
+    """BUG-029: a DDL failure during embedding rebuild must surface as 503.
+
+    Proves the route uses the RAISING rebuild_embedding_column (which the
+    handler maps to a 503 + setting rollback), not the deleted shadow that
+    swallowed errors and would have let the request 'succeed' silently.
+    """
+    from sqlalchemy import text
+
+    from app.core.dependencies import get_db
+    from app.api.main import app
+
+    # Pick a new dimension so the rebuild branch actually runs.
+    new_dims = 512
+    async for db in app.dependency_overrides[get_db]():
+        col_check = await db.execute(
+            text(
+                "SELECT atttypmod FROM pg_attribute "
+                "WHERE attrelid = 'catalog.record_embeddings'::regclass "
+                "AND attname = 'embedding'"
+            )
+        )
+        current_dims = col_check.scalar_one_or_none()
+        new_dims = 512 if current_dims != 512 else 768
+        break
+
+    with patch(
+        "app.processing.embeddings.service.rebuild_embedding_column",
+        AsyncMock(side_effect=RuntimeError("simulated DDL failure")),
+    ):
+        resp = await client.put(
+            "/settings/",
+            json={"settings": {"embedding_dims": new_dims}},
+            headers=admin_auth_header,
+        )
+
+    assert resp.status_code == 503
+
+
+# ---------------------------------------------------------------------------
 # Tile config tests
 # ---------------------------------------------------------------------------
 

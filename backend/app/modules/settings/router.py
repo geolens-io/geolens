@@ -152,46 +152,6 @@ async def _auto_detect_embedding_dims(
         )
 
 
-async def _rebuild_embedding_column(db: AsyncSession, new_dims: int) -> None:
-    """Delete incompatible embeddings and rebuild the column + HNSW index."""
-    from sqlalchemy import text as sa_text
-
-    col_check = await db.execute(
-        sa_text(
-            "SELECT atttypmod FROM pg_attribute "
-            "WHERE attrelid = 'catalog.record_embeddings'::regclass "
-            "AND attname = 'embedding'"
-        )
-    )
-    current_dims = col_check.scalar_one_or_none()
-    if current_dims is None or current_dims == new_dims:
-        return
-
-    try:
-        await db.execute(sa_text("DELETE FROM catalog.record_embeddings"))
-        await db.execute(
-            sa_text("DROP INDEX IF EXISTS catalog.ix_record_embeddings_hnsw")
-        )
-        await db.execute(
-            sa_text(
-                f"ALTER TABLE catalog.record_embeddings "
-                f"ALTER COLUMN embedding TYPE vector({new_dims}) "
-                f"USING embedding::vector({new_dims})"
-            )
-        )
-        await db.execute(
-            sa_text(
-                "CREATE INDEX ix_record_embeddings_hnsw "
-                "ON catalog.record_embeddings USING hnsw (embedding vector_cosine_ops) "
-                "WITH (m=16, ef_construction=64)"
-            )
-        )
-        await db.commit()
-    except Exception:  # broad: DDL (DROP/ALTER/CREATE INDEX) can fail for schema/lock reasons; rollback and log
-        logger.error("Failed to rebuild embedding column", exc_info=True)
-        await db.rollback()
-
-
 # ---------------------------------------------------------------------------
 # Unified admin endpoints
 # ---------------------------------------------------------------------------
