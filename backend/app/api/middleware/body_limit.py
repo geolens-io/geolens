@@ -94,12 +94,15 @@ def _is_upload_route(path: str, method: str = "POST") -> bool:
 
     The optional ``/api`` prefix is normalised away first (see _strip_api_prefix)
     so the classifier fires on the proxy-stripped paths real deployments produce,
-    not just on a direct hit against the API container. A trailing slash is
-    ignored — FastAPI resolves both shapes (redirect_slashes=False).
+    not just on a direct hit against the API container. The match is exact: both
+    routes are registered WITHOUT a trailing slash and the app runs with
+    redirect_slashes=False plus no trailing-slash alias, so a trailing-slash
+    variant (/ingest/upload/) 404s — it must stay on the default cap, not be
+    handed the large allowance ahead of that 404 (PR #249 review).
     """
     if method.upper() != "POST":
         return False
-    norm = _strip_api_prefix(path.lower()).rstrip("/")
+    norm = _strip_api_prefix(path.lower())
     # POST /ingest/upload — the multipart new-file upload (NOT /upload/presigned*).
     if norm == "/ingest/upload":
         return True

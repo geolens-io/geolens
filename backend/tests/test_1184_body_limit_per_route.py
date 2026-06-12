@@ -47,9 +47,11 @@ class TestIsUploadRoute:
     def test_datasets_reupload_is_upload(self):
         assert _is_upload_route("/api/datasets/abc123/reupload") is True
 
-    def test_trailing_slash_ignored(self):
-        assert _is_upload_route("/api/ingest/upload/") is True
-        assert _is_upload_route("/api/datasets/abc123/reupload/") is True
+    def test_trailing_slash_is_not_upload(self):
+        # Registered no-slash with redirect_slashes=False (no alias), so the
+        # trailing-slash variant 404s — it must NOT get the large cap (PR #249).
+        assert _is_upload_route("/api/ingest/upload/") is False
+        assert _is_upload_route("/api/datasets/abc123/reupload/") is False
 
     def test_case_insensitive(self):
         assert _is_upload_route("/API/INGEST/UPLOAD") is True
@@ -130,9 +132,9 @@ class TestIsUploadRouteProxyStripped:
     def test_stripped_datasets_reupload_is_upload(self):
         assert _is_upload_route("/datasets/abc123/reupload") is True
 
-    def test_stripped_trailing_slash_ignored(self):
-        assert _is_upload_route("/ingest/upload/") is True
-        assert _is_upload_route("/datasets/abc123/reupload/") is True
+    def test_stripped_trailing_slash_is_not_upload(self):
+        assert _is_upload_route("/ingest/upload/") is False
+        assert _is_upload_route("/datasets/abc123/reupload/") is False
 
     def test_stripped_case_insensitive(self):
         assert _is_upload_route("/INGEST/UPLOAD") is True
@@ -299,6 +301,28 @@ class TestGap001PerRouteBodyCap:
         assert resp.status_code == 413, (
             "PR #249: non-POST to an upload path with 11 MB must hit the 10 MB "
             f"default cap (413), not the large upload cap; got {resp.status_code}"
+        )
+
+    @pytest.mark.anyio
+    async def test_trailing_slash_upload_path_over_10mb_is_413(
+        self, client: AsyncClient
+    ):
+        """A trailing-slash upload path (which 404s) must hit the default cap.
+
+        PR #249 review: /ingest/upload/ is not a registered route
+        (redirect_slashes=False, no trailing-slash alias). Before the exact match
+        it got the 500 MB cap and the body was allowed through ahead of the 404;
+        now it falls back to the 10 MB default. FAILS pre-fix (404), PASSES
+        post-fix (413).
+        """
+        resp = await client.post(
+            "/ingest/upload/",
+            content=b"x",
+            headers={"Content-Length": str(_11MB)},
+        )
+        assert resp.status_code == 413, (
+            "PR #249: trailing-slash upload path with 11 MB must hit the 10 MB "
+            f"default cap (413), not the large cap ahead of a 404; got {resp.status_code}"
         )
 
     @pytest.mark.anyio
