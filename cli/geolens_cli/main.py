@@ -382,11 +382,16 @@ def logout(ctx: typer.Context) -> None:
         state.output.error("No active instance — nothing to log out from.")
         raise typer.Exit(2)
     _auth.delete_credentials(instance)
-    # Also clear config.toml so a stale instance URL doesn't linger.
-    try:
-        _config.config_path().unlink()
-    except FileNotFoundError:
-        pass
+    # BUG-032: only clear config.toml when we are logging out of the DEFAULT
+    # instance it stores. With a --instance / GEOLENS_INSTANCE override active,
+    # the resolved instance may differ from config.instance — unlinking then
+    # would wipe the unrelated default-instance configuration the user is
+    # still logged into.
+    if instance == state.config.instance:
+        try:
+            _config.config_path().unlink()
+        except FileNotFoundError:
+            pass
     state.output.success(f"Logged out of {instance}")
 
 
