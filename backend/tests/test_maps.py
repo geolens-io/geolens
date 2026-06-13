@@ -171,6 +171,43 @@ async def _create_dem_dataset(test_db_session, *, created_by: uuid.UUID) -> Data
     return ds
 
 
+async def _create_multiband_non_meter_dem_dataset(
+    test_db_session, *, created_by: uuid.UUID
+) -> Dataset:
+    """A 3-band DEM whose band_info advertises a non-meter vertical unit ('feet').
+
+    Exercises both hydrated fields on a single dataset: band_count > 1 and a
+    non-meter dem_vertical_units extracted from band_info.
+    """
+    ds = await create_dataset(
+        test_db_session,
+        created_by=created_by,
+        name="Multi-band Non-meter DEM",
+        geometry_type=None,
+        source_format="geotiff",
+        source_filename="multiband_dem.tif",
+    )
+    record = await test_db_session.get(Record, ds.record_id)
+    assert record is not None
+    record.record_type = "raster_dataset"
+    test_db_session.add(
+        RasterAsset(
+            dataset_id=ds.id,
+            asset_uri=f"rasters/{ds.id}/source.cog.tif",
+            storage_backend="local",
+            is_dem=True,
+            band_count=3,
+            band_info=[
+                {"unit": "feet"},
+                {"unit": "feet"},
+                {"unit": "feet"},
+            ],
+        )
+    )
+    await test_db_session.commit()
+    return ds
+
+
 def test_layer_diff_schema_rejects_duplicate_layer_ids() -> None:
     """MapLayerDiffRequest validates duplicate updated/removed/order IDs."""
     layer_id = uuid.uuid4()
@@ -1962,6 +1999,50 @@ class TestMapLayers:
         assert style_resp.status_code == 200, style_resp.text
         source = style_resp.json()["sources"][f"geolens-{ds.id}"]
         assert source["type"] == "raster-dem"
+
+    async def test_add_layer_hydrates_band_count_and_dem_vertical_units(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+    ):
+        """RHYD-01: POST /maps/{id}/layers returns real band_count + dem_vertical_units.
+
+        The add-layer response must surface the RasterAsset metadata immediately
+        (no save+reload). Before the get_dataset_meta fix both fields came back
+        None; now a multi-band non-meter DEM reports band_count == 3 and
+        dem_vertical_units == "feet", and a single-band meter DEM stays at
+        band_count == 1 / dem_vertical_units null (baseline unregressed).
+        """
+        admin_id = await get_user_id(test_db_session, "admin")
+        created = await _create_map(client, admin_auth_header)
+        map_id = created["id"]
+
+        # Multi-band, non-meter DEM exercises both hydrated fields.
+        multi_ds = await _create_multiband_non_meter_dem_dataset(
+            test_db_session, created_by=admin_id
+        )
+        resp = await client.post(
+            f"/maps/{map_id}/layers",
+            json={"dataset_id": str(multi_ds.id)},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 201, resp.text
+        data = resp.json()
+        assert data["band_count"] == 3
+        assert data["dem_vertical_units"] == "feet"
+
+        # Baseline: single-band meter DEM is unregressed.
+        meter_ds = await _create_dem_dataset(test_db_session, created_by=admin_id)
+        baseline = await client.post(
+            f"/maps/{map_id}/layers",
+            json={"dataset_id": str(meter_ds.id)},
+            headers=admin_auth_header,
+        )
+        assert baseline.status_code == 201, baseline.text
+        baseline_data = baseline.json()
+        assert baseline_data["band_count"] == 1
+        assert baseline_data["dem_vertical_units"] is None
 
     async def test_patch_add_dem_layer_persists_hillshade_render_mode(
         self,
