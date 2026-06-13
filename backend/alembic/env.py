@@ -46,24 +46,26 @@ def _discover_migration_paths() -> list[str]:
     ``Can't locate revision 'e002_add_saml_columns'`` (existing enterprise DB)
     or a SAML ``UndefinedColumn`` at login (fresh enterprise DB).
 
-    We therefore distinguish two failure classes:
+    We distinguish three classes, and the import-error suppression is scoped to
+    ``ep.load()`` ALONE so a provider failure can never be reclassified as
+    "absent" (Codex PR #250 review):
 
     - ``ModuleNotFoundError`` / ``ImportError`` from ``ep.load()`` means the
-      overlay package is simply not installed. On an OSS-only deployment this
-      is the normal, expected case, so it stays silent (debug-level only).
-    - Any *other* exception means the overlay IS present but its migration-path
-      provider is broken (bad editable install, import-time error, raising
-      callable). That must be surfaced loudly — we log an error with the entry
-      point name and full traceback so the failure is not a silent drop.
+      overlay package is simply not installed. On an OSS-only deployment this is
+      the normal, expected case, so it stays silent (debug-level only).
+    - Any *other* exception from ``ep.load()`` means the overlay IS installed but
+      fails to import (bad editable install, import-time error). Surfaced loudly.
+    - Once ``ep.load()`` succeeds the overlay IS installed, so ANY exception from
+      CALLING its path provider — INCLUDING an ``ImportError`` from a missing
+      submodule inside the provider — is a broken overlay, surfaced loudly. (If
+      this were folded into the load() try, that provider ``ImportError`` would be
+      swallowed as "absent" — the exact silent drop GAP-013 exists to prevent.)
     """
     paths = []
     for ep in iter_entry_points(group="geolens.migrations"):
+        # Step 1 — import the entry point.
         try:
             fn = ep.load()
-            if callable(fn):
-                for p in fn():
-                    if pathlib.Path(p).is_dir():
-                        paths.append(p)
         except (ModuleNotFoundError, ImportError) as exc:
             # Overlay genuinely not installed — normal for OSS deployments.
             _log.debug(
@@ -71,13 +73,31 @@ def _discover_migration_paths() -> list[str]:
                 getattr(ep, "name", ep),
                 exc,
             )
+            continue
         except Exception:
-            # Overlay present but broken — surface loudly, never silently drop.
+            # Installed but fails to import — surface loudly, never silently drop.
             _log.error(
-                "Failed to load geolens.migrations entry point %r — its "
-                "migration version directory will be MISSING from "
+                "Failed to load geolens.migrations entry point %r — its migration "
+                "version directory will be MISSING from version_locations "
+                "(enterprise e-chain may not apply). Configuration error, not OSS.",
+                getattr(ep, "name", ep),
+                exc_info=True,
+            )
+            continue
+        # Step 2 — load() succeeded (overlay IS installed). Any failure calling
+        # its provider — incl. ImportError from a missing submodule inside it — is
+        # a BROKEN overlay, never an absent one.
+        try:
+            if callable(fn):
+                for p in fn():
+                    if pathlib.Path(p).is_dir():
+                        paths.append(p)
+        except Exception:
+            _log.error(
+                "geolens.migrations entry point %r loaded but its migration-path "
+                "provider failed — its version directory will be MISSING from "
                 "version_locations (enterprise e-chain may not apply). "
-                "This is a configuration error, not an OSS deployment.",
+                "Configuration error, not OSS.",
                 getattr(ep, "name", ep),
                 exc_info=True,
             )

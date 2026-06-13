@@ -186,6 +186,40 @@ def test_real_discover_broken_overlay_logs_error(caplog):
     )
 
 
+def test_real_discover_provider_import_error_logs_error(caplog):
+    """Codex PR #250: ep.load() SUCCEEDS but the loaded provider raises ImportError
+    when CALLED (e.g. a missing submodule imported inside the overlay's provider).
+
+    The overlay IS installed (load() succeeded), so this is a BROKEN overlay and
+    must log ERROR — it must NOT be reclassified as 'overlay not installed', which
+    is what happened when the import-error suppression also wrapped the provider
+    call.
+    """
+    real_fn = _load_real_discover_fn()
+
+    def _provider_raises_import_error():
+        raise ImportError("No module named 'geolens_enterprise.migrations._missing'")
+
+    installed_ep = MagicMock()
+    installed_ep.name = "enterprise"
+    installed_ep.load.return_value = _provider_raises_import_error
+
+    real_fn.__globals__["iter_entry_points"] = lambda **kw: [installed_ep]
+    with caplog.at_level(logging.ERROR, logger="alembic.env"):
+        result = real_fn()
+
+    assert result == []
+    error_records = [r for r in caplog.records if r.levelno >= logging.ERROR]
+    assert error_records, (
+        "A provider ImportError from an INSTALLED overlay must log ERROR (broken), "
+        "not be swallowed as 'overlay not installed' (GAP-013 / Codex PR #250)."
+    )
+    joined = " ".join(r.getMessage() for r in error_records)
+    assert "enterprise" in joined, (
+        "The error log must name the failing entry point for breadcrumbs."
+    )
+
+
 # Repo root: backend/tests/test_migration_discovery.py -> parents[2] == repo root.
 _REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 
