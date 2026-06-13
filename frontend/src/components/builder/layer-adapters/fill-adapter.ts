@@ -219,7 +219,8 @@ export const fillAdapter: LayerAdapter = {
   },
 
   syncVisibility(map: MaplibreMap, input: AdapterLayerInput): void {
-    const { layerId, visible } = input;
+    const { layerId, visible, paint: rawPaint } = input;
+    const builder = getBuilderStyleConfig(input);
     const outlineId = `${input.layerId}-outline`;
     const extrusionId = `${input.layerId}-extrusion`;
     const vis = visible ? 'visible' : 'none';
@@ -227,7 +228,13 @@ export const fillAdapter: LayerAdapter = {
       map.setLayoutProperty(layerId, 'visibility', vis);
     }
     if (map.getLayer(outlineId)) {
-      map.setLayoutProperty(outlineId, 'visibility', vis);
+      // BUG-036: the outline carries the stroke-disabled state as its layout
+      // visibility (see addLayers/syncPaint). Restoring it on the raw `vis`
+      // here resurrects a 1px outline that the user disabled (render-as 'Fill
+      // only' sets strokeDisabled without zeroing outlineWidth). Gate it on the
+      // same strokeDisabled flag syncPaint reads so the map stays in sync.
+      const strokeDisabled = builder.strokeDisabled ?? !!rawPaint['_stroke-disabled'];
+      map.setLayoutProperty(outlineId, 'visibility', visible && !strokeDisabled ? 'visible' : 'none');
     }
     if (map.getLayer(extrusionId)) {
       map.setLayoutProperty(extrusionId, 'visibility', vis);

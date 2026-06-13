@@ -6,16 +6,23 @@ import { vi } from 'vitest';
 
 vi.mock('@/api/maps', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/api/maps')>();
-  return { ...actual, listMaps: vi.fn(), getMap: vi.fn(), deleteMap: vi.fn() };
+  return {
+    ...actual,
+    listMaps: vi.fn(),
+    getMap: vi.fn(),
+    deleteMap: vi.fn(),
+    createMap: vi.fn(),
+  };
 });
 
-import { listMaps, getMap, deleteMap } from '@/api/maps';
-import { useMaps, useMap, useDeleteMap } from '@/hooks/use-maps';
+import { listMaps, getMap, deleteMap, createMap } from '@/api/maps';
+import { useMaps, useMap, useDeleteMap, useCreateMap } from '@/hooks/use-maps';
 import { queryKeys } from '@/lib/query-keys';
 
 const mockListMaps = vi.mocked(listMaps);
 const mockGetMap = vi.mocked(getMap);
 const mockDeleteMap = vi.mocked(deleteMap);
+const mockCreateMap = vi.mocked(createMap);
 
 describe('useMaps', () => {
   beforeEach(() => {
@@ -110,6 +117,62 @@ describe('useDeleteMap', () => {
     expect(qc.getQueryData(queryKeys.maps.detail(otherId))).toEqual({ id: otherId });
   });
 
+});
+
+// BUG-039: map mutations must invalidate the dataset-scoped "used in maps"
+// lists (queryKeys.datasets.maps = ['datasets', id, 'maps']). Pre-fix only
+// 'maps'-rooted keys were touched, so a dataset's panel kept showing a
+// deleted/renamed/newly-created map until the 60s staleTime elapsed.
+describe('BUG-039: map mutations invalidate dataset "used in maps" lists', () => {
+  beforeEach(() => vi.clearAllMocks());
+  afterEach(() => vi.restoreAllMocks());
+
+  function makeQc() {
+    return new QueryClient({
+      defaultOptions: { queries: { retry: false, gcTime: 0 }, mutations: { retry: false } },
+    });
+  }
+
+  // queryKeys.datasets.all === ['datasets'] is the prefix that matches the
+  // dataset-scoped map lists (['datasets', id, 'maps']). Assert it was invalidated.
+  function invalidatedDatasetsRoot(calls: Array<unknown[]>) {
+    return calls.some((c) => {
+      const k = (c[0] as { queryKey?: unknown[] })?.queryKey;
+      return Array.isArray(k) && k.length === 1 && k[0] === 'datasets';
+    });
+  }
+
+  it('useDeleteMap invalidates the dataset maps list', async () => {
+    const qc = makeQc();
+    const spy = vi.spyOn(qc, 'invalidateQueries');
+    mockDeleteMap.mockResolvedValueOnce(undefined as never);
+
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={qc}>{children}</QueryClientProvider>
+    );
+    const { result } = renderHookWithWrapper(() => useDeleteMap(), { wrapper });
+    await act(async () => {
+      await result.current.mutateAsync('m1');
+    });
+
+    expect(invalidatedDatasetsRoot(spy.mock.calls)).toBe(true);
+  });
+
+  it('useCreateMap invalidates the dataset maps list', async () => {
+    const qc = makeQc();
+    const spy = vi.spyOn(qc, 'invalidateQueries');
+    mockCreateMap.mockResolvedValueOnce({ id: 'new-map' } as never);
+
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={qc}>{children}</QueryClientProvider>
+    );
+    const { result } = renderHookWithWrapper(() => useCreateMap(), { wrapper });
+    await act(async () => {
+      await result.current.mutateAsync({ name: 'New', layers: [] } as never);
+    });
+
+    expect(invalidatedDatasetsRoot(spy.mock.calls)).toBe(true);
+  });
 });
 
 describe('useMaps – empty list', () => {

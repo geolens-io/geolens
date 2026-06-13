@@ -134,11 +134,10 @@ async def rebuild_embedding_column(db: AsyncSession, new_dims: int) -> bool:
     configured). Both paths use ``CREATE INDEX IF NOT EXISTS`` semantics
     (the migration uses an explicit ``IF NOT EXISTS``; this function
     recreates the index after a DROP) so they are idempotent and never
-    conflict. A near-duplicate DROP+ALTER+CREATE block lives in
-    ``backend/app/modules/settings/router.py`` because the settings UI
-    surfaces a separate dimension-change handler with different
-    transactional semantics; that copy is intentionally kept until a
-    dedicated refactor consolidates the two flows.
+    conflict. This is the single implementation: the settings UI
+    dimension-change handler in ``backend/app/modules/settings/router.py``
+    imports and calls THIS function (BUG-029 removed the divergent
+    error-swallowing copy that previously shadowed it there).
 
     Returns True if the column was rebuilt, False if dimensions were unchanged.
     """

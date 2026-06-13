@@ -21,6 +21,7 @@ from geolens_cli.manifest_apply import (
     APPLY_ENDPOINT,
     ManifestApplyRequestError,
     build_apply_payload,
+    find_local_source_uris,
     has_apply_errors,
     post_manifest_apply,
     summarize_results,
@@ -76,6 +77,13 @@ class FakeSdk:
 
 def _manifest_path() -> Path:
     return FIXTURE_ROOT / "valid" / "vector-relative.yaml"
+
+
+def _remote_manifest_path() -> Path:
+    # GAP-020: `apply` rejects manifests with LOCAL source URIs (use `publish`
+    # for those). Command-level apply tests therefore use a remote-URI manifest
+    # so the POST path is exercised end-to-end.
+    return FIXTURE_ROOT / "valid" / "vector-url.yaml"
 
 
 def _invalid_manifest_path() -> Path:
@@ -193,7 +201,7 @@ def test_apply_default_sends_write_payload(
     response = FakeResponse(200, _apply_response(dry_run=False))
     sdk = _install_fake_sdk(monkeypatch, response)
 
-    result = runner.invoke(app, ["apply", str(_manifest_path())])
+    result = runner.invoke(app, ["apply", str(_remote_manifest_path())])
 
     assert result.exit_code == 0, result.output
     assert sdk.client.httpx_client.calls[0]["url"] == APPLY_ENDPOINT
@@ -210,7 +218,7 @@ def test_apply_dry_run_sends_dry_run_payload(
     response = FakeResponse(200, _apply_response(dry_run=True))
     sdk = _install_fake_sdk(monkeypatch, response)
 
-    result = runner.invoke(app, ["apply", "--dry-run", str(_manifest_path())])
+    result = runner.invoke(app, ["apply", "--dry-run", str(_remote_manifest_path())])
 
     assert result.exit_code == 0, result.output
     assert sdk.client.httpx_client.calls[0]["json"]["dry_run"] is True
@@ -225,7 +233,7 @@ def test_apply_json_output_is_deterministic(
     response = FakeResponse(200, _apply_response(dry_run=True))
     _install_fake_sdk(monkeypatch, response)
 
-    result = runner.invoke(app, ["--json", "apply", "--dry-run", str(_manifest_path())])
+    result = runner.invoke(app, ["--json", "apply", "--dry-run", str(_remote_manifest_path())])
 
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
@@ -239,7 +247,7 @@ def test_apply_json_output_is_deterministic(
         },
         "dry_run": True,
         "ok": True,
-        "path": str(_manifest_path()),
+        "path": str(_remote_manifest_path()),
         "results": _apply_response(dry_run=True)["results"],
     }
 
@@ -262,7 +270,7 @@ def test_apply_human_output_includes_all_result_actions(
     )
     _install_fake_sdk(monkeypatch, response)
 
-    result = runner.invoke(app, ["apply", str(_manifest_path())])
+    result = runner.invoke(app, ["apply", str(_remote_manifest_path())])
 
     assert result.exit_code == 1
     for expected in ("parks", "roads", "lakes", "zoning"):
@@ -296,7 +304,89 @@ def test_apply_rejected_response_exits_one(
     response = FakeResponse(200, _apply_response(accepted=False))
     _install_fake_sdk(monkeypatch, response)
 
-    result = runner.invoke(app, ["apply", str(_manifest_path())])
+    result = runner.invoke(app, ["apply", str(_remote_manifest_path())])
 
     assert result.exit_code == EXIT_GENERIC
     assert "accepted=false" in result.output
+
+
+# ---------------------------------------------------------------------------
+# GAP-020 — apply detects local source files and points the user to publish
+# ---------------------------------------------------------------------------
+
+
+def test_find_local_source_uris_detects_relative_paths() -> None:
+    document = load_manifest(_manifest_path())  # vector-relative.yaml
+    assert find_local_source_uris(document) == ["./data/roads.geojson"]
+
+
+def test_find_local_source_uris_ignores_remote_uris() -> None:
+    document = load_manifest(_remote_manifest_path())  # vector-url.yaml (https)
+    assert find_local_source_uris(document) == []
+
+
+def test_find_local_source_uris_mixed_manifest() -> None:
+    document = {
+        "datasets": [
+            {"sources": [{"type": "vector", "uri": "./local.geojson"}]},
+            {"sources": [{"type": "vector", "uri": "https://x/remote.gpkg"}]},
+            {"sources": [{"type": "raster_cog", "uri": "s3://bucket/key.tif"}]},
+            {"sources": [{"type": "vrt", "uri": "data/nested/file.vrt"}]},
+        ]
+    }
+    assert find_local_source_uris(document) == ["./local.geojson", "data/nested/file.vrt"]
+
+
+def test_apply_local_source_warns_but_posts(
+    runner,
+    tmp_xdg_home,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """GAP-020: a manifest with scheme-less (local) sources WARNS in human mode but
+    still POSTs — the server resolves those paths from its own staging dir (the
+    documented apply round-trip), so apply must not block them."""
+    response = FakeResponse(200, _apply_response(dry_run=False))
+    sdk = _install_fake_sdk(monkeypatch, response)
+
+    # vector-relative.yaml references ./data/roads.geojson (local). Human mode.
+    result = runner.invoke(app, ["apply", str(_manifest_path())])
+
+    assert result.exit_code == 0, result.output
+    assert sdk.client.httpx_client.calls[0]["url"] == APPLY_ENDPOINT
+    assert "Warning" in result.output
+    assert "publish" in result.output
+    assert "./data/roads.geojson" in result.output
+
+
+def test_apply_local_source_json_mode_is_silent_and_posts(
+    runner,
+    tmp_xdg_home,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """GAP-020: in --json mode the local-source warning is suppressed so stdout
+    stays valid JSON, and apply still POSTs (mirrors the server-staging round-trip
+    contract in backend/tests/test_cli_round_trip.py)."""
+    response = FakeResponse(200, _apply_response(dry_run=False))
+    sdk = _install_fake_sdk(monkeypatch, response)
+
+    result = runner.invoke(app, ["--json", "apply", str(_manifest_path())])
+
+    assert result.exit_code == 0, result.output
+    assert sdk.client.httpx_client.calls[0]["url"] == APPLY_ENDPOINT
+    assert "Warning" not in result.output
+    json.loads(result.output)  # stdout must be parseable JSON
+
+
+def test_apply_remote_source_still_posts(
+    runner,
+    tmp_xdg_home,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Sanity: a remote-URI manifest is unaffected by the GAP-020 guard."""
+    response = FakeResponse(200, _apply_response(dry_run=False))
+    sdk = _install_fake_sdk(monkeypatch, response)
+
+    result = runner.invoke(app, ["apply", str(_remote_manifest_path())])
+
+    assert result.exit_code == 0, result.output
+    assert sdk.client.httpx_client.calls[0]["url"] == APPLY_ENDPOINT

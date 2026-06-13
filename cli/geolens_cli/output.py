@@ -64,6 +64,14 @@ class Formatter:
             return
         self._stderr.print(f"Error: {message}", style="red", soft_wrap=True)
 
+    def warn(self, message: str) -> None:
+        # Non-fatal advisory. Silent in --json/--quiet so machine-readable stdout
+        # stays clean (CliRunner mixes stderr into captured output); humans get it
+        # on stderr.
+        if self.json_mode or self.quiet:
+            return
+        self._stderr.print(f"Warning: {message}", style="yellow", soft_wrap=True)
+
     def json(self, payload: Any) -> None:
         typer.echo(
             _json.dumps(

@@ -23,7 +23,9 @@ from app.platform.cache.provider import CacheProvider
 from app.platform.audit import AuditEvent, audit_emit
 from app.core.config import settings
 from app.core.public_urls import (
+    PUBLIC_URL_KEYS,
     _is_env_only,
+    invalidate_public_url_cache,
     resolve_public_api_url,
     resolve_public_app_url,
 )
@@ -223,6 +225,12 @@ class PersistentConfig(Generic[T]):
         if cache is not None:
             await cache.delete(f"{_CACHE_PREFIX}{self.key}")
 
+        # BUG-025: the public-URL keys are also memoized in a separate 60s
+        # module cache in public_urls. Clear it so the new value is reflected
+        # immediately (PUT response, tile-config, OGC self-links, share links).
+        if self.key in PUBLIC_URL_KEYS:
+            invalidate_public_url_cache()
+
         # Side effect hook
         self._on_change(value)
 
@@ -277,6 +285,10 @@ class PersistentConfig(Generic[T]):
             cache = _get_cache_safe()
             if cache is not None:
                 await cache.delete(f"{_CACHE_PREFIX}{self.key}")
+
+            # BUG-025: clear the public_urls module cache on reset too.
+            if self.key in PUBLIC_URL_KEYS:
+                invalidate_public_url_cache()
 
             self._on_change(self.env_default)
 

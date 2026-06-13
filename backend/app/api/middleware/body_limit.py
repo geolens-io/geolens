@@ -39,6 +39,8 @@ from typing import Any
 
 from starlette.responses import JSONResponse
 
+from app.standards.ogc.errors import ProblemDetail
+
 # Sync in-memory cache for the upload limit — avoids an async DB pool
 # checkout on every request (mirrors DynamicCORSMiddleware's pattern).
 # Layout: (cached_at: float, limit_bytes: int)
@@ -52,6 +54,28 @@ _FALLBACK_LIMIT_BYTES = 500 * 1024 * 1024  # 500 MB
 # GAP-001: small default cap for non-upload routes (protects JSON/form endpoints
 # from large-body DoS while leaving file-upload paths unrestricted).
 DEFAULT_BODY_LIMIT_BYTES = 10 * 1024 * 1024  # 10 MB
+
+
+def _too_large_response(max_bytes: int) -> JSONResponse:
+    """Build the 413 response in the app-wide RFC 7807 ProblemDetail shape.
+
+    GAP-032: this middleware fires before ``register_error_handlers`` installs
+    the shared exception handlers, so it must build the ProblemDetail body
+    itself. Mirror that convention exactly — the ``type/title/status/detail``
+    envelope and the ``application/problem+json`` media type — so SDK consumers
+    that branch on the uniform error shape parse 413 like every other error.
+    """
+    return JSONResponse(
+        status_code=413,
+        content=ProblemDetail(
+            title="Payload Too Large",
+            status=413,
+            detail=(
+                f"Request body too large. Maximum allowed size is {max_bytes} bytes."
+            ),
+        ).model_dump(),
+        media_type="application/problem+json",
+    )
 
 
 def _strip_api_prefix(path: str) -> str:
@@ -236,15 +260,7 @@ class RequestBodyLimitMiddleware:
                 pass  # Malformed Content-Length — let downstream handle it
             else:
                 if length > max_bytes:
-                    response = JSONResponse(
-                        status_code=413,
-                        content={
-                            "detail": (
-                                f"Request body too large. "
-                                f"Maximum allowed size is {max_bytes} bytes."
-                            )
-                        },
-                    )
+                    response = _too_large_response(max_bytes)
                     await response(scope, receive, send)
                     return
 
@@ -268,15 +284,7 @@ class RequestBodyLimitMiddleware:
         async def sending(message: dict) -> None:
             if limit_exceeded and message.get("type") == "http.response.start":
                 # Override the response with 413 before headers are sent
-                error_response = JSONResponse(
-                    status_code=413,
-                    content={
-                        "detail": (
-                            f"Request body too large. "
-                            f"Maximum allowed size is {max_bytes} bytes."
-                        )
-                    },
-                )
+                error_response = _too_large_response(max_bytes)
                 await error_response(scope, receive, send)
                 return
             if not limit_exceeded:

@@ -103,10 +103,17 @@ class TestEnvOverrides:
 
 class TestNormalizeInstanceUrl:
     def test_strips_trailing_slash(self) -> None:
-        assert normalize_instance_url("https://x.example.com/") == "https://x.example.com"
+        # Trailing slash stripped; /api auto-appended (GAP-019).
+        assert (
+            normalize_instance_url("https://x.example.com/")
+            == "https://x.example.com/api"
+        )
 
     def test_strips_whitespace(self) -> None:
-        assert normalize_instance_url("  https://x.example.com  ") == "https://x.example.com"
+        assert (
+            normalize_instance_url("  https://x.example.com  ")
+            == "https://x.example.com/api"
+        )
 
     def test_rejects_empty(self) -> None:
         with pytest.raises(ValueError, match="must not be empty"):
@@ -115,3 +122,68 @@ class TestNormalizeInstanceUrl:
     def test_rejects_non_http_scheme(self) -> None:
         with pytest.raises(ValueError, match="http or https"):
             normalize_instance_url("ftp://x.example.com")
+
+
+class TestNormalizeInstanceUrlApiPrefix:
+    """GAP-019: bare origin auto-gains /api; existing /api configs are stable."""
+
+    def test_bare_origin_appends_api(self) -> None:
+        assert (
+            normalize_instance_url("https://x.example.com")
+            == "https://x.example.com/api"
+        )
+
+    def test_existing_api_suffix_not_doubled(self) -> None:
+        assert (
+            normalize_instance_url("https://x.example.com/api")
+            == "https://x.example.com/api"
+        )
+
+    def test_existing_api_suffix_with_trailing_slash_idempotent(self) -> None:
+        assert (
+            normalize_instance_url("https://x.example.com/api/")
+            == "https://x.example.com/api"
+        )
+
+    def test_api_mid_path_not_doubled(self) -> None:
+        # Sub-path deployments (reverse proxy under /geolens/api) keep /api.
+        assert (
+            normalize_instance_url("https://x.example.com/geolens/api")
+            == "https://x.example.com/geolens/api"
+        )
+
+    def test_trailing_slash_and_bare_origin_resolve_to_same_key(self) -> None:
+        # BUG-033/GAP-019: slash variant and bare origin canonicalize identically.
+        assert normalize_instance_url(
+            "https://x.example.com/"
+        ) == normalize_instance_url("https://x.example.com")
+
+
+class TestLoginStoresApiCanonicalInstance:
+    """GAP-019: `geolens login <bare-origin>` stores the /api-suffixed URL."""
+
+    def test_login_bare_origin_stores_api_suffix(
+        self, runner, tmp_xdg_home, mock_keyring
+    ) -> None:
+        from geolens_cli.main import app
+
+        result = runner.invoke(
+            app, ["login", "https://x.example.com", "--token", "tok-abc"]
+        )
+        assert result.exit_code == 0, result.output
+        cfg = load_config()
+        assert cfg.instance == "https://x.example.com/api"
+        # Credential keyed under the canonical /api form.
+        assert mock_keyring.get(("geolens", "https://x.example.com/api")) == "tok-abc"
+
+    def test_login_existing_api_suffix_not_doubled(
+        self, runner, tmp_xdg_home, mock_keyring
+    ) -> None:
+        from geolens_cli.main import app
+
+        result = runner.invoke(
+            app, ["login", "https://x.example.com/api", "--token", "tok-abc"]
+        )
+        assert result.exit_code == 0, result.output
+        cfg = load_config()
+        assert cfg.instance == "https://x.example.com/api"

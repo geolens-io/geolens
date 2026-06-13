@@ -78,8 +78,22 @@ async function safeFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
   }
 }
 
-async function authenticatedFetch(
-  path: string,
+/**
+ * BUG-035: Shared refresh-aware fetch core that returns the RAW Response.
+ *
+ * Streaming/download helpers (AI SSE streams, blob exports) can't go through
+ * apiFetch because they need the live Response/ReadableStream/Blob rather than
+ * a parsed JSON body. Previously they issued a bare `fetch()` with a possibly
+ * stale JWT, so a stream/download issued as the FIRST request after a long idle
+ * hit a hard 401 with no retry. This core applies the SAME proactive-refresh +
+ * 401→tryRefresh→retry machinery as authenticatedFetch while leaving the
+ * response body untouched, so callers keep their streaming semantics.
+ *
+ * `target` is a fully-qualified URL or absolute path (already including
+ * API_BASE) — unlike authenticatedFetch, the caller owns URL construction.
+ */
+export async function authenticatedRawFetch(
+  target: string,
   options: RequestInit = {},
   prepareHeaders?: (headers: Headers) => void,
 ): Promise<Response> {
@@ -99,7 +113,7 @@ async function authenticatedFetch(
     return headers;
   }
 
-  const response = await safeFetch(`${API_BASE}${path}`, {
+  const response = await safeFetch(target, {
     ...options,
     headers: buildHeaders(),
   });
@@ -107,7 +121,7 @@ async function authenticatedFetch(
   if (response.status === 401) {
     const refreshed = await tryRefresh();
     if (refreshed) {
-      const retry = await safeFetch(`${API_BASE}${path}`, {
+      const retry = await safeFetch(target, {
         ...options,
         headers: buildHeaders(),
       });
@@ -122,6 +136,14 @@ async function authenticatedFetch(
   }
 
   return response;
+}
+
+async function authenticatedFetch(
+  path: string,
+  options: RequestInit = {},
+  prepareHeaders?: (headers: Headers) => void,
+): Promise<Response> {
+  return authenticatedRawFetch(`${API_BASE}${path}`, options, prepareHeaders);
 }
 
 /**

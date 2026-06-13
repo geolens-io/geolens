@@ -2,6 +2,7 @@ import { useCallback, useLayoutEffect, useRef } from 'react';
 import type { Map as MaplibreMap, FilterSpecification } from 'maplibre-gl';
 import { getLayerType, getSourceIdForLayer, resolveAdapterType, getCompoundOpacity, isDemTerrainVisualSuppressed } from '@/components/builder/map-sync';
 import { getAdapter } from '@/components/builder/layer-adapters/registry';
+import { getBuilderStyleConfig } from '@/components/builder/layer-adapters/shared';
 import { coalesceFrame } from '@/lib/builder/raf-coalesce';
 import { effectiveDemRenderMode, normalizeDemStyleConfig } from '@/lib/dem-render-mode';
 import type { AdapterLayerInput } from '@/components/builder/layer-adapters/types';
@@ -89,7 +90,7 @@ export function useLayerMapSync(
       applyLayerUpdate(
         layerId,
         (l) => ({ ...l, visible: nextVisible }),
-        (map) => {
+        (map, updated) => {
           const newVis = nextVisible ? 'visible' : 'none';
           const mapLayerId = `layer-${layerId}`;
           const outlineId = `layer-${layerId}-outline`;
@@ -100,7 +101,16 @@ export function useLayerMapSync(
           const clusterId = `layer-${layerId}-cluster`;
           const clusterCountId = `layer-${layerId}-cluster-count`;
           if (map.getLayer(mapLayerId)) map.setLayoutProperty(mapLayerId, 'visibility', newVis);
-          if (map.getLayer(outlineId)) map.setLayoutProperty(outlineId, 'visibility', newVis);
+          // BUG-036: a disabled fill outline carries its state as the outline
+          // layer's layout visibility. Restoring it on the raw newVis resurrects
+          // a 1px outline the user turned off (render-as 'Fill only'). Gate the
+          // outline on strokeDisabled — mirror of fillAdapter.syncVisibility.
+          if (map.getLayer(outlineId)) {
+            const builder = getBuilderStyleConfig(updated);
+            const rawPaint = (updated.paint ?? {}) as Record<string, unknown>;
+            const strokeDisabled = builder.strokeDisabled ?? !!rawPaint['_stroke-disabled'];
+            map.setLayoutProperty(outlineId, 'visibility', nextVisible && !strokeDisabled ? 'visible' : 'none');
+          }
           if (map.getLayer(labelId)) map.setLayoutProperty(labelId, 'visibility', newVis);
           if (map.getLayer(extrusionId)) map.setLayoutProperty(extrusionId, 'visibility', newVis);
           if (map.getLayer(arrowId)) map.setLayoutProperty(arrowId, 'visibility', newVis);

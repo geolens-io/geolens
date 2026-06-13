@@ -502,6 +502,8 @@
     "removed": "Contact supprimé",
     "addFailed": "Échec de l'ajout du contact",
     "removeFailed": "Échec de la suppression du contact",
+    "loadError": "Échec du chargement des contacts.",
+    "retry": "Réessayer",
     "roles": {
       "pointOfContact": "Point de contact",
       "author": "Auteur",
@@ -518,6 +520,8 @@
     "removed": "Mot-clé supprimé",
     "addFailed": "Échec de l'ajout du mot-clé",
     "removeFailed": "Échec de la suppression du mot-clé",
+    "loadError": "Échec du chargement des mots-clés.",
+    "retry": "Réessayer",
     "normalizeHelp": "Les mots-clés sont normalisés en minuscules"
   },
   "attributeMetadata": {

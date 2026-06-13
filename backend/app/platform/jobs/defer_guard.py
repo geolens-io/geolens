@@ -9,9 +9,8 @@ leaks as an orphan, and the client sees a generic 500.
 For ``IngestJob`` rows, stale-cleanup picks the orphan up after 60
 minutes. For VRT asset state (``status="regenerating"``) there is **no**
 cleanup sweep — a Procrastinate outage leaves the VRT permanently stuck
-until an operator manually resets the status. This gap is what Theme H
-in ``docs-internal/audits/post-impl-20260410-HANDOFF-REMAINING.md``
-tracks.
+until an operator manually resets the status. Closing that gap is the
+reason this guard exists.
 
 This module provides a generic guard that wraps the defer call in a
 try/except and invokes a caller-supplied rollback closure to revert the

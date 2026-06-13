@@ -172,27 +172,21 @@ async def create_relationship(
     return obj
 
 
-async def list_relationships(
+async def _visible_relationships(
     session: AsyncSession,
     dataset_id: uuid.UUID,
     *,
-    user: Identity | None = None,
-    user_roles: set[str] | None = None,
-    skip: int = 0,
-    limit: int | None = None,
-) -> list:
-    """List FK relationships where this dataset is the source.
+    user: Identity | None,
+    user_roles: set[str],
+) -> list[dict]:
+    """Return ALL relationships whose target the caller may access (pre-pagination).
 
-    Joins with records table to include target_dataset_title. Each relationship's
-    target dataset is filtered through the permission policy so that callers never
-    see relationships (or target metadata) for datasets they cannot access — a
-    public source dataset must not leak the id/title of a private target. Because
-    visibility is enforced per-row, ``skip``/``limit`` pagination (PERF-N16) is
-    applied to the *visible* subset after filtering.
+    Visibility is enforced per-row (a public source must not leak the id/title of
+    a private target), so this is the authoritative ``total`` basis: callers
+    paginate the returned list with skip/limit.
     """
     from app.modules.catalog.datasets.domain.models import DatasetRelationship
 
-    user_roles = user_roles or set()
     # Inner-join Dataset (and its Record, eager-loaded via lazy="joined") so the
     # target dataset object is available for the access check below. Relationships
     # whose target has no backing Dataset are dropped (fail-closed).
@@ -207,7 +201,7 @@ async def list_relationships(
     rows = result.all()
 
     permission_ext = get_permission_extension()
-    visible_items = []
+    visible_items: list[dict] = []
     for rel, target_ds, title in rows:
         if not await permission_ext.can_access_dataset(
             session, target_ds, target_ds.id, user, user_roles=user_roles
@@ -225,12 +219,55 @@ async def list_relationships(
                 "target_dataset_title": title,
             }
         )
-
-    if skip:
-        visible_items = visible_items[skip:]
-    if limit is not None:
-        visible_items = visible_items[:limit]
     return visible_items
+
+
+async def list_relationships(
+    session: AsyncSession,
+    dataset_id: uuid.UUID,
+    *,
+    user: Identity | None = None,
+    user_roles: set[str] | None = None,
+    skip: int = 0,
+    limit: int | None = None,
+) -> list:
+    """List FK relationships where this dataset is the source.
+
+    Per-row visibility filtering means a public source never leaks a private
+    target's id/title; ``skip``/``limit`` apply to the visible subset (PERF-N16).
+    Thin wrapper over :func:`list_relationships_with_total` (drops the count).
+    """
+    page, _ = await list_relationships_with_total(
+        session, dataset_id, user=user, user_roles=user_roles, skip=skip, limit=limit
+    )
+    return page
+
+
+async def list_relationships_with_total(
+    session: AsyncSession,
+    dataset_id: uuid.UUID,
+    *,
+    user: Identity | None = None,
+    user_roles: set[str] | None = None,
+    skip: int = 0,
+    limit: int | None = None,
+) -> tuple[list, int]:
+    """Paginated relationships plus the total VISIBLE count (GAP-033).
+
+    Returns ``(page_items, total)`` where ``total`` is the number of visible
+    relationships before ``skip``/``limit`` so callers can detect more pages.
+    Mirrors the ``{<entity>: [...], total: N}`` list-envelope convention.
+    """
+    visible_items = await _visible_relationships(
+        session, dataset_id, user=user, user_roles=user_roles or set()
+    )
+    total = len(visible_items)
+    page = visible_items
+    if skip:
+        page = page[skip:]
+    if limit is not None:
+        page = page[:limit]
+    return page, total
 
 
 async def get_relationship_datasets(

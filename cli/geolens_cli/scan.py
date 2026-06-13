@@ -199,9 +199,15 @@ def _classify_group(
 
 
 def _looks_like_geojson(path: Path, *, peek_bytes: int = 1024) -> bool:
-    """Peek-read up to ``peek_bytes`` bytes to disambiguate GeoJSON from generic JSON."""
+    """Peek-read up to ``peek_bytes`` bytes to disambiguate GeoJSON from generic JSON.
+
+    PERF-008: read only the bounded prefix instead of loading the whole file —
+    multi-GB ``.json`` exports next to geodata otherwise spike memory by the
+    full file size per file and can OOM constrained machines.
+    """
     try:
-        head = path.read_bytes()[:peek_bytes].lstrip()
+        with path.open("rb") as fh:
+            head = fh.read(peek_bytes).lstrip()
         return head.startswith(b"{") and (b'"type"' in head[:200])
     except OSError:
         return False

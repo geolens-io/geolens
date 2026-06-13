@@ -1398,7 +1398,10 @@ export const listRelatedDatasetsDatasetsDatasetIdRelatedGet = <ThrowOnError exte
  * List FK relationships for a dataset.
  *
  * Paginated via ``skip`` and ``limit`` to bound response size for datasets
- * with large numbers of auto-detected relationships.
+ * with large numbers of auto-detected relationships. Returns the standard
+ * list envelope (``relationships`` + ``total``) so callers can detect whether
+ * more pages exist (GAP-033); ``total`` counts the visible relationships before
+ * pagination.
  */
 export const listDatasetRelationshipsDatasetsDatasetIdRelationshipsGet = <ThrowOnError extends boolean = false>(options: Options<ListDatasetRelationshipsDatasetsDatasetIdRelationshipsGetData, ThrowOnError>) => (options.client ?? client).get<ListDatasetRelationshipsDatasetsDatasetIdRelationshipsGetResponses, ListDatasetRelationshipsDatasetsDatasetIdRelationshipsGetErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }],

@@ -89,10 +89,58 @@ class TestFKRelationships:
             headers=admin_auth_header,
         )
         assert resp.status_code == 200, resp.text
-        items = resp.json()
+        # GAP-033: standard list envelope {relationships: [...], total: N}.
+        body = resp.json()
+        assert isinstance(body, dict)
+        assert "total" in body
+        items = body["relationships"]
         assert isinstance(items, list)
         assert len(items) >= 1
+        assert body["total"] >= 1
         assert any(r["source_column"] == "ref_id" for r in items)
+
+    async def test_list_relationships_envelope_total_reflects_full_count(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+    ):
+        """GAP-033: the envelope `total` is the FULL visible count, not the page.
+
+        With limit=1 over 2 relationships the page holds 1 item but total is 2,
+        so a paginating client can detect that more pages exist. FAILS pre-fix
+        (the endpoint returned a bare array with no total), PASSES post-fix.
+        """
+        admin_id = await get_user_id(test_db_session, "admin")
+        source = await create_dataset(
+            test_db_session, created_by=admin_id, name="Envelope Source"
+        )
+        target_a = await create_dataset(
+            test_db_session, created_by=admin_id, name="Envelope Target A"
+        )
+        target_b = await create_dataset(
+            test_db_session, created_by=admin_id, name="Envelope Target B"
+        )
+        for target, col in ((target_a, "ref_a"), (target_b, "ref_b")):
+            create_resp = await client.post(
+                f"/datasets/{source.id}/relationships/",
+                json={
+                    "target_dataset_id": str(target.record_id),
+                    "source_column": col,
+                },
+                headers=admin_auth_header,
+            )
+            assert create_resp.status_code == 201, create_resp.text
+
+        resp = await client.get(
+            f"/datasets/{source.id}/relationships/?limit=1",
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert set(body) >= {"relationships", "total"}
+        assert len(body["relationships"]) == 1  # page bounded by limit
+        assert body["total"] == 2  # total reflects the full visible count
 
     async def test_list_relationships_hides_private_targets_from_anonymous(
         self,
@@ -130,7 +178,11 @@ class TestFKRelationships:
         resp = await client.get(f"/datasets/{source.id}/relationships/")
 
         assert resp.status_code == 200, resp.text
-        assert resp.json() == []
+        # GAP-033 envelope: private target is filtered out, total reflects the
+        # visible count (0), not the raw row count.
+        body = resp.json()
+        assert body["relationships"] == []
+        assert body["total"] == 0
 
     async def test_related_records_rejects_private_target_for_anonymous(
         self,

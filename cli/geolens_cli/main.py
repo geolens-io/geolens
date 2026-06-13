@@ -49,12 +49,25 @@ class AppState:
     quiet: bool = False
 
     def active_instance(self) -> Optional[str]:
-        """Return the instance to use, honoring D-35 precedence."""
-        return (
-            self.instance_override
-            or _config.get_instance_from_env()
-            or self.config.instance
-        )
+        """Return the instance to use, honoring D-35 precedence.
+
+        BUG-033: the --instance override and GEOLENS_INSTANCE env value are
+        canonicalized through the SAME normalizer login uses, so a
+        trailing-slash or missing-/api variant resolves to the identical
+        stored credential key. config.instance is already canonical (login
+        normalized it before storing) so it is returned as-is.
+        """
+        raw = self.instance_override or _config.get_instance_from_env()
+        if raw:
+            try:
+                return _config.normalize_instance_url(raw)
+            except ValueError:
+                # Malformed override (e.g. bad scheme): pass it through
+                # verbatim as before so downstream login/sdk surface the
+                # original validation/connection error rather than this
+                # resolver swallowing it.
+                return raw
+        return self.config.instance
 
     def sdk(self):
         """Lazy-construct an authenticated SDK client for the active instance."""
@@ -79,7 +92,9 @@ def _version_callback(value: bool) -> None:
         from importlib.metadata import PackageNotFoundError, version
 
         try:
-            ver = version("geolens")
+            # BUG-031: the CLI's own distribution is `geolens-cli`; `geolens`
+            # is the SDK dependency whose version may diverge at install time.
+            ver = version("geolens-cli")
         except PackageNotFoundError:
             ver = "0.0.0+dev"
         typer.echo(f"geolens {ver}")
@@ -214,7 +229,14 @@ def apply_manifest_command(
         typer.Option("--dry-run", help="Preview backend apply outcomes without writes"),
     ] = False,
 ) -> None:
-    """Apply a geolens.yaml manifest through the configured GeoLens API."""
+    """Apply a geolens.yaml manifest through the configured GeoLens API.
+
+    NOTE: apply only POSTs the manifest document — it does NOT upload local
+    data files. Manifest sources must reference data the server can already
+    reach (http(s)/s3/gs/az/abfs URIs, or files pre-staged server-side). To
+    publish a LOCAL file, use `geolens publish <file>` instead. apply errors
+    early (GAP-020) if any source URI is a local path.
+    """
     from .manifest.reporting import (
         format_validation_error_lines,
         validation_report_payload,
@@ -245,6 +267,25 @@ def apply_manifest_command(
             for line in format_validation_error_lines(path, errors):
                 state.output.error(line)
         raise typer.Exit(EXIT_USAGE)
+
+    # GAP-020: `apply` POSTs the manifest JSON; the SERVER resolves scheme-less
+    # source URIs against its OWN upload-staging dir (an operator pre-populates it,
+    # or `publish` does). That server-staging round-trip is a documented, supported
+    # flow — so apply must NOT block on local sources. We only WARN (humans get it
+    # on stderr; --json stays silent so automation isn't broken): if the server's
+    # staging can't actually see the file the source will skip/404 server-side, and
+    # `geolens publish <file>` is the way to push a CLI-local file.
+    local_uris = _manifest_apply.find_local_source_uris(document)
+    if local_uris:
+        sample = ", ".join(local_uris[:5])
+        if len(local_uris) > 5:
+            sample += f", … (+{len(local_uris) - 5} more)"
+        state.output.warn(
+            f"{len(local_uris)} manifest source(s) reference local files ({sample}). "
+            "`apply` does not upload them — the server resolves scheme-less paths from "
+            "its own staging dir. If it can't see them, run `geolens publish <file>` "
+            "first or use a remote URL (http(s)/s3/gs/az/abfs)."
+        )
 
     sdk = state.sdk()
     payload = _manifest_apply.build_apply_payload(document, dry_run=dry_run)
@@ -380,11 +421,16 @@ def logout(ctx: typer.Context) -> None:
         state.output.error("No active instance — nothing to log out from.")
         raise typer.Exit(2)
     _auth.delete_credentials(instance)
-    # Also clear config.toml so a stale instance URL doesn't linger.
-    try:
-        _config.config_path().unlink()
-    except FileNotFoundError:
-        pass
+    # BUG-032: only clear config.toml when we are logging out of the DEFAULT
+    # instance it stores. With a --instance / GEOLENS_INSTANCE override active,
+    # the resolved instance may differ from config.instance — unlinking then
+    # would wipe the unrelated default-instance configuration the user is
+    # still logged into.
+    if instance == state.config.instance:
+        try:
+            _config.config_path().unlink()
+        except FileNotFoundError:
+            pass
     state.output.success(f"Logged out of {instance}")
 
 
@@ -594,8 +640,11 @@ def publish(
 
     with progress:
         # Stage 1 — Upload (multipart workaround).
+        # BUG-034: route through call_sdk so a network failure during the
+        # upload (the longest, most failure-prone stage) maps to EXIT_NETWORK
+        # (4) per D-32 instead of dumping a raw httpx traceback and exiting 1.
         t1 = progress.add_task("Uploading...", total=None)
-        upload_resp = _publish.upload_file(sdk.client, file)
+        upload_resp = call_sdk(_publish.upload_file, client=sdk.client, path=file)
         upload = unwrap(upload_resp, expected=_publish.UPLOAD_OK_STATUS)
         job_id = getattr(upload, "job_id", None)
         if job_id is None:

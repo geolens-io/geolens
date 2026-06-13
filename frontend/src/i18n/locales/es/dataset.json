@@ -502,6 +502,8 @@
     "removed": "Contacto eliminado",
     "addFailed": "Error al agregar contacto",
     "removeFailed": "Error al eliminar contacto",
+    "loadError": "Error al cargar contactos.",
+    "retry": "Reintentar",
     "roles": {
       "pointOfContact": "Punto de contacto",
       "author": "Autor",
@@ -518,6 +520,8 @@
     "removed": "Palabra clave eliminada",
     "addFailed": "Error al agregar palabra clave",
     "removeFailed": "Error al eliminar palabra clave",
+    "loadError": "Error al cargar palabras clave.",
+    "retry": "Reintentar",
     "normalizeHelp": "Las palabras clave se normalizan a minúsculas"
   },
   "attributeMetadata": {

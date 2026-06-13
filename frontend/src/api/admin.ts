@@ -1,6 +1,5 @@
 import { API_BASE } from '@/lib/constants';
-import { useAuthStore } from '@/stores/auth-store';
-import { apiFetch } from './client';
+import { apiFetch, authenticatedRawFetch } from './client';
 import type {
   AIStatusResponse,
   AdminJobListResponse,
@@ -213,11 +212,9 @@ export async function exportAuditLogs(
   const qs = query.toString();
   const url = `${API_BASE}/admin/audit-logs/export/${format}${qs ? `?${qs}` : ''}`;
 
-  const token = useAuthStore.getState().token;
-  const headers: Record<string, string> = {};
-  if (token) headers['Authorization'] = `Bearer ${token}`;
-
-  const response = await fetch(url, { headers });
+  // BUG-035: refresh-aware raw fetch so an export issued as the first request
+  // after a long idle transparently refreshes the JWT instead of 401-ing.
+  const response = await authenticatedRawFetch(url);
   if (!response.ok) {
     throw new Error(`Export failed: ${response.statusText}`);
   }

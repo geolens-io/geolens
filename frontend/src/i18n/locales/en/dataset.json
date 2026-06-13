@@ -396,6 +396,8 @@
     "removed": "Contact removed",
     "addFailed": "Failed to add contact",
     "removeFailed": "Failed to remove contact",
+    "loadError": "Failed to load contacts.",
+    "retry": "Retry",
     "roles": {
       "pointOfContact": "Point of Contact",
       "author": "Author",
@@ -412,6 +414,8 @@
     "removed": "Keyword removed",
     "addFailed": "Failed to add keyword",
     "removeFailed": "Failed to remove keyword",
+    "loadError": "Failed to load keywords.",
+    "retry": "Retry",
     "normalizeHelp": "Keywords are normalized to lowercase"
   },
   "validation": {

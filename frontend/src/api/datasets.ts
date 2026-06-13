@@ -1,7 +1,6 @@
 import { API_BASE } from '@/lib/constants';
-import { apiFetch } from './client';
+import { apiFetch, authenticatedRawFetch } from './client';
 import { uploadChunks } from './_presignedUpload';
-import { useAuthStore } from '@/stores/auth-store';
 import type {
   CreateDatasetRequest,
   DatasetResponse,
@@ -67,14 +66,9 @@ export function getCogDownloadUrl(id: string): string {
 }
 
 async function authenticatedDownload(url: string, filename: string): Promise<void> {
-  const token = useAuthStore.getState().token;
-
-  const headers: Record<string, string> = {};
-  if (token) {
-    headers['Authorization'] = `Bearer ${token}`;
-  }
-
-  const response = await fetch(url, { headers });
+  // BUG-035: refresh-aware raw fetch so a download issued as the first request
+  // after a long idle transparently refreshes the JWT instead of 401-ing.
+  const response = await authenticatedRawFetch(url);
 
   if (!response.ok) {
     let detail = response.statusText;
@@ -385,7 +379,12 @@ export async function reuploadPresigned(
 // ---------------------------------------------------------------------------
 
 export async function listRelationships(datasetId: string): Promise<import('@/types/api').DatasetRelationship[]> {
-  return apiFetch<import('@/types/api').DatasetRelationship[]>(`/datasets/${datasetId}/relationships/`);
+  // GAP-033: the endpoint now returns the standard list envelope
+  // ({ relationships, total }); unwrap to keep this helper's array contract.
+  const res = await apiFetch<import('@/types/api').DatasetRelationshipListResponse>(
+    `/datasets/${datasetId}/relationships/`,
+  );
+  return res.relationships;
 }
 
 export async function createRelationship(

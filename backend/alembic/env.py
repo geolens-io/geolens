@@ -1,4 +1,6 @@
 import asyncio
+import logging
+import os
 from logging.config import fileConfig
 
 from alembic import context
@@ -32,24 +34,93 @@ if config.config_file_name is not None:
 import pathlib  # noqa: E402
 from importlib.metadata import entry_points as iter_entry_points  # noqa: E402
 
+_log = logging.getLogger("alembic.env")
+
 
 def _discover_migration_paths() -> list[str]:
-    """Discover additional migration version directories from plugins."""
+    """Discover additional migration version directories from plugins.
+
+    GAP-013: this discovery path is load-bearing for enterprise deployments —
+    a dropped enterprise entry point silently omits e001/e002 from
+    ``version_locations``, which later surfaces as an unexplained
+    ``Can't locate revision 'e002_add_saml_columns'`` (existing enterprise DB)
+    or a SAML ``UndefinedColumn`` at login (fresh enterprise DB).
+
+    We distinguish three classes, and the import-error suppression is scoped to
+    ``ep.load()`` ALONE so a provider failure can never be reclassified as
+    "absent" (Codex PR #250 review):
+
+    - ``ModuleNotFoundError`` / ``ImportError`` from ``ep.load()`` means the
+      overlay package is simply not installed. On an OSS-only deployment this is
+      the normal, expected case, so it stays silent (debug-level only).
+    - Any *other* exception from ``ep.load()`` means the overlay IS installed but
+      fails to import (bad editable install, import-time error). Surfaced loudly.
+    - Once ``ep.load()`` succeeds the overlay IS installed, so ANY exception from
+      CALLING its path provider — INCLUDING an ``ImportError`` from a missing
+      submodule inside the provider — is a broken overlay, surfaced loudly. (If
+      this were folded into the load() try, that provider ``ImportError`` would be
+      swallowed as "absent" — the exact silent drop GAP-013 exists to prevent.)
+    """
     paths = []
     for ep in iter_entry_points(group="geolens.migrations"):
+        # Step 1 — import the entry point.
         try:
             fn = ep.load()
+        except (ModuleNotFoundError, ImportError) as exc:
+            # Overlay genuinely not installed — normal for OSS deployments.
+            _log.debug(
+                "migration entry point %r not importable (overlay not installed): %s",
+                getattr(ep, "name", ep),
+                exc,
+            )
+            continue
+        except Exception:
+            # Installed but fails to import — surface loudly, never silently drop.
+            _log.error(
+                "Failed to load geolens.migrations entry point %r — its migration "
+                "version directory will be MISSING from version_locations "
+                "(enterprise e-chain may not apply). Configuration error, not OSS.",
+                getattr(ep, "name", ep),
+                exc_info=True,
+            )
+            continue
+        # Step 2 — load() succeeded (overlay IS installed). Any failure calling
+        # its provider — incl. ImportError from a missing submodule inside it — is
+        # a BROKEN overlay, never an absent one.
+        try:
             if callable(fn):
                 for p in fn():
                     if pathlib.Path(p).is_dir():
                         paths.append(p)
         except Exception:
-            pass  # Non-fatal: core migrations still run
+            _log.error(
+                "geolens.migrations entry point %r loaded but its migration-path "
+                "provider failed — its version directory will be MISSING from "
+                "version_locations (enterprise e-chain may not apply). "
+                "Configuration error, not OSS.",
+                getattr(ep, "name", ep),
+                exc_info=True,
+            )
     return paths
 
 
 # Append enterprise migration paths to version_locations
 _extra_paths = _discover_migration_paths()
+
+# GAP-013: if this is explicitly an enterprise deployment but no enterprise
+# migration paths were discovered, fail loudly rather than silently migrating a
+# fresh DB without the e-chain (which dies later on SAML UndefinedColumn).
+if (
+    os.environ.get("GEOLENS_EDITION", "").lower().strip() == "enterprise"
+    and not _extra_paths
+):
+    raise RuntimeError(
+        "GEOLENS_EDITION=enterprise but no enterprise migration paths were "
+        "discovered from the 'geolens.migrations' entry point group. The "
+        "enterprise overlay is either not installed or failed to load (see "
+        "preceding error log). Refusing to migrate without the e-chain — a "
+        "fresh DB would migrate without e001/e002 and break SAML login."
+    )
 if _extra_paths:
     _base_versions = config.get_main_option("version_locations") or "alembic/versions"
     _all_paths = _base_versions + " " + " ".join(_extra_paths)

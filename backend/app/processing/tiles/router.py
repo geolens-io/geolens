@@ -92,8 +92,11 @@ class _DatasetMeta(NamedTuple):
     tile_columns: list[str] | None
 
 
-_dataset_cache: dict[str, tuple[float, _DatasetMeta]] = {}
-# threading.Lock is safe here — dict reads/writes are synchronous, no await inside lock
+# PERF-006: bounded LRU (was an unbounded dict) so a long-lived tile worker can't
+# grow one entry per distinct table_name forever. Mirrors _band_stats_cache (HYG-01);
+# dict-compatible .get()/[]/assignment; the per-entry TTL still bounds staleness.
+_dataset_cache: LRUCache[str, tuple[float, _DatasetMeta]] = LRUCache(maxsize=256)
+# threading.Lock is safe here — cache reads/writes are synchronous, no await inside lock
 _dataset_cache_lock = threading.Lock()
 
 # ---------------------------------------------------------------------------
@@ -1392,7 +1395,9 @@ async def cluster_tile_endpoint(
         scope=scope or cache_scope,
     )
 
-    compressed = gzip.compress(tile_data, compresslevel=6)
+    # PERF-005: gzip is CPU-bound — offload to a thread so the event loop isn't
+    # stalled compressing wide low-zoom tiles (asyncio.to_thread convention).
+    compressed = await asyncio.to_thread(gzip.compress, tile_data, 6)
     if tile_cache is not None:
         await tile_cache.set(cluster_cache_key, z, x, y, compressed, ttl=cache_ttl)
 
@@ -1555,8 +1560,10 @@ async def tile_endpoint(
         scope=scope or "public",
     )
 
-    # Compress and return with proper headers
-    compressed = gzip.compress(tile_data, compresslevel=6)
+    # Compress and return with proper headers.
+    # PERF-005: gzip is CPU-bound — offload to a thread so the event loop isn't
+    # stalled compressing wide low-zoom tiles (asyncio.to_thread convention).
+    compressed = await asyncio.to_thread(gzip.compress, tile_data, 6)
 
     # Cache the compressed tile bytes for subsequent requests
     if tile_cache is not None:

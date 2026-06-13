@@ -687,6 +687,19 @@ class DatasetRelationshipResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class DatasetRelationshipListResponse(BaseModel):
+    """Paginated list envelope for dataset FK relationships (GAP-033).
+
+    Mirrors the ``{<entity>: [...], total: int}`` convention used by every other
+    paginated list endpoint (e.g. AttributeMetadataListResponse,
+    VrtGenerationListResponse) so callers can detect whether more pages exist.
+    ``total`` is the count of *visible* relationships before skip/limit.
+    """
+
+    relationships: list[DatasetRelationshipResponse]
+    total: int
+
+
 class IngestionResult(BaseModel):
     """Parameter object for ``create_dataset`` ingestion-side fields.
 

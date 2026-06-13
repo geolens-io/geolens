@@ -5,9 +5,10 @@ from __future__ import annotations
 
 import copy
 import json
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 from rich.console import Console
 from rich.table import Table
@@ -16,6 +17,46 @@ from ._sdk_helpers import EXIT_AUTH, EXIT_GENERIC, EXIT_SERVER, EXIT_USAGE, call
 
 APPLY_ENDPOINT = "/ingest/manifest/apply"
 _COUNT_KEYS = ("create", "update", "skip", "error")
+
+#: URI schemes the backend manifest-apply path fetches server-side. Anything
+#: without one of these schemes is a LOCAL relative path that must already
+#: exist under the server's upload_staging_dir — `apply` never transfers it.
+_REMOTE_URI_SCHEMES = frozenset({"http", "https", "s3", "gs", "az", "abfs"})
+
+
+def find_local_source_uris(document: Mapping[str, Any]) -> list[str]:
+    """Return manifest source URIs that point at LOCAL (relative) paths.
+
+    GAP-020: `geolens apply` only POSTs the manifest JSON — it never uploads
+    the files those sources reference. The backend resolves a scheme-less
+    ``uri`` against its own ``upload_staging_dir``, so a local path in the
+    manifest is silently unresolved unless the operator pre-staged it. We
+    surface these up front so the user is told to use ``geolens publish``
+    instead of getting opaque backend skips/errors.
+
+    A URI is treated as local when it has no recognized remote scheme
+    (http/https/s3/gs/az/abfs). Matches the backend classifier in
+    ``app.processing.ingest.manifest_sources.classify_manifest_source``.
+    """
+    local: list[str] = []
+    datasets = document.get("datasets")
+    if not isinstance(datasets, Sequence):
+        return local
+    for dataset in datasets:
+        if not isinstance(dataset, Mapping):
+            continue
+        sources = dataset.get("sources")
+        if not isinstance(sources, Sequence):
+            continue
+        for source in sources:
+            if not isinstance(source, Mapping):
+                continue
+            uri = source.get("uri")
+            if not isinstance(uri, str) or not uri:
+                continue
+            if urlsplit(uri).scheme.lower() not in _REMOTE_URI_SCHEMES:
+                local.append(uri)
+    return local
 
 
 class ManifestApplyRequestError(Exception):

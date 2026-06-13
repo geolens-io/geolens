@@ -20,7 +20,11 @@ directly. The architecture-guard test
 `backend/tests/test_layering.py` enforces this in CI (DECOUPLE-04).
 Cross-imports BETWEEN the 5 sub-modules are permitted.
 
-Source: docs-internal/audits/oc-separation-audit-20260430-b.md §5 + §7 P0 #1.
+Rationale: the previous god-module concentrated dataset creation, querying,
+lifecycle, metadata, and relationship logic in one 1407-LOC file, which made the
+open-core boundary impossible to enforce and any change high-risk. Splitting
+along responsibility lines keeps each surface independently reviewable while the
+façade preserves a single public import path for callers.
 """
 
 from app.modules.catalog.datasets.domain._sql_safety import (
@@ -59,6 +63,7 @@ from app.modules.catalog.datasets.domain.service_relationships import (
     get_related_records,
     get_relationship_datasets,
     list_relationships,
+    list_relationships_with_total,
 )
 
 __all__ = [
@@ -82,6 +87,7 @@ __all__ = [
     "list_attributes",
     "list_datasets",
     "list_relationships",
+    "list_relationships_with_total",
     "reset_attribute",
     "update_attribute",
     "update_auto_metadata",

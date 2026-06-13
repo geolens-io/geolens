@@ -72,6 +72,7 @@ jobs:
               - 'scripts/backup-entrypoint.sh'
               - 'scripts/tests/test-install-tag-resolution.sh'
               - 'scripts/tests/test-install-secret-generation.sh'
+              - 'scripts/tests/test-install-main-wrapper.sh'
               - 'scripts/tests/test-backup-s3-signature.sh'
               - 'docker-compose.yml'
               - 'docker-compose.prod.yml'
@@ -160,6 +161,9 @@ jobs:
 
       - name: Installer secret-generation regression test
         run: sh scripts/tests/test-install-secret-generation.sh
+
+      - name: Installer main() wrapper regression test
+        run: sh scripts/tests/test-install-main-wrapper.sh
 
       - name: Backup S3 signature regression test
         run: sh scripts/tests/test-backup-s3-signature.sh

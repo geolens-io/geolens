@@ -2,6 +2,7 @@
 
 import asyncio
 import time
+from contextvars import ContextVar
 from typing import Any, Coroutine
 
 import structlog
@@ -15,9 +16,26 @@ logger = structlog.stdlib.get_logger(__name__)
 
 HEALTH_TIMEOUT = 5.0
 
+# GAP-016: gates whether per-provider probe failures include the raw exception
+# string in the response dict. Defaults to False so the unauthenticated /health
+# endpoint never leaks provider internals; the admin path opts in. Carried via a
+# ContextVar so it threads through asyncio.gather without changing _probe's
+# signature (which tests call directly).
+_include_probe_errors: ContextVar[bool] = ContextVar(
+    "_include_probe_errors", default=False
+)
+
 
 async def _probe(name: str, coro: Coroutine[Any, Any, None]) -> dict[str, Any]:
-    """Run a health probe coroutine with timeout, returning status dict."""
+    """Run a health probe coroutine with timeout, returning status dict.
+
+    GAP-016: the raw provider exception (asyncpg/SQLAlchemy/S3 internals — may
+    embed hostnames, ports, usernames, bucket names) is ALWAYS logged
+    server-side here, but is only returned in the dict when the caller asks for
+    it via ``check_health(include_errors=True)``. The unauthenticated ``/health``
+    endpoint omits it so anonymous callers never see internal detail; the
+    authenticated admin ``/infrastructure`` view opts in.
+    """
     start = time.monotonic()
     try:
         await asyncio.wait_for(coro, timeout=HEALTH_TIMEOUT)
@@ -26,7 +44,10 @@ async def _probe(name: str, coro: Coroutine[Any, Any, None]) -> dict[str, Any]:
     except Exception as exc:  # broad: health probes intentionally aggregate any provider-side failure as a degraded status
         latency_ms = round((time.monotonic() - start) * 1000, 1)
         logger.warning("health_probe_failed", provider=name, error=str(exc))
-        return {"status": "error", "latency_ms": latency_ms, "error": str(exc)}
+        result: dict[str, Any] = {"status": "error", "latency_ms": latency_ms}
+        if _include_probe_errors.get():
+            result["error"] = str(exc)
+        return result
 
 
 async def _check_database() -> None:
@@ -62,13 +83,24 @@ async def _check_cache() -> None:
     await cache.health_check()
 
 
-async def check_health() -> dict[str, Any]:
-    """Run all health probes in parallel and return aggregate status."""
-    db, storage, cache = await asyncio.gather(
-        _probe("database", _check_database()),
-        _probe("storage", _check_storage()),
-        _probe("cache", _check_cache()),
-    )
+async def check_health(*, include_errors: bool = False) -> dict[str, Any]:
+    """Run all health probes in parallel and return aggregate status.
+
+    ``include_errors`` controls whether per-provider failures embed the raw
+    exception string. The unauthenticated ``/health`` endpoint leaves it False
+    (GAP-016 — no provider internals to anonymous callers); the authenticated
+    admin ``/infrastructure`` view passes True so operators keep the detail.
+    The exception is logged server-side regardless.
+    """
+    token = _include_probe_errors.set(include_errors)
+    try:
+        db, storage, cache = await asyncio.gather(
+            _probe("database", _check_database()),
+            _probe("storage", _check_storage()),
+            _probe("cache", _check_cache()),
+        )
+    finally:
+        _include_probe_errors.reset(token)
     all_ok = all(p["status"] == "ok" for p in [db, storage, cache])
     return {
         "status": "healthy" if all_ok else "degraded",
@@ -99,7 +131,14 @@ async def check_oidc_health(db: AsyncSession) -> dict[str, dict[str, Any]]:
     if not providers:
         return {}
 
-    probes = await asyncio.gather(
-        *[_probe(p.slug, check_oidc_endpoint(p)) for p in providers]
-    )
+    # OIDC health is surfaced only on the authenticated admin /infrastructure
+    # view, so operators keep the error detail (GAP-016 scope is the
+    # unauthenticated /health path).
+    token = _include_probe_errors.set(True)
+    try:
+        probes = await asyncio.gather(
+            *[_probe(p.slug, check_oidc_endpoint(p)) for p in providers]
+        )
+    finally:
+        _include_probe_errors.reset(token)
     return {p.slug: result for p, result in zip(providers, probes)}

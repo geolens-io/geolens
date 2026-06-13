@@ -696,27 +696,40 @@ export const ViewerMap = memo(function ViewerMap({
   const prevVisibleRef = useRef<Set<string>>(new Set());
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !map.isStyleLoaded()) return;
+    if (!map) return;
 
-    const prev = prevVisibleRef.current;
-    for (const { layer, key } of layerEntries) {
-      const wasVisible = prev.has(key);
-      const isVisible = visibleLayers.has(key);
-      if (wasVisible === isVisible) continue;
+    const applyVisibilityDiff = () => {
+      const prev = prevVisibleRef.current;
+      for (const { layer, key } of layerEntries) {
+        const wasVisible = prev.has(key);
+        const isVisible = visibleLayers.has(key);
+        if (wasVisible === isVisible) continue;
 
-      const type = layer.is_dem === true && effectiveDemRenderMode(layer.style_config, layer.is_dem) === 'hillshade'
-        ? 'hillshade'
-        : resolveAdapterType(layer.geometry_type, layer.style_config, layer.paint as Record<string, unknown>);
-      const adapter = getAdapter(type);
-      const adapterInput = toAdapterInput(layer, key, visibleLayers);
-      adapter.syncVisibility(map, adapterInput);
+        const type = layer.is_dem === true && effectiveDemRenderMode(layer.style_config, layer.is_dem) === 'hillshade'
+          ? 'hillshade'
+          : resolveAdapterType(layer.geometry_type, layer.style_config, layer.paint as Record<string, unknown>);
+        const adapter = getAdapter(type);
+        const adapterInput = toAdapterInput(layer, key, visibleLayers);
+        adapter.syncVisibility(map, adapterInput);
 
-      const labelId = prefixed('label', key, VIEWER_PREFIX);
-      if (map.getLayer(labelId)) {
-        map.setLayoutProperty(labelId, 'visibility', isVisible ? 'visible' : 'none');
+        const labelId = prefixed('label', key, VIEWER_PREFIX);
+        if (map.getLayer(labelId)) {
+          map.setLayoutProperty(labelId, 'visibility', isVisible ? 'visible' : 'none');
+        }
       }
+      prevVisibleRef.current = new Set(visibleLayers);
+    };
+
+    // BUG-037: a plain early-return on !isStyleLoaded() dropped the toggle
+    // permanently — prevVisibleRef wasn't advanced, and nothing in the deps
+    // changes when the style finishes transitioning, so the checkbox and the
+    // map stayed out of sync until the user toggled again. Mirror the
+    // BuilderMap idle-retry: re-apply the diff once the map settles.
+    if (!map.isStyleLoaded()) {
+      map.once('idle', applyVisibilityDiff);
+      return () => { map.off('idle', applyVisibilityDiff); };
     }
-    prevVisibleRef.current = new Set(visibleLayers);
+    applyVisibilityDiff();
   }, [visibleLayers, layerEntries, mapReady]);
 
   // Re-add data layers after any basemap/style change.

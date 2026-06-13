@@ -14,12 +14,18 @@ from app.core.edition import is_enterprise
 from app.platform.cache.provider import get_cache
 from app.modules.catalog._ilike import escape_ilike
 from app.modules.embed_tokens.models import EmbedToken
-from app.modules.embed_tokens.schemas import ADVANCED_SHARING_ERROR
+from app.modules.embed_tokens.schemas import (
+    ADVANCED_SHARING_ERROR,
+    _normalize_origin,
+)
 from app.modules.catalog.maps.models import MapLayer
 
 logger = structlog.stdlib.get_logger(__name__)
 
-_LOCALHOST_HOSTS = frozenset({"localhost", "127.0.0.1", "[::1]"})
+# BUG-028: urlparse(...).hostname strips IPv6 brackets, so the loopback literal
+# stored here must be the UNBRACKETED form '::1' to match what
+# _is_localhost_origin extracts. The previous '[::1]' entry was a dead branch.
+_LOCALHOST_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
 
 # Phase 268 H-31: loopback IP set used to gate the localhost-Origin bypass.
 # The Origin header alone is trivially forgeable from non-browser callers
@@ -31,21 +37,10 @@ _LOCALHOST_HOSTS = frozenset({"localhost", "127.0.0.1", "[::1]"})
 _LOOPBACK_CLIENT_IPS = frozenset({"127.0.0.1", "::1", "localhost"})
 
 
-def _normalize_origin(origin: str) -> str:
-    """Lowercase, strip trailing slash, strip default ports."""
-    origin = origin.lower().rstrip("/")
-    if not origin.startswith(("http://", "https://")):
-        origin = f"https://{origin}"
-    parsed = urlparse(origin)
-    host = parsed.hostname or ""
-    port = parsed.port
-    scheme = parsed.scheme or "http"
-    # Strip default ports
-    if (scheme == "http" and port == 80) or (scheme == "https" and port == 443):
-        port = None
-    if port:
-        return f"{scheme}://{host}:{port}"
-    return f"{scheme}://{host}"
+# BUG-028: storage (allowed_origins, via schemas._validate_origins) and
+# request-origin extraction now share ONE bracket-preserving normalizer
+# (schemas._normalize_origin), so an IPv6 literal like 'http://[::1]:8080'
+# byte-matches between the stored allowlist and the live request origin.
 
 
 def _is_localhost_origin(origin: str) -> bool:
@@ -69,16 +64,28 @@ def _client_is_loopback(request: Request) -> bool:
 
 
 def extract_request_origin(request: Request) -> str | None:
-    """Extract and normalize origin from Origin or Referer header."""
+    """Extract and normalize origin from Origin or Referer header.
+
+    Uses the shared (bracket-preserving) schema normalizer so request origins
+    byte-match the stored allowed_origins. That normalizer rejects wildcard /
+    unparseable origins with ValueError; a forged header must fail closed
+    (return None → the caller denies access) rather than raise.
+    """
     origin = request.headers.get("origin")
     if origin:
-        return _normalize_origin(origin)
+        try:
+            return _normalize_origin(origin)
+        except ValueError:
+            return None
 
     referer = request.headers.get("referer")
     if referer:
         parsed = urlparse(referer)
         if parsed.scheme and parsed.hostname:
-            return _normalize_origin(f"{parsed.scheme}://{parsed.netloc}")
+            try:
+                return _normalize_origin(f"{parsed.scheme}://{parsed.netloc}")
+            except ValueError:
+                return None
 
     return None
 

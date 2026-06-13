@@ -161,6 +161,98 @@ async def create_raster_dataset(
     return record, dataset, raster_asset
 
 
+# Media types for the STAC-aligned dataset_assets rows (BUG-041).
+_COG_MEDIA_TYPE = "image/tiff; application=geotiff; profile=cloud-optimized"
+_VRT_MEDIA_TYPE = "application/x-vrt+xml"
+_PNG_MEDIA_TYPE = "image/png"
+
+
+def _build_dataset_asset_rows(
+    *,
+    dataset_id: uuid.UUID,
+    cog_key: str,
+    ql256_key: str,
+    ql512_key: str,
+    cog_size: int | None,
+    is_manifest_vrt: bool,
+) -> list[dict]:
+    """Build STAC-aligned ``dataset_assets`` rows for a freshly ingested raster.
+
+    BUG-041: ``dataset_assets`` is read by the search/STAC/OGC asset-output path
+    but was never written by ingest, so STAC item assets were never advertised.
+    This produces the rows the read path expects, using the stable keys defined
+    on ``DatasetAsset``:
+
+      - ``data`` / ``vrt``: the primary COG (or VRT) source
+      - ``thumbnail``: 256px quicklook
+      - ``overview``: 512px quicklook
+
+    hrefs are storage keys (storage-relative); ``resolve_asset_url`` turns them
+    into presigned/public URLs at read time (or omits them on local storage per
+    GAP-031).
+    """
+    primary_key = "vrt" if is_manifest_vrt else "data"
+    primary_media = _VRT_MEDIA_TYPE if is_manifest_vrt else _COG_MEDIA_TYPE
+    primary_title = (
+        "GDAL Virtual Raster" if is_manifest_vrt else "Cloud-Optimized GeoTIFF"
+    )
+
+    rows: list[dict] = [
+        {
+            "dataset_id": dataset_id,
+            "key": primary_key,
+            "href": cog_key,
+            "media_type": primary_media,
+            "title": primary_title,
+            "roles": ["data"],
+            "size_bytes": cog_size,
+        },
+        {
+            "dataset_id": dataset_id,
+            "key": "thumbnail",
+            "href": ql256_key,
+            "media_type": _PNG_MEDIA_TYPE,
+            "title": "Quicklook (256px)",
+            "roles": ["thumbnail"],
+        },
+        {
+            "dataset_id": dataset_id,
+            "key": "overview",
+            "href": ql512_key,
+            "media_type": _PNG_MEDIA_TYPE,
+            "title": "Quicklook (512px)",
+            "roles": ["overview"],
+        },
+    ]
+    return rows
+
+
+async def _cleanup_orphaned_storage_keys(keys: list[str], *, job_id: str) -> None:
+    """Best-effort delete storage keys written before a failed/rolled-back commit.
+
+    GAP-017: raster ingest puts COG/quicklook bytes to storage BEFORE the
+    terminal DB commit. If the commit (or any later step) fails, the dataset row
+    is rolled back and ``delete_dataset`` never runs for it, orphaning the bytes.
+    This reaps exactly the keys that were written. Failures here are swallowed —
+    cleanup must never mask the original ingest error.
+    """
+    from app.platform.storage import get_storage
+
+    try:
+        storage = get_storage()
+    except Exception:  # broad: storage may be unavailable; nothing to clean then
+        return
+    for key in keys:
+        try:
+            await storage.delete(key)
+        except Exception:  # broad: best-effort per-key cleanup, keep going
+            structlog.get_logger().warning(
+                "Failed to clean up orphaned raster asset",
+                job_id=job_id,
+                storage_key=key,
+            )
+
+
 @task_app.task(queue="raster", retry=0, aliases=["app.ingest.tasks.ingest_raster"])
 async def ingest_raster(job_id: str, file_path: str, user_id: str, **kwargs) -> None:
     """Background task: validate GeoTIFF, convert to COG, extract metadata, register dataset.
@@ -204,6 +296,12 @@ async def ingest_raster(job_id: str, file_path: str, user_id: str, **kwargs) -> 
     tmp_dir: str | None = None
     original_file_path = file_path
     final_status: str = "pending"
+    # GAP-017: storage keys written BEFORE the terminal DB commit. base_key
+    # embeds dataset.id, a flushed-but-uncommitted UUID — if the commit (or any
+    # step after the puts) fails the dataset row is rolled back, so delete_dataset
+    # never reaps these assets. Track them and clean up on the failure path so a
+    # crash mid-ingest doesn't orphan COG/quicklook bytes under rasters/.
+    written_storage_keys: list[str] = []
 
     try:
         # ----------------------------------------------------------------- #
@@ -446,10 +544,15 @@ async def ingest_raster(job_id: str, file_path: str, user_id: str, **kwargs) -> 
             ql256_key = f"{base_key}/quicklook_256.png"
             ql512_key = f"{base_key}/quicklook_512.png"
 
+            # GAP-017: record each key right after its put so the failure
+            # path can delete exactly what was written (and nothing more).
             with open(local_cog_path, "rb") as fobj:
                 await storage.put(cog_key, fobj)
+            written_storage_keys.append(cog_key)
             await storage.put(ql256_key, io.BytesIO(ql256))
+            written_storage_keys.append(ql256_key)
             await storage.put(ql512_key, io.BytesIO(ql512))
+            written_storage_keys.append(ql512_key)
 
             # 11. Update asset URIs and create distribution
             raster_asset.asset_uri = cog_key
@@ -457,7 +560,26 @@ async def ingest_raster(job_id: str, file_path: str, user_id: str, **kwargs) -> 
             raster_asset.quicklook_512_uri = ql512_key
             await session.flush()
 
+            # BUG-041: populate the STAC-aligned dataset_assets table. The read
+            # path (search/STAC/OGC `_build_stac_assets`) was always operating on
+            # an empty input because ingest never wrote these rows. Insert them
+            # in this same transaction so STAC item assets are advertised
+            # (data/vrt + thumbnail + overview). On local storage these still
+            # resolve to None per GAP-031; on S3-published deployments they
+            # become presigned hrefs.
             from app.platform.extensions import get_processing_port as _get_port
+
+            DatasetAsset = _get_port().dataset_asset_orm_class()
+            for asset_row in _build_dataset_asset_rows(
+                dataset_id=dataset.id,
+                cog_key=cog_key,
+                ql256_key=ql256_key,
+                ql512_key=ql512_key,
+                cog_size=cog_size,
+                is_manifest_vrt=is_manifest_vrt,
+            ):
+                session.add(DatasetAsset(**asset_row))
+            await session.flush()
 
             RecordDistribution = _get_port().get_record_distribution_orm_class()
 
@@ -519,6 +641,13 @@ async def ingest_raster(job_id: str, file_path: str, user_id: str, **kwargs) -> 
         final_status = "failed"
         raise
     finally:
+        # GAP-017: orphan-asset cleanup. If we wrote COG/quicklook bytes to
+        # storage but did NOT reach a successful terminal commit, the dataset
+        # row those keys belong to was rolled back — delete_dataset will never
+        # reap them. Remove them here so a crash/commit-failure mid-ingest does
+        # not leave bytes under a rasters/{dataset_id}/ prefix with no DB row.
+        if final_status != "complete" and written_storage_keys:
+            await _cleanup_orphaned_storage_keys(written_storage_keys, job_id=job_id)
         # Clean up temp COG dir
         if tmp_dir:
             shutil.rmtree(tmp_dir, ignore_errors=True)

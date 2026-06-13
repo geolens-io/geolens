@@ -14,6 +14,7 @@ from app.processing.ai.chat_service import (
     build_chat_system_prompt,
 )
 from app.processing.ai.constants import (
+    MAX_REQUEST_TOKEN_BUDGET,
     MAX_STREAMING_WALL_CLOCK_SECONDS,
     MAX_TOOL_ROUNDS,
     tool_label,
@@ -136,6 +137,21 @@ async def _stream_anthropic_chat(
                 "type": "error",
                 "message": "Response took too long. Please try a simpler request.",
             }
+            break
+
+        # PERF-009: stop gracefully once the cumulative input+output token budget
+        # for this request is exceeded. Usage is accumulated at the end of each
+        # round below, so this top-of-loop check catches a runaway before the next
+        # provider call — same shape as the deadline guard above.
+        if total_input + total_output > MAX_REQUEST_TOKEN_BUDGET:
+            logger.info(
+                "Chat stream token budget exceeded",
+                provider="anthropic",
+                round=round_num,
+                total_input_tokens=total_input,
+                total_output_tokens=total_output,
+                budget=MAX_REQUEST_TOKEN_BUDGET,
+            )
             break
 
         buffered_tokens: list[str] = []
@@ -298,6 +314,21 @@ async def _stream_openai_chat(
                 "type": "error",
                 "message": "Response took too long. Please try a simpler request.",
             }
+            break
+
+        # PERF-009: stop gracefully once the cumulative input+output token budget
+        # for this request is exceeded. Usage is accumulated per round below, so
+        # this top-of-loop check catches a runaway before the next provider call —
+        # same shape as the deadline guard above.
+        if total_input + total_output > MAX_REQUEST_TOKEN_BUDGET:
+            logger.info(
+                "Chat stream token budget exceeded",
+                provider="openai",
+                round=round_num,
+                total_input_tokens=total_input,
+                total_output_tokens=total_output,
+                budget=MAX_REQUEST_TOKEN_BUDGET,
+            )
             break
 
         # Phase 226 D-08: CHAT_TOOLS_OPENAI removed; convert from canonical Anthropic shape.

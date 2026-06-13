@@ -12,7 +12,8 @@ See [docs.getgeolens.com](https://docs.getgeolens.com/) for installation, regene
 import { createGeolensClient } from '@geolens/sdk';
 
 const client = createGeolensClient({
-  baseUrl: 'https://geolens.example.com',
+  // The deployed API is served under /api — include that suffix in baseUrl.
+  baseUrl: 'https://geolens.example.com/api',
   bearerToken: '...',
 });
 // See docs.getgeolens.com for endpoint usage examples.

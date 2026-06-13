@@ -11,6 +11,7 @@ from sqlalchemy import exists, func, literal_column, or_, select
 from sqlalchemy.orm import aliased
 
 from app.core.geo import make_bbox_filter
+from app.modules.catalog._ilike import escape_ilike
 from app.modules.catalog.collections.models import CollectionDataset
 from app.modules.catalog.datasets.domain.models import (
     Dataset,
@@ -100,18 +101,21 @@ def _build_text_filter(q: str):
     # unqualified and resolves via search_path to public.unaccent (STABLE), which
     # the planner cannot match to the indexed expression -> seq scan. Both
     # functions return identical text (accent-insensitive: cafe = café).
+    # escape_ilike() keeps user-supplied %, _, \ literal (a bare f"%{q}%"
+    # leaks wildcards); escape="\\" on every .like() below makes the ESCAPE
+    # character explicit, mirroring maps/admin/audit search surfaces.
     unaccented_like = func.concat(
-        "%", func.catalog.immutable_unaccent(query_text.lower()), "%"
+        "%", func.catalog.immutable_unaccent(escape_ilike(query_text).lower()), "%"
     )
     english_vector_match = Record.search_vector.bool_op("@@")(ts_query)
     simple_vector_match = record_simple_vector.bool_op("@@")(ts_query_simple)
     vector_match = or_(english_vector_match, simple_vector_match)
     title_match = func.lower(func.catalog.immutable_unaccent(Record.title)).like(
-        unaccented_like
+        unaccented_like, escape="\\"
     )
     summary_match = func.lower(
         func.catalog.immutable_unaccent(func.coalesce(Record.summary, ""))
-    ).like(unaccented_like)
+    ).like(unaccented_like, escape="\\")
 
     kw_fts_sel = select(RecordKeyword.id).where(
         RecordKeyword.record_id == Record.id,
@@ -124,7 +128,7 @@ def _build_text_filter(q: str):
     kw_like_sel = select(RecordKeyword.id).where(
         RecordKeyword.record_id == Record.id,
         func.lower(func.catalog.immutable_unaccent(RecordKeyword.keyword)).like(
-            unaccented_like
+            unaccented_like, escape="\\"
         ),
     )
     ct_fts_sel = select(RecordContact.id).where(
@@ -153,7 +157,7 @@ def _build_text_filter(q: str):
                 + " "
                 + func.coalesce(RecordContact.organization, "")
             )
-        ).like(unaccented_like),
+        ).like(unaccented_like, escape="\\"),
     )
 
     keyword_exists = exists(kw_fts_sel)

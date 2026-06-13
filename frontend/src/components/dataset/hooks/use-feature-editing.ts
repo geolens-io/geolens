@@ -223,11 +223,17 @@ export function useFeatureEditing({
         await updateFeatureMutation.mutateAsync({ datasetId, gid: sf.gid, properties });
         toast.success(t('map.attributesUpdated'));
         setSelectedFeature({ ...sf, properties: { ...sf.properties, ...properties } });
+        // BUG-042: the geometry handlers (handleSaveEdit/handleDeleteFeature)
+        // reload tiles after a write; the attribute handler omitted it, so any
+        // attribute-driven rendering kept stale values until a manual reload.
+        // Cache-bust the vector tiles so the edited attributes render. Geometry
+        // is unchanged, so the selection is intentionally kept.
+        reloadTiles();
       } catch {
         toast.error(t('map.attributesUpdateFailed'));
       }
     },
-    [datasetId, updateFeatureMutation, setSelectedFeature, t],
+    [datasetId, updateFeatureMutation, setSelectedFeature, reloadTiles, t],
   );
 
   /** Handle Terra Draw edit-finish (drag complete). */

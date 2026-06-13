@@ -657,9 +657,18 @@ _add_trailing_slash_aliases(app)
 init_metrics(app)
 
 
+# GAP-016: /health is rate-limited (60/min per IP) rather than fully exempt, to
+# bound abuse of this unauthenticated, dependency-probing endpoint. The limit is
+# deliberately generous: the Docker container healthcheck polls every 10s
+# (~6/min) and a reverse proxy/LB adds only a small constant on top, so
+# legitimate infra never trips it. The response also omits raw provider exception
+# strings (`check_health` defaults to `include_errors=False`) so anonymous callers
+# never see DB/S3/cache internals — those are logged server-side and exposed only
+# on the authenticated admin view. (Kept as a comment, not a docstring, so the
+# rationale + finding ID stay out of the public OpenAPI description.)
 @app.get("/health", response_model=HealthResponse, tags=["Health"])
-@limiter.exempt
-async def health():
+@limiter.limit("60/minute")
+async def health(request: Request):
     """Health check endpoint for ALB, Docker, and Nginx."""
     from app.observability.health.service import check_health
     from fastapi.responses import JSONResponse

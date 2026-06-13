@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from tests.repo_paths import repo_root
 
 REPO_ROOT = repo_root(__file__)
@@ -36,3 +38,27 @@ def test_oc_audit_methodology_doc_exists() -> None:
     readme = _read("README.md")
     assert "oc-audit-methodology.md" not in readme
     assert "docs-internal/audits" not in readme
+
+
+def test_shipping_source_does_not_cite_docs_internal() -> None:
+    """GAP-015: no ``backend/app/`` source cites unpublished ``docs-internal/``.
+
+    ``docs-internal/`` is gitignored, so any such reference in shipping source
+    is a dangling pointer for public readers and leaks internal audit naming
+    (violates AGENTS.md). Mirrors the README guard above, extended across the
+    whole shipping package.
+    """
+    import app
+
+    app_root = Path(app.__file__).resolve().parent
+    offenders = []
+    for py_file in app_root.rglob("*.py"):
+        text = py_file.read_text(encoding="utf-8")
+        if "docs-internal/" in text:
+            offenders.append(str(py_file.relative_to(app_root)))
+
+    assert not offenders, (
+        "Shipping source must not cite unpublished docs-internal/ paths "
+        f"(GAP-015). Offenders: {offenders}. State the rationale inline or "
+        "cite a public CHANGELOG/PR number instead."
+    )

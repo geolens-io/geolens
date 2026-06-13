@@ -1668,6 +1668,12 @@ export interface DatasetRelationship {
   target_dataset_title: string | null;
 }
 
+/** GAP-033: list envelope for GET /datasets/{id}/relationships/. */
+export interface DatasetRelationshipListResponse {
+  relationships: DatasetRelationship[];
+  total: number;
+}
+
 /** Response shape for POST /maps/{id}/layers/bulk-delete (Phase 1047-04 PERF-03). */
 export interface MapLayerBulkDeleteFailure {
   id: string;

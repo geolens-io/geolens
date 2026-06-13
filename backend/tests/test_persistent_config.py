@@ -186,6 +186,47 @@ async def test_set_invalidates_cache(client: AsyncClient):
 
 
 @pytest.mark.anyio
+async def test_set_public_url_invalidates_public_url_cache(client: AsyncClient):
+    """BUG-025: writing a public-URL key invalidates the public_urls module cache.
+
+    public_urls._PUBLIC_URL_CACHE is a SEPARATE 60s memoization from the
+    config: cache. Before the fix, PUBLIC_APP_URL.set() cleared only the
+    config: key, so get_public_urls() kept returning the OLD value for up to
+    60s — the PUT /settings response and tile-config appeared to ignore the
+    save. After the fix, the next read reflects the new value immediately.
+    """
+    from unittest.mock import patch
+
+    from app.core import public_urls
+    from app.core.persistent_config import PUBLIC_APP_URL
+
+    from app.core.dependencies import get_db
+    from app.api.main import app
+
+    public_urls._PUBLIC_URL_CACHE = None
+    # ENV_ONLY_CONFIG must be off for DB overrides to flow through.
+    with patch.object(public_urls.settings, "env_only_config", False):
+        async for db in app.dependency_overrides[get_db]():
+            try:
+                await PUBLIC_APP_URL.set(db, "https://old.example.com")
+                # Prime the public_urls module cache with the OLD value.
+                app_url, _ = await public_urls.get_public_urls(db)
+                assert app_url == "https://old.example.com"
+                assert public_urls._PUBLIC_URL_CACHE is not None
+
+                # Writing the key must clear the module cache (the fix).
+                await PUBLIC_APP_URL.set(db, "https://new.example.com")
+                assert public_urls._PUBLIC_URL_CACHE is None
+
+                # And the next read must reflect the NEW value, not the stale one.
+                app_url_after, _ = await public_urls.get_public_urls(db)
+                assert app_url_after == "https://new.example.com"
+            finally:
+                await PUBLIC_APP_URL.reset(db)
+                public_urls._PUBLIC_URL_CACHE = None
+
+
+@pytest.mark.anyio
 async def test_get_uses_cache_with_ttl(client: AsyncClient):
     """get() uses cache with 30s TTL -- second call within TTL returns cached value."""
     from app.platform.cache import init_cache, get_cache
@@ -366,6 +407,53 @@ async def test_get_all_settings_returns_grouped(
             assert "source" in item
             assert "label" in item
             assert item["source"] in ("default", "overridden", "env_only")
+
+
+@pytest.mark.anyio
+async def test_get_all_settings_env_only_shows_env_default_not_db_override(
+    client: AsyncClient, admin_auth_header: dict
+):
+    """BUG-030: GET /settings/all in ENV_ONLY_CONFIG mode shows the effective
+    env_default, not the stale DB override.
+
+    PersistentConfig.get short-circuits to env_default when env_only is set, so
+    any DB override is dead data at runtime. Before the fix, get_all_settings
+    still resolved the value from the DB row (labeled env_only), showing config
+    that is NOT in effect. After the fix it shows env_default.
+    """
+    from app.core.persistent_config import REGISTRATION_ENABLED
+
+    from app.core.dependencies import get_db
+    from app.api.main import app
+
+    # registration_enabled env_default is False; write a True DB override.
+    async for db in app.dependency_overrides[get_db]():
+        await REGISTRATION_ENABLED.set(db, True)
+        break
+
+    # Sanity: with env_only OFF, the override IS reflected (overridden source).
+    resp = await client.get("/settings/all/", headers=admin_auth_header)
+    auth = resp.json()["tabs"]["auth"]
+    reg = next(s for s in auth if s["key"] == "registration_enabled")
+    assert reg["value"] is True
+    assert reg["source"] == "overridden"
+
+    # With env_only ON, the running system uses env_default (False) — the
+    # screen must show that, not the dead DB override.
+    with patch.object(settings, "env_only_config", True):
+        resp = await client.get("/settings/all/", headers=admin_auth_header)
+        assert resp.json()["env_only"] is True
+        auth = resp.json()["tabs"]["auth"]
+        reg = next(s for s in auth if s["key"] == "registration_enabled")
+        assert reg["value"] is False, (
+            "ENV_ONLY_CONFIG must show env_default, not the stale DB override"
+        )
+        assert reg["source"] == "env_only"
+
+    # Clean up the override.
+    async for db in app.dependency_overrides[get_db]():
+        await REGISTRATION_ENABLED.set(db, False)
+        break
 
 
 @pytest.mark.anyio

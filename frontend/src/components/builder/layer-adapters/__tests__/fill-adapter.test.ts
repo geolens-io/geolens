@@ -108,6 +108,42 @@ describe('fill adapter — syncVisibility handles companion layers', () => {
 
     expect(map.setLayoutProperty).toHaveBeenCalledWith('layer-fill-1', 'visibility', 'none');
   });
+
+  // BUG-036: toggling a 'Fill only' layer (stroke disabled) hidden→visible must
+  // NOT resurrect the disabled outline. Pre-fix syncVisibility restored the
+  // outline on the raw `vis`; post-fix it gates on strokeDisabled.
+  function outlineVisCall(setLayoutProperty: ReturnType<typeof vi.fn>): string | undefined {
+    const call = setLayoutProperty.mock.calls.find((c) => c[0] === 'layer-fill-1-outline');
+    return call?.[2] as string | undefined;
+  }
+
+  it('keeps the outline hidden on visible=true when strokeDisabled via style_config.builder', () => {
+    const map = createMockMap({ layerExists: true });
+    fillAdapter.syncVisibility(map as unknown as import('maplibre-gl').Map, makeInput({
+      visible: true,
+      style_config: { builder: { strokeDisabled: true } } as never,
+    }));
+
+    expect(map.setLayoutProperty).toHaveBeenCalledWith('layer-fill-1', 'visibility', 'visible');
+    expect(outlineVisCall(map.setLayoutProperty)).toBe('none');
+  });
+
+  it('keeps the outline hidden on visible=true when strokeDisabled via paint._stroke-disabled', () => {
+    const map = createMockMap({ layerExists: true });
+    fillAdapter.syncVisibility(map as unknown as import('maplibre-gl').Map, makeInput({
+      visible: true,
+      paint: { '_stroke-disabled': true },
+    }));
+
+    expect(outlineVisCall(map.setLayoutProperty)).toBe('none');
+  });
+
+  it('restores the outline on visible=true when stroke is NOT disabled', () => {
+    const map = createMockMap({ layerExists: true });
+    fillAdapter.syncVisibility(map as unknown as import('maplibre-gl').Map, makeInput({ visible: true }));
+
+    expect(outlineVisCall(map.setLayoutProperty)).toBe('visible');
+  });
 });
 
 describe('fill adapter — getLayerIds returns [layerId, outline, extrusion]', () => {

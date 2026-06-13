@@ -29,7 +29,9 @@ class GeolensClient:
     underlying client is anonymous and may only call public endpoints.
 
     Args:
-        base_url: Base URL of the GeoLens instance, e.g. https://geolens.example.com
+        base_url: Base URL of the GeoLens instance, including the ``/api``
+            prefix the deployed API is served under,
+            e.g. https://geolens.example.com/api
         bearer_token: JWT bearer token. Sent as `Authorization: Bearer <token>`.
         api_key: API key. Sent as `X-API-Key: <key>` (no prefix).
 
@@ -39,7 +41,7 @@ class GeolensClient:
     Example:
         >>> from geolens import GeolensClient
         >>> from geolens.api.search import search_datasets_endpoint_search_datasets__get
-        >>> c = GeolensClient(base_url="https://geolens.example.com", bearer_token="...")
+        >>> c = GeolensClient(base_url="https://geolens.example.com/api", bearer_token="...")
         >>> resp = search_datasets_endpoint_search_datasets__get.sync_detailed(client=c.client)
     """
 
