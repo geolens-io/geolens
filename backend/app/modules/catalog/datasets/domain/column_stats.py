@@ -194,7 +194,8 @@ async def get_column_stats(
         f"SELECT MIN({col_q}::numeric), MAX({col_q}::numeric), "
         f"COUNT({col_q}), AVG({col_q}::numeric), "
         f"percentile_cont(ARRAY[{fractions_str}]) "
-        f"WITHIN GROUP (ORDER BY {col_q}::numeric) "
+        f"WITHIN GROUP (ORDER BY {col_q}::numeric), "
+        f"stddev_samp({col_q}::numeric) "
         f"FROM {tbl_q} "
         f"WHERE {col_q} IS NOT NULL"
     )
@@ -207,4 +208,5 @@ async def get_column_stats(
         "count": int(row[2]) if row[2] is not None else 0,
         "mean": float(row[3]) if row[3] is not None else None,
         "quantiles": [float(v) for v in row[4]] if row[4] is not None else [],
+        "stddev": float(row[5]) if row[5] is not None else None,
     }

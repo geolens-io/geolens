@@ -23,6 +23,7 @@ class ColumnStatsResponse:
         mean (float | None | Unset):
         min_ (float | None | Unset):
         quantiles (list[float] | Unset):
+        stddev (float | None | Unset):
     """
 
     count: int | Unset = 0
@@ -30,6 +31,7 @@ class ColumnStatsResponse:
     mean: float | None | Unset = UNSET
     min_: float | None | Unset = UNSET
     quantiles: list[float] | Unset = UNSET
+    stddev: float | None | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -57,6 +59,12 @@ class ColumnStatsResponse:
         if not isinstance(self.quantiles, Unset):
             quantiles = self.quantiles
 
+        stddev: float | None | Unset
+        if isinstance(self.stddev, Unset):
+            stddev = UNSET
+        else:
+            stddev = self.stddev
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update({})
@@ -70,6 +78,8 @@ class ColumnStatsResponse:
             field_dict["min"] = min_
         if quantiles is not UNSET:
             field_dict["quantiles"] = quantiles
+        if stddev is not UNSET:
+            field_dict["stddev"] = stddev
 
         return field_dict
 
@@ -107,12 +117,22 @@ class ColumnStatsResponse:
 
         quantiles = cast(list[float], d.pop("quantiles", UNSET))
 
+        def _parse_stddev(data: object) -> float | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(float | None | Unset, data)
+
+        stddev = _parse_stddev(d.pop("stddev", UNSET))
+
         column_stats_response = cls(
             count=count,
             max_=max_,
             mean=mean,
             min_=min_,
             quantiles=quantiles,
+            stddev=stddev,
         )
 
         column_stats_response.additional_properties = d

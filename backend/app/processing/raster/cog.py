@@ -72,15 +72,18 @@ def extract_raster_metadata(file_path: str) -> dict:
         overview_levels = src.overviews(1) if src.count >= 1 else []
 
         band_info = []
+        src_units = src.units or ()
         for i in range(1, src.count + 1):
-            band_info.append(
-                {
-                    "index": i,
-                    "dtype": src.dtypes[i - 1],
-                    "nodata": str(src.nodata) if src.nodata is not None else None,
-                    "color_interp": src.colorinterp[i - 1].name,
-                }
-            )
+            entry: dict = {
+                "index": i,
+                "dtype": src.dtypes[i - 1],
+                "nodata": str(src.nodata) if src.nodata is not None else None,
+                "color_interp": src.colorinterp[i - 1].name,
+            }
+            unit = src_units[i - 1] if i - 1 < len(src_units) else None
+            if unit and isinstance(unit, str) and unit.strip():
+                entry["unit"] = unit.strip()
+            band_info.append(entry)
 
         is_dem_candidate = src.count == 1 and _is_float_dtype(src.dtypes[0])
 

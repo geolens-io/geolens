@@ -541,6 +541,7 @@ class ColumnStatsResponse(BaseModel):
     count: int = 0
     mean: float | None = None
     quantiles: list[float] = []
+    stddev: float | None = None
 
 
 class AttributeMetadataResponse(BaseModel):

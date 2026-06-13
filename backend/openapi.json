@@ -2969,6 +2969,17 @@
             },
             "title": "Quantiles",
             "type": "array"
+          },
+          "stddev": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stddev"
           }
         },
         "title": "ColumnStatsResponse",
