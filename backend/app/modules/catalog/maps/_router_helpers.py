@@ -290,4 +290,5 @@ def _build_map_response(
         layers=layers,
         layer_count=len(layers),
         plugins=map_obj.plugins,
+        legend_title=map_obj.legend_title,
     )

@@ -673,6 +673,19 @@ class MapUpdate(BaseModel):
         max_length=50,
         description="Enabled plugin IDs, e.g. ['measurement']",
     )
+    legend_title: str | None = Field(
+        default=None,
+        max_length=120,
+        description=(
+            "Custom map-level legend title. Null/empty leaves the legend "
+            "without a heading override (ENH-06)."
+        ),
+    )
+
+    @field_validator("legend_title", mode="before")
+    @classmethod
+    def _normalize_legend_title_nfc(cls, v: str | None) -> str | None:
+        return _nfc(v)
 
 
 class DatasetMetaKwargs(TypedDict, total=False):
@@ -751,6 +764,7 @@ class MapResponse(BaseModel):
     layers: list[MapLayerResponse]
     layer_count: int
     plugins: list[str] | None = None
+    legend_title: str | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -930,6 +944,7 @@ class SharedMapResponse(BaseModel):
     basemap_config: BasemapConfig | None = None
     terrain_config: TerrainConfig | None = None
     has_non_public_layers: bool = False
+    legend_title: str | None = None
     layers: list[SharedLayerResponse]
 
 

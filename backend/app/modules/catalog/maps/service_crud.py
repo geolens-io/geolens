@@ -249,6 +249,7 @@ async def update_map(
     terrain_config: dict | None | object = _UNSET,
     visibility: str | None = None,
     plugins: list[str] | None | object = _UNSET,
+    legend_title: str | None | object = _UNSET,
     layers: list[dict] | None = None,
 ) -> tuple[Map, list[LayerRow], str | None, str | None]:
     """Update map fields. If 'layers' key present, replace all layers.
@@ -291,6 +292,11 @@ async def update_map(
         map_obj.terrain_config = cast(dict | None, terrain_config)
     if plugins is not _UNSET:
         map_obj.plugins = cast(list[str] | None, plugins)
+    if legend_title is not _UNSET:
+        # Treat empty/whitespace-only titles as "no custom title" so the
+        # legend falls back to the default heading on the read path.
+        title = cast(str | None, legend_title)
+        map_obj.legend_title = title.strip() if title and title.strip() else None
 
     # Replace layers if provided
     if layers is not None:
@@ -395,6 +401,7 @@ async def duplicate_map(
         basemap_config=source.basemap_config,
         terrain_config=source.terrain_config,
         plugins=source.plugins,
+        legend_title=source.legend_title,
         thumbnail_uri=None,
         visibility="private",
         forked_from=source.id,

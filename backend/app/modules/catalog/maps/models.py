@@ -86,6 +86,14 @@ class Map(Base):
     # Active plugin IDs (null = use client defaults, [] = no plugins)
     plugins: Mapped[list | None] = mapped_column(JSONB, nullable=True, default=None)
 
+    # Custom map-level legend title (null = no custom title; legend renders
+    # without a heading override). ENH-06 (Phase 1201). Additive nullable
+    # column — see migration 0004_add_maps_legend_title. The `plugins` column
+    # cannot hold this value (it is list[str] of enabled plugin IDs), and the
+    # basemap/terrain JSONB blobs are extra="forbid"-validated, so a dedicated
+    # nullable column is the correct home.
+    legend_title: Mapped[str | None] = mapped_column(Text, nullable=True)
+
     # Map-level terrain configuration (null = terrain disabled/unconfigured)
     terrain_config: Mapped[dict | None] = mapped_column(
         JSONB, nullable=True, default=None
