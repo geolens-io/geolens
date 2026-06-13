@@ -9,6 +9,8 @@ import {
   SEQUENTIAL_RAMPS,
   DIVERGING_RAMPS,
   QUALITATIVE_RAMPS,
+  nextRotatingRamp,
+  suggestRampForMode,
 } from '../color-ramps';
 
 describe('buildGraduatedSizeExpression', () => {
@@ -174,5 +176,112 @@ describe('getColorProperty regression', () => {
 
   it('returns circle-color for MultiPoint', () => {
     expect(getColorProperty('MultiPoint')).toBe('circle-color');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ENH-08: nextRotatingRamp + suggestRampForMode
+// ---------------------------------------------------------------------------
+
+describe('nextRotatingRamp — graduated (sequential ramps)', () => {
+  it('index 0 returns the first sequential ramp (YlOrRd)', () => {
+    expect(nextRotatingRamp('graduated', 0)).toBe('YlOrRd');
+  });
+
+  it('produces N distinct ramp names before cycling (no early collision)', () => {
+    // Collect one full rotation cycle; all names must be distinct.
+    const ROTATION_LEN = 14; // matches GRADUATED_ROTATION.length
+    const names = Array.from({ length: ROTATION_LEN }, (_, i) =>
+      nextRotatingRamp('graduated', i),
+    );
+    const unique = new Set(names);
+    expect(unique.size).toBe(ROTATION_LEN);
+  });
+
+  it('cycles: nextRotatingRamp(graduated, k) === nextRotatingRamp(graduated, k + ROTATION_LEN)', () => {
+    const ROTATION_LEN = 14;
+    for (let k = 0; k < ROTATION_LEN; k++) {
+      expect(nextRotatingRamp('graduated', k)).toBe(
+        nextRotatingRamp('graduated', k + ROTATION_LEN),
+      );
+    }
+  });
+
+  it('returns a sequential ramp name (one of SEQUENTIAL_RAMPS)', () => {
+    const seqNames = SEQUENTIAL_RAMPS.map((r) => r.name) as string[];
+    for (let i = 0; i < 14; i++) {
+      expect(seqNames).toContain(nextRotatingRamp('graduated', i));
+    }
+  });
+
+  it('first entry is CVD-safe', () => {
+    const name = nextRotatingRamp('graduated', 0);
+    const ramp = SEQUENTIAL_RAMPS.find((r) => r.name === name);
+    expect(ramp?.cvdSafe).toBe(true);
+  });
+});
+
+describe('nextRotatingRamp — categorical (qualitative ramps)', () => {
+  it('index 0 returns the first qualitative ramp (Set2)', () => {
+    expect(nextRotatingRamp('categorical', 0)).toBe('Set2');
+  });
+
+  it('produces N distinct ramp names before cycling (no early collision)', () => {
+    const ROTATION_LEN = 6; // matches CATEGORICAL_ROTATION.length
+    const names = Array.from({ length: ROTATION_LEN }, (_, i) =>
+      nextRotatingRamp('categorical', i),
+    );
+    const unique = new Set(names);
+    expect(unique.size).toBe(ROTATION_LEN);
+  });
+
+  it('cycles: nextRotatingRamp(categorical, k) === nextRotatingRamp(categorical, k + ROTATION_LEN)', () => {
+    const ROTATION_LEN = 6;
+    for (let k = 0; k < ROTATION_LEN; k++) {
+      expect(nextRotatingRamp('categorical', k)).toBe(
+        nextRotatingRamp('categorical', k + ROTATION_LEN),
+      );
+    }
+  });
+
+  it('first three entries are CVD-safe qualitative ramps', () => {
+    const cvdSafe = cvdSafeRamps(QUALITATIVE_RAMPS).map((r) => r.name) as string[];
+    expect(cvdSafe).toContain(nextRotatingRamp('categorical', 0));
+    expect(cvdSafe).toContain(nextRotatingRamp('categorical', 1));
+    expect(cvdSafe).toContain(nextRotatingRamp('categorical', 2));
+  });
+});
+
+describe('suggestRampForMode', () => {
+  it('returns a sequential ramp for graduated mode', () => {
+    const name = suggestRampForMode('graduated');
+    const seqNames = SEQUENTIAL_RAMPS.map((r) => r.name) as string[];
+    expect(seqNames).toContain(name);
+  });
+
+  it('returns a qualitative ramp for categorical mode', () => {
+    const name = suggestRampForMode('categorical');
+    const qualNames = QUALITATIVE_RAMPS.map((r) => r.name) as string[];
+    expect(qualNames).toContain(name);
+  });
+
+  it('graduated suggestion is CVD-safe', () => {
+    const name = suggestRampForMode('graduated');
+    const ramp = SEQUENTIAL_RAMPS.find((r) => r.name === name);
+    expect(ramp?.cvdSafe).toBe(true);
+  });
+
+  it('categorical suggestion is CVD-safe', () => {
+    const name = suggestRampForMode('categorical');
+    const ramp = QUALITATIVE_RAMPS.find((r) => r.name === name);
+    expect(ramp?.cvdSafe).toBe(true);
+  });
+
+  it('graduated default is nextRotatingRamp(graduated, 0)', () => {
+    expect(suggestRampForMode('graduated')).toBe(nextRotatingRamp('graduated', 0));
+  });
+
+  it('categorical default is nextRotatingRamp(categorical, 0)', () => {
+    expect(suggestRampForMode('categorical')).toBe(nextRotatingRamp('categorical', 0));
   });
 });

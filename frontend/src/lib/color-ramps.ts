@@ -56,6 +56,86 @@ export const QUALITATIVE_RAMPS = [
   { name: 'Pastel2', label: 'Pastel 2', cvdSafe: false },
 ] as const;
 
+// ---------------------------------------------------------------------------
+// ENH-08: Deterministic ramp rotation + data-character suggestion
+// ---------------------------------------------------------------------------
+//
+// Rotation lists are CVD-safe-first so the default visual experience works
+// for colour-blind users without any explicit preference.
+//
+// GRADUATED rotation (sequential ramps, CVD-safe-first):
+//   All SEQUENTIAL_RAMPS are cvdSafe, so the full list is the rotation.
+//   Order chosen to maximise hue contrast between successive layers:
+//   YlOrRd (warm) → Blues (cool) → Greens → Viridis (multi-hue) →
+//   Oranges → Purples → YlGnBu → Inferno → BuGn → Reds →
+//   Plasma → BuPu → OrRd → YlGn
+//
+// CATEGORICAL rotation (qualitative ramps, CVD-safe-first):
+//   CVD-safe: Set2, Paired, Dark2
+//   Non-safe (appended after so they are still reachable): Set1, Set3, Accent
+const GRADUATED_ROTATION: readonly string[] = [
+  'YlOrRd',
+  'Blues',
+  'Greens',
+  'Viridis',
+  'Oranges',
+  'Purples',
+  'YlGnBu',
+  'Inferno',
+  'BuGn',
+  'Reds',
+  'Plasma',
+  'BuPu',
+  'OrRd',
+  'YlGn',
+] as const;
+
+const CATEGORICAL_ROTATION: readonly string[] = [
+  // CVD-safe first
+  'Set2',
+  'Paired',
+  'Dark2',
+  // Non-CVD-safe (still useful at small N, included for completeness)
+  'Set1',
+  'Set3',
+  'Accent',
+] as const;
+
+/**
+ * Deterministic ramp rotation: maps a zero-based `index` to a ramp name by
+ * cycling through the appropriate rotation list.
+ *
+ * - 'graduated' → sequences through sequential ramps (CVD-safe-first)
+ * - 'categorical' → sequences through qualitative ramps (CVD-safe-first)
+ *
+ * Cycling guarantee: nextRotatingRamp(mode, k) === nextRotatingRamp(mode, k + listLength)
+ * Distinct guarantee: the first listLength calls produce listLength distinct names
+ * before any repetition occurs.
+ *
+ * Pure and deterministic — no randomness.
+ */
+export function nextRotatingRamp(
+  mode: 'categorical' | 'graduated',
+  index: number,
+): string {
+  const list = mode === 'graduated' ? GRADUATED_ROTATION : CATEGORICAL_ROTATION;
+  return list[((index % list.length) + list.length) % list.length];
+}
+
+/**
+ * Suggest a default ramp by data character:
+ * - 'graduated'  → first sequential ramp in the rotation (YlOrRd)
+ * - 'categorical' → first qualitative ramp in the rotation (Set2)
+ *
+ * Equivalent to nextRotatingRamp(mode, 0), exposed as a named helper so
+ * call-sites can clearly express "I want the data-appropriate default".
+ */
+export function suggestRampForMode(mode: 'categorical' | 'graduated'): string {
+  return nextRotatingRamp(mode, 0);
+}
+
+// ---------------------------------------------------------------------------
+
 /**
  * Reverse an array of color strings.
  * Pure function — does not mutate the input.
@@ -67,10 +147,11 @@ export function reverseRamp(colors: string[]): string[] {
 
 /**
  * Filter a ramp array to entries tagged cvdSafe: true.
- * Works with any of the three ramp arrays (SEQUENTIAL/DIVERGING/QUALITATIVE).
+ * Works with any of the three ramp arrays (SEQUENTIAL/DIVERGING/QUALITATIVE),
+ * or a combined array formed by spreading them.
  */
-export function cvdSafeRamps<T extends { cvdSafe: boolean }>(ramps: readonly T[]): T[] {
-  return ramps.filter((r) => r.cvdSafe);
+export function cvdSafeRamps<T extends { cvdSafe: boolean }>(ramps: T[] | readonly T[]): T[] {
+  return (ramps as T[]).filter((r) => r.cvdSafe);
 }
 
 /**
