@@ -1085,7 +1085,7 @@
       "keep": "Conserver la couche"
     },
     "confirmRenderAs": {
-      "message": "Changer de mode de rendu réinitialisera le style actuel. Continuer ?",
+      "message": "Le style compatible est conservé ; seuls les réglages spécifiques au mode seront réinitialisés. Continuer ?",
       "confirm": "Changer de mode",
       "cancel": "Conserver le style"
     },

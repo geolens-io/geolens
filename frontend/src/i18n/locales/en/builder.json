@@ -1093,7 +1093,7 @@
       "keep": "Keep layer"
     },
     "confirmRenderAs": {
-      "message": "Switching render mode will reset the current style. Continue?",
+      "message": "Compatible style is carried over; only mode-specific settings will reset. Continue?",
       "confirm": "Switch mode",
       "cancel": "Keep style"
     },

@@ -1085,7 +1085,7 @@
       "keep": "Layer behalten"
     },
     "confirmRenderAs": {
-      "message": "Beim Wechsel des Darstellungsmodus wird der aktuelle Stil zurückgesetzt. Fortfahren?",
+      "message": "Kompatibler Stil wird übernommen; nur modusabhängige Einstellungen werden zurückgesetzt. Fortfahren?",
       "confirm": "Modus wechseln",
       "cancel": "Stil behalten"
     },

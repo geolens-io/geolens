@@ -456,7 +456,7 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
                             className="text-xs text-foreground"
                           >
                             {t('layerEditor.confirmRenderAs.message', {
-                              defaultValue: 'Switching render mode will reset the current style. Continue?',
+                              defaultValue: 'Compatible style is carried over; only mode-specific settings will reset. Continue?',
                             })}
                           </p>
                           <div className="flex gap-2">

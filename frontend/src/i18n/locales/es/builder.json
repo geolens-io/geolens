@@ -1085,7 +1085,7 @@
       "keep": "Conservar capa"
     },
     "confirmRenderAs": {
-      "message": "Cambiar el modo de renderizado restablecerá el estilo actual. ¿Continuar?",
+      "message": "El estilo compatible se conserva; solo se restablecerán los ajustes específicos del modo. ¿Continuar?",
       "confirm": "Cambiar modo",
       "cancel": "Conservar estilo"
     },

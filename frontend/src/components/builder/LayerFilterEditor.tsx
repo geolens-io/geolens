@@ -438,6 +438,18 @@ export function LayerFilterEditor({
         setRawError(t('filters.rawJsonError'));
         return;
       }
+      // EDIT-03: an empty array is not a valid maplibre filter — persisting it and
+      // calling map.setFilter(id, []) throws and the throw was being swallowed and
+      // mis-surfaced as "Invalid JSON" AFTER filter: [] was already saved. Treat an
+      // empty-array expression as CLEAR: emit null (remove the filter), reset the
+      // structured editor state, and clear the raw error (no error toast).
+      if (Array.isArray(parsed) && parsed.length === 0) {
+        lastEmittedFilterRef.current = null;
+        onFilterChange(null);
+        applyParseResult(parseFilterExpression(null));
+        setRawError(null);
+        return;
+      }
       lastEmittedFilterRef.current = parsed;
       onFilterChange(parsed);
       const result = parseFilterExpression(parsed);
