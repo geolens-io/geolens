@@ -304,6 +304,40 @@ describe('StackRow', () => {
     const row = document.getElementById('stack-row-focus-layer');
     expect(row).toBeInTheDocument();
   });
+
+  // Phase 1199 STACK-01: live duplicate "Copy N of M" disambiguation badge.
+  describe('disambiguation badge (STACK-01)', () => {
+    it('renders "Copy 1 of 2" / "Copy 2 of 2" on both duplicate rows and none on a single layer', () => {
+      // Two renderings of the same dataset, mirroring how UnifiedStackPanel
+      // computes a per-layer label via map-stack's shared helper.
+      const layerA = makeLayer({ id: 'dup-a', dataset_name: 'Counties' });
+      const layerB = makeLayer({ id: 'dup-b', dataset_name: 'Counties' });
+
+      const { rerender } = render(
+        <StackRow {...defaultProps({ layer: layerA })} disambiguationLabel="Copy 1 of 2" />
+      );
+      const badgeA = screen.getByTestId('stack-row-disambiguation');
+      expect(badgeA).toHaveTextContent('Copy 1 of 2');
+
+      rerender(
+        <StackRow {...defaultProps({ layer: layerB })} disambiguationLabel="Copy 2 of 2" />
+      );
+      const badgeB = screen.getByTestId('stack-row-disambiguation');
+      expect(badgeB).toHaveTextContent('Copy 2 of 2');
+    });
+
+    it('renders no disambiguation badge when disambiguationLabel is null', () => {
+      const layer = makeLayer({ id: 'single-layer' });
+      render(<StackRow {...defaultProps({ layer })} disambiguationLabel={null} />);
+      expect(screen.queryByTestId('stack-row-disambiguation')).not.toBeInTheDocument();
+    });
+
+    it('renders no disambiguation badge when disambiguationLabel is omitted (default)', () => {
+      const layer = makeLayer({ id: 'no-prop-layer' });
+      render(<StackRow {...defaultProps({ layer })} />);
+      expect(screen.queryByTestId('stack-row-disambiguation')).not.toBeInTheDocument();
+    });
+  });
 });
 
 describe('DEM type icon', () => {

@@ -25,6 +25,7 @@ import { isFolderGroupLayer } from '@/lib/layer-capabilities';
 import { cn } from '@/lib/utils';
 import type { MapLayerResponse } from '@/types/api';
 import { isDemTerrainVisualSuppressed } from './map-sync';
+import { computeDisambiguationLabels } from './map-stack';
 
 // ---------------------------------------------------------------------------
 // Stable noop — created once at module scope so optional-prop fallbacks never
@@ -154,6 +155,8 @@ interface SortableStackRowProps {
   onCheckboxClick?: (id: string) => void;
   // Phase 1042 POL-15: entry animation
   isFresh?: boolean;
+  // Phase 1199 STACK-01: "Copy N of M" duplicate label, null when not a duplicate
+  disambiguationLabel?: string | null;
 }
 
 const SortableStackRow = memo(function SortableStackRow({
@@ -176,6 +179,7 @@ const SortableStackRow = memo(function SortableStackRow({
   onShiftClick,
   onCheckboxClick,
   isFresh,
+  disambiguationLabel,
 }: SortableStackRowProps) {
   const {
     attributes,
@@ -222,6 +226,7 @@ const SortableStackRow = memo(function SortableStackRow({
         onShiftClick={onShiftClick}
         onCheckboxClick={onCheckboxClick}
         isFresh={isFresh}
+        disambiguationLabel={disambiguationLabel}
       />
     </div>
   );
@@ -792,6 +797,18 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
     [layers],
   );
 
+  // Phase 1199 STACK-01: per-layer "Copy N of M" disambiguation labels for the
+  // LIVE stack rows. map-stack.ts already computes these for the derived/legend
+  // path; this reuses the same exported helper so the live badge and the legend
+  // badge can never drift. Computed over the full `layers` set (sorted by
+  // sort_order to match the derived-stack occurrence numbering), not just
+  // visibleStackLayers, so a duplicate hidden behind a suppressed terrain row is
+  // still counted consistently.
+  const disambiguationLabels = useMemo(() => {
+    const ordered = [...layers].sort((a, b) => a.sort_order - b.sort_order);
+    return computeDisambiguationLabels(ordered);
+  }, [layers]);
+
   // SortableContext items: all layer ids + the basemap-group id.
   // UX-03 (Phase 1051 Plan 06): basemap is no longer excluded — it participates
   // in the sortable list so the user can drag it between 'top' and 'bottom'
@@ -1050,6 +1067,7 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
                               onShiftClick={onShiftClick}
                               onCheckboxClick={onCheckboxClick}
                               isFresh={child.id === freshLayerId}
+                              disambiguationLabel={disambiguationLabels.get(child.id) ?? null}
                             />
                           ))}
                         </div>
@@ -1081,6 +1099,7 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
                     onShiftClick={onShiftClick}
                     onCheckboxClick={onCheckboxClick}
                     isFresh={layer.id === freshLayerId}
+                    disambiguationLabel={disambiguationLabels.get(layer.id) ?? null}
                   />
                 );
               })}

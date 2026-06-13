@@ -53,6 +53,10 @@ interface StackRowProps {
   onCheckboxClick?: (id: string) => void;
   // Phase 1042 POL-15: entry animation — set true immediately after add, cleared after 200ms
   isFresh?: boolean;
+  // Phase 1199 STACK-01: "Copy N of M" duplicate disambiguation label, computed
+  // per-layer by UnifiedStackPanel from map-stack's shared helper. Null = not a
+  // duplicate; render nothing.
+  disambiguationLabel?: string | null;
 }
 
 function TypeIcon({ layer }: { layer: MapLayerResponse }) {
@@ -119,6 +123,7 @@ export const StackRow = memo(function StackRow({
   onShiftClick,
   onCheckboxClick,
   isFresh = false,
+  disambiguationLabel = null,
 }: StackRowProps) {
   const { t } = useTranslation('builder');
   const [editing, setEditing] = useState(false);
@@ -360,6 +365,21 @@ export const StackRow = memo(function StackRow({
               >
                 <Type className="h-3 w-3" aria-hidden="true" />
                 <span className="sr-only">{t('stackRow.labelsIndicator', { column: layer.label_config!.column, defaultValue: 'Labels on: {{column}}' })}</span>
+              </span>
+            )}
+            {/* Phase 1199 STACK-01: live duplicate-disambiguation badge. The label
+                ("Copy N of M") is data-driven so it is rendered verbatim; the
+                hover/sr-only text is wrapped in t() for parity hygiene. Mirrors
+                the warning-tone badge visual language used in the derived stack
+                (map-stack.ts layerBadges → tone 'warning'). */}
+            {disambiguationLabel && (
+              <span
+                title={t('stackRow.disambiguation', { label: disambiguationLabel, defaultValue: '{{label}}' })}
+                data-testid="stack-row-disambiguation"
+                className="shrink-0 inline-flex items-center rounded-sm px-1 text-[10px] font-medium leading-tight bg-[var(--warning-50,oklch(0.97_0.04_85))] text-[var(--warning-700,oklch(0.45_0.12_85))]"
+              >
+                {disambiguationLabel}
+                <span className="sr-only">{t('stackRow.disambiguation', { label: disambiguationLabel, defaultValue: '{{label}}' })}</span>
               </span>
             )}
           </div>
