@@ -4,6 +4,14 @@
 #
 # Scan locally:  gitleaks dir . -c .gitleaks.toml --redact
 # Pre-commit:    the `gitleaks` hook in .pre-commit-config.yaml reads this file.
+#
+# GAP-012: the test/SDK allowlists are intentionally NARROW. We do NOT
+# blanket-allowlist the whole backend/tests/ or sdks/ trees, nor any value
+# containing the substring "padding" — those are exactly where real credentials
+# most often leak (pasted curl commands, recorded cassettes, SDK examples) in a
+# public repo. Instead we allowlist only the SPECIFIC known-fake fixture values
+# by anchored regex, so a NEW real secret added under those paths is still
+# flagged.
 
 title = "GeoLens gitleaks config"
 
@@ -23,7 +31,6 @@ paths = [
   '''(^|/)__pycache__/''',
   '''(^|/)package-lock\.json$''',
   '''(^|/)uv\.lock$''',
-  '''^sdks/''',                       # generated SDKs
   '''^backend/openapi\.json$''',      # generated snapshot
   '''^\.planning/''',                 # local planning docs (gitignored)
   # Gitignored local noise (coverage output, scratch, playwright auth state)
@@ -32,25 +39,44 @@ paths = [
   '''(^|/)playwright/\.auth/''',
   # Documented example credentials — placeholders, not real secrets
   '''(^|/)\.env\.example$''',
-  # Test fixtures + intentional secret-detection regression tests use fake creds by design
-  '''^backend/tests/''',
+  # Frontend test fixtures (redaction/eslint regression tests author obvious
+  # fake tokens by design). Out of GAP-012's scope (backend/tests + sdks +
+  # padding); left tree-wide and tracked as a separate narrowing candidate.
   '''(^|/)__tests__/''',
 ]
+# NOTE (GAP-012): the `^sdks/` and `^backend/tests/` tree-wide path allowlists
+# were REMOVED. The sdks/ tree has no flagged fixtures today, and the
+# backend/tests/ fixtures are covered by the anchored value regexes below — so a
+# real secret pasted into a backend test or an SDK file is no longer silently
+# allowlisted by virtue of its path.
+#
 # NOTE: `.env` itself is intentionally NOT allowlisted — it is gitignored, but the
 # pre-commit hook should still flag an accidental `git add -f .env`.
 
-# Match the *secret value* — covers CI padding keys + obvious fake markers
-# regardless of which file they live in.
+# Allowlist the SPECIFIC known-fake secret VALUES (anchored), not whole trees or
+# the bare substring "padding". Each entry below is a deliberate test/CI/example
+# placeholder; a real leaked key will not match any of them and is still caught.
 regexes = [
-  '''padding''',                                                   # ci.yml JWT_SECRET_KEY=...padding...32chars
+  # CI/test JWT_SECRET_KEY placeholders use the literal `-padding-` infix marker
+  # padded to >=32 chars (e.g. test-secret-key-for-ci-padding-32chars,
+  # ci-compose-validate-padding-32chars, sdks-check-padding-key-32characters-here,
+  # testsecret-padding-to-32-chars-min, test-jwt-secret-padding-to-32-chars).
+  # Anchored to the hyphenated `-padding-` placeholder convention — NOT any value
+  # that merely contains the substring "padding".
+  '''[A-Za-z0-9]+-padding-[A-Za-z0-9-]+''',
+  # Fake JWT used by backend/tests/test_preview_token_sec021.py (dotted, with a
+  # `_=` that no real token carries). Anchored to the exact fixture value.
+  '''eyJhbGciOi\.JIUzI1NiIs\.in9-_=''',
+  # Obvious fake markers, anywhere — value must self-label as a non-secret.
   '''(?i)(test|fake|dummy|example|changeme|placeholder|sample)[-_ ]?(secret|key|token|password)''',
   '''docs_url=None''',                                             # generic-api-key FP: backend/app/api/main.py
-  '''from_attributes=True''',                                      # generic-api-key FP: embed_tokens/admin_router.py
+  '''from_attributes=True''',                                     # generic-api-key FP: embed_tokens/admin_router.py
 ]
 
-# Generic stopwords that mark a value as non-sensitive.
+# Generic stopwords that mark a value as non-sensitive. `padding` was removed
+# (GAP-012): the bare substring let any value containing it bypass scanning; the
+# anchored `-padding-` regex above replaces it.
 stopwords = [
-  "padding",
   "example",
   "changeme",
   "placeholder",
