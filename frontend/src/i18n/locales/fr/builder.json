@@ -428,6 +428,15 @@
     "method": "Méthode",
     "equalInterval": "Intervalles égaux",
     "quantile": "Quantile",
+    "methodJenks": "Seuils naturels (Jenks)",
+    "methodStdDev": "Écart type",
+    "methodManual": "Manuel",
+    "jenksSampledHint": "Les seuils naturels sont calculés à partir d'un échantillon représentatif de la colonne, pas de toutes les valeurs.",
+    "manualBreaksLabel": "Valeurs de seuil (croissantes)",
+    "manualBreaksRowLabel": "Valeur de seuil {{index}}",
+    "manualBreaksAddRow": "Ajouter un seuil",
+    "manualBreaksRemoveRow": "Supprimer le seuil",
+    "manualBreaksInvalid": "Saisissez au moins une valeur de seuil dans un ordre strictement croissant.",
     "classes": "Classes",
     "categoriesWarning": "{{count}} catégories — envisagez le mode gradué pour de nombreuses valeurs.",
     "target": "Cible",
@@ -964,7 +973,9 @@
     "browseAll": "Parcourir tous les jeux de données →",
     "browseAllShort": "Parcourir le catalogue →",
     "emptyHelpBody": "Recherchez dans le catalogue pour trouver des jeux de données, ou utilisez le bouton Importer pour ajouter les vôtres.",
-    "listboxLabel": "Couches de la carte"
+    "listboxLabel": "Couches de la carte",
+    "searchPlaceholder": "Filtrer les couches…",
+    "searchAriaLabel": "Filtrer les couches par nom"
   },
   "rail": {
     "aiDisabled": "IA désactivée par l'administrateur",

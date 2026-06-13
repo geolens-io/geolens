@@ -28,7 +28,13 @@ import {
   getSizeProperty,
 } from '@/lib/color-ramps';
 import { getLayerType } from '@/components/builder/map-sync';
-import { equalIntervalBreaks, quantileBreaks } from '@/lib/classification';
+import {
+  equalIntervalBreaks,
+  quantileBreaks,
+  jenksBreaks,
+  stdDevBreaks,
+  manualBreaks,
+} from '@/lib/classification';
 import { MAP_COLORS } from '@/lib/map-colors';
 import { isNumericColumn } from '@/lib/column-utils';
 import type { MapLayerResponse, StyleConfig } from '@/types/api';
@@ -49,21 +55,62 @@ function isTextColumn(type: string): boolean {
   return TEXT_TYPES.some((tt) => t.includes(tt));
 }
 
+type ClassificationMethod =
+  | 'quantile'
+  | 'equal_interval'
+  | 'jenks'
+  | 'std_dev'
+  | 'manual';
+
 /**
  * KISS-N2: compute classification breaks + effective class count, shared
  * between the graduated-color and graduated-size effects.
  * - quantile method: uses precomputed quantiles when available (actual class
  *   count becomes breaks.length + 1 because each break separates two classes)
  * - equal-interval: respects the requested classCount exactly
+ * - jenks: natural-breaks over the SAMPLE (server quantiles) — the raw column
+ *   is not client-side available, so this is honestly sampled, not exact.
+ * - std_dev: mean ± σ steps; only valid when stddev is available (gated in UI).
+ * - manual: user-supplied ascending breaks; invalid input yields the previous
+ *   valid set with `invalid: true` so the caller can warn instead of writing a
+ *   broken step expression.
  */
 function computeBreaks(
-  statsData: { min: number; max: number; quantiles: number[] },
-  method: 'quantile' | 'equal_interval',
+  statsData: {
+    min: number;
+    max: number;
+    quantiles: number[];
+    mean?: number | null;
+    stddev?: number | null;
+  },
+  method: ClassificationMethod,
   classCount: number,
-): { breaks: number[]; effectiveClassCount: number } {
+  manualBreakValues: number[] = [],
+): { breaks: number[]; effectiveClassCount: number; invalid: boolean } {
   let breaks: number[];
+  let invalid = false;
   if (method === 'quantile' && statsData.quantiles.length > 0) {
     breaks = quantileBreaks(statsData.quantiles);
+  } else if (method === 'jenks') {
+    // The raw column array is not client-available; classify the representative
+    // sample (server quantiles + min/max anchors), labelled "(sampled)" in UI.
+    const sample = [statsData.min, ...statsData.quantiles, statsData.max];
+    breaks = jenksBreaks(sample, classCount);
+  } else if (method === 'std_dev') {
+    if (statsData.mean != null && statsData.stddev != null) {
+      breaks = stdDevBreaks(statsData.mean, statsData.stddev, classCount);
+    } else {
+      // Should be gated in UI; fall back rather than fabricate σ.
+      breaks = equalIntervalBreaks(statsData.min, statsData.max, classCount);
+    }
+  } else if (method === 'manual') {
+    try {
+      breaks = manualBreaks(manualBreakValues);
+      if (breaks.length === 0) invalid = true;
+    } catch {
+      breaks = [];
+      invalid = true;
+    }
   } else {
     breaks = equalIntervalBreaks(statsData.min, statsData.max, classCount);
   }
@@ -71,7 +118,7 @@ function computeBreaks(
   // Quantile methods can produce duplicate boundaries when data is heavily clustered.
   breaks = [...new Set(breaks)];
   const effectiveClassCount = breaks.length + 1;
-  return { breaks, effectiveClassCount };
+  return { breaks, effectiveClassCount, invalid };
 }
 
 /** Linearly interpolate classCount values between sizeRange[0] and sizeRange[1]. */
@@ -105,8 +152,15 @@ export function DataDrivenStyleEditor({
   const [classCount, setClassCount] = useState<number>(
     existingConfig?.classCount ?? 5,
   );
-  const [method, setMethod] = useState<'equal_interval' | 'quantile'>(
+  const [method, setMethod] = useState<ClassificationMethod>(
     existingConfig?.method ?? 'equal_interval',
+  );
+  // Manual-breaks editor state — seeded from any persisted breaks so a
+  // manual config round-trips. Strings so partial/empty edits don't crash.
+  const [manualBreakInputs, setManualBreakInputs] = useState<string[]>(
+    existingConfig?.method === 'manual' && existingConfig.breaks?.length
+      ? existingConfig.breaks.map((b) => String(b))
+      : ['', ''],
   );
   const [target, setTarget] = useState<'color' | 'radius' | 'width'>(
     existingConfig?.target ?? 'color',
@@ -145,6 +199,33 @@ export function DataDrivenStyleEditor({
     columnForGraduated ? layer.dataset_id : undefined,
     columnForGraduated,
   );
+
+  // std-dev classification needs both mean and σ. The current stats endpoint
+  // returns `mean` but not `stddev`, so gate the option honestly on availability
+  // rather than fabricating σ from the quantiles.
+  const stdDevAvailable =
+    statsData?.mean != null && statsData?.stddev != null;
+
+  // Parse the manual-breaks editor inputs into numbers (ignoring blank rows),
+  // and validate strictly-ascending via manualBreaks. `manualBreaksInvalid`
+  // drives the inline warning and prevents writing a broken step expression.
+  const manualBreakValues = useMemo(
+    () =>
+      manualBreakInputs
+        .map((s) => s.trim())
+        .filter((s) => s !== '')
+        .map((s) => Number(s)),
+    [manualBreakInputs],
+  );
+  const manualBreaksInvalid = useMemo(() => {
+    if (method !== 'manual') return false;
+    if (manualBreakValues.length === 0) return true;
+    try {
+      return manualBreaks(manualBreakValues).length === 0;
+    } catch {
+      return true;
+    }
+  }, [method, manualBreakValues]);
 
   // Extract narrow paint/config slices so effects don't re-run on every paint change
   const colorPaintProp = useMemo(
@@ -205,11 +286,22 @@ export function DataDrivenStyleEditor({
     if (!column || mode !== 'graduated' || !statsData || statsData.min === null || statsData.max === null || !Array.isArray(statsData.quantiles)) return;
     if (target !== 'color' && target) return;
 
-    const { breaks, effectiveClassCount } = computeBreaks(
-      { min: statsData.min, max: statsData.max, quantiles: statsData.quantiles },
+    const { breaks, effectiveClassCount, invalid } = computeBreaks(
+      {
+        min: statsData.min,
+        max: statsData.max,
+        quantiles: statsData.quantiles,
+        mean: statsData.mean,
+        stddev: statsData.stddev,
+      },
       method,
       classCount,
+      manualBreakValues,
     );
+
+    // Don't write a broken step expression from invalid manual input — the UI
+    // shows an inline warning instead. Also bail if there are no usable breaks.
+    if (invalid || breaks.length === 0) return;
 
     // Preserve existing graduated colors when config hasn't changed
     const ec = styleConfig;
@@ -221,6 +313,9 @@ export function DataDrivenStyleEditor({
       ec.classCount === classCount &&
       ec.colors &&
       ec.breaks &&
+      (method !== 'manual' ||
+        (ec.breaks.length === breaks.length &&
+          ec.breaks.every((b, i) => b === breaks[i]))) &&
       (!ec.target || ec.target === 'color')
     ) {
       return;
@@ -247,18 +342,27 @@ export function DataDrivenStyleEditor({
     const paint = { ...layer.paint, [colorProp]: expression };
     onStyleConfigChange(layerId, config, paint);
   // eslint-disable-next-line react-hooks/exhaustive-deps -- layer.paint excluded: narrowed colorPaintProp covers the relevant slice
-  }, [column, mode, ramp, classCount, method, target, statsData, styleConfig, geomType, colorPaintProp, layerId, onStyleConfigChange]);
+  }, [column, mode, ramp, classCount, method, target, statsData, styleConfig, geomType, colorPaintProp, layerId, onStyleConfigChange, manualBreakValues]);
 
   // Effect 3: Graduated size styling (radius or width)
   useEffect(() => {
     if (!column || mode !== 'graduated' || !statsData || statsData.min === null || statsData.max === null || !Array.isArray(statsData.quantiles)) return;
     if (target === 'color' || !target) return;
 
-    const { breaks, effectiveClassCount } = computeBreaks(
-      { min: statsData.min, max: statsData.max, quantiles: statsData.quantiles },
+    const { breaks, effectiveClassCount, invalid } = computeBreaks(
+      {
+        min: statsData.min,
+        max: statsData.max,
+        quantiles: statsData.quantiles,
+        mean: statsData.mean,
+        stddev: statsData.stddev,
+      },
       method,
       classCount,
+      manualBreakValues,
     );
+
+    if (invalid || breaks.length === 0) return;
 
     // Guard: skip if existing config already matches — use classCount (local
     // state) consistently in both the guard and the written config to prevent
@@ -272,7 +376,10 @@ export function DataDrivenStyleEditor({
       ec.sizes &&
       ec.sizeRange &&
       ec.sizeRange[0] === sizeRange[0] &&
-      ec.sizeRange[1] === sizeRange[1]
+      ec.sizeRange[1] === sizeRange[1] &&
+      (method !== 'manual' ||
+        (ec.breaks?.length === breaks.length &&
+          ec.breaks.every((b, i) => b === breaks[i])))
     ) {
       return;
     }
@@ -298,7 +405,7 @@ export function DataDrivenStyleEditor({
     const paint = { ...layer.paint, [sizeProp]: sizeExpression };
     onStyleConfigChange(layerId, config, paint);
   // eslint-disable-next-line react-hooks/exhaustive-deps -- layer.paint excluded: narrowed sizePaintProp covers the relevant slice
-  }, [column, mode, ramp, classCount, method, target, sizeRange, statsData, styleConfig, geomType, sizePaintProp, layerId, onStyleConfigChange]);
+  }, [column, mode, ramp, classCount, method, target, sizeRange, statsData, styleConfig, geomType, sizePaintProp, layerId, onStyleConfigChange, manualBreakValues]);
 
   function handleClear() {
     setColumn('');
@@ -660,7 +767,7 @@ export function DataDrivenStyleEditor({
         <>
           <div className="flex items-center gap-2">
             <span className="text-xs text-muted-foreground w-20">{t('dataDriven.method')}</span>
-            <Select value={method} onValueChange={(v) => setMethod(v as 'equal_interval' | 'quantile')}>
+            <Select value={method} onValueChange={(v) => setMethod(v as ClassificationMethod)}>
               <SelectTrigger className="h-7 text-xs flex-1">
                 <SelectValue />
               </SelectTrigger>
@@ -671,11 +778,23 @@ export function DataDrivenStyleEditor({
                 <SelectItem value="quantile" className="text-xs">
                   {t('dataDriven.quantile')}
                 </SelectItem>
+                <SelectItem value="jenks" className="text-xs">
+                  {t('dataDriven.methodJenks')}
+                </SelectItem>
+                {/* std-dev needs mean + σ; disable honestly when σ is unavailable
+                    rather than fabricating it from the quantiles. */}
+                <SelectItem value="std_dev" className="text-xs" disabled={!stdDevAvailable}>
+                  {t('dataDriven.methodStdDev')}
+                </SelectItem>
+                <SelectItem value="manual" className="text-xs">
+                  {t('dataDriven.methodManual')}
+                </SelectItem>
               </SelectContent>
             </Select>
           </div>
 
-          {method === 'equal_interval' && (
+          {/* Class-count slider — drives the count for the count-based methods. */}
+          {(method === 'equal_interval' || method === 'jenks' || method === 'std_dev') && (
             <div className="flex items-center gap-2">
               <span className="text-xs text-muted-foreground w-20">{t('dataDriven.classes')}</span>
               <Slider
@@ -689,6 +808,65 @@ export function DataDrivenStyleEditor({
               <span className="text-xs text-muted-foreground w-10 text-end">
                 {classCount}
               </span>
+            </div>
+          )}
+
+          {/* Jenks operates on the server quantile sample, not the raw column —
+              label that honestly so users don't over-trust the precision. */}
+          {method === 'jenks' && (
+            <p className="text-[11px] leading-snug text-muted-foreground">
+              {t('dataDriven.jenksSampledHint')}
+            </p>
+          )}
+
+          {/* Manual-breaks editor: a small editable list of numeric inputs. */}
+          {method === 'manual' && (
+            <div className="space-y-1.5">
+              <span className="text-xs text-muted-foreground">{t('dataDriven.manualBreaksLabel')}</span>
+              <div className="space-y-1">
+                {manualBreakInputs.map((val, i) => (
+                  <div key={i} className="flex items-center gap-2">
+                    <input
+                      type="number"
+                      inputMode="decimal"
+                      value={val}
+                      aria-label={t('dataDriven.manualBreaksRowLabel', { index: i + 1 })}
+                      onChange={(e) =>
+                        setManualBreakInputs((rows) =>
+                          rows.map((r, ri) => (ri === i ? e.target.value : r)),
+                        )
+                      }
+                      className="h-7 flex-1 rounded border border-border bg-background px-2 text-xs text-foreground"
+                    />
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-6 w-6 shrink-0"
+                      disabled={manualBreakInputs.length <= 1}
+                      onClick={() =>
+                        setManualBreakInputs((rows) => rows.filter((_, ri) => ri !== i))
+                      }
+                      title={t('dataDriven.manualBreaksRemoveRow')}
+                      aria-label={t('dataDriven.manualBreaksRemoveRow')}
+                    >
+                      <X className="h-3 w-3" />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 text-xs"
+                onClick={() => setManualBreakInputs((rows) => [...rows, ''])}
+              >
+                {t('dataDriven.manualBreaksAddRow')}
+              </Button>
+              {manualBreaksInvalid && (
+                <p className="rounded-md bg-warning/15 px-2 py-1.5 text-[11px] leading-snug text-warning-foreground">
+                  {t('dataDriven.manualBreaksInvalid')}
+                </p>
+              )}
             </div>
           )}
         </>

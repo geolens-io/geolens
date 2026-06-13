@@ -428,6 +428,15 @@
     "method": "Methode",
     "equalInterval": "Gleiche Intervalle",
     "quantile": "Quantil",
+    "methodJenks": "Natürliche Unterbrechungen (Jenks)",
+    "methodStdDev": "Standardabweichung",
+    "methodManual": "Manuell",
+    "jenksSampledHint": "Natürliche Unterbrechungen werden aus einer repräsentativen Stichprobe der Spalte berechnet, nicht aus allen Werten.",
+    "manualBreaksLabel": "Grenzwerte (aufsteigend)",
+    "manualBreaksRowLabel": "Grenzwert {{index}}",
+    "manualBreaksAddRow": "Grenzwert hinzufügen",
+    "manualBreaksRemoveRow": "Grenzwert entfernen",
+    "manualBreaksInvalid": "Geben Sie mindestens einen Grenzwert in streng aufsteigender Reihenfolge ein.",
     "classes": "Klassen",
     "categoriesWarning": "{{count}} Kategorien -- erwägen Sie den abgestuften Modus für viele Werte.",
     "target": "Ziel",
@@ -964,7 +973,9 @@
     "browseAll": "Alle Datensätze durchsuchen →",
     "browseAllShort": "Katalog durchsuchen →",
     "emptyHelpBody": "Den Katalog durchsuchen, um Datensätze zu finden, oder die Schaltfläche \"Hochladen\" verwenden, um eigene hinzuzufügen.",
-    "listboxLabel": "Karten-Layer"
+    "listboxLabel": "Karten-Layer",
+    "searchPlaceholder": "Layer filtern…",
+    "searchAriaLabel": "Layer nach Name filtern"
   },
   "rail": {
     "aiDisabled": "KI durch Administrator deaktiviert",

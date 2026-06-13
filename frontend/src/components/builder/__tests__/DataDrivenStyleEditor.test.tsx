@@ -545,6 +545,137 @@ describe('DataDrivenStyleEditor', () => {
       );
     });
 
+  });
+
+  describe('classification methods (ENH-04)', () => {
+    function graduatedConfig(method: StyleConfig['method'] = 'equal_interval'): StyleConfig {
+      return {
+        mode: 'graduated',
+        column: 'population',
+        ramp: 'YlOrRd',
+        classCount: 5,
+        method,
+      };
+    }
+
+    function statsWith(extra: Record<string, unknown> = {}) {
+      return hookData({
+        min: 0,
+        max: 100,
+        count: 100,
+        mean: 50,
+        quantiles: [20, 40, 60, 80],
+        ...extra,
+      }) as unknown as ReturnType<typeof useColumnStats>;
+    }
+
+    it('jenks method produces strictly ascending breaks in the persisted config', async () => {
+      mockUseColumnStats.mockReturnValue(statsWith());
+      const onStyleConfigChange = vi.fn();
+      render(
+        <DataDrivenStyleEditor
+          layer={makeLayer({ style_config: graduatedConfig('jenks') })}
+          onStyleConfigChange={onStyleConfigChange}
+        />,
+      );
+
+      await waitFor(() => {
+        expect(onStyleConfigChange).toHaveBeenCalled();
+      });
+      const [, newConfig] = onStyleConfigChange.mock.calls[0];
+      const breaks = (newConfig as StyleConfig).breaks!;
+      expect(breaks.length).toBeGreaterThan(0);
+      for (let i = 1; i < breaks.length; i++) {
+        expect(breaks[i]).toBeGreaterThan(breaks[i - 1]);
+      }
+      expect((newConfig as StyleConfig).method).toBe('jenks');
+    });
+
+    it('shows the manual-breaks editor and persists entered ascending breaks', async () => {
+      mockUseColumnStats.mockReturnValue(statsWith());
+      const onStyleConfigChange = vi.fn();
+      render(
+        <DataDrivenStyleEditor
+          layer={makeLayer({
+            style_config: { ...graduatedConfig('manual'), breaks: [10, 20] },
+          })}
+          onStyleConfigChange={onStyleConfigChange}
+        />,
+      );
+
+      // The manual editor renders numeric inputs seeded from the persisted breaks.
+      const rows = await screen.findAllByLabelText(/Break value/i);
+      expect(rows.length).toBeGreaterThanOrEqual(2);
+
+      const user = userEvent.setup();
+      await user.clear(rows[0]);
+      await user.type(rows[0], '15');
+      await user.clear(rows[1]);
+      await user.type(rows[1], '30');
+
+      await waitFor(() => {
+        // The latest manual write should carry the freshly-typed ascending breaks.
+        const manualCalls = onStyleConfigChange.mock.calls.filter(
+          ([, cfg]) => (cfg as StyleConfig)?.method === 'manual',
+        );
+        expect(manualCalls.length).toBeGreaterThan(0);
+        const last = manualCalls[manualCalls.length - 1];
+        expect((last[1] as StyleConfig).breaks).toEqual([15, 30]);
+      });
+    });
+
+    it('warns and does not write a config for non-ascending manual breaks', async () => {
+      mockUseColumnStats.mockReturnValue(statsWith());
+      const onStyleConfigChange = vi.fn();
+      render(
+        <DataDrivenStyleEditor
+          layer={makeLayer({
+            style_config: { ...graduatedConfig('manual'), breaks: [10, 20] },
+          })}
+          onStyleConfigChange={onStyleConfigChange}
+        />,
+      );
+
+      const rows = await screen.findAllByLabelText(/Break value/i);
+      const user = userEvent.setup();
+      // Make them descending: 50 then 5 → invalid.
+      await user.clear(rows[0]);
+      await user.type(rows[0], '50');
+      await user.clear(rows[1]);
+      await user.type(rows[1], '5');
+
+      // Inline warning is shown.
+      expect(
+        await screen.findByText(/strictly ascending order/i),
+      ).toBeInTheDocument();
+
+      // No graduated manual config written for the invalid input.
+      const manualWrite = onStyleConfigChange.mock.calls.find(
+        ([, cfg]) =>
+          (cfg as StyleConfig)?.method === 'manual' &&
+          JSON.stringify((cfg as StyleConfig)?.breaks) === JSON.stringify([50, 5]),
+      );
+      expect(manualWrite).toBeUndefined();
+    });
+
+    it('disables the std-dev option when stddev is unavailable', async () => {
+      // No stddev on the stats response → option gated.
+      mockUseColumnStats.mockReturnValue(statsWith());
+      render(
+        <DataDrivenStyleEditor
+          layer={makeLayer({ style_config: graduatedConfig() })}
+          onStyleConfigChange={vi.fn()}
+        />,
+      );
+
+      const user = userEvent.setup();
+      // Open the method select (the graduated method combobox).
+      const comboboxes = screen.getAllByRole('combobox');
+      await user.click(comboboxes[comboboxes.length - 1]);
+      const stdDevOption = await screen.findByRole('option', { name: /Standard Deviation/i });
+      expect(stdDevOption).toHaveAttribute('aria-disabled', 'true');
+    });
+
     it('resets target to color when handleClear is called', async () => {
       const config: StyleConfig = {
         mode: 'graduated',

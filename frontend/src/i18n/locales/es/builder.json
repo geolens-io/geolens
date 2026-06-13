@@ -428,6 +428,15 @@
     "method": "Método",
     "equalInterval": "Intervalo igual",
     "quantile": "Cuantil",
+    "methodJenks": "Cortes naturales (Jenks)",
+    "methodStdDev": "Desviación estándar",
+    "methodManual": "Manual",
+    "jenksSampledHint": "Los cortes naturales se calculan a partir de una muestra representativa de la columna, no de todos los valores.",
+    "manualBreaksLabel": "Valores de corte (ascendente)",
+    "manualBreaksRowLabel": "Valor de corte {{index}}",
+    "manualBreaksAddRow": "Añadir corte",
+    "manualBreaksRemoveRow": "Eliminar corte",
+    "manualBreaksInvalid": "Introduce al menos un valor de corte en orden estrictamente ascendente.",
     "classes": "Clases",
     "categoriesWarning": "{{count}} categorías -- considere usar el modo graduado para muchos valores.",
     "target": "Objetivo",
@@ -964,7 +973,9 @@
     "browseAll": "Explorar todos los conjuntos de datos →",
     "browseAllShort": "Explorar catálogo →",
     "emptyHelpBody": "Busque en el catálogo para encontrar conjuntos de datos, o use el botón Cargar para agregar los suyos.",
-    "listboxLabel": "Capas del mapa"
+    "listboxLabel": "Capas del mapa",
+    "searchPlaceholder": "Filtrar capas…",
+    "searchAriaLabel": "Filtrar capas por nombre"
   },
   "rail": {
     "aiDisabled": "IA desactivada por el administrador",

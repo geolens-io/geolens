@@ -428,6 +428,15 @@
     "method": "Method",
     "equalInterval": "Equal Interval",
     "quantile": "Quantile",
+    "methodJenks": "Natural Breaks (Jenks)",
+    "methodStdDev": "Standard Deviation",
+    "methodManual": "Manual",
+    "jenksSampledHint": "Natural breaks are computed from a representative sample of the column, not every value.",
+    "manualBreaksLabel": "Break values (ascending)",
+    "manualBreaksRowLabel": "Break value {{index}}",
+    "manualBreaksAddRow": "Add break",
+    "manualBreaksRemoveRow": "Remove break",
+    "manualBreaksInvalid": "Enter at least one break value in strictly ascending order.",
     "classes": "Classes",
     "categoriesWarning": "{{count}} categories -- consider using graduated mode for many values.",
     "target": "Target",
@@ -968,7 +977,9 @@
     "browseAll": "Browse all datasets →",
     "browseAllShort": "Browse catalog →",
     "emptyHelpBody": "Search the catalog to find datasets, or use the Upload button to add your own.",
-    "listboxLabel": "Map layers"
+    "listboxLabel": "Map layers",
+    "searchPlaceholder": "Filter layers…",
+    "searchAriaLabel": "Filter layers by name"
   },
   "rail": {
     "aiDisabled": "AI disabled by admin",
