@@ -787,7 +787,10 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # filtering in list_relationships, the get_relationship_datasets loader,
         # source/target binding in get_related_records, and the public-source
         # auto-detect guard. Cap raised 480 -> 580 for ~30 LOC headroom.
-        "backend/app/modules/catalog/datasets/domain/service_relationships.py": 580,
+        # Phase 1191 GAP-033: +new list_relationships_with_total for the list-envelope
+        # contract ({relationships,total}); list_relationships DRY'd to delegate +
+        # _visible_relationships extracted (shared, fail-closed). Cap 580 -> 595 (~7 LOC headroom).
+        "backend/app/modules/catalog/datasets/domain/service_relationships.py": 595,
         "backend/app/modules/catalog/datasets/domain/service_metadata.py": 460,
         "backend/app/modules/catalog/datasets/domain/service_query.py": 390,
         # Phase 276 CODE-02: chat_*.py sub-modules are all under the 350

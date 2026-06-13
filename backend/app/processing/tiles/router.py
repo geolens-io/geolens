@@ -92,11 +92,9 @@ class _DatasetMeta(NamedTuple):
     tile_columns: list[str] | None
 
 
-# PERF-006: bounded LRU so a long-lived tile worker does not grow one entry per
-# distinct table_name ever tiled and never shrink. Mirrors the adjacent
-# _band_stats_cache = LRUCache(maxsize=256) (HYG-01); LRUCache supports the same
-# .get() / [] / assignment interface as dict. The per-entry TTL check on read is
-# unchanged — LRU bounds the count, the timestamp bounds staleness.
+# PERF-006: bounded LRU (was an unbounded dict) so a long-lived tile worker can't
+# grow one entry per distinct table_name forever. Mirrors _band_stats_cache (HYG-01);
+# dict-compatible .get()/[]/assignment; the per-entry TTL still bounds staleness.
 _dataset_cache: LRUCache[str, tuple[float, _DatasetMeta]] = LRUCache(maxsize=256)
 # threading.Lock is safe here — cache reads/writes are synchronous, no await inside lock
 _dataset_cache_lock = threading.Lock()
@@ -1397,10 +1395,8 @@ async def cluster_tile_endpoint(
         scope=scope or cache_scope,
     )
 
-    # PERF-005: gzip level-6 is CPU-bound; offload to a worker thread so the
-    # event loop is not stalled while compressing wide low-zoom tiles (up to the
-    # 50K-feature LIMIT). Matches the asyncio.to_thread convention used across
-    # the processing modules.
+    # PERF-005: gzip is CPU-bound — offload to a thread so the event loop isn't
+    # stalled compressing wide low-zoom tiles (asyncio.to_thread convention).
     compressed = await asyncio.to_thread(gzip.compress, tile_data, 6)
     if tile_cache is not None:
         await tile_cache.set(cluster_cache_key, z, x, y, compressed, ttl=cache_ttl)
@@ -1565,10 +1561,8 @@ async def tile_endpoint(
     )
 
     # Compress and return with proper headers.
-    # PERF-005: gzip level-6 is CPU-bound; offload to a worker thread so the
-    # event loop is not stalled while compressing wide low-zoom tiles (up to the
-    # 50K-feature LIMIT). Matches the asyncio.to_thread convention used across
-    # the processing modules.
+    # PERF-005: gzip is CPU-bound — offload to a thread so the event loop isn't
+    # stalled compressing wide low-zoom tiles (asyncio.to_thread convention).
     compressed = await asyncio.to_thread(gzip.compress, tile_data, 6)
 
     # Cache the compressed tile bytes for subsequent requests

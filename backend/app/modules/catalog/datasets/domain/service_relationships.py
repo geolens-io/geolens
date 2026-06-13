@@ -233,21 +233,14 @@ async def list_relationships(
 ) -> list:
     """List FK relationships where this dataset is the source.
 
-    Joins with records table to include target_dataset_title. Each relationship's
-    target dataset is filtered through the permission policy so that callers never
-    see relationships (or target metadata) for datasets they cannot access — a
-    public source dataset must not leak the id/title of a private target. Because
-    visibility is enforced per-row, ``skip``/``limit`` pagination (PERF-N16) is
-    applied to the *visible* subset after filtering.
+    Per-row visibility filtering means a public source never leaks a private
+    target's id/title; ``skip``/``limit`` apply to the visible subset (PERF-N16).
+    Thin wrapper over :func:`list_relationships_with_total` (drops the count).
     """
-    visible_items = await _visible_relationships(
-        session, dataset_id, user=user, user_roles=user_roles or set()
+    page, _ = await list_relationships_with_total(
+        session, dataset_id, user=user, user_roles=user_roles, skip=skip, limit=limit
     )
-    if skip:
-        visible_items = visible_items[skip:]
-    if limit is not None:
-        visible_items = visible_items[:limit]
-    return visible_items
+    return page
 
 
 async def list_relationships_with_total(

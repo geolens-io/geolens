@@ -291,7 +291,7 @@ async def add_datasets_endpoint(
     # not the link targets, so without this an editor could attach another
     # user's private dataset. check_dataset_access raises 404 if access denied;
     # user_roles is resolved once and reused across the batch.
-    from app.modules.catalog.datasets.domain.service_query import get_dataset
+    from app.modules.catalog.datasets.domain.service import get_dataset
 
     user_roles = await get_user_roles(db, user)
     for did in body.dataset_ids:
