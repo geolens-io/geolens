@@ -47,17 +47,22 @@ export { hasUnsavedStyleChanges } from './LayerStyleEditor/utils';
 function StyleControlSection({
   title,
   description,
+  headerAction,
   children,
 }: {
   title: string;
   description?: string;
+  headerAction?: React.ReactNode;
   children: React.ReactNode;
 }) {
   return (
     <section className="space-y-3 rounded-md border bg-muted/25 p-3">
-      <div className="space-y-0.5">
-        <div className="text-xs font-semibold text-foreground">{title}</div>
-        {description && <p className="text-[11px] leading-snug text-muted-foreground">{description}</p>}
+      <div className="flex items-center justify-between gap-2">
+        <div className="space-y-0.5 min-w-0">
+          <div className="text-xs font-semibold text-foreground">{title}</div>
+          {description && <p className="text-[11px] leading-snug text-muted-foreground">{description}</p>}
+        </div>
+        {headerAction}
       </div>
       {children}
     </section>
@@ -424,6 +429,19 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
           : dispatchKey === 'cluster' ? 'style.sections.clusterDescription'
           : 'style.sections.appearanceDescription',
         )}
+        headerAction={
+          <Button
+            type="button"
+            variant="ghost"
+            size="xs"
+            className="shrink-0"
+            onClick={handleResetStyle}
+            title={t('style.resetTitle')}
+          >
+            <RotateCcw className="h-3 w-3" />
+            {t('style.reset')}
+          </Button>
+        }
       >
         <RenderModeSwitch {...editorProps} dispatchKey={dispatchKey} />
 

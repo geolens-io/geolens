@@ -125,7 +125,11 @@ describe('LayerStyleEditor - SP-05 pending preview banner gating', () => {
 
     expect(screen.getByText('Pending style preview')).toBeInTheDocument();
 
-    await user.click(screen.getByRole('button', { name: 'Reset' }));
+    // When the dirty banner is visible there are two Reset buttons (banner + section header).
+    // Both call the same handleResetStyle handler, so clicking either one is correct.
+    const resetButtons = screen.getAllByRole('button', { name: 'Reset' });
+    expect(resetButtons.length).toBeGreaterThanOrEqual(1);
+    await user.click(resetButtons[0]);
     expect(onStyleConfigChange).toHaveBeenCalledWith('layer-1', null, expect.objectContaining({
       'fill-color': expect.any(String),
       'fill-opacity': expect.any(Number),
@@ -1214,6 +1218,57 @@ describe('LayerStyleEditor - opacity slider debounce (PB-02)', () => {
 
     // No call because opacity hasn't changed from the prop value
     expect(onOpacityChange).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// EDIT-02: Always-visible vector Reset button in appearance section header
+// ---------------------------------------------------------------------------
+describe('LayerStyleEditor — EDIT-02 always-visible Reset in appearance section', () => {
+  it('Reset button is present in the appearance section even when the layer is NOT dirty (no savedLayer)', () => {
+    render(
+      <LayerStyleEditor
+        layer={makeLayer({
+          dataset_geometry_type: 'Polygon',
+          paint: { 'fill-color': '#ff0000', 'fill-opacity': 1 },
+        })}
+        onPaintChange={vi.fn()}
+        onOpacityChange={vi.fn()}
+        onStyleConfigChange={vi.fn()}
+        onLayoutChange={vi.fn()}
+      />,
+    );
+    // The always-visible Reset button must be present regardless of dirty state.
+    // When no savedLayer is provided the dirty banner is absent, but the button must
+    // still render in the appearance section header.
+    expect(screen.queryByText('Pending style preview')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Reset' })).toBeInTheDocument();
+  });
+
+  it('Reset button calls handleResetStyle and resets polygon paint to FILL_DEFAULTS', async () => {
+    const onStyleConfigChange = vi.fn();
+    const onOpacityChange = vi.fn();
+    const user = userEvent.setup();
+
+    render(
+      <LayerStyleEditor
+        layer={makeLayer({
+          dataset_geometry_type: 'Polygon',
+          paint: { 'fill-color': '#abcdef', 'fill-opacity': 0.3 },
+        })}
+        onPaintChange={vi.fn()}
+        onOpacityChange={onOpacityChange}
+        onStyleConfigChange={onStyleConfigChange}
+        onLayoutChange={vi.fn()}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Reset' }));
+    expect(onStyleConfigChange).toHaveBeenCalledWith('layer-1', null, expect.objectContaining({
+      'fill-color': expect.any(String),
+      'fill-opacity': expect.any(Number),
+    }));
+    expect(onOpacityChange).toHaveBeenCalledWith('layer-1', 1);
   });
 });
 
