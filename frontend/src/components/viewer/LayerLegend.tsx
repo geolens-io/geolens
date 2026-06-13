@@ -29,6 +29,24 @@ interface LayerLegendProps {
   onToggle: () => void;
   /** Map-level terrain config; drives the synthetic "3D terrain" legend entry. */
   terrainConfig?: MapTerrainConfig | null;
+  /**
+   * ENH-06: custom map-level legend title. When set (non-empty), it renders as
+   * the panel heading in place of the default "Legend" label. Null/empty keeps
+   * the default heading.
+   */
+  legendTitle?: string | null;
+}
+
+/**
+ * ENH-06: effective viewer legend entry name. A non-empty per-entry
+ * style_config.legendLabel override wins, else the layer's display name, else
+ * the dataset name. Mirrors LegendPlugin.legendEntryName for builder/viewer
+ * parity.
+ */
+function viewerLegendEntryName(layer: SharedLayerResponse): string {
+  const override = layer.style_config?.legendLabel;
+  if (typeof override === 'string' && override.trim() !== '') return override;
+  return layer.display_name || layer.dataset_name;
 }
 
 /** Build SwatchStyle from viewer layer paint for consistent legend rendering. */
@@ -166,9 +184,11 @@ export function LayerLegend({
   isOpen,
   onToggle,
   terrainConfig = null,
+  legendTitle = null,
 }: LayerLegendProps) {
   const { t } = useTranslation('common');
   const panelRef = useRef<HTMLDivElement>(null);
+  const customTitle = legendTitle?.trim() ? legendTitle.trim() : null;
 
   // D-02: exclude terrain-suppressed DEM layers (render_mode:"terrain") using
   // the SAME shared predicate as the stack/builder — never re-derived. The
@@ -228,7 +248,12 @@ export function LayerLegend({
         }`}
       >
         <div className="p-3 border-b border-border/50">
-          <h3 className="text-sm font-semibold text-foreground">{t('viewer.legend.title')}</h3>
+          <h3 className="text-sm font-semibold text-foreground">
+            {customTitle ?? t('viewer.legend.title')}
+          </h3>
+          {customTitle && (
+            <span data-testid="viewer-legend-title" className="sr-only">{customTitle}</span>
+          )}
         </div>
         <ul className="divide-y divide-border/50">
           {/* A1: pin the synthetic terrain entry at the top, mirroring the
@@ -256,7 +281,7 @@ export function LayerLegend({
               paint: layer.paint ?? {},
               style_config: sc,
             })[0];
-            const layerName = layer.display_name || layer.dataset_name;
+            const layerName = viewerLegendEntryName(layer);
             const clusterLabel = clusterLegendLabel(layer);
             return (
               <li key={key} className="px-3 py-2 hover:bg-accent/50">
