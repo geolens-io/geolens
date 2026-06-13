@@ -59,6 +59,7 @@ import { BuilderDialogs } from '@/components/builder/BuilderDialogs';
 const StyleJsonDialog = lazy(() =>
   import('@/components/builder/StyleJsonDialog').then((m) => ({ default: m.StyleJsonDialog }))
 );
+import { KeyboardShortcutsSheet } from '@/components/builder/KeyboardShortcutsSheet';
 import { ActiveFilterChips } from '@/components/builder/ActiveFilterChips';
 import { computeNextSelection } from '@/components/builder/selection-utils';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet';
@@ -128,6 +129,7 @@ export function MapBuilderPage() {
   // the saved map on load and applied to the live map once it's ready (effects below).
   const [localProjection, setLocalProjection] = useState<'mercator' | 'globe'>('mercator');
   const [showStyleJson, setShowStyleJson] = useState(false);
+  const [showShortcuts, setShowShortcuts] = useState(false);
   // Phase 1199 STACK-02: session-local basemap visibility toggle. Client-only and
   // intentionally NOT persisted to MapBasemapConfig — a backend field is deferred to
   // GUARD-02/Phase 1203 to avoid the extra=forbid silent-422 class. Hiding is applied
@@ -473,6 +475,27 @@ export function MapBuilderPage() {
     if (mapInstance.isStyleLoaded?.()) apply();
     else mapInstance.once?.('idle', apply);
   }, [mapInstance, localProjection]);
+
+  // A11Y-05 (Phase 1204-03): '?' hotkey opens the keyboard shortcut cheat-sheet.
+  // Guarded so it does not fire while the user is typing in an input/textarea/select
+  // or a contenteditable field — mirrors the Ctrl/Cmd+S guard in use-builder-save.ts.
+  // Also no-ops when a Radix dialog/sheet is already open (same guard pattern).
+  useEffect(() => {
+    function handleShortcutKeyDown(e: KeyboardEvent) {
+      if (e.key !== '?') return;
+      const target = e.target as HTMLElement | null;
+      if (target) {
+        const tag = target.tagName;
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+        if (target.isContentEditable) return;
+      }
+      const dialogOpen = document.querySelector('[role="dialog"][data-state="open"]');
+      if (dialogOpen) return;
+      setShowShortcuts(true);
+    }
+    window.addEventListener('keydown', handleShortcutKeyDown);
+    return () => window.removeEventListener('keydown', handleShortcutKeyDown);
+  }, []);
 
   // Phase 1035: basemaps data for the BasemapGroupEditorScene preset grid
   // (placed early for useMemo/useState hooks — actual wiring happens after handleSelectLayer)
@@ -1492,7 +1515,10 @@ export function MapBuilderPage() {
           )}
 
           {/* Centered toolbar */}
-          <MapToolbar onStyleJsonClick={() => setShowStyleJson(true)} />
+          <MapToolbar
+            onStyleJsonClick={() => setShowStyleJson(true)}
+            onShortcutsClick={() => setShowShortcuts(true)}
+          />
           {isEditorHidden && (
             <div className="absolute right-2 top-16 z-30 flex flex-col gap-1 rounded-md border bg-background/95 p-1 shadow-md backdrop-blur-sm">
               {mobileRailButtons.map((btn) => (
@@ -1643,6 +1669,13 @@ export function MapBuilderPage() {
           </Suspense>
         </LazyLoadErrorBoundary>
       )}
+
+      {/* A11Y-05 (Phase 1204-03): keyboard shortcut cheat-sheet overlay.
+          Not lazy-loaded — component is small and needed on first ? keypress. */}
+      <KeyboardShortcutsSheet
+        open={showShortcuts}
+        onOpenChange={setShowShortcuts}
+      />
     </div>
   );
 }

@@ -1,6 +1,6 @@
 import { useMemo, type ComponentType } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Hand, Ruler, Layers, FileJson } from 'lucide-react';
+import { Hand, Ruler, Layers, FileJson, Keyboard } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { usePluginStore } from '@/stores/map-plugin-store';
 import { useEnabledPlugins } from '@/hooks/use-settings';
@@ -18,9 +18,10 @@ import {
  */
 interface MapToolbarProps {
   onStyleJsonClick?: () => void;
+  onShortcutsClick?: () => void;
 }
 
-export function MapToolbar({ onStyleJsonClick }: MapToolbarProps) {
+export function MapToolbar({ onStyleJsonClick, onShortcutsClick }: MapToolbarProps) {
   const { t } = useTranslation('builder');
   const activePlugins = usePluginStore((s) => s.activePlugins);
   const toggle = usePluginStore((s) => s.toggle);
@@ -143,6 +144,27 @@ export function MapToolbar({ onStyleJsonClick }: MapToolbarProps) {
                 </TooltipTrigger>
                 <TooltipContent side="bottom" className="text-xs">
                   {t('toolbar.styleJson', { defaultValue: 'Style JSON' })}
+                </TooltipContent>
+              </Tooltip>
+            </>
+          )}
+
+          {onShortcutsClick && (
+            <>
+              <div className="w-px h-4 bg-border mx-0.5" />
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    onClick={onShortcutsClick}
+                    className="flex cursor-pointer items-center justify-center h-7 w-7 rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                    aria-label={t('a11y.shortcuts.title', { defaultValue: 'Keyboard shortcuts' })}
+                  >
+                    <Keyboard className="h-3.5 w-3.5" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" className="text-xs">
+                  {t('a11y.shortcuts.title', { defaultValue: 'Keyboard shortcuts' })}
+                  <span className="ms-1.5 font-mono text-2xs text-muted-foreground">?</span>
                 </TooltipContent>
               </Tooltip>
             </>
