@@ -3,6 +3,12 @@ import {
   buildGraduatedSizeExpression,
   getSizeProperty,
   getColorProperty,
+  reverseRamp,
+  cvdSafeRamps,
+  getRampColors,
+  SEQUENTIAL_RAMPS,
+  DIVERGING_RAMPS,
+  QUALITATIVE_RAMPS,
 } from '../color-ramps';
 
 describe('buildGraduatedSizeExpression', () => {
@@ -61,6 +67,91 @@ describe('getSizeProperty', () => {
 
   it('returns null for Point + width (wrong target for point)', () => {
     expect(getSizeProperty('Point', 'width')).toBeNull();
+  });
+});
+
+describe('reverseRamp', () => {
+  it('reverses a 3-color array', () => {
+    expect(reverseRamp(['#000', '#888', '#fff'])).toEqual(['#fff', '#888', '#000']);
+  });
+
+  it('reversing twice is identity', () => {
+    const colors = ['#000', '#888', '#fff'];
+    expect(reverseRamp(reverseRamp(colors))).toEqual(colors);
+  });
+
+  it('does not mutate the input array', () => {
+    const colors = ['#aaa', '#bbb', '#ccc'];
+    reverseRamp(colors);
+    expect(colors).toEqual(['#aaa', '#bbb', '#ccc']);
+  });
+
+  it('handles a single color (round-trips)', () => {
+    expect(reverseRamp(['#ff0000'])).toEqual(['#ff0000']);
+  });
+});
+
+describe('getRampColors with reversed flag', () => {
+  it('reversed=true returns the reverse of reversed=false for same ramp + count', () => {
+    const forward = getRampColors('Blues', 5, false);
+    const backward = getRampColors('Blues', 5, true);
+    expect(backward).toEqual(reverseRamp(forward));
+  });
+
+  it('reversed=false (default) equals calling without the flag', () => {
+    expect(getRampColors('Viridis', 7, false)).toEqual(getRampColors('Viridis', 7));
+  });
+
+  it('reversed flag round-trip: reversed(reversed) equals original', () => {
+    const colors = getRampColors('YlOrRd', 5);
+    const reversed = reverseRamp(colors);
+    expect(reverseRamp(reversed)).toEqual(colors);
+  });
+});
+
+describe('cvdSafeRamps', () => {
+  it('excludes Spectral (cvdSafe: false) from diverging ramps', () => {
+    const safe = cvdSafeRamps(DIVERGING_RAMPS);
+    expect(safe.map((r) => r.name)).not.toContain('Spectral');
+  });
+
+  it('excludes RdYlGn (cvdSafe: false) from diverging ramps', () => {
+    const safe = cvdSafeRamps(DIVERGING_RAMPS);
+    expect(safe.map((r) => r.name)).not.toContain('RdYlGn');
+  });
+
+  it('includes Viridis (cvdSafe: true) in sequential ramps', () => {
+    const safe = cvdSafeRamps(SEQUENTIAL_RAMPS);
+    expect(safe.map((r) => r.name)).toContain('Viridis');
+  });
+
+  it('includes RdBu and BrBG (cvdSafe: true) in diverging ramps', () => {
+    const safe = cvdSafeRamps(DIVERGING_RAMPS);
+    const names = safe.map((r) => r.name);
+    expect(names).toContain('RdBu');
+    expect(names).toContain('BrBG');
+  });
+
+  it('excludes Set1, Set3, Accent, Pastel1, Pastel2 from qualitative ramps', () => {
+    const safe = cvdSafeRamps(QUALITATIVE_RAMPS);
+    const names = safe.map((r) => r.name);
+    expect(names).not.toContain('Set1');
+    expect(names).not.toContain('Set3');
+    expect(names).not.toContain('Accent');
+    expect(names).not.toContain('Pastel1');
+    expect(names).not.toContain('Pastel2');
+  });
+
+  it('includes Set2, Dark2, Paired in qualitative ramps', () => {
+    const safe = cvdSafeRamps(QUALITATIVE_RAMPS);
+    const names = safe.map((r) => r.name);
+    expect(names).toContain('Set2');
+    expect(names).toContain('Dark2');
+    expect(names).toContain('Paired');
+  });
+
+  it('all sequential ramps are cvdSafe', () => {
+    expect(cvdSafeRamps(SEQUENTIAL_RAMPS)).toHaveLength(SEQUENTIAL_RAMPS.length);
   });
 });
 
