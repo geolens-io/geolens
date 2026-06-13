@@ -268,23 +268,24 @@ def apply_manifest_command(
                 state.output.error(line)
         raise typer.Exit(EXIT_USAGE)
 
-    # GAP-020: apply only POSTs the manifest JSON; it never uploads the local
-    # files a manifest references (the backend resolves scheme-less URIs
-    # against its own server-side staging dir). Detect those up front and tell
-    # the user to use `publish` rather than letting the backend silently skip
-    # or error on data it can't see.
+    # GAP-020: `apply` POSTs the manifest JSON; the SERVER resolves scheme-less
+    # source URIs against its OWN upload-staging dir (an operator pre-populates it,
+    # or `publish` does). That server-staging round-trip is a documented, supported
+    # flow — so apply must NOT block on local sources. We only WARN (humans get it
+    # on stderr; --json stays silent so automation isn't broken): if the server's
+    # staging can't actually see the file the source will skip/404 server-side, and
+    # `geolens publish <file>` is the way to push a CLI-local file.
     local_uris = _manifest_apply.find_local_source_uris(document)
     if local_uris:
         sample = ", ".join(local_uris[:5])
         if len(local_uris) > 5:
             sample += f", … (+{len(local_uris) - 5} more)"
-        state.output.error(
-            f"{path}: {len(local_uris)} manifest source(s) reference local files "
-            f"that `apply` does not upload ({sample}). Publish each local file "
-            "first with `geolens publish <file>`, or change the source URI to a "
-            "remote URL (http(s)/s3/gs/az/abfs) the server can reach."
+        state.output.warn(
+            f"{len(local_uris)} manifest source(s) reference local files ({sample}). "
+            "`apply` does not upload them — the server resolves scheme-less paths from "
+            "its own staging dir. If it can't see them, run `geolens publish <file>` "
+            "first or use a remote URL (http(s)/s3/gs/az/abfs)."
         )
-        raise typer.Exit(EXIT_USAGE)
 
     sdk = state.sdk()
     payload = _manifest_apply.build_apply_payload(document, dry_run=dry_run)

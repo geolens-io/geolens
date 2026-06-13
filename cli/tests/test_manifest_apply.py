@@ -337,24 +337,44 @@ def test_find_local_source_uris_mixed_manifest() -> None:
     assert find_local_source_uris(document) == ["./local.geojson", "data/nested/file.vrt"]
 
 
-def test_apply_local_source_errors_before_post(
+def test_apply_local_source_warns_but_posts(
     runner,
     tmp_xdg_home,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """GAP-020: a manifest with local files exits 2 and never POSTs."""
+    """GAP-020: a manifest with scheme-less (local) sources WARNS in human mode but
+    still POSTs — the server resolves those paths from its own staging dir (the
+    documented apply round-trip), so apply must not block them."""
+    response = FakeResponse(200, _apply_response(dry_run=False))
+    sdk = _install_fake_sdk(monkeypatch, response)
 
-    def explode_sdk(self):
-        raise AssertionError("local-source manifests must not reach the SDK/POST")
-
-    monkeypatch.setattr(AppState, "sdk", explode_sdk)
-
-    # vector-relative.yaml references ./data/roads.geojson (local).
+    # vector-relative.yaml references ./data/roads.geojson (local). Human mode.
     result = runner.invoke(app, ["apply", str(_manifest_path())])
 
-    assert result.exit_code == EXIT_USAGE, result.output
+    assert result.exit_code == 0, result.output
+    assert sdk.client.httpx_client.calls[0]["url"] == APPLY_ENDPOINT
+    assert "Warning" in result.output
     assert "publish" in result.output
     assert "./data/roads.geojson" in result.output
+
+
+def test_apply_local_source_json_mode_is_silent_and_posts(
+    runner,
+    tmp_xdg_home,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """GAP-020: in --json mode the local-source warning is suppressed so stdout
+    stays valid JSON, and apply still POSTs (mirrors the server-staging round-trip
+    contract in backend/tests/test_cli_round_trip.py)."""
+    response = FakeResponse(200, _apply_response(dry_run=False))
+    sdk = _install_fake_sdk(monkeypatch, response)
+
+    result = runner.invoke(app, ["--json", "apply", str(_manifest_path())])
+
+    assert result.exit_code == 0, result.output
+    assert sdk.client.httpx_client.calls[0]["url"] == APPLY_ENDPOINT
+    assert "Warning" not in result.output
+    json.loads(result.output)  # stdout must be parseable JSON
 
 
 def test_apply_remote_source_still_posts(
