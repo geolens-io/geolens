@@ -125,10 +125,41 @@ def get_token_from_env() -> Optional[str]:
 
 
 def normalize_instance_url(url: str) -> str:
-    """Strip trailing slash; reject non-http(s) schemes via ValueError."""
+    """Canonicalize an instance URL to the single form used for storage AND lookup.
+
+    Performs, in order:
+      * strip surrounding whitespace and trailing slashes;
+      * reject non-http(s) schemes via ValueError;
+      * auto-append the required ``/api`` path prefix when missing (GAP-019),
+        idempotently — a URL that already ends in ``/api`` (or has ``/api/``
+        somewhere mid-path) is left untouched so existing ``/api``-suffixed
+        configs keep resolving.
+
+    Both ``geolens login`` (store side) and ``active_instance()`` (lookup side)
+    route through this one function so a trailing-slash or missing-``/api``
+    variant resolves to the same canonical key (BUG-033).
+    """
     url = url.strip()
     if not url:
         raise ValueError("Instance URL must not be empty")
     if not url.startswith(("http://", "https://")):
         raise ValueError(f"Instance URL must use http or https scheme: got {url!r}")
-    return url.rstrip("/")
+    url = url.rstrip("/")
+    if not _has_api_prefix(url):
+        url = f"{url}/api"
+    return url
+
+
+def _has_api_prefix(url: str) -> bool:
+    """Return True if ``url`` already carries the ``/api`` path prefix.
+
+    Idempotency guard for GAP-019: matches a trailing ``/api`` segment or an
+    ``/api/`` segment anywhere in the path so we never double-append.
+    """
+    from urllib.parse import urlsplit
+
+    path = urlsplit(url).path.rstrip("/")
+    if not path:
+        return False
+    segments = path.split("/")
+    return "api" in segments
