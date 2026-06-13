@@ -1775,6 +1775,10 @@ export type ColumnStatsResponse = {
      * Quantiles
      */
     quantiles?: Array<number>;
+    /**
+     * Stddev
+     */
+    stddev?: number | null;
 };
 
 /**
