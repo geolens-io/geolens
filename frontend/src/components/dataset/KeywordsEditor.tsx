@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
-import { X, Loader2 } from 'lucide-react';
+import { X, Loader2, AlertCircle } from 'lucide-react';
 import { useKeywords, useCreateKeyword, useDeleteKeyword } from '@/components/dataset/hooks/use-records';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 
 interface KeywordsEditorProps {
@@ -13,7 +14,7 @@ interface KeywordsEditorProps {
 
 export function KeywordsEditor({ recordId, canEdit }: KeywordsEditorProps) {
   const { t } = useTranslation('dataset');
-  const { data, isLoading } = useKeywords(recordId);
+  const { data, isLoading, isError, refetch } = useKeywords(recordId);
   const createKeyword = useCreateKeyword(recordId);
   const deleteKeyword = useDeleteKeyword(recordId);
 
@@ -51,6 +52,28 @@ export function KeywordsEditor({ recordId, canEdit }: KeywordsEditorProps) {
     return (
       <div className="flex items-center justify-center py-4">
         <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  // GAP-034: surface fetch failures instead of collapsing into the empty
+  // 'noKeywords' state (which would mislead the editor into re-adding dupes).
+  if (isError) {
+    return (
+      <div
+        role="alert"
+        className="flex items-center gap-2 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive"
+      >
+        <AlertCircle className="h-4 w-4 shrink-0" />
+        <span>{t('keywords.loadError')}</span>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="ms-auto h-7"
+          onClick={() => refetch()}
+        >
+          {t('keywords.retry')}
+        </Button>
       </div>
     );
   }

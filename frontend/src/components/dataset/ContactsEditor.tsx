@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
-import { X, Loader2 } from 'lucide-react';
+import { X, Loader2, AlertCircle } from 'lucide-react';
 import { useContacts, useCreateContact, useDeleteContact } from '@/components/dataset/hooks/use-records';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -30,7 +30,7 @@ const ROLE_OPTIONS = [
 
 export function ContactsEditor({ recordId, canEdit }: ContactsEditorProps) {
   const { t } = useTranslation('dataset');
-  const { data, isLoading } = useContacts(recordId);
+  const { data, isLoading, isError, refetch } = useContacts(recordId);
   const createContact = useCreateContact(recordId);
   const deleteContact = useDeleteContact(recordId);
 
@@ -73,6 +73,29 @@ export function ContactsEditor({ recordId, canEdit }: ContactsEditorProps) {
     return (
       <div className="flex items-center justify-center py-4">
         <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  // GAP-034: a fetch failure must NOT collapse into the empty 'noContacts'
+  // state — that misleads the editor into thinking the record has none and
+  // re-adding duplicates. Surface a distinct error with a retry instead.
+  if (isError) {
+    return (
+      <div
+        role="alert"
+        className="flex items-center gap-2 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive"
+      >
+        <AlertCircle className="h-4 w-4 shrink-0" />
+        <span>{t('contacts.loadError')}</span>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="ms-auto h-7"
+          onClick={() => refetch()}
+        >
+          {t('contacts.retry')}
+        </Button>
       </div>
     );
   }

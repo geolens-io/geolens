@@ -502,6 +502,8 @@
     "removed": "Kontakt entfernt",
     "addFailed": "Kontakt konnte nicht hinzugefügt werden",
     "removeFailed": "Kontakt konnte nicht entfernt werden",
+    "loadError": "Kontakte konnten nicht geladen werden.",
+    "retry": "Erneut versuchen",
     "roles": {
       "pointOfContact": "Ansprechpartner",
       "author": "Autor",
@@ -518,6 +520,8 @@
     "removed": "Schlüsselwort entfernt",
     "addFailed": "Schlüsselwort konnte nicht hinzugefügt werden",
     "removeFailed": "Schlüsselwort konnte nicht entfernt werden",
+    "loadError": "Schlüsselwörter konnten nicht geladen werden.",
+    "retry": "Erneut versuchen",
     "normalizeHelp": "Schlüsselwörter werden in Kleinbuchstaben normalisiert"
   },
   "attributeMetadata": {
