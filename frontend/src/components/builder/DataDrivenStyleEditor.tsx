@@ -21,6 +21,7 @@ import { ColorRampPicker } from './ColorRampPicker';
 import { useColumnValues, useColumnStats } from '@/hooks/use-maps';
 import {
   getRampColors,
+  reverseRamp,
   buildCategoricalExpression,
   buildGraduatedExpression,
   buildGraduatedSizeExpression,
@@ -168,6 +169,9 @@ export function DataDrivenStyleEditor({
   const [sizeRange, setSizeRange] = useState<[number, number]>(
     existingConfig?.sizeRange ?? defaultSizeRange(existingConfig?.target ?? 'color'),
   );
+  const [reversed, setReversed] = useState<boolean>(
+    existingConfig?.reversed ?? false,
+  );
 
   // Phase 20260526-builder-audit BLD-20260526-11: 200ms debounce for per-category / per-class color picker.
   // drags in DataDrivenStyleEditor. The HexColorPicker fires onChange on every
@@ -253,12 +257,14 @@ export function DataDrivenStyleEditor({
     const values = valuesData.values;
     const colorProp = getColorProperty(geomType);
 
-    // Preserve existing per-category colors when column and ramp haven't changed
+    // Preserve existing per-category colors when column and ramp haven't changed.
+    // Treat a missing `reversed` field as false (backward-compatible with saved configs).
     const ec = styleConfig;
     if (
       ec?.mode === 'categorical' &&
       ec.column === column &&
       ec.ramp === ramp &&
+      (ec.reversed ?? false) === reversed &&
       ec.categories &&
       ec.categories.length === values.length &&
       ec.categories.every((c, i) => c.value === values[i])
@@ -270,16 +276,17 @@ export function DataDrivenStyleEditor({
     const effectiveRamp = ramp === 'custom' ? 'Set2' : ramp;
     if (ramp === 'custom') setRamp(effectiveRamp);
 
-    const colors = getRampColors(effectiveRamp, Math.max(values.length, 1));
+    const rawColors = getRampColors(effectiveRamp, Math.max(values.length, 1));
+    const colors = reversed ? reverseRamp(rawColors) : rawColors;
     const valueColorMap: [unknown, string][] = values.map((v, i) => [v, colors[i]]);
     const expression = buildCategoricalExpression(column, valueColorMap, MAP_COLORS.fallback);
 
     const categories = values.map((v, i) => ({ value: v, color: colors[i] }));
-    const config: StyleConfig = { mode: 'categorical', column, ramp: effectiveRamp, categories };
+    const config: StyleConfig = { mode: 'categorical', column, ramp: effectiveRamp, reversed, categories };
     const paint = { ...layer.paint, [colorProp]: expression };
     onStyleConfigChange(layerId, config, paint);
   // eslint-disable-next-line react-hooks/exhaustive-deps -- layer.paint excluded: narrowed colorPaintProp covers the relevant slice
-  }, [column, mode, ramp, valuesData, styleConfig, geomType, colorPaintProp, layerId, onStyleConfigChange]);
+  }, [column, mode, ramp, reversed, valuesData, styleConfig, geomType, colorPaintProp, layerId, onStyleConfigChange]);
 
   // Effect 2: Graduated color styling
   useEffect(() => {
@@ -303,12 +310,14 @@ export function DataDrivenStyleEditor({
     // shows an inline warning instead. Also bail if there are no usable breaks.
     if (invalid || breaks.length === 0) return;
 
-    // Preserve existing graduated colors when config hasn't changed
+    // Preserve existing graduated colors when config hasn't changed.
+    // Treat a missing `reversed` field as false (backward-compatible with saved configs).
     const ec = styleConfig;
     if (
       ec?.mode === 'graduated' &&
       ec.column === column &&
       ec.ramp === ramp &&
+      (ec.reversed ?? false) === reversed &&
       ec.method === method &&
       ec.classCount === classCount &&
       ec.colors &&
@@ -325,7 +334,8 @@ export function DataDrivenStyleEditor({
     const effectiveRamp = ramp === 'custom' ? 'YlOrRd' : ramp;
     if (ramp === 'custom') setRamp(effectiveRamp);
 
-    const colors = getRampColors(effectiveRamp, effectiveClassCount);
+    const rawColors = getRampColors(effectiveRamp, effectiveClassCount);
+    const colors = reversed ? reverseRamp(rawColors) : rawColors;
     const colorProp = getColorProperty(geomType);
     const expression = buildGraduatedExpression(column, breaks, colors);
 
@@ -333,6 +343,7 @@ export function DataDrivenStyleEditor({
       mode: 'graduated',
       column,
       ramp: effectiveRamp,
+      reversed,
       classCount,
       method,
       breaks,
@@ -342,7 +353,7 @@ export function DataDrivenStyleEditor({
     const paint = { ...layer.paint, [colorProp]: expression };
     onStyleConfigChange(layerId, config, paint);
   // eslint-disable-next-line react-hooks/exhaustive-deps -- layer.paint excluded: narrowed colorPaintProp covers the relevant slice
-  }, [column, mode, ramp, classCount, method, target, statsData, styleConfig, geomType, colorPaintProp, layerId, onStyleConfigChange, manualBreakValues]);
+  }, [column, mode, ramp, reversed, classCount, method, target, statsData, styleConfig, geomType, colorPaintProp, layerId, onStyleConfigChange, manualBreakValues]);
 
   // Effect 3: Graduated size styling (radius or width)
   useEffect(() => {
@@ -642,6 +653,8 @@ export function DataDrivenStyleEditor({
             mode={mode}
             customColors={ramp === 'custom' && layer.style_config?.colors ? layer.style_config.colors : undefined}
             count={mode === 'graduated' ? classCount : undefined}
+            reversed={reversed}
+            onReversedChange={setReversed}
           />
         </>
       )}

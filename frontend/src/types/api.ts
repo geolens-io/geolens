@@ -885,6 +885,8 @@ export interface StyleConfig {
   legendLabel?: string;
   /** [min, max] size range selected by the user (for UI state restoration) */
   sizeRange?: [number, number];
+  /** Whether the color ramp is applied in reverse order (ENH-05). Persisted so legend/map reflect the flip. */
+  reversed?: boolean;
   /** Render mode override for specialized adapters. */
   render_mode?: 'heatmap' | 'hillshade' | 'symbol' | 'arrow' | 'cluster' | 'terrain' | 'image';
   /** Symbol/icon layer config for point datasets. */

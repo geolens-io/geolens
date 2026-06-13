@@ -446,7 +446,9 @@
     "sizeMin": "Min. Größe",
     "sizeMax": "Max. Größe",
     "colors": "Farben",
-    "customColors": "Benutzerdefinierte Farben"
+    "customColors": "Benutzerdefinierte Farben",
+    "reverseRamp": "Umkehren",
+    "cvdSafeOnly": "Nur barrierefreie Farbpaletten (CVD)"
   },
   "search": {
     "title": "Datensatz hinzufügen",

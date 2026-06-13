@@ -446,7 +446,9 @@
     "sizeMin": "Tamaño mín.",
     "sizeMax": "Tamaño máx.",
     "colors": "Colores",
-    "customColors": "Colores personalizados"
+    "customColors": "Colores personalizados",
+    "reverseRamp": "Invertir",
+    "cvdSafeOnly": "Solo paletas accesibles (CVD)"
   },
   "search": {
     "title": "Agregar conjunto de datos",

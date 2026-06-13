@@ -446,7 +446,9 @@
     "sizeMin": "Taille min",
     "sizeMax": "Taille max",
     "colors": "Couleurs",
-    "customColors": "Couleurs personnalisées"
+    "customColors": "Couleurs personnalisées",
+    "reverseRamp": "Inverser",
+    "cvdSafeOnly": "Palettes accessibles (CVD) uniquement"
   },
   "search": {
     "title": "Ajouter un jeu de données",

@@ -446,7 +446,9 @@
     "sizeMin": "Min size",
     "sizeMax": "Max size",
     "colors": "Colors",
-    "customColors": "Custom colors"
+    "customColors": "Custom colors",
+    "reverseRamp": "Reverse",
+    "cvdSafeOnly": "CVD-safe only"
   },
   "search": {
     "title": "Add Dataset",
