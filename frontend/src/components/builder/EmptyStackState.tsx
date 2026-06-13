@@ -260,14 +260,6 @@ export function EmptyStackState({ onOpenAddData, onAddDataset }: EmptyStackState
           <p className="text-sm text-muted-foreground">
             {t('unifiedStack.emptyHelpBody', { defaultValue: 'Search the catalog to find datasets, or use the Upload button to add your own.' })}
           </p>
-          <button
-            type="button"
-            aria-label="Browse catalog"
-            onClick={() => onOpenAddData()}
-            className="text-xs text-primary self-center hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded"
-          >
-            {t('unifiedStack.browseAllShort', { defaultValue: 'Browse catalog →' })}
-          </button>
         </div>
       )}
 
