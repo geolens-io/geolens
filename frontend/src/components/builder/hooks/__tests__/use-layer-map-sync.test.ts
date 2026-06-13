@@ -225,6 +225,64 @@ describe('useLayerMapSync — handleToggleVisibility (BUG-01 regression)', () =>
     expect(mapStub.setLayoutProperty).toHaveBeenCalledTimes(1);
   });
 
+  // BUG-036: toggling a 'Fill only' (stroke-disabled) layer hidden→visible must
+  // NOT resurrect its disabled 1px outline. Pre-fix the toggle handler restored
+  // the outline on the raw newVis; post-fix it gates the outline on the layer's
+  // strokeDisabled style_config.
+  it('Test 4b (BUG-036): stroke-disabled hidden layer toggled visible keeps the outline hidden', () => {
+    const layer = makeLayer({
+      visible: false,
+      style_config: { builder: { strokeDisabled: true } } as never,
+    });
+    const mapStub = makeMapStub(ALL_COMPANION_IDS);
+    const mapRef = { current: mapStub };
+    const { result } = renderHook(() =>
+      useLayerMapSync([layer], vi.fn(), vi.fn(), mapRef),
+    );
+
+    act(() => {
+      result.current.handleToggleVisibility(layer.id);
+    });
+
+    // Main fill layer becomes visible …
+    expect(mapStub.setLayoutProperty).toHaveBeenCalledWith(
+      `layer-${LAYER_ID}`,
+      'visibility',
+      'visible',
+    );
+    // … but the outline stays hidden (stroke disabled).
+    expect(mapStub.setLayoutProperty).toHaveBeenCalledWith(
+      `layer-${LAYER_ID}-outline`,
+      'visibility',
+      'none',
+    );
+    // It must NEVER have been told to show the outline.
+    expect(mapStub.setLayoutProperty).not.toHaveBeenCalledWith(
+      `layer-${LAYER_ID}-outline`,
+      'visibility',
+      'visible',
+    );
+  });
+
+  it('Test 4c (BUG-036): a normal (stroke-enabled) hidden layer toggled visible DOES restore the outline', () => {
+    const layer = makeLayer({ visible: false });
+    const mapStub = makeMapStub(ALL_COMPANION_IDS);
+    const mapRef = { current: mapStub };
+    const { result } = renderHook(() =>
+      useLayerMapSync([layer], vi.fn(), vi.fn(), mapRef),
+    );
+
+    act(() => {
+      result.current.handleToggleVisibility(layer.id);
+    });
+
+    expect(mapStub.setLayoutProperty).toHaveBeenCalledWith(
+      `layer-${LAYER_ID}-outline`,
+      'visibility',
+      'visible',
+    );
+  });
+
   it('Test 5: applyLayerUpdate early-exit fires for unknown layerId (no dispatch, no state mutation)', () => {
     const layer = makeLayer({ visible: true });
     const mapStub = makeMapStub();
