@@ -113,6 +113,7 @@ function JsonBlock({ label, value, onApply, layerType, block }: JsonBlockProps) 
     return (
       <div>
         <button
+          type="button"
           className="cursor-pointer text-xs text-muted-foreground hover:text-foreground underline"
           onClick={handleOpen}
         >
@@ -130,6 +131,7 @@ function JsonBlock({ label, value, onApply, layerType, block }: JsonBlockProps) 
         value={text}
         onChange={(e) => { setText(e.target.value); setError(null); }}
         spellCheck={false}
+        aria-label={t('style.jsonTextareaAriaLabel', { block: label })}
       />
       {error && <div className="text-xs text-destructive">{error}</div>}
       <div className="flex gap-1.5">
@@ -160,6 +162,7 @@ export function AdvancedJsonEditor({ paint, layout, onPaintChange, onLayoutChang
   return (
     <div className="border-t pt-2">
       <button
+        type="button"
         className="flex cursor-pointer items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground w-full"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}

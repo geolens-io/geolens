@@ -219,6 +219,7 @@
     "jsonApply": "Apply",
     "jsonError": "Invalid JSON",
     "jsonCancel": "Cancel",
+    "jsonTextareaAriaLabel": "Edit {{block}} JSON",
     "zoomRange": "Zoom Range",
     "minZoom": "Min zoom",
     "maxZoom": "Max zoom",
