@@ -750,7 +750,11 @@
     "terrainDuplicateBlocked": "3D-Gelände kann nicht dupliziert werden – ein Datensatz kann Gelände nur einmal erzeugen.",
     "terrainDisabledSourceRemoved": "3D-Gelände deaktiviert – die Quellebene wurde entfernt.",
     "domainClearFailed": "Domain-Einschränkungen konnten nicht gelöscht werden",
-    "shareLinkCreated": "Freigabelink erstellt"
+    "shareLinkCreated": "Freigabelink erstellt",
+    "styleCopied": "Stil kopiert",
+    "stylePasted": "Stil eingefügt",
+    "bulkStyleApplied": "Stil auf {{count}} Ebenen angewendet",
+    "bulkStyleSkipped": "{{count}} Ebenen übersprungen (inkompatible Geometrie)"
   },
   "builderMap": {
     "loading": "Karte wird geladen...",
@@ -942,7 +946,9 @@
     "selectRow": "{{name}} auswählen",
     "selectGroup": "{{name}} auswählen",
     "moreActions": "Weitere Aktionen",
-    "moreActionsAriaLabel": "Weitere Aktionen für {{count}} ausgewählte Layer"
+    "moreActionsAriaLabel": "Weitere Aktionen für {{count}} ausgewählte Layer",
+    "applyStyle": "Stil auf Auswahl anwenden",
+    "applyStyleAriaLabel": "Stil auf {{count}} ausgewählte Ebenen anwenden"
   },
   "unifiedStack": {
     "title": "Layer",
@@ -991,7 +997,10 @@
     "kebabDeleteGroup": "Gruppe löschen",
     "kebabMoveOutOfGroup": "Aus Gruppe verschieben",
     "labelsIndicator": "Beschriftungen an: {{column}}",
-    "kebabGroupTrigger": "Gruppenoptionen für {{name}}"
+    "kebabGroupTrigger": "Gruppenoptionen für {{name}}",
+    "kebabZoomToLayer": "Auf Ebene zoomen",
+    "kebabCopyStyle": "Stil kopieren",
+    "kebabPasteStyle": "Stil einfügen"
   },
   "basemapGroup": {
     "addCustomBasemap": "＋ Benutzerdefinierte Basiskarte hinzufügen…",

@@ -750,7 +750,11 @@
     "terrainDuplicateBlocked": "3D terrain can't be duplicated — a dataset can only power terrain once.",
     "terrainDisabledSourceRemoved": "3D terrain disabled — its source layer was removed.",
     "domainClearFailed": "Failed to clear domain restrictions",
-    "shareLinkCreated": "Share link created"
+    "shareLinkCreated": "Share link created",
+    "styleCopied": "Style copied",
+    "stylePasted": "Style pasted",
+    "bulkStyleApplied": "Style applied to {{count}} layers",
+    "bulkStyleSkipped": "{{count}} layers skipped (incompatible geometry)"
   },
   "builderMap": {
     "loading": "Loading map...",
@@ -946,7 +950,9 @@
     "selectRow": "Select {{name}}",
     "selectGroup": "Select {{name}}",
     "moreActions": "More actions",
-    "moreActionsAriaLabel": "More actions for {{count}} selected layers"
+    "moreActionsAriaLabel": "More actions for {{count}} selected layers",
+    "applyStyle": "Apply style to selection",
+    "applyStyleAriaLabel": "Apply style to {{count}} selected layers"
   },
   "unifiedStack": {
     "title": "Layers",
@@ -995,7 +1001,10 @@
     "kebabUngroup": "Ungroup",
     "kebabDeleteGroup": "Delete group",
     "kebabMoveOutOfGroup": "Move out of group",
-    "labelsIndicator": "Labels on: {{column}}"
+    "labelsIndicator": "Labels on: {{column}}",
+    "kebabZoomToLayer": "Zoom to layer",
+    "kebabCopyStyle": "Copy style",
+    "kebabPasteStyle": "Paste style"
   },
   "basemapGroup": {
     "addCustomBasemap": "＋ Add custom basemap…",

@@ -2,7 +2,7 @@
 import { memo, useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { DraggableAttributes, DraggableSyntheticListeners } from '@dnd-kit/core';
-import { Eye, EyeOff, GripVertical, MoreVertical, Type } from 'lucide-react';
+import { ClipboardPaste, Copy, Crosshair, Eye, EyeOff, GripVertical, MoreVertical, Type } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import {
@@ -34,6 +34,15 @@ interface StackRowProps {
   onRemove: (id: string) => void;
   onRename: (layerId: string, newName: string | null) => void;
   onDuplicate: (id: string) => void;
+  // Phase 1201-01 (ENH-01/ENH-02): kebab authoring actions.
+  /** Frames the map to this layer's extent (ENH-01). */
+  onZoomToLayer?: (id: string) => void;
+  /** Stashes this layer's geometry-compatible style in the session clipboard (ENH-02). */
+  onCopyStyle?: (id: string) => void;
+  /** Applies the clipboard style to this layer (ENH-02); disabled when !canPasteStyle. */
+  onPasteStyle?: (id: string) => void;
+  /** True when a style is copied AND its geometry class matches THIS row's layer. */
+  canPasteStyle?: boolean;
   /** Existing user folder groups, used for the "Add to group…" sub-flow */
   existingFolderGroups?: Array<{ id: string; name: string }>;
   /** Called when user selects an existing group from the sub-list */
@@ -111,6 +120,10 @@ export const StackRow = memo(function StackRow({
   onRemove,
   onRename,
   onDuplicate,
+  onZoomToLayer,
+  onCopyStyle,
+  onPasteStyle,
+  canPasteStyle = false,
   existingFolderGroups = [],
   onAddToGroup,
   onCreateGroupWithLayer,
@@ -500,6 +513,34 @@ export const StackRow = memo(function StackRow({
               }}
             >
               {t('stackRow.kebabDuplicate', { defaultValue: 'Duplicate' })}
+            </DropdownMenuItem>
+            {/* Phase 1201-01 ENH-01/ENH-02: zoom-to-extent + copy/paste style.
+                Paste is disabled when no compatible style is copied for this
+                row's geometry (canPasteStyle is computed per-row upstream). */}
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              data-testid="kebab-zoom-to-layer"
+              onSelect={() => onZoomToLayer?.(layer.id)}
+            >
+              <Crosshair className="h-3.5 w-3.5 me-2" aria-hidden="true" />
+              {t('stackRow.kebabZoomToLayer', { defaultValue: 'Zoom to layer' })}
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              data-testid="kebab-copy-style"
+              onSelect={() => onCopyStyle?.(layer.id)}
+            >
+              <Copy className="h-3.5 w-3.5 me-2" aria-hidden="true" />
+              {t('stackRow.kebabCopyStyle', { defaultValue: 'Copy style' })}
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              data-testid="kebab-paste-style"
+              disabled={!canPasteStyle}
+              onSelect={() => {
+                if (canPasteStyle) onPasteStyle?.(layer.id);
+              }}
+            >
+              <ClipboardPaste className="h-3.5 w-3.5 me-2" aria-hidden="true" />
+              {t('stackRow.kebabPasteStyle', { defaultValue: 'Paste style' })}
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem

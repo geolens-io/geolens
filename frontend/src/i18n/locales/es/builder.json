@@ -750,7 +750,11 @@
     "terrainDuplicateBlocked": "El terreno 3D no se puede duplicar: un conjunto de datos solo puede generar terreno una vez.",
     "terrainDisabledSourceRemoved": "Terreno 3D desactivado: se eliminó su capa de origen.",
     "domainClearFailed": "No se pudieron borrar las restricciones de dominio",
-    "shareLinkCreated": "Enlace de compartición creado"
+    "shareLinkCreated": "Enlace de compartición creado",
+    "styleCopied": "Estilo copiado",
+    "stylePasted": "Estilo pegado",
+    "bulkStyleApplied": "Estilo aplicado a {{count}} capas",
+    "bulkStyleSkipped": "{{count}} capas omitidas (geometría incompatible)"
   },
   "builderMap": {
     "loading": "Cargando mapa...",
@@ -942,7 +946,9 @@
     "selectRow": "Seleccionar {{name}}",
     "selectGroup": "Seleccionar {{name}}",
     "moreActions": "Más acciones",
-    "moreActionsAriaLabel": "Más acciones para {{count}} capas seleccionadas"
+    "moreActionsAriaLabel": "Más acciones para {{count}} capas seleccionadas",
+    "applyStyle": "Aplicar estilo a la selección",
+    "applyStyleAriaLabel": "Aplicar estilo a {{count}} capas seleccionadas"
   },
   "unifiedStack": {
     "title": "Capas",
@@ -991,7 +997,10 @@
     "kebabDeleteGroup": "Eliminar grupo",
     "kebabMoveOutOfGroup": "Mover fuera del grupo",
     "labelsIndicator": "Etiquetas activadas: {{column}}",
-    "kebabGroupTrigger": "Opciones de grupo para {{name}}"
+    "kebabGroupTrigger": "Opciones de grupo para {{name}}",
+    "kebabZoomToLayer": "Acercar a la capa",
+    "kebabCopyStyle": "Copiar estilo",
+    "kebabPasteStyle": "Pegar estilo"
   },
   "basemapGroup": {
     "addCustomBasemap": "＋ Agregar mapa base personalizado…",

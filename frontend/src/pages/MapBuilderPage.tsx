@@ -205,6 +205,7 @@ export function MapBuilderPage() {
     handleBulkGroup: applyBulkGroup,
     handleBulkUngroup: applyBulkUngroup,
     handleBulkDelete: applyBulkDelete,
+    handleBulkApplyStyle: applyBulkApplyStyle,
     setLocalBasemap,
     setShowBasemapLabels,
     setBasemapConfig,
@@ -610,6 +611,13 @@ export function MapBuilderPage() {
     applyBulkUngroup(ids);
     setSelectedIds(new Set());
   }, [applyBulkUngroup]);
+
+  // Phase 1201-01 ENH-03: apply one selected/copied style to compatible peers,
+  // then clear the multi-selection (mirrors group/ungroup wrappers).
+  const handleBulkApplyStyle = useCallback((ids: Set<string>) => {
+    applyBulkApplyStyle(ids);
+    setSelectedIds(new Set());
+  }, [applyBulkApplyStyle]);
 
   const handleBulkDelete = useCallback((ids: Set<string>) => {
     applyBulkDelete(ids)
@@ -1297,6 +1305,11 @@ export function MapBuilderPage() {
                 source: 'manual',
                 layerId,
               })}
+              onZoomToLayer={layers.handleZoomToLayer}
+              onCopyStyle={layers.handleCopyStyle}
+              onPasteStyle={layers.handlePasteStyle}
+              onBulkApplyStyle={handleBulkApplyStyle}
+              copiedStyleGeometryClass={layers.copiedStyleGeometryClass}
               onKeyboardReorder={(layerId, direction) => {
                 if (direction === 'up') layers.handleMoveUp(layerId);
                 else layers.handleMoveDown(layerId);

@@ -26,6 +26,7 @@ import { cn } from '@/lib/utils';
 import type { MapLayerResponse } from '@/types/api';
 import { isDemTerrainVisualSuppressed } from './map-sync';
 import { computeDisambiguationLabels } from './map-stack';
+import { geometryClassOf, type GeometryStyleClass } from '@/lib/builder/layer-style-clipboard';
 
 // ---------------------------------------------------------------------------
 // Stable noop — created once at module scope so optional-prop fallbacks never
@@ -78,6 +79,15 @@ interface UnifiedStackPanelProps {
   onRemove: (id: string) => void;
   onRename: (layerId: string, newName: string | null) => void;
   onDuplicate: (id: string) => void;
+  // Phase 1201-01 (ENH-01/ENH-02/ENH-03): authoring actions threaded to the kebab
+  // + bulk bar.
+  onZoomToLayer?: (id: string) => void;
+  onCopyStyle?: (id: string) => void;
+  onPasteStyle?: (id: string) => void;
+  onBulkApplyStyle?: (ids: Set<string>) => void;
+  /** Geometry class of the currently-copied style (null = nothing copied). Used
+   *  to enable "Paste style" only on geometry-compatible rows. */
+  copiedStyleGeometryClass?: GeometryStyleClass | null;
   onKeyboardReorder?: (layerId: string, direction: 'up' | 'down') => void;
   onAddDataClick: (initialQuery?: string) => void;
   onAddDataset?: (datasetId: string) => void;
@@ -143,6 +153,11 @@ interface SortableStackRowProps {
   onRemove: (id: string) => void;
   onRename: (layerId: string, newName: string | null) => void;
   onDuplicate: (id: string) => void;
+  // Phase 1201-01 (ENH-01/ENH-02): kebab authoring actions threaded to StackRow.
+  onZoomToLayer?: (id: string) => void;
+  onCopyStyle?: (id: string) => void;
+  onPasteStyle?: (id: string) => void;
+  canPasteStyle?: boolean;
   onKeyboardReorder?: (layerId: string, direction: 'up' | 'down') => void;
   existingFolderGroups?: Array<{ id: string; name: string }>;
   parentGroupId?: string | null;
@@ -169,6 +184,10 @@ const SortableStackRow = memo(function SortableStackRow({
   onRemove,
   onRename,
   onDuplicate,
+  onZoomToLayer,
+  onCopyStyle,
+  onPasteStyle,
+  canPasteStyle,
   onKeyboardReorder,
   existingFolderGroups,
   parentGroupId,
@@ -216,6 +235,10 @@ const SortableStackRow = memo(function SortableStackRow({
         onRemove={onRemove}
         onRename={onRename}
         onDuplicate={onDuplicate}
+        onZoomToLayer={onZoomToLayer}
+        onCopyStyle={onCopyStyle}
+        onPasteStyle={onPasteStyle}
+        canPasteStyle={canPasteStyle}
         onKeyboardReorder={onKeyboardReorder}
         existingFolderGroups={existingFolderGroups}
         parentGroupId={parentGroupId}
@@ -664,6 +687,11 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
   onRemove,
   onRename,
   onDuplicate,
+  onZoomToLayer,
+  onCopyStyle,
+  onPasteStyle,
+  onBulkApplyStyle,
+  copiedStyleGeometryClass = null,
   onKeyboardReorder,
   onAddDataClick,
   onAddDataset,
@@ -1062,6 +1090,13 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
                               onRemove={onRemove}
                               onRename={onRename}
                               onDuplicate={onDuplicate}
+                              onZoomToLayer={onZoomToLayer}
+                              onCopyStyle={onCopyStyle}
+                              onPasteStyle={onPasteStyle}
+                              canPasteStyle={
+                                copiedStyleGeometryClass !== null &&
+                                copiedStyleGeometryClass === geometryClassOf(child.dataset_geometry_type)
+                              }
                               onKeyboardReorder={onKeyboardReorder}
                               existingFolderGroups={existingFolderGroups}
                               parentGroupId={layer.id}
@@ -1094,6 +1129,13 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
                     onRemove={onRemove}
                     onRename={onRename}
                     onDuplicate={onDuplicate}
+                    onZoomToLayer={onZoomToLayer}
+                    onCopyStyle={onCopyStyle}
+                    onPasteStyle={onPasteStyle}
+                    canPasteStyle={
+                      copiedStyleGeometryClass !== null &&
+                      copiedStyleGeometryClass === geometryClassOf(layer.dataset_geometry_type)
+                    }
                     onKeyboardReorder={onKeyboardReorder}
                     existingFolderGroups={existingFolderGroups}
                     parentGroupId={getParentGroupId(layer)}
@@ -1174,6 +1216,7 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
           onBulkGroup={onBulkGroup}
           onBulkUngroup={onBulkUngroup}
           onBulkDelete={onBulkDelete}
+          onBulkApplyStyle={onBulkApplyStyle}
           isDeleting={isDeleting}
         />
       )}

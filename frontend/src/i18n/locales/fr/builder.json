@@ -750,7 +750,11 @@
     "terrainDuplicateBlocked": "Le terrain 3D ne peut pas être dupliqué : un jeu de données ne peut alimenter le terrain qu'une seule fois.",
     "terrainDisabledSourceRemoved": "Relief 3D désactivé — sa couche source a été supprimée.",
     "domainClearFailed": "Impossible d'effacer les restrictions de domaine",
-    "shareLinkCreated": "Lien de partage créé"
+    "shareLinkCreated": "Lien de partage créé",
+    "styleCopied": "Style copié",
+    "stylePasted": "Style collé",
+    "bulkStyleApplied": "Style appliqué à {{count}} couches",
+    "bulkStyleSkipped": "{{count}} couches ignorées (géométrie incompatible)"
   },
   "builderMap": {
     "loading": "Chargement de la carte...",
@@ -942,7 +946,9 @@
     "selectRow": "Sélectionner {{name}}",
     "selectGroup": "Sélectionner {{name}}",
     "moreActions": "Plus d'actions",
-    "moreActionsAriaLabel": "Plus d'actions pour {{count}} couches sélectionnées"
+    "moreActionsAriaLabel": "Plus d'actions pour {{count}} couches sélectionnées",
+    "applyStyle": "Appliquer le style à la sélection",
+    "applyStyleAriaLabel": "Appliquer le style à {{count}} couches sélectionnées"
   },
   "unifiedStack": {
     "title": "Couches",
@@ -991,7 +997,10 @@
     "kebabDeleteGroup": "Supprimer le groupe",
     "kebabMoveOutOfGroup": "Déplacer hors du groupe",
     "labelsIndicator": "Étiquettes activées : {{column}}",
-    "kebabGroupTrigger": "Options de groupe pour {{name}}"
+    "kebabGroupTrigger": "Options de groupe pour {{name}}",
+    "kebabZoomToLayer": "Zoomer sur la couche",
+    "kebabCopyStyle": "Copier le style",
+    "kebabPasteStyle": "Coller le style"
   },
   "basemapGroup": {
     "addCustomBasemap": "＋ Ajouter un fond de carte personnalisé…",
