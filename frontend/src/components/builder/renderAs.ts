@@ -29,7 +29,11 @@ export interface RenderAsOption {
   source: RenderAsSource;
 }
 
-export type RendererBackend = 'maplibre' | 'deckgl-future';
+// GUARD-05: 'deckgl-future' removed — no registry entries ever used it and no
+// runtime code branched on it. The `enabled` gate and `backend` field are kept
+// because getRendererCapabilities/getRendererCapability filter on them and
+// existing tests assert `backend: 'maplibre'` values.
+export type RendererBackend = 'maplibre';
 export type RendererSourceRequirement =
   | 'vector-tile'
   | 'geojson'
