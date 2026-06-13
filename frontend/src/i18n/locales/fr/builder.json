@@ -1026,7 +1026,8 @@
     "kebabGroupTrigger": "Options de groupe pour {{name}}",
     "kebabZoomToLayer": "Zoomer sur la couche",
     "kebabCopyStyle": "Copier le style",
-    "kebabPasteStyle": "Coller le style"
+    "kebabPasteStyle": "Coller le style",
+    "disambiguation": "{{label}}"
   },
   "basemapGroup": {
     "addCustomBasemap": "＋ Ajouter un fond de carte personnalisé…",

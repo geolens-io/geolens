@@ -1026,7 +1026,8 @@
     "kebabGroupTrigger": "Gruppenoptionen für {{name}}",
     "kebabZoomToLayer": "Auf Ebene zoomen",
     "kebabCopyStyle": "Stil kopieren",
-    "kebabPasteStyle": "Stil einfügen"
+    "kebabPasteStyle": "Stil einfügen",
+    "disambiguation": "{{label}}"
   },
   "basemapGroup": {
     "addCustomBasemap": "＋ Benutzerdefinierte Basiskarte hinzufügen…",

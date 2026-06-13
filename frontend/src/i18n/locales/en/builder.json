@@ -1030,7 +1030,8 @@
     "labelsIndicator": "Labels on: {{column}}",
     "kebabZoomToLayer": "Zoom to layer",
     "kebabCopyStyle": "Copy style",
-    "kebabPasteStyle": "Paste style"
+    "kebabPasteStyle": "Paste style",
+    "disambiguation": "{{label}}"
   },
   "basemapGroup": {
     "addCustomBasemap": "＋ Add custom basemap…",
