@@ -1,7 +1,7 @@
 import { render, screen, waitFor } from '@/test/test-utils';
 import userEvent from '@testing-library/user-event';
 import { useColumnValues, useColumnStats } from '@/hooks/use-maps';
-import { getRampColors } from '@/lib/color-ramps';
+import { getRampColors, nextRotatingRamp } from '@/lib/color-ramps';
 import { equalIntervalBreaks } from '@/lib/classification';
 import { DataDrivenStyleEditor } from '../DataDrivenStyleEditor';
 import type { MapLayerResponse, StyleConfig } from '@/types/api';
@@ -710,6 +710,156 @@ describe('DataDrivenStyleEditor', () => {
       expect(layerId).toBe('layer-1');
       // config should be null after clear
       expect(clearedConfig).toBeNull();
+    });
+  });
+
+  describe('ENH-08: ramp rotation + data-character suggestion', () => {
+    const VALUES = ['cat1', 'cat2', 'cat3'];
+    const STATS = {
+      min: 0,
+      max: 100,
+      count: 100,
+      mean: 50,
+      quantiles: [25, 50, 75],
+    };
+
+    it('two fresh graduated layers at different rotation indices get different default ramps', async () => {
+      // Fresh graduated layers: style_config has column + mode but NO ramp saved.
+      // Effect 2 fires because column is set + stats available → persists the rotated ramp.
+      mockUseColumnStats.mockReturnValue(
+        hookData(STATS) as unknown as ReturnType<typeof useColumnStats>,
+      );
+
+      const ramp0 = nextRotatingRamp('graduated', 0); // 'YlOrRd'
+      const ramp2 = nextRotatingRamp('graduated', 2); // 'Greens'
+      expect(ramp0).not.toBe(ramp2);
+
+      const onChange0 = vi.fn();
+      const onChange2 = vi.fn();
+
+      // Cast as StyleConfig: deliberately omitting ramp to represent a fresh
+      // layer state (as-if the saved config had no ramp field set).
+      const gradConfigNoRamp = {
+        mode: 'graduated' as const,
+        column: 'population',
+        method: 'equal_interval' as const,
+        classCount: 5,
+      } as StyleConfig;
+
+      const { unmount: unmount0 } = render(
+        <DataDrivenStyleEditor
+          layer={makeLayer({ id: 'g0', style_config: { ...gradConfigNoRamp } })}
+          onStyleConfigChange={onChange0}
+          rampRotationIndex={0}
+        />,
+      );
+
+      await waitFor(() => {
+        expect(onChange0).toHaveBeenCalled();
+      });
+      unmount0();
+
+      render(
+        <DataDrivenStyleEditor
+          layer={makeLayer({ id: 'g2', style_config: { ...gradConfigNoRamp } })}
+          onStyleConfigChange={onChange2}
+          rampRotationIndex={2}
+        />,
+      );
+
+      await waitFor(() => {
+        expect(onChange2).toHaveBeenCalled();
+      });
+
+      const c0 = onChange0.mock.calls[0][1] as StyleConfig;
+      const c2 = onChange2.mock.calls[0][1] as StyleConfig;
+      expect(c0.ramp).toBe(ramp0);
+      expect(c2.ramp).toBe(ramp2);
+      // Key assertion: N adds → N distinct ramps (different rotation indices → different ramps)
+      expect(c0.ramp).not.toBe(c2.ramp);
+    });
+
+    it('fresh layer ColorRampPicker displays the rotated default — two adds show distinct ramps', () => {
+      // Without selecting a column, the ramp state is visible via the ColorRampPicker
+      // only after a column is selected. Here we verify the INITIAL ramp state by
+      // checking rampName shown in the picker when the component first enters mode with column.
+      const ramp0 = nextRotatingRamp('categorical', 0); // 'Set2'
+      const ramp1 = nextRotatingRamp('categorical', 1); // 'Paired'
+      expect(ramp0).not.toBe(ramp1);
+
+      // Mount a categorical layer that already has a column selected so the picker renders.
+      // No ramp saved → fresh layer uses rotated default.
+      mockUseColumnValues.mockReturnValue(
+        hookData({ values: VALUES, count: VALUES.length }),
+      );
+
+      // Cast as StyleConfig: deliberately omitting ramp to represent a fresh
+      // layer (as-if no ramp was ever saved). The column is already set so the
+      // ColorRampPicker renders immediately — we can inspect the displayed ramp.
+      const freshNoRamp0 = {
+        mode: 'categorical' as const,
+        column: 'typeA',
+      } as StyleConfig;
+
+      const { unmount: u0 } = render(
+        <DataDrivenStyleEditor
+          layer={makeLayer({ id: 'fresh-0', style_config: freshNoRamp0 })}
+          onStyleConfigChange={vi.fn()}
+          rampRotationIndex={0}
+        />,
+      );
+      // ColorRampPicker receives rampName from ramp state; verify it shows index-0 ramp
+      const picker0 = screen.getByTestId('color-ramp-picker');
+      expect(picker0.textContent).toContain(ramp0);
+      u0();
+
+      const freshNoRamp1 = {
+        mode: 'categorical' as const,
+        column: 'typeA',
+      } as StyleConfig;
+
+      render(
+        <DataDrivenStyleEditor
+          layer={makeLayer({ id: 'fresh-1', style_config: freshNoRamp1 })}
+          onStyleConfigChange={vi.fn()}
+          rampRotationIndex={1}
+        />,
+      );
+      const picker1 = screen.getByTestId('color-ramp-picker');
+      expect(picker1.textContent).toContain(ramp1);
+      expect(ramp0).not.toBe(ramp1);
+    });
+
+    it('a layer with a saved ramp keeps that ramp regardless of rotation index', async () => {
+      const SAVED_RAMP = 'Inferno';
+      const savedConfig: StyleConfig = {
+        mode: 'categorical',
+        column: 'typeA',
+        ramp: SAVED_RAMP,
+        categories: VALUES.map((v, i) => ({ value: v, color: getRampColors(SAVED_RAMP, VALUES.length)[i] })),
+      };
+      mockUseColumnValues.mockReturnValue(
+        hookData({ values: VALUES, count: VALUES.length }),
+      );
+
+      const onStyleConfigChange = vi.fn();
+      // rampRotationIndex=5 would select a non-Inferno ramp, but saved ramp wins
+      render(
+        <DataDrivenStyleEditor
+          layer={makeLayer({ style_config: savedConfig })}
+          onStyleConfigChange={onStyleConfigChange}
+          rampRotationIndex={5}
+        />,
+      );
+
+      // Guard recognizes config matches → no callback → saved ramp preserved
+      await waitFor(() => {
+        expect(onStyleConfigChange).not.toHaveBeenCalled();
+      });
+
+      // The ColorRampPicker shows the saved ramp name
+      const picker = screen.getByTestId('color-ramp-picker');
+      expect(picker.textContent).toContain(SAVED_RAMP);
     });
   });
 });

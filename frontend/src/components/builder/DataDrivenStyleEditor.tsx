@@ -27,6 +27,8 @@ import {
   buildGraduatedSizeExpression,
   getColorProperty,
   getSizeProperty,
+  nextRotatingRamp,
+  suggestRampForMode,
 } from '@/lib/color-ramps';
 import { getLayerType } from '@/components/builder/map-sync';
 import {
@@ -47,6 +49,14 @@ interface DataDrivenStyleEditorProps {
     config: StyleConfig | null,
     paint: Record<string, unknown>,
   ) => void;
+  /**
+   * ENH-08: Zero-based ordinal of this layer within the map's data-driven
+   * layer set.  Used to rotate the default palette so successive freshly-added
+   * layers don't collide on the same colors.  Defaults to 0 when omitted.
+   * Only affects FRESH layers (no existingConfig.ramp); saved layers keep
+   * their persisted ramp regardless of this value.
+   */
+  rampRotationIndex?: number;
 }
 
 const TEXT_TYPES = ['character', 'text', 'varchar', 'char'];
@@ -141,6 +151,7 @@ function defaultSizeRange(tgt: 'color' | 'radius' | 'width'): [number, number] {
 export function DataDrivenStyleEditor({
   layer,
   onStyleConfigChange,
+  rampRotationIndex = 0,
 }: DataDrivenStyleEditorProps) {
   const { t } = useTranslation('builder');
   const existingConfig = layer.style_config;
@@ -149,7 +160,12 @@ export function DataDrivenStyleEditor({
     existingConfig?.mode ?? 'categorical',
   );
   const [column, setColumn] = useState<string>(existingConfig?.column ?? '');
-  const [ramp, setRamp] = useState<string>(existingConfig?.ramp ?? 'Set2');
+  // ENH-08: For fresh layers (no saved ramp) seed the default via rotating
+  // palette selection so successive adds don't all start with the same color.
+  // Saved layers always keep their persisted ramp.
+  const [ramp, setRamp] = useState<string>(
+    existingConfig?.ramp ?? nextRotatingRamp(existingConfig?.mode ?? 'categorical', rampRotationIndex),
+  );
   const [classCount, setClassCount] = useState<number>(
     existingConfig?.classCount ?? 5,
   );
@@ -456,7 +472,10 @@ export function DataDrivenStyleEditor({
   function handleModeChange(newMode: 'categorical' | 'graduated') {
     setMode(newMode);
     setColumn('');
-    setRamp(newMode === 'categorical' ? 'Set2' : 'YlOrRd');
+    // ENH-08: suggest a data-appropriate ramp when the user switches modes.
+    // This is a mode change (not a first-add), so use the data-character
+    // default (index 0) rather than the rotation index.
+    setRamp(suggestRampForMode(newMode));
     // Reset color property to flat default to clear stale expressions from previous mode
     const colorProp = getColorProperty(layer.dataset_geometry_type);
     const nextPaint: Record<string, unknown> = { ...layer.paint, [colorProp]: MAP_COLORS.default.fill };
