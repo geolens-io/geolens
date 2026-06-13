@@ -10,7 +10,6 @@ describe('useBuilderDialogs', () => {
     expect(result.current.showAddData).toBe(false);
     expect(result.current.showShare).toBe(false);
     expect(result.current.showInfo).toBe(false);
-    expect(result.current.sidebarCollapsed).toBe(false);
   });
 
   it('setShowChat toggles chat visibility', () => {
@@ -38,15 +37,5 @@ describe('useBuilderDialogs', () => {
     rerender();
 
     expect(result.current.showChat).toBe(true);
-  });
-
-  it('setSidebarCollapsed toggles sidebar state', () => {
-    const { result } = renderHook(() => useBuilderDialogs(true));
-
-    act(() => {
-      result.current.setSidebarCollapsed(true);
-    });
-
-    expect(result.current.sidebarCollapsed).toBe(true);
   });
 });

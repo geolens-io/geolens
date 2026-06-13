@@ -1,34 +1,15 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState } from 'react';
 
-const SIDEBAR_COLLAPSED_KEY = 'geolens-builder-sidebar-collapsed';
-
-export function useBuilderDialogs(_aiAvailable: boolean | undefined, isMobile = false) {
+// Phase 1199 STACK-06: the `isMobile` parameter is retained as part of the
+// documented positional hook contract (MapBuilderPage calls
+// useBuilderDialogs(aiAvailable, isEditorHidden)) even though the sidebar-collapse
+// state it once drove has been removed as dead code (zero production consumers).
+export function useBuilderDialogs(_aiAvailable: boolean | undefined, _isMobile = false) {
   const [showChat, setShowChat] = useState(false);
   const [showAddData, setShowAddData] = useState(false);
   const [addDataInitialQuery, setAddDataInitialQuery] = useState('');
   const [showShare, setShowShare] = useState(false);
   const [showInfo, setShowInfo] = useState(false);
-  const [sidebarCollapsed, setSidebarCollapsedRaw] = useState(
-    () => isMobile || localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === 'true',
-  );
-  const setSidebarCollapsed = useCallback((collapsed: boolean) => {
-    setSidebarCollapsedRaw(collapsed);
-    // Only persist desktop sidebar state — mobile always defaults to collapsed
-    if (!isMobile) {
-      localStorage.setItem(SIDEBAR_COLLAPSED_KEY, String(collapsed));
-    }
-  }, [isMobile]);
-
-  // Auto-collapse on mobile, auto-expand when returning to desktop
-  // (unless user explicitly collapsed via button — tracked by localStorage)
-  useEffect(() => {
-    if (isMobile) {
-      setSidebarCollapsedRaw(true);
-    } else {
-      const persisted = localStorage.getItem(SIDEBAR_COLLAPSED_KEY);
-      if (persisted !== 'true') setSidebarCollapsedRaw(false);
-    }
-  }, [isMobile]);
 
   // If AI becomes unavailable while the dock is open on the chat tab,
   // the dock stays open — Attributes and Notes tabs are still useful.
@@ -39,6 +20,5 @@ export function useBuilderDialogs(_aiAvailable: boolean | undefined, isMobile = 
     addDataInitialQuery, setAddDataInitialQuery,
     showShare, setShowShare,
     showInfo, setShowInfo,
-    sidebarCollapsed, setSidebarCollapsed,
   };
 }
