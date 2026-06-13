@@ -199,3 +199,33 @@ class TestInf13MigrateRestart:
         assert services["migrate"].get("restart") == "no", (
             "migrate must have explicit restart: 'no' (one-shot policy)"
         )
+
+
+# ---------------------------------------------------------------------------
+# GAP-021: every host-file bind mount on db is read-only
+# ---------------------------------------------------------------------------
+
+
+class TestGap021DbBindMountsReadOnly:
+    """The db service must not bind-mount any host file/dir writable.
+
+    A compromised db container (postgres initdb runs as root) must not be able
+    to rewrite a host file the repo treats as trusted shell+SQL. Named volumes
+    (e.g. pgdata) are container-managed state and are exempt.
+    """
+
+    def test_init_db_script_mount_is_read_only(self, services):
+        mounts = services["db"].get("volumes", [])
+        init = [m for m in mounts if "init-db.sh" in m]
+        assert init, "db service no longer mounts scripts/init-db.sh"
+        for m in init:
+            assert m.endswith(":ro"), (
+                f"init-db.sh bind mount must be :ro (defense-in-depth): {m!r}"
+            )
+
+    def test_all_db_host_bind_mounts_are_read_only(self, services):
+        mounts = services["db"].get("volumes", [])
+        for m in mounts:
+            # Host bind mounts start with ./ or / ; named volumes (pgdata) do not.
+            if m.startswith("./") or m.startswith("/"):
+                assert m.endswith(":ro"), f"db host bind mount must be :ro: {m!r}"

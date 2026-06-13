@@ -116,7 +116,11 @@ services:
       - "127.0.0.1:${DB_PORT:-5432}:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
-      - ./scripts/init-db.sh:/docker-entrypoint-initdb.d/10-init.sh
+      # GAP-021: :ro mirrors the sibling conf mount and every repo-file mount on
+      # the api service — the init script is read+exec inside the container, never
+      # written, so a compromised db container cannot rewrite this host file (it
+      # re-executes on every fresh pgdata volume).
+      - ./scripts/init-db.sh:/docker-entrypoint-initdb.d/10-init.sh:ro
       - ./db/postgresql.conf:/etc/postgresql/custom.conf:ro
     # GAP-001: memory limit prevents the DB from consuming all host RAM under
     # heavy query load. 2 GB covers shared_buffers (512 MB) + work_mem headroom
