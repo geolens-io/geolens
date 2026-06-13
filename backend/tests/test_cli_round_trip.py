@@ -226,9 +226,12 @@ class TestLoginRoundTrip:
         )
         assert result.exit_code == 0, result.output
         # Verify credentials.toml round-tripped via the public loader.
+        # GAP-019: login canonicalizes the instance to <url>/api (the app's
+        # root_path="/api"), so creds are stored + loaded under that key.
         from geolens_cli import auth as _auth
+        from geolens_cli.config import normalize_instance_url
 
-        loaded = _auth.load_bearer_token(base_url)
+        loaded = _auth.load_bearer_token(normalize_instance_url(base_url))
         assert loaded is not None
         assert loaded.value == token
 
@@ -243,8 +246,15 @@ class TestLoginRoundTrip:
             ["login", base_url, "--token", token],
         )
         assert result.exit_code == 0, result.output
-        # The mocked keyring should contain the token under (service, instance)
-        assert in_memory_keyring.get(("geolens", base_url)) == token
+        # The mocked keyring stores the token under (service, instance). GAP-019
+        # canonicalizes the instance to <url>/api (root_path="/api"), so that is
+        # the storage/lookup key.
+        from geolens_cli.config import normalize_instance_url
+
+        assert (
+            in_memory_keyring.get(("geolens", normalize_instance_url(base_url)))
+            == token
+        )
 
     def test_login_token_and_api_key_mutually_exclusive(
         self, runner, cli_xdg_home
