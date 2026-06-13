@@ -32,6 +32,8 @@ class MapUpdate:
         center_lng (float | None | Unset): Map center longitude
         description (None | str | Unset):
         layers (list[MapLayerInput] | None | Unset): Full replacement layer list (max 200 layers)
+        legend_title (None | str | Unset): Custom map-level legend title. Null/empty leaves the legend without a heading
+            override (ENH-06).
         name (None | str | Unset):
         notes (None | str | Unset):
         pitch (float | None | Unset): Map tilt in degrees (0-85)
@@ -49,6 +51,7 @@ class MapUpdate:
     center_lng: float | None | Unset = UNSET
     description: None | str | Unset = UNSET
     layers: list[MapLayerInput] | None | Unset = UNSET
+    legend_title: None | str | Unset = UNSET
     name: None | str | Unset = UNSET
     notes: None | str | Unset = UNSET
     pitch: float | None | Unset = UNSET
@@ -112,6 +115,12 @@ class MapUpdate:
 
         else:
             layers = self.layers
+
+        legend_title: None | str | Unset
+        if isinstance(self.legend_title, Unset):
+            legend_title = UNSET
+        else:
+            legend_title = self.legend_title
 
         name: None | str | Unset
         if isinstance(self.name, Unset):
@@ -185,6 +194,8 @@ class MapUpdate:
             field_dict["description"] = description
         if layers is not UNSET:
             field_dict["layers"] = layers
+        if legend_title is not UNSET:
+            field_dict["legend_title"] = legend_title
         if name is not UNSET:
             field_dict["name"] = name
         if notes is not UNSET:
@@ -298,6 +309,15 @@ class MapUpdate:
 
         layers = _parse_layers(d.pop("layers", UNSET))
 
+        def _parse_legend_title(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        legend_title = _parse_legend_title(d.pop("legend_title", UNSET))
+
         def _parse_name(data: object) -> None | str | Unset:
             if data is None:
                 return data
@@ -404,6 +424,7 @@ class MapUpdate:
             center_lng=center_lng,
             description=description,
             layers=layers,
+            legend_title=legend_title,
             name=name,
             notes=notes,
             pitch=pitch,

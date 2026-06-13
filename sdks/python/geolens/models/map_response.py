@@ -48,6 +48,7 @@ class MapResponse:
         created_by_username (None | str | Unset):
         forked_from_id (None | Unset | UUID): Source map UUID if this is a fork
         forked_from_name (None | str | Unset):
+        legend_title (None | str | Unset):
         notes (None | str | Unset):
         og_image_url (None | str | Unset):
         plugins (list[str] | None | Unset):
@@ -75,6 +76,7 @@ class MapResponse:
     created_by_username: None | str | Unset = UNSET
     forked_from_id: None | Unset | UUID = UNSET
     forked_from_name: None | str | Unset = UNSET
+    legend_title: None | str | Unset = UNSET
     notes: None | str | Unset = UNSET
     og_image_url: None | str | Unset = UNSET
     plugins: list[str] | None | Unset = UNSET
@@ -157,6 +159,12 @@ class MapResponse:
         else:
             forked_from_name = self.forked_from_name
 
+        legend_title: None | str | Unset
+        if isinstance(self.legend_title, Unset):
+            legend_title = UNSET
+        else:
+            legend_title = self.legend_title
+
         notes: None | str | Unset
         if isinstance(self.notes, Unset):
             notes = UNSET
@@ -222,6 +230,8 @@ class MapResponse:
             field_dict["forked_from_id"] = forked_from_id
         if forked_from_name is not UNSET:
             field_dict["forked_from_name"] = forked_from_name
+        if legend_title is not UNSET:
+            field_dict["legend_title"] = legend_title
         if notes is not UNSET:
             field_dict["notes"] = notes
         if og_image_url is not UNSET:
@@ -366,6 +376,15 @@ class MapResponse:
 
         forked_from_name = _parse_forked_from_name(d.pop("forked_from_name", UNSET))
 
+        def _parse_legend_title(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        legend_title = _parse_legend_title(d.pop("legend_title", UNSET))
+
         def _parse_notes(data: object) -> None | str | Unset:
             if data is None:
                 return data
@@ -448,6 +467,7 @@ class MapResponse:
             created_by_username=created_by_username,
             forked_from_id=forked_from_id,
             forked_from_name=forked_from_name,
+            legend_title=legend_title,
             notes=notes,
             og_image_url=og_image_url,
             plugins=plugins,
