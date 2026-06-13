@@ -219,6 +219,7 @@
     "jsonApply": "Apply",
     "jsonError": "Invalid JSON",
     "jsonCancel": "Cancel",
+    "jsonTextareaAriaLabel": "Edit {{block}} JSON",
     "zoomRange": "Zoom Range",
     "minZoom": "Min zoom",
     "maxZoom": "Max zoom",
@@ -297,7 +298,9 @@
       "stretchColormapHint": "Stretch sets the input range for the colormap.",
       "pminLabel": "Low %",
       "pmaxLabel": "High %",
-      "sigmaLabel": "Sigma (σ)"
+      "sigmaLabel": "Sigma (σ)",
+      "bandCount_one": "{{count}} band",
+      "bandCount_other": "{{count}} bands"
     },
     "hillshade": {
       "help": "Tune the relief overlay generated from this DEM layer.",
@@ -426,6 +429,15 @@
     "method": "Method",
     "equalInterval": "Equal Interval",
     "quantile": "Quantile",
+    "methodJenks": "Natural Breaks (Jenks)",
+    "methodStdDev": "Standard Deviation",
+    "methodManual": "Manual",
+    "jenksSampledHint": "Natural breaks are computed from a representative sample of the column, not every value.",
+    "manualBreaksLabel": "Break values (ascending)",
+    "manualBreaksRowLabel": "Break value {{index}}",
+    "manualBreaksAddRow": "Add break",
+    "manualBreaksRemoveRow": "Remove break",
+    "manualBreaksInvalid": "Enter at least one break value in strictly ascending order.",
     "classes": "Classes",
     "categoriesWarning": "{{count}} categories -- consider using graduated mode for many values.",
     "target": "Target",
@@ -435,7 +447,9 @@
     "sizeMin": "Min size",
     "sizeMax": "Max size",
     "colors": "Colors",
-    "customColors": "Custom colors"
+    "customColors": "Custom colors",
+    "reverseRamp": "Reverse",
+    "cvdSafeOnly": "CVD-safe only"
   },
   "search": {
     "title": "Add Dataset",
@@ -748,7 +762,11 @@
     "terrainDuplicateBlocked": "3D terrain can't be duplicated — a dataset can only power terrain once.",
     "terrainDisabledSourceRemoved": "3D terrain disabled — its source layer was removed.",
     "domainClearFailed": "Failed to clear domain restrictions",
-    "shareLinkCreated": "Share link created"
+    "shareLinkCreated": "Share link created",
+    "styleCopied": "Style copied",
+    "stylePasted": "Style pasted",
+    "bulkStyleApplied": "Style applied to {{count}} layers",
+    "bulkStyleSkipped": "{{count}} layers skipped (incompatible geometry)"
   },
   "builderMap": {
     "loading": "Loading map...",
@@ -820,7 +838,11 @@
       "high": "High",
       "weightedBy": "Weighted by: {{column}}",
       "unavailable": "(legend unavailable)",
-      "terrain3d": "3D terrain"
+      "terrain3d": "3D terrain",
+      "titlePlaceholder": "Legend title",
+      "editLegend": "Edit legend",
+      "entryLabelPlaceholder": "Label for {{name}}",
+      "resetLabel": "Reset to default"
     },
     "closePlugin": "Close plugin",
     "pluginError": "This plugin encountered an error"
@@ -885,7 +907,15 @@
     "dragPosition": "Current position: {{n}} of {{total}}",
     "dragDropped": "Dropped. {{name}} added at position {{n}}.",
     "dragCancelled": "Drop cancelled.",
-    "basemapPositionChanged": "Basemap moved to {{position}}"
+    "basemapPositionChanged": "Basemap moved to {{position}}",
+    "shortcuts": {
+      "title": "Keyboard shortcuts",
+      "description": "Speed up map authoring with these shortcuts.",
+      "save": "Save map",
+      "pan": "Pan tool",
+      "measure": "Measure tool",
+      "legend": "Toggle legend"
+    }
   },
   "styleJson": {
     "title": "Style JSON",
@@ -944,7 +974,9 @@
     "selectRow": "Select {{name}}",
     "selectGroup": "Select {{name}}",
     "moreActions": "More actions",
-    "moreActionsAriaLabel": "More actions for {{count}} selected layers"
+    "moreActionsAriaLabel": "More actions for {{count}} selected layers",
+    "applyStyle": "Apply style to selection",
+    "applyStyleAriaLabel": "Apply style to {{count}} selected layers"
   },
   "unifiedStack": {
     "title": "Layers",
@@ -960,7 +992,9 @@
     "browseAll": "Browse all datasets →",
     "browseAllShort": "Browse catalog →",
     "emptyHelpBody": "Search the catalog to find datasets, or use the Upload button to add your own.",
-    "listboxLabel": "Map layers"
+    "listboxLabel": "Map layers",
+    "searchPlaceholder": "Filter layers…",
+    "searchAriaLabel": "Filter layers by name"
   },
   "rail": {
     "aiDisabled": "AI disabled by admin",
@@ -993,7 +1027,11 @@
     "kebabUngroup": "Ungroup",
     "kebabDeleteGroup": "Delete group",
     "kebabMoveOutOfGroup": "Move out of group",
-    "labelsIndicator": "Labels on: {{column}}"
+    "labelsIndicator": "Labels on: {{column}}",
+    "kebabZoomToLayer": "Zoom to layer",
+    "kebabCopyStyle": "Copy style",
+    "kebabPasteStyle": "Paste style",
+    "disambiguation": "{{label}}"
   },
   "basemapGroup": {
     "addCustomBasemap": "＋ Add custom basemap…",
@@ -1091,7 +1129,7 @@
       "keep": "Keep layer"
     },
     "confirmRenderAs": {
-      "message": "Switching render mode will reset the current style. Continue?",
+      "message": "Compatible style is carried over; only mode-specific settings will reset. Continue?",
       "confirm": "Switch mode",
       "cancel": "Keep style"
     },

@@ -1,7 +1,7 @@
 import { render, screen, waitFor } from '@/test/test-utils';
 import userEvent from '@testing-library/user-event';
 import { useColumnValues, useColumnStats } from '@/hooks/use-maps';
-import { getRampColors } from '@/lib/color-ramps';
+import { getRampColors, nextRotatingRamp } from '@/lib/color-ramps';
 import { equalIntervalBreaks } from '@/lib/classification';
 import { DataDrivenStyleEditor } from '../DataDrivenStyleEditor';
 import type { MapLayerResponse, StyleConfig } from '@/types/api';
@@ -545,6 +545,137 @@ describe('DataDrivenStyleEditor', () => {
       );
     });
 
+  });
+
+  describe('classification methods (ENH-04)', () => {
+    function graduatedConfig(method: StyleConfig['method'] = 'equal_interval'): StyleConfig {
+      return {
+        mode: 'graduated',
+        column: 'population',
+        ramp: 'YlOrRd',
+        classCount: 5,
+        method,
+      };
+    }
+
+    function statsWith(extra: Record<string, unknown> = {}) {
+      return hookData({
+        min: 0,
+        max: 100,
+        count: 100,
+        mean: 50,
+        quantiles: [20, 40, 60, 80],
+        ...extra,
+      }) as unknown as ReturnType<typeof useColumnStats>;
+    }
+
+    it('jenks method produces strictly ascending breaks in the persisted config', async () => {
+      mockUseColumnStats.mockReturnValue(statsWith());
+      const onStyleConfigChange = vi.fn();
+      render(
+        <DataDrivenStyleEditor
+          layer={makeLayer({ style_config: graduatedConfig('jenks') })}
+          onStyleConfigChange={onStyleConfigChange}
+        />,
+      );
+
+      await waitFor(() => {
+        expect(onStyleConfigChange).toHaveBeenCalled();
+      });
+      const [, newConfig] = onStyleConfigChange.mock.calls[0];
+      const breaks = (newConfig as StyleConfig).breaks!;
+      expect(breaks.length).toBeGreaterThan(0);
+      for (let i = 1; i < breaks.length; i++) {
+        expect(breaks[i]).toBeGreaterThan(breaks[i - 1]);
+      }
+      expect((newConfig as StyleConfig).method).toBe('jenks');
+    });
+
+    it('shows the manual-breaks editor and persists entered ascending breaks', async () => {
+      mockUseColumnStats.mockReturnValue(statsWith());
+      const onStyleConfigChange = vi.fn();
+      render(
+        <DataDrivenStyleEditor
+          layer={makeLayer({
+            style_config: { ...graduatedConfig('manual'), breaks: [10, 20] },
+          })}
+          onStyleConfigChange={onStyleConfigChange}
+        />,
+      );
+
+      // The manual editor renders numeric inputs seeded from the persisted breaks.
+      const rows = await screen.findAllByLabelText(/Break value/i);
+      expect(rows.length).toBeGreaterThanOrEqual(2);
+
+      const user = userEvent.setup();
+      await user.clear(rows[0]);
+      await user.type(rows[0], '15');
+      await user.clear(rows[1]);
+      await user.type(rows[1], '30');
+
+      await waitFor(() => {
+        // The latest manual write should carry the freshly-typed ascending breaks.
+        const manualCalls = onStyleConfigChange.mock.calls.filter(
+          ([, cfg]) => (cfg as StyleConfig)?.method === 'manual',
+        );
+        expect(manualCalls.length).toBeGreaterThan(0);
+        const last = manualCalls[manualCalls.length - 1];
+        expect((last[1] as StyleConfig).breaks).toEqual([15, 30]);
+      });
+    });
+
+    it('warns and does not write a config for non-ascending manual breaks', async () => {
+      mockUseColumnStats.mockReturnValue(statsWith());
+      const onStyleConfigChange = vi.fn();
+      render(
+        <DataDrivenStyleEditor
+          layer={makeLayer({
+            style_config: { ...graduatedConfig('manual'), breaks: [10, 20] },
+          })}
+          onStyleConfigChange={onStyleConfigChange}
+        />,
+      );
+
+      const rows = await screen.findAllByLabelText(/Break value/i);
+      const user = userEvent.setup();
+      // Make them descending: 50 then 5 → invalid.
+      await user.clear(rows[0]);
+      await user.type(rows[0], '50');
+      await user.clear(rows[1]);
+      await user.type(rows[1], '5');
+
+      // Inline warning is shown.
+      expect(
+        await screen.findByText(/strictly ascending order/i),
+      ).toBeInTheDocument();
+
+      // No graduated manual config written for the invalid input.
+      const manualWrite = onStyleConfigChange.mock.calls.find(
+        ([, cfg]) =>
+          (cfg as StyleConfig)?.method === 'manual' &&
+          JSON.stringify((cfg as StyleConfig)?.breaks) === JSON.stringify([50, 5]),
+      );
+      expect(manualWrite).toBeUndefined();
+    });
+
+    it('disables the std-dev option when stddev is unavailable', async () => {
+      // No stddev on the stats response → option gated.
+      mockUseColumnStats.mockReturnValue(statsWith());
+      render(
+        <DataDrivenStyleEditor
+          layer={makeLayer({ style_config: graduatedConfig() })}
+          onStyleConfigChange={vi.fn()}
+        />,
+      );
+
+      const user = userEvent.setup();
+      // Open the method select (the graduated method combobox).
+      const comboboxes = screen.getAllByRole('combobox');
+      await user.click(comboboxes[comboboxes.length - 1]);
+      const stdDevOption = await screen.findByRole('option', { name: /Standard Deviation/i });
+      expect(stdDevOption).toHaveAttribute('aria-disabled', 'true');
+    });
+
     it('resets target to color when handleClear is called', async () => {
       const config: StyleConfig = {
         mode: 'graduated',
@@ -579,6 +710,156 @@ describe('DataDrivenStyleEditor', () => {
       expect(layerId).toBe('layer-1');
       // config should be null after clear
       expect(clearedConfig).toBeNull();
+    });
+  });
+
+  describe('ENH-08: ramp rotation + data-character suggestion', () => {
+    const VALUES = ['cat1', 'cat2', 'cat3'];
+    const STATS = {
+      min: 0,
+      max: 100,
+      count: 100,
+      mean: 50,
+      quantiles: [25, 50, 75],
+    };
+
+    it('two fresh graduated layers at different rotation indices get different default ramps', async () => {
+      // Fresh graduated layers: style_config has column + mode but NO ramp saved.
+      // Effect 2 fires because column is set + stats available → persists the rotated ramp.
+      mockUseColumnStats.mockReturnValue(
+        hookData(STATS) as unknown as ReturnType<typeof useColumnStats>,
+      );
+
+      const ramp0 = nextRotatingRamp('graduated', 0); // 'YlOrRd'
+      const ramp2 = nextRotatingRamp('graduated', 2); // 'Greens'
+      expect(ramp0).not.toBe(ramp2);
+
+      const onChange0 = vi.fn();
+      const onChange2 = vi.fn();
+
+      // Cast as StyleConfig: deliberately omitting ramp to represent a fresh
+      // layer state (as-if the saved config had no ramp field set).
+      const gradConfigNoRamp = {
+        mode: 'graduated' as const,
+        column: 'population',
+        method: 'equal_interval' as const,
+        classCount: 5,
+      } as StyleConfig;
+
+      const { unmount: unmount0 } = render(
+        <DataDrivenStyleEditor
+          layer={makeLayer({ id: 'g0', style_config: { ...gradConfigNoRamp } })}
+          onStyleConfigChange={onChange0}
+          rampRotationIndex={0}
+        />,
+      );
+
+      await waitFor(() => {
+        expect(onChange0).toHaveBeenCalled();
+      });
+      unmount0();
+
+      render(
+        <DataDrivenStyleEditor
+          layer={makeLayer({ id: 'g2', style_config: { ...gradConfigNoRamp } })}
+          onStyleConfigChange={onChange2}
+          rampRotationIndex={2}
+        />,
+      );
+
+      await waitFor(() => {
+        expect(onChange2).toHaveBeenCalled();
+      });
+
+      const c0 = onChange0.mock.calls[0][1] as StyleConfig;
+      const c2 = onChange2.mock.calls[0][1] as StyleConfig;
+      expect(c0.ramp).toBe(ramp0);
+      expect(c2.ramp).toBe(ramp2);
+      // Key assertion: N adds → N distinct ramps (different rotation indices → different ramps)
+      expect(c0.ramp).not.toBe(c2.ramp);
+    });
+
+    it('fresh layer ColorRampPicker displays the rotated default — two adds show distinct ramps', () => {
+      // Without selecting a column, the ramp state is visible via the ColorRampPicker
+      // only after a column is selected. Here we verify the INITIAL ramp state by
+      // checking rampName shown in the picker when the component first enters mode with column.
+      const ramp0 = nextRotatingRamp('categorical', 0); // 'Set2'
+      const ramp1 = nextRotatingRamp('categorical', 1); // 'Paired'
+      expect(ramp0).not.toBe(ramp1);
+
+      // Mount a categorical layer that already has a column selected so the picker renders.
+      // No ramp saved → fresh layer uses rotated default.
+      mockUseColumnValues.mockReturnValue(
+        hookData({ values: VALUES, count: VALUES.length }),
+      );
+
+      // Cast as StyleConfig: deliberately omitting ramp to represent a fresh
+      // layer (as-if no ramp was ever saved). The column is already set so the
+      // ColorRampPicker renders immediately — we can inspect the displayed ramp.
+      const freshNoRamp0 = {
+        mode: 'categorical' as const,
+        column: 'typeA',
+      } as StyleConfig;
+
+      const { unmount: u0 } = render(
+        <DataDrivenStyleEditor
+          layer={makeLayer({ id: 'fresh-0', style_config: freshNoRamp0 })}
+          onStyleConfigChange={vi.fn()}
+          rampRotationIndex={0}
+        />,
+      );
+      // ColorRampPicker receives rampName from ramp state; verify it shows index-0 ramp
+      const picker0 = screen.getByTestId('color-ramp-picker');
+      expect(picker0.textContent).toContain(ramp0);
+      u0();
+
+      const freshNoRamp1 = {
+        mode: 'categorical' as const,
+        column: 'typeA',
+      } as StyleConfig;
+
+      render(
+        <DataDrivenStyleEditor
+          layer={makeLayer({ id: 'fresh-1', style_config: freshNoRamp1 })}
+          onStyleConfigChange={vi.fn()}
+          rampRotationIndex={1}
+        />,
+      );
+      const picker1 = screen.getByTestId('color-ramp-picker');
+      expect(picker1.textContent).toContain(ramp1);
+      expect(ramp0).not.toBe(ramp1);
+    });
+
+    it('a layer with a saved ramp keeps that ramp regardless of rotation index', async () => {
+      const SAVED_RAMP = 'Inferno';
+      const savedConfig: StyleConfig = {
+        mode: 'categorical',
+        column: 'typeA',
+        ramp: SAVED_RAMP,
+        categories: VALUES.map((v, i) => ({ value: v, color: getRampColors(SAVED_RAMP, VALUES.length)[i] })),
+      };
+      mockUseColumnValues.mockReturnValue(
+        hookData({ values: VALUES, count: VALUES.length }),
+      );
+
+      const onStyleConfigChange = vi.fn();
+      // rampRotationIndex=5 would select a non-Inferno ramp, but saved ramp wins
+      render(
+        <DataDrivenStyleEditor
+          layer={makeLayer({ style_config: savedConfig })}
+          onStyleConfigChange={onStyleConfigChange}
+          rampRotationIndex={5}
+        />,
+      );
+
+      // Guard recognizes config matches → no callback → saved ramp preserved
+      await waitFor(() => {
+        expect(onStyleConfigChange).not.toHaveBeenCalled();
+      });
+
+      // The ColorRampPicker shows the saved ramp name
+      const picker = screen.getByTestId('color-ramp-picker');
+      expect(picker.textContent).toContain(SAVED_RAMP);
     });
   });
 });

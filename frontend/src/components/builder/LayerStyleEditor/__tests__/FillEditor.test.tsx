@@ -467,4 +467,46 @@ describe('FillEditor', () => {
     expect(screen.getByRole('slider', { name: 'Opacity' })).toBeInTheDocument();
     expect(screen.getByLabelText('Toggle stroke visibility')).toBeInTheDocument();
   });
+
+  // ── EDIT-05: solid↔pattern stale-key mutual exclusion ─────────────────────
+
+  it('EDIT-05: clicking a pattern swatch calls onFillPatternChange(id) when provided, not onPaintProp', () => {
+    const onFillPatternChange = vi.fn();
+    const onPaintProp = vi.fn();
+    render(
+      <FillEditor
+        {...makePropsWithPattern(makeFillLayer(), {
+          isPolygon: true,
+          fillEnabled: true,
+          onFillPatternChange,
+          onPaintProp,
+        })}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Hatch' }));
+    // onFillPatternChange is preferred over onPaintProp for pattern changes
+    expect(onFillPatternChange).toHaveBeenCalledWith('geolens-fill-hatch');
+    expect(onPaintProp).not.toHaveBeenCalledWith('fill-pattern', expect.anything());
+  });
+
+  it('EDIT-05: clicking None swatch calls onFillPatternChange(undefined) when provided, not onPaintProp', () => {
+    const onFillPatternChange = vi.fn();
+    const onPaintProp = vi.fn();
+    const layer = makeFillLayer({ paint: { 'fill-color': '#3b82f6', 'fill-pattern': 'geolens-fill-hatch' } });
+    render(
+      <FillEditor
+        {...makePropsWithPattern(layer, {
+          isPolygon: true,
+          fillEnabled: true,
+          onFillPatternChange,
+          onPaintProp,
+          paint: { 'fill-color': '#3b82f6', 'fill-pattern': 'geolens-fill-hatch' },
+        })}
+      />,
+    );
+    const noneButtons = screen.getAllByRole('button', { name: 'None' });
+    fireEvent.click(noneButtons[0]);
+    expect(onFillPatternChange).toHaveBeenCalledWith(undefined);
+    expect(onPaintProp).not.toHaveBeenCalledWith('fill-pattern', expect.anything());
+  });
 });

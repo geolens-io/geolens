@@ -118,6 +118,66 @@ function visibleLayerBoundsKey(bounds: VisibleLayerBounds | null): string {
     : '';
 }
 
+/**
+ * GUARD-03 / BLDR-TILE-RACE: additive per-source vector-tile 401/403 re-sign-and-retry.
+ *
+ * During drag-from-catalog a vector source can be added and MapLibre may request a
+ * `.pbf` in the brief window BEFORE the signed `tile_url`/`sig` finishes attaching —
+ * producing a transient 401/403 that is a token-sync race, NOT a real auth failure.
+ *
+ * This helper re-signs ONLY the failing source using the token already present in
+ * `tokenMap` for that layer's own dataset_id (identical signing shape to the
+ * token-sync effect — `buildClusterTileUrl` for server-tile clusters, otherwise
+ * `buildSignedTileUrl` with the source's data-driven cols) and calls
+ * `setTiles([newUrl])` exactly once so MapLibre re-fetches with a fresh sig. It does
+ * NOT fabricate, broaden, or cross-assign a token, and never alters the raster path.
+ *
+ * Returns `true` when it re-signed and the caller should suppress the auth toast;
+ * `false` (no setTiles) when the case is non-recoverable — no matching layer, no
+ * source, source not vector, or no token in `tokenMap` for that dataset — so the
+ * caller falls through to the existing toast. One re-sign per error event; MapLibre
+ * owns the single retry, so there is no unbounded loop.
+ *
+ * HONESTY: this REDUCES the flaky race via re-sign+retry; it does NOT deterministically
+ * eliminate it. The success criterion is "no unhandled vector 403 surfaced for the
+ * recoverable case".
+ */
+export function resignVectorSourceForRetry(
+  map: MaplibreMap,
+  sourceId: string,
+  layers: MapLayerResponse[],
+  tokenMap: Map<string, TileToken>,
+  tileConfig?: { cdn_base_url?: string | null } | null,
+): boolean {
+  const layer = layers.find((l) => getSourceIdForLayer(l) === sourceId);
+  if (!layer) return false;
+
+  const token = tokenMap.get(layer.dataset_id) ?? null;
+  // Raster tiles use the nginx auth-check subrequest (Authorization header via
+  // setTransformRequest), not a query-param sig — nothing to re-sign here.
+  if (!token || token.kind === 'raster') return false;
+
+  const source = map.getSource(sourceId);
+  if (!source || source.type !== 'vector') return false;
+
+  const tileBaseUrl = getEnvConfig().TILE_BASE_URL || tileConfig?.cdn_base_url || undefined;
+  const strategy = getClusterSourceStrategy(layer);
+  const builder = layer.style_config?.builder;
+  // Mirror the token-sync effect exactly so the refreshed URL is identical in shape
+  // (just a fresh sig/exp) and MapLibre's tile cache stays warm.
+  const sharedSourceCols = strategy.kind === 'server-tile'
+    ? null
+    : getDataDrivenColumnsForSource(sourceId, layers);
+  const newUrl = strategy.kind === 'server-tile'
+    ? buildClusterTileUrl(layer.dataset_table_name, token, tileBaseUrl, undefined, {
+        clusterRadius: typeof builder?.clusterRadius === 'number' ? builder.clusterRadius : 48,
+        clusterMaxZoom: typeof builder?.clusterMaxZoom === 'number' ? builder.clusterMaxZoom : 14,
+      })
+    : buildSignedTileUrl(layer.dataset_table_name, token, tileBaseUrl, undefined, sharedSourceCols);
+  (source as VectorTileSource).setTiles([newUrl]);
+  return true;
+}
+
 export function shouldSuppressBuilderMapError(error: { message?: string; status?: number } | null | undefined) {
   if (error?.status) return false;
   const message = String(error?.message ?? '').toLowerCase();
@@ -507,6 +567,28 @@ export const BuilderMap = memo(function BuilderMap({
         // Suppress expected no-data tiles (404) and other client errors
         if (status && status >= 400 && status < 500) {
           if (status === 401 || status === 403) {
+            // GUARD-03 / BLDR-TILE-RACE: a vector `.pbf` fetched in the window
+            // before its signed token attaches yields a transient 401/403 that
+            // is a token-sync race, not a real auth failure. Re-sign the failing
+            // vector source (using the token already in tokenMap for its own
+            // dataset) so MapLibre retries with a fresh sig, and suppress the
+            // toast for that recoverable case. Raster sources and genuine
+            // no-token cases return false and fall through to the toast below.
+            const map = mapRef.current;
+            const failingSourceId = e.sourceId;
+            if (map && failingSourceId) {
+              const { layers: l, tokenMap: tm, tileConfig: tc } = syncInputsRef.current;
+              if (resignVectorSourceForRetry(map, failingSourceId, l, tm, tc)) {
+                pushReportEntry({
+                  severity: 'warning',
+                  source: 'maplibre',
+                  message: `Vector tile re-signed and retried after HTTP ${status} (BLDR-TILE-RACE)`,
+                  detail: `source: ${failingSourceId}`,
+                  suppressed: true,
+                });
+                return;
+              }
+            }
             toast.error(t('builderMap.authError', { defaultValue: 'Session expired — reload the page to restore tile access.' }), {
               id: 'builder-map-auth-error',
             });

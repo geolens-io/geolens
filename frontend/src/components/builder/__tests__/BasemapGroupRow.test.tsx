@@ -260,6 +260,28 @@ describe('BasemapGroupRow', () => {
     expect(onToggleVisibility).not.toHaveBeenCalled();
   });
 
+  // Phase 1199 STACK-02: the production basemap dock no longer passes visibilityDisabled,
+  // so by default the eye is an ENABLED button (not the locked glyph) and clicking it
+  // toggles the session-local basemap visibility. This pins the new production default.
+  it('Test 10f: without visibilityDisabled the eye is an enabled button (no locked glyph) and toggles', () => {
+    const onToggleVisibility = vi.fn();
+    render(
+      <BasemapGroupRow
+        {...defaultProps({ groupId: 'grp-default', onToggleVisibility })}
+      />,
+    );
+
+    // No locked glyph in the default (production) configuration.
+    expect(screen.queryByTestId('basemap-visibility-locked')).not.toBeInTheDocument();
+
+    // The eye renders as an enabled, interactive button that fires the toggle.
+    const eyeBtn = screen.getByRole('button', { name: /Toggle visibility/i });
+    expect(eyeBtn).toBeInTheDocument();
+    fireEvent.click(eyeBtn);
+    expect(onToggleVisibility).toHaveBeenCalledOnce();
+    expect(onToggleVisibility).toHaveBeenCalledWith('grp-default');
+  });
+
   it('Test 11: when isExpanded=true caret has rotate-90; when false no rotate class', () => {
     const { rerender } = render(<BasemapGroupRow {...defaultProps({ isExpanded: false })} />);
     const buttons = screen.getAllByRole('button');

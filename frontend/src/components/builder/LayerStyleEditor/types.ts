@@ -35,6 +35,12 @@ export interface BaseStyleEditorProps {
   onStyleConfigChange: (layerId: string, config: StyleConfig | null, paint: Record<string, unknown>) => void;
   /** Patch a single paint property (handles builder-alias routing internally). */
   onPaintProp: (key: string, value: unknown) => void;
+  /**
+   * EDIT-05: Dedicated fill-pattern change handler. Enforces mutual exclusion:
+   * setting a pattern deletes fill-color; clearing the pattern (id=undefined)
+   * deletes fill-pattern and restores fill-color. Optional — only FillEditor uses it.
+   */
+  onFillPatternChange?: (id: string | undefined) => void;
   onToggleFill: () => void;
   onToggleStroke: () => void;
   onHeatmapPaintChange: (layerId: string, nextPaint: Record<string, unknown>) => void;

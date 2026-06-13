@@ -219,6 +219,7 @@
     "jsonApply": "Aplicar",
     "jsonError": "JSON no válido",
     "jsonCancel": "Cancelar",
+    "jsonTextareaAriaLabel": "Editar JSON de {{block}}",
     "zoomRange": "Rango de zoom",
     "minZoom": "Zoom mínimo",
     "maxZoom": "Zoom máximo",
@@ -297,7 +298,9 @@
       "stretchColormapHint": "El estiramiento establece el rango de entrada para el mapa de color.",
       "pminLabel": "Bajo %",
       "pmaxLabel": "Alto %",
-      "sigmaLabel": "Sigma (σ)"
+      "sigmaLabel": "Sigma (σ)",
+      "bandCount_one": "{{count}} banda",
+      "bandCount_other": "{{count}} bandas"
     },
     "hillshade": {
       "help": "Ajuste la capa de relieve generada desde esta capa DEM.",
@@ -426,6 +429,15 @@
     "method": "Método",
     "equalInterval": "Intervalo igual",
     "quantile": "Cuantil",
+    "methodJenks": "Cortes naturales (Jenks)",
+    "methodStdDev": "Desviación estándar",
+    "methodManual": "Manual",
+    "jenksSampledHint": "Los cortes naturales se calculan a partir de una muestra representativa de la columna, no de todos los valores.",
+    "manualBreaksLabel": "Valores de corte (ascendente)",
+    "manualBreaksRowLabel": "Valor de corte {{index}}",
+    "manualBreaksAddRow": "Añadir corte",
+    "manualBreaksRemoveRow": "Eliminar corte",
+    "manualBreaksInvalid": "Introduce al menos un valor de corte en orden estrictamente ascendente.",
     "classes": "Clases",
     "categoriesWarning": "{{count}} categorías -- considere usar el modo graduado para muchos valores.",
     "target": "Objetivo",
@@ -435,7 +447,9 @@
     "sizeMin": "Tamaño mín.",
     "sizeMax": "Tamaño máx.",
     "colors": "Colores",
-    "customColors": "Colores personalizados"
+    "customColors": "Colores personalizados",
+    "reverseRamp": "Invertir",
+    "cvdSafeOnly": "Solo paletas accesibles (CVD)"
   },
   "search": {
     "title": "Agregar conjunto de datos",
@@ -748,7 +762,11 @@
     "terrainDuplicateBlocked": "El terreno 3D no se puede duplicar: un conjunto de datos solo puede generar terreno una vez.",
     "terrainDisabledSourceRemoved": "Terreno 3D desactivado: se eliminó su capa de origen.",
     "domainClearFailed": "No se pudieron borrar las restricciones de dominio",
-    "shareLinkCreated": "Enlace de compartición creado"
+    "shareLinkCreated": "Enlace de compartición creado",
+    "styleCopied": "Estilo copiado",
+    "stylePasted": "Estilo pegado",
+    "bulkStyleApplied": "Estilo aplicado a {{count}} capas",
+    "bulkStyleSkipped": "{{count}} capas omitidas (geometría incompatible)"
   },
   "builderMap": {
     "loading": "Cargando mapa...",
@@ -820,7 +838,11 @@
       "high": "Alto",
       "weightedBy": "Ponderado por: {{column}}",
       "unavailable": "(leyenda no disponible)",
-      "terrain3d": "Terreno 3D"
+      "terrain3d": "Terreno 3D",
+      "titlePlaceholder": "Título de la leyenda",
+      "editLegend": "Editar leyenda",
+      "entryLabelPlaceholder": "Etiqueta para {{name}}",
+      "resetLabel": "Restablecer al valor predeterminado"
     },
     "closePlugin": "Cerrar plugin",
     "pluginError": "Este plugin encontró un error"
@@ -881,7 +903,15 @@
     "dragPosition": "Posición actual: {{n}} de {{total}}",
     "dragDropped": "Soltado. {{name}} agregado en la posición {{n}}.",
     "dragCancelled": "Soltar cancelado.",
-    "basemapPositionChanged": "Mapa base movido a {{position}}"
+    "basemapPositionChanged": "Mapa base movido a {{position}}",
+    "shortcuts": {
+      "title": "Atajos de teclado",
+      "description": "Acelera la edición de mapas con estos atajos.",
+      "save": "Guardar mapa",
+      "pan": "Herramienta de desplazamiento",
+      "measure": "Herramienta de medición",
+      "legend": "Mostrar/ocultar leyenda"
+    }
   },
   "styleJson": {
     "title": "JSON de estilo",
@@ -940,7 +970,9 @@
     "selectRow": "Seleccionar {{name}}",
     "selectGroup": "Seleccionar {{name}}",
     "moreActions": "Más acciones",
-    "moreActionsAriaLabel": "Más acciones para {{count}} capas seleccionadas"
+    "moreActionsAriaLabel": "Más acciones para {{count}} capas seleccionadas",
+    "applyStyle": "Aplicar estilo a la selección",
+    "applyStyleAriaLabel": "Aplicar estilo a {{count}} capas seleccionadas"
   },
   "unifiedStack": {
     "title": "Capas",
@@ -956,7 +988,9 @@
     "browseAll": "Explorar todos los conjuntos de datos →",
     "browseAllShort": "Explorar catálogo →",
     "emptyHelpBody": "Busque en el catálogo para encontrar conjuntos de datos, o use el botón Cargar para agregar los suyos.",
-    "listboxLabel": "Capas del mapa"
+    "listboxLabel": "Capas del mapa",
+    "searchPlaceholder": "Filtrar capas…",
+    "searchAriaLabel": "Filtrar capas por nombre"
   },
   "rail": {
     "aiDisabled": "IA desactivada por el administrador",
@@ -989,7 +1023,11 @@
     "kebabDeleteGroup": "Eliminar grupo",
     "kebabMoveOutOfGroup": "Mover fuera del grupo",
     "labelsIndicator": "Etiquetas activadas: {{column}}",
-    "kebabGroupTrigger": "Opciones de grupo para {{name}}"
+    "kebabGroupTrigger": "Opciones de grupo para {{name}}",
+    "kebabZoomToLayer": "Acercar a la capa",
+    "kebabCopyStyle": "Copiar estilo",
+    "kebabPasteStyle": "Pegar estilo",
+    "disambiguation": "{{label}}"
   },
   "basemapGroup": {
     "addCustomBasemap": "＋ Agregar mapa base personalizado…",
@@ -1083,7 +1121,7 @@
       "keep": "Conservar capa"
     },
     "confirmRenderAs": {
-      "message": "Cambiar el modo de renderizado restablecerá el estilo actual. ¿Continuar?",
+      "message": "El estilo compatible se conserva; solo se restablecerán los ajustes específicos del modo. ¿Continuar?",
       "confirm": "Cambiar modo",
       "cancel": "Conservar estilo"
     },

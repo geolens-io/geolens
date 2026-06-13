@@ -137,6 +137,8 @@ export const BasemapGroupRow = memo(function BasemapGroupRow({
         {...(isMultiSelectionActive ? {} : dragHandleProps.listeners)}
         aria-label={t('basemapGroup.dragHandle', { defaultValue: 'Drag to reorder basemap' })}
         data-testid="basemap-drag-handle"
+        // Phase 1199 STACK-05: reveal the reorder grip on coarse-pointer/touch (parity with StackRow).
+        data-touch-reveal=""
         className={cn(
           'flex items-center justify-center cursor-grab opacity-35 group-hover/row:opacity-70 text-muted-foreground',
           'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded active:cursor-grabbing',
@@ -225,6 +227,8 @@ export const BasemapGroupRow = memo(function BasemapGroupRow({
             <button
               type="button"
               data-kebab-trigger=""
+              // Phase 1199 STACK-05: reveal the kebab on coarse-pointer/touch.
+              data-touch-reveal=""
               aria-label={t('stackRow.kebabTrigger', {
                 defaultValue: 'Layer options for {{name}}',
                 name: rowName,

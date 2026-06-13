@@ -219,6 +219,7 @@
     "jsonApply": "Appliquer",
     "jsonError": "JSON invalide",
     "jsonCancel": "Annuler",
+    "jsonTextareaAriaLabel": "Modifier le JSON {{block}}",
     "zoomRange": "Plage de zoom",
     "minZoom": "Zoom min",
     "maxZoom": "Zoom max",
@@ -297,7 +298,9 @@
       "stretchColormapHint": "L'étirement définit la plage d'entrée pour la palette de couleurs.",
       "pminLabel": "Bas %",
       "pmaxLabel": "Haut %",
-      "sigmaLabel": "Sigma (σ)"
+      "sigmaLabel": "Sigma (σ)",
+      "bandCount_one": "{{count}} bande",
+      "bandCount_other": "{{count}} bandes"
     },
     "hillshade": {
       "help": "Ajustez la couche de relief générée depuis cette couche MNE.",
@@ -426,6 +429,15 @@
     "method": "Méthode",
     "equalInterval": "Intervalles égaux",
     "quantile": "Quantile",
+    "methodJenks": "Seuils naturels (Jenks)",
+    "methodStdDev": "Écart type",
+    "methodManual": "Manuel",
+    "jenksSampledHint": "Les seuils naturels sont calculés à partir d'un échantillon représentatif de la colonne, pas de toutes les valeurs.",
+    "manualBreaksLabel": "Valeurs de seuil (croissantes)",
+    "manualBreaksRowLabel": "Valeur de seuil {{index}}",
+    "manualBreaksAddRow": "Ajouter un seuil",
+    "manualBreaksRemoveRow": "Supprimer le seuil",
+    "manualBreaksInvalid": "Saisissez au moins une valeur de seuil dans un ordre strictement croissant.",
     "classes": "Classes",
     "categoriesWarning": "{{count}} catégories — envisagez le mode gradué pour de nombreuses valeurs.",
     "target": "Cible",
@@ -435,7 +447,9 @@
     "sizeMin": "Taille min",
     "sizeMax": "Taille max",
     "colors": "Couleurs",
-    "customColors": "Couleurs personnalisées"
+    "customColors": "Couleurs personnalisées",
+    "reverseRamp": "Inverser",
+    "cvdSafeOnly": "Palettes accessibles (CVD) uniquement"
   },
   "search": {
     "title": "Ajouter un jeu de données",
@@ -748,7 +762,11 @@
     "terrainDuplicateBlocked": "Le terrain 3D ne peut pas être dupliqué : un jeu de données ne peut alimenter le terrain qu'une seule fois.",
     "terrainDisabledSourceRemoved": "Relief 3D désactivé — sa couche source a été supprimée.",
     "domainClearFailed": "Impossible d'effacer les restrictions de domaine",
-    "shareLinkCreated": "Lien de partage créé"
+    "shareLinkCreated": "Lien de partage créé",
+    "styleCopied": "Style copié",
+    "stylePasted": "Style collé",
+    "bulkStyleApplied": "Style appliqué à {{count}} couches",
+    "bulkStyleSkipped": "{{count}} couches ignorées (géométrie incompatible)"
   },
   "builderMap": {
     "loading": "Chargement de la carte...",
@@ -820,7 +838,11 @@
       "high": "Élevé",
       "weightedBy": "Pondéré par : {{column}}",
       "unavailable": "(légende indisponible)",
-      "terrain3d": "Terrain 3D"
+      "terrain3d": "Terrain 3D",
+      "titlePlaceholder": "Titre de la légende",
+      "editLegend": "Modifier la légende",
+      "entryLabelPlaceholder": "Libellé pour {{name}}",
+      "resetLabel": "Réinitialiser par défaut"
     },
     "closePlugin": "Fermer le plugin",
     "pluginError": "Ce plugin a rencontré une erreur"
@@ -881,7 +903,15 @@
     "dragPosition": "Position actuelle : {{n}} sur {{total}}",
     "dragDropped": "Déposé. {{name}} ajouté à la position {{n}}.",
     "dragCancelled": "Dépôt annulé.",
-    "basemapPositionChanged": "Fond de carte déplacé vers {{position}}"
+    "basemapPositionChanged": "Fond de carte déplacé vers {{position}}",
+    "shortcuts": {
+      "title": "Raccourcis clavier",
+      "description": "Accélérez la création de cartes avec ces raccourcis.",
+      "save": "Enregistrer la carte",
+      "pan": "Outil panoramique",
+      "measure": "Outil de mesure",
+      "legend": "Afficher/masquer la légende"
+    }
   },
   "styleJson": {
     "title": "JSON de style",
@@ -940,7 +970,9 @@
     "selectRow": "Sélectionner {{name}}",
     "selectGroup": "Sélectionner {{name}}",
     "moreActions": "Plus d'actions",
-    "moreActionsAriaLabel": "Plus d'actions pour {{count}} couches sélectionnées"
+    "moreActionsAriaLabel": "Plus d'actions pour {{count}} couches sélectionnées",
+    "applyStyle": "Appliquer le style à la sélection",
+    "applyStyleAriaLabel": "Appliquer le style à {{count}} couches sélectionnées"
   },
   "unifiedStack": {
     "title": "Couches",
@@ -956,7 +988,9 @@
     "browseAll": "Parcourir tous les jeux de données →",
     "browseAllShort": "Parcourir le catalogue →",
     "emptyHelpBody": "Recherchez dans le catalogue pour trouver des jeux de données, ou utilisez le bouton Importer pour ajouter les vôtres.",
-    "listboxLabel": "Couches de la carte"
+    "listboxLabel": "Couches de la carte",
+    "searchPlaceholder": "Filtrer les couches…",
+    "searchAriaLabel": "Filtrer les couches par nom"
   },
   "rail": {
     "aiDisabled": "IA désactivée par l'administrateur",
@@ -989,7 +1023,11 @@
     "kebabDeleteGroup": "Supprimer le groupe",
     "kebabMoveOutOfGroup": "Déplacer hors du groupe",
     "labelsIndicator": "Étiquettes activées : {{column}}",
-    "kebabGroupTrigger": "Options de groupe pour {{name}}"
+    "kebabGroupTrigger": "Options de groupe pour {{name}}",
+    "kebabZoomToLayer": "Zoomer sur la couche",
+    "kebabCopyStyle": "Copier le style",
+    "kebabPasteStyle": "Coller le style",
+    "disambiguation": "{{label}}"
   },
   "basemapGroup": {
     "addCustomBasemap": "＋ Ajouter un fond de carte personnalisé…",
@@ -1083,7 +1121,7 @@
       "keep": "Conserver la couche"
     },
     "confirmRenderAs": {
-      "message": "Changer de mode de rendu réinitialisera le style actuel. Continuer ?",
+      "message": "Le style compatible est conservé ; seuls les réglages spécifiques au mode seront réinitialisés. Continuer ?",
       "confirm": "Changer de mode",
       "cancel": "Conserver le style"
     },

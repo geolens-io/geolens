@@ -3165,6 +3165,10 @@ export type DuplicateMapResponse = {
      */
     layers: Array<MapLayerResponse>;
     /**
+     * Legend Title
+     */
+    legend_title?: string | null;
+    /**
      * Name
      */
     name: string;
@@ -4987,6 +4991,10 @@ export type MapResponse = {
      */
     layers: Array<MapLayerResponse>;
     /**
+     * Legend Title
+     */
+    legend_title?: string | null;
+    /**
      * Name
      */
     name: string;
@@ -5252,6 +5260,12 @@ export type MapUpdate = {
      * Full replacement layer list (max 200 layers)
      */
     layers?: Array<MapLayerInput> | null;
+    /**
+     * Legend Title
+     *
+     * Custom map-level legend title. Null/empty leaves the legend without a heading override (ENH-06).
+     */
+    legend_title?: string | null;
     /**
      * Name
      */
@@ -7631,6 +7645,10 @@ export type SharedMapResponse = {
      * Layers
      */
     layers: Array<SharedLayerResponse>;
+    /**
+     * Legend Title
+     */
+    legend_title?: string | null;
     /**
      * Name
      */

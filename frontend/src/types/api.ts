@@ -865,7 +865,7 @@ export interface StyleConfig {
   column: string;
   ramp: string;
   classCount?: number;
-  method?: 'equal_interval' | 'quantile';
+  method?: 'equal_interval' | 'quantile' | 'jenks' | 'std_dev' | 'manual';
   categories?: { value: string | number | null; label?: string; color: string }[];
   breaks?: number[];
   colors?: string[];
@@ -877,8 +877,16 @@ export interface StyleConfig {
   sizeLabel?: string;
   /** Optional viewer-facing label for color-driven legends. */
   colorLabel?: string;
+  /**
+   * Optional per-entry legend label override (ENH-06). When set, the legend
+   * renders this string instead of the layer's display/dataset name. Rides
+   * the free-form style_config dict — no backend schema change required.
+   */
+  legendLabel?: string;
   /** [min, max] size range selected by the user (for UI state restoration) */
   sizeRange?: [number, number];
+  /** Whether the color ramp is applied in reverse order (ENH-05). Persisted so legend/map reflect the flip. */
+  reversed?: boolean;
   /** Render mode override for specialized adapters. */
   render_mode?: 'heatmap' | 'hillshade' | 'symbol' | 'arrow' | 'cluster' | 'terrain' | 'image';
   /** Symbol/icon layer config for point datasets. */
@@ -902,6 +910,13 @@ export interface ColumnStatsResponse {
   count: number;
   mean: number | null;
   quantiles: number[];
+  /**
+   * Population standard deviation. OPTIONAL: the current column-stats endpoint
+   * does not return it, so the std-dev classification method gates on its
+   * presence rather than fabricating σ (see DataDrivenStyleEditor). Present
+   * here so the std-dev branch is correctly enabled once the backend ships it.
+   */
+  stddev?: number | null;
 }
 
 // Maps
@@ -959,6 +974,8 @@ export interface MapResponse {
   layers: MapLayerResponse[];
   layer_count: number;
   plugins?: string[] | null;
+  /** Custom map-level legend title (ENH-06). Null = no custom title. */
+  legend_title?: string | null;
   forked_from_id: string | null;
   forked_from_name: string | null;
 }
@@ -1037,6 +1054,8 @@ export interface MapUpdateRequest {
   visibility?: MapVisibility | null;
   layers?: MapLayerInput[];
   plugins?: string[] | null;
+  /** Custom map-level legend title (ENH-06). Null/empty clears it. */
+  legend_title?: string | null;
 }
 
 export interface MapLayerInput {
@@ -1159,6 +1178,8 @@ export interface SharedMapResponse {
   basemap_config?: MapBasemapConfig | null;
   terrain_config?: MapTerrainConfig | null;
   has_non_public_layers: boolean;
+  /** Custom map-level legend title (ENH-06). Null = no custom title. */
+  legend_title?: string | null;
   layers: SharedLayerResponse[];
 }
 

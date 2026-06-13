@@ -1,8 +1,8 @@
 /* eslint-disable jsx-a11y/no-static-element-interactions, jsx-a11y/no-noninteractive-tabindex -- Phase 1111 LINT-01: stack rows are composite focus targets with nested controls, so role="button"/listbox roles are intentionally avoided. */
-import { memo, useEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { memo, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { DraggableAttributes, DraggableSyntheticListeners } from '@dnd-kit/core';
-import { Eye, EyeOff, GripVertical, MoreVertical, Type } from 'lucide-react';
+import { ClipboardPaste, Copy, Crosshair, Eye, EyeOff, GripVertical, MoreVertical, Type } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import {
@@ -34,6 +34,15 @@ interface StackRowProps {
   onRemove: (id: string) => void;
   onRename: (layerId: string, newName: string | null) => void;
   onDuplicate: (id: string) => void;
+  // Phase 1201-01 (ENH-01/ENH-02): kebab authoring actions.
+  /** Frames the map to this layer's extent (ENH-01). */
+  onZoomToLayer?: (id: string) => void;
+  /** Stashes this layer's geometry-compatible style in the session clipboard (ENH-02). */
+  onCopyStyle?: (id: string) => void;
+  /** Applies the clipboard style to this layer (ENH-02); disabled when !canPasteStyle. */
+  onPasteStyle?: (id: string) => void;
+  /** True when a style is copied AND its geometry class matches THIS row's layer. */
+  canPasteStyle?: boolean;
   /** Existing user folder groups, used for the "Add to group…" sub-flow */
   existingFolderGroups?: Array<{ id: string; name: string }>;
   /** Called when user selects an existing group from the sub-list */
@@ -53,17 +62,30 @@ interface StackRowProps {
   onCheckboxClick?: (id: string) => void;
   // Phase 1042 POL-15: entry animation — set true immediately after add, cleared after 200ms
   isFresh?: boolean;
+  // Phase 1199 STACK-01: "Copy N of M" duplicate disambiguation label, computed
+  // per-layer by UnifiedStackPanel from map-stack's shared helper. Null = not a
+  // duplicate; render nothing.
+  disambiguationLabel?: string | null;
 }
 
 function TypeIcon({ layer }: { layer: MapLayerResponse }) {
   const caps = getLayerCapabilities(layer);
   const layerColors = getLayerColors(layer);
-  const styleHints = extractStyleHints(
-    layer.paint ?? {},
-    layer.layout ?? {},
-    layer.dataset_geometry_type,
-    layer.opacity,
-    layer.style_config,
+  // GUARD-04: memoize hint extraction — keyed on the exact fields extractStyleHints reads:
+  // paint (line-width/dasharray/opacity, fill-opacity, circle-radius/stroke/opacity,
+  //        _stroke-disabled, _outline-color), layout (line-dasharray fallback),
+  // dataset_geometry_type (drives per-geometry branches), opacity (layer-level),
+  // style_config (render_mode → isHeatmap).
+  const styleHints = useMemo(
+    () =>
+      extractStyleHints(
+        layer.paint ?? {},
+        layer.layout ?? {},
+        layer.dataset_geometry_type,
+        layer.opacity,
+        layer.style_config,
+      ),
+    [layer.paint, layer.layout, layer.dataset_geometry_type, layer.opacity, layer.style_config],
   );
 
   if (caps.kind === 'raster' || caps.kind === 'vrt') {
@@ -107,6 +129,10 @@ export const StackRow = memo(function StackRow({
   onRemove,
   onRename,
   onDuplicate,
+  onZoomToLayer,
+  onCopyStyle,
+  onPasteStyle,
+  canPasteStyle = false,
   existingFolderGroups = [],
   onAddToGroup,
   onCreateGroupWithLayer,
@@ -119,6 +145,7 @@ export const StackRow = memo(function StackRow({
   onShiftClick,
   onCheckboxClick,
   isFresh = false,
+  disambiguationLabel = null,
 }: StackRowProps) {
   const { t } = useTranslation('builder');
   const [editing, setEditing] = useState(false);
@@ -276,6 +303,8 @@ export const StackRow = memo(function StackRow({
           defaultValue: 'Drag to reorder {{name}}',
           name: displayName,
         })}
+        // Phase 1199 STACK-05: reveal the reorder grip on coarse-pointer/touch.
+        data-touch-reveal=""
         className="flex items-center justify-center cursor-grab opacity-35 group-hover/row:opacity-70 text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded active:cursor-grabbing"
         // 2026-05-18: do NOT add onPointerDown={stopPropagation} — it overrides
         // dnd-kit's PointerSensor activator (spread above) and breaks pointer
@@ -362,6 +391,21 @@ export const StackRow = memo(function StackRow({
                 <span className="sr-only">{t('stackRow.labelsIndicator', { column: layer.label_config!.column, defaultValue: 'Labels on: {{column}}' })}</span>
               </span>
             )}
+            {/* Phase 1199 STACK-01: live duplicate-disambiguation badge. The label
+                ("Copy N of M") is data-driven so it is rendered verbatim; the
+                hover/sr-only text is wrapped in t() for parity hygiene. Mirrors
+                the warning-tone badge visual language used in the derived stack
+                (map-stack.ts layerBadges → tone 'warning'). */}
+            {disambiguationLabel && (
+              <span
+                title={t('stackRow.disambiguation', { label: disambiguationLabel, defaultValue: '{{label}}' })}
+                data-testid="stack-row-disambiguation"
+                className="shrink-0 inline-flex items-center rounded-sm px-1 text-[10px] font-medium leading-tight bg-[var(--warning-50,oklch(0.97_0.04_85))] text-[var(--warning-700,oklch(0.45_0.12_85))]"
+              >
+                {disambiguationLabel}
+                <span className="sr-only">{t('stackRow.disambiguation', { label: disambiguationLabel, defaultValue: '{{label}}' })}</span>
+              </span>
+            )}
           </div>
         )}
       </div>
@@ -374,6 +418,8 @@ export const StackRow = memo(function StackRow({
             <button
               type="button"
               data-kebab-trigger=""
+              // Phase 1199 STACK-05: reveal the kebab on coarse-pointer/touch.
+              data-touch-reveal=""
               aria-label={t('stackRow.kebabTrigger', {
                 defaultValue: 'Layer options for {{name}}',
                 name: displayName,
@@ -476,6 +522,34 @@ export const StackRow = memo(function StackRow({
               }}
             >
               {t('stackRow.kebabDuplicate', { defaultValue: 'Duplicate' })}
+            </DropdownMenuItem>
+            {/* Phase 1201-01 ENH-01/ENH-02: zoom-to-extent + copy/paste style.
+                Paste is disabled when no compatible style is copied for this
+                row's geometry (canPasteStyle is computed per-row upstream). */}
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              data-testid="kebab-zoom-to-layer"
+              onSelect={() => onZoomToLayer?.(layer.id)}
+            >
+              <Crosshair className="h-3.5 w-3.5 me-2" aria-hidden="true" />
+              {t('stackRow.kebabZoomToLayer', { defaultValue: 'Zoom to layer' })}
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              data-testid="kebab-copy-style"
+              onSelect={() => onCopyStyle?.(layer.id)}
+            >
+              <Copy className="h-3.5 w-3.5 me-2" aria-hidden="true" />
+              {t('stackRow.kebabCopyStyle', { defaultValue: 'Copy style' })}
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              data-testid="kebab-paste-style"
+              disabled={!canPasteStyle}
+              onSelect={() => {
+                if (canPasteStyle) onPasteStyle?.(layer.id);
+              }}
+            >
+              <ClipboardPaste className="h-3.5 w-3.5 me-2" aria-hidden="true" />
+              {t('stackRow.kebabPasteStyle', { defaultValue: 'Paste style' })}
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem

@@ -304,10 +304,21 @@ function stableDatasetKey(layer: MapLayerResponse) {
   return layer.dataset_id || layer.dataset_table_name || layer.id;
 }
 
-function duplicateIndex(orderedLayers: IndexedLayer[]): LayerDuplicateIndex {
+/**
+ * Compute per-layer-id duplicate disambiguation metadata over an ordered set of
+ * layers. This is the single source of truth for the "Copy N of M" label —
+ * `duplicateIndex` (legend / derived-stack path) and the live `UnifiedStackPanel`
+ * stack-row path both consume it so the two never drift.
+ *
+ * Output is intentionally identical to the previous inline `duplicateIndex` body;
+ * `map-stack.test.ts` guards that contract.
+ */
+export function computeDisambiguationMetadata(
+  layers: MapLayerResponse[],
+): Map<string, MapStackDuplicateMetadata> {
   const datasetCounts = new Map<string, number>();
   const nameCounts = new Map<string, number>();
-  for (const { layer } of orderedLayers) {
+  for (const layer of layers) {
     const datasetKey = stableDatasetKey(layer);
     const name = displayLayerName(layer);
     datasetCounts.set(datasetKey, (datasetCounts.get(datasetKey) ?? 0) + 1);
@@ -318,7 +329,7 @@ function duplicateIndex(orderedLayers: IndexedLayer[]): LayerDuplicateIndex {
   const nameOccurrences = new Map<string, number>();
   const byLayerId = new Map<string, MapStackDuplicateMetadata>();
 
-  for (const { layer } of orderedLayers) {
+  for (const layer of layers) {
     const datasetKey = stableDatasetKey(layer);
     const name = displayLayerName(layer);
     const datasetOccurrence = (datasetOccurrences.get(datasetKey) ?? 0) + 1;
@@ -341,6 +352,28 @@ function duplicateIndex(orderedLayers: IndexedLayer[]): LayerDuplicateIndex {
     });
   }
 
+  return byLayerId;
+}
+
+/**
+ * Convenience helper for UI consumers that only need the display label per layer.
+ * Returns `Map<layerId, 'Copy N of M' | null>` over the supplied (already
+ * order-stable) layer list. Shares `computeDisambiguationMetadata` so the live
+ * stack badge and the legend/derived-stack badge always agree.
+ */
+export function computeDisambiguationLabels(
+  layers: MapLayerResponse[],
+): Map<string, string | null> {
+  const metadata = computeDisambiguationMetadata(layers);
+  const labels = new Map<string, string | null>();
+  for (const [layerId, meta] of metadata) {
+    labels.set(layerId, meta.disambiguationLabel);
+  }
+  return labels;
+}
+
+function duplicateIndex(orderedLayers: IndexedLayer[]): LayerDuplicateIndex {
+  const byLayerId = computeDisambiguationMetadata(orderedLayers.map(({ layer }) => layer));
   return { byLayerId };
 }
 

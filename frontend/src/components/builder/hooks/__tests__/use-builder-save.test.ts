@@ -140,6 +140,7 @@ function makeSaveState(overrides: Partial<SaveState> = {}): SaveState {
     terrainConfig: null,
     localName: 'Test Map',
     localDescription: 'A test',
+    legendTitle: null,
     dockNotes: '',
     mapInstanceRef: { current: createMockMap() } as unknown as SaveState['mapInstanceRef'],
     setHasUnsavedChanges: vi.fn(),

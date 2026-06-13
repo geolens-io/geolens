@@ -5511,6 +5511,17 @@
             "title": "Layers",
             "type": "array"
           },
+          "legend_title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Legend Title"
+          },
           "name": {
             "title": "Name",
             "type": "string"
@@ -8599,6 +8610,17 @@
             "title": "Layers",
             "type": "array"
           },
+          "legend_title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Legend Title"
+          },
           "name": {
             "title": "Name",
             "type": "string"
@@ -9129,6 +9151,19 @@
             ],
             "description": "Full replacement layer list (max 200 layers)",
             "title": "Layers"
+          },
+          "legend_title": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Custom map-level legend title. Null/empty leaves the legend without a heading override (ENH-06).",
+            "title": "Legend Title"
           },
           "name": {
             "anyOf": [
@@ -13136,6 +13171,17 @@
             },
             "title": "Layers",
             "type": "array"
+          },
+          "legend_title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Legend Title"
           },
           "name": {
             "title": "Name",

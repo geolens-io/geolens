@@ -171,6 +171,43 @@ async def _create_dem_dataset(test_db_session, *, created_by: uuid.UUID) -> Data
     return ds
 
 
+async def _create_multiband_non_meter_dem_dataset(
+    test_db_session, *, created_by: uuid.UUID
+) -> Dataset:
+    """A 3-band DEM whose band_info advertises a non-meter vertical unit ('feet').
+
+    Exercises both hydrated fields on a single dataset: band_count > 1 and a
+    non-meter dem_vertical_units extracted from band_info.
+    """
+    ds = await create_dataset(
+        test_db_session,
+        created_by=created_by,
+        name="Multi-band Non-meter DEM",
+        geometry_type=None,
+        source_format="geotiff",
+        source_filename="multiband_dem.tif",
+    )
+    record = await test_db_session.get(Record, ds.record_id)
+    assert record is not None
+    record.record_type = "raster_dataset"
+    test_db_session.add(
+        RasterAsset(
+            dataset_id=ds.id,
+            asset_uri=f"rasters/{ds.id}/source.cog.tif",
+            storage_backend="local",
+            is_dem=True,
+            band_count=3,
+            band_info=[
+                {"unit": "feet"},
+                {"unit": "feet"},
+                {"unit": "feet"},
+            ],
+        )
+    )
+    await test_db_session.commit()
+    return ds
+
+
 def test_layer_diff_schema_rejects_duplicate_layer_ids() -> None:
     """MapLayerDiffRequest validates duplicate updated/removed/order IDs."""
     layer_id = uuid.uuid4()
@@ -545,6 +582,79 @@ class TestUpdateMap:
         data = resp.json()
         assert data["name"] == "Updated Name"
         assert data["description"] == "Updated desc"
+
+    async def test_update_map_round_trips_legend_title_and_entry_label(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+    ):
+        """ENH-06 round-trip: a custom legend_title (map-level) and a per-entry
+        style_config.legendLabel (layer-level) both persist across save+reload.
+
+        Proves the verified storage path end-to-end: the title rides the new
+        additive maps.legend_title column; the entry label rides the free-form
+        layer style_config dict (no extra=forbid, no 422)."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await create_dataset(test_db_session, created_by=admin_id)
+
+        created = await _create_map(client, admin_auth_header)
+        map_id = created["id"]
+
+        # Add a layer carrying a per-entry legendLabel override on style_config.
+        layer_resp = await client.post(
+            f"/maps/{map_id}/layers",
+            json={
+                "dataset_id": str(ds.id),
+                "style_config": {"legendLabel": "Median household income"},
+            },
+            headers=admin_auth_header,
+        )
+        assert layer_resp.status_code == 201, layer_resp.text
+        assert layer_resp.json()["style_config"]["legendLabel"] == (
+            "Median household income"
+        )
+
+        # Set the map-level custom legend title.
+        upd = await client.put(
+            f"/maps/{map_id}",
+            json={"legend_title": "Population by tract"},
+            headers=admin_auth_header,
+        )
+        assert upd.status_code == 200, upd.text
+        assert upd.json()["legend_title"] == "Population by tract"
+
+        # Reload: both overrides must survive the round-trip.
+        fetched = await client.get(f"/maps/{map_id}", headers=admin_auth_header)
+        assert fetched.status_code == 200
+        body = fetched.json()
+        assert body["legend_title"] == "Population by tract"
+        assert body["layers"][0]["style_config"]["legendLabel"] == (
+            "Median household income"
+        )
+
+    async def test_update_map_legend_title_empty_clears_override(
+        self, client: AsyncClient, admin_auth_header: dict
+    ):
+        """ENH-06: an empty/whitespace legend_title clears the override (null)."""
+        created = await _create_map(client, admin_auth_header)
+        map_id = created["id"]
+
+        set_resp = await client.put(
+            f"/maps/{map_id}",
+            json={"legend_title": "My Legend"},
+            headers=admin_auth_header,
+        )
+        assert set_resp.status_code == 200
+        assert set_resp.json()["legend_title"] == "My Legend"
+
+        clear_resp = await client.put(
+            f"/maps/{map_id}",
+            json={"legend_title": "   "},
+            headers=admin_auth_header,
+        )
+        assert clear_resp.status_code == 200
+        assert clear_resp.json()["legend_title"] is None
 
     async def test_update_map_notes_sets_notes(
         self, client: AsyncClient, admin_auth_header: dict
@@ -1962,6 +2072,50 @@ class TestMapLayers:
         assert style_resp.status_code == 200, style_resp.text
         source = style_resp.json()["sources"][f"geolens-{ds.id}"]
         assert source["type"] == "raster-dem"
+
+    async def test_add_layer_hydrates_band_count_and_dem_vertical_units(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+    ):
+        """RHYD-01: POST /maps/{id}/layers returns real band_count + dem_vertical_units.
+
+        The add-layer response must surface the RasterAsset metadata immediately
+        (no save+reload). Before the get_dataset_meta fix both fields came back
+        None; now a multi-band non-meter DEM reports band_count == 3 and
+        dem_vertical_units == "feet", and a single-band meter DEM stays at
+        band_count == 1 / dem_vertical_units null (baseline unregressed).
+        """
+        admin_id = await get_user_id(test_db_session, "admin")
+        created = await _create_map(client, admin_auth_header)
+        map_id = created["id"]
+
+        # Multi-band, non-meter DEM exercises both hydrated fields.
+        multi_ds = await _create_multiband_non_meter_dem_dataset(
+            test_db_session, created_by=admin_id
+        )
+        resp = await client.post(
+            f"/maps/{map_id}/layers",
+            json={"dataset_id": str(multi_ds.id)},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 201, resp.text
+        data = resp.json()
+        assert data["band_count"] == 3
+        assert data["dem_vertical_units"] == "feet"
+
+        # Baseline: single-band meter DEM is unregressed.
+        meter_ds = await _create_dem_dataset(test_db_session, created_by=admin_id)
+        baseline = await client.post(
+            f"/maps/{map_id}/layers",
+            json={"dataset_id": str(meter_ds.id)},
+            headers=admin_auth_header,
+        )
+        assert baseline.status_code == 201, baseline.text
+        baseline_data = baseline.json()
+        assert baseline_data["band_count"] == 1
+        assert baseline_data["dem_vertical_units"] is None
 
     async def test_patch_add_dem_layer_persists_hillshade_render_mode(
         self,

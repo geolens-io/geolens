@@ -86,8 +86,8 @@ def _meta_to_kwargs(meta) -> DatasetMetaKwargs:
         record_type=meta.record_type,
         is_3d=meta.is_3d,
         is_dem=meta.is_dem,
-        dem_vertical_units=None,
-        band_count=None,
+        dem_vertical_units=meta.dem_vertical_units,
+        band_count=meta.band_count,
     )
 
 
@@ -290,4 +290,5 @@ def _build_map_response(
         layers=layers,
         layer_count=len(layers),
         plugins=map_obj.plugins,
+        legend_title=map_obj.legend_title,
     )

@@ -169,6 +169,7 @@ export function PublicViewerPage() {
           isOpen={isLegendOpen}
           onToggle={handleLegendToggle}
           terrainConfig={data.terrain_config ?? null}
+          legendTitle={data.legend_title ?? null}
         />
       )}
 

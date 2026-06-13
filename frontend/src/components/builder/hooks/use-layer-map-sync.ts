@@ -162,6 +162,71 @@ export function useLayerMapSync(
     [applyLayerUpdate],
   );
 
+  // Map-only side-effect for a style_config change — extracted so the bulk
+  // "Apply style to selection" handler (ENH-03, Phase 1201-01) can drive the
+  // live-map repaint per target WITHOUT triggering a second setLocalLayers
+  // (its state write is a single atomic pass). `layer` must already carry the
+  // post-merge paint + style_config.
+  const syncStyleConfigToMap = useCallback(
+    (map: MaplibreMap, layer: MapLayerResponse, paint: Record<string, unknown>) => {
+      const mapLayerId = `layer-${layer.id}`;
+      const nextConfig = layer.style_config;
+      const sourceId = getSourceIdForLayer(layer);
+
+      if (isDemTerrainVisualSuppressed({ is_dem: layer.is_dem, style_config: nextConfig })) {
+        removeColorReliefLayer(map, mapLayerId);
+        if (map.getLayer(mapLayerId)) map.removeLayer(mapLayerId);
+        if (map.getSource(sourceId)) map.removeSource(sourceId);
+        return;
+      }
+
+      if (!map.getLayer(mapLayerId)) return;
+
+      const adapterType = resolveLayerAdapterType(layer, paint, nextConfig);
+      const adapter = getAdapter(adapterType);
+      // SF-04 dedupe: read from the shared per-dataset source for
+      // non-cluster vector layers so tile URL inheritance still works.
+      const existingSource = map.getSource(sourceId) as { tiles?: string[] } | undefined;
+      const rawTileUrl = existingSource?.tiles?.[0] ?? '';
+      const tileUrl = rawTileUrl.startsWith(window.location.origin)
+        ? rawTileUrl.slice(window.location.origin.length)
+        : rawTileUrl;
+      const input: AdapterLayerInput & { style_config?: StyleConfig | null } = {
+        id: layer.id,
+        dataset_table_name: layer.dataset_table_name,
+        dataset_geometry_type: layer.dataset_geometry_type,
+        opacity: layer.opacity ?? 1,
+        visible: layer.visible,
+        paint,
+        layout: layer.layout ?? {},
+        filter: layer.filter ?? null,
+        sourceId,
+        layerId: mapLayerId,
+        sourceLayer: `data.${layer.dataset_table_name}`,
+        tileUrl,
+        is_dem: layer.is_dem,
+      };
+      input.style_config = nextConfig;
+
+      if (layer.layer_type === 'raster_geolens' && tileUrl) {
+        removeColorReliefLayer(map, mapLayerId);
+        if (map.getLayer(mapLayerId)) map.removeLayer(mapLayerId);
+        if (map.getSource(sourceId)) map.removeSource(sourceId);
+        adapter.addLayers(map, input);
+        // BUG-01: re-assert visibility after the raster re-add. The
+        // adapter's addLayers honors input.visible (raster-adapter:76-78),
+        // but this defense-in-depth call mirrors the swapLayerOnMap fix
+        // and guarantees the swap path never produces a layer in the
+        // wrong visibility state — even if a future adapter forgets the
+        // contract.
+        adapter.syncVisibility(map, input);
+      } else {
+        adapter.syncPaint(map, input);
+      }
+    },
+    [],
+  );
+
   const handleStyleConfigChange = useCallback(
     (layerId: string, config: StyleConfig | null, paint: Record<string, unknown>) => {
       applyLayerUpdate(
@@ -183,65 +248,10 @@ export function useLayerMapSync(
             paint,
           };
         },
-        (map, layer) => {
-          const mapLayerId = `layer-${layerId}`;
-          const nextConfig = layer.style_config;
-          const sourceId = getSourceIdForLayer(layer);
-
-          if (isDemTerrainVisualSuppressed({ is_dem: layer.is_dem, style_config: nextConfig })) {
-            removeColorReliefLayer(map, mapLayerId);
-            if (map.getLayer(mapLayerId)) map.removeLayer(mapLayerId);
-            if (map.getSource(sourceId)) map.removeSource(sourceId);
-            return;
-          }
-
-          if (!map.getLayer(mapLayerId)) return;
-
-          const adapterType = resolveLayerAdapterType(layer, paint, nextConfig);
-          const adapter = getAdapter(adapterType);
-          // SF-04 dedupe: read from the shared per-dataset source for
-          // non-cluster vector layers so tile URL inheritance still works.
-          const existingSource = map.getSource(sourceId) as { tiles?: string[] } | undefined;
-          const rawTileUrl = existingSource?.tiles?.[0] ?? '';
-          const tileUrl = rawTileUrl.startsWith(window.location.origin)
-            ? rawTileUrl.slice(window.location.origin.length)
-            : rawTileUrl;
-          const input: AdapterLayerInput & { style_config?: StyleConfig | null } = {
-            id: layer.id,
-            dataset_table_name: layer.dataset_table_name,
-            dataset_geometry_type: layer.dataset_geometry_type,
-            opacity: layer.opacity ?? 1,
-            visible: layer.visible,
-            paint,
-            layout: layer.layout ?? {},
-            filter: layer.filter ?? null,
-            sourceId,
-            layerId: mapLayerId,
-            sourceLayer: `data.${layer.dataset_table_name}`,
-            tileUrl,
-            is_dem: layer.is_dem,
-          };
-          input.style_config = nextConfig;
-
-          if (layer.layer_type === 'raster_geolens' && tileUrl) {
-            removeColorReliefLayer(map, mapLayerId);
-            if (map.getLayer(mapLayerId)) map.removeLayer(mapLayerId);
-            if (map.getSource(sourceId)) map.removeSource(sourceId);
-            adapter.addLayers(map, input);
-            // BUG-01: re-assert visibility after the raster re-add. The
-            // adapter's addLayers honors input.visible (raster-adapter:76-78),
-            // but this defense-in-depth call mirrors the swapLayerOnMap fix
-            // and guarantees the swap path never produces a layer in the
-            // wrong visibility state — even if a future adapter forgets the
-            // contract.
-            adapter.syncVisibility(map, input);
-          } else {
-            adapter.syncPaint(map, input);
-          }
-        },
+        (map, layer) => syncStyleConfigToMap(map, layer, paint),
       );
     },
-    [applyLayerUpdate],
+    [applyLayerUpdate, syncStyleConfigToMap],
   );
 
   const handleOpacityChange = useCallback(
@@ -520,5 +530,8 @@ export function useLayerMapSync(
     handleFilterChange,
     handleLabelChange,
     handlePopupChange,
+    // ENH-03 (Phase 1201-01): map-only style sync for bulk apply (single-setState
+    // state write is owned by the bulk handler; this only repaints the map).
+    syncStyleConfigToMap,
   };
 }

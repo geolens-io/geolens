@@ -219,6 +219,7 @@
     "jsonApply": "Anwenden",
     "jsonError": "Ungültiges JSON",
     "jsonCancel": "Abbrechen",
+    "jsonTextareaAriaLabel": "{{block}}-JSON bearbeiten",
     "zoomRange": "Zoombereich",
     "minZoom": "Min. Zoom",
     "maxZoom": "Max. Zoom",
@@ -297,7 +298,9 @@
       "stretchColormapHint": "Die Streckung legt den Eingabebereich für die Farbskala fest.",
       "pminLabel": "Niedrig %",
       "pmaxLabel": "Hoch %",
-      "sigmaLabel": "Sigma (σ)"
+      "sigmaLabel": "Sigma (σ)",
+      "bandCount_one": "{{count}} Band",
+      "bandCount_other": "{{count}} Bänder"
     },
     "hillshade": {
       "help": "Passen Sie die aus diesem DEM-Layer erzeugte Relief-Überlagerung an.",
@@ -426,6 +429,15 @@
     "method": "Methode",
     "equalInterval": "Gleiche Intervalle",
     "quantile": "Quantil",
+    "methodJenks": "Natürliche Unterbrechungen (Jenks)",
+    "methodStdDev": "Standardabweichung",
+    "methodManual": "Manuell",
+    "jenksSampledHint": "Natürliche Unterbrechungen werden aus einer repräsentativen Stichprobe der Spalte berechnet, nicht aus allen Werten.",
+    "manualBreaksLabel": "Grenzwerte (aufsteigend)",
+    "manualBreaksRowLabel": "Grenzwert {{index}}",
+    "manualBreaksAddRow": "Grenzwert hinzufügen",
+    "manualBreaksRemoveRow": "Grenzwert entfernen",
+    "manualBreaksInvalid": "Geben Sie mindestens einen Grenzwert in streng aufsteigender Reihenfolge ein.",
     "classes": "Klassen",
     "categoriesWarning": "{{count}} Kategorien -- erwägen Sie den abgestuften Modus für viele Werte.",
     "target": "Ziel",
@@ -435,7 +447,9 @@
     "sizeMin": "Min. Größe",
     "sizeMax": "Max. Größe",
     "colors": "Farben",
-    "customColors": "Benutzerdefinierte Farben"
+    "customColors": "Benutzerdefinierte Farben",
+    "reverseRamp": "Umkehren",
+    "cvdSafeOnly": "Nur barrierefreie Farbpaletten (CVD)"
   },
   "search": {
     "title": "Datensatz hinzufügen",
@@ -748,7 +762,11 @@
     "terrainDuplicateBlocked": "3D-Gelände kann nicht dupliziert werden – ein Datensatz kann Gelände nur einmal erzeugen.",
     "terrainDisabledSourceRemoved": "3D-Gelände deaktiviert – die Quellebene wurde entfernt.",
     "domainClearFailed": "Domain-Einschränkungen konnten nicht gelöscht werden",
-    "shareLinkCreated": "Freigabelink erstellt"
+    "shareLinkCreated": "Freigabelink erstellt",
+    "styleCopied": "Stil kopiert",
+    "stylePasted": "Stil eingefügt",
+    "bulkStyleApplied": "Stil auf {{count}} Ebenen angewendet",
+    "bulkStyleSkipped": "{{count}} Ebenen übersprungen (inkompatible Geometrie)"
   },
   "builderMap": {
     "loading": "Karte wird geladen...",
@@ -820,7 +838,11 @@
       "high": "Hoch",
       "weightedBy": "Gewichtet nach: {{column}}",
       "unavailable": "(Legende nicht verfügbar)",
-      "terrain3d": "3D-Gelände"
+      "terrain3d": "3D-Gelände",
+      "titlePlaceholder": "Legendentitel",
+      "editLegend": "Legende bearbeiten",
+      "entryLabelPlaceholder": "Beschriftung für {{name}}",
+      "resetLabel": "Auf Standard zurücksetzen"
     },
     "closePlugin": "Plugin schließen",
     "pluginError": "Dieses Plugin ist auf einen Fehler gestoßen"
@@ -881,7 +903,15 @@
     "dragPosition": "Aktuelle Position: {{n}} von {{total}}",
     "dragDropped": "Abgelegt. {{name}} an Position {{n}} hinzugefügt.",
     "dragCancelled": "Ablegen abgebrochen.",
-    "basemapPositionChanged": "Basiskarte nach {{position}} verschoben"
+    "basemapPositionChanged": "Basiskarte nach {{position}} verschoben",
+    "shortcuts": {
+      "title": "Tastaturkürzel",
+      "description": "Beschleunigen Sie die Kartenerstellung mit diesen Kürzeln.",
+      "save": "Karte speichern",
+      "pan": "Verschieben-Werkzeug",
+      "measure": "Mess-Werkzeug",
+      "legend": "Legende ein-/ausblenden"
+    }
   },
   "styleJson": {
     "title": "Stil-JSON",
@@ -940,7 +970,9 @@
     "selectRow": "{{name}} auswählen",
     "selectGroup": "{{name}} auswählen",
     "moreActions": "Weitere Aktionen",
-    "moreActionsAriaLabel": "Weitere Aktionen für {{count}} ausgewählte Layer"
+    "moreActionsAriaLabel": "Weitere Aktionen für {{count}} ausgewählte Layer",
+    "applyStyle": "Stil auf Auswahl anwenden",
+    "applyStyleAriaLabel": "Stil auf {{count}} ausgewählte Ebenen anwenden"
   },
   "unifiedStack": {
     "title": "Layer",
@@ -956,7 +988,9 @@
     "browseAll": "Alle Datensätze durchsuchen →",
     "browseAllShort": "Katalog durchsuchen →",
     "emptyHelpBody": "Den Katalog durchsuchen, um Datensätze zu finden, oder die Schaltfläche \"Hochladen\" verwenden, um eigene hinzuzufügen.",
-    "listboxLabel": "Karten-Layer"
+    "listboxLabel": "Karten-Layer",
+    "searchPlaceholder": "Layer filtern…",
+    "searchAriaLabel": "Layer nach Name filtern"
   },
   "rail": {
     "aiDisabled": "KI durch Administrator deaktiviert",
@@ -989,7 +1023,11 @@
     "kebabDeleteGroup": "Gruppe löschen",
     "kebabMoveOutOfGroup": "Aus Gruppe verschieben",
     "labelsIndicator": "Beschriftungen an: {{column}}",
-    "kebabGroupTrigger": "Gruppenoptionen für {{name}}"
+    "kebabGroupTrigger": "Gruppenoptionen für {{name}}",
+    "kebabZoomToLayer": "Auf Ebene zoomen",
+    "kebabCopyStyle": "Stil kopieren",
+    "kebabPasteStyle": "Stil einfügen",
+    "disambiguation": "{{label}}"
   },
   "basemapGroup": {
     "addCustomBasemap": "＋ Benutzerdefinierte Basiskarte hinzufügen…",
@@ -1083,7 +1121,7 @@
       "keep": "Layer behalten"
     },
     "confirmRenderAs": {
-      "message": "Beim Wechsel des Darstellungsmodus wird der aktuelle Stil zurückgesetzt. Fortfahren?",
+      "message": "Kompatibler Stil wird übernommen; nur modusabhängige Einstellungen werden zurückgesetzt. Fortfahren?",
       "confirm": "Modus wechseln",
       "cancel": "Stil behalten"
     },

@@ -393,6 +393,57 @@ describe('LayerFilterEditor - value input debounce (PB-04)', () => {
 // ---------------------------------------------------------------------------
 // EASY-18: featureCount empty-state hint + Clear filter button
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// EDIT-03: raw-apply empty-array ([]) must CLEAR (emit null), never persist []
+// ---------------------------------------------------------------------------
+describe('LayerFilterEditor - EDIT-03 raw-apply empty-array clear', () => {
+  function enterRawModeAndApply(
+    rawValue: string,
+    onFilterChange: (expression: FilterSpecification | null) => void,
+  ) {
+    render(createElement(LayerFilterEditor, {
+      columnInfo: columns,
+      filter: null,
+      onFilterChange,
+    }));
+
+    // Toggle into raw JSON mode (header button labelled "JSON")
+    fireEvent.click(screen.getByRole('button', { name: 'JSON' }));
+
+    const textarea = screen.getByRole('textbox');
+    fireEvent.change(textarea, { target: { value: rawValue } });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
+  }
+
+  it('EDIT-03 — applying "[]" emits onFilterChange(null), never an empty array', () => {
+    const onFilterChange = vi.fn();
+    enterRawModeAndApply('[]', onFilterChange);
+
+    expect(onFilterChange).toHaveBeenCalledTimes(1);
+    const emitted = onFilterChange.mock.calls[0][0];
+    expect(emitted).toBeNull();
+    // Hard guard: must NOT have emitted an empty array
+    expect(Array.isArray(emitted)).toBe(false);
+  });
+
+  it('EDIT-03 — applying "[]" does NOT show the "Invalid JSON" raw error', () => {
+    const onFilterChange = vi.fn();
+    enterRawModeAndApply('[]', onFilterChange);
+
+    expect(screen.queryByText('Invalid JSON')).not.toBeInTheDocument();
+  });
+
+  it('EDIT-03 — a valid non-empty raw expression still applies and does NOT take the clear path', () => {
+    const onFilterChange = vi.fn();
+    enterRawModeAndApply('["==",["get","name"],"foo"]', onFilterChange);
+
+    expect(onFilterChange).toHaveBeenCalledTimes(1);
+    expect(onFilterChange).toHaveBeenCalledWith(['==', ['get', 'name'], 'foo']);
+    expect(screen.queryByText('Invalid JSON')).not.toBeInTheDocument();
+  });
+});
+
 describe('LayerFilterEditor - EASY-18 empty-state hint', () => {
   it('EASY-18 — renders empty-state hint + Clear button when filter non-null AND featureCount=0', () => {
     const onFilterChange = vi.fn();

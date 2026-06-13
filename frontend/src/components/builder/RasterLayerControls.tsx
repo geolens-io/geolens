@@ -7,8 +7,6 @@ import { useTranslation } from 'react-i18next';
 import { StyleColorPicker } from './StyleColorPicker';
 import { RasterStretchControls } from './LayerStyleEditor/RasterStretchControls';
 import { normalizeHillshadeExaggeration } from './layer-adapters/hillshade-adapter';
-import type { StyleConfig } from '@/types/api';
-
 const RASTER_PAINT_KEYS = [
   'raster-brightness-min',
   'raster-brightness-max',
@@ -41,8 +39,6 @@ interface RasterLayerControlsProps {
   isDem?: boolean | null;
   /** Resolved band count — gates the colormap/stretch section (single vs multi-band). */
   bandCount?: number | null;
-  styleConfig?: Partial<StyleConfig> | null;
-  onStyleConfigChange?: (config: StyleConfig | null, paint: Record<string, unknown>) => void;
 }
 
 export function RasterLayerControls({

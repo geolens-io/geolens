@@ -1,6 +1,6 @@
 import { memo, useState, useMemo, useEffect, useId } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Eye, EyeOff, FolderPlus, FolderMinus, Loader2, Trash2, MoreHorizontal } from 'lucide-react';
+import { Eye, EyeOff, FolderPlus, FolderMinus, Loader2, Paintbrush, Trash2, MoreHorizontal } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Slider } from '@/components/ui/slider';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
@@ -28,6 +28,10 @@ export interface BulkActionBarProps {
   onBulkGroup: (ids: Set<string>) => void;
   onBulkUngroup: (ids: Set<string>) => void;
   onBulkDelete: (ids: Set<string>) => void;
+  /** Phase 1201-01 (ENH-03): apply the first selected (or copied) layer's style
+   *  to all geometry-compatible selected layers. Optional so existing call sites
+   *  that have not wired it compile; the menu item hides when absent. */
+  onBulkApplyStyle?: (ids: Set<string>) => void;
   /** Phase 1047-04 (PERF-03): true while bulk-delete HTTP call is in flight.
    *  Swaps Trash2 → Loader2, disables the Delete button, sets aria-busy. */
   isDeleting?: boolean;
@@ -53,6 +57,7 @@ export const BulkActionBar = memo(function BulkActionBar({
   onBulkGroup,
   onBulkUngroup,
   onBulkDelete,
+  onBulkApplyStyle,
   isDeleting = false,
 }: BulkActionBarProps) {
   const { t } = useTranslation('builder');
@@ -322,6 +327,22 @@ export const BulkActionBar = memo(function BulkActionBar({
               onPointerDown={(e) => e.stopPropagation()}
               onClick={(e) => e.stopPropagation()}
             >
+              {/* Phase 1201-01 ENH-03: apply one selected layer's style to all
+                  geometry-compatible peers. Enabled at 2+ selected; the hook
+                  filters compatibility + skips mismatches with a count toast. */}
+              {onBulkApplyStyle && (
+                <DropdownMenuItem
+                  data-testid="bulk-action-apply-style"
+                  disabled={N < 2}
+                  aria-label={t('bulkActions.applyStyleAriaLabel', { count: N })}
+                  onSelect={() => {
+                    if (N >= 2) onBulkApplyStyle(selectedIds);
+                  }}
+                >
+                  <Paintbrush className="h-3.5 w-3.5 me-2" aria-hidden="true" />
+                  {t('bulkActions.applyStyle')}
+                </DropdownMenuItem>
+              )}
               <DropdownMenuItem
                 data-testid="bulk-action-group"
                 disabled={!canGroup}

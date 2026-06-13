@@ -47,5 +47,9 @@ export function sanitizeNullableNumericFilter(
   filter: FilterSpecification | null | undefined,
 ): FilterSpecification | null {
   if (!filter) return null;
+  // EDIT-03: an empty array is not a valid maplibre filter — `map.setFilter(id, [])`
+  // throws ("filter property expected at least 1 element"). Treat it as "no filter"
+  // so it can never be persisted nor reach setFilter via any caller.
+  if (Array.isArray(filter) && filter.length === 0) return null;
   return sanitizeFilterNode(filter) as FilterSpecification;
 }

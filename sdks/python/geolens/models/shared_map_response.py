@@ -34,6 +34,7 @@ class SharedMapResponse:
         zoom (float):
         basemap_config (BasemapConfig | None | Unset):
         has_non_public_layers (bool | Unset):  Default: False.
+        legend_title (None | str | Unset):
         show_basemap_labels (bool | Unset):  Default: True.
         terrain_config (None | TerrainConfig | Unset):
     """
@@ -49,6 +50,7 @@ class SharedMapResponse:
     zoom: float
     basemap_config: BasemapConfig | None | Unset = UNSET
     has_non_public_layers: bool | Unset = False
+    legend_title: None | str | Unset = UNSET
     show_basemap_labels: bool | Unset = True
     terrain_config: None | TerrainConfig | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
@@ -89,6 +91,12 @@ class SharedMapResponse:
 
         has_non_public_layers = self.has_non_public_layers
 
+        legend_title: None | str | Unset
+        if isinstance(self.legend_title, Unset):
+            legend_title = UNSET
+        else:
+            legend_title = self.legend_title
+
         show_basemap_labels = self.show_basemap_labels
 
         terrain_config: dict[str, Any] | None | Unset
@@ -118,6 +126,8 @@ class SharedMapResponse:
             field_dict["basemap_config"] = basemap_config
         if has_non_public_layers is not UNSET:
             field_dict["has_non_public_layers"] = has_non_public_layers
+        if legend_title is not UNSET:
+            field_dict["legend_title"] = legend_title
         if show_basemap_labels is not UNSET:
             field_dict["show_basemap_labels"] = show_basemap_labels
         if terrain_config is not UNSET:
@@ -179,6 +189,15 @@ class SharedMapResponse:
 
         has_non_public_layers = d.pop("has_non_public_layers", UNSET)
 
+        def _parse_legend_title(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        legend_title = _parse_legend_title(d.pop("legend_title", UNSET))
+
         show_basemap_labels = d.pop("show_basemap_labels", UNSET)
 
         def _parse_terrain_config(data: object) -> None | TerrainConfig | Unset:
@@ -210,6 +229,7 @@ class SharedMapResponse:
             zoom=zoom,
             basemap_config=basemap_config,
             has_non_public_layers=has_non_public_layers,
+            legend_title=legend_title,
             show_basemap_labels=show_basemap_labels,
             terrain_config=terrain_config,
         )

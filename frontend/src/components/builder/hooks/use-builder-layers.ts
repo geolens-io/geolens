@@ -33,6 +33,13 @@ import {
   hydrateFolderGroupLayers,
   type GroupedLayer,
 } from '@/components/builder/folder-groups';
+import {
+  extractCopyableStyle,
+  isStyleCompatible,
+  applyCopiedStyleToLayer,
+  type CopiedStyle,
+  type GeometryStyleClass,
+} from '@/lib/builder/layer-style-clipboard';
 export { buildDuplicateRenderingInput } from '@/components/builder/hooks/builder-layer-mutations';
 
 export function useBuilderLayers(
@@ -72,11 +79,20 @@ export function useBuilderLayers(
   const [groupMeta, setGroupMeta] = useState<Record<string, { expanded: boolean }>>({});
   const [localName, setLocalName] = useState('');
   const [localDescription, setLocalDescription] = useState('');
+  // ENH-06 (Phase 1201-06): map-level custom legend title. Null = no override.
+  const [localLegendTitle, setLocalLegendTitle] = useState<string | null>(null);
   const [freshLayerId, setFreshLayerId] = useState<string | null>(null);
   // Phase 1047-04 (PERF-03): tracks in-flight bulk-delete to gate BulkActionBar spinner
   const [isDeleting, setIsDeleting] = useState(false);
   const freshLayerTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const savedLayerBaselineRef = useRef<MapLayerResponse[]>([]);
+
+  // ENH-02/ENH-03 (Phase 1201-01): session-local style clipboard. The ref holds
+  // the last-copied geometry-compatible style snapshot; the state mirror exposes
+  // its geometry class so the kebab "Paste style" item can enable/disable per-row
+  // without invalidating the stable copy/paste callbacks on every copy.
+  const copiedStyleRef = useRef<CopiedStyle | null>(null);
+  const [copiedStyleGeometryClass, setCopiedStyleGeometryClass] = useState<GeometryStyleClass | null>(null);
 
   // Mirror current layers in a ref so stable callbacks can read fresh state
   // without invalidating on every layer mutation. Without this, each layer
@@ -103,6 +119,7 @@ export function useBuilderLayers(
     handleFilterChange,
     handleLabelChange,
     handlePopupChange,
+    syncStyleConfigToMap,
   } = useLayerMapSync(localLayers, setLocalLayers, setHasUnsavedChanges, mapInstanceRef);
 
   // Initialize local state from API data (once).
@@ -134,6 +151,7 @@ export function useBuilderLayers(
       });
       setLocalName(mapData.name);
       setLocalDescription(mapData.description ?? '');
+      setLocalLegendTitle(mapData.legend_title ?? null);
       initializedRef.current = true;
     }
   }, [mapData]);
@@ -285,6 +303,126 @@ export function useBuilderLayers(
       // Silently ignore invalid bounds (e.g. out-of-range coordinates)
     }
   }, [mapInstanceRef]);
+
+  // ENH-02 (Phase 1201-01): copy a layer's geometry-compatible style into the
+  // session clipboard. Pure extraction via the clipboard helper; the geometry
+  // class is mirrored into state so the UI can enable "Paste style" per-row.
+  const handleCopyStyle = useCallback((layerId: string) => {
+    const layer = layersRef.current.find((l) => l.id === layerId);
+    if (!layer) return;
+    const copied = extractCopyableStyle(layer);
+    copiedStyleRef.current = copied;
+    setCopiedStyleGeometryClass(copied.geometryClass);
+    toast.success(t('toasts.styleCopied'));
+  }, [t]);
+
+  // ENH-02 (Phase 1201-01): paste the clipboard style onto a geometry-compatible
+  // target. Routes through handleStyleConfigChange — the SAME atomic
+  // single-setLocalLayers write path used for every style mutation — so paint +
+  // style_config land in ONE render (never field-by-field, per the
+  // applyLayerUpdate-stale-ref-clobber rule) and the live map repaints.
+  const handlePasteStyle = useCallback((layerId: string) => {
+    const copied = copiedStyleRef.current;
+    if (!copied) return;
+    const target = layersRef.current.find((l) => l.id === layerId);
+    if (!target || !isStyleCompatible(copied, target)) return;
+    const merged = applyCopiedStyleToLayer(target, copied);
+    handleStyleConfigChange(layerId, merged.style_config ?? null, merged.paint);
+    toast.success(t('toasts.stylePasted'));
+  }, [handleStyleConfigChange, t]);
+
+  // ENH-06 (Phase 1201-06): set the map-level custom legend title. Empty/null
+  // clears the override. Marks the map dirty so the save path persists it.
+  const handleLegendTitleChange = useCallback((title: string | null) => {
+    const next = title && title.trim() ? title.trim() : null;
+    setLocalLegendTitle((prev) => {
+      if (prev === next) return prev;
+      setHasUnsavedChanges(true);
+      return next;
+    });
+  }, [setHasUnsavedChanges]);
+
+  // ENH-06 (Phase 1201-06): set a per-entry legend label override on a layer's
+  // style_config.legendLabel. An empty string deletes the key (falls back to
+  // the display/dataset name). Routes through handleStyleConfigChange — the
+  // SAME atomic single-setLocalLayers write path used for every style mutation
+  // — so no field-by-field clobber (applyLayerUpdate-stale-ref-clobber rule).
+  const handleLegendLabelChange = useCallback((layerId: string, label: string) => {
+    const target = layersRef.current.find((l) => l.id === layerId);
+    if (!target) return;
+    const trimmed = label.trim();
+    const current = target.style_config ?? null;
+    const nextConfig = { ...(current ?? {}) } as StyleConfig;
+    if (trimmed) {
+      nextConfig.legendLabel = trimmed;
+    } else {
+      delete nextConfig.legendLabel;
+    }
+    const hasKeys = Object.keys(nextConfig).length > 0;
+    handleStyleConfigChange(layerId, hasKeys ? nextConfig : null, target.paint);
+  }, [handleStyleConfigChange]);
+
+  // ENH-03 (Phase 1201-01): apply one source style to every OTHER compatible
+  // selected layer in a SINGLE setLocalLayers pass (no per-field clobber).
+  // Source = the copied style if present, else the lowest-sort_order selected
+  // layer. Incompatible-geometry targets are skipped and surfaced via a count
+  // toast. No-ops when fewer than 2 compatible targets would be written.
+  const handleBulkApplyStyle = useCallback((selectedIds: Set<string>) => {
+    const current = layersRef.current;
+    const selected = current
+      .filter((l) => selectedIds.has(l.id))
+      .sort((a, b) => a.sort_order - b.sort_order);
+    if (selected.length === 0) return;
+
+    const copied = copiedStyleRef.current;
+    // Determine the source style + which selected layer (if any) authored it so
+    // we never re-apply a layer's own style onto itself.
+    let source: CopiedStyle;
+    let sourceLayerId: string | null;
+    if (copied) {
+      source = copied;
+      sourceLayerId = null; // copied style may originate from a non-selected layer
+    } else {
+      const first = selected[0];
+      source = extractCopyableStyle(first);
+      sourceLayerId = first.id;
+    }
+
+    const targets = selected.filter(
+      (l) => l.id !== sourceLayerId && isStyleCompatible(source, l),
+    );
+    if (targets.length === 0) return;
+
+    const targetIds = new Set(targets.map((l) => l.id));
+    // Count selected layers that were skipped for geometry incompatibility
+    // (exclude the source layer itself from the skip count).
+    const skipped = selected.filter(
+      (l) => l.id !== sourceLayerId && !targetIds.has(l.id),
+    ).length;
+
+    // Single atomic write — replace every compatible target in one pass
+    // (the multi-field clobber rule: never field-by-field per layer).
+    setLocalLayers((prev) =>
+      prev.map((l) => (targetIds.has(l.id) ? applyCopiedStyleToLayer(l, source) : l)),
+    );
+    setHasUnsavedChanges(true);
+
+    // Live-map sync: repaint each target via the map-ONLY adapter sync (it does
+    // NOT re-write React state — the single setLocalLayers above owns state).
+    // Gated internally on map.isStyleLoaded().
+    const map = mapInstanceRef.current;
+    if (map && map.isStyleLoaded()) {
+      for (const target of targets) {
+        const merged = applyCopiedStyleToLayer(target, source);
+        syncStyleConfigToMap(map, merged, merged.paint);
+      }
+    }
+
+    toast.success(t('toasts.bulkStyleApplied', { count: targets.length }));
+    if (skipped > 0) {
+      toast.info(t('toasts.bulkStyleSkipped', { count: skipped }));
+    }
+  }, [mapInstanceRef, syncStyleConfigToMap, t]);
 
   const handleRemove = useCallback((layerId: string) => {
     if (!mapId) return;
@@ -1329,6 +1467,9 @@ export function useBuilderLayers(
   return {
     localName, setLocalName,
     localDescription, setLocalDescription,
+    localLegendTitle, setLocalLegendTitle,
+    handleLegendTitleChange,
+    handleLegendLabelChange,
     localLayers,
     freshLayerId,
     savedLayerBaseline: savedLayerBaselineRef.current,
@@ -1360,6 +1501,11 @@ export function useBuilderLayers(
     handleRenderModeChange,
     handleLayoutChange,
     handleZoomToLayer,
+    // ENH-02/ENH-03 (Phase 1201-01): style clipboard
+    handleCopyStyle,
+    handlePasteStyle,
+    handleBulkApplyStyle,
+    copiedStyleGeometryClass,
     handleRemove,
     handleDEMTerrainBind,
     handleDEMTerrainUnbind,

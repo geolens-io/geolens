@@ -32,6 +32,8 @@ class DatasetMeta(NamedTuple):
     sample_values: dict | None
     is_3d: bool | None
     is_dem: bool | None
+    dem_vertical_units: str | None
+    band_count: int | None
 
 
 class LayerRow(NamedTuple):
@@ -88,6 +90,8 @@ async def get_dataset_meta(
             Dataset.sample_values,
             Dataset.is_3d,
             RasterAsset.is_dem,
+            RasterAsset.band_info,
+            RasterAsset.band_count,
         )
         .join(Record, Dataset.record_id == Record.id)
         .outerjoin(RasterAsset, RasterAsset.dataset_id == Dataset.id)
@@ -96,9 +100,20 @@ async def get_dataset_meta(
     row = result.one_or_none()
     if row is None:
         return None
-    values = list(row)
-    values[9] = bool(values[9]) if values[9] is not None else None
-    return DatasetMeta(*values)
+    return DatasetMeta(
+        record_type=row[0],
+        title=row[1],
+        geometry_type=row[2],
+        table_name=row[3],
+        extent=row[4],
+        column_info=row[5],
+        feature_count=row[6],
+        sample_values=row[7],
+        is_3d=row[8],
+        is_dem=bool(row[9]) if row[9] is not None else None,
+        dem_vertical_units=_extract_dem_vertical_units(row[10]),
+        band_count=row[11],
+    )
 
 
 def normalize_dem_style_config(

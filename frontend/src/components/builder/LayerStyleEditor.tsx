@@ -47,17 +47,22 @@ export { hasUnsavedStyleChanges } from './LayerStyleEditor/utils';
 function StyleControlSection({
   title,
   description,
+  headerAction,
   children,
 }: {
   title: string;
   description?: string;
+  headerAction?: React.ReactNode;
   children: React.ReactNode;
 }) {
   return (
     <section className="space-y-3 rounded-md border bg-muted/25 p-3">
-      <div className="space-y-0.5">
-        <div className="text-xs font-semibold text-foreground">{title}</div>
-        {description && <p className="text-[11px] leading-snug text-muted-foreground">{description}</p>}
+      <div className="flex items-center justify-between gap-2">
+        <div className="space-y-0.5 min-w-0">
+          <div className="text-xs font-semibold text-foreground">{title}</div>
+          {description && <p className="text-[11px] leading-snug text-muted-foreground">{description}</p>}
+        </div>
+        {headerAction}
       </div>
       {children}
     </section>
@@ -302,6 +307,27 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
     onStyleConfigChange(layer.id, nextConfig, stripLegacyBuilderPaint(paint));
   }, [layer.id, layer.style_config, onStyleConfigChange, paint, symbolConfig]);
 
+  // EDIT-05: Dedicated fill-pattern handler that enforces mutual exclusion between
+  // fill-color and fill-pattern. Setting a pattern deletes fill-color; clearing the
+  // pattern (solid / None) deletes fill-pattern. The KEY is removed — never set to
+  // undefined — so saved paint never carries both keys or an undefined value.
+  const handleFillPatternChange = useCallback((id: string | undefined) => {
+    const next = { ...paint };
+    if (id) {
+      // switching to pattern: remove fill-color, set fill-pattern
+      delete next['fill-color'];
+      next['fill-pattern'] = id;
+    } else {
+      // switching to solid / None: remove fill-pattern
+      delete next['fill-pattern'];
+      // Restore default fill-color if absent
+      if (!next['fill-color']) {
+        next['fill-color'] = FILL_DEFAULTS['fill-color'];
+      }
+    }
+    onPaintChange(layer.id, next);
+  }, [layer.id, paint, onPaintChange]);
+
   const handleResetStyle = useCallback(() => {
     if (geomType === 'fill') {
       onStyleConfigChange(layer.id, null, FILL_DEFAULTS);
@@ -351,13 +377,15 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
     onHeatmapPaintChange: handleHeatmapPaintChange,
     onSymbolConfigChange: handleSymbolConfigChange,
     onBuilderChange: updateBuilderConfig,
+    onFillPatternChange: handleFillPatternChange,
     t,
   }), [
     layer, controlPaint, isDataDriven, builderConfig, symbolConfig, renderMode,
     isPolygon, numericColumns, currentHeightCol, strokeEnabled, fillEnabled,
     clusterAvailable, onPaintChange, onLayoutChange, onStyleConfigChange,
     handlePaintProp, handleToggleFill, handleToggleStroke,
-    handleHeatmapPaintChange, handleSymbolConfigChange, updateBuilderConfig, t,
+    handleHeatmapPaintChange, handleSymbolConfigChange, updateBuilderConfig,
+    handleFillPatternChange, t,
   ]);
 
   return (
@@ -401,6 +429,19 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
           : dispatchKey === 'cluster' ? 'style.sections.clusterDescription'
           : 'style.sections.appearanceDescription',
         )}
+        headerAction={
+          <Button
+            type="button"
+            variant="ghost"
+            size="xs"
+            className="shrink-0"
+            onClick={handleResetStyle}
+            title={t('style.resetTitle')}
+          >
+            <RotateCcw className="h-3 w-3" />
+            {t('style.reset')}
+          </Button>
+        }
       >
         <RenderModeSwitch {...editorProps} dispatchKey={dispatchKey} />
 

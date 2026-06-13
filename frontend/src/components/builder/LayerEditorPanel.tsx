@@ -335,7 +335,13 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
             </div>
             {!isPureSettings && editorScene !== 'basemap-group' && editorScene !== 'basemap-sublayer' && (layer.dataset_geometry_type || caps.kind === 'raster' || caps.kind === 'vrt') && (
               <span className="text-[11px] text-muted-foreground truncate">
-                {layer.dataset_geometry_type ?? (caps.kind === 'raster' || caps.kind === 'vrt' ? '1 band' : '')}
+                {layer.dataset_geometry_type ?? (
+                  (caps.kind === 'raster' || caps.kind === 'vrt')
+                    ? (typeof layer.band_count === 'number' && layer.band_count >= 1
+                        ? t('style.raster.bandCount', { count: layer.band_count })
+                        : '')
+                    : ''
+                )}
               </span>
             )}
           </div>
@@ -450,7 +456,7 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
                             className="text-xs text-foreground"
                           >
                             {t('layerEditor.confirmRenderAs.message', {
-                              defaultValue: 'Switching render mode will reset the current style. Continue?',
+                              defaultValue: 'Compatible style is carried over; only mode-specific settings will reset. Continue?',
                             })}
                           </p>
                           <div className="flex gap-2">
@@ -490,10 +496,6 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
                       onOpacityChange={(v) => handlers.onOpacityChange(layer.id, v)}
                       isDem={layer.is_dem}
                       bandCount={layer.band_count}
-                      styleConfig={layer.style_config}
-                      onStyleConfigChange={(nextConfig, nextPaint) =>
-                        handlers.onStyleConfigChange(layer.id, nextConfig, nextPaint)
-                      }
                     />
                   ) : (
                     <LayerStyleEditor

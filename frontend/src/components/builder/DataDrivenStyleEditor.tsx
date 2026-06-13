@@ -21,14 +21,23 @@ import { ColorRampPicker } from './ColorRampPicker';
 import { useColumnValues, useColumnStats } from '@/hooks/use-maps';
 import {
   getRampColors,
+  reverseRamp,
   buildCategoricalExpression,
   buildGraduatedExpression,
   buildGraduatedSizeExpression,
   getColorProperty,
   getSizeProperty,
+  nextRotatingRamp,
+  suggestRampForMode,
 } from '@/lib/color-ramps';
 import { getLayerType } from '@/components/builder/map-sync';
-import { equalIntervalBreaks, quantileBreaks } from '@/lib/classification';
+import {
+  equalIntervalBreaks,
+  quantileBreaks,
+  jenksBreaks,
+  stdDevBreaks,
+  manualBreaks,
+} from '@/lib/classification';
 import { MAP_COLORS } from '@/lib/map-colors';
 import { isNumericColumn } from '@/lib/column-utils';
 import type { MapLayerResponse, StyleConfig } from '@/types/api';
@@ -40,6 +49,14 @@ interface DataDrivenStyleEditorProps {
     config: StyleConfig | null,
     paint: Record<string, unknown>,
   ) => void;
+  /**
+   * ENH-08: Zero-based ordinal of this layer within the map's data-driven
+   * layer set.  Used to rotate the default palette so successive freshly-added
+   * layers don't collide on the same colors.  Defaults to 0 when omitted.
+   * Only affects FRESH layers (no existingConfig.ramp); saved layers keep
+   * their persisted ramp regardless of this value.
+   */
+  rampRotationIndex?: number;
 }
 
 const TEXT_TYPES = ['character', 'text', 'varchar', 'char'];
@@ -49,21 +66,62 @@ function isTextColumn(type: string): boolean {
   return TEXT_TYPES.some((tt) => t.includes(tt));
 }
 
+type ClassificationMethod =
+  | 'quantile'
+  | 'equal_interval'
+  | 'jenks'
+  | 'std_dev'
+  | 'manual';
+
 /**
  * KISS-N2: compute classification breaks + effective class count, shared
  * between the graduated-color and graduated-size effects.
  * - quantile method: uses precomputed quantiles when available (actual class
  *   count becomes breaks.length + 1 because each break separates two classes)
  * - equal-interval: respects the requested classCount exactly
+ * - jenks: natural-breaks over the SAMPLE (server quantiles) — the raw column
+ *   is not client-side available, so this is honestly sampled, not exact.
+ * - std_dev: mean ± σ steps; only valid when stddev is available (gated in UI).
+ * - manual: user-supplied ascending breaks; invalid input yields the previous
+ *   valid set with `invalid: true` so the caller can warn instead of writing a
+ *   broken step expression.
  */
 function computeBreaks(
-  statsData: { min: number; max: number; quantiles: number[] },
-  method: 'quantile' | 'equal_interval',
+  statsData: {
+    min: number;
+    max: number;
+    quantiles: number[];
+    mean?: number | null;
+    stddev?: number | null;
+  },
+  method: ClassificationMethod,
   classCount: number,
-): { breaks: number[]; effectiveClassCount: number } {
+  manualBreakValues: number[] = [],
+): { breaks: number[]; effectiveClassCount: number; invalid: boolean } {
   let breaks: number[];
+  let invalid = false;
   if (method === 'quantile' && statsData.quantiles.length > 0) {
     breaks = quantileBreaks(statsData.quantiles);
+  } else if (method === 'jenks') {
+    // The raw column array is not client-available; classify the representative
+    // sample (server quantiles + min/max anchors), labelled "(sampled)" in UI.
+    const sample = [statsData.min, ...statsData.quantiles, statsData.max];
+    breaks = jenksBreaks(sample, classCount);
+  } else if (method === 'std_dev') {
+    if (statsData.mean != null && statsData.stddev != null) {
+      breaks = stdDevBreaks(statsData.mean, statsData.stddev, classCount);
+    } else {
+      // Should be gated in UI; fall back rather than fabricate σ.
+      breaks = equalIntervalBreaks(statsData.min, statsData.max, classCount);
+    }
+  } else if (method === 'manual') {
+    try {
+      breaks = manualBreaks(manualBreakValues);
+      if (breaks.length === 0) invalid = true;
+    } catch {
+      breaks = [];
+      invalid = true;
+    }
   } else {
     breaks = equalIntervalBreaks(statsData.min, statsData.max, classCount);
   }
@@ -71,7 +129,7 @@ function computeBreaks(
   // Quantile methods can produce duplicate boundaries when data is heavily clustered.
   breaks = [...new Set(breaks)];
   const effectiveClassCount = breaks.length + 1;
-  return { breaks, effectiveClassCount };
+  return { breaks, effectiveClassCount, invalid };
 }
 
 /** Linearly interpolate classCount values between sizeRange[0] and sizeRange[1]. */
@@ -93,6 +151,7 @@ function defaultSizeRange(tgt: 'color' | 'radius' | 'width'): [number, number] {
 export function DataDrivenStyleEditor({
   layer,
   onStyleConfigChange,
+  rampRotationIndex = 0,
 }: DataDrivenStyleEditorProps) {
   const { t } = useTranslation('builder');
   const existingConfig = layer.style_config;
@@ -101,18 +160,33 @@ export function DataDrivenStyleEditor({
     existingConfig?.mode ?? 'categorical',
   );
   const [column, setColumn] = useState<string>(existingConfig?.column ?? '');
-  const [ramp, setRamp] = useState<string>(existingConfig?.ramp ?? 'Set2');
+  // ENH-08: For fresh layers (no saved ramp) seed the default via rotating
+  // palette selection so successive adds don't all start with the same color.
+  // Saved layers always keep their persisted ramp.
+  const [ramp, setRamp] = useState<string>(
+    existingConfig?.ramp ?? nextRotatingRamp(existingConfig?.mode ?? 'categorical', rampRotationIndex),
+  );
   const [classCount, setClassCount] = useState<number>(
     existingConfig?.classCount ?? 5,
   );
-  const [method, setMethod] = useState<'equal_interval' | 'quantile'>(
+  const [method, setMethod] = useState<ClassificationMethod>(
     existingConfig?.method ?? 'equal_interval',
+  );
+  // Manual-breaks editor state — seeded from any persisted breaks so a
+  // manual config round-trips. Strings so partial/empty edits don't crash.
+  const [manualBreakInputs, setManualBreakInputs] = useState<string[]>(
+    existingConfig?.method === 'manual' && existingConfig.breaks?.length
+      ? existingConfig.breaks.map((b) => String(b))
+      : ['', ''],
   );
   const [target, setTarget] = useState<'color' | 'radius' | 'width'>(
     existingConfig?.target ?? 'color',
   );
   const [sizeRange, setSizeRange] = useState<[number, number]>(
     existingConfig?.sizeRange ?? defaultSizeRange(existingConfig?.target ?? 'color'),
+  );
+  const [reversed, setReversed] = useState<boolean>(
+    existingConfig?.reversed ?? false,
   );
 
   // Phase 20260526-builder-audit BLD-20260526-11: 200ms debounce for per-category / per-class color picker.
@@ -146,6 +220,33 @@ export function DataDrivenStyleEditor({
     columnForGraduated,
   );
 
+  // std-dev classification needs both mean and σ. The current stats endpoint
+  // returns `mean` but not `stddev`, so gate the option honestly on availability
+  // rather than fabricating σ from the quantiles.
+  const stdDevAvailable =
+    statsData?.mean != null && statsData?.stddev != null;
+
+  // Parse the manual-breaks editor inputs into numbers (ignoring blank rows),
+  // and validate strictly-ascending via manualBreaks. `manualBreaksInvalid`
+  // drives the inline warning and prevents writing a broken step expression.
+  const manualBreakValues = useMemo(
+    () =>
+      manualBreakInputs
+        .map((s) => s.trim())
+        .filter((s) => s !== '')
+        .map((s) => Number(s)),
+    [manualBreakInputs],
+  );
+  const manualBreaksInvalid = useMemo(() => {
+    if (method !== 'manual') return false;
+    if (manualBreakValues.length === 0) return true;
+    try {
+      return manualBreaks(manualBreakValues).length === 0;
+    } catch {
+      return true;
+    }
+  }, [method, manualBreakValues]);
+
   // Extract narrow paint/config slices so effects don't re-run on every paint change
   const colorPaintProp = useMemo(
     () => layer.paint?.[getColorProperty(layer.dataset_geometry_type)],
@@ -172,12 +273,14 @@ export function DataDrivenStyleEditor({
     const values = valuesData.values;
     const colorProp = getColorProperty(geomType);
 
-    // Preserve existing per-category colors when column and ramp haven't changed
+    // Preserve existing per-category colors when column and ramp haven't changed.
+    // Treat a missing `reversed` field as false (backward-compatible with saved configs).
     const ec = styleConfig;
     if (
       ec?.mode === 'categorical' &&
       ec.column === column &&
       ec.ramp === ramp &&
+      (ec.reversed ?? false) === reversed &&
       ec.categories &&
       ec.categories.length === values.length &&
       ec.categories.every((c, i) => c.value === values[i])
@@ -189,38 +292,55 @@ export function DataDrivenStyleEditor({
     const effectiveRamp = ramp === 'custom' ? 'Set2' : ramp;
     if (ramp === 'custom') setRamp(effectiveRamp);
 
-    const colors = getRampColors(effectiveRamp, Math.max(values.length, 1));
+    const rawColors = getRampColors(effectiveRamp, Math.max(values.length, 1));
+    const colors = reversed ? reverseRamp(rawColors) : rawColors;
     const valueColorMap: [unknown, string][] = values.map((v, i) => [v, colors[i]]);
     const expression = buildCategoricalExpression(column, valueColorMap, MAP_COLORS.fallback);
 
     const categories = values.map((v, i) => ({ value: v, color: colors[i] }));
-    const config: StyleConfig = { mode: 'categorical', column, ramp: effectiveRamp, categories };
+    const config: StyleConfig = { mode: 'categorical', column, ramp: effectiveRamp, reversed, categories };
     const paint = { ...layer.paint, [colorProp]: expression };
     onStyleConfigChange(layerId, config, paint);
   // eslint-disable-next-line react-hooks/exhaustive-deps -- layer.paint excluded: narrowed colorPaintProp covers the relevant slice
-  }, [column, mode, ramp, valuesData, styleConfig, geomType, colorPaintProp, layerId, onStyleConfigChange]);
+  }, [column, mode, ramp, reversed, valuesData, styleConfig, geomType, colorPaintProp, layerId, onStyleConfigChange]);
 
   // Effect 2: Graduated color styling
   useEffect(() => {
     if (!column || mode !== 'graduated' || !statsData || statsData.min === null || statsData.max === null || !Array.isArray(statsData.quantiles)) return;
     if (target !== 'color' && target) return;
 
-    const { breaks, effectiveClassCount } = computeBreaks(
-      { min: statsData.min, max: statsData.max, quantiles: statsData.quantiles },
+    const { breaks, effectiveClassCount, invalid } = computeBreaks(
+      {
+        min: statsData.min,
+        max: statsData.max,
+        quantiles: statsData.quantiles,
+        mean: statsData.mean,
+        stddev: statsData.stddev,
+      },
       method,
       classCount,
+      manualBreakValues,
     );
 
-    // Preserve existing graduated colors when config hasn't changed
+    // Don't write a broken step expression from invalid manual input — the UI
+    // shows an inline warning instead. Also bail if there are no usable breaks.
+    if (invalid || breaks.length === 0) return;
+
+    // Preserve existing graduated colors when config hasn't changed.
+    // Treat a missing `reversed` field as false (backward-compatible with saved configs).
     const ec = styleConfig;
     if (
       ec?.mode === 'graduated' &&
       ec.column === column &&
       ec.ramp === ramp &&
+      (ec.reversed ?? false) === reversed &&
       ec.method === method &&
       ec.classCount === classCount &&
       ec.colors &&
       ec.breaks &&
+      (method !== 'manual' ||
+        (ec.breaks.length === breaks.length &&
+          ec.breaks.every((b, i) => b === breaks[i]))) &&
       (!ec.target || ec.target === 'color')
     ) {
       return;
@@ -230,7 +350,8 @@ export function DataDrivenStyleEditor({
     const effectiveRamp = ramp === 'custom' ? 'YlOrRd' : ramp;
     if (ramp === 'custom') setRamp(effectiveRamp);
 
-    const colors = getRampColors(effectiveRamp, effectiveClassCount);
+    const rawColors = getRampColors(effectiveRamp, effectiveClassCount);
+    const colors = reversed ? reverseRamp(rawColors) : rawColors;
     const colorProp = getColorProperty(geomType);
     const expression = buildGraduatedExpression(column, breaks, colors);
 
@@ -238,6 +359,7 @@ export function DataDrivenStyleEditor({
       mode: 'graduated',
       column,
       ramp: effectiveRamp,
+      reversed,
       classCount,
       method,
       breaks,
@@ -247,18 +369,27 @@ export function DataDrivenStyleEditor({
     const paint = { ...layer.paint, [colorProp]: expression };
     onStyleConfigChange(layerId, config, paint);
   // eslint-disable-next-line react-hooks/exhaustive-deps -- layer.paint excluded: narrowed colorPaintProp covers the relevant slice
-  }, [column, mode, ramp, classCount, method, target, statsData, styleConfig, geomType, colorPaintProp, layerId, onStyleConfigChange]);
+  }, [column, mode, ramp, reversed, classCount, method, target, statsData, styleConfig, geomType, colorPaintProp, layerId, onStyleConfigChange, manualBreakValues]);
 
   // Effect 3: Graduated size styling (radius or width)
   useEffect(() => {
     if (!column || mode !== 'graduated' || !statsData || statsData.min === null || statsData.max === null || !Array.isArray(statsData.quantiles)) return;
     if (target === 'color' || !target) return;
 
-    const { breaks, effectiveClassCount } = computeBreaks(
-      { min: statsData.min, max: statsData.max, quantiles: statsData.quantiles },
+    const { breaks, effectiveClassCount, invalid } = computeBreaks(
+      {
+        min: statsData.min,
+        max: statsData.max,
+        quantiles: statsData.quantiles,
+        mean: statsData.mean,
+        stddev: statsData.stddev,
+      },
       method,
       classCount,
+      manualBreakValues,
     );
+
+    if (invalid || breaks.length === 0) return;
 
     // Guard: skip if existing config already matches — use classCount (local
     // state) consistently in both the guard and the written config to prevent
@@ -272,7 +403,10 @@ export function DataDrivenStyleEditor({
       ec.sizes &&
       ec.sizeRange &&
       ec.sizeRange[0] === sizeRange[0] &&
-      ec.sizeRange[1] === sizeRange[1]
+      ec.sizeRange[1] === sizeRange[1] &&
+      (method !== 'manual' ||
+        (ec.breaks?.length === breaks.length &&
+          ec.breaks.every((b, i) => b === breaks[i])))
     ) {
       return;
     }
@@ -298,7 +432,7 @@ export function DataDrivenStyleEditor({
     const paint = { ...layer.paint, [sizeProp]: sizeExpression };
     onStyleConfigChange(layerId, config, paint);
   // eslint-disable-next-line react-hooks/exhaustive-deps -- layer.paint excluded: narrowed sizePaintProp covers the relevant slice
-  }, [column, mode, ramp, classCount, method, target, sizeRange, statsData, styleConfig, geomType, sizePaintProp, layerId, onStyleConfigChange]);
+  }, [column, mode, ramp, classCount, method, target, sizeRange, statsData, styleConfig, geomType, sizePaintProp, layerId, onStyleConfigChange, manualBreakValues]);
 
   function handleClear() {
     setColumn('');
@@ -338,7 +472,10 @@ export function DataDrivenStyleEditor({
   function handleModeChange(newMode: 'categorical' | 'graduated') {
     setMode(newMode);
     setColumn('');
-    setRamp(newMode === 'categorical' ? 'Set2' : 'YlOrRd');
+    // ENH-08: suggest a data-appropriate ramp when the user switches modes.
+    // This is a mode change (not a first-add), so use the data-character
+    // default (index 0) rather than the rotation index.
+    setRamp(suggestRampForMode(newMode));
     // Reset color property to flat default to clear stale expressions from previous mode
     const colorProp = getColorProperty(layer.dataset_geometry_type);
     const nextPaint: Record<string, unknown> = { ...layer.paint, [colorProp]: MAP_COLORS.default.fill };
@@ -535,6 +672,8 @@ export function DataDrivenStyleEditor({
             mode={mode}
             customColors={ramp === 'custom' && layer.style_config?.colors ? layer.style_config.colors : undefined}
             count={mode === 'graduated' ? classCount : undefined}
+            reversed={reversed}
+            onReversedChange={setReversed}
           />
         </>
       )}
@@ -660,7 +799,7 @@ export function DataDrivenStyleEditor({
         <>
           <div className="flex items-center gap-2">
             <span className="text-xs text-muted-foreground w-20">{t('dataDriven.method')}</span>
-            <Select value={method} onValueChange={(v) => setMethod(v as 'equal_interval' | 'quantile')}>
+            <Select value={method} onValueChange={(v) => setMethod(v as ClassificationMethod)}>
               <SelectTrigger className="h-7 text-xs flex-1">
                 <SelectValue />
               </SelectTrigger>
@@ -671,11 +810,23 @@ export function DataDrivenStyleEditor({
                 <SelectItem value="quantile" className="text-xs">
                   {t('dataDriven.quantile')}
                 </SelectItem>
+                <SelectItem value="jenks" className="text-xs">
+                  {t('dataDriven.methodJenks')}
+                </SelectItem>
+                {/* std-dev needs mean + σ; disable honestly when σ is unavailable
+                    rather than fabricating it from the quantiles. */}
+                <SelectItem value="std_dev" className="text-xs" disabled={!stdDevAvailable}>
+                  {t('dataDriven.methodStdDev')}
+                </SelectItem>
+                <SelectItem value="manual" className="text-xs">
+                  {t('dataDriven.methodManual')}
+                </SelectItem>
               </SelectContent>
             </Select>
           </div>
 
-          {method === 'equal_interval' && (
+          {/* Class-count slider — drives the count for the count-based methods. */}
+          {(method === 'equal_interval' || method === 'jenks' || method === 'std_dev') && (
             <div className="flex items-center gap-2">
               <span className="text-xs text-muted-foreground w-20">{t('dataDriven.classes')}</span>
               <Slider
@@ -689,6 +840,65 @@ export function DataDrivenStyleEditor({
               <span className="text-xs text-muted-foreground w-10 text-end">
                 {classCount}
               </span>
+            </div>
+          )}
+
+          {/* Jenks operates on the server quantile sample, not the raw column —
+              label that honestly so users don't over-trust the precision. */}
+          {method === 'jenks' && (
+            <p className="text-[11px] leading-snug text-muted-foreground">
+              {t('dataDriven.jenksSampledHint')}
+            </p>
+          )}
+
+          {/* Manual-breaks editor: a small editable list of numeric inputs. */}
+          {method === 'manual' && (
+            <div className="space-y-1.5">
+              <span className="text-xs text-muted-foreground">{t('dataDriven.manualBreaksLabel')}</span>
+              <div className="space-y-1">
+                {manualBreakInputs.map((val, i) => (
+                  <div key={i} className="flex items-center gap-2">
+                    <input
+                      type="number"
+                      inputMode="decimal"
+                      value={val}
+                      aria-label={t('dataDriven.manualBreaksRowLabel', { index: i + 1 })}
+                      onChange={(e) =>
+                        setManualBreakInputs((rows) =>
+                          rows.map((r, ri) => (ri === i ? e.target.value : r)),
+                        )
+                      }
+                      className="h-7 flex-1 rounded border border-border bg-background px-2 text-xs text-foreground"
+                    />
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-6 w-6 shrink-0"
+                      disabled={manualBreakInputs.length <= 1}
+                      onClick={() =>
+                        setManualBreakInputs((rows) => rows.filter((_, ri) => ri !== i))
+                      }
+                      title={t('dataDriven.manualBreaksRemoveRow')}
+                      aria-label={t('dataDriven.manualBreaksRemoveRow')}
+                    >
+                      <X className="h-3 w-3" />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 text-xs"
+                onClick={() => setManualBreakInputs((rows) => [...rows, ''])}
+              >
+                {t('dataDriven.manualBreaksAddRow')}
+              </Button>
+              {manualBreaksInvalid && (
+                <p className="rounded-md bg-warning/15 px-2 py-1.5 text-[11px] leading-snug text-warning-foreground">
+                  {t('dataDriven.manualBreaksInvalid')}
+                </p>
+              )}
             </div>
           )}
         </>

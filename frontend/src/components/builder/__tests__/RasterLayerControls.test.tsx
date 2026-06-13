@@ -181,7 +181,6 @@ describe('RasterLayerControls', () => {
         }}
         opacity={1}
         isDem
-        styleConfig={{ render_mode: 'hillshade' }}
         onPaintChange={onPaintChange}
         onOpacityChange={vi.fn()}
       />,
@@ -210,7 +209,6 @@ describe('RasterLayerControls', () => {
         paint={{}}
         opacity={1}
         isDem
-        styleConfig={null}
         onPaintChange={vi.fn()}
         onOpacityChange={vi.fn()}
       />,
