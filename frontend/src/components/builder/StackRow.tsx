@@ -1,5 +1,5 @@
 /* eslint-disable jsx-a11y/no-static-element-interactions, jsx-a11y/no-noninteractive-tabindex -- Phase 1111 LINT-01: stack rows are composite focus targets with nested controls, so role="button"/listbox roles are intentionally avoided. */
-import { memo, useEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { memo, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { DraggableAttributes, DraggableSyntheticListeners } from '@dnd-kit/core';
 import { ClipboardPaste, Copy, Crosshair, Eye, EyeOff, GripVertical, MoreVertical, Type } from 'lucide-react';
@@ -71,12 +71,21 @@ interface StackRowProps {
 function TypeIcon({ layer }: { layer: MapLayerResponse }) {
   const caps = getLayerCapabilities(layer);
   const layerColors = getLayerColors(layer);
-  const styleHints = extractStyleHints(
-    layer.paint ?? {},
-    layer.layout ?? {},
-    layer.dataset_geometry_type,
-    layer.opacity,
-    layer.style_config,
+  // GUARD-04: memoize hint extraction — keyed on the exact fields extractStyleHints reads:
+  // paint (line-width/dasharray/opacity, fill-opacity, circle-radius/stroke/opacity,
+  //        _stroke-disabled, _outline-color), layout (line-dasharray fallback),
+  // dataset_geometry_type (drives per-geometry branches), opacity (layer-level),
+  // style_config (render_mode → isHeatmap).
+  const styleHints = useMemo(
+    () =>
+      extractStyleHints(
+        layer.paint ?? {},
+        layer.layout ?? {},
+        layer.dataset_geometry_type,
+        layer.opacity,
+        layer.style_config,
+      ),
+    [layer.paint, layer.layout, layer.dataset_geometry_type, layer.opacity, layer.style_config],
   );
 
   if (caps.kind === 'raster' || caps.kind === 'vrt') {
