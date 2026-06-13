@@ -575,6 +575,18 @@ html.dragging-active {
   box-shadow: inset 2px 0 0 var(--primary);
 }
 
+/* ── Phase 1199 STACK-05 coarse-pointer reveal ───────────────────────────── */
+
+/* On touch / hover:none devices the per-row kebabs and catalog drag grips have no
+   hover state to reveal them, so they stay at their opacity-0 rest state and become
+   unreachable. Force any control tagged data-touch-reveal to full opacity, scoped to
+   coarse pointers so fine-pointer desktop hover-reveal density is unchanged. */
+@media (hover: none), (pointer: coarse) {
+  [data-touch-reveal] {
+    opacity: 1 !important;
+  }
+}
+
 /* Phase 1042: folder group-children wash when parent is drop target (1040 carry-over) */
 /* Use :has() to select the children container when a sibling carries data-group-drop-target.
    The keyed outer wrapper div contains both FolderGroupRowWrapper (which bears the attribute)

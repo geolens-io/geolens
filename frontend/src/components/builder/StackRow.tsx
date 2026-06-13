@@ -281,6 +281,8 @@ export const StackRow = memo(function StackRow({
           defaultValue: 'Drag to reorder {{name}}',
           name: displayName,
         })}
+        // Phase 1199 STACK-05: reveal the reorder grip on coarse-pointer/touch.
+        data-touch-reveal=""
         className="flex items-center justify-center cursor-grab opacity-35 group-hover/row:opacity-70 text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded active:cursor-grabbing"
         // 2026-05-18: do NOT add onPointerDown={stopPropagation} — it overrides
         // dnd-kit's PointerSensor activator (spread above) and breaks pointer
@@ -394,6 +396,8 @@ export const StackRow = memo(function StackRow({
             <button
               type="button"
               data-kebab-trigger=""
+              // Phase 1199 STACK-05: reveal the kebab on coarse-pointer/touch.
+              data-touch-reveal=""
               aria-label={t('stackRow.kebabTrigger', {
                 defaultValue: 'Layer options for {{name}}',
                 name: displayName,

@@ -246,6 +246,8 @@ const DraggableDatasetRow = memo(function DraggableDatasetRow({
           {...attributes}
           {...listeners}
           aria-label={t('search.dragHandle', { defaultValue: 'Drag to add to map' })}
+          // Phase 1199 STACK-05: reveal the catalog drag grip on coarse-pointer/touch.
+          data-touch-reveal=""
           className="flex h-7 w-5 shrink-0 items-center justify-center cursor-grab opacity-0 group-hover/row:opacity-35 hover:opacity-70 focus-visible:opacity-70 text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded active:cursor-grabbing"
           onPointerDown={(e) => e.stopPropagation()}
           onClick={(e) => e.stopPropagation()}
@@ -336,6 +338,8 @@ const DraggableBasemapRow = memo(function DraggableBasemapRow({
           {...attributes}
           {...listeners}
           aria-label={t('search.dragHandle', { defaultValue: 'Drag to add to map' })}
+          // Phase 1199 STACK-05: reveal the catalog drag grip on coarse-pointer/touch.
+          data-touch-reveal=""
           className="flex h-7 w-5 shrink-0 items-center justify-center cursor-grab opacity-0 group-hover/row:opacity-35 hover:opacity-70 focus-visible:opacity-70 text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded active:cursor-grabbing"
           onPointerDown={(e) => e.stopPropagation()}
           onClick={(e) => e.stopPropagation()}

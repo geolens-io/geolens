@@ -296,6 +296,8 @@ export const FolderGroupRow = memo(function FolderGroupRow({
               <button
                 type="button"
                 data-kebab-trigger=""
+                // Phase 1199 STACK-05: reveal the kebab on coarse-pointer/touch.
+                data-touch-reveal=""
                 aria-label={t('stackRow.kebabGroupTrigger', {
                   defaultValue: 'Group options for {{name}}',
                   name: groupName,
