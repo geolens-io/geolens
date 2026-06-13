@@ -166,3 +166,46 @@ class TestCliInvocation:
     def test_nonexistent_dir_exits_with_usage_error(self, runner, tmp_path) -> None:
         result = runner.invoke(app, ["scan", str(tmp_path / "does-not-exist")])
         assert result.exit_code != 0
+
+
+class TestGeojsonSnifferBoundedRead:
+    """PERF-008: the .json sniffer reads only a bounded prefix, never the whole file."""
+
+    def test_does_not_read_entire_file(self, tmp_path: Path, monkeypatch) -> None:
+        # A "large" GeoJSON: small valid header followed by megabytes of filler.
+        big = tmp_path / "big.json"
+        header = b'{"type":"FeatureCollection","features":['
+        with big.open("wb") as fh:
+            fh.write(header)
+            fh.write(b"0" * (5 * 1024 * 1024))  # 5 MB of filler
+            fh.write(b"]}")
+
+        read_sizes: list[int | None] = []
+        real_open = Path.open
+
+        def tracking_open(self, *args, **kwargs):  # noqa: ANN001
+            fh = real_open(self, *args, **kwargs)
+            real_read = fh.read
+
+            def tracking_read(size=-1):  # noqa: ANN001
+                read_sizes.append(size)
+                return real_read(size)
+
+            fh.read = tracking_read  # type: ignore[method-assign]
+            return fh
+
+        monkeypatch.setattr(Path, "open", tracking_open)
+
+        assert _scan._looks_like_geojson(big, peek_bytes=1024) is True
+        # The read must be bounded by peek_bytes — never an unbounded read(-1).
+        assert read_sizes, "expected at least one bounded read"
+        assert all(s == 1024 for s in read_sizes), read_sizes
+
+    def test_still_classifies_correctly(self, tmp_path: Path) -> None:
+        gj = tmp_path / "small.json"
+        gj.write_text('{"type":"FeatureCollection","features":[]}')
+        assert _scan._looks_like_geojson(gj) is True
+
+        plain = tmp_path / "plain.json"
+        plain.write_text('{"foo": 1, "bar": 2}')
+        assert _scan._looks_like_geojson(plain) is False
