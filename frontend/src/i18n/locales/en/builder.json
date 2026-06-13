@@ -835,7 +835,11 @@
       "high": "High",
       "weightedBy": "Weighted by: {{column}}",
       "unavailable": "(legend unavailable)",
-      "terrain3d": "3D terrain"
+      "terrain3d": "3D terrain",
+      "titlePlaceholder": "Legend title",
+      "editLegend": "Edit legend",
+      "entryLabelPlaceholder": "Label for {{name}}",
+      "resetLabel": "Reset to default"
     },
     "closePlugin": "Close plugin",
     "pluginError": "This plugin encountered an error"

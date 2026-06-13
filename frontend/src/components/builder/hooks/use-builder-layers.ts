@@ -79,6 +79,8 @@ export function useBuilderLayers(
   const [groupMeta, setGroupMeta] = useState<Record<string, { expanded: boolean }>>({});
   const [localName, setLocalName] = useState('');
   const [localDescription, setLocalDescription] = useState('');
+  // ENH-06 (Phase 1201-06): map-level custom legend title. Null = no override.
+  const [localLegendTitle, setLocalLegendTitle] = useState<string | null>(null);
   const [freshLayerId, setFreshLayerId] = useState<string | null>(null);
   // Phase 1047-04 (PERF-03): tracks in-flight bulk-delete to gate BulkActionBar spinner
   const [isDeleting, setIsDeleting] = useState(false);
@@ -149,6 +151,7 @@ export function useBuilderLayers(
       });
       setLocalName(mapData.name);
       setLocalDescription(mapData.description ?? '');
+      setLocalLegendTitle(mapData.legend_title ?? null);
       initializedRef.current = true;
     }
   }, [mapData]);
@@ -327,6 +330,37 @@ export function useBuilderLayers(
     handleStyleConfigChange(layerId, merged.style_config ?? null, merged.paint);
     toast.success(t('toasts.stylePasted'));
   }, [handleStyleConfigChange, t]);
+
+  // ENH-06 (Phase 1201-06): set the map-level custom legend title. Empty/null
+  // clears the override. Marks the map dirty so the save path persists it.
+  const handleLegendTitleChange = useCallback((title: string | null) => {
+    const next = title && title.trim() ? title.trim() : null;
+    setLocalLegendTitle((prev) => {
+      if (prev === next) return prev;
+      setHasUnsavedChanges(true);
+      return next;
+    });
+  }, [setHasUnsavedChanges]);
+
+  // ENH-06 (Phase 1201-06): set a per-entry legend label override on a layer's
+  // style_config.legendLabel. An empty string deletes the key (falls back to
+  // the display/dataset name). Routes through handleStyleConfigChange — the
+  // SAME atomic single-setLocalLayers write path used for every style mutation
+  // — so no field-by-field clobber (applyLayerUpdate-stale-ref-clobber rule).
+  const handleLegendLabelChange = useCallback((layerId: string, label: string) => {
+    const target = layersRef.current.find((l) => l.id === layerId);
+    if (!target) return;
+    const trimmed = label.trim();
+    const current = target.style_config ?? null;
+    const nextConfig = { ...(current ?? {}) } as StyleConfig;
+    if (trimmed) {
+      nextConfig.legendLabel = trimmed;
+    } else {
+      delete nextConfig.legendLabel;
+    }
+    const hasKeys = Object.keys(nextConfig).length > 0;
+    handleStyleConfigChange(layerId, hasKeys ? nextConfig : null, target.paint);
+  }, [handleStyleConfigChange]);
 
   // ENH-03 (Phase 1201-01): apply one source style to every OTHER compatible
   // selected layer in a SINGLE setLocalLayers pass (no per-field clobber).
@@ -1433,6 +1467,9 @@ export function useBuilderLayers(
   return {
     localName, setLocalName,
     localDescription, setLocalDescription,
+    localLegendTitle, setLocalLegendTitle,
+    handleLegendTitleChange,
+    handleLegendLabelChange,
     localLayers,
     freshLayerId,
     savedLayerBaseline: savedLayerBaselineRef.current,

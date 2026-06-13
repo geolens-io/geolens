@@ -835,7 +835,11 @@
       "high": "Élevé",
       "weightedBy": "Pondéré par : {{column}}",
       "unavailable": "(légende indisponible)",
-      "terrain3d": "Terrain 3D"
+      "terrain3d": "Terrain 3D",
+      "titlePlaceholder": "Titre de la légende",
+      "editLegend": "Modifier la légende",
+      "entryLabelPlaceholder": "Libellé pour {{name}}",
+      "resetLabel": "Réinitialiser par défaut"
     },
     "closePlugin": "Fermer le plugin",
     "pluginError": "Ce plugin a rencontré une erreur"

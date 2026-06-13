@@ -1,4 +1,4 @@
-import { memo, useMemo } from 'react';
+import { memo, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ColorizedGeometryIcon, getLayerColors, extractStyleHints } from '@/components/map/layer-icons';
 import {
@@ -13,7 +13,7 @@ import type { MapLayerResponse, StyleConfig } from '@/types/api';
 import { MAP_COLORS } from '@/lib/map-colors';
 import { parseStepOrInterpolate } from '@/lib/normalize-style-config';
 import { inferGeometryType } from '@/lib/geo-utils';
-import { Mountain } from 'lucide-react';
+import { Mountain, Pencil, Check } from 'lucide-react';
 import {
   deriveTerrainLegendEntry,
   isDemTerrainVisualSuppressed,
@@ -79,8 +79,25 @@ type LegendLabelStyleConfig = StyleConfig & {
   colorLabel?: string;
 };
 
+/**
+ * Effective legend entry name (ENH-06): a non-empty per-entry
+ * style_config.legendLabel override wins, else the layer's display name, else
+ * the dataset name. Shared by the plugin and the viewer for parity.
+ */
+export function legendEntryName(layer: MapLayerResponse): string {
+  const override = layer.style_config?.legendLabel;
+  if (typeof override === 'string' && override.trim() !== '') return override;
+  return layer.display_name ?? layer.dataset_name;
+}
+
 export function LegendPlugin({ ctx }: { ctx: PluginContext }) {
   const { t } = useTranslation('builder');
+  const [isEditing, setIsEditing] = useState(false);
+
+  const legendTitle = ctx.legendTitle?.trim() ? ctx.legendTitle.trim() : null;
+  // The edit affordance is only available when the host wired persistence
+  // callbacks (the builder); read-only contexts (viewer/tests) hide it.
+  const canEdit = Boolean(ctx.onLegendTitleChange || ctx.onLegendLabelChange);
 
   // D-02: exclude terrain-suppressed DEM layers (render_mode:"terrain") — they
   // have no stack row and paint nothing, so they must not appear as per-layer
@@ -108,6 +125,72 @@ export function LegendPlugin({ ctx }: { ctx: PluginContext }) {
 
   return (
     <div className="space-y-0 min-w-44">
+      {/* ENH-06: custom map-level legend title + edit affordance. The title row
+          renders only when a custom title exists OR the editor is open; the
+          pencil button is always present in editable (builder) contexts. */}
+      {(legendTitle || canEdit) && (
+        <div className="flex items-center justify-between gap-1 pb-1" data-testid="legend-title-row">
+          {legendTitle ? (
+            <span className="text-xs font-semibold text-foreground truncate" data-testid="legend-title">
+              {legendTitle}
+            </span>
+          ) : (
+            <span className="text-xs text-muted-foreground/70 truncate">
+              {t('plugins.legend.titlePlaceholder')}
+            </span>
+          )}
+          {canEdit && (
+            <button
+              type="button"
+              onClick={() => setIsEditing((v) => !v)}
+              aria-pressed={isEditing}
+              aria-label={t('plugins.legend.editLegend')}
+              title={t('plugins.legend.editLegend')}
+              className="flex-shrink-0 p-0.5 rounded text-muted-foreground hover:text-foreground hover:bg-accent"
+            >
+              {isEditing ? <Check className="w-3.5 h-3.5" aria-hidden="true" /> : <Pencil className="w-3.5 h-3.5" aria-hidden="true" />}
+            </button>
+          )}
+        </div>
+      )}
+
+      {isEditing && canEdit && (
+        <div className="mb-1 space-y-1.5 rounded border border-border/50 bg-muted/30 p-1.5" data-testid="legend-editor">
+          {ctx.onLegendTitleChange && (
+            <input
+              type="text"
+              defaultValue={ctx.legendTitle ?? ''}
+              maxLength={120}
+              placeholder={t('plugins.legend.titlePlaceholder')}
+              aria-label={t('plugins.legend.titlePlaceholder')}
+              className="w-full rounded border border-border bg-background px-1.5 py-0.5 text-xs"
+              onBlur={(e) => ctx.onLegendTitleChange?.(e.target.value.trim() || null)}
+            />
+          )}
+          {ctx.onLegendLabelChange &&
+            legendLayers.map((layer) => (
+              <input
+                key={layer.id}
+                type="text"
+                defaultValue={
+                  typeof layer.style_config?.legendLabel === 'string'
+                    ? layer.style_config.legendLabel
+                    : ''
+                }
+                maxLength={120}
+                placeholder={t('plugins.legend.entryLabelPlaceholder', {
+                  name: layer.display_name ?? layer.dataset_name,
+                })}
+                aria-label={t('plugins.legend.entryLabelPlaceholder', {
+                  name: layer.display_name ?? layer.dataset_name,
+                })}
+                className="w-full rounded border border-border bg-background px-1.5 py-0.5 text-xs"
+                onBlur={(e) => ctx.onLegendLabelChange?.(layer.id, e.target.value.trim())}
+              />
+            ))}
+        </div>
+      )}
+
       {/* A1: pin the synthetic terrain entry at the top, mirroring the stack's
           relief:terrain row at the top of the relief/terrain group. */}
       {terrainEntry && (
@@ -152,13 +235,15 @@ const LegendLayerEntry = memo(function LegendLayerEntry({
     const effectiveGeom = inferGeometryType(layer.paint, layer.dataset_geometry_type);
     const swatchStyle = getSwatchStyleFromPaint(layer.paint, effectiveGeom, opacity);
     const weightCol = layer.paint?.['_heatmap-weight-column'] as string | undefined;
+    // ENH-06: per-entry legendLabel override wins over display/dataset name.
+    const entryName = legendEntryName(layer);
 
     return (
       <div>
         <div className="p-1 text-xs">
           {layer.style_config?.render_mode === 'heatmap' ? (
             <HeatmapLegend
-              name={layer.display_name ?? layer.dataset_name}
+              name={entryName}
               rampName={(layer.paint?.['_heatmap-ramp'] as string) ?? 'YlOrRd'}
               weightColumn={weightCol}
               opacity={opacity}
@@ -169,7 +254,7 @@ const LegendLayerEntry = memo(function LegendLayerEntry({
           ) : layer.style_config?.column ? (
             <>
               <div className="font-medium text-foreground mb-1 truncate">
-                {layer.display_name ?? layer.dataset_name}
+                {entryName}
               </div>
 
               {layer.style_config.mode === 'categorical' && layer.style_config.categories && (
@@ -210,7 +295,7 @@ const LegendLayerEntry = memo(function LegendLayerEntry({
                 )}
               />
               <span className="font-medium text-foreground truncate">
-                {layer.display_name ?? layer.dataset_name}
+                {entryName}
               </span>
             </div>
           )}
@@ -224,7 +309,7 @@ const LegendLayerEntry = memo(function LegendLayerEntry({
       <div>
         <div className="p-1 text-xs">
           <span className="font-medium text-foreground truncate">
-            {layer.display_name ?? layer.dataset_name}
+            {legendEntryName(layer)}
           </span>
           <span className="text-muted-foreground italic ml-1">
             {t('plugins.legend.unavailable', { defaultValue: '(legend unavailable)' })}

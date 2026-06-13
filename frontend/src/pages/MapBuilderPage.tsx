@@ -278,6 +278,7 @@ export function MapBuilderPage() {
     terrainConfig: basemapState.terrainConfig,
     localName: layers.localName,
     localDescription: layers.localDescription,
+    legendTitle: layers.localLegendTitle,
     dockNotes,
     mapInstanceRef,
     setHasUnsavedChanges: layers.setHasUnsavedChanges,
@@ -293,8 +294,26 @@ export function MapBuilderPage() {
   }, [save.maybeAutoCaptureThumbnail]);
 
   const pluginCtx = useMemo(
-    () => ({ mapInstance, layers: layers.localLayers, mapId: id!, terrainConfig: layers.localTerrainConfig }),
-    [mapInstance, layers.localLayers, id, layers.localTerrainConfig],
+    () => ({
+      mapInstance,
+      layers: layers.localLayers,
+      mapId: id!,
+      terrainConfig: layers.localTerrainConfig,
+      // ENH-06: map-level legend title + persistence callbacks for the
+      // LegendPlugin edit affordance.
+      legendTitle: layers.localLegendTitle,
+      onLegendTitleChange: layers.handleLegendTitleChange,
+      onLegendLabelChange: layers.handleLegendLabelChange,
+    }),
+    [
+      mapInstance,
+      layers.localLayers,
+      id,
+      layers.localTerrainConfig,
+      layers.localLegendTitle,
+      layers.handleLegendTitleChange,
+      layers.handleLegendLabelChange,
+    ],
   );
 
   // Phase 1135 AI-05: subscribe to map idle events with 500ms debounce to update

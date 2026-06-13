@@ -404,6 +404,8 @@ interface SaveState {
   terrainConfig: MapTerrainConfig | null;
   localName: string;
   localDescription: string;
+  /** ENH-06: custom map-level legend title. Null = no override. */
+  legendTitle: string | null;
   dockNotes: string;
   mapInstanceRef: React.RefObject<MaplibreMap | null>;
   setHasUnsavedChanges: (v: boolean) => void;
@@ -439,6 +441,7 @@ export function useBuilderSave(state: SaveState) {
       mapInstanceRef,
       localName,
       localDescription,
+      legendTitle,
       dockNotes,
       localBasemap,
       localLayers,
@@ -493,6 +496,8 @@ export function useBuilderSave(state: SaveState) {
       bearing: bearing ?? 0,
       pitch: pitch ?? 0,
       plugins: resolvePluginsPayload(id, queryClient, enabledPluginIds),
+      // ENH-06: persist the custom legend title. Empty/null clears it server-side.
+      legend_title: legendTitle && legendTitle.trim() ? legendTitle.trim() : null,
     };
     const persistableLayers = prepareLayersForPersistence(localLayers, groupMeta);
     const fullReplacementPayload: MapUpdateRequest = {
