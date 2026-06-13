@@ -77,4 +77,41 @@ describe('BasemapPicker', () => {
     expect(screen.queryByTestId('basemap-option')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { expanded: false })).toBeInTheDocument();
   });
+
+  // A11Y-03: preset card grid exposes single-select radio semantics
+  it('A11Y-03: expanded grid container has role=radiogroup', async () => {
+    const user = userEvent.setup();
+    render(<BasemapPicker value="openfreemap-positron" onChange={vi.fn()} />);
+    await user.click(screen.getByRole('button', { expanded: false }));
+    expect(screen.getByRole('radiogroup')).toBeInTheDocument();
+  });
+
+  it('A11Y-03: each preset card has role=radio and aria-checked reflects selection', async () => {
+    const user = userEvent.setup();
+    render(<BasemapPicker value="openfreemap-positron" onChange={vi.fn()} />);
+    await user.click(screen.getByRole('button', { expanded: false }));
+
+    // 4 enabled basemaps + 1 blank = 5 radio options
+    const radios = screen.getAllByRole('radio');
+    expect(radios).toHaveLength(5);
+
+    // The selected basemap (positron) should have aria-checked=true
+    const selected = radios.find((r) => r.getAttribute('aria-checked') === 'true');
+    expect(selected).toBeDefined();
+
+    // All others should have aria-checked=false
+    const unselected = radios.filter((r) => r.getAttribute('aria-checked') === 'false');
+    expect(unselected).toHaveLength(4);
+  });
+
+  it('A11Y-03: no aria-pressed on preset cards (radio replaces toggle semantics)', async () => {
+    const user = userEvent.setup();
+    render(<BasemapPicker value="openfreemap-positron" onChange={vi.fn()} />);
+    await user.click(screen.getByRole('button', { expanded: false }));
+
+    const options = screen.getAllByTestId('basemap-option');
+    for (const opt of options) {
+      expect(opt).not.toHaveAttribute('aria-pressed');
+    }
+  });
 });
