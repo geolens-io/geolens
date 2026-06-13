@@ -297,7 +297,9 @@
       "stretchColormapHint": "Die Streckung legt den Eingabebereich für die Farbskala fest.",
       "pminLabel": "Niedrig %",
       "pmaxLabel": "Hoch %",
-      "sigmaLabel": "Sigma (σ)"
+      "sigmaLabel": "Sigma (σ)",
+      "bandCount_one": "{{count}} Band",
+      "bandCount_other": "{{count}} Bänder"
     },
     "hillshade": {
       "help": "Passen Sie die aus diesem DEM-Layer erzeugte Relief-Überlagerung an.",

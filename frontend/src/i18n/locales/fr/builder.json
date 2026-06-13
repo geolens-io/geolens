@@ -297,7 +297,9 @@
       "stretchColormapHint": "L'étirement définit la plage d'entrée pour la palette de couleurs.",
       "pminLabel": "Bas %",
       "pmaxLabel": "Haut %",
-      "sigmaLabel": "Sigma (σ)"
+      "sigmaLabel": "Sigma (σ)",
+      "bandCount_one": "{{count}} bande",
+      "bandCount_other": "{{count}} bandes"
     },
     "hillshade": {
       "help": "Ajustez la couche de relief générée depuis cette couche MNE.",

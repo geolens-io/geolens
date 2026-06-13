@@ -297,7 +297,9 @@
       "stretchColormapHint": "Stretch sets the input range for the colormap.",
       "pminLabel": "Low %",
       "pmaxLabel": "High %",
-      "sigmaLabel": "Sigma (σ)"
+      "sigmaLabel": "Sigma (σ)",
+      "bandCount_one": "{{count}} band",
+      "bandCount_other": "{{count}} bands"
     },
     "hillshade": {
       "help": "Tune the relief overlay generated from this DEM layer.",

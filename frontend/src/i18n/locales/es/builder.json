@@ -297,7 +297,9 @@
       "stretchColormapHint": "El estiramiento establece el rango de entrada para el mapa de color.",
       "pminLabel": "Bajo %",
       "pmaxLabel": "Alto %",
-      "sigmaLabel": "Sigma (σ)"
+      "sigmaLabel": "Sigma (σ)",
+      "bandCount_one": "{{count}} banda",
+      "bandCount_other": "{{count}} bandas"
     },
     "hillshade": {
       "help": "Ajuste la capa de relieve generada desde esta capa DEM.",
