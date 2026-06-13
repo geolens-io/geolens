@@ -16,7 +16,10 @@
 import { client } from './client/client.gen.js';
 
 export interface GeolensClientOptions {
-  /** Base URL of the GeoLens instance, e.g. https://geolens.example.com */
+  /**
+   * Base URL of the GeoLens instance, including the `/api` prefix the
+   * deployed API is served under, e.g. https://geolens.example.com/api
+   */
   baseUrl: string;
   /** JWT bearer token. Sent as `Authorization: Bearer <token>`. */
   bearerToken?: string;
@@ -42,7 +45,7 @@ export interface GeolensClient {
  * import { searchDatasetsEndpointSearchDatasetsGet } from '@geolens/sdk';
  *
  * const sdk = createGeolensClient({
- *   baseUrl: 'https://geolens.example.com',
+ *   baseUrl: 'https://geolens.example.com/api',
  *   bearerToken: '...',
  * });
  * const resp = await searchDatasetsEndpointSearchDatasetsGet({ client: sdk.client });

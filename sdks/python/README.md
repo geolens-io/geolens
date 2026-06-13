@@ -11,6 +11,7 @@ See [docs.getgeolens.com](https://docs.getgeolens.com/) for installation, regene
 ```python
 from geolens import GeolensClient
 
-client = GeolensClient(base_url="https://geolens.example.com", bearer_token="...")
+client = GeolensClient(base_url="https://geolens.example.com/api", bearer_token="...")
+# The deployed API is served under /api — include that suffix in base_url.
 # See docs.getgeolens.com for endpoint usage examples.
 ```
