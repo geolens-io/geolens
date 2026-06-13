@@ -229,3 +229,54 @@ class TestGap021DbBindMountsReadOnly:
             # Host bind mounts start with ./ or / ; named volumes (pgdata) do not.
             if m.startswith("./") or m.startswith("/"):
                 assert m.endswith(":ro"), f"db host bind mount must be :ro: {m!r}"
+
+
+# ---------------------------------------------------------------------------
+# GAP-022: shared-staging contract — UPLOAD_STAGING_DIR is pinned, not a knob
+# ---------------------------------------------------------------------------
+
+
+class TestGap022SharedStagingContract:
+    """api, worker, titiler share one /app/staging volume; the path is fixed.
+
+    Setting UPLOAD_STAGING_DIR would desync the app's path from the unchanged
+    mount target and silently break fan-out ingest + raster tiling, so the env
+    var is pinned to the literal /app/staging (no "${UPLOAD_STAGING_DIR:-...}"
+    interpolation) on every service that declares it.
+    """
+
+    STAGING_SERVICES = ["api", "worker", "titiler"]
+
+    def test_staging_volume_mount_target_is_fixed(self, services):
+        for svc in self.STAGING_SERVICES:
+            mounts = services[svc].get("volumes", [])
+            staging = [m for m in mounts if "upload_staging" in m]
+            assert staging == ["upload_staging:/app/staging"], (
+                f"{svc} must mount the shared upload_staging volume at the fixed "
+                f"/app/staging (got {staging!r})"
+            )
+
+    def test_upload_staging_dir_env_is_pinned_not_interpolated(self):
+        """No service may expose UPLOAD_STAGING_DIR as a ${...} override.
+
+        Check the parsed env values (not raw text, which carries explanatory
+        comments): every declared value must be the literal /app/staging.
+        """
+        with COMPOSE_PATH.open() as f:
+            parsed = yaml.safe_load(f)
+        for svc, cfg in parsed["services"].items():
+            env = cfg.get("environment", {}) or {}
+            if "UPLOAD_STAGING_DIR" in env:
+                val = env["UPLOAD_STAGING_DIR"]
+                assert val == "/app/staging", (
+                    f"{svc} UPLOAD_STAGING_DIR must be pinned to /app/staging, "
+                    f"not an operator-tunable override (got {val!r})"
+                )
+
+    def test_compose_declares_upload_staging_pinned(self, services):
+        for svc in ("api", "worker"):
+            env = services[svc].get("environment", {})
+            assert env.get("UPLOAD_STAGING_DIR") == "/app/staging", (
+                f"{svc} UPLOAD_STAGING_DIR must be pinned to /app/staging "
+                f"(got {env.get('UPLOAD_STAGING_DIR')!r})"
+            )

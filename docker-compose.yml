@@ -238,6 +238,16 @@ services:
       - ./frontend:/app/frontend:ro
       - ./scripts/seed-showcase.py:/app/scripts/seed-showcase.py:ro
       - ./sdks:/app/sdks:ro
+      # GAP-022: SHARED-STAGING CONTRACT. The api, worker, and titiler services
+      # all mount this one named volume at the FIXED path /app/staging and MUST
+      # see the same files at the same absolute path (api writes the upload,
+      # worker reads it for fan-out ingest, titiler reads rasters under it). The
+      # path is therefore NOT operator-tunable in compose — UPLOAD_STAGING_DIR is
+      # pinned to /app/staging on every service below so the app's path can never
+      # drift from this mount target. To change the path, change all three mounts
+      # AND the migrate tmpfs together; a lone env override would silently break
+      # the handoff. titiler reads /app/staging via settings.upload_staging_dir's
+      # default with no env at all, so the default and this path must agree.
       - upload_staging:/app/staging
     # UVICORN_WORKERS=1 is the dev default to keep --reload working (uvicorn forbids
     # --workers > 1 with --reload). For a production deploy without --reload,
@@ -277,7 +287,10 @@ services:
       TILE_CACHE_TTL: "${TILE_CACHE_TTL:-300}"
       TILE_SIGNING_SECRET: "${TILE_SIGNING_SECRET:-}"
       UPLOAD_MAX_SIZE_MB: "${UPLOAD_MAX_SIZE_MB:-500}"
-      UPLOAD_STAGING_DIR: "${UPLOAD_STAGING_DIR:-/app/staging}"
+      # GAP-022: pinned (not "${UPLOAD_STAGING_DIR:-...}") — the staging path is
+      # fixed by the shared-volume contract above; the app's path must equal the
+      # /app/staging mount target on every service. See .env.example.
+      UPLOAD_STAGING_DIR: "/app/staging"
       UPLOAD_ALLOWED_EXTENSIONS: "${UPLOAD_ALLOWED_EXTENSIONS:-.zip,.gpkg,.geojson,.json,.csv,.tif,.tiff,.xlsx,.xls}"
       REGISTRATION_ENABLED: "${REGISTRATION_ENABLED:-false}"
       TILE_POOL_MIN_SIZE: "${TILE_POOL_MIN_SIZE:-2}"
@@ -331,7 +344,10 @@ services:
       <<: [*db-env, *auth-env, *db-ssl-env, *storage-env, *logging-env, *ai-env]
       PYTHONPATH: /app
       REDIS_URL: "${REDIS_URL:-}"
-      UPLOAD_STAGING_DIR: "${UPLOAD_STAGING_DIR:-/app/staging}"
+      # GAP-022: pinned (not "${UPLOAD_STAGING_DIR:-...}") — the staging path is
+      # fixed by the shared-volume contract above; the app's path must equal the
+      # /app/staging mount target on every service. See .env.example.
+      UPLOAD_STAGING_DIR: "/app/staging"
       WORKER_SHUTDOWN_TIMEOUT: "${WORKER_SHUTDOWN_TIMEOUT:-30}"
       # Mirror the api service: ingest tuning + procrastinate schema reach
       # the worker container so operator overrides take effect.

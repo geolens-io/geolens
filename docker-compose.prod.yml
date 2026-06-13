@@ -215,7 +215,10 @@ services:
       TILE_CACHE_TTL: "${TILE_CACHE_TTL:-300}"
       TILE_SIGNING_SECRET: "${TILE_SIGNING_SECRET:-}"
       UPLOAD_MAX_SIZE_MB: "${UPLOAD_MAX_SIZE_MB:-500}"
-      UPLOAD_STAGING_DIR: "${UPLOAD_STAGING_DIR:-/app/staging}"
+      # GAP-022: pinned — api/worker/titiler share the upload_staging volume at
+      # the fixed /app/staging mount target; the app path must equal it. Not an
+      # operator knob in compose. See docker-compose.yml + .env.example.
+      UPLOAD_STAGING_DIR: "/app/staging"
       UPLOAD_ALLOWED_EXTENSIONS: "${UPLOAD_ALLOWED_EXTENSIONS:-.zip,.gpkg,.geojson,.json,.csv,.tif,.tiff,.xlsx,.xls}"
       REGISTRATION_ENABLED: "${REGISTRATION_ENABLED:-false}"
       TILE_POOL_MIN_SIZE: "${TILE_POOL_MIN_SIZE:-2}"
@@ -257,7 +260,10 @@ services:
       <<: [*db-env, *auth-env, *db-ssl-env, *storage-env, *logging-env, *ai-env]
       PYTHONPATH: /app
       REDIS_URL: "${REDIS_URL:-}"
-      UPLOAD_STAGING_DIR: "${UPLOAD_STAGING_DIR:-/app/staging}"
+      # GAP-022: pinned — api/worker/titiler share the upload_staging volume at
+      # the fixed /app/staging mount target; the app path must equal it. Not an
+      # operator knob in compose. See docker-compose.yml + .env.example.
+      UPLOAD_STAGING_DIR: "/app/staging"
       WORKER_SHUTDOWN_TIMEOUT: "${WORKER_SHUTDOWN_TIMEOUT:-30}"
       INGEST_HTTP_TIMEOUT_SECONDS: "${INGEST_HTTP_TIMEOUT_SECONDS:-300}"
       PROCRASTINATE_SCHEMA: "${PROCRASTINATE_SCHEMA:-catalog}"
