@@ -128,6 +128,12 @@ export function MapBuilderPage() {
   // the saved map on load and applied to the live map once it's ready (effects below).
   const [localProjection, setLocalProjection] = useState<'mercator' | 'globe'>('mercator');
   const [showStyleJson, setShowStyleJson] = useState(false);
+  // Phase 1199 STACK-02: session-local basemap visibility toggle. Client-only and
+  // intentionally NOT persisted to MapBasemapConfig — a backend field is deferred to
+  // GUARD-02/Phase 1203 to avoid the extra=forbid silent-422 class. Hiding is applied
+  // by rendering BLANK_BASEMAP_ID in the live map (BuilderMap's isBlank branch) while
+  // the stack row's preset name still derives from the real basemap style.
+  const [basemapVisible, setBasemapVisible] = useState(true);
   // Phase 1135 AI-05: debounced viewport context for viewport-aware suggestion chips.
   // Updated on map idle (500ms debounce) and when the selected layer changes.
   const [viewport, setViewport] = useState<ViewportContext | undefined>(undefined);
@@ -224,6 +230,12 @@ export function MapBuilderPage() {
       if (patch.terrainConfig !== undefined) setLocalTerrainConfig(patch.terrainConfig);
     },
     [setBasemapConfig, setLocalBasemap, setLocalTerrainConfig, setShowBasemapLabels],
+  );
+  // Phase 1199 STACK-02: session-local show/hide of the basemap. Toggles the live
+  // map between the real basemap style and BLANK_BASEMAP_ID; not persisted.
+  const handleToggleBasemapVisibility = useCallback(
+    () => setBasemapVisible((v) => !v),
+    [],
   );
   // Phase 276 CODE-12: hand-rolled string keys are intentional value-equality
   // dependencies. mapData refetches (TanStack Query refetchOnReconnect /
@@ -461,11 +473,12 @@ export function MapBuilderPage() {
       id: 'basemap-group',
       presetName,
       providerLabel: undefined,
-      visible: true,
+      // Phase 1199 STACK-02: session-local visibility (was hardcoded true).
+      visible: basemapVisible,
       opacity: basemapState.config.opacity ?? 1,
       sublayers: basemapState.sublayers,
     };
-  }, [basemapState]);
+  }, [basemapState, basemapVisible]);
 
   const isBasemapExpanded = layers.groupMeta?.['basemap-group']?.expanded ?? false;
 
@@ -1307,6 +1320,7 @@ export function MapBuilderPage() {
               isBasemapExpanded={isBasemapExpanded}
               onToggleSublayerVisibility={handleToggleSublayerVisibility}
               onSublayerOpacityChange={handleSublayerOpacityChange}
+              onToggleBasemapVisibility={handleToggleBasemapVisibility}
               onSwapBasemap={() => dialogs.setShowAddData(true)}
               onResetBasemapAppearance={handleResetBasemapAppearance}
               onRenameGroup={layers.handleRenameGroup}
@@ -1427,7 +1441,9 @@ export function MapBuilderPage() {
             <Suspense fallback={<LoadingState />}>
               <BuilderMap
                 layers={layers.localLayers}
-                basemapStyle={basemapState.basemapStyle}
+                // Phase 1199 STACK-02: when the basemap is toggled off (session-local),
+                // render the blank basemap so imagery disappears while data layers remain.
+                basemapStyle={basemapVisible ? basemapState.basemapStyle : BLANK_BASEMAP_ID}
                 initialViewState={layers.initialViewState}
                 terrainConfig={basemapState.terrainConfig}
                 onMapRef={handleMapRef}

@@ -94,6 +94,8 @@ interface UnifiedStackPanelProps {
   onSublayerOpacityChange?: (sublayerId: string, opacity: number) => void;
   onSwapBasemap?: () => void;
   onResetBasemapAppearance?: () => void;
+  /** Phase 1199 STACK-02: session-local basemap show/hide toggle (no backend change). */
+  onToggleBasemapVisibility?: () => void;
   onRenameGroup?: (groupId: string, name: string) => void;
   onAddLayerToGroup?: (groupId: string) => void;
   onUngroup?: (groupId: string) => void;
@@ -675,6 +677,7 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
   onToggleSublayerVisibility,
   onSwapBasemap,
   onResetBasemapAppearance,
+  onToggleBasemapVisibility,
   onRenameGroup,
   onAddLayerToGroup,
   onUngroup,
@@ -842,6 +845,8 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
   // safeSublayerOpacityChange removed — Phase 1051 UX-02 (see destructure comment above).
   const safeSwapBasemap = onSwapBasemap ?? NOOP;
   const safeResetBasemapAppearance = onResetBasemapAppearance ?? NOOP;
+  // Phase 1199 STACK-02: session-local basemap visibility toggle.
+  const safeToggleBasemapVisibility = onToggleBasemapVisibility ?? NOOP;
   const safeRenameGroup = onRenameGroup ?? NOOP;
   const safeAddLayerToGroup = onAddLayerToGroup ?? NOOP;
   const safeUngroup = onUngroup ?? NOOP;
@@ -883,10 +888,12 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
           group={basemapGroup}
           selected={basemapGroup.id === selectedLayerId}
           isExpanded={isBasemapExpanded}
-          visibilityDisabled // basemap visibility via eye not wired in v1; disables eye button
+          // Phase 1199 STACK-02: the eye is now a real, enabled toggle wired to the
+          // session-local basemap-visibility state in MapBuilderPage. (visibilityDisabled
+          // remains a supported prop for other call paths but is no longer passed here.)
           onSelectGroup={onSelectLayer}
           onToggleExpand={safeToggleGroupExpand}
-          onToggleVisibility={() => {}}
+          onToggleVisibility={safeToggleBasemapVisibility}
           onSwapBasemap={safeSwapBasemap}
           onResetAppearance={safeResetBasemapAppearance}
           isMultiSelectionActive={isMultiSelectionActive}
