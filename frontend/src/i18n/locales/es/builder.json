@@ -903,7 +903,15 @@
     "dragPosition": "Posición actual: {{n}} de {{total}}",
     "dragDropped": "Soltado. {{name}} agregado en la posición {{n}}.",
     "dragCancelled": "Soltar cancelado.",
-    "basemapPositionChanged": "Mapa base movido a {{position}}"
+    "basemapPositionChanged": "Mapa base movido a {{position}}",
+    "shortcuts": {
+      "title": "Atajos de teclado",
+      "description": "Acelera la edición de mapas con estos atajos.",
+      "save": "Guardar mapa",
+      "pan": "Herramienta de desplazamiento",
+      "measure": "Herramienta de medición",
+      "legend": "Mostrar/ocultar leyenda"
+    }
   },
   "styleJson": {
     "title": "JSON de estilo",

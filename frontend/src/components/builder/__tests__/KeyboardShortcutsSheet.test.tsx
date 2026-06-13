@@ -53,11 +53,15 @@ describe('KeyboardShortcutsSheet', () => {
     it('? keydown on document.body opens the sheet via an external handler', () => {
       // This test validates the input-guard logic pattern.
       // The ? handler lives in MapBuilderPage — we test the guard predicate directly.
+      // Note: jsdom does not implement isContentEditable as a getter, so we guard
+      // contenteditable via getAttribute('contenteditable') === 'true' in the predicate.
       function isEditableTarget(target: EventTarget | null): boolean {
         if (!target || !(target instanceof HTMLElement)) return false;
         const tag = target.tagName;
         if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true;
+        // isContentEditable is the real-browser API; fall back to attribute check for jsdom
         if ((target as HTMLElement).isContentEditable) return true;
+        if (target.getAttribute('contenteditable') === 'true') return true;
         return false;
       }
 
@@ -65,12 +69,15 @@ describe('KeyboardShortcutsSheet', () => {
       const input = document.createElement('input');
       const textarea = document.createElement('textarea');
       const div = document.createElement('div');
-      div.contentEditable = 'true';
+      div.setAttribute('contenteditable', 'true');
+      document.body.appendChild(div);
 
       expect(isEditableTarget(body)).toBe(false);
       expect(isEditableTarget(input)).toBe(true);
       expect(isEditableTarget(textarea)).toBe(true);
       expect(isEditableTarget(div)).toBe(true);
+
+      document.body.removeChild(div);
     });
 
     it('? key does NOT open the sheet when focused in an input', () => {

@@ -907,7 +907,15 @@
     "dragPosition": "Current position: {{n}} of {{total}}",
     "dragDropped": "Dropped. {{name}} added at position {{n}}.",
     "dragCancelled": "Drop cancelled.",
-    "basemapPositionChanged": "Basemap moved to {{position}}"
+    "basemapPositionChanged": "Basemap moved to {{position}}",
+    "shortcuts": {
+      "title": "Keyboard shortcuts",
+      "description": "Speed up map authoring with these shortcuts.",
+      "save": "Save map",
+      "pan": "Pan tool",
+      "measure": "Measure tool",
+      "legend": "Toggle legend"
+    }
   },
   "styleJson": {
     "title": "Style JSON",

@@ -903,7 +903,15 @@
     "dragPosition": "Aktuelle Position: {{n}} von {{total}}",
     "dragDropped": "Abgelegt. {{name}} an Position {{n}} hinzugefügt.",
     "dragCancelled": "Ablegen abgebrochen.",
-    "basemapPositionChanged": "Basiskarte nach {{position}} verschoben"
+    "basemapPositionChanged": "Basiskarte nach {{position}} verschoben",
+    "shortcuts": {
+      "title": "Tastaturkürzel",
+      "description": "Beschleunigen Sie die Kartenerstellung mit diesen Kürzeln.",
+      "save": "Karte speichern",
+      "pan": "Verschieben-Werkzeug",
+      "measure": "Mess-Werkzeug",
+      "legend": "Legende ein-/ausblenden"
+    }
   },
   "styleJson": {
     "title": "Stil-JSON",

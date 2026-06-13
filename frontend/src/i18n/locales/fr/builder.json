@@ -903,7 +903,15 @@
     "dragPosition": "Position actuelle : {{n}} sur {{total}}",
     "dragDropped": "Déposé. {{name}} ajouté à la position {{n}}.",
     "dragCancelled": "Dépôt annulé.",
-    "basemapPositionChanged": "Fond de carte déplacé vers {{position}}"
+    "basemapPositionChanged": "Fond de carte déplacé vers {{position}}",
+    "shortcuts": {
+      "title": "Raccourcis clavier",
+      "description": "Accélérez la création de cartes avec ces raccourcis.",
+      "save": "Enregistrer la carte",
+      "pan": "Outil panoramique",
+      "measure": "Outil de mesure",
+      "legend": "Afficher/masquer la légende"
+    }
   },
   "styleJson": {
     "title": "JSON de style",
