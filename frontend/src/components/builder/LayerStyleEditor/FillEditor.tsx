@@ -35,6 +35,7 @@ export function FillEditor({
   onToggleFill,
   onToggleStroke,
   onPaintProp,
+  onFillPatternChange,
   onBuilderChange,
   isPolygon,
   numericColumns,
@@ -74,7 +75,7 @@ export function FillEditor({
           {isPolygon && (
             <FillPatternPicker
               value={typeof paint['fill-pattern'] === 'string' ? paint['fill-pattern'] : undefined}
-              onChange={(id) => onPaintProp('fill-pattern', id)}
+              onChange={onFillPatternChange ?? ((id) => onPaintProp('fill-pattern', id))}
               t={t}
             />
           )}

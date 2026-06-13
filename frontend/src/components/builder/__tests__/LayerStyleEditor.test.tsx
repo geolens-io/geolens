@@ -1217,6 +1217,72 @@ describe('LayerStyleEditor - opacity slider debounce (PB-02)', () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// EDIT-05: fill-color / fill-pattern mutual exclusion via handleFillPatternChange
+// ---------------------------------------------------------------------------
+describe('LayerStyleEditor — EDIT-05 fill-color / fill-pattern mutual exclusion', () => {
+  it('switching to a pattern emits onPaintChange paint that has fill-pattern but NOT fill-color', () => {
+    const onPaintChange = vi.fn();
+    render(
+      <LayerStyleEditor
+        layer={makeLayer({
+          dataset_geometry_type: 'Polygon',
+          paint: { 'fill-color': '#ff0000', 'fill-opacity': 0.8 },
+        })}
+        onPaintChange={onPaintChange}
+        onOpacityChange={vi.fn()}
+        onStyleConfigChange={vi.fn()}
+        onLayoutChange={vi.fn()}
+      />,
+    );
+
+    // Click the Hatch pattern swatch (rendered by FillPatternPicker inside FillEditor)
+    fireEvent.click(screen.getByRole('button', { name: 'Hatch' }));
+
+    const calls = onPaintChange.mock.calls as Array<[string, Record<string, unknown>]>;
+    expect(calls.length).toBeGreaterThan(0);
+    const emittedPaint = calls[calls.length - 1][1];
+    // Pattern key is set
+    expect(emittedPaint['fill-pattern']).toBe('geolens-fill-hatch');
+    // Color key is DELETED — not undefined, completely absent
+    expect('fill-color' in emittedPaint).toBe(false);
+    // No undefined values in the emitted paint object
+    const undefinedValues = Object.values(emittedPaint).filter((v) => v === undefined);
+    expect(undefinedValues).toHaveLength(0);
+  });
+
+  it('clearing a pattern (None) emits onPaintChange paint that has fill-color but NOT fill-pattern', () => {
+    const onPaintChange = vi.fn();
+    render(
+      <LayerStyleEditor
+        layer={makeLayer({
+          dataset_geometry_type: 'Polygon',
+          paint: { 'fill-pattern': 'geolens-fill-hatch', 'fill-opacity': 0.8 },
+        })}
+        onPaintChange={onPaintChange}
+        onOpacityChange={vi.fn()}
+        onStyleConfigChange={vi.fn()}
+        onLayoutChange={vi.fn()}
+      />,
+    );
+
+    // Click the None swatch (first button with label "None" in the FillPatternPicker)
+    const noneButtons = screen.getAllByRole('button', { name: 'None' });
+    fireEvent.click(noneButtons[0]);
+
+    const calls = onPaintChange.mock.calls as Array<[string, Record<string, unknown>]>;
+    expect(calls.length).toBeGreaterThan(0);
+    const emittedPaint = calls[calls.length - 1][1];
+    // fill-pattern key is DELETED — completely absent, not set to undefined
+    expect('fill-pattern' in emittedPaint).toBe(false);
+    // fill-color is restored
+    expect(typeof emittedPaint['fill-color']).toBe('string');
+    // No undefined values
+    const undefinedValues = Object.values(emittedPaint).filter((v) => v === undefined);
+    expect(undefinedValues).toHaveLength(0);
+  });
+});
+
 describe('LayerStyleEditor — POLISH-01 single render-as control', () => {
   it('point layer (geomType=circle) renders NO render-as section heading inside LayerStyleEditor', () => {
     render(

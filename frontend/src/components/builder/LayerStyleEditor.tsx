@@ -302,6 +302,27 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
     onStyleConfigChange(layer.id, nextConfig, stripLegacyBuilderPaint(paint));
   }, [layer.id, layer.style_config, onStyleConfigChange, paint, symbolConfig]);
 
+  // EDIT-05: Dedicated fill-pattern handler that enforces mutual exclusion between
+  // fill-color and fill-pattern. Setting a pattern deletes fill-color; clearing the
+  // pattern (solid / None) deletes fill-pattern. The KEY is removed — never set to
+  // undefined — so saved paint never carries both keys or an undefined value.
+  const handleFillPatternChange = useCallback((id: string | undefined) => {
+    const next = { ...paint };
+    if (id) {
+      // switching to pattern: remove fill-color, set fill-pattern
+      delete next['fill-color'];
+      next['fill-pattern'] = id;
+    } else {
+      // switching to solid / None: remove fill-pattern
+      delete next['fill-pattern'];
+      // Restore default fill-color if absent
+      if (!next['fill-color']) {
+        next['fill-color'] = FILL_DEFAULTS['fill-color'];
+      }
+    }
+    onPaintChange(layer.id, next);
+  }, [layer.id, paint, onPaintChange]);
+
   const handleResetStyle = useCallback(() => {
     if (geomType === 'fill') {
       onStyleConfigChange(layer.id, null, FILL_DEFAULTS);
@@ -351,13 +372,15 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
     onHeatmapPaintChange: handleHeatmapPaintChange,
     onSymbolConfigChange: handleSymbolConfigChange,
     onBuilderChange: updateBuilderConfig,
+    onFillPatternChange: handleFillPatternChange,
     t,
   }), [
     layer, controlPaint, isDataDriven, builderConfig, symbolConfig, renderMode,
     isPolygon, numericColumns, currentHeightCol, strokeEnabled, fillEnabled,
     clusterAvailable, onPaintChange, onLayoutChange, onStyleConfigChange,
     handlePaintProp, handleToggleFill, handleToggleStroke,
-    handleHeatmapPaintChange, handleSymbolConfigChange, updateBuilderConfig, t,
+    handleHeatmapPaintChange, handleSymbolConfigChange, updateBuilderConfig,
+    handleFillPatternChange, t,
   ]);
 
   return (
