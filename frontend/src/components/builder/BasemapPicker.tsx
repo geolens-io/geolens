@@ -64,12 +64,18 @@ export function BasemapPicker({ value, onChange, showLabels = true, onToggleLabe
       </button>
 
       {open && (
-        <div className="grid grid-cols-4 gap-2 pt-2">
+        <div
+          role="radiogroup"
+          aria-label={t('basemap.title')}
+          className="grid grid-cols-4 gap-2 pt-2"
+        >
           {options.map((b) => (
             <button
               key={b.id}
+              type="button"
               data-testid="basemap-option"
-              aria-pressed={value === b.id}
+              role="radio"
+              aria-checked={value === b.id}
               onClick={() => {
                 onChange(b.id);
                 setOpen(false);
