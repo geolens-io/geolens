@@ -229,7 +229,14 @@ def apply_manifest_command(
         typer.Option("--dry-run", help="Preview backend apply outcomes without writes"),
     ] = False,
 ) -> None:
-    """Apply a geolens.yaml manifest through the configured GeoLens API."""
+    """Apply a geolens.yaml manifest through the configured GeoLens API.
+
+    NOTE: apply only POSTs the manifest document — it does NOT upload local
+    data files. Manifest sources must reference data the server can already
+    reach (http(s)/s3/gs/az/abfs URIs, or files pre-staged server-side). To
+    publish a LOCAL file, use `geolens publish <file>` instead. apply errors
+    early (GAP-020) if any source URI is a local path.
+    """
     from .manifest.reporting import (
         format_validation_error_lines,
         validation_report_payload,
@@ -259,6 +266,24 @@ def apply_manifest_command(
         else:
             for line in format_validation_error_lines(path, errors):
                 state.output.error(line)
+        raise typer.Exit(EXIT_USAGE)
+
+    # GAP-020: apply only POSTs the manifest JSON; it never uploads the local
+    # files a manifest references (the backend resolves scheme-less URIs
+    # against its own server-side staging dir). Detect those up front and tell
+    # the user to use `publish` rather than letting the backend silently skip
+    # or error on data it can't see.
+    local_uris = _manifest_apply.find_local_source_uris(document)
+    if local_uris:
+        sample = ", ".join(local_uris[:5])
+        if len(local_uris) > 5:
+            sample += f", … (+{len(local_uris) - 5} more)"
+        state.output.error(
+            f"{path}: {len(local_uris)} manifest source(s) reference local files "
+            f"that `apply` does not upload ({sample}). Publish each local file "
+            "first with `geolens publish <file>`, or change the source URI to a "
+            "remote URL (http(s)/s3/gs/az/abfs) the server can reach."
+        )
         raise typer.Exit(EXIT_USAGE)
 
     sdk = state.sdk()
