@@ -38,7 +38,7 @@ from uuid import UUID
 
 import typer
 
-from ._sdk_helpers import EXIT_GENERIC
+from ._sdk_helpers import EXIT_GENERIC, call_sdk
 
 # ---------------------------------------------------------------------------
 # Status-code constants — verified by Plan 04 Task 0 Q4 spike.
@@ -229,7 +229,14 @@ def resolve_dataset_id(
 
     deadline = monotonic() + timeout
     while monotonic() < deadline:
-        resp = get_job_status_jobs_job_id_get.sync_detailed(job_id=uuid_arg, client=client)
+        # BUG-034: route the poll through call_sdk so a network failure during
+        # post-commit polling maps to EXIT_NETWORK (4) per D-32 rather than a
+        # raw httpx traceback + exit 1.
+        resp = call_sdk(
+            get_job_status_jobs_job_id_get.sync_detailed,
+            job_id=uuid_arg,
+            client=client,
+        )
         if int(resp.status_code) != JOB_STATUS_OK_STATUS:
             # Non-200 (auth error, server error, 404) — give up and let the
             # caller surface a fallback URL.

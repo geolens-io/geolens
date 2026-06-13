@@ -249,7 +249,11 @@ def patch_sdk_for_publish(monkeypatch):
     """
 
     def _install(*, upload, preview, commit, job_status=None):
-        monkeypatch.setattr("geolens_cli.publish.upload_file", lambda c, p: upload)
+        # BUG-034: publish now invokes upload_file via call_sdk with keyword
+        # args (client=, path=); accept both positional and keyword shapes.
+        monkeypatch.setattr(
+            "geolens_cli.publish.upload_file", lambda *a, **k: upload
+        )
         monkeypatch.setattr(
             "geolens.api.datasets.preview_file_ingest_preview_job_id_post.sync_detailed",
             lambda **kw: preview,
@@ -473,7 +477,7 @@ class TestPublishCli:
                 ),
             )
 
-        monkeypatch.setattr("geolens_cli.publish.upload_file", lambda c, p: _ok_upload())
+        monkeypatch.setattr("geolens_cli.publish.upload_file", lambda *a, **k: _ok_upload())
         monkeypatch.setattr(
             "geolens.api.datasets.preview_file_ingest_preview_job_id_post.sync_detailed",
             lambda **kw: _ok_preview(),
@@ -512,7 +516,7 @@ class TestPublishCli:
                 ),
             )
 
-        monkeypatch.setattr("geolens_cli.publish.upload_file", lambda c, p: _ok_upload())
+        monkeypatch.setattr("geolens_cli.publish.upload_file", lambda *a, **k: _ok_upload())
         monkeypatch.setattr(
             "geolens.api.datasets.preview_file_ingest_preview_job_id_post.sync_detailed",
             lambda **kw: _ok_preview(),
@@ -529,3 +533,111 @@ class TestPublishCli:
         assert isinstance(captured["body"], CommitRequest)
         assert captured["body"].title == "My Cities"
         assert captured["body"].summary == "hello"
+
+
+# ---------------------------------------------------------------------------
+# BUG-034 — network failures during upload / job-status poll map to EXIT_NETWORK
+# ---------------------------------------------------------------------------
+
+
+class TestPublishNetworkErrors:
+    """BUG-034: httpx network errors in the upload and poll stages exit 4 cleanly."""
+
+    def test_upload_network_error_exits_network(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch, sample_geojson
+    ) -> None:
+        import httpx
+
+        from geolens_cli._sdk_helpers import EXIT_NETWORK
+        from geolens_cli.main import app
+
+        instance = "https://x.example.com"
+        _seed_login(instance, mock_keyring)
+
+        def boom(client, path):  # noqa: ANN001
+            raise httpx.ConnectError("connection refused")
+
+        monkeypatch.setattr("geolens_cli.publish.upload_file", boom)
+
+        result = runner.invoke(app, ["publish", str(sample_geojson)])
+        assert result.exit_code == EXIT_NETWORK, result.output
+        # Clean exit-code path, not a dumped traceback.
+        assert result.exc_info is None or not isinstance(
+            result.exc_info[1], httpx.HTTPError
+        ), result.output
+
+    def test_upload_timeout_exits_network(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch, sample_geojson
+    ) -> None:
+        import httpx
+
+        from geolens_cli._sdk_helpers import EXIT_NETWORK
+        from geolens_cli.main import app
+
+        instance = "https://x.example.com"
+        _seed_login(instance, mock_keyring)
+
+        def boom(client, path):  # noqa: ANN001
+            raise httpx.ConnectTimeout("timed out")
+
+        monkeypatch.setattr("geolens_cli.publish.upload_file", boom)
+
+        result = runner.invoke(app, ["publish", str(sample_geojson)])
+        assert result.exit_code == EXIT_NETWORK, result.output
+
+    def test_job_status_poll_network_error_exits_network(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch, sample_geojson,
+        patch_sdk_for_publish,
+    ) -> None:
+        import httpx
+
+        from geolens_cli._sdk_helpers import EXIT_NETWORK
+        from geolens_cli.main import app
+
+        instance = "https://x.example.com"
+        _seed_login(instance, mock_keyring)
+
+        def boom(**kwargs):
+            raise httpx.ReadError("connection dropped mid-poll")
+
+        # Upload/preview/commit succeed; the post-commit poll fails on the wire.
+        patch_sdk_for_publish(
+            upload=_ok_upload(),
+            preview=_ok_preview(),
+            commit=_ok_commit(),
+        )
+        monkeypatch.setattr(
+            "geolens.api.admin.get_job_status_jobs_job_id_get.sync_detailed",
+            boom,
+        )
+
+        result = runner.invoke(app, ["publish", str(sample_geojson)])
+        assert result.exit_code == EXIT_NETWORK, result.output
+
+
+class TestResolveDatasetIdNetworkError:
+    """BUG-034 unit-level: the poll's sync_detailed is routed through call_sdk."""
+
+    def test_resolve_propagates_network_exit(self, monkeypatch) -> None:
+        import httpx
+        import typer
+
+        from geolens_cli import publish as _publish
+        from geolens_cli._sdk_helpers import EXIT_NETWORK
+
+        def boom(**kwargs):
+            raise httpx.NetworkError("down")
+
+        monkeypatch.setattr(
+            "geolens.api.admin.get_job_status_jobs_job_id_get.sync_detailed",
+            boom,
+        )
+
+        with pytest.raises(typer.Exit) as exc_info:
+            _publish.resolve_dataset_id(
+                MagicMock(),
+                "00000000-0000-0000-0000-000000000001",
+                sleep=lambda *_: None,
+                monotonic=iter([0.0, 1.0]).__next__,
+            )
+        assert exc_info.value.exit_code == EXIT_NETWORK

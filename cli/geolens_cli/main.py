@@ -614,8 +614,11 @@ def publish(
 
     with progress:
         # Stage 1 — Upload (multipart workaround).
+        # BUG-034: route through call_sdk so a network failure during the
+        # upload (the longest, most failure-prone stage) maps to EXIT_NETWORK
+        # (4) per D-32 instead of dumping a raw httpx traceback and exiting 1.
         t1 = progress.add_task("Uploading...", total=None)
-        upload_resp = _publish.upload_file(sdk.client, file)
+        upload_resp = call_sdk(_publish.upload_file, client=sdk.client, path=file)
         upload = unwrap(upload_resp, expected=_publish.UPLOAD_OK_STATUS)
         job_id = getattr(upload, "job_id", None)
         if job_id is None:
