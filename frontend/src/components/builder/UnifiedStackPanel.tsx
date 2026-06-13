@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useRef } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import {
   DragOverlay,
@@ -12,7 +12,7 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { useTranslation } from 'react-i18next';
-import { Eye, EyeOff, GripVertical, Plus, Settings } from 'lucide-react';
+import { Eye, EyeOff, GripVertical, Plus, Search, Settings } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { StackRow } from '@/components/builder/StackRow';
@@ -174,6 +174,9 @@ interface SortableStackRowProps {
   isFresh?: boolean;
   // Phase 1199 STACK-01: "Copy N of M" duplicate label, null when not a duplicate
   disambiguationLabel?: string | null;
+  // Phase 1201-02 (ENH-07): disable drag while search is active to prevent
+  // sort_order corruption when only a filtered subset is visible.
+  dragDisabled?: boolean;
 }
 
 const SortableStackRow = memo(function SortableStackRow({
@@ -201,6 +204,7 @@ const SortableStackRow = memo(function SortableStackRow({
   onCheckboxClick,
   isFresh,
   disambiguationLabel,
+  dragDisabled = false,
 }: SortableStackRowProps) {
   const {
     attributes,
@@ -211,7 +215,7 @@ const SortableStackRow = memo(function SortableStackRow({
     transition,
     isDragging,
     isOver,
-  } = useSortable({ id: layer.id });
+  } = useSortable({ id: layer.id, disabled: dragDisabled });
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -397,6 +401,8 @@ interface FolderGroupRowWrapperProps {
   onCmdClick?: (id: string) => void;
   onShiftClick?: (id: string) => void;
   onCheckboxClick?: (id: string) => void;
+  // Phase 1201-02 (ENH-07): disable drag while search is active.
+  dragDisabled?: boolean;
 }
 
 const FolderGroupRowWrapper = memo(function FolderGroupRowWrapper({
@@ -415,6 +421,7 @@ const FolderGroupRowWrapper = memo(function FolderGroupRowWrapper({
   onCmdClick,
   onShiftClick,
   onCheckboxClick,
+  dragDisabled = false,
 }: FolderGroupRowWrapperProps) {
   const {
     attributes,
@@ -425,7 +432,7 @@ const FolderGroupRowWrapper = memo(function FolderGroupRowWrapper({
     transition,
     isDragging,
     isOver,
-  } = useSortable({ id: layer.id });
+  } = useSortable({ id: layer.id, disabled: dragDisabled });
 
   // Phase 1040 POL-03: folder group is a drop target for catalog drags.
   // data-group-drop-target activates only when a catalog drag is in flight,
@@ -732,6 +739,12 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
 }: UnifiedStackPanelProps) {
   const { t } = useTranslation('builder');
 
+  // Phase 1201-02 (ENH-07): search/filter state. An empty query shows all rows
+  // and preserves drag/reorder. A non-empty query narrows visible rows to those
+  // whose display name contains the query (case-insensitive substring) and
+  // disables drag so reordering a filtered subset cannot corrupt sort_order.
+  const [layerSearch, setLayerSearch] = useState('');
+
   // Phase 1040 Plan 04: read the active drag item from the lifted DndContext so the
   // DragOverlay can branch between an intra-stack StackRow ghost and a catalog drag pill.
   // This is a second call to useDndContext — the first lives inside FolderGroupRowWrapper.
@@ -891,6 +904,24 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
   // terrain is configured via the map-level terrain controls.
   const isEmpty = visibleStackLayers.length === 0;
 
+  // Phase 1201-02 (ENH-07): whether a search query is currently active.
+  // When true, drag is disabled for all rows so reordering a filtered subset
+  // cannot corrupt sort_order. The count Badge always reflects the total (not
+  // the filtered count) to avoid confusion — the filtered view is transient.
+  const isSearchActive = layerSearch.trim() !== '';
+
+  // Case-insensitive substring match on display_name falling back to dataset_name.
+  // An empty (or whitespace-only) query always returns true.
+  const matchesSearch = useCallback(
+    (layer: MapLayerResponse): boolean => {
+      const q = layerSearch.trim();
+      if (q === '') return true;
+      const name = (layer.display_name ?? layer.dataset_name ?? '').toLowerCase();
+      return name.includes(q.toLowerCase());
+    },
+    [layerSearch],
+  );
+
   // ---------------------------------------------------------------------------
   // Basemap dock row — rendered in both empty and populated states.
   // In empty state it sits below the EmptyStackState content with a "BASEMAP"
@@ -1005,6 +1036,32 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
         </div>
       </div>
 
+      {/* Phase 1201-02 (ENH-07): search/filter input — shown only when there are
+          stack rows to filter. Empty query shows all rows; non-empty narrows by
+          display_name / dataset_name (case-insensitive substring). Drag is
+          disabled while a query is active to prevent sort_order corruption. */}
+      {!isEmpty && (
+        <div className="shrink-0 px-3 pb-2 relative" data-testid="layer-search-container">
+          <Search
+            className="absolute left-5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none"
+            aria-hidden="true"
+          />
+          <input
+            type="search"
+            data-testid="layer-search-input"
+            aria-label={t('unifiedStack.searchAriaLabel', { defaultValue: 'Filter layers by name' })}
+            placeholder={t('unifiedStack.searchPlaceholder', { defaultValue: 'Filter layers…' })}
+            value={layerSearch}
+            onChange={(e) => setLayerSearch(e.target.value)}
+            className={cn(
+              'w-full h-7 rounded border border-[var(--border)] bg-[var(--surface-1,var(--background))]',
+              'pl-7 pr-2 text-xs text-foreground placeholder:text-muted-foreground',
+              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+            )}
+          />
+        </div>
+      )}
+
       {/* Scrollable layer list or empty state */}
       {/* Phase 1052: dropped role="listbox" + role="option" from rows — they don't
           match the WAI-ARIA listbox/option contract because each row contains
@@ -1051,9 +1108,15 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
                 if (getParentGroupId(layer)) return null;
 
                 if (isFolderGroupLayer(layer)) {
-                  // Folder group row with children container when expanded
+                  // Folder group row with children container when expanded.
+                  // Phase 1201-02 (ENH-07): show the group if its own name
+                  // matches the query OR any of its children match.
                   const expanded = groupMeta[layer.id]?.expanded ?? false;
                   const children = childrenByGroup[layer.id] ?? [];
+                  const groupNameMatches = matchesSearch(layer);
+                  const anyChildMatches = children.some((c) => matchesSearch(c));
+                  if (isSearchActive && !groupNameMatches && !anyChildMatches) return null;
+
                   return (
                     <div key={layer.id}>
                       <FolderGroupRowWrapper
@@ -1072,6 +1135,7 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
                         onCmdClick={onCmdClick}
                         onShiftClick={onShiftClick}
                         onCheckboxClick={onCheckboxClick}
+                        dragDisabled={isSearchActive}
                       />
                       {expanded && (
                         <div
@@ -1080,43 +1144,52 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
                           style={{ marginLeft: '28px', paddingLeft: '12px', borderLeft: '1px dashed var(--border)' }}
                           role="list"
                         >
-                          {children.map((child) => (
-                            <SortableStackRow
-                              key={child.id}
-                              layer={child}
-                              selected={child.id === selectedLayerId}
-                              onSelectLayer={onSelectLayer}
-                              onToggleVisibility={onToggleVisibility}
-                              onRemove={onRemove}
-                              onRename={onRename}
-                              onDuplicate={onDuplicate}
-                              onZoomToLayer={onZoomToLayer}
-                              onCopyStyle={onCopyStyle}
-                              onPasteStyle={onPasteStyle}
-                              canPasteStyle={
-                                copiedStyleGeometryClass !== null &&
-                                copiedStyleGeometryClass === geometryClassOf(child.dataset_geometry_type)
-                              }
-                              onKeyboardReorder={onKeyboardReorder}
-                              existingFolderGroups={existingFolderGroups}
-                              parentGroupId={layer.id}
-                              onAddToGroup={safeAddLayerToExistingGroup}
-                              onCreateGroupWithLayer={safeCreateGroupWithLayer}
-                              onMoveLayerOutOfGroup={safeMoveLayerOutOfGroup}
-                              isMultiSelected={selectedIds.has(child.id)}
-                              isMultiSelectionActive={isMultiSelectionActive}
-                              onCmdClick={onCmdClick}
-                              onShiftClick={onShiftClick}
-                              onCheckboxClick={onCheckboxClick}
-                              isFresh={child.id === freshLayerId}
-                              disambiguationLabel={disambiguationLabels.get(child.id) ?? null}
-                            />
-                          ))}
+                          {children.map((child) => {
+                            // Phase 1201-02: when the group itself matches, show all
+                            // its children; otherwise filter children by name.
+                            if (isSearchActive && !groupNameMatches && !matchesSearch(child)) return null;
+                            return (
+                              <SortableStackRow
+                                key={child.id}
+                                layer={child}
+                                selected={child.id === selectedLayerId}
+                                onSelectLayer={onSelectLayer}
+                                onToggleVisibility={onToggleVisibility}
+                                onRemove={onRemove}
+                                onRename={onRename}
+                                onDuplicate={onDuplicate}
+                                onZoomToLayer={onZoomToLayer}
+                                onCopyStyle={onCopyStyle}
+                                onPasteStyle={onPasteStyle}
+                                canPasteStyle={
+                                  copiedStyleGeometryClass !== null &&
+                                  copiedStyleGeometryClass === geometryClassOf(child.dataset_geometry_type)
+                                }
+                                onKeyboardReorder={onKeyboardReorder}
+                                existingFolderGroups={existingFolderGroups}
+                                parentGroupId={layer.id}
+                                onAddToGroup={safeAddLayerToExistingGroup}
+                                onCreateGroupWithLayer={safeCreateGroupWithLayer}
+                                onMoveLayerOutOfGroup={safeMoveLayerOutOfGroup}
+                                isMultiSelected={selectedIds.has(child.id)}
+                                isMultiSelectionActive={isMultiSelectionActive}
+                                onCmdClick={onCmdClick}
+                                onShiftClick={onShiftClick}
+                                onCheckboxClick={onCheckboxClick}
+                                isFresh={child.id === freshLayerId}
+                                disambiguationLabel={disambiguationLabels.get(child.id) ?? null}
+                                dragDisabled={isSearchActive}
+                              />
+                            );
+                          })}
                         </div>
                       )}
                     </div>
                   );
                 }
+
+                // Phase 1201-02 (ENH-07): skip loose layers that don't match the query.
+                if (isSearchActive && !matchesSearch(layer)) return null;
 
                 // Loose layer
                 return (
@@ -1149,6 +1222,7 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
                     onCheckboxClick={onCheckboxClick}
                     isFresh={layer.id === freshLayerId}
                     disambiguationLabel={disambiguationLabels.get(layer.id) ?? null}
+                    dragDisabled={isSearchActive}
                   />
                 );
               })}
