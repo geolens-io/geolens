@@ -49,12 +49,25 @@ class AppState:
     quiet: bool = False
 
     def active_instance(self) -> Optional[str]:
-        """Return the instance to use, honoring D-35 precedence."""
-        return (
-            self.instance_override
-            or _config.get_instance_from_env()
-            or self.config.instance
-        )
+        """Return the instance to use, honoring D-35 precedence.
+
+        BUG-033: the --instance override and GEOLENS_INSTANCE env value are
+        canonicalized through the SAME normalizer login uses, so a
+        trailing-slash or missing-/api variant resolves to the identical
+        stored credential key. config.instance is already canonical (login
+        normalized it before storing) so it is returned as-is.
+        """
+        raw = self.instance_override or _config.get_instance_from_env()
+        if raw:
+            try:
+                return _config.normalize_instance_url(raw)
+            except ValueError:
+                # Malformed override (e.g. bad scheme): pass it through
+                # verbatim as before so downstream login/sdk surface the
+                # original validation/connection error rather than this
+                # resolver swallowing it.
+                return raw
+        return self.config.instance
 
     def sdk(self):
         """Lazy-construct an authenticated SDK client for the active instance."""
