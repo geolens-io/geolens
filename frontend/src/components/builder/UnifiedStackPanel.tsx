@@ -833,7 +833,7 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
   }, [selectedIds.size, selectableRowIds, onClearSelection, onShiftClick]);
 
   // Filter out terrain-mode DEM layers from the stack UI — the map-sync layer
-  // render already suppresses them (map-sync.ts:919); this aligns the stack
+  // render already suppresses them (map-sync.ts:1014); this aligns the stack
   // display with what the map actually renders. Reorder/bulk/drag paths still
   // see the full `layers` prop so their persistence logic is unaffected.
   const visibleStackLayers = useMemo(
