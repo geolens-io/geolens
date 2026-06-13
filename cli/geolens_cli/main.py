@@ -79,7 +79,9 @@ def _version_callback(value: bool) -> None:
         from importlib.metadata import PackageNotFoundError, version
 
         try:
-            ver = version("geolens")
+            # BUG-031: the CLI's own distribution is `geolens-cli`; `geolens`
+            # is the SDK dependency whose version may diverge at install time.
+            ver = version("geolens-cli")
         except PackageNotFoundError:
             ver = "0.0.0+dev"
         typer.echo(f"geolens {ver}")
