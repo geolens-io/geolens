@@ -44,10 +44,17 @@ describe('jenksBreaks', () => {
     expect(breaks).toEqual([2, 50, 99]);
   });
 
-  it('falls back to equal-interval when there are fewer values than classes', () => {
-    // 3 values, 5 classes → fall back to equalIntervalBreaks(min,max,5).
+  it('falls back to equal-interval for a degenerate single-value column', () => {
+    // No spread (min === max) → Jenks is undefined; fall back to equal-interval.
+    const breaks = jenksBreaks([42, 42, 42], 4);
+    expect(breaks).toEqual(equalIntervalBreaks(42, 42, 4));
+  });
+
+  it('clamps class count to the number of values rather than inventing classes', () => {
+    // 3 distinct values, 5 classes requested → clamp to 3 classes → 2 breaks.
     const breaks = jenksBreaks([0, 50, 100], 5);
-    expect(breaks).toEqual(equalIntervalBreaks(0, 100, 5));
+    expect(breaks).toHaveLength(2);
+    expect(breaks[0]).toBeLessThan(breaks[1]);
   });
 
   it('returns [] for classCount < 2', () => {
