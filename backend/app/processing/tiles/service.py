@@ -117,7 +117,9 @@ def _build_attr_columns(columns: list[dict]) -> str:
     return ""
 
 
-def _build_tile_query(table_name: str, columns: list[dict]) -> str:
+def _build_tile_query(
+    table_name: str, columns: list[dict], schema: str = "data"
+) -> str:
     """Build the ST_AsMVT tile query for the given table and columns.
 
     Phase 269 C-02: simplification now applies at all zooms below z=10
@@ -130,9 +132,16 @@ def _build_tile_query(table_name: str, columns: list[dict]) -> str:
     Phase 269 H-23: callers should pre-filter the ``columns`` list via
     ``_select_tile_columns`` so this function emits the SELECT projection
     straight from the already-pruned column list.
+
+    DP-02 (Phase 1209-03): ``schema`` defaults to ``"data"`` (single_tenant
+    unchanged).  In multi_tenant callers pass ``tenant_data_schema(tid)`` so
+    the FROM clause is ALWAYS explicitly schema-qualified — we do NOT rely on
+    search_path alone as the primary isolation control (T-1209-11).
     """
     _validate_tile_table_name(table_name)
     attr_columns = _build_attr_columns(columns)
+    # Schema name derives from validated-UUID tenant_data_schema() — safe to quote.
+    qualified_table = f'"{schema}"."{table_name}"'
 
     return f"""
 WITH
@@ -164,7 +173,7 @@ mvtgeom AS (
         true
     ) AS geom,
     t.gid{attr_columns}
-    FROM data.{table_name} t, bounds
+    FROM {qualified_table} t, bounds
     WHERE t.geom_4326 && bounds.geom_4326
     LIMIT {_TILE_FEATURE_LIMIT}
 )
@@ -173,7 +182,7 @@ FROM mvtgeom
 """
 
 
-def _build_cluster_tile_query(table_name: str) -> str:
+def _build_cluster_tile_query(table_name: str, schema: str = "data") -> str:
     """Build a bounded server-side cluster MVT query for point datasets.
 
     Parameters at execution time:
@@ -183,8 +192,14 @@ def _build_cluster_tile_query(table_name: str) -> str:
     Cluster output follows the MapLibre client-side cluster property shape:
     clustered features carry ``point_count`` and ``point_count_abbreviated``;
     unclustered features omit those properties and carry ``source_gid``.
+
+    DP-02 (Phase 1209-03): ``schema`` defaults to ``"data"`` (single_tenant
+    unchanged).  In multi_tenant callers pass ``tenant_data_schema(tid)`` so
+    the FROM clause is ALWAYS explicitly schema-qualified (T-1209-11).
     """
     _validate_tile_table_name(table_name)
+    # Schema name derives from validated-UUID tenant_data_schema() — safe to quote.
+    qualified_table = f'"{schema}"."{table_name}"'
 
     return f"""
 WITH
@@ -205,7 +220,7 @@ candidates AS (
     SELECT
         t.gid,
         ST_Transform(ST_PointOnSurface(t.geom_4326), 3857) AS geom_3857
-    FROM data.{table_name} t, bounds
+    FROM {qualified_table} t, bounds
     WHERE t.geom_4326 && bounds.geom_4326
       AND NOT ST_IsEmpty(t.geom_4326)
     LIMIT {_CLUSTER_INPUT_LIMIT}
@@ -303,20 +318,31 @@ async def get_tile(
     *,
     tile_columns: list[str] | None = None,
     additional_columns: list[str] | None = None,
+    conn: asyncpg.Connection | None = None,
+    schema: str = "data",
 ) -> bytes | None:
     """Execute a tile query and return MVT bytes, or None if empty.
 
     Args:
-        pool: asyncpg connection pool
-        table_name: PostGIS table name (without schema prefix)
+        pool: asyncpg connection pool (used only when ``conn`` is None).
+        table_name: PostGIS table name (without schema prefix).
         z: Zoom level
         x: Tile column
         y: Tile row
-        columns: Column info list from dataset (dicts with 'name' key)
+        columns: Column info list from dataset (dicts with 'name' key).
         tile_columns: Phase 269 H-23 allowlist override (None / [] / list).
         additional_columns: Runtime opt-in columns the caller needs at all
             zooms (e.g. data-driven styling columns). Unioned with the
-            base selection; validated against `columns`.
+            base selection; validated against ``columns``.
+        conn: Optional already-acquired asyncpg connection to reuse.
+            DP-02 (Phase 1209-03): pass a connection that has already had
+            ``set_tenant_role_for_tile_request`` called inside an open
+            transaction so the per-tenant role + search_path survive for
+            this query (T-1209-10).  When None, ``pool.fetchval`` acquires
+            a transient connection (single_tenant / legacy behaviour).
+        schema: Data schema name.  Defaults to ``"data"`` (single_tenant).
+            In multi_tenant callers pass ``tenant_data_schema(tid)`` so the
+            FROM clause is explicitly schema-qualified (T-1209-11).
 
     Returns:
         MVT binary data, or None if the tile contains no features.
@@ -329,10 +355,15 @@ async def get_tile(
         tile_columns=tile_columns,
         additional_columns=additional_columns,
     )
-    query = _build_tile_query(table_name, selected_columns)
-    layer_name = f"data.{table_name}"
+    query = _build_tile_query(table_name, selected_columns, schema=schema)
+    # layer_name must match the schema-qualified table so clients can identify
+    # the MVT layer; mirrors the qualified table reference in the query.
+    layer_name = f"{schema}.{table_name}"
 
-    result = await pool.fetchval(query, z, x, y, layer_name)
+    if conn is not None:
+        result = await conn.fetchval(query, z, x, y, layer_name)
+    else:
+        result = await pool.fetchval(query, z, x, y, layer_name)
 
     if result is None or len(result) == 0:
         return None
@@ -349,27 +380,50 @@ async def get_cluster_tile(
     *,
     cluster_radius: int = 48,
     cluster_max_zoom: int = 14,
+    conn: asyncpg.Connection | None = None,
+    schema: str = "data",
 ) -> bytes | None:
     """Execute a server-side point-cluster MVT query.
 
     The query emits MapLibre-compatible cluster properties while keeping the
     source as an authenticated vector tile, which avoids loading large datasets
     as full-table GeoJSON in the browser.
+
+    Args:
+        pool: asyncpg connection pool (used only when ``conn`` is None).
+        table_name: PostGIS table name (without schema prefix).
+        z, x, y: Tile coordinates.
+        cluster_radius: Cluster radius in tile pixels.
+        cluster_max_zoom: Maximum zoom level at which clustering is active.
+        conn: Optional already-acquired asyncpg connection (see ``get_tile``
+            docstring for DP-02 details; T-1209-10).
+        schema: Data schema name; defaults to ``"data"`` (single_tenant).
     """
     _validate_tile_table_name(table_name)
 
-    query = _build_cluster_tile_query(table_name)
-    layer_name = f"data.{table_name}"
+    query = _build_cluster_tile_query(table_name, schema=schema)
+    layer_name = f"{schema}.{table_name}"
 
-    result = await pool.fetchval(
-        query,
-        z,
-        x,
-        y,
-        layer_name,
-        cluster_max_zoom,
-        cluster_radius,
-    )
+    if conn is not None:
+        result = await conn.fetchval(
+            query,
+            z,
+            x,
+            y,
+            layer_name,
+            cluster_max_zoom,
+            cluster_radius,
+        )
+    else:
+        result = await pool.fetchval(
+            query,
+            z,
+            x,
+            y,
+            layer_name,
+            cluster_max_zoom,
+            cluster_radius,
+        )
 
     if result is None or len(result) == 0:
         return None

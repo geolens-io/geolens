@@ -94,15 +94,34 @@ class TestEnterpriseOverlayStartupCheck:
 
 class TestEnterpriseCheckWiredIntoLifespan:
     """Structural regression: check_enterprise_overlay_requested is called from
-    the app lifespan so a misconfigured deploy never silently boots OSS."""
+    the app lifespan so a misconfigured deploy never silently boots OSS.
+
+    WORK-01: the lifespan now delegates to bootstrap() which owns the full
+    extension-load + enterprise-check sequence. The lifespan must call
+    bootstrap() and bootstrap() must call check_enterprise_overlay_requested().
+    """
 
     def test_check_called_from_lifespan(self):
-        """main.py lifespan source must reference check_enterprise_overlay_requested."""
+        """main.py lifespan must call bootstrap() which calls check_enterprise_overlay_requested.
+
+        WORK-01: the lifespan delegates to the shared bootstrap() helper.
+        bootstrap() calls check_enterprise_overlay_requested() internally so
+        the enterprise loud-failure guarantee (BUG-003) is preserved via the
+        call chain: lifespan → bootstrap → check_enterprise_overlay_requested.
+        """
+        import app.platform.extensions.bootstrap as bootstrap_mod
         from app.api import main as main_module
 
+        # Lifespan must reference bootstrap (WORK-01 drift guard)
         lifespan_src = inspect.getsource(main_module.lifespan)
-        assert "check_enterprise_overlay_requested" in lifespan_src, (
-            "BUG-003: lifespan must call check_enterprise_overlay_requested() "
-            "after load_extensions() so an enterprise-requested-but-inactive "
-            "deploy fails loudly instead of silently running OSS."
+        assert "bootstrap" in lifespan_src, (
+            "BUG-003 / WORK-01: lifespan must call bootstrap() — the shared "
+            "extension-load sequence that calls check_enterprise_overlay_requested."
+        )
+
+        # bootstrap() itself must call check_enterprise_overlay_requested
+        bootstrap_src = inspect.getsource(bootstrap_mod.bootstrap)
+        assert "check_enterprise_overlay_requested" in bootstrap_src, (
+            "BUG-003: bootstrap() must call check_enterprise_overlay_requested() "
+            "so an enterprise-requested-but-inactive deploy fails loudly."
         )

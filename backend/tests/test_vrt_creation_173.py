@@ -285,7 +285,9 @@ class TestResolveSourcePath:
         mock_settings.storage_provider = "local"
         mock_settings.upload_staging_dir = "/data/staging"
 
-        with patch("app.processing.raster.vrt.settings", mock_settings):
+        # resolve_vrt_source_path now delegates to resolve_open_path in
+        # app.platform.storage.titiler_url which reads app.core.config.settings.
+        with patch("app.core.config.settings", mock_settings):
             path = resolve_vrt_source_path("rasters/abc/source.cog.tif")
 
         assert path == "/data/staging/rasters/abc/source.cog.tif"
@@ -295,7 +297,7 @@ class TestResolveSourcePath:
         mock_settings.storage_provider = "s3"
         mock_settings.s3_bucket = "my-geolens-bucket"
 
-        with patch("app.processing.raster.vrt.settings", mock_settings):
+        with patch("app.core.config.settings", mock_settings):
             path = resolve_vrt_source_path("rasters/abc/source.cog.tif")
 
         assert path == "/vsis3/my-geolens-bucket/rasters/abc/source.cog.tif"
@@ -306,7 +308,7 @@ class TestResolveSourcePath:
         mock_settings.storage_provider = "s3"
         mock_settings.s3_bucket = "test-bucket"
 
-        with patch("app.processing.raster.vrt.settings", mock_settings):
+        with patch("app.core.config.settings", mock_settings):
             path = resolve_vrt_source_path("rasters/xyz/source.cog.tif")
 
         assert path.startswith("/vsis3/")
@@ -317,7 +319,7 @@ class TestResolveSourcePath:
         mock_settings.storage_provider = "local"
         mock_settings.upload_staging_dir = "/mnt/data"
 
-        with patch("app.processing.raster.vrt.settings", mock_settings):
+        with patch("app.core.config.settings", mock_settings):
             path = resolve_vrt_source_path("rasters/def/source.cog.tif")
 
         assert "rasters/def/source.cog.tif" in path

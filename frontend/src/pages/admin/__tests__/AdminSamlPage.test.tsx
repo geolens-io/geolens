@@ -22,6 +22,7 @@ describe('AdminSamlPage', () => {
       edition: 'community',
       features: [],
       isEnterprise: false,
+      isMultiTenant: false,
       isLoading: false,
     });
 
@@ -42,6 +43,7 @@ describe('AdminSamlPage', () => {
       edition: 'enterprise',
       features: [],
       isEnterprise: true,
+      isMultiTenant: false,
       isLoading: false,
     });
 
@@ -57,6 +59,7 @@ describe('AdminSamlPage', () => {
       edition: 'community',
       features: [],
       isEnterprise: false,
+      isMultiTenant: false,
       isLoading: true,
     });
 
@@ -72,6 +75,7 @@ describe('AdminSamlPage', () => {
       edition: 'community',
       features: [],
       isEnterprise: false,
+      isMultiTenant: false,
       isLoading: false,
     });
 

@@ -33,6 +33,10 @@ dependencies = [
     "python-slugify>=8.0.4",
     "slowapi>=0.1.9",
     "boto3>=1.43.20",
+    # Azure Blob Storage provider (STOR-01 / Phase 1210). azure-identity is included
+    # for managed-identity / account-URL auth paths (account_url + credential constructor).
+    "azure-storage-blob>=12.24.0",
+    "azure-identity>=1.20.0",
     # PERF-01 (Phase 274): in-memory LRU fallback for tile cache when REDIS_URL is unset
     "cachetools>=5.5.0",
     "redis>=5.0.0",
@@ -99,12 +103,19 @@ anyio_mode = "auto"
 asyncio_mode = "strict"
 asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests"]
-addopts = "-m 'not perf'"
+# --dist loadgroup makes the @pytest.mark.xdist_group marker effective under
+# pytest-xdist (default `load` scheduler ignores it). It co-locates the
+# global-state-mutating tenancy tests on one worker (v1042 isolation fix). It is
+# a no-op for serial runs (no -n) and behaves like `load` for ungrouped tests.
+addopts = "-m 'not perf' --dist loadgroup"
 markers = [
     "perf: performance regression tests (deselected by default)",
     "requires_ogr2ogr: tests that invoke ogr2ogr and need build_pg_conn_str redirected to the test database (K2-PRE; fixture lives in tests/conftest.py)",
     "architecture: layering and boundary tests; opt-out locally with `-m 'not architecture'` (Phase 212 LAYER-01 guard)",
     "lifecycle: edition deactivation/reactivation tests requiring enterprise overlay (Phase 220 LIFECYCLE-04)",
+    "rls: tests that enable FORCE RLS on the shared test DB (Phase 1208-03); scoped enable→disable via multi_tenant_rls fixture",
+    "live_stack: tests requiring the full cloud-dev Docker stack (titiler + azurite running together, reachable from inside the Docker network; skipped in default CI)",
+    "xdist_group: pytest-xdist loadgroup marker; co-locates global-state-mutating tenancy tests on one worker (v1042 isolation fix)",
 ]
 
 [tool.coverage.run]

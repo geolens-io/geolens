@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING
 
 import structlog
 
+from app.platform.extensions.version import check_extension_api_version
 from app.platform.extensions.defaults import (
     DefaultAnthropicProvider,  # NEW (Phase 226)
     DefaultAuditExtension,
@@ -21,6 +22,7 @@ from app.platform.extensions.defaults import (
     DefaultBrandingExtension,
     DefaultCatalogPort,  # NEW (Phase 230)
     DefaultConnectorExtension,
+    DefaultEntitlementPort,  # NEW (Phase 1207)
     DefaultIdentityExtension,
     DefaultOpenAICompatibleProvider,  # NEW (Phase 226)
     DefaultOpenAIEmbeddingProvider,  # NEW (Phase 231)
@@ -40,10 +42,11 @@ if TYPE_CHECKING:
     from app.core.catalog_port import CatalogPort  # NEW (Phase 230)
     from app.core.identity import IdentityExtension
     from app.core.processing_port import ProcessingPort  # NEW (Phase 225)
-    from app.platform.extensions.protocols import (  # NEW (Phase 226 + 231)
+    from app.platform.extensions.protocols import (  # NEW (Phase 226 + 231 + 1207)
         AIProviderExtension,
         ConnectorExtension,
         EmbeddingProviderExtension,
+        EntitlementPort,
         PermissionExtension,
         WorkflowExtension,
     )
@@ -54,20 +57,171 @@ _extensions: dict[str, object] = {}
 _routers: list = []
 _loaded: bool = False
 
+# ---------------------------------------------------------------------------
+# Slot classification (SLOT-01)
+# ---------------------------------------------------------------------------
+
+#: Single-slot keys: exactly ONE overlay may claim each of these.
+#: A second different overlay writing the same key RAISES ExtensionSlotConflictError.
+SINGLE_SLOT_KEYS: frozenset[str] = frozenset(
+    {
+        "permission",
+        "identity",
+        "processing_port",
+        "catalog_port",
+        "workflow",
+        "branding",
+        "audit",
+        "auth",
+        "entitlement",  # NEW (Phase 1207 / ENTSEAM-01) — cloud overlay claims this in Phase 1213
+    }
+)
+
+#: Additive-slot keys: multiple overlays may write/append to these concurrently.
+#: Exempt from the slot-conflict guard by design.
+ADDITIVE_SLOT_KEYS: frozenset[str] = frozenset(
+    {
+        "audit_sinks",
+        "billing_extensions",
+        "ai_providers",
+        "embedding_providers",
+        "_routers",
+    }
+)
+
+#: Tracks which overlay name first claimed each single-slot key.
+_slot_owners: dict[str, str] = {}
+
+
+class ExtensionSlotConflictError(RuntimeError):
+    """Raised when two overlays attempt to write the same non-additive single-slot key.
+
+    References: SLOT-01
+    """
+
+
+def _run_loader_with_slot_guard(ep_name: str, loader: object, registry: dict) -> None:
+    """Invoke ``loader(registry)`` and detect duplicate single-slot writes (SLOT-01).
+
+    Before the loader runs, snapshot which single-slot keys are already occupied.
+    After the loader runs, check each single-slot key: if it was previously owned
+    by a DIFFERENT overlay, raise :class:`ExtensionSlotConflictError` naming the
+    key and both provider classes.
+
+    Additive keys (see :data:`ADDITIVE_SLOT_KEYS`) are exempt — they legitimately
+    stack across overlays.
+    """
+    # Snapshot the single-slot keys already present (and who owns them)
+    pre_snapshot: dict[str, object] = {
+        k: registry[k] for k in SINGLE_SLOT_KEYS if k in registry
+    }
+
+    loader(registry)  # type: ignore[call-arg]
+
+    # Detect conflicts: a key that existed BEFORE and was replaced by a DIFFERENT object
+    for key in SINGLE_SLOT_KEYS:
+        if key not in registry:
+            continue
+        new_val = registry[key]
+        if key in pre_snapshot:
+            prior_val = pre_snapshot[key]
+            if new_val is not prior_val:
+                # Check the sanctioned wrap path (SLOT-02 / CLOUD-04):
+                # A replacement is allowed IFF the new value transparently carries
+                # the prior value as a marked inner via __slot_inner__.
+                # This lets a second overlay compose-wrap the first overlay's port
+                # without clobbering it.  A bare replacement (no __slot_inner__, or
+                # __slot_inner__ pointing to a different object) still raises.
+                if getattr(new_val, "__slot_inner__", None) is prior_val:
+                    # Sanctioned wrap — update ownership to reflect the chain.
+                    _slot_owners[key] = ep_name
+                    continue
+                # Bare replace or misdirected inner — conflict.
+                prior_owner = _slot_owners.get(key, "unknown")
+                raise ExtensionSlotConflictError(
+                    f"Extension slot conflict on key '{key}': "
+                    f"overlay '{ep_name}' ({type(new_val).__name__}) "
+                    f"attempted to replace the existing registration by "
+                    f"overlay '{prior_owner}' ({type(prior_val).__name__}). "
+                    f"Overlays needing additive behavior MUST wrap the prior impl "
+                    f"via the corresponding get_*_extension() accessor at construction "
+                    f"time and register last — never bare re-register a single-slot key. "
+                    f"Use `wrapper.__slot_inner__ = <prior_impl>` to mark a sanctioned "
+                    f"wrap (SLOT-02 contract). References: SLOT-01, SLOT-02."
+                )
+        else:
+            # First claim — record ownership
+            _slot_owners[key] = ep_name
+
 
 def load_extensions() -> None:
-    """Discover and load all extensions from the ``geolens.extensions`` group."""
+    """Discover and load all extensions from the ``geolens.extensions`` group.
+
+    Version contract (OCG-04)
+    -------------------------
+    Each overlay's loader callable MUST declare ``EXTENSION_API_VERSION`` equal
+    to core's :data:`app.platform.extensions.version.EXTENSION_API_VERSION`.
+    A version mismatch raises :class:`RuntimeError` and is NOT swallowed — the
+    operator must align the overlay and core versions before the service boots.
+    Only non-version loader exceptions (e.g., missing dependencies) are caught
+    and logged as warnings.
+
+    Slot-conflict guard (SLOT-01)
+    -----------------------------
+    Duplicate writes to non-additive single-slot keys (see :data:`SINGLE_SLOT_KEYS`)
+    raise :class:`ExtensionSlotConflictError` naming the key and both providers.
+    Additive slots (see :data:`ADDITIVE_SLOT_KEYS`) are exempt.
+
+    Wrap-don't-replace rule (SLOT-02)
+    ----------------------------------
+    An overlay that needs additive behavior on a single-slot key MUST wrap the
+    prior implementation retrieved via the corresponding ``get_*_extension()``
+    accessor at construction time, then register the wrapping impl under the
+    same key LAST — never bare re-register the key (the guard rejects that as a
+    conflict).
+
+    The wrapper MUST set ``__slot_inner__ = <prior_impl>`` (the exact object
+    returned by ``get_*_extension()`` at wrapper construction time) so the guard
+    can verify the wrap is transparent and not a clobber.  Example::
+
+        class TierAwarePermission:
+            def __init__(self, inner) -> None:
+                self.__slot_inner__ = inner   # REQUIRED: marks the sanctioned wrap
+                self._inner = inner
+
+            async def check_permission(self, *args, **kwargs):
+                return await self._inner.check_permission(*args, **kwargs)
+
+        def register_extensions(registry):
+            prior = get_permission_extension()  # read BEFORE writing
+            wrapper = TierAwarePermission(inner=prior)
+            registry["permission"] = wrapper    # guard allows: __slot_inner__ is prior
+
+    A wrapper whose ``__slot_inner__`` does NOT point to the exact prior instance
+    (e.g. points to ``None`` or an unrelated object) is still rejected as a
+    conflict.
+
+    References: SLOT-02, CLOUD-04
+    """
     global _loaded
 
     _routers.clear()
+    _slot_owners.clear()
 
     eps = entry_points(group="geolens.extensions")
     for ep in eps:
         try:
             loader = ep.load()
+            # OCG-04: check declared overlay API version BEFORE invoking the loader.
+            # RuntimeError from check_extension_api_version escapes the broad-except below.
+            declared_version = getattr(loader, "EXTENSION_API_VERSION", None)
+            check_extension_api_version(ep.name, declared_version)
             if callable(loader):
-                loader(_extensions)
+                _run_loader_with_slot_guard(ep.name, loader, _extensions)
                 logger.info("Loaded extension", name=ep.name)
+        except RuntimeError:
+            # Version-mismatch and slot-conflict errors must propagate loudly.
+            raise
         except Exception:  # broad: extension entry-point loaders may raise provider-specific errors; logged via logger.warning
             logger.warning("Failed to load extension", name=ep.name, exc_info=True)
 
@@ -278,6 +432,28 @@ def get_catalog_port() -> "CatalogPort":
     ext = _extensions.get("catalog_port")
     if ext is None:
         return DefaultCatalogPort()
+    return ext  # type: ignore[return-value]
+
+
+def get_entitlement_port() -> "EntitlementPort":
+    """Return the registered EntitlementPort or the community grant-all default.
+
+    Phase 1207 / ENTSEAM-01 — single-slot shape mirroring get_permission_extension(),
+    get_workflow_extension(), get_processing_port(), and get_catalog_port().
+
+    Community and Enterprise both return ``DefaultEntitlementPort`` (grant-all,
+    fail-OPEN) — correct because OSS/Enterprise are not multi-tenant-tiered; real
+    enforcement is the cloud overlay's job (Phase 1213). The grant-all default never
+    weakens ``require_enterprise()`` (edition gate) or ``PermissionExtension`` (RBAC)
+    because all three seams are orthogonal.
+
+    The cloud overlay (Phase 1213) registers a real implementation under
+    ``"entitlement"`` in its ``register_extensions(registry)`` callback. The
+    ExtensionSlotConflictError guard prevents two overlays from claiming the slot.
+    """
+    ext = _extensions.get("entitlement")
+    if ext is None:
+        return DefaultEntitlementPort()
     return ext  # type: ignore[return-value]
 
 

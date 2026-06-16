@@ -17,6 +17,7 @@ from app.processing.raster.quicklook import generate_quicklook
 
 from app.processing.ingest.tasks_common import (
     _bind_task_log_context,
+    _emit_billing_event,
     _job_phase_session,
     _parse_temporal_fields,
     _validate_upload_file_safety,
@@ -544,17 +545,38 @@ async def ingest_raster(job_id: str, file_path: str, user_id: str, **kwargs) -> 
             ql256_key = f"{base_key}/quicklook_256.png"
             ql512_key = f"{base_key}/quicklook_512.png"
 
+            # CR-02 (Phase 1210): in multi_tenant mode the serve path
+            # (raster_auth_check / resolve_open_path) prepends
+            # tenants/{tenant_id}/ to the logical key when building the
+            # /vsiaz/ or /vsis3/ path.  Ingest must store at the SAME
+            # prefixed key so stored key == served key.
+            # In single_tenant mode tenant_id=None → prefix="" → keys unchanged
+            # (byte-identical with pre-1210 behaviour).
+            from app.core.db.tenant_session import current_tenant_var
+            from app.core.tenancy import is_multi_tenant
+
+            _ingest_tenant_id = current_tenant_var.get() if is_multi_tenant() else None
+            _tenant_prefix = (
+                f"tenants/{_ingest_tenant_id}/" if _ingest_tenant_id else ""
+            )
+            _storage_cog_key = f"{_tenant_prefix}{cog_key}"
+            _storage_ql256_key = f"{_tenant_prefix}{ql256_key}"
+            _storage_ql512_key = f"{_tenant_prefix}{ql512_key}"
+
             # GAP-017: record each key right after its put so the failure
             # path can delete exactly what was written (and nothing more).
             with open(local_cog_path, "rb") as fobj:
-                await storage.put(cog_key, fobj)
-            written_storage_keys.append(cog_key)
-            await storage.put(ql256_key, io.BytesIO(ql256))
-            written_storage_keys.append(ql256_key)
-            await storage.put(ql512_key, io.BytesIO(ql512))
-            written_storage_keys.append(ql512_key)
+                await storage.put(_storage_cog_key, fobj)
+            written_storage_keys.append(_storage_cog_key)
+            await storage.put(_storage_ql256_key, io.BytesIO(ql256))
+            written_storage_keys.append(_storage_ql256_key)
+            await storage.put(_storage_ql512_key, io.BytesIO(ql512))
+            written_storage_keys.append(_storage_ql512_key)
 
-            # 11. Update asset URIs and create distribution
+            # 11. Update asset URIs and create distribution.
+            # asset_uri stays as the logical (un-prefixed) key — the tenant
+            # prefix is injected at serve-time by resolve_open_path so the
+            # DB value is provider- and tenant-agnostic.
             raster_asset.asset_uri = cog_key
             raster_asset.quicklook_256_uri = ql256_key
             raster_asset.quicklook_512_uri = ql512_key
@@ -612,6 +634,16 @@ async def ingest_raster(job_id: str, file_path: str, user_id: str, **kwargs) -> 
             from app.processing.embeddings.helpers import defer_embedding
 
             await defer_embedding(dataset)
+
+            # METER-01 (Phase 1213-02): emit raster ingest billable event through
+            # the billing-import-free seam.  _ingest_tenant_id is already resolved
+            # above (line ~557) for the storage prefix — reuse it here.
+            # event_id = job_id so task retries stay idempotent at the DB layer.
+            await _emit_billing_event(
+                str(_ingest_tenant_id) if _ingest_tenant_id else None,
+                "ingest_jobs",
+                event_id=job_id,
+            )
 
     except Exception as exc:  # broad: raster ingest spans GDAL/COG/Titiler — any step can fail; record failure
         structlog.get_logger().exception(

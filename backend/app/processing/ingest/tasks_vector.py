@@ -11,7 +11,9 @@ from app.processing.ingest.tasks_common import (
     _append_job_warning,
     _archive_original_file,
     _bind_task_log_context,
+    _current_tenant_schema,
     _detect_and_override_geometry,
+    _emit_billing_event,
     _finalize_ingest,
     _job_phase_session,
     _resolve_effective_srid,
@@ -253,7 +255,9 @@ async def ingest_file(job_id: str, file_path: str, user_id: str, **kwargs) -> No
             #     source attribute of the same name.
             from app.processing.ingest.metadata import rename_reserved_columns
 
-            reserved_renames = await rename_reserved_columns(session, table_name)
+            reserved_renames = await rename_reserved_columns(
+                session, table_name, schema=_current_tenant_schema()
+            )
             if reserved_renames:
                 from app.processing.ingest.warnings import (
                     make_reserved_rename_warning,
@@ -334,6 +338,19 @@ async def ingest_file(job_id: str, file_path: str, user_id: str, **kwargs) -> No
                 job=job,
                 dataset_id=dataset.id,
                 file_path=file_path,
+            )
+
+            # METER-01 (Phase 1213-02): emit ingest billable event through the
+            # billing-import-free seam.  Best-effort fire-and-forget — errors
+            # logged inside _emit_billing_event; ingest outcome unaffected.
+            # tenant_id from current_tenant_var (set by 1208/1209 middleware).
+            # event_id = job_id so task retries stay idempotent at the DB layer.
+            from app.core.db.tenant_session import current_tenant_var
+
+            await _emit_billing_event(
+                str(current_tenant_var.get()) if current_tenant_var.get() else None,
+                "ingest_jobs",
+                event_id=job_id,
             )
 
             final_status = "complete"
@@ -572,7 +589,9 @@ async def ingest_service(
             #     name. Runs BEFORE _finalize_ingest (which calls add_4326_column).
             from app.processing.ingest.metadata import rename_reserved_columns
 
-            reserved_renames = await rename_reserved_columns(session, table_name)
+            reserved_renames = await rename_reserved_columns(
+                session, table_name, schema=_current_tenant_schema()
+            )
             if reserved_renames:
                 from app.processing.ingest.warnings import (
                     make_reserved_rename_warning,
@@ -598,6 +617,15 @@ async def ingest_service(
                     user_metadata=um,
                     source_url=dataset_source_url,
                 )
+            )
+
+            # METER-01 (Phase 1213-02): emit ingest billable event.
+            from app.core.db.tenant_session import current_tenant_var
+
+            await _emit_billing_event(
+                str(current_tenant_var.get()) if current_tenant_var.get() else None,
+                "ingest_jobs",
+                event_id=job_id,
             )
 
     except Exception as exc:  # broad: PostGIS/DB ingest can fail at any step; mark job failed and re-raise

@@ -143,6 +143,7 @@ describe('PublicViewerPage', () => {
       edition: 'enterprise',
       features: ['branding'],
       isEnterprise: true,
+      isMultiTenant: false,
       isLoading: false,
     });
 

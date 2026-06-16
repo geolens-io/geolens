@@ -21,11 +21,20 @@
 !scripts/
 !scripts/**
 
-# enterprise/ is excluded from the OSS build context by default.
-# For an enterprise image build (BUG-003 build-time bake path), temporarily
-# add the following two lines and place the overlay source at ./enterprise/:
+# Private infra/ config (Phase 1209-04, DP-05 PgBouncer config) is EXCLUDED by
+# the default-deny `**` rule above. Do NOT add `!infra/` or `!infra/**` here —
+# infra/ is also excluded from git tracking via .git/info/exclude.
+
+# Overlay dirs (enterprise/, cloud/, etc.) are excluded from the OSS build context
+# by default (deny-then-allow pattern).
+# For an enterprise image build (BAKE-01), temporarily add the following and
+# place the overlay source at ./enterprise/:
 #   !enterprise/
 #   !enterprise/**
+# For a combined enterprise + cloud image build, also add:
+#   !cloud/
+#   !cloud/**
+# Allowances are per-derived-build and must NOT be committed for the OSS image.
 
 .git/
 .env

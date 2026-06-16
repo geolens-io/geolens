@@ -17,11 +17,12 @@ from app.core.permissions import (
     CREATE_LAYERS,
     DEFAULT_ROLE_PERMISSIONS,
     EDIT_METADATA,
-    UPLOAD,
     EXPORT,
     MANAGE_COLLECTIONS,
     MANAGE_SETTINGS,
+    MANAGE_TENANTS,
     MANAGE_USERS,
+    UPLOAD,
     USE_AI_CHAT,
 )
 
@@ -33,6 +34,7 @@ __all__ = [
     "EXPORT",
     "MANAGE_COLLECTIONS",
     "MANAGE_SETTINGS",
+    "MANAGE_TENANTS",
     "MANAGE_USERS",
     "UPLOAD",
     "USE_AI_CHAT",
@@ -51,7 +53,13 @@ def validate_permission_matrix(matrix: Any) -> None:
     Raises ValueError if:
     - matrix is not a dict
     - admin role is missing manage_users or manage_settings (lockout prevention)
-    - a non-admin role has manage_users or manage_settings (escalation prevention)
+    - a non-admin role has manage_users, manage_settings, or manage_tenants (escalation prevention)
+
+    Note: manage_tenants is intentionally NOT subject to admin lockout prevention.
+    Per CR-02 (Phase 1211) it is a fleet-superadmin-only capability that defaults
+    to False even for the admin role, so the default matrix legitimately omits it
+    from admin — gating it here would reject the default config on round-trip.
+    Escalation prevention (non-admin roles may not hold it) still applies below.
     """
     if not isinstance(matrix, dict):
         raise ValueError("Permission matrix must be a dict")
@@ -68,7 +76,6 @@ def validate_permission_matrix(matrix: Any) -> None:
         raise ValueError(
             "Cannot remove manage_settings from admin role (lockout prevention)"
         )
-
     # Prevent granting admin-only capabilities to non-admin roles
     for role_name, caps in matrix.items():
         if role_name == "admin" or not isinstance(caps, dict):
@@ -80,6 +87,10 @@ def validate_permission_matrix(matrix: Any) -> None:
         if caps.get(MANAGE_SETTINGS, False):
             raise ValueError(
                 f"Cannot grant manage_settings to non-admin role '{role_name}'"
+            )
+        if caps.get(MANAGE_TENANTS, False):
+            raise ValueError(
+                f"Cannot grant manage_tenants to non-admin role '{role_name}'"
             )
 
 

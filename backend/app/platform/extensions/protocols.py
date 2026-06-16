@@ -295,6 +295,11 @@ class PermissionExtension(Protocol):
     matrix, admin overrides, and visibility rules. Enterprise overlays replace
     the singleton registry entry under ``"permission"`` to implement advanced
     RBAC, ABAC, or row-level filters without changing core.
+
+    **Wrap-don't-replace rule (SLOT-02):** An overlay that needs additive
+    behavior MUST wrap the prior implementation retrieved via
+    ``get_permission_extension()`` at construction time — never bare
+    re-register the ``"permission"`` key (the slot-conflict guard rejects that).
     """
 
     async def check_permission(
@@ -352,6 +357,11 @@ class WorkflowExtension(Protocol):
     draft -> ready -> internal -> published lifecycle. Enterprise overlays can
     replace the singleton ``"workflow"`` registry slot to add approval states,
     block transitions, or observe transitions without changing catalog routes.
+
+    **Wrap-don't-replace rule (SLOT-02):** An overlay that needs to observe
+    transitions while preserving existing behavior MUST wrap
+    ``get_workflow_extension()`` at construction time — never bare re-register
+    the ``"workflow"`` key.
     """
 
     def status_order(self) -> tuple[str, ...]: ...
@@ -361,3 +371,39 @@ class WorkflowExtension(Protocol):
     ) -> set[str]: ...
 
     async def on_transition(self, context: WorkflowTransitionContext) -> None: ...
+
+
+@runtime_checkable
+class EntitlementPort(Protocol):
+    """Per-tenant capability and limit enforcement seam (Phase 1207 / ENTSEAM-01).
+
+    Orthogonal to ``require_enterprise()`` (binary edition gate) and to
+    ``PermissionExtension`` (per-user RBAC). ``EntitlementPort`` is a
+    per-TENANT tiering axis: it answers "does this tenant's plan include
+    feature X?" and "has this tenant exceeded limit Y?".
+
+    Community and Enterprise use ``DefaultEntitlementPort`` (grant-all,
+    fail-OPEN). The cloud overlay (Phase 1213) registers a real implementation
+    backed by the ``tenant_entitlements`` table (webhook-synced from Stripe).
+
+    **Wrap-don't-replace rule (SLOT-02):** An overlay that needs additive
+    behavior MUST wrap the prior implementation retrieved via
+    ``get_entitlement_port()`` at construction time — never bare re-register
+    the ``"entitlement"`` key (the slot-conflict guard rejects that).
+
+    Method contract:
+    - ``has_feature(feature)`` — return True if the current tenant's plan
+      includes the named feature; False to deny.
+    - ``enforce_limit(dimension, n)`` — raise (any exception; typically
+      ``HTTPException(429)`` or a domain-specific ``LimitExceededError``)
+      if ``n`` exceeds the tenant's allowed quota for ``dimension``;
+      return ``None`` otherwise (no raise = within limits).
+
+    Both methods are async because cloud overlay implementations may hit the
+    local ``tenant_entitlements`` table (async SQLAlchemy) or a short-TTL
+    process cache backed by an async data source.
+    """
+
+    async def has_feature(self, feature: str) -> bool: ...
+
+    async def enforce_limit(self, dimension: str, n: int) -> None: ...

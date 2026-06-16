@@ -5658,6 +5658,12 @@
             },
             "title": "Features",
             "type": "array"
+          },
+          "tenancy_mode": {
+            "default": "single_tenant",
+            "description": "Tenancy mode: 'single_tenant' or 'multi_tenant'.",
+            "title": "Tenancy Mode",
+            "type": "string"
           }
         },
         "required": [

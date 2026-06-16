@@ -285,8 +285,10 @@ async def test_main_uses_shutdown_graceful_timeout():
     with (
         patch("app.platform.jobs.worker.recover_stale_jobs", new_callable=AsyncMock),
         patch("app.platform.jobs.worker.ensure_staging_ready"),
-        patch("app.platform.storage.init_storage"),
-        patch("app.platform.cache.init_cache"),
+        # WORK-01: storage/cache/edition init now lives inside the shared bootstrap()
+        # helper that worker.main() delegates to — patch it (not the old inline calls).
+        patch("app.platform.extensions.bootstrap.bootstrap", new_callable=AsyncMock),
+        patch("app.platform.extensions.bootstrap.assert_enterprise_ports_resolved"),
         patch(
             "app.observability.metrics.jobs.update_job_metrics", new_callable=AsyncMock
         ),
@@ -322,8 +324,10 @@ async def test_main_uses_default_shutdown_timeout():
     with (
         patch("app.platform.jobs.worker.recover_stale_jobs", new_callable=AsyncMock),
         patch("app.platform.jobs.worker.ensure_staging_ready"),
-        patch("app.platform.storage.init_storage"),
-        patch("app.platform.cache.init_cache"),
+        # WORK-01: storage/cache/edition init now lives inside the shared bootstrap()
+        # helper that worker.main() delegates to — patch it (not the old inline calls).
+        patch("app.platform.extensions.bootstrap.bootstrap", new_callable=AsyncMock),
+        patch("app.platform.extensions.bootstrap.assert_enterprise_ports_resolved"),
         patch(
             "app.observability.metrics.jobs.update_job_metrics", new_callable=AsyncMock
         ),
@@ -352,8 +356,10 @@ async def test_main_passes_install_signal_handlers_true():
     with (
         patch("app.platform.jobs.worker.recover_stale_jobs", new_callable=AsyncMock),
         patch("app.platform.jobs.worker.ensure_staging_ready"),
-        patch("app.platform.storage.init_storage"),
-        patch("app.platform.cache.init_cache"),
+        # WORK-01: storage/cache/edition init now lives inside the shared bootstrap()
+        # helper that worker.main() delegates to — patch it (not the old inline calls).
+        patch("app.platform.extensions.bootstrap.bootstrap", new_callable=AsyncMock),
+        patch("app.platform.extensions.bootstrap.assert_enterprise_ports_resolved"),
         patch(
             "app.observability.metrics.jobs.update_job_metrics", new_callable=AsyncMock
         ),

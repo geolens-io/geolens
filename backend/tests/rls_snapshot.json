@@ -1,0 +1,114 @@
+{
+  "version": 1,
+  "description": "Mode-aware RLS drift snapshot (ISO-03, Phase 1208-03). policies: defined by 0006_tenant_rls. rls_flags: expected per-mode. Update this file when policies are intentionally changed.",
+  "policies": [
+    {
+      "policyname": "tenant_isolation_collections",
+      "tablename": "collections",
+      "qual_contains": "current_setting",
+      "with_check_contains": "current_setting",
+      "no_is_null": true,
+      "qual": "(tenant_id = (current_setting('app.current_tenant'::text))::uuid)",
+      "with_check": "(tenant_id = (current_setting('app.current_tenant'::text))::uuid)"
+    },
+    {
+      "policyname": "tenant_isolation_datasets",
+      "tablename": "datasets",
+      "qual_contains": "current_setting",
+      "with_check_contains": "current_setting",
+      "no_is_null": true,
+      "qual": "(tenant_id = (current_setting('app.current_tenant'::text))::uuid)",
+      "with_check": "(tenant_id = (current_setting('app.current_tenant'::text))::uuid)"
+    },
+    {
+      "policyname": "tenant_isolation_embed_tokens",
+      "tablename": "embed_tokens",
+      "qual_contains": "current_setting",
+      "with_check_contains": "current_setting",
+      "no_is_null": true,
+      "qual": "(tenant_id = (current_setting('app.current_tenant'::text))::uuid)",
+      "with_check": "(tenant_id = (current_setting('app.current_tenant'::text))::uuid)"
+    },
+    {
+      "policyname": "tenant_isolation_maps",
+      "tablename": "maps",
+      "qual_contains": "current_setting",
+      "with_check_contains": "current_setting",
+      "no_is_null": true,
+      "qual": "(tenant_id = (current_setting('app.current_tenant'::text))::uuid)",
+      "with_check": "(tenant_id = (current_setting('app.current_tenant'::text))::uuid)"
+    },
+    {
+      "policyname": "tenant_isolation_records",
+      "tablename": "records",
+      "qual_contains": "current_setting",
+      "with_check_contains": "current_setting",
+      "no_is_null": true,
+      "qual": "(tenant_id = (current_setting('app.current_tenant'::text))::uuid)",
+      "with_check": "(tenant_id = (current_setting('app.current_tenant'::text))::uuid)"
+    },
+    {
+      "policyname": "tenant_isolation_users",
+      "tablename": "users",
+      "qual_contains": "current_setting",
+      "with_check_contains": "current_setting",
+      "no_is_null": true,
+      "qual": "(tenant_id = (current_setting('app.current_tenant'::text))::uuid)",
+      "with_check": "(tenant_id = (current_setting('app.current_tenant'::text))::uuid)"
+    }
+  ],
+  "rls_flags": {
+    "single_tenant": {
+      "collections": {
+        "relrowsecurity": false,
+        "relforcerowsecurity": false
+      },
+      "datasets": {
+        "relrowsecurity": false,
+        "relforcerowsecurity": false
+      },
+      "embed_tokens": {
+        "relrowsecurity": false,
+        "relforcerowsecurity": false
+      },
+      "maps": {
+        "relrowsecurity": false,
+        "relforcerowsecurity": false
+      },
+      "records": {
+        "relrowsecurity": false,
+        "relforcerowsecurity": false
+      },
+      "users": {
+        "relrowsecurity": false,
+        "relforcerowsecurity": false
+      }
+    },
+    "multi_tenant": {
+      "collections": {
+        "relrowsecurity": true,
+        "relforcerowsecurity": true
+      },
+      "datasets": {
+        "relrowsecurity": true,
+        "relforcerowsecurity": true
+      },
+      "embed_tokens": {
+        "relrowsecurity": true,
+        "relforcerowsecurity": true
+      },
+      "maps": {
+        "relrowsecurity": true,
+        "relforcerowsecurity": true
+      },
+      "records": {
+        "relrowsecurity": true,
+        "relforcerowsecurity": true
+      },
+      "users": {
+        "relrowsecurity": true,
+        "relforcerowsecurity": true
+      }
+    }
+  }
+}

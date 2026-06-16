@@ -80,7 +80,6 @@ async def local_storage(
     """
     from app.core.config import settings
     from app.platform.storage.local import LocalStorageProvider
-    from app.processing.raster import vrt as raster_vrt_module
 
     # Force the client/test_db_session fixture to run first. It also changes
     # upload_staging_dir, and this fixture must be the last override applied.
@@ -96,13 +95,13 @@ async def local_storage(
     # doesn't affect the binding inside tasks_vrt.
     monkeypatch.setattr("app.processing.ingest.tasks_vrt.get_storage", lambda: provider)
 
-    # Override upload_staging_dir so resolve_vrt_source_path (vrt.py:16-26) resolves
-    # source asset_uris to files under our storage root. Without this override,
-    # gdalbuildvrt gets production paths that do not exist and fails.
+    # Override upload_staging_dir so resolve_vrt_source_path (delegating to
+    # resolve_open_path since Phase 1210-02) resolves source asset_uris to files
+    # under our storage root. Without this override, gdalbuildvrt gets production
+    # paths that do not exist and fails. The settings object at app.core.config is
+    # the single source after the Plan 02 delegation (raster_vrt_module.settings
+    # was removed; app.core.config.settings is patched here instead).
     monkeypatch.setattr(settings, "upload_staging_dir", str(storage_root))
-    monkeypatch.setattr(
-        raster_vrt_module.settings, "upload_staging_dir", str(storage_root)
-    )
 
     return provider
 

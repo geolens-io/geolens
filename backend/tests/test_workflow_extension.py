@@ -196,9 +196,12 @@ async def test_overlay_workflow_extension_is_dispatched():
         async def on_transition(self, context):
             context.dataset.transition_seen = True
 
+    from app.platform.extensions.version import EXTENSION_API_VERSION
+
     def register(registry: dict) -> None:
         registry["workflow"] = TestWorkflowExtension()
 
+    register.EXTENSION_API_VERSION = EXTENSION_API_VERSION
     mock_ep = MagicMock()
     mock_ep.name = "geolens.workflow.test"
     mock_ep.load.return_value = register

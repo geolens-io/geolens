@@ -533,7 +533,7 @@ class TestTileQueryStructure:
         assert "256" in query
         assert "ST_AsMVTGeom" in query
         assert "ST_AsMVT" in query
-        assert "data.test_table" in query
+        assert '"data"."test_table"' in query  # DP-02: schema-qualified
         # Verify bounds CTE precomputes geom_4326
         assert "bounds.geom_4326" in query
         assert "ST_Transform(bounds.geom, 4326)" not in query
@@ -567,7 +567,7 @@ class TestTileQueryStructure:
 
         query = _build_cluster_tile_query("cluster_dataset")
 
-        assert "data.cluster_dataset" in query
+        assert '"data"."cluster_dataset"' in query  # DP-02: schema-qualified
         assert "point_count" in query
         assert "point_count_abbreviated" in query
         assert "cluster_id" in query

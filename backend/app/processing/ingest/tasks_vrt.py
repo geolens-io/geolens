@@ -1,4 +1,16 @@
-"""Procrastinate task definitions for VRT creation and regeneration."""
+"""Procrastinate task definitions for VRT creation and regeneration.
+
+Storage portability (STOR-03/04, Phase 1210):
+  VRTs are stored with provider-agnostic SourceFilename nodes (logical keys +
+  relativeToVRT="1"). The rewrite pass (rewrite_vrt_sources) runs AFTER metadata
+  extraction and quicklook generation at each store site — the in-flight tmp .vrt
+  used by extract_raster_metadata / generate_quicklook must hold concrete,
+  resolvable paths; only the stored copy is normalised to logical keys.
+
+  At open-time, resolve_open_path (app.platform.storage.titiler_url) reconstructs
+  the concrete VSI path from the logical key + current STORAGE_PROVIDER config, so
+  a provider swap (s3 -> azure -> local) requires no changes to stored VRT XML.
+"""
 
 import uuid
 from datetime import datetime, timezone
@@ -13,6 +25,7 @@ from app.processing.embeddings.helpers import defer_embedding
 from app.processing.raster.cog import extract_raster_metadata, sha256_file
 from app.processing.raster.quicklook import generate_quicklook
 from app.processing.raster.vrt import build_vrt, resolve_vrt_source_path
+from app.processing.raster.vrt_rewrite import rewrite_vrt_sources
 from app.platform.storage import get_storage
 
 from app.processing.ingest.tasks_common import (
@@ -301,23 +314,59 @@ async def ingest_vrt(
                 )
 
                 # 10. Store VRT and quicklooks to managed storage
+                from pathlib import Path as _Path
+
                 from app.platform.storage import get_storage
 
                 storage = get_storage()
                 base_key = f"rasters/{dataset.id}/{asset_sha256}"
                 vrt_key = f"{base_key}/source.vrt"
+
+                # ORDERING: rewrite_vrt_sources runs AFTER metadata extraction
+                # (step 6) and quicklook generation (step 8) — the in-flight
+                # tmp .vrt must hold concrete resolvable paths for GDAL to open.
+                # Only the STORED copy is rewritten to logical relativeToVRT="1"
+                # keys so the XML is provider-agnostic at rest (STOR-03).
+                # CR-01: supply vrt_storage_key so the rewrite computes paths
+                # relative to the VRT's own directory (not the full logical key).
+                _vrt_rewrite_changes = rewrite_vrt_sources(
+                    _Path(vrt_path), vrt_storage_key=vrt_key
+                )
+                if _vrt_rewrite_changes:
+                    logger_vrt.info(
+                        "VRT store-path rewrite: %d SourceFilename(s) normalised to logical keys",
+                        len(_vrt_rewrite_changes),
+                        extra={"changes": _vrt_rewrite_changes, "job_id": job_id},
+                    )
                 ql256_key = f"{base_key}/quicklook_256.png"
                 ql512_key = f"{base_key}/quicklook_512.png"
 
+                # CR-02 (Phase 1210): in multi_tenant mode the serve path
+                # prepends tenants/{tenant_id}/ to the logical key.  Ingest
+                # must store at the SAME prefixed key so stored key == served key.
+                # single_tenant: tenant_id=None → keys unchanged (byte-identical).
+                from app.core.db.tenant_session import current_tenant_var
+                from app.core.tenancy import is_multi_tenant as _is_multi_tenant
+
+                _vrt_tenant_id = (
+                    current_tenant_var.get() if _is_multi_tenant() else None
+                )
+                _vrt_prefix = f"tenants/{_vrt_tenant_id}/" if _vrt_tenant_id else ""
+                _storage_vrt_key = f"{_vrt_prefix}{vrt_key}"
+                _storage_ql256_key = f"{_vrt_prefix}{ql256_key}"
+                _storage_ql512_key = f"{_vrt_prefix}{ql512_key}"
+
                 with open(vrt_path, "rb") as fobj:
-                    await storage.put(vrt_key, fobj)
+                    await storage.put(_storage_vrt_key, fobj)
 
                 if ql256 is not None:
-                    await storage.put(ql256_key, io.BytesIO(ql256))
+                    await storage.put(_storage_ql256_key, io.BytesIO(ql256))
                 if ql512 is not None:
-                    await storage.put(ql512_key, io.BytesIO(ql512))
+                    await storage.put(_storage_ql512_key, io.BytesIO(ql512))
 
-                # 11. Update asset URIs and create distribution
+                # 11. Update asset URIs and create distribution.
+                # asset_uri stays as the logical (un-prefixed) key — the tenant
+                # prefix is injected at serve-time by resolve_open_path.
                 raster_asset.asset_uri = vrt_key
                 if ql256 is not None:
                     raster_asset.quicklook_256_uri = ql256_key
@@ -549,15 +598,46 @@ async def regenerate_vrt(
             )
 
         # 10. Overwrite existing storage key (atomic swap -- same URI, new content)
+        #
+        # ORDERING: rewrite_vrt_sources runs AFTER metadata extraction (step 6/7)
+        # and quicklook generation (step 9) — the in-flight tmp .vrt must hold
+        # concrete resolvable paths for GDAL to open. Only the STORED copy is
+        # rewritten to logical relativeToVRT="1" keys (STOR-03).
+        # CR-01: supply vrt_storage_key so the rewrite computes paths relative
+        # to the VRT's own directory (not the full logical key).
+        import pathlib as _pathlib
+
+        _regen_rewrite_changes = rewrite_vrt_sources(
+            _pathlib.Path(vrt_path), vrt_storage_key=vrt_storage_key
+        )
+        if _regen_rewrite_changes:
+            logger_regen.info(
+                "VRT regen store-path rewrite: %d SourceFilename(s) normalised to logical keys",
+                len(_regen_rewrite_changes),
+                extra={
+                    "changes": _regen_rewrite_changes,
+                    "vrt_dataset_id": vrt_dataset_id,
+                },
+            )
+
         storage = get_storage()
 
+        # CR-02 (Phase 1210): mirror the ingest-time tenant prefix so the
+        # overwrite lands at the same tenant-prefixed key the serve path uses.
+        # single_tenant: prefix="" → keys unchanged (byte-identical).
+        from app.core.db.tenant_session import current_tenant_var as _ctv
+        from app.core.tenancy import is_multi_tenant as _is_mt
+
+        _regen_tenant_id = _ctv.get() if _is_mt() else None
+        _regen_prefix = f"tenants/{_regen_tenant_id}/" if _regen_tenant_id else ""
+
         with open(vrt_path, "rb") as fobj:
-            await storage.put(vrt_storage_key, fobj)
+            await storage.put(f"{_regen_prefix}{vrt_storage_key}", fobj)
 
         if ql256 is not None and vrt_ql256_uri:
-            await storage.put(vrt_ql256_uri, io.BytesIO(ql256))
+            await storage.put(f"{_regen_prefix}{vrt_ql256_uri}", io.BytesIO(ql256))
         if ql512 is not None and vrt_ql512_uri:
-            await storage.put(vrt_ql512_uri, io.BytesIO(ql512))
+            await storage.put(f"{_regen_prefix}{vrt_ql512_uri}", io.BytesIO(ql512))
 
         # ----------------------------------------------------------------- #
         # Phase 2 (short-lived session): update RasterAsset metadata, mark

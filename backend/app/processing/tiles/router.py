@@ -24,10 +24,17 @@ from app.core.config import settings
 from app.core.dependencies import get_db
 from app.modules.embed_tokens.service import validate_embed_token_access
 from app.platform.cache.provider import get_tile_cache
-from app.platform.extensions import get_processing_port
-from app.platform.storage.titiler_url import build_titiler_cog_url
+from app.platform.extensions import (
+    get_billing_extensions,
+    get_processing_port,
+    has_extension,
+)
+from app.platform.storage.titiler_url import build_titiler_cog_url, resolve_open_path
 from app.processing.raster.models import RasterAsset
-from app.processing.tiles.pool import get_tile_pool
+from app.core.db.tenant_schema import tenant_data_schema
+from app.core.db.tenant_session import current_tenant_var
+from app.core.tenancy import is_multi_tenant
+from app.processing.tiles.pool import get_tile_pool, set_tenant_role_for_tile_request
 from app.processing.tiles.service import get_cluster_tile, get_tile
 from app.modules.auth.router import limiter
 from app.processing.tiles.schemas import (
@@ -44,6 +51,152 @@ from app.processing.tiles.signing import (
 from app.standards.ogc.errors import ERROR_RESPONSES_PUBLIC
 
 logger = structlog.stdlib.get_logger(__name__)
+
+# ---------------------------------------------------------------------------
+# FAIR-01 / METER-03 / COLD-02: cloud-conditional per-tenant helpers.
+#
+# These helpers are imported LAZILY inside functions so the public core image
+# (without geolens_cloud installed) never hard-imports the overlay package.
+# The guard is always has_extension("cloud") which is False when the overlay is
+# absent — byte-identical OSS behaviour (T-1213-23).
+# ---------------------------------------------------------------------------
+
+
+def _get_cloud_fairness():
+    """Return (tile_limiter, _get_tenant_semaphore) from the cloud overlay, or None.
+
+    Returns None when the cloud overlay is not active, so all callers can do a
+    simple ``if cloud_fairness:`` guard.  Importing inside the function body (not
+    at module load) means the public core image never hard-depends on geolens_cloud.
+    """
+    if not has_extension("cloud"):
+        return None
+    try:
+        from geolens_cloud.fairness.rate_limit import (  # type: ignore[import]
+            _get_tenant_semaphore,
+            tile_cache_control_value,
+            tile_limiter,
+        )
+
+        return tile_limiter, _get_tenant_semaphore, tile_cache_control_value
+    except ImportError:
+        return None
+
+
+async def _emit_tile_usage_event(table_name: str) -> None:
+    """Emit a tile-request usage event through the billing-import-free seam (METER-03).
+
+    Called after a successful vector or cluster tile serve in multi_tenant mode.
+    Uses get_billing_extensions() + hasattr(ext, "on_usage_event") so that:
+    - When the cloud overlay is active, CloudMeteringExtension.on_usage_event()
+      updates DatasetORM.last_accessed_at via update_last_accessed().
+    - When no extension provides on_usage_event (single_tenant / cloud-absent),
+      nothing runs — byte-identical OSS behaviour.
+
+    Best-effort: errors are logged and swallowed so a billing hook failure NEVER
+    fails a tile response (mirrors the lifespan dispatch try/except pattern in
+    app/api/main.py).
+
+    METER-03: the table_name is carried on the event so the cloud extension can
+    scope the last_accessed_at update to the correct dataset row.
+    """
+    if not is_multi_tenant():
+        return
+    tenant_id = current_tenant_var.get(None)
+    if tenant_id is None:
+        return
+    for ext in get_billing_extensions():
+        if not hasattr(ext, "on_usage_event"):
+            continue
+        try:
+            await ext.on_usage_event(  # type: ignore[attr-defined]
+                tenant_id=str(tenant_id),
+                dimension="tile_requests",
+                value=1,
+                table_name=table_name,
+            )
+        except Exception:  # broad: billing hook failures must never fail a tile response; varied extension errors
+            logger.warning(
+                "tile usage event dispatch failed",
+                ext=type(ext).__name__,
+                table_name=table_name,
+                exc_info=True,
+            )
+
+
+async def _check_cold_rehydrate(
+    table_name: str,
+    record_status: str,
+    tenant_id: str,
+) -> "Response | None":
+    """Check if a table is cold and delegate to the overlay for rehydration (COLD-02).
+
+    Mirrors the METER-03 / FAIR-01 billing-import-free seam pattern exactly:
+    - Returns None immediately when record_status != 'cold' (hot — the common path,
+      zero overhead).
+    - Returns None when not is_multi_tenant() or has_extension('cloud') is False
+      (single_tenant / community / enterprise — byte-identical, no import attempted).
+    - Deferred import of geolens_cloud.cold_tier.rehydrate.check_and_rehydrate inside
+      a try/except so the public core image never hard-imports the overlay package.
+    - ImportError → return None (overlay absent, serve normally).
+    - Broad Exception → log warning, return None (a cold-check failure MUST NEVER 500
+      the tile response — T-1214-17).
+
+    When the table IS cold and the overlay is present:
+      - status='hydrated' → return None so the caller continues to serve the now-hot tile.
+      - status='warming'  → return a 202 Response (JSON {status: 'warming', job_id}).
+
+    Args:
+        table_name:    The dataset table_name (already resolved from the tile URL).
+        record_status: The cached record_status from _resolve_dataset_meta — no extra
+                       DB round-trip on the hot path (T-1214-18).
+        tenant_id:     The server-resolved tenant UUID string (current_tenant_var).
+    """
+    import json
+
+    # Fast path: table is hot — 99%+ of requests take this branch with zero overhead.
+    if record_status != "cold":
+        return None
+
+    # Guard: cold-tier is a cloud-only / multi-tenant feature.
+    if not is_multi_tenant():
+        return None
+    if not has_extension("cloud"):
+        return None
+
+    try:
+        from geolens_cloud.cold_tier.rehydrate import check_and_rehydrate  # type: ignore[import]
+
+        result = await check_and_rehydrate(table_name=table_name, tenant_id=tenant_id)
+    except ImportError:
+        # Overlay not installed — serve normally (no cold tier in this deployment).
+        return None
+    except (
+        Exception
+    ):  # broad: cold-check failure must NEVER fail a tile response (T-1214-17)
+        logger.warning(
+            "cold_rehydrate_check_failed",
+            table_name=table_name,
+            tenant_id=tenant_id,
+            exc_info=True,
+        )
+        return None
+
+    if result is None:
+        # Dataset resolved as hot by the overlay (non-cold record_status).
+        return None
+
+    if result.status == "warming":
+        # Over size gate: async rehydrate enqueued; inform the client to poll.
+        return Response(
+            content=json.dumps({"status": "warming", "job_id": result.job_id}),
+            status_code=202,
+            media_type="application/json",
+        )
+
+    # status='hydrated': sync rehydrate completed inline — proceed to serve the tile.
+    return None
+
 
 router = APIRouter(prefix="/tiles", tags=["Tiles"], responses=ERROR_RESPONSES_PUBLIC)
 
@@ -131,7 +284,13 @@ class _RasterMeta(NamedTuple):
     band_info: list | None
 
 
-_raster_meta_cache: dict[str, tuple[float, _RasterMeta]] = {}
+# WR-02 (Phase 1210): bounded LRU — mirrors the vector _dataset_cache (PERF-006).
+# The comment at line ~106 said this "mirrors the vector _dataset_cache pattern"
+# but used an unbounded dict instead.  A long-lived tile worker serving many
+# distinct raster datasets would grow this indefinitely, holding cached _RasterMeta
+# objects (asset_uri strings, band_info lists) forever.  LRUCache(maxsize=256)
+# matches the adjacent _dataset_cache bound.
+_raster_meta_cache: LRUCache[str, tuple[float, _RasterMeta]] = LRUCache(maxsize=256)
 _raster_meta_cache_lock = threading.Lock()
 
 
@@ -599,15 +758,13 @@ async def raster_auth_check(
     """
     meta, storage_backend = await _resolve_raster_access(db, dataset_id, request, user)
 
-    # Resolve COG open-path for Titiler
-    asset_uri = meta.asset_uri
-    if storage_backend == "remote":
-        # STAC import: asset_uri is already a full URL to a remote COG
-        open_path = asset_uri
-    elif storage_backend == "s3" and settings.s3_bucket:
-        open_path = f"/vsis3/{settings.s3_bucket}/{asset_uri}"
-    else:
-        open_path = f"{settings.upload_staging_dir}/{asset_uri}"
+    # Resolve COG open-path for Titiler via the single storage seam (STOR-02 / Phase 1210).
+    # resolve_open_path handles local/s3/azure dispatch and http(s) pass-through.
+    # In multi_tenant mode, prefix the key with tenants/{tenant_id}/ so each tenant's
+    # objects are namespaced on the data plane (aligned with the 1209 convention).
+    # In single_tenant (default), tenant_id is None and the path is byte-identical.
+    tenant_id = current_tenant_var.get() if is_multi_tenant() else None
+    open_path = resolve_open_path(meta.asset_uri, tenant_id=tenant_id)
 
     cache_status = (
         "public"
@@ -929,8 +1086,17 @@ def _build_tile_token_for_dataset(
         )
 
     # Vector dataset branch
+    # WR-03 (Phase 1209-CR): in multi_tenant, bind the scope to the active
+    # tenant so a token minted for tenant A cannot be replayed in tenant B's
+    # context even if both tenants share the same table_name.
+    # single_tenant: scope = bare table_name — byte-identical to pre-1209.
     exp = round_expiry()
-    scope = dataset.table_name
+    _scope_tid = current_tenant_var.get() if is_multi_tenant() else None
+    scope = (
+        f"{_scope_tid}:{dataset.table_name}"
+        if _scope_tid is not None
+        else dataset.table_name
+    )
     sig = generate_tile_signature(scope, exp)
 
     return VectorTileToken(
@@ -1131,10 +1297,25 @@ def _validate_tile_coordinates(z: int, x: int, y: int) -> None:
 
 
 async def _resolve_dataset_meta(table_name: str, db: AsyncSession) -> _DatasetMeta:
-    """Look up dataset metadata with a short in-memory cache."""
+    """Look up dataset metadata with a short in-memory cache.
+
+    DP-02 (Phase 1209-03): In ``multi_tenant`` the cache key is
+    ``{tid}:{table_name}`` so two tenants with the same ``table_name`` never
+    share a cache entry (T-1209-13).  The DB query also adds a
+    ``DatasetORM.tenant_id == tid`` WHERE clause to close the cross-dataset
+    authz leak class on the data plane (T-1209-12).
+
+    In ``single_tenant``: cache key is bare ``table_name``; no tenant filter —
+    byte-identical to pre-1209 behaviour.
+    """
     now = time.monotonic()
+
+    # DP-02: compute tenant-aware cache key
+    tid = current_tenant_var.get() if is_multi_tenant() else None
+    cache_key = f"{tid}:{table_name}" if tid is not None else table_name
+
     with _dataset_cache_lock:
-        cached_entry = _dataset_cache.get(table_name)
+        cached_entry = _dataset_cache.get(cache_key)
         if cached_entry is not None:
             ts, cached_meta = cached_entry
             if now - ts < _DATASET_CACHE_TTL:
@@ -1142,11 +1323,20 @@ async def _resolve_dataset_meta(table_name: str, db: AsyncSession) -> _DatasetMe
 
     from app.modules.catalog.datasets.domain.models import Dataset as DatasetORM
 
-    result = await db.execute(
+    stmt = (
         select(DatasetORM)
         .options(joinedload(DatasetORM.record))
         .where(DatasetORM.table_name == table_name)
     )
+    if is_multi_tenant() and tid is not None:
+        # DP-02: filter by tenant_id — a bare table_name lookup without scoping
+        # could return a dataset belonging to a different tenant if names collide.
+        # If tid is None in multi_tenant, the query proceeds unscoped and RLS
+        # will fail-close at the control plane; data plane rows have tenant_id
+        # that won't match, so the result is also effectively 404.
+        stmt = stmt.where(DatasetORM.tenant_id == tid)
+
+    result = await db.execute(stmt)
     dataset = result.scalar_one_or_none()
 
     if dataset is None:
@@ -1168,7 +1358,7 @@ async def _resolve_dataset_meta(table_name: str, db: AsyncSession) -> _DatasetMe
         tile_columns=dataset.tile_columns,
     )
     with _dataset_cache_lock:
-        _dataset_cache[table_name] = (now, meta)
+        _dataset_cache[cache_key] = (now, meta)
     return meta
 
 
@@ -1201,7 +1391,16 @@ async def _authorize_vector_tile_request(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Signature required for non-public tiles",
             )
-        if scope != meta.table_name:
+        # WR-03 (Phase 1209-CR): expected scope mirrors _build_tile_token_for_dataset:
+        # in multi_tenant the scope is "{tid}:{table_name}" to prevent cross-tenant
+        # token replay.  single_tenant: scope is bare table_name — unchanged.
+        _verify_tid = current_tenant_var.get() if is_multi_tenant() else None
+        _expected_scope = (
+            f"{_verify_tid}:{meta.table_name}"
+            if _verify_tid is not None
+            else meta.table_name
+        )
+        if scope != _expected_scope:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN, detail="Scope mismatch"
             )
@@ -1309,7 +1508,14 @@ async def cluster_tile_endpoint(
     )
 
     cache_ttl = meta.tile_cache_ttl or settings.tile_cache_ttl
-    cluster_cache_key = _cluster_cache_table_key(
+
+    # DP-02 (Phase 1209-CR-01): prefix cluster cache key with tenant id in
+    # multi_tenant so two tenants with the same table_name never share cached
+    # cluster tiles.  single_tenant: no prefix — byte-identical to pre-1209
+    # behavior (T-1209-CR-01).
+    _cluster_tid = current_tenant_var.get() if is_multi_tenant() else None
+    _cluster_tenant_prefix = f"{_cluster_tid}:" if _cluster_tid is not None else ""
+    cluster_cache_key = _cluster_tenant_prefix + _cluster_cache_table_key(
         table_name,
         cluster_radius=cluster_radius,
         cluster_max_zoom=cluster_max_zoom,
@@ -1327,6 +1533,18 @@ async def cluster_tile_endpoint(
                 headers=_tile_headers(cache_scope, cache_ttl),
             )
 
+    # COLD-02 (Phase 1214-04): cold-rehydrate seam — BEFORE cluster tile query.
+    # Mirrors the tile_endpoint seam: uses cached meta.record_status (T-1214-18);
+    # failure is broad-except-swallowed (T-1214-17).
+    _cluster_cold_tid = current_tenant_var.get(None)
+    _cluster_cold_result = await _check_cold_rehydrate(
+        table_name,
+        meta.record_status,
+        str(_cluster_cold_tid) if _cluster_cold_tid is not None else "",
+    )
+    if _cluster_cold_result is not None:
+        return _cluster_cold_result
+
     try:
         pool = get_tile_pool()
     except RuntimeError as exc:
@@ -1341,16 +1559,29 @@ async def cluster_tile_endpoint(
             detail="Tile service unavailable",
         )
 
+    # DP-02 (Phase 1209-03): acquire ONE connection and open a transaction so
+    # SET LOCAL ROLE + SET LOCAL search_path survive for the tile query
+    # (PgBouncer transaction-mode: SET LOCAL is valid within one txn; T-1209-10).
+    tid = current_tenant_var.get()
+    _schema = tenant_data_schema(tid)
+
     try:
-        tile_data = await get_cluster_tile(
-            pool,
-            table_name,
-            z,
-            x,
-            y,
-            cluster_radius=cluster_radius,
-            cluster_max_zoom=cluster_max_zoom,
-        )
+        async with pool.acquire() as tile_conn:
+            async with tile_conn.transaction():
+                # Bind per-tenant role + search_path BEFORE the tile query.
+                # No-op in single_tenant or when tid is None.
+                await set_tenant_role_for_tile_request(tile_conn, tid)
+                tile_data = await get_cluster_tile(
+                    pool,
+                    table_name,
+                    z,
+                    x,
+                    y,
+                    cluster_radius=cluster_radius,
+                    cluster_max_zoom=cluster_max_zoom,
+                    conn=tile_conn,
+                    schema=_schema,
+                )
     except asyncio.TimeoutError:
         logger.warning(
             "Cluster tile pool acquire timeout",
@@ -1394,6 +1625,10 @@ async def cluster_tile_endpoint(
         cluster_max_zoom=cluster_max_zoom,
         scope=scope or cache_scope,
     )
+
+    # METER-03 (Phase 1213-06): emit usage event through the billing-import-free
+    # seam for cluster tile serves (same path as the regular tile endpoint).
+    await _emit_tile_usage_event(table_name)
 
     # PERF-005: gzip is CPU-bound — offload to a thread so the event loop isn't
     # stalled compressing wide low-zoom tiles (asyncio.to_thread convention).
@@ -1471,10 +1706,19 @@ async def tile_endpoint(
     # Use per-dataset cache TTL when set, else global default
     cache_ttl = meta.tile_cache_ttl or settings.tile_cache_ttl
 
+    # DP-02 (Phase 1209-CR-01): prefix tile cache key with tenant id in
+    # multi_tenant so two tenants with the same table_name never share a
+    # cached tile binary.  single_tenant: no prefix — byte-identical to
+    # pre-1209 behavior (T-1209-CR-01).
+    _tile_tid = current_tenant_var.get() if is_multi_tenant() else None
+    _tile_cache_key = (
+        f"{_tile_tid}:{table_name}" if _tile_tid is not None else table_name
+    )
+
     # Check tile cache before hitting PostGIS
     tile_cache = get_tile_cache()
     if tile_cache is not None:
-        cached = await tile_cache.get(table_name, z, x, y, cols_key=cols_cache_key)
+        cached = await tile_cache.get(_tile_cache_key, z, x, y, cols_key=cols_cache_key)
         if cached is not None:
             if len(cached) == 0:
                 # Empty sentinel — tile was previously confirmed empty
@@ -1484,6 +1728,34 @@ async def tile_endpoint(
                 media_type="application/vnd.mapbox-vector-tile",
                 headers=_tile_headers(cache_scope, cache_ttl),
             )
+
+    # COLD-02 (Phase 1214-04): cold-rehydrate seam — BEFORE tile query.
+    # Uses the cached meta.record_status (no extra DB round-trip on the hot path,
+    # T-1214-18). Returns a 202 Response for over-gate warming or None to continue.
+    # A cold-check failure is broad-except-swallowed so it NEVER 500s the tile
+    # (T-1214-17). Published/anon-shared datasets are hot (record_status != 'cold')
+    # so a public map viewer never receives a 202-warming response (T-1214-17).
+    _cold_tid = current_tenant_var.get(None)
+    _cold_result = await _check_cold_rehydrate(
+        table_name,
+        meta.record_status,
+        str(_cold_tid) if _cold_tid is not None else "",
+    )
+    if _cold_result is not None:
+        return _cold_result
+
+    # FAIR-01 (Phase 1213-06): per-tenant concurrency budget.
+    # When the cloud overlay is active, acquire the per-tenant semaphore BEFORE
+    # entering the tile pool. This caps concurrent tile DB connections per tenant
+    # to _TILE_CONCURRENCY so one tenant cannot starve others of pool connections
+    # (T-1213-22 noisy-neighbour mitigation). In single_tenant / cloud-absent mode,
+    # _cloud_fairness is None and the semaphore step is skipped — byte-identical OSS.
+    _cloud_fairness = _get_cloud_fairness()
+    _tenant_sem = None
+    if _cloud_fairness is not None and is_multi_tenant():
+        _tile_limiter_obj, _get_sem, _cc_value = _cloud_fairness
+        _sem_key = str(current_tenant_var.get(None) or "anon")
+        _tenant_sem = _get_sem(_sem_key)
 
     # Get tile from PostGIS.
     # RES-5 / RES-N7: catch pool exhaustion and DB errors explicitly so that
@@ -1503,17 +1775,43 @@ async def tile_endpoint(
             detail="Tile service unavailable",
         )
 
+    # DP-02 (Phase 1209-03): acquire ONE connection and open a transaction so
+    # SET LOCAL ROLE + SET LOCAL search_path survive for the tile query
+    # (PgBouncer transaction-mode: SET LOCAL is valid within one txn; T-1209-10).
+    tid = current_tenant_var.get()
+    _schema = tenant_data_schema(tid)
+
+    # FAIR-01: per-tenant semaphore acquisition (cloud only; no-op when absent).
+    _sem_acquired = False
+    if _tenant_sem is not None:
+        try:
+            await asyncio.wait_for(_tenant_sem.acquire(), timeout=10.0)
+            _sem_acquired = True
+        except asyncio.TimeoutError:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="Tile concurrency limit reached for tenant, please retry",
+                headers={"Retry-After": "2"},
+            )
+
     try:
-        tile_data = await get_tile(
-            pool,
-            table_name,
-            z,
-            x,
-            y,
-            columns,
-            tile_columns=meta.tile_columns,
-            additional_columns=additional_columns,
-        )
+        async with pool.acquire() as tile_conn:
+            async with tile_conn.transaction():
+                # Bind per-tenant role + search_path BEFORE the tile query.
+                # No-op in single_tenant or when tid is None.
+                await set_tenant_role_for_tile_request(tile_conn, tid)
+                tile_data = await get_tile(
+                    pool,
+                    table_name,
+                    z,
+                    x,
+                    y,
+                    columns,
+                    tile_columns=meta.tile_columns,
+                    additional_columns=additional_columns,
+                    conn=tile_conn,
+                    schema=_schema,
+                )
     except asyncio.TimeoutError:
         logger.warning(
             "Tile pool acquire timeout",
@@ -1540,12 +1838,16 @@ async def tile_endpoint(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Tile service unavailable",
         )
+    finally:
+        # FAIR-01: always release the per-tenant semaphore (cloud only).
+        if _sem_acquired and _tenant_sem is not None:
+            _tenant_sem.release()
 
     if tile_data is None:
         # Cache empty tiles to avoid repeated PostGIS queries for sparse datasets
         if tile_cache is not None:
             await tile_cache.set(
-                table_name, z, x, y, b"", ttl=cache_ttl, cols_key=cols_cache_key
+                _tile_cache_key, z, x, y, b"", ttl=cache_ttl, cols_key=cols_cache_key
             )
         return Response(status_code=status.HTTP_204_NO_CONTENT)
 
@@ -1560,6 +1862,11 @@ async def tile_endpoint(
         scope=scope or "public",
     )
 
+    # METER-03 (Phase 1213-06): emit tile-request usage event through the
+    # billing-import-free seam so the cloud overlay can update last_accessed_at.
+    # Best-effort fire-and-forget — errors logged, tile response unaffected.
+    await _emit_tile_usage_event(table_name)
+
     # Compress and return with proper headers.
     # PERF-005: gzip is CPU-bound — offload to a thread so the event loop isn't
     # stalled compressing wide low-zoom tiles (asyncio.to_thread convention).
@@ -1568,11 +1875,20 @@ async def tile_endpoint(
     # Cache the compressed tile bytes for subsequent requests
     if tile_cache is not None:
         await tile_cache.set(
-            table_name, z, x, y, compressed, ttl=cache_ttl, cols_key=cols_cache_key
+            _tile_cache_key, z, x, y, compressed, ttl=cache_ttl, cols_key=cols_cache_key
         )
+
+    # FAIR-01: when cloud overlay is active, override Cache-Control header with
+    # the CDN cache-hit SLO value from tile_cache_control_value() so tile
+    # responses carry the correct CDN TTL. In single_tenant / cloud-absent, the
+    # existing _tile_headers() output is unchanged — byte-identical OSS.
+    _response_headers = _tile_headers(cache_scope, cache_ttl)
+    if _cloud_fairness is not None:
+        _, _, _cc_fn = _cloud_fairness
+        _response_headers = {**_response_headers, "Cache-Control": _cc_fn()}
 
     return Response(
         content=compressed,
         media_type="application/vnd.mapbox-vector-tile",
-        headers=_tile_headers(cache_scope, cache_ttl),
+        headers=_response_headers,
     )

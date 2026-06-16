@@ -329,7 +329,9 @@ class TestServiceReuploadWorker:
         assert job.status == "complete"
         assert job.error_message is None
 
-        mock_clip.assert_awaited_once_with(ANY, f"{original_table_name}_staging")
+        mock_clip.assert_awaited_once_with(
+            ANY, f"{original_table_name}_staging", schema="data"
+        )
         mock_add_4326.assert_awaited_once_with(
             ANY, f"{original_table_name}_staging", 4326
         )

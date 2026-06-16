@@ -1,22 +1,27 @@
 import uuid
 from urllib.parse import urlencode
 
+import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import JSONResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.db.tenant_session import current_tenant_var
+from app.core.dependencies import get_db
+from app.core.geo import extent_to_bbox
 from app.core.identity import Identity
+from app.core.public_urls import get_public_api_url
+from app.core.tenancy import is_multi_tenant
 from app.modules.auth.dependencies import get_optional_user
 from app.modules.catalog.authorization import apply_visibility_filter, get_user_roles
 from app.modules.catalog.datasets.domain.models import Dataset, DatasetGrant, Record
-from app.core.dependencies import get_db
-from app.core.public_urls import get_public_api_url
 from app.modules.catalog.features.service import (
     get_feature_by_id,
     get_features,
     parse_bbox,
 )
+from app.platform.extensions import get_billing_extensions, has_extension
 from app.standards.ogc.errors import ERROR_RESPONSES_PUBLIC
 from app.standards.ogc.schemas import (
     ConformanceResponse,
@@ -27,7 +32,116 @@ from app.standards.ogc.schemas import (
     OGCSingleFeatureResponse,
 )
 from app.standards.ogc.utils import build_url
-from app.core.geo import extent_to_bbox
+
+logger = structlog.stdlib.get_logger(__name__)
+
+
+async def _emit_ogc_usage_event(table_name: str) -> None:
+    """Emit an OGC-serve usage event through the billing-import-free seam (METER-03).
+
+    Called after a successful OGC collection/items serve in multi_tenant mode.
+    Uses get_billing_extensions() + hasattr(ext, "on_usage_event") so that:
+    - When the cloud overlay is active, CloudMeteringExtension.on_usage_event()
+      updates DatasetORM.last_accessed_at via update_last_accessed().
+    - When no extension provides on_usage_event (single_tenant / cloud-absent),
+      nothing runs — byte-identical OSS behaviour.
+
+    Best-effort: errors are logged and swallowed so a billing hook failure NEVER
+    fails an OGC response.
+
+    METER-03: the table_name is carried on the event so the cloud extension can
+    scope the last_accessed_at update to the correct dataset row.
+    """
+    if not is_multi_tenant():
+        return
+    tenant_id = current_tenant_var.get(None)
+    if tenant_id is None:
+        return
+    for ext in get_billing_extensions():
+        if not hasattr(ext, "on_usage_event"):
+            continue
+        try:
+            await ext.on_usage_event(  # type: ignore[attr-defined]
+                tenant_id=str(tenant_id),
+                dimension="tile_requests",
+                value=1,
+                table_name=table_name,
+            )
+        except Exception:  # broad: billing hook failures must never fail an OGC response; varied extension errors
+            logger.warning(
+                "OGC usage event dispatch failed",
+                ext=type(ext).__name__,
+                table_name=table_name,
+                exc_info=True,
+            )
+
+
+async def _check_cold_rehydrate(
+    table_name: str,
+    record_status: str,
+    tenant_id: str,
+) -> "JSONResponse | None":
+    """Check if an OGC feature table is cold and delegate to the overlay (COLD-02).
+
+    Mirrors the tile-router _check_cold_rehydrate seam exactly:
+    - Returns None immediately when record_status != 'cold' (hot — the common path).
+    - Returns None when not is_multi_tenant() or has_extension('cloud') is False
+      (single_tenant / community / enterprise — byte-identical, no import attempted).
+    - Deferred import of geolens_cloud.cold_tier.rehydrate.check_and_rehydrate inside
+      a try/except so the public core image never hard-imports the overlay package.
+    - ImportError → return None (overlay absent, serve normally).
+    - Broad Exception → log warning, return None (cold-check failure MUST NEVER fail
+      an OGC response — T-1214-17).
+
+    When the table IS cold and the overlay is present:
+      - status='hydrated' → return None so the caller continues normally.
+      - status='warming'  → return a 202 JSONResponse ({status: 'warming', job_id}).
+
+    Args:
+        table_name:    The dataset table_name.
+        record_status: The record_status from the already-resolved dataset object —
+                       no extra DB round-trip on the hot path (T-1214-18).
+        tenant_id:     The server-resolved tenant UUID string.
+    """
+    # Fast path: table is hot.
+    if record_status != "cold":
+        return None
+
+    # Guard: cold-tier is cloud-only / multi-tenant.
+    if not is_multi_tenant():
+        return None
+    if not has_extension("cloud"):
+        return None
+
+    try:
+        from geolens_cloud.cold_tier.rehydrate import check_and_rehydrate  # type: ignore[import]
+
+        result = await check_and_rehydrate(table_name=table_name, tenant_id=tenant_id)
+    except ImportError:
+        return None
+    except (
+        Exception
+    ):  # broad: cold-check failure must NEVER fail an OGC response (T-1214-17)
+        logger.warning(
+            "ogc_cold_rehydrate_check_failed",
+            table_name=table_name,
+            tenant_id=tenant_id,
+            exc_info=True,
+        )
+        return None
+
+    if result is None:
+        return None
+
+    if result.status == "warming":
+        return JSONResponse(
+            content={"status": "warming", "job_id": result.job_id},
+            status_code=202,
+        )
+
+    # status='hydrated': sync rehydrate completed inline.
+    return None
+
 
 ogc_router = APIRouter(tags=["OGC Features"])
 
@@ -235,6 +349,13 @@ async def get_dataset_collection(
             ),
         ],
     )
+
+    # METER-03 (Phase 1213-06): emit OGC collection-serve usage event through the
+    # billing-import-free seam so the cloud overlay can update last_accessed_at.
+    # Best-effort fire-and-forget — errors logged, response unaffected.
+    if dataset.table_name:
+        await _emit_ogc_usage_event(dataset.table_name)
+
     # TYPE-N2: return the pydantic model directly so FastAPI's response_model
     # validation actually runs. Previously this was wrapped in JSONResponse,
     # which silently disabled response validation.
@@ -350,6 +471,21 @@ async def get_collection_items(
     if dataset.column_info:
         allowed_columns = {col["name"] for col in dataset.column_info if "name" in col}
 
+    # COLD-02 (Phase 1214-04): cold-rehydrate seam — BEFORE feature query.
+    # Uses the already-resolved dataset.record.record_status (no extra DB round-trip,
+    # T-1214-18). A cold-check failure is swallowed so it NEVER fails the OGC response
+    # (T-1214-17). Published/anon-shared datasets are hot so public viewers never
+    # receive 202-warming (T-1214-17).
+    if dataset.table_name and dataset.record:
+        _ogc_cold_tid = current_tenant_var.get(None)
+        _ogc_cold_result = await _check_cold_rehydrate(
+            dataset.table_name,
+            dataset.record.record_status or "",
+            str(_ogc_cold_tid) if _ogc_cold_tid is not None else "",
+        )
+        if _ogc_cold_result is not None:
+            return _ogc_cold_result
+
     # Reuse existing feature service. Pass the cached feature_count so the
     # pagination COUNT(*) collapses into a constant-time lookup, and honor
     # include_geometry so clients that don't need geometry avoid the
@@ -462,6 +598,12 @@ async def get_collection_items(
         links=links,
     )
 
+    # METER-03 (Phase 1213-06): emit OGC items-serve usage event through the
+    # billing-import-free seam so the cloud overlay can update last_accessed_at.
+    # Best-effort fire-and-forget — errors logged, response unaffected.
+    if dataset.table_name:
+        await _emit_ogc_usage_event(dataset.table_name)
+
     return JSONResponse(
         content=response_data.model_dump(mode="json"),
         media_type="application/geo+json",
@@ -496,6 +638,17 @@ async def get_collection_item_feature(
     public_api_url = await get_public_api_url(db, request=request)
     dataset = await _get_visible_dataset(db, user, dataset_id)
     has_geometry = dataset.geometry_type is not None
+
+    # COLD-02 (Phase 1214-04): cold-rehydrate seam — BEFORE feature-by-id query.
+    if dataset.table_name and dataset.record:
+        _item_cold_tid = current_tenant_var.get(None)
+        _item_cold_result = await _check_cold_rehydrate(
+            dataset.table_name,
+            dataset.record.record_status or "",
+            str(_item_cold_tid) if _item_cold_tid is not None else "",
+        )
+        if _item_cold_result is not None:
+            return _item_cold_result
 
     row = await get_feature_by_id(
         db, dataset.table_name, feature_id, has_geometry=has_geometry

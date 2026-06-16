@@ -26,6 +26,7 @@ import app.modules.catalog.search.saved  # noqa: F401
 import app.core.db.models  # noqa: F401
 import app.processing.embeddings.models  # noqa: F401
 import app.processing.ai.token_usage  # noqa: F401
+import app.modules.tenancy.models  # noqa: F401 -- register tenancy models (Phase 1207)
 
 config = context.config
 if config.config_file_name is not None:
@@ -121,6 +122,36 @@ if (
         "preceding error log). Refusing to migrate without the e-chain — a "
         "fresh DB would migrate without e001/e002 and break SAML login."
     )
+
+# GUARD-01 (Phase 1207): mode-aware tenancy migration presence assertion.
+# When GEOLENS_TENANCY_MODE=multi_tenant the dormant-tenancy migration
+# (0005_dormant_tenancy) MUST be present in the resolved version chain.
+# A multi_tenant deploy without 0005 would boot without the tenant_id
+# columns and the partial-unique indexes, silently violating TSEAM-01/02.
+#
+# We check for the file directly in the versions directory — the core
+# migration is always present in the core package, so this guard only fires
+# when someone has set GEOLENS_TENANCY_MODE=multi_tenant against a code tree
+# where 0005 was somehow removed (e.g. a bad manual patch or a partial
+# backport).  We deliberately do NOT import app code here (no settings load)
+# to mirror the GAP-013 guard above and avoid import-time side effects.
+_tenancy_mode = os.environ.get("GEOLENS_TENANCY_MODE", "").lower().strip()
+if _tenancy_mode == "multi_tenant":
+    import pathlib as _pathlib
+
+    _versions_dir = _pathlib.Path(__file__).parent / "versions"
+    _tenancy_file = _versions_dir / "0005_dormant_tenancy.py"
+    if not _tenancy_file.exists():
+        raise RuntimeError(
+            "GEOLENS_TENANCY_MODE=multi_tenant but the tenancy migration "
+            "'0005_dormant_tenancy' was not found at "
+            f"{_tenancy_file}. "
+            "Refusing to run migrations — a multi_tenant deploy without "
+            "0005 would lack the tenant_id columns and partial-unique indexes "
+            "(TSEAM-01/02). Ensure the core package is at Phase 1207+ or "
+            "unset GEOLENS_TENANCY_MODE to use single_tenant mode."
+        )
+
 if _extra_paths:
     _base_versions = config.get_main_option("version_locations") or "alembic/versions"
     _all_paths = _base_versions + " " + " ".join(_extra_paths)

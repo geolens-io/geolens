@@ -716,8 +716,14 @@ async def delete_oauth_provider(
 @router.get("/edition/", response_model=EditionInfoResponse)
 async def edition_info() -> EditionInfoResponse:
     """Return current edition and available features. Public, no auth required."""
+    from app.core.tenancy import TENANCY_MODE_SINGLE, is_multi_tenant
+
     info = get_edition()
-    return EditionInfoResponse(edition=info.edition, features=list(info.features))
+    return EditionInfoResponse(
+        edition=info.edition,
+        features=list(info.features),
+        tenancy_mode="multi_tenant" if is_multi_tenant() else TENANCY_MODE_SINGLE,
+    )
 
 
 # ROUTE-01 (Phase 1092): dual-shape decorator — see /all above.

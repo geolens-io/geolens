@@ -25,6 +25,13 @@ else:
 engine = create_async_engine(settings.database_url, **_engine_kwargs)
 async_session = async_sessionmaker(engine, expire_on_commit=False)
 
+# ISO-01 (Phase 1208-01): register the tenant GUC hook on the global engine so
+# EVERY transaction (get_db + raw async_session + worker) picks up the GUC.
+# Single-tenant: the hook is an unconditional no-op (one boolean check, no SQL).
+from app.core.db.tenant_session import install_tenant_session_hook  # noqa: E402
+
+install_tenant_session_hook(engine)
+
 
 class Base(DeclarativeBase):
     """Base class for all SQLAlchemy models in the catalog schema."""

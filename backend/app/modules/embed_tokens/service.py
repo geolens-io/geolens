@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.requests import Request
 
 from app.core.edition import is_enterprise
+from app.core.tenancy import is_multi_tenant
 from app.platform.cache.provider import get_cache
 from app.modules.catalog._ilike import escape_ilike
 from app.modules.embed_tokens.models import EmbedToken
@@ -18,7 +19,7 @@ from app.modules.embed_tokens.schemas import (
     ADVANCED_SHARING_ERROR,
     _normalize_origin,
 )
-from app.modules.catalog.maps.models import MapLayer
+from app.modules.catalog.maps.models import Map, MapLayer
 
 logger = structlog.stdlib.get_logger(__name__)
 
@@ -146,6 +147,13 @@ async def create_embed_token(
     if not dataset_ids:
         raise ValueError("Map has no layers to scope")
 
+    # EMBED-01 (Phase 1212): stamp tenant_id from Map.tenant_id — derived
+    # server-side, NEVER from a client header or function argument.
+    # Inert (None) in single_tenant so behavior is byte-identical.
+    map_tenant_result = await db.execute(select(Map.tenant_id).where(Map.id == map_id))
+    map_tenant_id = map_tenant_result.scalar_one_or_none()
+    token_tenant_id = map_tenant_id if is_multi_tenant() else None
+
     expires_at = datetime.now(timezone.utc) + timedelta(days=expires_in_days)
 
     token = EmbedToken(
@@ -157,6 +165,7 @@ async def create_embed_token(
         allowed_origins=allowed_origins or None,
         expires_at=expires_at,
         created_by=user_id,
+        tenant_id=token_tenant_id,
     )
     db.add(token)
     await db.flush()
@@ -306,7 +315,9 @@ async def validate_embed_token_access(
         scoped_dataset_ids = token.scoped_dataset_ids
 
         # Cache positive result — include expires_at so every cache hit can
-        # re-check expiry (SEC-014).
+        # re-check expiry (SEC-014). Include tenant_id for EMBED-02 cache-hit
+        # path so validate_embed_token_access can check tenant equality without
+        # re-querying the EmbedToken row (Phase 1212).
         seconds_until_expiry = (token.expires_at - now).total_seconds()
         cache_ttl = int(min(300, max(0, seconds_until_expiry)))
         await cache.set(
@@ -317,6 +328,7 @@ async def validate_embed_token_access(
                 "allowed_origins": allowed_origins,
                 "map_id": str(token.map_id),
                 "expires_at": token.expires_at.isoformat(),
+                "tenant_id": str(token.tenant_id) if token.tenant_id else None,
             },
             ttl=cache_ttl,
         )
@@ -346,6 +358,39 @@ async def validate_embed_token_access(
     if str(dataset_id) not in scoped_dataset_ids:
         return False
 
+    # EMBED-02 (Phase 1212): fail-closed tenant-equality predicate.
+    # Inserted AFTER dataset scope check and BEFORE usage tracking.
+    # Inert in single_tenant (is_multi_tenant() == False → guard skipped).
+    # Denies on mismatch with no error-leak (return False, not raise).
+    # SEC-022 invariant: private-serving is preserved — this is the ONLY new
+    # check; there is NO public/published recheck introduced here.
+    if is_multi_tenant():
+        # Resolve token's tenant: DB-miss path uses the ORM object; cache-hit
+        # path reads from the cached dict set above.
+        if token is not None:
+            token_tenant = token.tenant_id
+        else:
+            # Cache-hit path: tenant_id was stored in the positive-cache payload.
+            raw_tid = cached.get("tenant_id") if cached else None  # type: ignore[union-attr]
+            token_tenant = uuid.UUID(raw_tid) if raw_tid else None
+
+        # Resolve dataset's tenant via a fresh query (no re-mint, no cache).
+        from app.modules.catalog.datasets.domain.models import Dataset
+
+        ds_tenant_result = await db.execute(
+            select(Dataset.tenant_id).where(Dataset.id == dataset_id)
+        )
+        dataset_tenant = ds_tenant_result.scalar_one_or_none()
+
+        # CR-01 (Phase 1212): fail-closed guard — legacy tokens (pre-EMBED-01,
+        # NULL tenant_id) and NULL-tenant datasets are denied in multi_tenant mode.
+        # Without this, `None != None` evaluates to False and PASSES the equality
+        # check, granting a NULL-tenant token access to any NULL-tenant dataset.
+        if token_tenant is None or dataset_tenant is None:
+            return False
+        if token_tenant != dataset_tenant:
+            return False
+
     if token is not None:
         async with db.begin_nested():
             await db.execute(
@@ -370,6 +415,7 @@ async def list_admin_embed_tokens(
     status_filter: str | None = None,
     *,
     map_id: uuid.UUID | None = None,
+    tenant_id: uuid.UUID | None = None,
 ) -> tuple[list, int]:
     """List all embed tokens with map name and creator username (admin).
 
@@ -393,6 +439,11 @@ async def list_admin_embed_tokens(
     # Apply filters
     if map_id:
         base = base.where(EmbedToken.map_id == map_id)
+
+    # EMBED-03 (Phase 1212): tenant filter so a tenant-A admin cannot list
+    # tenant-B tokens via the admin endpoint.
+    if tenant_id is not None:
+        base = base.where(EmbedToken.tenant_id == tenant_id)
 
     if map_search:
         # T-2: lower() column + pattern to hit ix_maps_name_trgm (on lower(name));
@@ -435,14 +486,22 @@ async def list_admin_embed_tokens(
 async def bulk_revoke_embed_tokens(
     db: AsyncSession,
     token_ids: list[uuid.UUID],
+    *,
+    tenant_id: uuid.UUID | None = None,
 ) -> int:
-    """Bulk-revoke embed tokens. Returns count of tokens actually revoked."""
-    result = await db.execute(
-        select(EmbedToken).where(
-            EmbedToken.id.in_(token_ids),
-            EmbedToken.is_active.is_(True),
-        )
-    )
+    """Bulk-revoke embed tokens. Returns count of tokens actually revoked.
+
+    WR-01 (Phase 1212): when tenant_id is supplied (multi_tenant), only tokens
+    belonging to that tenant are revoked — preventing a tenant-A admin from
+    revoking tenant-B tokens by UUID.  Inert (None) in single_tenant.
+    """
+    filters = [
+        EmbedToken.id.in_(token_ids),
+        EmbedToken.is_active.is_(True),
+    ]
+    if tenant_id is not None:
+        filters.append(EmbedToken.tenant_id == tenant_id)
+    result = await db.execute(select(EmbedToken).where(*filters))
     tokens = list(result.scalars().all())
 
     for token in tokens:

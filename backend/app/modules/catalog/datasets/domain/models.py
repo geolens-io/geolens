@@ -20,7 +20,7 @@ from sqlalchemy import (
     func,
     text,
 )
-from sqlalchemy.dialects.postgresql import ARRAY, JSONB, TSVECTOR
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB, TSVECTOR, UUID
 from sqlalchemy.ext.mutable import MutableDict, MutableList
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -185,6 +185,10 @@ class Record(Base):
     published_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    # TSEAM-01 (Phase 1207): dormant tenant_id — nullable, no FK enforcement.
+    tenant_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
@@ -294,6 +298,11 @@ class Dataset(Base):
     source_filename: Mapped[str | None] = mapped_column(String(500), nullable=True)
     original_srid: Mapped[int | None] = mapped_column(Integer, nullable=True)
     source_url: Mapped[str | None] = mapped_column(String(2000), nullable=True)
+
+    # TSEAM-01 (Phase 1207): dormant tenant_id — nullable, no FK enforcement.
+    tenant_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), nullable=True
+    )
 
     # Version tracking
     current_version: Mapped[int] = mapped_column(Integer, server_default="1", default=1)

@@ -21,6 +21,11 @@ from app.modules.auth.providers.local import hash_password
 from app.platform.cache import init_cache
 from app.core.config import settings
 
+# Register the multi_tenant_rls fixture so Plan 04 and Phase 1209 can request it
+# from any test file without an explicit import. The fixture lives in
+# tests/fixtures/multi_tenant_harness.py and is surfaced here via pytest_plugins.
+pytest_plugins = ["tests.fixtures.multi_tenant_harness"]
+
 # Captured at module load (and refreshed in pytest_configure) so any test that
 # reads it does not race the fixture body's mutation. Defaults to "master" when
 # pytest-xdist is not active (sequential `pytest` or `pytest -x` runs).
@@ -157,6 +162,157 @@ def pytest_configure(config):
         _WORKER_ID = worker_id
         # Mirror into env so any subprocess (or late import) also sees it.
         os.environ["PYTEST_XDIST_WORKER"] = worker_id
+
+
+# Tenancy test files that mutate state which is GLOBAL beyond a single test, in two
+# distinct ways — both fixed by co-locating every such module onto ONE xdist worker
+# (via --dist loadgroup, set in pyproject addopts) so the mutations can never run
+# concurrently with, or leak into, a sibling on another worker:
+#
+#   1. PROCESS-GLOBAL (per worker): set os.environ["GEOLENS_TENANCY_MODE"]=multi_tenant,
+#      rebuild app.core.config.settings, importlib.reload(app.core.tenancy), or apply
+#      FORCE RLS on the shared per-worker DB. (The settings/mode leak is ALSO defended
+#      at the root by the autouse _restore_process_global_config fixture above; this
+#      grouping additionally contains the per-worker DB RLS state.)
+#   2. CLUSTER-GLOBAL (whole Postgres instance): GRANT/REVOKE privileges to/from the
+#      shared ``geolens_reader`` role. Roles — and the pg_shdepend shared-dependency
+#      catalog that GRANT/REVOKE touches — are cluster-wide, NOT per-database. So two
+#      workers each GRANT/REVOKE-ing geolens_reader against their OWN per-worker test
+#      DB still contend on the same shared catalog tuples and intermittently fail with
+#      "tuple concurrently updated". GRANT/REVOKE run in autocommit (harness) AND
+#      inside transactions (per-file table grants), so a uniform retry is impractical;
+#      co-locating all role-mutating modules onto one worker serializes them cleanly.
+#
+# Combined with each file's try/finally restore teardown, this is deterministic.
+# (v1042 Pytest Parallel Isolation fix.)
+_TENANCY_GLOBAL_STATE_MODULES = {
+    # (1) process-global tenancy-mode / settings / per-worker-DB RLS mutators
+    "test_dp01_ingest_write_path",
+    "test_dp01_tenant_schema_helpers",
+    "test_dp02_read_path_binding",
+    "test_dp03_cross_tenant_privilege_gate",
+    "test_dp04_data_plane_structural_gate",
+    "test_dp05_shard_routing_pgbouncer",
+    "test_dormant_tenancy_migration_roundtrip",
+    "test_dormant_tenancy_schema",
+    "test_entitlement_port",
+    "test_extension_api_version",
+    "test_gate01_cross_tenant_isolation",
+    "test_iso05_db_privilege_guc_survival",
+    "test_iso_single_tenant_byte_identical",
+    "test_tenancy_mode",
+    "test_tenant_rls_migration",
+    "test_tenant_session_guc",
+    # (2) cluster-global geolens_reader role GRANT/REVOKE mutators — must not run
+    #     concurrently with each other or the group above (pg_shdepend contention).
+    "test_embed_tokens",
+    "test_features_crud",
+    "test_features_geojson_z",
+    "test_ogc_features",
+    "test_rls_drift_gate",
+    "test_rls_leak_lint",
+}
+
+
+# Modules that read the app's SHARED async engine via get_db() (e.g. persistent
+# config DB reads) and so are corrupted by the tenancy group's raw asyncpg.connect
+# event-loop churn when they happen to land on the SAME xdist worker. Grouping the
+# tenancy mutators onto one worker (above) is not enough on its own: these
+# config-reading suites are otherwise UNGROUPED, so loadgroup can still schedule
+# them onto the tenancy worker, where a pooled async-engine connection ends up
+# bound to a dead loop -> "got Future attached to a different loop". Pinning them
+# into their OWN distinct group keeps them on a SEPARATE worker from the tenancy
+# mutators (different group name => never co-located under loadgroup), so the
+# shared async engine they use is never touched by the raw-asyncpg tenancy tests.
+# (v1042 Pytest Parallel Isolation fix — test_1181/test_1183 victims.)
+_CONFIG_SHARED_ENGINE_MODULES = {
+    "test_1181_config_correctness",
+    "test_1183_s3_spool_upload",
+}
+
+
+@pytest.hookimpl(tryfirst=True)
+def pytest_collection_modifyitems(config, items):
+    """Co-locate global-state-mutating tenancy tests onto a single xdist worker.
+
+    Tags every test in a _TENANCY_GLOBAL_STATE_MODULES file with the
+    ``xdist_group("tenancy_global_state")`` marker. With ``--dist loadgroup``
+    (pyproject addopts), pytest-xdist schedules all same-group items on one
+    worker, so the GEOLENS_TENANCY_MODE / FORCE-RLS mutations these tests make
+    can never interleave with unrelated tests on other workers.
+
+    Separately, tags the config-correctness / s3-spool suites into a DISTINCT
+    ``config_shared_engine`` group. A different group name means loadgroup keeps
+    them off the tenancy worker, so the tenancy tests' raw asyncpg event-loop
+    churn can't poison the shared async engine these suites read through get_db().
+
+    ``tryfirst=True`` is load-bearing: xdist's own ``pytest_collection_modifyitems``
+    (xdist/remote.py) reads the ``xdist_group`` marker to build the per-item
+    group suffix used by the loadgroup scheduler. This hook must add the marker
+    BEFORE xdist's hook reads it, or the items are scheduled ungrouped.
+    """
+    for item in items:
+        module = getattr(item, "module", None)
+        if module is None:
+            continue
+        module_name = module.__name__.rsplit(".", 1)[-1]
+        if module_name in _TENANCY_GLOBAL_STATE_MODULES:
+            item.add_marker(pytest.mark.xdist_group("tenancy_global_state"))
+        elif module_name in _CONFIG_SHARED_ENGINE_MODULES:
+            item.add_marker(pytest.mark.xdist_group("config_shared_engine"))
+
+
+@pytest.fixture(autouse=True)
+def _restore_process_global_config():
+    """Snapshot/restore the process-global config singleton + tenancy-mode env per test.
+
+    ROOT cause of the v1042 ``pytest -n 4`` cross-test cascade. Many tenancy tests
+    rebind ``app.core.config.settings`` to a fresh ``Settings()`` (via the local
+    ``_reload_settings()`` helpers) and/or set ``os.environ["GEOLENS_TENANCY_MODE"]``
+    to exercise the multi_tenant paths. Both are PROCESS-GLOBAL per pytest-xdist
+    worker, not per-test:
+
+      * The fresh ``Settings()`` loses the conftest-injected per-worker
+        ``postgres_db_test`` suffix (``conftest.py`` sets it as an attribute on the
+        ORIGINAL singleton at session setup — line ~1133), reverting to the bare
+        ``geolens_test`` default. Any later test on the SAME worker then connects to
+        a non-existent DB -> ``InvalidCatalogNameError`` / ``ogr2ogr PQconnectdb
+        failed`` / 500s.
+      * A leaked ``GEOLENS_TENANCY_MODE=multi_tenant`` makes downstream
+        alembic-autogenerate (cloud columns -> "drift detected"), RLS enforcement
+        ("permission denied for table users"), and per-tenant-schema code
+        ("schema data_t_... does not exist") behave wrongly on tests that assume the
+        single_tenant default.
+
+    Only ONE module (test_tenancy_mode.py, b269f24d) restored this, so 9+ other
+    tenancy modules leaked. Restoring the original singleton OBJECT (suffix
+    preserved) + the original env value after EVERY test makes the suite leak-proof
+    regardless of which xdist worker a test lands on — the deterministic ROOT fix the
+    per-module xdist grouping could not provide (loadgroup may co-locate distinct
+    groups on one worker; ungrouped tests can land on the tenancy worker too).
+
+    Safe for tests that legitimately mutate settings WITHIN a test body:
+      * ``monkeypatch.setattr(settings, ...)`` mutates attributes on the existing
+        singleton (does not rebind ``cfg_mod.settings``), so the ``is not`` guard
+        below is a no-op for them and monkeypatch still auto-reverts the attrs.
+      * Tests that rebind via ``_reload_settings()`` observe their fresh object for
+        the duration of the test; only the teardown restore (after ``yield``) runs.
+    """
+    import app.core.config as cfg_mod
+
+    original_settings = cfg_mod.settings
+    _MODE_KEY = "GEOLENS_TENANCY_MODE"
+    _mode_was_set = _MODE_KEY in os.environ
+    _original_mode = os.environ.get(_MODE_KEY)
+    try:
+        yield
+    finally:
+        if cfg_mod.settings is not original_settings:
+            cfg_mod.settings = original_settings
+        if _mode_was_set:
+            os.environ[_MODE_KEY] = _original_mode  # type: ignore[assignment]
+        else:
+            os.environ.pop(_MODE_KEY, None)
 
 
 # Shared test geometries
@@ -1048,6 +1204,13 @@ def _test_db_lifecycle():
     original_test_db_name = settings.postgres_db_test
     db_name = _worker_test_database_name(original_test_db_name)
     settings.postgres_db_test = db_name
+    # Also export the per-worker name via the env var so that ANY in-test
+    # ``Settings()`` rebuild (the tenancy tests call ``_reload_settings()`` to flip
+    # GEOLENS_TENANCY_MODE) re-reads the per-worker suffix instead of reverting to
+    # the bare ``geolens_test`` default. Without this, ``settings.test_database_url``
+    # after a reload points at a non-existent DB -> InvalidCatalogNameError.
+    _original_pg_db_test_env = os.environ.get("POSTGRES_DB_TEST")
+    os.environ["POSTGRES_DB_TEST"] = db_name
     should_drop_db = False
 
     # Stagger startup to prevent simultaneous connection spikes.
@@ -1106,6 +1269,21 @@ def _test_db_lifecycle():
         test_engine_sync = sqlalchemy.create_engine(settings.test_database_url_sync)
         try:
             with test_engine_sync.connect() as conn:
+                # Serialize this entire per-worker DB-init across xdist workers with a
+                # CLUSTER-WIDE advisory lock. The block below creates cluster-global
+                # roles (geolens_reader + per-tenant geolens_reader_t_*) and GRANTs to
+                # them, which write the shared pg_shdepend catalog. Under -n 4 on a
+                # FRESH database, the 4 workers racing here hit "role already exists" /
+                # "tuple concurrently updated", aborting the init transaction so the
+                # per-tenant data_t_* schemas + USAGE grants never commit — later
+                # tenancy tests then fail with "schema does not exist" / "permission
+                # denied for schema". (Locally this is masked: the roles/schemas already
+                # exist from a prior run, so CREATE IF NOT EXISTS short-circuits with no
+                # contention — which is why the failure only reproduces on a fresh CI
+                # DB.) pg_advisory_xact_lock is cluster-global (one lock space across all
+                # DBs) and auto-releases at commit() below, so the workers queue rather
+                # than race.
+                conn.execute(text("SELECT pg_advisory_xact_lock(861501)"))
                 conn.execute(text("CREATE EXTENSION IF NOT EXISTS postgis"))
                 conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
                 conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
@@ -1132,6 +1310,37 @@ def _test_db_lifecycle():
                         "GRANT SELECT ON TABLES TO geolens_reader"
                     )
                 )
+
+                # Per-tenant test schemas + roles for Phase 1209 multi_tenant tests.
+                # Single_tenant block above (data / geolens_reader) is unchanged.
+                _TENANT_TEST_IDS = [
+                    "00000000_0000_0000_0000_000000000001",
+                    "00000000_0000_0000_0000_000000000002",
+                ]
+                for _tid in _TENANT_TEST_IDS:
+                    _schema = f"data_t_{_tid}"
+                    _role = f"geolens_reader_t_{_tid}"
+                    conn.execute(text(f"CREATE SCHEMA IF NOT EXISTS {_schema}"))
+                    conn.execute(
+                        text(
+                            f"DO $$ BEGIN "
+                            f"IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '{_role}') THEN "
+                            f"CREATE ROLE {_role} NOLOGIN; "
+                            f"END IF; END $$"
+                        )
+                    )
+                    conn.execute(text(f"GRANT USAGE ON SCHEMA {_schema} TO {_role}"))
+                    conn.execute(
+                        text(
+                            f"GRANT SELECT ON ALL TABLES IN SCHEMA {_schema} TO {_role}"
+                        )
+                    )
+                    conn.execute(
+                        text(
+                            f"ALTER DEFAULT PRIVILEGES IN SCHEMA {_schema} "
+                            f"GRANT SELECT ON TABLES TO {_role}"
+                        )
+                    )
                 conn.commit()
         except SQLAlchemyError:
             # DB is reachable but missing required extensions (for example pgvector).
@@ -1268,6 +1477,10 @@ def _test_db_lifecycle():
             finally:
                 teardown_engine.dispose()
         settings.postgres_db_test = original_test_db_name
+        if _original_pg_db_test_env is None:
+            os.environ.pop("POSTGRES_DB_TEST", None)
+        else:
+            os.environ["POSTGRES_DB_TEST"] = _original_pg_db_test_env
 
 
 @pytest.fixture

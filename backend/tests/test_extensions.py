@@ -13,6 +13,7 @@ def _reset_registry():
 
     ext_mod._extensions.clear()
     ext_mod._loaded = False
+    ext_mod._slot_owners.clear()
 
 
 @pytest.fixture(autouse=True)
@@ -49,6 +50,7 @@ class TestLoadExtensions:
     def test_load_extensions_with_mock_entry_point(self):
         """Mock entry_points to return a callable, verify it registers."""
         from app.platform.extensions import _extensions, load_extensions
+        from app.platform.extensions.version import EXTENSION_API_VERSION
 
         mock_ep = MagicMock()
         mock_ep.name = "test_ext"
@@ -56,6 +58,7 @@ class TestLoadExtensions:
         def _loader(registry: dict):
             registry["test_ext"] = "loaded"
 
+        _loader.EXTENSION_API_VERSION = EXTENSION_API_VERSION
         mock_ep.load.return_value = _loader
 
         with patch("app.platform.extensions.entry_points", return_value=[mock_ep]):
@@ -67,6 +70,7 @@ class TestLoadExtensions:
     def test_load_extensions_handles_failure(self, caplog):
         """Mock entry_point that raises, verify warning and other extensions still load."""
         from app.platform.extensions import _extensions, load_extensions
+        from app.platform.extensions.version import EXTENSION_API_VERSION
 
         bad_ep = MagicMock()
         bad_ep.name = "bad_ext"
@@ -78,6 +82,7 @@ class TestLoadExtensions:
         def _loader(registry: dict):
             registry["good_ext"] = "ok"
 
+        _loader.EXTENSION_API_VERSION = EXTENSION_API_VERSION
         good_ep.load.return_value = _loader
 
         with patch(
@@ -133,6 +138,7 @@ class TestExtensionRouters:
     def test_get_extension_routers_populated(self):
         """get_extension_routers() returns routers registered by extensions."""
         from app.platform.extensions import get_extension_routers, load_extensions
+        from app.platform.extensions.version import EXTENSION_API_VERSION
 
         mock_router = MagicMock(name="fake_router")
         mock_ep = MagicMock()
@@ -141,6 +147,7 @@ class TestExtensionRouters:
         def _loader(registry: dict):
             registry["_routers"] = [mock_router]
 
+        _loader.EXTENSION_API_VERSION = EXTENSION_API_VERSION
         mock_ep.load.return_value = _loader
 
         with patch("app.platform.extensions.entry_points", return_value=[mock_ep]):
@@ -153,6 +160,7 @@ class TestExtensionRouters:
     def test_get_extension_routers_clears_on_reload(self):
         """Calling load_extensions() twice clears previous routers."""
         from app.platform.extensions import get_extension_routers, load_extensions
+        from app.platform.extensions.version import EXTENSION_API_VERSION
 
         mock_router = MagicMock(name="fake_router")
         mock_ep = MagicMock()
@@ -161,6 +169,7 @@ class TestExtensionRouters:
         def _loader(registry: dict):
             registry["_routers"] = [mock_router]
 
+        _loader.EXTENSION_API_VERSION = EXTENSION_API_VERSION
         mock_ep.load.return_value = _loader
 
         with patch("app.platform.extensions.entry_points", return_value=[mock_ep]):
@@ -248,6 +257,186 @@ class TestGetIdentityExtension:
         result = await ext.resolve_identity_from_token("any-token", None, None)
 
         assert result is None
+
+
+class TestSlotConflictGuard:
+    """Tests for the SLOT-01 wrap-recognition guard refinement (CLOUD-04).
+
+    TDD RED: these tests will fail until _run_loader_with_slot_guard is updated
+    to recognize the __slot_inner__ marker.
+    """
+
+    def _make_loader(self, key: str, val: object, *, version: int = 1):
+        """Build a minimal loader callable that writes registry[key] = val."""
+        from app.platform.extensions.version import EXTENSION_API_VERSION
+
+        def loader(registry: dict) -> None:
+            registry[key] = val
+
+        loader.EXTENSION_API_VERSION = (
+            EXTENSION_API_VERSION if version == 1 else version
+        )
+        return loader
+
+    def test_bare_replace_still_raises_slot_conflict(self):
+        """A second overlay writing a bare different object to an owned single-slot
+        key MUST raise ExtensionSlotConflictError (existing behavior preserved)."""
+        from app.platform.extensions import (
+            ExtensionSlotConflictError,
+            load_extensions,
+        )
+
+        first_val = object()
+        second_val = object()  # bare — no __slot_inner__
+
+        first_ep = MagicMock()
+        first_ep.name = "overlay_first"
+        first_loader = self._make_loader("permission", first_val)
+        first_ep.load.return_value = first_loader
+
+        second_ep = MagicMock()
+        second_ep.name = "overlay_second"
+        second_loader = self._make_loader("permission", second_val)
+        second_ep.load.return_value = second_loader
+
+        with patch(
+            "app.platform.extensions.entry_points",
+            return_value=[first_ep, second_ep],
+        ):
+            with pytest.raises(ExtensionSlotConflictError):
+                load_extensions()
+
+    def test_wrapper_with_slot_inner_is_allowed(self):
+        """A second overlay writing a wrapper whose __slot_inner__ IS the prior
+        instance MUST NOT raise — the sanctioned wrap path must be allowed."""
+        from app.platform.extensions import _extensions, load_extensions
+
+        first_val = object()
+
+        class Wrapper:
+            def __init__(self, inner: object) -> None:
+                self.__slot_inner__ = inner
+
+        first_ep = MagicMock()
+        first_ep.name = "overlay_first"
+        first_ep.load.return_value = self._make_loader("permission", first_val)
+
+        wrapper_val = Wrapper(inner=first_val)
+
+        second_ep = MagicMock()
+        second_ep.name = "overlay_second"
+        second_ep.load.return_value = self._make_loader("permission", wrapper_val)
+
+        with patch(
+            "app.platform.extensions.entry_points",
+            return_value=[first_ep, second_ep],
+        ):
+            load_extensions()  # must NOT raise
+
+        # Slot holds the wrapper
+        assert _extensions["permission"] is wrapper_val
+        # Wrapper carries the first instance
+        assert _extensions["permission"].__slot_inner__ is first_val
+
+    def test_wrapper_inner_pointing_to_different_object_raises(self):
+        """A wrapper whose __slot_inner__ points to a DIFFERENT object (not the
+        actual prior value) is treated the same as a bare replace and MUST raise."""
+        from app.platform.extensions import ExtensionSlotConflictError, load_extensions
+
+        first_val = object()
+        unrelated = object()  # NOT first_val
+
+        class FakeWrapper:
+            def __init__(self) -> None:
+                self.__slot_inner__ = unrelated  # points elsewhere, not prior
+
+        second_val = FakeWrapper()
+
+        first_ep = MagicMock()
+        first_ep.name = "overlay_first"
+        first_ep.load.return_value = self._make_loader("permission", first_val)
+
+        second_ep = MagicMock()
+        second_ep.name = "overlay_second"
+        second_ep.load.return_value = self._make_loader("permission", second_val)
+
+        with patch(
+            "app.platform.extensions.entry_points",
+            return_value=[first_ep, second_ep],
+        ):
+            with pytest.raises(ExtensionSlotConflictError):
+                load_extensions()
+
+    def test_additive_slots_always_exempt(self):
+        """Additive-slot keys (billing_extensions, _routers, etc.) are always
+        exempt from the slot-conflict guard, even without __slot_inner__."""
+        from app.platform.extensions import _extensions, load_extensions
+
+        def first_loader(registry: dict) -> None:
+            registry.setdefault("billing_extensions", []).append("first")
+
+        first_loader.EXTENSION_API_VERSION = 1
+
+        def second_loader(registry: dict) -> None:
+            registry.setdefault("billing_extensions", []).append("second")
+
+        second_loader.EXTENSION_API_VERSION = 1
+
+        first_ep = MagicMock()
+        first_ep.name = "overlay_first"
+        first_ep.load.return_value = first_loader
+
+        second_ep = MagicMock()
+        second_ep.name = "overlay_second"
+        second_ep.load.return_value = second_loader
+
+        with patch(
+            "app.platform.extensions.entry_points",
+            return_value=[first_ep, second_ep],
+        ):
+            load_extensions()  # must NOT raise
+
+        # Both values accumulated
+        assert "billing_extensions" in _extensions
+        assert _extensions["billing_extensions"] == ["first", "second"]
+
+    def test_first_claim_is_allowed(self):
+        """First overlay writing a single-slot key with no prior value is always allowed."""
+        from app.platform.extensions import _extensions, load_extensions
+
+        val = object()
+
+        ep = MagicMock()
+        ep.name = "overlay_only"
+        ep.load.return_value = self._make_loader("permission", val)
+
+        with patch("app.platform.extensions.entry_points", return_value=[ep]):
+            load_extensions()
+
+        assert _extensions["permission"] is val
+
+    def test_idempotent_same_object_is_allowed(self):
+        """If a loader writes the SAME object instance to a single-slot key that
+        it already holds (idempotent re-registration), no error is raised."""
+        from app.platform.extensions import _extensions, load_extensions
+
+        val = object()
+
+        def loader(registry: dict) -> None:
+            # Write the same object twice (idempotent)
+            registry["permission"] = val
+            registry["permission"] = val
+
+        loader.EXTENSION_API_VERSION = 1
+
+        ep = MagicMock()
+        ep.name = "overlay_only"
+        ep.load.return_value = loader
+
+        with patch("app.platform.extensions.entry_points", return_value=[ep]):
+            load_extensions()  # must NOT raise
+
+        assert _extensions["permission"] is val
 
 
 class TestProtocolOverlayDispatch:

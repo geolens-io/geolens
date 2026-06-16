@@ -146,3 +146,48 @@ class TestEditionEndpoint:
         resp = client.get("/api/settings/edition/")
         assert resp.status_code == 200
         assert "Authorization" not in resp.request.headers
+
+    def test_edition_endpoint_returns_tenancy_mode_field(self, client):
+        """GET /api/settings/edition/ returns tenancy_mode field (FEOVL-02 additive)."""
+        resp = client.get("/api/settings/edition/")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "tenancy_mode" in data, (
+            "tenancy_mode field must be present in edition response"
+        )
+
+    def test_edition_endpoint_single_tenant_default(self, client):
+        """tenancy_mode defaults to 'single_tenant' when GEOLENS_TENANCY_MODE is unset."""
+        resp = client.get("/api/settings/edition/")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["tenancy_mode"] == "single_tenant", (
+            f"Expected 'single_tenant' but got {data['tenancy_mode']!r}; "
+            "community/enterprise deployments must default single_tenant"
+        )
+
+    def test_edition_endpoint_additive_existing_fields_unchanged(self, client):
+        """tenancy_mode is additive — edition + features remain unchanged."""
+        resp = client.get("/api/settings/edition/")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "edition" in data
+        assert "features" in data
+        assert data["edition"] == "community"
+        assert isinstance(data["features"], list)
+
+    def test_edition_endpoint_multi_tenant_mode(self, client):
+        """With GEOLENS_TENANCY_MODE=multi_tenant, tenancy_mode == 'multi_tenant'."""
+        import app.core.config as cfg_mod
+
+        original = cfg_mod.settings.geolens_tenancy_mode
+        try:
+            cfg_mod.settings.geolens_tenancy_mode = "multi_tenant"
+            resp = client.get("/api/settings/edition/")
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["tenancy_mode"] == "multi_tenant", (
+                f"Expected 'multi_tenant' but got {data['tenancy_mode']!r}"
+            )
+        finally:
+            cfg_mod.settings.geolens_tenancy_mode = original

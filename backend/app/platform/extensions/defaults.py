@@ -1456,6 +1456,37 @@ class DefaultOpenAICompatibleProvider:
         return {"base_url": base_url, "default_model": model}
 
 
+class DefaultEntitlementPort:
+    """Community/Enterprise default: grant-all entitlement port (Phase 1207 / ENTSEAM-01).
+
+    This is intentionally fail-OPEN — ``has_feature`` returns ``True`` for any
+    feature and ``enforce_limit`` never raises. This is CORRECT for OSS and
+    Enterprise because neither has per-tenant tiering; real enforcement is the
+    cloud overlay's job (Phase 1213) backed by the ``tenant_entitlements`` table
+    (webhook-synced from Stripe). Deploying this default in OSS/Enterprise does
+    NOT weaken security because:
+
+    1. ``require_enterprise()`` (binary edition gate) remains orthogonal and
+       guards all enterprise-only endpoints independently.
+    2. ``PermissionExtension`` (per-user RBAC) remains orthogonal and guards
+       all capability checks independently.
+    3. OSS/Enterprise are not multi-tenant-tiered; there is no plan to enforce.
+
+    The cloud overlay (Phase 1213) REPLACES this with a real implementation
+    by registering under the ``"entitlement"`` single-slot key. The
+    ExtensionSlotConflictError guard prevents two overlays from claiming the
+    same slot (SLOT-01). See ``protocols.EntitlementPort`` for the full contract.
+    """
+
+    async def has_feature(self, feature: str) -> bool:
+        """Return True for any feature — grant-all (fail-OPEN by design; see class docstring)."""
+        return True
+
+    async def enforce_limit(self, dimension: str, n: int) -> None:
+        """No-op — never raises. Grant-all default; real limits enforced by cloud overlay."""
+        return None
+
+
 class DefaultOpenAIEmbeddingProvider:
     """Community-edition default: OpenAI-compatible embeddings (Phase 231 D-08).
 
