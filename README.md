@@ -199,7 +199,15 @@ already taken, change `DB_PORT`, `API_PORT`,
 or `FRONTEND_PORT` in `.env`. For port conflicts, stuck startups, out-of-memory,
 and migration warnings, see the [Troubleshooting guide](https://docs.getgeolens.com/guides/quickstart/install/#troubleshooting).
 
-For production deployment, see the [Install Guide](https://docs.getgeolens.com/guides/quickstart/install/). A community-maintained Kubernetes [Helm chart](https://github.com/geolens-io/geolens-deployments) lives in the separate [`geolens-deployments`](https://github.com/geolens-io/geolens-deployments) repo. For upgrading, see the [Upgrade Guide](https://docs.getgeolens.com/guides/quickstart/upgrade/).
+For production deployment, see the [Install Guide](https://docs.getgeolens.com/guides/quickstart/install/). A community-maintained Kubernetes [Helm chart](https://github.com/geolens-io/geolens-deployments) lives in the separate [`geolens-deployments`](https://github.com/geolens-io/geolens-deployments) repo.
+
+### Upgrading
+
+To upgrade a prebuilt install, run `./scripts/upgrade.sh` from your install
+directory — it backs up the database, pulls the new images, runs migrations
+behind a health gate, and prints a rollback recipe if anything fails. See
+[`UPGRADING.md`](UPGRADING.md) for the prebuilt and source-build flows plus
+rollback, or the online [Upgrade Guide](https://docs.getgeolens.com/guides/quickstart/upgrade/).
 
 ### Add Your First Dataset
 
