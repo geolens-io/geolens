@@ -88,6 +88,19 @@ runs the same access checks as per-dataset export. Reports include `valid`,
 `error_count`, and `errors[]` with `path`, `schema_path`, `validator`, and
 `message` — identical in shape to the DCAT-US validator.
 
+## Conformance Posture: Filter the Feed
+
+Like the W3C DCAT 3 and DCAT-US 3.0 profiles, the GeoDCAT-AP **catalog feed**
+(`GET /datasets/geodcat-ap/`) emits **only** records that pass GeoDCAT-AP
+structural validation — records missing a mandatory property (title or
+description) are silently skipped so the feed stays conformant with zero
+onboarding friction. The **per-dataset** endpoint
+(`GET /datasets/{id}/geodcat-ap/`) is **not** filtered and always serializes
+the requested record as-is. See
+[`app/standards/dcat_us/README.md`](../dcat_us/README.md#conformance-posture-filter-the-feed)
+for the full posture, including the optional stricter
+`REQUIRE_METADATA_FOR_PUBLISH` publish-time lever.
+
 ## Known Gaps
 
 - Structured ISO constraint codes (`MD_RestrictionCode`, INSPIRE limitations)
