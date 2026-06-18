@@ -667,7 +667,8 @@
     "visualRelief": "Visual relief",
     "reliefLayerCount_one": "{{count}} visible DEM layer",
     "reliefLayerCount_other": "{{count}} visible DEM layers",
-    "noReliefLayer": "No visible relief layer"
+    "noReliefLayer": "No visible relief layer",
+    "smallDemWarning": "This DEM only covers a small part of the current view. Zoom in to the DEM extent, or drape it over a coarse global DEM (e.g. Copernicus GLO-30) so terrain stays smooth across the whole map."
   },
   "featurePopup": {
     "noAttributes": "No attributes",

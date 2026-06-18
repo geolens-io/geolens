@@ -44,6 +44,7 @@ import {
   normalizeTerrainExaggeration,
   TERRAIN_SOURCE_ID,
 } from './map-sync';
+import { maybeWarnSmallDemCoverage, resetSmallDemWarning } from './terrain-coverage';
 import { applyMapBasemapAppearance, syncMapComposition } from './map-composition-sync';
 import type { MapLibreEvent, MapMouseEvent } from 'maplibre-gl';
 import type { Map as MaplibreMap } from 'maplibre-gl';
@@ -450,6 +451,9 @@ export const BuilderMap = memo(function BuilderMap({
     const { terrainConfig: currentTerrainConfig, layers: currentLayers, tokenMap: currentTokenMap } = terrainStateRef.current;
     if (!currentTerrainConfig?.enabled || !currentTerrainConfig.source_dataset_id) {
       map.setTerrain(null);
+      // #186 (b): terrain off → clear the small-DEM warning dedupe so re-enabling
+      // (or selecting a different DEM) can warn again.
+      resetSmallDemWarning(map);
       return;
     }
 
@@ -482,6 +486,16 @@ export const BuilderMap = memo(function BuilderMap({
       exaggeration: normalizeTerrainExaggeration(currentTerrainConfig.exaggeration),
     });
     map.triggerRepaint();
+
+    // #186 (b): warn (once per enable) when this DEM only covers a small slice
+    // of the current viewport — a small high-res DEM zoomed out reads as a
+    // pedestal. Keep the active dataset's dedupe key, drop any stale one.
+    resetSmallDemWarning(map, currentTerrainConfig.source_dataset_id);
+    maybeWarnSmallDemCoverage({
+      map,
+      demBounds: token.bounds,
+      dedupeKey: currentTerrainConfig.source_dataset_id,
+    });
   }, []);
 
   const terrainLayerKey = layers

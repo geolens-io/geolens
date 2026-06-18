@@ -667,7 +667,8 @@
     "visualRelief": "Visuelles Relief",
     "reliefLayerCount_one": "{{count}} sichtbare DEM-Ebene",
     "reliefLayerCount_other": "{{count}} sichtbare DEM-Ebenen",
-    "noReliefLayer": "Keine sichtbare Relief-Ebene"
+    "noReliefLayer": "Keine sichtbare Relief-Ebene",
+    "smallDemWarning": "Dieses DEM deckt nur einen kleinen Teil der aktuellen Ansicht ab. Zoomen Sie in die DEM-Ausdehnung hinein oder legen Sie es über ein grobes globales DEM (z. B. Copernicus GLO-30), damit das Terrain auf der gesamten Karte gleichmäßig bleibt."
   },
   "featurePopup": {
     "noAttributes": "Keine Attribute",

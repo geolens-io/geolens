@@ -667,7 +667,8 @@
     "visualRelief": "Relieve visual",
     "reliefLayerCount_one": "{{count}} capa DEM visible",
     "reliefLayerCount_other": "{{count}} capas DEM visibles",
-    "noReliefLayer": "Sin capa de relieve visible"
+    "noReliefLayer": "Sin capa de relieve visible",
+    "smallDemWarning": "Este DEM solo cubre una pequeña parte de la vista actual. Acérquese a la extensión del DEM o superpóngalo sobre un DEM global de baja resolución (p. ej. Copernicus GLO-30) para que el terreno se mantenga uniforme en todo el mapa."
   },
   "featurePopup": {
     "noAttributes": "Sin atributos",

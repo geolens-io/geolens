@@ -6,6 +6,7 @@ import {
   normalizeTerrainExaggeration,
   TERRAIN_SOURCE_ID,
 } from '@/components/builder/map-sync';
+import { maybeWarnSmallDemCoverage, resetSmallDemWarning } from '@/components/builder/terrain-coverage';
 import type { MapTerrainConfig, SharedLayerResponse } from '@/types/api';
 import type { TileToken } from '@/api/tiles';
 
@@ -57,6 +58,8 @@ export function useViewerTerrain({
     if (!currentTerrainConfig?.enabled || !terrainDatasetId || !terrainTileUrl) {
       map.setTerrain(null);
       setTerrainReady(false);
+      // #186 (b): terrain off → clear the small-DEM warning dedupe.
+      resetSmallDemWarning(map);
       return;
     }
 
@@ -73,6 +76,18 @@ export function useViewerTerrain({
       exaggeration: normalizeTerrainExaggeration(currentTerrainConfig.exaggeration),
     });
     setTerrainReady(true);
+
+    // #186 (b): warn once per enable when the DEM covers only a small slice of
+    // the viewport. demBounds come from the raster token (the only bounds source
+    // available here; SharedLayerResponse carries no bounds). When the terrain is
+    // driven by a non-raster token (no bounds), the guard simply no-ops.
+    const demBounds = terrainToken?.kind === 'raster' ? terrainToken.bounds : null;
+    resetSmallDemWarning(map, terrainDatasetId);
+    maybeWarnSmallDemCoverage({
+      map,
+      demBounds,
+      dedupeKey: terrainDatasetId,
+    });
   }, [mapRef, tokenMap]);
 
   useEffect(() => {

@@ -667,7 +667,8 @@
     "visualRelief": "Relief visuel",
     "reliefLayerCount_one": "{{count}} calque MNT visible",
     "reliefLayerCount_other": "{{count}} calques MNT visibles",
-    "noReliefLayer": "Aucun calque de relief visible"
+    "noReliefLayer": "Aucun calque de relief visible",
+    "smallDemWarning": "Ce MNT ne couvre qu'une petite partie de la vue actuelle. Zoomez sur l'emprise du MNT, ou drapez-le sur un MNT global grossier (p. ex. Copernicus GLO-30) afin que le terrain reste régulier sur toute la carte."
   },
   "featurePopup": {
     "noAttributes": "Aucun attribut",
