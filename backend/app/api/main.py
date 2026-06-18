@@ -144,6 +144,15 @@ async def lifespan(app: FastAPI):
                 )
                 raise
 
+    # MIG-02: fail closed if the DB's applied migration heads do not match the
+    # heads this image's migration scripts declare (skew in EITHER direction —
+    # DB behind = migrate service didn't run / empty DB; DB ahead = image
+    # rolled back below the DB schema). Runs after the connectivity probe so a
+    # transient DB outage retries above instead of surfacing here.
+    from app.core.db.schema_skew import assert_schema_in_sync
+
+    await assert_schema_in_sync()
+
     await seed_roles()
     await seed_initial_admin()
 
