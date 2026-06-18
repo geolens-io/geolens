@@ -41,6 +41,7 @@ jobs:
       cli: ${{ steps.filter.outputs.cli }}
       alembic: ${{ steps.filter.outputs.alembic }}
       installer: ${{ steps.filter.outputs.installer }}
+      backup: ${{ steps.filter.outputs.backup }}
     steps:
       - uses: actions/checkout@v6
       - uses: dorny/paths-filter@v4
@@ -91,6 +92,11 @@ jobs:
               - 'scripts/tests/test-install-main-wrapper.sh'
               - 'scripts/tests/test-backup-s3-signature.sh'
               - 'docker-compose.yml'
+              - 'docker-compose.prod.yml'
+            backup:
+              - 'scripts/backup-entrypoint.sh'
+              - 'scripts/restore.sh'
+              - 'scripts/tests/test-backup-restore-roundtrip.sh'
               - 'docker-compose.prod.yml'
 
   # ---------- backend ----------
@@ -212,6 +218,119 @@ jobs:
         run: |
           docker compose -f docker-compose.yml config -q
           docker compose -f docker-compose.prod.yml config -q
+
+  # ---------- backup + restore round-trip (BKP-04) ----------
+  # Full DR path: pg_dump -Fc → upload to S3 (MinIO) → download → pg_restore →
+  # row-count assert, plus the object-storage (upload_staging) tar round-trip.
+  # The same row-match logic runs locally via
+  # scripts/tests/test-backup-restore-roundtrip.sh (DB + tar only, no S3); this
+  # job adds the S3/MinIO offset leg, which is CI-on-push only.
+  backup-roundtrip:
+    name: Backup Restore Round-trip
+    needs: changes
+    if: needs.changes.outputs.backup == 'true' || github.event_name == 'push'
+    runs-on: ubuntu-latest
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      PGUSER: geolens
+      PGPASSWORD: geolens_test
+      S3_BUCKET: geolens-backups-ci
+      S3_ENDPOINT: http://localhost:9000
+      S3_ACCESS_KEY_ID: minioadmin
+      S3_SECRET_ACCESS_KEY: minioadmin
+    services:
+      postgres:
+        image: postgis/postgis:17-3.5
+        env:
+          POSTGRES_USER: geolens
+          POSTGRES_PASSWORD: geolens_test
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U geolens -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      minio:
+        image: bitnami/minio:2025
+        env:
+          MINIO_ROOT_USER: minioadmin
+          MINIO_ROOT_PASSWORD: minioadmin
+          MINIO_DEFAULT_BUCKETS: geolens-backups-ci
+        ports:
+          - 9000:9000
+        options: >-
+          --health-cmd "mc ready local || curl -sf http://localhost:9000/minio/health/live"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install postgresql-client + tooling
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends postgresql-client awscli curl
+
+      - name: Local round-trip (DB + staging tar, no S3)
+        env:
+          # Point the standalone script at the CI Postgres service.
+          POSTGRES_HOST: localhost
+          POSTGRES_PORT: "5432"
+          POSTGRES_USER: geolens
+          POSTGRES_PASSWORD: geolens_test
+          POSTGRES_DB: postgres
+        run: |
+          # Skip .env.test sourcing inside CI by passing connection via env; the
+          # script falls back to env vars when .env.test is absent. CI checkout
+          # ships .env.test, so override the host/port to the service container.
+          bash scripts/tests/test-backup-restore-roundtrip.sh
+
+      - name: Full S3 offset round-trip (pg_dump → MinIO → download → pg_restore)
+        run: |
+          set -euo pipefail
+          export AWS_ACCESS_KEY_ID="$S3_ACCESS_KEY_ID"
+          export AWS_SECRET_ACCESS_KEY="$S3_SECRET_ACCESS_KEY"
+          export AWS_DEFAULT_REGION=us-east-1
+          AWS="aws --endpoint-url $S3_ENDPOINT"
+
+          SRC=geolens_s3_src_$$
+          DST=geolens_s3_dst_$$
+          createdb -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" "$SRC"
+          psql -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$SRC" -v ON_ERROR_STOP=1 -c \
+            "CREATE SCHEMA IF NOT EXISTS catalog;
+             CREATE TABLE catalog.records (id serial PRIMARY KEY, name text);
+             INSERT INTO catalog.records (name) SELECT 'r-'||g FROM generate_series(1, 91) g;"
+          SRC_N=$(psql -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$SRC" -tAc "SELECT COUNT(*) FROM catalog.records;")
+
+          pg_dump -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$SRC" -Fc --no-owner --no-acl -f /tmp/s3.dump
+          $AWS s3 mb "s3://$S3_BUCKET" 2>/dev/null || true
+          $AWS s3 cp /tmp/s3.dump "s3://$S3_BUCKET/daily/s3.dump"
+
+          # staging tar to S3 too
+          mkdir -p /tmp/staging/nested
+          echo cog > /tmp/staging/a.tif; echo fgb > /tmp/staging/nested/b.fgb
+          tar czf /tmp/staging.tar.gz -C /tmp/staging .
+          $AWS s3 cp /tmp/staging.tar.gz "s3://$S3_BUCKET/daily/staging.tar.gz"
+
+          # Download both back and restore into a fresh DB
+          $AWS s3 cp "s3://$S3_BUCKET/daily/s3.dump" /tmp/s3-dl.dump
+          $AWS s3 cp "s3://$S3_BUCKET/daily/staging.tar.gz" /tmp/staging-dl.tar.gz
+          pg_restore --list /tmp/s3-dl.dump >/dev/null
+          createdb -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" "$DST"
+          pg_restore -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$DST" --clean --if-exists --no-owner /tmp/s3-dl.dump || true
+          DST_N=$(psql -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$DST" -tAc "SELECT COUNT(*) FROM catalog.records;")
+
+          mkdir -p /tmp/staging-out && tar xzf /tmp/staging-dl.tar.gz -C /tmp/staging-out
+          diff -r /tmp/staging /tmp/staging-out
+
+          echo "S3 round-trip counts: src=$SRC_N dst=$DST_N"
+          [ "$SRC_N" = "$DST_N" ] || { echo "FAIL: S3 round-trip row count mismatch"; exit 1; }
+          dropdb -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" --if-exists "$SRC"
+          dropdb -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" --if-exists "$DST"
+          echo "PASS: full S3/MinIO backup+restore round-trip"
 
   openapi-snapshot:
     name: OpenAPI Snapshot Drift
