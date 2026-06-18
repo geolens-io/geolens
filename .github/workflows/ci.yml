@@ -281,12 +281,23 @@ jobs:
 
       - name: Install postgresql-client + tooling
         run: |
+          # The postgres service for this job is postgis/postgis:17-3.5 (PG17).
+          # Ubuntu 24.04 (noble) ships postgresql-client 16 by default, and pg_dump
+          # refuses to dump a newer server ("aborting because of server version
+          # mismatch"), so add the PGDG apt repo and install the matching v17
+          # client (pg_dump/pg_restore/psql/createdb/dropdb).
+          #
+          # awscli is intentionally NOT installed: it was dropped from the noble
+          # apt archive ("no installation candidate") and AWS CLI v2 is already
+          # preinstalled on the ubuntu-latest runner (the only `aws` use is
+          # `s3 mb/cp` against MinIO in the S3-offset step below).
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+            -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
+            | sudo tee /etc/apt/sources.list.d/pgdg.list >/dev/null
           sudo apt-get update
-          # awscli was dropped from the Ubuntu 24.04 (noble) apt archive
-          # ("no installation candidate"); the ubuntu-latest runner already ships
-          # AWS CLI v2 preinstalled, and the only `aws` use is `s3 mb/cp` against
-          # MinIO in the S3-offset step below — so rely on the preinstalled binary.
-          sudo apt-get install -y --no-install-recommends postgresql-client curl
+          sudo apt-get install -y --no-install-recommends postgresql-client-17 curl
 
       - name: Local round-trip (DB + staging tar, no S3)
         env:
