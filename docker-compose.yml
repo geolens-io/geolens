@@ -485,6 +485,12 @@ services:
     volumes:
       - ./scripts:/scripts:ro
       - backup_data:/backups
+      # BKP-01 (Phase 1219): mirror docker-compose.prod.yml — tar the upload_staging
+      # volume alongside the pg_dump so a restore recovers locally-staged objects
+      # (rasters/COGs/source uploads), not just the DB. Read-only: the backup job
+      # never mutates app data. CAVEAT: captures the LOCAL upload_staging volume
+      # only; deployments that offload objects to external S3 back those up there.
+      - upload_staging:/staging:ro
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
