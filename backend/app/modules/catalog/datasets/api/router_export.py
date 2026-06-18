@@ -33,6 +33,11 @@ from app.modules.catalog.authorization import (
 from app.standards.dcat.service import catalog_to_dcat, record_to_dcat
 from app.standards.dcat_us.service import catalog_to_dcat_us3, record_to_dcat_us3
 from app.standards.dcat_us.validation import validate_dcat_us3
+from app.standards.geodcat_ap.service import (
+    catalog_to_geodcat_ap,
+    record_to_geodcat_ap,
+)
+from app.standards.geodcat_ap.validation import validate_geodcat_ap
 from app.modules.catalog.datasets.domain.models import (
     Dataset as DatasetModel,
     DatasetGrant,
@@ -176,6 +181,49 @@ async def validate_dcat_us3_catalog(
     return JSONResponse(content=report)
 
 
+@router.get("/geodcat-ap", response_class=JSONResponse, include_in_schema=False)
+@router.get("/geodcat-ap/", response_class=JSONResponse)
+async def get_geodcat_ap_catalog(
+    request: Request,
+    user: Identity | None = Depends(get_optional_user),
+    db: AsyncSession = Depends(get_db),
+) -> JSONResponse:
+    """GeoDCAT-AP 2.0.0 catalog feed. Respects dataset visibility."""
+    datasets = await _get_visible_dcat_datasets(db, user)
+
+    base_url = await get_public_api_url(db)
+    catalog = catalog_to_geodcat_ap(datasets, base_url)
+
+    from app.standards.ogc.utils import parse_accept_language
+
+    lang = parse_accept_language(request)
+    return JSONResponse(
+        content=catalog,
+        media_type="application/ld+json",
+        headers={"Content-Language": lang},
+    )
+
+
+@router.get(
+    "/geodcat-ap/validation",
+    response_class=JSONResponse,
+    include_in_schema=False,
+)
+@router.get("/geodcat-ap/validation/", response_class=JSONResponse)
+async def validate_geodcat_ap_catalog(
+    user: Identity | None = Depends(get_optional_user),
+    db: AsyncSession = Depends(get_db),
+) -> JSONResponse:
+    """Validate the visible GeoDCAT-AP 2.0.0 catalog feed."""
+    datasets = await _get_visible_dcat_datasets(db, user)
+
+    base_url = await get_public_api_url(db)
+    catalog = catalog_to_geodcat_ap(datasets, base_url)
+    report = validate_geodcat_ap(catalog, "Catalog")
+
+    return JSONResponse(content=report)
+
+
 @router.get("/{dataset_id}/dcat/", response_class=JSONResponse)
 async def get_dcat_record(
     dataset_id: uuid.UUID,
@@ -241,6 +289,53 @@ async def get_dcat_us3_record(
     lang = parse_accept_language(request)
     return JSONResponse(
         content=dcat,
+        media_type="application/ld+json",
+        headers={"Content-Language": lang},
+    )
+
+
+@router.get(
+    "/{dataset_id}/geodcat-ap/validation",
+    response_class=JSONResponse,
+    include_in_schema=False,
+)
+@router.get("/{dataset_id}/geodcat-ap/validation/", response_class=JSONResponse)
+async def validate_geodcat_ap_record(
+    dataset_id: uuid.UUID,
+    user: Identity | None = Depends(get_optional_user),
+    db: AsyncSession = Depends(get_db),
+) -> JSONResponse:
+    """Validate a single dataset as GeoDCAT-AP 2.0.0."""
+    dataset = await _get_dcat_dataset_for_export(db, dataset_id, user)
+
+    base_url = await get_public_api_url(db)
+    geodcat = record_to_geodcat_ap(dataset, base_url)
+    report = validate_geodcat_ap(geodcat, "Dataset")
+
+    return JSONResponse(content=report)
+
+
+@router.get(
+    "/{dataset_id}/geodcat-ap", response_class=JSONResponse, include_in_schema=False
+)
+@router.get("/{dataset_id}/geodcat-ap/", response_class=JSONResponse)
+async def get_geodcat_ap_record(
+    dataset_id: uuid.UUID,
+    request: Request,
+    user: Identity | None = Depends(get_optional_user),
+    db: AsyncSession = Depends(get_db),
+) -> JSONResponse:
+    """GeoDCAT-AP 2.0.0 JSON-LD for a single dataset."""
+    dataset = await _get_dcat_dataset_for_export(db, dataset_id, user)
+
+    base_url = await get_public_api_url(db)
+    geodcat = record_to_geodcat_ap(dataset, base_url)
+
+    from app.standards.ogc.utils import parse_accept_language
+
+    lang = parse_accept_language(request)
+    return JSONResponse(
+        content=geodcat,
         media_type="application/ld+json",
         headers={"Content-Language": lang},
     )
