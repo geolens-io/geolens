@@ -116,7 +116,9 @@ export function MapsPage() {
         actions={
           <div className="flex items-center gap-2">
             {data && <Badge variant="secondary">{data.total}</Badge>}
-            {isEditor && (
+            {/* Hide the header create button when the empty state is showing its
+                own primary CTA (no maps, no active search/filter). */}
+            {isEditor && !(data && data.total === 0 && !debouncedSearch && visibility === 'all') && (
               <Button size="sm" onClick={() => setCreateOpen(true)}>
                 <Plus className="h-4 w-4 me-1" />
                 {t('maps.createMap', 'Create Map')}
