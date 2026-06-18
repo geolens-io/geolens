@@ -291,6 +291,24 @@ jobs:
       - name: Regenerate SDKs and check for drift
         run: make sdks-check
 
+  # ---------- version coherence ----------
+  # REL-04: assert every version site agrees (backend/cli/sdks×2/root+frontend
+  # package.json/openapi.json info.version/main.py fallback constant). Blocks a
+  # release where one site silently drifted from the rest. Pure stdlib (tomllib
+  # + json + re); no DB, no Docker, runs on every push/PR.
+  version-coherence:
+    name: Version Coherence
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Check all version sites agree
+        run: python scripts/check_version_coherence.py
+
   # ---------- CLI ----------
   # Structural enforcement that the CLI never grows
   # a direct httpx/requests dependency. Runs on cli/** OR sdks/python/**
