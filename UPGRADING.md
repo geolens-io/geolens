@@ -218,4 +218,12 @@ you can copy it from the restore output rather than hand-editing it.
   flow, source-build alternate, and dump-restore rollback. Do NOT let alembic
   downgrade creep back in as a rollback there. This is tracked as a cross-repo
   follow-up; it is intentionally NOT edited from the geolens repo.
+
+  Likewise the Backups & Restore guide (getgeolens.com docs/.../backups.mdx,
+  linked from README) must reflect the same corrections made here in v1043
+  (BKP-02/03): scripts/restore.sh is THE restore path (never `psql <` a -Fc
+  dump); backups are opt-in via `--profile backup`; the built-in S3 uploader is
+  SigV2 (AWS classic / MinIO), NOT Cloudflare R2 / modern AWS (SigV4 roadmap);
+  and a full restore includes the staging-<timestamp>.tar.gz object archive.
+  Cross-repo follow-up — intentionally NOT edited from the geolens repo.
 -->
