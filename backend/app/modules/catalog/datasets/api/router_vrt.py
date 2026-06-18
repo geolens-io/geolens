@@ -27,6 +27,7 @@ from app.modules.catalog.datasets.domain.schemas import (
     VrtStatusResponse,
 )
 from app.modules.catalog.datasets.domain.service import get_dataset
+from app.core.db.tenant_session import defer_async_with_tenant
 from app.core.dependencies import get_db
 from app.platform.extensions import get_catalog_port, get_permission_extension
 from app.standards.ogc.errors import ERROR_RESPONSES_WRITE
@@ -399,14 +400,11 @@ async def regenerate_vrt_endpoint(
     # leave the VRT permanently stuck and the generation row dangling
     # until manual operator intervention.
     async def _defer() -> None:
-        await (
-            get_catalog_port()
-            .regenerate_vrt_task()
-            .defer_async(
-                job_id=str(job.id),
-                vrt_dataset_id=str(dataset_id),
-                triggered_by=str(user.id),
-            )
+        await defer_async_with_tenant(
+            get_catalog_port().regenerate_vrt_task(),
+            job_id=str(job.id),
+            vrt_dataset_id=str(dataset_id),
+            triggered_by=str(user.id),
         )
 
     async def _rollback(defer_exc: BaseException) -> None:

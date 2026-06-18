@@ -37,10 +37,19 @@ def _validate_table_name(table_name: str) -> None:
         )
 
 
-def _qtable(table_name: str) -> str:
-    """Return quoted 'data.table_name' identifier after validation."""
+def _qtable(table_name: str, schema: str = "data") -> str:
+    """Return quoted '<schema>.table_name' identifier after validation.
+
+    In single_tenant, schema='data' (unchanged behavior).
+    In multi_tenant, callers pass the per-tenant schema from
+    ``tenant_data_schema(current_tenant_var.get())``.
+    Both table_name and schema are validated against the same safe-identifier
+    pattern (lowercase alphanumeric + underscore) before interpolation
+    (T-1209-05: SQL-identifier injection guard).
+    """
     _validate_table_name(table_name)
-    return f'"data"."{table_name}"'
+    _validate_table_name(schema)  # schema names follow the same safe pattern
+    return f'"{schema}"."{table_name}"'
 
 
 def _sql_quote_ident(name: str) -> str:
@@ -150,12 +159,19 @@ async def construct_wkt_geometry(
     return result.rowcount  # type: ignore[attr-defined]
 
 
-async def get_table_srid(session: AsyncSession, table_name: str) -> int | None:
-    """Get the SRID of the geom column for a table in the data schema."""
+async def get_table_srid(
+    session: AsyncSession, table_name: str, schema: str = "data"
+) -> int | None:
+    """Get the SRID of the geom column for a table in the given schema.
+
+    ``schema`` defaults to ``"data"`` for single_tenant backward compatibility.
+    In multi_tenant callers pass ``_current_tenant_schema()`` (CR-03, Phase 1209).
+    """
     _validate_table_name(table_name)
+    _validate_table_name(schema)
     result = await session.execute(
-        text("SELECT Find_SRID('data', :table_name, 'geom')").bindparams(
-            table_name=table_name
+        text("SELECT Find_SRID(:schema, :table_name, 'geom')").bindparams(
+            schema=schema, table_name=table_name
         )
     )
     row = result.scalar_one_or_none()
@@ -300,6 +316,7 @@ async def promote_z_to_elev(
     session: AsyncSession,
     table_name: str,
     geometry_type: str | None,
+    schema: str = "data",
 ) -> bool:
     """For 3D point geometries, extract ST_Z(geom) into an 'elev' numeric column.
 
@@ -308,9 +325,13 @@ async def promote_z_to_elev(
     2. The geometry type is point-like (Point or MultiPoint)
     3. An 'elev' column does not already exist
 
+    ``schema`` defaults to ``"data"`` for single_tenant backward compatibility.
+    In multi_tenant callers pass ``_current_tenant_schema()`` (CR-03, Phase 1209).
+
     Returns True if the elev column was created, False otherwise.
     """
     _validate_table_name(table_name)
+    _validate_table_name(schema)
 
     if geometry_type is None:
         return False
@@ -324,9 +345,9 @@ async def promote_z_to_elev(
     col_check = await session.execute(
         text(
             "SELECT 1 FROM information_schema.columns "
-            "WHERE table_schema = 'data' AND table_name = :t "
+            "WHERE table_schema = :schema AND table_name = :t "
             "AND column_name = 'elev'"
-        ).bindparams(t=table_name)
+        ).bindparams(schema=schema, t=table_name)
     )
     if col_check.scalar_one_or_none() is not None:
         return False
@@ -334,13 +355,15 @@ async def promote_z_to_elev(
     # Add elev column and populate from ST_Z
     try:
         await session.execute(
-            text(f"ALTER TABLE {_qtable(table_name)} ADD COLUMN elev double precision")
+            text(
+                f"ALTER TABLE {_qtable(table_name, schema=schema)} ADD COLUMN elev double precision"
+            )
         )
 
         if geom_upper == "POINT":
             await session.execute(
                 text(
-                    f"UPDATE {_qtable(table_name)} "
+                    f"UPDATE {_qtable(table_name, schema=schema)} "
                     f"SET elev = ST_Z(geom) "
                     f"WHERE geom IS NOT NULL AND ST_NDims(geom) > 2"
                 )
@@ -349,7 +372,7 @@ async def promote_z_to_elev(
             # MultiPoint: extract Z from first point in the multi
             await session.execute(
                 text(
-                    f"UPDATE {_qtable(table_name)} "
+                    f"UPDATE {_qtable(table_name, schema=schema)} "
                     f"SET elev = ST_Z(ST_GeometryN(geom, 1)) "
                     f"WHERE geom IS NOT NULL AND ST_NDims(geom) > 2"
                 )
@@ -365,21 +388,27 @@ async def promote_z_to_elev(
     return True
 
 
-async def get_column_info(session: AsyncSession, table_name: str) -> list[dict]:
+async def get_column_info(
+    session: AsyncSession, table_name: str, schema: str = "data"
+) -> list[dict]:
     """Get column names, types, ordinal position, and nullability.
 
     Excludes internal columns (gid, geom, geom_4326).
     Returns list of dicts with keys: name, type, ordinal_position, is_nullable.
+
+    ``schema`` defaults to ``"data"`` for single_tenant backward compatibility.
+    In multi_tenant callers pass ``_current_tenant_schema()`` (CR-03, Phase 1209).
     """
     _validate_table_name(table_name)
+    _validate_table_name(schema)
     result = await session.execute(
         text(
             "SELECT column_name, data_type, ordinal_position, "
             "       (is_nullable = 'YES') AS is_nullable "
             "FROM information_schema.columns "
-            "WHERE table_schema = 'data' AND table_name = :table_name "
+            "WHERE table_schema = :schema AND table_name = :table_name "
             "ORDER BY ordinal_position"
-        ).bindparams(table_name=table_name)
+        ).bindparams(schema=schema, table_name=table_name)
     )
     excluded = {"gid", "geom", "geom_4326"}
     return [
@@ -399,6 +428,7 @@ async def get_sample_values(
     table_name: str,
     column_info: list[dict],
     sample_size: int = 10000,
+    schema: str = "data",
 ) -> dict:
     """Extract distinct sample values per column from a data table.
 
@@ -422,6 +452,7 @@ async def get_sample_values(
     explicitly.
     """
     _validate_table_name(table_name)
+    _validate_table_name(schema)
 
     # Look up the actual columns in the table so we can filter out any
     # entries in `column_info` that don't exist (ArcGIS / service ingest
@@ -432,8 +463,8 @@ async def get_sample_values(
     live_result = await session.execute(
         text(
             "SELECT column_name FROM information_schema.columns "
-            "WHERE table_schema = 'data' AND table_name = :t"
-        ).bindparams(t=table_name)
+            "WHERE table_schema = :schema AND table_name = :t"
+        ).bindparams(schema=schema, t=table_name)
     )
     live_columns = {row[0] for row in live_result.all()}
     if not live_columns:
@@ -471,7 +502,7 @@ async def get_sample_values(
     # Use TABLESAMPLE BERNOULLI for representative sampling on large tables.
     # For small tables (<500 rows), BERNOULLI(10) may return 0 rows, so we
     # fall back to a plain LIMIT which is fine for small datasets.
-    tbl = _qtable(table_name)
+    tbl = _qtable(table_name, schema=schema)
     query = (
         f"WITH sampled AS ("
         f"  SELECT {select_cols} FROM {tbl}"
@@ -657,20 +688,29 @@ async def compute_quality_score(
     }
 
 
-async def _table_has_geometry(session: AsyncSession, table_name: str) -> bool:
-    """Check whether a data table has a 'geom' column."""
+async def _table_has_geometry(
+    session: AsyncSession, table_name: str, schema: str = "data"
+) -> bool:
+    """Check whether a table has a 'geom' column in the given schema.
+
+    ``schema`` defaults to ``"data"`` for single_tenant backward compatibility.
+    In multi_tenant callers pass ``_current_tenant_schema()`` (CR-03, Phase 1209).
+    """
     _validate_table_name(table_name)
+    _validate_table_name(schema)
     result = await session.execute(
         text(
             "SELECT EXISTS(SELECT 1 FROM information_schema.columns "
-            "WHERE table_schema='data' AND table_name=:table_name "
+            "WHERE table_schema=:schema AND table_name=:table_name "
             "AND column_name='geom')"
-        ).bindparams(table_name=table_name)
+        ).bindparams(schema=schema, table_name=table_name)
     )
     return result.scalar_one()
 
 
-async def extract_metadata(session: AsyncSession, table_name: str) -> dict:
+async def extract_metadata(
+    session: AsyncSession, table_name: str, schema: str = "data"
+) -> dict:
     """Extract all metadata from a PostGIS table.
 
     PERF-03 (Phase 274): for spatial tables, the four data-table SELECTs
@@ -678,12 +718,16 @@ async def extract_metadata(session: AsyncSession, table_name: str) -> dict:
     into a single CTE so the database does one shared scan and one
     round-trip. For non-spatial tables only feature_count is queried.
 
+    ``schema`` defaults to ``"data"`` for single_tenant backward compatibility.
+    In multi_tenant callers pass ``_current_tenant_schema()`` (CR-03, Phase 1209).
+
     Returns dict with keys: srid, geometry_type, feature_count, extent_wkt,
     column_info. For non-spatial tables, spatial fields are None.
     """
     _validate_table_name(table_name)
-    column_info = await get_column_info(session, table_name)
-    has_geometry = await _table_has_geometry(session, table_name)
+    _validate_table_name(schema)
+    column_info = await get_column_info(session, table_name, schema=schema)
+    has_geometry = await _table_has_geometry(session, table_name, schema=schema)
 
     if not has_geometry:
         feature_count = await get_feature_count(session, table_name)
@@ -698,13 +742,13 @@ async def extract_metadata(session: AsyncSession, table_name: str) -> dict:
     # Spatial-table fast path: single CTE pulls feature_count, srid,
     # geometry_type, and extent_wkt in one query. Mirrors the original
     # helpers' semantics:
-    #   - feature_count: SELECT COUNT(*) FROM data.<t>
-    #   - srid: Find_SRID('data', :t, 'geom')
-    #   - geometry_type: GeometryType(geom) FROM data.<t> LIMIT 1
+    #   - feature_count: SELECT COUNT(*) FROM {schema}.<t>
+    #   - srid: Find_SRID(:schema, :t, 'geom')
+    #   - geometry_type: GeometryType(geom) FROM {schema}.<t> LIMIT 1
     #     (NOTE: original returns None when zero rows; we mirror that.)
     #   - extent_wkt: ST_AsText(ST_SetSRID(ST_Extent(geom_4326)::geometry, 4326))
     #     (uppercased for None when no rows.)
-    tref = _qtable(table_name)
+    tref = _qtable(table_name, schema=schema)
     try:
         result = await session.execute(
             text(
@@ -730,10 +774,10 @@ async def extract_metadata(session: AsyncSession, table_name: str) -> dict:
                     feature_count,
                     geometry_type,
                     extent_wkt,
-                    Find_SRID('data', :t, 'geom') AS srid
+                    Find_SRID(:schema, :t, 'geom') AS srid
                 FROM meta
                 """
-            ).bindparams(t=table_name)
+            ).bindparams(schema=schema, t=table_name)
         )
         row = result.one()
         # Phase 1057 WFS-04 layer-2 fix: normalize abstract OGC GML 3 types.
@@ -754,7 +798,7 @@ async def extract_metadata(session: AsyncSession, table_name: str) -> dict:
             table=table_name,
             exc_info=True,
         )
-        srid = await get_table_srid(session, table_name)
+        srid = await get_table_srid(session, table_name, schema=schema)
         geometry_type = await get_geometry_type(session, table_name)
         extent_wkt = await get_extent(session, table_name)
         feature_count = await get_feature_count(session, table_name)
@@ -767,7 +811,9 @@ async def extract_metadata(session: AsyncSession, table_name: str) -> dict:
         }
 
 
-async def ensure_geom_column(session: AsyncSession, table_name: str) -> bool:
+async def ensure_geom_column(
+    session: AsyncSession, table_name: str, schema: str = "data"
+) -> bool:
     """Rename the geometry column to 'geom' if ogr2ogr used a different name.
 
     In the happy path this renames the `_geolens_geom` placeholder that
@@ -780,15 +826,19 @@ async def ensure_geom_column(session: AsyncSession, table_name: str) -> bool:
     named `geom`/`geometry` has already been moved to `src_<name>`,
     leaving `geom` free for the rename.
 
+    ``schema`` defaults to ``"data"`` for single_tenant backward compatibility.
+    In multi_tenant callers pass ``_current_tenant_schema()`` (CR-03, Phase 1209).
+
     Returns True if the table has a geometry column, False for non-spatial tables.
     """
     _validate_table_name(table_name)
+    _validate_table_name(schema)
     result = await session.execute(
         text(
             "SELECT f_geometry_column FROM geometry_columns "
-            "WHERE f_table_schema = 'data' AND f_table_name = :table_name"
+            "WHERE f_table_schema = :schema AND f_table_name = :table_name"
         ),
-        {"table_name": table_name},
+        {"schema": schema, "table_name": table_name},
     )
     row = result.first()
     if row is None:
@@ -807,7 +857,7 @@ async def ensure_geom_column(session: AsyncSession, table_name: str) -> bool:
     _validate_table_name(geom_col)
     await session.execute(
         text(
-            f"ALTER TABLE {_qtable(table_name)} "
+            f"ALTER TABLE {_qtable(table_name, schema=schema)} "
             f"RENAME COLUMN {_sql_quote_ident(geom_col)} TO geom"
         )
     )
@@ -820,6 +870,7 @@ async def ensure_geom_column(session: AsyncSession, table_name: str) -> bool:
 async def rename_reserved_columns(
     session: AsyncSession,
     table_name: str,
+    schema: str = "data",
 ) -> list[dict]:
     """Rename any source column whose name collides with a GeoLens-internal
     PostGIS column (gid, geom, geometry, geom_4326, fid, ogc_fid) to
@@ -843,6 +894,7 @@ async def rename_reserved_columns(
     from app.processing.ingest.ogr import RESERVED_COLUMN_NAMES
 
     _validate_table_name(table_name)
+    _validate_table_name(schema)
 
     # PERF-4: fast-path — most ingests have zero reserved-name collisions,
     # so check first with a tiny WHERE-filtered query before fetching the
@@ -851,9 +903,9 @@ async def rename_reserved_columns(
         text(
             "SELECT column_name "
             "FROM information_schema.columns "
-            "WHERE table_schema = 'data' AND table_name = :t "
+            "WHERE table_schema = :schema AND table_name = :t "
             "AND column_name = ANY(:names)"
-        ).bindparams(t=table_name, names=list(RESERVED_COLUMN_NAMES))
+        ).bindparams(schema=schema, t=table_name, names=list(RESERVED_COLUMN_NAMES))
     )
     if not reserved_check.first():
         return []
@@ -865,9 +917,9 @@ async def rename_reserved_columns(
         text(
             "SELECT column_name, data_type, udt_name, column_default, is_identity "
             "FROM information_schema.columns "
-            "WHERE table_schema = 'data' AND table_name = :t "
+            "WHERE table_schema = :schema AND table_name = :t "
             "ORDER BY ordinal_position"
-        ).bindparams(t=table_name)
+        ).bindparams(schema=schema, t=table_name)
     )
     rows = result.all()
     all_column_names = {r[0] for r in rows}
@@ -914,7 +966,7 @@ async def rename_reserved_columns(
                 q_target = _sql_quote_ident(target)
                 await session.execute(
                     text(
-                        f'ALTER TABLE "data"."{table_name}" '
+                        f'ALTER TABLE "{schema}"."{table_name}" '
                         f"RENAME COLUMN {q_orig} TO {q_target}"
                     )
                 )
@@ -978,11 +1030,16 @@ def detect_dbf_truncation_collisions(
 _MERCATOR_SAFE_ENVELOPE = "ST_MakeEnvelope(-180, -85.06, 180, 85.06, 4326)"
 
 
-async def clip_to_mercator_bounds(session: AsyncSession, table_name: str) -> None:
+async def clip_to_mercator_bounds(
+    session: AsyncSession, table_name: str, schema: str = "data"
+) -> None:
     """Clip geometries to the Web Mercator safe envelope (±85.06° lat).
 
     Only updates rows whose geometry actually extends beyond the bounds,
     so this is a no-op for most datasets.
+
+    ``schema`` defaults to ``"data"`` for single_tenant backward compatibility.
+    In multi_tenant callers pass ``_current_tenant_schema()`` (CR-03, Phase 1209).
 
     Two CRS-related quirks the SQL has to handle:
 
@@ -997,14 +1054,15 @@ async def clip_to_mercator_bounds(session: AsyncSession, table_name: str) -> Non
        that get clipped past ±85° lat).
     """
     _validate_table_name(table_name)
+    _validate_table_name(schema)
 
     geom_meta = await session.execute(
         text(
             "SELECT srid, coord_dimension FROM geometry_columns "
-            "WHERE f_table_schema = 'data' "
+            "WHERE f_table_schema = :schema "
             "  AND f_table_name = :table_name "
             "  AND f_geometry_column = 'geom'"
-        ).bindparams(table_name=table_name)
+        ).bindparams(schema=schema, table_name=table_name)
     )
     row = geom_meta.first()
     if row is None:
@@ -1023,7 +1081,7 @@ async def clip_to_mercator_bounds(session: AsyncSession, table_name: str) -> Non
 
     await session.execute(
         text(
-            f"UPDATE {_qtable(table_name)} "
+            f"UPDATE {_qtable(table_name, schema=schema)} "
             f"SET geom = {clipped} "
             f"WHERE NOT ST_CoveredBy(geom, {envelope})"
         )
@@ -1083,17 +1141,38 @@ async def add_4326_column(
     # CREATE INDEX above atomically.
 
 
-async def grant_reader_access(session: AsyncSession, table_name: str) -> None:
-    """Grant SELECT on the table to geolens_reader role.
+async def grant_reader_access(
+    session: AsyncSession,
+    table_name: str,
+    *,
+    schema: str = "data",
+    role: str = "geolens_reader",
+) -> None:
+    """Grant SELECT on the table to the appropriate reader role.
 
     DBM-12 (Phase 271): Kept as a defense-in-depth measure alongside
     ``ALTER DEFAULT PRIVILEGES`` in ``scripts/init-db.sh``. If the runtime
     ingest role matches the init-db role, this call is redundant; if they
     differ (some custom deployment topologies), this is the only path that
-    grants SELECT on freshly-created ``data.*`` tables.
+    grants SELECT on freshly-created tables.
+
+    In single_tenant: schema='data', role='geolens_reader' (unchanged behavior).
+    In multi_tenant: callers pass schema=tenant_data_schema(tid),
+                     role=tenant_reader_role(tid).
+
+    Parameters
+    ----------
+    session:
+        Active async SQLAlchemy session (caller controls the transaction).
+    table_name:
+        The table to GRANT SELECT on. Validated by _qtable.
+    schema:
+        Schema containing the table. Defaults to 'data' (single_tenant).
+    role:
+        Reader role to grant to. Defaults to 'geolens_reader' (single_tenant).
     """
     await session.execute(
-        text(f"GRANT SELECT ON {_qtable(table_name)} TO geolens_reader")
+        text(f"GRANT SELECT ON {_qtable(table_name, schema)} TO {role}")
     )
     # ING-02 / P2-02 (Phase 1076): no internal commit. The caller
     # (_finalize_ingest at tasks_common.py:821) owns the phase-2 commit

@@ -20,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.identity import Identity
 from app.core.config import settings
+from app.core.db.tenant_session import defer_async_with_tenant
 from app.platform.extensions import get_processing_port
 from app.processing.ingest.metadata import (
     add_4326_column,
@@ -55,10 +56,35 @@ async def discover_unregistered_tables(
     Excludes staging tables, old tables, and spatial_ref_sys. Returns
     typed ``DiscoveredTable`` instances (TYPE-7). Bounded by ``limit`` to
     protect instances with thousands of unregistered tables (PERF-11).
+
+    In single_tenant: searches the shared ``data`` schema (unchanged behavior).
+    In multi_tenant: searches the per-tenant ``data_t_{tid}`` schema derived
+    from ``current_tenant_var`` so cross-tenant tables are never returned
+    (T-1209-08: discover must not leak other-tenant tables).
     """
+    from app.core.db.tenant_schema import tenant_data_schema
+    from app.core.db.tenant_session import current_tenant_var
+    from app.core.tenancy import is_multi_tenant
+
+    tid = current_tenant_var.get()
+    schema = tenant_data_schema(tid)
+
+    # IN-01 (Phase 1209-CR): in multi_tenant, bind the LEFT JOIN exclusion to
+    # the active tenant so a table registered by tenant A does not suppress
+    # discovery for tenant B when both tenants share the same table_name.
+    # single_tenant: tid is None and the tenant_id filter must not apply
+    # (catalog.datasets may have no tenant_id column before the multi_tenant
+    # migration is applied).
+    if is_multi_tenant() and tid is not None:
+        tenant_join_clause = "AND d.tenant_id = :tenant_id"
+        bind_params = dict(schema=schema, limit=limit, tenant_id=tid)
+    else:
+        tenant_join_clause = ""
+        bind_params = dict(schema=schema, limit=limit)
+
     result = await session.execute(
         text(
-            """
+            f"""
             SELECT
                 t.table_name,
                 gc.type AS geometry_type,
@@ -66,16 +92,17 @@ async def discover_unregistered_tables(
                 c.reltuples::bigint AS estimated_rows
             FROM information_schema.tables t
             LEFT JOIN catalog.datasets d ON d.table_name = t.table_name
+                {tenant_join_clause}
             LEFT JOIN geometry_columns gc
-                ON gc.f_table_schema = 'data'
+                ON gc.f_table_schema = :schema
                 AND gc.f_table_name = t.table_name
                 AND gc.f_geometry_column = 'geom'
             LEFT JOIN pg_catalog.pg_class c
                 ON c.relname = t.table_name
                 AND c.relnamespace = (
-                    SELECT oid FROM pg_catalog.pg_namespace WHERE nspname = 'data'
+                    SELECT oid FROM pg_catalog.pg_namespace WHERE nspname = :schema
                 )
-            WHERE t.table_schema = 'data'
+            WHERE t.table_schema = :schema
                 AND t.table_type = 'BASE TABLE'
                 AND d.table_name IS NULL
                 AND t.table_name NOT LIKE '%\\_staging' ESCAPE '\\'
@@ -84,7 +111,7 @@ async def discover_unregistered_tables(
             ORDER BY t.table_name
             LIMIT :limit
             """
-        ).bindparams(limit=limit)
+        ).bindparams(**bind_params)
     )
     return [DiscoveredTable(**dict(row)) for row in result.mappings().all()]
 
@@ -380,17 +407,27 @@ async def register_existing_table(
             "Must contain only lowercase letters, digits, and underscores."
         )
 
-    # Verify table exists in data schema
+    from app.core.db.tenant_schema import tenant_data_schema
+    from app.core.db.tenant_session import current_tenant_var
+    from app.core.tenancy import is_multi_tenant
+
+    # CR-03 (Phase 1209): resolve the per-tenant schema so catalog queries
+    # target data_t_{tid} in multi_tenant rather than the shared 'data' schema.
+    _schema = tenant_data_schema(
+        current_tenant_var.get() if is_multi_tenant() else None
+    )
+
+    # Verify table exists in the correct schema
     result = await session.execute(
         text(
             "SELECT EXISTS ("
             "  SELECT 1 FROM information_schema.tables "
-            "  WHERE table_schema = 'data' AND table_name = :table_name"
+            "  WHERE table_schema = :schema AND table_name = :table_name"
             ")"
-        ).bindparams(table_name=table_name)
+        ).bindparams(schema=_schema, table_name=table_name)
     )
     if not result.scalar():
-        raise ValueError(f"Table 'data.{table_name}' does not exist.")
+        raise ValueError(f"Table '{_schema}.{table_name}' does not exist.")
 
     # Check for duplicate registration
     Dataset = get_processing_port().get_dataset_orm_class()
@@ -405,19 +442,29 @@ async def register_existing_table(
     geom_result = await session.execute(
         text(
             "SELECT column_name FROM information_schema.columns "
-            "WHERE table_schema = 'data' AND table_name = :table_name "
+            "WHERE table_schema = :schema AND table_name = :table_name "
             "AND column_name IN ('geom', 'geom_4326')"
-        ).bindparams(table_name=table_name)
+        ).bindparams(schema=_schema, table_name=table_name)
     )
     geom_cols = {row[0] for row in geom_result.all()}
 
     has_geom = "geom" in geom_cols
     has_4326 = "geom_4326" in geom_cols
 
+    from app.processing.ingest.tasks_common import (
+        _current_tenant_role,
+    )
+
+    # CR-03 (Phase 1212): use per-tenant schema/role for the grant so published
+    # assets in multi_tenant land on the correct per-tenant reader role rather
+    # than the global 'geolens_reader' default. No-op in single_tenant
+    # (_current_tenant_schema()='data', _current_tenant_role()='geolens_reader').
+    _grant_role = _current_tenant_role()
+
     metadata = {}
     if has_geom:
         if not has_4326:
-            srid = await get_table_srid(session, table_name)
+            srid = await get_table_srid(session, table_name, schema=_schema)
             # Wrap in savepoint so a partial failure (column added but
             # index creation fails) rolls back cleanly instead of leaving
             # the table in a half-indexed state (R-8).
@@ -429,16 +476,18 @@ async def register_existing_table(
                     f"Failed to add geom_4326 column to '{table_name}': {exc}"
                 ) from exc
 
-        await grant_reader_access(session, table_name)
-        metadata = await extract_metadata(session, table_name)
+        await grant_reader_access(session, table_name, schema=_schema, role=_grant_role)
+        metadata = await extract_metadata(session, table_name, schema=_schema)
     else:
         # Non-spatial table -- grant access but skip spatial metadata
-        await grant_reader_access(session, table_name)
+        await grant_reader_access(session, table_name, schema=_schema, role=_grant_role)
 
     # Extract sample values for attribute metadata example_values
     col_info = metadata.get("column_info", [])
     sample_vals = (
-        await get_sample_values(session, table_name, col_info) if col_info else None
+        await get_sample_values(session, table_name, col_info, schema=_schema)
+        if col_info
+        else None
     )
 
     port = get_processing_port()
@@ -556,7 +605,8 @@ async def create_vrt_job(
     # real state instead of waiting 60 minutes for PENDING_TIMEOUT
     # (RESILIENCE-2).
     async def _defer_vrt() -> None:
-        await ingest_vrt.defer_async(
+        await defer_async_with_tenant(
+            ingest_vrt,
             job_id=str(job.id),
             user_id=str(user.id),
             source_dataset_ids=json.dumps(
@@ -679,7 +729,8 @@ async def create_fan_out_jobs(
         file_path = new_job.file_path or ""
 
         async def _defer_fan_out_layer() -> None:
-            await ingest_file.defer_async(
+            await defer_async_with_tenant(
+                ingest_file,
                 job_id=str(new_job.id),
                 file_path=file_path,
                 user_id=str(new_job.created_by or ""),
@@ -762,7 +813,8 @@ async def queue_ingest_job(
         source_url = job.source_url
 
         async def _defer_service() -> None:
-            await ingest_service.defer_async(
+            await defer_async_with_tenant(
+                ingest_service,
                 job_id=str(job.id),
                 source_url=source_url,
                 source_layer=job.source_layer or "",
@@ -787,7 +839,8 @@ async def queue_ingest_job(
     if (job.user_metadata or {}).get("file_type") == "raster":
         # Raster file job — route to dedicated raster queue
         async def _defer_raster() -> None:
-            await ingest_raster.defer_async(
+            await defer_async_with_tenant(
+                ingest_raster,
                 job_id=str(job.id),
                 file_path=file_path,
                 user_id=user_id,
@@ -815,7 +868,8 @@ async def queue_ingest_job(
         task = ingest_file
         if use_priority:
             task = task.configure(queue="priority")
-        await task.defer_async(
+        await defer_async_with_tenant(
+            task,
             job_id=str(job.id),
             file_path=file_path,
             user_id=user_id,

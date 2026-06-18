@@ -794,6 +794,10 @@ class TestRegenerateVrtTask:
                     new_callable=AsyncMock,
                 ),
                 patch(
+                    "app.processing.ingest.tasks_vrt.rewrite_vrt_sources",
+                    return_value=[],
+                ),
+                patch(
                     "builtins.open",
                     MagicMock(
                         return_value=MagicMock(
@@ -940,6 +944,10 @@ class TestRegenerateVrtTask:
                 patch(
                     "app.processing.ingest.tasks_vrt.invalidate_catalog_cache",
                     new_callable=AsyncMock,
+                ),
+                patch(
+                    "app.processing.ingest.tasks_vrt.rewrite_vrt_sources",
+                    return_value=[],
                 ),
                 patch(
                     "builtins.open",

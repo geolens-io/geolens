@@ -87,6 +87,16 @@ class Settings(BaseSettings):
     # Set ENVIRONMENT=production on any public, TLS-terminated deployment.
     environment: Literal["development", "production"] | None = None
 
+    # TSEAM-03 (Phase 1207-02): orthogonal tenancy MODE axis.
+    # Edition stays binary (community|enterprise); mode controls the tenancy
+    # posture of the deployment.
+    #   "single_tenant" (default) -> Community/Enterprise byte-identical behavior;
+    #                                tenant_id is NULL everywhere, no isolation.
+    #   "multi_tenant"            -> Requires the cloud overlay + 1208 RLS layer;
+    #                                boot guard (GUARD-01) fails loud without them.
+    # An invalid value raises a Pydantic ValidationError at boot.
+    geolens_tenancy_mode: Literal["single_tenant", "multi_tenant"] = "single_tenant"
+
     anthropic_api_key: SecretStr | None = None
     llm_model: str = "claude-sonnet-4-20250514"
 
@@ -106,6 +116,28 @@ class Settings(BaseSettings):
     s3_region: str = "us-east-1"
     s3_allow_http: bool = False
     s3_addressing_style: str = "auto"
+
+    # Azure Blob Storage (STOR-01 / Phase 1210)
+    azure_storage_container: str | None = None
+    azure_storage_connection_string: SecretStr | None = (
+        None  # for Azurite: "DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;..."
+    )
+    azure_storage_account_url: str | None = (
+        None  # for live: "https://<account>.blob.core.windows.net"
+    )
+    # CR-04 (Phase 1210): storage account access key for account_url + key auth.
+    # When connection_string is absent and only account_url is provided,
+    # AzureBlobStorageProvider needs an explicit key to authenticate (otherwise
+    # BlobServiceClient(account_url=..., credential=None) falls through to Entra ID
+    # which silently fails for most deployments). Set via AZURE_STORAGE_ACCOUNT_KEY.
+    # Revealed only at the SDK boundary in init_storage(); never logged.
+    azure_storage_account_key: SecretStr | None = None
+
+    # IN-01 (Phase 1210): env-overridable Titiler base URL.  The module docstring
+    # in titiler_url.py promised an env override but it was never wired up.
+    # Default matches the Docker Compose service name; override via TITILER_BASE_URL
+    # for non-compose deployments (e.g. bare-metal, alternative service names).
+    titiler_base_url: str = "http://titiler:8000"
 
     redis_url: str | None = None
     cdn_base_url: str | None = None
@@ -157,6 +189,10 @@ class Settings(BaseSettings):
         "s3_addressing_style",
         "database_ssl_ca_cert",
         "tile_signing_secret",
+        "azure_storage_container",
+        "azure_storage_connection_string",
+        "azure_storage_account_url",
+        "azure_storage_account_key",
         mode="before",
     )
     @classmethod
@@ -206,6 +242,19 @@ class Settings(BaseSettings):
                 missing.append("S3_SECRET_ACCESS_KEY")
             if missing:
                 raise ValueError("STORAGE_PROVIDER=s3 requires: " + ", ".join(missing))
+        elif self.storage_provider == "azure":
+            if not self.azure_storage_container:
+                raise ValueError(
+                    "STORAGE_PROVIDER=azure requires AZURE_STORAGE_CONTAINER"
+                )
+            if (
+                not self.azure_storage_connection_string
+                and not self.azure_storage_account_url
+            ):
+                raise ValueError(
+                    "STORAGE_PROVIDER=azure requires either "
+                    "AZURE_STORAGE_CONNECTION_STRING or AZURE_STORAGE_ACCOUNT_URL"
+                )
 
         if self.database_ssl_mode == "verify-full" and not self.database_ssl_ca_cert:
             raise ValueError(

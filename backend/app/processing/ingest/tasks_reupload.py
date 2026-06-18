@@ -7,6 +7,7 @@ from pathlib import Path
 import structlog
 from sqlalchemy import select
 
+from app.core.db.tenant_session import tenant_task
 from app.platform.cache.tiles import invalidate_catalog_cache
 from app.processing.raster.cog import sha256_file
 
@@ -16,6 +17,7 @@ from app.processing.ingest.tasks_common import (
     _archive_original_file,
     _bind_task_log_context,
     _cleanup_staging_on_failure,
+    _current_tenant_schema,
     _run_service_import_with_wfs_fallback,
     _run_staging_pipeline,
     _validate_upload_file_safety,
@@ -25,6 +27,7 @@ from app.processing.ingest.tasks_common import (
 
 
 @task_app.task(queue="ingest", retry=0, aliases=["app.ingest.tasks.reupload_file"])
+@tenant_task
 async def reupload_file(
     job_id: str, dataset_id: str, file_path: str, user_id: str, **kwargs
 ) -> None:
@@ -194,7 +197,9 @@ async def reupload_file(
             #     with source attributes.
             from app.processing.ingest.metadata import rename_reserved_columns
 
-            reserved_renames = await rename_reserved_columns(session, staging_tn)
+            reserved_renames = await rename_reserved_columns(
+                session, staging_tn, schema=_current_tenant_schema()
+            )
             if reserved_renames:
                 from app.processing.ingest.warnings import make_reserved_rename_warning
 
@@ -323,6 +328,7 @@ async def reupload_file(
 
 
 @task_app.task(queue="ingest", retry=0, aliases=["app.ingest.tasks.reupload_service"])
+@tenant_task
 async def reupload_service(
     job_id: str,
     dataset_id: str,
@@ -503,23 +509,27 @@ async def reupload_service(
             # Runs BEFORE ensure_geom_column / add_4326_column.
             from app.processing.ingest.metadata import rename_reserved_columns
 
-            reserved_renames = await rename_reserved_columns(session, staging_tn)
+            _schema = _current_tenant_schema()
+            reserved_renames = await rename_reserved_columns(
+                session, staging_tn, schema=_schema
+            )
             if reserved_renames:
                 from app.processing.ingest.warnings import make_reserved_rename_warning
 
                 _append_job_warning(job, make_reserved_rename_warning(reserved_renames))
 
-            has_geom = await ensure_geom_column(session, staging_tn)
+            has_geom = await ensure_geom_column(session, staging_tn, schema=_schema)
             if has_geom:
-                await clip_to_mercator_bounds(session, staging_tn)
+                await clip_to_mercator_bounds(session, staging_tn, schema=_schema)
                 await add_4326_column(session, staging_tn, 4326)
             await grant_reader_access(session, staging_tn)
 
-            metadata = await extract_metadata(session, staging_tn)
+            metadata = await extract_metadata(session, staging_tn, schema=_schema)
             sample_values = await get_sample_values(
                 session,
                 staging_tn,
                 metadata.get("column_info", []),
+                schema=_schema,
             )
 
             reupload_source_url = (

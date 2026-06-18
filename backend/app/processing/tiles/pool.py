@@ -61,11 +61,16 @@ async def _setup_tile_connection(conn: asyncpg.Connection) -> None:
     composition layer is scoped to read-only against the ``data`` schema
     rather than able to mutate or drop tables.
 
-    ``RESET ROLE`` is implicit when the connection is returned to the
-    pool because asyncpg short-circuits session state per checkout.
-    Failures here log + skip the privilege drop so the tile path keeps
-    working on deployments where the role doesn't exist (e.g. legacy
-    upgrades that predate the role's creation in v6.0).
+    This callback fires once per NEW PHYSICAL CONNECTION (``setup`` kwarg to
+    ``asyncpg.create_pool``), not on every ``pool.acquire()``.  When a
+    connection is reused from the pool, asyncpg issues ``RESET ALL`` on
+    return (via ``Connection.reset()``), which covers ``ROLE`` — so
+    ``geolens_reader`` from ``SET ROLE`` here is NOT in effect on a reused
+    connection.  Per-request role binding is entirely the responsibility of
+    ``set_tenant_role_for_tile_request`` (called inside each tile handler
+    transaction).  Failures here log + skip the privilege drop so the tile
+    path keeps working on deployments where the role doesn't exist (e.g.
+    legacy upgrades that predate the role's creation in v6.0).
     """
     try:
         await conn.execute("SET ROLE geolens_reader")
@@ -123,3 +128,60 @@ def get_tile_pool() -> asyncpg.Pool:
     if _tile_pool is None:
         raise RuntimeError("Tile pool not initialized. Call init_tile_pool() first.")
     return _tile_pool
+
+
+async def set_tenant_role_for_tile_request(
+    conn: asyncpg.Connection, tenant_id: str | None
+) -> None:
+    """Issue SET LOCAL ROLE + SET LOCAL search_path inside a tile request transaction.
+
+    Must be called AFTER the request transaction has begun (inside a tile handler),
+    NOT in the pool setup callback (``_setup_tile_connection``).
+
+    ``_setup_tile_connection`` fires on NEW physical connections at pool level and
+    cannot see per-request tenant state.  This function is the per-request layer —
+    called once per tile request, inside a single ``async with conn.transaction()``
+    block, so both the role and search_path survive for the duration of that
+    transaction under PgBouncer transaction-mode (T-1209-10).
+
+    In single_tenant or when tenant_id is None: no-op — ``SET ROLE`` was already
+    handled by ``_setup_tile_connection`` at pool setup time.
+
+    In multi_tenant: issues
+        SET LOCAL ROLE geolens_reader_t_{tid}
+        SET LOCAL search_path = data_t_{tid}, data, public
+
+    so the tile SQL uses the per-tenant schema and runs restricted to the
+    per-tenant reader role.  The explicit schema qualification in the query
+    (``tenant_data_schema(tid).table``) is the primary isolation control;
+    search_path is defense-in-depth (T-1209-11).
+
+    Parameters
+    ----------
+    conn:
+        Open asyncpg connection.  Must already be inside a transaction.
+    tenant_id:
+        UUID string for the active tenant, or ``None`` (returns immediately).
+    """
+    from app.core.db.tenant_schema import tenant_data_schema, tenant_reader_role
+    from app.core.tenancy import is_multi_tenant
+
+    if not is_multi_tenant() or tenant_id is None:
+        return
+
+    role = tenant_reader_role(tenant_id)
+    schema = tenant_data_schema(tenant_id)
+    try:
+        await conn.execute(f"SET LOCAL ROLE {role}")
+        await conn.execute(f"SET LOCAL search_path = {schema}, data, public")
+    except asyncpg.PostgresError as exc:
+        # DP-02 (Phase 1209-CR-02): in multi_tenant, a failed role/search_path
+        # bind must FAIL the tile request rather than silently continue under
+        # the wrong role.  Falling back to the pool's session role would bypass
+        # both per-tenant isolation layers simultaneously.
+        # single_tenant / None-tid: guarded by the is_multi_tenant() check above
+        # and never reaches this branch.
+        raise RuntimeError(
+            f"Tile pool: SET LOCAL ROLE {role!r} failed — "
+            "cannot serve tile without per-tenant role binding"
+        ) from exc

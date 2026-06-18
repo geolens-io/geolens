@@ -6,6 +6,7 @@ from typing import Any, TypeVar
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 
+from ..types import UNSET, Unset
 
 from typing import cast
 
@@ -20,16 +21,20 @@ class EditionInfoResponse:
     Attributes:
         edition (str): Active edition: 'community' or 'enterprise'.
         features (list[str]): List of feature flags enabled for this edition.
+        tenancy_mode (str | Unset): Tenancy mode: 'single_tenant' or 'multi_tenant'. Default: 'single_tenant'.
     """
 
     edition: str
     features: list[str]
+    tenancy_mode: str | Unset = "single_tenant"
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         edition = self.edition
 
         features = self.features
+
+        tenancy_mode = self.tenancy_mode
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
@@ -39,6 +44,8 @@ class EditionInfoResponse:
                 "features": features,
             }
         )
+        if tenancy_mode is not UNSET:
+            field_dict["tenancy_mode"] = tenancy_mode
 
         return field_dict
 
@@ -49,9 +56,12 @@ class EditionInfoResponse:
 
         features = cast(list[str], d.pop("features"))
 
+        tenancy_mode = d.pop("tenancy_mode", UNSET)
+
         edition_info_response = cls(
             edition=edition,
             features=features,
+            tenancy_mode=tenancy_mode,
         )
 
         edition_info_response.additional_properties = d

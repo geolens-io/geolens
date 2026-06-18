@@ -13,6 +13,7 @@ from sqlalchemy import (
     func,
     text,
 )
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.db import Base
@@ -55,14 +56,53 @@ class User(Base):
             postgresql_using="gin",
             postgresql_ops={"lower(catalog.immutable_unaccent(email))": "gin_trgm_ops"},
         ),
+        # TSEAM-02: Two-partial-index uniqueness pattern (Phase 1207).
+        # Migration 0005_dormant_tenancy drops the global unique constraints
+        # (users_username_key / users_email_key) and replaces them with these
+        # four partial unique indexes so:
+        #   - single_tenant (tenant_id IS NULL): global uniqueness is preserved
+        #   - multi_tenant  (tenant_id IS NOT NULL): per-tenant uniqueness
+        # A naive composite unique on nullable tenant_id is forbidden because
+        # Postgres treats NULLs as DISTINCT, silently breaking single_tenant.
+        Index(
+            "uq_users_username_global",
+            "username",
+            unique=True,
+            postgresql_where=text("tenant_id IS NULL"),
+        ),
+        Index(
+            "uq_users_username_tenant",
+            "tenant_id",
+            "username",
+            unique=True,
+            postgresql_where=text("tenant_id IS NOT NULL"),
+        ),
+        Index(
+            "uq_users_email_global",
+            "email",
+            unique=True,
+            postgresql_where=text("tenant_id IS NULL"),
+        ),
+        Index(
+            "uq_users_email_tenant",
+            "tenant_id",
+            "email",
+            unique=True,
+            postgresql_where=text("tenant_id IS NOT NULL"),
+        ),
         {"schema": "catalog"},
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
         primary_key=True, server_default=func.gen_random_uuid()
     )
-    username: Mapped[str] = mapped_column(String(150), unique=True, nullable=False)
-    email: Mapped[str | None] = mapped_column(String(255), unique=True, nullable=True)
+    username: Mapped[str] = mapped_column(String(150), nullable=False)
+    email: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # TSEAM-01 (Phase 1207): dormant tenant_id — nullable, no FK enforcement.
+    # NULL means single_tenant (global) scope.  FK + RLS enforcement: Phase 1208.
+    tenant_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), nullable=True
+    )
     password_hash: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(
         String(20), server_default="active", nullable=False

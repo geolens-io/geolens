@@ -43,17 +43,23 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 RUN chmod +x /app/scripts/api-entrypoint.sh /app/scripts/worker-entrypoint.sh
 
 # ==============================================================================
-# Enterprise overlay — BUILD-TIME bake (BUG-003)
+# Overlay bake — BUILD-TIME (BUG-003 / BAKE-01)
 # ==============================================================================
 # The runtime container runs with read_only: true rootfs (see docker-compose.yml
 # x-hardened-base anchor).  A runtime `uv add --editable` cannot write into
 # the baked /app/.venv — it silently fails, and BUG-003's startup check then
 # refuses to boot as OSS when GEOLENS_EDITION=enterprise was set.
 #
-# The architecturally correct solution is to pre-bake the overlay INTO the image
+# The architecturally correct solution is to pre-bake overlays INTO the image
 # at BUILD time so the read_only runtime never needs to write.
 #
-# Usage (enterprise build — derived image, three steps):
+# BAKE-01: this block now accepts a SPACE-SEPARATED LIST of overlay dirs so
+# both an enterprise and a cloud overlay can bake into one image. Each listed
+# dir must already exist inside the build context (staged via COPY in a derived
+# Dockerfile) and must contain a pyproject.toml — the guard fails closed
+# otherwise (exit 1).
+#
+# Usage (single enterprise build — derived image, three steps):
 #
 #   1. Place the overlay source in the build context and allow it in .dockerignore:
 #        cp -r /path/to/geolens-enterprise ./enterprise
@@ -61,42 +67,64 @@ RUN chmod +x /app/scripts/api-entrypoint.sh /app/scripts/worker-entrypoint.sh
 #        #   !enterprise/
 #        #   !enterprise/**
 #
-#   2. In a DERIVED Dockerfile (or a patched copy of this one) add a COPY that
-#      stages the overlay into the image BEFORE the INSTALL_ENTERPRISE_OVERLAY
-#      RUN below.  The OSS image intentionally omits it — an unconditional
-#      `COPY enterprise/ /enterprise/` would fail the OSS build, where the path
-#      is absent / .dockerignore-excluded:
+#   2. In a DERIVED Dockerfile add a COPY that stages the overlay BEFORE the
+#      INSTALL_OVERLAYS RUN below.  The OSS image intentionally omits it — an
+#      unconditional `COPY enterprise/ /enterprise/` would fail the OSS build:
 #        COPY enterprise/ /enterprise/
 #
 #   3. Build with the ARG set:
 #        docker build \
-#            --build-arg INSTALL_ENTERPRISE_OVERLAY=1 \
+#            --build-arg INSTALL_OVERLAYS="/enterprise" \
 #            -t geolens-api:enterprise .
 #
-# For a repeatable enterprise CI pipeline, commit a docker-compose.enterprise.yml
-# override that sets the build arg and mounts a known overlay path.
+# Usage (combined enterprise + cloud build):
 #
-# When the ARG is unset (empty string, the default) this block is a no-op and
-# the OSS image is byte-for-byte unchanged.  CI always builds without the ARG
-# so the OSS path is exercised on every run.
+#   1. Stage both overlay dirs:
+#        COPY enterprise/ /enterprise/
+#        COPY cloud/ /cloud/
+#        # Allow both in .dockerignore:
+#        #   !enterprise/
+#        #   !enterprise/**
+#        #   !cloud/
+#        #   !cloud/**
 #
-# NOTE: enterprise/ is excluded from the build context by .dockerignore (default
-# deny-then-allow pattern), and this OSS Dockerfile intentionally has NO
-# `COPY enterprise/` (an unconditional copy would break the OSS build).  The
-# guard below therefore fails closed unless the operator both allows enterprise/
-# in .dockerignore (step 1) AND adds the COPY in a derived image (step 2).
+#   2. Build with both dirs listed (space-separated):
+#        docker build \
+#            --build-arg INSTALL_OVERLAYS="/enterprise /cloud" \
+#            -t geolens-api:enterprise-cloud .
+#
+# Back-compat alias: INSTALL_ENTERPRISE_OVERLAY (legacy single-overlay ARG from
+# pre-BAKE-01 builds). When set/non-empty, /enterprise is prepended to the
+# effective overlay list, so existing CI pipelines using
+# `--build-arg INSTALL_ENTERPRISE_OVERLAY=1` continue to work unchanged.
+#
+# When both ARGs are empty (the default) this block is a no-op and the OSS
+# image is byte-for-byte unchanged.  CI always builds without the ARGs so the
+# OSS path is exercised on every run.
+#
+# NOTE: overlay dirs are excluded from the OSS build context by .dockerignore
+# (default deny-then-allow pattern), and this OSS Dockerfile has NO unconditional
+# COPY for any overlay (an unconditional copy would break the OSS build).  The
+# guard fails closed unless the operator both allows the overlay dir in
+# .dockerignore (step 1) AND stages it via COPY in a derived image (step 2).
 ARG INSTALL_ENTERPRISE_OVERLAY=
+ARG INSTALL_OVERLAYS=
 RUN --mount=type=cache,target=/root/.cache/uv \
+    _effective_overlays="${INSTALL_OVERLAYS:-}"; \
     if [ -n "${INSTALL_ENTERPRISE_OVERLAY:-}" ]; then \
-        if [ ! -d "/enterprise" ] || [ ! -f "/enterprise/pyproject.toml" ]; then \
-            echo "ERROR: INSTALL_ENTERPRISE_OVERLAY=1 but /enterprise is missing or empty." >&2; \
-            echo "Ensure enterprise/ is in the build context (add !enterprise/ to .dockerignore)" >&2; \
-            echo "and add 'COPY enterprise/ /enterprise/' before this RUN in your derived image." >&2; \
+        _effective_overlays="/enterprise${_effective_overlays:+ $_effective_overlays}"; \
+    fi; \
+    for _dir in ${_effective_overlays}; do \
+        if [ ! -d "${_dir}" ] || [ ! -f "${_dir}/pyproject.toml" ]; then \
+            echo "ERROR: overlay dir '${_dir}' is missing or has no pyproject.toml." >&2; \
+            echo "Ensure the overlay source is in the build context:" >&2; \
+            echo "  - Add '!${_dir}/' and '!${_dir}/**' to .dockerignore" >&2; \
+            echo "  - Add 'COPY ${_dir#/}/ ${_dir}/' before this RUN in your derived image." >&2; \
             exit 1; \
         fi; \
-        echo "Baking enterprise overlay into image at build time..." && \
-        uv add --editable /enterprise --no-dev; \
-    fi
+        echo "Baking overlay '${_dir}' into image at build time..." && \
+        uv add --editable "${_dir}" --no-dev; \
+    done
 
 # ==============================================================================
 # Stage 2: backend-base — clean python:3.14.3-slim runtime; venv from builder
@@ -182,7 +210,45 @@ COPY frontend/package.json frontend/package-lock.json ./
 RUN --mount=type=cache,target=/root/.npm \
     npm ci --prefer-offline
 COPY frontend/ ./
-RUN npm run build:app
+
+# ==============================================================================
+# Frontend overlay bake — FEOVL-03 / BAKE-01 extension
+# ==============================================================================
+# Mirrors the backend BAKE-01 block (Dockerfile lines 46-127). The OSS build
+# leaves INSTALL_FRONTEND_OVERLAYS unset so this block is a no-op and the OSS
+# dist is byte-identical to the pre-FEOVL-03 build.
+#
+# CR-03 (Phase 1212): the merged-source path (INSTALL_FRONTEND_OVERLAYS set to
+# a cloud overlay dir) is NOT a supported build path for the cloud image.
+# The cloud overlay src-cloud/App.tsx and main.tsx import from '@cloud/*', which
+# has no alias in this OSS vite.config — using this path produces unresolved-
+# module errors.
+#
+# SUPPORTED build path for the cloud frontend: use the STANDALONE cloud Vite
+# build in geolens-overlays/geolens_cloud/frontend/Dockerfile (Stage 2).  That
+# build has its own vite.config.ts with both '@' (OSS src) and '@cloud'
+# (cloud src-cloud/) aliases and produces a correct dist.
+#
+# The ARG and loop below are preserved so the OSS Dockerfile remains a no-op
+# (INSTALL_FRONTEND_OVERLAYS unset → loop body never runs → byte-identical OSS
+# dist).  Do NOT set INSTALL_FRONTEND_OVERLAYS to a cloud overlay dir unless
+# the overlay vite.config alias issue (CR-03) has been resolved.
+ARG INSTALL_FRONTEND_OVERLAYS=
+ARG GEOLENS_FRONTEND_EDITION=community
+RUN set -e; \
+    for _dir in ${INSTALL_FRONTEND_OVERLAYS:-}; do \
+        if [ ! -f "${_dir}/package.json" ]; then \
+            echo "ERROR: frontend overlay '${_dir}' missing package.json." >&2; \
+            echo "Ensure the overlay source is staged in the build context:" >&2; \
+            echo "  - Add '!${_dir#/}/' and '!${_dir#/}/**' to .dockerignore" >&2; \
+            echo "  - Add 'COPY ${_dir#/}/ ${_dir}/' before this stage in your derived image." >&2; \
+            exit 1; \
+        fi; \
+        echo "Merging frontend overlay '${_dir}' into build context..."; \
+        cp -r "${_dir}/src/." /app/src/; \
+    done
+
+RUN GEOLENS_FRONTEND_EDITION=${GEOLENS_FRONTEND_EDITION} npm run build:app
 
 FROM nginxinc/nginx-unprivileged:1.31.1-alpine AS frontend
 

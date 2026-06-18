@@ -117,6 +117,7 @@ function setup({
     edition: enterprise ? 'enterprise' : 'community',
     features: enterprise ? ['advanced-sharing'] : [],
     isEnterprise: enterprise,
+    isMultiTenant: false,
     isLoading: false,
   });
   mockedUsePublishMap.mockReturnValue(mutationResult());

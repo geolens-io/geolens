@@ -33,6 +33,102 @@ if TYPE_CHECKING:
     from app.platform.jobs.models import IngestJob
 
 
+def _current_tenant_schema() -> str:
+    """Return the data schema for the current tenant (or 'data' in single_tenant).
+
+    Reads ``current_tenant_var`` and delegates to ``tenant_data_schema`` which
+    is a hard no-op returning ``'data'`` in single_tenant mode.
+    Called by ingest task helpers to route CREATE/RENAME/DROP/GRANT statements
+    to the correct per-tenant schema (DP-01, Phase 1209-02).
+    """
+    from app.core.db.tenant_schema import tenant_data_schema
+    from app.core.db.tenant_session import current_tenant_var
+
+    return tenant_data_schema(current_tenant_var.get())
+
+
+def _current_tenant_role() -> str:
+    """Return the reader role for the current tenant (or 'geolens_reader' in single_tenant).
+
+    Reads ``current_tenant_var`` and delegates to ``tenant_reader_role`` which
+    is a hard no-op returning ``'geolens_reader'`` in single_tenant mode.
+    Called by ingest task helpers to GRANT SELECT to the correct per-tenant
+    reader role (DP-01, Phase 1209-02).
+    """
+    from app.core.db.tenant_schema import tenant_reader_role
+    from app.core.db.tenant_session import current_tenant_var
+
+    return tenant_reader_role(current_tenant_var.get())
+
+
+async def _emit_billing_event(
+    tenant_id: str | None,
+    dimension: str,
+    value: int = 1,
+    *,
+    event_id: str | None = None,
+    table_name: str | None = None,
+) -> None:
+    """Dispatch a billable usage event to registered BillingExtensions (METER-01).
+
+    Billing-import-free seam: this function imports ONLY ``get_billing_extensions``
+    from ``app.platform.extensions`` — zero billing / stripe symbols enter core.
+    The dispatch is a no-op in OSS/single_tenant (DefaultBillingExtension has no
+    ``on_usage_event``; the hasattr guard short-circuits immediately).
+
+    Args:
+        tenant_id: UUID string of the tenant.  When None (single_tenant or context
+            not set), the function returns immediately — preserving byte-identical
+            OSS behaviour with zero overhead.
+        dimension: Billing dimension e.g. ``'ingest_jobs'``, ``'raster_egress_bytes'``.
+        value: Event magnitude (default 1; use byte count for egress dimensions).
+        event_id: Caller-provided dedup key — pass the Procrastinate job_id so
+            ingest task retries remain idempotent at the DB layer.
+        table_name: Optional dataset table_name.  Workers leave this None; the
+            tile/OGC request path (1213-06 seam) passes it to drive the METER-03
+            last_accessed_at signal through the same on_usage_event hook.
+
+    Threat mitigations:
+        T-1213-05 (DoS — failing billing breaks ingest): each extension is wrapped
+            in try/except that logs a warning and continues.  Billing emit NEVER
+            fails an ingest task.
+        T-1213-06 (info disclosure — billing key leaks into core): this function
+            imports zero billing/stripe symbols; verified by the grep gate in
+            Task 3 verification.
+        T-1213-07 (spoofing — cross-tenant ledger write): tenant_id flows from
+            the worker's current_tenant_var (set by Phase 1208/1209 middleware),
+            not from client input.
+    """
+    if not tenant_id:
+        return  # single_tenant no-op: no ledger, no billing (byte-identical OSS)
+
+    # Billing-import-free: only import the extension accessor, never billing symbols
+    from app.platform.extensions import get_billing_extensions
+
+    _log = structlog.get_logger()
+    for ext in get_billing_extensions():
+        if not hasattr(ext, "on_usage_event"):
+            continue  # DefaultBillingExtension + other extensions without the hook
+        try:
+            await ext.on_usage_event(  # type: ignore[attr-defined]
+                tenant_id=tenant_id,
+                dimension=dimension,
+                value=value,
+                event_id=event_id,
+                table_name=table_name,
+            )
+        except Exception:  # broad: billing emit must NEVER fail an ingest task; varied extension errors
+            # Per-extension isolation — mirrors lifespan dispatch D-10 pattern
+            # (api/main.py bootstrap.py). Log and continue to next extension.
+            _log.warning(
+                "billing_emit_error",
+                dimension=dimension,
+                tenant_id=tenant_id,
+                ext=type(ext).__name__,
+                exc_info=True,
+            )
+
+
 @dataclass
 class IngestContext:
     """Bundle of parameters shared across the post-ogr2ogr finalize pipeline.
@@ -355,7 +451,7 @@ async def _detect_and_override_geometry(
         # metadata reflects what was actually built (lines/polygons/etc).
         result = await session.execute(
             _text(
-                f"SELECT GeometryType(geom) FROM {_qtable(table_name)} "
+                f"SELECT GeometryType(geom) FROM {_qtable(table_name, schema=_current_tenant_schema())} "
                 f"WHERE geom IS NOT NULL LIMIT 1"
             )
         )
@@ -452,29 +548,37 @@ async def _run_staging_pipeline(
         promote_z_to_elev,
     )
 
+    _schema = _current_tenant_schema()
     if has_geometry:
-        has_geometry = await ensure_geom_column(session, table_name)
+        has_geometry = await ensure_geom_column(session, table_name, schema=_schema)
         if has_geometry:
-            await clip_to_mercator_bounds(session, table_name)
+            await clip_to_mercator_bounds(session, table_name, schema=_schema)
             if effective_srid is not None:
                 await add_4326_column(session, table_name, effective_srid)
 
-    await grant_reader_access(session, table_name)
+    await grant_reader_access(
+        session,
+        table_name,
+        schema=_schema,
+        role=_current_tenant_role(),
+    )
 
-    metadata = await extract_metadata(session, table_name)
+    metadata = await extract_metadata(session, table_name, schema=_schema)
     three_d = await detect_3d_metadata(session, table_name)
 
     if three_d.get("is_3d"):
         elev_promoted = await promote_z_to_elev(
-            session, table_name, metadata.get("geometry_type")
+            session, table_name, metadata.get("geometry_type"), schema=_schema
         )
         if elev_promoted:
             from app.processing.ingest.metadata import get_column_info
 
-            metadata["column_info"] = await get_column_info(session, table_name)
+            metadata["column_info"] = await get_column_info(
+                session, table_name, schema=_schema
+            )
 
     sample_values = await get_sample_values(
-        session, table_name, metadata.get("column_info", [])
+        session, table_name, metadata.get("column_info", []), schema=_schema
     )
 
     return StagingResult(
@@ -509,7 +613,11 @@ async def _cleanup_staging_on_failure(
     error_message = str(exc)
     await session.rollback()
     try:
-        await session.execute(text(f"DROP TABLE IF EXISTS {_qtable(staging_table)}"))
+        await session.execute(
+            text(
+                f"DROP TABLE IF EXISTS {_qtable(staging_table, schema=_current_tenant_schema())}"
+            )
+        )
         await session.commit()
     except Exception as cleanup_exc:  # broad: cleanup is best-effort after rollback; DB may be in bad state
         structlog.get_logger().warning(
@@ -576,7 +684,9 @@ async def _ingest_vector_into_staging(
         layer_name=layer_name,
     )
 
-    reserved_renames = await rename_reserved_columns(session, target_table)
+    reserved_renames = await rename_reserved_columns(
+        session, target_table, schema=_current_tenant_schema()
+    )
     if reserved_renames:
         from app.processing.ingest.warnings import make_reserved_rename_warning
 
@@ -814,11 +924,12 @@ async def _finalize_ingest(ctx: IngestContext):
     source_filename = ctx.source_filename
 
     # Normalize geometry column name to 'geom'
+    _schema = _current_tenant_schema()
     has_geometry = ctx.has_geometry
     if has_geometry is None:
-        has_geometry = await ensure_geom_column(session, table_name)
+        has_geometry = await ensure_geom_column(session, table_name, schema=_schema)
     elif has_geometry:
-        await ensure_geom_column(session, table_name)
+        await ensure_geom_column(session, table_name, schema=_schema)
 
     # Clip geometries to Web Mercator bounds and add 4326 column.
     # When has_geometry is truthy, callers always supply a non-null
@@ -828,14 +939,20 @@ async def _finalize_ingest(ctx: IngestContext):
         assert ctx.effective_srid is not None, (
             "effective_srid must be set when has_geometry is True"
         )
-        await clip_to_mercator_bounds(session, table_name)
+        await clip_to_mercator_bounds(session, table_name, schema=_schema)
         await add_4326_column(session, table_name, ctx.effective_srid)
 
-    # Grant reader access
-    await grant_reader_access(session, table_name)
+    # Grant reader access (per-tenant schema+role in multi_tenant; data/geolens_reader in single_tenant)
+    await grant_reader_access(
+        session,
+        table_name,
+        schema=_schema,
+        role=_current_tenant_role(),
+    )
 
-    # Extract metadata
-    metadata = await extract_metadata(session, table_name)
+    # Extract metadata (CR-03: pass per-tenant schema so catalog queries target
+    # data_t_{tid} in multi_tenant, not the shared 'data' schema)
+    metadata = await extract_metadata(session, table_name, schema=_schema)
 
     # Detect 3D geometry properties (per Phase 999.2)
     three_d = await detect_3d_metadata(session, table_name)
@@ -843,13 +960,15 @@ async def _finalize_ingest(ctx: IngestContext):
     # Attribute promotion: extract ST_Z into elev column for 3D points
     if three_d.get("is_3d"):
         elev_promoted = await promote_z_to_elev(
-            session, table_name, metadata.get("geometry_type")
+            session, table_name, metadata.get("geometry_type"), schema=_schema
         )
         if elev_promoted:
             # Re-extract column_info so elev appears in the column list
             from app.processing.ingest.metadata import get_column_info
 
-            metadata["column_info"] = await get_column_info(session, table_name)
+            metadata["column_info"] = await get_column_info(
+                session, table_name, schema=_schema
+            )
 
     # ArcGIS column_info fallback: if the DB-based extraction returned empty
     # column_info (e.g., non-spatial table where ogr2ogr only created a gid column),
@@ -869,7 +988,7 @@ async def _finalize_ingest(ctx: IngestContext):
 
     # Extract sample values for attribute search
     sample_values = await get_sample_values(
-        session, table_name, metadata.get("column_info", [])
+        session, table_name, metadata.get("column_info", []), schema=_schema
     )
 
     # Create Dataset record
@@ -1101,14 +1220,18 @@ async def _apply_reupload_swap(
 
     from app.processing.ingest.metadata import _qtable
 
+    # Tenant schema for this ingest: same schema for staging, live, and _old tables
+    # (T-1209-07: staging→live RENAME must stay intra-schema so it is atomic DDL).
+    _tenant_schema = _current_tenant_schema()
+
     # Resolve live_exists once — independent of lock contention; this
     # SELECT does not need the AccessExclusiveLock we're about to acquire.
     live_exists_result = await session.execute(
         text(
             "SELECT EXISTS (SELECT 1 FROM information_schema.tables "
-            "WHERE table_schema='data' AND table_name=:tn)"
+            "WHERE table_schema=:schema AND table_name=:tn)"
         ),
-        {"tn": table_name},
+        {"schema": _tenant_schema, "tn": table_name},
     )
     live_exists = live_exists_result.scalar()
 
@@ -1122,18 +1245,30 @@ async def _apply_reupload_swap(
     #   .planning/phases/1076-backend-ingest-p2-closure/1076-04-PLAN.md
 
     async def _swap_with_timeout(timeout_str: str) -> None:
-        """Run SET LOCAL lock_timeout + the 3 ALTER TABLE swap statements."""
+        """Run SET LOCAL lock_timeout + the 3 ALTER TABLE swap statements.
+
+        All three references (live, staging, _old) use the SAME _tenant_schema
+        so the RENAME operations are intra-schema (T-1209-07).
+        """
         await session.execute(text(f"SET LOCAL lock_timeout = '{timeout_str}'"))
         if live_exists:
             await session.execute(
-                text(f'ALTER TABLE {_qtable(table_name)} RENAME TO "{table_name}_old"')
+                text(
+                    f"ALTER TABLE {_qtable(table_name, schema=_tenant_schema)} "
+                    f'RENAME TO "{table_name}_old"'
+                )
             )
         await session.execute(
-            text(f'ALTER TABLE {_qtable(staging_table)} RENAME TO "{table_name}"')
+            text(
+                f"ALTER TABLE {_qtable(staging_table, schema=_tenant_schema)} "
+                f'RENAME TO "{table_name}"'
+            )
         )
         if live_exists:
             await session.execute(
-                text(f"DROP TABLE IF EXISTS {_qtable(table_name + '_old')}")
+                text(
+                    f"DROP TABLE IF EXISTS {_qtable(table_name + '_old', schema=_tenant_schema)}"
+                )
             )
 
     _FIRST_TIMEOUT = "5s"

@@ -10,6 +10,17 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# OCG-04: Single source-of-truth for the pinned geolens-enterprise ref.
+# Update this SHA when either side bumps EXTENSION_API_VERSION (core constant:
+# backend/app/platform/extensions/version.py) and re-verify the enterprise
+# suite passes against core before merging. Companion to the EXTENSION_API_VERSION
+# fail-loud loader check introduced in Plan 1206-01.
+env:
+  # geolens-enterprise origin/main as of 2026-06-14; core@1206 re-verified GREEN
+  # against this ref (load_extensions boots, EnterprisePermissionExtension resolves,
+  # legacy EXTENSION_API_VERSION tolerated, test_saml_overlay.py 21 passed).
+  ENTERPRISE_PINNED_REF: "af12809713a5a2f481d90c9d5c65a8e2bae888bc"
+
 # Least-privilege default for every job. The `changes` job widens to add
 # pull-requests:read; no job needs write (publishing lives in publish*.yml).
 permissions:
@@ -65,7 +76,12 @@ jobs:
             alembic:
               - 'backend/alembic/**'
               - 'backend/scripts/test_alembic_upgrade_clean_db.sh'
-              - 'backend/app/models/**'
+              # OCG-02: backend/app/models/** was deleted in b63803c1; replaced
+              # with the real model layout so model-only PRs still trigger alembic
+              # check (blocks Phase-1207 dormant-tenant_id migration drift gate).
+              - 'backend/app/**/models.py'
+              - 'backend/app/core/db/models.py'
+              - 'backend/app/processing/**/models.py'
               - 'db/**'
             installer:
               - 'scripts/install.sh'
@@ -107,6 +123,20 @@ jobs:
 
       - name: Ruff format check
         run: uv run ruff format --check .
+
+      # TSEAM-03 (Phase 1207-02): no third "cloud" edition.
+      # Edition stays binary (community|enterprise); cloud IS enterprise in
+      # multi_tenant mode.  A literal 'cloud' token in edition.py or
+      # license.py would re-introduce a third-edition axis (KISS Rule 1).
+      # `grep -nE` returns exit 0 on a match (which is a FAIL for us) and
+      # exit 1 on no match (which is our SUCCESS) — flip semantics with `!`.
+      - name: TSEAM-03 — no literal 'cloud' edition token in core/edition.py or core/license.py
+        run: |
+          if grep -nE "['\"]cloud['\"]" app/core/edition.py app/core/license.py; then
+            echo "FAIL: Found a literal 'cloud' edition token — edition must stay binary (community|enterprise). TSEAM-03"
+            exit 1
+          fi
+          echo "OK: no 'cloud' edition literal in core/edition.py or core/license.py"
 
   pre-commit:
     name: Pre-commit
@@ -429,6 +459,11 @@ jobs:
           repository: geolens-io/geolens-enterprise
           token: ${{ secrets.GEOLENS_ENTERPRISE_TOKEN }}
           path: geolens-enterprise
+          # OCG-04: pinned to a tested ref so a moving enterprise main cannot
+          # silently skew the tested combination. Re-pin + re-verify when either
+          # geolens-enterprise OR core bumps EXTENSION_API_VERSION.
+          # Ref value is declared once at the workflow env level (ENTERPRISE_PINNED_REF).
+          ref: ${{ env.ENTERPRISE_PINNED_REF }}
           persist-credentials: false
 
       - name: Start PostgreSQL with PostGIS + pgvector
@@ -829,6 +864,65 @@ jobs:
 
       - name: Run pip-audit (dependency vulnerability scan)
         run: uv run pip-audit --strict --desc
+
+  # ---------- WORK-04: overlay-image-probe matrix ----------
+  # Builds BOTH the 'api' and 'worker' image targets and runs a python probe
+  # asserting the in-repo dummy overlay (not Default) resolves on each.
+  #
+  # Proof: WORK-01/02/03 worker bootstrap fix holds across both runtime images
+  # in a real container (not just in pytest). The dummy overlay is used so the
+  # probe runs without the enterprise secret (no GEOLENS_ENTERPRISE_TOKEN needed).
+  #
+  # Trigger scope: push to main + manual dispatch only (pin-sha-probe-push-only
+  # decision). This conserves geolens-io free-tier Actions minutes — PRs do not
+  # burn two docker-build+run cycles per push (the existing e2e gate follows the
+  # same minutes-saving convention). References: WORK-04.
+  overlay-image-probe:
+    name: "Overlay Image Probe (${{ matrix.target }})"
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [api, worker]
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Build ${{ matrix.target }} image with dummy overlay baked in
+        run: |
+          # Build the OSS image target. The dummy overlay lives at
+          # backend/tests/fixtures/dummy_overlay/ (inside the backend/ build
+          # context, copied to /app/tests/fixtures/dummy_overlay/ in the image).
+          # The probe script imports it directly at /app/tests/fixtures/dummy_overlay/
+          # via PYTHONPATH=/app — no entry-point registration needed at image-build time.
+          docker build \
+            --target ${{ matrix.target }} \
+            --tag geolens-probe-${{ matrix.target }}:ci \
+            .
+
+      - name: "Probe overlay resolution on ${{ matrix.target }} image"
+        run: |
+          # Run the probe script inside the built image:
+          # --with-dummy-overlay: directly installs the dummy overlay and asserts
+          #   catalog_port is DummyCatalogPort (not DefaultCatalogPort).
+          # PYTHONPATH=/app: makes tests.fixtures.dummy_overlay importable.
+          # --no-healthcheck: container exits after the probe, no need to wait.
+          # Exits 0 on PROBE PASSED, 1 on PROBE FAILED (fails this step).
+          #
+          # Note: the probe uses the OSS image (no enterprise secret needed).
+          # The dummy overlay is part of the backend source tree baked into the image.
+          docker run \
+            --rm \
+            --no-healthcheck \
+            -e PYTHONPATH=/app \
+            -e JWT_SECRET_KEY=probe-padding-key-not-real-32chars \
+            -e GEOLENS_ADMIN_USERNAME=probe \
+            -e GEOLENS_ADMIN_PASSWORD=probe \
+            -e POSTGRES_PASSWORD=probe \
+            --entrypoint python \
+            geolens-probe-${{ matrix.target }}:ci \
+            scripts/probe_overlay_resolution.py --with-dummy-overlay
 
   # ---------- E2E (LOCAL-ONLY GATE — see .github/CONTRIBUTING.md "End-to-end (Playwright)") ----------
   # Disabled to save CI minutes: the dockerized stack + browser fixtures push the per-PR runtime

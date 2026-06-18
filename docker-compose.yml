@@ -43,6 +43,14 @@ x-storage-env: &storage-env
   S3_REGION: "${S3_REGION:-us-east-1}"
   S3_ALLOW_HTTP: "${S3_ALLOW_HTTP:-false}"
   S3_ADDRESSING_STYLE: "${S3_ADDRESSING_STYLE:-auto}"
+  # CR-03 (Phase 1210): Azure Blob Storage vars — required when STORAGE_PROVIDER=azure.
+  # Defaults to empty string so the api+worker containers receive the variable name
+  # (Pydantic's empty_str_to_none validator coerces "" → None, which is correct for
+  # optional fields).  Cloud-dev: set these in .env; keep Azurite creds out of the image.
+  AZURE_STORAGE_CONTAINER: "${AZURE_STORAGE_CONTAINER:-}"
+  AZURE_STORAGE_CONNECTION_STRING: "${AZURE_STORAGE_CONNECTION_STRING:-}"
+  AZURE_STORAGE_ACCOUNT_URL: "${AZURE_STORAGE_ACCOUNT_URL:-}"
+  AZURE_STORAGE_ACCOUNT_KEY: "${AZURE_STORAGE_ACCOUNT_KEY:-}"
 
 x-logging-env: &logging-env
   LOG_JSON: "${LOG_JSON:-false}"
@@ -396,6 +404,12 @@ services:
       AWS_ACCESS_KEY_ID: "${S3_ACCESS_KEY_ID:-}"
       AWS_SECRET_ACCESS_KEY: "${S3_SECRET_ACCESS_KEY:-}"
       AWS_DEFAULT_REGION: "${S3_REGION:-us-east-1}"
+      # Azure Blob / Azurite (STOR-03, Phase 1210) — GDAL /vsiaz/ credentials.
+      # For Azurite: set AZURE_STORAGE_CONNECTION_STRING to the well-known dev string.
+      # Empty defaults keep the existing s3/local stack unchanged when vars are unset.
+      AZURE_STORAGE_CONNECTION_STRING: "${AZURE_STORAGE_CONNECTION_STRING:-}"
+      AZURE_STORAGE_ACCOUNT: "${AZURE_STORAGE_ACCOUNT:-}"
+      AZURE_STORAGE_ACCESS_KEY: "${AZURE_STORAGE_ACCESS_KEY:-}"
       TITILER_API_ROOT_PATH: ""
     volumes:
       - upload_staging:/app/staging
@@ -555,6 +569,29 @@ services:
       - ./scripts/minio-setup.sh:/usr/local/bin/minio-setup.sh:ro
     entrypoint: ["/bin/sh", "/usr/local/bin/minio-setup.sh"]
 
+  azurite:
+    # Azure Blob Storage emulator — cloud-dev profile only (Phase 1210 / STOR-03).
+    # Pinned by SHA256 digest (tag is documentation only).
+    image: mcr.microsoft.com/azure-storage/azurite:3.35.0@sha256:647c63a91102a9d8e8000aab803436e1fc85fbb285e7ce830a82ee5d6661cf37
+    profiles: ["cloud-dev"]
+    # D04 / T-1210-03: cloud-dev opt-in, loopback-only. cap_drop ALL + no-new-privileges
+    # are cheap insurance — Azurite holds no keys that matter outside localhost.
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    ports:
+      - "127.0.0.1:10000:10000"  # Blob service — loopback only
+    command: azurite-blob --blobHost 0.0.0.0 --blobPort 10000 --loose --skipApiVersionCheck
+    volumes:
+      - azurite_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 10000 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
   valkey:
     # 8.x line tip; cloud-dev profile only.
     image: valkey/valkey:8.1.7-alpine
@@ -581,3 +618,4 @@ volumes:
   backup_data:
   minio_data:
   valkey_data:
+  azurite_data:

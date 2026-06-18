@@ -883,9 +883,27 @@ def test_router_orchestrator_modules_stay_within_loc_cap() -> None:
         "backend/app/modules/catalog/search/router.py": 1600,
         # Phase 1176 PERF-002: +~60 lines for the raster tile auth/metadata
         # TTLCache (_RasterMeta + _resolve_raster_meta), mirroring the vector
-        # tile meta cache so raster tiles aren't asymmetric. Cap 1580 (~20 LOC
-        # headroom above 1560). HARD ceiling — decompose before raising further.
-        "backend/app/processing/tiles/router.py": 1580,
+        # tile meta cache so raster tiles aren't asymmetric.
+        # Phase 1209-03 DP-02: +~51 lines for per-request SET LOCAL ROLE binding,
+        # schema-qualified tile queries, and tenant-filtered resolver. Cap raised
+        # to 1660 (29 LOC headroom).
+        # Phase 1213-06 FAIR-01/METER-03: +~128 lines for _get_cloud_fairness()
+        # lazy importer, _emit_tile_usage_event() billing-import-free seam helper,
+        # per-tenant semaphore acquisition around the tile pool, and Cache-Control
+        # override for cloud CDN SLO. All cloud-conditional (has_extension gate);
+        # OSS byte-identical. Cap raised to 1850 (+62 headroom).
+        # Phase 1214-04 COLD-02/03: +~70 lines for the _check_cold_rehydrate()
+        # billing-import-free cold-tier seam (deferred geolens_cloud import behind
+        # is_multi_tenant()/has_extension('cloud') guards; never 500s a tile —
+        # T-1214-17). Cloud-conditional; OSS byte-identical. The seam helper is
+        # pinned to THIS module by the overlay's 1214-05 static AST proof
+        # (ast.AsyncFunctionDef _check_cold_rehydrate must resolve in the core
+        # router source), so it cannot be relocated without cross-repo
+        # coordination. Cap raised to 1920 (+26 headroom). HARD ceiling — the
+        # cold/fairness/metering seams must be decomposed into a tile_seams.py
+        # sub-module (updating the overlay AST proof in lockstep) before raising
+        # further.
+        "backend/app/processing/tiles/router.py": 1920,
     }
 
     violations: list[str] = []
@@ -1071,9 +1089,9 @@ def test_billing_dispatch_uses_hardcoded_timeout() -> None:
     behavior at the now-deleted line 191 of api/main.py.
 
     Test fixtures (test_billing_extension.py::_dispatch) accept a parameterized
-    ``timeout`` argument for fast tests, but the PRODUCTION dispatch loop in
-    api/main.py MUST use the literal ``timeout=10.0``. This test catches drift
-    between the two.
+    ``timeout`` argument for fast tests, but the PRODUCTION dispatch loop (in the
+    shared ``bootstrap()`` helper since Phase 1206 WORK-01 — formerly api/main.py)
+    MUST use the literal ``timeout=10.0``. This test catches drift between the two.
 
     Negative-control: any change that wraps the timeout in a settings field
     or env-var lookup will fail this test (the literal will be missing).
@@ -1086,7 +1104,10 @@ def test_billing_dispatch_uses_hardcoded_timeout() -> None:
             "-E",
             r"asyncio\.wait_for\(ext\.on_startup\(app\), timeout=10\.0\)",
             "--",
-            "backend/app/api/main.py",
+            # Phase 1206 (WORK-01) collapsed the API lifespan + worker bootstrap
+            # into one shared bootstrap() helper, which is where the billing
+            # dispatch loop now lives (moved from the now-deleted api/main.py site).
+            "backend/app/platform/extensions/bootstrap.py",
         ],
         cwd=REPO_ROOT,
         capture_output=True,
@@ -1096,12 +1117,14 @@ def test_billing_dispatch_uses_hardcoded_timeout() -> None:
 
     if result.returncode == 1:
         pytest.fail(
-            "Phase 223 BILLING-04 / D-11 invariant violated: backend/app/api/main.py "
-            "does NOT contain the production BillingExtension dispatch loop with "
-            "literal `asyncio.wait_for(ext.on_startup(app), timeout=10.0)`. The "
+            "Phase 223 BILLING-04 / D-11 invariant violated: "
+            "backend/app/platform/extensions/bootstrap.py does NOT contain the "
+            "production BillingExtension dispatch loop with literal "
+            "`asyncio.wait_for(ext.on_startup(app), timeout=10.0)`. The "
             "10-second timeout MUST be hardcoded (D-11 — YAGNI for env-var "
-            "configuration). Either the dispatch loop is missing entirely (Plan 02 "
-            "incomplete) or the literal timeout was changed."
+            "configuration). Either the dispatch loop is missing entirely or the "
+            "literal timeout was changed. (Phase 1206 moved this from api/main.py "
+            "into the shared bootstrap() helper.)"
         )
     if result.returncode not in (0,):
         pytest.fail(

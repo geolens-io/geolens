@@ -24,15 +24,30 @@ SAFE_TABLE_NAME_RE = re.compile(r"^[a-z0-9_]+$")
 SAFE_COLUMN_NAME_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
 
 
-def _safe_table_ref(table_name: str) -> str:
-    """Return a safely quoted ``"data"."<name>"`` SQL identifier.
+def _safe_table_ref(table_name: str, schema: str = "data") -> str:
+    """Return a safely quoted ``"<schema>"."<name>"`` SQL identifier.
 
     Validates ``table_name`` against ``SAFE_TABLE_NAME_RE`` and quotes the
     schema-qualified reference to prevent SQL injection in DDL statements
     (CREATE/DROP/ALTER) that cannot use bound parameters for identifiers.
 
+    schema defaults to 'data' (single_tenant unchanged). In multi_tenant
+    callers pass the per-tenant schema from tenant_data_schema(tid).
+    The schema name is validated with the same SAFE_TABLE_NAME_RE — tenant
+    schema names follow the same lowercase-alphanumeric-underscore pattern
+    (``data_t_{uuid_underscored}``, matching ``tenant_data_schema()`` output).
+
+    T-1209-05: both table_name AND schema are validated before interpolation.
+
     Re-exported from ``service.py`` for ``tests/test_sql_safety.py``.
+
+    Raises
+    ------
+    ValueError
+        If table_name or schema fails SAFE_TABLE_NAME_RE validation.
     """
     if not SAFE_TABLE_NAME_RE.match(table_name):
         raise ValueError(f"Invalid table name: {table_name!r}")
-    return f'"data"."{table_name}"'
+    if not SAFE_TABLE_NAME_RE.match(schema):
+        raise ValueError(f"Invalid schema name: {schema!r}")
+    return f'"{schema}"."{table_name}"'

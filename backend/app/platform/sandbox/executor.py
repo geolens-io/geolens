@@ -11,6 +11,9 @@ import structlog
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.db.tenant_schema import tenant_reader_role
+from app.core.db.tenant_session import current_tenant_var
+from app.core.tenancy import is_multi_tenant
 from app.platform.sandbox.schemas import SandboxError, SandboxResult
 
 logger = structlog.stdlib.get_logger(__name__)
@@ -53,11 +56,24 @@ async def execute_safe(
         async with db_module.engine.connect() as conn:
             async with conn.begin():
                 await conn.execute(text("SET TRANSACTION READ ONLY"))
-                # Defense-in-depth: use the restricted readonly role if available.
+                # Defense-in-depth: use the restricted reader role if available.
+                # DP-02 (Phase 1209-03): in multi_tenant, use the per-tenant reader
+                # role so the sandbox SQL runs with only per-tenant schema access.
+                # CR-04 (Phase 1209): use "geolens_reader" (guaranteed by migration
+                # 0007 and init-db.sh) rather than "geolens_readonly" (only in
+                # migration 0001_baseline which may be squashed) as the fallback.
+                # single_tenant / None-tid falls back to "geolens_reader" (global).
+                # Role name derives from validated-UUID current_tenant_var — safe
+                # to interpolate (T-1209-14).
+                if is_multi_tenant():
+                    _tid = current_tenant_var.get()
+                    _role = tenant_reader_role(_tid) if _tid else "geolens_reader"
+                else:
+                    _role = "geolens_reader"
                 # Wrapped in a savepoint so a missing role doesn't abort the txn.
                 try:
                     await conn.execute(text("SAVEPOINT _role_check"))
-                    await conn.execute(text("SET LOCAL ROLE geolens_readonly"))
+                    await conn.execute(text(f"SET LOCAL ROLE {_role}"))
                 except Exception:  # broad: defense-in-depth role check — missing role/permission errors fall back to default role
                     await conn.execute(text("ROLLBACK TO SAVEPOINT _role_check"))
                 finally:

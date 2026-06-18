@@ -182,7 +182,7 @@ class TestIngestVectorIntoStaging:
                 effective_srid=4326,
             )
 
-        mock_rename.assert_awaited_once_with(session, "my_table")
+        mock_rename.assert_awaited_once_with(session, "my_table", schema="data")
         mock_warn.assert_called_once_with(renames)
         # Warning should be in job.user_metadata["warnings"]
         assert "warnings" in job.user_metadata
@@ -386,8 +386,8 @@ class TestIngestVectorIntoStaging:
                 effective_srid=2263,
             )
 
-        mock_ensure.assert_awaited_once_with(session, "my_table")
-        mock_clip.assert_awaited_once_with(session, "my_table")
+        mock_ensure.assert_awaited_once_with(session, "my_table", schema="data")
+        mock_clip.assert_awaited_once_with(session, "my_table", schema="data")
         mock_4326.assert_awaited_once_with(session, "my_table", 2263)
 
     @pytest.mark.asyncio
@@ -599,8 +599,10 @@ class TestIngestVectorIntoStaging:
                 effective_srid=4326,
             )
 
-        mock_promote.assert_awaited_once_with(session, "my_table", "Point Z")
-        mock_col_info.assert_awaited_once_with(session, "my_table")
+        mock_promote.assert_awaited_once_with(
+            session, "my_table", "Point Z", schema="data"
+        )
+        mock_col_info.assert_awaited_once_with(session, "my_table", schema="data")
         assert result.metadata["column_info"] == new_columns
 
     @pytest.mark.asyncio

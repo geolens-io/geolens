@@ -116,9 +116,12 @@ async def test_overlay_permission_extension_is_dispatched():
         ):
             return False
 
+    from app.platform.extensions.version import EXTENSION_API_VERSION
+
     def register(registry: dict) -> None:
         registry["permission"] = TestPermissionExtension()
 
+    register.EXTENSION_API_VERSION = EXTENSION_API_VERSION
     mock_ep = MagicMock()
     mock_ep.name = "geolens.permission.test"
     mock_ep.load.return_value = register

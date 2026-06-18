@@ -246,9 +246,7 @@ async def main() -> None:
     import app.processing.embeddings.models  # noqa: F401
 
     from app.observability.metrics.jobs import update_job_metrics
-    from app.platform.cache import init_cache
     from app.processing.ingest.tasks import task_app
-    from app.platform.storage import init_storage
 
     # 1. Recover stale jobs from previous crash
     await recover_stale_jobs()
@@ -266,34 +264,24 @@ async def main() -> None:
     exports_dir = Path(settings.upload_staging_dir) / "exports"
     _sweep_orphaned_exports(exports_dir)
 
-    # 3. Initialize providers
-    init_storage()
+    # 3. WORK-01: shared bootstrap — load extensions (overlay), check enterprise
+    # overlay requested, init edition, init storage + S3 health probe, init cache.
+    # bootstrap(app=None) = worker mode: skips router include and billing dispatch
+    # (both require a FastAPI app object). Runs BEFORE run_worker_async so all
+    # single-slot ports (ProcessingPort, CatalogPort, etc.) are resolved by the
+    # time any task tries to use them — closing the enterprise split-brain bug
+    # where the worker silently ran community ports on licensed deployments.
+    from app.platform.extensions.bootstrap import (
+        bootstrap,
+        assert_enterprise_ports_resolved,
+    )
 
-    # Verify S3 connectivity and log credential source
-    if settings.storage_provider == "s3":
-        from app.platform.storage import get_storage
+    await bootstrap(app=None)
 
-        storage = get_storage()
-        try:
-            await storage.health_check()
-            import boto3 as _boto3
-
-            _session = _boto3.Session()
-            _creds = _session.get_credentials()
-            cred_method = _creds.method if _creds else "unknown"
-            if settings.s3_access_key_id:
-                cred_method = "explicit-keys"
-            log.info(
-                "S3 connectivity verified",
-                bucket=settings.s3_bucket,
-                credential_source=cred_method,
-                addressing_style=settings.s3_addressing_style,
-            )
-        except Exception as exc:  # broad: S3/MinIO SDK can throw varied connection/auth errors; fail-fast on worker boot
-            log.error("S3 health check failed -- cannot start", error=str(exc))
-            raise RuntimeError(f"S3 health check failed: {exc}") from exc
-
-    init_cache()
+    # WORK-02: affirmative post-bootstrap assertion — under GEOLENS_EDITION=enterprise
+    # every expected single-slot port must be a non-Default implementation.
+    # Fails loud (RuntimeError) rather than silently running community ports.
+    assert_enterprise_ports_resolved()
 
     # 4. Start health server as background task
     health_task = asyncio.create_task(run_health_server())

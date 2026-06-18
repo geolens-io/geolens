@@ -78,8 +78,11 @@ async def test_put_settings_same_embedding_dims_does_not_delete(
         )
     )
     current_dims = col_check.scalar_one_or_none()
-    if current_dims is None:
-        # If the column has no fixed dimension, set one first
+    if current_dims is None or current_dims < 1:
+        # A dimensionless ``vector`` column reports atttypmod == -1 (not NULL), so
+        # guard on the valid range too — otherwise we'd PUT embedding_dims=-1 and
+        # the [1, 4096] validator returns 422. This makes the test order-independent
+        # (it no longer relies on a sibling test having fixed the column dimension).
         current_dims = 1536
 
     # Send the same dims value

@@ -3,10 +3,7 @@
 import os
 import subprocess
 from contextlib import ExitStack
-from pathlib import Path
 from xml.etree.ElementTree import Element, ElementTree, SubElement
-
-from app.core.config import settings
 
 
 # IA-P1-03 (Phase 1068): clamp the GDAL VSI surface that VRT processing
@@ -172,7 +169,14 @@ def _write_python_vrt(
             band_index: int,
         ) -> None:
             source = SubElement(parent, "SimpleSource")
-            SubElement(source, "SourceFilename", relativeToVRT="0").text = dataset.name
+            # STOR-03 (Phase 1210): write logical key + relativeToVRT="1" so the stored
+            # VRT XML is provider-agnostic.  dataset.name here is the resolve_open_path
+            # output (an absolute VSI path like /vsis3/bucket/key or a local filesystem
+            # path).  rewrite_vrt_sources, called at the store site in tasks_vrt.py
+            # AFTER metadata extraction + quicklook generation, normalises both to the
+            # logical key.  Setting relativeToVRT="1" here is a forward declaration of
+            # intent; the rewrite pass at the store site is the enforcement gate.
+            SubElement(source, "SourceFilename", relativeToVRT="1").text = dataset.name
             SubElement(source, "SourceBand").text = str(band_index)
             block_height, block_width = dataset.block_shapes[band_index - 1]
             SubElement(
@@ -249,17 +253,20 @@ def _write_python_vrt(
         return output_path
 
 
-def resolve_vrt_source_path(asset_uri: str) -> str:
-    """Resolve a catalog asset_uri to the absolute path gdalbuildvrt should use.
+def resolve_vrt_source_path(asset_uri: str, *, tenant_id: str | None = None) -> str:
+    """Delegate to the storage seam's resolve_open_path (STOR-01 / Phase 1210).
 
-    For local storage: returns an absolute filesystem path under upload_staging_dir.
-    For S3: returns a /vsis3/ virtual path (permanent, not presigned — presigned
-    URLs expire and would break the VRT after creation).
+    This function is kept for backward compatibility with existing callers.
+    New callers should import resolve_open_path from
+    app.platform.storage.titiler_url directly.
+
+    tenant_id: when provided (multi_tenant mode), prepend tenants/{tenant_id}/
+               to the object key.  In single_tenant this is always None and the
+               returned path is byte-identical with the pre-1210 inline code.
     """
-    if settings.storage_provider == "local":
-        return str(Path(settings.upload_staging_dir) / asset_uri)
-    # S3 or any other provider: use GDAL's /vsis3/ virtual filesystem prefix.
-    return f"/vsis3/{settings.s3_bucket}/{asset_uri}"
+    from app.platform.storage.titiler_url import resolve_open_path
+
+    return resolve_open_path(asset_uri, tenant_id=tenant_id)
 
 
 def _build_vrt(
@@ -272,7 +279,7 @@ def _build_vrt(
     """Core VRT builder wrapping gdalbuildvrt.
 
     Args:
-        source_paths: Absolute filesystem or /vsis3/ paths to source COG files.
+        source_paths: Absolute filesystem or GDAL VSI paths to source COG files.
         output_path: Destination .vrt file path (must be writable).
         resolution_strategy: One of "finest", "coarsest", or "average".
         separate: If True, pass ``-separate`` to produce a band-stack VRT.

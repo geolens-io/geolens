@@ -6,12 +6,15 @@ from pathlib import Path
 
 import structlog
 
+from app.core.db.tenant_session import tenant_task
 from app.processing.ingest.tasks_common import (
     IngestContext,
     _append_job_warning,
     _archive_original_file,
     _bind_task_log_context,
+    _current_tenant_schema,
     _detect_and_override_geometry,
+    _emit_billing_event,
     _finalize_ingest,
     _job_phase_session,
     _resolve_effective_srid,
@@ -51,6 +54,7 @@ def _should_unlink_staging(
 
 
 @task_app.task(queue="ingest", retry=0, aliases=["app.ingest.tasks.ingest_file"])
+@tenant_task
 async def ingest_file(job_id: str, file_path: str, user_id: str, **kwargs) -> None:
     """Background task: run ogr2ogr, extract metadata, register dataset.
 
@@ -253,7 +257,9 @@ async def ingest_file(job_id: str, file_path: str, user_id: str, **kwargs) -> No
             #     source attribute of the same name.
             from app.processing.ingest.metadata import rename_reserved_columns
 
-            reserved_renames = await rename_reserved_columns(session, table_name)
+            reserved_renames = await rename_reserved_columns(
+                session, table_name, schema=_current_tenant_schema()
+            )
             if reserved_renames:
                 from app.processing.ingest.warnings import (
                     make_reserved_rename_warning,
@@ -336,6 +342,19 @@ async def ingest_file(job_id: str, file_path: str, user_id: str, **kwargs) -> No
                 file_path=file_path,
             )
 
+            # METER-01 (Phase 1213-02): emit ingest billable event through the
+            # billing-import-free seam.  Best-effort fire-and-forget — errors
+            # logged inside _emit_billing_event; ingest outcome unaffected.
+            # tenant_id from current_tenant_var (set by 1208/1209 middleware).
+            # event_id = job_id so task retries stay idempotent at the DB layer.
+            from app.core.db.tenant_session import current_tenant_var
+
+            await _emit_billing_event(
+                str(current_tenant_var.get()) if current_tenant_var.get() else None,
+                "ingest_jobs",
+                event_id=job_id,
+            )
+
             final_status = "complete"
 
     except Exception as exc:  # broad: ingest pipeline spans GDAL/PostGIS/S3/FS — any step can fail; record failure status
@@ -413,6 +432,7 @@ async def ingest_file(job_id: str, file_path: str, user_id: str, **kwargs) -> No
 
 
 @task_app.task(queue="ingest", retry=0, aliases=["app.ingest.tasks.ingest_service"])
+@tenant_task
 async def ingest_service(
     job_id: str,
     source_url: str,
@@ -572,7 +592,9 @@ async def ingest_service(
             #     name. Runs BEFORE _finalize_ingest (which calls add_4326_column).
             from app.processing.ingest.metadata import rename_reserved_columns
 
-            reserved_renames = await rename_reserved_columns(session, table_name)
+            reserved_renames = await rename_reserved_columns(
+                session, table_name, schema=_current_tenant_schema()
+            )
             if reserved_renames:
                 from app.processing.ingest.warnings import (
                     make_reserved_rename_warning,
@@ -598,6 +620,15 @@ async def ingest_service(
                     user_metadata=um,
                     source_url=dataset_source_url,
                 )
+            )
+
+            # METER-01 (Phase 1213-02): emit ingest billable event.
+            from app.core.db.tenant_session import current_tenant_var
+
+            await _emit_billing_event(
+                str(current_tenant_var.get()) if current_tenant_var.get() else None,
+                "ingest_jobs",
+                event_id=job_id,
             )
 
     except Exception as exc:  # broad: PostGIS/DB ingest can fail at any step; mark job failed and re-raise

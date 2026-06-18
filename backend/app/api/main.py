@@ -20,24 +20,13 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from app.api.router import api_router
 from app.observability.metrics import init_metrics
-from app.platform.cache import init_cache
 from app.platform.cache.provider import init_tile_cache
 
 # settings already imported above for the tempdir override — do NOT reimport
 from app.core.db import async_session, engine
 from app.core.logging_config import setup_logging
 from app.core.runtime.staging import ensure_staging_ready
-from app.core.edition import (
-    check_enterprise_overlay_requested,
-    get_edition,
-    init_edition,
-)
-from app.platform.extensions import (
-    get_billing_extensions,
-    get_extension_routers,
-    list_extensions,
-    load_extensions,
-)
+from app.platform.extensions.bootstrap import bootstrap
 from app.modules.auth.models import Role, User, UserRole
 from app.modules.auth.providers.local import hash_password
 from app.modules.auth.router import limiter
@@ -46,7 +35,7 @@ from app.api.middleware.body_limit import RequestBodyLimitMiddleware
 from app.api.middleware.cors import DynamicCORSMiddleware
 from app.api.middleware.logging import RequestLoggingMiddleware
 from app.api.middleware.security import SecurityHeadersMiddleware
-from app.platform.storage import init_storage
+from app.api.middleware.tenant_context import TenantContextMiddleware
 from app.processing.tiles.pool import close_tile_pool, init_tile_pool
 from app.processing.tiles.router import _titiler_client
 from slowapi.errors import RateLimitExceeded
@@ -161,22 +150,11 @@ async def lifespan(app: FastAPI):
     # SEC-08 / M-72: surface unset CORS_ALLOWED_ORIGINS in production once.
     _warn_if_cors_unset(settings, logger)
 
-    load_extensions()
-    # BUG-003: fail loudly if Enterprise is explicitly requested but the overlay
-    # is not loaded. Must run after load_extensions() so the full extension list
-    # is known. Raises RuntimeError → container exits non-zero instead of
-    # silently booting OSS when the operator intended Enterprise.
-    check_enterprise_overlay_requested(list_extensions())
-    init_edition(list_extensions())
-    edition_info = get_edition()
-    logger.info(
-        "Edition detected",
-        edition=edition_info.edition,
-        features=list(edition_info.features),
-    )
-
-    for ext_router in get_extension_routers():
-        app.include_router(ext_router)
+    # WORK-01: shared bootstrap — extension load, enterprise-overlay-requested check,
+    # edition init, extension router include, storage + S3 health probe, billing
+    # on_startup dispatch, cache init. bootstrap() is the single source of truth
+    # for this sequence; both API and worker delegate here to prevent drift.
+    await bootstrap(app=app)
 
     staging_root = ensure_staging_ready(settings.upload_staging_dir)
     ensure_staging_ready(staging_root / "exports")
@@ -194,65 +172,6 @@ async def lifespan(app: FastAPI):
                     item.unlink(missing_ok=True)
             logger.info("Cleaned orphaned export temp files", count=len(orphaned))
 
-    init_storage()
-
-    if settings.storage_provider == "s3":
-        from app.platform.storage import get_storage
-
-        storage = get_storage()
-        try:
-            await storage.health_check()
-            import boto3 as _boto3
-
-            _session = _boto3.Session()
-            _creds = _session.get_credentials()
-            cred_method = _creds.method if _creds else "unknown"
-            if settings.s3_access_key_id:
-                cred_method = "explicit-keys"
-            logger.info(
-                "S3 connectivity verified",
-                bucket=settings.s3_bucket,
-                credential_source=cred_method,
-                addressing_style=settings.s3_addressing_style,
-            )
-        except Exception as exc:  # broad: S3/MinIO SDK can throw varied connection/auth/region errors; fail-fast on boot
-            logger.exception(
-                "S3 health check failed -- cannot start",
-                error=str(exc),
-                bucket=settings.s3_bucket,
-                endpoint=settings.s3_endpoint,
-                region=settings.s3_region,
-            )
-            raise RuntimeError(f"S3 health check failed: {exc}") from exc
-
-    # Phase 223 BILLING-04 / D-10: generic BillingExtension dispatch.
-    # Community: DefaultBillingExtension.on_startup is a no-op (D-07).
-    # Enterprise overlay (geolens-enterprise) registers MarketplaceBillingExtension
-    # which reads AWS_MARKETPLACE_PRODUCT_CODE itself (D-13 — env-var gate lives
-    # in the overlay, not in core).
-    #
-    # asyncio.wait_for(timeout=10.0) caps each extension at 10s — preserves
-    # today's behavior of capping the boto3 register_usage call (which retries
-    # 3x with ~60s timeouts) so an unreachable billing API doesn't block
-    # container startup for ~3 minutes. Per-extension try/except (D-12)
-    # ensures one failing extension does not poison the iteration.
-    for ext in get_billing_extensions():
-        try:
-            await asyncio.wait_for(ext.on_startup(app), timeout=10.0)
-        except asyncio.TimeoutError:
-            logger.warning(
-                "BillingExtension.on_startup timed out -- continuing without billing",
-                extension=type(ext).__name__,
-                timeout_seconds=10.0,
-            )
-        except Exception as exc:  # broad: extension startup hooks can throw provider-specific errors; isolate per-extension
-            logger.warning(
-                "BillingExtension.on_startup failed -- continuing without billing",
-                extension=type(ext).__name__,
-                error=str(exc),
-            )
-
-    init_cache()
     init_tile_cache()
     await init_tile_pool()
     await task_app.open_async()
@@ -532,6 +451,10 @@ app.add_middleware(
     https_only=settings.is_production,
 )
 app.add_middleware(RequestLoggingMiddleware)
+# TSEAM-04 (Phase 1207-02): resolve tenant context after request logging so
+# the tenant_id is available to all route handlers.  In single_tenant mode
+# (default) this is a strict no-op (single boolean check, no state mutation).
+app.add_middleware(TenantContextMiddleware)
 app.add_middleware(SlowAPIMiddleware)
 app.add_middleware(
     RequestBodyLimitMiddleware,

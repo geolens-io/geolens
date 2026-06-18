@@ -59,6 +59,7 @@ def test_no_geolens_io_typos() -> None:
         and ".git/" not in line
         and ".planning/" not in line
         and "docs-internal/" not in line  # gitignored historical audits
+        and "graphify-out/" not in line  # generated graphify knowledge-graph reports
         and "CHANGELOG.md" not in line  # historical fix record from Phase 269
         and not line.split(":", 1)[0].endswith(self_filename)
     ]

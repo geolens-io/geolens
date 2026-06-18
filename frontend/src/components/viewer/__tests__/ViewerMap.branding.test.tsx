@@ -95,6 +95,7 @@ describe('ViewerMap — SHARE-07 branding overlay', () => {
       edition: 'community',
       features: [],
       isEnterprise: false,
+      isMultiTenant: false,
       isLoading: false,
     });
     mockedUseBranding.mockReturnValue({
@@ -112,6 +113,7 @@ describe('ViewerMap — SHARE-07 branding overlay', () => {
       edition: 'enterprise',
       features: [],
       isEnterprise: true,
+      isMultiTenant: false,
       isLoading: false,
     });
     mockedUseBranding.mockReturnValue({
@@ -128,6 +130,7 @@ describe('ViewerMap — SHARE-07 branding overlay', () => {
       edition: 'enterprise',
       features: [],
       isEnterprise: true,
+      isMultiTenant: false,
       isLoading: false,
     });
     mockedUseBranding.mockReturnValue({
@@ -144,6 +147,7 @@ describe('ViewerMap — SHARE-07 branding overlay', () => {
       edition: 'community',
       features: [],
       isEnterprise: false,
+      isMultiTenant: false,
       isLoading: false,
     });
     mockedUseBranding.mockReturnValue({

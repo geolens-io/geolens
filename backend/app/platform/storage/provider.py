@@ -120,6 +120,25 @@ def init_storage() -> None:
             allow_http=settings.s3_allow_http,
             addressing_style=settings.s3_addressing_style,
         )
+    elif settings.storage_provider == "azure":
+        from app.platform.storage.azure import AzureBlobStorageProvider
+
+        if not settings.azure_storage_container:
+            raise RuntimeError(
+                "storage_provider='azure' but azure_storage_container is not configured"
+            )
+        # CR-04 (Phase 1210): pass the account key as credential so that
+        # account_url + key auth works. When connection_string is present it
+        # takes precedence inside AzureBlobStorageProvider; the key is only
+        # used when account_url is the sole auth parameter.
+        # reveal() is called here — the raw value exists only in this local
+        # variable and is passed immediately to the SDK; it is never logged.
+        _storage = AzureBlobStorageProvider(
+            container=settings.azure_storage_container,
+            connection_string=reveal(settings.azure_storage_connection_string),
+            account_url=settings.azure_storage_account_url,
+            credential=reveal(settings.azure_storage_account_key),
+        )
     else:
         from app.platform.storage.local import LocalStorageProvider
 

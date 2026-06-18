@@ -42,6 +42,7 @@ describe('AppLayout', () => {
       edition: 'community',
       features: [],
       isEnterprise: false,
+      isMultiTenant: false,
       isLoading: false,
     });
     mockedUseBranding.mockReturnValue({
@@ -113,6 +114,7 @@ describe('AppLayout', () => {
       edition: 'enterprise',
       features: ['branding'],
       isEnterprise: true,
+      isMultiTenant: false,
       isLoading: false,
     });
     mockedUseBranding.mockReturnValue({
@@ -130,6 +132,7 @@ describe('AppLayout', () => {
       edition: 'enterprise',
       features: ['branding'],
       isEnterprise: true,
+      isMultiTenant: false,
       isLoading: false,
     });
     mockedUseBranding.mockReturnValue({

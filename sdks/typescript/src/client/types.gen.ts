@@ -3230,6 +3230,12 @@ export type EditionInfoResponse = {
      * List of feature flags enabled for this edition.
      */
     features: Array<string>;
+    /**
+     * Tenancy Mode
+     *
+     * Tenancy mode: 'single_tenant' or 'multi_tenant'.
+     */
+    tenancy_mode?: string;
 };
 
 /**

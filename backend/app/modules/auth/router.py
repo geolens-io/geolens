@@ -174,6 +174,24 @@ async def register(
     db: AsyncSession = Depends(get_db),
 ) -> RegisterResponse:
     """Register a new user. Account requires admin approval before login."""
+    # CLOUD-03 / T-1211-22: when the cloud overlay is active, the ONLY valid
+    # signup path is the tenant-scoped POST /cloud/signup/register.  A global,
+    # un-tenant-scoped self-signup would bypass tenant isolation and create a
+    # user without a tenant_id — a privilege-escalation hole in multi_tenant.
+    # This gate fires BEFORE REGISTRATION_ENABLED so that community/enterprise
+    # deployments (where cloud is ABSENT) remain byte-identical.
+    # Lazy import — matching the established LAZY pattern (preserved per D-17).
+    from app.platform.extensions import has_extension  # LAZY — preserved per D-17
+
+    if has_extension("cloud"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                "Global self-registration is disabled in cloud mode. "
+                "Use POST /cloud/signup/register to create a tenant account."
+            ),
+        )
+
     reg_enabled = await REGISTRATION_ENABLED.get(db)
     if not reg_enabled:
         raise HTTPException(

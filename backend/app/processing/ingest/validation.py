@@ -141,7 +141,7 @@ def validate_vrt_body(file_path: str) -> None:
             )
             raise ValueError(
                 f"VRT <SourceFilename> uses absolute path: {raw_path!r}. "
-                "Use relative paths or VSI URIs (e.g., /vsis3/, /vsicurl/)."
+                "Use relative paths or GDAL VSI URIs (e.g. a /vsicurl/ source)."
             )
 
 

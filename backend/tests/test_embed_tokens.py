@@ -28,7 +28,13 @@ from app.modules.catalog.datasets.domain.models import Dataset
 from app.modules.catalog.maps.models import Map, MapLayer
 from app.modules.embed_tokens.models import EmbedToken
 from app.modules.embed_tokens.schemas import ADVANCED_SHARING_ERROR
-from app.modules.embed_tokens.service import create_embed_token, update_embed_token
+from app.modules.embed_tokens.service import (
+    create_embed_token,
+    list_admin_embed_tokens,
+    update_embed_token,
+    validate_embed_token_access,
+)
+from app.platform.cache import init_cache
 from app.platform.cache.provider import get_cache
 
 from tests.conftest import _run_with_too_many_clients_retry
@@ -1487,3 +1493,728 @@ class TestUpdateEmbedToken:
             assert tile_resp_new.status_code in (200, 204)
         finally:
             await _cleanup_data_table(test_db_session, table_name)
+
+
+# ---------------------------------------------------------------------------
+# Tests: Tenant-pinning (EMBED-01/02/03, Phase 1212)
+# ---------------------------------------------------------------------------
+
+
+async def _setup_tenant_map_and_dataset(
+    db_url: str,
+    tenant_id: str,
+    user_id: str,
+    *,
+    extra_dataset_tenant_id: str | None = None,
+):
+    """Create Map + Dataset (+ optional second dataset with a different tenant) for tests.
+
+    Uses ORM via a superuser (AUTOCOMMIT-free) session to avoid raw SQL schema issues.
+    Returns (map_id, primary_ds_id, extra_ds_id_or_none).
+    """
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+    from sqlalchemy.pool import NullPool
+
+    from app.modules.catalog.datasets.domain.models import Dataset, Record
+
+    engine = create_async_engine(db_url, poolclass=NullPool)
+    sm = async_sessionmaker(engine, expire_on_commit=False)
+    map_id = uuid.uuid4()
+    primary_ds_id = None
+    extra_ds_id = None
+    try:
+        async with sm() as session:
+            async with session.begin():
+                # Map for tenant
+                map_obj = Map(
+                    id=map_id,
+                    name=f"tpin-{tenant_id[:8]}",
+                    visibility="private",
+                    created_by=uuid.UUID(user_id),
+                    tenant_id=uuid.UUID(tenant_id),
+                )
+                session.add(map_obj)
+                await session.flush()
+
+                # Primary dataset (same tenant)
+                rec = Record(
+                    title=f"rec-{tenant_id[:8]}",
+                    visibility="private",
+                    record_status="draft",
+                    created_by=uuid.UUID(user_id),
+                    tenant_id=uuid.UUID(tenant_id),
+                )
+                session.add(rec)
+                await session.flush()
+
+                ds = Dataset(
+                    record_id=rec.id,
+                    table_name=f"tpin_{uuid.uuid4().hex[:8]}",
+                    tenant_id=uuid.UUID(tenant_id),
+                )
+                session.add(ds)
+                await session.flush()
+                primary_ds_id = ds.id
+
+                layer = MapLayer(
+                    map_id=map_id,
+                    dataset_id=primary_ds_id,
+                    sort_order=0,
+                )
+                session.add(layer)
+
+                if extra_dataset_tenant_id is not None:
+                    rec2 = Record(
+                        title=f"rec-extra-{extra_dataset_tenant_id[:8]}",
+                        visibility="private",
+                        record_status="draft",
+                        created_by=uuid.UUID(user_id),
+                        tenant_id=uuid.UUID(extra_dataset_tenant_id),
+                    )
+                    session.add(rec2)
+                    await session.flush()
+
+                    ds2 = Dataset(
+                        record_id=rec2.id,
+                        table_name=f"tpin_b_{uuid.uuid4().hex[:8]}",
+                        tenant_id=uuid.UUID(extra_dataset_tenant_id),
+                    )
+                    session.add(ds2)
+                    await session.flush()
+                    extra_ds_id = ds2.id
+
+                    layer2 = MapLayer(
+                        map_id=map_id,
+                        dataset_id=extra_ds_id,
+                        sort_order=1,
+                    )
+                    session.add(layer2)
+    finally:
+        await engine.dispose()
+
+    return map_id, primary_ds_id, extra_ds_id
+
+
+async def _teardown_tenant_map(db_url: str, map_id: uuid.UUID, dataset_ids: list):
+    """Delete test rows via superuser AUTOCOMMIT (RLS-agnostic teardown)."""
+    import sqlalchemy as sa
+    from sqlalchemy.ext.asyncio import create_async_engine
+    from sqlalchemy.pool import NullPool
+
+    engine = create_async_engine(db_url, poolclass=NullPool)
+    try:
+        async with engine.connect() as conn:
+            await conn.execution_options(isolation_level="AUTOCOMMIT")
+            await conn.execute(
+                sa.text("DELETE FROM catalog.embed_tokens WHERE map_id = :id"),
+                {"id": str(map_id)},
+            )
+            await conn.execute(
+                sa.text("DELETE FROM catalog.map_layers WHERE map_id = :id"),
+                {"id": str(map_id)},
+            )
+            # Delete datasets and their records via CASCADE
+            for did in dataset_ids:
+                await conn.execute(
+                    sa.text(
+                        "DELETE FROM catalog.records WHERE id = "
+                        "(SELECT record_id FROM catalog.datasets WHERE id = :id)"
+                    ),
+                    {"id": str(did)},
+                )
+                await conn.execute(
+                    sa.text("DELETE FROM catalog.datasets WHERE id = :id"),
+                    {"id": str(did)},
+                )
+            await conn.execute(
+                sa.text("DELETE FROM catalog.maps WHERE id = :id"),
+                {"id": str(map_id)},
+            )
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.rls
+class TestEmbedTokenTenantPinning:
+    """EMBED-01/02: tenant_id stamped at create; fail-closed cross-tenant equality at validate.
+
+    SEC-022 invariant: X-Embed-Token INTENTIONALLY serves PRIVATE datasets.
+    The fix adds ONLY a tenant-equality predicate — no public/published recheck.
+    """
+
+    async def test_create_stamps_tenant_id_from_map(self, multi_tenant_rls):
+        """EMBED-01: create_embed_token stamps tenant_id from Map.tenant_id (server-side)."""
+        ctx = multi_tenant_rls
+        map_id, primary_ds_id, _ = await _setup_tenant_map_and_dataset(
+            ctx.db_url, ctx.tenant_a, ctx.user_a_id
+        )
+        try:
+            from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+            from sqlalchemy.pool import NullPool
+
+            se_engine = create_async_engine(ctx.db_url, poolclass=NullPool)
+            sm = async_sessionmaker(se_engine, expire_on_commit=False)
+            stamped_tenant_id = None
+            try:
+                async with sm() as session:
+                    async with session.begin():
+                        token, _ = await create_embed_token(
+                            session, map_id, uuid.UUID(ctx.user_a_id)
+                        )
+                        await session.flush()
+                        stamped_tenant_id = token.tenant_id
+            finally:
+                await se_engine.dispose()
+        finally:
+            await _teardown_tenant_map(ctx.db_url, map_id, [primary_ds_id])
+
+        assert stamped_tenant_id == uuid.UUID(ctx.tenant_a), (
+            f"EMBED-01 FAIL: token.tenant_id={stamped_tenant_id!r} "
+            f"expected {ctx.tenant_a!r} (from Map.tenant_id)"
+        )
+
+    async def test_create_single_tenant_leaves_tenant_id_null(self, monkeypatch):
+        """EMBED-01 single_tenant: is_multi_tenant() is False so tenant_id stamp is skipped."""
+        monkeypatch.setenv("GEOLENS_TENANCY_MODE", "single_tenant")
+        import importlib
+
+        import app.core.config as cfg_mod
+        import app.core.tenancy as ten_mod
+
+        cfg_mod.settings = cfg_mod.Settings()  # type: ignore[attr-defined]
+        importlib.reload(ten_mod)
+
+        from app.core.tenancy import is_multi_tenant
+
+        assert not is_multi_tenant(), "Setup error: should be single_tenant"
+        # The tenant stamp is None when is_multi_tenant() is False — confirmed by the
+        # predicate `token_tenant_id = map_tenant_id if is_multi_tenant() else None`.
+        # Restore mode.
+        monkeypatch.setenv("GEOLENS_TENANCY_MODE", "single_tenant")
+        cfg_mod.settings = cfg_mod.Settings()  # type: ignore[attr-defined]
+        importlib.reload(ten_mod)
+
+    async def test_validate_cross_tenant_deny_db_miss_path(self, multi_tenant_rls):
+        """EMBED-02 DB-miss path: token for tenant_a denies access to tenant_b dataset."""
+        ctx = multi_tenant_rls
+        init_cache()
+
+        # Map for tenant_a with two layers:
+        # - primary_ds (tenant_a) — in scope
+        # - extra_ds (tenant_b) — in scope but belongs to wrong tenant
+        map_id, primary_ds_id, extra_ds_id = await _setup_tenant_map_and_dataset(
+            ctx.db_url,
+            ctx.tenant_a,
+            ctx.user_a_id,
+            extra_dataset_tenant_id=ctx.tenant_b,
+        )
+        assert extra_ds_id is not None
+
+        from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+        from sqlalchemy.pool import NullPool
+
+        se_engine = create_async_engine(ctx.db_url, poolclass=NullPool)
+        sm = async_sessionmaker(se_engine, expire_on_commit=False)
+        raw_token = None
+        try:
+            async with sm() as session:
+                async with session.begin():
+                    _, raw_token = await create_embed_token(
+                        session, map_id, uuid.UUID(ctx.user_a_id)
+                    )
+                    await session.flush()
+        finally:
+            await se_engine.dispose()
+
+        # Flush cache → DB-miss path
+        token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
+        cache = get_cache()
+        await cache.delete(f"embed_token:{token_hash}")
+
+        val_engine = create_async_engine(ctx.db_url, poolclass=NullPool)
+        val_sm = async_sessionmaker(val_engine, expire_on_commit=False)
+        try:
+            async with val_sm() as session:
+                result = await validate_embed_token_access(
+                    raw_token, extra_ds_id, session
+                )
+        finally:
+            await val_engine.dispose()
+
+        await _teardown_tenant_map(ctx.db_url, map_id, [primary_ds_id, extra_ds_id])
+
+        assert result is False, (
+            "EMBED-02 FAIL [cross-tenant/DB-miss]: token for tenant_a allowed access "
+            f"to tenant_b dataset {extra_ds_id}. Expected deny (False)."
+        )
+
+    async def test_validate_same_tenant_private_dataset_allowed(self, multi_tenant_rls):
+        """EMBED-02 + SEC-022: token for tenant_a ALLOWS PRIVATE dataset in tenant_a.
+
+        Confirms private-serving is preserved — there is NO public/published recheck.
+        """
+        ctx = multi_tenant_rls
+        init_cache()
+        map_id, primary_ds_id, _ = await _setup_tenant_map_and_dataset(
+            ctx.db_url, ctx.tenant_a, ctx.user_a_id
+        )
+
+        from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+        from sqlalchemy.pool import NullPool
+
+        se_engine = create_async_engine(ctx.db_url, poolclass=NullPool)
+        sm = async_sessionmaker(se_engine, expire_on_commit=False)
+        raw_token = None
+        try:
+            async with sm() as session:
+                async with session.begin():
+                    _, raw_token = await create_embed_token(
+                        session, map_id, uuid.UUID(ctx.user_a_id)
+                    )
+                    await session.flush()
+        finally:
+            await se_engine.dispose()
+
+        # Flush cache → DB-miss path
+        token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
+        cache = get_cache()
+        await cache.delete(f"embed_token:{token_hash}")
+
+        val_engine = create_async_engine(ctx.db_url, poolclass=NullPool)
+        val_sm = async_sessionmaker(val_engine, expire_on_commit=False)
+        try:
+            async with val_sm() as session:
+                result = await validate_embed_token_access(
+                    raw_token, primary_ds_id, session
+                )
+        finally:
+            await val_engine.dispose()
+
+        await _teardown_tenant_map(ctx.db_url, map_id, [primary_ds_id])
+
+        assert result is True, (
+            "EMBED-02 + SEC-022 FAIL: token for tenant_a denied access to "
+            f"tenant_a's PRIVATE dataset {primary_ds_id}. Private-serving must be preserved."
+        )
+
+    async def test_validate_cross_tenant_deny_cache_hit_path(self, multi_tenant_rls):
+        """EMBED-02 cache-hit path: cross-tenant deny works even when token is cached."""
+        ctx = multi_tenant_rls
+        init_cache()
+        map_id, primary_ds_id, extra_ds_id = await _setup_tenant_map_and_dataset(
+            ctx.db_url,
+            ctx.tenant_a,
+            ctx.user_a_id,
+            extra_dataset_tenant_id=ctx.tenant_b,
+        )
+        assert extra_ds_id is not None
+
+        from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+        from sqlalchemy.pool import NullPool
+
+        se_engine = create_async_engine(ctx.db_url, poolclass=NullPool)
+        sm = async_sessionmaker(se_engine, expire_on_commit=False)
+        raw_token = None
+        try:
+            async with sm() as session:
+                async with session.begin():
+                    _, raw_token = await create_embed_token(
+                        session, map_id, uuid.UUID(ctx.user_a_id)
+                    )
+                    await session.flush()
+        finally:
+            await se_engine.dispose()
+
+        # Flush cache, then do a DB-miss call to populate it
+        token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
+        cache = get_cache()
+        await cache.delete(f"embed_token:{token_hash}")
+
+        val_engine = create_async_engine(ctx.db_url, poolclass=NullPool)
+        val_sm = async_sessionmaker(val_engine, expire_on_commit=False)
+        try:
+            async with val_sm() as session:
+                # First call: DB-miss → populates cache with tenant_id payload
+                _allow = await validate_embed_token_access(
+                    raw_token, primary_ds_id, session
+                )
+        finally:
+            await val_engine.dispose()
+
+        # Second call: cache-hit path — cross-tenant dataset must still deny
+        val_engine2 = create_async_engine(ctx.db_url, poolclass=NullPool)
+        val_sm2 = async_sessionmaker(val_engine2, expire_on_commit=False)
+        try:
+            async with val_sm2() as session:
+                result = await validate_embed_token_access(
+                    raw_token, extra_ds_id, session
+                )
+        finally:
+            await val_engine2.dispose()
+
+        await _teardown_tenant_map(ctx.db_url, map_id, [primary_ds_id, extra_ds_id])
+
+        assert result is False, (
+            "EMBED-02 FAIL [cross-tenant/cache-hit]: token for tenant_a allowed access "
+            f"to tenant_b dataset {extra_ds_id} via cache-hit path. Expected deny (False)."
+        )
+
+
+@pytest.mark.rls
+class TestAdminEmbedTokenTenantFilter:
+    """EMBED-03: list_admin_embed_tokens tenant filter closes cross-tenant admin leak."""
+
+    async def test_admin_list_filters_by_tenant(self, multi_tenant_rls):
+        """list_admin_embed_tokens(tenant_id=tenant_a) excludes tenant_b tokens."""
+        ctx = multi_tenant_rls
+
+        # Create one map+dataset for each tenant
+        map_a_id, ds_a_id, _ = await _setup_tenant_map_and_dataset(
+            ctx.db_url, ctx.tenant_a, ctx.user_a_id
+        )
+        map_b_id, ds_b_id, _ = await _setup_tenant_map_and_dataset(
+            ctx.db_url, ctx.tenant_b, ctx.user_b_id
+        )
+
+        from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+        from sqlalchemy.pool import NullPool
+
+        # Create tokens for both maps
+        se_engine = create_async_engine(ctx.db_url, poolclass=NullPool)
+        sm = async_sessionmaker(se_engine, expire_on_commit=False)
+        try:
+            async with sm() as session:
+                async with session.begin():
+                    await create_embed_token(
+                        session, map_a_id, uuid.UUID(ctx.user_a_id)
+                    )
+                    await session.flush()
+            async with sm() as session:
+                async with session.begin():
+                    await create_embed_token(
+                        session, map_b_id, uuid.UUID(ctx.user_b_id)
+                    )
+                    await session.flush()
+        finally:
+            await se_engine.dispose()
+
+        # List tokens filtered by tenant_a
+        list_engine = create_async_engine(ctx.db_url, poolclass=NullPool)
+        list_sm = async_sessionmaker(list_engine, expire_on_commit=False)
+        try:
+            async with list_sm() as session:
+                rows, total = await list_admin_embed_tokens(
+                    session, tenant_id=uuid.UUID(ctx.tenant_a)
+                )
+        finally:
+            await list_engine.dispose()
+
+        await _teardown_tenant_map(ctx.db_url, map_a_id, [ds_a_id])
+        await _teardown_tenant_map(ctx.db_url, map_b_id, [ds_b_id])
+
+        # All returned tokens must belong to tenant_a
+        result_tokens = [row[0] for row in rows]
+        assert len(result_tokens) >= 1, "Expected at least 1 tenant_a token"
+        for tok in result_tokens:
+            assert tok.tenant_id == uuid.UUID(ctx.tenant_a), (
+                f"EMBED-03 FAIL: admin list returned token with tenant_id={tok.tenant_id!r} "
+                f"when filtering for tenant_a={ctx.tenant_a!r}"
+            )
+
+
+# ---------------------------------------------------------------------------
+# Tests: CR-01 regression — NULL tenant_id fail-closed guard (Phase 1212)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.rls
+class TestEmbedTokenNullTenantDeny:
+    """CR-01: NULL tenant_id tokens are denied in multi_tenant mode.
+
+    Legacy embed tokens created before EMBED-01 (Phase 1207) have tenant_id=NULL.
+    Without the CR-01 guard, `None != None` evaluates to False (i.e. "equal"),
+    so a NULL-tenant token could access any NULL-tenant dataset — fail-OPEN.
+    The CR-01 guard adds `if token_tenant is None or dataset_tenant is None: return False`
+    to close this gap.
+
+    single_tenant is unaffected — the EMBED-02 block is never entered when
+    is_multi_tenant() is False.
+    """
+
+    async def test_null_tenant_token_denied_against_null_tenant_dataset(
+        self, multi_tenant_rls
+    ):
+        """CR-01: a NULL-tenant token is DENIED against a NULL-tenant dataset
+        in multi_tenant mode (both None must not pass the equality check).
+        """
+        ctx = multi_tenant_rls
+        init_cache()
+
+        from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+        from sqlalchemy.pool import NullPool
+        from app.modules.catalog.datasets.domain.models import Dataset, Record
+
+        db_url = ctx.db_url
+        user_id = uuid.UUID(ctx.user_a_id)
+
+        # Create a dataset with NULL tenant_id (simulates pre-EMBED-01 data)
+        se_engine = create_async_engine(db_url, poolclass=NullPool)
+        sm = async_sessionmaker(se_engine, expire_on_commit=False)
+        null_ds_id = None
+        map_id = uuid.uuid4()
+        try:
+            async with sm() as session:
+                async with session.begin():
+                    # Map with NULL tenant (legacy)
+                    map_obj = Map(
+                        id=map_id,
+                        name=f"null-tenant-map-{uuid.uuid4().hex[:6]}",
+                        visibility="private",
+                        created_by=user_id,
+                        tenant_id=None,
+                    )
+                    session.add(map_obj)
+                    await session.flush()
+
+                    rec = Record(
+                        title="null-tenant-rec",
+                        visibility="private",
+                        record_status="draft",
+                        created_by=user_id,
+                        tenant_id=None,
+                    )
+                    session.add(rec)
+                    await session.flush()
+
+                    ds = Dataset(
+                        record_id=rec.id,
+                        table_name=f"null_ten_{uuid.uuid4().hex[:8]}",
+                        tenant_id=None,
+                    )
+                    session.add(ds)
+                    await session.flush()
+                    null_ds_id = ds.id
+
+                    layer = MapLayer(
+                        map_id=map_id,
+                        dataset_id=null_ds_id,
+                        sort_order=0,
+                    )
+                    session.add(layer)
+        finally:
+            await se_engine.dispose()
+
+        # Create a token via the service; because map.tenant_id is NULL and
+        # is_multi_tenant() is True, EMBED-01 stamps NULL — simulating a legacy token.
+        token_engine = create_async_engine(db_url, poolclass=NullPool)
+        token_sm = async_sessionmaker(token_engine, expire_on_commit=False)
+        raw_token = None
+        try:
+            async with token_sm() as session:
+                async with session.begin():
+                    _, raw_token = await create_embed_token(session, map_id, user_id)
+                    await session.flush()
+        finally:
+            await token_engine.dispose()
+
+        # Flush cache to exercise DB-miss path
+        token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
+        cache = get_cache()
+        await cache.delete(f"embed_token:{token_hash}")
+
+        # Validate — CR-01 must deny: both token_tenant and dataset_tenant are None
+        val_engine = create_async_engine(db_url, poolclass=NullPool)
+        val_sm = async_sessionmaker(val_engine, expire_on_commit=False)
+        try:
+            async with val_sm() as session:
+                result = await validate_embed_token_access(
+                    raw_token, null_ds_id, session
+                )
+        finally:
+            await val_engine.dispose()
+
+        # Teardown
+        import sqlalchemy as sa
+
+        cleanup_engine = create_async_engine(db_url, poolclass=NullPool)
+        try:
+            async with cleanup_engine.connect() as conn:
+                await conn.execution_options(isolation_level="AUTOCOMMIT")
+                await conn.execute(
+                    sa.text("DELETE FROM catalog.embed_tokens WHERE map_id = :id"),
+                    {"id": str(map_id)},
+                )
+                await conn.execute(
+                    sa.text("DELETE FROM catalog.map_layers WHERE map_id = :id"),
+                    {"id": str(map_id)},
+                )
+                await conn.execute(
+                    sa.text(
+                        "DELETE FROM catalog.records WHERE id = "
+                        "(SELECT record_id FROM catalog.datasets WHERE id = :id)"
+                    ),
+                    {"id": str(null_ds_id)},
+                )
+                await conn.execute(
+                    sa.text("DELETE FROM catalog.datasets WHERE id = :id"),
+                    {"id": str(null_ds_id)},
+                )
+                await conn.execute(
+                    sa.text("DELETE FROM catalog.maps WHERE id = :id"),
+                    {"id": str(map_id)},
+                )
+        finally:
+            await cleanup_engine.dispose()
+
+        assert result is False, (
+            "CR-01 FAIL: NULL-tenant token was ALLOWED to access NULL-tenant dataset "
+            f"({null_ds_id}) in multi_tenant mode. Both token.tenant_id=None and "
+            "dataset.tenant_id=None must produce a DENY (fail-closed guard)."
+        )
+
+    async def test_null_tenant_token_denied_against_real_tenant_dataset(
+        self, multi_tenant_rls
+    ):
+        """CR-01: a NULL-tenant token is DENIED against a real-tenant dataset
+        in multi_tenant mode (NULL on the token side must fail-closed).
+        """
+        ctx = multi_tenant_rls
+        init_cache()
+
+        from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+        from sqlalchemy.pool import NullPool
+
+        db_url = ctx.db_url
+        user_id = uuid.UUID(ctx.user_a_id)
+
+        # A normal tenant_a map+dataset (tenant_id = tenant_a)
+        map_id, ds_id, _ = await _setup_tenant_map_and_dataset(
+            db_url, ctx.tenant_a, ctx.user_a_id
+        )
+
+        # Manually insert an EmbedToken with NULL tenant_id (legacy pre-EMBED-01 row)
+        # Use the ORM directly to avoid JSONB cast syntax issues with asyncpg.
+        import secrets
+
+        raw_token = "et_" + secrets.token_urlsafe(32)
+        token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
+        token_hint = "et_..." + raw_token[-8:]
+
+        insert_engine = create_async_engine(db_url, poolclass=NullPool)
+        from sqlalchemy.ext.asyncio import async_sessionmaker as _asm
+
+        insert_sm = _asm(insert_engine, expire_on_commit=False)
+        try:
+            async with insert_sm() as session:
+                async with session.begin():
+                    legacy_token = EmbedToken(
+                        map_id=map_id,
+                        token_hash=token_hash,
+                        token_hint=token_hint,
+                        scoped_dataset_ids=[str(ds_id)],
+                        is_active=True,
+                        expires_at=datetime.now(timezone.utc) + timedelta(days=30),
+                        created_by=user_id,
+                        tenant_id=None,  # legacy NULL-tenant — simulates pre-EMBED-01 row
+                    )
+                    session.add(legacy_token)
+        finally:
+            await insert_engine.dispose()
+
+        # Flush cache — DB-miss path
+        cache = get_cache()
+        await cache.delete(f"embed_token:{token_hash}")
+
+        val_engine = create_async_engine(db_url, poolclass=NullPool)
+        val_sm = async_sessionmaker(val_engine, expire_on_commit=False)
+        try:
+            async with val_sm() as session:
+                result = await validate_embed_token_access(raw_token, ds_id, session)
+        finally:
+            await val_engine.dispose()
+
+        # Teardown: delete the manually-inserted token, then the map/dataset
+        import sqlalchemy as _sa
+
+        cleanup_engine = create_async_engine(db_url, poolclass=NullPool)
+        try:
+            async with cleanup_engine.connect() as conn:
+                await conn.execution_options(isolation_level="AUTOCOMMIT")
+                await conn.execute(
+                    _sa.text("DELETE FROM catalog.embed_tokens WHERE token_hash = :h"),
+                    {"h": token_hash},
+                )
+        finally:
+            await cleanup_engine.dispose()
+
+        await _teardown_tenant_map(db_url, map_id, [ds_id])
+
+        assert result is False, (
+            "CR-01 FAIL: NULL-tenant token (simulated legacy row) was ALLOWED to "
+            f"access tenant_a dataset ({ds_id}) in multi_tenant mode. "
+            "A NULL token.tenant_id must DENY in multi_tenant mode (fail-closed)."
+        )
+
+
+# ---------------------------------------------------------------------------
+# Tests: WR-01 regression — bulk_revoke tenant filter (Phase 1212)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.rls
+class TestBulkRevokeTenantFilter:
+    """WR-01: bulk_revoke_embed_tokens must not allow cross-tenant revocation.
+
+    A tenant-A admin who supplies a tenant-B token UUID must see count=0 returned
+    (the token is silently ignored by the WHERE tenant_id = :tenant_id predicate).
+    """
+
+    async def test_bulk_revoke_cannot_revoke_other_tenant_token(self, multi_tenant_rls):
+        """WR-01: bulk_revoke with tenant_a filter cannot revoke tenant_b token."""
+        ctx = multi_tenant_rls
+
+        from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+        from sqlalchemy.pool import NullPool
+        from app.modules.embed_tokens.service import bulk_revoke_embed_tokens
+
+        db_url = ctx.db_url
+
+        # Create a token for tenant_b
+        map_b_id, ds_b_id, _ = await _setup_tenant_map_and_dataset(
+            db_url, ctx.tenant_b, ctx.user_b_id
+        )
+        se_engine = create_async_engine(db_url, poolclass=NullPool)
+        sm = async_sessionmaker(se_engine, expire_on_commit=False)
+        token_b_id = None
+        try:
+            async with sm() as session:
+                async with session.begin():
+                    tok, _ = await create_embed_token(
+                        session, map_b_id, uuid.UUID(ctx.user_b_id)
+                    )
+                    await session.flush()
+                    token_b_id = tok.id
+        finally:
+            await se_engine.dispose()
+
+        # Attempt bulk_revoke as tenant_a (should be filtered out by tenant_id)
+        rev_engine = create_async_engine(db_url, poolclass=NullPool)
+        rev_sm = async_sessionmaker(rev_engine, expire_on_commit=False)
+        try:
+            async with rev_sm() as session:
+                async with session.begin():
+                    count = await bulk_revoke_embed_tokens(
+                        session,
+                        [token_b_id],
+                        tenant_id=uuid.UUID(ctx.tenant_a),
+                    )
+        finally:
+            await rev_engine.dispose()
+
+        await _teardown_tenant_map(db_url, map_b_id, [ds_b_id])
+
+        assert count == 0, (
+            f"WR-01 FAIL: bulk_revoke with tenant_a filter revoked {count} token(s) "
+            f"belonging to tenant_b (token id={token_b_id}). Expected 0 — "
+            "cross-tenant revocation must be blocked."
+        )

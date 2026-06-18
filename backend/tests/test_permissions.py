@@ -37,16 +37,28 @@ class TestDefaultPermissions:
         assert editor["manage_settings"] is False
 
     def test_default_permissions_admin(self):
-        from app.modules.auth.permissions import DEFAULT_ROLE_PERMISSIONS
+        from app.modules.auth.permissions import (
+            DEFAULT_ROLE_PERMISSIONS,
+            MANAGE_TENANTS,
+        )
 
         admin = DEFAULT_ROLE_PERMISSIONS["admin"]
-        for cap in admin.values():
-            assert cap is True
+        # CR-02 (Phase 1211): MANAGE_TENANTS is False for per-tenant admins —
+        # it is a fleet-superadmin-only capability granted out-of-band.
+        # All other admin capabilities are True.
+        for cap, val in admin.items():
+            if cap == MANAGE_TENANTS:
+                assert val is False, (
+                    "CR-02: MANAGE_TENANTS must be False for default admin role "
+                    "(fleet-superadmin only, not per-tenant admin)"
+                )
+            else:
+                assert val is True, f"Admin should have {cap}=True"
 
     def test_all_capabilities_complete(self):
         from app.modules.auth.permissions import ALL_CAPABILITIES
 
-        assert len(ALL_CAPABILITIES) == 8
+        assert len(ALL_CAPABILITIES) == 9
         expected = {
             "upload",
             "create_layers",
@@ -56,6 +68,7 @@ class TestDefaultPermissions:
             "use_ai_chat",
             "manage_users",
             "manage_settings",
+            "manage_tenants",  # CLOUD-02 Phase 1211 — fleet superadmin capability
         }
         assert set(ALL_CAPABILITIES) == expected
 
@@ -270,15 +283,21 @@ class TestRequirePermission:
         self, client, admin_auth_header, editor_auth_header, viewer_auth_header
     ):
         """GET /auth/me/permissions returns effective permissions for each role."""
-        # Admin should have all True
+        # Admin should have all True EXCEPT manage_tenants (CR-02 fleet-superadmin only).
         resp = await client.get("/auth/me/permissions/", headers=admin_auth_header)
         assert resp.status_code == 200
         data = resp.json()
         assert "permissions" in data
         perms = data["permissions"]
-        assert len(perms) == 8
+        assert len(perms) == 9
         for cap, val in perms.items():
-            assert val is True, f"Admin should have {cap}=True"
+            if cap == "manage_tenants":
+                # CR-02 (Phase 1211): fleet-superadmin only; False for per-tenant admins
+                assert val is False, (
+                    "CR-02: manage_tenants must be False for default admin role"
+                )
+            else:
+                assert val is True, f"Admin should have {cap}=True"
 
         # Editor should have upload=True, manage_users=False
         resp = await client.get("/auth/me/permissions/", headers=editor_auth_header)

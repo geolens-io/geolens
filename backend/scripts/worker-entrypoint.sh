@@ -57,7 +57,10 @@ export PYTHONPATH="/app${PYTHONPATH:+:${PYTHONPATH}}"
 # This block is retained for dev/CI scenarios where the container runs without
 # read_only (e.g. `docker compose up` for local development with a mounted
 # enterprise directory).  It will fail silently under read_only — the startup
-# check added in BUG-003 will then refuse to boot as OSS.
+# checks (BUG-003: check_enterprise_overlay_requested + WORK-02:
+# assert_enterprise_ports_resolved) now run inside the WORKER bootstrap as well
+# as the API lifespan, so a GEOLENS_EDITION=enterprise worker that cannot load
+# the overlay will refuse to boot rather than silently running community ports.
 ENTERPRISE_PATH="${GEOLENS_ENTERPRISE_PATH:-/enterprise}"
 if [ -d "${ENTERPRISE_PATH}" ] && [ -f "${ENTERPRISE_PATH}/pyproject.toml" ]; then
     echo "Installing enterprise extensions (runtime path — only works without read_only rootfs)..."

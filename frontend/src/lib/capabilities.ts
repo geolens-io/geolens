@@ -25,6 +25,7 @@ export const ALL_CAPABILITIES = [
   'use_ai_chat',
   'manage_users',
   'manage_settings',
+  'manage_tenants',
 ] as const;
 
 export type Capability = (typeof ALL_CAPABILITIES)[number];

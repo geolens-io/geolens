@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.audit.service import AuditEvent, audit_emit
 from app.core.identity import Identity
+from app.core.tenancy import is_multi_tenant
 from app.modules.auth.dependencies import require_permission
 from app.core.dependencies import get_client_ip, get_db
 from app.modules.embed_tokens.schemas import (
@@ -51,8 +52,23 @@ async def list_all_embed_tokens(
     db: AsyncSession = Depends(get_db),
 ) -> AdminEmbedTokenListResponse:
     """List basic embed-token inventory across maps; no quota or domain-policy controls (admin only)."""
+    # EMBED-03 (Phase 1212): pass the request-scoped tenant so a tenant-A admin
+    # cannot enumerate tenant-B tokens. Inert (None) in single_tenant.
+    from app.core.db.tenant_session import current_tenant_var
+
+    request_tenant = current_tenant_var.get()
+    filter_tenant_id = (
+        uuid.UUID(request_tenant) if is_multi_tenant() and request_tenant else None
+    )
     rows, total = await list_admin_embed_tokens(
-        db, skip, limit, map_search, creator, status_filter, map_id=map_id
+        db,
+        skip,
+        limit,
+        map_search,
+        creator,
+        status_filter,
+        map_id=map_id,
+        tenant_id=filter_tenant_id,
     )
 
     tokens = [
@@ -79,7 +95,18 @@ async def bulk_revoke(
     db: AsyncSession = Depends(get_db),
 ) -> BulkRevokeResponse:
     """Bulk-revoke basic embed tokens; no quota or domain-policy controls (admin only)."""
-    count = await bulk_revoke_embed_tokens(db, body.token_ids)
+    # WR-01 (Phase 1212): scope by tenant so a tenant-A admin cannot revoke
+    # tenant-B tokens by UUID.  Mirrors the EMBED-03 filter on list_all_embed_tokens.
+    # Inert (filter_tenant_id=None) in single_tenant.
+    from app.core.db.tenant_session import current_tenant_var
+
+    request_tenant = current_tenant_var.get()
+    filter_tenant_id = (
+        uuid.UUID(request_tenant) if is_multi_tenant() and request_tenant else None
+    )
+    count = await bulk_revoke_embed_tokens(
+        db, body.token_ids, tenant_id=filter_tenant_id
+    )
 
     ip = get_client_ip(request)
     await audit_emit(

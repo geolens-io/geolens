@@ -324,6 +324,13 @@ async def get_dataset_rows(
     if not SAFE_TABLE_NAME_RE.match(table_name):
         raise ValueError(f"Invalid table name: {table_name}")
 
+    from app.core.db.tenant_schema import tenant_data_schema
+    from app.core.db.tenant_session import current_tenant_var
+    from app.modules.catalog.datasets.domain._sql_safety import _safe_table_ref
+
+    _schema = tenant_data_schema(current_tenant_var.get())
+    _table_ref = _safe_table_ref(table_name, schema=_schema)
+
     cols = column_info or []
     select_cols = _build_select_cols(cols)
     select_sql = ", ".join(select_cols) if select_cols else "*"
@@ -337,7 +344,7 @@ async def get_dataset_rows(
     try:
         result = await db.execute(
             text(
-                f"SELECT {select_sql} FROM data.{table_name}{where_sql}"
+                f"SELECT {select_sql} FROM {_table_ref}{where_sql}"
                 " ORDER BY gid LIMIT :limit"
             ).bindparams(**bind_params)
         )
@@ -348,8 +355,8 @@ async def get_dataset_rows(
             text(
                 "SELECT reltuples::bigint FROM pg_class"
                 " WHERE relname = :tbl"
-                " AND relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'data')"
-            ).bindparams(tbl=table_name)
+                " AND relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = :schema)"
+            ).bindparams(tbl=table_name, schema=_schema)
         )
         rel = count_result.scalar_one_or_none()
         approx_total = max(0, rel) if rel is not None else 0

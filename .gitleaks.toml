@@ -71,6 +71,13 @@ regexes = [
   '''(?i)(test|fake|dummy|example|changeme|placeholder|sample)[-_ ]?(secret|key|token|password)''',
   '''docs_url=None''',                                             # generic-api-key FP: backend/app/api/main.py
   '''from_attributes=True''',                                     # generic-api-key FP: embed_tokens/admin_router.py
+  '''relativeToVRT''',                                             # generic-api-key FP: GDAL VRT XML relativeToVRT attribute (vrt_rewrite.py docs)
+  # Azurite (Azure Blob Storage emulator) well-known PUBLIC default AccountKey.
+  # This key is part of the Azure Storage Emulator specification, published
+  # verbatim in Microsoft's official documentation, and is safe to commit.
+  # It only grants access to localhost:10000 (the emulator, not live Azure).
+  # Source: https://learn.microsoft.com/en-us/azure/storage/common/storage-use-azurite
+  '''Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==''',
 ]
 
 # Generic stopwords that mark a value as non-sensitive. `padding` was removed

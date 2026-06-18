@@ -193,6 +193,10 @@ class EditionInfoResponse(BaseModel):
     features: list[str] = Field(
         description="List of feature flags enabled for this edition."
     )
+    tenancy_mode: str = Field(
+        default="single_tenant",
+        description="Tenancy mode: 'single_tenant' or 'multi_tenant'.",
+    )
 
 
 class EnterpriseTabsResponse(BaseModel):
