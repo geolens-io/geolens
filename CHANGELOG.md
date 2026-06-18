@@ -7,10 +7,12 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
-This section accumulates changes since 1.2.4 and targets the next public
-release, **1.3.0**. It summarizes four internal milestones (v1039 Tier-1
-hardening, v1040 Tier-2 hardening, v1041 map-builder authoring enhancements,
-and the v1042 tenancy substrate) in operator-facing terms.
+## [1.3.0] - 2026-06-18
+
+This release bundles changes since 1.2.4. It summarizes four internal milestones
+(v1039 Tier-1 hardening, v1040 Tier-2 hardening, v1041 map-builder authoring
+enhancements, and the v1042 tenancy substrate) plus the v1043 self-hosted
+release/upgrade work, in operator-facing terms.
 
 ### Added
 
