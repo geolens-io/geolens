@@ -1,0 +1,119 @@
+name: Prod Compose Smoke
+
+# INST-02 (Phase 1218): pull the PUBLISHED release images and boot
+# docker-compose.prod.yml to healthy, then tear down. This catches an
+# image/compose combination that parses (CI `installer-test` runs `config -q`)
+# but cannot actually start — e.g. a missing baked dependency, a broken
+# entrypoint, or a migrate failure that only surfaces at runtime.
+#
+# Trigger model:
+#   - on a release TAG push: smoke that tag's images (publish.yml has just
+#     pushed `:vX.Y.Z` + `:latest`).
+#   - manual workflow_dispatch: smoke an explicit version, default `latest`.
+#
+# This job genuinely pulls + boots a real stack. It is intended to run in CI on
+# push (tag) / on demand — NOT locally (port collisions with a running stack and
+# GHCR pull cost). The cheap parse-only precondition (`config -q`) is covered by
+# the always-on `installer-test` job in ci.yml.
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Published image tag to smoke (e.g. v1.2.3 or latest)"
+        required: false
+        default: "latest"
+
+permissions:
+  contents: read
+  packages: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  prod-smoke:
+    name: Pull release images + boot prod compose to healthy
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Resolve image tag to smoke
+        id: ver
+        run: |
+          # On a tag push, github.ref_name is the tag (vX.Y.Z). On manual
+          # dispatch, use the input (default latest).
+          if [ "${{ github.event_name }}" = "push" ]; then
+            VER="${{ github.ref_name }}"
+          else
+            VER="${{ github.event.inputs.version }}"
+          fi
+          # The published image tags carry the leading `v` (publish.yml meta tag
+          # `type=ref,event=tag`). GEOLENS_VERSION in compose is used verbatim, so
+          # pass the tag through as-is and let `:latest` be the manual default.
+          echo "version=${VER:-latest}" >> "$GITHUB_OUTPUT"
+          echo "Smoking image tag: ${VER:-latest}"
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Write .env from .env.example
+        env:
+          GEOLENS_VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          cp .env.example .env
+          # CI-distinct, non-default secrets. JWT_SECRET_KEY must be >= 32 chars
+          # to satisfy the Settings validator (backend/app/config.py).
+          sed -i -E 's|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=geolens_smoke_pw|' .env
+          sed -i -E 's|^JWT_SECRET_KEY=.*|JWT_SECRET_KEY=prod-smoke-secret-key-padding-32chars-min|' .env
+          sed -i -E 's|^GEOLENS_ADMIN_PASSWORD=.*|GEOLENS_ADMIN_PASSWORD=admin|' .env
+          # The prebuilt-image path: pin the version + select the prod compose so a
+          # bare `docker compose` resolves to the published images.
+          {
+            echo "GEOLENS_VERSION=${GEOLENS_VERSION}"
+            echo "COMPOSE_FILE=docker-compose.prod.yml"
+            echo "DATABASE_SSL_MODE=disable"
+          } >> .env
+
+      - name: Pull release images
+        run: docker compose -f docker-compose.prod.yml pull db migrate api worker titiler frontend
+
+      - name: Boot prod compose to healthy
+        # --wait blocks until every service with a healthcheck is healthy and every
+        # restart:no one-shot (migrate) has exited 0; it fails non-zero otherwise.
+        run: docker compose -f docker-compose.prod.yml up -d --wait --wait-timeout 240
+
+      - name: Assert migrate exited 0
+        run: |
+          CODE="$(docker inspect -f '{{.State.ExitCode}}' "$(docker compose -f docker-compose.prod.yml ps -aq migrate)")"
+          echo "migrate exit code: ${CODE}"
+          test "${CODE}" = "0"
+
+      - name: Curl frontend -> /api/health
+        run: |
+          # The frontend (nginx) is bound to 127.0.0.1:8080 and proxies /api -> api.
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8080/api/health >/tmp/health.json; then
+              echo "health OK:"; cat /tmp/health.json; echo
+              exit 0
+            fi
+            echo "attempt ${i}: /api/health not ready yet"; sleep 3
+          done
+          echo "frontend -> /api/health never returned 200"; exit 1
+
+      - name: Compose logs on failure
+        if: failure()
+        run: docker compose -f docker-compose.prod.yml logs --tail=200
+
+      - name: Tear down
+        if: always()
+        run: docker compose -f docker-compose.prod.yml down -v
