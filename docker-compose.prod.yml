@@ -152,7 +152,7 @@ services:
     image: ${REGISTRY:-ghcr.io}/${IMAGE_OWNER:-geolens-io}/geolens-api:${GEOLENS_VERSION:-latest}
     entrypoint: []
     # `heads` (plural) applies every branch head: with the enterprise overlay the
-    # graph forks into two heads (core 0003 + enterprise e002) and bare `head`
+    # graph forks into two heads (core 0007 + enterprise e002) and bare `head`
     # errors. OSS single-head is unaffected (heads == head).
     command: sh -c "uv run --no-dev alembic upgrade heads"
     restart: "no"

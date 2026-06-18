@@ -563,6 +563,15 @@ jobs:
       - name: Run migrations
         run: uv run alembic upgrade head
 
+      # MIG-03: autogenerate drift gate. With the DB now at head, `alembic check`
+      # exits non-zero if the ORM models have drifted from the migration scripts
+      # (e.g. a model column added without a matching migration). env.py's
+      # include_object filter hides the enterprise-overlay SAML columns when no
+      # overlay is discovered, so this gate is clean on OSS-only runs and only
+      # fires on REAL drift. Companion to the `make alembic-check` one-liner.
+      - name: Alembic drift check (MIG-03)
+        run: uv run alembic check
+
       - name: Manifest backend apply contract tests
         run: |
           uv run pytest -v \

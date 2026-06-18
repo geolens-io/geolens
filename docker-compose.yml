@@ -165,7 +165,7 @@ services:
     # one-shot service.
     entrypoint: []
     # `upgrade heads` (plural) applies every branch head — with the enterprise
-    # overlay installed the graph has two heads (core 0003 + enterprise e002);
+    # overlay installed the graph has two heads (core 0007 + enterprise e002);
     # bare `head` errors "Multiple head revisions present". Single-head OSS is
     # unaffected (heads == head).
     command: sh -c "uv run --no-dev alembic upgrade heads"

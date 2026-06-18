@@ -6,7 +6,7 @@
 SHELL := /bin/bash
 .SHELLFLAGS := -o pipefail -c
 
-.PHONY: dev down reset-db migrate migration test test-sequential test-cov e2e logs logs-db logs-api status doctor preflight openapi openapi-check sdks sdks-check sdks-test manifest-contract-check publish-sdks-py publish-sdks-ts cli-build cli-test cli-check publish-cli audit-sink-discipline billing-extraction-discipline catalog-domain-discipline bump version-check
+.PHONY: dev down reset-db migrate migration alembic-check test test-sequential test-cov e2e logs logs-db logs-api status doctor preflight openapi openapi-check sdks sdks-check sdks-test manifest-contract-check publish-sdks-py publish-sdks-ts cli-build cli-test cli-check publish-cli audit-sink-discipline billing-extraction-discipline catalog-domain-discipline bump version-check
 
 # Pre-flight: verify boot-required env vars are non-empty in .env before any
 # `docker compose` build (which takes 5-10 minutes on a cold cache only to crash
@@ -46,6 +46,15 @@ migrate:
 
 migration:
 	docker compose exec api uv run alembic revision --autogenerate -m "$(msg)"
+
+# MIG-03: autogenerate drift gate. `alembic check` exits non-zero if the ORM
+# models have drifted from the migration scripts (a model column added without
+# a matching migration, etc.). Run against a DB that is already at head — the
+# migrate target / `docker compose up` brings it there. Mirrors the drift gate
+# already baked into scripts/test_alembic_upgrade_clean_db.sh, exposed here as
+# a one-liner and wired into CI (.github/workflows/ci.yml, Backend Tests job).
+alembic-check:
+	docker compose exec api uv run alembic check
 
 # Defaults to parallel execution (the -n value was chosen from xdist benchmarking).
 # Use `make test-sequential` to opt into sequential debugging mode.
