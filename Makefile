@@ -54,7 +54,11 @@ migration:
 # already baked into scripts/test_alembic_upgrade_clean_db.sh, exposed here as
 # a one-liner and wired into CI (.github/workflows/ci.yml, Backend Tests job).
 alembic-check:
-	docker compose exec api uv run alembic check
+	# Requires an OSS-clean DB at head. A dev DB that carries cloud c-chain revisions
+	# (from prior overlay work) can't be resolved by the OSS image and will report a
+	# missing revision — reset the dev DB or use a clean OSS DB. UV_CACHE_DIR points at a
+	# writable path because the running container's default ~/.cache/uv is read-only.
+	docker compose exec -T -e UV_CACHE_DIR=/tmp/uv-cache api uv run --no-sync alembic check
 
 # Defaults to parallel execution (the -n value was chosen from xdist benchmarking).
 # Use `make test-sequential` to opt into sequential debugging mode.
