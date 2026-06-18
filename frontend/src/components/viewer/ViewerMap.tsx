@@ -623,7 +623,7 @@ export const ViewerMap = memo(function ViewerMap({
   // Sync layers to map (on data/visibility changes)
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !map.isStyleLoaded()) return;
+    if (!map) return;
     // Gate the first sync on tile tokens arriving: syncLayersToMap branches
     // on `token?.kind === 'raster'` to pick the raster adapter vs. the
     // vector path. If we sync before tokens land, every layer — including
@@ -632,6 +632,19 @@ export const ViewerMap = memo(function ViewerMap({
     // The embed-token path has its own transformRequest flow and doesn't
     // depend on tokenMap, so it's allowed to sync immediately.
     if (!embedToken && layers.length > 0 && tokenMap.size === 0) return;
+    // BUG-037-style idle retry (mirrors the visibility effect below): on a
+    // cold/hard page load — exactly how a shared-link visitor arrives — the
+    // style can still be transitioning when this effect first runs. Terrain
+    // maps widen that window (the raster-dem terrain source delays readiness).
+    // A plain `!isStyleLoaded()` early-return left the data layers permanently
+    // unsynced because nothing re-triggers this effect once the style settles
+    // (the style.load listener can attach after the event already fired on a
+    // cold mount). Defer the sync to the next idle so it always lands.
+    if (!map.isStyleLoaded()) {
+      const retrySync = () => runSync(map);
+      map.once('idle', retrySync);
+      return () => { map.off('idle', retrySync); };
+    }
     runSync(map);
   // Note: visibleLayers intentionally excluded — the dedicated visibility effect below handles it
   }, [layers, mapReady, tileConfig?.cdn_base_url, tokenMap, showBasemapLabels, runSync, embedToken, geojsonVersion]);
