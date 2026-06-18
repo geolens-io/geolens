@@ -654,6 +654,161 @@ jobs:
           ALEMBIC_TEST_DB_PORT: 54399
           ALEMBIC_TEST_TIMEOUT: 90
 
+  # ---------- MIG-04: enterprise heads-plural upgrade against a clean DB ----------
+  # With the enterprise overlay installed the migration graph forks into TWO
+  # heads (core 0007_tenant_data_schemas + enterprise e002_add_saml_columns).
+  # `alembic upgrade heads` (PLURAL) must apply BOTH chains; this job asserts
+  # the production CLI command (exactly what the docker-compose `migrate`
+  # service runs) does so against a clean Postgres and that the enterprise SAML
+  # column actually lands. It guards the MIG-04 env.py fix that propagates the
+  # overlay version dirs onto the live ScriptDirectory the CLI constructs —
+  # without it, `alembic upgrade heads` silently applies only the core head and
+  # skips the e-chain, breaking SAML login on enterprise deployments.
+  #
+  # Mirrors the backend-test job's overlay-install pattern (token probe + pinned
+  # ref checkout + `uv add --editable`). Skips cleanly on fork PRs without the
+  # GEOLENS_ENTERPRISE_TOKEN secret (the overlay is private). References: MIG-04.
+  alembic-enterprise-heads:
+    name: Alembic Enterprise Heads (MIG-04)
+    needs: changes
+    if: needs.changes.outputs.alembic == 'true' || github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      POSTGRES_USER: geolens
+      POSTGRES_PASSWORD: geolens_test
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: postgres
+      DATABASE_SSL_MODE: disable
+      JWT_SECRET_KEY: test-secret-key-for-ci-padding-32chars
+      GEOLENS_ADMIN_USERNAME: admin
+      GEOLENS_ADMIN_PASSWORD: admin
+      GEOLENS_EDITION: enterprise
+      PYTHONPATH: .
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Probe enterprise token availability
+        env:
+          ENTERPRISE_TOKEN: ${{ secrets.GEOLENS_ENTERPRISE_TOKEN }}
+        run: |
+          if [ -n "${ENTERPRISE_TOKEN}" ]; then
+            echo "HAS_ENTERPRISE_TOKEN=1" >> $GITHUB_ENV
+          else
+            echo "HAS_ENTERPRISE_TOKEN=0" >> $GITHUB_ENV
+          fi
+
+      - name: Checkout geolens-enterprise (skip on fork PRs without secret)
+        if: env.HAS_ENTERPRISE_TOKEN == '1'
+        uses: actions/checkout@v6
+        with:
+          repository: geolens-io/geolens-enterprise
+          token: ${{ secrets.GEOLENS_ENTERPRISE_TOKEN }}
+          path: geolens-enterprise
+          # OCG-04: pinned to the same tested ref as the backend-test job.
+          ref: ${{ env.ENTERPRISE_PINNED_REF }}
+          persist-credentials: false
+
+      - name: Skip notice (no enterprise overlay available)
+        if: env.HAS_ENTERPRISE_TOKEN != '1'
+        run: echo "geolens-enterprise unavailable (fork PR or missing GEOLENS_ENTERPRISE_TOKEN) — MIG-04 enterprise heads-plural job skipped."
+
+      - name: Start PostgreSQL with PostGIS + pgvector
+        if: env.HAS_ENTERPRISE_TOKEN == '1'
+        working-directory: .
+        run: |
+          docker build -t geolens-test-db -f - . <<'DOCKERFILE'
+          FROM postgis/postgis:17-3.5
+          RUN apt-get update \
+              && apt-get install -y --no-install-recommends postgresql-17-pgvector \
+              && rm -rf /var/lib/apt/lists/*
+          DOCKERFILE
+          docker run -d --name test-postgres \
+            -e POSTGRES_DB=postgres \
+            -e POSTGRES_USER=geolens \
+            -e POSTGRES_PASSWORD=geolens_test \
+            -p 5432:5432 \
+            geolens-test-db
+          for i in $(seq 1 30); do
+            if docker exec test-postgres pg_isready -U geolens -d postgres >/dev/null 2>&1; then
+              echo "PostgreSQL is ready"
+              break
+            fi
+            echo "Waiting for PostgreSQL... ($i/30)"
+            sleep 2
+          done
+
+      - uses: astral-sh/setup-uv@v8.1.0
+        if: env.HAS_ENTERPRISE_TOKEN == '1'
+        with:
+          version: "0.10.2"
+          enable-cache: true
+          cache-dependency-glob: "backend/uv.lock"
+
+      - uses: actions/setup-python@v6
+        if: env.HAS_ENTERPRISE_TOKEN == '1'
+        with:
+          python-version: "3.13"
+
+      - name: Install system dependencies
+        if: env.HAS_ENTERPRISE_TOKEN == '1'
+        run: sudo apt-get update && sudo apt-get install -y gdal-bin xmlsec1 postgresql-client
+
+      - name: Install Python dependencies + enterprise overlay
+        if: env.HAS_ENTERPRISE_TOKEN == '1'
+        run: |
+          uv sync --locked --dev
+          uv add --editable ../geolens-enterprise
+          # Match backend-test: keep a CI-compatible pyOpenSSL after the overlay
+          # pulls pysaml2's transitive choice.
+          uv pip install "pyOpenSSL>=25.3.0"
+
+      - name: Set up database extensions and schemas
+        if: env.HAS_ENTERPRISE_TOKEN == '1'
+        run: |
+          PGPASSWORD=geolens_test psql -h localhost -U geolens -d postgres -c "
+            CREATE EXTENSION IF NOT EXISTS postgis;
+            CREATE EXTENSION IF NOT EXISTS pg_trgm;
+            CREATE EXTENSION IF NOT EXISTS vector;
+            CREATE EXTENSION IF NOT EXISTS unaccent;
+            CREATE SCHEMA IF NOT EXISTS catalog;
+            CREATE SCHEMA IF NOT EXISTS data;
+          "
+
+      - name: Alembic upgrade heads (PLURAL) — apply core + enterprise chains
+        if: env.HAS_ENTERPRISE_TOKEN == '1'
+        run: uv run --no-dev alembic upgrade heads
+
+      - name: Assert BOTH heads applied + SAML column present
+        if: env.HAS_ENTERPRISE_TOKEN == '1'
+        run: |
+          set -euo pipefail
+          echo "==> applied heads in catalog.alembic_version:"
+          HEADS=$(PGPASSWORD=geolens_test psql -h localhost -U geolens -d postgres -tAc \
+            "SELECT version_num FROM catalog.alembic_version ORDER BY 1;")
+          echo "${HEADS}"
+          # Expect exactly two heads: core 0007 + enterprise e002.
+          COUNT=$(printf '%s\n' "${HEADS}" | grep -c . || true)
+          if [ "${COUNT}" -ne 2 ]; then
+            echo "FAIL: expected 2 applied heads (core + enterprise), got ${COUNT}." >&2
+            echo "      'alembic upgrade heads' did not apply the enterprise e-chain (MIG-04)." >&2
+            exit 1
+          fi
+          echo "${HEADS}" | grep -q "0007_tenant_data_schemas" || { echo "FAIL: core head 0007 missing" >&2; exit 1; }
+          echo "${HEADS}" | grep -q "e002_add_saml_columns" || { echo "FAIL: enterprise head e002 missing" >&2; exit 1; }
+          # Affirmative schema assertion: the SAML column e002 adds must exist.
+          SAML=$(PGPASSWORD=geolens_test psql -h localhost -U geolens -d postgres -tAc \
+            "SELECT count(*) FROM information_schema.columns WHERE table_schema='catalog' AND table_name='oauth_providers' AND column_name='idp_entity_id';")
+          if [ "${SAML}" != "1" ]; then
+            echo "FAIL: enterprise SAML column catalog.oauth_providers.idp_entity_id absent (got count=${SAML})." >&2
+            exit 1
+          fi
+          echo "OK: both heads applied (0007 + e002) and SAML column present (MIG-04)."
+
   # ---------- pytest parallel-isolation gate ----------
   # Defends the fixture-isolation fixes against regression.
   # Runs `pytest -n 4` against the backend test suite (the known residual
