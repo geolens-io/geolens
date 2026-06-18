@@ -70,7 +70,11 @@ def record_to_dcat_us3(
         result["accessRights"] = access_rights
 
     if record.usage_constraints is not None:
-        result["rights"] = record.usage_constraints
+        # DCAT-US 3.0 schema types `rights` as a list of statements (like
+        # `provenance`), not a bare string. Emitting a string previously made a
+        # record with usage_constraints fail JSON Schema validation — and under
+        # the filter-the-feed posture that silently dropped it from the catalog.
+        result["rights"] = [record.usage_constraints]
 
     if record.lineage_summary is not None:
         result["provenance"] = [record.lineage_summary]
