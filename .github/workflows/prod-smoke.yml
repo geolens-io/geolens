@@ -91,7 +91,23 @@ jobs:
         # locally (PostGIS + pgvector, ~20s) and publishes no image, so
         # `compose pull db` errors "no image to pull". The boot step's
         # `up -d --wait` builds it. The rest pull from GHCR.
-        run: docker compose -f docker-compose.prod.yml pull migrate api worker titiler frontend
+        #
+        # On a release-tag push this workflow races publish.yml (both fire on a
+        # `v*` tag push), so the images may not be on GHCR yet. Retry the pull
+        # with backoff (~5 min) to let publish.yml finish pushing before we fail
+        # — cheaper and simpler than a cross-workflow `workflow_run` dependency,
+        # and it still works for manual workflow_dispatch (succeeds on attempt 1).
+        run: |
+          for attempt in $(seq 1 10); do
+            if docker compose -f docker-compose.prod.yml pull migrate api worker titiler frontend; then
+              echo "Pulled release images on attempt ${attempt}."
+              exit 0
+            fi
+            echo "attempt ${attempt}: images not published yet (publish.yml may still be running); retrying in 30s"
+            sleep 30
+          done
+          echo "Release images never became pullable after 10 attempts (~5 min)."
+          exit 1
 
       - name: Boot prod compose to healthy
         # --wait blocks until every service with a healthcheck is healthy and every
