@@ -89,6 +89,11 @@ if [ "$1" = "compose" ]; then
     *) exit 0 ;;
   esac
 fi
+if [ "$1" = "wait" ]; then
+  # docker wait <cid> -> block-then-print the migrate one-shot's exit code (0|3).
+  [ "$MIGRATE_MODE" = "fail" ] && echo 3 || echo 0
+  exit 0
+fi
 if [ "$1" = "inspect" ]; then
   # --format '{{.State.Status}}' -> exited ; '{{.State.ExitCode}}' -> 0|3
   case "$*" in
@@ -182,20 +187,21 @@ else
   bad "success path did not print rollback recipe"
 fi
 
-# Full expected order recorded: backup, stop_app, pull, migrate_up, app_up
+# Full expected order recorded: stop_app, backup, pull, migrate_up, app_up
 order="$(tr '\n' ',' < "$WORK/calls.log")"
-if [ "$order" = "backup,stop_app,pull,migrate_up,app_up," ]; then
-  ok "full call order is backup -> stop api/worker -> pull -> migrate -> app_up"
+if [ "$order" = "stop_app,backup,pull,migrate_up,app_up," ]; then
+  ok "full call order is stop api/worker -> backup -> pull -> migrate -> app_up"
 else
   bad "unexpected call order: $order"
 fi
 
-# Writers quiesced: api/worker stopped AFTER the backup and BEFORE migrate (P1).
+# Writers quiesced BEFORE the dump (so the snapshot loses no acknowledged writes on
+# rollback) and before migrate (Codex P1).
 s="$(pos_of stop_app)"
-if [ -n "$s" ] && [ -n "$b" ] && [ -n "$m" ] && [ "$b" -lt "$s" ] && [ "$s" -lt "$m" ]; then
-  ok "api/worker stopped after backup and before migrate ($b < $s < $m)"
+if [ -n "$s" ] && [ -n "$b" ] && [ -n "$m" ] && [ "$s" -lt "$b" ] && [ "$b" -lt "$m" ]; then
+  ok "api/worker stopped before the backup dump and before migrate ($s < $b < $m)"
 else
-  bad "writers not quiesced between backup and migrate (backup=$b stop=$s migrate=$m)"
+  bad "writers not quiesced before the dump (stop=$s backup=$b migrate=$m)"
 fi
 
 # UPG release-file sync (Codex P2): the prebuilt flow fetches the target tag and

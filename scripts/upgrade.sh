@@ -119,16 +119,31 @@ mkdir -p "$BACKUP_DIR"
 STAMP="$(date '+%Y%m%d_%H%M%S')"
 BACKUP_FILE="$BACKUP_DIR/${POSTGRES_DB}_pre_${CURRENT_VERSION:-unknown}_to_${TARGET_VERSION}_${STAMP}.dump"
 
+# Quiesce the app's DB writers (api + worker) BEFORE the dump (Codex P1). pg_dump
+# is a snapshot taken when it BEGINS and does NOT block writers, so an acknowledged
+# write during/after the dump would be absent from the backup and lost if a failed
+# migration later triggers the restore recipe. Stopping api/worker first makes the
+# dump a consistent, no-lost-writes snapshot, and keeps the schema migration below
+# from running concurrently with old-version handling. db stays up (the dump +
+# migrate need it). If we abort before the app is brought back up, restart_writers
+# brings them back so a failure never leaves the app down; the success path's final
+# `compose up -d` (and a failed upgrade's rollback recipe) restart them too.
+restart_writers() { compose up -d api worker >/dev/null 2>&1 || true; }
+say "Stopping api + worker to quiesce writers before the backup + migration"
+compose stop api worker >/dev/null 2>&1 || warn "Could not stop api/worker (may already be down) — continuing."
+
 say "Step 1/5: pre-upgrade database backup -> $BACKUP_FILE"
 # -Fc custom-format dump (the format restore.sh expects via pg_restore). Stream
 # to the host file via `exec -T` so the dump lands outside the container.
 if ! compose exec -T db pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
     -Fc --no-owner --no-acl > "$BACKUP_FILE"; then
   rm -f "$BACKUP_FILE"
+  restart_writers
   fail "Pre-upgrade backup failed (pg_dump). Aborting before any changes were made."
 fi
 if [ ! -s "$BACKUP_FILE" ]; then
   rm -f "$BACKUP_FILE"
+  restart_writers
   fail "Pre-upgrade backup is empty. Aborting before any changes were made."
 fi
 say "  backup OK ($(du -h "$BACKUP_FILE" 2>/dev/null | cut -f1) ) — restore with: scripts/restore.sh \"$BACKUP_FILE\""
@@ -157,16 +172,6 @@ rollback_trap() {
   fi
 }
 trap rollback_trap EXIT
-
-# Quiesce the app's DB writers (api + worker) AFTER the backup + trap (Codex P1):
-# the schema migration below must not run concurrently with old-version request /
-# job handling, and no post-dump writes (which the backup does NOT contain, so a
-# rollback would lose them) should be accepted. db stays up (migrate needs it);
-# the final `compose up -d` restarts api/worker on the new images, and a failed
-# upgrade's rollback recipe does the same.
-say "Stopping api + worker to quiesce writers before migration"
-compose stop api worker >/dev/null 2>&1 || warn "Could not stop api/worker (may already be down) — continuing."
-say ""
 
 # --- Step 4: bump the version pin -------------------------------------------
 say "Step 2/5: pinning GEOLENS_VERSION=$TARGET_VERSION in .env"
@@ -226,20 +231,13 @@ fi
 # Confirm the one-shot exited 0 before proceeding to the app.
 migrate_cid="$(compose ps -aq migrate 2>/dev/null | head -n 1)"
 if [ -n "$migrate_cid" ]; then
-  # Give the one-shot a moment to finish, then read its exit code.
-  m_attempts=24
-  m_i=0
-  m_state=""
-  m_exit="?"
-  while [ "$m_i" -lt "$m_attempts" ]; do
-    m_i=$((m_i + 1))
-    m_state="$(docker inspect --format '{{.State.Status}}' "$migrate_cid" 2>/dev/null || printf '')"
-    if [ "$m_state" = "exited" ]; then
-      m_exit="$(docker inspect --format '{{.State.ExitCode}}' "$migrate_cid" 2>/dev/null || printf '?')"
-      break
-    fi
-    sleep 5
-  done
+  # Block until the one-shot actually exits, then read its code. `docker wait`
+  # prints the exit code when the container stops — there is NO arbitrary timeout,
+  # so a large/long-running migration is never falsely declared failed while it is
+  # still applying (which would otherwise tell the operator to restore over a live
+  # migration). (Codex P2)
+  m_exit="$(docker wait "$migrate_cid" 2>/dev/null | head -n 1)"
+  [ -n "$m_exit" ] || m_exit="?"
   if [ "$m_exit" != "0" ]; then
     warn "migrate one-shot exit=$m_exit. Last 30 log lines:"
     compose logs --tail 30 migrate 2>&1 | sed 's/^/  /' >&2
