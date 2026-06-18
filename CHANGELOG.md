@@ -31,9 +31,30 @@ and the v1042 tenancy substrate) in operator-facing terms.
 - **Raster/DEM authoring fidelity.** Adding raster layers now surfaces real
   band labels and band-count metadata, and hillshade/DEM styling reflects the
   actual source instead of placeholder defaults.
+- **GeoDCAT-AP discovery profile.** A new GeoDCAT-AP (EU/INSPIRE geospatial
+  profile of DCAT-AP) serialization is available alongside DCAT-3 and DCAT-US,
+  with catalog, per-dataset, and validation endpoints — broadening
+  interoperability with European government data portals.
+- **Conformant-by-filtering DCAT feeds + DCAT-3 validation.** The DCAT-3,
+  DCAT-US, and GeoDCAT-AP catalog feeds now emit only records that pass that
+  profile's validator, so the feeds stay conformant without forcing metadata at
+  publish time; incomplete records are skipped rather than emitted
+  non-conformant. A DCAT-3 validation endpoint joins the existing DCAT-US one,
+  and `REQUIRE_METADATA_FOR_PUBLISH` remains the optional stricter publish gate
+  for deployments that prefer enforcement.
+- **Terrain guard rails for small-extent DEMs.** 3D terrain now masks
+  raster-DEM nodata in the elevation encoding (no more boundary spikes from a
+  `-9999` fill) and warns when the active DEM covers only a small slice of the
+  viewport, with docs recommending draping a high-res DEM over a coarse global
+  DEM for small areas.
 
 ### Fixed
 
+- Removed redundant "create" buttons on the empty Collections and Maps pages —
+  the empty state now shows a single primary call-to-action instead of three.
+- DCAT-US `rights`/usage-constraints now serialize as a list per the schema
+  (previously a bare string), so records carrying usage constraints validate
+  and appear in the conformant feed.
 - Map-builder rendering and persistence correctness fixes: layer style updates
   no longer clobber sibling fields on multi-field restores, disabled strokes no
   longer resurrect on a visibility toggle, empty-array filters no longer break
