@@ -282,6 +282,7 @@ class _RasterMeta(NamedTuple):
     dtype: str | None
     is_dem: bool | None
     band_info: list | None
+    nodata: str | None
 
 
 # WR-02 (Phase 1210): bounded LRU — mirrors the vector _dataset_cache (PERF-006).
@@ -308,6 +309,41 @@ _DTYPE_MAX = {
 _WEB_MERCATOR_EQUATOR_RESOLUTION_M = 156543.03392804097
 _DEFAULT_RASTER_MAXZOOM = 18
 _MAX_RASTER_MAXZOOM = 22
+
+# Issue #186: canonical DEM nodata sentinel. When a DEM COG does not declare a
+# nodata value in its metadata (so RasterAsset.nodata is NULL), edge tiles that
+# clip the data footprint contain fill pixels. Under terrainrgb encoding an
+# undeclared fill of -9999 (the de-facto DEM nodata convention used by sources
+# such as swissALTI3D) encodes as an extreme elevation, producing spikes and
+# cliffs at the DEM boundary. -9999 is far below any real terrestrial elevation
+# (Dead Sea shore ~-430 m; Challenger Deep ~-10,935 m is sub-sea-floor and not a
+# land DEM value), so masking it never removes valid terrain.
+_DEM_DEFAULT_NODATA = "-9999"
+
+
+def _dem_nodata_param(recorded_nodata: str | None) -> str | None:
+    """Resolve the Titiler ``nodata=`` value for a DEM terrainrgb tile (#186).
+
+    Prefers the dataset's recorded nodata (from the COG metadata captured at
+    ingest). Falls back to the canonical DEM sentinel ``-9999`` when none is
+    recorded. Returns ``None`` only when the recorded value is non-numeric
+    (e.g. ``"nan"``), in which case Titiler relies on the COG's internal mask
+    and we must not inject a bogus literal.
+    """
+    raw = (recorded_nodata or "").strip()
+    candidate = raw if raw else _DEM_DEFAULT_NODATA
+    try:
+        value = float(candidate)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(value):
+        # NaN/inf nodata is handled by the COG's internal mask, not a query param.
+        return None
+    # Emit an integer literal when the value is integral (-9999 not -9999.0) so
+    # the URL stays clean and matches the common DEM convention.
+    if value.is_integer():
+        return str(int(value))
+    return repr(value)
 
 
 def _positive_number(value: Any) -> float | None:
@@ -601,7 +637,8 @@ async def _resolve_raster_meta(
                 ra.band_count,
                 ra.dtype,
                 ra.is_dem,
-                ra.band_info
+                ra.band_info,
+                ra.nodata
             FROM catalog.datasets d
             JOIN catalog.records r ON d.record_id = r.id
             LEFT JOIN catalog.raster_assets ra ON ra.dataset_id = d.id
@@ -638,6 +675,7 @@ async def _resolve_raster_meta(
         dtype=row["dtype"],
         is_dem=row["is_dem"],
         band_info=row["band_info"],
+        nodata=row["nodata"],
     )
     with _raster_meta_cache_lock:
         _raster_meta_cache[cache_key] = (now, meta)
@@ -774,7 +812,18 @@ async def raster_auth_check(
     if meta.is_dem:
         # DEM terrain: use terrainrgb algorithm with NO rescale — the algorithm
         # reads raw elevation values and encodes them into RGB channels directly.
+        #
+        # Issue #186: mask the DEM's nodata so fill pixels inside served edge
+        # tiles render transparent instead of encoding as an extreme elevation
+        # (which produces terrain spikes/cliffs at the DEM boundary). Driven by
+        # the dataset's recorded nodata, with the canonical -9999 DEM sentinel as
+        # a safe fallback. The OUTSIDE-the-footprint case (whole tile out of
+        # bounds) is already handled by the source `bounds` → 204; this masks the
+        # nodata pixels WITHIN partially-covered edge tiles.
         render_params = "algorithm=terrainrgb"
+        nodata_param = _dem_nodata_param(meta.nodata)
+        if nodata_param is not None:
+            render_params = f"{render_params}&nodata={nodata_param}"
     elif storage_backend == "remote" and meta.band_info:
         # Remote STAC import with statistics — use actual data min/max
         # for rescaling instead of fixed dtype max
