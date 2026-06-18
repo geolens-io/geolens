@@ -76,6 +76,15 @@ all fixed with fail-before/pass-after regression coverage:
   path is byte-identical to prior releases, with no new required configuration
   and no change to how datasets, tiles, or maps are served.
 
+### Upgrade notes
+
+- **No breaking changes for self-hosted operators.** The standard prebuilt
+  upgrade applies — pull the new images and run the usual upgrade path (see
+  [UPGRADING.md](./UPGRADING.md)). All schema changes since 1.2.4 are additive,
+  reversible migrations (`0004`–`0007`); no configuration is removed or made
+  mandatory. The v1042 tenancy substrate is dormant in the default
+  `single_tenant` mode, so no action is required to adopt it.
+
 ## [1.2.4] - 2026-06-11
 
 ### Security
