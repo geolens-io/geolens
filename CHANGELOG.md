@@ -7,6 +7,75 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+This section accumulates changes since 1.2.4 and targets the next public
+release, **1.3.0**. It summarizes four internal milestones (v1039 Tier-1
+hardening, v1040 Tier-2 hardening, v1041 map-builder authoring enhancements,
+and the v1042 tenancy substrate) in operator-facing terms.
+
+### Added
+
+- **Data-driven classification in the map builder.** Numeric layers can now be
+  styled with Jenks natural-breaks, standard-deviation, and manual class
+  breaks in addition to the existing equal-interval/quantile schemes, making it
+  easier to produce defensible choropleths from your own attribute data.
+- **Color-ramp controls for accessible cartography.** Ramps can be reversed in
+  place, and the picker now includes color-vision-deficiency-safe (CVD-safe)
+  palettes so maps remain legible for color-blind viewers.
+- **Per-layer legend customization.** Each layer's legend title and entry
+  labels can be overridden independently of the layer name, so published
+  legends can use human-readable wording without renaming the underlying
+  layer. (Additive migration `0004_add_maps_legend_title`.)
+- **Layer search in the builder stack.** Large maps gain a search box to filter
+  the layer list by name, plus zoom-to-layer and copy/paste-style and
+  bulk-style actions to speed up authoring multi-layer maps.
+- **Raster/DEM authoring fidelity.** Adding raster layers now surfaces real
+  band labels and band-count metadata, and hillshade/DEM styling reflects the
+  actual source instead of placeholder defaults.
+
+### Fixed
+
+- Map-builder rendering and persistence correctness fixes: layer style updates
+  no longer clobber sibling fields on multi-field restores, disabled strokes no
+  longer resurrect on a visibility toggle, empty-array filters no longer break
+  rendering, and solid↔pattern fill transitions clean up stale paint keys.
+- Numerous backend correctness and robustness fixes across config/settings
+  handling, ingest and raster lifecycle, API error shapes, and the CLI/SDK
+  round-trip, each landing with a regression test. Performance fixes to several
+  hot paths (tile and query routes, AI token budgeting) reduce latency and
+  resource use under load.
+- Frontend cache, auth, and internationalization fixes: stale cache and auth
+  state are cleared more reliably, and locale key-existence/parity is enforced
+  so translated strings cannot silently fall back to keys.
+
+### Security
+
+This line continues the hardening lineage of the 1.2.x security releases
+(advisories `GHSA-p23g-mvhj-jh3j` and `GHSA-p77j-g7h5-r2vw`). It folds in the
+remaining Tier-1 and Tier-2 findings from a whole-portfolio security review,
+all fixed with fail-before/pass-after regression coverage:
+
+- **Cross-resource re-authorization.** Endpoints that return sub-resources or
+  follow references now re-authorize the backing dataset/map rather than
+  trusting the URL-level resource, closing several paths where a caller could
+  read data from a resource they were not entitled to.
+- **Tile and asset privacy and caching.** Private raster and vector tiles and
+  derived assets are no longer served with shared-cache headers, so a CDN or
+  bundled reverse proxy cannot retain and replay them to later unauthenticated
+  requests.
+- **Input hardening.** Tightened validation and bounds across request inputs,
+  outbound-URL handling, and the AI subsystem to reduce the attack surface for
+  malformed or hostile inputs.
+
+### Internal
+
+- **Dormant single-tenant tenancy substrate (v1042).** This release lands the
+  additive schema and runtime seams (reversible migrations `0005`–`0007`) for a
+  future multi-tenant deployment mode, gated entirely behind
+  `GEOLENS_TENANCY_MODE`, which **defaults to `single_tenant`**. For
+  self-hosted operators this is **inert and behavior-preserving** — the default
+  path is byte-identical to prior releases, with no new required configuration
+  and no change to how datasets, tiles, or maps are served.
+
 ## [1.2.4] - 2026-06-11
 
 ### Security
