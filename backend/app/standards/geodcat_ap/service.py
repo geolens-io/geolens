@@ -200,7 +200,22 @@ def catalog_to_geodcat_ap(datasets: list[Dataset], base_url: str) -> dict:
     Returns:
         A GeoDCAT-AP Catalog dict with nested dataset entries (no per-entry
         ``@context``).
+
+    Filter-the-feed conformance posture: only records that pass GeoDCAT-AP
+    structural validation are emitted in ``dcat:dataset``. Records missing a
+    mandatory property (e.g. title or description) are silently skipped so the
+    feed as a whole stays conformant with zero onboarding friction. Operators
+    who want to *block* incomplete records at publish time can enable the
+    optional ``REQUIRE_METADATA_FOR_PUBLISH`` lever instead.
     """
+    from app.standards.geodcat_ap.validation import validate_geodcat_ap
+
+    entries: list[dict] = []
+    for ds in datasets:
+        entry = record_to_geodcat_ap(ds, base_url, include_context=False)
+        if validate_geodcat_ap(entry, "Dataset")["valid"]:
+            entries.append(entry)
+
     return {
         "@context": GEODCAT_AP_CONTEXT,
         "@type": "dcat:Catalog",
@@ -221,9 +236,7 @@ def catalog_to_geodcat_ap(datasets: list[Dataset], base_url: str) -> dict:
             "@type": "foaf:Agent",
             "foaf:name": "GeoLens",
         },
-        "dcat:dataset": [
-            record_to_geodcat_ap(ds, base_url, include_context=False) for ds in datasets
-        ],
+        "dcat:dataset": entries,
     }
 
 

@@ -31,6 +31,7 @@ from app.modules.catalog.authorization import (
     get_user_roles,
 )
 from app.standards.dcat.service import catalog_to_dcat, record_to_dcat
+from app.standards.dcat.validation import validate_dcat3
 from app.standards.dcat_us.service import catalog_to_dcat_us3, record_to_dcat_us3
 from app.standards.dcat_us.validation import validate_dcat_us3
 from app.standards.geodcat_ap.service import (
@@ -138,6 +139,26 @@ async def get_dcat_catalog(
     )
 
 
+@router.get(
+    "/dcat/validation",
+    response_class=JSONResponse,
+    include_in_schema=False,
+)
+@router.get("/dcat/validation/", response_class=JSONResponse)
+async def validate_dcat3_catalog(
+    user: Identity | None = Depends(get_optional_user),
+    db: AsyncSession = Depends(get_db),
+) -> JSONResponse:
+    """Validate the visible W3C DCAT 3 catalog feed."""
+    datasets = await _get_visible_dcat_datasets(db, user)
+
+    base_url = await get_public_api_url(db)
+    catalog = catalog_to_dcat(datasets, base_url)
+    report = validate_dcat3(catalog, "Catalog")
+
+    return JSONResponse(content=report)
+
+
 @router.get("/dcat-us/3.0", response_class=JSONResponse, include_in_schema=False)
 @router.get("/dcat-us/3.0/", response_class=JSONResponse)
 async def get_dcat_us3_catalog(
@@ -220,6 +241,27 @@ async def validate_geodcat_ap_catalog(
     base_url = await get_public_api_url(db)
     catalog = catalog_to_geodcat_ap(datasets, base_url)
     report = validate_geodcat_ap(catalog, "Catalog")
+
+    return JSONResponse(content=report)
+
+
+@router.get(
+    "/{dataset_id}/dcat/validation",
+    response_class=JSONResponse,
+    include_in_schema=False,
+)
+@router.get("/{dataset_id}/dcat/validation/", response_class=JSONResponse)
+async def validate_dcat3_record(
+    dataset_id: uuid.UUID,
+    user: Identity | None = Depends(get_optional_user),
+    db: AsyncSession = Depends(get_db),
+) -> JSONResponse:
+    """Validate a single dataset as W3C DCAT 3."""
+    dataset = await _get_dcat_dataset_for_export(db, dataset_id, user)
+
+    base_url = await get_public_api_url(db)
+    dcat = record_to_dcat(dataset, base_url)
+    report = validate_dcat3(dcat, "Dataset")
 
     return JSONResponse(content=report)
 

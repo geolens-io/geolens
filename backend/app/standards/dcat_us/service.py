@@ -102,8 +102,24 @@ def record_to_dcat_us3(
 
 
 def catalog_to_dcat_us3(datasets: list[Dataset], base_url: str) -> dict:
-    """Serialize visible datasets to a DCAT-US 3.0 Catalog document."""
+    """Serialize visible datasets to a DCAT-US 3.0 Catalog document.
+
+    Filter-the-feed conformance posture: only records that pass DCAT-US 3.0
+    JSON Schema validation are emitted in ``dataset``. Records missing a
+    mandatory property (e.g. a usable ``contactPoint``) are silently skipped so
+    the feed as a whole stays conformant with zero onboarding friction.
+    Operators who want to *block* incomplete records at publish time can enable
+    the optional ``REQUIRE_METADATA_FOR_PUBLISH`` lever instead.
+    """
+    from app.standards.dcat_us.validation import validate_dcat_us3
+
     now = datetime.now(timezone.utc).isoformat()
+    entries: list[dict] = []
+    for ds in datasets:
+        entry = record_to_dcat_us3(ds, base_url, include_context=False)
+        if validate_dcat_us3(entry, "Dataset")["valid"]:
+            entries.append(entry)
+
     return {
         "@context": DCAT_US_CONTEXT,
         "@id": f"{base_url}/datasets/dcat-us/3.0",
@@ -115,9 +131,7 @@ def catalog_to_dcat_us3(datasets: list[Dataset], base_url: str) -> dict:
         "modified": now,
         "language": "en",
         "publisher": {"@type": "Organization", "name": "GeoLens"},
-        "dataset": [
-            record_to_dcat_us3(ds, base_url, include_context=False) for ds in datasets
-        ],
+        "dataset": entries,
     }
 
 
