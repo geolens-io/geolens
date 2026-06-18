@@ -10,6 +10,7 @@ from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.core.db.tenant_session import defer_async_with_tenant
 from app.core.identity import Identity
 from app.core.persistent_config import UPLOAD_MAX_SIZE_MB, get_allowed_extensions_list
 from app.platform.extensions import get_catalog_port, get_processing_port
@@ -194,7 +195,8 @@ async def _queue_reupload_job(
         raise ManifestSourceError("Manifest reupload job is missing file_path")
 
     async def _defer_reupload() -> None:
-        await task.defer_async(
+        await defer_async_with_tenant(
+            task,
             job_id=str(job.id),
             dataset_id=str(dataset_id),
             file_path=file_path,

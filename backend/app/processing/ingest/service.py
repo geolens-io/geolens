@@ -20,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.identity import Identity
 from app.core.config import settings
+from app.core.db.tenant_session import defer_async_with_tenant
 from app.platform.extensions import get_processing_port
 from app.processing.ingest.metadata import (
     add_4326_column,
@@ -604,7 +605,8 @@ async def create_vrt_job(
     # real state instead of waiting 60 minutes for PENDING_TIMEOUT
     # (RESILIENCE-2).
     async def _defer_vrt() -> None:
-        await ingest_vrt.defer_async(
+        await defer_async_with_tenant(
+            ingest_vrt,
             job_id=str(job.id),
             user_id=str(user.id),
             source_dataset_ids=json.dumps(
@@ -727,7 +729,8 @@ async def create_fan_out_jobs(
         file_path = new_job.file_path or ""
 
         async def _defer_fan_out_layer() -> None:
-            await ingest_file.defer_async(
+            await defer_async_with_tenant(
+                ingest_file,
                 job_id=str(new_job.id),
                 file_path=file_path,
                 user_id=str(new_job.created_by or ""),
@@ -810,7 +813,8 @@ async def queue_ingest_job(
         source_url = job.source_url
 
         async def _defer_service() -> None:
-            await ingest_service.defer_async(
+            await defer_async_with_tenant(
+                ingest_service,
                 job_id=str(job.id),
                 source_url=source_url,
                 source_layer=job.source_layer or "",
@@ -835,7 +839,8 @@ async def queue_ingest_job(
     if (job.user_metadata or {}).get("file_type") == "raster":
         # Raster file job — route to dedicated raster queue
         async def _defer_raster() -> None:
-            await ingest_raster.defer_async(
+            await defer_async_with_tenant(
+                ingest_raster,
                 job_id=str(job.id),
                 file_path=file_path,
                 user_id=user_id,
@@ -863,7 +868,8 @@ async def queue_ingest_job(
         task = ingest_file
         if use_priority:
             task = task.configure(queue="priority")
-        await task.defer_async(
+        await defer_async_with_tenant(
+            task,
             job_id=str(job.id),
             file_path=file_path,
             user_id=user_id,

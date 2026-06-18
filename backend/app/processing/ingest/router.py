@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.identity import Identity
 from app.modules.auth.dependencies import get_current_active_user, require_permission
 from app.core.config import settings
+from app.core.db.tenant_session import defer_async_with_tenant
 from app.core.dependencies import get_db
 from app.processing.ingest.ogr import (
     IngestionError,
@@ -1110,7 +1111,8 @@ async def add_vrt_source(
     inserted_source_id = request.source_dataset_id
 
     async def _defer() -> None:
-        await regenerate_vrt.defer_async(
+        await defer_async_with_tenant(
+            regenerate_vrt,
             job_id=str(job.id),
             vrt_dataset_id=str(dataset_id),
             triggered_by=str(user.id),
@@ -1249,7 +1251,8 @@ async def remove_vrt_source(
     await db.commit()
 
     async def _defer() -> None:
-        await regenerate_vrt.defer_async(
+        await defer_async_with_tenant(
+            regenerate_vrt,
             job_id=str(job.id),
             vrt_dataset_id=str(dataset_id),
             triggered_by=str(user.id),

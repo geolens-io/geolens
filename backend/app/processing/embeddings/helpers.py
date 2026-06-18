@@ -7,6 +7,7 @@ import structlog
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.db.tenant_session import defer_async_with_tenant
 from app.processing.embeddings.models import RecordEmbedding
 
 logger = structlog.stdlib.get_logger(__name__)
@@ -120,6 +121,6 @@ async def defer_embedding(dataset) -> None:
     try:
         from app.processing.embeddings.tasks import embed_record
 
-        await embed_record.defer_async(record_id=str(dataset.record.id))
+        await defer_async_with_tenant(embed_record, record_id=str(dataset.record.id))
     except Exception:  # broad: defer is non-fatal; any job-runner/DB error should not block the parent flow
         logger.warning("Failed to defer embedding task", dataset_id=str(dataset.id))

@@ -6,6 +6,7 @@ from typing import Any
 
 import structlog
 
+from app.core.db.tenant_session import tenant_task
 from app.platform.cache.tiles import invalidate_catalog_cache
 from app.processing.raster.cog import (
     check_and_prepare_cog,
@@ -255,6 +256,7 @@ async def _cleanup_orphaned_storage_keys(keys: list[str], *, job_id: str) -> Non
 
 
 @task_app.task(queue="raster", retry=0, aliases=["app.ingest.tasks.ingest_raster"])
+@tenant_task
 async def ingest_raster(job_id: str, file_path: str, user_id: str, **kwargs) -> None:
     """Background task: validate GeoTIFF, convert to COG, extract metadata, register dataset.
 

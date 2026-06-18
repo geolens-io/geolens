@@ -20,6 +20,7 @@ from app.core.identity import Identity
 from app.modules.auth.dependencies import require_permission
 from app.modules.catalog.authorization import check_dataset_access
 from app.core.config import settings
+from app.core.db.tenant_session import defer_async_with_tenant
 from app.modules.catalog.datasets.domain.schemas import (
     ReuploadCommitRequest,
     ReuploadCommitResponse,
@@ -520,17 +521,14 @@ async def reupload_commit(
         source_url = job.source_url
 
         async def _defer_service() -> None:
-            await (
-                get_catalog_port()
-                .reupload_service_task()
-                .defer_async(
-                    job_id=str(job.id),
-                    dataset_id=str(dataset_id),
-                    source_url=source_url,
-                    source_layer=job.source_layer or "",
-                    user_id=str(user.id),
-                    token=request.token,
-                )
+            await defer_async_with_tenant(
+                get_catalog_port().reupload_service_task(),
+                job_id=str(job.id),
+                dataset_id=str(dataset_id),
+                source_url=source_url,
+                source_layer=job.source_layer or "",
+                user_id=str(user.id),
+                token=request.token,
             )
 
         await defer_with_orphan_guard(_defer_service, rollback=rollback, db=db)
@@ -560,31 +558,24 @@ async def reupload_commit(
         ):
 
             async def _defer_priority() -> None:
-                await (
-                    get_catalog_port()
-                    .reupload_file_task()
-                    .configure(queue="priority")
-                    .defer_async(
-                        job_id=str(job.id),
-                        dataset_id=str(dataset_id),
-                        file_path=file_path,
-                        user_id=str(user.id),
-                    )
+                await defer_async_with_tenant(
+                    get_catalog_port().reupload_file_task().configure(queue="priority"),
+                    job_id=str(job.id),
+                    dataset_id=str(dataset_id),
+                    file_path=file_path,
+                    user_id=str(user.id),
                 )
 
             await defer_with_orphan_guard(_defer_priority, rollback=rollback, db=db)
         else:
 
             async def _defer_default() -> None:
-                await (
-                    get_catalog_port()
-                    .reupload_file_task()
-                    .defer_async(
-                        job_id=str(job.id),
-                        dataset_id=str(dataset_id),
-                        file_path=file_path,
-                        user_id=str(user.id),
-                    )
+                await defer_async_with_tenant(
+                    get_catalog_port().reupload_file_task(),
+                    job_id=str(job.id),
+                    dataset_id=str(dataset_id),
+                    file_path=file_path,
+                    user_id=str(user.id),
                 )
 
             await defer_with_orphan_guard(_defer_default, rollback=rollback, db=db)

@@ -14,12 +14,16 @@ byte-identical guarantee (T-1207-08).
   - Alternatively reads a ``tenant_id`` or ``tid`` claim from a Bearer JWT
     if the Authorization header is present (no re-auth / no DB lookup — the
     token is decoded with ``verify_signature=False`` to read the claim only).
-  - Sets ``request.state.tenant_id`` to the resolved slug/claim string, or
-    ``None`` if neither signal is present.
+  - Resolves the signal to the tenant **UUID** (a subdomain slug is looked up
+    against the core-owned ``catalog.tenants`` registry; a JWT claim that is
+    already a UUID passes through) and stores it on
+    ``request.state.tenant_id``, or ``None`` if unresolved.
   - Does NOT raise or return an HTTP error (enforcement is Phase 1208 RLS).
 
-Mapping a subdomain slug to a tenant UUID via the database is deferred to
-Phase 1208's session GUC layer when the cloud overlay is present.
+Slug→UUID resolution happens here (not in the GUC layer): the Phase 1208 RLS
+GUC casts ``app.current_tenant::uuid`` and the per-tenant data-schema helpers
+validate UUIDs, so ``current_tenant_var`` must carry a UUID — never a slug.
+An unresolved slug yields ``None`` so RLS fail-closes the unscoped request.
 """
 
 from __future__ import annotations
@@ -27,6 +31,7 @@ from __future__ import annotations
 import base64
 import json
 import re
+import uuid
 
 import structlog
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -97,6 +102,53 @@ def _extract_jwt_tenant_claim(authorization: str) -> str | None:
         return None
 
 
+async def _resolve_tenant_uuid(tenant_signal: str | None) -> str | None:
+    """Resolve a tenant signal (subdomain slug or JWT claim) to a tenant UUID.
+
+    The Phase 1208 RLS GUC is cast to ``::uuid`` and the per-tenant data-schema
+    helpers validate UUIDs, so ``current_tenant_var`` must hold a UUID string,
+    never a slug (Gap A — Codex review of PR #256).
+
+    - A signal that already parses as a UUID (the cloud JWT stamps ``tid`` as
+      the tenant UUID) is returned unchanged — no DB hit.
+    - A subdomain slug is resolved against the core-owned ``catalog.tenants``
+      registry (NOT one of the RLS-protected tenant-shared tables, so the
+      lookup needs no tenant context). Returns the UUID string, or ``None``
+      when the slug matches no tenant.
+
+    Resilient by design: any DB error resolves to ``None`` (logged) rather than
+    500-ing the request — enforcement is RLS, not this middleware.
+    """
+    if tenant_signal is None:
+        return None
+
+    # Already a UUID (e.g. cloud JWT ``tid`` claim) → use as-is, no DB hit.
+    try:
+        return str(uuid.UUID(tenant_signal))
+    except (ValueError, AttributeError, TypeError):
+        pass  # not a UUID → treat as a subdomain slug and resolve via the DB
+
+    try:
+        from sqlalchemy import text
+
+        from app.core.db import async_session
+
+        async with async_session() as session:
+            # Bound param (T-1208-01); catalog.tenants has no RLS (registry).
+            resolved = await session.scalar(
+                text("SELECT id FROM catalog.tenants WHERE slug = :slug LIMIT 1"),
+                {"slug": tenant_signal},
+            )
+        return str(resolved) if resolved is not None else None
+    except Exception:  # broad: a resolution failure must not 500 the request
+        logger.warning(
+            "tenant slug resolution failed; running request unscoped",
+            slug=tenant_signal,
+            exc_info=True,
+        )
+        return None
+
+
 class TenantContextMiddleware(BaseHTTPMiddleware):
     """Resolve a tenant signal into ``request.state.tenant_id``.
 
@@ -115,18 +167,24 @@ class TenantContextMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         # multi_tenant resolution path — resolution-only, no enforcement.
-        tenant_id: str | None = None
+        tenant_signal: str | None = None
 
         # 1. Try subdomain from Host header (highest priority, cheapest).
         host = request.headers.get("host", "")
         if host:
-            tenant_id = _extract_subdomain(host)
+            tenant_signal = _extract_subdomain(host)
 
         # 2. Fall back to JWT claim if no subdomain signal.
-        if tenant_id is None:
+        if tenant_signal is None:
             auth_header = request.headers.get("authorization", "")
             if auth_header:
-                tenant_id = _extract_jwt_tenant_claim(auth_header)
+                tenant_signal = _extract_jwt_tenant_claim(auth_header)
+
+        # Resolve the slug/claim to the tenant UUID BEFORE it reaches the RLS
+        # GUC (cast ::uuid) or the data-schema helpers (UUID-validated). A raw
+        # subdomain slug here would raise on the first scoped query instead of
+        # scoping the request (Gap A — Codex review of PR #256).
+        tenant_id = await _resolve_tenant_uuid(tenant_signal)
 
         request.state.tenant_id = tenant_id
 

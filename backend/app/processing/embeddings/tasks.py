@@ -3,12 +3,14 @@
 import structlog
 from sqlalchemy.orm import joinedload
 
+from app.core.db.tenant_session import tenant_task
 from app.processing.ingest.tasks import task_app
 
 logger = structlog.stdlib.get_logger(__name__)
 
 
 @task_app.task(queue="ingest", retry=1, aliases=["app.embeddings.tasks.embed_record"])
+@tenant_task
 async def embed_record(record_id: str) -> None:
     """Generate and store an embedding for a catalog record.
 

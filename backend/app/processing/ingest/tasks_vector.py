@@ -6,6 +6,7 @@ from pathlib import Path
 
 import structlog
 
+from app.core.db.tenant_session import tenant_task
 from app.processing.ingest.tasks_common import (
     IngestContext,
     _append_job_warning,
@@ -53,6 +54,7 @@ def _should_unlink_staging(
 
 
 @task_app.task(queue="ingest", retry=0, aliases=["app.ingest.tasks.ingest_file"])
+@tenant_task
 async def ingest_file(job_id: str, file_path: str, user_id: str, **kwargs) -> None:
     """Background task: run ogr2ogr, extract metadata, register dataset.
 
@@ -430,6 +432,7 @@ async def ingest_file(job_id: str, file_path: str, user_id: str, **kwargs) -> No
 
 
 @task_app.task(queue="ingest", retry=0, aliases=["app.ingest.tasks.ingest_service"])
+@tenant_task
 async def ingest_service(
     job_id: str,
     source_url: str,

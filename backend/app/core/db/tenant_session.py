@@ -49,9 +49,10 @@ async_session, and AsyncConnection.begin()).  The listener receives the
 
 from __future__ import annotations
 
+import functools
 from contextlib import contextmanager
 from contextvars import ContextVar
-from typing import Generator
+from typing import Any, Awaitable, Callable, Generator, TypeVar
 
 import structlog
 from sqlalchemy import text
@@ -161,3 +162,56 @@ def tenant_job_context(tenant_id: str | None) -> Generator[None, None, None]:
         yield
     finally:
         current_tenant_var.reset(token)
+
+
+_TaskFn = TypeVar("_TaskFn", bound=Callable[..., Awaitable[Any]])
+
+
+def tenant_task(fn: _TaskFn) -> _TaskFn:
+    """Bind the per-job tenant context around a Procrastinate task callable.
+
+    Procrastinate worker jobs run in a SEPARATE process that does not share the
+    request-plane ``current_tenant_var``. This decorator — applied UNDER
+    ``@task_app.task`` — reads the ``tenant_id`` job kwarg (threaded in at
+    enqueue time by :func:`defer_async_with_tenant`) and binds
+    ``current_tenant_var`` for the duration of the task via
+    :func:`tenant_job_context` (which resets it on exit, so it cannot bleed into
+    the next job on a reused worker asyncio task).
+
+    Single-tenant (default): ``tenant_job_context`` is a hard no-op, so the
+    wrapper is byte-identical to calling ``fn`` directly. The ``tenant_id``
+    kwarg is POPPED before ``fn`` is called, so tasks need no signature change
+    and tasks without ``**kwargs`` (e.g. ``embed_record``) are unaffected.
+
+    Worker correctness (Codex review of PR #256): without this, a multi_tenant
+    worker task sees ``current_tenant_var`` unset and falls back to the shared
+    ``data`` schema / global reader / no tenant storage prefix.
+    """
+
+    @functools.wraps(fn)
+    async def _wrapper(*args: Any, **kwargs: Any) -> Any:
+        with tenant_job_context(kwargs.pop("tenant_id", None)):
+            return await fn(*args, **kwargs)
+
+    return _wrapper  # type: ignore[return-value]
+
+
+async def defer_async_with_tenant(task: Any, /, **kwargs: Any) -> Any:
+    """``task.defer_async(**kwargs)`` with the active tenant id threaded in.
+
+    Captures ``current_tenant_var`` at enqueue time and forwards it as the
+    ``tenant_id`` job kwarg so the worker — a separate process that does not
+    share the request ContextVar — can rebind the tenant context at task entry
+    (see :func:`tenant_task`).
+
+    Single-tenant (default): ``current_tenant_var`` is always ``None`` → no
+    kwarg is added and this is byte-identical to ``task.defer_async(**kwargs)``.
+    An explicit ``tenant_id`` passed by the caller is respected (``setdefault``).
+
+    ``task`` may be a bare task or a ``task.configure(...)`` result — both expose
+    ``defer_async``.
+    """
+    tid = current_tenant_var.get()
+    if tid is not None:
+        kwargs.setdefault("tenant_id", tid)
+    return await task.defer_async(**kwargs)

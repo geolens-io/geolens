@@ -20,7 +20,7 @@ import structlog
 from sqlalchemy import select
 
 from app.platform.cache.tiles import invalidate_catalog_cache
-from app.core.db import async_session
+from app.core.db import async_session, tenant_task
 from app.processing.embeddings.helpers import defer_embedding
 from app.processing.raster.cog import extract_raster_metadata, sha256_file
 from app.processing.raster.quicklook import generate_quicklook
@@ -151,6 +151,7 @@ async def create_vrt_dataset(
 
 
 @task_app.task(queue="raster", retry=0, aliases=["app.ingest.tasks.ingest_vrt"])
+@tenant_task
 async def ingest_vrt(
     job_id: str,
     user_id: str,
@@ -427,6 +428,7 @@ async def ingest_vrt(
 
 
 @task_app.task(queue="raster", retry=0, aliases=["app.ingest.tasks.regenerate_vrt"])
+@tenant_task
 async def regenerate_vrt(
     job_id: str, vrt_dataset_id: str, triggered_by: str = "system", **kwargs
 ) -> None:

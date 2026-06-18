@@ -7,6 +7,7 @@ from pathlib import Path
 import structlog
 from sqlalchemy import select
 
+from app.core.db.tenant_session import tenant_task
 from app.platform.cache.tiles import invalidate_catalog_cache
 from app.processing.raster.cog import sha256_file
 
@@ -26,6 +27,7 @@ from app.processing.ingest.tasks_common import (
 
 
 @task_app.task(queue="ingest", retry=0, aliases=["app.ingest.tasks.reupload_file"])
+@tenant_task
 async def reupload_file(
     job_id: str, dataset_id: str, file_path: str, user_id: str, **kwargs
 ) -> None:
@@ -326,6 +328,7 @@ async def reupload_file(
 
 
 @task_app.task(queue="ingest", retry=0, aliases=["app.ingest.tasks.reupload_service"])
+@tenant_task
 async def reupload_service(
     job_id: str,
     dataset_id: str,

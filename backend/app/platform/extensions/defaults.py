@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from app.core.db.tenant_session import defer_async_with_tenant
+
 
 class DefaultBrandingExtension:
     """Default branding: shows community badge."""
@@ -868,7 +870,7 @@ class DefaultCatalogPort:
     async def defer_embed_record(self, record_id):  # type: ignore[no-untyped-def]
         from app.processing.embeddings.tasks import embed_record
 
-        await embed_record.defer_async(record_id=str(record_id))
+        await defer_async_with_tenant(embed_record, record_id=str(record_id))
 
     async def get_raster_asset(self, session, dataset_id):  # type: ignore[no-untyped-def]
         from sqlalchemy import select
