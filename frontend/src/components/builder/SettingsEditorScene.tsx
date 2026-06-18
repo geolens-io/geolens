@@ -148,6 +148,16 @@ export const SettingsEditorScene = memo(function SettingsEditorScene({
                 {t('settings.boundTo', { defaultValue: 'Bound to: {{name}}', name: boundLayerName })}
               </p>
             )}
+            {isTerrainActive && (
+              // #186 (c): guide users with a small high-res DEM toward draping it
+              // over a coarse global DEM so terrain stays smooth across the map.
+              <p className="mt-1 text-[11px] italic text-muted-foreground">
+                {t('settings.terrainSmallDemTip', {
+                  defaultValue:
+                    'Tip: for a small high-resolution DEM, drape it over a coarse global DEM (e.g. Copernicus GLO-30) so terrain stays smooth beyond its extent.',
+                })}
+              </p>
+            )}
             {!isTerrainActive && (
               <p className="text-xs italic text-muted-foreground">
                 {t('settings.terrainInactiveHint', {

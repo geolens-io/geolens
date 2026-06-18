@@ -1186,6 +1186,7 @@
     "projectionMercator": "Mercator",
     "projectionGlobe": "Globe",
     "projectionAria": "Map projection",
-    "globeDisclaimer": "Globe projection is experimental. Some layers may not render correctly."
+    "globeDisclaimer": "Globe projection is experimental. Some layers may not render correctly.",
+    "terrainSmallDemTip": "Tip: for a small high-resolution DEM, drape it over a coarse global DEM (e.g. Copernicus GLO-30) so terrain stays smooth beyond its extent."
   }
 }

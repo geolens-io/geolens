@@ -1176,7 +1176,8 @@
     "projectionMercator": "Mercator",
     "projectionGlobe": "Globus",
     "projectionAria": "Kartenprojektion",
-    "globeDisclaimer": "Die Globusprojektion ist experimentell. Einige Layer werden möglicherweise nicht korrekt dargestellt."
+    "globeDisclaimer": "Die Globusprojektion ist experimentell. Einige Layer werden möglicherweise nicht korrekt dargestellt.",
+    "terrainSmallDemTip": "Tipp: Legen Sie ein kleines hochauflösendes DEM über ein grobes globales DEM (z. B. Copernicus GLO-30), damit das Terrain über seine Ausdehnung hinaus gleichmäßig bleibt."
   },
   "common": {
     "reload": "Neu laden"
