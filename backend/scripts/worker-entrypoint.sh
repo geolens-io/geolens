@@ -74,6 +74,14 @@ if [ -d "${ENTERPRISE_PATH}" ] && [ -f "${ENTERPRISE_PATH}/pyproject.toml" ]; th
     fi
 fi
 
+# MIG-01: the worker does NOT run database migrations here. It relies on
+# `depends_on: migrate (service_completed_successfully)` in docker-compose so
+# the dedicated migrate service has already upgraded the schema before the
+# worker starts. There is therefore no migration step to fail-close on in this
+# entrypoint (the fail-closed guard lives in api-entrypoint.sh's migration
+# step). The worker's own fail-loud startup guards (BUG-003 overlay check,
+# WORK-02 port-resolution assertion, and MIG-02 schema-skew guard) run inside
+# the Python bootstrap in app/platform/jobs/worker.py:main().
 if [ "$#" -eq 0 ]; then
     set -- sh -c "uv run --no-dev python -m app.worker"
 fi

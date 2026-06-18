@@ -72,7 +72,15 @@ if [ -d "${ENTERPRISE_PATH}" ] && [ -f "${ENTERPRISE_PATH}/pyproject.toml" ]; th
 fi
 
 # Run database migrations (idempotent — safe to run on every startup)
-# The dedicated migrate service runs first; this is a safety net.
+# The dedicated migrate service runs first; this is a fail-closed safety net.
+#
+# MIG-01: `alembic upgrade heads` is idempotent — re-running against an
+# already-migrated DB is a no-op that exits 0. So a NON-zero exit is a REAL
+# error (migration failure, DB unreachable, broken chain), not a benign
+# "already applied" case. Booting the API on top of a failed/partial
+# migration silently serves a broken schema. Refuse to start instead: print
+# a clear FATAL to stderr and exit with the migration's return code (we never
+# reach the uvicorn exec below).
 echo "Running database migrations..."
 migration_rc=0
 if [ "$(id -u)" -eq 0 ]; then
@@ -82,7 +90,12 @@ else
     uv run --no-dev alembic upgrade heads 2>&1 || migration_rc=$?
 fi
 if [ "${migration_rc}" -ne 0 ]; then
-    echo "WARNING: alembic upgrade heads exited with code ${migration_rc} — migrations may already be applied by the migrate service, or a real error occurred. Check migrate service logs if the API fails to start." >&2
+    echo "FATAL: database migrations failed (rc=${migration_rc}); refusing to start." >&2
+    echo "       'alembic upgrade heads' is idempotent, so a non-zero exit is a real" >&2
+    echo "       error (failed/partial migration, unreachable DB, or broken chain) —" >&2
+    echo "       not an already-applied no-op. Check the migrate service logs and the" >&2
+    echo "       DB connectivity before retrying." >&2
+    exit "${migration_rc}"
 fi
 
 if [ "$#" -eq 0 ]; then
