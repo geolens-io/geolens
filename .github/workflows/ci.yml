@@ -282,7 +282,11 @@ jobs:
       - name: Install postgresql-client + tooling
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends postgresql-client awscli curl
+          # awscli was dropped from the Ubuntu 24.04 (noble) apt archive
+          # ("no installation candidate"); the ubuntu-latest runner already ships
+          # AWS CLI v2 preinstalled, and the only `aws` use is `s3 mb/cp` against
+          # MinIO in the S3-offset step below — so rely on the preinstalled binary.
+          sudo apt-get install -y --no-install-recommends postgresql-client curl
 
       - name: Local round-trip (DB + staging tar, no S3)
         env:
@@ -695,6 +699,25 @@ jobs:
         # and bare `head` errors "Multiple head revisions present". OSS-only is
         # unaffected (heads == head). Mirrors the migrate service + MIG-04 job.
         run: uv run alembic upgrade heads
+
+      - name: Normalize search_path for the drift check (MIG-03)
+        # `alembic check` reflects the live schema and diffs it against the ORM
+        # metadata. Our models are explicitly schema-qualified
+        # (`__table_args__ = {"schema": "catalog"}`) and env.py runs the check with
+        # include_schemas=True. The setup step set the postgres DB default
+        # search_path to `catalog, data, public` — with catalog FIRST it is the
+        # connection-default schema, so alembic reflects every catalog table under
+        # the unqualified/None key while the metadata is keyed under explicit
+        # `catalog`. They never match, so `alembic check` reports ALL tables as
+        # add_table (a wholesale empty-reflection false positive, NOT real drift).
+        # Dropping catalog from the default (keeping data, public) makes reflection
+        # key catalog tables under `catalog`, matching the qualified metadata, so
+        # the gate fires only on REAL drift. Migrations are unaffected: each is
+        # schema-qualified and 0002_procrastinate sets its own search_path, so they
+        # already ran above under `catalog, data, public`.
+        run: |
+          PGPASSWORD=geolens_test psql -h localhost -U geolens -d postgres -c \
+            "ALTER DATABASE postgres SET search_path TO data, public;"
 
       # MIG-03: autogenerate drift gate. With the DB now at head, `alembic check`
       # exits non-zero if the ORM models have drifted from the migration scripts
