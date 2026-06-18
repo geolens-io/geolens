@@ -42,7 +42,10 @@ need_command docker
 # container (`compose exec -T db pg_dump`, Step 3 below), which Docker-only
 # self-hosters always have. Requiring it on the host would abort the upgrade on
 # machines that never installed Postgres client tools.
-need_command git
+# git is NOT required up front: it is only needed to resolve the LATEST release
+# tag when no explicit target is given (Step 2 below) and for the best-effort
+# release-file sync (Step 3, which warns + continues pull-only without it). A
+# Docker-only host can run `scripts/upgrade.sh <version>` with no git installed.
 docker compose version >/dev/null 2>&1 || fail "Docker Compose v2 is required."
 
 [ -f .env ] || fail "No .env found in $PROJECT_ROOT. Run scripts/install.sh first."
@@ -76,6 +79,7 @@ export GEOLENS_VERSION="${CURRENT_VERSION:-latest}"
 if [ "$#" -ge 1 ] && [ -n "${1:-}" ]; then
   TARGET_RAW="$1"
 else
+  need_command git  # resolving the latest tag needs `git ls-remote`
   TARGET_RAW="$(resolve_latest_remote_tag "$REPO_URL")"
   [ -n "$TARGET_RAW" ] || fail "Could not resolve a release tag from $REPO_URL. Pass an explicit version: scripts/upgrade.sh <version>"
 fi
@@ -154,6 +158,16 @@ rollback_trap() {
 }
 trap rollback_trap EXIT
 
+# Quiesce the app's DB writers (api + worker) AFTER the backup + trap (Codex P1):
+# the schema migration below must not run concurrently with old-version request /
+# job handling, and no post-dump writes (which the backup does NOT contain, so a
+# rollback would lose them) should be accepted. db stays up (migrate needs it);
+# the final `compose up -d` restarts api/worker on the new images, and a failed
+# upgrade's rollback recipe does the same.
+say "Stopping api + worker to quiesce writers before migration"
+compose stop api worker >/dev/null 2>&1 || warn "Could not stop api/worker (may already be down) — continuing."
+say ""
+
 # --- Step 4: bump the version pin -------------------------------------------
 say "Step 2/5: pinning GEOLENS_VERSION=$TARGET_VERSION in .env"
 export GEOLENS_VERSION="$TARGET_VERSION"
@@ -173,7 +187,7 @@ say ""
 # aborting the upgrade. Local edits to the tracked files above are replaced.
 TARGET_TAG="v${TARGET_VERSION}"
 say "Step 3/5: syncing release files to ${TARGET_TAG}, then pulling prebuilt images"
-if git rev-parse --git-dir >/dev/null 2>&1; then
+if command -v git >/dev/null 2>&1 && git rev-parse --git-dir >/dev/null 2>&1; then
   if git fetch --depth 1 --quiet "$REPO_URL" "refs/tags/${TARGET_TAG}:refs/tags/${TARGET_TAG}" 2>/dev/null \
      || git fetch --tags --quiet "$REPO_URL" 2>/dev/null; then
     # Compose files are the critical part (image tags + services/mounts/env).
@@ -193,7 +207,7 @@ if git rev-parse --git-dir >/dev/null 2>&1; then
     warn "Could not fetch ${TARGET_TAG} from ${REPO_URL} — keeping the current checkout's compose/scripts."
   fi
 else
-  warn "Install dir is not a git checkout — cannot sync release files; keeping the current compose/scripts."
+  warn "git unavailable or not a git checkout — skipping release-file sync; keeping the current compose/scripts."
 fi
 say ""
 

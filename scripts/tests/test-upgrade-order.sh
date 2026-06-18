@@ -64,6 +64,7 @@ if [ "$1" = "compose" ]; then
   if [ "$1" = "-f" ]; then shift; shift; fi
   case "$1" in
     version) exit 0 ;;
+    stop)    echo "stop_app" >> "$LOG"; exit 0 ;;
     pull)    echo "pull" >> "$LOG"; exit 0 ;;
     exec)
       # docker compose exec -T db pg_dump ...  -> the backup path; the real
@@ -181,12 +182,20 @@ else
   bad "success path did not print rollback recipe"
 fi
 
-# Full expected order recorded: backup, pull, migrate_up, app_up
+# Full expected order recorded: backup, stop_app, pull, migrate_up, app_up
 order="$(tr '\n' ',' < "$WORK/calls.log")"
-if [ "$order" = "backup,pull,migrate_up,app_up," ]; then
-  ok "full call order is backup -> pull -> migrate -> app_up"
+if [ "$order" = "backup,stop_app,pull,migrate_up,app_up," ]; then
+  ok "full call order is backup -> stop api/worker -> pull -> migrate -> app_up"
 else
   bad "unexpected call order: $order"
+fi
+
+# Writers quiesced: api/worker stopped AFTER the backup and BEFORE migrate (P1).
+s="$(pos_of stop_app)"
+if [ -n "$s" ] && [ -n "$b" ] && [ -n "$m" ] && [ "$b" -lt "$s" ] && [ "$s" -lt "$m" ]; then
+  ok "api/worker stopped after backup and before migrate ($b < $s < $m)"
+else
+  bad "writers not quiesced between backup and migrate (backup=$b stop=$s migrate=$m)"
 fi
 
 # UPG release-file sync (Codex P2): the prebuilt flow fetches the target tag and
