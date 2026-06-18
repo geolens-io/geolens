@@ -372,9 +372,33 @@ _OPENAPI_TAGS = [
 # falls back to LOG_JSON when ENVIRONMENT is unset (backward compatibility).
 _is_production = settings.is_production
 
+
+# REL-03: single version source of truth. The app version is derived from the
+# installed backend distribution metadata (backend/pyproject.toml [project].version,
+# distribution name "geolens-backend") instead of a hand-maintained literal that
+# silently drifts from pyproject/openapi/SDKs. `make version-check` enforces that
+# all version sites agree; this is the runtime arm of that contract.
+#
+# Fallback: when the package is not installed as a distribution (e.g. running
+# from a source checkout with PYTHONPATH but no `uv pip install -e .`), there is
+# no metadata to read. We fall back to the current published line so import never
+# crashes. Keep this fallback in lockstep with backend/pyproject.toml — it is one
+# of the sites `make bump` rewrites.
+_FALLBACK_APP_VERSION = "1.2.4"
+
+
+def _resolve_app_version() -> str:
+    from importlib.metadata import PackageNotFoundError, version
+
+    try:
+        return version("geolens-backend")
+    except PackageNotFoundError:
+        return _FALLBACK_APP_VERSION
+
+
 app = FastAPI(
     title="GeoLens API",
-    version="1.2.4",
+    version=_resolve_app_version(),
     summary="PostGIS-native geospatial data catalog with OGC API Features compliance",
     description=_DESCRIPTION,
     root_path="/api",
