@@ -531,9 +531,13 @@ services:
       - "127.0.0.1:9000:9000"
       - "127.0.0.1:9001:9001"
     environment:
-      # Fail-closed creds (no var-default fallback).
-      MINIO_ROOT_USER: "${MINIO_ROOT_USER:?MINIO_ROOT_USER is required for --profile cloud-dev (set in .env)}"
-      MINIO_ROOT_PASSWORD: "${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD is required for --profile cloud-dev}"
+      # INST-01 (Phase 1218): empty-default (:-) NOT fail-closed (:?). The :? form
+      # aborts `compose config`/`up` at PARSE time even when the cloud-dev profile is
+      # inactive, breaking a verbatim-.env.example install. With :- the default
+      # install parses cleanly; when the cloud-dev profile IS active and creds are
+      # unset, MinIO refuses to start at runtime — fail-closed moves parse→runtime.
+      MINIO_ROOT_USER: "${MINIO_ROOT_USER:-}"
+      MINIO_ROOT_PASSWORD: "${MINIO_ROOT_PASSWORD:-}"
     volumes:
       - minio_data:/data
     healthcheck:
@@ -560,11 +564,12 @@ services:
     # which collapsed newlines to spaces, destroying the heredoc that wrote the
     # CORS policy JSON — mc anonymous set-json never ran. Fixed by mounting the
     # setup logic as a real script file (heredoc preserved verbatim).
-    # Fail-closed creds: ${MINIO_ROOT_USER:?} at compose parse time ensures the
-    # stack fails immediately if the variable is unset (no silent empty-cred auth).
+    # INST-01 (Phase 1218): empty-default (:-) so a verbatim-.env.example install
+    # parses without the cloud-dev profile; runtime rejects empty creds (fail-closed
+    # scope moved from parse-time to runtime). See minio service above.
     environment:
-      MINIO_ROOT_USER: "${MINIO_ROOT_USER:?MINIO_ROOT_USER is required for --profile cloud-dev}"
-      MINIO_ROOT_PASSWORD: "${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD is required for --profile cloud-dev}"
+      MINIO_ROOT_USER: "${MINIO_ROOT_USER:-}"
+      MINIO_ROOT_PASSWORD: "${MINIO_ROOT_PASSWORD:-}"
     volumes:
       - ./scripts/minio-setup.sh:/usr/local/bin/minio-setup.sh:ro
     entrypoint: ["/bin/sh", "/usr/local/bin/minio-setup.sh"]
