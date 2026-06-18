@@ -230,6 +230,20 @@ _CONFIG_SHARED_ENGINE_MODULES = {
     "test_1183_s3_spool_upload",
 }
 
+# Modules whose tests drive the app's SHARED async engine (app.core.db.session.engine)
+# through pooled code paths — e.g. assert_schema_in_sync() (MIG-02) and
+# recover_stale_jobs() — AND run under -n 4, where pytest-asyncio (strict mode) gives
+# each test its OWN event loop. The app engine uses a QueuePool by default, so a
+# pooled asyncpg connection binds to the first loop that uses it; a later test on the
+# SAME xdist worker (a fresh loop) that checks out that pooled connection raises
+# "got Future attached to a different loop". Co-location grouping does NOT help here
+# (the leak is intra-worker, across loops). Disposing the pool after each such test
+# forces a fresh per-loop connection. (v1043 Pytest Parallel Isolation fix.)
+_DISPOSE_SHARED_ENGINE_MODULES = {
+    "test_worker",
+    "test_schema_skew_guard",
+}
+
 
 @pytest.hookimpl(tryfirst=True)
 def pytest_collection_modifyitems(config, items):
@@ -260,6 +274,28 @@ def pytest_collection_modifyitems(config, items):
             item.add_marker(pytest.mark.xdist_group("tenancy_global_state"))
         elif module_name in _CONFIG_SHARED_ENGINE_MODULES:
             item.add_marker(pytest.mark.xdist_group("config_shared_engine"))
+
+
+@pytest.fixture(autouse=True)
+def _dispose_shared_app_engine_after_test(request):
+    """Clear the app's shared async-engine pool after each test in the modules
+    listed in ``_DISPOSE_SHARED_ENGINE_MODULES`` (see that set for the why).
+
+    Sync fixture so it is safe for both sync and async tests under
+    pytest-asyncio strict mode. ``sync_engine.dispose()`` empties the connection
+    pool synchronously, so the next test (a fresh event loop) never checks out a
+    connection bound to a prior, now-closed loop.
+    """
+    yield
+    module = getattr(request.node, "module", None)
+    name = module.__name__.rsplit(".", 1)[-1] if module else ""
+    if name in _DISPOSE_SHARED_ENGINE_MODULES:
+        try:
+            from app.core.db.session import engine
+
+            engine.sync_engine.dispose()
+        except Exception:  # broad: best-effort pool cleanup; never fail teardown
+            pass
 
 
 @pytest.fixture(autouse=True)

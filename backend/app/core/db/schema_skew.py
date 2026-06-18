@@ -73,7 +73,7 @@ def _discover_extra_migration_paths() -> list[str]:
         except (ModuleNotFoundError, ImportError):
             # Overlay genuinely not installed — normal for OSS deployments.
             continue
-        except Exception:
+        except Exception:  # broad: a third-party/overlay migration entry point can fail to load for arbitrary reasons; warn + skip so the skew guard never crashes app boot
             logger.warning(
                 "schema_skew: failed to load migration entry point — its "
                 "version dir will be absent from the script-head computation",
@@ -86,7 +86,7 @@ def _discover_extra_migration_paths() -> list[str]:
                 for p in fn():
                     if pathlib.Path(p).is_dir():
                         paths.append(str(p))
-        except Exception:
+        except Exception:  # broad: an overlay-supplied migration-path provider can raise anything; warn + skip so the skew guard never crashes app boot
             logger.warning(
                 "schema_skew: migration-path provider failed — its version "
                 "dir will be absent from the script-head computation",
