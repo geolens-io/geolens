@@ -58,13 +58,14 @@ make_stubs() {
 #!/bin/sh
 LOG="${DOCKER_LOG:?}"
 MIGRATE_MODE="${DOCKER_MIGRATE_MODE:-ok}"
+STOP_MODE="${DOCKER_STOP_MODE:-ok}"
 if [ "$1" = "compose" ]; then
   shift
   # strip "-f <file>"
   if [ "$1" = "-f" ]; then shift; shift; fi
   case "$1" in
     version) exit 0 ;;
-    stop)    echo "stop_app" >> "$LOG"; exit 0 ;;
+    stop)    echo "stop_app" >> "$LOG"; [ "$STOP_MODE" = "fail" ] && exit 1; exit 0 ;;
     pull)    echo "pull" >> "$LOG"; exit 0 ;;
     exec)
       # docker compose exec -T db pg_dump ...  -> the backup path; the real
@@ -145,6 +146,7 @@ run_upgrade() {  # $1=migrate mode, rest=args to upgrade.sh
   make_stubs "$_mode"
   ( env "PATH=$SHIM:$PATH" GEOLENS_REPO_URL="file:///fake" \
       DOCKER_LOG="$CALLLOG" DOCKER_MIGRATE_MODE="$_mode" GIT_LOG="$GITLOG" \
+      DOCKER_STOP_MODE="${STOP_MODE:-ok}" \
       sh "$FAKE/scripts/upgrade.sh" "$@" </dev/null > "$WORK/out.txt" 2>&1 )
   echo $? > "$WORK/code.txt"
 }
@@ -299,6 +301,24 @@ if [ "$(cat "$WORK/code.txt")" != "0" ] && [ -z "$(pos_of pull)" ]; then
   ok "older target is refused before any pull (no downgrade)"
 else
   bad "older target was not refused (exit=$(cat "$WORK/code.txt"))"
+fi
+
+# ============================================================================
+# CASE 6 — writer quiesce fails: abort BEFORE the backup, restart writers (P1).
+# ============================================================================
+seed_prod_env
+STOP_MODE=fail
+run_upgrade ok 1.2.4
+STOP_MODE=ok
+if [ "$(cat "$WORK/code.txt")" != "0" ] && [ -z "$(pos_of backup)" ]; then
+  ok "failed writer quiesce aborts BEFORE the backup (no dump under active writers)"
+else
+  bad "failed quiesce did not abort before backup (exit=$(cat "$WORK/code.txt"), calls=$(tr '\n' ',' < "$WORK/calls.log"))"
+fi
+if [ -n "$(pos_of app_up)" ]; then
+  ok "failed quiesce restarts api/worker (restart_writers ran)"
+else
+  bad "failed quiesce did not restart api/worker"
 fi
 
 echo "1..$((PASS + FAIL))"

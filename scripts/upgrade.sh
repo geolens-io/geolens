@@ -130,7 +130,14 @@ BACKUP_FILE="$BACKUP_DIR/${POSTGRES_DB}_pre_${CURRENT_VERSION:-unknown}_to_${TAR
 # `compose up -d` (and a failed upgrade's rollback recipe) restart them too.
 restart_writers() { compose up -d api worker >/dev/null 2>&1 || true; }
 say "Stopping api + worker to quiesce writers before the backup + migration"
-compose stop api worker >/dev/null 2>&1 || warn "Could not stop api/worker (may already be down) — continuing."
+# Hard precondition (Codex P1): if the stop fails, a writer may still be running,
+# so the no-writers guarantee is NOT established — taking the rollback dump now
+# could miss acknowledged writes. Restart whatever we stopped and abort BEFORE the
+# backup (nothing irreversible has happened yet; this is before the rollback trap).
+if ! compose stop api worker >/dev/null 2>&1; then
+  restart_writers
+  fail "Could not stop api/worker to quiesce writers. Aborting before any changes were made (refusing to dump under active writers)."
+fi
 
 say "Step 1/5: pre-upgrade database backup -> $BACKUP_FILE"
 # -Fc custom-format dump (the format restore.sh expects via pg_restore). Stream
