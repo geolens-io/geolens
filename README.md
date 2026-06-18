@@ -66,11 +66,11 @@ GeoLens replaces that workflow:
 
 ## See It in Action
 
-The examples below use a JWT bearer token. Mint one against the local stack (the login endpoint accepts an OAuth2 password form, so use `-d` with form fields, not JSON):
+The examples below use a JWT bearer token. Mint one against the local stack (the login endpoint accepts an OAuth2 password form, so use `-d` with form fields, not JSON). Substitute your admin username and the password from `.env` (`grep '^GEOLENS_ADMIN_PASSWORD=' .env`):
 
 ```bash
 TOKEN=$(curl -s -X POST http://localhost:8080/api/auth/login/ \
-  -d 'username=admin&password=admin' | jq -r '.access_token')
+  -d 'username=admin&password=<your-admin-password>' | jq -r '.access_token')
 ```
 
 Search datasets by meaning, not just keywords:
@@ -176,13 +176,16 @@ bash scripts/install.sh
 ```
 
 Either way, `scripts/install.sh` copies `.env.example` to `.env`, generates a JWT signing
-secret, prompts for admin credentials (defaults to `admin` / `admin`), and runs
-`docker compose up -d`. For unattended installs, set `GEOLENS_ADMIN_USERNAME` and
-`GEOLENS_ADMIN_PASSWORD` in the environment before running and the prompts are
-skipped. Re-running the script is idempotent — existing values in `.env` are
-preserved.
+secret, sets up admin credentials, and runs `docker compose up -d`. The admin **username**
+defaults to `admin`; the admin **password** is auto-generated as a strong random value
+(shown once during install) unless you supply your own — it is never `admin` / `admin`.
+For unattended installs, set `GEOLENS_ADMIN_USERNAME` and `GEOLENS_ADMIN_PASSWORD` in the
+environment before running and the prompts are skipped. Re-running the script is idempotent —
+existing values in `.env` are preserved.
 
-Wait about 60 seconds for services to start, then open [http://localhost:8080](http://localhost:8080). Log in with the admin credentials you set.
+Wait about 60 seconds for services to start, then open [http://localhost:8080](http://localhost:8080).
+Log in with your admin username and the generated password (retrieve it with
+`grep '^GEOLENS_ADMIN_PASSWORD=' .env`).
 
 Verify all services are healthy:
 
@@ -215,7 +218,7 @@ The repo ships a small `city-parks.geojson`. Upload and publish it in one comman
 
 ```bash
 pip install geolens-cli                              # installs the `geolens` command
-geolens login http://localhost:8080/api              # admin / admin
+geolens login http://localhost:8080/api              # use your admin username + password
 geolens publish examples/manifests/first-catalog/city-parks.geojson --name "City Parks"
 ```
 
@@ -237,7 +240,7 @@ See the [CLI guide](https://docs.getgeolens.com/guides/cli/) for the full manife
 
 ```bash
 pip install httpx
-python scripts/seed-showcase.py --username admin --password admin [--with-terrain] [--only manhattan|income|matterhorn]
+python scripts/seed-showcase.py --username admin --password "$(grep '^GEOLENS_ADMIN_PASSWORD=' .env | cut -d= -f2-)" [--with-terrain] [--only manhattan|income|matterhorn]
 ```
 
 Requires internet access to the upstream open-data sources.

@@ -91,6 +91,8 @@ jobs:
               - 'scripts/tests/test-install-secret-generation.sh'
               - 'scripts/tests/test-install-main-wrapper.sh'
               - 'scripts/tests/test-backup-s3-signature.sh'
+              - 'scripts/check_env_doc_drift.py'
+              - '.env.example'
               - 'docker-compose.yml'
               - 'docker-compose.prod.yml'
             backup:
@@ -203,6 +205,9 @@ jobs:
 
       - name: Backup S3 signature regression test
         run: sh scripts/tests/test-backup-s3-signature.sh
+
+      - name: Env-doc-drift gate (install.sh keys documented in .env.example)
+        run: python3 scripts/check_env_doc_drift.py
 
       - name: Validate compose files parse
         env:
