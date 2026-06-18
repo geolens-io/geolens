@@ -6,7 +6,7 @@
 SHELL := /bin/bash
 .SHELLFLAGS := -o pipefail -c
 
-.PHONY: dev down reset-db migrate migration test test-sequential test-cov e2e logs logs-db logs-api status doctor preflight openapi openapi-check sdks sdks-check sdks-test manifest-contract-check publish-sdks-py publish-sdks-ts cli-build cli-test cli-check publish-cli audit-sink-discipline billing-extraction-discipline catalog-domain-discipline
+.PHONY: dev down reset-db migrate migration test test-sequential test-cov e2e logs logs-db logs-api status doctor preflight openapi openapi-check sdks sdks-check sdks-test manifest-contract-check publish-sdks-py publish-sdks-ts cli-build cli-test cli-check publish-cli audit-sink-discipline billing-extraction-discipline catalog-domain-discipline bump version-check
 
 # Pre-flight: verify boot-required env vars are non-empty in .env before any
 # `docker compose` build (which takes 5-10 minutes on a cold cache only to crash
@@ -227,3 +227,14 @@ billing-extraction-discipline: ## Verify app.core.marketplace is absent + dispat
 # no DB required).
 catalog-domain-discipline: ## Verify no external imports of catalog/datasets/domain/service_X sub-modules
 	cd backend && PYTHONPATH=. uv run pytest tests/test_layering.py::test_no_external_imports_of_dataset_domain_submodules -v
+
+# ----- Version management (REL-05) -----
+# `make bump VERSION=X.Y.Z` rewrites EVERY version site atomically (backend +
+# cli + sdks×2 + root/frontend package.json + openapi.json info.version + the
+# metadata fallback constant in main.py). The write side of the version
+# contract; `make version-check` is the read/verify side.
+bump: ## Rewrite all version sites to VERSION=X.Y.Z (single source of truth)
+ifndef VERSION
+	$(error VERSION is required: make bump VERSION=X.Y.Z)
+endif
+	uv run --no-project python scripts/bump_version.py "$(VERSION)"
