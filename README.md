@@ -303,12 +303,25 @@ pools fit within **30 of 30 max_connections** out of the box (PERF-05 — Postgr
 [Connection Pool Tuning](https://docs.getgeolens.com/guides/quickstart/configuration/#connection-pool-tuning)
 for the per-process budget and how to raise the ceiling.
 
-### Backup S3 Compatibility
+### Backups
 
-Automated off-site backups to S3-compatible storage (MinIO, Cloudflare R2, AWS S3)
-ship via the `backup` Compose profile. New AWS buckets require Signature V4 — see
+Automated, scheduled backups are **opt-in**. Enable them with the `backup`
+Compose profile:
+
+```bash
+docker compose --profile backup up -d
+```
+
+This runs `pg_dump` on a daily/weekly schedule and also archives the
+object-storage staging volume, so a restore reproduces a working instance (DB +
+objects). A default install does **not** enable backups.
+
+**Off-site (S3) upload** is additionally gated on `BACKUP_S3_ENABLED=true`. The
+built-in uploader signs with **AWS Signature V2**, which works with classic AWS
+buckets and MinIO. New AWS buckets that require Signature V4 need the `aws-cli`
+sidecar workaround (SigV4 support is on the roadmap). See
 [Backups & Restore](https://docs.getgeolens.com/guides/admin/backups/#backup-destinations)
-for the Sig-V2 compatibility note and the `aws-cli` workaround.
+for the compatibility note and the workaround.
 
 ## Reference
 
