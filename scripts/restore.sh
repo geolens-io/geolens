@@ -137,6 +137,38 @@ docker compose -f "$PROJECT_ROOT/docker-compose.yml" exec -T db \
 
 echo ""
 echo "Restore complete."
+
+# BKP-01 (Phase 1219): object-storage (upload_staging) is backed up as a
+# sibling staging-<timestamp>.tar.gz next to the dump. restore.sh keeps its
+# single-arg, DB-focused contract; restoring objects into the upload_staging
+# volume requires a one-off container with that volume mounted, so it is a
+# documented MANUAL step (see UPGRADING.md §"Disaster recovery"). If we can spot
+# the matching archive, point the operator at it rather than silently dropping
+# the staged objects.
+_dump_dir="$(cd "$(dirname "$BACKUP_FILE")" && pwd)"
+_dump_base="$(basename "$BACKUP_FILE")"
+# dump name is <db>_<YYYYmmdd_HHMMSS>.dump → extract the timestamp if present.
+_ts="$(printf '%s' "$_dump_base" | grep -oE '[0-9]{8}_[0-9]{6}' | head -n1 || true)"
+_staging_archive=""
+if [ -n "$_ts" ] && [ -f "${_dump_dir}/staging-${_ts}.tar.gz" ]; then
+    _staging_archive="${_dump_dir}/staging-${_ts}.tar.gz"
+elif ls "${_dump_dir}"/staging-*.tar.gz >/dev/null 2>&1; then
+    _staging_archive="$(ls -t "${_dump_dir}"/staging-*.tar.gz 2>/dev/null | head -n1)"
+fi
+if [ -n "$_staging_archive" ]; then
+    echo ""
+    echo "NOTE: a matching object-storage archive was found:"
+    echo "        ${_staging_archive}"
+    echo "      The database is restored, but staged source objects are NOT"
+    echo "      auto-extracted. To restore them into the upload_staging volume, run"
+    echo "      the documented manual step (UPGRADING.md §\"Disaster recovery\"):"
+    echo ""
+    echo "        docker run --rm \\"
+    echo "          -v <project>_upload_staging:/staging \\"
+    echo "          -v \"${_dump_dir}\":/restore:ro \\"
+    echo "          alpine sh -c 'cd /staging && tar xzf /restore/$(basename "$_staging_archive")'"
+    echo ""
+fi
 # _cleanup trap restarts api/worker on exit (runs here too — normal exit).
 
 # ==============================================================================

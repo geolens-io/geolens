@@ -365,6 +365,14 @@ services:
     volumes:
       - ./scripts:/scripts:ro
       - backup_data:/backups
+      # BKP-01 (Phase 1219): include object storage in backup scope. The backup
+      # service tars the upload_staging volume alongside the pg_dump so a restore
+      # yields a WORKING instance (DB rows + the staged source objects they
+      # reference), not just an empty-object catalog. Mounted read-only — the
+      # backup job never mutates app data. CAVEAT: this captures the local
+      # upload_staging volume only; deployments that offload objects to external
+      # S3/MinIO must back those buckets up separately (their own lifecycle).
+      - upload_staging:/staging:ro
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}

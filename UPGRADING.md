@@ -166,13 +166,48 @@ Notes:
 
 ## Backups
 
-- Automated, scheduled backups ship via the `backup` Compose profile
-  (`scripts/backup-entrypoint.sh`) with daily/weekly retention and optional S3
-  upload — see the
+- Automated, scheduled backups are **opt-in** via the `backup` Compose profile
+  (`docker compose --profile backup up -d`, `scripts/backup-entrypoint.sh`) with
+  daily/weekly retention. They are **not** enabled by a default install — see the
   [Backups & Restore guide](https://docs.getgeolens.com/guides/admin/backups/).
+- Off-site (S3) upload is additionally gated on `BACKUP_S3_ENABLED=true`. The
+  built-in uploader signs with **AWS Signature V2** (works with classic AWS
+  buckets and MinIO); new AWS buckets that require Sig-V4 need the `aws-cli`
+  sidecar workaround. SigV4 support is on the roadmap.
+- Each backup cycle archives **both** the `pg_dump` (`<db>_<timestamp>.dump`)
+  **and** the object-storage staging volume (`staging-<timestamp>.tar.gz`) so a
+  restore reproduces a working instance — DB rows *and* the staged source objects
+  they reference. The staging archive captures the local `upload_staging` volume
+  only; deployments that offload objects to an external S3/MinIO bucket must back
+  that bucket up separately.
 - The upgrade flow takes its own **pre-upgrade** dump under
   `backups/pre-upgrade/` regardless of whether the backup profile is enabled, so
   you always have a known-good restore point for the upgrade you just ran.
+
+---
+
+## Disaster recovery
+
+To restore from a full backup (DB + object storage):
+
+```bash
+# 1. Restore the database (custom-format dump → pg_restore). This is THE
+#    canonical restore path; never `psql < dump` a -Fc file.
+./scripts/restore.sh backups/daily/geolens_<YYYYmmdd_HHMMSS>.dump
+
+# 2. Restore the matching object-storage archive into the upload_staging volume.
+#    restore.sh keeps a single-arg, DB-focused contract, so this is a manual
+#    one-off container that mounts the named volume. Replace <project> with your
+#    Compose project name (run `docker volume ls` to find <project>_upload_staging).
+docker run --rm \
+  -v <project>_upload_staging:/staging \
+  -v "$(pwd)/backups/daily":/restore:ro \
+  alpine sh -c 'cd /staging && tar xzf /restore/staging-<YYYYmmdd_HHMMSS>.tar.gz'
+```
+
+`restore.sh` auto-detects a sibling `staging-<timestamp>.tar.gz` next to the dump
+and prints the exact `docker run` line above with the real paths filled in, so
+you can copy it from the restore output rather than hand-editing it.
 
 ---
 
