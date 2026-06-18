@@ -17,9 +17,11 @@ These tests pin:
     S3-published storage; local storage still omits them per GAP-031).
 """
 
+import inspect
 import uuid
 
 from app.modules.catalog.search.service import build_assets
+from app.processing.ingest import tasks_raster as _tasks_raster
 from app.processing.ingest.tasks_raster import _build_dataset_asset_rows
 
 
@@ -146,3 +148,61 @@ class TestReadPathNowLive:
         assert "data" not in assets
         assert "thumbnail" not in assets
         assert "overview" not in assets
+
+
+class TestIngestWritePathPortResolution:
+    """Regression for the BUG-041 *follow-up* crash.
+
+    The original BUG-041 fix wrote the dataset_assets rows during ingest via
+    ``get_processing_port().dataset_asset_orm_class()`` — but that ORM accessor
+    lives on the **CatalogPort**, not the ProcessingPort. Every COG/VRT ingest
+    therefore raised ``'DefaultProcessingPort' object has no attribute
+    'dataset_asset_orm_class'`` and failed. The unit tests above never caught it
+    because they exercise the pure row builder and the read path, never the
+    ingest *write path's* port resolution.
+
+    These tests use the REAL default ports (no mocks) and pin the exact
+    cross-port contract the write path depends on.
+    """
+
+    def test_dataset_asset_orm_resolves_via_catalog_port_and_instantiates(self):
+        """The fixed write path's two operations, against the real ports/ORM.
+
+        ``DatasetAsset = get_catalog_port().dataset_asset_orm_class()`` then
+        ``DatasetAsset(**row)`` — exactly what ingest_raster does. Before the
+        fix the equivalent call on the processing port raised AttributeError.
+        """
+        from app.platform.extensions import get_catalog_port, get_processing_port
+        from app.processing.raster.models import DatasetAsset
+
+        # Exact resolution the fixed write path performs (real port, no mock).
+        resolved = get_catalog_port().dataset_asset_orm_class()
+        assert resolved is DatasetAsset
+
+        rows = _build_dataset_asset_rows(
+            dataset_id=uuid.uuid4(),
+            cog_key="rasters/x/abc/source.cog.tif",
+            ql256_key="rasters/x/abc/quicklook_256.png",
+            ql512_key="rasters/x/abc/quicklook_512.png",
+            cog_size=1024,
+            is_manifest_vrt=False,
+        )
+        # Instantiate the ORM from each built row (write path: DatasetAsset(**row)).
+        instances = [resolved(**row) for row in rows]
+        assert {i.key for i in instances} == {"data", "thumbnail", "overview"}
+
+        # Boundary: the accessor is NOT on the processing port — calling it there
+        # (the original bug) raised AttributeError on every ingest.
+        assert not hasattr(get_processing_port(), "dataset_asset_orm_class")
+        # ...while the *sibling* call the write path makes (line 608) correctly
+        # DOES live on the processing port.
+        assert hasattr(get_processing_port(), "get_record_distribution_orm_class")
+
+    def test_ingest_source_resolves_dataset_asset_via_catalog_port(self):
+        """Guard the actual file: dataset_asset_orm_class must come from the
+        catalog port, never the processing port (the regression that shipped)."""
+        src = inspect.getsource(_tasks_raster)
+        assert "get_catalog_port().dataset_asset_orm_class()" in src
+        # The original (broken) form must not reappear under any port alias.
+        assert "_get_port().dataset_asset_orm_class()" not in src
+        assert "get_processing_port().dataset_asset_orm_class()" not in src
