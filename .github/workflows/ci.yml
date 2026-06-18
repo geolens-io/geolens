@@ -259,7 +259,12 @@ jobs:
           --health-timeout 5s
           --health-retries 10
       minio:
-        image: bitnami/minio:2025
+        # bitnami/minio:* tags were withdrawn in Bitnami's Aug-2025 "Secure
+        # Images" migration (all bitnami/minio:<tag> now 404). The last free
+        # build lives under bitnamilegacy/, pinned here by digest for
+        # reproducibility (auto-runs `minio server` + ships `mc` for the
+        # healthcheck — the test creates its own bucket via `aws s3 mb`).
+        image: bitnamilegacy/minio@sha256:451fe6858cb770cc9d0e77ba811ce287420f781c7c1b806a386f6896471a349c
         env:
           MINIO_ROOT_USER: minioadmin
           MINIO_ROOT_PASSWORD: minioadmin
@@ -685,7 +690,11 @@ jobs:
           "
 
       - name: Run migrations
-        run: uv run alembic upgrade head
+        # `heads` (plural) applies every branch head — with the enterprise
+        # overlay present in CI the graph has two (core 0007 + enterprise e002),
+        # and bare `head` errors "Multiple head revisions present". OSS-only is
+        # unaffected (heads == head). Mirrors the migrate service + MIG-04 job.
+        run: uv run alembic upgrade heads
 
       # MIG-03: autogenerate drift gate. With the DB now at head, `alembic check`
       # exits non-zero if the ORM models have drifted from the migration scripts
@@ -1022,7 +1031,11 @@ jobs:
           "
 
       - name: Run migrations
-        run: uv run alembic upgrade head
+        # `heads` (plural) applies every branch head — with the enterprise
+        # overlay present in CI the graph has two (core 0007 + enterprise e002),
+        # and bare `head` errors "Multiple head revisions present". OSS-only is
+        # unaffected (heads == head). Mirrors the migrate service + MIG-04 job.
+        run: uv run alembic upgrade heads
 
       - name: Run tests with -n 4
         # Regression gate for the fixture-isolation work.
