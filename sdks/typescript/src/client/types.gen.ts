@@ -13195,6 +13195,41 @@ export type GetDcatCatalogDatasetsDcatGetResponses = {
     200: unknown;
 };
 
+export type ValidateDcat3CatalogDatasetsDcatValidationGetData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/datasets/dcat/validation/';
+};
+
+export type ValidateDcat3CatalogDatasetsDcatValidationGetErrors = {
+    /**
+     * Bad request — invalid query parameters or payload
+     */
+    400: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Validation error
+     */
+    422: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+};
+
+export type ValidateDcat3CatalogDatasetsDcatValidationGetError = ValidateDcat3CatalogDatasetsDcatValidationGetErrors[keyof ValidateDcat3CatalogDatasetsDcatValidationGetErrors];
+
+export type ValidateDcat3CatalogDatasetsDcatValidationGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
 export type GetGeodcatApCatalogDatasetsGeodcatApGetData = {
     body?: never;
     path?: never;
@@ -13949,6 +13984,46 @@ export type GetDcatRecordDatasetsDatasetIdDcatGetErrors = {
 export type GetDcatRecordDatasetsDatasetIdDcatGetError = GetDcatRecordDatasetsDatasetIdDcatGetErrors[keyof GetDcatRecordDatasetsDatasetIdDcatGetErrors];
 
 export type GetDcatRecordDatasetsDatasetIdDcatGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type ValidateDcat3RecordDatasetsDatasetIdDcatValidationGetData = {
+    body?: never;
+    path: {
+        /**
+         * Dataset Id
+         */
+        dataset_id: string;
+    };
+    query?: never;
+    url: '/datasets/{dataset_id}/dcat/validation/';
+};
+
+export type ValidateDcat3RecordDatasetsDatasetIdDcatValidationGetErrors = {
+    /**
+     * Bad request — invalid query parameters or payload
+     */
+    400: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Validation error
+     */
+    422: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+};
+
+export type ValidateDcat3RecordDatasetsDatasetIdDcatValidationGetError = ValidateDcat3RecordDatasetsDatasetIdDcatValidationGetErrors[keyof ValidateDcat3RecordDatasetsDatasetIdDcatValidationGetErrors];
+
+export type ValidateDcat3RecordDatasetsDatasetIdDcatValidationGetResponses = {
     /**
      * Successful Response
      */
