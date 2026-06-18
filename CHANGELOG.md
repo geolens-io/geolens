@@ -67,6 +67,17 @@ and the v1042 tenancy substrate) in operator-facing terms.
 - Frontend cache, auth, and internationalization fixes: stale cache and auth
   state are cleared more reliably, and locale key-existence/parity is enforced
   so translated strings cannot silently fall back to keys.
+- **Raster/COG ingestion restored.** A regression made every raster, COG, and
+  VRT-mosaic ingest fail (the STAC `dataset_assets` write resolved its ORM via
+  the wrong internal port), so newly uploaded rasters never completed. Fixed,
+  with a regression test; the STAC `dataset_assets` table is now populated as
+  intended.
+- **Public/shared map viewer renders data on first load.** Maps opened via a
+  shared link or direct URL — especially 3D-terrain maps — could appear with
+  only the basemap (and terrain mesh) because the data layers raced the map's
+  style load and were never added. The viewer now retries the layer sync once
+  the style settles, so the hillshade relief and all data layers render on a
+  cold page load just as they do in the builder.
 
 ### Security
 
