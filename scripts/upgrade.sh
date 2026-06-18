@@ -38,7 +38,10 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$PROJECT_ROOT"
 
 need_command docker
-need_command pg_dump
+# NOTE: no host pg_dump requirement — the pre-upgrade backup runs INSIDE the db
+# container (`compose exec -T db pg_dump`, Step 3 below), which Docker-only
+# self-hosters always have. Requiring it on the host would abort the upgrade on
+# machines that never installed Postgres client tools.
 need_command git
 docker compose version >/dev/null 2>&1 || fail "Docker Compose v2 is required."
 

@@ -53,9 +53,11 @@ jobs:
           else
             VER="${{ github.event.inputs.version }}"
           fi
-          # The published image tags carry the leading `v` (publish.yml meta tag
-          # `type=ref,event=tag`). GEOLENS_VERSION in compose is used verbatim, so
-          # pass the tag through as-is and let `:latest` be the manual default.
+          # publish.yml tags images via `type=semver,pattern={{version}}`, which
+          # STRIPS the leading `v` (a `v1.3.0` tag push publishes `geolens-api:1.3.0`).
+          # GEOLENS_VERSION is used verbatim as the image tag in compose, so strip
+          # the `v` here or the pull asks GHCR for a non-existent `:v1.3.0`.
+          VER="${VER#v}"
           echo "version=${VER:-latest}" >> "$GITHUB_OUTPUT"
           echo "Smoking image tag: ${VER:-latest}"
 
@@ -85,7 +87,11 @@ jobs:
           } >> .env
 
       - name: Pull release images
-        run: docker compose -f docker-compose.prod.yml pull db migrate api worker titiler frontend
+        # `db` is intentionally excluded: docker-compose.prod.yml builds it
+        # locally (PostGIS + pgvector, ~20s) and publishes no image, so
+        # `compose pull db` errors "no image to pull". The boot step's
+        # `up -d --wait` builds it. The rest pull from GHCR.
+        run: docker compose -f docker-compose.prod.yml pull migrate api worker titiler frontend
 
       - name: Boot prod compose to healthy
         # --wait blocks until every service with a healthcheck is healthy and every
