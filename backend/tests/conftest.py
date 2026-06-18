@@ -278,24 +278,41 @@ def pytest_collection_modifyitems(config, items):
 
 @pytest.fixture(autouse=True)
 def _dispose_shared_app_engine_after_test(request):
-    """Clear the app's shared async-engine pool after each test in the modules
-    listed in ``_DISPOSE_SHARED_ENGINE_MODULES`` (see that set for the why).
+    """Clear the app's shared async-engine pool BEFORE AND AFTER each test in the
+    modules listed in ``_DISPOSE_SHARED_ENGINE_MODULES`` (see that set for the why).
 
-    Sync fixture so it is safe for both sync and async tests under
-    pytest-asyncio strict mode. ``sync_engine.dispose()`` empties the connection
-    pool synchronously, so the next test (a fresh event loop) never checks out a
-    connection bound to a prior, now-closed loop.
+    Sync fixture so it is safe for both sync and async tests under pytest-asyncio
+    strict mode. ``sync_engine.dispose()`` empties the connection pool
+    synchronously.
+
+    The AFTER-dispose stops THIS test from leaking a loop-bound pooled connection
+    to a later test on the same xdist worker. But an after-only dispose scoped to
+    these two modules cannot protect the FIRST DB-touching test in the module from
+    a connection left in the pool by whatever test ran before it on the worker —
+    that prior test can live in ANY module, so its dispose never fired. Without a
+    BEFORE-dispose, ``get_current_heads()`` / ``recover_stale_jobs()`` can check
+    out that stale connection and raise "got Future attached to a different loop"
+    (the -n4 flake this guards against). Under xdist each worker runs serially, so
+    the pool is idle at test start and the pre-dispose is safe.
     """
-    yield
-    module = getattr(request.node, "module", None)
-    name = module.__name__.rsplit(".", 1)[-1] if module else ""
-    if name in _DISPOSE_SHARED_ENGINE_MODULES:
+
+    def _dispose():
         try:
             from app.core.db.session import engine
 
             engine.sync_engine.dispose()
-        except Exception:  # broad: best-effort pool cleanup; never fail teardown
+        except Exception:  # broad: best-effort pool cleanup; never fail setup/teardown
             pass
+
+    module = getattr(request.node, "module", None)
+    name = module.__name__.rsplit(".", 1)[-1] if module else ""
+    in_scope = name in _DISPOSE_SHARED_ENGINE_MODULES
+
+    if in_scope:
+        _dispose()
+    yield
+    if in_scope:
+        _dispose()
 
 
 @pytest.fixture(autouse=True)
