@@ -520,7 +520,22 @@ services:
     # Pinned by SHA256 digest (tag is documentation).
     image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
     profiles: ["cloud-dev"]
-    command: server /data --console-address ":9001"
+    # INST-01 + Codex P1 (true fail-closed, parse-safe). `${VAR:?}` would abort
+    # `compose config`/`up` at PARSE time even when cloud-dev is inactive (breaks
+    # a verbatim-.env.example install). But `${VAR:-}` alone is NOT fail-closed:
+    # MinIO treats an EMPTY MINIO_ROOT_USER as unset and silently boots with the
+    # well-known default minioadmin:minioadmin (verified). So keep the parse-safe
+    # empty refs in environment: AND enforce non-empty creds at RUNTIME via the
+    # entrypoint — the cloud-dev S3 store refuses to start on default/blank creds.
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        if [ -z "$$MINIO_ROOT_USER" ] || [ -z "$$MINIO_ROOT_PASSWORD" ]; then
+          echo "FATAL: cloud-dev MinIO requires MINIO_ROOT_USER and MINIO_ROOT_PASSWORD in .env — refusing to start with default/blank credentials." >&2
+          exit 1
+        fi
+        exec minio server /data --console-address ":9001"
     # D04 (docker-audit-20260604): cloud-dev is opt-in + loopback-only, but minio
     # holds root S3 creds — drop caps + block privilege gain as cheap insurance.
     security_opt:
@@ -531,11 +546,9 @@ services:
       - "127.0.0.1:9000:9000"
       - "127.0.0.1:9001:9001"
     environment:
-      # INST-01 (Phase 1218): empty-default (:-) NOT fail-closed (:?). The :? form
-      # aborts `compose config`/`up` at PARSE time even when the cloud-dev profile is
-      # inactive, breaking a verbatim-.env.example install. With :- the default
-      # install parses cleanly; when the cloud-dev profile IS active and creds are
-      # unset, MinIO refuses to start at runtime — fail-closed moves parse→runtime.
+      # Parse-safe empty default (:-); the entrypoint above enforces non-empty at
+      # runtime. MUST be listed here so compose passes the host value into the
+      # container (the runtime guard checks these).
       MINIO_ROOT_USER: "${MINIO_ROOT_USER:-}"
       MINIO_ROOT_PASSWORD: "${MINIO_ROOT_PASSWORD:-}"
     volumes:
