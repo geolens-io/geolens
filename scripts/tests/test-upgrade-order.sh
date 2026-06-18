@@ -44,6 +44,8 @@ make_stubs() {
   _migrate_mode="$1"
   CALLLOG="$WORK/calls.log"
   : > "$CALLLOG"
+  GITLOG="$WORK/git.log"
+  : > "$GITLOG"
 
   # --- docker stub ---------------------------------------------------------
   # Handles: `docker compose version`, `docker compose -f <f> <cmd...>`,
@@ -102,12 +104,18 @@ DOCKER
   printf '#!/bin/sh\nexit 0\n' > "$SHIM/pg_dump"
   chmod +x "$SHIM/pg_dump"
 
-  # --- git stub: ls-remote returns a newer tag for auto-resolve -----------
+  # --- git stub: ls-remote returns a newer tag for auto-resolve. fetch/checkout
+  # (the UPG release-file sync) record to $GIT_LOG so the sync can be asserted
+  # WITHOUT polluting the docker call-order log. rev-parse --git-dir succeeds so
+  # upgrade.sh treats the fake tree as a git checkout. Everything else is a no-op.
   cat > "$SHIM/git" <<'GIT'
 #!/bin/sh
+GLOG="${GIT_LOG:-/dev/null}"
 case "$1" in
   ls-remote) printf 'deadbeef\trefs/tags/v1.2.4\n' ;;
-  *) exit 0 ;;
+  fetch)     echo "fetch" >> "$GLOG" ;;
+  checkout)  echo "checkout" >> "$GLOG" ;;
+  *)         exit 0 ;;
 esac
 GIT
   chmod +x "$SHIM/git"
@@ -130,7 +138,7 @@ run_upgrade() {  # $1=migrate mode, rest=args to upgrade.sh
   _mode="$1"; shift
   make_stubs "$_mode"
   ( env "PATH=$SHIM:$PATH" GEOLENS_REPO_URL="file:///fake" \
-      DOCKER_LOG="$CALLLOG" DOCKER_MIGRATE_MODE="$_mode" \
+      DOCKER_LOG="$CALLLOG" DOCKER_MIGRATE_MODE="$_mode" GIT_LOG="$GITLOG" \
       sh "$FAKE/scripts/upgrade.sh" "$@" </dev/null > "$WORK/out.txt" 2>&1 )
   echo $? > "$WORK/code.txt"
 }
@@ -179,6 +187,16 @@ if [ "$order" = "backup,pull,migrate_up,app_up," ]; then
   ok "full call order is backup -> pull -> migrate -> app_up"
 else
   bad "unexpected call order: $order"
+fi
+
+# UPG release-file sync (Codex P2): the prebuilt flow fetches the target tag and
+# checks out the compose/scripts BEFORE pulling images, so new images get the new
+# release's config. (git fetch/checkout are recorded to git.log; both happen in the
+# Step-3 sync, which runs before the docker `pull` logged above.)
+if grep -q '^fetch$' "$WORK/git.log" 2>/dev/null && grep -q '^checkout$' "$WORK/git.log" 2>/dev/null; then
+  ok "release files are fetched + checked out from the target tag before the pull"
+else
+  bad "release-file sync did not run (git.log: $(tr '\n' ',' < "$WORK/git.log" 2>/dev/null))"
 fi
 
 # ============================================================================

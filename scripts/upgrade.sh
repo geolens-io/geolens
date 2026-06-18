@@ -160,8 +160,44 @@ export GEOLENS_VERSION="$TARGET_VERSION"
 update_env_value GEOLENS_VERSION "$TARGET_VERSION"
 say ""
 
+# --- Step 4.5: sync the on-disk release files to the target tag --------------
+# UPG (Codex P2): `compose pull` refreshes IMAGES only. Without this, the operator
+# would keep the OLD checkout's compose file + container-mounted helper scripts, so
+# a release that changed compose (a new service, mount, or env wiring) would boot
+# new images against stale config. Path-restricted checkout of the target tag
+# refreshes the compose files, scripts/lib, and the mounted helper scripts, but
+# DELIBERATELY excludes the running scripts (upgrade.sh / restore.sh / install.sh)
+# so this script is never swapped under itself mid-run, and never touches .env
+# (gitignored). Best-effort: a non-git install or any git failure warns and
+# continues with the current files (the pre-v1043 pull-only behaviour) rather than
+# aborting the upgrade. Local edits to the tracked files above are replaced.
+TARGET_TAG="v${TARGET_VERSION}"
+say "Step 3/5: syncing release files to ${TARGET_TAG}, then pulling prebuilt images"
+if git rev-parse --git-dir >/dev/null 2>&1; then
+  if git fetch --depth 1 --quiet "$REPO_URL" "refs/tags/${TARGET_TAG}:refs/tags/${TARGET_TAG}" 2>/dev/null \
+     || git fetch --tags --quiet "$REPO_URL" 2>/dev/null; then
+    # Compose files are the critical part (image tags + services/mounts/env).
+    if git checkout --quiet "$TARGET_TAG" -- \
+         docker-compose.prod.yml docker-compose.yml .env.example 2>/dev/null; then
+      say "  compose files synced to ${TARGET_TAG}"
+    else
+      warn "Could not check out ${TARGET_TAG} compose files — keeping the current ones."
+      warn "If this release changed docker-compose.prod.yml, review it after the upgrade."
+    fi
+    # Container-mounted helper scripts (best-effort; not every release ships all).
+    if git checkout --quiet "$TARGET_TAG" -- \
+         scripts/lib scripts/minio-setup.sh scripts/backup-entrypoint.sh 2>/dev/null; then
+      say "  mounted helper scripts synced to ${TARGET_TAG}"
+    fi
+  else
+    warn "Could not fetch ${TARGET_TAG} from ${REPO_URL} — keeping the current checkout's compose/scripts."
+  fi
+else
+  warn "Install dir is not a git checkout — cannot sync release files; keeping the current compose/scripts."
+fi
+say ""
+
 # --- Step 5: pull the new images --------------------------------------------
-say "Step 3/5: pulling prebuilt images for $TARGET_VERSION"
 compose pull --ignore-buildable || fail "Could not pull prebuilt images for $TARGET_VERSION."
 say ""
 
