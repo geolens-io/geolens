@@ -3288,6 +3288,12 @@
             "title": "Auth Methods",
             "type": "array"
           },
+          "demo_mode": {
+            "default": false,
+            "description": "When true, logged-in users see a persistent demo-account banner. Default false \u2014 self-hosters see no banner.",
+            "title": "Demo Mode",
+            "type": "boolean"
+          },
           "landing_first": {
             "default": false,
             "description": "When true, unauthenticated visits to '/' are redirected to '/login' as the product landing page. Default false (search catalog is the root).",

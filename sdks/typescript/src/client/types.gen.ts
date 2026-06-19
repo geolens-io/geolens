@@ -1975,6 +1975,12 @@ export type ConfigResponse = {
      */
     auth_methods?: Array<string>;
     /**
+     * Demo Mode
+     *
+     * When true, logged-in users see a persistent demo-account banner. Default false — self-hosters see no banner.
+     */
+    demo_mode?: boolean;
+    /**
      * Landing First
      *
      * When true, unauthenticated visits to '/' are redirected to '/login' as the product landing page. Default false (search catalog is the root).
