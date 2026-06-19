@@ -75,6 +75,13 @@ export interface TokenResponse {
   expires_in: number;
 }
 
+export interface UserQuotaUsage {
+  bytes_used: number;
+  dataset_count: number;
+  storage_cap: number;
+  count_cap: number;
+}
+
 export interface UserResponse {
   id: string;
   username: string;
@@ -84,6 +91,7 @@ export interface UserResponse {
   last_login_at: string | null;
   created_at: string;
   roles: string[];
+  quota_usage?: UserQuotaUsage | null;
 }
 
 export interface RasterBandInfo {

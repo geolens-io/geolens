@@ -22,10 +22,13 @@ class ConfigResponse:
         auth_methods (list[str] | Unset): Auth methods contributed by the active AuthExtension. Empty in community; e.g.
             ['saml'] when the enterprise SAML overlay is installed. Login UI can render conditional sign-in options without
             needing admin OAuthProvider access.
+        landing_first (bool | Unset): When true, unauthenticated visits to '/' are redirected to '/login' as the product
+            landing page. Default false (search catalog is the root). Default: False.
     """
 
     registration_enabled: bool
     auth_methods: list[str] | Unset = UNSET
+    landing_first: bool | Unset = False
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -34,6 +37,8 @@ class ConfigResponse:
         auth_methods: list[str] | Unset = UNSET
         if not isinstance(self.auth_methods, Unset):
             auth_methods = self.auth_methods
+
+        landing_first = self.landing_first
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
@@ -44,6 +49,8 @@ class ConfigResponse:
         )
         if auth_methods is not UNSET:
             field_dict["auth_methods"] = auth_methods
+        if landing_first is not UNSET:
+            field_dict["landing_first"] = landing_first
 
         return field_dict
 
@@ -54,9 +61,12 @@ class ConfigResponse:
 
         auth_methods = cast(list[str], d.pop("auth_methods", UNSET))
 
+        landing_first = d.pop("landing_first", UNSET)
+
         config_response = cls(
             registration_enabled=registration_enabled,
             auth_methods=auth_methods,
+            landing_first=landing_first,
         )
 
         config_response.additional_properties = d

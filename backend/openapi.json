@@ -3288,6 +3288,12 @@
             "title": "Auth Methods",
             "type": "array"
           },
+          "landing_first": {
+            "default": false,
+            "description": "When true, unauthenticated visits to '/' are redirected to '/login' as the product landing page. Default false (search catalog is the root).",
+            "title": "Landing First",
+            "type": "boolean"
+          },
           "registration_enabled": {
             "description": "Whether self-service registration is open",
             "title": "Registration Enabled",
@@ -14843,6 +14849,35 @@
         "title": "UserNameItem",
         "type": "object"
       },
+      "UserQuotaUsage": {
+        "description": "Per-user quota usage: current consumption vs configured caps.",
+        "properties": {
+          "bytes_used": {
+            "title": "Bytes Used",
+            "type": "integer"
+          },
+          "count_cap": {
+            "title": "Count Cap",
+            "type": "integer"
+          },
+          "dataset_count": {
+            "title": "Dataset Count",
+            "type": "integer"
+          },
+          "storage_cap": {
+            "title": "Storage Cap",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "bytes_used",
+          "dataset_count",
+          "storage_cap",
+          "count_cap"
+        ],
+        "title": "UserQuotaUsage",
+        "type": "object"
+      },
       "UserResponse": {
         "properties": {
           "created_at": {
@@ -14881,6 +14916,17 @@
               }
             ],
             "title": "Last Login At"
+          },
+          "quota_usage": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/UserQuotaUsage"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Per-user storage quota usage. Populated only on admin list responses; None when the caller did not load usage (e.g. /auth/me, single-user GET)."
           },
           "roles": {
             "description": "Assigned role names, e.g. ['admin', 'editor']",

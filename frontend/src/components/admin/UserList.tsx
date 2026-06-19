@@ -6,7 +6,7 @@ import {
   useRejectUser,
   useDeactivateUser,
 } from '@/hooks/use-admin';
-import { formatDate } from '@/lib/format';
+import { formatDate, formatBytes } from '@/lib/format';
 import { paginationRange } from '@/lib/pagination';
 import { userStatusColors } from '@/lib/status-colors';
 import type { UserResponse } from '@/types/api';
@@ -172,6 +172,7 @@ export function UserList() {
                 <TableHead>{t('users.table.email')}</TableHead>
                 <TableHead>{t('users.table.roles')}</TableHead>
                 <TableHead>{t('users.table.status')}</TableHead>
+                <TableHead>Storage Used</TableHead>
                 <TableHead>{t('users.table.lastLogin')}</TableHead>
                 <TableHead>{t('users.table.created')}</TableHead>
                 <TableHead>{t('users.table.actions')}</TableHead>
@@ -184,6 +185,7 @@ export function UserList() {
                   { width: 'w-32' },
                   { width: 'w-14', rounded: true },
                   { width: 'w-16', rounded: true },
+                  { width: 'w-20' },
                   { width: 'w-20' },
                   { width: 'w-20' },
                   { width: 'w-8' },
@@ -219,6 +221,17 @@ export function UserList() {
                           </Badge>
                         );
                       })()}
+                    </TableCell>
+                    <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
+                      {user.quota_usage == null ? '—' : (
+                        <>
+                          {formatBytes(user.quota_usage.bytes_used)}
+                          {' / '}
+                          {user.quota_usage.storage_cap === 0
+                            ? 'unlimited'
+                            : formatBytes(user.quota_usage.storage_cap)}
+                        </>
+                      )}
                     </TableCell>
                     <TableCell className="text-muted-foreground">
                       {user.last_login_at ? formatDate(user.last_login_at) : '—'}
