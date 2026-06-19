@@ -958,23 +958,32 @@ jobs:
           HEADS=$(PGPASSWORD=geolens_test psql -h localhost -U geolens -d postgres -tAc \
             "SELECT version_num FROM catalog.alembic_version ORDER BY 1;")
           echo "${HEADS}"
-          # Expect exactly two heads: core 0007 + enterprise e002.
+          # Expect exactly two heads: the core head + enterprise e002. The core
+          # head revision is intentionally NOT hardcoded — it advances with every
+          # core migration (e.g. 0007 -> 0008_oauth_saml_columns), and hardcoding it
+          # made this gate break on every unrelated core migration. Assert "a
+          # non-e002 head exists" instead of pinning a specific revision.
           COUNT=$(printf '%s\n' "${HEADS}" | grep -c . || true)
           if [ "${COUNT}" -ne 2 ]; then
             echo "FAIL: expected 2 applied heads (core + enterprise), got ${COUNT}." >&2
             echo "      'alembic upgrade heads' did not apply the enterprise e-chain (MIG-04)." >&2
             exit 1
           fi
-          echo "${HEADS}" | grep -q "0007_tenant_data_schemas" || { echo "FAIL: core head 0007 missing" >&2; exit 1; }
           echo "${HEADS}" | grep -q "e002_add_saml_columns" || { echo "FAIL: enterprise head e002 missing" >&2; exit 1; }
-          # Affirmative schema assertion: the SAML column e002 adds must exist.
+          CORE_HEAD=$(printf '%s\n' "${HEADS}" | grep -v "e002_add_saml_columns" || true)
+          [ -n "${CORE_HEAD}" ] || { echo "FAIL: core head missing (only e002 applied)" >&2; exit 1; }
+          echo "core head applied: ${CORE_HEAD}"
+          # Affirmative schema assertion: the SAML column must exist. As of
+          # 0008_oauth_saml_columns it is created by BOTH the core chain (for OSS)
+          # and enterprise e002 (idempotent ADD COLUMN IF NOT EXISTS), so this holds
+          # regardless of which migration applied it first.
           SAML=$(PGPASSWORD=geolens_test psql -h localhost -U geolens -d postgres -tAc \
             "SELECT count(*) FROM information_schema.columns WHERE table_schema='catalog' AND table_name='oauth_providers' AND column_name='idp_entity_id';")
           if [ "${SAML}" != "1" ]; then
-            echo "FAIL: enterprise SAML column catalog.oauth_providers.idp_entity_id absent (got count=${SAML})." >&2
+            echo "FAIL: SAML column catalog.oauth_providers.idp_entity_id absent (got count=${SAML})." >&2
             exit 1
           fi
-          echo "OK: both heads applied (0007 + e002) and SAML column present (MIG-04)."
+          echo "OK: both heads applied (core ${CORE_HEAD} + e002) and SAML column present (MIG-04)."
 
   # ---------- pytest parallel-isolation gate ----------
   # Defends the fixture-isolation fixes against regression.
