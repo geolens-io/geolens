@@ -154,6 +154,22 @@ class Api:
         r.raise_for_status()
         return r.json()["id"]
 
+    def list_maps(self) -> list[str]:
+        """Return a list of map names from the catalog (up to 200)."""
+        r = self.client.get(f"{self.base}/api/maps?limit=200", headers=self.h)
+        r.raise_for_status()
+        data = r.json()
+        # Response shape: {"maps": [...], "total": N}
+        return [item["name"] for item in data.get("maps", data.get("items", []))]
+
+    def list_datasets(self) -> list[str]:
+        """Return a list of dataset titles from the catalog (up to 200)."""
+        r = self.client.get(f"{self.base}/api/datasets?limit=200", headers=self.h)
+        r.raise_for_status()
+        data = r.json()
+        # Response shape: {"datasets": [...], "total": N}
+        return [item["title"] for item in data.get("datasets", data.get("items", []))]
+
     def set_view(self, map_id: str, **fields) -> None:
         # PUT (not PATCH); bearing must be within [-180, 180].
         r = self.client.put(
@@ -310,10 +326,26 @@ def fetch_osm_overlays(bbox: tuple) -> tuple:
     )
 
 
+# --- idempotency helpers (DEMO-02, Phase 1226) --------------------------------
+
+
+def _map_exists(api: Api, name: str) -> bool:
+    """Return True if a map with the given name already exists in the catalog."""
+    return name in api.list_maps()
+
+
+def _dataset_exists(api: Api, title: str) -> bool:
+    """Return True if a dataset with the given title already exists."""
+    return title in api.list_datasets()
+
+
 # --- showcase builders -------------------------------------------------------
 
 
-def build_manhattan(api: Api) -> str:
+def build_manhattan(api: Api, force: bool = False) -> str:
+    if not force and _map_exists(api, "Manhattan Skyline - Real Roof Heights"):
+        print("  [skip] Manhattan Skyline - Real Roof Heights already exists")
+        return "(skipped)"
     print("\n[1/3] Manhattan Skyline (3D extrusion)")
     print("  downloading NYC building footprints...")
     fc = json.loads(fetch(NYC_BUILDINGS))
@@ -423,7 +455,10 @@ def build_manhattan(api: Api) -> str:
     return map_id
 
 
-def build_income(api: Api) -> str:
+def build_income(api: Api, force: bool = False) -> str:
+    if not force and _map_exists(api, "New York Income by County"):
+        print("  [skip] New York Income by County already exists")
+        return "(skipped)"
     print("\n[2/3] New York Income (data-driven choropleth)")
     print("  downloading USDA ERS county income...")
     data = fetch(USDA_INCOME)
@@ -499,7 +534,10 @@ def build_income(api: Api) -> str:
     return map_id
 
 
-def build_matterhorn(api: Api) -> str:
+def build_matterhorn(api: Api, force: bool = False) -> str:
+    if not force and _map_exists(api, "The Matterhorn"):
+        print("  [skip] The Matterhorn already exists")
+        return "(skipped)"
     print("\n[3/3] The Matterhorn (3D terrain + hillshade via VRT mosaic)")
     print("  querying swissALTI3D STAC...")
     feats = json.loads(fetch(SWISSALTI_STAC))["features"]
@@ -739,6 +777,11 @@ def main() -> int:
         choices=["manhattan", "income", "matterhorn"],
         help="build only one showcase map",
     )
+    ap.add_argument(
+        "--force",
+        action="store_true",
+        help="re-create showcase maps/datasets even if they already exist",
+    )
     args = ap.parse_args()
 
     print(f"Logging in to {args.base_url} as {args.username}...")
@@ -752,12 +795,27 @@ def main() -> int:
                 "income": build_income,
                 "matterhorn": build_matterhorn,
             }[args.only]
-            built[args.only] = fn(api)
+            result = fn(api, force=args.force)
+            if result and result != "(skipped)":
+                built[args.only] = result
+            else:
+                print(f"  {args.only}: already exists, skipped (use --force to recreate)")
         else:
-            built["manhattan"] = build_manhattan(api)
-            built["income"] = build_income(api)
+            for name, fn in [
+                ("manhattan", build_manhattan),
+                ("income", build_income),
+            ]:
+                result = fn(api, force=args.force)
+                if result and result != "(skipped)":
+                    built[name] = result
+                else:
+                    print(f"  {name}: already exists, skipped (use --force to recreate)")
             if args.with_terrain:
-                built["matterhorn"] = build_matterhorn(api)
+                result = build_matterhorn(api, force=args.force)
+                if result and result != "(skipped)":
+                    built["matterhorn"] = result
+                else:
+                    print("  matterhorn: already exists, skipped (use --force to recreate)")
     except (httpx.HTTPStatusError, RuntimeError, TimeoutError) as e:
         print(f"\nERROR: {e}", file=sys.stderr)
         if isinstance(e, httpx.HTTPStatusError):
