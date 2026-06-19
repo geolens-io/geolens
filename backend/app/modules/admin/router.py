@@ -1,13 +1,18 @@
 """Admin API endpoints: user management and catalog stats (admin-only)."""
 
 import asyncio
+import csv
+import io
 import uuid
+from collections.abc import AsyncGenerator
+from datetime import datetime, timezone
 from typing import NoReturn
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.responses import StreamingResponse
 
 from app.modules.admin.schemas import (
     AdminApiKeyCreateRequest,
@@ -35,6 +40,7 @@ from app.modules.audit.service import AuditEvent, audit_emit
 from app.modules.auth.dependencies import require_permission
 from app.modules.auth.models import ApiKey, User
 from app.modules.auth.schemas import ApiKeyCreateResponse, UserResponse
+from app.processing.export.service import safe_content_disposition
 from app.core.config import settings as app_settings
 from app.core.dependencies import get_client_ip, get_db
 from app.modules.catalog.maps.schemas import (
@@ -179,6 +185,64 @@ async def list_users(
             )
         )
     return UserListResponse(users=user_responses, total=total)
+
+
+@router.get(
+    "/users/export.csv",
+    response_class=StreamingResponse,
+    dependencies=[Depends(require_permission("manage_users"))],
+    summary="Export registered users as CSV",
+    tags=["Admin"],
+)
+async def export_users_csv(
+    db: AsyncSession = Depends(get_db),
+) -> StreamingResponse:
+    """Export all registered users as a hardened CSV file (admin only).
+
+    Columns: email, display_name, auth_provider, status, created_at.
+    Rows are ordered by created_at ASC and streamed without full materialisation.
+    Cells starting with =, +, -, or @ are tab-prefixed (CSV injection hardening).
+    """
+
+    def _safe(val: str) -> str:
+        """Prefix formula-injection trigger characters with a tab."""
+        if val and val[0] in ("=", "+", "-", "@"):
+            return "\t" + val
+        return val
+
+    async def csv_generator() -> AsyncGenerator[str, None]:
+        buf = io.StringIO()
+        writer = csv.writer(buf)
+        writer.writerow(
+            ["email", "display_name", "auth_provider", "status", "created_at"]
+        )
+        yield buf.getvalue()
+        buf.seek(0)
+        buf.truncate(0)
+
+        stmt = select(User).order_by(User.created_at.asc())
+        result = await db.stream(stmt)
+        async for (user,) in result:
+            writer.writerow(
+                [
+                    _safe(user.email or ""),
+                    _safe(user.username or ""),
+                    _safe(user.auth_provider or ""),
+                    _safe(user.status or ""),
+                    user.created_at.isoformat() if user.created_at else "",
+                ]
+            )
+            yield buf.getvalue()
+            buf.seek(0)
+            buf.truncate(0)
+
+    ts = datetime.now(timezone.utc).strftime("%Y%m%d")
+    filename = f"users-export-{ts}.csv"
+    return StreamingResponse(
+        csv_generator(),
+        media_type="text/csv",
+        headers={"Content-Disposition": safe_content_disposition(filename)},
+    )
 
 
 # ROUTE-01 (Phase 1092): dual-shape decorator — see /users above.
