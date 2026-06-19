@@ -145,18 +145,30 @@ async def generate_vector_quicklook(
     )
     est_rows = bounds_row.est_rows or 0
 
+    # Simplify tolerance scaled to the render resolution (~half a pixel at `size`),
+    # used only to decimate vertices on large, detailed polygons. The third
+    # ST_Simplify argument (preserveCollapsed=true) keeps sub-tolerance features —
+    # building footprints, parcels, POIs — as minimal geometry instead of letting
+    # them collapse to empty. Previously a fixed 0.01-degree tolerance (without
+    # preserveCollapsed) wiped such features out, so those datasets rendered a blank
+    # thumbnail. With preserveCollapsed the tolerance can scale freely with the extent
+    # without ever dropping small features — including small features scattered across
+    # a continental extent, where the tolerance is large.
+    extent = max(maxx - minx, maxy - miny, 1e-9)
+    simplify_tol = extent / (size * 2)
+
     # For large tables, use TABLESAMPLE to avoid scanning all rows
     max_features = 2000
     if est_rows > max_features * 2:
         sample_pct = min(100.0, (max_features / max(est_rows, 1)) * 100 * 1.5)
         geom_sql = text(
-            f"SELECT ST_AsGeoJSON(ST_Simplify(ST_MakeValid(geom_4326), 0.01)) AS geojson "
+            f"SELECT ST_AsGeoJSON(ST_Simplify(ST_MakeValid(geom_4326), {simplify_tol:.8f}, true)) AS geojson "
             f"FROM data.{table_name} TABLESAMPLE SYSTEM ({sample_pct:.2f}) "
             f"WHERE geom_4326 IS NOT NULL LIMIT {max_features}"
         )
     else:
         geom_sql = text(
-            f"SELECT ST_AsGeoJSON(ST_Simplify(ST_MakeValid(geom_4326), 0.01)) AS geojson "
+            f"SELECT ST_AsGeoJSON(ST_Simplify(ST_MakeValid(geom_4326), {simplify_tol:.8f}, true)) AS geojson "
             f"FROM data.{table_name} WHERE geom_4326 IS NOT NULL LIMIT {max_features}"
         )
 
