@@ -145,13 +145,15 @@ async def generate_vector_quicklook(
     )
     est_rows = bounds_row.est_rows or 0
 
-    # Simplify tolerance scaled to the render resolution (~half a pixel at `size`).
-    # A fixed 0.01 degrees (~1.1 km) collapsed sub-kilometre features — building
-    # footprints, parcels, POIs — to empty geometry, so those datasets rendered a
-    # blank thumbnail. Scaling to the data extent keeps small features visible while
-    # still decimating vertices on large, detailed polygons (e.g. county coastlines).
+    # Simplify tolerance scaled to the render resolution (~half a pixel at `size`),
+    # capped at the original fixed 0.01 degrees so it is never coarser than the prior
+    # behaviour. A fixed 0.01 degrees (~1.1 km) collapsed sub-kilometre features —
+    # building footprints, parcels, POIs — to empty geometry, so those datasets
+    # rendered a blank thumbnail. Scaling to the extent keeps small features visible
+    # at city scale; the cap avoids over-simplifying small features scattered across a
+    # very wide (e.g. continental) extent, where extent/(size*2) would exceed 0.01.
     extent = max(maxx - minx, maxy - miny, 1e-9)
-    simplify_tol = extent / (size * 2)
+    simplify_tol = min(extent / (size * 2), 0.01)
 
     # For large tables, use TABLESAMPLE to avoid scanning all rows
     max_features = 2000
