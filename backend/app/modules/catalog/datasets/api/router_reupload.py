@@ -10,6 +10,7 @@ from fastapi import (
     Depends,
     File,
     HTTPException,
+    Request,
     UploadFile,
     status,
 )
@@ -42,6 +43,7 @@ from app.platform.jobs.defer_guard import (
 from app.platform.jobs.models import IngestJob
 from app.platform.extensions import get_catalog_port
 from app.core.persistent_config import UPLOAD_MAX_SIZE_MB, get_allowed_extensions_list
+from app.modules.quota.service import check_upload_quota
 from app.modules.catalog.sources.preview import build_gdal_source, run_service_preview
 from app.modules.catalog.sources.security import SSRFError, validate_url_for_ssrf
 from app.platform.storage import get_storage
@@ -142,6 +144,7 @@ def _assert_compatible_record_type(
 )
 async def reupload_dataset(
     dataset_id: uuid.UUID,
+    request: Request,
     file: UploadFile = File(...),
     user: Identity = Depends(require_permission("edit_metadata")),
     db: AsyncSession = Depends(get_db),
@@ -165,6 +168,10 @@ async def reupload_dataset(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(exc),
         )
+
+    # QUOTA-01/02: per-user quota check before any staging or job creation.
+    incoming_bytes = file.size if file.size is not None else 0
+    await check_upload_quota(db, user.id, incoming_bytes, request)
 
     job = await get_catalog_port().create_ingest_job(db, file.filename, "", user.id)
     job.dataset_id = dataset_id
@@ -600,6 +607,7 @@ async def reupload_commit(
 async def request_presigned_reupload(
     dataset_id: uuid.UUID,
     request: PresignedUploadRequest,
+    http_request: Request,
     user: Identity = Depends(require_permission("edit_metadata")),
     db: AsyncSession = Depends(get_db),
 ) -> PresignedUploadResponse:
@@ -644,6 +652,9 @@ async def request_presigned_reupload(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"File size ({request.file_size / (1024 * 1024):.1f} MB) exceeds the maximum allowed ({max_size_mb} MB).",
         )
+
+    # QUOTA-01/02: per-user quota check before any staging or job creation.
+    await check_upload_quota(db, user.id, request.file_size, http_request)
 
     job = await get_catalog_port().create_ingest_job(db, request.filename, "", user.id)
     job.dataset_id = dataset_id
