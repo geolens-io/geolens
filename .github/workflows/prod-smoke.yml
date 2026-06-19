@@ -39,7 +39,7 @@ jobs:
   prod-smoke:
     name: Pull release images + boot prod compose to healthy
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v6
 
@@ -94,19 +94,25 @@ jobs:
         #
         # On a release-tag push this workflow races publish.yml (both fire on a
         # `v*` tag push), so the images may not be on GHCR yet. Retry the pull
-        # with backoff (~5 min) to let publish.yml finish pushing before we fail
-        # — cheaper and simpler than a cross-workflow `workflow_run` dependency,
-        # and it still works for manual workflow_dispatch (succeeds on attempt 1).
+        # with backoff to let publish.yml finish pushing before we fail — cheaper
+        # and simpler than a cross-workflow `workflow_run` dependency, and it still
+        # works for manual workflow_dispatch (succeeds on attempt 1).
+        #
+        # The window MUST exceed publish.yml's full duration: multi-arch buildx +
+        # Trivy scan + attestation runs ~12 min, and the v1.3.0 cut FAILED here at
+        # the old ~5-min (10×30s) window. Use ~20 min (40×30s) so a tag-push smoke
+        # reliably waits out the publish; the job timeout below is raised to match.
+        # (On a normal run the images already exist → attempt 1 succeeds, no wait.)
         run: |
-          for attempt in $(seq 1 10); do
+          for attempt in $(seq 1 40); do
             if docker compose -f docker-compose.prod.yml pull migrate api worker titiler frontend; then
               echo "Pulled release images on attempt ${attempt}."
               exit 0
             fi
-            echo "attempt ${attempt}: images not published yet (publish.yml may still be running); retrying in 30s"
+            echo "attempt ${attempt}/40: images not published yet (publish.yml may still be running); retrying in 30s"
             sleep 30
           done
-          echo "Release images never became pullable after 10 attempts (~5 min)."
+          echo "Release images never became pullable after 40 attempts (~20 min)."
           exit 1
 
       - name: Boot prod compose to healthy
