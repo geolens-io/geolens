@@ -10272,6 +10272,49 @@ export type CreateUserAdminUsersPostResponses = {
 
 export type CreateUserAdminUsersPostResponse = CreateUserAdminUsersPostResponses[keyof CreateUserAdminUsersPostResponses];
 
+export type ExportUsersCsvAdminUsersExportCsvGetData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/admin/users/export.csv';
+};
+
+export type ExportUsersCsvAdminUsersExportCsvGetErrors = {
+    /**
+     * Bad request — invalid query parameters or payload
+     */
+    400: ProblemDetail;
+    /**
+     * Unauthorized — missing or invalid credentials
+     */
+    401: ProblemDetail;
+    /**
+     * Forbidden — caller lacks access to this resource
+     */
+    403: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Validation error
+     */
+    422: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+};
+
+export type ExportUsersCsvAdminUsersExportCsvGetError = ExportUsersCsvAdminUsersExportCsvGetErrors[keyof ExportUsersCsvAdminUsersExportCsvGetErrors];
+
+export type ExportUsersCsvAdminUsersExportCsvGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
 export type ListUserNamesAdminUsersNamesGetData = {
     body?: never;
     path?: never;
