@@ -93,6 +93,15 @@ class ConfigResponse(BaseModel):
             "as the product landing page. Default false (search catalog is the root)."
         ),
     )
+    # DEMO-03 (Phase 1226): when True, logged-in users see a persistent
+    # demo-account banner. Default false — self-hosters see no banner.
+    demo_mode: bool = Field(
+        default=False,
+        description=(
+            "When true, logged-in users see a persistent demo-account banner. "
+            "Default false — self-hosters see no banner."
+        ),
+    )
 
 
 class UserResponse(BaseModel):

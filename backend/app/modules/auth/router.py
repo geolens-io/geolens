@@ -34,6 +34,7 @@ from app.core.config import settings
 from app.core.dependencies import get_client_ip, get_db
 from app.core.persistent_config import (
     ACCESS_TOKEN_EXPIRE_MINUTES,
+    DEMO_MODE,
     LANDING_FIRST,
     REFRESH_TOKEN_EXPIRE_DAYS,
     REGISTRATION_ENABLED,
@@ -353,10 +354,12 @@ async def config(
 
     reg_enabled = await REGISTRATION_ENABLED.get(db)
     landing_first = await LANDING_FIRST.get(db)
+    demo_mode = await DEMO_MODE.get(db)
     return ConfigResponse(
         registration_enabled=reg_enabled,
         auth_methods=list(get_auth_extension().get_auth_methods()),
         landing_first=landing_first,
+        demo_mode=demo_mode,
     )
 
 

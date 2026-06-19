@@ -64,6 +64,9 @@ class Settings(BaseSettings):
     # visitors to the login page as the product landing surface.
     # Default False — self-hosters see zero change on upgrade.
     landing_first: bool = False
+    # DEMO-03 (Phase 1226): when True, logged-in users see a persistent
+    # "demo account" banner.  Default False — self-hosters see zero change.
+    demo_mode: bool = False
 
     cors_allowed_origins: str = ""
     upload_max_size_mb: int = 500

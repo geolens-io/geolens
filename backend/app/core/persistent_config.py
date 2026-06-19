@@ -435,6 +435,18 @@ LANDING_FIRST = PersistentConfig[bool](
     label="Login-as-Landing Page",
 )
 
+# DEMO-03 (Phase 1226): demo-mode banner flag. Default OFF so self-hosters
+# see no change. When ON, logged-in users see a persistent "demo account"
+# notice. tab="general" (not "auth") — it is a UX/display toggle, not an
+# auth policy.
+DEMO_MODE = PersistentConfig[bool](
+    key="demo_mode",
+    type_=bool,
+    env_default_factory=lambda: settings.demo_mode,
+    tab="general",
+    label="Demo Mode Banner",
+)
+
 # -- Auth tab --
 ACCESS_TOKEN_EXPIRE_MINUTES = PersistentConfig[int](
     key="access_token_expire_minutes",
