@@ -145,18 +145,26 @@ async def generate_vector_quicklook(
     )
     est_rows = bounds_row.est_rows or 0
 
+    # Simplify tolerance scaled to the render resolution (~half a pixel at `size`).
+    # A fixed 0.01 degrees (~1.1 km) collapsed sub-kilometre features — building
+    # footprints, parcels, POIs — to empty geometry, so those datasets rendered a
+    # blank thumbnail. Scaling to the data extent keeps small features visible while
+    # still decimating vertices on large, detailed polygons (e.g. county coastlines).
+    extent = max(maxx - minx, maxy - miny, 1e-9)
+    simplify_tol = extent / (size * 2)
+
     # For large tables, use TABLESAMPLE to avoid scanning all rows
     max_features = 2000
     if est_rows > max_features * 2:
         sample_pct = min(100.0, (max_features / max(est_rows, 1)) * 100 * 1.5)
         geom_sql = text(
-            f"SELECT ST_AsGeoJSON(ST_Simplify(ST_MakeValid(geom_4326), 0.01)) AS geojson "
+            f"SELECT ST_AsGeoJSON(ST_Simplify(ST_MakeValid(geom_4326), {simplify_tol:.8f})) AS geojson "
             f"FROM data.{table_name} TABLESAMPLE SYSTEM ({sample_pct:.2f}) "
             f"WHERE geom_4326 IS NOT NULL LIMIT {max_features}"
         )
     else:
         geom_sql = text(
-            f"SELECT ST_AsGeoJSON(ST_Simplify(ST_MakeValid(geom_4326), 0.01)) AS geojson "
+            f"SELECT ST_AsGeoJSON(ST_Simplify(ST_MakeValid(geom_4326), {simplify_tol:.8f})) AS geojson "
             f"FROM data.{table_name} WHERE geom_4326 IS NOT NULL LIMIT {max_features}"
         )
 
