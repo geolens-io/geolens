@@ -40,6 +40,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import {
+  Download,
   MoreHorizontal,
   UserPlus,
   Check,
@@ -158,6 +159,16 @@ export function UserList() {
                 onChange={(v) => { setStatusFilter(v); setPage(0); }}
                 options={STATUS_OPTIONS.map((opt) => ({ value: opt.value, label: t(opt.labelKey) }))}
               />
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  window.open('/api/admin/users/export.csv', '_blank');
+                }}
+              >
+                <Download className="me-2 h-4 w-4" />
+                {t('users.exportEmailsCsv')}
+              </Button>
               <Button size="sm" onClick={() => setShowCreateDialog(true)}>
                 <UserPlus className="me-2 h-4 w-4" /> {t('users.addUser')}
               </Button>

@@ -36,6 +36,7 @@
     "titleCount_one": "Users ({{count}})",
     "titleCount_other": "Users ({{count}})",
     "addUser": "Add User",
+    "exportEmailsCsv": "Export emails (CSV)",
     "loading": "Loading users...",
     "errorLoading": "Failed to load users: {{message}}",
     "filters": {

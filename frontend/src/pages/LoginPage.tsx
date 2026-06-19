@@ -12,6 +12,7 @@ import { LoginForm } from '@/components/auth/LoginForm';
 import { OAuthButtons } from '@/components/auth/OAuthButtons';
 import { Button } from '@/components/ui/button';
 import { useDocumentTitle } from '@/hooks/use-document-title';
+import { GEOLENS_PRIVACY_URL } from '@/lib/external-links';
 
 function getOAuthErrorMessage(error: string, t: (key: string, opts?: Record<string, string>) => string): string {
   if (error.includes('invalid_grant')) {
@@ -136,6 +137,18 @@ export function LoginPage() {
           {configError && <div className="text-sm text-destructive">{t('authConfig.loadFailed')}</div>}
           <LoginForm />
           <OAuthButtons />
+          <p className="max-w-sm text-center text-xs text-muted-foreground">
+            {t('consentNote')}{' '}
+            <a
+              href={GEOLENS_PRIVACY_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline hover:text-foreground"
+            >
+              {t('privacyPolicy')}
+            </a>
+            {t('consentNoteSuffix')}
+          </p>
           <p className="max-w-sm text-center text-sm text-muted-foreground">
             {t('browseCatalogHelper', {
               defaultValue: 'No account needed to browse the public catalog.',
