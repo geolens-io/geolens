@@ -137,6 +137,36 @@ describe('LandingFirstGuard', () => {
     expect(screen.queryByTestId('login-page')).not.toBeInTheDocument();
   });
 
+  it('E) DEMO-04 — flag ON + anon + /maps/:id route → NOT intercepted by the index guard', () => {
+    const queryClient = createTestClient();
+    queryClient.setQueryData(['auth', 'config'], {
+      registration_enabled: false,
+      landing_first: true,
+      auth_methods: [],
+    });
+    act(() => {
+      useAuthStore.setState({ token: null, user: null, refreshToken: null, expiresAt: null });
+    });
+    sessionStorage.removeItem('gl-guest-browse');
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={['/maps/some-map-id']}>
+          <Routes>
+            <Route index element={<LandingFirstGuard />} />
+            <Route path="/maps/:id" element={<div data-testid="map-route">Map</div>} />
+            <Route path="/login" element={<LoginSpy />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    // The index guard is NOT mounted at /maps/:id — it only guards "/".
+    // The map route renders; login is NOT shown.
+    expect(screen.getByTestId('map-route')).toBeInTheDocument();
+    expect(screen.queryByTestId('login-page')).not.toBeInTheDocument();
+  });
+
   it('config absent (undefined) — defaults to flag OFF → SearchPage', () => {
     const queryClient = createTestClient();
     // No query data seeded — config will be undefined
