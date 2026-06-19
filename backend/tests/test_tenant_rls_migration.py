@@ -227,12 +227,13 @@ class TestMigrationRoundTripExitCodes:
             f"alembic downgrade -1 failed (rc={r.returncode}):\n"
             f"stdout: {r.stdout}\nstderr: {r.stderr}"
         )
-        # Accept either the current HEAD→HEAD-1 or the legacy 0006→0005 pattern
-        # (the latter would match on a DB not yet at 0007).
-        assert (
-            "0007_tenant_data_schemas -> 0006_tenant_rls" in r.stderr
-            or "0006_tenant_rls -> 0005_dormant_tenancy" in r.stderr
-        ), f"Expected downgrade step in stderr; got:\n{r.stderr}"
+        # Head-robust: assert that SOME downgrade step ran, rather than pinning
+        # the exact revision pair. The pair shifts with every new head migration
+        # (this assertion was already re-patched 0006→0007, then 0007→0008), so a
+        # generic check avoids re-breaking on the next migration.
+        assert "Running downgrade" in r.stderr, (
+            f"Expected a downgrade step in stderr; got:\n{r.stderr}"
+        )
 
     def test_reupgrade_head_exits_zero(self):
         """alembic upgrade head (re-apply HEAD) exits 0 after downgrade."""
@@ -389,26 +390,24 @@ class TestRlsNotEnabledAfterMigration:
 class TestPoliciesRoundTrip:
     """Policies are cleanly dropped on downgrade and re-created on upgrade.
 
-    Updated for Phase 1209-01: HEAD is now 0007_tenant_data_schemas off
-    0006_tenant_rls.  To reach 0005 (below the policy migration), we must
-    downgrade -2 (0007→0006→0005).  The restore path is upgrade head
-    (0005→0006→0007).
+    Targets the explicit revision ``0005_dormant_tenancy`` (below the
+    ``0006_tenant_rls`` policy migration) rather than a relative ``-N`` offset,
+    so new head migrations do not shift the target. The restore path is
+    ``upgrade head``.
     """
 
     async def test_policies_absent_after_downgrade(self):
         """After downgrade to 0005, all 6 policies are gone from pg_policies.
 
-        Phase 1208-02 original: downgrade -1 from 0006 → 0005.
-        Phase 1209-01 update: downgrade -2 from 0007 → 0006 → 0005.
-        The policies are defined in 0006; going to 0005 removes them.
+        The policies are defined in 0006; downgrading to 0005 (explicitly, so
+        the target is head-independent) removes them.
         """
-        # Downgrade past 0006 (the policy migration) to 0005.
-        # First step: 0007 → 0006
-        r1 = _run_alembic("downgrade", "-1")
-        assert r1.returncode == 0, f"downgrade -1 failed: {r1.stderr}"
-        # Second step: 0006 → 0005 (this drops the policies)
-        r2 = _run_alembic("downgrade", "-1")
-        assert r2.returncode == 0, f"downgrade -1 (second) failed: {r2.stderr}"
+        # Downgrade to 0005 explicitly (below the 0006 policy migration). Using an
+        # explicit target instead of relative -N steps keeps this head-robust: new
+        # head migrations (e.g. 0008_oauth_saml_columns) no longer shift the offset
+        # and silently stop above 0005, leaving the policies in place.
+        r1 = _run_alembic("downgrade", "0005_dormant_tenancy")
+        assert r1.returncode == 0, f"downgrade to 0005 failed: {r1.stderr}"
 
         rows = await _fresh_query(
             """

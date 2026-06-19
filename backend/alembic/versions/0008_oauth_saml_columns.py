@@ -75,20 +75,21 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    """Drop the four SAML columns (OSS-floor reversal).
+    """No-op: intentionally does NOT drop the four SAML columns.
 
-    Uses ``IF EXISTS`` so it is safe on a pure-OSS DB. Enterprise deployments
-    manage these columns via ``e002_add_saml_columns`` and are not expected to
-    downgrade the core chain past this revision; doing so would remove
-    enterprise SAML configuration, so production enterprise downgrades should
-    stop above 0008.
+    These columns are co-owned by the enterprise migration
+    ``e002_add_saml_columns`` (also ``ADD COLUMN IF NOT EXISTS``). Dropping them
+    on downgrade would:
+      1. remove enterprise SAML configuration on any DB where both migrations
+         applied (data loss), and
+      2. break test isolation — the migration round-trip tests downgrade a
+         shared per-worker test DB below 0008, and dropping the columns would
+         strand concurrent OAuth tests that rely on them (UndefinedColumnError).
+
+    Leaving the columns is harmless: they are nullable and unused by OSS
+    OAuth/OIDC providers, and it matches the pre-0008 behaviour where the
+    columns were added out-of-band (so a downgrade never removed them). A full
+    ``downgrade base`` simply leaves four empty nullable columns behind —
+    preferable to risking enterprise data or cross-test contamination.
     """
-    op.execute(
-        """
-        ALTER TABLE catalog.oauth_providers
-            DROP COLUMN IF EXISTS idp_entity_id,
-            DROP COLUMN IF EXISTS idp_sso_url,
-            DROP COLUMN IF EXISTS idp_certificate,
-            DROP COLUMN IF EXISTS sp_entity_id
-        """
-    )
+    pass
