@@ -597,6 +597,22 @@ UPLOAD_ALLOWED_EXTENSIONS = PersistentConfig[str](
     label="Allowed Upload Extensions",
 )
 
+MAX_STORAGE_BYTES_PER_USER = PersistentConfig[int](
+    key="max_storage_bytes_per_user",
+    type_=int,
+    env_default=0,
+    tab="storage",
+    label="Max Storage per User (bytes, 0=unlimited)",
+)
+
+MAX_DATASETS_PER_USER = PersistentConfig[int](
+    key="max_datasets_per_user",
+    type_=int,
+    env_default=0,
+    tab="storage",
+    label="Max Datasets per User (0=unlimited)",
+)
+
 
 async def get_all_registry_values(db: AsyncSession) -> dict[str, Any]:
     """Batch-load all registry settings in a single DB query.
