@@ -592,6 +592,8 @@ function OAuthProvidersSection({ envOnly }: { envOnly: boolean }) {
 
 const AUTH_FIELDS = [
   { key: 'registration_enabled', defaultValue: false },
+  // FRONT-01 (Phase 1223): toggle for login-as-landing front door.
+  { key: 'landing_first', defaultValue: false },
   { key: 'access_token_expire_minutes', defaultValue: 15 },
   { key: 'refresh_token_expire_days', defaultValue: 7 },
   { key: 'login_rate_limit', defaultValue: 5 },
@@ -616,6 +618,23 @@ export function SettingsAuthTab({ settings, envOnly, onSave, onReset, isSaving, 
           id="registration-toggle"
           checked={values.registration_enabled as boolean}
           onCheckedChange={setters.registration_enabled}
+          disabled={envOnly}
+        />
+      </div>
+
+      {/* FRONT-01 (Phase 1223): Login-as-Landing toggle */}
+      <div className="flex items-center justify-between max-w-md">
+        <div className="space-y-0.5">
+          <div className="flex items-center gap-2">
+            <Label htmlFor="landing-first-toggle">{t('settings.general.landingFirst')}</Label>
+            <SettingSourceBadge source={findSetting(settings, 'landing_first')?.source ?? 'default'} settingKey="landing_first" onReset={onReset} />
+          </div>
+          <p className="text-sm text-muted-foreground">{t('settings.general.landingFirstDescription')}</p>
+        </div>
+        <Switch
+          id="landing-first-toggle"
+          checked={values.landing_first as boolean}
+          onCheckedChange={setters.landing_first}
           disabled={envOnly}
         />
       </div>

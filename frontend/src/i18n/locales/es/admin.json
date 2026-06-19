@@ -405,6 +405,8 @@
       "cardDescription": "Habilitar o deshabilitar funcionalidades de la plataforma.",
       "registration": "Autoregistro",
       "registrationDescription": "Permitir que nuevos usuarios creen cuentas. Las cuentas aún requieren aprobación del administrador.",
+      "landingFirst": "Inicio de sesión como página de inicio",
+      "landingFirstDescription": "Cuando está habilitado, los visitantes anónimos de la URL raíz son redirigidos a la página de inicio de sesión en lugar del catálogo. Un enlace 'Explorar catálogo' permite omitir el inicio de sesión durante la sesión.",
       "aiFeatures": "Funciones de IA",
       "aiFeaturesDescription": "Habilitar funciones impulsadas por IA, incluyendo redacción de metadatos de conjuntos de datos (resúmenes, palabras clave, linaje, declaraciones de calidad), chat del constructor de mapas y generación de mapas con IA.",
       "saved": "Configuración guardada",

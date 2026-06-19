@@ -455,6 +455,8 @@
       "cardDescription": "Enable or disable platform features.",
       "registration": "Self-Registration",
       "registrationDescription": "Allow new users to create accounts. Accounts still require admin approval.",
+      "landingFirst": "Login as Landing Page",
+      "landingFirstDescription": "When enabled, anonymous visitors to the root URL are shown the login page instead of the catalog. A 'Browse Catalog' escape link lets visitors skip login for the session.",
       "aiFeatures": "AI Features",
       "aiFeaturesDescription": "Enable AI-powered features including dataset metadata drafting (summaries, keywords, lineage, quality statements), map builder chat, and AI map generation.",
       "requireMetadata": "Require Metadata for Publishing",

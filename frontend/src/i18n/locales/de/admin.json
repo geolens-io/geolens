@@ -405,6 +405,8 @@
       "cardDescription": "Plattformfunktionen aktivieren oder deaktivieren.",
       "registration": "Selbstregistrierung",
       "registrationDescription": "Neuen Benutzern erlauben, Konten zu erstellen. Konten erfordern weiterhin Admin-Genehmigung.",
+      "landingFirst": "Anmeldung als Startseite",
+      "landingFirstDescription": "Wenn aktiviert, werden anonyme Besucher der Stamm-URL zur Anmeldeseite weitergeleitet statt zum Katalog. Ein 'Katalog durchsuchen'-Link erlaubt es, die Anmeldung für die Sitzung zu überspringen.",
       "aiFeatures": "KI-Funktionen",
       "aiFeaturesDescription": "KI-gestützte Funktionen aktivieren, einschließlich Entwurf von Datensatz-Metadaten (Zusammenfassungen, Schlüsselwörter, Herkunft, Qualitätsaussagen), Kartenersteller-Chat und KI-Kartengenerierung.",
       "saved": "Einstellungen gespeichert",
