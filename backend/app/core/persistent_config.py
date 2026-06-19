@@ -423,6 +423,18 @@ ENABLE_DATASET_EDITING = PersistentConfig[bool](
     label="Enable Dataset Editing",
 )
 
+# FRONT-01 (Phase 1223): landing-first flag.  Default OFF so existing
+# self-hosters see no change.  When ON, the frontend root guard redirects
+# unauthenticated visitors from "/" to "/login" (the marketing landing page)
+# unless they have set the gl-guest-browse sessionStorage escape hatch.
+LANDING_FIRST = PersistentConfig[bool](
+    key="landing_first",
+    type_=bool,
+    env_default_factory=lambda: settings.landing_first,
+    tab="auth",
+    label="Login-as-Landing Page",
+)
+
 # -- Auth tab --
 ACCESS_TOKEN_EXPIRE_MINUTES = PersistentConfig[int](
     key="access_token_expire_minutes",

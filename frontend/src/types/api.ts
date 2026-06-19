@@ -608,6 +608,11 @@ export interface OAuthProviderPublic {
 
 export interface AuthConfigResponse {
   registration_enabled: boolean;
+  /** FRONT-01 (Phase 1223): when true the root guard redirects anonymous
+   *  visitors from "/" to "/login".  Default false on the server; the
+   *  field may be absent on older server versions (treat as false). */
+  landing_first?: boolean;
+  auth_methods?: string[];
 }
 
 export interface MessageResponse {

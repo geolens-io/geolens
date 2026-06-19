@@ -79,6 +79,16 @@ class ConfigResponse(BaseModel):
             "Login UI can render conditional sign-in options without needing admin OAuthProvider access."
         ),
     )
+    # FRONT-01 (Phase 1223): when True the frontend redirects unauthenticated
+    # visitors at "/" to "/login" (the marketing landing surface).  Default
+    # False — self-hosters upgrading see zero change.
+    landing_first: bool = Field(
+        default=False,
+        description=(
+            "When true, unauthenticated visits to '/' are redirected to '/login' "
+            "as the product landing page. Default false (search catalog is the root)."
+        ),
+    )
 
 
 class UserResponse(BaseModel):

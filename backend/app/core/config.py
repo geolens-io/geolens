@@ -60,6 +60,10 @@ class Settings(BaseSettings):
     geolens_admin_username: str
     geolens_admin_password: SecretStr
     registration_enabled: bool = False
+    # FRONT-01 (Phase 1223): when True the root route redirects anonymous
+    # visitors to the login page as the product landing surface.
+    # Default False — self-hosters see zero change on upgrade.
+    landing_first: bool = False
 
     cors_allowed_origins: str = ""
     upload_max_size_mb: int = 500
