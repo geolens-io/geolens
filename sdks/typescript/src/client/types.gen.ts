@@ -13195,6 +13195,111 @@ export type GetDcatCatalogDatasetsDcatGetResponses = {
     200: unknown;
 };
 
+export type ValidateDcat3CatalogDatasetsDcatValidationGetData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/datasets/dcat/validation/';
+};
+
+export type ValidateDcat3CatalogDatasetsDcatValidationGetErrors = {
+    /**
+     * Bad request — invalid query parameters or payload
+     */
+    400: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Validation error
+     */
+    422: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+};
+
+export type ValidateDcat3CatalogDatasetsDcatValidationGetError = ValidateDcat3CatalogDatasetsDcatValidationGetErrors[keyof ValidateDcat3CatalogDatasetsDcatValidationGetErrors];
+
+export type ValidateDcat3CatalogDatasetsDcatValidationGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type GetGeodcatApCatalogDatasetsGeodcatApGetData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/datasets/geodcat-ap/';
+};
+
+export type GetGeodcatApCatalogDatasetsGeodcatApGetErrors = {
+    /**
+     * Bad request — invalid query parameters or payload
+     */
+    400: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Validation error
+     */
+    422: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+};
+
+export type GetGeodcatApCatalogDatasetsGeodcatApGetError = GetGeodcatApCatalogDatasetsGeodcatApGetErrors[keyof GetGeodcatApCatalogDatasetsGeodcatApGetErrors];
+
+export type GetGeodcatApCatalogDatasetsGeodcatApGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type ValidateGeodcatApCatalogDatasetsGeodcatApValidationGetData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/datasets/geodcat-ap/validation/';
+};
+
+export type ValidateGeodcatApCatalogDatasetsGeodcatApValidationGetErrors = {
+    /**
+     * Bad request — invalid query parameters or payload
+     */
+    400: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Validation error
+     */
+    422: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+};
+
+export type ValidateGeodcatApCatalogDatasetsGeodcatApValidationGetError = ValidateGeodcatApCatalogDatasetsGeodcatApValidationGetErrors[keyof ValidateGeodcatApCatalogDatasetsGeodcatApValidationGetErrors];
+
+export type ValidateGeodcatApCatalogDatasetsGeodcatApValidationGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
 export type DeleteDatasetRelationshipDatasetsRelationshipsRelationshipIdDeleteData = {
     body?: never;
     path: {
@@ -13885,6 +13990,46 @@ export type GetDcatRecordDatasetsDatasetIdDcatGetResponses = {
     200: unknown;
 };
 
+export type ValidateDcat3RecordDatasetsDatasetIdDcatValidationGetData = {
+    body?: never;
+    path: {
+        /**
+         * Dataset Id
+         */
+        dataset_id: string;
+    };
+    query?: never;
+    url: '/datasets/{dataset_id}/dcat/validation/';
+};
+
+export type ValidateDcat3RecordDatasetsDatasetIdDcatValidationGetErrors = {
+    /**
+     * Bad request — invalid query parameters or payload
+     */
+    400: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Validation error
+     */
+    422: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+};
+
+export type ValidateDcat3RecordDatasetsDatasetIdDcatValidationGetError = ValidateDcat3RecordDatasetsDatasetIdDcatValidationGetErrors[keyof ValidateDcat3RecordDatasetsDatasetIdDcatValidationGetErrors];
+
+export type ValidateDcat3RecordDatasetsDatasetIdDcatValidationGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
 export type DownloadCogDatasetsDatasetIdDownloadCogGetData = {
     body?: never;
     path: {
@@ -14544,6 +14689,86 @@ export type GetFeatureRelatedRecordsDatasetsDatasetIdFeaturesGidRelatedRelations
 };
 
 export type GetFeatureRelatedRecordsDatasetsDatasetIdFeaturesGidRelatedRelationshipIdGetResponse = GetFeatureRelatedRecordsDatasetsDatasetIdFeaturesGidRelatedRelationshipIdGetResponses[keyof GetFeatureRelatedRecordsDatasetsDatasetIdFeaturesGidRelatedRelationshipIdGetResponses];
+
+export type GetGeodcatApRecordDatasetsDatasetIdGeodcatApGetData = {
+    body?: never;
+    path: {
+        /**
+         * Dataset Id
+         */
+        dataset_id: string;
+    };
+    query?: never;
+    url: '/datasets/{dataset_id}/geodcat-ap/';
+};
+
+export type GetGeodcatApRecordDatasetsDatasetIdGeodcatApGetErrors = {
+    /**
+     * Bad request — invalid query parameters or payload
+     */
+    400: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Validation error
+     */
+    422: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+};
+
+export type GetGeodcatApRecordDatasetsDatasetIdGeodcatApGetError = GetGeodcatApRecordDatasetsDatasetIdGeodcatApGetErrors[keyof GetGeodcatApRecordDatasetsDatasetIdGeodcatApGetErrors];
+
+export type GetGeodcatApRecordDatasetsDatasetIdGeodcatApGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type ValidateGeodcatApRecordDatasetsDatasetIdGeodcatApValidationGetData = {
+    body?: never;
+    path: {
+        /**
+         * Dataset Id
+         */
+        dataset_id: string;
+    };
+    query?: never;
+    url: '/datasets/{dataset_id}/geodcat-ap/validation/';
+};
+
+export type ValidateGeodcatApRecordDatasetsDatasetIdGeodcatApValidationGetErrors = {
+    /**
+     * Bad request — invalid query parameters or payload
+     */
+    400: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Validation error
+     */
+    422: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+};
+
+export type ValidateGeodcatApRecordDatasetsDatasetIdGeodcatApValidationGetError = ValidateGeodcatApRecordDatasetsDatasetIdGeodcatApValidationGetErrors[keyof ValidateGeodcatApRecordDatasetsDatasetIdGeodcatApValidationGetErrors];
+
+export type ValidateGeodcatApRecordDatasetsDatasetIdGeodcatApValidationGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
 
 export type GetDatasetHistoryDatasetsDatasetIdHistoryGetData = {
     body?: never;

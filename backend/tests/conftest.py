@@ -230,6 +230,20 @@ _CONFIG_SHARED_ENGINE_MODULES = {
     "test_1183_s3_spool_upload",
 }
 
+# Modules whose tests drive the app's SHARED async engine (app.core.db.session.engine)
+# through pooled code paths — e.g. assert_schema_in_sync() (MIG-02) and
+# recover_stale_jobs() — AND run under -n 4, where pytest-asyncio (strict mode) gives
+# each test its OWN event loop. The app engine uses a QueuePool by default, so a
+# pooled asyncpg connection binds to the first loop that uses it; a later test on the
+# SAME xdist worker (a fresh loop) that checks out that pooled connection raises
+# "got Future attached to a different loop". Co-location grouping does NOT help here
+# (the leak is intra-worker, across loops). Disposing the pool after each such test
+# forces a fresh per-loop connection. (v1043 Pytest Parallel Isolation fix.)
+_DISPOSE_SHARED_ENGINE_MODULES = {
+    "test_worker",
+    "test_schema_skew_guard",
+}
+
 
 @pytest.hookimpl(tryfirst=True)
 def pytest_collection_modifyitems(config, items):
@@ -260,6 +274,45 @@ def pytest_collection_modifyitems(config, items):
             item.add_marker(pytest.mark.xdist_group("tenancy_global_state"))
         elif module_name in _CONFIG_SHARED_ENGINE_MODULES:
             item.add_marker(pytest.mark.xdist_group("config_shared_engine"))
+
+
+@pytest.fixture(autouse=True)
+def _dispose_shared_app_engine_after_test(request):
+    """Clear the app's shared async-engine pool BEFORE AND AFTER each test in the
+    modules listed in ``_DISPOSE_SHARED_ENGINE_MODULES`` (see that set for the why).
+
+    Sync fixture so it is safe for both sync and async tests under pytest-asyncio
+    strict mode. ``sync_engine.dispose()`` empties the connection pool
+    synchronously.
+
+    The AFTER-dispose stops THIS test from leaking a loop-bound pooled connection
+    to a later test on the same xdist worker. But an after-only dispose scoped to
+    these two modules cannot protect the FIRST DB-touching test in the module from
+    a connection left in the pool by whatever test ran before it on the worker —
+    that prior test can live in ANY module, so its dispose never fired. Without a
+    BEFORE-dispose, ``get_current_heads()`` / ``recover_stale_jobs()`` can check
+    out that stale connection and raise "got Future attached to a different loop"
+    (the -n4 flake this guards against). Under xdist each worker runs serially, so
+    the pool is idle at test start and the pre-dispose is safe.
+    """
+
+    def _dispose():
+        try:
+            from app.core.db.session import engine
+
+            engine.sync_engine.dispose()
+        except Exception:  # broad: best-effort pool cleanup; never fail setup/teardown
+            pass
+
+    module = getattr(request.node, "module", None)
+    name = module.__name__.rsplit(".", 1)[-1] if module else ""
+    in_scope = name in _DISPOSE_SHARED_ENGINE_MODULES
+
+    if in_scope:
+        _dispose()
+    yield
+    if in_scope:
+        _dispose()
 
 
 @pytest.fixture(autouse=True)

@@ -591,9 +591,15 @@ async def ingest_raster(job_id: str, file_path: str, user_id: str, **kwargs) -> 
             # (data/vrt + thumbnail + overview). On local storage these still
             # resolve to None per GAP-031; on S3-published deployments they
             # become presigned hrefs.
-            from app.platform.extensions import get_processing_port as _get_port
+            from app.platform.extensions import (
+                get_catalog_port,
+                get_processing_port as _get_port,
+            )
 
-            DatasetAsset = _get_port().dataset_asset_orm_class()
+            # dataset_asset_orm_class lives on the CatalogPort, not the
+            # ProcessingPort — get it from get_catalog_port() (BUG-041 follow-up:
+            # the original fix used the wrong port and crashed every COG ingest).
+            DatasetAsset = get_catalog_port().dataset_asset_orm_class()
             for asset_row in _build_dataset_asset_rows(
                 dataset_id=dataset.id,
                 cog_key=cog_key,

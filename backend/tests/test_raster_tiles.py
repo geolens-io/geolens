@@ -21,7 +21,10 @@ from app.modules.auth.models import User
 from app.core.config import settings
 from app.modules.catalog.datasets.domain.models import Dataset, Record
 from app.processing.raster.models import RasterAsset
-from app.processing.tiles.router import _raster_maxzoom_from_metadata
+from app.processing.tiles.router import (
+    _dem_nodata_param,
+    _raster_maxzoom_from_metadata,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -44,6 +47,8 @@ async def _create_raster_dataset(
     record_status: str = "published",
     record_type: str = "raster_dataset",
     with_asset: bool = True,
+    is_dem: bool = False,
+    nodata: str | None = None,
 ) -> tuple[Record, Dataset, RasterAsset | None]:
     """Create a Record + Dataset (+ optional RasterAsset) for raster tests."""
     record = Record(
@@ -73,6 +78,8 @@ async def _create_raster_dataset(
             dataset_id=dataset.id,
             asset_uri=f"rasters/{dataset.id}/abc123/source.cog.tif",
             storage_backend="local",
+            is_dem=is_dem,
+            nodata=nodata,
         )
         session.add(raster_asset)
         await session.flush()
@@ -315,6 +322,106 @@ class TestRasterAuthCheck:
             headers=viewer_header,
         )
         assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Issue #186: DEM nodata masking in terrainrgb encoding
+# ---------------------------------------------------------------------------
+
+
+class TestDemNodataParamUnit:
+    """Pure unit tests for the DEM nodata resolution helper (#186)."""
+
+    def test_recorded_integer_nodata_preferred(self):
+        assert _dem_nodata_param("-32768") == "-32768"
+
+    def test_recorded_float_nodata_kept_as_float(self):
+        assert _dem_nodata_param("-9999.5") == "-9999.5"
+
+    def test_integral_float_recorded_emits_integer_literal(self):
+        # "-9999.0" should normalize to "-9999" for a clean URL.
+        assert _dem_nodata_param("-9999.0") == "-9999"
+
+    def test_missing_nodata_falls_back_to_default_sentinel(self):
+        assert _dem_nodata_param(None) == "-9999"
+        assert _dem_nodata_param("") == "-9999"
+        assert _dem_nodata_param("   ") == "-9999"
+
+    def test_non_numeric_nodata_returns_none(self):
+        # "nan"/garbage → rely on the COG's internal mask, inject nothing.
+        assert _dem_nodata_param("nan") is None
+        assert _dem_nodata_param("not-a-number") is None
+        assert _dem_nodata_param("inf") is None
+
+
+class TestDemTerrainNodataAuthCheck:
+    """raster_auth_check emits a nodata= mask in DEM terrainrgb render params (#186)."""
+
+    async def test_dem_with_recorded_nodata_emits_masked_render_params(
+        self, client: AsyncClient, test_db_session
+    ):
+        """DEM with recorded nodata -> terrainrgb render params include that nodata."""
+        admin_id = await _get_admin_id(test_db_session)
+        record, dataset, asset = await _create_raster_dataset(
+            test_db_session,
+            created_by=admin_id,
+            visibility="public",
+            is_dem=True,
+            nodata="-9999",
+        )
+
+        resp = await client.get(
+            "/tiles/raster-auth-check/",
+            params={"dataset_id": str(dataset.id)},
+        )
+        assert resp.status_code == 200
+        render_params = resp.headers.get("x-geolens-render-params", "")
+        assert "algorithm=terrainrgb" in render_params
+        # The headline #186 fix: nodata pixels are masked, not encoded as elevation.
+        assert "nodata=-9999" in render_params
+
+    async def test_dem_without_recorded_nodata_falls_back_to_sentinel(
+        self, client: AsyncClient, test_db_session
+    ):
+        """DEM with NULL nodata -> render params fall back to the -9999 sentinel."""
+        admin_id = await _get_admin_id(test_db_session)
+        record, dataset, asset = await _create_raster_dataset(
+            test_db_session,
+            created_by=admin_id,
+            visibility="public",
+            is_dem=True,
+            nodata=None,
+        )
+
+        resp = await client.get(
+            "/tiles/raster-auth-check/",
+            params={"dataset_id": str(dataset.id)},
+        )
+        assert resp.status_code == 200
+        render_params = resp.headers.get("x-geolens-render-params", "")
+        assert "algorithm=terrainrgb" in render_params
+        assert "nodata=-9999" in render_params
+
+    async def test_non_dem_raster_has_no_nodata_terrainrgb_params(
+        self, client: AsyncClient, test_db_session
+    ):
+        """A non-DEM raster must NOT get terrainrgb/nodata masking."""
+        admin_id = await _get_admin_id(test_db_session)
+        record, dataset, asset = await _create_raster_dataset(
+            test_db_session,
+            created_by=admin_id,
+            visibility="public",
+            is_dem=False,
+            nodata="0",
+        )
+
+        resp = await client.get(
+            "/tiles/raster-auth-check/",
+            params={"dataset_id": str(dataset.id)},
+        )
+        assert resp.status_code == 200
+        render_params = resp.headers.get("x-geolens-render-params", "")
+        assert "algorithm=terrainrgb" not in render_params
 
 
 # ---------------------------------------------------------------------------

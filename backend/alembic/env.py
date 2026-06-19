@@ -157,6 +157,61 @@ if _extra_paths:
     _all_paths = _base_versions + " " + " ".join(_extra_paths)
     config.set_main_option("version_locations", _all_paths)
 
+    # MIG-04: propagate the discovered overlay version dirs onto the LIVE
+    # ScriptDirectory the running command already constructed.
+    #
+    # alembic's CLI builds `ScriptDirectory.from_config(config)` ONCE, then runs
+    # this env.py via `script.run_env()`. The `config.set_main_option(...)` above
+    # mutates the Config AFTER that ScriptDirectory was built, so the upgrade
+    # walk (which is driven by the already-constructed ScriptDirectory) never
+    # sees the enterprise version dirs — `alembic upgrade heads` would silently
+    # apply ONLY the core head and SKIP the enterprise e-chain (e001/e002),
+    # leaving SAML columns absent on a GEOLENS_EDITION=enterprise deployment.
+    # (The conftest test harness sidesteps this by setting version_locations on
+    # the Config BEFORE command.upgrade; the production CLI path cannot.)
+    #
+    # We refresh the live ScriptDirectory's version_locations and rebuild its
+    # RevisionMap so the heads-plural walk picks up the enterprise branch. This
+    # runs before run_migrations_online() invokes context.run_migrations(), so
+    # head resolution happens against the augmented map. Tolerant of offline /
+    # no-active-context (revision command, autogenerate) — those construct their
+    # ScriptDirectory from the (now-augmented) Config directly.
+    try:
+        _live_script = context.script  # the EnvironmentContext's ScriptDirectory
+    except Exception:
+        _live_script = None
+    if _live_script is not None:
+        try:
+            from alembic.script import revision as _alembic_revision
+
+            # The default ScriptDirectory derives its core versions dir IMPLICITLY
+            # from `script_location` (alembic/versions) and leaves
+            # `version_locations` EMPTY. Seeding only the enterprise paths would
+            # therefore DROP the core revisions (e001's down_revision
+            # `0002_procrastinate` would go missing → KeyError). Seed the base
+            # versions dir explicitly alongside the overlay paths so BOTH chains
+            # are walked.
+            _existing = list(getattr(_live_script, "version_locations", []) or [])
+            if not _existing:
+                _existing = [str(pathlib.Path(_live_script.dir) / "versions")]
+            for _p in _extra_paths:
+                if _p not in _existing:
+                    _existing.append(_p)
+            _live_script.version_locations = _existing
+            # Rebuild the memoized revision map so the enterprise revisions are
+            # walked (RevisionMap lazily reads version_locations via the bound
+            # _load_revisions callable on the same ScriptDirectory instance).
+            _live_script.revision_map = _alembic_revision.RevisionMap(
+                _live_script._load_revisions
+            )
+        except Exception:
+            _log.error(
+                "MIG-04: failed to propagate enterprise version dirs onto the "
+                "live ScriptDirectory — 'alembic upgrade heads' may skip the "
+                "enterprise e-chain. This is a configuration error, not OSS.",
+                exc_info=True,
+            )
+
 target_metadata = Base.metadata
 
 

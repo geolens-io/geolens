@@ -13,6 +13,18 @@ INSTALL_DIR="${GEOLENS_INSTALL_DIR:-geolens}"
 COMPOSE_FILE="docker-compose.yml"
 RELEASE_VERSION=""
 
+# --upgrade: on a re-run against an existing install, perform the upgrade
+# (delegate to scripts/upgrade.sh) instead of just restarting the current
+# version. Without it, a re-run that detects a newer release only PRINTS a
+# notice and restarts the installed version (no surprise upgrades over
+# `curl | sh`). Parsed here so it is available before main() runs.
+DO_UPGRADE=false
+for _arg in "$@"; do
+  case "$_arg" in
+    --upgrade) DO_UPGRADE=true ;;
+  esac
+done
+
 compose() {
   docker compose -f "$COMPOSE_FILE" "$@"
 }
@@ -227,12 +239,15 @@ main() {
 
   # If the user already cd'd into a checkout, use it. Otherwise honor INSTALL_DIR.
   PROJECT_HINT=""
+  EXISTING_INSTALL=false
   if [ -f docker-compose.yml ] && [ -f .env.example ]; then
     say "Using current directory: $(pwd)"
+    [ -f .env ] && EXISTING_INSTALL=true
   elif [ -d "$INSTALL_DIR/.git" ]; then
     say "Using existing checkout: $INSTALL_DIR"
     cd "$INSTALL_DIR"
     PROJECT_HINT="$INSTALL_DIR"
+    [ -f .env ] && EXISTING_INSTALL=true
   elif [ -e "$INSTALL_DIR" ]; then
     fail "$INSTALL_DIR exists but is not a Git checkout. Move it or set GEOLENS_INSTALL_DIR."
   else
@@ -397,6 +412,66 @@ main() {
     esac
   fi
 
+  # UPG-02: on a RE-RUN of an existing install, check whether a newer release
+  # tag exists upstream and offer / route to the upgrade. Fresh installs (just
+  # cloned at the latest tag) skip this — there is nothing newer to detect.
+  if [ "$EXISTING_INSTALL" = "true" ]; then
+    installed_version="$(get_env_value GEOLENS_VERSION)"
+    latest_tag="$(git ls-remote --tags --refs "$REPO_URL" 2>/dev/null \
+      | awk '{print $2}' \
+      | grep -E '^refs/tags/v[0-9]+\.[0-9]+\.[0-9]+$' \
+      | sed 's#^refs/tags/##' \
+      | sort -t. -k1.2,1n -k2,2n -k3,3n \
+      | tail -n 1)"
+    latest_version="${latest_tag#v}"
+
+    # Compare only when we know both the installed pin and a remote tag. A blank
+    # installed_version means a source/branch install with no pin — don't nag.
+    if [ -n "$installed_version" ] && [ "$installed_version" != "latest" ] && [ -n "$latest_version" ]; then
+      newer="$(__A="$latest_version" __B="$installed_version" awk '
+        BEGIN {
+          n = split(ENVIRON["__A"], a, "."); m = split(ENVIRON["__B"], b, ".")
+          max = (n > m) ? n : m
+          for (i = 1; i <= max; i++) {
+            ai = (i <= n) ? a[i] + 0 : 0; bi = (i <= m) ? b[i] + 0 : 0
+            if (ai > bi) { print "yes"; exit }
+            if (ai < bi) { print "no"; exit }
+          }
+          print "no"
+        }')"
+      if [ "$newer" = "yes" ]; then
+        if [ "$DO_UPGRADE" = "true" ]; then
+          say "A newer GeoLens release (v${latest_version}) is available — upgrading from v${installed_version}."
+          if [ -x scripts/upgrade.sh ]; then
+            exec sh scripts/upgrade.sh "$latest_version"
+          else
+            fail "scripts/upgrade.sh not found in this checkout; cannot --upgrade. Update the checkout first (git fetch --tags && git checkout v${latest_version})."
+          fi
+        elif [ "$HAS_TTY" = "true" ]; then
+          printf 'A newer GeoLens release (v%s) is available (installed: v%s).\n' "$latest_version" "$installed_version" >/dev/tty
+          printf 'Upgrade now? [y/N]: ' >/dev/tty
+          IFS= read -r _ans </dev/tty || _ans=""
+          case "$_ans" in
+            y|Y|yes|YES)
+              if [ -x scripts/upgrade.sh ]; then
+                exec sh scripts/upgrade.sh "$latest_version"
+              else
+                warn "scripts/upgrade.sh not found; update the checkout first (git fetch --tags && git checkout v${latest_version}), then re-run."
+              fi
+              ;;
+            *)
+              say "Skipping upgrade; restarting the installed version (v${installed_version})."
+              ;;
+          esac
+        else
+          # Non-interactive (curl | sh): never surprise-upgrade. Notify and continue.
+          say "Notice: a newer GeoLens release (v${latest_version}) is available (installed: v${installed_version})."
+          say "        Run './scripts/upgrade.sh' (or re-run the installer with --upgrade) to upgrade."
+        fi
+      fi
+    fi
+  fi
+
   # Prefer prebuilt release images: when installing a release tag whose checkout
   # ships docker-compose.prod.yml, pull the version-pinned images instead of
   # building from source. Falls back to the source build for dev checkouts, branch
@@ -445,6 +520,33 @@ main() {
   else
     say "  docker compose ps"
   fi
+
+  # BKP-03 (Phase 1219): backups are OPT-IN. A default install brings up no
+  # backup service, so surface a clear status line rather than let operators
+  # assume they are protected. Treat backups as "enabled" only if the backup
+  # Compose profile is requested (COMPOSE_PROFILES contains "backup") OR S3
+  # offload is turned on (BACKUP_S3_ENABLED=true) in the environment/.env.
+  _backup_profiles="${COMPOSE_PROFILES:-}"
+  _backup_s3="${BACKUP_S3_ENABLED:-false}"
+  if [ -f .env ]; then
+    _env_profiles="$(grep -E '^COMPOSE_PROFILES=' .env 2>/dev/null | tail -n1 | cut -d= -f2- | tr -d '"' || true)"
+    [ -n "$_env_profiles" ] && _backup_profiles="${_backup_profiles},${_env_profiles}"
+    _env_s3="$(grep -E '^BACKUP_S3_ENABLED=' .env 2>/dev/null | tail -n1 | cut -d= -f2- | tr -d '"' || true)"
+    [ -n "$_env_s3" ] && _backup_s3="$_env_s3"
+  fi
+  say ""
+  case ",${_backup_profiles}," in
+    *,backup,*)
+      say "Automated backups: ENABLED (backup profile active)." ;;
+    *)
+      if [ "$_backup_s3" = "true" ]; then
+        say "Automated backups: ENABLED (S3 offload active)."
+      else
+        warn "Automated backups are NOT enabled — see UPGRADING.md or run with --profile backup"
+        warn "  e.g. docker compose --profile backup up -d"
+      fi
+      ;;
+  esac
 }
 
 main "$@"

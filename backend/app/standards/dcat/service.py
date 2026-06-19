@@ -386,6 +386,13 @@ def _distribution_to_dcat(dist: RecordDistribution, base_url: str) -> dict:
 def catalog_to_dcat(datasets: list[Dataset], base_url: str) -> dict:
     """Serialize a list of visible datasets to a DCAT 3 Catalog JSON-LD dict.
 
+    Filter-the-feed conformance posture: only records that pass DCAT 3
+    structural validation are emitted in ``dcat:dataset``. Records missing a
+    mandatory property (e.g. title or description) are silently skipped so the
+    feed as a whole stays conformant with zero onboarding friction. Operators
+    who want to *block* incomplete records at publish time can enable the
+    optional ``REQUIRE_METADATA_FOR_PUBLISH`` lever instead.
+
     Args:
         datasets: List of Dataset ORM objects with record relationships loaded.
         base_url: Absolute base URL.
@@ -393,6 +400,14 @@ def catalog_to_dcat(datasets: list[Dataset], base_url: str) -> dict:
     Returns:
         A DCAT Catalog dict with nested dataset entries (without individual @context).
     """
+    from app.standards.dcat.validation import validate_dcat3
+
+    entries: list[dict] = []
+    for ds in datasets:
+        entry = record_to_dcat(ds, base_url, include_context=False)
+        if validate_dcat3(entry, "Dataset")["valid"]:
+            entries.append(entry)
+
     return {
         "@context": DCAT_CONTEXT,
         "@type": "dcat:Catalog",
@@ -410,7 +425,5 @@ def catalog_to_dcat(datasets: list[Dataset], base_url: str) -> dict:
             "@type": "foaf:Agent",
             "foaf:name": "GeoLens",
         },
-        "dcat:dataset": [
-            record_to_dcat(ds, base_url, include_context=False) for ds in datasets
-        ],
+        "dcat:dataset": entries,
     }

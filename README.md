@@ -66,11 +66,11 @@ GeoLens replaces that workflow:
 
 ## See It in Action
 
-The examples below use a JWT bearer token. Mint one against the local stack (the login endpoint accepts an OAuth2 password form, so use `-d` with form fields, not JSON):
+The examples below use a JWT bearer token. Mint one against the local stack (the login endpoint accepts an OAuth2 password form, so use `-d` with form fields, not JSON). Substitute your admin username and the password from `.env` (`grep '^GEOLENS_ADMIN_PASSWORD=' .env`):
 
 ```bash
 TOKEN=$(curl -s -X POST http://localhost:8080/api/auth/login/ \
-  -d 'username=admin&password=admin' | jq -r '.access_token')
+  -d 'username=admin&password=<your-admin-password>' | jq -r '.access_token')
 ```
 
 Search datasets by meaning, not just keywords:
@@ -176,13 +176,16 @@ bash scripts/install.sh
 ```
 
 Either way, `scripts/install.sh` copies `.env.example` to `.env`, generates a JWT signing
-secret, prompts for admin credentials (defaults to `admin` / `admin`), and runs
-`docker compose up -d`. For unattended installs, set `GEOLENS_ADMIN_USERNAME` and
-`GEOLENS_ADMIN_PASSWORD` in the environment before running and the prompts are
-skipped. Re-running the script is idempotent — existing values in `.env` are
-preserved.
+secret, sets up admin credentials, and runs `docker compose up -d`. The admin **username**
+defaults to `admin`; the admin **password** is auto-generated as a strong random value
+(shown once during install) unless you supply your own — it is never `admin` / `admin`.
+For unattended installs, set `GEOLENS_ADMIN_USERNAME` and `GEOLENS_ADMIN_PASSWORD` in the
+environment before running and the prompts are skipped. Re-running the script is idempotent —
+existing values in `.env` are preserved.
 
-Wait about 60 seconds for services to start, then open [http://localhost:8080](http://localhost:8080). Log in with the admin credentials you set.
+Wait about 60 seconds for services to start, then open [http://localhost:8080](http://localhost:8080).
+Log in with your admin username and the generated password (retrieve it with
+`grep '^GEOLENS_ADMIN_PASSWORD=' .env`).
 
 Verify all services are healthy:
 
@@ -199,7 +202,15 @@ already taken, change `DB_PORT`, `API_PORT`,
 or `FRONTEND_PORT` in `.env`. For port conflicts, stuck startups, out-of-memory,
 and migration warnings, see the [Troubleshooting guide](https://docs.getgeolens.com/guides/quickstart/install/#troubleshooting).
 
-For production deployment, see the [Install Guide](https://docs.getgeolens.com/guides/quickstart/install/). A community-maintained Kubernetes [Helm chart](https://github.com/geolens-io/geolens-deployments) lives in the separate [`geolens-deployments`](https://github.com/geolens-io/geolens-deployments) repo. For upgrading, see the [Upgrade Guide](https://docs.getgeolens.com/guides/quickstart/upgrade/).
+For production deployment, see the [Install Guide](https://docs.getgeolens.com/guides/quickstart/install/). A community-maintained Kubernetes [Helm chart](https://github.com/geolens-io/geolens-deployments) lives in the separate [`geolens-deployments`](https://github.com/geolens-io/geolens-deployments) repo.
+
+### Upgrading
+
+To upgrade a prebuilt install, run `./scripts/upgrade.sh` from your install
+directory — it backs up the database, pulls the new images, runs migrations
+behind a health gate, and prints a rollback recipe if anything fails. See
+[`UPGRADING.md`](UPGRADING.md) for the prebuilt and source-build flows plus
+rollback, or the online [Upgrade Guide](https://docs.getgeolens.com/guides/quickstart/upgrade/).
 
 ### Add Your First Dataset
 
@@ -207,7 +218,7 @@ The repo ships a small `city-parks.geojson`. Upload and publish it in one comman
 
 ```bash
 pip install geolens-cli                              # installs the `geolens` command
-geolens login http://localhost:8080/api              # admin / admin
+geolens login http://localhost:8080/api              # use your admin username + password
 geolens publish examples/manifests/first-catalog/city-parks.geojson --name "City Parks"
 ```
 
@@ -229,7 +240,7 @@ See the [CLI guide](https://docs.getgeolens.com/guides/cli/) for the full manife
 
 ```bash
 pip install httpx
-python scripts/seed-showcase.py --username admin --password admin [--with-terrain] [--only manhattan|income|matterhorn]
+python scripts/seed-showcase.py --username admin --password "$(grep '^GEOLENS_ADMIN_PASSWORD=' .env | cut -d= -f2-)" [--with-terrain] [--only manhattan|income|matterhorn]
 ```
 
 Requires internet access to the upstream open-data sources.
@@ -295,12 +306,25 @@ pools fit within **30 of 30 max_connections** out of the box (PERF-05 — Postgr
 [Connection Pool Tuning](https://docs.getgeolens.com/guides/quickstart/configuration/#connection-pool-tuning)
 for the per-process budget and how to raise the ceiling.
 
-### Backup S3 Compatibility
+### Backups
 
-Automated off-site backups to S3-compatible storage (MinIO, Cloudflare R2, AWS S3)
-ship via the `backup` Compose profile. New AWS buckets require Signature V4 — see
+Automated, scheduled backups are **opt-in**. Enable them with the `backup`
+Compose profile:
+
+```bash
+docker compose --profile backup up -d
+```
+
+This runs `pg_dump` on a daily/weekly schedule and also archives the
+object-storage staging volume, so a restore reproduces a working instance (DB +
+objects). A default install does **not** enable backups.
+
+**Off-site (S3) upload** is additionally gated on `BACKUP_S3_ENABLED=true`. The
+built-in uploader signs with **AWS Signature V2**, which works with classic AWS
+buckets and MinIO. New AWS buckets that require Signature V4 need the `aws-cli`
+sidecar workaround (SigV4 support is on the roadmap). See
 [Backups & Restore](https://docs.getgeolens.com/guides/admin/backups/#backup-destinations)
-for the Sig-V2 compatibility note and the `aws-cli` workaround.
+for the compatibility note and the workaround.
 
 ## Reference
 

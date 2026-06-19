@@ -7,6 +7,118 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-06-18
+
+This release bundles changes since 1.2.4. It summarizes four internal milestones
+(v1039 Tier-1 hardening, v1040 Tier-2 hardening, v1041 map-builder authoring
+enhancements, and the v1042 tenancy substrate) plus the v1043 self-hosted
+release/upgrade work, in operator-facing terms.
+
+### Added
+
+- **Data-driven classification in the map builder.** Numeric layers can now be
+  styled with Jenks natural-breaks, standard-deviation, and manual class
+  breaks in addition to the existing equal-interval/quantile schemes, making it
+  easier to produce defensible choropleths from your own attribute data.
+- **Color-ramp controls for accessible cartography.** Ramps can be reversed in
+  place, and the picker now includes color-vision-deficiency-safe (CVD-safe)
+  palettes so maps remain legible for color-blind viewers.
+- **Per-layer legend customization.** Each layer's legend title and entry
+  labels can be overridden independently of the layer name, so published
+  legends can use human-readable wording without renaming the underlying
+  layer. (Additive migration `0004_add_maps_legend_title`.)
+- **Layer search in the builder stack.** Large maps gain a search box to filter
+  the layer list by name, plus zoom-to-layer and copy/paste-style and
+  bulk-style actions to speed up authoring multi-layer maps.
+- **Raster/DEM authoring fidelity.** Adding raster layers now surfaces real
+  band labels and band-count metadata, and hillshade/DEM styling reflects the
+  actual source instead of placeholder defaults.
+- **GeoDCAT-AP discovery profile.** A new GeoDCAT-AP (EU/INSPIRE geospatial
+  profile of DCAT-AP) serialization is available alongside DCAT-3 and DCAT-US,
+  with catalog, per-dataset, and validation endpoints — broadening
+  interoperability with European government data portals.
+- **Conformant-by-filtering DCAT feeds + DCAT-3 validation.** The DCAT-3,
+  DCAT-US, and GeoDCAT-AP catalog feeds now emit only records that pass that
+  profile's validator, so the feeds stay conformant without forcing metadata at
+  publish time; incomplete records are skipped rather than emitted
+  non-conformant. A DCAT-3 validation endpoint joins the existing DCAT-US one,
+  and `REQUIRE_METADATA_FOR_PUBLISH` remains the optional stricter publish gate
+  for deployments that prefer enforcement.
+- **Terrain guard rails for small-extent DEMs.** 3D terrain now masks
+  raster-DEM nodata in the elevation encoding (no more boundary spikes from a
+  `-9999` fill) and warns when the active DEM covers only a small slice of the
+  viewport, with docs recommending draping a high-res DEM over a coarse global
+  DEM for small areas.
+
+### Fixed
+
+- Removed redundant "create" buttons on the empty Collections and Maps pages —
+  the empty state now shows a single primary call-to-action instead of three.
+- DCAT-US `rights`/usage-constraints now serialize as a list per the schema
+  (previously a bare string), so records carrying usage constraints validate
+  and appear in the conformant feed.
+- Map-builder rendering and persistence correctness fixes: layer style updates
+  no longer clobber sibling fields on multi-field restores, disabled strokes no
+  longer resurrect on a visibility toggle, empty-array filters no longer break
+  rendering, and solid↔pattern fill transitions clean up stale paint keys.
+- Numerous backend correctness and robustness fixes across config/settings
+  handling, ingest and raster lifecycle, API error shapes, and the CLI/SDK
+  round-trip, each landing with a regression test. Performance fixes to several
+  hot paths (tile and query routes, AI token budgeting) reduce latency and
+  resource use under load.
+- Frontend cache, auth, and internationalization fixes: stale cache and auth
+  state are cleared more reliably, and locale key-existence/parity is enforced
+  so translated strings cannot silently fall back to keys.
+- **Raster/COG ingestion restored.** A regression made every raster, COG, and
+  VRT-mosaic ingest fail (the STAC `dataset_assets` write resolved its ORM via
+  the wrong internal port), so newly uploaded rasters never completed. Fixed,
+  with a regression test; the STAC `dataset_assets` table is now populated as
+  intended.
+- **Public/shared map viewer renders data on first load.** Maps opened via a
+  shared link or direct URL — especially 3D-terrain maps — could appear with
+  only the basemap (and terrain mesh) because the data layers raced the map's
+  style load and were never added. The viewer now retries the layer sync once
+  the style settles, so the hillshade relief and all data layers render on a
+  cold page load just as they do in the builder.
+
+### Security
+
+This line continues the hardening lineage of the 1.2.x security releases
+(advisories `GHSA-p23g-mvhj-jh3j` and `GHSA-p77j-g7h5-r2vw`). It folds in the
+remaining Tier-1 and Tier-2 findings from a whole-portfolio security review,
+all fixed with fail-before/pass-after regression coverage:
+
+- **Cross-resource re-authorization.** Endpoints that return sub-resources or
+  follow references now re-authorize the backing dataset/map rather than
+  trusting the URL-level resource, closing several paths where a caller could
+  read data from a resource they were not entitled to.
+- **Tile and asset privacy and caching.** Private raster and vector tiles and
+  derived assets are no longer served with shared-cache headers, so a CDN or
+  bundled reverse proxy cannot retain and replay them to later unauthenticated
+  requests.
+- **Input hardening.** Tightened validation and bounds across request inputs,
+  outbound-URL handling, and the AI subsystem to reduce the attack surface for
+  malformed or hostile inputs.
+
+### Internal
+
+- **Dormant single-tenant tenancy substrate (v1042).** This release lands the
+  additive schema and runtime seams (reversible migrations `0005`–`0007`) for a
+  future multi-tenant deployment mode, gated entirely behind
+  `GEOLENS_TENANCY_MODE`, which **defaults to `single_tenant`**. For
+  self-hosted operators this is **inert and behavior-preserving** — the default
+  path is byte-identical to prior releases, with no new required configuration
+  and no change to how datasets, tiles, or maps are served.
+
+### Upgrade notes
+
+- **No breaking changes for self-hosted operators.** The standard prebuilt
+  upgrade applies — pull the new images and run the usual upgrade path (see
+  [UPGRADING.md](./UPGRADING.md)). All schema changes since 1.2.4 are additive,
+  reversible migrations (`0004`–`0007`); no configuration is removed or made
+  mandatory. The v1042 tenancy substrate is dormant in the default
+  `single_tenant` mode, so no action is required to adopt it.
+
 ## [1.2.4] - 2026-06-11
 
 ### Security

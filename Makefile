@@ -6,7 +6,7 @@
 SHELL := /bin/bash
 .SHELLFLAGS := -o pipefail -c
 
-.PHONY: dev down reset-db migrate migration test test-sequential test-cov e2e logs logs-db logs-api status doctor preflight openapi openapi-check sdks sdks-check sdks-test manifest-contract-check publish-sdks-py publish-sdks-ts cli-build cli-test cli-check publish-cli audit-sink-discipline billing-extraction-discipline catalog-domain-discipline
+.PHONY: dev down reset-db migrate migration alembic-check test test-sequential test-cov e2e logs logs-db logs-api status doctor preflight openapi openapi-check sdks sdks-check sdks-test manifest-contract-check publish-sdks-py publish-sdks-ts cli-build cli-test cli-check publish-cli audit-sink-discipline billing-extraction-discipline catalog-domain-discipline bump version-check
 
 # Pre-flight: verify boot-required env vars are non-empty in .env before any
 # `docker compose` build (which takes 5-10 minutes on a cold cache only to crash
@@ -46,6 +46,19 @@ migrate:
 
 migration:
 	docker compose exec api uv run alembic revision --autogenerate -m "$(msg)"
+
+# MIG-03: autogenerate drift gate. `alembic check` exits non-zero if the ORM
+# models have drifted from the migration scripts (a model column added without
+# a matching migration, etc.). Run against a DB that is already at head — the
+# migrate target / `docker compose up` brings it there. Mirrors the drift gate
+# already baked into scripts/test_alembic_upgrade_clean_db.sh, exposed here as
+# a one-liner and wired into CI (.github/workflows/ci.yml, Backend Tests job).
+alembic-check:
+	# Requires an OSS-clean DB at head. A dev DB that carries cloud c-chain revisions
+	# (from prior overlay work) can't be resolved by the OSS image and will report a
+	# missing revision — reset the dev DB or use a clean OSS DB. UV_CACHE_DIR points at a
+	# writable path because the running container's default ~/.cache/uv is read-only.
+	docker compose exec -T -e UV_CACHE_DIR=/tmp/uv-cache api uv run --no-sync alembic check
 
 # Defaults to parallel execution (the -n value was chosen from xdist benchmarking).
 # Use `make test-sequential` to opt into sequential debugging mode.
@@ -227,3 +240,28 @@ billing-extraction-discipline: ## Verify app.core.marketplace is absent + dispat
 # no DB required).
 catalog-domain-discipline: ## Verify no external imports of catalog/datasets/domain/service_X sub-modules
 	cd backend && PYTHONPATH=. uv run pytest tests/test_layering.py::test_no_external_imports_of_dataset_domain_submodules -v
+
+# ----- Version management (REL-05) -----
+# `make bump VERSION=X.Y.Z` rewrites EVERY version site atomically (backend +
+# cli + sdks×2 + root/frontend package.json + openapi.json info.version + the
+# metadata fallback constant in main.py). The write side of the version
+# contract; `make version-check` is the read/verify side.
+bump: ## Rewrite all version sites to VERSION=X.Y.Z (single source of truth)
+ifndef VERSION
+	$(error VERSION is required: make bump VERSION=X.Y.Z)
+endif
+	uv run --no-project python scripts/bump_version.py "$(VERSION)"
+
+# `make version-check` — version-coherence gate (REL-04). Reads every version
+# site (backend/cli/sdks×2/root+frontend package.json/openapi.json info.version/
+# main.py fallback constant) and exits non-zero if any disagree. Run in CI to
+# block a release where one site silently drifted from the rest.
+version-check: ## Assert all version sites agree (CI gate)
+	uv run --no-project python scripts/check_version_coherence.py
+
+# `make env-doc-check` — env-doc-drift gate (DOC-01). Parses the env keys
+# install.sh persists (update_env_value <KEY>) and exits non-zero if any are
+# absent from .env.example. Keeps the hand-copy `.env.example` template honest
+# against what the installer actually writes. Plain python3 — no project deps.
+env-doc-check: ## Assert install.sh-written env keys are documented in .env.example
+	python3 scripts/check_env_doc_drift.py

@@ -59,7 +59,9 @@ export function CollectionsPage() {
         actions={data || isEditor ? (
           <>
             {data ? <Badge variant="secondary">{searchQuery ? totalFiltered : data.total}</Badge> : undefined}
-            {isEditor && (
+            {/* Hide the header create button when the list is empty — the empty
+                state provides the single primary CTA in that case. */}
+            {isEditor && !(data && data.total === 0) && (
               <Button onClick={() => setCreateOpen(true)}>
                 <Plus className="h-4 w-4 me-1" />
                 {t('newCollection')}

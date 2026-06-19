@@ -41,6 +41,7 @@ jobs:
       cli: ${{ steps.filter.outputs.cli }}
       alembic: ${{ steps.filter.outputs.alembic }}
       installer: ${{ steps.filter.outputs.installer }}
+      backup: ${{ steps.filter.outputs.backup }}
     steps:
       - uses: actions/checkout@v6
       - uses: dorny/paths-filter@v4
@@ -90,7 +91,14 @@ jobs:
               - 'scripts/tests/test-install-secret-generation.sh'
               - 'scripts/tests/test-install-main-wrapper.sh'
               - 'scripts/tests/test-backup-s3-signature.sh'
+              - 'scripts/check_env_doc_drift.py'
+              - '.env.example'
               - 'docker-compose.yml'
+              - 'docker-compose.prod.yml'
+            backup:
+              - 'scripts/backup-entrypoint.sh'
+              - 'scripts/restore.sh'
+              - 'scripts/tests/test-backup-restore-roundtrip.sh'
               - 'docker-compose.prod.yml'
 
   # ---------- backend ----------
@@ -198,6 +206,9 @@ jobs:
       - name: Backup S3 signature regression test
         run: sh scripts/tests/test-backup-s3-signature.sh
 
+      - name: Env-doc-drift gate (install.sh keys documented in .env.example)
+        run: python3 scripts/check_env_doc_drift.py
+
       - name: Validate compose files parse
         env:
           GEOLENS_VERSION: 0.0.0-ci
@@ -212,6 +223,139 @@ jobs:
         run: |
           docker compose -f docker-compose.yml config -q
           docker compose -f docker-compose.prod.yml config -q
+
+  # ---------- backup + restore round-trip (BKP-04) ----------
+  # Full DR path: pg_dump -Fc → upload to S3 (MinIO) → download → pg_restore →
+  # row-count assert, plus the object-storage (upload_staging) tar round-trip.
+  # The same row-match logic runs locally via
+  # scripts/tests/test-backup-restore-roundtrip.sh (DB + tar only, no S3); this
+  # job adds the S3/MinIO offset leg, which is CI-on-push only.
+  backup-roundtrip:
+    name: Backup Restore Round-trip
+    needs: changes
+    if: needs.changes.outputs.backup == 'true' || github.event_name == 'push'
+    runs-on: ubuntu-latest
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      PGUSER: geolens
+      PGPASSWORD: geolens_test
+      S3_BUCKET: geolens-backups-ci
+      S3_ENDPOINT: http://localhost:9000
+      S3_ACCESS_KEY_ID: minioadmin
+      S3_SECRET_ACCESS_KEY: minioadmin
+    services:
+      postgres:
+        image: postgis/postgis:17-3.5
+        env:
+          POSTGRES_USER: geolens
+          POSTGRES_PASSWORD: geolens_test
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U geolens -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      minio:
+        # bitnami/minio:* tags were withdrawn in Bitnami's Aug-2025 "Secure
+        # Images" migration (all bitnami/minio:<tag> now 404). The last free
+        # build lives under bitnamilegacy/, pinned here by digest for
+        # reproducibility (auto-runs `minio server` + ships `mc` for the
+        # healthcheck — the test creates its own bucket via `aws s3 mb`).
+        image: bitnamilegacy/minio@sha256:451fe6858cb770cc9d0e77ba811ce287420f781c7c1b806a386f6896471a349c
+        env:
+          MINIO_ROOT_USER: minioadmin
+          MINIO_ROOT_PASSWORD: minioadmin
+          MINIO_DEFAULT_BUCKETS: geolens-backups-ci
+        ports:
+          - 9000:9000
+        options: >-
+          --health-cmd "mc ready local || curl -sf http://localhost:9000/minio/health/live"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install postgresql-client + tooling
+        run: |
+          # The postgres service for this job is postgis/postgis:17-3.5 (PG17).
+          # Ubuntu 24.04 (noble) ships postgresql-client 16 by default, and pg_dump
+          # refuses to dump a newer server ("aborting because of server version
+          # mismatch"), so add the PGDG apt repo and install the matching v17
+          # client (pg_dump/pg_restore/psql/createdb/dropdb).
+          #
+          # awscli is intentionally NOT installed: it was dropped from the noble
+          # apt archive ("no installation candidate") and AWS CLI v2 is already
+          # preinstalled on the ubuntu-latest runner (the only `aws` use is
+          # `s3 mb/cp` against MinIO in the S3-offset step below).
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+            -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
+            | sudo tee /etc/apt/sources.list.d/pgdg.list >/dev/null
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends postgresql-client-17 curl
+
+      - name: Local round-trip (DB + staging tar, no S3)
+        env:
+          # Point the standalone script at the CI Postgres service.
+          POSTGRES_HOST: localhost
+          POSTGRES_PORT: "5432"
+          POSTGRES_USER: geolens
+          POSTGRES_PASSWORD: geolens_test
+          POSTGRES_DB: postgres
+        run: |
+          # Skip .env.test sourcing inside CI by passing connection via env; the
+          # script falls back to env vars when .env.test is absent. CI checkout
+          # ships .env.test, so override the host/port to the service container.
+          bash scripts/tests/test-backup-restore-roundtrip.sh
+
+      - name: Full S3 offset round-trip (pg_dump → MinIO → download → pg_restore)
+        run: |
+          set -euo pipefail
+          export AWS_ACCESS_KEY_ID="$S3_ACCESS_KEY_ID"
+          export AWS_SECRET_ACCESS_KEY="$S3_SECRET_ACCESS_KEY"
+          export AWS_DEFAULT_REGION=us-east-1
+          AWS="aws --endpoint-url $S3_ENDPOINT"
+
+          SRC=geolens_s3_src_$$
+          DST=geolens_s3_dst_$$
+          createdb -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" "$SRC"
+          psql -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$SRC" -v ON_ERROR_STOP=1 -c \
+            "CREATE SCHEMA IF NOT EXISTS catalog;
+             CREATE TABLE catalog.records (id serial PRIMARY KEY, name text);
+             INSERT INTO catalog.records (name) SELECT 'r-'||g FROM generate_series(1, 91) g;"
+          SRC_N=$(psql -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$SRC" -tAc "SELECT COUNT(*) FROM catalog.records;")
+
+          pg_dump -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$SRC" -Fc --no-owner --no-acl -f /tmp/s3.dump
+          $AWS s3 mb "s3://$S3_BUCKET" 2>/dev/null || true
+          $AWS s3 cp /tmp/s3.dump "s3://$S3_BUCKET/daily/s3.dump"
+
+          # staging tar to S3 too
+          mkdir -p /tmp/staging/nested
+          echo cog > /tmp/staging/a.tif; echo fgb > /tmp/staging/nested/b.fgb
+          tar czf /tmp/staging.tar.gz -C /tmp/staging .
+          $AWS s3 cp /tmp/staging.tar.gz "s3://$S3_BUCKET/daily/staging.tar.gz"
+
+          # Download both back and restore into a fresh DB
+          $AWS s3 cp "s3://$S3_BUCKET/daily/s3.dump" /tmp/s3-dl.dump
+          $AWS s3 cp "s3://$S3_BUCKET/daily/staging.tar.gz" /tmp/staging-dl.tar.gz
+          pg_restore --list /tmp/s3-dl.dump >/dev/null
+          createdb -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" "$DST"
+          pg_restore -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$DST" --clean --if-exists --no-owner /tmp/s3-dl.dump || true
+          DST_N=$(psql -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$DST" -tAc "SELECT COUNT(*) FROM catalog.records;")
+
+          mkdir -p /tmp/staging-out && tar xzf /tmp/staging-dl.tar.gz -C /tmp/staging-out
+          diff -r /tmp/staging /tmp/staging-out
+
+          echo "S3 round-trip counts: src=$SRC_N dst=$DST_N"
+          [ "$SRC_N" = "$DST_N" ] || { echo "FAIL: S3 round-trip row count mismatch"; exit 1; }
+          dropdb -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" --if-exists "$SRC"
+          dropdb -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" --if-exists "$DST"
+          echo "PASS: full S3/MinIO backup+restore round-trip"
 
   openapi-snapshot:
     name: OpenAPI Snapshot Drift
@@ -290,6 +434,24 @@ jobs:
 
       - name: Regenerate SDKs and check for drift
         run: make sdks-check
+
+  # ---------- version coherence ----------
+  # REL-04: assert every version site agrees (backend/cli/sdks×2/root+frontend
+  # package.json/openapi.json info.version/main.py fallback constant). Blocks a
+  # release where one site silently drifted from the rest. Pure stdlib (tomllib
+  # + json + re); no DB, no Docker, runs on every push/PR.
+  version-coherence:
+    name: Version Coherence
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Check all version sites agree
+        run: python scripts/check_version_coherence.py
 
   # ---------- CLI ----------
   # Structural enforcement that the CLI never grows
@@ -543,7 +705,39 @@ jobs:
           "
 
       - name: Run migrations
-        run: uv run alembic upgrade head
+        # `heads` (plural) applies every branch head — with the enterprise
+        # overlay present in CI the graph has two (core 0007 + enterprise e002),
+        # and bare `head` errors "Multiple head revisions present". OSS-only is
+        # unaffected (heads == head). Mirrors the migrate service + MIG-04 job.
+        run: uv run alembic upgrade heads
+
+      - name: Normalize search_path for the drift check (MIG-03)
+        # `alembic check` reflects the live schema and diffs it against the ORM
+        # metadata. Our models are explicitly schema-qualified
+        # (`__table_args__ = {"schema": "catalog"}`) and env.py runs the check with
+        # include_schemas=True. The setup step set the postgres DB default
+        # search_path to `catalog, data, public` — with catalog FIRST it is the
+        # connection-default schema, so alembic reflects every catalog table under
+        # the unqualified/None key while the metadata is keyed under explicit
+        # `catalog`. They never match, so `alembic check` reports ALL tables as
+        # add_table (a wholesale empty-reflection false positive, NOT real drift).
+        # Dropping catalog from the default (keeping data, public) makes reflection
+        # key catalog tables under `catalog`, matching the qualified metadata, so
+        # the gate fires only on REAL drift. Migrations are unaffected: each is
+        # schema-qualified and 0002_procrastinate sets its own search_path, so they
+        # already ran above under `catalog, data, public`.
+        run: |
+          PGPASSWORD=geolens_test psql -h localhost -U geolens -d postgres -c \
+            "ALTER DATABASE postgres SET search_path TO data, public;"
+
+      # MIG-03: autogenerate drift gate. With the DB now at head, `alembic check`
+      # exits non-zero if the ORM models have drifted from the migration scripts
+      # (e.g. a model column added without a matching migration). env.py's
+      # include_object filter hides the enterprise-overlay SAML columns when no
+      # overlay is discovered, so this gate is clean on OSS-only runs and only
+      # fires on REAL drift. Companion to the `make alembic-check` one-liner.
+      - name: Alembic drift check (MIG-03)
+        run: uv run alembic check
 
       - name: Manifest backend apply contract tests
         run: |
@@ -626,6 +820,161 @@ jobs:
           # is better than relying on bash defaults.
           ALEMBIC_TEST_DB_PORT: 54399
           ALEMBIC_TEST_TIMEOUT: 90
+
+  # ---------- MIG-04: enterprise heads-plural upgrade against a clean DB ----------
+  # With the enterprise overlay installed the migration graph forks into TWO
+  # heads (core 0007_tenant_data_schemas + enterprise e002_add_saml_columns).
+  # `alembic upgrade heads` (PLURAL) must apply BOTH chains; this job asserts
+  # the production CLI command (exactly what the docker-compose `migrate`
+  # service runs) does so against a clean Postgres and that the enterprise SAML
+  # column actually lands. It guards the MIG-04 env.py fix that propagates the
+  # overlay version dirs onto the live ScriptDirectory the CLI constructs —
+  # without it, `alembic upgrade heads` silently applies only the core head and
+  # skips the e-chain, breaking SAML login on enterprise deployments.
+  #
+  # Mirrors the backend-test job's overlay-install pattern (token probe + pinned
+  # ref checkout + `uv add --editable`). Skips cleanly on fork PRs without the
+  # GEOLENS_ENTERPRISE_TOKEN secret (the overlay is private). References: MIG-04.
+  alembic-enterprise-heads:
+    name: Alembic Enterprise Heads (MIG-04)
+    needs: changes
+    if: needs.changes.outputs.alembic == 'true' || github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      POSTGRES_USER: geolens
+      POSTGRES_PASSWORD: geolens_test
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: postgres
+      DATABASE_SSL_MODE: disable
+      JWT_SECRET_KEY: test-secret-key-for-ci-padding-32chars
+      GEOLENS_ADMIN_USERNAME: admin
+      GEOLENS_ADMIN_PASSWORD: admin
+      GEOLENS_EDITION: enterprise
+      PYTHONPATH: .
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Probe enterprise token availability
+        env:
+          ENTERPRISE_TOKEN: ${{ secrets.GEOLENS_ENTERPRISE_TOKEN }}
+        run: |
+          if [ -n "${ENTERPRISE_TOKEN}" ]; then
+            echo "HAS_ENTERPRISE_TOKEN=1" >> $GITHUB_ENV
+          else
+            echo "HAS_ENTERPRISE_TOKEN=0" >> $GITHUB_ENV
+          fi
+
+      - name: Checkout geolens-enterprise (skip on fork PRs without secret)
+        if: env.HAS_ENTERPRISE_TOKEN == '1'
+        uses: actions/checkout@v6
+        with:
+          repository: geolens-io/geolens-enterprise
+          token: ${{ secrets.GEOLENS_ENTERPRISE_TOKEN }}
+          path: geolens-enterprise
+          # OCG-04: pinned to the same tested ref as the backend-test job.
+          ref: ${{ env.ENTERPRISE_PINNED_REF }}
+          persist-credentials: false
+
+      - name: Skip notice (no enterprise overlay available)
+        if: env.HAS_ENTERPRISE_TOKEN != '1'
+        run: echo "geolens-enterprise unavailable (fork PR or missing GEOLENS_ENTERPRISE_TOKEN) — MIG-04 enterprise heads-plural job skipped."
+
+      - name: Start PostgreSQL with PostGIS + pgvector
+        if: env.HAS_ENTERPRISE_TOKEN == '1'
+        working-directory: .
+        run: |
+          docker build -t geolens-test-db -f - . <<'DOCKERFILE'
+          FROM postgis/postgis:17-3.5
+          RUN apt-get update \
+              && apt-get install -y --no-install-recommends postgresql-17-pgvector \
+              && rm -rf /var/lib/apt/lists/*
+          DOCKERFILE
+          docker run -d --name test-postgres \
+            -e POSTGRES_DB=postgres \
+            -e POSTGRES_USER=geolens \
+            -e POSTGRES_PASSWORD=geolens_test \
+            -p 5432:5432 \
+            geolens-test-db
+          for i in $(seq 1 30); do
+            if docker exec test-postgres pg_isready -U geolens -d postgres >/dev/null 2>&1; then
+              echo "PostgreSQL is ready"
+              break
+            fi
+            echo "Waiting for PostgreSQL... ($i/30)"
+            sleep 2
+          done
+
+      - uses: astral-sh/setup-uv@v8.1.0
+        if: env.HAS_ENTERPRISE_TOKEN == '1'
+        with:
+          version: "0.10.2"
+          enable-cache: true
+          cache-dependency-glob: "backend/uv.lock"
+
+      - uses: actions/setup-python@v6
+        if: env.HAS_ENTERPRISE_TOKEN == '1'
+        with:
+          python-version: "3.13"
+
+      - name: Install system dependencies
+        if: env.HAS_ENTERPRISE_TOKEN == '1'
+        run: sudo apt-get update && sudo apt-get install -y gdal-bin xmlsec1 postgresql-client
+
+      - name: Install Python dependencies + enterprise overlay
+        if: env.HAS_ENTERPRISE_TOKEN == '1'
+        run: |
+          uv sync --locked --dev
+          uv add --editable ../geolens-enterprise
+          # Match backend-test: keep a CI-compatible pyOpenSSL after the overlay
+          # pulls pysaml2's transitive choice.
+          uv pip install "pyOpenSSL>=25.3.0"
+
+      - name: Set up database extensions and schemas
+        if: env.HAS_ENTERPRISE_TOKEN == '1'
+        run: |
+          PGPASSWORD=geolens_test psql -h localhost -U geolens -d postgres -c "
+            CREATE EXTENSION IF NOT EXISTS postgis;
+            CREATE EXTENSION IF NOT EXISTS pg_trgm;
+            CREATE EXTENSION IF NOT EXISTS vector;
+            CREATE EXTENSION IF NOT EXISTS unaccent;
+            CREATE SCHEMA IF NOT EXISTS catalog;
+            CREATE SCHEMA IF NOT EXISTS data;
+          "
+
+      - name: Alembic upgrade heads (PLURAL) — apply core + enterprise chains
+        if: env.HAS_ENTERPRISE_TOKEN == '1'
+        run: uv run --no-dev alembic upgrade heads
+
+      - name: Assert BOTH heads applied + SAML column present
+        if: env.HAS_ENTERPRISE_TOKEN == '1'
+        run: |
+          set -euo pipefail
+          echo "==> applied heads in catalog.alembic_version:"
+          HEADS=$(PGPASSWORD=geolens_test psql -h localhost -U geolens -d postgres -tAc \
+            "SELECT version_num FROM catalog.alembic_version ORDER BY 1;")
+          echo "${HEADS}"
+          # Expect exactly two heads: core 0007 + enterprise e002.
+          COUNT=$(printf '%s\n' "${HEADS}" | grep -c . || true)
+          if [ "${COUNT}" -ne 2 ]; then
+            echo "FAIL: expected 2 applied heads (core + enterprise), got ${COUNT}." >&2
+            echo "      'alembic upgrade heads' did not apply the enterprise e-chain (MIG-04)." >&2
+            exit 1
+          fi
+          echo "${HEADS}" | grep -q "0007_tenant_data_schemas" || { echo "FAIL: core head 0007 missing" >&2; exit 1; }
+          echo "${HEADS}" | grep -q "e002_add_saml_columns" || { echo "FAIL: enterprise head e002 missing" >&2; exit 1; }
+          # Affirmative schema assertion: the SAML column e002 adds must exist.
+          SAML=$(PGPASSWORD=geolens_test psql -h localhost -U geolens -d postgres -tAc \
+            "SELECT count(*) FROM information_schema.columns WHERE table_schema='catalog' AND table_name='oauth_providers' AND column_name='idp_entity_id';")
+          if [ "${SAML}" != "1" ]; then
+            echo "FAIL: enterprise SAML column catalog.oauth_providers.idp_entity_id absent (got count=${SAML})." >&2
+            exit 1
+          fi
+          echo "OK: both heads applied (0007 + e002) and SAML column present (MIG-04)."
 
   # ---------- pytest parallel-isolation gate ----------
   # Defends the fixture-isolation fixes against regression.
@@ -716,7 +1065,11 @@ jobs:
           "
 
       - name: Run migrations
-        run: uv run alembic upgrade head
+        # `heads` (plural) applies every branch head — with the enterprise
+        # overlay present in CI the graph has two (core 0007 + enterprise e002),
+        # and bare `head` errors "Multiple head revisions present". OSS-only is
+        # unaffected (heads == head). Mirrors the migrate service + MIG-04 job.
+        run: uv run alembic upgrade heads
 
       - name: Run tests with -n 4
         # Regression gate for the fixture-isolation work.

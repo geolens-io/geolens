@@ -70,7 +70,11 @@ def record_to_dcat_us3(
         result["accessRights"] = access_rights
 
     if record.usage_constraints is not None:
-        result["rights"] = record.usage_constraints
+        # DCAT-US 3.0 schema types `rights` as a list of statements (like
+        # `provenance`), not a bare string. Emitting a string previously made a
+        # record with usage_constraints fail JSON Schema validation — and under
+        # the filter-the-feed posture that silently dropped it from the catalog.
+        result["rights"] = [record.usage_constraints]
 
     if record.lineage_summary is not None:
         result["provenance"] = [record.lineage_summary]
@@ -102,8 +106,24 @@ def record_to_dcat_us3(
 
 
 def catalog_to_dcat_us3(datasets: list[Dataset], base_url: str) -> dict:
-    """Serialize visible datasets to a DCAT-US 3.0 Catalog document."""
+    """Serialize visible datasets to a DCAT-US 3.0 Catalog document.
+
+    Filter-the-feed conformance posture: only records that pass DCAT-US 3.0
+    JSON Schema validation are emitted in ``dataset``. Records missing a
+    mandatory property (e.g. a usable ``contactPoint``) are silently skipped so
+    the feed as a whole stays conformant with zero onboarding friction.
+    Operators who want to *block* incomplete records at publish time can enable
+    the optional ``REQUIRE_METADATA_FOR_PUBLISH`` lever instead.
+    """
+    from app.standards.dcat_us.validation import validate_dcat_us3
+
     now = datetime.now(timezone.utc).isoformat()
+    entries: list[dict] = []
+    for ds in datasets:
+        entry = record_to_dcat_us3(ds, base_url, include_context=False)
+        if validate_dcat_us3(entry, "Dataset")["valid"]:
+            entries.append(entry)
+
     return {
         "@context": DCAT_US_CONTEXT,
         "@id": f"{base_url}/datasets/dcat-us/3.0",
@@ -115,9 +135,7 @@ def catalog_to_dcat_us3(datasets: list[Dataset], base_url: str) -> dict:
         "modified": now,
         "language": "en",
         "publisher": {"@type": "Organization", "name": "GeoLens"},
-        "dataset": [
-            record_to_dcat_us3(ds, base_url, include_context=False) for ds in datasets
-        ],
+        "dataset": entries,
     }
 
 

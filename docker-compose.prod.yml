@@ -152,7 +152,7 @@ services:
     image: ${REGISTRY:-ghcr.io}/${IMAGE_OWNER:-geolens-io}/geolens-api:${GEOLENS_VERSION:-latest}
     entrypoint: []
     # `heads` (plural) applies every branch head: with the enterprise overlay the
-    # graph forks into two heads (core 0003 + enterprise e002) and bare `head`
+    # graph forks into two heads (core 0007 + enterprise e002) and bare `head`
     # errors. OSS single-head is unaffected (heads == head).
     command: sh -c "uv run --no-dev alembic upgrade heads"
     restart: "no"
@@ -365,6 +365,14 @@ services:
     volumes:
       - ./scripts:/scripts:ro
       - backup_data:/backups
+      # BKP-01 (Phase 1219): include object storage in backup scope. The backup
+      # service tars the upload_staging volume alongside the pg_dump so a restore
+      # yields a WORKING instance (DB rows + the staged source objects they
+      # reference), not just an empty-object catalog. Mounted read-only — the
+      # backup job never mutates app data. CAVEAT: this captures the local
+      # upload_staging volume only; deployments that offload objects to external
+      # S3/MinIO must back those buckets up separately (their own lifecycle).
+      - upload_staging:/staging:ro
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
@@ -395,7 +403,24 @@ services:
   minio:
     image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
     profiles: ["cloud-dev"]
-    command: server /data --console-address ":9001"
+    # INST-01 + Codex P1 (true fail-closed, parse-safe) — mirrors the
+    # docker-compose.yml minio guard. `${VAR:?}` would abort `compose config`/`up`
+    # at PARSE time even when cloud-dev is inactive (breaks a verbatim-.env.example
+    # install). And `${VAR:-}` alone is NOT fail-closed: MinIO treats an EMPTY
+    # MINIO_ROOT_USER as unset and silently boots with the well-known default
+    # minioadmin:minioadmin. So keep parse-safe empty refs in environment: AND
+    # enforce non-empty creds at RUNTIME via the entrypoint (the cloud-dev S3 store
+    # refuses to start on default/blank creds — fail-closed only when it starts,
+    # i.e. when the profile is active).
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        if [ -z "$$MINIO_ROOT_USER" ] || [ -z "$$MINIO_ROOT_PASSWORD" ]; then
+          echo "FATAL: cloud-dev MinIO requires MINIO_ROOT_USER and MINIO_ROOT_PASSWORD in .env — refusing to start with default/blank credentials." >&2
+          exit 1
+        fi
+        exec minio server /data --console-address ":9001"
     security_opt:
       - no-new-privileges:true
     cap_drop:
@@ -404,8 +429,11 @@ services:
       - "127.0.0.1:9000:9000"
       - "127.0.0.1:9001:9001"
     environment:
-      MINIO_ROOT_USER: "${MINIO_ROOT_USER:?MINIO_ROOT_USER is required for --profile cloud-dev (set in .env)}"
-      MINIO_ROOT_PASSWORD: "${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD is required for --profile cloud-dev}"
+      # Parse-safe empty default (:-); the entrypoint above enforces non-empty at
+      # runtime. MUST be listed here so compose passes the host value into the
+      # container (the runtime guard checks these).
+      MINIO_ROOT_USER: "${MINIO_ROOT_USER:-}"
+      MINIO_ROOT_PASSWORD: "${MINIO_ROOT_PASSWORD:-}"
     volumes:
       - minio_data:/data
     healthcheck:
@@ -428,8 +456,10 @@ services:
       minio:
         condition: service_healthy
     environment:
-      MINIO_ROOT_USER: "${MINIO_ROOT_USER:?MINIO_ROOT_USER is required for --profile cloud-dev}"
-      MINIO_ROOT_PASSWORD: "${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD is required for --profile cloud-dev}"
+      # INST-01 (Phase 1218): see minio service above — empty-default keeps a
+      # verbatim-.env.example install parseable; runtime rejects empty creds.
+      MINIO_ROOT_USER: "${MINIO_ROOT_USER:-}"
+      MINIO_ROOT_PASSWORD: "${MINIO_ROOT_PASSWORD:-}"
     volumes:
       - ./scripts/minio-setup.sh:/usr/local/bin/minio-setup.sh:ro
     entrypoint: ["/bin/sh", "/usr/local/bin/minio-setup.sh"]

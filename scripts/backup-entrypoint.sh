@@ -28,6 +28,12 @@ BACKUP_DIR="/backups"
 DAILY_DIR="${BACKUP_DIR}/daily"
 WEEKLY_DIR="${BACKUP_DIR}/weekly"
 
+# BKP-01 (Phase 1219): the upload_staging volume is mounted read-only at
+# /staging. Each backup cycle tars it alongside the pg_dump so a restore can
+# reproduce a WORKING instance (DB rows + the staged source objects). Override
+# the mount point if the compose file changes it.
+STAGING_DIR="${STAGING_DIR:-/staging}"
+
 POSTGRES_DB="${POSTGRES_DB:-geolens}"
 POSTGRES_HOST="${POSTGRES_HOST:-db}"
 BACKUP_RETENTION_DAILY="${BACKUP_RETENTION_DAILY:-7}"
@@ -71,19 +77,69 @@ run_backup() {
         log "Weekly copy saved: ${filename}"
     fi
 
+    # BKP-01: archive the object-storage staging volume alongside the dump.
+    # Named with the SAME timestamp as the dump so restore can pair them.
+    local staging_archive=""
+    staging_archive="$(backup_staging "$timestamp")"
+
     # S3 upload
     if [ "$BACKUP_S3_ENABLED" = "true" ]; then
         upload_to_s3 "$filepath" "daily/${filename}"
+        if [ -n "$staging_archive" ]; then
+            upload_to_s3 "$staging_archive" "daily/$(basename "$staging_archive")"
+        fi
         if [ "$(date '+%u')" = "7" ]; then
             upload_to_s3 "$filepath" "weekly/${filename}"
+            if [ -n "$staging_archive" ]; then
+                upload_to_s3 "$staging_archive" "weekly/$(basename "$staging_archive")"
+            fi
         fi
     fi
 
-    # Retention
+    # Retention (dumps and their paired staging archives share retention counts)
     prune_old_backups "$DAILY_DIR" "$BACKUP_RETENTION_DAILY"
     prune_old_backups "$WEEKLY_DIR" "$BACKUP_RETENTION_WEEKLY"
+    prune_old_staging "$DAILY_DIR" "$BACKUP_RETENTION_DAILY"
+    prune_old_staging "$WEEKLY_DIR" "$BACKUP_RETENTION_WEEKLY"
 
     log "Backup cycle complete"
+}
+
+# ---------------------------------------------------------------------------
+# BKP-01: object-storage (upload_staging) archive
+# ---------------------------------------------------------------------------
+# Tars the read-only /staging mount into staging-<timestamp>.tar.gz next to the
+# dump. Prints the archive path on stdout (consumed by run_backup); all human
+# logging goes to stderr so it never contaminates that path. Skips cleanly when
+# the staging mount is absent or empty so a fresh install (no uploads yet) still
+# produces a valid DB-only backup cycle.
+backup_staging() {
+    local timestamp="$1"
+    local archive="${DAILY_DIR}/staging-${timestamp}.tar.gz"
+
+    if [ ! -d "$STAGING_DIR" ]; then
+        log "Staging dir ${STAGING_DIR} not mounted — skipping object-storage archive" >&2
+        return 0
+    fi
+    if [ -z "$(find "$STAGING_DIR" -mindepth 1 -print -quit 2>/dev/null)" ]; then
+        log "Staging dir ${STAGING_DIR} is empty — skipping object-storage archive" >&2
+        return 0
+    fi
+
+    log "Archiving object storage: $(basename "$archive")" >&2
+    if tar czf "$archive" -C "$STAGING_DIR" . 2>/dev/null; then
+        local size
+        size="$(du -h "$archive" | cut -f1)"
+        log "Object-storage archive complete: $(basename "$archive") (${size})" >&2
+        if [ "$(date '+%u')" = "7" ]; then
+            cp "$archive" "${WEEKLY_DIR}/$(basename "$archive")"
+            log "Weekly object-storage copy saved: $(basename "$archive")" >&2
+        fi
+        printf '%s\n' "$archive"
+    else
+        log "WARNING: object-storage archive failed (non-fatal)" >&2
+        rm -f "$archive"
+    fi
 }
 
 # ---------------------------------------------------------------------------
@@ -152,6 +208,22 @@ prune_old_backups() {
         local to_remove=$((count - keep))
         log "Pruning ${to_remove} old backup(s) from ${dir}"
         find "$dir" -name "*.dump" -type f -printf '%T+ %p\n' | \
+            sort | head -n "$to_remove" | awk '{print $2}' | \
+            xargs rm -f
+    fi
+}
+
+# BKP-01: prune object-storage archives with the same retention policy as dumps.
+prune_old_staging() {
+    local dir="$1"
+    local keep="$2"
+
+    local count
+    count="$(find "$dir" -name "staging-*.tar.gz" -type f | wc -l)"
+    if [ "$count" -gt "$keep" ]; then
+        local to_remove=$((count - keep))
+        log "Pruning ${to_remove} old object-storage archive(s) from ${dir}"
+        find "$dir" -name "staging-*.tar.gz" -type f -printf '%T+ %p\n' | \
             sort | head -n "$to_remove" | awk '{print $2}' | \
             xargs rm -f
     fi

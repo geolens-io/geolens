@@ -248,6 +248,15 @@ async def main() -> None:
     from app.observability.metrics.jobs import update_job_metrics
     from app.processing.ingest.tasks import task_app
 
+    # MIG-02: fail closed before touching the DB if the schema heads are skewed
+    # from this image's migration scripts. The worker does not run migrations
+    # itself (depends_on: migrate); this guard refuses to start a worker whose
+    # image disagrees with the DB schema (in either direction), mirroring the
+    # API lifespan guard so the two entrypoints cannot drift.
+    from app.core.db.schema_skew import assert_schema_in_sync
+
+    await assert_schema_in_sync()
+
     # 1. Recover stale jobs from previous crash
     await recover_stale_jobs()
 
