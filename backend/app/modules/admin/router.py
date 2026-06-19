@@ -30,6 +30,7 @@ from app.modules.admin.schemas import (
     UserUpdate,
 )
 from app.modules.admin.service import AdminService
+from app.modules.quota.service import get_user_quota_usage
 from app.modules.audit.service import AuditEvent, audit_emit
 from app.modules.auth.dependencies import require_permission
 from app.modules.auth.models import ApiKey, User
@@ -159,10 +160,25 @@ async def list_users(
     users, total = await service.list_users(
         skip=skip, limit=limit, status=status_filter, search=search
     )
-    return UserListResponse(
-        users=[_user_response(u) for u in users],
-        total=total,
-    )
+    # QUOTA-04: batch-load quota usage for each user on this page.
+    # One SQL aggregate per user (≤200/page; cheap at admin-only frequency).
+    user_responses = []
+    for u in users:
+        usage = await get_user_quota_usage(db, u.id)
+        user_responses.append(
+            UserResponse(
+                id=u.id,
+                username=u.username,
+                email=u.email,
+                is_active=u.is_active,
+                status=u.status,
+                last_login_at=u.last_login_at,
+                created_at=u.created_at,
+                roles=sorted(r.name for r in u.roles),
+                quota_usage=usage,
+            )
+        )
+    return UserListResponse(users=user_responses, total=total)
 
 
 # ROUTE-01 (Phase 1092): dual-shape decorator — see /users above.

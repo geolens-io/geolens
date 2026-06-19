@@ -1,8 +1,12 @@
+from __future__ import annotations
+
 import uuid
 from datetime import datetime
 from typing import Literal
 
 from pydantic import BaseModel, EmailStr, Field, field_validator
+
+from app.modules.quota.schemas import UserQuotaUsage
 
 # User account status enum mirrors the CHECK constraint on User.status.
 UserStatus = Literal["active", "pending", "suspended", "deactivated"]
@@ -103,6 +107,13 @@ class UserResponse(BaseModel):
     created_at: datetime
     roles: list[str] = Field(
         description="Assigned role names, e.g. ['admin', 'editor']"
+    )
+    quota_usage: UserQuotaUsage | None = Field(
+        default=None,
+        description=(
+            "Per-user storage quota usage. Populated only on admin list responses; "
+            "None when the caller did not load usage (e.g. /auth/me, single-user GET)."
+        ),
     )
 
     model_config = {"from_attributes": True}
