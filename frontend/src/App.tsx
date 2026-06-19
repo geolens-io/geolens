@@ -2,6 +2,7 @@ import { lazy, Suspense } from 'react';
 import { Route, Navigate, Outlet } from 'react-router';
 import { ProtectedRoute } from '@/components/auth/ProtectedRoute';
 import { AdminRoute } from '@/components/auth/AdminRoute';
+import { LandingFirstGuard } from '@/components/auth/LandingFirstGuard';
 import { EditorRoute } from '@/components/auth/EditorRoute';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { AdminLayout } from '@/components/admin/AdminLayout';
@@ -13,7 +14,6 @@ const LoginPage = lazy(() => import('./pages/LoginPage').then(m => ({ default: m
 const RegisterPage = lazy(() => import('./pages/RegisterPage').then(m => ({ default: m.RegisterPage })));
 const OAuthCallbackPage = lazy(() => import('./pages/OAuthCallbackPage').then(m => ({ default: m.OAuthCallbackPage })));
 const PublicViewerPage = lazy(() => import('./pages/PublicViewerPage').then(m => ({ default: m.PublicViewerPage })));
-const SearchPage = lazy(() => import('./pages/SearchPage').then(m => ({ default: m.SearchPage })));
 const DatasetPage = lazy(() => import('./pages/DatasetPage').then(m => ({ default: m.DatasetPage })));
 const CollectionsPage = lazy(() => import('./pages/CollectionsPage').then(m => ({ default: m.CollectionsPage })));
 const CollectionDetailPage = lazy(() => import('./pages/CollectionDetailPage').then(m => ({ default: m.CollectionDetailPage })));
@@ -51,7 +51,9 @@ export const appRoutes = (
     <Route path="/m/:token" element={<PublicViewerPage />} errorElement={<RouteErrorBoundary />} />
     <Route element={<AppLayout />} errorElement={<RouteErrorBoundary />}>
       {/* Public routes — no auth required */}
-      <Route index element={<SearchPage />} errorElement={<RouteErrorBoundary />} />
+      {/* FRONT-01: LandingFirstGuard redirects anonymous visitors to /login
+          when the landing_first flag is ON; otherwise renders SearchPage. */}
+      <Route index element={<LandingFirstGuard />} errorElement={<RouteErrorBoundary />} />
       <Route path="search" element={<Navigate to="/" replace />} />
       <Route path="datasets/:id" element={<DatasetPage />} errorElement={<RouteErrorBoundary />} />
       <Route path="collections" element={<CollectionsPage />} errorElement={<RouteErrorBoundary />} />
