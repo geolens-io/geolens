@@ -182,6 +182,38 @@ async def refresh(
     expire_days = await REFRESH_TOKEN_EXPIRE_DAYS.get(db)
 
     service = AuthService(db)
+
+    # CR-01 (Phase 1236 Plan 03): enforce the allowed_email_domains allowlist at
+    # refresh time so that when an admin tightens the allowlist AFTER a user
+    # authenticated, the user's next refresh is rejected (no gap between domain
+    # enforcement at login and session continuation via refresh).
+    #
+    # Implementation notes:
+    # - We peek at the user WITHOUT revoking the token first: if the domain check
+    #   blocks the user, the old token stays intact (no silent revocation).
+    # - Break-glass: a returning manage_settings admin is exempt — same policy as
+    #   the password-login domain gate (DOMAIN-04).
+    # - PASSWORD_LOGIN_ENABLED is intentionally NOT checked here.  SSO-only is a
+    #   login-METHOD policy (governs the password endpoint); it must not gate session
+    #   continuation for users who already authenticated via SSO.  Only the DOMAIN
+    #   check (which is an authorization PERIMETER, not a method selector) belongs
+    #   at refresh.
+    user = await service.get_user_from_refresh_token(body.refresh_token)
+    if user is not None and user.email:
+        domains = await ALLOWED_EMAIL_DOMAINS.get(db)
+        if not is_email_allowed(user.email, domains):
+            from app.modules.auth.permissions import (  # LAZY — per D-17
+                MANAGE_SETTINGS,
+                user_has_capability,
+            )
+
+            has_break_glass = await user_has_capability(db, user, MANAGE_SETTINGS)
+            if not has_break_glass:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Email domain is not permitted",
+                )
+
     try:
         access_token, refresh_token = await service.rotate_refresh_token(
             body.refresh_token,
