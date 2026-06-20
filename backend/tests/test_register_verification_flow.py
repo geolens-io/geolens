@@ -852,11 +852,21 @@ async def test_register_collision_response_identical_to_new_user(
     )
     assert r2.status_code == 201, r2.text
 
-    assert r1.json() == r2.json(), (
+    assert r1.status_code == r2.status_code
+    # Raw bytes, not just parsed JSON — catches serialization / field-order /
+    # body-size divergence that json()-equality would miss.
+    assert r1.content == r2.content, (
         "Collision response must be byte-identical to a new signup "
-        f"(enumeration-safety); new={r1.json()} collision={r2.json()}"
+        f"(enumeration-safety); new={r1.content!r} collision={r2.content!r}"
     )
     assert r1.json()["next_step"] == "verify_email"
+    # NOTE: this closes the HTTP-response enumeration vector only. A genuine new
+    # signup still SENDS a verification email while a collision does not, so
+    # username existence remains observable out-of-band by a registrant who
+    # supplies their own email address. That email-delivery side channel is a
+    # documented, accepted limitation for this release (fully closing it needs a
+    # signup redesign and would otherwise open an email-spam vector); see PR #266
+    # and tracking issue #267.
 
 
 # ---------------------------------------------------------------------------

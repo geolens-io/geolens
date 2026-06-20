@@ -300,6 +300,15 @@ async def register(
         # SIGNUP-03: only a GENUINE new user gets a token issued + email sent.
         # (A swallowed collision creates no row, so there is nothing to verify —
         # it still returns the same response below to stay indistinguishable.)
+        #
+        # KNOWN LIMITATION (accepted, GA): the HTTP response is enumeration-safe
+        # (identical for new-user vs collision), but a verification email is sent
+        # ONLY on the new-user path. A registrant supplying their own email can
+        # therefore still infer username existence out-of-band (email arrives =>
+        # username was free). Fully closing this needs a signup/identity redesign
+        # (always-send would leak via differing content and enable email spam);
+        # tracked as a follow-up (issue #267). Mitigated by /register rate
+        # limiting and requiring EMAIL_VERIFICATION_REQUIRED + SMTP both enabled.
         if wants_email_verification:
             # Issue the verification token; commit it to the DB so the subsequent
             # send attempt can reference the persisted token row even if the SMTP
