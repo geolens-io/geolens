@@ -436,6 +436,7 @@ from .replace_single_feature_datasets_dataset_id_features_gid_put_geo_json_featu
 from .replace_single_feature_datasets_dataset_id_features_gid_put_geo_json_feature_properties import (
     ReplaceSingleFeatureDatasetsDatasetIdFeaturesGidPutGeoJSONFeatureProperties,
 )
+from .resend_verification_request import ResendVerificationRequest
 from .reserved_rename_detail import ReservedRenameDetail
 from .reserved_rename_warning import ReservedRenameWarning
 from .reupload_commit_request import ReuploadCommitRequest
@@ -553,6 +554,7 @@ from .validation_result_response_quality_score_type_0 import (
     ValidationResultResponseQualityScoreType0,
 )
 from .vector_tile_token import VectorTileToken
+from .verify_email_request import VerifyEmailRequest
 from .visibility_check_response import VisibilityCheckResponse
 from .vrt_active_generation import VrtActiveGeneration
 from .vrt_add_source_request import VrtAddSourceRequest
@@ -916,6 +918,7 @@ __all__ = (
     "RenameColumnRequest",
     "ReplaceSingleFeatureDatasetsDatasetIdFeaturesGidPutGeoJSONFeature",
     "ReplaceSingleFeatureDatasetsDatasetIdFeaturesGidPutGeoJSONFeatureProperties",
+    "ResendVerificationRequest",
     "ReservedRenameDetail",
     "ReservedRenameWarning",
     "ReuploadCommitRequest",
@@ -1011,6 +1014,7 @@ __all__ = (
     "ValidationResultResponse",
     "ValidationResultResponseQualityScoreType0",
     "VectorTileToken",
+    "VerifyEmailRequest",
     "VisibilityCheckResponse",
     "VrtActiveGeneration",
     "VrtAddSourceRequest",

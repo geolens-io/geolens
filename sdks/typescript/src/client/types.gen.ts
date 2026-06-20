@@ -1969,6 +1969,12 @@ export type ConfigModeResponse = {
  */
 export type ConfigResponse = {
     /**
+     * Allow Signup
+     *
+     * Whether self-serve registration is open. Alias for registration_enabled; login UI uses this to show/hide the signup link.
+     */
+    allow_signup?: boolean;
+    /**
      * Auth Methods
      *
      * Auth methods contributed by the active AuthExtension. Empty in community; e.g. ['saml'] when the enterprise SAML overlay is installed. Login UI can render conditional sign-in options without needing admin OAuthProvider access.
@@ -1980,6 +1986,12 @@ export type ConfigResponse = {
      * When true, logged-in users see a persistent demo-account banner. Default false — self-hosters see no banner.
      */
     demo_mode?: boolean;
+    /**
+     * Email Verification Required
+     *
+     * When true, new self-registered users must verify their email before logging in. Default false for back-compat-safe parsing by older clients.
+     */
+    email_verification_required?: boolean;
     /**
      * Landing First
      *
@@ -7036,6 +7048,18 @@ export type RenameColumnRequest = {
 };
 
 /**
+ * ResendVerificationRequest
+ */
+export type ResendVerificationRequest = {
+    /**
+     * Email
+     *
+     * Email address to resend the verification link to
+     */
+    email: string;
+};
+
+/**
  * ReservedRenameDetail
  */
 export type ReservedRenameDetail = {
@@ -9063,6 +9087,18 @@ export type VectorTileToken = {
      * Sig
      */
     sig: string;
+};
+
+/**
+ * VerifyEmailRequest
+ */
+export type VerifyEmailRequest = {
+    /**
+     * Token
+     *
+     * Raw opaque verification token from the email link
+     */
+    token: string;
 };
 
 /**
@@ -11925,6 +11961,96 @@ export type RegisterAuthRegisterPostResponses = {
 };
 
 export type RegisterAuthRegisterPostResponse = RegisterAuthRegisterPostResponses[keyof RegisterAuthRegisterPostResponses];
+
+export type ResendVerificationAuthResendVerificationPostData = {
+    body: ResendVerificationRequest;
+    path?: never;
+    query?: never;
+    url: '/auth/resend-verification/';
+};
+
+export type ResendVerificationAuthResendVerificationPostErrors = {
+    /**
+     * Bad request — invalid query parameters or payload
+     */
+    400: ProblemDetail;
+    /**
+     * Unauthorized — missing or invalid credentials
+     */
+    401: ProblemDetail;
+    /**
+     * Forbidden — caller lacks access to this resource
+     */
+    403: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Validation error
+     */
+    422: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+};
+
+export type ResendVerificationAuthResendVerificationPostError = ResendVerificationAuthResendVerificationPostErrors[keyof ResendVerificationAuthResendVerificationPostErrors];
+
+export type ResendVerificationAuthResendVerificationPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: RegisterResponse;
+};
+
+export type ResendVerificationAuthResendVerificationPostResponse = ResendVerificationAuthResendVerificationPostResponses[keyof ResendVerificationAuthResendVerificationPostResponses];
+
+export type VerifyEmailAuthVerifyEmailPostData = {
+    body: VerifyEmailRequest;
+    path?: never;
+    query?: never;
+    url: '/auth/verify-email/';
+};
+
+export type VerifyEmailAuthVerifyEmailPostErrors = {
+    /**
+     * Bad request — invalid query parameters or payload
+     */
+    400: ProblemDetail;
+    /**
+     * Unauthorized — missing or invalid credentials
+     */
+    401: ProblemDetail;
+    /**
+     * Forbidden — caller lacks access to this resource
+     */
+    403: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Validation error
+     */
+    422: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+};
+
+export type VerifyEmailAuthVerifyEmailPostError = VerifyEmailAuthVerifyEmailPostErrors[keyof VerifyEmailAuthVerifyEmailPostErrors];
+
+export type VerifyEmailAuthVerifyEmailPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: RegisterResponse;
+};
+
+export type VerifyEmailAuthVerifyEmailPostResponse = VerifyEmailAuthVerifyEmailPostResponses[keyof VerifyEmailAuthVerifyEmailPostResponses];
 
 export type ListCollectionsEndpointCatalogCollectionsGetData = {
     body?: never;

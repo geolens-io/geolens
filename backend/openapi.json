@@ -3280,6 +3280,12 @@
       },
       "ConfigResponse": {
         "properties": {
+          "allow_signup": {
+            "default": false,
+            "description": "Whether self-serve registration is open. Alias for registration_enabled; login UI uses this to show/hide the signup link.",
+            "title": "Allow Signup",
+            "type": "boolean"
+          },
           "auth_methods": {
             "description": "Auth methods contributed by the active AuthExtension. Empty in community; e.g. ['saml'] when the enterprise SAML overlay is installed. Login UI can render conditional sign-in options without needing admin OAuthProvider access.",
             "items": {
@@ -3292,6 +3298,12 @@
             "default": false,
             "description": "When true, logged-in users see a persistent demo-account banner. Default false \u2014 self-hosters see no banner.",
             "title": "Demo Mode",
+            "type": "boolean"
+          },
+          "email_verification_required": {
+            "default": false,
+            "description": "When true, new self-registered users must verify their email before logging in. Default false for back-compat-safe parsing by older clients.",
+            "title": "Email Verification Required",
             "type": "boolean"
           },
           "landing_first": {
@@ -12110,6 +12122,21 @@
         "title": "RenameColumnRequest",
         "type": "object"
       },
+      "ResendVerificationRequest": {
+        "properties": {
+          "email": {
+            "description": "Email address to resend the verification link to",
+            "format": "email",
+            "title": "Email",
+            "type": "string"
+          }
+        },
+        "required": [
+          "email"
+        ],
+        "title": "ResendVerificationRequest",
+        "type": "object"
+      },
       "ReservedRenameDetail": {
         "additionalProperties": false,
         "properties": {
@@ -15245,6 +15272,20 @@
           "expires_in"
         ],
         "title": "VectorTileToken",
+        "type": "object"
+      },
+      "VerifyEmailRequest": {
+        "properties": {
+          "token": {
+            "description": "Raw opaque verification token from the email link",
+            "title": "Token",
+            "type": "string"
+          }
+        },
+        "required": [
+          "token"
+        ],
+        "title": "VerifyEmailRequest",
         "type": "object"
       },
       "VisibilityCheckResponse": {
@@ -21469,6 +21510,202 @@
           }
         },
         "summary": "Register",
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
+    "/auth/resend-verification/": {
+      "post": {
+        "description": "Re-issue and re-send a verification email.\n\nSIGNUP-05 / T-1231-05 (enumeration-safe): ALWAYS returns the same 200 body\nregardless of whether the email exists, is unknown, or is already verified.\nSend errors are logged server-side only and never branch the HTTP response.",
+        "operationId": "resend_verification_auth_resend_verification__post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResendVerificationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegisterResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Bad request \u2014 invalid query parameters or payload"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Unauthorized \u2014 missing or invalid credentials"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Forbidden \u2014 caller lacks access to this resource"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Validation error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Internal server error"
+          }
+        },
+        "summary": "Resend Verification",
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
+    "/auth/verify-email/": {
+      "post": {
+        "description": "Redeem a verification token to activate the account.\n\nSIGNUP-03: a valid single-use expiring token flips email_verified=True,\nis_active=True, and status=\"active\" so the user can log in via the\nexisting auth gate in dependencies.py.\n\nExpired, unknown, and already-consumed tokens all return the same\n\"Invalid or expired\" error (enumeration-safe, SIGNUP-05 / T-1231-06).",
+        "operationId": "verify_email_auth_verify_email__post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VerifyEmailRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegisterResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Bad request \u2014 invalid query parameters or payload"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Unauthorized \u2014 missing or invalid credentials"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Forbidden \u2014 caller lacks access to this resource"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Validation error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Internal server error"
+          }
+        },
+        "summary": "Verify Email",
         "tags": [
           "Auth"
         ]
