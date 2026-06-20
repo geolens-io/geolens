@@ -39,6 +39,7 @@ __all__ = [
     "UPLOAD",
     "USE_AI_CHAT",
     "get_effective_permissions",
+    "user_has_capability",
     "validate_permission_matrix",
 ]
 
@@ -97,6 +98,31 @@ def validate_permission_matrix(matrix: Any) -> None:
 # ---------------------------------------------------------------------------
 # Effective permissions (DB override merged with defaults)
 # ---------------------------------------------------------------------------
+
+
+async def user_has_capability(db: AsyncSession, user: Any, capability: str) -> bool:
+    """Return True if *user* holds *capability* via any of their assigned roles.
+
+    Used for break-glass exemptions (e.g. DOMAIN-04 manage_settings bypass).
+    Resolves roles via get_user_roles (catalog.authorization) and checks the
+    effective permission matrix; does NOT add DB code to domain_validation.py
+    (that module is DB-free by contract, T-1235 purity gate).
+
+    Args:
+        db:         Async DB session.
+        user:       Any object with a ``.id`` UUID attribute (User ORM or Identity).
+        capability: Capability string constant, e.g. MANAGE_SETTINGS.
+
+    Returns:
+        True if any of the user's roles grant the requested capability.
+    """
+    from app.modules.catalog.authorization import (
+        get_user_roles,
+    )  # LAZY — avoids circular
+
+    roles = await get_user_roles(db, user)
+    matrix = await get_effective_permissions(db)
+    return any(matrix.get(role, {}).get(capability, False) for role in roles)
 
 
 async def get_effective_permissions(db: AsyncSession) -> dict[str, dict[str, bool]]:

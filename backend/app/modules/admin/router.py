@@ -113,6 +113,32 @@ async def create_user(
     db: AsyncSession = Depends(get_db),
 ) -> UserResponse:
     """Create a new user with the specified role (admin only)."""
+    # DOMAIN-04: enforce allowed_email_domains on admin-create.
+    # Break-glass: the requesting admin (current_user) is exempt if they hold
+    # manage_settings — a uniform "admin escape hatch" that mirrors the login
+    # break-glass (T-1236-02: break-glass is server-side capability, not a
+    # client header). A null/absent email is permitted (no address to gate on).
+    if body.email:
+        from app.core.persistent_config import ALLOWED_EMAIL_DOMAINS  # LAZY — per D-17
+        from app.modules.auth.domain_validation import (
+            is_email_allowed,
+        )  # LAZY — per D-17
+        from app.modules.auth.permissions import (  # LAZY — per D-17
+            MANAGE_SETTINGS,
+            user_has_capability,
+        )
+
+        domains = await ALLOWED_EMAIL_DOMAINS.get(db)
+        if not is_email_allowed(body.email, domains):
+            has_break_glass = await user_has_capability(
+                db, current_user, MANAGE_SETTINGS
+            )
+            if not has_break_glass:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Email domain is not permitted",
+                )
+
     service = AdminService(db)
     try:
         user = await service.create_user(

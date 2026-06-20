@@ -36,6 +36,7 @@ from app.core.config import settings
 from app.core.dependencies import get_client_ip, get_db
 from app.core.persistent_config import (
     ACCESS_TOKEN_EXPIRE_MINUTES,
+    ALLOWED_EMAIL_DOMAINS,
     DEMO_MODE,
     EMAIL_VERIFICATION_REQUIRED,
     LANDING_FIRST,
@@ -44,6 +45,7 @@ from app.core.persistent_config import (
     get_cached_global_rate_limit,
     get_cached_login_rate_limit,
 )
+from app.modules.auth.domain_validation import is_email_allowed
 from app.standards.ogc.errors import ERROR_RESPONSES_AUTH
 
 router = APIRouter(prefix="/auth", tags=["Auth"], responses=ERROR_RESPONSES_AUTH)
@@ -106,6 +108,25 @@ async def login(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Account not active",
             )
+
+    # DOMAIN-04: enforce allowed_email_domains on password login.
+    # Break-glass: users who hold manage_settings are exempt (admin escape hatch).
+    # Skip the check when user.email is null (no address to gate on).
+    if user is not None and user.email:
+        domains = await ALLOWED_EMAIL_DOMAINS.get(db)
+        if not is_email_allowed(user.email, domains):
+            # Lazy import to avoid adding DB dep at module top; follows D-17.
+            from app.modules.auth.permissions import (  # LAZY — per D-17
+                MANAGE_SETTINGS,
+                user_has_capability,
+            )
+
+            has_break_glass = await user_has_capability(db, user, MANAGE_SETTINGS)
+            if not has_break_glass:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Email domain is not permitted",
+                )
 
     # Record login timestamp
     user.last_login_at = func.now()
@@ -203,6 +224,18 @@ async def register(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Registration is disabled",
         )
+
+    # DOMAIN-02: enforce allowed_email_domains on self-serve signup.
+    # No principal exists at signup → no break-glass; the email must satisfy
+    # the allowlist to create an account.  A null/absent email is permitted
+    # (no address to gate on — preserves no-email registration paths).
+    if body.email:
+        domains = await ALLOWED_EMAIL_DOMAINS.get(db)
+        if not is_email_allowed(body.email, domains):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Email domain is not permitted",
+            )
 
     # Phase 279 ADMIN-05 (L-02): emit user.register audit event for funnel
     # visibility (how many users register and from which IP). Lazy import
