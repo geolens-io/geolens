@@ -3312,6 +3312,12 @@
             "title": "Landing First",
             "type": "boolean"
           },
+          "password_login_enabled": {
+            "default": true,
+            "description": "When false, password login is disabled for users without manage_settings. Default true for back-compat-safe parsing by older clients.",
+            "title": "Password Login Enabled",
+            "type": "boolean"
+          },
           "registration_enabled": {
             "description": "Whether self-service registration is open",
             "title": "Registration Enabled",

@@ -40,6 +40,7 @@ from app.core.persistent_config import (
     DEMO_MODE,
     EMAIL_VERIFICATION_REQUIRED,
     LANDING_FIRST,
+    PASSWORD_LOGIN_ENABLED,
     REFRESH_TOKEN_EXPIRE_DAYS,
     REGISTRATION_ENABLED,
     get_cached_global_rate_limit,
@@ -127,6 +128,22 @@ async def login(
                     status_code=status.HTTP_403_FORBIDDEN,
                     detail="Email domain is not permitted",
                 )
+
+    # SSO-01/SSO-02 (Phase 1236 Plan 02): when password_login_enabled is False,
+    # reject password login for non-admins.  manage_settings holders are always
+    # allowed through (break-glass) — same capability used for the domain gate.
+    if user is not None and not await PASSWORD_LOGIN_ENABLED.get(db):
+        from app.modules.auth.permissions import (  # LAZY — per D-17
+            MANAGE_SETTINGS,
+            user_has_capability,
+        )
+
+        has_break_glass = await user_has_capability(db, user, MANAGE_SETTINGS)
+        if not has_break_glass:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Password login is disabled; sign in with your SSO provider",
+            )
 
     # Record login timestamp
     user.last_login_at = func.now()
@@ -674,6 +691,9 @@ async def config(
     landing_first = await LANDING_FIRST.get(db)
     demo_mode = await DEMO_MODE.get(db)
     email_verification_required = await EMAIL_VERIFICATION_REQUIRED.get(db)
+    # SSO-03: expose the SSO-only flag so the login page can hide the password
+    # form on first render (no flash).
+    password_login_enabled = await PASSWORD_LOGIN_ENABLED.get(db)
     return ConfigResponse(
         registration_enabled=reg_enabled,
         allow_signup=reg_enabled,
@@ -681,6 +701,7 @@ async def config(
         auth_methods=list(get_auth_extension().get_auth_methods()),
         landing_first=landing_first,
         demo_mode=demo_mode,
+        password_login_enabled=password_login_enabled,
     )
 
 

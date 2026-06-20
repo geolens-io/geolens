@@ -497,6 +497,20 @@ ALLOWED_EMAIL_DOMAINS = PersistentConfig[list[str]](
     label="Allowed Email Domains",
 )
 
+# SSO-01 (Phase 1236 Plan 02): when False, POST /auth/login returns 403 for
+# users who do NOT hold the manage_settings capability.  manage_settings holders
+# (admins) always retain password-login as a break-glass escape hatch — the same
+# uniform rule used by the domain-enforcement gate in Plan 01.
+# Default True — existing self-hosters see zero behavior change.
+# JSONB-backed key — no Alembic migration required.
+PASSWORD_LOGIN_ENABLED = PersistentConfig[bool](
+    key="password_login_enabled",
+    type_=bool,
+    env_default=True,
+    tab="auth",
+    label="Password Login Enabled",
+)
+
 # -- AI tab --
 AI_ENABLED = PersistentConfig[bool](
     key="ai_enabled",

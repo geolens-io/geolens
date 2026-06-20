@@ -312,6 +312,22 @@ async def update_settings(
 
         validated_settings[key] = value
 
+    # SSO-04 (Phase 1236 Plan 02): lockout guard — refuse to disable password
+    # login when zero enabled OAuth providers exist.  This runs AFTER Pass-1
+    # validation but BEFORE the apply loop so nothing is persisted on rejection.
+    # An admin with manage_settings retains break-glass password-login regardless,
+    # but we still prevent the foot-gun of locking out the entire org.
+    if validated_settings.get("password_login_enabled") is False:
+        enabled_providers = await oauth_service.get_enabled_providers(db)
+        if len(enabled_providers) == 0:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=(
+                    "Cannot disable password login while no SSO provider is enabled "
+                    "— enable an OAuth provider first"
+                ),
+            )
+
     # Capture old embedding_dims before any changes (needed for rollback)
     old_dims_value: int | None = None
     if "embedding_dims" in validated_settings:
