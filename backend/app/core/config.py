@@ -211,6 +211,21 @@ class Settings(BaseSettings):
     notification_webhook_url: str | None = None
     notification_webhook_secret: SecretStr | None = None
 
+    # EVENT-05 per-event opt-in toggles (default OFF). Each toggle enables the
+    # corresponding notification; the whole feature is still gated behind
+    # notifications_enabled=True + at least one configured channel (SMTP or webhook).
+    # Set e.g. NOTIFY_ON_SIGNUP=true to enable signup/lead-capture alerts.
+    # NOT registered in persistent_config.py (these are env knobs, not DB settings).
+    notify_on_signup: bool = False
+    notify_on_ingest_complete: bool = False
+    notify_on_ingest_failed: bool = False
+    notify_on_health_alert: bool = False
+
+    # Admin recipient for event notifications (non-secret — appears in Notification.data["to"]).
+    # Falls back to smtp_from_address when not set (see events.py build_event_notification).
+    # Add NOTIFICATION_ADMIN_EMAIL=admin@example.com to direct all event alerts to one address.
+    notification_admin_email: str | None = None
+
     @field_validator(
         "anthropic_api_key",
         "openai_api_key",
@@ -238,6 +253,8 @@ class Settings(BaseSettings):
         "smtp_username",
         "smtp_from_address",
         "notification_webhook_url",
+        # Phase 1230 EVENT-05 recipient field — blank env value normalizes to None
+        "notification_admin_email",
         mode="before",
     )
     @classmethod
