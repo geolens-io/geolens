@@ -393,7 +393,7 @@ _is_production = settings.is_production
 # no metadata to read. We fall back to the current published line so import never
 # crashes. Keep this fallback in lockstep with backend/pyproject.toml — it is one
 # of the sites `make bump` rewrites.
-_FALLBACK_APP_VERSION = "1.3.0"
+_FALLBACK_APP_VERSION = "1.4.0"
 
 
 def _resolve_app_version() -> str:
@@ -613,6 +613,25 @@ _add_trailing_slash_aliases(app)
 init_metrics(app)
 
 
+# Phase 1230 EVENT-04: health-alert cooldown state.
+# Module-level so it persists across requests within a single API process.
+# _last_health_alert_at: time.monotonic() of the most recent degraded alert
+#   sent, or None if no alert has been sent since boot/recovery. None means
+#   "alert immediately" — a 0.0 sentinel was wrong because monotonic() is
+#   seconds-since-boot, so `now - 0.0 >= COOLDOWN` suppressed the very first
+#   alert during the first 5 minutes of process uptime (exactly when a DB is
+#   most likely down after a deploy).
+# _last_health_status:   last observed status ("healthy" or "degraded"); a
+#   transition back to "healthy" resets _last_health_alert_at so the NEXT
+#   degraded event produces a fresh alert after recovery (T-1230-06).
+_last_health_alert_at: float | None = None
+_last_health_status: str = "healthy"
+# Cooldown window: emit at most one health alert per 5 minutes (T-1230-06
+# low-noise requirement).  Docker healthcheck polls every 10 s → at most
+# one alert per 30 polls while the system remains degraded.
+_HEALTH_ALERT_COOLDOWN_SECS: float = 300.0
+
+
 # GAP-016: /health is rate-limited (60/min per IP) rather than fully exempt, to
 # bound abuse of this unauthenticated, dependency-probing endpoint. The limit is
 # deliberately generous: the Docker container healthcheck polls every 10s
@@ -626,12 +645,75 @@ init_metrics(app)
 @limiter.limit("60/minute")
 async def health(request: Request):
     """Health check endpoint for ALB, Docker, and Nginx."""
+    import time
+
     from app.observability.health.service import check_health
     from fastapi.responses import JSONResponse
 
     result = await check_health()
     status_code = 200 if result["status"] == "healthy" else 503
-    return JSONResponse(content=result, status_code=status_code)
+
+    # Phase 1230 EVENT-04: emit a health-alert notification when the result is
+    # degraded and the per-event toggle is on, with cooldown de-duplication so
+    # repeated unhealthy polls do not spam the admin (T-1230-06 low-noise).
+    # The emit runs as a Starlette BackgroundTask so the /health response is
+    # returned FIRST and is never delayed by a slow/unreachable notification
+    # channel (WR-01) — Docker/ALB healthchecks have short timeouts and must not
+    # flap during an SMTP outage. The emit is also fail-safe (never raises).
+    from starlette.background import BackgroundTask
+
+    global _last_health_alert_at, _last_health_status  # noqa: PLW0603
+    current_status = result.get("status", "healthy")
+    now = time.monotonic()
+    health_alert_task: BackgroundTask | None = None
+    if current_status != "healthy":
+        # Determine the failing component(s) for the notification body.
+        providers: dict = result.get("providers", {})
+        failing = [
+            name
+            for name, info in providers.items()
+            if isinstance(info, dict) and info.get("status") != "ok"
+        ]
+        component = failing[0] if failing else "unknown"
+        # Reset cooldown when the system recovers between degraded windows.
+        if _last_health_status == "healthy":
+            _last_health_alert_at = None
+        _last_health_status = current_status
+        # Emit only if outside the cooldown window (de-dup, T-1230-06).
+        # None => no alert sent since boot/recovery → fire immediately.
+        if (
+            _last_health_alert_at is None
+            or now - _last_health_alert_at >= _HEALTH_ALERT_COOLDOWN_SECS
+        ):
+            _last_health_alert_at = now
+            # Lazy import per Phase 214 discipline.
+            from app.platform.notifications.events import (  # LAZY
+                build_event_notification,
+                emit_event_safe,
+            )
+
+            _component = component
+            health_alert_task = BackgroundTask(
+                emit_event_safe,
+                event_key="health_alert",
+                build=lambda: build_event_notification(
+                    "health_alert",
+                    subject=f"GeoLens health degraded: {_component}",
+                    body=(
+                        f"The GeoLens health check reported a degraded status.\n\n"
+                        f"Failing component: {_component}"
+                    ),
+                    extra={"component": _component, "status": current_status},
+                ),
+            )
+    else:
+        # System is healthy: reset status so a future recurrence re-alerts.
+        _last_health_status = "healthy"
+        _last_health_alert_at = None
+
+    return JSONResponse(
+        content=result, status_code=status_code, background=health_alert_task
+    )
 
 
 __all__ = ["app", "health", "lifespan", "seed_initial_admin", "seed_roles"]

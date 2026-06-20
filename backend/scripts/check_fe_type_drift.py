@@ -140,10 +140,14 @@ KNOWN_DRIFT: dict[str, list[str]] = {
     # on the DatasetResponse wrapper, not on the nested RasterMetadata.
     # TODO: redundant — either add to FE mirror or document the explicit choice.
     "RasterMetadata": ["is_dem"],
-    # RegisterResponse.message: backend returns a confirmation message that the
-    # FE discards (it redirects immediately after registration success).
-    # TODO: low priority — message not surfaced in UI.
-    "RegisterResponse": ["message"],
+    # RegisterResponse name collision: the backend AUTH RegisterResponse
+    # ({message, next_step}) shares a name with the FE `RegisterResponse`
+    # interface, which actually mirrors the UNRELATED dataset-ingest register
+    # response ({dataset_id, title, table_name}). The auth response's real FE
+    # mirror is the `SignupResponse` interface, which DOES carry both fields.
+    # So message/next_step "missing" here is expected, not real drift.
+    # TODO: dedupe by renaming one of the two backend RegisterResponse models.
+    "RegisterResponse": ["message", "next_step"],
     # DuplicateMapResponse: extends MapResponse in FE, so its inherited props
     # mirror MapResponse exactly (including the og_image_url omission above).
     # The BE schema for DuplicateMapResponse inlines all parent props, so

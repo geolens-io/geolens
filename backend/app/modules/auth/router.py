@@ -25,9 +25,11 @@ from app.modules.auth.schemas import (
     PermissionsResponse,
     RefreshRequest,
     RegisterResponse,
+    ResendVerificationRequest,
     TokenResponse,
     UserCreate,
     UserResponse,
+    VerifyEmailRequest,
 )
 from app.modules.auth.service import AuthService
 from app.core.config import settings
@@ -35,6 +37,7 @@ from app.core.dependencies import get_client_ip, get_db
 from app.core.persistent_config import (
     ACCESS_TOKEN_EXPIRE_MINUTES,
     DEMO_MODE,
+    EMAIL_VERIFICATION_REQUIRED,
     LANDING_FIRST,
     REFRESH_TOKEN_EXPIRE_DAYS,
     REGISTRATION_ENABLED,
@@ -210,6 +213,16 @@ async def register(
         audit_emit,
     )  # LAZY — preserved per D-17
 
+    # Phase 1230 EVENT-01: admin signup notification. Lazy import per D-17;
+    # emit is placed AFTER db.commit() and ONLY in the non-collision branch so
+    # (a) a notification failure cannot roll back the user row, and (b) the
+    # collision path stays byte-identical regardless of toggle state (SEC-012 /
+    # T-1230-05 enumeration-safety).
+    from app.platform.notifications.events import (
+        build_event_notification,
+        emit_event_safe,
+    )  # LAZY — preserved per D-17
+
     service = AuthService(db)
     # SEC-012: on a username/email collision the service raises ValueError and
     # does NOT create a duplicate row (register_user flushes only on success).
@@ -226,6 +239,17 @@ async def register(
         )
     except ValueError:
         collision = True
+
+    # Determine the post-registration outcome from CONFIG + submitted email only —
+    # never from whether this was a genuine signup or a swallowed collision — so
+    # both return a byte-identical response (SEC-012 enumeration-safety). The
+    # verify-email path previously returned a different message than the collision
+    # swallow, leaking account existence whenever email verification was enabled.
+    verification_required = await EMAIL_VERIFICATION_REQUIRED.get(db)
+    smtp_configured = bool(settings.smtp_host)
+    wants_email_verification = bool(
+        verification_required and body.email and smtp_configured
+    )
 
     if not collision:
         # Phase 279 ADMIN-05 (L-02): the registrant is the actor (no acting admin
@@ -244,10 +268,271 @@ async def register(
             ),
         )
         await db.commit()
+        # Phase 1230 EVENT-01: notify admin of new signup AFTER commit so a
+        # notification error can never roll back the user row (T-1230-07).
+        # emit_event_safe is itself fail-safe (swallows all errors).
+        # body.username / body.email are already audit-logged above (non-secret).
+        _username = body.username
+        _email = body.email or ""
+        await emit_event_safe(
+            event_key="signup",
+            build=lambda: build_event_notification(
+                "signup",
+                subject=f"New signup: {_username}",
+                body=f"A new user signed up.\n\nUsername: {_username}\nEmail: {_email}",
+                extra={"username": _username, "email": _email},
+            ),
+        )
 
+        # SIGNUP-03 (Phase 1231): When email verification is required AND the
+        # registrant provided an email AND SMTP is configured, issue a
+        # verification token and email it.
+        # Fires only when ALL of:
+        #   1. This was a genuine non-collision registration (new_user_id is set), AND
+        #   2. EMAIL_VERIFICATION_REQUIRED is True, AND
+        #   3. body.email is provided (without an address we can't verify;
+        #      fall back to admin-approval so no-email registrations remain valid
+        #      for deployments that don't require email — SIGNUP-06 backward compat), AND
+        #   4. SMTP is configured (smtp_host is set); if not configured, fall back
+        #      to admin-approval rather than failing with 502 for non-SMTP setups.
+        # The signup-OFF path (REGISTRATION_ENABLED=False) never reaches here,
+        # so this block cannot affect the OFF-path byte-identical contract (SIGNUP-06).
+        # SIGNUP-03: only a GENUINE new user gets a token issued + email sent.
+        # (A swallowed collision creates no row, so there is nothing to verify —
+        # it still returns the same response below to stay indistinguishable.)
+        #
+        # KNOWN LIMITATION (accepted, GA): the HTTP response is enumeration-safe
+        # (identical for new-user vs collision), but a verification email is sent
+        # ONLY on the new-user path. A registrant supplying their own email can
+        # therefore still infer username existence out-of-band (email arrives =>
+        # username was free). Fully closing this needs a signup/identity redesign
+        # (always-send would leak via differing content and enable email spam);
+        # tracked as a follow-up (issue #267). Mitigated by /register rate
+        # limiting and requiring EMAIL_VERIFICATION_REQUIRED + SMTP both enabled.
+        if wants_email_verification:
+            # Issue the verification token; commit it to the DB so the subsequent
+            # send attempt can reference the persisted token row even if the SMTP
+            # call raises.
+            from app.modules.auth.verification import (
+                issue_verification_token,
+            )  # LAZY — per D-17
+
+            raw_token = await issue_verification_token(db, new_user_id)  # type: ignore[arg-type]
+            await db.commit()
+
+            # Send the verification email. If send_email raises a SMTP/OSError,
+            # map it to a clear HTTP 502 — never expose the exception repr (which
+            # may include the SMTP password), only the exception type name
+            # (mirrors env_sink's secret-free aggregation, T-1231-07).
+            import smtplib  # LAZY — per D-17
+
+            from app.modules.auth.verification_email import (
+                send_verification_email,
+            )  # LAZY — per D-17
+
+            try:
+                await send_verification_email(
+                    db, to_email=body.email, raw_token=raw_token
+                )
+            except (smtplib.SMTPException, OSError) as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_502_BAD_GATEWAY,
+                    detail=(
+                        f"Could not send the verification email "
+                        f"({type(exc).__name__}); "
+                        "please check the mail server configuration and try again."
+                    ),
+                ) from None
+
+        elif verification_required and body.email and not smtp_configured:
+            # Verification is required but no SMTP channel is configured, so we
+            # cannot send a verification email and fall back to admin-approval.
+            # Surface the mismatch instead of degrading silently (WR-02) so an
+            # operator who turned verification on can see why signups still need
+            # manual approval.
+            import structlog  # LAZY — per D-17
+
+            structlog.stdlib.get_logger(__name__).warning(
+                "register.verification_required_but_smtp_unconfigured",
+                detail=(
+                    "EMAIL_VERIFICATION_REQUIRED is on but smtp_host is unset; "
+                    "falling back to admin-approval. Configure SMTP to enable "
+                    "email-verified self-serve signup."
+                ),
+            )
+
+    # Unified response — IDENTICAL for a genuine new user and a swallowed
+    # collision given the same (config, submitted email). Closes the SIGNUP-03
+    # enumeration gap where the verify-email path returned a different message
+    # (and now next_step) than the collision-swallow admin-approval path.
+    if wants_email_verification:
+        return RegisterResponse(
+            message=(
+                "Registration submitted. "
+                "Please check your email to verify your address and activate your account."
+            ),
+            next_step="verify_email",
+        )
     return RegisterResponse(
-        message="Registration submitted. Your account is awaiting admin approval."
+        message="Registration submitted. Your account is awaiting admin approval.",
+        next_step="await_approval",
     )
+
+
+# ---------------------------------------------------------------------------
+# Email verification endpoints (Phase 1231 SIGNUP-03/05)
+# ---------------------------------------------------------------------------
+
+
+# ROUTE-01 (Phase 1092): dual-shape decorator — see /refresh above.
+@router.post(
+    "/verify-email",
+    response_model=RegisterResponse,
+    include_in_schema=False,
+)
+@router.post("/verify-email/", response_model=RegisterResponse)
+@limiter.limit("10/minute")
+async def verify_email(
+    request: Request,
+    body: VerifyEmailRequest,
+    db: AsyncSession = Depends(get_db),
+) -> RegisterResponse:
+    """Redeem a verification token to activate the account.
+
+    SIGNUP-03: a valid single-use expiring token flips email_verified=True,
+    is_active=True, and status="active" so the user can log in via the
+    existing auth gate in dependencies.py.
+
+    Expired, unknown, and already-consumed tokens all return the same
+    "Invalid or expired" error (enumeration-safe, SIGNUP-05 / T-1231-06).
+    """
+    from app.modules.audit.service import (
+        AuditEvent,
+        audit_emit,
+    )  # LAZY — per D-17
+    from app.modules.auth.verification import (
+        redeem_verification_token,
+    )  # LAZY — per D-17
+    from sqlalchemy import update  # LAZY — per D-17
+
+    user_id = await redeem_verification_token(db, body.token)
+    if user_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or expired verification link. Please request a new one.",
+        )
+
+    # Activate the account: flip is_active + status so the auth gate in
+    # dependencies.py (which checks is_active AND status == 'active') lets
+    # the user through.  redeem_verification_token already flipped email_verified.
+    from app.modules.auth.models import User  # LAZY — per D-17
+
+    # Only activate accounts that are still PENDING verification. An admin may
+    # have suspended/deactivated the account within the token's validity window;
+    # clicking the verification link must NOT silently undo that (CR-01). The
+    # token is already consumed (redeem above) and email_verified stays set —
+    # only the activation flip is gated on the still-pending precondition.
+    await db.execute(
+        update(User)
+        .where(
+            User.id == user_id,
+            User.status == "pending",
+            User.is_active.is_(False),
+        )
+        .values(is_active=True, status="active")
+    )
+
+    await audit_emit(
+        db,
+        AuditEvent(
+            user_id=user_id,
+            action="user.verify_email",
+            resource_type="user",
+            resource_id=user_id,
+            details={"method": "email_link"},
+            ip_address=get_client_ip(request),
+        ),
+    )
+    await db.commit()
+    return RegisterResponse(message="Email verified successfully. You can now log in.")
+
+
+# ROUTE-01 (Phase 1092): dual-shape decorator — see /refresh above.
+@router.post(
+    "/resend-verification",
+    response_model=RegisterResponse,
+    include_in_schema=False,
+)
+@router.post("/resend-verification/", response_model=RegisterResponse)
+@limiter.limit("5/minute")
+async def resend_verification(
+    request: Request,
+    body: ResendVerificationRequest,
+    db: AsyncSession = Depends(get_db),
+) -> RegisterResponse:
+    """Re-issue and re-send a verification email.
+
+    SIGNUP-05 / T-1231-05 (enumeration-safe): ALWAYS returns the same 200 body
+    regardless of whether the email exists, is unknown, or is already verified.
+    Send errors are logged server-side only and never branch the HTTP response.
+    """
+    # Generic response returned in ALL cases — known, unknown, already-verified,
+    # send-failure — to prevent email-existence enumeration.
+    _GENERIC_RESPONSE = RegisterResponse(
+        message=(
+            "If an unverified account with that email exists, "
+            "a new verification link has been sent."
+        )
+    )
+
+    from app.modules.auth.verification import (
+        issue_verification_token,
+    )  # LAZY — per D-17
+    from app.modules.auth.verification_email import (
+        send_verification_email,
+    )  # LAZY — per D-17
+    from sqlalchemy import select  # LAZY — per D-17
+
+    from app.modules.auth.models import User  # LAZY — per D-17
+
+    # Look up an unverified user by email (case-insensitive — L1, Codex review).
+    result = await db.execute(
+        select(User).where(
+            func.lower(User.email) == func.lower(body.email),
+            User.email_verified.is_(False),
+        )
+    )
+    user = result.scalar_one_or_none()
+
+    if user is not None:
+        # Issue a fresh token and attempt to send. Swallow send errors
+        # server-side so the response stays identical to the unknown-email path
+        # (enumeration-safe). Still log at WARNING so operators can diagnose
+        # SMTP misconfiguration without surfacing it to the client.
+        import smtplib  # LAZY — per D-17
+        import structlog  # LAZY — per D-17
+
+        _log = structlog.stdlib.get_logger(__name__)
+
+        try:
+            raw_token = await issue_verification_token(db, user.id)
+            await db.commit()
+            await send_verification_email(db, to_email=body.email, raw_token=raw_token)
+        except (smtplib.SMTPException, OSError) as exc:
+            # Log the error type only — never the SMTP password or full repr.
+            _log.warning(
+                "resend_verification.send_failed",
+                error_type=type(exc).__name__,
+                user_id=str(user.id),
+            )
+        except Exception as exc:  # noqa: BLE001
+            _log.warning(
+                "resend_verification.unexpected_error",
+                error_type=type(exc).__name__,
+                user_id=str(user.id),
+            )
+
+    return _GENERIC_RESPONSE
 
 
 # ROUTE-01 (Phase 1092): dual-shape decorator — see /refresh above.
@@ -355,8 +640,11 @@ async def config(
     reg_enabled = await REGISTRATION_ENABLED.get(db)
     landing_first = await LANDING_FIRST.get(db)
     demo_mode = await DEMO_MODE.get(db)
+    email_verification_required = await EMAIL_VERIFICATION_REQUIRED.get(db)
     return ConfigResponse(
         registration_enabled=reg_enabled,
+        allow_signup=reg_enabled,
+        email_verification_required=email_verification_required,
         auth_methods=list(get_auth_extension().get_auth_methods()),
         landing_first=landing_first,
         demo_mode=demo_mode,

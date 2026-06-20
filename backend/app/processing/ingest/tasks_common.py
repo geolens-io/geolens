@@ -646,6 +646,28 @@ async def _cleanup_staging_on_failure(
         task=task_name,
     )
 
+    # EVENT-03: notify on ingest failed (non-fatal, after commit — deferred import discipline).
+    # status="failed" + error_message are already committed above so a notification
+    # error can never roll back or alter the terminal job write (T-1230-09 / fail-safe).
+    from app.platform.notifications.events import (
+        build_event_notification,
+        emit_event_safe,
+    )
+
+    _job_id_str = str(job_id)
+    _reason = error_message
+    _task = task_name
+    await emit_event_safe(
+        event_key="ingest_failed",
+        build=lambda: build_event_notification(
+            "ingest_failed",
+            subject=f"Ingest failed: {_task}",
+            body=f"Ingest job (task={_task}) failed.",
+            reason=_reason,
+            extra={"job_id": _job_id_str, "task": _task},
+        ),
+    )
+
 
 async def _ingest_vector_into_staging(
     session,
@@ -1039,6 +1061,26 @@ async def _finalize_ingest(ctx: IngestContext):
     job.progress = 1.0
     job.rows_processed = metadata.get("feature_count")
     await session.commit()
+
+    # EVENT-02: notify on ingest complete (non-fatal, after commit — deferred import discipline).
+    # Placed here: status="complete" is already committed above so a notification
+    # error can never roll back or alter the terminal job write (T-1230-09 / fail-safe).
+    from app.platform.notifications.events import (
+        build_event_notification,
+        emit_event_safe,
+    )
+
+    _dataset_title = getattr(dataset, "title", None) or table_name
+    _job_id_str = str(job.id)
+    await emit_event_safe(
+        event_key="ingest_complete",
+        build=lambda: build_event_notification(
+            "ingest_complete",
+            subject=f"Ingest complete: {_dataset_title}",
+            body=f"Vector dataset '{_dataset_title}' has been successfully ingested.",
+            extra={"job_id": _job_id_str, "dataset": _dataset_title},
+        ),
+    )
 
     # Generate vector quicklook thumbnail (non-fatal, after commit).
     #

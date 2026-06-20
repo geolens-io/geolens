@@ -178,6 +178,54 @@ class Settings(BaseSettings):
     # Set INGEST_HTTP_TIMEOUT_SECONDS in the api service env to override.
     ingest_http_timeout_seconds: int = 300
 
+    # ---------------------------------------------------------------------------
+    # Outbound Notification channels (Phase 1229 NOTIF-02 / NOTIF-03 / NOTIF-05)
+    # ---------------------------------------------------------------------------
+    # All defaults are OFF / None so existing deployments are byte-identical on
+    # upgrade (NOTIF-04). Secrets are SecretStr so they never render in logs or
+    # repr(). Plan 02 channel implementations read these fields directly at
+    # send time; Plan 03 reads bool(smtp_host) / bool(notification_webhook_url)
+    # for a status GET. These are REAL wired fields — not inert knobs.
+    #
+    # NOT registered in persistent_config.py: notification secrets must NOT live
+    # in the app_settings DB table (persistent_config.py:80-83 prohibition).
+    # ---------------------------------------------------------------------------
+
+    # Master toggle: when False (default), notify() is a fast no-op regardless
+    # of whether SMTP / webhook env vars are set. Set NOTIFICATIONS_ENABLED=true
+    # to activate channels.
+    notifications_enabled: bool = False
+
+    # SMTP channel (NOTIF-02): configure with SMTP_HOST + SMTP_USERNAME +
+    # SMTP_PASSWORD + SMTP_FROM_ADDRESS to send email notifications.
+    smtp_host: str | None = None
+    smtp_port: int = 587
+    smtp_username: str | None = None
+    smtp_password: SecretStr | None = None
+    smtp_from_address: str | None = None
+    smtp_use_tls: bool = True
+
+    # Webhook channel (NOTIF-03): configure with NOTIFICATION_WEBHOOK_URL to POST
+    # JSON notifications to a generic incoming-webhook endpoint (Slack, Teams,
+    # custom). NOTIFICATION_WEBHOOK_SECRET is used for HMAC signing (optional).
+    notification_webhook_url: str | None = None
+    notification_webhook_secret: SecretStr | None = None
+
+    # EVENT-05 per-event opt-in toggles (default OFF). Each toggle enables the
+    # corresponding notification; the whole feature is still gated behind
+    # notifications_enabled=True + at least one configured channel (SMTP or webhook).
+    # Set e.g. NOTIFY_ON_SIGNUP=true to enable signup/lead-capture alerts.
+    # NOT registered in persistent_config.py (these are env knobs, not DB settings).
+    notify_on_signup: bool = False
+    notify_on_ingest_complete: bool = False
+    notify_on_ingest_failed: bool = False
+    notify_on_health_alert: bool = False
+
+    # Admin recipient for event notifications (non-secret — appears in Notification.data["to"]).
+    # Falls back to smtp_from_address when not set (see events.py build_event_notification).
+    # Add NOTIFICATION_ADMIN_EMAIL=admin@example.com to direct all event alerts to one address.
+    notification_admin_email: str | None = None
+
     @field_validator(
         "anthropic_api_key",
         "openai_api_key",
@@ -200,6 +248,13 @@ class Settings(BaseSettings):
         "azure_storage_connection_string",
         "azure_storage_account_url",
         "azure_storage_account_key",
+        # Phase 1229 notification str | None fields — blank env values normalize to None
+        "smtp_host",
+        "smtp_username",
+        "smtp_from_address",
+        "notification_webhook_url",
+        # Phase 1230 EVENT-05 recipient field — blank env value normalizes to None
+        "notification_admin_email",
         mode="before",
     )
     @classmethod

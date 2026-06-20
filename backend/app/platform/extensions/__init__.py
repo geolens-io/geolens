@@ -24,6 +24,7 @@ from app.platform.extensions.defaults import (
     DefaultConnectorExtension,
     DefaultEntitlementPort,  # NEW (Phase 1207)
     DefaultIdentityExtension,
+    DefaultNotificationSink,  # NEW (Phase 1229)
     DefaultOpenAICompatibleProvider,  # NEW (Phase 226)
     DefaultOpenAIEmbeddingProvider,  # NEW (Phase 231)
     DefaultPermissionExtension,  # NEW (Phase 232)
@@ -36,6 +37,7 @@ from app.platform.extensions.protocols import (
     AuthExtension,
     BillingExtension,  # NEW (Phase 223)
     BrandingExtension,
+    NotificationSink,  # NEW (Phase 1229)
 )
 
 if TYPE_CHECKING:
@@ -85,6 +87,7 @@ ADDITIVE_SLOT_KEYS: frozenset[str] = frozenset(
         "billing_extensions",
         "ai_providers",
         "embedding_providers",
+        "notification_sinks",  # NEW (Phase 1229 NOTIF-01) — overlays append sinks
         "_routers",
     }
 )
@@ -396,6 +399,38 @@ def get_billing_extensions() -> list[BillingExtension]:
     if exts is None:
         return [DefaultBillingExtension()]
     return list(exts)  # type: ignore[arg-type]
+
+
+def get_notification_sinks() -> list[NotificationSink]:
+    """Return all registered NotificationSinks, or [DefaultNotificationSink()] when slot missing.
+
+    Phase 1229 NOTIF-01 / NOTIF-04 — mirrors ``get_audit_sinks()`` and
+    ``get_billing_extensions()`` shape exactly (list-shape, lazy default,
+    defensive copy). The list shape is forward-compatible: a future overlay may
+    register multiple channel sinks (SMTP + webhook + Slack incoming-webhook)
+    alongside the community no-op.
+
+    Community edition (no notification env vars set) gets
+    ``[DefaultNotificationSink()]`` — behavior is byte-identical to today,
+    zero outbound send, zero side effects.
+
+    Enterprise overlays append to ``_extensions["notification_sinks"]`` via
+    ``setdefault + append`` in their ``register_extensions(registry)`` callback::
+
+        sinks = registry.setdefault("notification_sinks", [DefaultNotificationSink()])
+        sinks.append(SMTPNotificationSink(config))
+
+    Reassigning the slot (``registry["notification_sinks"] = [MySink()]``) makes
+    DefaultNotificationSink disappear from the iteration — use setdefault+append
+    to preserve the additive contract (NOTIF-01).
+
+    Returns a defensive ``list(sinks)`` copy so a sink cannot accidentally mutate
+    the registry mid-iteration in ``notify()``.
+    """
+    sinks = _extensions.get("notification_sinks")
+    if sinks is None:
+        return [DefaultNotificationSink()]
+    return list(sinks)  # type: ignore[arg-type]
 
 
 def get_processing_port() -> "ProcessingPort":

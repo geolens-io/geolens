@@ -165,7 +165,11 @@ export function LoginPage() {
               })}
             </Button>
           </p>
-          {config?.registration_enabled === true ? (
+          {/* SIGNUP-06 (Phase 1231): show signup link when allow_signup is true;
+              fall back to registration_enabled for older server versions that
+              don't yet expose allow_signup. Google SSO (OAuthButtons) is
+              intentionally outside this gate (SIGNUP-02). */}
+          {(config?.allow_signup === true || (config?.allow_signup === undefined && config?.registration_enabled === true)) ? (
             <p className="text-center text-sm text-muted-foreground">
               {t('needAccount')}{' '}
               <Link to="/register" className="text-primary underline hover:text-primary/80">

@@ -1,0 +1,228 @@
+from http import HTTPStatus
+from typing import Any
+
+import httpx
+
+from ...client import AuthenticatedClient, Client
+from ...types import Response
+from ... import errors
+
+from ...models.problem_detail import ProblemDetail
+from ...models.register_response import RegisterResponse
+from ...models.verify_email_request import VerifyEmailRequest
+
+
+def _get_kwargs(
+    *,
+    body: VerifyEmailRequest,
+) -> dict[str, Any]:
+    headers: dict[str, Any] = {}
+
+    _kwargs: dict[str, Any] = {
+        "method": "post",
+        "url": "/auth/verify-email/",
+    }
+
+    _kwargs["json"] = body.to_dict()
+
+    headers["Content-Type"] = "application/json"
+
+    _kwargs["headers"] = headers
+    return _kwargs
+
+
+def _parse_response(
+    *, client: AuthenticatedClient | Client, response: httpx.Response
+) -> ProblemDetail | RegisterResponse | None:
+    if response.status_code == 200:
+        response_200 = RegisterResponse.from_dict(response.json())
+
+        return response_200
+
+    if response.status_code == 400:
+        response_400 = ProblemDetail.from_dict(response.json())
+
+        return response_400
+
+    if response.status_code == 401:
+        response_401 = ProblemDetail.from_dict(response.json())
+
+        return response_401
+
+    if response.status_code == 403:
+        response_403 = ProblemDetail.from_dict(response.json())
+
+        return response_403
+
+    if response.status_code == 404:
+        response_404 = ProblemDetail.from_dict(response.json())
+
+        return response_404
+
+    if response.status_code == 422:
+        response_422 = ProblemDetail.from_dict(response.json())
+
+        return response_422
+
+    if response.status_code == 500:
+        response_500 = ProblemDetail.from_dict(response.json())
+
+        return response_500
+
+    if client.raise_on_unexpected_status:
+        raise errors.UnexpectedStatus(response.status_code, response.content)
+    else:
+        return None
+
+
+def _build_response(
+    *, client: AuthenticatedClient | Client, response: httpx.Response
+) -> Response[ProblemDetail | RegisterResponse]:
+    return Response(
+        status_code=HTTPStatus(response.status_code),
+        content=response.content,
+        headers=response.headers,
+        parsed=_parse_response(client=client, response=response),
+    )
+
+
+def sync_detailed(
+    *,
+    client: AuthenticatedClient | Client,
+    body: VerifyEmailRequest,
+) -> Response[ProblemDetail | RegisterResponse]:
+    r"""Verify Email
+
+     Redeem a verification token to activate the account.
+
+    SIGNUP-03: a valid single-use expiring token flips email_verified=True,
+    is_active=True, and status=\"active\" so the user can log in via the
+    existing auth gate in dependencies.py.
+
+    Expired, unknown, and already-consumed tokens all return the same
+    \"Invalid or expired\" error (enumeration-safe, SIGNUP-05 / T-1231-06).
+
+    Args:
+        body (VerifyEmailRequest):
+
+    Raises:
+        errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
+        httpx.TimeoutException: If the request takes longer than Client.timeout.
+
+    Returns:
+        Response[ProblemDetail | RegisterResponse]
+    """
+
+    kwargs = _get_kwargs(
+        body=body,
+    )
+
+    response = client.get_httpx_client().request(
+        **kwargs,
+    )
+
+    return _build_response(client=client, response=response)
+
+
+def sync(
+    *,
+    client: AuthenticatedClient | Client,
+    body: VerifyEmailRequest,
+) -> ProblemDetail | RegisterResponse | None:
+    r"""Verify Email
+
+     Redeem a verification token to activate the account.
+
+    SIGNUP-03: a valid single-use expiring token flips email_verified=True,
+    is_active=True, and status=\"active\" so the user can log in via the
+    existing auth gate in dependencies.py.
+
+    Expired, unknown, and already-consumed tokens all return the same
+    \"Invalid or expired\" error (enumeration-safe, SIGNUP-05 / T-1231-06).
+
+    Args:
+        body (VerifyEmailRequest):
+
+    Raises:
+        errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
+        httpx.TimeoutException: If the request takes longer than Client.timeout.
+
+    Returns:
+        ProblemDetail | RegisterResponse
+    """
+
+    return sync_detailed(
+        client=client,
+        body=body,
+    ).parsed
+
+
+async def asyncio_detailed(
+    *,
+    client: AuthenticatedClient | Client,
+    body: VerifyEmailRequest,
+) -> Response[ProblemDetail | RegisterResponse]:
+    r"""Verify Email
+
+     Redeem a verification token to activate the account.
+
+    SIGNUP-03: a valid single-use expiring token flips email_verified=True,
+    is_active=True, and status=\"active\" so the user can log in via the
+    existing auth gate in dependencies.py.
+
+    Expired, unknown, and already-consumed tokens all return the same
+    \"Invalid or expired\" error (enumeration-safe, SIGNUP-05 / T-1231-06).
+
+    Args:
+        body (VerifyEmailRequest):
+
+    Raises:
+        errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
+        httpx.TimeoutException: If the request takes longer than Client.timeout.
+
+    Returns:
+        Response[ProblemDetail | RegisterResponse]
+    """
+
+    kwargs = _get_kwargs(
+        body=body,
+    )
+
+    response = await client.get_async_httpx_client().request(**kwargs)
+
+    return _build_response(client=client, response=response)
+
+
+async def asyncio(
+    *,
+    client: AuthenticatedClient | Client,
+    body: VerifyEmailRequest,
+) -> ProblemDetail | RegisterResponse | None:
+    r"""Verify Email
+
+     Redeem a verification token to activate the account.
+
+    SIGNUP-03: a valid single-use expiring token flips email_verified=True,
+    is_active=True, and status=\"active\" so the user can log in via the
+    existing auth gate in dependencies.py.
+
+    Expired, unknown, and already-consumed tokens all return the same
+    \"Invalid or expired\" error (enumeration-safe, SIGNUP-05 / T-1231-06).
+
+    Args:
+        body (VerifyEmailRequest):
+
+    Raises:
+        errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
+        httpx.TimeoutException: If the request takes longer than Client.timeout.
+
+    Returns:
+        ProblemDetail | RegisterResponse
+    """
+
+    return (
+        await asyncio_detailed(
+            client=client,
+            body=body,
+        )
+    ).parsed

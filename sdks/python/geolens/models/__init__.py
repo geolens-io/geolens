@@ -328,6 +328,9 @@ from .map_summary_response import MapSummaryResponse
 from .map_update import MapUpdate
 from .map_visibility import MapVisibility
 from .metadata_assist_request import MetadataAssistRequest
+from .notification_status_response import NotificationStatusResponse
+from .notification_test_channel_result import NotificationTestChannelResult
+from .notification_test_response import NotificationTestResponse
 from .o_auth_provider_create import OAuthProviderCreate
 from .o_auth_provider_create_group_role_mapping_type_0 import (
     OAuthProviderCreateGroupRoleMappingType0,
@@ -424,6 +427,7 @@ from .refresh_request import RefreshRequest
 from .register_request import RegisterRequest
 from .register_request_visibility import RegisterRequestVisibility
 from .register_response import RegisterResponse
+from .register_response_next_step_type_0 import RegisterResponseNextStepType0
 from .related_dataset_item import RelatedDatasetItem
 from .related_datasets_response import RelatedDatasetsResponse
 from .rename_column_request import RenameColumnRequest
@@ -433,6 +437,7 @@ from .replace_single_feature_datasets_dataset_id_features_gid_put_geo_json_featu
 from .replace_single_feature_datasets_dataset_id_features_gid_put_geo_json_feature_properties import (
     ReplaceSingleFeatureDatasetsDatasetIdFeaturesGidPutGeoJSONFeatureProperties,
 )
+from .resend_verification_request import ResendVerificationRequest
 from .reserved_rename_detail import ReservedRenameDetail
 from .reserved_rename_warning import ReservedRenameWarning
 from .reupload_commit_request import ReuploadCommitRequest
@@ -550,6 +555,7 @@ from .validation_result_response_quality_score_type_0 import (
     ValidationResultResponseQualityScoreType0,
 )
 from .vector_tile_token import VectorTileToken
+from .verify_email_request import VerifyEmailRequest
 from .visibility_check_response import VisibilityCheckResponse
 from .vrt_active_generation import VrtActiveGeneration
 from .vrt_add_source_request import VrtAddSourceRequest
@@ -843,6 +849,9 @@ __all__ = (
     "MapUpdate",
     "MapVisibility",
     "MetadataAssistRequest",
+    "NotificationStatusResponse",
+    "NotificationTestChannelResult",
+    "NotificationTestResponse",
     "OAuthProviderCreate",
     "OAuthProviderCreateGroupRoleMappingType0",
     "OAuthProviderCreateProviderType",
@@ -905,11 +914,13 @@ __all__ = (
     "RegisterRequest",
     "RegisterRequestVisibility",
     "RegisterResponse",
+    "RegisterResponseNextStepType0",
     "RelatedDatasetItem",
     "RelatedDatasetsResponse",
     "RenameColumnRequest",
     "ReplaceSingleFeatureDatasetsDatasetIdFeaturesGidPutGeoJSONFeature",
     "ReplaceSingleFeatureDatasetsDatasetIdFeaturesGidPutGeoJSONFeatureProperties",
+    "ResendVerificationRequest",
     "ReservedRenameDetail",
     "ReservedRenameWarning",
     "ReuploadCommitRequest",
@@ -1005,6 +1016,7 @@ __all__ = (
     "ValidationResultResponse",
     "ValidationResultResponseQualityScoreType0",
     "VectorTileToken",
+    "VerifyEmailRequest",
     "VisibilityCheckResponse",
     "VrtActiveGeneration",
     "VrtAddSourceRequest",

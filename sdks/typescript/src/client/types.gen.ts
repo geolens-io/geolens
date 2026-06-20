@@ -1969,6 +1969,12 @@ export type ConfigModeResponse = {
  */
 export type ConfigResponse = {
     /**
+     * Allow Signup
+     *
+     * Whether self-serve registration is open. Alias for registration_enabled; login UI uses this to show/hide the signup link.
+     */
+    allow_signup?: boolean;
+    /**
      * Auth Methods
      *
      * Auth methods contributed by the active AuthExtension. Empty in community; e.g. ['saml'] when the enterprise SAML overlay is installed. Login UI can render conditional sign-in options without needing admin OAuthProvider access.
@@ -1980,6 +1986,12 @@ export type ConfigResponse = {
      * When true, logged-in users see a persistent demo-account banner. Default false — self-hosters see no banner.
      */
     demo_mode?: boolean;
+    /**
+     * Email Verification Required
+     *
+     * When true, new self-registered users must verify their email before logging in. Default false for back-compat-safe parsing by older clients.
+     */
+    email_verification_required?: boolean;
     /**
      * Landing First
      *
@@ -5348,6 +5360,95 @@ export type MetadataAssistRequest = {
 };
 
 /**
+ * NotificationStatusResponse
+ *
+ * Response for GET /settings/notifications/status/ (NOTIF-05 / NOTIF-06).
+ *
+ * Returns only boolean presence flags — never a secret value (SMTP password,
+ * webhook URL, or webhook secret).
+ */
+export type NotificationStatusResponse = {
+    /**
+     * Notifications Enabled
+     *
+     * Whether the NOTIFICATIONS_ENABLED master toggle is set to true.
+     */
+    notifications_enabled: boolean;
+    /**
+     * Smtp Configured
+     *
+     * Whether an SMTP host is configured (SMTP_HOST is set). Does not echo the host value.
+     */
+    smtp_configured: boolean;
+    /**
+     * Webhook Configured
+     *
+     * Whether a notification webhook URL is configured (NOTIFICATION_WEBHOOK_URL is set). Does not echo the URL.
+     */
+    webhook_configured: boolean;
+};
+
+/**
+ * NotificationTestChannelResult
+ *
+ * Per-channel result from POST /settings/notifications/test/.
+ *
+ * The ``error`` field contains only the exception type name and a short
+ * safe message — never the SMTP password, webhook URL, or webhook secret
+ * (T-1229-09 / NOTIF-05).
+ */
+export type NotificationTestChannelResult = {
+    /**
+     * Channel
+     *
+     * Channel name, e.g. 'smtp' or 'webhook'.
+     */
+    channel: string;
+    /**
+     * Error
+     *
+     * Safe error string (exception type name + short message) if ok=False, else null. Never contains secrets.
+     */
+    error?: string | null;
+    /**
+     * Ok
+     *
+     * True if the channel delivered the test notification without error.
+     */
+    ok: boolean;
+};
+
+/**
+ * NotificationTestResponse
+ *
+ * Response for POST /settings/notifications/test/ (NOTIF-06).
+ *
+ * Always returns HTTP 200 — a channel delivery failure is captured in the
+ * per-channel ``channels`` list rather than as a 5xx. Never contains secret
+ * values (T-1229-09 / NOTIF-05).
+ */
+export type NotificationTestResponse = {
+    /**
+     * Channels
+     *
+     * Per-channel delivery results. Empty when no channel is configured.
+     */
+    channels: Array<NotificationTestChannelResult>;
+    /**
+     * Message
+     *
+     * Human-readable summary of the test result.
+     */
+    message: string;
+    /**
+     * Sent
+     *
+     * True if at least one channel successfully delivered the test notification.
+     */
+    sent: boolean;
+};
+
+/**
  * OAuthProviderCreate
  *
  * Schema for creating a new OAuth provider.
@@ -6882,6 +6983,12 @@ export type RegisterResponse = {
      * Message
      */
     message: string;
+    /**
+     * Next Step
+     *
+     * Post-registration step for the client to display: 'verify_email' when a verification email was (or, for a swallowed collision, would have been) sent; 'await_approval' for the admin-approval path. None on non-register responses.
+     */
+    next_step?: 'verify_email' | 'await_approval' | null;
 };
 
 /**
@@ -6944,6 +7051,18 @@ export type RenameColumnRequest = {
      * New column name (lowercase identifier).
      */
     new_name: string;
+};
+
+/**
+ * ResendVerificationRequest
+ */
+export type ResendVerificationRequest = {
+    /**
+     * Email
+     *
+     * Email address to resend the verification link to
+     */
+    email: string;
 };
 
 /**
@@ -8974,6 +9093,18 @@ export type VectorTileToken = {
      * Sig
      */
     sig: string;
+};
+
+/**
+ * VerifyEmailRequest
+ */
+export type VerifyEmailRequest = {
+    /**
+     * Token
+     *
+     * Raw opaque verification token from the email link
+     */
+    token: string;
 };
 
 /**
@@ -11836,6 +11967,96 @@ export type RegisterAuthRegisterPostResponses = {
 };
 
 export type RegisterAuthRegisterPostResponse = RegisterAuthRegisterPostResponses[keyof RegisterAuthRegisterPostResponses];
+
+export type ResendVerificationAuthResendVerificationPostData = {
+    body: ResendVerificationRequest;
+    path?: never;
+    query?: never;
+    url: '/auth/resend-verification/';
+};
+
+export type ResendVerificationAuthResendVerificationPostErrors = {
+    /**
+     * Bad request — invalid query parameters or payload
+     */
+    400: ProblemDetail;
+    /**
+     * Unauthorized — missing or invalid credentials
+     */
+    401: ProblemDetail;
+    /**
+     * Forbidden — caller lacks access to this resource
+     */
+    403: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Validation error
+     */
+    422: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+};
+
+export type ResendVerificationAuthResendVerificationPostError = ResendVerificationAuthResendVerificationPostErrors[keyof ResendVerificationAuthResendVerificationPostErrors];
+
+export type ResendVerificationAuthResendVerificationPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: RegisterResponse;
+};
+
+export type ResendVerificationAuthResendVerificationPostResponse = ResendVerificationAuthResendVerificationPostResponses[keyof ResendVerificationAuthResendVerificationPostResponses];
+
+export type VerifyEmailAuthVerifyEmailPostData = {
+    body: VerifyEmailRequest;
+    path?: never;
+    query?: never;
+    url: '/auth/verify-email/';
+};
+
+export type VerifyEmailAuthVerifyEmailPostErrors = {
+    /**
+     * Bad request — invalid query parameters or payload
+     */
+    400: ProblemDetail;
+    /**
+     * Unauthorized — missing or invalid credentials
+     */
+    401: ProblemDetail;
+    /**
+     * Forbidden — caller lacks access to this resource
+     */
+    403: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Validation error
+     */
+    422: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+};
+
+export type VerifyEmailAuthVerifyEmailPostError = VerifyEmailAuthVerifyEmailPostErrors[keyof VerifyEmailAuthVerifyEmailPostErrors];
+
+export type VerifyEmailAuthVerifyEmailPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: RegisterResponse;
+};
+
+export type VerifyEmailAuthVerifyEmailPostResponse = VerifyEmailAuthVerifyEmailPostResponses[keyof VerifyEmailAuthVerifyEmailPostResponses];
 
 export type ListCollectionsEndpointCatalogCollectionsGetData = {
     body?: never;
@@ -20772,6 +20993,96 @@ export type GetMapDefaultsSettingsMapDefaultsGetResponses = {
 };
 
 export type GetMapDefaultsSettingsMapDefaultsGetResponse = GetMapDefaultsSettingsMapDefaultsGetResponses[keyof GetMapDefaultsSettingsMapDefaultsGetResponses];
+
+export type GetNotificationStatusSettingsNotificationsStatusGetData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/settings/notifications/status/';
+};
+
+export type GetNotificationStatusSettingsNotificationsStatusGetErrors = {
+    /**
+     * Bad request — invalid query parameters or payload
+     */
+    400: ProblemDetail;
+    /**
+     * Unauthorized — missing or invalid credentials
+     */
+    401: ProblemDetail;
+    /**
+     * Forbidden — caller lacks access to this resource
+     */
+    403: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Validation error
+     */
+    422: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+};
+
+export type GetNotificationStatusSettingsNotificationsStatusGetError = GetNotificationStatusSettingsNotificationsStatusGetErrors[keyof GetNotificationStatusSettingsNotificationsStatusGetErrors];
+
+export type GetNotificationStatusSettingsNotificationsStatusGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: NotificationStatusResponse;
+};
+
+export type GetNotificationStatusSettingsNotificationsStatusGetResponse = GetNotificationStatusSettingsNotificationsStatusGetResponses[keyof GetNotificationStatusSettingsNotificationsStatusGetResponses];
+
+export type SendTestNotificationSettingsNotificationsTestPostData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/settings/notifications/test/';
+};
+
+export type SendTestNotificationSettingsNotificationsTestPostErrors = {
+    /**
+     * Bad request — invalid query parameters or payload
+     */
+    400: ProblemDetail;
+    /**
+     * Unauthorized — missing or invalid credentials
+     */
+    401: ProblemDetail;
+    /**
+     * Forbidden — caller lacks access to this resource
+     */
+    403: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Validation error
+     */
+    422: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+};
+
+export type SendTestNotificationSettingsNotificationsTestPostError = SendTestNotificationSettingsNotificationsTestPostErrors[keyof SendTestNotificationSettingsNotificationsTestPostErrors];
+
+export type SendTestNotificationSettingsNotificationsTestPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: NotificationTestResponse;
+};
+
+export type SendTestNotificationSettingsNotificationsTestPostResponse = SendTestNotificationSettingsNotificationsTestPostResponses[keyof SendTestNotificationSettingsNotificationsTestPostResponses];
 
 export type ListOauthProvidersSettingsOauthProvidersGetData = {
     body?: never;

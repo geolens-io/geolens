@@ -215,6 +215,23 @@ class DefaultAuditSink:
         )
 
 
+class DefaultNotificationSink:
+    """Community-edition default: no-op notification delivery (Phase 1229 NOTIF-04).
+
+    Mirrors ``DefaultBillingExtension``: an async ``deliver`` whose entire body
+    is ``return`` (literal no-op). Docstring: community-edition default is
+    byte-identical to today — zero outbound send, zero side effects.
+
+    The async signature is intentional so enterprise overlays may perform
+    non-blocking I/O (SMTP STARTTLS handshake, HTTP POST to webhook URL).
+    All sink implementations — community and enterprise — are awaited by
+    ``notify()`` in ``app.platform.notifications``.
+    """
+
+    async def deliver(self, notification) -> None:  # type: ignore[no-untyped-def]
+        return
+
+
 class DefaultBillingExtension:
     """Community-edition default — no-op startup hook (Phase 223 D-07 / BILLING-01).
 

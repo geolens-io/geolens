@@ -624,10 +624,29 @@ export interface AuthConfigResponse {
    *  demo-account banner.  Default false — self-hosters see no banner. */
   demo_mode?: boolean;
   auth_methods?: string[];
+  /** SIGNUP-01 (Phase 1231): when true the login page shows the signup
+   *  affordance.  Default false — field may be absent on older server
+   *  versions (treat as false). */
+  allow_signup?: boolean;
+  /** SIGNUP-03/04 (Phase 1231): when true the register flow issues a
+   *  verification email and requires email confirmation before login.
+   *  Field may be absent on older server versions (treat as false). */
+  email_verification_required?: boolean;
 }
 
 export interface MessageResponse {
   message: string;
+}
+
+/** Auth register endpoint response. (NB: the `RegisterResponse` interface above
+ *  is the unrelated dataset-ingest register type.) */
+export interface SignupResponse {
+  message: string;
+  /** M1 follow-up (Phase 1234): authoritative post-registration step —
+   *  'verify_email' when a verification email was sent, else 'await_approval'.
+   *  Identical for a new signup and a swallowed collision (enumeration-safety).
+   *  Absent on older servers → treat as 'await_approval'. */
+  next_step?: 'verify_email' | 'await_approval';
 }
 
 export interface FilePreviewResponse {

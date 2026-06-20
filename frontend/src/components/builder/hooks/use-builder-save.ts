@@ -138,14 +138,57 @@ function waitForVisibleLayerSources(
  *  to read pixels from a freshly-painted canvas (no permanent preserveDrawingBuffer).
  *  Auto-capture can run before BuilderMap has synced GeoLens sources, so we wait
  *  for visible layer sources first via waitForVisibleLayerSources before calling
- *  doCapture. Callers should go through captureThumbnail (debounced wrapper). */
+ *  doCapture. Callers should go through captureThumbnail (debounced wrapper).
+ *
+ *  POLISH-01 (Phase 1233-01): when `layersRef` is provided and the snapshot `layers`
+ *  is empty, the first auto-capture is deferred: we poll `layersRef.current` (the
+ *  live ref updated every render) until a layer appears, then proceed through
+ *  waitForVisibleLayerSources normally. This fixes the new-map + ?add_dataset race
+ *  where the 500ms debounce fires before the layer-add effect has run.
+ *
+ *  Invariants preserved:
+ *  - SF-05: a genuinely-empty map (layers stay [] until deadline) falls through
+ *    to the existing whenMapIdle path, so we never busy-loop forever.
+ *  - SF-07: shouldAutoCapture fires before captureThumbnail; this function does
+ *    not touch autoCapturedKeys.
+ *  - SP-16: the 500ms debounce is upstream in captureThumbnail; unaffected.
+ *  - T-1233-01: the 5000ms bounded deadline + cancellation signal prevent DoS. */
 function runCaptureNow(
   map: MaplibreMap,
   mapId: string,
   queryClient: ReturnType<typeof useQueryClient>,
   layers: MapLayerResponse[],
   signal?: { cancelled: boolean },
+  layersRef?: React.RefObject<MapLayerResponse[]>,
 ) {
+  // POLISH-01: defer the first capture when a layer-add is pending (layersRef
+  // provided) but no layers have synced yet. Poll the live ref so we pick up
+  // the layer that ?add_dataset adds after initializedRef resolves.
+  if (layers.length === 0 && layersRef) {
+    const deadline = Date.now() + 5000;
+    const pollForLayers = () => {
+      if (signal?.cancelled) return;
+      const live = layersRef.current ?? [];
+      if (live.length > 0) {
+        // Layers have arrived — proceed through normal source-readiness path.
+        waitForVisibleLayerSources(map, live, () => doCapture(map, mapId, queryClient), signal);
+        return;
+      }
+      if (Date.now() >= deadline) {
+        // SF-05: genuinely empty after the deadline — fall back to idle path so
+        // we never leave an open poll. Re-check cancellation INSIDE the idle
+        // callback (WR-02): whenMapIdle can fire up to ~3s later, possibly after
+        // an unmount, so the guard must be at capture time, not registration time.
+        whenMapIdle(map, () => {
+          if (!signal?.cancelled) doCapture(map, mapId, queryClient);
+        });
+        return;
+      }
+      setTimeout(pollForLayers, 100);
+    };
+    pollForLayers();
+    return;
+  }
   waitForVisibleLayerSources(map, layers, () => doCapture(map, mapId, queryClient), signal);
 }
 
@@ -193,6 +236,7 @@ function captureThumbnail(
   queryClient: ReturnType<typeof useQueryClient>,
   layers: MapLayerResponse[],
   signal?: { cancelled: boolean },
+  layersRef?: React.RefObject<MapLayerResponse[]>,
 ) {
   // SP-16: clear any prior pending capture for this mapId; the latest call
   // wins (trailing edge), reflecting the final state once the window settles.
@@ -201,7 +245,10 @@ function captureThumbnail(
 
   const timer = setTimeout(() => {
     pendingCaptures.delete(mapId);
-    runCaptureNow(map, mapId, queryClient, layers, signal);
+    // POLISH-01: pass layersRef through so runCaptureNow can defer on the
+    // new-map + ?add_dataset path. Save-path callers do not pass layersRef,
+    // so they remain on the existing waitForVisibleLayerSources path.
+    runCaptureNow(map, mapId, queryClient, layers, signal, layersRef);
   }, THUMBNAIL_DEBOUNCE_MS);
 
   pendingCaptures.set(mapId, timer);
@@ -411,6 +458,11 @@ interface SaveState {
   setHasUnsavedChanges: (v: boolean) => void;
   hasUnsavedChanges: boolean;
   hasThumbnail?: boolean;
+  /** POLISH-01 (Phase 1233-01): set to true when the builder was opened with a
+   *  ?add_dataset URL param so the first auto-capture is deferred until the
+   *  layer-add effect has synced localLayers. Omit (or set false) for normal
+   *  maps — existing behavior is preserved (empty map → idle path). */
+  pendingLayerAdd?: boolean;
 }
 
 export function useBuilderSave(state: SaveState) {
@@ -737,8 +789,12 @@ export function useBuilderSave(state: SaveState) {
     }
     thumbCaptured.current = true;
     captureSignalRef.current = { cancelled: false };
-    captureThumbnail(map, state.mapId, queryClient, localLayersRef.current, captureSignalRef.current);
-  }, [state.hasThumbnail, state.mapId, queryClient]);
+    // POLISH-01: when a layer-add is pending (new-map + ?add_dataset path), pass
+    // the live localLayersRef so runCaptureNow can defer the capture until layers
+    // arrive. For all other paths, layersRef is undefined → existing behavior.
+    const layersRef = state.pendingLayerAdd ? localLayersRef : undefined;
+    captureThumbnail(map, state.mapId, queryClient, localLayersRef.current, captureSignalRef.current, layersRef);
+  }, [state.hasThumbnail, state.mapId, state.pendingLayerAdd, queryClient]);
 
   // P-08: Cancel in-flight polling on unmount
   useEffect(() => {

@@ -110,6 +110,12 @@ class User(Base):
     is_active: Mapped[bool] = mapped_column(
         Boolean, default=True, server_default="true"
     )
+    # SIGNUP-03 (Phase 1231): email verification flag. Set to True by
+    # redeem_verification_token() when the user clicks the verification link.
+    # server_default="false" so every new user starts as unverified.
+    email_verified: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false", nullable=False
+    )
     # SEC-S15 (Phase 1062-01): JWT revocation primitive. Bumped on logout and
     # on password change. Any access JWT whose token_version claim is less
     # than this value is rejected on the next authenticated request.
@@ -217,6 +223,48 @@ class RefreshToken(Base):
     )
     revoked: Mapped[bool] = mapped_column(
         Boolean, default=False, server_default="false"
+    )
+
+    user: Mapped["User"] = relationship("User", lazy="selectin")
+
+
+class EmailVerificationToken(Base):
+    """Single-use expiring verification token for email confirmation (SIGNUP-03).
+
+    Mirrors the ``RefreshToken`` opaque-token pattern: the raw token is returned
+    to the caller once and never persisted; only its sha256 hex digest is stored
+    here.  Redeeming sets ``consumed_at`` (single-use gate); expired or consumed
+    tokens are rejected by the same query filter so the caller cannot distinguish
+    them (enumeration-safe, SIGNUP-05).
+    """
+
+    __tablename__ = "email_verification_tokens"
+    __table_args__ = (
+        # Index on expires_at mirrors the RefreshToken pattern — efficient
+        # cleanup of expired tokens.  Migration 0009 is the source of truth
+        # for the actual DDL.
+        Index("ix_catalog_email_verification_tokens_expires_at", "expires_at"),
+        # Covering index on user_id for per-user token queries (resend flow).
+        Index("ix_email_verification_tokens_user_id", "user_id"),
+        {"schema": "catalog"},
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        primary_key=True, server_default=func.gen_random_uuid()
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("catalog.users.id", ondelete="CASCADE"), nullable=False
+    )
+    token_hash: Mapped[str] = mapped_column(String(128), unique=True, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    # None = not yet consumed; set to now() on first successful redemption.
+    consumed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
     )
 
     user: Mapped["User"] = relationship("User", lazy="selectin")

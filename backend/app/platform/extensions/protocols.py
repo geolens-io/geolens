@@ -373,6 +373,47 @@ class WorkflowExtension(Protocol):
     async def on_transition(self, context: WorkflowTransitionContext) -> None: ...
 
 
+@dataclass(frozen=True)
+class Notification:
+    """Immutable notification payload passed to every registered NotificationSink.
+
+    ``event_type`` identifies the event category (e.g., ``"signup"``,
+    ``"ingest_done"``, ``"health_alert"``) that phase 1230 constructs when
+    wiring real events. ``subject`` and ``body`` are human-readable channel
+    renderings (SMTP → email subject/body; webhook → JSON body text). ``data``
+    carries optional structured metadata for channel-specific rendering.
+    """
+
+    event_type: str
+    subject: str
+    body: str
+    data: dict[str, object] | None = None
+
+
+@runtime_checkable
+class NotificationSink(Protocol):
+    """Write-side hook for outbound notification delivery (Phase 1229 NOTIF-01).
+
+    Sibling to ``AuditSink`` (write-side audit emission). Two orthogonal
+    concerns: an audit SIEM streamer doesn't deliver outbound notifications;
+    a notification channel doesn't subscribe to audit writes.
+
+    Community edition ships a ``DefaultNotificationSink`` no-op that keeps
+    behavior byte-identical to today (zero outbound send, zero side effects).
+    Enterprise overlays can register richer sinks (SMTP, webhook, Slack via
+    incoming-webhook URL) by appending to ``_extensions["notification_sinks"]``
+    in their ``register_extensions(registry)`` callback via
+    ``setdefault + append`` (DO NOT overwrite the slot — overwriting removes
+    DefaultNotificationSink from the iteration, violating the additive contract).
+
+    The async signature is intentional so enterprise overlays may perform
+    non-blocking I/O (SMTP STARTTLS handshake, HTTP POST to webhook URL).
+    Community and enterprise implementations — are awaited by ``notify()``.
+    """
+
+    async def deliver(self, notification: "Notification") -> None: ...
+
+
 @runtime_checkable
 class EntitlementPort(Protocol):
     """Per-tenant capability and limit enforcement seam (Phase 1207 / ENTSEAM-01).

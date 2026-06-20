@@ -10,6 +10,7 @@ import { queryKeys } from '@/lib/query-keys';
 import { RegisterForm } from '@/components/auth/RegisterForm';
 import { GeoLensLogo } from '@/components/GeoLensLogo';
 import { PendingApproval } from '@/components/auth/PendingApproval';
+import { VerificationPending } from '@/components/auth/VerificationPending';
 import {
   Card,
   CardContent,
@@ -23,6 +24,10 @@ export function RegisterPage() {
   const { t } = useTranslation('auth');
   useDocumentTitle(t('common:pageTitle.register'));
   const [submitted, setSubmitted] = useState(false);
+  const [registrantEmail, setRegistrantEmail] = useState('');
+  const [nextStep, setNextStep] = useState<
+    'verify_email' | 'await_approval' | undefined
+  >(undefined);
   const token = useAuthStore((s) => s.token);
   const navigate = useNavigate();
 
@@ -118,9 +123,22 @@ export function RegisterPage() {
         </p>
       </div>
       {submitted ? (
-        <PendingApproval />
+        // Use the server's authoritative outcome (RegisterResponse.next_step)
+        // rather than inferring from a cached /auth/config snapshot — race-free
+        // and matches exactly what the backend did (M1 follow-up — Phase 1234).
+        nextStep === 'verify_email' ? (
+          <VerificationPending email={registrantEmail} />
+        ) : (
+          <PendingApproval />
+        )
       ) : (
-        <RegisterForm onSuccess={() => setSubmitted(true)} />
+        <RegisterForm
+          onSuccess={(email, step) => {
+            setRegistrantEmail(email);
+            setNextStep(step);
+            setSubmitted(true);
+          }}
+        />
       )}
     </div>
   );

@@ -69,11 +69,58 @@ class UserCreate(BaseModel):
 
 class RegisterResponse(BaseModel):
     message: str
+    # M1 follow-up (Phase 1234): machine-readable post-registration step so the
+    # client renders the correct pending view from the server's actual decision
+    # instead of inferring it from a cached /auth/config snapshot (race-free).
+    # Computed purely from (config + submitted email) and therefore IDENTICAL for
+    # a genuine new signup and a swallowed username/email collision — the
+    # collision path must not be distinguishable (SEC-012 enumeration-safety).
+    # None on non-register responses (verify/resend reuse this model).
+    next_step: Literal["verify_email", "await_approval"] | None = Field(
+        default=None,
+        description=(
+            "Post-registration step for the client to display: 'verify_email' when a "
+            "verification email was (or, for a swallowed collision, would have been) sent; "
+            "'await_approval' for the admin-approval path. None on non-register responses."
+        ),
+    )
+
+
+class VerifyEmailRequest(BaseModel):
+    token: str = Field(
+        max_length=128,
+        description="Raw opaque verification token from the email link",
+    )
+
+
+class ResendVerificationRequest(BaseModel):
+    email: EmailStr = Field(
+        description="Email address to resend the verification link to"
+    )
 
 
 class ConfigResponse(BaseModel):
     registration_enabled: bool = Field(
         description="Whether self-service registration is open"
+    )
+    # SIGNUP-01 (Phase 1231): allow_signup is the cleaner public alias for
+    # registration_enabled that the login page reads to gate the signup affordance.
+    # Mirrors registration_enabled exactly; both are kept for back-compat.
+    allow_signup: bool = Field(
+        default=False,
+        description=(
+            "Whether self-serve registration is open. "
+            "Alias for registration_enabled; login UI uses this to show/hide the signup link."
+        ),
+    )
+    # SIGNUP-04 (Phase 1231): email verification required flag for the login
+    # page to display appropriate messaging after registration.
+    email_verification_required: bool = Field(
+        default=False,
+        description=(
+            "When true, new self-registered users must verify their email before logging in. "
+            "Default false for back-compat-safe parsing by older clients."
+        ),
     )
     auth_methods: list[str] = Field(
         default_factory=list,

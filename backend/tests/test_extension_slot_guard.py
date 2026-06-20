@@ -3,7 +3,7 @@
 Covers:
 - Duplicate single-slot writes raise ExtensionSlotConflictError naming key + both providers.
 - Parametrized over every key in SINGLE_SLOT_KEYS.
-- Additive-slot keys (audit_sinks, billing_extensions, ai_providers, embedding_providers, _routers) are exempt.
+- Additive-slot keys (audit_sinks, billing_extensions, ai_providers, embedding_providers, notification_sinks, _routers) are exempt.
 - A single overlay claiming each slot exactly once passes (enterprise-boots-green case).
 - The guard observes writes made DURING the loader callback.
 - The wrap-don't-replace convention is documented in protocols.py (structural test).
@@ -221,6 +221,12 @@ class TestAdditiveSlotExempt:
                 ),
             ),
             (
+                "notification_sinks",
+                lambda registry: registry.setdefault("notification_sinks", []).append(
+                    object()
+                ),
+            ),
+            (
                 "_routers",
                 lambda registry: registry.setdefault("_routers", []).append(object()),
             ),
@@ -253,6 +259,7 @@ class TestAdditiveSlotExempt:
                 "billing_extensions",
                 "ai_providers",
                 "embedding_providers",
+                "notification_sinks",  # Phase 1229 NOTIF-01
                 "_routers",
             }
         )
