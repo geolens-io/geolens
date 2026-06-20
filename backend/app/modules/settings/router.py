@@ -569,6 +569,9 @@ async def send_test_notification(
             ip_address=None,
         ),
     )
+    # Persist the audit row (M2 — Codex review): this endpoint's session is not
+    # auto-committed, so without an explicit commit the test-send audit is lost.
+    await db.commit()
 
     return NotificationTestResponse(sent=any_ok, channels=results, message=message)
 

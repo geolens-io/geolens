@@ -25,7 +25,7 @@ import secrets
 import uuid
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import select, update
+from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.auth.models import EmailVerificationToken, User
@@ -88,27 +88,31 @@ async def redeem_verification_token(
         The user's UUID if the token was valid and just consumed, else None.
     """
     token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
+    now = datetime.now(UTC)
 
+    # Atomic single-use consume (H1 — Codex review): claim the token in ONE
+    # UPDATE so two concurrent redemptions of the same token cannot both pass the
+    # `consumed_at IS NULL` check. The predicate is evaluated under the row lock
+    # the UPDATE takes, and RETURNING yields the user_id only for the statement
+    # that actually consumed the row — the loser matches 0 rows and gets None.
     result = await db.execute(
-        select(EmailVerificationToken).where(
+        update(EmailVerificationToken)
+        .where(
             EmailVerificationToken.token_hash == token_hash,
             EmailVerificationToken.consumed_at.is_(None),
-            EmailVerificationToken.expires_at > datetime.now(UTC),
+            EmailVerificationToken.expires_at > now,
         )
+        .values(consumed_at=now)
+        .returning(EmailVerificationToken.user_id)
     )
-    token_row = result.scalar_one_or_none()
-    if token_row is None:
-        # Covers: expired, unknown, already-consumed — same None sentinel.
+    user_id = result.scalar_one_or_none()
+    if user_id is None:
+        # Covers: expired, unknown, already-consumed, or lost the race.
         return None
 
-    # Mark consumed (single-use gate).
-    token_row.consumed_at = datetime.now(UTC)
-
     # Flip email_verified on the user via a targeted UPDATE.
-    await db.execute(
-        update(User).where(User.id == token_row.user_id).values(email_verified=True)
-    )
+    await db.execute(update(User).where(User.id == user_id).values(email_verified=True))
 
     # Flush-not-commit: caller owns the transaction.
     await db.flush()
-    return token_row.user_id
+    return user_id

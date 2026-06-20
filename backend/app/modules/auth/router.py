@@ -469,10 +469,10 @@ async def resend_verification(
 
     from app.modules.auth.models import User  # LAZY — per D-17
 
-    # Look up an unverified user by email (case-insensitive).
+    # Look up an unverified user by email (case-insensitive — L1, Codex review).
     result = await db.execute(
         select(User).where(
-            User.email == body.email,
+            func.lower(User.email) == func.lower(body.email),
             User.email_verified.is_(False),
         )
     )
