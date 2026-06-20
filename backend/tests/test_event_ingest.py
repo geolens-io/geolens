@@ -25,7 +25,13 @@ import pytest
 
 
 def _fake_settings(*, complete: bool = False, failed: bool = False) -> SimpleNamespace:
-    """Return a minimal settings stub with per-event toggles."""
+    """Return a minimal settings stub with per-event toggles.
+
+    Includes all settings attributes accessed by:
+    - emit_event_safe / event_enabled / build_event_notification (events.py)
+    - EnvConfiguredNotificationSink (env_sink.py)
+    - bootstrap() worker path (bootstrap.py) — storage_provider for the S3 gate
+    """
     return SimpleNamespace(
         notify_on_ingest_complete=complete,
         notify_on_ingest_failed=failed,
@@ -36,6 +42,8 @@ def _fake_settings(*, complete: bool = False, failed: bool = False) -> SimpleNam
         notifications_enabled=True,
         smtp_host="smtp.example.com",
         notification_webhook_url=None,
+        # bootstrap() Step 7 — skip S3 health probe when "local"
+        storage_provider="local",
     )
 
 
