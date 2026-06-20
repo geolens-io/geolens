@@ -216,6 +216,23 @@ class TestSignupEmit:
 # ===========================================================================
 
 
+async def _run_health(request):
+    """Call ``health()`` and run its post-response BackgroundTask.
+
+    EVENT-04's emit is deferred to a Starlette BackgroundTask (WR-01) so the
+    /health response returns before the notification fires. A direct function
+    call does not run the background automatically, so the tests run it
+    explicitly to observe the emit. No-op when the response carries no task
+    (healthy / toggle-off / within-cooldown paths).
+    """
+    import app.api.main as main_mod
+
+    response = await main_mod.health(request)
+    if getattr(response, "background", None) is not None:
+        await response.background()
+    return response
+
+
 class TestHealthAlert:
     """Health alert wired to api/main.py::health()."""
 
@@ -269,7 +286,7 @@ class TestHealthAlert:
         request.client = MagicMock()
         request.client.host = "127.0.0.1"
 
-        response = await main_mod.health(request)
+        response = await _run_health(request)
 
         # Status code is 503 for degraded
         assert response.status_code == 503, (
@@ -332,7 +349,7 @@ class TestHealthAlert:
         request.client = MagicMock()
         request.client.host = "127.0.0.1"
 
-        response = await main_mod.health(request)
+        response = await _run_health(request)
 
         assert response.status_code == 200, (
             f"Healthy result must return 200; got {response.status_code}"
@@ -387,13 +404,13 @@ class TestHealthAlert:
         request.client.host = "127.0.0.1"
 
         # First poll — should emit
-        await main_mod.health(request)
+        await _run_health(request)
         assert len(notify_calls) == 1, (
             f"First degraded poll must emit; got {len(notify_calls)}"
         )
 
         # Second consecutive poll within cooldown — must NOT re-emit
-        await main_mod.health(request)
+        await _run_health(request)
         assert len(notify_calls) == 1, (
             f"Second poll within cooldown must NOT re-emit; got {len(notify_calls)}"
         )
@@ -439,7 +456,7 @@ class TestHealthAlert:
         request.client = MagicMock()
         request.client.host = "127.0.0.1"
 
-        await main_mod.health(request)
+        await _run_health(request)
 
         assert notify_calls == [], (
             f"Expected ZERO alerts when toggle OFF; got {len(notify_calls)}"
@@ -490,7 +507,7 @@ class TestHealthAlert:
         request.client.host = "127.0.0.1"
 
         # Must not raise, must return the normal response
-        response = await main_mod.health(request)
+        response = await _run_health(request)
         assert response.status_code == 503, (
             f"Degraded health must still return 503 even when alert throws; got {response.status_code}"
         )

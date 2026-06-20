@@ -30,9 +30,16 @@ Design notes:
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import structlog
 
 from app.platform.notifications import notify
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from app.platform.extensions.protocols import Notification
 
 logger = structlog.stdlib.get_logger(__name__)
 
@@ -77,7 +84,7 @@ def build_event_notification(
     body: str,
     reason: str | None = None,
     extra: dict[str, object] | None = None,
-) -> "Notification":  # noqa: F821 — resolved via TYPE_CHECKING / deferred import
+) -> "Notification":
     """Build a ``Notification`` with a consistent shape for event call sites.
 
     Recipient is resolved as ``notification_admin_email or smtp_from_address``
@@ -134,7 +141,7 @@ def build_event_notification(
 async def emit_event_safe(
     *,
     event_key: str,
-    build: "Callable[[], Notification]",  # noqa: F821 — Callable is in typing
+    build: "Callable[[], Notification]",
 ) -> None:
     """Defensive async wrapper for firing a single event notification.
 

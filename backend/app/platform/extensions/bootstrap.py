@@ -57,6 +57,23 @@ _ENTERPRISE_PORT_CHECKS: list[tuple[str, str]] = [
     ("workflow", "DefaultWorkflowExtension"),
 ]
 
+#: Additive-slot keys written into the `_extensions` registry by CORE bootstrap
+#: (not by an enterprise overlay). These must NOT count toward the
+#: overlay/edition-detection signal — otherwise simply wiring the core
+#: notification port would make a community deployment mis-detect as
+#: ``enterprise`` (Phase 1230). The filter is order- and repeat-bootstrap-safe:
+#: even if the slot persists across bootstrap calls, edition stays community.
+_CORE_BUILTIN_SLOT_KEYS: frozenset[str] = frozenset({"notification_sinks"})
+
+
+def _overlay_extension_names() -> list[str]:
+    """Registered extension names that signal an enterprise *overlay*.
+
+    `list_extensions()` minus the core-builtin slot keys — the authoritative
+    input for edition detection and the overlay-requested / tenancy guards.
+    """
+    return [n for n in list_extensions() if n not in _CORE_BUILTIN_SLOT_KEYS]
+
 
 def assert_enterprise_ports_resolved() -> None:
     """Assert every expected single-slot port is NOT the Default* impl.
@@ -205,21 +222,17 @@ async def bootstrap(*, app: "FastAPI | None" = None) -> EditionInfo:
     # Step 1: Discover + load overlay extensions.
     load_extensions()
 
-    # Step 1b: Register built-in notification sinks AFTER load_extensions() so any
-    # enterprise overlay sinks are already present and EnvConfiguredNotificationSink
-    # appends last without clobbering them (IN-01 carry-forward fix, Phase 1230).
-    # This runs unconditionally — app=None (worker) or app=<FastAPI> (API) both need it.
-    register_builtin_notification_sinks()
-
     # Step 2: Fail loud if enterprise is requested but overlay absent (BUG-003).
-    check_enterprise_overlay_requested(list_extensions())
+    # Edition-signal calls use _overlay_extension_names() so core builtins
+    # (e.g. the notification sink) never read as an enterprise overlay (Phase 1230).
+    check_enterprise_overlay_requested(_overlay_extension_names())
 
     # Step 2b: GUARD-01 edition-half — fail loud if multi_tenant is configured
     # but no tenancy-providing overlay is loaded (T-1207-06, Phase 1207-02).
-    check_tenancy_mode_supported(list_extensions())
+    check_tenancy_mode_supported(_overlay_extension_names())
 
-    # Step 3: Resolve the edition singleton from loaded extensions.
-    init_edition(list_extensions())
+    # Step 3: Resolve the edition singleton from loaded OVERLAY extensions.
+    init_edition(_overlay_extension_names())
     edition_info = get_edition()
 
     # Step 4: Log detected edition.
@@ -228,6 +241,20 @@ async def bootstrap(*, app: "FastAPI | None" = None) -> EditionInfo:
         edition=edition_info.edition,
         features=list(edition_info.features),
     )
+
+    # Step 4b: Register the built-in notification sink AFTER edition resolution.
+    # CRITICAL ordering (Phase 1230 edition-pollution fix): this writes into the
+    # `notification_sinks` additive slot of the SAME `_extensions` registry that
+    # `init_edition()` / `check_enterprise_overlay_requested()` read to detect the
+    # edition. Registering the core sink BEFORE init_edition made `list_extensions()`
+    # non-empty, so a plain community deployment mis-detected as `enterprise` (and
+    # logged the "enterprise WITHOUT a verified license" warning). Doing it here keeps
+    # edition detection driven purely by overlay-loaded extensions. Runs
+    # unconditionally for both API (app=<FastAPI>) and worker (app=None) so the sink
+    # is present in both processes — closing the worker split-brain by construction
+    # (IN-01 carry-forward). Any overlay-registered sinks loaded in step 1 are
+    # preserved (setdefault+append).
+    register_builtin_notification_sinks()
 
     # Step 5 (API mode only): include extension routers into the app.
     if app is not None:

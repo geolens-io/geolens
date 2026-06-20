@@ -651,11 +651,16 @@ async def health(request: Request):
     # Phase 1230 EVENT-04: emit a health-alert notification when the result is
     # degraded and the per-event toggle is on, with cooldown de-duplication so
     # repeated unhealthy polls do not spam the admin (T-1230-06 low-noise).
-    # The emit is placed AFTER the result is built so the /health response is
-    # never delayed or broken by a notification failure (T-1230-07).
+    # The emit runs as a Starlette BackgroundTask so the /health response is
+    # returned FIRST and is never delayed by a slow/unreachable notification
+    # channel (WR-01) — Docker/ALB healthchecks have short timeouts and must not
+    # flap during an SMTP outage. The emit is also fail-safe (never raises).
+    from starlette.background import BackgroundTask
+
     global _last_health_alert_at, _last_health_status  # noqa: PLW0603
     current_status = result.get("status", "healthy")
     now = time.monotonic()
+    health_alert_task: BackgroundTask | None = None
     if current_status != "healthy":
         # Determine the failing component(s) for the notification body.
         providers: dict = result.get("providers", {})
@@ -679,7 +684,8 @@ async def health(request: Request):
             )
 
             _component = component
-            await emit_event_safe(
+            health_alert_task = BackgroundTask(
+                emit_event_safe,
                 event_key="health_alert",
                 build=lambda: build_event_notification(
                     "health_alert",
@@ -696,7 +702,9 @@ async def health(request: Request):
         _last_health_status = "healthy"
         _last_health_alert_at = 0.0
 
-    return JSONResponse(content=result, status_code=status_code)
+    return JSONResponse(
+        content=result, status_code=status_code, background=health_alert_task
+    )
 
 
 __all__ = ["app", "health", "lifespan", "seed_initial_admin", "seed_roles"]
