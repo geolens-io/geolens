@@ -257,6 +257,7 @@ async def get_enterprise_only_tabs(
 # path "" registers PUT /settings (prefix-only, no trailing slash).
 @router.put("", response_model=SettingsAllResponse, include_in_schema=False)
 @router.put("/", response_model=SettingsAllResponse)
+@limiter.limit("30/minute")  # HARDEN-02: rate-limit settings mutations per client IP
 async def update_settings(
     body: SettingsUpdateRequest,
     request: Request,
@@ -389,6 +390,7 @@ async def update_settings(
 # ROUTE-01 (Phase 1092): dual-shape decorator — see /all above.
 @router.post("/reset", response_model=SettingsAllResponse, include_in_schema=False)
 @router.post("/reset/", response_model=SettingsAllResponse)
+@limiter.limit("30/minute")
 async def reset_settings(
     body: SettingsResetRequest,
     request: Request,
@@ -673,6 +675,7 @@ async def list_oauth_providers(
     response_model=OAuthProviderResponse,
     status_code=status.HTTP_201_CREATED,
 )
+@limiter.limit("30/minute")
 async def create_oauth_provider(
     body: OAuthProviderCreate,
     request: Request,
@@ -731,6 +734,7 @@ async def create_oauth_provider(
     "/oauth-providers/{provider_id}",
     response_model=OAuthProviderResponse,
 )
+@limiter.limit("30/minute")
 async def update_oauth_provider(
     provider_id: uuid.UUID,
     body: OAuthProviderUpdate,
@@ -832,6 +836,7 @@ async def update_oauth_provider(
     "/oauth-providers/{provider_id}",
     status_code=status.HTTP_204_NO_CONTENT,
 )
+@limiter.limit("30/minute")
 async def delete_oauth_provider(
     provider_id: uuid.UUID,
     request: Request,
