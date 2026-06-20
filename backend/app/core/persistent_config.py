@@ -342,6 +342,19 @@ REGISTRATION_ENABLED = PersistentConfig[bool](
     label="Registration Enabled",
 )
 
+# SIGNUP-04 (Phase 1231): When self-serve registration is ON, email verification
+# is the activation gate.  Default True so that operators enabling signup get the
+# secure path by default; set to False to fall back to admin approval.
+# Independent of REGISTRATION_ENABLED — toggling verification does not affect
+# whether self-serve registration is available (that gate is REGISTRATION_ENABLED).
+EMAIL_VERIFICATION_REQUIRED = PersistentConfig[bool](
+    key="email_verification_required",
+    type_=bool,
+    env_default=True,
+    tab="auth",
+    label="Require Email Verification",
+)
+
 
 PUBLIC_BASE_URL = PersistentConfig[str](
     key="public_base_url",
