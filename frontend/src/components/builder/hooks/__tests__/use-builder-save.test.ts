@@ -1575,6 +1575,137 @@ describe('useBuilderSave', () => {
       createElementSpy.mockRestore();
       vi.useRealTimers();
     });
+
+    // POLISH-01 regression: new-map created via AddToMapButton has localLayers=[]
+    // when maybeAutoCaptureThumbnail fires (the ?add_dataset effect adds the layer
+    // later). Without pendingLayerAdd:true the current code takes the empty-layers
+    // idle path and locks in a blank thumbnail. With the fix the first capture is
+    // deferred until localLayersRef.current becomes non-empty.
+    describe('POLISH-01 — deferred first-capture on new-map + ?add_dataset path', () => {
+      const origCreateElement = document.createElement.bind(document);
+      let createElementSpy: ReturnType<typeof vi.spyOn>;
+
+      beforeEach(() => {
+        createElementSpy = vi.spyOn(document, 'createElement').mockImplementation((tag: string, options?: ElementCreationOptions) => {
+          if (tag === 'canvas') {
+            return createMockCanvas() as unknown as HTMLCanvasElement;
+          }
+          return origCreateElement(tag, options);
+        });
+      });
+
+      afterEach(() => {
+        createElementSpy.mockRestore();
+        vi.useRealTimers();
+      });
+
+      it('defers capture when pendingLayerAdd is true and localLayers is empty; fires exactly once after layer arrives', async () => {
+        vi.useFakeTimers();
+
+        const sources = new Map<string, object>();
+        const mockMap = createMockMap({ loaded: true });
+        mockMap.getSource.mockImplementation((sourceId: string) => sources.get(sourceId));
+
+        // Initial state: no layers yet (new-map path), pending layer add in flight
+        let state = makeSaveState({
+          hasThumbnail: false,
+          localLayers: [],
+          pendingLayerAdd: true,
+          mapInstanceRef: { current: mockMap } as unknown as SaveState['mapInstanceRef'],
+        });
+
+        const { result, rerender } = renderHook(() => useBuilderSave(state));
+
+        // Trigger auto-capture with empty layers
+        act(() => {
+          result.current.maybeAutoCaptureThumbnail(mockMap as never);
+        });
+
+        // Advance past 500ms debounce — capture should be deferred, not fire
+        act(() => { vi.advanceTimersByTime(500); });
+
+        // Assert 1: no render-frame or upload yet — the fix defers until layers arrive
+        const renderCallsAfterDebounce = mockMap.once.mock.calls.filter(
+          (c: unknown[]) => c[0] === 'render',
+        );
+        expect(renderCallsAfterDebounce).toHaveLength(0);
+        expect(mockUploadThumbnail).not.toHaveBeenCalled();
+
+        // Simulate the ?add_dataset effect: layer arrives in localLayers
+        state = makeSaveState({
+          hasThumbnail: false,
+          localLayers: [makeLayer()],
+          pendingLayerAdd: true,
+          mapInstanceRef: { current: mockMap } as unknown as SaveState['mapInstanceRef'],
+        });
+        rerender();
+
+        // Make the map source available for this layer
+        // (source-data-layer_1 matches dataset_table_name='layer_1')
+        act(() => {
+          sources.set('source-data-layer_1', { type: 'vector' });
+          // Advance one poll tick (100ms) — the deferred poll sees layers
+          vi.advanceTimersByTime(100);
+        });
+
+        // waitForVisibleLayerSources has now resolved → idle listener registered
+        expect(mockMap.once).toHaveBeenCalledWith('idle', expect.any(Function));
+        expect(mockUploadThumbnail).not.toHaveBeenCalled();
+
+        // Fire the idle callback, then the render frame
+        const idleCallback = mockMap.once.mock.calls.find(
+          (c: unknown[]) => c[0] === 'idle',
+        )![1] as () => void;
+        act(() => { idleCallback(); });
+
+        expect(mockMap.once).toHaveBeenCalledWith('render', expect.any(Function));
+        expect(mockMap.triggerRepaint).toHaveBeenCalled();
+
+        vi.useRealTimers();
+        await act(async () => { fireRenderCallback(mockMap); await Promise.resolve(); });
+
+        // Assert 2: exactly one upload fired (for the real layer, not the empty frame)
+        expect(mockUploadThumbnail).toHaveBeenCalledTimes(1);
+        expect(mockUploadThumbnail).toHaveBeenCalledWith(
+          'map-1',
+          expect.stringContaining('data:image/jpeg'),
+        );
+      });
+
+      it('negative control — genuinely empty map (pendingLayerAdd absent) still resolves via idle path', async () => {
+        vi.useFakeTimers();
+
+        const mockMap = createMockMap({ loaded: true });
+
+        // No pendingLayerAdd: existing SF-05 behavior (idle path fires for empty map)
+        const state = makeSaveState({
+          hasThumbnail: false,
+          localLayers: [],
+          // pendingLayerAdd intentionally omitted
+          mapInstanceRef: { current: mockMap } as unknown as SaveState['mapInstanceRef'],
+        });
+
+        const { result } = renderHook(() => useBuilderSave(state));
+
+        act(() => {
+          result.current.maybeAutoCaptureThumbnail(mockMap as never);
+        });
+
+        // Advance past debounce — the existing idle path should proceed as before
+        act(() => { vi.advanceTimersByTime(500); });
+
+        // SF-05: whenMapIdle fires immediately (loaded:true) → doCapture registers
+        // render listener; the idle-path branch is NOT deferred/blocked
+        const renderCalls = mockMap.once.mock.calls.filter(
+          (c: unknown[]) => c[0] === 'render',
+        );
+        expect(renderCalls).toHaveLength(1);
+
+        vi.useRealTimers();
+        await act(async () => { fireRenderCallback(mockMap); await Promise.resolve(); });
+        expect(mockUploadThumbnail).toHaveBeenCalledTimes(1);
+      });
+    });
   });
 });
 
