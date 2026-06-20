@@ -10,6 +10,7 @@ import { queryKeys } from '@/lib/query-keys';
 import { RegisterForm } from '@/components/auth/RegisterForm';
 import { GeoLensLogo } from '@/components/GeoLensLogo';
 import { PendingApproval } from '@/components/auth/PendingApproval';
+import { VerificationPending } from '@/components/auth/VerificationPending';
 import {
   Card,
   CardContent,
@@ -23,6 +24,7 @@ export function RegisterPage() {
   const { t } = useTranslation('auth');
   useDocumentTitle(t('common:pageTitle.register'));
   const [submitted, setSubmitted] = useState(false);
+  const [registrantEmail, setRegistrantEmail] = useState('');
   const token = useAuthStore((s) => s.token);
   const navigate = useNavigate();
 
@@ -118,9 +120,18 @@ export function RegisterPage() {
         </p>
       </div>
       {submitted ? (
-        <PendingApproval />
+        config?.email_verification_required ? (
+          <VerificationPending email={registrantEmail} />
+        ) : (
+          <PendingApproval />
+        )
       ) : (
-        <RegisterForm onSuccess={() => setSubmitted(true)} />
+        <RegisterForm
+          onSuccess={(email) => {
+            setRegistrantEmail(email);
+            setSubmitted(true);
+          }}
+        />
       )}
     </div>
   );
