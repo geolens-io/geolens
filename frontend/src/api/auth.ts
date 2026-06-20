@@ -91,6 +91,40 @@ export async function getOAuthProviders(): Promise<OAuthProviderPublic[]> {
   }
 }
 
+export async function verifyEmail(token: string): Promise<MessageResponse> {
+  const response = await fetch(`${API_BASE}/auth/verify-email/`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token }),
+  });
+  if (!response.ok) {
+    let detail = 'Verification failed';
+    try {
+      const body = await response.json();
+      if (body.detail) detail = typeof body.detail === 'string' ? body.detail : JSON.stringify(body.detail);
+    } catch { /* ignore */ }
+    throw new Error(detail);
+  }
+  return response.json() as Promise<MessageResponse>;
+}
+
+export async function resendVerification(email: string): Promise<MessageResponse> {
+  const response = await fetch(`${API_BASE}/auth/resend-verification/`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email }),
+  });
+  if (!response.ok) {
+    let detail = 'Resend failed';
+    try {
+      const body = await response.json();
+      if (body.detail) detail = typeof body.detail === 'string' ? body.detail : JSON.stringify(body.detail);
+    } catch { /* ignore */ }
+    throw new Error(detail);
+  }
+  return response.json() as Promise<MessageResponse>;
+}
+
 export async function refreshAccessToken(
   refreshToken: string,
 ): Promise<TokenResponse> {

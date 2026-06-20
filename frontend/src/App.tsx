@@ -12,6 +12,7 @@ import { LazyLoadErrorBoundary, RouteErrorBoundary } from '@/components/error';
 // Lazy page imports — each produces a separate Vite chunk
 const LoginPage = lazy(() => import('./pages/LoginPage').then(m => ({ default: m.LoginPage })));
 const RegisterPage = lazy(() => import('./pages/RegisterPage').then(m => ({ default: m.RegisterPage })));
+const VerifyEmailPage = lazy(() => import('./pages/VerifyEmailPage').then(m => ({ default: m.VerifyEmailPage })));
 const OAuthCallbackPage = lazy(() => import('./pages/OAuthCallbackPage').then(m => ({ default: m.OAuthCallbackPage })));
 const PublicViewerPage = lazy(() => import('./pages/PublicViewerPage').then(m => ({ default: m.PublicViewerPage })));
 const DatasetPage = lazy(() => import('./pages/DatasetPage').then(m => ({ default: m.DatasetPage })));
@@ -47,6 +48,7 @@ export const appRoutes = (
   <Route element={<RootLayout />}>
     <Route path="/login" element={<LoginPage />} errorElement={<RouteErrorBoundary />} />
     <Route path="/register" element={<RegisterPage />} errorElement={<RouteErrorBoundary />} />
+    <Route path="/verify-email" element={<VerifyEmailPage />} errorElement={<RouteErrorBoundary />} />
     <Route path="/oauth/callback" element={<OAuthCallbackPage />} errorElement={<RouteErrorBoundary />} />
     <Route path="/m/:token" element={<PublicViewerPage />} errorElement={<RouteErrorBoundary />} />
     <Route element={<AppLayout />} errorElement={<RouteErrorBoundary />}>

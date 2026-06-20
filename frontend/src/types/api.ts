@@ -624,6 +624,14 @@ export interface AuthConfigResponse {
    *  demo-account banner.  Default false — self-hosters see no banner. */
   demo_mode?: boolean;
   auth_methods?: string[];
+  /** SIGNUP-01 (Phase 1231): when true the login page shows the signup
+   *  affordance.  Default false — field may be absent on older server
+   *  versions (treat as false). */
+  allow_signup?: boolean;
+  /** SIGNUP-03/04 (Phase 1231): when true the register flow issues a
+   *  verification email and requires email confirmation before login.
+   *  Field may be absent on older server versions (treat as false). */
+  email_verification_required?: boolean;
 }
 
 export interface MessageResponse {
