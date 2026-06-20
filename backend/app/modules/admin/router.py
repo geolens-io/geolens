@@ -38,6 +38,7 @@ from app.modules.admin.service import AdminService
 from app.modules.quota.service import get_user_quota_usage
 from app.modules.audit.service import AuditEvent, audit_emit
 from app.modules.auth.dependencies import require_permission
+from app.modules.auth.router import limiter  # HARDEN-01: shared rate-limiter instance
 from app.modules.auth.models import ApiKey, User
 from app.modules.auth.schemas import ApiKeyCreateResponse, UserResponse
 from app.processing.export.service import safe_content_disposition
@@ -106,6 +107,7 @@ def _raise_on_error(exc: ValueError, default_status: int) -> NoReturn:
     response_model=UserResponse,
     status_code=status.HTTP_201_CREATED,
 )
+@limiter.limit("30/minute")
 async def create_user(
     body: AdminUserCreate,
     request: Request,
@@ -323,6 +325,7 @@ async def get_user(
     "/users/{user_id}",
     response_model=UserResponse,
 )
+@limiter.limit("30/minute")
 async def update_user(
     user_id: uuid.UUID,
     body: UserUpdate,
@@ -367,6 +370,7 @@ async def update_user(
     "/users/{user_id}/deactivate/",
     response_model=UserResponse,
 )
+@limiter.limit("30/minute")
 async def deactivate_user(
     user_id: uuid.UUID,
     request: Request,
@@ -405,6 +409,7 @@ async def deactivate_user(
     "/users/{user_id}/convert-saml-to-local/",
     response_model=UserResponse,
 )
+@limiter.limit("30/minute")
 async def convert_saml_to_local(
     user_id: uuid.UUID,
     body: SamlToLocalConversion,
@@ -480,6 +485,7 @@ async def convert_saml_to_local(
     "/users/{user_id}/approve/",
     response_model=UserResponse,
 )
+@limiter.limit("30/minute")
 async def approve_user(
     user_id: uuid.UUID,
     body: ApproveRequest,
@@ -519,6 +525,7 @@ async def approve_user(
     "/users/{user_id}/reject/",
     status_code=status.HTTP_204_NO_CONTENT,
 )
+@limiter.limit("30/minute")
 async def reject_user(
     user_id: uuid.UUID,
     request: Request,
@@ -550,6 +557,7 @@ async def reject_user(
     "/users/{user_id}",
     status_code=status.HTTP_204_NO_CONTENT,
 )
+@limiter.limit("30/minute")
 async def delete_user(
     user_id: uuid.UUID,
     request: Request,
@@ -658,6 +666,7 @@ async def list_admin_jobs(
     response_model=ApiKeyCreateResponse,
     status_code=status.HTTP_201_CREATED,
 )
+@limiter.limit("30/minute")
 async def create_api_key(
     body: AdminApiKeyCreateRequest,
     request: Request,
@@ -797,8 +806,10 @@ async def get_ai_status(
     "/ai-status/",
     response_model=AIStatusResponse,
 )
+@limiter.limit("30/minute")
 async def update_ai_status(
     body: AIStatusUpdate,
+    request: Request,
     user: User = Depends(require_permission("manage_users")),
     db: AsyncSession = Depends(get_db),
 ) -> AIStatusResponse:
@@ -844,7 +855,9 @@ async def get_embedding_stats(
     "/backfill-embeddings/",
     response_model=BackfillResponse,
 )
+@limiter.limit("30/minute")
 async def trigger_backfill(
+    request: Request,
     db: AsyncSession = Depends(get_db),
     force: bool = False,
     current_user: User = Depends(require_permission("manage_users")),
@@ -878,6 +891,7 @@ async def trigger_backfill(
     "/api-keys/{key_id}",
     status_code=status.HTTP_204_NO_CONTENT,
 )
+@limiter.limit("30/minute")
 async def revoke_api_key(
     key_id: uuid.UUID,
     request: Request,
@@ -1001,6 +1015,7 @@ async def list_share_tokens_endpoint(
     "/share-tokens/{token_id}",
     status_code=status.HTTP_204_NO_CONTENT,
 )
+@limiter.limit("30/minute")
 async def admin_revoke_share_token(
     token_id: uuid.UUID,
     request: Request,
