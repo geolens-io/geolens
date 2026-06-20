@@ -8,6 +8,8 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.edition import is_enterprise
+from app.core.persistent_config import ALLOWED_EMAIL_DOMAINS
+from app.modules.auth.domain_validation import is_email_allowed
 from app.modules.auth.models import Role, User, UserRole
 from app.modules.auth.oauth.encryption import encrypt_secret
 from app.modules.auth.oauth.models import OAuthAccount, OAuthProvider
@@ -31,6 +33,21 @@ class OAuthEmailUnverifiedError(Exception):
     error itself reveals the collision; surfacing username-enumeration
     detail is acceptable here because the attacker already supplied the
     email under attempt — no new info beyond their own input).
+    """
+
+
+class OAuthDomainNotAllowedError(Exception):
+    """DOMAIN-03: raised when an OAuth identity's email domain is not in a
+    non-empty ``allowed_email_domains`` allowlist.
+
+    No user is provisioned when this is raised — the domain check fires
+    BEFORE any OAuthAccount lookup or user find/create, so a disallowed
+    domain never reaches the provisioning path (T-1236-01, TOCTOU-free).
+
+    The router translates this into a redirect with an
+    ``error=domain_not_allowed`` fragment.  The warning log records only
+    the provider slug and a correlation_id; the attempted email is never
+    logged (T-1236-04 — information-disclosure mitigation).
     """
 
 
@@ -224,6 +241,18 @@ async def find_or_create_oauth_user(
     subject = str(userinfo.get("sub", ""))
     email = userinfo.get("email")
     display_name = userinfo.get("name")
+
+    # DOMAIN-03 (T-1236-01): domain check fires immediately after email is
+    # extracted, BEFORE the OAuthAccount lookup (Step 1) and BEFORE the
+    # email_verified collision guard — so a disallowed domain never reaches
+    # provisioning or the collision-guard side effect (TOCTOU-free ordering).
+    # Empty allowlist ⇒ is_email_allowed returns True (no-op, zero behavior change).
+    if email:
+        domains = await ALLOWED_EMAIL_DOMAINS.get(db)
+        if not is_email_allowed(email, domains):
+            raise OAuthDomainNotAllowedError(
+                "OAuth identity email domain is not in the allowed_email_domains allowlist."
+            )
 
     # Extract groups using provider's group_claim
     groups: list[str] | None = None

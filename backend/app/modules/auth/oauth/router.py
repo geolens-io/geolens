@@ -192,7 +192,10 @@ async def oauth_callback(
         raise  # Let 404s from build_oauth_client pass through
     except Exception as exc:  # broad: OAuth provider can return arbitrary errors; map to redirect with correlation_id
         # Phase 268 H-30: surface email-not-verified collisions explicitly.
-        from app.modules.auth.oauth.service import OAuthEmailUnverifiedError
+        from app.modules.auth.oauth.service import (
+            OAuthDomainNotAllowedError,
+            OAuthEmailUnverifiedError,
+        )
 
         if isinstance(exc, OAuthEmailUnverifiedError):
             correlation_id = uuid.uuid4().hex[:12]
@@ -204,6 +207,25 @@ async def oauth_callback(
             error_url = (
                 f"{frontend_url}/oauth/callback"
                 f"#error=email_not_verified&correlation_id={correlation_id}"
+            )
+            # SEC-13: same Referrer-Policy override as success path
+            return RedirectResponse(
+                url=error_url,
+                status_code=302,
+                headers={"Referrer-Policy": "no-referrer"},
+            )
+        # DOMAIN-03 (T-1236-04): log provider + correlation_id only — do NOT
+        # log the attempted email address (information-disclosure mitigation).
+        if isinstance(exc, OAuthDomainNotAllowedError):
+            correlation_id = uuid.uuid4().hex[:12]
+            logger.warning(
+                "OAuth callback refused: email domain not in allowlist",
+                provider=provider_slug,
+                correlation_id=correlation_id,
+            )
+            error_url = (
+                f"{frontend_url}/oauth/callback"
+                f"#error=domain_not_allowed&correlation_id={correlation_id}"
             )
             # SEC-13: same Referrer-Policy override as success path
             return RedirectResponse(
