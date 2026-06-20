@@ -4,7 +4,7 @@ import uuid
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.audit.service import AuditEvent, audit_emit
@@ -26,6 +26,7 @@ from app.core.persistent_config import (
     ENABLE_DATASET_EDITING,
     ENABLED_PLUGINS,
     MAP_DEFAULTS,
+    PASSWORD_LOGIN_ENABLED,
     REQUIRE_METADATA_FOR_PUBLISH,
     _registry,
     get_cached_basemap_proxy_rate_limit,
@@ -753,6 +754,34 @@ async def update_oauth_provider(
     if not is_enterprise() and provider.provider_type == "saml":
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
 
+    # CR-02 (Phase 1236 Plan 03): lockout guard — mirror the update_settings
+    # guard but applied to the provider PATCH side.  When password_login_enabled
+    # is False AND this update would disable the last enabled OAuth provider,
+    # refuse the operation.  We count enabled providers EXCLUDING the target so
+    # that disabling a provider when >=2 others are enabled is still allowed.
+    # The guard fires BEFORE any persist so nothing is written on rejection.
+    update_data = body.model_dump(exclude_unset=True)
+    if update_data.get("enabled") is False:
+        if not await PASSWORD_LOGIN_ENABLED.get(db):
+            from app.modules.auth.oauth.models import OAuthProvider as _OAuthProvider
+
+            enabled_others = await db.execute(
+                select(func.count())
+                .select_from(_OAuthProvider)
+                .where(
+                    _OAuthProvider.enabled.is_(True),
+                    _OAuthProvider.id != provider_id,
+                )
+            )
+            if enabled_others.scalar_one() == 0:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail=(
+                        "Cannot disable the last SSO provider while password login is disabled "
+                        "— enable another OAuth provider or re-enable password login first"
+                    ),
+                )
+
     # Snapshot non-secret fields BEFORE the update so we can diff old vs. new.
     old_values = _snapshot_provider(provider)
 
@@ -821,6 +850,33 @@ async def delete_oauth_provider(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="OAuth provider not found"
         )
+
+    # CR-02 (Phase 1236 Plan 03): lockout guard for delete — same policy as
+    # the update guard above.  Deleting the last enabled SSO provider when
+    # password_login_enabled is False would lock everyone out.  Count enabled
+    # providers EXCLUDING the target; if zero remain, refuse.
+    # Only applies when the provider being deleted is currently enabled.
+    if provider.enabled:
+        if not await PASSWORD_LOGIN_ENABLED.get(db):
+            from app.modules.auth.oauth.models import OAuthProvider as _OAuthProvider
+
+            enabled_others = await db.execute(
+                select(func.count())
+                .select_from(_OAuthProvider)
+                .where(
+                    _OAuthProvider.enabled.is_(True),
+                    _OAuthProvider.id != provider_id,
+                )
+            )
+            if enabled_others.scalar_one() == 0:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail=(
+                        "Cannot delete the last SSO provider while password login is disabled "
+                        "— enable another OAuth provider or re-enable password login first"
+                    ),
+                )
+
     slug = provider.slug
     deleted_state = {
         "slug": provider.slug,
