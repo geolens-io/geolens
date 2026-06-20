@@ -1935,3 +1935,28 @@ async def clean_tables(test_db_session):
     except Exception:
         # Best-effort cleanup; don't mask test failures
         await test_db_session.rollback()
+
+
+@pytest.fixture(autouse=True)
+def reset_limiter_storage() -> None:
+    """Clear per-IP rate-limit counters between tests (HARDEN-01/02).
+
+    The limiter is set to enabled=False by the session-scoped `client` fixture
+    so tests that do not opt into rate-limiting are unaffected. This fixture
+    only resets the in-memory counter storage so that state from one test
+    (or one xdist worker's prior test) does not bleed into the next test.
+    Called for every test function to ensure determinism under `pytest -n 4`.
+    """
+    try:
+        from app.modules.auth.router import limiter
+
+        limiter._storage.reset()
+    except Exception:
+        # Defensive: if the storage object lacks reset (backend swap), log and
+        # continue — never crash the entire suite on a cleanup step.
+        import structlog
+
+        structlog.get_logger(__name__).warning(
+            "reset_limiter_storage: could not reset limiter storage"
+        )
+    yield
