@@ -467,6 +467,31 @@ def validate_log_level(v: Any) -> str:
     return upper
 
 
+def validate_allowed_email_domains(v: Any) -> list[str]:
+    """Validate and normalize the allowed_email_domains setting.
+
+    - Raises ValueError if v is not a list.
+    - Normalizes each entry (strip, lower-case, drop empties, de-dup).
+    - Raises ValueError with the offending pattern named if any entry is invalid.
+    - Returns the normalized list (case-folded, de-duplicated).
+    - An empty input list returns [] (unrestricted — valid).
+
+    Imports domain helpers inline to avoid any circular-import risk at module load.
+    """
+    from app.modules.auth.domain_validation import (
+        is_domain_pattern_valid,
+        normalize_domains,
+    )
+
+    if not isinstance(v, list):
+        raise ValueError("allowed_email_domains must be a list")
+    normalized = normalize_domains(v)
+    for pattern in normalized:
+        if not is_domain_pattern_valid(pattern):
+            raise ValueError(f"Invalid email domain pattern: {pattern!r}")
+    return normalized
+
+
 SETTING_VALIDATORS: dict[str, Any] = {
     "log_level": validate_log_level,
     "login_rate_limit": validate_login_rate_limit,
@@ -489,4 +514,5 @@ SETTING_VALIDATORS: dict[str, Any] = {
     "refresh_token_expire_days": validate_refresh_token_expire,
     "embedding_dims": validate_embedding_dims,
     "tile_cache_ttl": validate_tile_cache_ttl,
+    "allowed_email_domains": validate_allowed_email_domains,
 }

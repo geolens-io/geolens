@@ -485,6 +485,18 @@ LOGIN_RATE_LIMIT = PersistentConfig[int](
     label="Login Rate Limit (per min)",
 )
 
+# DOMAIN-01 (Phase 1235): allowlist of permitted email domains for sign-up /
+# login / SSO / admin-create.  Default [] means unrestricted (allow any domain).
+# Enforcement is wired in Phase 1236; this phase ships the setting + validator.
+# JSONB-backed key — no Alembic migration required.
+ALLOWED_EMAIL_DOMAINS = PersistentConfig[list[str]](
+    key="allowed_email_domains",
+    type_=list[str],
+    env_default=[],
+    tab="auth",
+    label="Allowed Email Domains",
+)
+
 # -- AI tab --
 AI_ENABLED = PersistentConfig[bool](
     key="ai_enabled",
