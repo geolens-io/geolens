@@ -134,6 +134,45 @@ def assert_enterprise_ports_resolved() -> None:
         )
 
 
+def register_builtin_notification_sinks() -> None:
+    """Register EnvConfiguredNotificationSink into the notification_sinks additive slot.
+
+    This is the IN-01 carry-forward fix from the 1229 code review: without this
+    call, notify() only fans out to DefaultNotificationSink (no-op) and every
+    event silently drops. Calling this from the shared bootstrap() ensures the
+    real sink is present in BOTH the API process (bootstrap(app=app)) and the
+    procrastinate worker (bootstrap(app=None), worker.py:288) — closing the
+    worker split-brain by construction.
+
+    Registration contract:
+    - Uses the setdefault+append pattern documented in extensions/__init__.py
+      (same shape as audit_sinks and billing_extensions) to preserve any sinks
+      already appended by enterprise overlays.
+    - Idempotent: scans the existing slot for an EnvConfiguredNotificationSink
+      instance and returns early if one is already present — safe to call more
+      than once across test setups or process reloads.
+
+    References: IN-01 (1229 review), NOTIF-01 (additive slot contract)
+    """
+    # Deferred import — Phase 214 discipline; avoids circular module-load at startup.
+    from app.platform.extensions import _extensions
+    from app.platform.extensions.defaults import DefaultNotificationSink
+    from app.platform.notifications.env_sink import EnvConfiguredNotificationSink
+
+    # Acquire (or initialise) the additive slot without replacing existing entries.
+    sinks = _extensions.setdefault("notification_sinks", [DefaultNotificationSink()])
+
+    # Idempotency guard: do not append a second EnvConfiguredNotificationSink.
+    if any(isinstance(s, EnvConfiguredNotificationSink) for s in sinks):
+        return
+
+    sinks.append(EnvConfiguredNotificationSink())
+    logger.info(
+        "Built-in notification sink registered",
+        sink="EnvConfiguredNotificationSink",
+    )
+
+
 async def bootstrap(*, app: "FastAPI | None" = None) -> EditionInfo:
     """Shared bootstrap sequence for BOTH API lifespan and worker startup.
 
@@ -165,6 +204,12 @@ async def bootstrap(*, app: "FastAPI | None" = None) -> EditionInfo:
 
     # Step 1: Discover + load overlay extensions.
     load_extensions()
+
+    # Step 1b: Register built-in notification sinks AFTER load_extensions() so any
+    # enterprise overlay sinks are already present and EnvConfiguredNotificationSink
+    # appends last without clobbering them (IN-01 carry-forward fix, Phase 1230).
+    # This runs unconditionally — app=None (worker) or app=<FastAPI> (API) both need it.
+    register_builtin_notification_sinks()
 
     # Step 2: Fail loud if enterprise is requested but overlay absent (BUG-003).
     check_enterprise_overlay_requested(list_extensions())
