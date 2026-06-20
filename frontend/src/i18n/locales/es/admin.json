@@ -594,7 +594,8 @@
       "sendTest": "Enviar notificación de prueba",
       "testSuccess": "Notificación de prueba enviada",
       "testNoChannel": "Ningún canal configurado",
-      "testError": "Error al enviar la prueba"
+      "testError": "Error al enviar la prueba",
+      "testFailed": "Notificación de prueba fallida"
     }
   },
   "infrastructure": {

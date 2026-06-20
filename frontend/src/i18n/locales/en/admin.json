@@ -486,7 +486,7 @@
       "namePlaceholder": "My Custom Basemap",
       "tileUrlPlaceholder": "https://tiles.example.com/{z}/{x}/{y}.png or .json style URL",
       "attributionLabel": "Attribution",
-      "attributionPlaceholder": "\u00a9 Provider Name",
+      "attributionPlaceholder": "© Provider Name",
       "attributionHelp": "Optional. HTML allowed for links.",
       "apiKeyLabel": "API Key",
       "apiKeyPlaceholder": "Optional — required if URL contains {api_key}",
@@ -536,7 +536,8 @@
       "sendTest": "Send test notification",
       "testSuccess": "Test notification sent",
       "testNoChannel": "No channel configured",
-      "testError": "Test send failed"
+      "testError": "Test send failed",
+      "testFailed": "Test notification failed"
     },
     "security": {
       "title": "Security",

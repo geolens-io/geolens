@@ -138,7 +138,11 @@ export function SettingsNetworkTab({ settings, envOnly, onSave, onReset, isSavin
         {testResult && (
           <div className="space-y-2">
             <p className="text-sm font-medium">
-              {testResult.sent ? t('settings.notifications.testSuccess') : t('settings.notifications.testNoChannel')}
+              {testResult.sent
+                ? t('settings.notifications.testSuccess')
+                : testResult.channels.length > 0
+                  ? t('settings.notifications.testFailed')
+                  : t('settings.notifications.testNoChannel')}
             </p>
             {testResult.channels.length > 0 && (
               <div className="space-y-1">

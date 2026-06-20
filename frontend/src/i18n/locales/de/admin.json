@@ -594,7 +594,8 @@
       "sendTest": "Testbenachrichtigung senden",
       "testSuccess": "Testbenachrichtigung gesendet",
       "testNoChannel": "Kein Kanal konfiguriert",
-      "testError": "Testversand fehlgeschlagen"
+      "testError": "Testversand fehlgeschlagen",
+      "testFailed": "Testbenachrichtigung fehlgeschlagen"
     }
   },
   "infrastructure": {

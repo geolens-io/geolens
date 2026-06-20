@@ -64,11 +64,11 @@ async def test_smtp_sends_message_with_starttls(
     }
 
     class FakeSMTP:
-        def __init__(self, host: str, port: int) -> None:
+        def __init__(self, host: str, port: int, *_args: Any, **_kwargs: Any) -> None:
             calls["host"] = host
             calls["port"] = port
 
-        def starttls(self) -> None:
+        def starttls(self, *_args: Any, **_kwargs: Any) -> None:
             calls["starttls"] = True
 
         def login(self, user: str, password: str) -> None:
@@ -101,6 +101,67 @@ async def test_smtp_sends_message_with_starttls(
 
 
 @pytest.mark.anyio
+async def test_smtp_uses_verified_tls_context_and_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """WR-01/WR-02: SMTP must use a verifying TLS context + a bounded timeout.
+
+    The stdlib smtplib defaults leave the cert unverified (MITM exposes the
+    password) and the socket unbounded (an unreachable host pins a thread).
+    """
+    import smtplib
+    import ssl
+
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "smtp_host", "smtp.example.com")
+    monkeypatch.setattr(settings, "smtp_port", 587)
+    monkeypatch.setattr(settings, "smtp_username", "user@example.com")
+    from pydantic import SecretStr
+
+    monkeypatch.setattr(settings, "smtp_password", SecretStr(_SECRET_PASSWORD))
+    monkeypatch.setattr(settings, "smtp_from_address", "user@example.com")
+    monkeypatch.setattr(settings, "smtp_use_tls", True)
+
+    rec: dict[str, Any] = {"init_kwargs": None, "starttls_context": None}
+
+    class RecordingSMTP:
+        def __init__(self, host: str, port: int, *args: Any, **kwargs: Any) -> None:
+            rec["init_kwargs"] = kwargs
+
+        def starttls(self, *args: Any, **kwargs: Any) -> None:
+            rec["starttls_context"] = kwargs.get("context")
+
+        def login(self, user: str, password: str) -> None:
+            pass
+
+        def send_message(self, msg: Any) -> None:
+            pass
+
+        def quit(self) -> None:
+            pass
+
+    monkeypatch.setattr(smtplib, "SMTP", RecordingSMTP)
+
+    from app.platform.notifications.smtp_channel import send_email
+
+    await send_email(_TEST_NOTIFICATION)
+
+    assert rec["init_kwargs"] is not None
+    assert rec["init_kwargs"].get("timeout") == 15.0, (
+        "SMTP must be constructed with a bounded timeout (WR-02)"
+    )
+    ctx = rec["starttls_context"]
+    assert isinstance(ctx, ssl.SSLContext), (
+        "starttls must receive an SSLContext (WR-01)"
+    )
+    assert ctx.verify_mode == ssl.CERT_REQUIRED, (
+        "TLS context must verify the cert (WR-01)"
+    )
+    assert ctx.check_hostname is True, "TLS context must check the hostname (WR-01)"
+
+
+@pytest.mark.anyio
 async def test_smtp_uses_smtp_ssl_on_port_465(monkeypatch: pytest.MonkeyPatch) -> None:
     """NOTIF-02: Port 465 → SMTP_SSL (implicit TLS), no starttls() call."""
     import smtplib
@@ -119,10 +180,10 @@ async def test_smtp_uses_smtp_ssl_on_port_465(monkeypatch: pytest.MonkeyPatch) -
     ssl_calls: dict[str, Any] = {"starttls": False, "used_ssl": False}
 
     class FakeSMTPSSL:
-        def __init__(self, host: str, port: int) -> None:
+        def __init__(self, host: str, port: int, *_args: Any, **_kwargs: Any) -> None:
             ssl_calls["used_ssl"] = True
 
-        def starttls(self) -> None:
+        def starttls(self, *_args: Any, **_kwargs: Any) -> None:
             ssl_calls["starttls"] = True
 
         def login(self, user: str, password: str) -> None:
@@ -171,10 +232,10 @@ async def test_smtp_no_login_when_no_username(monkeypatch: pytest.MonkeyPatch) -
     login_called = {"v": False}
 
     class FakeSMTP:
-        def __init__(self, host: str, port: int) -> None:
+        def __init__(self, host: str, port: int, *_args: Any, **_kwargs: Any) -> None:
             pass
 
-        def starttls(self) -> None:
+        def starttls(self, *_args: Any, **_kwargs: Any) -> None:
             pass
 
         def login(self, user: str, password: str) -> None:
@@ -216,10 +277,10 @@ async def test_smtp_password_not_in_logs(
     monkeypatch.setattr(settings, "smtp_use_tls", True)
 
     class FakeSMTP:
-        def __init__(self, host: str, port: int) -> None:
+        def __init__(self, host: str, port: int, *_args: Any, **_kwargs: Any) -> None:
             pass
 
-        def starttls(self) -> None:
+        def starttls(self, *_args: Any, **_kwargs: Any) -> None:
             pass
 
         def login(self, user: str, password: str) -> None:
@@ -265,7 +326,7 @@ async def test_smtp_uses_to_from_notification_data(
     received_to: dict[str, Any] = {}
 
     class FakeSMTP:
-        def __init__(self, host: str, port: int) -> None:
+        def __init__(self, host: str, port: int, *_args: Any, **_kwargs: Any) -> None:
             pass
 
         def login(self, user: str, password: str) -> None:

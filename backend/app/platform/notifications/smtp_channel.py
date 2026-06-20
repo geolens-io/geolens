@@ -35,6 +35,7 @@ async def send_email(notification: "Notification") -> None:  # type: ignore[name
     """
     import asyncio
     import smtplib
+    import ssl
     from email.message import EmailMessage
 
     from app.core.config import reveal
@@ -65,15 +66,24 @@ async def send_email(notification: "Notification") -> None:  # type: ignore[name
     def _blocking_send() -> None:
         """Blocking smtplib sequence — runs in a thread via asyncio.to_thread."""
         use_ssl = port == 465
+        # Verify the server certificate against the system trust store
+        # (WR-01): the stdlib smtplib default omits a context and falls back
+        # to an unverified one, exposing the SMTP password to a MITM.
+        ssl_context = ssl.create_default_context()
+        # Bound the connect/socket time (WR-02) so an unreachable host cannot
+        # pin a thread-pool thread indefinitely.
+        timeout = 15.0
 
         if use_ssl:
-            conn: smtplib.SMTP = smtplib.SMTP_SSL(host, port)
+            conn: smtplib.SMTP = smtplib.SMTP_SSL(
+                host, port, timeout=timeout, context=ssl_context
+            )
         else:
-            conn = smtplib.SMTP(host, port)
+            conn = smtplib.SMTP(host, port, timeout=timeout)
 
         try:
             if not use_ssl and use_tls:
-                conn.starttls()
+                conn.starttls(context=ssl_context)
             if username:
                 # Reveal the password ONLY at the login() boundary.
                 # The raw string is never stored in a local variable or logged.
