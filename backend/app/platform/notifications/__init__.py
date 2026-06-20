@@ -26,6 +26,8 @@ from app.platform.extensions.protocols import Notification
 
 logger = structlog.stdlib.get_logger(__name__)
 
+__all__ = ["notify", "Notification", "NotificationResult"]
+
 
 @dataclass(frozen=True)
 class NotificationResult:
