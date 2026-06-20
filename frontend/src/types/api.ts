@@ -632,6 +632,10 @@ export interface AuthConfigResponse {
    *  verification email and requires email confirmation before login.
    *  Field may be absent on older server versions (treat as false). */
   email_verification_required?: boolean;
+  /** SSO-03 (Phase 1236 Plan 02): when false, password login is disabled for
+   *  non-admin users and the login page should hide the username/password form.
+   *  Absent on older server versions — treat as true (password login available). */
+  password_login_enabled?: boolean;
 }
 
 export interface MessageResponse {

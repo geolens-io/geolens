@@ -21,6 +21,11 @@ function getOAuthErrorMessage(error: string, t: (key: string, opts?: Record<stri
   if (error.includes('access_denied')) {
     return t('oauthErrors.accessDenied');
   }
+  // DOMAIN-03 (Phase 1236): SSO callback redirects here with error=domain_not_allowed
+  // when the user's email domain is not in the allowed_email_domains list.
+  if (error.includes('domain_not_allowed')) {
+    return t('oauthErrors.domainNotAllowed');
+  }
   return t('oauthErrors.generic', { error });
 }
 
@@ -135,7 +140,17 @@ export function LoginPage() {
 
         <div className="flex flex-col items-center gap-4 lg:items-stretch">
           {configError && <div className="text-sm text-destructive">{t('authConfig.loadFailed')}</div>}
-          <LoginForm />
+          {/* SSO-03 (Phase 1236 Plan 02): hide the password form (no flash) when
+              password_login_enabled is explicitly false. The config is already
+              resolved before we reach this render path (configLoading shows Loader2
+              above). Treat absent field (older servers) as true for back-compat. */}
+          {config?.password_login_enabled !== false ? (
+            <LoginForm />
+          ) : (
+            <p className="max-w-sm text-center text-sm text-muted-foreground">
+              {t('ssoOnly.signInWithProvider')}
+            </p>
+          )}
           <OAuthButtons />
           <p className="max-w-sm text-center text-xs text-muted-foreground">
             {t('consentNote')}{' '}
