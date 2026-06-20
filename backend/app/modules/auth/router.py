@@ -210,6 +210,16 @@ async def register(
         audit_emit,
     )  # LAZY — preserved per D-17
 
+    # Phase 1230 EVENT-01: admin signup notification. Lazy import per D-17;
+    # emit is placed AFTER db.commit() and ONLY in the non-collision branch so
+    # (a) a notification failure cannot roll back the user row, and (b) the
+    # collision path stays byte-identical regardless of toggle state (SEC-012 /
+    # T-1230-05 enumeration-safety).
+    from app.platform.notifications.events import (
+        build_event_notification,
+        emit_event_safe,
+    )  # LAZY — preserved per D-17
+
     service = AuthService(db)
     # SEC-012: on a username/email collision the service raises ValueError and
     # does NOT create a duplicate row (register_user flushes only on success).
@@ -244,6 +254,21 @@ async def register(
             ),
         )
         await db.commit()
+        # Phase 1230 EVENT-01: notify admin of new signup AFTER commit so a
+        # notification error can never roll back the user row (T-1230-07).
+        # emit_event_safe is itself fail-safe (swallows all errors).
+        # body.username / body.email are already audit-logged above (non-secret).
+        _username = body.username
+        _email = body.email or ""
+        await emit_event_safe(
+            event_key="signup",
+            build=lambda: build_event_notification(
+                "signup",
+                subject=f"New signup: {_username}",
+                body=f"A new user signed up.\n\nUsername: {_username}\nEmail: {_email}",
+                extra={"username": _username, "email": _email},
+            ),
+        )
 
     return RegisterResponse(
         message="Registration submitted. Your account is awaiting admin approval."
