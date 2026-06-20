@@ -350,6 +350,26 @@ async def ingest_raster(job_id: str, file_path: str, user_id: str, **kwargs) -> 
                 await session.commit()
                 _Path(file_path).unlink(missing_ok=True)
                 final_status = "failed"
+                # EVENT-03: notify on ingest failed (non-fatal, after commit — deferred import).
+                # status="failed" is already committed so a notification error cannot
+                # roll back or alter the terminal job write (T-1230-09 fail-safe).
+                _early_reason = str(exc)
+                _early_job_id = str(job_uuid)
+                from app.platform.notifications.events import (
+                    build_event_notification,
+                    emit_event_safe,
+                )
+
+                await emit_event_safe(
+                    event_key="ingest_failed",
+                    build=lambda: build_event_notification(
+                        "ingest_failed",
+                        subject="Raster ingest failed: validation error",
+                        body="Raster ingest job failed during validation.",
+                        reason=_early_reason,
+                        extra={"job_id": _early_job_id, "task": "ingest_raster"},
+                    ),
+                )
                 return
 
             # Snapshot job attributes needed in phase 2 (after CPU work).
@@ -635,6 +655,26 @@ async def ingest_raster(job_id: str, file_path: str, user_id: str, **kwargs) -> 
             await session.commit()
             final_status = "complete"
 
+            # EVENT-02: notify on ingest complete (non-fatal, after commit — deferred import).
+            # status="complete" is already committed above so a notification error cannot
+            # roll back or alter the terminal job write (T-1230-09 fail-safe).
+            _complete_title = title  # resolved at line ~486 in this session block
+            _complete_job_id = str(job_uuid)
+            from app.platform.notifications.events import (
+                build_event_notification,
+                emit_event_safe,
+            )
+
+            await emit_event_safe(
+                event_key="ingest_complete",
+                build=lambda: build_event_notification(
+                    "ingest_complete",
+                    subject=f"Raster ingest complete: {_complete_title}",
+                    body=f"Raster dataset '{_complete_title}' has been successfully ingested.",
+                    extra={"job_id": _complete_job_id, "dataset": _complete_title},
+                ),
+            )
+
             # Invalidate cache
             await invalidate_catalog_cache()
 
@@ -679,6 +719,28 @@ async def ingest_raster(job_id: str, file_path: str, user_id: str, **kwargs) -> 
             )
             await err_session.commit()
         final_status = "failed"
+        # EVENT-03: notify on ingest failed (non-fatal, after commit — deferred import).
+        # status="failed" is already committed above (err_session.commit) so a
+        # notification error cannot roll back or alter the terminal job write
+        # (T-1230-09 fail-safe).  Placed BEFORE the re-raise so the notification
+        # fires on the terminal write without suppressing the re-raise (T-1230-10).
+        _late_reason = str(exc)
+        _late_job_id = job_id
+        from app.platform.notifications.events import (
+            build_event_notification,
+            emit_event_safe,
+        )
+
+        await emit_event_safe(
+            event_key="ingest_failed",
+            build=lambda: build_event_notification(
+                "ingest_failed",
+                subject="Raster ingest failed",
+                body="Raster ingest job failed.",
+                reason=_late_reason,
+                extra={"job_id": _late_job_id, "task": "ingest_raster"},
+            ),
+        )
         raise
     finally:
         # GAP-017: orphan-asset cleanup. If we wrote COG/quicklook bytes to
