@@ -425,5 +425,6 @@
   "export": {
     "poweredBy": "Powered by GeoLens",
     "legendHeader": "Legend"
-  }
+  },
+  "demoBanner": "This is a demo account — your data may be wiped at any time."
 }

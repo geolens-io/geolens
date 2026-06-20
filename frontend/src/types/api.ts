@@ -75,6 +75,13 @@ export interface TokenResponse {
   expires_in: number;
 }
 
+export interface UserQuotaUsage {
+  bytes_used: number;
+  dataset_count: number;
+  storage_cap: number;
+  count_cap: number;
+}
+
 export interface UserResponse {
   id: string;
   username: string;
@@ -84,6 +91,7 @@ export interface UserResponse {
   last_login_at: string | null;
   created_at: string;
   roles: string[];
+  quota_usage?: UserQuotaUsage | null;
 }
 
 export interface RasterBandInfo {
@@ -608,6 +616,14 @@ export interface OAuthProviderPublic {
 
 export interface AuthConfigResponse {
   registration_enabled: boolean;
+  /** FRONT-01 (Phase 1223): when true the root guard redirects anonymous
+   *  visitors from "/" to "/login".  Default false on the server; the
+   *  field may be absent on older server versions (treat as false). */
+  landing_first?: boolean;
+  /** DEMO-03 (Phase 1226): when true, logged-in users see a persistent
+   *  demo-account banner.  Default false — self-hosters see no banner. */
+  demo_mode?: boolean;
+  auth_methods?: string[];
 }
 
 export interface MessageResponse {

@@ -423,6 +423,30 @@ ENABLE_DATASET_EDITING = PersistentConfig[bool](
     label="Enable Dataset Editing",
 )
 
+# FRONT-01 (Phase 1223): landing-first flag.  Default OFF so existing
+# self-hosters see no change.  When ON, the frontend root guard redirects
+# unauthenticated visitors from "/" to "/login" (the marketing landing page)
+# unless they have set the gl-guest-browse sessionStorage escape hatch.
+LANDING_FIRST = PersistentConfig[bool](
+    key="landing_first",
+    type_=bool,
+    env_default_factory=lambda: settings.landing_first,
+    tab="auth",
+    label="Login-as-Landing Page",
+)
+
+# DEMO-03 (Phase 1226): demo-mode banner flag. Default OFF so self-hosters
+# see no change. When ON, logged-in users see a persistent "demo account"
+# notice. tab="general" (not "auth") — it is a UX/display toggle, not an
+# auth policy.
+DEMO_MODE = PersistentConfig[bool](
+    key="demo_mode",
+    type_=bool,
+    env_default_factory=lambda: settings.demo_mode,
+    tab="general",
+    label="Demo Mode Banner",
+)
+
 # -- Auth tab --
 ACCESS_TOKEN_EXPIRE_MINUTES = PersistentConfig[int](
     key="access_token_expire_minutes",
@@ -583,6 +607,22 @@ UPLOAD_ALLOWED_EXTENSIONS = PersistentConfig[str](
     env_default_factory=lambda: settings.upload_allowed_extensions,
     tab="storage",
     label="Allowed Upload Extensions",
+)
+
+MAX_STORAGE_BYTES_PER_USER = PersistentConfig[int](
+    key="max_storage_bytes_per_user",
+    type_=int,
+    env_default=0,
+    tab="storage",
+    label="Max Storage per User (bytes, 0=unlimited)",
+)
+
+MAX_DATASETS_PER_USER = PersistentConfig[int](
+    key="max_datasets_per_user",
+    type_=int,
+    env_default=0,
+    tab="storage",
+    label="Max Datasets per User (0=unlimited)",
 )
 
 

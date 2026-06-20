@@ -425,5 +425,6 @@
   "page": {
     "noSpatialExtent": "Keine räumliche Ausdehnung verfügbar"
   },
-  "unknown": "Unbekannt"
+  "unknown": "Unbekannt",
+  "demoBanner": "Dies ist ein Demo-Konto — Ihre Daten können jederzeit gelöscht werden."
 }

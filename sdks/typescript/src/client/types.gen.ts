@@ -1975,6 +1975,18 @@ export type ConfigResponse = {
      */
     auth_methods?: Array<string>;
     /**
+     * Demo Mode
+     *
+     * When true, logged-in users see a persistent demo-account banner. Default false — self-hosters see no banner.
+     */
+    demo_mode?: boolean;
+    /**
+     * Landing First
+     *
+     * When true, unauthenticated visits to '/' are redirected to '/login' as the product landing page. Default false (search catalog is the root).
+     */
+    landing_first?: boolean;
+    /**
      * Registration Enabled
      *
      * Whether self-service registration is open
@@ -8775,6 +8787,30 @@ export type UserNameItem = {
 };
 
 /**
+ * UserQuotaUsage
+ *
+ * Per-user quota usage: current consumption vs configured caps.
+ */
+export type UserQuotaUsage = {
+    /**
+     * Bytes Used
+     */
+    bytes_used: number;
+    /**
+     * Count Cap
+     */
+    count_cap: number;
+    /**
+     * Dataset Count
+     */
+    dataset_count: number;
+    /**
+     * Storage Cap
+     */
+    storage_cap: number;
+};
+
+/**
  * UserResponse
  */
 export type UserResponse = {
@@ -8798,6 +8834,10 @@ export type UserResponse = {
      * Last Login At
      */
     last_login_at: string | null;
+    /**
+     * Per-user storage quota usage. Populated only on admin list responses; None when the caller did not load usage (e.g. /auth/me, single-user GET).
+     */
+    quota_usage?: UserQuotaUsage | null;
     /**
      * Roles
      *
@@ -10237,6 +10277,49 @@ export type CreateUserAdminUsersPostResponses = {
 };
 
 export type CreateUserAdminUsersPostResponse = CreateUserAdminUsersPostResponses[keyof CreateUserAdminUsersPostResponses];
+
+export type ExportUsersCsvAdminUsersExportCsvGetData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/admin/users/export.csv';
+};
+
+export type ExportUsersCsvAdminUsersExportCsvGetErrors = {
+    /**
+     * Bad request — invalid query parameters or payload
+     */
+    400: ProblemDetail;
+    /**
+     * Unauthorized — missing or invalid credentials
+     */
+    401: ProblemDetail;
+    /**
+     * Forbidden — caller lacks access to this resource
+     */
+    403: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Validation error
+     */
+    422: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+};
+
+export type ExportUsersCsvAdminUsersExportCsvGetError = ExportUsersCsvAdminUsersExportCsvGetErrors[keyof ExportUsersCsvAdminUsersExportCsvGetErrors];
+
+export type ExportUsersCsvAdminUsersExportCsvGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
 
 export type ListUserNamesAdminUsersNamesGetData = {
     body?: never;

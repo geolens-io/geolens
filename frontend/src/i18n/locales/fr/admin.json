@@ -36,6 +36,7 @@
     "titleCount_one": "Utilisateurs ({{count}})",
     "titleCount_other": "Utilisateurs ({{count}})",
     "addUser": "Ajouter un utilisateur",
+    "exportEmailsCsv": "Exporter les e-mails (CSV)",
     "loading": "Chargement des utilisateurs...",
     "errorLoading": "Échec du chargement des utilisateurs : {{message}}",
     "filters": {
@@ -405,6 +406,8 @@
       "cardDescription": "Activez ou désactivez les fonctionnalités de la plateforme.",
       "registration": "Auto-inscription",
       "registrationDescription": "Permettre aux nouveaux utilisateurs de créer un compte. Les comptes nécessitent toujours l'approbation d'un administrateur.",
+      "landingFirst": "Connexion comme page d'accueil",
+      "landingFirstDescription": "Lorsqu'il est activé, les visiteurs anonymes de l'URL racine sont redirigés vers la page de connexion plutôt que vers le catalogue. Un lien 'Parcourir le catalogue' permet d'ignorer la connexion pour la session.",
       "aiFeatures": "Fonctionnalités IA",
       "aiFeaturesDescription": "Activer les fonctionnalités alimentées par l'IA, notamment la rédaction de métadonnées de jeux de données (résumés, mots-clés, lignage, déclarations de qualité), le chat du constructeur de cartes et la génération de cartes par IA.",
       "saved": "Paramètres enregistrés",

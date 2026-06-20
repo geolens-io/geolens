@@ -262,8 +262,11 @@ class TestRBAC:
         resp = await client.get("/admin/users/", headers=viewer_headers)
         assert resp.status_code == 403
 
+    # SSO-03 (Phase 1226): Google-signup users receive the 'editor' role
+    # (set via provider.default_role). Verify they cannot reach admin or
+    # settings management endpoints.
     async def test_editor_cannot_access_admin_endpoints(self, client: AsyncClient):
-        """Editor user gets 403 on /admin/users."""
+        """Editor user gets 403 on /admin/users and /settings/oauth-providers/."""
         admin_headers = await get_auth_header(client, ADMIN_USER, ADMIN_PASS)
 
         unique = uuid.uuid4().hex[:8]
@@ -277,8 +280,12 @@ class TestRBAC:
         )
 
         editor_headers = await get_auth_header(client, username, "TestPass1234!")
+        # manage_users gate
         resp = await client.get("/admin/users/", headers=editor_headers)
         assert resp.status_code == 403
+        # manage_settings gate — editors must not be able to register a malicious IdP
+        resp2 = await client.get("/settings/oauth-providers/", headers=editor_headers)
+        assert resp2.status_code == 403
 
 
 # ---------------------------------------------------------------------------

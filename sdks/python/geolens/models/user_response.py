@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any, TypeVar
+from typing import Any, TypeVar, TYPE_CHECKING
 
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 
+from ..types import UNSET, Unset
 
 from ..models.user_response_status import check_user_response_status
 from ..models.user_response_status import UserResponseStatus
@@ -13,6 +14,9 @@ from dateutil.parser import isoparse
 from typing import cast
 from uuid import UUID
 import datetime
+
+if TYPE_CHECKING:
+    from ..models.user_quota_usage import UserQuotaUsage
 
 
 T = TypeVar("T", bound="UserResponse")
@@ -30,6 +34,8 @@ class UserResponse:
         roles (list[str]): Assigned role names, e.g. ['admin', 'editor']
         status (UserResponseStatus): Account status: active, pending, suspended, or deactivated.
         username (str):
+        quota_usage (None | Unset | UserQuotaUsage): Per-user storage quota usage. Populated only on admin list
+            responses; None when the caller did not load usage (e.g. /auth/me, single-user GET).
     """
 
     created_at: datetime.datetime
@@ -40,9 +46,12 @@ class UserResponse:
     roles: list[str]
     status: UserResponseStatus
     username: str
+    quota_usage: None | Unset | UserQuotaUsage = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
+        from ..models.user_quota_usage import UserQuotaUsage
+
         created_at = self.created_at.isoformat()
 
         email: None | str
@@ -64,6 +73,14 @@ class UserResponse:
 
         username = self.username
 
+        quota_usage: dict[str, Any] | None | Unset
+        if isinstance(self.quota_usage, Unset):
+            quota_usage = UNSET
+        elif isinstance(self.quota_usage, UserQuotaUsage):
+            quota_usage = self.quota_usage.to_dict()
+        else:
+            quota_usage = self.quota_usage
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -78,11 +95,15 @@ class UserResponse:
                 "username": username,
             }
         )
+        if quota_usage is not UNSET:
+            field_dict["quota_usage"] = quota_usage
 
         return field_dict
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
+        from ..models.user_quota_usage import UserQuotaUsage
+
         d = dict(src_dict)
         created_at = isoparse(d.pop("created_at"))
 
@@ -118,6 +139,23 @@ class UserResponse:
 
         username = d.pop("username")
 
+        def _parse_quota_usage(data: object) -> None | Unset | UserQuotaUsage:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, dict):
+                    raise TypeError()
+                quota_usage_type_0 = UserQuotaUsage.from_dict(data)
+
+                return quota_usage_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(None | Unset | UserQuotaUsage, data)
+
+        quota_usage = _parse_quota_usage(d.pop("quota_usage", UNSET))
+
         user_response = cls(
             created_at=created_at,
             email=email,
@@ -127,6 +165,7 @@ class UserResponse:
             roles=roles,
             status=status,
             username=username,
+            quota_usage=quota_usage,
         )
 
         user_response.additional_properties = d

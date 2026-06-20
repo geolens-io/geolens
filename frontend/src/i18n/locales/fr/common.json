@@ -425,5 +425,6 @@
   "page": {
     "noSpatialExtent": "Aucune étendue spatiale disponible"
   },
-  "unknown": "Inconnu"
+  "unknown": "Inconnu",
+  "demoBanner": "Ceci est un compte de démonstration — vos données peuvent être supprimées à tout moment."
 }

@@ -59,8 +59,25 @@ const ERROR_MAP: Record<string, string> = {
  * Looks up the exact backend string in ERROR_MAP. If found, returns the
  * translated string via i18n.t(). If not found (unmapped or dynamic error),
  * returns the original English message unchanged (ERR-02 fallback).
+ *
+ * Quota errors (QUOTA-01/02) are dynamic (they include usage numbers), so
+ * they are not in ERROR_MAP. They are passed through verbatim here because
+ * the backend detail string is already readable English prose (e.g.
+ * "Storage quota exceeded: used 5 MB of 1 MB (adding 100 bytes)"). If i18n
+ * translations for quota strings are added in the future, add prefix-match
+ * entries here (startsWith checks) before the exact-key lookup.
  */
 export function translateError(backendMessage: string): string {
+  // Prefix match for dynamic quota messages — backend detail is already
+  // human-readable English with usage numbers (QUOTA-01/02 error shape).
+  // Pass through verbatim so the user sees the exact numbers.
+  if (backendMessage.startsWith('Storage quota exceeded')) {
+    return backendMessage;
+  }
+  if (backendMessage.startsWith('Dataset quota exceeded')) {
+    return backendMessage;
+  }
+
   const key = ERROR_MAP[backendMessage];
   if (!key) return backendMessage;
   return i18n.t(key, { ns: 'common', defaultValue: backendMessage });

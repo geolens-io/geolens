@@ -1,8 +1,12 @@
+from __future__ import annotations
+
 import uuid
 from datetime import datetime
 from typing import Literal
 
 from pydantic import BaseModel, EmailStr, Field, field_validator
+
+from app.modules.quota.schemas import UserQuotaUsage
 
 # User account status enum mirrors the CHECK constraint on User.status.
 UserStatus = Literal["active", "pending", "suspended", "deactivated"]
@@ -79,6 +83,25 @@ class ConfigResponse(BaseModel):
             "Login UI can render conditional sign-in options without needing admin OAuthProvider access."
         ),
     )
+    # FRONT-01 (Phase 1223): when True the frontend redirects unauthenticated
+    # visitors at "/" to "/login" (the marketing landing surface).  Default
+    # False — self-hosters upgrading see zero change.
+    landing_first: bool = Field(
+        default=False,
+        description=(
+            "When true, unauthenticated visits to '/' are redirected to '/login' "
+            "as the product landing page. Default false (search catalog is the root)."
+        ),
+    )
+    # DEMO-03 (Phase 1226): when True, logged-in users see a persistent
+    # demo-account banner. Default false — self-hosters see no banner.
+    demo_mode: bool = Field(
+        default=False,
+        description=(
+            "When true, logged-in users see a persistent demo-account banner. "
+            "Default false — self-hosters see no banner."
+        ),
+    )
 
 
 class UserResponse(BaseModel):
@@ -93,6 +116,13 @@ class UserResponse(BaseModel):
     created_at: datetime
     roles: list[str] = Field(
         description="Assigned role names, e.g. ['admin', 'editor']"
+    )
+    quota_usage: UserQuotaUsage | None = Field(
+        default=None,
+        description=(
+            "Per-user storage quota usage. Populated only on admin list responses; "
+            "None when the caller did not load usage (e.g. /auth/me, single-user GET)."
+        ),
     )
 
     model_config = {"from_attributes": True}

@@ -13,6 +13,7 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
+import { GEOLENS_PRIVACY_URL } from '@/lib/external-links';
 
 interface RegisterFormProps {
   onSuccess: () => void;
@@ -102,6 +103,18 @@ export function RegisterForm({ onSuccess }: RegisterFormProps) {
             <Link to="/login" className="text-primary underline hover:text-primary/80">
               {t('signIn')}
             </Link>
+          </p>
+          <p className="text-center text-xs text-muted-foreground">
+            {t('consentNote')}{' '}
+            <a
+              href={GEOLENS_PRIVACY_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline hover:text-foreground"
+            >
+              {t('privacyPolicy')}
+            </a>
+            {t('consentNoteSuffix')}
           </p>
         </form>
       </CardContent>

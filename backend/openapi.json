@@ -3288,6 +3288,18 @@
             "title": "Auth Methods",
             "type": "array"
           },
+          "demo_mode": {
+            "default": false,
+            "description": "When true, logged-in users see a persistent demo-account banner. Default false \u2014 self-hosters see no banner.",
+            "title": "Demo Mode",
+            "type": "boolean"
+          },
+          "landing_first": {
+            "default": false,
+            "description": "When true, unauthenticated visits to '/' are redirected to '/login' as the product landing page. Default false (search catalog is the root).",
+            "title": "Landing First",
+            "type": "boolean"
+          },
           "registration_enabled": {
             "description": "Whether self-service registration is open",
             "title": "Registration Enabled",
@@ -14843,6 +14855,35 @@
         "title": "UserNameItem",
         "type": "object"
       },
+      "UserQuotaUsage": {
+        "description": "Per-user quota usage: current consumption vs configured caps.",
+        "properties": {
+          "bytes_used": {
+            "title": "Bytes Used",
+            "type": "integer"
+          },
+          "count_cap": {
+            "title": "Count Cap",
+            "type": "integer"
+          },
+          "dataset_count": {
+            "title": "Dataset Count",
+            "type": "integer"
+          },
+          "storage_cap": {
+            "title": "Storage Cap",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "bytes_used",
+          "dataset_count",
+          "storage_cap",
+          "count_cap"
+        ],
+        "title": "UserQuotaUsage",
+        "type": "object"
+      },
       "UserResponse": {
         "properties": {
           "created_at": {
@@ -14881,6 +14922,17 @@
               }
             ],
             "title": "Last Login At"
+          },
+          "quota_usage": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/UserQuotaUsage"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Per-user storage quota usage. Populated only on admin list responses; None when the caller did not load usage (e.g. /auth/me, single-user GET)."
           },
           "roles": {
             "description": "Assigned role names, e.g. ['admin', 'editor']",
@@ -17974,6 +18026,93 @@
         ],
         "summary": "Create User",
         "tags": [
+          "Admin"
+        ]
+      }
+    },
+    "/admin/users/export.csv": {
+      "get": {
+        "description": "Export all registered users as a hardened CSV file (admin only).\n\nColumns: email, display_name, auth_provider, status, created_at.\nRows are ordered by created_at ASC and streamed without full materialisation.\nCells starting with =, +, -, or @ are tab-prefixed (CSV injection hardening).",
+        "operationId": "export_users_csv_admin_users_export_csv_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Bad request \u2014 invalid query parameters or payload"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Unauthorized \u2014 missing or invalid credentials"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Forbidden \u2014 caller lacks access to this resource"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Validation error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Internal server error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Export registered users as CSV",
+        "tags": [
+          "Admin",
           "Admin"
         ]
       }

@@ -1,5 +1,5 @@
-import { useEffect } from 'react';
-import { Link, Navigate, useLocation } from 'react-router';
+import { useEffect, useCallback } from 'react';
+import { Link, Navigate, useLocation, useNavigate } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { Bookmark, Loader2, Map, Upload } from 'lucide-react';
@@ -12,6 +12,7 @@ import { LoginForm } from '@/components/auth/LoginForm';
 import { OAuthButtons } from '@/components/auth/OAuthButtons';
 import { Button } from '@/components/ui/button';
 import { useDocumentTitle } from '@/hooks/use-document-title';
+import { GEOLENS_PRIVACY_URL } from '@/lib/external-links';
 
 function getOAuthErrorMessage(error: string, t: (key: string, opts?: Record<string, string>) => string): string {
   if (error.includes('invalid_grant')) {
@@ -23,11 +24,16 @@ function getOAuthErrorMessage(error: string, t: (key: string, opts?: Record<stri
   return t('oauthErrors.generic', { error });
 }
 
+/** Session-scoped key that suppresses the landing-first redirect.
+ *  Written by the "Browse Catalog" button; cleared when the tab closes. */
+const GUEST_BROWSE_KEY = 'gl-guest-browse';
+
 export function LoginPage() {
   const { t } = useTranslation('auth');
   useDocumentTitle(t('common:pageTitle.login'));
   const token = useAuthStore((s) => s.token);
   const location = useLocation();
+  const navigate = useNavigate();
   const oauthError = (location.state as { oauthError?: string } | null)?.oauthError;
 
   useEffect(() => {
@@ -42,6 +48,15 @@ export function LoginPage() {
     queryFn: getAuthConfig,
     staleTime: 5 * 60 * 1000,
   });
+
+  // FRONT-02 (Phase 1223): guest-browse escape hatch.
+  // Sets the sessionStorage marker so LandingFirstGuard does not bounce the
+  // visitor back to /login for the rest of the browser session.
+  const handleBrowseCatalog = useCallback(() => {
+    sessionStorage.setItem(GUEST_BROWSE_KEY, 'true');
+    navigate('/');
+  }, [navigate]);
+
   if (token) {
     const from = (location.state as { from?: string } | null)?.from;
     // CLEAN-N4: search workspace is "/" after landing page removal.
@@ -122,16 +137,32 @@ export function LoginPage() {
           {configError && <div className="text-sm text-destructive">{t('authConfig.loadFailed')}</div>}
           <LoginForm />
           <OAuthButtons />
+          <p className="max-w-sm text-center text-xs text-muted-foreground">
+            {t('consentNote')}{' '}
+            <a
+              href={GEOLENS_PRIVACY_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline hover:text-foreground"
+            >
+              {t('privacyPolicy')}
+            </a>
+            {t('consentNoteSuffix')}
+          </p>
           <p className="max-w-sm text-center text-sm text-muted-foreground">
             {t('browseCatalogHelper', {
               defaultValue: 'No account needed to browse the public catalog.',
             })}{' '}
-            <Button asChild variant="link" className="h-auto p-0 align-baseline text-sm">
-              <Link to="/">
-                {t('browseCatalog', {
-                  defaultValue: 'Browse Catalog',
-                })}
-              </Link>
+            {/* FRONT-02: sets gl-guest-browse to suppress the landing-first
+                redirect for the rest of the session before navigating to /. */}
+            <Button
+              variant="link"
+              className="h-auto p-0 align-baseline text-sm"
+              onClick={handleBrowseCatalog}
+            >
+              {t('browseCatalog', {
+                defaultValue: 'Browse Catalog',
+              })}
             </Button>
           </p>
           {config?.registration_enabled === true ? (

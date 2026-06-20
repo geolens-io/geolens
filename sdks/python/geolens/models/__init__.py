@@ -537,6 +537,7 @@ from .upload_response import UploadResponse
 from .user_create import UserCreate
 from .user_list_response import UserListResponse
 from .user_name_item import UserNameItem
+from .user_quota_usage import UserQuotaUsage
 from .user_response import UserResponse
 from .user_response_status import UserResponseStatus
 from .user_update import UserUpdate
@@ -993,6 +994,7 @@ __all__ = (
     "UserCreate",
     "UserListResponse",
     "UserNameItem",
+    "UserQuotaUsage",
     "UserResponse",
     "UserResponseStatus",
     "UserUpdate",

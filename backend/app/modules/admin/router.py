@@ -1,13 +1,18 @@
 """Admin API endpoints: user management and catalog stats (admin-only)."""
 
 import asyncio
+import csv
+import io
 import uuid
+from collections.abc import AsyncGenerator
+from datetime import datetime, timezone
 from typing import NoReturn
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.responses import StreamingResponse
 
 from app.modules.admin.schemas import (
     AdminApiKeyCreateRequest,
@@ -30,10 +35,12 @@ from app.modules.admin.schemas import (
     UserUpdate,
 )
 from app.modules.admin.service import AdminService
+from app.modules.quota.service import get_user_quota_usage
 from app.modules.audit.service import AuditEvent, audit_emit
 from app.modules.auth.dependencies import require_permission
 from app.modules.auth.models import ApiKey, User
 from app.modules.auth.schemas import ApiKeyCreateResponse, UserResponse
+from app.processing.export.service import safe_content_disposition
 from app.core.config import settings as app_settings
 from app.core.dependencies import get_client_ip, get_db
 from app.modules.catalog.maps.schemas import (
@@ -159,9 +166,82 @@ async def list_users(
     users, total = await service.list_users(
         skip=skip, limit=limit, status=status_filter, search=search
     )
-    return UserListResponse(
-        users=[_user_response(u) for u in users],
-        total=total,
+    # QUOTA-04: batch-load quota usage for each user on this page.
+    # One SQL aggregate per user (≤200/page; cheap at admin-only frequency).
+    user_responses = []
+    for u in users:
+        usage = await get_user_quota_usage(db, u.id)
+        user_responses.append(
+            UserResponse(
+                id=u.id,
+                username=u.username,
+                email=u.email,
+                is_active=u.is_active,
+                status=u.status,
+                last_login_at=u.last_login_at,
+                created_at=u.created_at,
+                roles=sorted(r.name for r in u.roles),
+                quota_usage=usage,
+            )
+        )
+    return UserListResponse(users=user_responses, total=total)
+
+
+@router.get(
+    "/users/export.csv",
+    response_class=StreamingResponse,
+    dependencies=[Depends(require_permission("manage_users"))],
+    summary="Export registered users as CSV",
+    tags=["Admin"],
+)
+async def export_users_csv(
+    db: AsyncSession = Depends(get_db),
+) -> StreamingResponse:
+    """Export all registered users as a hardened CSV file (admin only).
+
+    Columns: email, display_name, auth_provider, status, created_at.
+    Rows are ordered by created_at ASC and streamed without full materialisation.
+    Cells starting with =, +, -, or @ are tab-prefixed (CSV injection hardening).
+    """
+
+    def _safe(val: str) -> str:
+        """Prefix formula-injection trigger characters with a tab."""
+        if val and val[0] in ("=", "+", "-", "@"):
+            return "\t" + val
+        return val
+
+    async def csv_generator() -> AsyncGenerator[str, None]:
+        buf = io.StringIO()
+        writer = csv.writer(buf)
+        writer.writerow(
+            ["email", "display_name", "auth_provider", "status", "created_at"]
+        )
+        yield buf.getvalue()
+        buf.seek(0)
+        buf.truncate(0)
+
+        stmt = select(User).order_by(User.created_at.asc())
+        result = await db.stream(stmt)
+        async for (user,) in result:
+            writer.writerow(
+                [
+                    _safe(user.email or ""),
+                    _safe(user.username or ""),
+                    _safe(user.auth_provider or ""),
+                    _safe(user.status or ""),
+                    user.created_at.isoformat() if user.created_at else "",
+                ]
+            )
+            yield buf.getvalue()
+            buf.seek(0)
+            buf.truncate(0)
+
+    ts = datetime.now(timezone.utc).strftime("%Y%m%d")
+    filename = f"users-export-{ts}.csv"
+    return StreamingResponse(
+        csv_generator(),
+        media_type="text/csv",
+        headers={"Content-Disposition": safe_content_disposition(filename)},
     )
 
 

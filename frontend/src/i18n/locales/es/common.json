@@ -425,5 +425,6 @@
   "page": {
     "noSpatialExtent": "No hay extensión espacial disponible"
   },
-  "unknown": "Desconocido"
+  "unknown": "Desconocido",
+  "demoBanner": "Esta es una cuenta de demostración — sus datos pueden eliminarse en cualquier momento."
 }

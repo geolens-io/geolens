@@ -9,7 +9,16 @@ import structlog
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    HTTPException,
+    Query,
+    Request,
+    UploadFile,
+    status,
+)
 from fastapi.exceptions import RequestValidationError
 from pydantic import ValidationError
 
@@ -75,6 +84,7 @@ from app.core.persistent_config import (
     UPLOAD_MAX_SIZE_MB,
     get_allowed_extensions_list,
 )
+from app.modules.quota.service import check_upload_quota
 from app.processing.raster.validation import validate_sources
 from app.platform.storage import get_storage
 from app.standards.ogc.errors import ERROR_RESPONSES_WRITE
@@ -143,6 +153,7 @@ async def get_upload_config(
 )
 async def request_presigned_upload(
     request: PresignedUploadRequest,
+    http_request: Request,
     user: Identity = Depends(require_permission("upload")),
     db: AsyncSession = Depends(get_db),
 ) -> PresignedUploadResponse:
@@ -164,6 +175,8 @@ async def request_presigned_upload(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"File size ({request.file_size / (1024 * 1024):.1f} MB) exceeds the maximum allowed ({max_size_mb} MB).",
         )
+
+    await check_upload_quota(db, user.id, request.file_size, http_request)
 
     job = await create_ingest_job(db, request.filename, "", user.id)
     storage = get_storage()
@@ -373,6 +386,7 @@ async def _stamp_raster_metadata(
     status_code=status.HTTP_201_CREATED,
 )
 async def upload_file(
+    request: Request,
     file: UploadFile = File(...),
     user: Identity = Depends(require_permission("upload")),
     db: AsyncSession = Depends(get_db),
@@ -395,6 +409,10 @@ async def upload_file(
         # with the presigned path's request-time check (:158-165).
         max_size_mb = await UPLOAD_MAX_SIZE_MB.get(db)
         max_size_bytes = max_size_mb * 1024 * 1024
+
+        # QUOTA-01/02: per-user quota check before any staging or job creation.
+        incoming_bytes = file.size if file.size is not None else 0
+        await check_upload_quota(db, user.id, incoming_bytes, request)
 
         job = await create_ingest_job(db, file.filename, "", user.id)
         saved_path = await save_upload_file(
