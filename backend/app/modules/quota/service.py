@@ -31,6 +31,16 @@ async def get_user_quota_usage(
     to sum the byte size of the user's owned dataset files.  Only dataset record
     types are counted (maps, services, and collections are excluded).
 
+    Byte-coverage caveat: ``bytes_used`` sums ONLY the ``key='data'`` file asset,
+    so in practice it tracks *raster file bytes*.  Vector and ``table`` datasets are
+    PostGIS-resident and ``vrt_dataset`` is definition-only, so they carry no
+    ``data`` asset and contribute 0 bytes; ``overview``/``thumbnail`` (and any other
+    asset key) are also excluded.  The dataset-COUNT cap is therefore the cross-type
+    fence, and ``check_upload_quota`` still gates each upload on the actual incoming
+    ``file.size`` regardless of type.  A true cross-type storage total (e.g.
+    ``pg_total_relation_size`` per vector table + VRT source attribution) is
+    intentionally deferred to the metered/per-tenant (cloud) quota work.
+
     T-1224-01 mitigation: user_id is bound via SQLAlchemy parameterisation —
     never string-formatted into the SQL text.
     """
