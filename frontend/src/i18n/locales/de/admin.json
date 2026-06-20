@@ -584,6 +584,17 @@
         "admin": "Administrator"
       },
       "loadFailed": "OAuth-Anbieter konnten nicht geladen werden"
+    },
+    "notifications": {
+      "title": "Ausgehende Benachrichtigungen",
+      "description": "Konfigurieren und verifizieren Sie ausgehende Benachrichtigungskanäle (SMTP-E-Mail und Webhook). Geheimnisse werden hier nie angezeigt.",
+      "statusEnabled": "Aktiviert",
+      "smtpConfigured": "SMTP konfiguriert",
+      "webhookConfigured": "Webhook konfiguriert",
+      "sendTest": "Testbenachrichtigung senden",
+      "testSuccess": "Testbenachrichtigung gesendet",
+      "testNoChannel": "Kein Kanal konfiguriert",
+      "testError": "Testversand fehlgeschlagen"
     }
   },
   "infrastructure": {

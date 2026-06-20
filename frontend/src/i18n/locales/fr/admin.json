@@ -584,6 +584,17 @@
         "admin": "Administrateur"
       },
       "loadFailed": "Impossible de charger les fournisseurs OAuth"
+    },
+    "notifications": {
+      "title": "Notifications sortantes",
+      "description": "Configurez et vérifiez les canaux de notification sortants (e-mail SMTP et webhook). Les secrets ne sont jamais affichés ici.",
+      "statusEnabled": "Activé",
+      "smtpConfigured": "SMTP configuré",
+      "webhookConfigured": "Webhook configuré",
+      "sendTest": "Envoyer une notification de test",
+      "testSuccess": "Notification de test envoyée",
+      "testNoChannel": "Aucun canal configuré",
+      "testError": "Échec de l’envoi du test"
     }
   },
   "infrastructure": {
