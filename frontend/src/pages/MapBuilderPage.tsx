@@ -1,5 +1,5 @@
 import { lazy, Suspense, useState, useEffect, useRef, useCallback, useMemo, type ReactNode } from 'react';
-import { useParams, Link } from 'react-router';
+import { useParams, Link, useSearchParams } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { FileText, History, Sparkles } from 'lucide-react';
 import type { Map as MaplibreMap } from 'maplibre-gl';
@@ -103,6 +103,12 @@ import type { ViewportContext } from '@/components/builder/chat-suggestions';
 
 export function MapBuilderPage() {
   const { id } = useParams<{ id: string }>();
+  // POLISH-01 (Phase 1233-01): detect the ?add_dataset path so useBuilderSave
+  // can defer the first auto-capture until the layer-add effect has synced.
+  // use-builder-layers deletes the param once processed; we only need the
+  // mount-time value, so a stable read from useSearchParams is sufficient.
+  const [searchParams] = useSearchParams();
+  const pendingLayerAdd = searchParams.has('add_dataset');
   const { t } = useTranslation('builder');
   const { data: mapData, isLoading, error } = useMap(id, { refetchOnWindowFocus: false });
   const enabledPluginsQuery = useEnabledPlugins();
@@ -286,6 +292,7 @@ export function MapBuilderPage() {
     setHasUnsavedChanges: layers.setHasUnsavedChanges,
     hasUnsavedChanges: layers.hasUnsavedChanges,
     hasThumbnail: !!mapData?.thumbnail_url,
+    pendingLayerAdd,
   });
 
   const handleMapRef = useCallback((map: MaplibreMap | null) => {

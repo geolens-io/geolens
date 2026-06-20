@@ -1648,18 +1648,12 @@ describe('useBuilderSave', () => {
           vi.advanceTimersByTime(100);
         });
 
-        // waitForVisibleLayerSources has now resolved → idle listener registered
-        expect(mockMap.once).toHaveBeenCalledWith('idle', expect.any(Function));
-        expect(mockUploadThumbnail).not.toHaveBeenCalled();
-
-        // Fire the idle callback, then the render frame
-        const idleCallback = mockMap.once.mock.calls.find(
-          (c: unknown[]) => c[0] === 'idle',
-        )![1] as () => void;
-        act(() => { idleCallback(); });
-
+        // waitForVisibleLayerSources has now resolved.
+        // With loaded:true, whenMapIdle calls fn() directly (no idle event),
+        // so doCapture fires immediately → render listener is registered.
         expect(mockMap.once).toHaveBeenCalledWith('render', expect.any(Function));
         expect(mockMap.triggerRepaint).toHaveBeenCalled();
+        expect(mockUploadThumbnail).not.toHaveBeenCalled();
 
         vi.useRealTimers();
         await act(async () => { fireRenderCallback(mockMap); await Promise.resolve(); });
