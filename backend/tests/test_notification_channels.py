@@ -297,12 +297,22 @@ async def test_smtp_uses_to_from_notification_data(
 # Task 2: Webhook channel
 # ---------------------------------------------------------------------------
 
+# Helper: build an httpx.AsyncClient wired to a fake transport without
+# triggering the recursion bug from patching httpx.AsyncClient globally.
+# We import the real class once at module level so helpers can reference it.
+import httpx as _httpx  # noqa: E402  (after other imports — needed for helpers)
+
+
+def _make_fake_client(transport: _httpx.AsyncBaseTransport) -> _httpx.AsyncClient:
+    """Return a real httpx.AsyncClient wired to *transport* (no patching needed)."""
+    return _httpx.AsyncClient(
+        transport=transport, timeout=_httpx.Timeout(10.0, connect=5.0)
+    )
+
 
 @pytest.mark.anyio
 async def test_webhook_posts_correct_payload(monkeypatch: pytest.MonkeyPatch) -> None:
     """NOTIF-03: post_webhook POSTs JSON with event_type, subject, body, data, and text."""
-    import httpx
-
     from app.core.config import settings
 
     monkeypatch.setattr(
@@ -312,25 +322,28 @@ async def test_webhook_posts_correct_payload(monkeypatch: pytest.MonkeyPatch) ->
 
     captured: dict[str, Any] = {}
 
-    class FakeTransport(httpx.AsyncBaseTransport):
-        async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+    class FakeTransport(_httpx.AsyncBaseTransport):
+        async def handle_async_request(
+            self, request: _httpx.Request
+        ) -> _httpx.Response:
             import json as _json
 
             captured["url"] = str(request.url)
             captured["body"] = _json.loads(request.content)
             captured["headers"] = dict(request.headers)
-            return httpx.Response(200, text="ok")
+            return _httpx.Response(200, text="ok")
 
-    with patch(
-        "httpx.AsyncClient",
-        lambda **kw: httpx.AsyncClient(
-            transport=FakeTransport(),
-            **{k: v for k, v in kw.items() if k != "transport"},
-        ),
-    ):
-        from app.platform.notifications.webhook_channel import post_webhook
+    import app.platform.notifications.webhook_channel as _wc
 
-        await post_webhook(_TEST_NOTIFICATION)
+    monkeypatch.setattr(
+        _wc,
+        "_make_client",
+        lambda timeout: _make_fake_client(FakeTransport()),
+    )
+
+    from app.platform.notifications.webhook_channel import post_webhook
+
+    await post_webhook(_TEST_NOTIFICATION)
 
     assert captured["url"] == "https://hooks.example.com/webhook"
     body = captured["body"]
@@ -348,7 +361,6 @@ async def test_webhook_sends_secret_as_header_not_url(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """T-1229-04 + NOTIF-03: Webhook secret is sent as X-Webhook-Secret header, never in the URL."""
-    import httpx
     from pydantic import SecretStr
 
     from app.core.config import settings
@@ -362,22 +374,23 @@ async def test_webhook_sends_secret_as_header_not_url(
 
     captured: dict[str, Any] = {}
 
-    class FakeTransport(httpx.AsyncBaseTransport):
-        async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+    class FakeTransport(_httpx.AsyncBaseTransport):
+        async def handle_async_request(
+            self, request: _httpx.Request
+        ) -> _httpx.Response:
             captured["url"] = str(request.url)
             captured["headers"] = dict(request.headers)
-            return httpx.Response(200, text="ok")
+            return _httpx.Response(200, text="ok")
 
-    with patch(
-        "httpx.AsyncClient",
-        lambda **kw: httpx.AsyncClient(
-            transport=FakeTransport(),
-            **{k: v for k, v in kw.items() if k != "transport"},
-        ),
-    ):
-        from app.platform.notifications.webhook_channel import post_webhook
+    import app.platform.notifications.webhook_channel as _wc
 
-        await post_webhook(_TEST_NOTIFICATION)
+    monkeypatch.setattr(
+        _wc, "_make_client", lambda timeout: _make_fake_client(FakeTransport())
+    )
+
+    from app.platform.notifications.webhook_channel import post_webhook
+
+    await post_webhook(_TEST_NOTIFICATION)
 
     # Secret must be in X-Webhook-Secret header
     assert "x-webhook-secret" in captured["headers"], (
@@ -394,8 +407,6 @@ async def test_webhook_sends_secret_as_header_not_url(
 @pytest.mark.anyio
 async def test_webhook_raises_on_non_2xx(monkeypatch: pytest.MonkeyPatch) -> None:
     """NOTIF-03: post_webhook raises on non-2xx response."""
-    import httpx
-
     from app.core.config import settings
 
     monkeypatch.setattr(
@@ -403,21 +414,22 @@ async def test_webhook_raises_on_non_2xx(monkeypatch: pytest.MonkeyPatch) -> Non
     )
     monkeypatch.setattr(settings, "notification_webhook_secret", None)
 
-    class FakeTransport(httpx.AsyncBaseTransport):
-        async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
-            return httpx.Response(500, text="Server Error")
+    class FakeTransport(_httpx.AsyncBaseTransport):
+        async def handle_async_request(
+            self, request: _httpx.Request
+        ) -> _httpx.Response:
+            return _httpx.Response(500, text="Server Error")
 
-    with patch(
-        "httpx.AsyncClient",
-        lambda **kw: httpx.AsyncClient(
-            transport=FakeTransport(),
-            **{k: v for k, v in kw.items() if k != "transport"},
-        ),
-    ):
-        from app.platform.notifications.webhook_channel import post_webhook
+    import app.platform.notifications.webhook_channel as _wc
 
-        with pytest.raises(httpx.HTTPStatusError):
-            await post_webhook(_TEST_NOTIFICATION)
+    monkeypatch.setattr(
+        _wc, "_make_client", lambda timeout: _make_fake_client(FakeTransport())
+    )
+
+    from app.platform.notifications.webhook_channel import post_webhook
+
+    with pytest.raises(_httpx.HTTPStatusError):
+        await post_webhook(_TEST_NOTIFICATION)
 
 
 @pytest.mark.anyio
@@ -425,7 +437,6 @@ async def test_webhook_secret_not_in_logs(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
     """T-1229-04: Webhook secret must not appear in any log output."""
-    import httpx
     from pydantic import SecretStr
 
     from app.core.config import settings
@@ -437,21 +448,22 @@ async def test_webhook_secret_not_in_logs(
         settings, "notification_webhook_secret", SecretStr(_SECRET_WEBHOOK)
     )
 
-    class FakeTransport(httpx.AsyncBaseTransport):
-        async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
-            return httpx.Response(200, text="ok")
+    class FakeTransport(_httpx.AsyncBaseTransport):
+        async def handle_async_request(
+            self, request: _httpx.Request
+        ) -> _httpx.Response:
+            return _httpx.Response(200, text="ok")
 
-    with patch(
-        "httpx.AsyncClient",
-        lambda **kw: httpx.AsyncClient(
-            transport=FakeTransport(),
-            **{k: v for k, v in kw.items() if k != "transport"},
-        ),
-    ):
-        from app.platform.notifications.webhook_channel import post_webhook
+    import app.platform.notifications.webhook_channel as _wc
 
-        with caplog.at_level(logging.DEBUG):
-            await post_webhook(_TEST_NOTIFICATION)
+    monkeypatch.setattr(
+        _wc, "_make_client", lambda timeout: _make_fake_client(FakeTransport())
+    )
+
+    from app.platform.notifications.webhook_channel import post_webhook
+
+    with caplog.at_level(logging.DEBUG):
+        await post_webhook(_TEST_NOTIFICATION)
 
     for record in caplog.records:
         assert _SECRET_WEBHOOK not in record.getMessage(), (
@@ -464,8 +476,6 @@ async def test_webhook_no_secret_header_when_not_configured(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """NOTIF-03: When no webhook secret is configured, X-Webhook-Secret header is absent."""
-    import httpx
-
     from app.core.config import settings
 
     monkeypatch.setattr(
@@ -475,21 +485,22 @@ async def test_webhook_no_secret_header_when_not_configured(
 
     captured: dict[str, Any] = {}
 
-    class FakeTransport(httpx.AsyncBaseTransport):
-        async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+    class FakeTransport(_httpx.AsyncBaseTransport):
+        async def handle_async_request(
+            self, request: _httpx.Request
+        ) -> _httpx.Response:
             captured["headers"] = dict(request.headers)
-            return httpx.Response(200, text="ok")
+            return _httpx.Response(200, text="ok")
 
-    with patch(
-        "httpx.AsyncClient",
-        lambda **kw: httpx.AsyncClient(
-            transport=FakeTransport(),
-            **{k: v for k, v in kw.items() if k != "transport"},
-        ),
-    ):
-        from app.platform.notifications.webhook_channel import post_webhook
+    import app.platform.notifications.webhook_channel as _wc
 
-        await post_webhook(_TEST_NOTIFICATION)
+    monkeypatch.setattr(
+        _wc, "_make_client", lambda timeout: _make_fake_client(FakeTransport())
+    )
+
+    from app.platform.notifications.webhook_channel import post_webhook
+
+    await post_webhook(_TEST_NOTIFICATION)
 
     assert "x-webhook-secret" not in captured["headers"], (
         "X-Webhook-Secret must not be sent when no secret is configured"
