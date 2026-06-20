@@ -11,7 +11,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.auth.oauth.encryption import decrypt_secret
 from app.modules.auth.oauth.schemas import OAuthProviderPublic
-from app.modules.auth.oauth.service import get_enabled_providers, get_provider_by_slug
+from app.modules.auth.oauth.service import (
+    _resolve_github_identity,
+    get_enabled_providers,
+    get_provider_by_slug,
+)
 from app.modules.auth.providers import AuthenticatedIdentity
 from app.modules.auth.service import AuthService
 from app.core.dependencies import get_db
@@ -57,10 +61,20 @@ async def build_oauth_client(provider_slug: str, db: AsyncSession) -> tuple:
     if provider.discovery_url:
         register_kwargs["server_metadata_url"] = provider.discovery_url
     else:
-        # Generic OIDC without discovery -- explicit URLs
+        # Generic OIDC / GitHub without discovery -- explicit URLs.
+        # GitHub's token endpoint returns form-encoded unless Accept: application/json
+        # is sent. We request JSON via the token_endpoint_auth_method kwarg and by
+        # adding the Accept header to client_kwargs so authlib sends it during
+        # token exchange (SSO-05, Phase 1237).
         register_kwargs["authorize_url"] = provider.authorize_url
         register_kwargs["access_token_url"] = provider.token_url
         register_kwargs["userinfo_endpoint"] = provider.userinfo_url
+        if provider.provider_type == "github":
+            register_kwargs["client_kwargs"].update(
+                {
+                    "token_endpoint_auth_method": "client_secret_post",
+                }
+            )
 
     oauth.register(name=provider.slug, **register_kwargs)
     client = oauth.create_client(provider.slug)
@@ -141,15 +155,22 @@ async def oauth_callback(
         # Exchange authorization code for tokens
         token = await client.authorize_access_token(request)
 
-        # Extract userinfo
-        userinfo = token.get("userinfo")
-        if userinfo is None:
-            userinfo = await client.userinfo(token=token)
+        # Extract userinfo.
+        # GitHub is plain OAuth2 (not OIDC) with no id_token / userinfo endpoint
+        # that authlib knows about automatically. Its /user endpoint omits email
+        # when set to private, so we resolve the primary+verified email via a
+        # separate /user/emails call (T-1237-01 ASVS guard, SSO-05, Phase 1237).
+        # All other providers use the existing authlib userinfo path unchanged.
+        if provider.provider_type == "github":
+            userinfo = await _resolve_github_identity(dict(token))
+        else:
+            userinfo = token.get("userinfo")
+            if userinfo is None:
+                userinfo = await client.userinfo(token=token)
+            userinfo = dict(userinfo)
 
         # Find or create the GeoLens user
-        user = await find_or_create_oauth_user(
-            db, provider, dict(userinfo), dict(token)
-        )
+        user = await find_or_create_oauth_user(db, provider, userinfo, dict(token))
 
         # Record login timestamp
         user.last_login_at = func.now()

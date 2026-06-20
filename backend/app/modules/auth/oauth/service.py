@@ -3,6 +3,7 @@
 import secrets
 import uuid
 
+import httpx
 import structlog
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -19,6 +20,19 @@ from app.modules.auth.oauth.schemas import (
     OAuthProviderCreate,
     OAuthProviderUpdate,
 )
+
+# ---------------------------------------------------------------------------
+# GitHub OAuth2 fixed endpoints (SSO-05, Phase 1237)
+# ---------------------------------------------------------------------------
+
+GITHUB_AUTHORIZE_URL = "https://github.com/login/oauth/authorize"
+GITHUB_TOKEN_URL = "https://github.com/login/oauth/access_token"
+GITHUB_USERINFO_URL = "https://api.github.com/user"
+GITHUB_EMAILS_URL = "https://api.github.com/user/emails"
+# Default scope: read:user to access the /user endpoint; user:email to access
+# /user/emails (needed to resolve the primary verified email when email is null
+# on /user — which is the normal case for users who have set email to private).
+GITHUB_DEFAULT_SCOPE = "read:user user:email"
 
 
 async def _is_manage_settings_admin(db: AsyncSession, user: User) -> bool:
@@ -100,6 +114,33 @@ async def create_provider(
         else encrypt_secret("saml-no-client-secret")
     )
 
+    # GitHub auto-populate: fill in GitHub's fixed endpoints when the admin did
+    # not supply explicit values (SSO-05, Phase 1237).  GitHub is plain OAuth2
+    # (no discovery URL, no id_token), so these three explicit endpoint fields
+    # must be populated here rather than via a discovery_url fetch.
+    #
+    # Admin-supplied values always take precedence: we only set a field when it
+    # is None (i.e. the admin left it blank).  The scope is auto-defaulted to
+    # GITHUB_DEFAULT_SCOPE only when the admin sent the schema default
+    # ("openid profile email"), which is not useful for GitHub.
+    authorize_url = data.authorize_url
+    token_url = data.token_url
+    userinfo_url = data.userinfo_url
+    scopes = data.scopes
+    if data.provider_type == "github":
+        if not authorize_url:
+            authorize_url = GITHUB_AUTHORIZE_URL
+        if not token_url:
+            token_url = GITHUB_TOKEN_URL
+        if not userinfo_url:
+            userinfo_url = GITHUB_USERINFO_URL
+        # Replace the schema default ("openid profile email") with GitHub's
+        # native scope when the admin did not explicitly customise scopes.
+        # The schema default is a sentinel we can detect: if an admin supplied
+        # a custom scope string for GitHub (unusual but allowed), we honour it.
+        if scopes == "openid profile email":
+            scopes = GITHUB_DEFAULT_SCOPE
+
     provider = OAuthProvider(
         slug=data.slug,
         display_name=data.display_name,
@@ -107,9 +148,9 @@ async def create_provider(
         client_id=client_id_value,
         client_secret_encrypted=client_secret_value,
         discovery_url=data.discovery_url,
-        authorize_url=data.authorize_url,
-        token_url=data.token_url,
-        userinfo_url=data.userinfo_url,
+        authorize_url=authorize_url,
+        token_url=token_url,
+        userinfo_url=userinfo_url,
         # SAML fields: idp_certificate is Fernet-encrypted (D-03 / Pattern D);
         # the other 3 are plaintext (entity IDs and a public URL — not credentials).
         idp_entity_id=data.idp_entity_id,
@@ -118,7 +159,7 @@ async def create_provider(
             encrypt_secret(data.idp_certificate) if data.idp_certificate else None
         ),
         sp_entity_id=data.sp_entity_id,
-        scopes=data.scopes,
+        scopes=scopes,
         default_role=data.default_role,
         group_claim=data.group_claim,
         group_role_mapping=data.group_role_mapping,
@@ -205,6 +246,96 @@ async def delete_provider(db: AsyncSession, provider: OAuthProvider) -> None:
     """Delete an OAuth provider (cascades to oauth_accounts)."""
     await db.delete(provider)
     await db.flush()
+
+
+# ---------------------------------------------------------------------------
+# GitHub OAuth2 identity resolution (SSO-05, Phase 1237)
+# ---------------------------------------------------------------------------
+
+
+async def _resolve_github_identity(token: dict) -> dict:
+    """Resolve a GitHub user's primary+verified email and return a normalized userinfo dict.
+
+    GitHub's ``/user`` endpoint omits the email field when the user has set their
+    email to private.  Even when it is present it may be an unverified address.
+    This helper calls ``GET /user/emails`` to find the entry that is BOTH
+    ``primary == true`` AND ``verified == true``, which is the only address that
+    can reliably identify the account without enabling account-takeover via an
+    attacker-added unverified email (T-1237-01).
+
+    Security contract
+    -----------------
+    - Only the entry that is simultaneously ``primary`` AND ``verified`` is
+      accepted.  An entry that is verified-but-not-primary, or primary-but-not-
+      verified, is ignored.
+    - If no such entry exists the function raises ``ValueError`` so the callback's
+      broad ``except`` converts it to an ``oauth_failed`` redirect — the login
+      cannot proceed without a trustworthy email address.
+    - The GitHub token endpoint returns form-encoded unless ``Accept: application/json``
+      is sent; the caller (router.py) ensures the token is already a dict by the
+      time this helper is called.
+
+    Parameters
+    ----------
+    token:
+        The token dict returned by ``client.authorize_access_token(request)``.
+        Must include ``"access_token"`` at the top level.
+
+    Returns
+    -------
+    dict with keys ``sub`` (str), ``email`` (str), ``name`` (str), and
+    ``email_verified`` (always ``True`` — enforced by the primary+verified guard).
+    """
+    access_token = token.get("access_token")
+    if not access_token:
+        raise ValueError("GitHub token response missing access_token")
+
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+
+    async with httpx.AsyncClient(follow_redirects=False) as client:
+        # Fetch basic user profile for id, login, name.
+        user_resp = await client.get(GITHUB_USERINFO_URL, headers=headers)
+        user_resp.raise_for_status()
+        user_data = user_resp.json()
+
+        # Fetch verified email list — required because /user returns email=null
+        # when the user has set their email to private (the common case).
+        emails_resp = await client.get(GITHUB_EMAILS_URL, headers=headers)
+        emails_resp.raise_for_status()
+        emails_data = emails_resp.json()
+
+    github_id = user_data.get("id")
+    if not github_id:
+        raise ValueError("GitHub /user response missing id")
+
+    # T-1237-01: select ONLY the entry that is both primary AND verified.
+    primary_verified = next(
+        (
+            entry
+            for entry in emails_data
+            if entry.get("primary") is True and entry.get("verified") is True
+        ),
+        None,
+    )
+    if primary_verified is None:
+        raise ValueError(
+            "GitHub account has no primary+verified email — cannot authenticate. "
+            "Please verify your primary email address on GitHub and try again."
+        )
+
+    email = primary_verified["email"]
+    name = user_data.get("name") or user_data.get("login", "")
+
+    return {
+        "sub": str(github_id),
+        "email": email,
+        "name": name,
+        "email_verified": True,  # enforced by the primary+verified guard above
+    }
 
 
 # ---------------------------------------------------------------------------
