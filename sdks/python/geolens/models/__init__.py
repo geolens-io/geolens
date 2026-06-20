@@ -328,6 +328,9 @@ from .map_summary_response import MapSummaryResponse
 from .map_update import MapUpdate
 from .map_visibility import MapVisibility
 from .metadata_assist_request import MetadataAssistRequest
+from .notification_status_response import NotificationStatusResponse
+from .notification_test_channel_result import NotificationTestChannelResult
+from .notification_test_response import NotificationTestResponse
 from .o_auth_provider_create import OAuthProviderCreate
 from .o_auth_provider_create_group_role_mapping_type_0 import (
     OAuthProviderCreateGroupRoleMappingType0,
@@ -843,6 +846,9 @@ __all__ = (
     "MapUpdate",
     "MapVisibility",
     "MetadataAssistRequest",
+    "NotificationStatusResponse",
+    "NotificationTestChannelResult",
+    "NotificationTestResponse",
     "OAuthProviderCreate",
     "OAuthProviderCreateGroupRoleMappingType0",
     "OAuthProviderCreateProviderType",

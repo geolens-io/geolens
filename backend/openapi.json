@@ -9323,6 +9323,96 @@
         "title": "MetadataAssistRequest",
         "type": "object"
       },
+      "NotificationStatusResponse": {
+        "description": "Response for GET /settings/notifications/status/ (NOTIF-05 / NOTIF-06).\n\nReturns only boolean presence flags \u2014 never a secret value (SMTP password,\nwebhook URL, or webhook secret).",
+        "properties": {
+          "notifications_enabled": {
+            "description": "Whether the NOTIFICATIONS_ENABLED master toggle is set to true.",
+            "title": "Notifications Enabled",
+            "type": "boolean"
+          },
+          "smtp_configured": {
+            "description": "Whether an SMTP host is configured (SMTP_HOST is set). Does not echo the host value.",
+            "title": "Smtp Configured",
+            "type": "boolean"
+          },
+          "webhook_configured": {
+            "description": "Whether a notification webhook URL is configured (NOTIFICATION_WEBHOOK_URL is set). Does not echo the URL.",
+            "title": "Webhook Configured",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "notifications_enabled",
+          "smtp_configured",
+          "webhook_configured"
+        ],
+        "title": "NotificationStatusResponse",
+        "type": "object"
+      },
+      "NotificationTestChannelResult": {
+        "description": "Per-channel result from POST /settings/notifications/test/.\n\nThe ``error`` field contains only the exception type name and a short\nsafe message \u2014 never the SMTP password, webhook URL, or webhook secret\n(T-1229-09 / NOTIF-05).",
+        "properties": {
+          "channel": {
+            "description": "Channel name, e.g. 'smtp' or 'webhook'.",
+            "title": "Channel",
+            "type": "string"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Safe error string (exception type name + short message) if ok=False, else null. Never contains secrets.",
+            "title": "Error"
+          },
+          "ok": {
+            "description": "True if the channel delivered the test notification without error.",
+            "title": "Ok",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "channel",
+          "ok"
+        ],
+        "title": "NotificationTestChannelResult",
+        "type": "object"
+      },
+      "NotificationTestResponse": {
+        "description": "Response for POST /settings/notifications/test/ (NOTIF-06).\n\nAlways returns HTTP 200 \u2014 a channel delivery failure is captured in the\nper-channel ``channels`` list rather than as a 5xx. Never contains secret\nvalues (T-1229-09 / NOTIF-05).",
+        "properties": {
+          "channels": {
+            "description": "Per-channel delivery results. Empty when no channel is configured.",
+            "items": {
+              "$ref": "#/components/schemas/NotificationTestChannelResult"
+            },
+            "title": "Channels",
+            "type": "array"
+          },
+          "message": {
+            "description": "Human-readable summary of the test result.",
+            "title": "Message",
+            "type": "string"
+          },
+          "sent": {
+            "description": "True if at least one channel successfully delivered the test notification.",
+            "title": "Sent",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "sent",
+          "channels",
+          "message"
+        ],
+        "title": "NotificationTestResponse",
+        "type": "object"
+      },
       "OAuthProviderCreate": {
         "description": "Schema for creating a new OAuth provider.",
         "properties": {
@@ -41247,6 +41337,192 @@
           }
         },
         "summary": "Get Map Defaults",
+        "tags": [
+          "Admin"
+        ]
+      }
+    },
+    "/settings/notifications/status/": {
+      "get": {
+        "description": "Return which notification channels are configured (booleans only \u2014 no secrets).\n\nMirrors get_api_key_status: returns presence flags derived from env/settings\nwithout ever echoing the SMTP password, webhook URL, or webhook secret\n(NOTIF-05 / T-1229-09).",
+        "operationId": "get_notification_status_settings_notifications_status__get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationStatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Bad request \u2014 invalid query parameters or payload"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Unauthorized \u2014 missing or invalid credentials"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Forbidden \u2014 caller lacks access to this resource"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Validation error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Internal server error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Get Notification Status",
+        "tags": [
+          "Admin"
+        ]
+      }
+    },
+    "/settings/notifications/test/": {
+      "post": {
+        "description": "Send a canned test notification through each configured channel (admin only).\n\nMirrors detect_embedding_dims: admin-gated probe that reports per-channel\nreachable/error in a 200 body without leaking secrets or raising 5xx on a\nbad channel (NOTIF-06 / T-1229-08 / T-1229-09 / T-1229-10).\n\nPer-channel approach (not EnvConfiguredNotificationSink.deliver) is used so\neach channel's success/failure is captured in its own\nNotificationTestChannelResult for display in the admin UI.",
+        "operationId": "send_test_notification_settings_notifications_test__post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationTestResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Bad request \u2014 invalid query parameters or payload"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Unauthorized \u2014 missing or invalid credentials"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Forbidden \u2014 caller lacks access to this resource"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Validation error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Internal server error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Send Test Notification",
         "tags": [
           "Admin"
         ]
