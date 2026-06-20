@@ -25,13 +25,13 @@ class OAuthProvider(Base):
     __tablename__ = "oauth_providers"
     __table_args__ = (
         CheckConstraint(
-            # 'saml' is added by enterprise migration e002_add_saml_columns;
-            # the literal here matches the relaxed constraint so model and DB
-            # stay in sync when the enterprise overlay is loaded. Community
-            # deployments still see only oidc/google/microsoft rows because
-            # SAML rows can only be created when the enterprise overlay also
-            # supplies the required nullable SAML columns (added by e002).
-            "provider_type IN ('oidc', 'google', 'microsoft', 'saml')",
+            # 'saml' is co-owned by enterprise migration e002_add_saml_columns;
+            # 'github' is added by OSS migration 0010_oauth_github_provider_type.
+            # The literal here matches the widest constraint so the model and DB
+            # stay in sync when either overlay is loaded. Community deployments
+            # still see only oidc/google/microsoft/github rows in practice because
+            # SAML rows require the enterprise overlay (e002 + is_enterprise() gate).
+            "provider_type IN ('oidc', 'google', 'microsoft', 'saml', 'github')",
             name="chk_oauth_providers_type",
         ),
         {"schema": "catalog"},

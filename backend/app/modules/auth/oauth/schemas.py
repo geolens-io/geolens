@@ -64,8 +64,8 @@ class OAuthProviderCreate(BaseModel):
         max_length=_DISPLAY_NAME_MAX,
         description="Human-readable label shown on the login page button.",
     )
-    provider_type: Literal["google", "microsoft", "oidc", "saml"] = Field(
-        description="OAuth or SAML provider type. 'google' and 'microsoft' auto-populate the discovery URL; 'oidc' is generic OAuth/OIDC; 'saml' enables SAML SSO (requires enterprise edition)."
+    provider_type: Literal["google", "microsoft", "oidc", "saml", "github"] = Field(
+        description="OAuth or SAML provider type. 'google' and 'microsoft' auto-populate the discovery URL; 'oidc' is generic OAuth/OIDC; 'github' uses GitHub's fixed OAuth2 endpoints (no discovery URL); 'saml' enables SAML SSO (requires enterprise edition)."
     )
     client_id: str | None = Field(
         default=None,
@@ -229,8 +229,11 @@ class OAuthProviderUpdate(BaseModel):
         max_length=_DISPLAY_NAME_MAX,
         description="New display label.",
     )
-    provider_type: Literal["google", "microsoft", "oidc", "saml"] | None = Field(
-        default=None, description="New provider type. Rarely changed after creation."
+    provider_type: Literal["google", "microsoft", "oidc", "saml", "github"] | None = (
+        Field(
+            default=None,
+            description="New provider type. Rarely changed after creation.",
+        )
     )
     client_id: str | None = Field(
         default=None,
