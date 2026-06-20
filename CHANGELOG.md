@@ -7,6 +7,56 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-06-20
+
+This release covers two internal milestones (v1044 demo lead-gen front door and v1045
+outbound notifications + email-verified signup) in operator-facing terms.
+
+### Added
+
+- **Login-as-landing / demo front door.** The root URL can now serve the login
+  page directly as the landing experience, making it easier to present a
+  self-hosted instance as a gated demo without a separate marketing layer.
+  Controlled by a per-deployment setting; existing installs retain the default
+  catalog home.
+- **Google Sign-in (Google OAuth provider).** Operators can now enable Google as
+  a social sign-in provider through the admin OAuth-providers configuration.
+  Configuring the provider ID + client credentials is all that is required; users
+  then sign in via the standard OAuth flow.
+- **Per-user storage and upload quotas.** Administrators can cap per-user file
+  storage and upload usage via admin settings. Quotas are enforced at upload
+  time (HTTP 413/422 when exceeded) and are DB-configurable without a restart.
+- **Outbound notification channels (SMTP email + webhook).** A new notification
+  port lets operators configure one or more outbound sinks — SMTP email or an
+  HTTPS webhook — for server-side events. Connection parameters (host, port,
+  TLS, credentials, webhook URL + secret) are managed in admin Network settings,
+  with a test-send button to confirm delivery before relying on them.
+- **Event-driven notifications.** Operators can subscribe individual events —
+  new-user signup, ingest complete, ingest failure, health alert — to the
+  configured notification channels via per-event toggles in admin settings.
+  Each event type can be enabled or disabled independently.
+- **Email-verified self-serve registration (optional, default OFF).** A new
+  `EMAIL_VERIFICATION_REQUIRED` setting (default disabled) enables operator-gated
+  self-serve signup with an email-verification step. When enabled, new
+  registrations receive a verification email; accounts are activated only after
+  the link is clicked. Requires outbound SMTP to be configured. The setting is
+  default-disabled and has no effect on installs that do not set it.
+
+### Fixed
+
+- OSS OAuth provider creation no longer fails with a 500 when SAML columns are
+  absent from the baseline schema. Migration `0008` adds the necessary columns
+  conditionally, resolving the error for fresh installs and existing deployments
+  that have not applied the enterprise SAML overlay.
+
+### Upgrade notes
+
+- **No breaking changes for self-hosted operators.** Pull the new images and run
+  the standard upgrade. Schema changes since 1.3.0 are additive migrations
+  (`0008`–`0009`). All new features that require configuration (Google sign-in,
+  outbound notifications, email-verified signup) are default-disabled; no action
+  is needed to preserve existing behavior.
+
 ## [1.3.0] - 2026-06-18
 
 This release bundles changes since 1.2.4. It summarizes four internal milestones

@@ -20,7 +20,10 @@ jobs:
       - name: Get previous tag
         id: prev
         run: |
-          PREV=$(git tag --sort=-v:refname | grep -A1 "^${{ github.ref_name }}$" | tail -1)
+          # Filter to strict semver (vMAJOR.MINOR.PATCH) before selection so that
+          # 4-digit GSD milestone tags (v1044, v1043, …) — which version-sort above
+          # the entire semver line — cannot shadow the real previous release.
+          PREV=$(git tag --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | grep -A1 "^${{ github.ref_name }}$" | tail -1)
           echo "tag=${PREV}" >> "$GITHUB_OUTPUT"
 
       - name: Generate release notes
