@@ -69,6 +69,21 @@ class UserCreate(BaseModel):
 
 class RegisterResponse(BaseModel):
     message: str
+    # M1 follow-up (Phase 1234): machine-readable post-registration step so the
+    # client renders the correct pending view from the server's actual decision
+    # instead of inferring it from a cached /auth/config snapshot (race-free).
+    # Computed purely from (config + submitted email) and therefore IDENTICAL for
+    # a genuine new signup and a swallowed username/email collision — the
+    # collision path must not be distinguishable (SEC-012 enumeration-safety).
+    # None on non-register responses (verify/resend reuse this model).
+    next_step: Literal["verify_email", "await_approval"] | None = Field(
+        default=None,
+        description=(
+            "Post-registration step for the client to display: 'verify_email' when a "
+            "verification email was (or, for a swallowed collision, would have been) sent; "
+            "'await_approval' for the admin-approval path. None on non-register responses."
+        ),
+    )
 
 
 class VerifyEmailRequest(BaseModel):
@@ -105,20 +120,6 @@ class ConfigResponse(BaseModel):
         description=(
             "When true, new self-registered users must verify their email before logging in. "
             "Default false for back-compat-safe parsing by older clients."
-        ),
-    )
-    # M1 (Phase 1234 follow-up): whether an SMTP channel is configured on the
-    # server. The register flow only sends a verification email when
-    # email_verification_required AND smtp_configured; otherwise it falls back
-    # to admin-approval (router.register, WR-02). The RegisterPage reads this so
-    # it does not tell a no-SMTP signup to "check your email" when no mail can
-    # be sent.
-    smtp_configured: bool = Field(
-        default=False,
-        description=(
-            "When true, an SMTP host is configured so verification emails can be sent. "
-            "When false, email-verification-required signups fall back to admin-approval. "
-            "Default false; field may be absent on older server versions (treat as false)."
         ),
     )
     auth_methods: list[str] = Field(

@@ -427,6 +427,7 @@ from .refresh_request import RefreshRequest
 from .register_request import RegisterRequest
 from .register_request_visibility import RegisterRequestVisibility
 from .register_response import RegisterResponse
+from .register_response_next_step_type_0 import RegisterResponseNextStepType0
 from .related_dataset_item import RelatedDatasetItem
 from .related_datasets_response import RelatedDatasetsResponse
 from .rename_column_request import RenameColumnRequest
@@ -913,6 +914,7 @@ __all__ = (
     "RegisterRequest",
     "RegisterRequestVisibility",
     "RegisterResponse",
+    "RegisterResponseNextStepType0",
     "RelatedDatasetItem",
     "RelatedDatasetsResponse",
     "RenameColumnRequest",

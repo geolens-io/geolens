@@ -1,6 +1,6 @@
 import { API_BASE } from '@/lib/constants';
 import { apiFetch } from './client';
-import type { TokenResponse, UserResponse, AuthConfigResponse, MessageResponse, MyApiKeyResponse, ApiKeyCreateResponse, OAuthProviderPublic } from '@/types/api';
+import type { TokenResponse, UserResponse, AuthConfigResponse, MessageResponse, SignupResponse, MyApiKeyResponse, ApiKeyCreateResponse, OAuthProviderPublic } from '@/types/api';
 
 export async function login(
   username: string,
@@ -38,7 +38,7 @@ export async function registerUser(data: {
   username: string;
   password: string;
   email: string;
-}): Promise<MessageResponse> {
+}): Promise<SignupResponse> {
   const response = await fetch(`${API_BASE}/auth/register/`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -52,7 +52,7 @@ export async function registerUser(data: {
     } catch { /* ignore */ }
     throw new Error(detail);
   }
-  return response.json() as Promise<MessageResponse>;
+  return response.json() as Promise<SignupResponse>;
 }
 
 export async function getAuthConfig(): Promise<AuthConfigResponse> {

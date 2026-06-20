@@ -632,16 +632,21 @@ export interface AuthConfigResponse {
    *  verification email and requires email confirmation before login.
    *  Field may be absent on older server versions (treat as false). */
   email_verification_required?: boolean;
-  /** M1 (Phase 1234 follow-up): when true an SMTP host is configured so
-   *  verification emails can be sent. The register flow only emails when
-   *  email_verification_required AND smtp_configured; otherwise it falls back
-   *  to admin-approval. RegisterPage reads this so it does not show
-   *  "check your email" on a no-SMTP deploy. Absent on older servers → false. */
-  smtp_configured?: boolean;
 }
 
 export interface MessageResponse {
   message: string;
+}
+
+/** Auth register endpoint response. (NB: the `RegisterResponse` interface above
+ *  is the unrelated dataset-ingest register type.) */
+export interface SignupResponse {
+  message: string;
+  /** M1 follow-up (Phase 1234): authoritative post-registration step —
+   *  'verify_email' when a verification email was sent, else 'await_approval'.
+   *  Identical for a new signup and a swallowed collision (enumeration-safety).
+   *  Absent on older servers → treat as 'await_approval'. */
+  next_step?: 'verify_email' | 'await_approval';
 }
 
 export interface FilePreviewResponse {

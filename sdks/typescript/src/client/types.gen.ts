@@ -2004,12 +2004,6 @@ export type ConfigResponse = {
      * Whether self-service registration is open
      */
     registration_enabled: boolean;
-    /**
-     * Smtp Configured
-     *
-     * When true, an SMTP host is configured so verification emails can be sent. When false, email-verification-required signups fall back to admin-approval. Default false; field may be absent on older server versions (treat as false).
-     */
-    smtp_configured?: boolean;
 };
 
 /**
@@ -6989,6 +6983,12 @@ export type RegisterResponse = {
      * Message
      */
     message: string;
+    /**
+     * Next Step
+     *
+     * Post-registration step for the client to display: 'verify_email' when a verification email was (or, for a swallowed collision, would have been) sent; 'await_approval' for the admin-approval path. None on non-register responses.
+     */
+    next_step?: 'verify_email' | 'await_approval' | null;
 };
 
 /**

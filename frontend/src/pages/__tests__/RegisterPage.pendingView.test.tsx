@@ -7,10 +7,11 @@ import { useAuthStore } from '@/stores/auth-store';
 import { getAuthConfig, registerUser } from '@/api/auth';
 import { RegisterPage } from '../RegisterPage';
 
-// M1 (Phase 1234 follow-up): RegisterPage must mirror the server contract —
-// "check your email" is shown only when email verification is required AND an
-// SMTP channel is configured. On a no-SMTP deploy the server falls back to
-// admin-approval, so the page must show PendingApproval, not VerificationPending.
+// M1 follow-up (Phase 1234): the post-submit pending view is driven by the
+// server's authoritative RegisterResponse.next_step — NOT inferred from a cached
+// /auth/config snapshot. This eliminates the config-fetch race and matches
+// exactly what the backend did (which is also enumeration-safe: a collision and
+// a new signup return the same next_step).
 
 vi.mock('sonner', () => ({
   toast: { info: vi.fn(), success: vi.fn(), error: vi.fn(), warning: vi.fn() },
@@ -18,7 +19,7 @@ vi.mock('sonner', () => ({
 
 vi.mock('@/api/auth', () => ({
   getAuthConfig: vi.fn(),
-  registerUser: vi.fn().mockResolvedValue({ message: 'ok' }),
+  registerUser: vi.fn(),
   loginUser: vi.fn(),
 }));
 
@@ -51,19 +52,20 @@ async function submitRegistration() {
   await user.click(screen.getByRole('button', { name: /create account/i }));
 }
 
-describe('RegisterPage — SMTP-aware post-submit message (M1)', () => {
+describe('RegisterPage — post-submit view follows server next_step (M1 follow-up)', () => {
   beforeEach(() => {
     useAuthStore.setState({ token: null, refreshToken: null, expiresAt: null, user: null });
     vi.clearAllMocks();
-    vi.mocked(registerUser).mockResolvedValue({ message: 'ok' });
-  });
-
-  it('verification required but NO SMTP → shows admin-approval, not "check your email"', async () => {
+    // Config only gates whether the form is shown; it must NOT drive the
+    // post-submit branch anymore. Set verification ON to prove that.
     vi.mocked(getAuthConfig).mockResolvedValue({
       registration_enabled: true,
       email_verification_required: true,
-      smtp_configured: false,
     });
+  });
+
+  it('next_step="await_approval" → shows admin-approval, not "check your email"', async () => {
+    vi.mocked(registerUser).mockResolvedValue({ message: 'ok', next_step: 'await_approval' });
 
     render(<RegisterPage />, { wrapper: makeWrapper() });
     await screen.findByRole('button', { name: /create account/i });
@@ -73,12 +75,8 @@ describe('RegisterPage — SMTP-aware post-submit message (M1)', () => {
     expect(screen.queryByText('Check Your Email')).not.toBeInTheDocument();
   });
 
-  it('verification required AND SMTP configured → shows "check your email"', async () => {
-    vi.mocked(getAuthConfig).mockResolvedValue({
-      registration_enabled: true,
-      email_verification_required: true,
-      smtp_configured: true,
-    });
+  it('next_step="verify_email" → shows "check your email"', async () => {
+    vi.mocked(registerUser).mockResolvedValue({ message: 'ok', next_step: 'verify_email' });
 
     render(<RegisterPage />, { wrapper: makeWrapper() });
     await screen.findByRole('button', { name: /create account/i });
@@ -86,5 +84,16 @@ describe('RegisterPage — SMTP-aware post-submit message (M1)', () => {
 
     expect(await screen.findByText('Check Your Email')).toBeInTheDocument();
     expect(screen.queryByText('Account Pending Approval')).not.toBeInTheDocument();
+  });
+
+  it('missing next_step (older server) → defaults to admin-approval', async () => {
+    vi.mocked(registerUser).mockResolvedValue({ message: 'ok' });
+
+    render(<RegisterPage />, { wrapper: makeWrapper() });
+    await screen.findByRole('button', { name: /create account/i });
+    await submitRegistration();
+
+    expect(await screen.findByText('Account Pending Approval')).toBeInTheDocument();
+    expect(screen.queryByText('Check Your Email')).not.toBeInTheDocument();
   });
 });

@@ -240,6 +240,17 @@ async def register(
     except ValueError:
         collision = True
 
+    # Determine the post-registration outcome from CONFIG + submitted email only —
+    # never from whether this was a genuine signup or a swallowed collision — so
+    # both return a byte-identical response (SEC-012 enumeration-safety). The
+    # verify-email path previously returned a different message than the collision
+    # swallow, leaking account existence whenever email verification was enabled.
+    verification_required = await EMAIL_VERIFICATION_REQUIRED.get(db)
+    smtp_configured = bool(settings.smtp_host)
+    wants_email_verification = bool(
+        verification_required and body.email and smtp_configured
+    )
+
     if not collision:
         # Phase 279 ADMIN-05 (L-02): the registrant is the actor (no acting admin
         # exists yet). resource_id == user_id == the new pending user. ip_address
@@ -286,9 +297,10 @@ async def register(
         #      to admin-approval rather than failing with 502 for non-SMTP setups.
         # The signup-OFF path (REGISTRATION_ENABLED=False) never reaches here,
         # so this block cannot affect the OFF-path byte-identical contract (SIGNUP-06).
-        verification_required = await EMAIL_VERIFICATION_REQUIRED.get(db)
-        smtp_configured = bool(settings.smtp_host)
-        if verification_required and body.email and smtp_configured:
+        # SIGNUP-03: only a GENUINE new user gets a token issued + email sent.
+        # (A swallowed collision creates no row, so there is nothing to verify —
+        # it still returns the same response below to stay indistinguishable.)
+        if wants_email_verification:
             # Issue the verification token; commit it to the DB so the subsequent
             # send attempt can reference the persisted token row even if the SMTP
             # call raises.
@@ -323,13 +335,6 @@ async def register(
                     ),
                 ) from None
 
-            return RegisterResponse(
-                message=(
-                    "Registration submitted. "
-                    "Please check your email to verify your address and activate your account."
-                )
-            )
-
         elif verification_required and body.email and not smtp_configured:
             # Verification is required but no SMTP channel is configured, so we
             # cannot send a verification email and fall back to admin-approval.
@@ -347,9 +352,21 @@ async def register(
                 ),
             )
 
-    # Default: admin-approval path (verification off, no email provided, or collision swallow).
+    # Unified response — IDENTICAL for a genuine new user and a swallowed
+    # collision given the same (config, submitted email). Closes the SIGNUP-03
+    # enumeration gap where the verify-email path returned a different message
+    # (and now next_step) than the collision-swallow admin-approval path.
+    if wants_email_verification:
+        return RegisterResponse(
+            message=(
+                "Registration submitted. "
+                "Please check your email to verify your address and activate your account."
+            ),
+            next_step="verify_email",
+        )
     return RegisterResponse(
-        message="Registration submitted. Your account is awaiting admin approval."
+        message="Registration submitted. Your account is awaiting admin approval.",
+        next_step="await_approval",
     )
 
 
@@ -619,7 +636,6 @@ async def config(
         registration_enabled=reg_enabled,
         allow_signup=reg_enabled,
         email_verification_required=email_verification_required,
-        smtp_configured=bool(settings.smtp_host),
         auth_methods=list(get_auth_extension().get_auth_methods()),
         landing_first=landing_first,
         demo_mode=demo_mode,

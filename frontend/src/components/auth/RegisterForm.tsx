@@ -16,7 +16,10 @@ import {
 import { GEOLENS_PRIVACY_URL } from '@/lib/external-links';
 
 interface RegisterFormProps {
-  onSuccess: (email: string) => void;
+  onSuccess: (
+    email: string,
+    nextStep?: 'verify_email' | 'await_approval',
+  ) => void;
 }
 
 export function RegisterForm({ onSuccess }: RegisterFormProps) {
@@ -33,8 +36,8 @@ export function RegisterForm({ onSuccess }: RegisterFormProps) {
     setLoading(true);
 
     try {
-      await registerUser({ username, email, password });
-      onSuccess(email);
+      const result = await registerUser({ username, email, password });
+      onSuccess(email, result.next_step);
     } catch (err) {
       setError(err instanceof Error ? err.message : t('registrationFailed'));
     } finally {

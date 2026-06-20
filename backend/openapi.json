@@ -3316,12 +3316,6 @@
             "description": "Whether self-service registration is open",
             "title": "Registration Enabled",
             "type": "boolean"
-          },
-          "smtp_configured": {
-            "default": false,
-            "description": "When true, an SMTP host is configured so verification emails can be sent. When false, email-verification-required signups fall back to admin-approval. Default false; field may be absent on older server versions (treat as false).",
-            "title": "Smtp Configured",
-            "type": "boolean"
           }
         },
         "required": [
@@ -12016,6 +12010,22 @@
           "message": {
             "title": "Message",
             "type": "string"
+          },
+          "next_step": {
+            "anyOf": [
+              {
+                "enum": [
+                  "verify_email",
+                  "await_approval"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Post-registration step for the client to display: 'verify_email' when a verification email was (or, for a swallowed collision, would have been) sent; 'await_approval' for the admin-approval path. None on non-register responses.",
+            "title": "Next Step"
           }
         },
         "required": [

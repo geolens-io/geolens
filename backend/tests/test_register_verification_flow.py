@@ -731,37 +731,9 @@ async def test_config_exposes_signup_flags(
     assert "email_verification_required" in body, (
         "ConfigResponse must include email_verification_required"
     )
-    assert "smtp_configured" in body, "ConfigResponse must include smtp_configured (M1)"
     # With REGISTRATION_ENABLED=True, allow_signup should be True
     assert body["allow_signup"] is True, (
         f"allow_signup should reflect REGISTRATION_ENABLED; got {body['allow_signup']!r}"
-    )
-
-
-@pytest.mark.anyio
-async def test_config_smtp_configured_reflects_settings(
-    client: AsyncClient,
-    monkeypatch,
-) -> None:
-    """GET /auth/config → smtp_configured mirrors whether settings.smtp_host is set (M1).
-
-    RegisterPage branches on this to avoid telling a no-SMTP signup to
-    "check your email" when the server actually falls back to admin-approval.
-    """
-    from app.core.config import settings
-
-    monkeypatch.setattr(settings, "smtp_host", "smtp.example.com", raising=False)
-    resp = await client.get("/auth/config/")
-    assert resp.status_code == 200, resp.text
-    assert resp.json()["smtp_configured"] is True, (
-        "smtp_configured must be True when settings.smtp_host is set"
-    )
-
-    monkeypatch.setattr(settings, "smtp_host", None, raising=False)
-    resp = await client.get("/auth/config/")
-    assert resp.status_code == 200, resp.text
-    assert resp.json()["smtp_configured"] is False, (
-        "smtp_configured must be False when settings.smtp_host is unset"
     )
 
 
@@ -781,6 +753,110 @@ async def test_config_allow_signup_false_when_disabled(
     assert body.get("allow_signup") is False, (
         f"allow_signup should be False when REGISTRATION_ENABLED is off, got {body.get('allow_signup')!r}"
     )
+
+
+# ---------------------------------------------------------------------------
+# RegisterResponse.next_step (M1 follow-up) + enumeration-safety regression
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_register_next_step_verify_email(
+    client: AsyncClient,
+    captured_send_email: list,
+    monkeypatch,
+) -> None:
+    """Verification + SMTP + email → response carries next_step='verify_email'."""
+    from app.core.persistent_config import (
+        EMAIL_VERIFICATION_REQUIRED,
+        REGISTRATION_ENABLED,
+    )
+
+    _patch_persistent_config(monkeypatch, REGISTRATION_ENABLED, True)
+    _patch_persistent_config(monkeypatch, EMAIL_VERIFICATION_REQUIRED, True)
+
+    resp = await client.post(
+        "/auth/register/",
+        json={
+            "username": _unique_username(),
+            "password": _STRONG_PASSWORD,
+            "email": _unique_email(),
+        },
+    )
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["next_step"] == "verify_email"
+
+
+@pytest.mark.anyio
+async def test_register_next_step_await_approval_when_verification_off(
+    client: AsyncClient,
+    captured_send_email: list,
+    monkeypatch,
+) -> None:
+    """Verification off (SMTP present) → next_step='await_approval', no email sent."""
+    from app.core.persistent_config import (
+        EMAIL_VERIFICATION_REQUIRED,
+        REGISTRATION_ENABLED,
+    )
+
+    _patch_persistent_config(monkeypatch, REGISTRATION_ENABLED, True)
+    _patch_persistent_config(monkeypatch, EMAIL_VERIFICATION_REQUIRED, False)
+
+    resp = await client.post(
+        "/auth/register/",
+        json={
+            "username": _unique_username(),
+            "password": _STRONG_PASSWORD,
+            "email": _unique_email(),
+        },
+    )
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["next_step"] == "await_approval"
+    assert captured_send_email == [], "no verification email when verification is off"
+
+
+@pytest.mark.anyio
+async def test_register_collision_response_identical_to_new_user(
+    client: AsyncClient,
+    captured_send_email: list,
+    monkeypatch,
+) -> None:
+    """SEC-012 regression: under verification+SMTP, a swallowed username/email
+    collision returns a response BYTE-IDENTICAL to a genuine new signup (same
+    message AND next_step), so account existence cannot be enumerated via the
+    register response. (Before the fix the new-user path returned 'verify_email'
+    while the collision fell through to the admin-approval message.)
+    """
+    from app.core.persistent_config import (
+        EMAIL_VERIFICATION_REQUIRED,
+        REGISTRATION_ENABLED,
+    )
+
+    _patch_persistent_config(monkeypatch, REGISTRATION_ENABLED, True)
+    _patch_persistent_config(monkeypatch, EMAIL_VERIFICATION_REQUIRED, True)
+
+    username = _unique_username()
+    email = _unique_email()
+
+    # Genuine new registration.
+    r1 = await client.post(
+        "/auth/register/",
+        json={"username": username, "password": _STRONG_PASSWORD, "email": email},
+    )
+    assert r1.status_code == 201, r1.text
+
+    # Collision: same username + email — must be swallowed and indistinguishable.
+    r2 = await client.post(
+        "/auth/register/",
+        json={"username": username, "password": _STRONG_PASSWORD, "email": email},
+    )
+    assert r2.status_code == 201, r2.text
+
+    assert r1.json() == r2.json(), (
+        "Collision response must be byte-identical to a new signup "
+        f"(enumeration-safety); new={r1.json()} collision={r2.json()}"
+    )
+    assert r1.json()["next_step"] == "verify_email"
 
 
 # ---------------------------------------------------------------------------

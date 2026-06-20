@@ -25,6 +25,9 @@ export function RegisterPage() {
   useDocumentTitle(t('common:pageTitle.register'));
   const [submitted, setSubmitted] = useState(false);
   const [registrantEmail, setRegistrantEmail] = useState('');
+  const [nextStep, setNextStep] = useState<
+    'verify_email' | 'await_approval' | undefined
+  >(undefined);
   const token = useAuthStore((s) => s.token);
   const navigate = useNavigate();
 
@@ -120,22 +123,19 @@ export function RegisterPage() {
         </p>
       </div>
       {submitted ? (
-        // Mirror the server contract (router.register): a verification email is
-        // only sent when verification is required AND an email was given AND
-        // SMTP is configured. Without SMTP the server falls back to
-        // admin-approval, so don't tell the user to "check your email"
-        // (M1 — Phase 1234 follow-up).
-        config?.email_verification_required &&
-        config?.smtp_configured &&
-        registrantEmail ? (
+        // Use the server's authoritative outcome (RegisterResponse.next_step)
+        // rather than inferring from a cached /auth/config snapshot — race-free
+        // and matches exactly what the backend did (M1 follow-up — Phase 1234).
+        nextStep === 'verify_email' ? (
           <VerificationPending email={registrantEmail} />
         ) : (
           <PendingApproval />
         )
       ) : (
         <RegisterForm
-          onSuccess={(email) => {
+          onSuccess={(email, step) => {
             setRegistrantEmail(email);
+            setNextStep(step);
             setSubmitted(true);
           }}
         />
