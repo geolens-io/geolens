@@ -120,7 +120,14 @@ export function RegisterPage() {
         </p>
       </div>
       {submitted ? (
-        config?.email_verification_required ? (
+        // Mirror the server contract (router.register): a verification email is
+        // only sent when verification is required AND an email was given AND
+        // SMTP is configured. Without SMTP the server falls back to
+        // admin-approval, so don't tell the user to "check your email"
+        // (M1 — Phase 1234 follow-up).
+        config?.email_verification_required &&
+        config?.smtp_configured &&
+        registrantEmail ? (
           <VerificationPending email={registrantEmail} />
         ) : (
           <PendingApproval />

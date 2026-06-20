@@ -731,9 +731,37 @@ async def test_config_exposes_signup_flags(
     assert "email_verification_required" in body, (
         "ConfigResponse must include email_verification_required"
     )
+    assert "smtp_configured" in body, "ConfigResponse must include smtp_configured (M1)"
     # With REGISTRATION_ENABLED=True, allow_signup should be True
     assert body["allow_signup"] is True, (
         f"allow_signup should reflect REGISTRATION_ENABLED; got {body['allow_signup']!r}"
+    )
+
+
+@pytest.mark.anyio
+async def test_config_smtp_configured_reflects_settings(
+    client: AsyncClient,
+    monkeypatch,
+) -> None:
+    """GET /auth/config → smtp_configured mirrors whether settings.smtp_host is set (M1).
+
+    RegisterPage branches on this to avoid telling a no-SMTP signup to
+    "check your email" when the server actually falls back to admin-approval.
+    """
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "smtp_host", "smtp.example.com", raising=False)
+    resp = await client.get("/auth/config/")
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["smtp_configured"] is True, (
+        "smtp_configured must be True when settings.smtp_host is set"
+    )
+
+    monkeypatch.setattr(settings, "smtp_host", None, raising=False)
+    resp = await client.get("/auth/config/")
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["smtp_configured"] is False, (
+        "smtp_configured must be False when settings.smtp_host is unset"
     )
 
 

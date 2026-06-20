@@ -632,6 +632,12 @@ export interface AuthConfigResponse {
    *  verification email and requires email confirmation before login.
    *  Field may be absent on older server versions (treat as false). */
   email_verification_required?: boolean;
+  /** M1 (Phase 1234 follow-up): when true an SMTP host is configured so
+   *  verification emails can be sent. The register flow only emails when
+   *  email_verification_required AND smtp_configured; otherwise it falls back
+   *  to admin-approval. RegisterPage reads this so it does not show
+   *  "check your email" on a no-SMTP deploy. Absent on older servers → false. */
+  smtp_configured?: boolean;
 }
 
 export interface MessageResponse {

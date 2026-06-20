@@ -107,6 +107,20 @@ class ConfigResponse(BaseModel):
             "Default false for back-compat-safe parsing by older clients."
         ),
     )
+    # M1 (Phase 1234 follow-up): whether an SMTP channel is configured on the
+    # server. The register flow only sends a verification email when
+    # email_verification_required AND smtp_configured; otherwise it falls back
+    # to admin-approval (router.register, WR-02). The RegisterPage reads this so
+    # it does not tell a no-SMTP signup to "check your email" when no mail can
+    # be sent.
+    smtp_configured: bool = Field(
+        default=False,
+        description=(
+            "When true, an SMTP host is configured so verification emails can be sent. "
+            "When false, email-verification-required signups fall back to admin-approval. "
+            "Default false; field may be absent on older server versions (treat as false)."
+        ),
+    )
     auth_methods: list[str] = Field(
         default_factory=list,
         description=(

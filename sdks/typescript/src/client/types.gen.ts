@@ -2004,6 +2004,12 @@ export type ConfigResponse = {
      * Whether self-service registration is open
      */
     registration_enabled: boolean;
+    /**
+     * Smtp Configured
+     *
+     * When true, an SMTP host is configured so verification emails can be sent. When false, email-verification-required signups fall back to admin-approval. Default false; field may be absent on older server versions (treat as false).
+     */
+    smtp_configured?: boolean;
 };
 
 /**

@@ -3316,6 +3316,12 @@
             "description": "Whether self-service registration is open",
             "title": "Registration Enabled",
             "type": "boolean"
+          },
+          "smtp_configured": {
+            "default": false,
+            "description": "When true, an SMTP host is configured so verification emails can be sent. When false, email-verification-required signups fall back to admin-approval. Default false; field may be absent on older server versions (treat as false).",
+            "title": "Smtp Configured",
+            "type": "boolean"
           }
         },
         "required": [

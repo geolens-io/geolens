@@ -619,6 +619,7 @@ async def config(
         registration_enabled=reg_enabled,
         allow_signup=reg_enabled,
         email_verification_required=email_verification_required,
+        smtp_configured=bool(settings.smtp_host),
         auth_methods=list(get_auth_extension().get_auth_methods()),
         landing_first=landing_first,
         demo_mode=demo_mode,

@@ -30,6 +30,9 @@ class ConfigResponse:
             logging in. Default false for back-compat-safe parsing by older clients. Default: False.
         landing_first (bool | Unset): When true, unauthenticated visits to '/' are redirected to '/login' as the product
             landing page. Default false (search catalog is the root). Default: False.
+        smtp_configured (bool | Unset): When true, an SMTP host is configured so verification emails can be sent. When
+            false, email-verification-required signups fall back to admin-approval. Default false; field may be absent on
+            older server versions (treat as false). Default: False.
     """
 
     registration_enabled: bool
@@ -38,6 +41,7 @@ class ConfigResponse:
     demo_mode: bool | Unset = False
     email_verification_required: bool | Unset = False
     landing_first: bool | Unset = False
+    smtp_configured: bool | Unset = False
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -54,6 +58,8 @@ class ConfigResponse:
         email_verification_required = self.email_verification_required
 
         landing_first = self.landing_first
+
+        smtp_configured = self.smtp_configured
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
@@ -72,6 +78,8 @@ class ConfigResponse:
             field_dict["email_verification_required"] = email_verification_required
         if landing_first is not UNSET:
             field_dict["landing_first"] = landing_first
+        if smtp_configured is not UNSET:
+            field_dict["smtp_configured"] = smtp_configured
 
         return field_dict
 
@@ -90,6 +98,8 @@ class ConfigResponse:
 
         landing_first = d.pop("landing_first", UNSET)
 
+        smtp_configured = d.pop("smtp_configured", UNSET)
+
         config_response = cls(
             registration_enabled=registration_enabled,
             allow_signup=allow_signup,
@@ -97,6 +107,7 @@ class ConfigResponse:
             demo_mode=demo_mode,
             email_verification_required=email_verification_required,
             landing_first=landing_first,
+            smtp_configured=smtp_configured,
         )
 
         config_response.additional_properties = d
