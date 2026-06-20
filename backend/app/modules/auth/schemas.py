@@ -71,9 +71,38 @@ class RegisterResponse(BaseModel):
     message: str
 
 
+class VerifyEmailRequest(BaseModel):
+    token: str = Field(description="Raw opaque verification token from the email link")
+
+
+class ResendVerificationRequest(BaseModel):
+    email: EmailStr = Field(
+        description="Email address to resend the verification link to"
+    )
+
+
 class ConfigResponse(BaseModel):
     registration_enabled: bool = Field(
         description="Whether self-service registration is open"
+    )
+    # SIGNUP-01 (Phase 1231): allow_signup is the cleaner public alias for
+    # registration_enabled that the login page reads to gate the signup affordance.
+    # Mirrors registration_enabled exactly; both are kept for back-compat.
+    allow_signup: bool = Field(
+        default=False,
+        description=(
+            "Whether self-serve registration is open. "
+            "Alias for registration_enabled; login UI uses this to show/hide the signup link."
+        ),
+    )
+    # SIGNUP-04 (Phase 1231): email verification required flag for the login
+    # page to display appropriate messaging after registration.
+    email_verification_required: bool = Field(
+        default=False,
+        description=(
+            "When true, new self-registered users must verify their email before logging in. "
+            "Default false for back-compat-safe parsing by older clients."
+        ),
     )
     auth_methods: list[str] = Field(
         default_factory=list,
