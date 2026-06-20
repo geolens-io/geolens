@@ -44,6 +44,9 @@ from app.modules.settings.schemas import (
     FeatureFlagsResponse,
     EditionInfoResponse,
     MapDefaultsResponse,
+    NotificationStatusResponse,
+    NotificationTestChannelResult,
+    NotificationTestResponse,
     SettingItem,
     SettingsAllResponse,
     SettingsResetRequest,
@@ -51,6 +54,12 @@ from app.modules.settings.schemas import (
     TileConfigResponse,
 )
 from app.standards.ogc.errors import ERROR_RESPONSES_AUTH
+
+# Phase 1229 Plan 03 — channel functions imported at module level so tests can
+# monkeypatch at `app.modules.settings.router.send_email` / `.post_webhook`
+# (same discipline as app.platform.notifications.env_sink from Plan 02).
+from app.platform.notifications.smtp_channel import send_email  # noqa: E402
+from app.platform.notifications.webhook_channel import post_webhook  # noqa: E402
 
 logger = structlog.stdlib.get_logger(__name__)
 
@@ -438,6 +447,130 @@ async def detect_embedding_dims(
         )
 
     return DetectEmbeddingDimsResponse(dimensions=dims)
+
+
+# ROUTE-01 (Phase 1092): dual-shape decorator — see /all above.
+@router.get(
+    "/notifications/status",
+    response_model=NotificationStatusResponse,
+    include_in_schema=False,
+)
+@router.get("/notifications/status/", response_model=NotificationStatusResponse)
+async def get_notification_status(
+    _user: Identity = Depends(require_permission("manage_settings")),
+) -> NotificationStatusResponse:
+    """Return which notification channels are configured (booleans only — no secrets).
+
+    Mirrors get_api_key_status: returns presence flags derived from env/settings
+    without ever echoing the SMTP password, webhook URL, or webhook secret
+    (NOTIF-05 / T-1229-09).
+    """
+    return NotificationStatusResponse(
+        notifications_enabled=app_settings.notifications_enabled,
+        smtp_configured=bool(app_settings.smtp_host),
+        webhook_configured=bool(app_settings.notification_webhook_url),
+    )
+
+
+# ROUTE-01 (Phase 1092): dual-shape decorator — see /all above.
+@router.post(
+    "/notifications/test",
+    response_model=NotificationTestResponse,
+    include_in_schema=False,
+)
+@router.post("/notifications/test/", response_model=NotificationTestResponse)
+async def send_test_notification(
+    user: Identity = Depends(require_permission("manage_settings")),
+    db: AsyncSession = Depends(get_db),
+) -> NotificationTestResponse:
+    """Send a canned test notification through each configured channel (admin only).
+
+    Mirrors detect_embedding_dims: admin-gated probe that reports per-channel
+    reachable/error in a 200 body without leaking secrets or raising 5xx on a
+    bad channel (NOTIF-06 / T-1229-08 / T-1229-09 / T-1229-10).
+
+    Per-channel approach (not EnvConfiguredNotificationSink.deliver) is used so
+    each channel's success/failure is captured in its own
+    NotificationTestChannelResult for display in the admin UI.
+    """
+    from app.platform.extensions.protocols import Notification
+
+    # send_email / post_webhook are module-level imports (see top of function
+    # module section) so tests can monkeypatch at
+    # app.modules.settings.router.send_email / .post_webhook — same discipline
+    # as app.platform.notifications.env_sink (Plan 02 decision).
+    # Canned test payload — generic enough for both SMTP and webhook channels.
+    test_notification = Notification(
+        event_type="test",
+        subject="GeoLens test notification",
+        body="This is a test notification from GeoLens settings.",
+        data={"source": "admin-test-send"},
+    )
+
+    # Master toggle: if notifications are disabled, report immediately.
+    if not app_settings.notifications_enabled:
+        return NotificationTestResponse(
+            sent=False,
+            channels=[],
+            message="Notifications are disabled (NOTIFICATIONS_ENABLED=false).",
+        )
+
+    # Determine which channels are configured.
+    channel_fns: list[tuple[str, object]] = []
+    if app_settings.smtp_host:
+        channel_fns.append(("smtp", send_email))
+    if app_settings.notification_webhook_url:
+        channel_fns.append(("webhook", post_webhook))
+
+    if not channel_fns:
+        return NotificationTestResponse(
+            sent=False,
+            channels=[],
+            message="No notification channel is configured.",
+        )
+
+    # Invoke each channel individually and collect per-channel results.
+    results: list[NotificationTestChannelResult] = []
+    any_ok = False
+
+    for name, channel_fn in channel_fns:
+        try:
+            await channel_fn(test_notification)  # type: ignore[call-arg]
+            results.append(
+                NotificationTestChannelResult(channel=name, ok=True, error=None)
+            )
+            any_ok = True
+        except Exception as exc:  # noqa: BLE001 — per-channel isolation; channel failure → 200 body, not 5xx
+            # Safe error string: exception TYPE name + short class-level message only.
+            # NEVER interpolate exc.args or str(exc) — those may echo the SMTP
+            # password, webhook URL, or webhook secret (T-1229-09).
+            safe_error = f"{type(exc).__name__}: channel delivery failed"
+            results.append(
+                NotificationTestChannelResult(channel=name, ok=False, error=safe_error)
+            )
+
+    message = (
+        "Test notification sent successfully."
+        if any_ok
+        else "Test notification failed on all configured channels."
+    )
+
+    await audit_emit(
+        db,
+        AuditEvent(
+            user_id=user.id,
+            action="notification.test_sent",
+            resource_type="settings",
+            resource_id=None,
+            details={
+                "channels": [r.channel for r in results],
+                "any_ok": any_ok,
+            },
+            ip_address=None,
+        ),
+    )
+
+    return NotificationTestResponse(sent=any_ok, channels=results, message=message)
 
 
 # ROUTE-01 (Phase 1092): dual-shape decorator — see /all above.

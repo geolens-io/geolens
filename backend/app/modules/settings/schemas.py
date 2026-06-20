@@ -255,6 +255,59 @@ class DetectEmbeddingDimsResponse(BaseModel):
     )
 
 
+class NotificationStatusResponse(BaseModel):
+    """Response for GET /settings/notifications/status/ (NOTIF-05 / NOTIF-06).
+
+    Returns only boolean presence flags — never a secret value (SMTP password,
+    webhook URL, or webhook secret).
+    """
+
+    notifications_enabled: bool = Field(
+        description="Whether the NOTIFICATIONS_ENABLED master toggle is set to true."
+    )
+    smtp_configured: bool = Field(
+        description="Whether an SMTP host is configured (SMTP_HOST is set). Does not echo the host value."
+    )
+    webhook_configured: bool = Field(
+        description="Whether a notification webhook URL is configured (NOTIFICATION_WEBHOOK_URL is set). Does not echo the URL."
+    )
+
+
+class NotificationTestChannelResult(BaseModel):
+    """Per-channel result from POST /settings/notifications/test/.
+
+    The ``error`` field contains only the exception type name and a short
+    safe message — never the SMTP password, webhook URL, or webhook secret
+    (T-1229-09 / NOTIF-05).
+    """
+
+    channel: str = Field(description="Channel name, e.g. 'smtp' or 'webhook'.")
+    ok: bool = Field(
+        description="True if the channel delivered the test notification without error."
+    )
+    error: str | None = Field(
+        default=None,
+        description="Safe error string (exception type name + short message) if ok=False, else null. Never contains secrets.",
+    )
+
+
+class NotificationTestResponse(BaseModel):
+    """Response for POST /settings/notifications/test/ (NOTIF-06).
+
+    Always returns HTTP 200 — a channel delivery failure is captured in the
+    per-channel ``channels`` list rather than as a 5xx. Never contains secret
+    values (T-1229-09 / NOTIF-05).
+    """
+
+    sent: bool = Field(
+        description="True if at least one channel successfully delivered the test notification."
+    )
+    channels: list[NotificationTestChannelResult] = Field(
+        description="Per-channel delivery results. Empty when no channel is configured."
+    )
+    message: str = Field(description="Human-readable summary of the test result.")
+
+
 # ---------------------------------------------------------------------------
 # Validators for PUT /settings/ -- reused from old schemas
 # ---------------------------------------------------------------------------
