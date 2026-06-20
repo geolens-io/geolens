@@ -20,6 +20,22 @@ from app.modules.auth.oauth.schemas import (
     OAuthProviderUpdate,
 )
 
+
+async def _is_manage_settings_admin(db: AsyncSession, user: User) -> bool:
+    """Return True if *user* holds the manage_settings capability.
+
+    Used for break-glass exemptions in the SSO domain-enforcement paths.
+    Lazy-imports to avoid circular dependencies (mirrors the pattern used in
+    auth/router.py DOMAIN-04 gate, per D-17).
+    """
+    from app.modules.auth.permissions import (  # LAZY — per D-17
+        MANAGE_SETTINGS,
+        user_has_capability,
+    )
+
+    return await user_has_capability(db, user, MANAGE_SETTINGS)
+
+
 logger = structlog.stdlib.get_logger(__name__)
 
 
@@ -242,18 +258,6 @@ async def find_or_create_oauth_user(
     email = userinfo.get("email")
     display_name = userinfo.get("name")
 
-    # DOMAIN-03 (T-1236-01): domain check fires immediately after email is
-    # extracted, BEFORE the OAuthAccount lookup (Step 1) and BEFORE the
-    # email_verified collision guard — so a disallowed domain never reaches
-    # provisioning or the collision-guard side effect (TOCTOU-free ordering).
-    # Empty allowlist ⇒ is_email_allowed returns True (no-op, zero behavior change).
-    if email:
-        domains = await ALLOWED_EMAIL_DOMAINS.get(db)
-        if not is_email_allowed(email, domains):
-            raise OAuthDomainNotAllowedError(
-                "OAuth identity email domain is not in the allowed_email_domains allowlist."
-            )
-
     # Extract groups using provider's group_claim
     groups: list[str] | None = None
     if provider.group_claim:
@@ -270,12 +274,61 @@ async def find_or_create_oauth_user(
     )
     existing_link = result.scalar_one_or_none()
     if existing_link is not None:
+        returning_user = existing_link.user
+
+        # WR-02 (Phase 1236 Plan 03): domain check for RETURNING users.
+        # The original DOMAIN-03 check ran before Step 1, so a returning user
+        # whose email claim was OMITTED by the IdP would bypass it entirely.
+        # For a returning user we have a stored User.email to fall back to;
+        # use that when the IdP omits the claim.
+        #
+        # WR-01 (Phase 1236 Plan 03): break-glass for returning manage_settings
+        # admins — consistent with the password-login break-glass (DOMAIN-04).
+        # A NEW (JIT) identity still has no principal and must satisfy the
+        # allowlist; only returning users with an established account get the
+        # exemption.
+        check_email = email or returning_user.email  # WR-02: fallback to stored email
+        if check_email is None:
+            # No claim and no stored email — cannot enforce; log a warning so
+            # operators can investigate IdP misconfiguration.
+            logger.warning(
+                "OAuth login: domain enforcement skipped — no email claim and no stored email",
+                provider=provider.slug,
+                user_id=str(returning_user.id),
+            )
+        else:
+            domains = await ALLOWED_EMAIL_DOMAINS.get(db)
+            if not is_email_allowed(check_email, domains):
+                # WR-01: break-glass for manage_settings admins.
+                if not await _is_manage_settings_admin(db, returning_user):
+                    raise OAuthDomainNotAllowedError(
+                        "OAuth identity email domain is not in the allowed_email_domains allowlist."
+                    )
+                logger.info(
+                    "OAuth login: returning manage_settings admin exempt from domain check",
+                    provider=provider.slug,
+                    user_id=str(returning_user.id),
+                )
+
         logger.info(
             "OAuth login: existing link found",
             provider=provider.slug,
-            user_id=str(existing_link.user_id),
+            user_id=str(returning_user.id),
         )
-        return existing_link.user
+        return returning_user
+
+    # DOMAIN-03 (T-1236-01): domain check for NEW (JIT) identities.
+    # Fires BEFORE the email_verified collision guard and BEFORE provisioning —
+    # so a disallowed domain never reaches the provisioning path (TOCTOU-free).
+    # Empty allowlist ⇒ is_email_allowed returns True (no-op, zero behavior change).
+    # No break-glass here: a NEW identity has no established principal, so there
+    # is nothing to exempt.
+    if email:
+        domains = await ALLOWED_EMAIL_DOMAINS.get(db)
+        if not is_email_allowed(email, domains):
+            raise OAuthDomainNotAllowedError(
+                "OAuth identity email domain is not in the allowed_email_domains allowlist."
+            )
 
     # Step 2: Check email match (case-insensitive)
     # Phase 268 H-30: only honor the email-match auto-link when the IdP
