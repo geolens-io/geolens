@@ -273,3 +273,121 @@ class TestPasswordLoginLockoutGuard:
         assert resp.status_code == 200, (
             f"Expected 200 for enabling password login, got {resp.status_code}: {resp.text}"
         )
+
+
+# ---------------------------------------------------------------------------
+# Tests: CR-02 — lockout guard on provider disable/delete
+# ---------------------------------------------------------------------------
+
+
+class TestProviderDisableDeleteLockoutGuard:
+    async def test_disabling_last_provider_blocked_when_sso_only(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session: AsyncSession,
+    ) -> None:
+        """CR-02: PATCH provider enabled=false on the last provider when sso-only → 422."""
+        provider = await _make_enabled_oauth_provider(test_db_session)
+        await test_db_session.commit()
+        try:
+            # Enable SSO-only mode (password_login_enabled=False).
+            await _set_password_login_enabled(client, admin_auth_header, False)
+
+            # Now try to disable the only provider via PUT.
+            resp = await client.put(
+                f"/settings/oauth-providers/{provider.id}",
+                json={"enabled": False},
+                headers=admin_auth_header,
+            )
+            assert resp.status_code == 422, (
+                f"Expected 422 (lockout guard on disable), got {resp.status_code}: {resp.text}"
+            )
+            detail = resp.json()["detail"]
+            assert "last SSO provider" in detail or "SSO provider" in detail, (
+                f"422 detail should mention last provider: {detail}"
+            )
+        finally:
+            await _reset_password_login_enabled(client, admin_auth_header)
+            await _delete_provider(test_db_session, provider)
+            await test_db_session.commit()
+
+    async def test_deleting_last_provider_blocked_when_sso_only(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session: AsyncSession,
+    ) -> None:
+        """CR-02: DELETE the last enabled provider when sso-only → 422."""
+        provider = await _make_enabled_oauth_provider(test_db_session)
+        await test_db_session.commit()
+        try:
+            await _set_password_login_enabled(client, admin_auth_header, False)
+
+            resp = await client.delete(
+                f"/settings/oauth-providers/{provider.id}",
+                headers=admin_auth_header,
+            )
+            assert resp.status_code == 422, (
+                f"Expected 422 (lockout guard on delete), got {resp.status_code}: {resp.text}"
+            )
+            detail = resp.json()["detail"]
+            assert "last SSO provider" in detail or "SSO provider" in detail, (
+                f"422 detail should mention last provider: {detail}"
+            )
+        finally:
+            await _reset_password_login_enabled(client, admin_auth_header)
+            await _delete_provider(test_db_session, provider)
+            await test_db_session.commit()
+
+    async def test_disabling_one_of_two_providers_allowed_when_sso_only(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session: AsyncSession,
+    ) -> None:
+        """CR-02: With >=2 providers, disabling one still leaves one active → 200."""
+        provider_a = await _make_enabled_oauth_provider(test_db_session)
+        provider_b = await _make_enabled_oauth_provider(test_db_session)
+        await test_db_session.commit()
+        try:
+            await _set_password_login_enabled(client, admin_auth_header, False)
+
+            # Disabling one provider when another remains → allowed.
+            resp = await client.put(
+                f"/settings/oauth-providers/{provider_a.id}",
+                json={"enabled": False},
+                headers=admin_auth_header,
+            )
+            assert resp.status_code == 200, (
+                f"Expected 200 when >=2 providers, got {resp.status_code}: {resp.text}"
+            )
+        finally:
+            await _reset_password_login_enabled(client, admin_auth_header)
+            await _delete_provider(test_db_session, provider_a)
+            await _delete_provider(test_db_session, provider_b)
+            await test_db_session.commit()
+
+    async def test_disabling_provider_when_password_login_enabled_is_ok(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session: AsyncSession,
+    ) -> None:
+        """CR-02: Guard does NOT fire when password_login_enabled=True (no risk of lockout)."""
+        provider = await _make_enabled_oauth_provider(test_db_session)
+        await test_db_session.commit()
+        try:
+            # password_login_enabled is True by default — no guard needed.
+            resp = await client.put(
+                f"/settings/oauth-providers/{provider.id}",
+                json={"enabled": False},
+                headers=admin_auth_header,
+            )
+            assert resp.status_code == 200, (
+                f"Expected 200 (password login enabled, guard inactive), "
+                f"got {resp.status_code}: {resp.text}"
+            )
+        finally:
+            await _delete_provider(test_db_session, provider)
+            await test_db_session.commit()

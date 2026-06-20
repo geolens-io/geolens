@@ -135,4 +135,22 @@ describe('LoginPage — password_login_enabled conditional render (SSO-03)', () 
     expect(screen.queryByLabelText(/username/i)).not.toBeInTheDocument();
     expect(screen.queryByLabelText('Password', { exact: true })).not.toBeInTheDocument();
   });
+
+  it('shows the username/password form (fail-open) when /auth/config fetch rejects', async () => {
+    // IN-02 (Phase 1236 Plan 03): when the config endpoint errors, the login
+    // page must fail OPEN — default to showing the password form rather than
+    // permanently hiding it. A network error must not lock users out.
+    mockGetAuthConfig.mockRejectedValue(new Error('Network error'));
+
+    const { Wrapper } = makeWrapper();
+    render(<LoginPage />, { wrapper: Wrapper });
+
+    // After the error, the form must still render (fail-open / undefined → true).
+    await waitFor(() => {
+      expect(screen.getByLabelText(/username/i)).toBeInTheDocument();
+    });
+    expect(screen.getByLabelText('Password', { exact: true })).toBeInTheDocument();
+    // The SSO-only message must NOT appear on error.
+    expect(screen.queryByText(/sign in using your organization/i)).not.toBeInTheDocument();
+  });
 });

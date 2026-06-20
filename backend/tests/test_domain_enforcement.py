@@ -584,3 +584,271 @@ class TestAdminCreateDomainEnforcement:
             )
         finally:
             await _clear_allowed_domains(client, admin_auth_header)
+
+
+# ---------------------------------------------------------------------------
+# Refresh-token domain enforcement tests (CR-01)
+# ---------------------------------------------------------------------------
+
+
+class TestRefreshDomainEnforcement:
+    """CR-01: POST /auth/refresh respects allowed_email_domains allowlist."""
+
+    async def _login_and_get_refresh_token(
+        self, client: AsyncClient, username: str, password: str
+    ) -> str:
+        """Log in and return the refresh_token from the response."""
+        resp = await client.post(
+            "/auth/login",
+            data={"username": username, "password": password},
+        )
+        assert resp.status_code == 200, f"Login failed: {resp.text}"
+        return resp.json()["refresh_token"]
+
+    async def test_refresh_blocked_when_domain_disallowed_after_login(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+    ) -> None:
+        """CR-01: User logs in (allowed), admin tightens allowlist, refresh → 403."""
+        username = _unique("refresh_bad")
+        password = "TestPass1234!"
+        disallowed_email = f"{username}@{_DISALLOWED_DOMAIN}"
+
+        # Create user with a disallowed domain via admin break-glass.
+        create_resp = await client.post(
+            "/admin/users/",
+            json={
+                "username": username,
+                "password": password,
+                "email": disallowed_email,
+                "role": "viewer",
+            },
+            headers=admin_auth_header,
+        )
+        assert create_resp.status_code == 201, create_resp.text
+
+        # Log in while no allowlist is set (allow-all).
+        await _clear_allowed_domains(client, admin_auth_header)
+        refresh_token = await self._login_and_get_refresh_token(
+            client, username, password
+        )
+
+        # Admin now tightens the allowlist to exclude the user's domain.
+        await _set_allowed_domains(client, admin_auth_header, _ALLOWLIST)
+        try:
+            # Refresh should now be blocked.
+            resp = await client.post(
+                "/auth/refresh/",
+                json={"refresh_token": refresh_token},
+            )
+            assert resp.status_code == 403, (
+                f"Expected 403 after domain tightened, got {resp.status_code}: {resp.text}"
+            )
+            assert "domain" in resp.json()["detail"].lower(), (
+                f"Detail should mention domain: {resp.json()['detail']}"
+            )
+        finally:
+            await _clear_allowed_domains(client, admin_auth_header)
+
+    async def test_refresh_succeeds_with_empty_allowlist(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+    ) -> None:
+        """CR-01: With empty allowlist (allow-all) refresh always works."""
+        username = _unique("refresh_any")
+        password = "TestPass1234!"
+
+        create_resp = await client.post(
+            "/admin/users/",
+            json={
+                "username": username,
+                "password": password,
+                "email": f"{username}@anything.example.com",
+                "role": "viewer",
+            },
+            headers=admin_auth_header,
+        )
+        assert create_resp.status_code == 201, create_resp.text
+
+        await _clear_allowed_domains(client, admin_auth_header)
+        refresh_token = await self._login_and_get_refresh_token(
+            client, username, password
+        )
+
+        resp = await client.post(
+            "/auth/refresh/",
+            json={"refresh_token": refresh_token},
+        )
+        assert resp.status_code == 200, (
+            f"Expected 200 with empty allowlist, got {resp.status_code}: {resp.text}"
+        )
+        assert "access_token" in resp.json()
+
+    async def test_manage_settings_admin_refresh_exempt_from_domain_block(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+    ) -> None:
+        """CR-01: manage_settings admin refresh succeeds even when domain is disallowed."""
+        from app.core.config import settings as app_settings
+
+        admin_username = app_settings.geolens_admin_username
+        admin_password = app_settings.geolens_admin_password.get_secret_value()
+
+        # Log in as admin with empty allowlist (seeded admin may have no email set).
+        await _clear_allowed_domains(client, admin_auth_header)
+        refresh_token = await self._login_and_get_refresh_token(
+            client, admin_username, admin_password
+        )
+
+        # Tighten the allowlist — admin should still be able to refresh (break-glass).
+        await _set_allowed_domains(client, admin_auth_header, _ALLOWLIST)
+        try:
+            resp = await client.post(
+                "/auth/refresh/",
+                json={"refresh_token": refresh_token},
+            )
+            # Admin has manage_settings — break-glass exempts them from domain check.
+            # If admin has no email, the check is skipped entirely (also 200).
+            assert resp.status_code == 200, (
+                f"Admin break-glass refresh failed: {resp.status_code}: {resp.text}"
+            )
+            assert "access_token" in resp.json()
+        finally:
+            await _clear_allowed_domains(client, admin_auth_header)
+
+
+# ---------------------------------------------------------------------------
+# SSO returning-admin break-glass and missing-email fallback tests
+# (WR-01 / WR-02)
+# ---------------------------------------------------------------------------
+
+
+class TestSSOReturningUserDomainEnforcement:
+    """WR-01 / WR-02: find_or_create_oauth_user domain check for returning users."""
+
+    async def _make_provider(self, db: AsyncSession) -> OAuthProvider:
+        """Insert a minimal OAuthProvider for tests."""
+        provider = OAuthProvider(
+            slug=f"test-{uuid.uuid4().hex[:8]}",
+            display_name="Test Provider",
+            provider_type="oidc",
+            client_id="test-client-id",
+            client_secret_encrypted=encrypt_secret("placeholder-secret"),
+            discovery_url="https://test.example.com/.well-known/openid-configuration",
+            scopes="openid email profile",
+            default_role="viewer",
+            enabled=True,
+        )
+        db.add(provider)
+        await db.flush()
+        await db.refresh(provider)
+        return provider
+
+    async def test_writ02_missing_email_claim_falls_back_to_stored_email(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session: AsyncSession,
+    ) -> None:
+        """WR-02: returning user whose IdP omits email claim uses stored User.email for check."""
+        from app.modules.auth.oauth.service import find_or_create_oauth_user
+
+        provider = await self._make_provider(test_db_session)
+
+        # First call: provision a new user (email_verified=True, domain disallowed
+        # but allowlist is empty so it passes).
+        await _clear_allowed_domains(client, admin_auth_header)
+        unique_sub = f"sso-writ02-{uuid.uuid4().hex[:8]}"
+        userinfo_first = {
+            "sub": unique_sub,
+            "email": f"user-{unique_sub}@{_DISALLOWED_DOMAIN}",
+            "email_verified": True,
+            "name": "Returning Test User",
+        }
+        user = await find_or_create_oauth_user(
+            test_db_session, provider, userinfo_first, {}
+        )
+        assert user is not None
+        await test_db_session.flush()
+
+        # Tighten the allowlist to exclude the disallowed domain.
+        await _set_allowed_domains(client, admin_auth_header, _ALLOWLIST)
+        try:
+            # Second call: RETURNING user, email claim OMITTED from IdP.
+            # The domain check should fall back to stored User.email and block.
+            userinfo_returning_no_email = {
+                "sub": unique_sub,
+                # email intentionally absent
+                "email_verified": True,
+                "name": "Returning Test User",
+            }
+            with pytest.raises(OAuthDomainNotAllowedError):
+                await find_or_create_oauth_user(
+                    test_db_session, provider, userinfo_returning_no_email, {}
+                )
+        finally:
+            await _clear_allowed_domains(client, admin_auth_header)
+
+    async def test_wr01_returning_manage_settings_admin_exempt_from_domain_check(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session: AsyncSession,
+    ) -> None:
+        """WR-01: a returning manage_settings admin gets through even when domain disallowed."""
+        from app.modules.auth.oauth.service import find_or_create_oauth_user
+
+        provider = await self._make_provider(test_db_session)
+
+        # Provision the seeded admin via SSO (first login — allowlist empty).
+        # We use a disallowed-domain email so the second call can test the exemption.
+        await _clear_allowed_domains(client, admin_auth_header)
+
+        # We need to set up an existing OAuthAccount for the admin user.
+        # The seeded admin user is the default admin from the test fixture.
+        # It is easier to use a fresh user that we grant the admin role.
+        from app.modules.auth.models import Role, UserRole
+
+        unique_sub = f"sso-wr01-{uuid.uuid4().hex[:8]}"
+        userinfo_first = {
+            "sub": unique_sub,
+            "email": f"adminuser-{unique_sub}@{_DISALLOWED_DOMAIN}",
+            "email_verified": True,
+            "name": "SSO Admin",
+        }
+        # Provision the user with a normal role first.
+        new_user = await find_or_create_oauth_user(
+            test_db_session, provider, userinfo_first, {}
+        )
+        assert new_user is not None
+
+        # Elevate to admin role so they hold manage_settings.
+        admin_role_result = await test_db_session.execute(
+            select(Role).where(Role.name == "admin")
+        )
+        admin_role = admin_role_result.scalar_one()
+        test_db_session.add(UserRole(user_id=new_user.id, role_id=admin_role.id))
+        await test_db_session.flush()
+
+        # Tighten the allowlist.
+        await _set_allowed_domains(client, admin_auth_header, _ALLOWLIST)
+        try:
+            # Second call: RETURNING admin, disallowed domain — should be exempt.
+            userinfo_returning = {
+                "sub": unique_sub,
+                "email": f"adminuser-{unique_sub}@{_DISALLOWED_DOMAIN}",
+                "email_verified": True,
+                "name": "SSO Admin",
+            }
+            # Should NOT raise — admin break-glass exempts them.
+            result_user = await find_or_create_oauth_user(
+                test_db_session, provider, userinfo_returning, {}
+            )
+            assert result_user.id == new_user.id, (
+                "Returning admin should be the same user"
+            )
+        finally:
+            await _clear_allowed_domains(client, admin_auth_header)
