@@ -615,11 +615,16 @@ init_metrics(app)
 
 # Phase 1230 EVENT-04: health-alert cooldown state.
 # Module-level so it persists across requests within a single API process.
-# _last_health_alert_at: epoch-float of the most recent degraded alert sent.
+# _last_health_alert_at: time.monotonic() of the most recent degraded alert
+#   sent, or None if no alert has been sent since boot/recovery. None means
+#   "alert immediately" — a 0.0 sentinel was wrong because monotonic() is
+#   seconds-since-boot, so `now - 0.0 >= COOLDOWN` suppressed the very first
+#   alert during the first 5 minutes of process uptime (exactly when a DB is
+#   most likely down after a deploy).
 # _last_health_status:   last observed status ("healthy" or "degraded"); a
 #   transition back to "healthy" resets _last_health_alert_at so the NEXT
 #   degraded event produces a fresh alert after recovery (T-1230-06).
-_last_health_alert_at: float = 0.0
+_last_health_alert_at: float | None = None
 _last_health_status: str = "healthy"
 # Cooldown window: emit at most one health alert per 5 minutes (T-1230-06
 # low-noise requirement).  Docker healthcheck polls every 10 s → at most
@@ -672,10 +677,14 @@ async def health(request: Request):
         component = failing[0] if failing else "unknown"
         # Reset cooldown when the system recovers between degraded windows.
         if _last_health_status == "healthy":
-            _last_health_alert_at = 0.0
+            _last_health_alert_at = None
         _last_health_status = current_status
         # Emit only if outside the cooldown window (de-dup, T-1230-06).
-        if now - _last_health_alert_at >= _HEALTH_ALERT_COOLDOWN_SECS:
+        # None => no alert sent since boot/recovery → fire immediately.
+        if (
+            _last_health_alert_at is None
+            or now - _last_health_alert_at >= _HEALTH_ALERT_COOLDOWN_SECS
+        ):
             _last_health_alert_at = now
             # Lazy import per Phase 214 discipline.
             from app.platform.notifications.events import (  # LAZY
@@ -700,7 +709,7 @@ async def health(request: Request):
     else:
         # System is healthy: reset status so a future recurrence re-alerts.
         _last_health_status = "healthy"
-        _last_health_alert_at = 0.0
+        _last_health_alert_at = None
 
     return JSONResponse(
         content=result, status_code=status_code, background=health_alert_task

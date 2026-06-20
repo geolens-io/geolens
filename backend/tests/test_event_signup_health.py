@@ -236,6 +236,20 @@ async def _run_health(request):
 class TestHealthAlert:
     """Health alert wired to api/main.py::health()."""
 
+    @pytest.fixture(autouse=True)
+    def _disable_rate_limiter(self):
+        """Call health() directly with a MagicMock request, which slowapi's
+        limiter rejects when enabled. The limiter is a module-level singleton
+        disabled only by the `client` fixture, so without this these tests
+        depend on another test having run first — a leaked-global ordering
+        dependency that breaks under xdist (Pytest Parallel Isolation)."""
+        from app.modules.auth.router import limiter
+
+        prev = limiter.enabled
+        limiter.enabled = False
+        yield
+        limiter.enabled = prev
+
     @pytest.mark.anyio
     async def test_health_alert_fires_on_degraded_when_toggle_on(
         self, monkeypatch
@@ -270,7 +284,7 @@ class TestHealthAlert:
         import app.api.main as main_mod
 
         # Reset cooldown state before test
-        main_mod._last_health_alert_at = 0.0
+        main_mod._last_health_alert_at = None
         main_mod._last_health_status = "healthy"
 
         from app.observability.health import service as health_svc
@@ -333,7 +347,7 @@ class TestHealthAlert:
 
         import app.api.main as main_mod
 
-        main_mod._last_health_alert_at = 0.0
+        main_mod._last_health_alert_at = None
         main_mod._last_health_status = "healthy"
 
         from app.observability.health import service as health_svc
@@ -387,7 +401,7 @@ class TestHealthAlert:
         import app.api.main as main_mod
 
         # Reset cooldown
-        main_mod._last_health_alert_at = 0.0
+        main_mod._last_health_alert_at = None
         main_mod._last_health_status = "healthy"
 
         from app.observability.health import service as health_svc
@@ -440,7 +454,7 @@ class TestHealthAlert:
 
         import app.api.main as main_mod
 
-        main_mod._last_health_alert_at = 0.0
+        main_mod._last_health_alert_at = None
         main_mod._last_health_status = "healthy"
 
         from app.observability.health import service as health_svc
@@ -490,7 +504,7 @@ class TestHealthAlert:
 
         import app.api.main as main_mod
 
-        main_mod._last_health_alert_at = 0.0
+        main_mod._last_health_alert_at = None
         main_mod._last_health_status = "healthy"
 
         from app.observability.health import service as health_svc
