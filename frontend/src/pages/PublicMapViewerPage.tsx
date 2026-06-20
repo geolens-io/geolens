@@ -72,7 +72,7 @@ export function PublicMapViewerPage() {
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center w-full h-screen bg-muted">
+      <div className="flex flex-1 items-center justify-center w-full bg-muted">
         <LoadingState message={t('viewer.loading')} />
       </div>
     );
@@ -82,7 +82,7 @@ export function PublicMapViewerPage() {
     const is403 = error instanceof ApiError && error.status === 403;
     const is404 = error instanceof ApiError && error.status === 404;
     return (
-      <div className="flex min-h-screen items-center justify-center bg-[radial-gradient(circle_at_top,_hsl(var(--muted))_0,_transparent_55%),linear-gradient(180deg,hsl(var(--background)),hsl(var(--muted))/0.45)] px-6">
+      <div className="flex flex-1 items-center justify-center bg-[radial-gradient(circle_at_top,_hsl(var(--muted))_0,_transparent_55%),linear-gradient(180deg,hsl(var(--background)),hsl(var(--muted))/0.45)] px-6">
         <div className="flex w-full max-w-xl flex-col items-center rounded-2xl border bg-background/95 p-8 text-center shadow-xl backdrop-blur">
           <MapPinOff className="size-10 text-muted-foreground" />
           <div className="mt-4 space-y-2 text-center">
@@ -128,7 +128,7 @@ export function PublicMapViewerPage() {
   };
 
   return (
-    <main id="map-viewport" className="w-full h-[calc(100dvh-3.5rem-1px)] relative overflow-hidden">
+    <main id="map-viewport" className="w-full flex-1 min-h-0 relative overflow-hidden">
       <MapErrorBoundary>
         <Suspense fallback={<LoadingState message={t('viewer.loading')} />}>
           <ViewerMap
