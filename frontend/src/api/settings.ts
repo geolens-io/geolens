@@ -103,6 +103,40 @@ export async function getApiKeyStatus(): Promise<ApiKeyStatusResponse> {
   return apiFetch<ApiKeyStatusResponse>('/settings/api-key-status/');
 }
 
+// --- Notification status + test-send (Phase 1229 Plan 03 / NOTIF-05 / NOTIF-06) ---
+
+/** GET /settings/notifications/status/ — booleans only, no secrets (NOTIF-05). */
+export interface NotificationStatus {
+  notifications_enabled: boolean;
+  smtp_configured: boolean;
+  webhook_configured: boolean;
+}
+
+/** Per-channel result from POST /settings/notifications/test/. */
+export interface NotificationTestChannelResult {
+  channel: string;
+  ok: boolean;
+  /** Safe error string (exception type name + short message) when ok=false, else null. Never contains secrets. */
+  error: string | null;
+}
+
+/** POST /settings/notifications/test/ response — always 200, even on channel failure (NOTIF-06). */
+export interface NotificationTestResponse {
+  sent: boolean;
+  channels: NotificationTestChannelResult[];
+  message: string;
+}
+
+export async function getNotificationStatus(): Promise<NotificationStatus> {
+  return apiFetch<NotificationStatus>('/settings/notifications/status/');
+}
+
+export async function sendTestNotification(): Promise<NotificationTestResponse> {
+  return apiFetch<NotificationTestResponse>('/settings/notifications/test/', {
+    method: 'POST',
+  });
+}
+
 // --- Enterprise-tabs registry (Phase 279 ADMIN-03 / M-03) ---
 
 export interface EnterpriseTabsResponse {

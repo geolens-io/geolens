@@ -144,6 +144,8 @@ export const queryKeys = {
     branding: ['settings', 'branding'] as const,
     // Phase 279 ADMIN-03 (M-03): server-driven enterprise-only Settings-tab list.
     enterpriseTabs: ['settings', 'enterprise-tabs'] as const,
+    // Phase 1229 Plan 03 (NOTIF-06): notification channel status (booleans only).
+    notificationStatus: ['settings', 'notification-status'] as const,
   },
 
   // -------------------------------------------------------------------------

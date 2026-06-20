@@ -527,6 +527,17 @@
       "corsAllowedOriginsDescription": "Comma-separated origins. Use * for any origin.",
       "corsAllowedOriginsPlaceholder": "https://example.com, https://app.example.com"
     },
+    "notifications": {
+      "title": "Outbound Notifications",
+      "description": "Configure and verify outbound notification channels (SMTP email and webhook). Secrets are never displayed here.",
+      "statusEnabled": "Enabled",
+      "smtpConfigured": "SMTP configured",
+      "webhookConfigured": "Webhook configured",
+      "sendTest": "Send test notification",
+      "testSuccess": "Test notification sent",
+      "testNoChannel": "No channel configured",
+      "testError": "Test send failed"
+    },
     "security": {
       "title": "Security",
       "cardTitle": "Login Rate Limiting",

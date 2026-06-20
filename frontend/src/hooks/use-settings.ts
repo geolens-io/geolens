@@ -17,6 +17,8 @@ import {
   updateBranding,
   getEnabledPlugins,
   getEnterpriseOnlyTabs,
+  getNotificationStatus,
+  sendTestNotification,
 } from '@/api/settings';
 
 // --- Public hooks (used by non-admin pages) ---
@@ -176,5 +178,24 @@ export function useResetSettings() {
     onError: (err) => {
       toast.error(formatMutationError('settingsToasts.resetFailed', err));
     },
+  });
+}
+
+// Phase 1229 Plan 03 — notification status + test-send hooks (NOTIF-06).
+
+/** Query: GET /settings/notifications/status/ — booleans only, no secrets. */
+export function useNotificationStatus() {
+  return useQuery({
+    queryKey: queryKeys.settings.notificationStatus,
+    queryFn: getNotificationStatus,
+    staleTime: 5 * 60_000,
+    gcTime: 30 * 60_000,
+  });
+}
+
+/** Mutation: POST /settings/notifications/test/ — triggers a canned test send through configured channels. */
+export function useSendTestNotification() {
+  return useMutation({
+    mutationFn: sendTestNotification,
   });
 }
