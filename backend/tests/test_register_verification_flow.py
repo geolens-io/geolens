@@ -333,6 +333,72 @@ async def test_verify_email_activates_account_and_login_works(
 
 
 # ---------------------------------------------------------------------------
+# CR-01: a valid token must not re-activate an admin-suspended account
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_verify_email_does_not_reactivate_suspended_account(
+    client: AsyncClient,
+    captured_send_email: list,
+    test_db_session,
+    monkeypatch,
+) -> None:
+    """CR-01: if an admin suspends a still-pending account within the token's
+    validity window, clicking the verification link must consume the token but
+    must NOT silently re-activate the account."""
+    from sqlalchemy import update
+
+    from app.core.persistent_config import (
+        EMAIL_VERIFICATION_REQUIRED,
+        REGISTRATION_ENABLED,
+    )
+    from app.modules.auth.models import User
+
+    _patch_persistent_config(monkeypatch, REGISTRATION_ENABLED, True)
+    _patch_persistent_config(monkeypatch, EMAIL_VERIFICATION_REQUIRED, True)
+
+    username = _unique_username()
+    email = _unique_email()
+
+    resp = await client.post(
+        "/auth/register/",
+        json={"username": username, "password": _STRONG_PASSWORD, "email": email},
+    )
+    assert resp.status_code == 201, resp.text
+
+    assert len(captured_send_email) == 1
+    token_match = re.search(r"token=([A-Za-z0-9_\-]+)", captured_send_email[0].body)
+    assert token_match, "Could not find token in email body"
+    raw_token = token_match.group(1)
+
+    # Admin suspends the still-pending account before the user verifies.
+    await test_db_session.execute(
+        update(User).where(User.username == username).values(status="suspended")
+    )
+    await test_db_session.commit()
+
+    # Clicking the link returns 200 (no status leak) but must NOT re-activate.
+    verify_resp = await client.post("/auth/verify-email/", json={"token": raw_token})
+    assert verify_resp.status_code == 200, verify_resp.text
+
+    user = (
+        await test_db_session.execute(select(User).where(User.username == username))
+    ).scalar_one()
+    await test_db_session.refresh(user)
+    assert user.is_active is False, "suspended account must stay inactive (CR-01)"
+    assert user.status == "suspended", (
+        f"status must stay 'suspended', got {user.status!r} (CR-01)"
+    )
+
+    # The token is single-use even though activation was skipped.
+    second = await client.post("/auth/verify-email/", json={"token": raw_token})
+    assert second.status_code == 400, (
+        "token must be single-use even when activation is skipped"
+    )
+
+
+# ---------------------------------------------------------------------------
 # Case (4): expired/garbage token → 400, account stays inactive
 # ---------------------------------------------------------------------------
 

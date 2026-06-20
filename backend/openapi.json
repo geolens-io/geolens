@@ -15278,6 +15278,7 @@
         "properties": {
           "token": {
             "description": "Raw opaque verification token from the email link",
+            "maxLength": 128,
             "title": "Token",
             "type": "string"
           }

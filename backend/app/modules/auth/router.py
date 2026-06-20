@@ -330,6 +330,23 @@ async def register(
                 )
             )
 
+        elif verification_required and body.email and not smtp_configured:
+            # Verification is required but no SMTP channel is configured, so we
+            # cannot send a verification email and fall back to admin-approval.
+            # Surface the mismatch instead of degrading silently (WR-02) so an
+            # operator who turned verification on can see why signups still need
+            # manual approval.
+            import structlog  # LAZY — per D-17
+
+            structlog.stdlib.get_logger(__name__).warning(
+                "register.verification_required_but_smtp_unconfigured",
+                detail=(
+                    "EMAIL_VERIFICATION_REQUIRED is on but smtp_host is unset; "
+                    "falling back to admin-approval. Configure SMTP to enable "
+                    "email-verified self-serve signup."
+                ),
+            )
+
     # Default: admin-approval path (verification off, no email provided, or collision swallow).
     return RegisterResponse(
         message="Registration submitted. Your account is awaiting admin approval."
@@ -384,8 +401,19 @@ async def verify_email(
     # the user through.  redeem_verification_token already flipped email_verified.
     from app.modules.auth.models import User  # LAZY — per D-17
 
+    # Only activate accounts that are still PENDING verification. An admin may
+    # have suspended/deactivated the account within the token's validity window;
+    # clicking the verification link must NOT silently undo that (CR-01). The
+    # token is already consumed (redeem above) and email_verified stays set —
+    # only the activation flip is gated on the still-pending precondition.
     await db.execute(
-        update(User).where(User.id == user_id).values(is_active=True, status="active")
+        update(User)
+        .where(
+            User.id == user_id,
+            User.status == "pending",
+            User.is_active.is_(False),
+        )
+        .values(is_active=True, status="active")
     )
 
     await audit_emit(

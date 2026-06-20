@@ -72,7 +72,10 @@ class RegisterResponse(BaseModel):
 
 
 class VerifyEmailRequest(BaseModel):
-    token: str = Field(description="Raw opaque verification token from the email link")
+    token: str = Field(
+        max_length=128,
+        description="Raw opaque verification token from the email link",
+    )
 
 
 class ResendVerificationRequest(BaseModel):
