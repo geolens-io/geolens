@@ -176,8 +176,12 @@ function runCaptureNow(
       }
       if (Date.now() >= deadline) {
         // SF-05: genuinely empty after the deadline — fall back to idle path so
-        // we never leave an open poll.
-        if (!signal?.cancelled) whenMapIdle(map, () => doCapture(map, mapId, queryClient));
+        // we never leave an open poll. Re-check cancellation INSIDE the idle
+        // callback (WR-02): whenMapIdle can fire up to ~3s later, possibly after
+        // an unmount, so the guard must be at capture time, not registration time.
+        whenMapIdle(map, () => {
+          if (!signal?.cancelled) doCapture(map, mapId, queryClient);
+        });
         return;
       }
       setTimeout(pollForLayers, 100);

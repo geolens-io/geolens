@@ -105,10 +105,13 @@ export function MapBuilderPage() {
   const { id } = useParams<{ id: string }>();
   // POLISH-01 (Phase 1233-01): detect the ?add_dataset path so useBuilderSave
   // can defer the first auto-capture until the layer-add effect has synced.
-  // use-builder-layers deletes the param once processed; we only need the
-  // mount-time value, so a stable read from useSearchParams is sufficient.
+  // use-builder-layers DELETES the param once processed, so reading it
+  // reactively can flip to false before the capture path runs (WR-01). Freeze
+  // the mount-time value in a ref so the deferred path is honored regardless of
+  // whether the API or the canvas init wins the race.
   const [searchParams] = useSearchParams();
-  const pendingLayerAdd = searchParams.has('add_dataset');
+  const pendingLayerAddRef = useRef(searchParams.has('add_dataset'));
+  const pendingLayerAdd = pendingLayerAddRef.current;
   const { t } = useTranslation('builder');
   const { data: mapData, isLoading, error } = useMap(id, { refetchOnWindowFocus: false });
   const enabledPluginsQuery = useEnabledPlugins();
