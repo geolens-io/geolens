@@ -594,6 +594,11 @@ const AUTH_FIELDS = [
   { key: 'registration_enabled', defaultValue: false },
   // FRONT-01 (Phase 1223): toggle for login-as-landing front door.
   { key: 'landing_first', defaultValue: false },
+  // ORG-01 (Phase 1239): password-login enable/disable toggle.
+  { key: 'password_login_enabled', defaultValue: true },
+  // ORG-02 (Phase 1239): email domain allowlist. compare:'json' is required so
+  // array references are deep-compared and the dirty flag clears after a save.
+  { key: 'allowed_email_domains', defaultValue: [] as string[], compare: 'json' as const },
   { key: 'access_token_expire_minutes', defaultValue: 15 },
   { key: 'refresh_token_expire_days', defaultValue: 7 },
   { key: 'login_rate_limit', defaultValue: 5 },
@@ -602,6 +607,25 @@ const AUTH_FIELDS = [
 export function SettingsAuthTab({ settings, envOnly, onSave, onReset, isSaving, onDirtyChange }: TabProps) {
   const { t } = useTranslation('admin');
   const { values, setters, dirty, hasDirty, discard } = useSettingsForm(settings, AUTH_FIELDS);
+
+  // Local input state for the domain allowlist add-input (not part of form state).
+  const [domainInput, setDomainInput] = useState('');
+
+  const domains = (values.allowed_email_domains as string[]) ?? [];
+
+  function handleAddDomain() {
+    const normalized = domainInput.trim().toLowerCase();
+    if (!normalized || domains.includes(normalized)) {
+      setDomainInput('');
+      return;
+    }
+    setters.allowed_email_domains([...domains, normalized]);
+    setDomainInput('');
+  }
+
+  function handleRemoveDomain(domain: string) {
+    setters.allowed_email_domains(domains.filter((d) => d !== domain));
+  }
 
   return (
     <div className="space-y-8">
@@ -637,6 +661,74 @@ export function SettingsAuthTab({ settings, envOnly, onSave, onReset, isSaving, 
           onCheckedChange={setters.landing_first}
           disabled={envOnly}
         />
+      </div>
+
+      {/* ORG-01 (Phase 1239): Password Login toggle */}
+      <div className="flex items-center justify-between max-w-md">
+        <div className="space-y-0.5">
+          <div className="flex items-center gap-2">
+            <Label htmlFor="password-login-toggle">{t('settings.security.passwordLogin')}</Label>
+            <SettingSourceBadge source={findSetting(settings, 'password_login_enabled')?.source ?? 'default'} settingKey="password_login_enabled" onReset={onReset} />
+          </div>
+          <p className="text-sm text-muted-foreground">{t('settings.security.passwordLoginDescription')}</p>
+        </div>
+        <Switch
+          id="password-login-toggle"
+          checked={values.password_login_enabled as boolean}
+          onCheckedChange={setters.password_login_enabled}
+          disabled={envOnly}
+        />
+      </div>
+
+      {/* ORG-02 (Phase 1239): Email Domain Allowlist */}
+      <div className="space-y-3 max-w-md">
+        <div className="flex items-center gap-2">
+          <Label>{t('settings.security.allowedEmailDomains')}</Label>
+          <SettingSourceBadge source={findSetting(settings, 'allowed_email_domains')?.source ?? 'default'} settingKey="allowed_email_domains" onReset={onReset} />
+        </div>
+        <p className="text-sm text-muted-foreground">{t('settings.security.allowedEmailDomainsDescription')}</p>
+
+        {domains.length === 0 ? (
+          <p className="text-sm text-muted-foreground italic">{t('settings.security.allowedEmailDomainsUnrestricted')}</p>
+        ) : (
+          <div className="flex flex-wrap gap-2">
+            {domains.map((domain) => (
+              <Badge key={domain} variant="secondary" className="flex items-center gap-1 px-2 py-1">
+                <span>{domain}</span>
+                <button
+                  type="button"
+                  aria-label={t('settings.security.removeDomain', { domain })}
+                  onClick={() => handleRemoveDomain(domain)}
+                  disabled={envOnly}
+                  className="ml-1 rounded-full hover:bg-muted-foreground/20 disabled:pointer-events-none"
+                >
+                  <span aria-hidden="true" className="text-xs leading-none">&times;</span>
+                </button>
+              </Badge>
+            ))}
+          </div>
+        )}
+
+        <div className="flex items-center gap-2">
+          <Input
+            id="domain-input"
+            value={domainInput}
+            onChange={(e) => setDomainInput(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddDomain(); } }}
+            placeholder={t('settings.security.addDomainPlaceholder')}
+            disabled={envOnly}
+            className="w-48"
+          />
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={handleAddDomain}
+            disabled={envOnly || !domainInput.trim()}
+          >
+            {t('settings.security.addDomain')}
+          </Button>
+        </div>
       </div>
 
       {/* Token & Rate Limit Settings */}
