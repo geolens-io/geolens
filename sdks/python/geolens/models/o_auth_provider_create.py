@@ -32,7 +32,8 @@ class OAuthProviderCreate:
     Attributes:
         display_name (str): Human-readable label shown on the login page button.
         provider_type (OAuthProviderCreateProviderType): OAuth or SAML provider type. 'google' and 'microsoft' auto-
-            populate the discovery URL; 'oidc' is generic OAuth/OIDC; 'saml' enables SAML SSO (requires enterprise edition).
+            populate the discovery URL; 'oidc' is generic OAuth/OIDC; 'github' uses GitHub's fixed OAuth2 endpoints (no
+            discovery URL); 'saml' enables SAML SSO (requires enterprise edition).
         slug (str): URL-safe identifier used in callback URLs (e.g. 'google', 'azure-ad'). Lowercase, digits, and
             hyphens only.
         authorize_url (None | str | Unset): Authorization endpoint. Only needed when discovery_url is not set.

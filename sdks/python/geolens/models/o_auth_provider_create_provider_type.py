@@ -1,8 +1,11 @@
 from typing import Literal, cast
 
-OAuthProviderCreateProviderType = Literal["google", "microsoft", "oidc", "saml"]
+OAuthProviderCreateProviderType = Literal[
+    "github", "google", "microsoft", "oidc", "saml"
+]
 
 O_AUTH_PROVIDER_CREATE_PROVIDER_TYPE_VALUES: set[OAuthProviderCreateProviderType] = {
+    "github",
     "google",
     "microsoft",
     "oidc",

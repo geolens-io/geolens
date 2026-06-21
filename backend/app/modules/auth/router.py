@@ -36,14 +36,17 @@ from app.core.config import settings
 from app.core.dependencies import get_client_ip, get_db
 from app.core.persistent_config import (
     ACCESS_TOKEN_EXPIRE_MINUTES,
+    ALLOWED_EMAIL_DOMAINS,
     DEMO_MODE,
     EMAIL_VERIFICATION_REQUIRED,
     LANDING_FIRST,
+    PASSWORD_LOGIN_ENABLED,
     REFRESH_TOKEN_EXPIRE_DAYS,
     REGISTRATION_ENABLED,
     get_cached_global_rate_limit,
     get_cached_login_rate_limit,
 )
+from app.modules.auth.domain_validation import is_email_allowed
 from app.standards.ogc.errors import ERROR_RESPONSES_AUTH
 
 router = APIRouter(prefix="/auth", tags=["Auth"], responses=ERROR_RESPONSES_AUTH)
@@ -107,6 +110,47 @@ async def login(
                 detail="Account not active",
             )
 
+    # DOMAIN-04: enforce allowed_email_domains on password login.
+    # Break-glass: users who hold manage_settings are exempt (admin escape hatch).
+    # Skip the check when user.email is null (no address to gate on).
+    # Cache-bypass (get_uncached): security enforcement must observe the committed
+    # setting, not a value a concurrent reader repopulated into the cache during a
+    # writer's invalidate->commit window (same class as the lockout-guard fix).
+    if user is not None and user.email:
+        domains = await ALLOWED_EMAIL_DOMAINS.get_uncached(db)
+        if not is_email_allowed(user.email, domains):
+            # Lazy import to avoid adding DB dep at module top; follows D-17.
+            from app.modules.auth.permissions import (  # LAZY — per D-17
+                MANAGE_SETTINGS,
+                user_has_capability,
+            )
+
+            has_break_glass = await user_has_capability(db, user, MANAGE_SETTINGS)
+            if not has_break_glass:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Email domain is not permitted",
+                )
+
+    # SSO-01/SSO-02 (Phase 1236 Plan 02): when password_login_enabled is False,
+    # reject password login for non-admins.  manage_settings holders are always
+    # allowed through (break-glass) — same capability used for the domain gate.
+    # Cache-bypass (get_uncached): otherwise a stale `true` repopulated during a
+    # password-disable's invalidate->commit window would let non-admins keep
+    # logging in for up to the 30s cache TTL after the disable commits (Codex P2).
+    if user is not None and not await PASSWORD_LOGIN_ENABLED.get_uncached(db):
+        from app.modules.auth.permissions import (  # LAZY — per D-17
+            MANAGE_SETTINGS,
+            user_has_capability,
+        )
+
+        has_break_glass = await user_has_capability(db, user, MANAGE_SETTINGS)
+        if not has_break_glass:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Password login is disabled; sign in with your SSO provider",
+            )
+
     # Record login timestamp
     user.last_login_at = func.now()
 
@@ -144,6 +188,39 @@ async def refresh(
     expire_days = await REFRESH_TOKEN_EXPIRE_DAYS.get(db)
 
     service = AuthService(db)
+
+    # CR-01 (Phase 1236 Plan 03): enforce the allowed_email_domains allowlist at
+    # refresh time so that when an admin tightens the allowlist AFTER a user
+    # authenticated, the user's next refresh is rejected (no gap between domain
+    # enforcement at login and session continuation via refresh).
+    #
+    # Implementation notes:
+    # - We peek at the user WITHOUT revoking the token first: if the domain check
+    #   blocks the user, the old token stays intact (no silent revocation).
+    # - Break-glass: a returning manage_settings admin is exempt — same policy as
+    #   the password-login domain gate (DOMAIN-04).
+    # - PASSWORD_LOGIN_ENABLED is intentionally NOT checked here.  SSO-only is a
+    #   login-METHOD policy (governs the password endpoint); it must not gate session
+    #   continuation for users who already authenticated via SSO.  Only the DOMAIN
+    #   check (which is an authorization PERIMETER, not a method selector) belongs
+    #   at refresh.
+    user = await service.get_user_from_refresh_token(body.refresh_token)
+    if user is not None and user.email:
+        # Cache-bypass: security enforcement reads committed state (see login gate).
+        domains = await ALLOWED_EMAIL_DOMAINS.get_uncached(db)
+        if not is_email_allowed(user.email, domains):
+            from app.modules.auth.permissions import (  # LAZY — per D-17
+                MANAGE_SETTINGS,
+                user_has_capability,
+            )
+
+            has_break_glass = await user_has_capability(db, user, MANAGE_SETTINGS)
+            if not has_break_glass:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Email domain is not permitted",
+                )
+
     try:
         access_token, refresh_token = await service.rotate_refresh_token(
             body.refresh_token,
@@ -203,6 +280,19 @@ async def register(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Registration is disabled",
         )
+
+    # DOMAIN-02: enforce allowed_email_domains on self-serve signup.
+    # No principal exists at signup → no break-glass; the email must satisfy
+    # the allowlist to create an account.  A null/absent email is permitted
+    # (no address to gate on — preserves no-email registration paths).
+    if body.email:
+        # Cache-bypass: security enforcement reads committed state (see login gate).
+        domains = await ALLOWED_EMAIL_DOMAINS.get_uncached(db)
+        if not is_email_allowed(body.email, domains):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Email domain is not permitted",
+            )
 
     # Phase 279 ADMIN-05 (L-02): emit user.register audit event for funnel
     # visibility (how many users register and from which IP). Lazy import
@@ -641,6 +731,9 @@ async def config(
     landing_first = await LANDING_FIRST.get(db)
     demo_mode = await DEMO_MODE.get(db)
     email_verification_required = await EMAIL_VERIFICATION_REQUIRED.get(db)
+    # SSO-03: expose the SSO-only flag so the login page can hide the password
+    # form on first render (no flash).
+    password_login_enabled = await PASSWORD_LOGIN_ENABLED.get(db)
     return ConfigResponse(
         registration_enabled=reg_enabled,
         allow_signup=reg_enabled,
@@ -648,6 +741,7 @@ async def config(
         auth_methods=list(get_auth_extension().get_auth_methods()),
         landing_first=landing_first,
         demo_mode=demo_mode,
+        password_login_enabled=password_login_enabled,
     )
 
 

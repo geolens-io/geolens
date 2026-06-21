@@ -1999,6 +1999,12 @@ export type ConfigResponse = {
      */
     landing_first?: boolean;
     /**
+     * Password Login Enabled
+     *
+     * When false, password login is disabled for users without manage_settings. Default true for back-compat-safe parsing by older clients.
+     */
+    password_login_enabled?: boolean;
+    /**
      * Registration Enabled
      *
      * Whether self-service registration is open
@@ -5531,9 +5537,9 @@ export type OAuthProviderCreate = {
     /**
      * Provider Type
      *
-     * OAuth or SAML provider type. 'google' and 'microsoft' auto-populate the discovery URL; 'oidc' is generic OAuth/OIDC; 'saml' enables SAML SSO (requires enterprise edition).
+     * OAuth or SAML provider type. 'google' and 'microsoft' auto-populate the discovery URL; 'oidc' is generic OAuth/OIDC; 'github' uses GitHub's fixed OAuth2 endpoints (no discovery URL); 'saml' enables SAML SSO (requires enterprise edition).
      */
-    provider_type: 'google' | 'microsoft' | 'oidc' | 'saml';
+    provider_type: 'google' | 'microsoft' | 'oidc' | 'saml' | 'github';
     /**
      * Scopes
      *
@@ -5817,7 +5823,7 @@ export type OAuthProviderUpdate = {
      *
      * New provider type. Rarely changed after creation.
      */
-    provider_type?: 'google' | 'microsoft' | 'oidc' | 'saml' | null;
+    provider_type?: 'google' | 'microsoft' | 'oidc' | 'saml' | 'github' | null;
     /**
      * Scopes
      *

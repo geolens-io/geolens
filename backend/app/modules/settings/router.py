@@ -26,6 +26,7 @@ from app.core.persistent_config import (
     ENABLE_DATASET_EDITING,
     ENABLED_PLUGINS,
     MAP_DEFAULTS,
+    PASSWORD_LOGIN_ENABLED,
     REQUIRE_METADATA_FOR_PUBLISH,
     _registry,
     get_cached_basemap_proxy_rate_limit,
@@ -256,6 +257,7 @@ async def get_enterprise_only_tabs(
 # path "" registers PUT /settings (prefix-only, no trailing slash).
 @router.put("", response_model=SettingsAllResponse, include_in_schema=False)
 @router.put("/", response_model=SettingsAllResponse)
+@limiter.limit("30/minute")  # HARDEN-02: rate-limit settings mutations per client IP
 async def update_settings(
     body: SettingsUpdateRequest,
     request: Request,
@@ -311,6 +313,28 @@ async def update_settings(
             )
 
         validated_settings[key] = value
+
+    # SSO-04 (Phase 1236 Plan 02): lockout guard — refuse to disable password
+    # login when zero enabled OAuth providers exist.  This runs AFTER Pass-1
+    # validation but BEFORE the apply loop so nothing is persisted on rejection.
+    # An admin with manage_settings retains break-glass password-login regardless,
+    # but we still prevent the foot-gun of locking out the entire org.
+    #
+    # Codex P2 (concurrency): row-lock the enabled providers (FOR UPDATE) so a
+    # concurrent provider-disable/delete (which locks the same rows) is serialized
+    # against this check — the two can no longer both pass and together remove the
+    # last provider while disabling password login. Replaces the reverted global
+    # advisory lock (898048b2); see oauth_service.lock_enabled_providers.
+    if validated_settings.get("password_login_enabled") is False:
+        locked_provider_ids = await oauth_service.lock_enabled_providers(db)
+        if len(locked_provider_ids) == 0:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=(
+                    "Cannot disable password login while no SSO provider is enabled "
+                    "— enable an OAuth provider first"
+                ),
+            )
 
     # Capture old embedding_dims before any changes (needed for rollback)
     old_dims_value: int | None = None
@@ -372,6 +396,7 @@ async def update_settings(
 # ROUTE-01 (Phase 1092): dual-shape decorator — see /all above.
 @router.post("/reset", response_model=SettingsAllResponse, include_in_schema=False)
 @router.post("/reset/", response_model=SettingsAllResponse)
+@limiter.limit("30/minute")
 async def reset_settings(
     body: SettingsResetRequest,
     request: Request,
@@ -656,6 +681,7 @@ async def list_oauth_providers(
     response_model=OAuthProviderResponse,
     status_code=status.HTTP_201_CREATED,
 )
+@limiter.limit("30/minute")
 async def create_oauth_provider(
     body: OAuthProviderCreate,
     request: Request,
@@ -714,6 +740,7 @@ async def create_oauth_provider(
     "/oauth-providers/{provider_id}",
     response_model=OAuthProviderResponse,
 )
+@limiter.limit("30/minute")
 async def update_oauth_provider(
     provider_id: uuid.UUID,
     body: OAuthProviderUpdate,
@@ -736,6 +763,35 @@ async def update_oauth_provider(
         )
     if not is_enterprise() and provider.provider_type == "saml":
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+
+    # CR-02 (Phase 1236 Plan 03): lockout guard — mirror the update_settings
+    # guard but applied to the provider PATCH side.  When password_login_enabled
+    # is False AND this update would disable the last enabled OAuth provider,
+    # refuse the operation.  We count enabled providers EXCLUDING the target so
+    # that disabling a provider when >=2 others are enabled is still allowed.
+    # The guard fires BEFORE any persist so nothing is written on rejection.
+    #
+    # Codex P2 (concurrency): row-lock the enabled providers FIRST — before
+    # reading password_login_enabled — so a concurrent password-disable cannot
+    # flip the flag between our read and our write. Counting from the locked set
+    # (rather than a fresh COUNT) keeps the decision consistent with the rows we
+    # hold. See oauth_service.lock_enabled_providers.
+    update_data = body.model_dump(exclude_unset=True)
+    if update_data.get("enabled") is False:
+        locked_provider_ids = await oauth_service.lock_enabled_providers(db)
+        # Cache-bypass read: a concurrent password-disable invalidates the cache
+        # before its commit, so a stale `true` could be repopulated by another
+        # reader; reading the committed DB value under the held lock avoids it.
+        if not await PASSWORD_LOGIN_ENABLED.get_uncached(db):
+            enabled_others = [pid for pid in locked_provider_ids if pid != provider_id]
+            if len(enabled_others) == 0:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail=(
+                        "Cannot disable the last SSO provider while password login is disabled "
+                        "— enable another OAuth provider or re-enable password login first"
+                    ),
+                )
 
     # Snapshot non-secret fields BEFORE the update so we can diff old vs. new.
     old_values = _snapshot_provider(provider)
@@ -787,6 +843,7 @@ async def update_oauth_provider(
     "/oauth-providers/{provider_id}",
     status_code=status.HTTP_204_NO_CONTENT,
 )
+@limiter.limit("30/minute")
 async def delete_oauth_provider(
     provider_id: uuid.UUID,
     request: Request,
@@ -805,6 +862,31 @@ async def delete_oauth_provider(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="OAuth provider not found"
         )
+
+    # CR-02 (Phase 1236 Plan 03): lockout guard for delete — same policy as
+    # the update guard above.  Deleting the last enabled SSO provider when
+    # password_login_enabled is False would lock everyone out.  Count enabled
+    # providers EXCLUDING the target; if zero remain, refuse.
+    # Only applies when the provider being deleted is currently enabled.
+    #
+    # Codex P2 (concurrency): row-lock the enabled providers FIRST (before the
+    # password_login_enabled read) and count from the locked set — same
+    # serialization as the update guard. See oauth_service.lock_enabled_providers.
+    if provider.enabled:
+        locked_provider_ids = await oauth_service.lock_enabled_providers(db)
+        # Cache-bypass read (see update_oauth_provider): observe the committed
+        # password_login_enabled under the held provider lock, not a stale cache.
+        if not await PASSWORD_LOGIN_ENABLED.get_uncached(db):
+            enabled_others = [pid for pid in locked_provider_ids if pid != provider_id]
+            if len(enabled_others) == 0:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail=(
+                        "Cannot delete the last SSO provider while password login is disabled "
+                        "— enable another OAuth provider or re-enable password login first"
+                    ),
+                )
+
     slug = provider.slug
     deleted_state = {
         "slug": provider.slug,

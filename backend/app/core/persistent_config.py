@@ -167,6 +167,31 @@ class PersistentConfig(Generic[T]):
         self._update_sync_cache(effective)
         return effective
 
+    async def get_uncached(self, db: AsyncSession) -> T:
+        """Resolve the effective value directly from the DB, bypassing the cache.
+
+        Used by callers that must observe a value committed inside a lock they
+        hold — e.g. the SSO lockout guards (settings/router.py). The normal
+        cached ``get`` has a race: a writer invalidates the cache BEFORE its
+        commit, so a concurrent reader (e.g. ``/auth/config``) can repopulate the
+        cache with the pre-commit value; a guard waiting on the provider row lock
+        would then resume and read that stale value. Reading straight from the DB
+        under READ COMMITTED returns the just-committed value. This neither reads
+        nor writes the cache, so it cannot observe or create a stale entry.
+        """
+        if _is_env_only():
+            return self.env_default
+
+        result = await db.execute(
+            select(AppSetting.value).where(AppSetting.key == self.key)
+        )
+        row = result.scalar_one_or_none()
+        if row is not None:
+            unwrapped = row if not isinstance(row, dict) or "v" not in row else row["v"]
+            effective, _ = _validate_or_fallback(self, unwrapped)
+            return effective
+        return self.env_default
+
     async def set(
         self,
         db: AsyncSession,
@@ -483,6 +508,32 @@ LOGIN_RATE_LIMIT = PersistentConfig[int](
     env_default=_DEFAULT_LOGIN_RATE_LIMIT,
     tab="auth",
     label="Login Rate Limit (per min)",
+)
+
+# DOMAIN-01 (Phase 1235): allowlist of permitted email domains for sign-up /
+# login / SSO / admin-create.  Default [] means unrestricted (allow any domain).
+# Enforcement is wired in Phase 1236; this phase ships the setting + validator.
+# JSONB-backed key — no Alembic migration required.
+ALLOWED_EMAIL_DOMAINS = PersistentConfig[list[str]](
+    key="allowed_email_domains",
+    type_=list[str],
+    env_default=[],
+    tab="auth",
+    label="Allowed Email Domains",
+)
+
+# SSO-01 (Phase 1236 Plan 02): when False, POST /auth/login returns 403 for
+# users who do NOT hold the manage_settings capability.  manage_settings holders
+# (admins) always retain password-login as a break-glass escape hatch — the same
+# uniform rule used by the domain-enforcement gate in Plan 01.
+# Default True — existing self-hosters see zero behavior change.
+# JSONB-backed key — no Alembic migration required.
+PASSWORD_LOGIN_ENABLED = PersistentConfig[bool](
+    key="password_login_enabled",
+    type_=bool,
+    env_default=True,
+    tab="auth",
+    label="Password Login Enabled",
 )
 
 # -- AI tab --

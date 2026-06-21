@@ -3312,6 +3312,12 @@
             "title": "Landing First",
             "type": "boolean"
           },
+          "password_login_enabled": {
+            "default": true,
+            "description": "When false, password login is disabled for users without manage_settings. Default true for back-compat-safe parsing by older clients.",
+            "title": "Password Login Enabled",
+            "type": "boolean"
+          },
           "registration_enabled": {
             "description": "Whether self-service registration is open",
             "title": "Registration Enabled",
@@ -9565,12 +9571,13 @@
             "title": "Idp Sso Url"
           },
           "provider_type": {
-            "description": "OAuth or SAML provider type. 'google' and 'microsoft' auto-populate the discovery URL; 'oidc' is generic OAuth/OIDC; 'saml' enables SAML SSO (requires enterprise edition).",
+            "description": "OAuth or SAML provider type. 'google' and 'microsoft' auto-populate the discovery URL; 'oidc' is generic OAuth/OIDC; 'github' uses GitHub's fixed OAuth2 endpoints (no discovery URL); 'saml' enables SAML SSO (requires enterprise edition).",
             "enum": [
               "google",
               "microsoft",
               "oidc",
-              "saml"
+              "saml",
+              "github"
             ],
             "title": "Provider Type",
             "type": "string"
@@ -10019,7 +10026,8 @@
                   "google",
                   "microsoft",
                   "oidc",
-                  "saml"
+                  "saml",
+                  "github"
                 ],
                 "type": "string"
               },

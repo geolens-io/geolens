@@ -488,7 +488,15 @@
       "loginRateLimit": "Intentos de inicio de sesión por minuto",
       "loginRateLimitDescription": "Número máximo de solicitudes de inicio de sesión permitidas por minuto desde una única dirección IP (1–1000).",
       "saved": "Configuración de seguridad guardada",
-      "saveFailed": "Error al guardar la configuración de seguridad"
+      "saveFailed": "Error al guardar la configuración de seguridad",
+      "passwordLogin": "Permitir inicio de sesión con contraseña",
+      "passwordLoginDescription": "Permite a los usuarios iniciar sesión con nombre de usuario y contraseña. Si se desactiva, los usuarios deben iniciar sesión a través de un proveedor SSO — asegúrese de que al menos un proveedor esté habilitado antes de desactivar esta opción.",
+      "allowedEmailDomains": "Dominios de correo electrónico permitidos",
+      "allowedEmailDomainsDescription": "Restringe el registro e inicio de sesión a direcciones de correo de estos dominios. Deje vacío para permitir cualquier dominio.",
+      "allowedEmailDomainsUnrestricted": "Sin restricciones — se permiten todos los dominios de correo electrónico.",
+      "addDomainPlaceholder": "ejemplo.com",
+      "addDomain": "Agregar",
+      "removeDomain": "Eliminar dominio {{domain}}"
     },
     "envOnly": {
       "title": "Configuración bloqueada por variables de entorno",
@@ -554,6 +562,10 @@
       "clientSecret": "Secreto de cliente",
       "clientSecretKeep": "dejar en blanco para mantener el actual",
       "discoveryUrl": "URL de descubrimiento",
+      "githubEnterpriseHint": "Deje los endpoints siguientes en blanco para GitHub.com. Para GitHub Enterprise Server, configúrelos con las URL de su instancia.",
+      "authorizeUrl": "URL de autorización (opcional)",
+      "tokenUrl": "URL de token (opcional)",
+      "userinfoUrl": "URL de la API de usuario (opcional)",
       "scopes": "Alcances",
       "defaultRole": "Rol predeterminado",
       "groupClaim": "Claim de grupo",
@@ -576,7 +588,8 @@
       "providerTypes": {
         "google": "Google",
         "microsoft": "Microsoft",
-        "oidc": "OIDC genérico"
+        "oidc": "OIDC genérico",
+        "github": "GitHub"
       },
       "roles": {
         "viewer": "Lector",

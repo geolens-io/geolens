@@ -62,10 +62,15 @@ function useProviderTypeLabels(): Record<string, string> {
     google: t('settings.oauth.providerTypes.google'),
     microsoft: t('settings.oauth.providerTypes.microsoft'),
     oidc: t('settings.oauth.providerTypes.oidc'),
+    github: t('settings.oauth.providerTypes.github'),
   };
 }
 
 const GOOGLE_DISCOVERY_URL = 'https://accounts.google.com/.well-known/openid-configuration';
+// GitHub is plain OAuth2 (no discovery URL). The backend auto-populates the
+// authorize/token/userinfo endpoints for github providers when left blank, so
+// GitHub.com needs only client_id/secret; the URL fields are for GitHub Enterprise.
+const GITHUB_DEFAULT_SCOPE = 'read:user user:email';
 
 function getDefaultDiscoveryUrl(type: string, tenantId?: string): string | null {
   if (type === 'google') return GOOGLE_DISCOVERY_URL;
@@ -80,12 +85,16 @@ function slugify(name: string): string {
 }
 
 interface ProviderFormData {
-  provider_type: 'google' | 'microsoft' | 'oidc';
+  provider_type: 'google' | 'microsoft' | 'oidc' | 'github';
   display_name: string;
   slug: string;
   client_id: string;
   client_secret: string;
   discovery_url: string;
+  // GitHub Enterprise endpoints (optional; blank => backend defaults to GitHub.com).
+  authorize_url: string;
+  token_url: string;
+  userinfo_url: string;
   scopes: string;
   default_role: string;
   group_claim: string;
@@ -101,6 +110,9 @@ const EMPTY_FORM: ProviderFormData = {
   client_id: '',
   client_secret: '',
   discovery_url: GOOGLE_DISCOVERY_URL,
+  authorize_url: '',
+  token_url: '',
+  userinfo_url: '',
   scopes: 'openid profile email',
   default_role: 'viewer',
   group_claim: '',
@@ -181,6 +193,9 @@ function OAuthProvidersSection({ envOnly }: { envOnly: boolean }) {
       client_id: provider.client_id,
       client_secret: '', // never pre-filled
       discovery_url: provider.discovery_url ?? '',
+      authorize_url: provider.authorize_url ?? '',
+      token_url: provider.token_url ?? '',
+      userinfo_url: provider.userinfo_url ?? '',
       scopes: provider.scopes,
       default_role: provider.default_role,
       group_claim: provider.group_claim ?? '',
@@ -196,13 +211,17 @@ function OAuthProvidersSection({ envOnly }: { envOnly: boolean }) {
   function handleProviderTypeChange(type: string) {
     const providerType = type as ProviderFormData['provider_type'];
     const displayName = PROVIDER_TYPE_LABELS[providerType] ?? providerType;
+    const isGithub = providerType === 'github';
     const discoveryUrl = getDefaultDiscoveryUrl(providerType, form.microsoft_tenant_id) ?? '';
     setForm((prev) => ({
       ...prev,
       provider_type: providerType,
       display_name: displayName,
       slug: slugify(displayName),
-      discovery_url: discoveryUrl,
+      // GitHub has no discovery URL; its endpoints are auto-filled by the
+      // backend (or supplied per-field below for GitHub Enterprise).
+      discovery_url: isGithub ? '' : discoveryUrl,
+      scopes: isGithub ? GITHUB_DEFAULT_SCOPE : prev.scopes,
     }));
   }
 
@@ -228,6 +247,17 @@ function OAuthProvidersSection({ envOnly }: { envOnly: boolean }) {
       }
     }
 
+    // GitHub Enterprise endpoints — only sent for github providers; blank fields
+    // become null so the backend applies its GitHub.com defaults.
+    const githubEndpoints =
+      form.provider_type === 'github'
+        ? {
+            authorize_url: form.authorize_url || null,
+            token_url: form.token_url || null,
+            userinfo_url: form.userinfo_url || null,
+          }
+        : {};
+
     if (editingProvider) {
       const data: OAuthProviderUpdateData = {
         slug: form.slug,
@@ -240,6 +270,7 @@ function OAuthProvidersSection({ envOnly }: { envOnly: boolean }) {
         group_claim: form.group_claim || null,
         group_role_mapping: groupMapping,
         enabled: form.enabled,
+        ...githubEndpoints,
       };
       // Only include client_secret if user entered a new one
       if (form.client_secret) {
@@ -266,6 +297,7 @@ function OAuthProvidersSection({ envOnly }: { envOnly: boolean }) {
         group_claim: form.group_claim || null,
         group_role_mapping: groupMapping,
         enabled: form.enabled,
+        ...githubEndpoints,
       };
       createMutation.mutate(data, { onSuccess: () => setDialogOpen(false) });
     }
@@ -381,6 +413,7 @@ function OAuthProvidersSection({ envOnly }: { envOnly: boolean }) {
                   <SelectItem value="google">{t('settings.oauth.providerTypes.google')}</SelectItem>
                   <SelectItem value="microsoft">{t('settings.oauth.providerTypes.microsoft')}</SelectItem>
                   <SelectItem value="oidc">{t('settings.oauth.providerTypes.oidc')}</SelectItem>
+                  <SelectItem value="github">{t('settings.oauth.providerTypes.github')}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -460,16 +493,56 @@ function OAuthProvidersSection({ envOnly }: { envOnly: boolean }) {
               />
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="discovery-url">{t('settings.oauth.discoveryUrl')}</Label>
-              <Input
-                id="discovery-url"
-                value={form.discovery_url}
-                onChange={(e) => setForm((prev) => ({ ...prev, discovery_url: e.target.value }))}
-                placeholder="https://.../.well-known/openid-configuration"
-                disabled={envOnly}
-              />
-            </div>
+            {form.provider_type !== 'github' && (
+              <div className="space-y-2">
+                <Label htmlFor="discovery-url">{t('settings.oauth.discoveryUrl')}</Label>
+                <Input
+                  id="discovery-url"
+                  value={form.discovery_url}
+                  onChange={(e) => setForm((prev) => ({ ...prev, discovery_url: e.target.value }))}
+                  placeholder="https://.../.well-known/openid-configuration"
+                  disabled={envOnly}
+                />
+              </div>
+            )}
+
+            {form.provider_type === 'github' && (
+              <div className="space-y-2 rounded-md border border-border/60 p-3">
+                <p className="text-xs text-muted-foreground">
+                  {t('settings.oauth.githubEnterpriseHint')}
+                </p>
+                <div className="space-y-2">
+                  <Label htmlFor="github-authorize-url">{t('settings.oauth.authorizeUrl')}</Label>
+                  <Input
+                    id="github-authorize-url"
+                    value={form.authorize_url}
+                    onChange={(e) => setForm((prev) => ({ ...prev, authorize_url: e.target.value }))}
+                    placeholder="https://github.example.com/login/oauth/authorize"
+                    disabled={envOnly}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="github-token-url">{t('settings.oauth.tokenUrl')}</Label>
+                  <Input
+                    id="github-token-url"
+                    value={form.token_url}
+                    onChange={(e) => setForm((prev) => ({ ...prev, token_url: e.target.value }))}
+                    placeholder="https://github.example.com/login/oauth/access_token"
+                    disabled={envOnly}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="github-userinfo-url">{t('settings.oauth.userinfoUrl')}</Label>
+                  <Input
+                    id="github-userinfo-url"
+                    value={form.userinfo_url}
+                    onChange={(e) => setForm((prev) => ({ ...prev, userinfo_url: e.target.value }))}
+                    placeholder="https://github.example.com/api/v3/user"
+                    disabled={envOnly}
+                  />
+                </div>
+              </div>
+            )}
 
             <div className="space-y-2">
               <Label htmlFor="scopes">{t('settings.oauth.scopes')}</Label>
@@ -594,6 +667,11 @@ const AUTH_FIELDS = [
   { key: 'registration_enabled', defaultValue: false },
   // FRONT-01 (Phase 1223): toggle for login-as-landing front door.
   { key: 'landing_first', defaultValue: false },
+  // ORG-01 (Phase 1239): password-login enable/disable toggle.
+  { key: 'password_login_enabled', defaultValue: true },
+  // ORG-02 (Phase 1239): email domain allowlist. compare:'json' is required so
+  // array references are deep-compared and the dirty flag clears after a save.
+  { key: 'allowed_email_domains', defaultValue: [] as string[], compare: 'json' as const },
   { key: 'access_token_expire_minutes', defaultValue: 15 },
   { key: 'refresh_token_expire_days', defaultValue: 7 },
   { key: 'login_rate_limit', defaultValue: 5 },
@@ -602,6 +680,25 @@ const AUTH_FIELDS = [
 export function SettingsAuthTab({ settings, envOnly, onSave, onReset, isSaving, onDirtyChange }: TabProps) {
   const { t } = useTranslation('admin');
   const { values, setters, dirty, hasDirty, discard } = useSettingsForm(settings, AUTH_FIELDS);
+
+  // Local input state for the domain allowlist add-input (not part of form state).
+  const [domainInput, setDomainInput] = useState('');
+
+  const domains = (values.allowed_email_domains as string[]) ?? [];
+
+  function handleAddDomain() {
+    const normalized = domainInput.trim().toLowerCase();
+    if (!normalized || domains.includes(normalized)) {
+      setDomainInput('');
+      return;
+    }
+    setters.allowed_email_domains([...domains, normalized]);
+    setDomainInput('');
+  }
+
+  function handleRemoveDomain(domain: string) {
+    setters.allowed_email_domains(domains.filter((d) => d !== domain));
+  }
 
   return (
     <div className="space-y-8">
@@ -637,6 +734,74 @@ export function SettingsAuthTab({ settings, envOnly, onSave, onReset, isSaving, 
           onCheckedChange={setters.landing_first}
           disabled={envOnly}
         />
+      </div>
+
+      {/* ORG-01 (Phase 1239): Password Login toggle */}
+      <div className="flex items-center justify-between max-w-md">
+        <div className="space-y-0.5">
+          <div className="flex items-center gap-2">
+            <Label htmlFor="password-login-toggle">{t('settings.security.passwordLogin')}</Label>
+            <SettingSourceBadge source={findSetting(settings, 'password_login_enabled')?.source ?? 'default'} settingKey="password_login_enabled" onReset={onReset} />
+          </div>
+          <p className="text-sm text-muted-foreground">{t('settings.security.passwordLoginDescription')}</p>
+        </div>
+        <Switch
+          id="password-login-toggle"
+          checked={values.password_login_enabled as boolean}
+          onCheckedChange={setters.password_login_enabled}
+          disabled={envOnly}
+        />
+      </div>
+
+      {/* ORG-02 (Phase 1239): Email Domain Allowlist */}
+      <div className="space-y-3 max-w-md">
+        <div className="flex items-center gap-2">
+          <Label>{t('settings.security.allowedEmailDomains')}</Label>
+          <SettingSourceBadge source={findSetting(settings, 'allowed_email_domains')?.source ?? 'default'} settingKey="allowed_email_domains" onReset={onReset} />
+        </div>
+        <p className="text-sm text-muted-foreground">{t('settings.security.allowedEmailDomainsDescription')}</p>
+
+        {domains.length === 0 ? (
+          <p className="text-sm text-muted-foreground italic">{t('settings.security.allowedEmailDomainsUnrestricted')}</p>
+        ) : (
+          <div className="flex flex-wrap gap-2">
+            {domains.map((domain) => (
+              <Badge key={domain} variant="secondary" className="flex items-center gap-1 px-2 py-1">
+                <span>{domain}</span>
+                <button
+                  type="button"
+                  aria-label={t('settings.security.removeDomain', { domain })}
+                  onClick={() => handleRemoveDomain(domain)}
+                  disabled={envOnly}
+                  className="ml-1 rounded-full hover:bg-muted-foreground/20 disabled:pointer-events-none"
+                >
+                  <span aria-hidden="true" className="text-xs leading-none">&times;</span>
+                </button>
+              </Badge>
+            ))}
+          </div>
+        )}
+
+        <div className="flex items-center gap-2">
+          <Input
+            id="domain-input"
+            value={domainInput}
+            onChange={(e) => setDomainInput(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddDomain(); } }}
+            placeholder={t('settings.security.addDomainPlaceholder')}
+            disabled={envOnly}
+            className="w-48"
+          />
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={handleAddDomain}
+            disabled={envOnly || !domainInput.trim()}
+          >
+            {t('settings.security.addDomain')}
+          </Button>
+        </div>
       </div>
 
       {/* Token & Rate Limit Settings */}

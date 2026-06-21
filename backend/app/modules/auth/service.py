@@ -136,6 +136,34 @@ class AuthService:
         self.db.add(refresh)
         return raw_token
 
+    async def get_user_from_refresh_token(self, raw_token: str) -> "User | None":
+        """Return the User linked to *raw_token* without revoking it.
+
+        CR-01 (Phase 1236 Plan 03): used by the refresh handler to load the
+        user so an allowlist domain-check can be applied BEFORE the old token
+        is revoked. The caller is responsible for calling rotate_refresh_token
+        only after the check passes — keeping the token intact on rejection so
+        the user still has a usable token (no silent revocation on block).
+
+        Returns None when the token is missing, expired, or already revoked.
+        Returns None when the linked user does not exist.
+        """
+        token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
+        result = await self.db.execute(
+            select(RefreshToken).where(
+                RefreshToken.token_hash == token_hash,
+                RefreshToken.revoked == False,  # noqa: E712
+                RefreshToken.expires_at > datetime.now(UTC),
+            )
+        )
+        stored = result.scalar_one_or_none()
+        if stored is None:
+            return None
+        user_result = await self.db.execute(
+            select(User).where(User.id == stored.user_id)
+        )
+        return user_result.scalar_one_or_none()
+
     async def rotate_refresh_token(
         self,
         raw_token: str,

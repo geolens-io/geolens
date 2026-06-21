@@ -71,6 +71,13 @@ class AdminService:
         """Create a new user with the specified role.
 
         Raises ValueError if username/email is taken or role not found.
+
+        HARDEN-04: the role-existence check runs BEFORE the User row is added
+        or flushed so a bad role name produces a clean error with no partial
+        write.  The DB FK on user_roles.role_id is the hard backstop; this
+        early check exists to give a readable error message, not as a security
+        boundary.  A TOCTOU window (role deleted between check and UserRole
+        insert) is accepted — it is caught by the FK constraint.
         """
         await self._ensure_unique_user_field(
             User.username, username, "Username already taken"
@@ -79,6 +86,13 @@ class AdminService:
             await self._ensure_unique_user_field(
                 User.email, email, "Email already registered"
             )
+
+        # HARDEN-04: resolve the role BEFORE adding/flushing the User row so a
+        # missing role raises with no partial user in the session.
+        role_result = await self.db.execute(select(Role).where(Role.name == role_name))
+        role = role_result.scalar_one_or_none()
+        if role is None:
+            raise ValueError(f"Role '{role_name}' not found")
 
         user = User(
             username=username,
@@ -89,12 +103,6 @@ class AdminService:
         )
         self.db.add(user)
         await self.db.flush()
-
-        # Assign specified role
-        role_result = await self.db.execute(select(Role).where(Role.name == role_name))
-        role = role_result.scalar_one_or_none()
-        if role is None:
-            raise ValueError(f"Role '{role_name}' not found")
 
         self.db.add(UserRole(user_id=user.id, role_id=role.id))
         await self.db.flush()

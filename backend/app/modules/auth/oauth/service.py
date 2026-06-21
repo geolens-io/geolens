@@ -3,11 +3,14 @@
 import secrets
 import uuid
 
+import httpx
 import structlog
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.edition import is_enterprise
+from app.core.persistent_config import ALLOWED_EMAIL_DOMAINS
+from app.modules.auth.domain_validation import is_email_allowed
 from app.modules.auth.models import Role, User, UserRole
 from app.modules.auth.oauth.encryption import encrypt_secret
 from app.modules.auth.oauth.models import OAuthAccount, OAuthProvider
@@ -17,6 +20,36 @@ from app.modules.auth.oauth.schemas import (
     OAuthProviderCreate,
     OAuthProviderUpdate,
 )
+
+# ---------------------------------------------------------------------------
+# GitHub OAuth2 fixed endpoints (SSO-05, Phase 1237)
+# ---------------------------------------------------------------------------
+
+GITHUB_AUTHORIZE_URL = "https://github.com/login/oauth/authorize"
+GITHUB_TOKEN_URL = "https://github.com/login/oauth/access_token"
+GITHUB_USERINFO_URL = "https://api.github.com/user"
+# The emails endpoint is derived from the (possibly provider-configured)
+# user endpoint at call time — see _resolve_github_identity (Codex P2).
+# Default scope: read:user to access the /user endpoint; user:email to access
+# /user/emails (needed to resolve the primary verified email when email is null
+# on /user — which is the normal case for users who have set email to private).
+GITHUB_DEFAULT_SCOPE = "read:user user:email"
+
+
+async def _is_manage_settings_admin(db: AsyncSession, user: User) -> bool:
+    """Return True if *user* holds the manage_settings capability.
+
+    Used for break-glass exemptions in the SSO domain-enforcement paths.
+    Lazy-imports to avoid circular dependencies (mirrors the pattern used in
+    auth/router.py DOMAIN-04 gate, per D-17).
+    """
+    from app.modules.auth.permissions import (  # LAZY — per D-17
+        MANAGE_SETTINGS,
+        user_has_capability,
+    )
+
+    return await user_has_capability(db, user, MANAGE_SETTINGS)
+
 
 logger = structlog.stdlib.get_logger(__name__)
 
@@ -31,6 +64,21 @@ class OAuthEmailUnverifiedError(Exception):
     error itself reveals the collision; surfacing username-enumeration
     detail is acceptable here because the attacker already supplied the
     email under attempt — no new info beyond their own input).
+    """
+
+
+class OAuthDomainNotAllowedError(Exception):
+    """DOMAIN-03: raised when an OAuth identity's email domain is not in a
+    non-empty ``allowed_email_domains`` allowlist.
+
+    No user is provisioned when this is raised — the domain check fires
+    BEFORE any OAuthAccount lookup or user find/create, so a disallowed
+    domain never reaches the provisioning path (T-1236-01, TOCTOU-free).
+
+    The router translates this into a redirect with an
+    ``error=domain_not_allowed`` fragment.  The warning log records only
+    the provider slug and a correlation_id; the attempted email is never
+    logged (T-1236-04 — information-disclosure mitigation).
     """
 
 
@@ -67,6 +115,33 @@ async def create_provider(
         else encrypt_secret("saml-no-client-secret")
     )
 
+    # GitHub auto-populate: fill in GitHub's fixed endpoints when the admin did
+    # not supply explicit values (SSO-05, Phase 1237).  GitHub is plain OAuth2
+    # (no discovery URL, no id_token), so these three explicit endpoint fields
+    # must be populated here rather than via a discovery_url fetch.
+    #
+    # Admin-supplied values always take precedence: we only set a field when it
+    # is None (i.e. the admin left it blank).  The scope is auto-defaulted to
+    # GITHUB_DEFAULT_SCOPE only when the admin sent the schema default
+    # ("openid profile email"), which is not useful for GitHub.
+    authorize_url = data.authorize_url
+    token_url = data.token_url
+    userinfo_url = data.userinfo_url
+    scopes = data.scopes
+    if data.provider_type == "github":
+        if not authorize_url:
+            authorize_url = GITHUB_AUTHORIZE_URL
+        if not token_url:
+            token_url = GITHUB_TOKEN_URL
+        if not userinfo_url:
+            userinfo_url = GITHUB_USERINFO_URL
+        # Replace the schema default ("openid profile email") with GitHub's
+        # native scope when the admin did not explicitly customise scopes.
+        # The schema default is a sentinel we can detect: if an admin supplied
+        # a custom scope string for GitHub (unusual but allowed), we honour it.
+        if scopes == "openid profile email":
+            scopes = GITHUB_DEFAULT_SCOPE
+
     provider = OAuthProvider(
         slug=data.slug,
         display_name=data.display_name,
@@ -74,9 +149,9 @@ async def create_provider(
         client_id=client_id_value,
         client_secret_encrypted=client_secret_value,
         discovery_url=data.discovery_url,
-        authorize_url=data.authorize_url,
-        token_url=data.token_url,
-        userinfo_url=data.userinfo_url,
+        authorize_url=authorize_url,
+        token_url=token_url,
+        userinfo_url=userinfo_url,
         # SAML fields: idp_certificate is Fernet-encrypted (D-03 / Pattern D);
         # the other 3 are plaintext (entity IDs and a public URL — not credentials).
         idp_entity_id=data.idp_entity_id,
@@ -85,7 +160,7 @@ async def create_provider(
             encrypt_secret(data.idp_certificate) if data.idp_certificate else None
         ),
         sp_entity_id=data.sp_entity_id,
-        scopes=data.scopes,
+        scopes=scopes,
         default_role=data.default_role,
         group_claim=data.group_claim,
         group_role_mapping=data.group_role_mapping,
@@ -129,6 +204,30 @@ async def get_enabled_providers(db: AsyncSession) -> list[OAuthProvider]:
     return await list_providers(db, enabled_only=True)
 
 
+async def lock_enabled_providers(db: AsyncSession) -> list[uuid.UUID]:
+    """Row-lock every currently-enabled provider (``FOR UPDATE``) and return their ids.
+
+    Serializes the three SSO lockout guards (password-disable, provider-disable,
+    provider-delete) at the Postgres row-lock level. Two concurrent admin requests
+    that could together leave the org with zero login methods both contend on these
+    rows, so the second blocks until the first commits and then re-evaluates the
+    (now-updated) state — closing the check-then-act race without a global advisory
+    lock (whose constant key serialized unrelated settings writes; see git 898048b2).
+
+    The caller MUST invoke this BEFORE reading ``password_login_enabled`` so a
+    concurrent password-disable is serialized rather than read stale. ``ORDER BY id``
+    gives a deterministic multi-row lock order, so two callers can never deadlock.
+    The lock is transaction-scoped and releases on commit/rollback.
+    """
+    result = await db.execute(
+        select(OAuthProvider.id)
+        .where(OAuthProvider.enabled.is_(True))
+        .order_by(OAuthProvider.id)
+        .with_for_update()
+    )
+    return list(result.scalars().all())
+
+
 async def update_provider(
     db: AsyncSession,
     provider: OAuthProvider,
@@ -163,6 +262,20 @@ async def update_provider(
     for field, value in update_data.items():
         setattr(provider, field, value)
 
+    # Codex P2: mirror create_provider's GitHub endpoint defaulting on UPDATE too.
+    # GitHub is plain OAuth2 with fixed endpoints; if an admin saves a github
+    # provider with blank URLs — editing a provider into github, or clearing the
+    # GitHub Enterprise overrides to "revert to GitHub.com defaults" as the UI
+    # hint promises — fill the GitHub.com endpoints so the login client is never
+    # built with null URLs.
+    if provider.provider_type == "github":
+        if not provider.authorize_url:
+            provider.authorize_url = GITHUB_AUTHORIZE_URL
+        if not provider.token_url:
+            provider.token_url = GITHUB_TOKEN_URL
+        if not provider.userinfo_url:
+            provider.userinfo_url = GITHUB_USERINFO_URL
+
     await db.flush()
     await db.refresh(provider)
     return provider
@@ -172,6 +285,105 @@ async def delete_provider(db: AsyncSession, provider: OAuthProvider) -> None:
     """Delete an OAuth provider (cascades to oauth_accounts)."""
     await db.delete(provider)
     await db.flush()
+
+
+# ---------------------------------------------------------------------------
+# GitHub OAuth2 identity resolution (SSO-05, Phase 1237)
+# ---------------------------------------------------------------------------
+
+
+async def _resolve_github_identity(
+    token: dict, userinfo_url: str | None = None
+) -> dict:
+    """Resolve a GitHub user's primary+verified email and return a normalized userinfo dict.
+
+    GitHub's ``/user`` endpoint omits the email field when the user has set their
+    email to private.  Even when it is present it may be an unverified address.
+    This helper calls ``GET /user/emails`` to find the entry that is BOTH
+    ``primary == true`` AND ``verified == true``, which is the only address that
+    can reliably identify the account without enabling account-takeover via an
+    attacker-added unverified email (T-1237-01).
+
+    Security contract
+    -----------------
+    - Only the entry that is simultaneously ``primary`` AND ``verified`` is
+      accepted.  An entry that is verified-but-not-primary, or primary-but-not-
+      verified, is ignored.
+    - If no such entry exists the function raises ``ValueError`` so the callback's
+      broad ``except`` converts it to an ``oauth_failed`` redirect — the login
+      cannot proceed without a trustworthy email address.
+    - The GitHub token endpoint returns form-encoded unless ``Accept: application/json``
+      is sent; the caller (router.py) ensures the token is already a dict by the
+      time this helper is called.
+
+    Parameters
+    ----------
+    token:
+        The token dict returned by ``client.authorize_access_token(request)``.
+        Must include ``"access_token"`` at the top level.
+
+    Returns
+    -------
+    dict with keys ``sub`` (str), ``email`` (str), ``name`` (str), and
+    ``email_verified`` (always ``True`` — enforced by the primary+verified guard).
+    """
+    access_token = token.get("access_token")
+    if not access_token:
+        raise ValueError("GitHub token response missing access_token")
+
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+
+    # Codex P2: use the provider's configured user endpoint (GitHub Enterprise
+    # providers set a custom userinfo_url) and derive the emails endpoint from it,
+    # so an enterprise access token is never sent to the hard-coded public
+    # api.github.com. Falls back to the public GitHub API when unset.
+    user_url = userinfo_url or GITHUB_USERINFO_URL
+    emails_url = user_url.rstrip("/") + "/emails"
+
+    async with httpx.AsyncClient(follow_redirects=False) as client:
+        # Fetch basic user profile for id, login, name.
+        user_resp = await client.get(user_url, headers=headers)
+        user_resp.raise_for_status()
+        user_data = user_resp.json()
+
+        # Fetch verified email list — required because /user returns email=null
+        # when the user has set their email to private (the common case).
+        emails_resp = await client.get(emails_url, headers=headers)
+        emails_resp.raise_for_status()
+        emails_data = emails_resp.json()
+
+    github_id = user_data.get("id")
+    if not github_id:
+        raise ValueError("GitHub /user response missing id")
+
+    # T-1237-01: select ONLY the entry that is both primary AND verified.
+    primary_verified = next(
+        (
+            entry
+            for entry in emails_data
+            if entry.get("primary") is True and entry.get("verified") is True
+        ),
+        None,
+    )
+    if primary_verified is None:
+        raise ValueError(
+            "GitHub account has no primary+verified email — cannot authenticate. "
+            "Please verify your primary email address on GitHub and try again."
+        )
+
+    email = primary_verified["email"]
+    name = user_data.get("name") or user_data.get("login", "")
+
+    return {
+        "sub": str(github_id),
+        "email": email,
+        "name": name,
+        "email_verified": True,  # enforced by the primary+verified guard above
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -241,12 +453,97 @@ async def find_or_create_oauth_user(
     )
     existing_link = result.scalar_one_or_none()
     if existing_link is not None:
+        returning_user = existing_link.user
+
+        # WR-02 (Phase 1236 Plan 03): domain check for RETURNING users.
+        # The original DOMAIN-03 check ran before Step 1, so a returning user
+        # whose email claim was OMITTED by the IdP would bypass it entirely.
+        # For a returning user we have a stored User.email to fall back to;
+        # use that when the IdP omits the claim.
+        #
+        # WR-01 (Phase 1236 Plan 03): break-glass for returning manage_settings
+        # admins — consistent with the password-login break-glass (DOMAIN-04).
+        # A NEW (JIT) identity still has no principal and must satisfy the
+        # allowlist; only returning users with an established account get the
+        # exemption.
+        # WR-02 / Codex P1: prefer the IdP email claim ONLY when it is verified.
+        # An unverified, caller-controlled claim must not be usable to satisfy the
+        # allowlist for a returning user whose stored email is disallowed (mirrors
+        # the JIT verified-email requirement). Fall back to the stored, already-
+        # trusted email otherwise.
+        claim_trusted = email is not None and userinfo.get("email_verified") is True
+        check_email = email if claim_trusted else returning_user.email
+        if check_email is None:
+            # No claim and no stored email — cannot enforce; log a warning so
+            # operators can investigate IdP misconfiguration.
+            logger.warning(
+                "OAuth login: domain enforcement skipped — no email claim and no stored email",
+                provider=provider.slug,
+                user_id=str(returning_user.id),
+            )
+        else:
+            # Cache-bypass: enforcement reads committed state (see auth login gate).
+            domains = await ALLOWED_EMAIL_DOMAINS.get_uncached(db)
+            if not is_email_allowed(check_email, domains):
+                # WR-01: break-glass for manage_settings admins.
+                if not await _is_manage_settings_admin(db, returning_user):
+                    raise OAuthDomainNotAllowedError(
+                        "OAuth identity email domain is not in the allowed_email_domains allowlist."
+                    )
+                logger.info(
+                    "OAuth login: returning manage_settings admin exempt from domain check",
+                    provider=provider.slug,
+                    user_id=str(returning_user.id),
+                )
+
         logger.info(
             "OAuth login: existing link found",
             provider=provider.slug,
-            user_id=str(existing_link.user_id),
+            user_id=str(returning_user.id),
         )
-        return existing_link.user
+        return returning_user
+
+    # DOMAIN-03 (T-1236-01): domain check for NEW (JIT) identities.
+    # Fires BEFORE the email_verified collision guard and BEFORE provisioning —
+    # so a disallowed domain never reaches the provisioning path (TOCTOU-free).
+    # Empty allowlist ⇒ is_email_allowed returns True (no-op, zero behavior change).
+    # No break-glass here: a NEW identity has no established principal, so there
+    # is nothing to exempt.
+    #
+    # FIX-A (Codex P1): when the allowlist is NON-EMPTY and the IdP emits no
+    # email claim, the new identity cannot be verified against the allowlist.
+    # An unverifiable identity must be rejected (not silently provisioned with
+    # email=None) — otherwise a no-email claim is an accidental allowlist bypass.
+    # When the allowlist IS empty, a no-email new user still provisions as before
+    # (zero behavior change when unconfigured).
+    # Cache-bypass: enforcement reads committed state (see auth login gate).
+    domains = await ALLOWED_EMAIL_DOMAINS.get_uncached(db)
+    if domains:
+        # Non-empty allowlist — email is required for verification.
+        if not email:
+            raise OAuthDomainNotAllowedError(
+                "OAuth identity has no email claim; cannot verify against the "
+                "allowed_email_domains allowlist."
+            )
+        # FIX (Codex P1): an allowed DOMAIN only satisfies the allowlist if the
+        # email is VERIFIED. Without this, a provider where the caller controls
+        # the claim could assert attacker@allowed.example with email_verified
+        # false/absent; it would pass the domain check here, then the H-30 branch
+        # below would drop the unverified email and still provision a new account
+        # (email=None) — bypassing the allowlist entirely. Use the SAME
+        # email_verified trust signal H-30 relies on for auto-linking, so a
+        # trusted IdP that sets email_verified=True (incl. SAML JIT) is unaffected.
+        if userinfo.get("email_verified") is not True:
+            raise OAuthEmailUnverifiedError(
+                "OAuth identity email is not verified; a verified email in an "
+                "allowed domain is required when an allowlist is configured."
+            )
+        if not is_email_allowed(email, domains):
+            raise OAuthDomainNotAllowedError(
+                "OAuth identity email domain is not in the allowed_email_domains allowlist."
+            )
+    # Empty allowlist → is_email_allowed(email, []) returns True for any email,
+    # so no additional check is needed; a no-email new user still provisions.
 
     # Step 2: Check email match (case-insensitive)
     # Phase 268 H-30: only honor the email-match auto-link when the IdP

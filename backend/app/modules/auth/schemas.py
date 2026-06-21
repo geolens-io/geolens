@@ -149,6 +149,16 @@ class ConfigResponse(BaseModel):
             "Default false — self-hosters see no banner."
         ),
     )
+    # SSO-03 (Phase 1236 Plan 02): when False, POST /auth/login returns 403 for
+    # non-admin users and the login page should hide the username/password form.
+    # Default True — older clients that don't parse this field keep the form visible.
+    password_login_enabled: bool = Field(
+        default=True,
+        description=(
+            "When false, password login is disabled for users without manage_settings. "
+            "Default true for back-compat-safe parsing by older clients."
+        ),
+    )
 
 
 class UserResponse(BaseModel):

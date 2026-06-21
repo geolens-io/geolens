@@ -1,4 +1,4 @@
-import { useEffect, useCallback } from 'react';
+import { useEffect, useCallback, useState } from 'react';
 import { Link, Navigate, useLocation, useNavigate } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
@@ -21,6 +21,11 @@ function getOAuthErrorMessage(error: string, t: (key: string, opts?: Record<stri
   if (error.includes('access_denied')) {
     return t('oauthErrors.accessDenied');
   }
+  // DOMAIN-03 (Phase 1236): SSO callback redirects here with error=domain_not_allowed
+  // when the user's email domain is not in the allowed_email_domains list.
+  if (error.includes('domain_not_allowed')) {
+    return t('oauthErrors.domainNotAllowed');
+  }
   return t('oauthErrors.generic', { error });
 }
 
@@ -35,6 +40,11 @@ export function LoginPage() {
   const location = useLocation();
   const navigate = useNavigate();
   const oauthError = (location.state as { oauthError?: string } | null)?.oauthError;
+  // Break-glass: in SSO-only mode the password form is hidden by default, but a
+  // manage_settings admin can still authenticate with a password server-side.
+  // Keep that path reachable from the UI (e.g. during an SSO outage) behind an
+  // explicit disclosure so the clean SSO-only default is preserved.
+  const [showBreakGlass, setShowBreakGlass] = useState(false);
 
   useEffect(() => {
     if (oauthError) {
@@ -135,7 +145,39 @@ export function LoginPage() {
 
         <div className="flex flex-col items-center gap-4 lg:items-stretch">
           {configError && <div className="text-sm text-destructive">{t('authConfig.loadFailed')}</div>}
-          <LoginForm />
+          {/* SSO-03 (Phase 1236 Plan 02): hide the password form (no flash) when
+              password_login_enabled is explicitly false. The config is already
+              resolved before we reach this render path (configLoading shows Loader2
+              above). Treat absent field (older servers) as true for back-compat. */}
+          {config?.password_login_enabled !== false ? (
+            <LoginForm />
+          ) : showBreakGlass ? (
+            <div className="flex w-full flex-col items-center gap-2">
+              <LoginForm />
+              <Button
+                variant="link"
+                className="h-auto p-0 text-xs text-muted-foreground"
+                onClick={() => setShowBreakGlass(false)}
+              >
+                {t('ssoOnly.hidePasswordSignIn')}
+              </Button>
+            </div>
+          ) : (
+            <div className="flex flex-col items-center gap-1">
+              <p className="max-w-sm text-center text-sm text-muted-foreground">
+                {t('ssoOnly.signInWithProvider')}
+              </p>
+              {/* Admin break-glass: reveal the password form so a manage_settings
+                  admin can sign in if SSO is unavailable (server enforces the gate). */}
+              <Button
+                variant="link"
+                className="h-auto p-0 text-xs text-muted-foreground"
+                onClick={() => setShowBreakGlass(true)}
+              >
+                {t('ssoOnly.adminPasswordSignIn')}
+              </Button>
+            </div>
+          )}
           <OAuthButtons />
           <p className="max-w-sm text-center text-xs text-muted-foreground">
             {t('consentNote')}{' '}
