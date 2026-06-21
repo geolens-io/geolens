@@ -30,6 +30,8 @@ class ConfigResponse:
             logging in. Default false for back-compat-safe parsing by older clients. Default: False.
         landing_first (bool | Unset): When true, unauthenticated visits to '/' are redirected to '/login' as the product
             landing page. Default false (search catalog is the root). Default: False.
+        password_login_enabled (bool | Unset): When false, password login is disabled for users without manage_settings.
+            Default true for back-compat-safe parsing by older clients. Default: True.
     """
 
     registration_enabled: bool
@@ -38,6 +40,7 @@ class ConfigResponse:
     demo_mode: bool | Unset = False
     email_verification_required: bool | Unset = False
     landing_first: bool | Unset = False
+    password_login_enabled: bool | Unset = True
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -54,6 +57,8 @@ class ConfigResponse:
         email_verification_required = self.email_verification_required
 
         landing_first = self.landing_first
+
+        password_login_enabled = self.password_login_enabled
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
@@ -72,6 +77,8 @@ class ConfigResponse:
             field_dict["email_verification_required"] = email_verification_required
         if landing_first is not UNSET:
             field_dict["landing_first"] = landing_first
+        if password_login_enabled is not UNSET:
+            field_dict["password_login_enabled"] = password_login_enabled
 
         return field_dict
 
@@ -90,6 +97,8 @@ class ConfigResponse:
 
         landing_first = d.pop("landing_first", UNSET)
 
+        password_login_enabled = d.pop("password_login_enabled", UNSET)
+
         config_response = cls(
             registration_enabled=registration_enabled,
             allow_signup=allow_signup,
@@ -97,6 +106,7 @@ class ConfigResponse:
             demo_mode=demo_mode,
             email_verification_required=email_verification_required,
             landing_first=landing_first,
+            password_login_enabled=password_login_enabled,
         )
 
         config_response.additional_properties = d

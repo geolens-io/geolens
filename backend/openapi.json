@@ -9571,12 +9571,13 @@
             "title": "Idp Sso Url"
           },
           "provider_type": {
-            "description": "OAuth or SAML provider type. 'google' and 'microsoft' auto-populate the discovery URL; 'oidc' is generic OAuth/OIDC; 'saml' enables SAML SSO (requires enterprise edition).",
+            "description": "OAuth or SAML provider type. 'google' and 'microsoft' auto-populate the discovery URL; 'oidc' is generic OAuth/OIDC; 'github' uses GitHub's fixed OAuth2 endpoints (no discovery URL); 'saml' enables SAML SSO (requires enterprise edition).",
             "enum": [
               "google",
               "microsoft",
               "oidc",
-              "saml"
+              "saml",
+              "github"
             ],
             "title": "Provider Type",
             "type": "string"
@@ -10025,7 +10026,8 @@
                   "google",
                   "microsoft",
                   "oidc",
-                  "saml"
+                  "saml",
+                  "github"
                 ],
                 "type": "string"
               },
