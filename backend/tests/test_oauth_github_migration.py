@@ -166,48 +166,53 @@ class TestMigrationRoundTripExitCodes:
     Downgrade recreates the constraint without 'github' (but keeps 'saml'),
     so both downgrade and re-upgrade are real DDL operations — unlike the
     NO-OP downgrade pattern in 0008/0009.
+
+    The ENTIRE round-trip (upgrade -> downgrade -> re-upgrade) runs in ONE test
+    method with the re-upgrade in a finally. It MUST NOT be split into separate
+    test methods: under ``pytest -n`` (--dist load) the downgrade and re-upgrade
+    would be distributed independently, leaving a per-worker DB with the
+    'github'-less constraint between them. Any sibling github-create test
+    scheduled on that worker in the gap then fails with a CHECK violation
+    (chk_oauth_providers_type) — a real, scheduling-dependent flake. Keeping the
+    round-trip atomic means no other test ever runs while the DB is downgraded.
     """
 
-    def test_upgrade_head_exits_zero(self):
-        """alembic upgrade head exits 0 (idempotent — may already be at head)."""
+    def test_migration_roundtrip_exits_zero(self):
+        """upgrade head -> downgrade -1 -> upgrade head all exit 0, and the DB is
+        ALWAYS restored to head before this test returns."""
+        import asyncio
+
+        # Start at head (idempotent).
         r = _run_alembic("upgrade", "head")
         assert r.returncode == 0, (
             f"alembic upgrade head failed (rc={r.returncode}):\n"
             f"stdout: {r.stdout}\nstderr: {r.stderr}"
         )
 
-    def test_downgrade_minus_one_exits_zero(self):
-        """alembic downgrade -1 exits 0 (recreates constraint without 'github').
+        try:
+            # Delete any github-typed rows so downgrade's ADD CONSTRAINT does not
+            # fail with a CHECK violation (sibling provider-create tests use the
+            # same per-worker DB as the migration subprocess).
+            async def _cleanup():
+                await _fresh_execute(
+                    "DELETE FROM catalog.oauth_providers WHERE provider_type = 'github'"
+                )
 
-        Removes any github-typed rows from the test DB before downgrading so the
-        re-created constraint (which excludes 'github') does not violate rows
-        created by sibling tests (provider-create integration tests use the same
-        test DB as the migration subprocess).
-        """
-        import asyncio
+            asyncio.run(_cleanup())
 
-        # Delete any github-typed rows so downgrade's ADD CONSTRAINT does not
-        # fail with a CHECK violation.
-        async def _cleanup():
-            await _fresh_execute(
-                "DELETE FROM catalog.oauth_providers WHERE provider_type = 'github'"
+            r = _run_alembic("downgrade", "-1")
+            assert r.returncode == 0, (
+                f"alembic downgrade -1 failed (rc={r.returncode}):\n"
+                f"stdout: {r.stdout}\nstderr: {r.stderr}"
             )
-
-        asyncio.run(_cleanup())
-
-        r = _run_alembic("downgrade", "-1")
-        assert r.returncode == 0, (
-            f"alembic downgrade -1 failed (rc={r.returncode}):\n"
-            f"stdout: {r.stdout}\nstderr: {r.stderr}"
-        )
-
-    def test_reupgrade_head_exits_zero(self):
-        """alembic upgrade head (re-apply) exits 0 after downgrade."""
-        r = _run_alembic("upgrade", "head")
-        assert r.returncode == 0, (
-            f"alembic upgrade head (re-apply) failed (rc={r.returncode}):\n"
-            f"stdout: {r.stdout}\nstderr: {r.stderr}"
-        )
+        finally:
+            # ALWAYS re-upgrade so the worker DB is never left downgraded for
+            # sibling tests — even if the downgrade assertion above fails.
+            r2 = _run_alembic("upgrade", "head")
+            assert r2.returncode == 0, (
+                f"alembic upgrade head (re-apply) failed (rc={r2.returncode}):\n"
+                f"stdout: {r2.stdout}\nstderr: {r2.stderr}"
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -300,31 +305,34 @@ class TestSamlRetainedOnDowngrade:
             "DELETE FROM catalog.oauth_providers WHERE provider_type = 'github'"
         )
 
-        # Downgrade one step (removes 0010 = removes 'github', keeps 'saml').
-        r = _run_alembic("downgrade", "-1")
-        assert r.returncode == 0, f"downgrade -1 failed: {r.stderr}"
+        try:
+            # Downgrade one step (removes 0010 = removes 'github', keeps 'saml').
+            r = _run_alembic("downgrade", "-1")
+            assert r.returncode == 0, f"downgrade -1 failed: {r.stderr}"
 
-        rows = await _fresh_query(
-            """
-            SELECT pg_get_constraintdef(oid)
-            FROM pg_constraint
-            WHERE conname = 'chk_oauth_providers_type'
-              AND conrelid = 'catalog.oauth_providers'::regclass
-            """
-        )
-        assert rows, "chk_oauth_providers_type constraint missing after downgrade"
-        constraint_def = rows[0][0]
-        assert "saml" in constraint_def, (
-            f"'saml' dropped from constraint on downgrade — co-owned constraint violation: "
-            f"{constraint_def}"
-        )
-        assert "github" not in constraint_def, (
-            f"'github' still present in constraint after downgrade: {constraint_def}"
-        )
-
-        # Re-upgrade for subsequent tests.
-        r = _run_alembic("upgrade", "head")
-        assert r.returncode == 0, f"re-upgrade failed: {r.stderr}"
+            rows = await _fresh_query(
+                """
+                SELECT pg_get_constraintdef(oid)
+                FROM pg_constraint
+                WHERE conname = 'chk_oauth_providers_type'
+                  AND conrelid = 'catalog.oauth_providers'::regclass
+                """
+            )
+            assert rows, "chk_oauth_providers_type constraint missing after downgrade"
+            constraint_def = rows[0][0]
+            assert "saml" in constraint_def, (
+                f"'saml' dropped from constraint on downgrade — co-owned constraint violation: "
+                f"{constraint_def}"
+            )
+            assert "github" not in constraint_def, (
+                f"'github' still present in constraint after downgrade: {constraint_def}"
+            )
+        finally:
+            # ALWAYS re-upgrade for subsequent tests — even if an assertion above
+            # fails — so the per-worker DB is never left downgraded (which would
+            # fail sibling github-create tests with a CHECK violation).
+            r = _run_alembic("upgrade", "head")
+            assert r.returncode == 0, f"re-upgrade failed: {r.stderr}"
 
 
 # ---------------------------------------------------------------------------
