@@ -14,7 +14,7 @@ dependencies = [
     "sqlalchemy[asyncio]>=2.0.50",
     "asyncpg>=0.29.0",
     "alembic>=1.13.0",
-    "geoalchemy2>=0.15.0",
+    "geoalchemy2>=0.20.0",
     "pydantic[email]>=2.13.4",
     # >=2.14.2: fixes GHSA-4xgf-cpjx-pc3j (pydantic-settings 2.14.1 advisory).
     # Do not lower this floor.
