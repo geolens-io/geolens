@@ -137,7 +137,7 @@ async def oauth_login(
     )
     try:
         await db.commit()
-    except Exception:
+    except Exception:  # broad: defensive log-and-continue — an audit/rollback write must never break the OAuth redirect flow
         logger.exception(
             "Failed to commit oauth.login.init audit row; continuing",
             provider=provider_slug,
@@ -301,7 +301,7 @@ async def oauth_callback(
             )
             try:
                 await db.commit()
-            except Exception:
+            except Exception:  # broad: defensive log-and-continue — an audit/rollback write must never break the OAuth redirect flow
                 logger.exception(
                     "Failed to commit oauth.login.failure audit row; continuing",
                     provider=provider_slug,
@@ -343,7 +343,7 @@ async def oauth_callback(
             )
             try:
                 await db.commit()
-            except Exception:
+            except Exception:  # broad: defensive log-and-continue — an audit/rollback write must never break the OAuth redirect flow
                 logger.exception(
                     "Failed to commit oauth.login.failure audit row; continuing",
                     provider=provider_slug,
@@ -372,7 +372,7 @@ async def oauth_callback(
         # means ONLY the failure-audit row reaches the DB.
         try:
             await db.rollback()
-        except Exception:
+        except Exception:  # broad: defensive log-and-continue — an audit/rollback write must never break the OAuth redirect flow
             logger.exception(
                 "Failed to roll back DB after generic OAuth error; continuing",
                 provider=provider_slug,
@@ -395,7 +395,7 @@ async def oauth_callback(
         )
         try:
             await db.commit()
-        except Exception:
+        except Exception:  # broad: defensive log-and-continue — an audit/rollback write must never break the OAuth redirect flow
             logger.exception(
                 "Failed to commit oauth.login.failure audit row; continuing",
                 provider=provider_slug,
