@@ -4,7 +4,7 @@ import uuid
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from sqlalchemy import func, select, text
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.audit.service import AuditEvent, audit_emit
@@ -65,14 +65,6 @@ from app.platform.notifications.webhook_channel import post_webhook  # noqa: E40
 logger = structlog.stdlib.get_logger(__name__)
 
 router = APIRouter(prefix="/settings", tags=["Admin"], responses=ERROR_RESPONSES_AUTH)
-
-# FIX-B (Codex P2): advisory-lock key shared across ALL three SSO lockout-guard
-# sites (password-disable, provider-disable, provider-delete) so concurrent admin
-# requests are serialized at the Postgres transaction level.  The same constant
-# MUST be used in every guard; a fixed integer is cheapest (no hash needed).
-# The lock is transaction-scoped (pg_advisory_xact_lock) and auto-releases on
-# commit or rollback — no manual release required.
-_SSO_LOCKOUT_LOCK_KEY = 6_200_236_02  # phase 1236 plan 02 — chosen to avoid collisions
 
 
 def _basemap_proxy_rate_limit(_request: Request | None = None) -> str:
@@ -327,15 +319,7 @@ async def update_settings(
     # validation but BEFORE the apply loop so nothing is persisted on rejection.
     # An admin with manage_settings retains break-glass password-login regardless,
     # but we still prevent the foot-gun of locking out the entire org.
-    #
-    # FIX-B (Codex P2): take a transaction-scoped advisory lock shared with the
-    # provider-disable and provider-delete guards so two concurrent admin requests
-    # cannot both pass the check and together remove the last provider + disable
-    # password login.  The lock auto-releases at commit/rollback.
     if validated_settings.get("password_login_enabled") is False:
-        await db.execute(
-            text("SELECT pg_advisory_xact_lock(:k)"), {"k": _SSO_LOCKOUT_LOCK_KEY}
-        )
         enabled_providers = await oauth_service.get_enabled_providers(db)
         if len(enabled_providers) == 0:
             raise HTTPException(
@@ -780,15 +764,9 @@ async def update_oauth_provider(
     # refuse the operation.  We count enabled providers EXCLUDING the target so
     # that disabling a provider when >=2 others are enabled is still allowed.
     # The guard fires BEFORE any persist so nothing is written on rejection.
-    #
-    # FIX-B (Codex P2): same advisory lock as the password-disable guard so
-    # concurrent requests cannot both pass the check.
     update_data = body.model_dump(exclude_unset=True)
     if update_data.get("enabled") is False:
         if not await PASSWORD_LOGIN_ENABLED.get(db):
-            await db.execute(
-                text("SELECT pg_advisory_xact_lock(:k)"), {"k": _SSO_LOCKOUT_LOCK_KEY}
-            )
             from app.modules.auth.oauth.models import OAuthProvider as _OAuthProvider
 
             enabled_others = await db.execute(
@@ -883,13 +861,8 @@ async def delete_oauth_provider(
     # password_login_enabled is False would lock everyone out.  Count enabled
     # providers EXCLUDING the target; if zero remain, refuse.
     # Only applies when the provider being deleted is currently enabled.
-    #
-    # FIX-B (Codex P2): same advisory lock as the other two guard sites.
     if provider.enabled:
         if not await PASSWORD_LOGIN_ENABLED.get(db):
-            await db.execute(
-                text("SELECT pg_advisory_xact_lock(:k)"), {"k": _SSO_LOCKOUT_LOCK_KEY}
-            )
             from app.modules.auth.oauth.models import OAuthProvider as _OAuthProvider
 
             enabled_others = await db.execute(
