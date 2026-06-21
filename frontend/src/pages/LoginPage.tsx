@@ -1,4 +1,4 @@
-import { useEffect, useCallback } from 'react';
+import { useEffect, useCallback, useState } from 'react';
 import { Link, Navigate, useLocation, useNavigate } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
@@ -40,6 +40,11 @@ export function LoginPage() {
   const location = useLocation();
   const navigate = useNavigate();
   const oauthError = (location.state as { oauthError?: string } | null)?.oauthError;
+  // Break-glass: in SSO-only mode the password form is hidden by default, but a
+  // manage_settings admin can still authenticate with a password server-side.
+  // Keep that path reachable from the UI (e.g. during an SSO outage) behind an
+  // explicit disclosure so the clean SSO-only default is preserved.
+  const [showBreakGlass, setShowBreakGlass] = useState(false);
 
   useEffect(() => {
     if (oauthError) {
@@ -146,10 +151,32 @@ export function LoginPage() {
               above). Treat absent field (older servers) as true for back-compat. */}
           {config?.password_login_enabled !== false ? (
             <LoginForm />
+          ) : showBreakGlass ? (
+            <div className="flex w-full flex-col items-center gap-2">
+              <LoginForm />
+              <Button
+                variant="link"
+                className="h-auto p-0 text-xs text-muted-foreground"
+                onClick={() => setShowBreakGlass(false)}
+              >
+                {t('ssoOnly.hidePasswordSignIn')}
+              </Button>
+            </div>
           ) : (
-            <p className="max-w-sm text-center text-sm text-muted-foreground">
-              {t('ssoOnly.signInWithProvider')}
-            </p>
+            <div className="flex flex-col items-center gap-1">
+              <p className="max-w-sm text-center text-sm text-muted-foreground">
+                {t('ssoOnly.signInWithProvider')}
+              </p>
+              {/* Admin break-glass: reveal the password form so a manage_settings
+                  admin can sign in if SSO is unavailable (server enforces the gate). */}
+              <Button
+                variant="link"
+                className="h-auto p-0 text-xs text-muted-foreground"
+                onClick={() => setShowBreakGlass(true)}
+              >
+                {t('ssoOnly.adminPasswordSignIn')}
+              </Button>
+            </div>
           )}
           <OAuthButtons />
           <p className="max-w-sm text-center text-xs text-muted-foreground">

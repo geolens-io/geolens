@@ -133,6 +133,45 @@ class TestGithubProviderCreate:
         data = resp.json()
         assert data["authorize_url"] == custom_url
 
+    async def test_update_github_provider_blank_urls_restores_defaults(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+    ) -> None:
+        """Codex P2: clearing a github provider's enterprise URLs on UPDATE
+        re-applies the GitHub.com defaults (not null) — so the login client is
+        never built with null endpoints (the UI hint promises blank => defaults).
+        """
+        slug = f"gh-ent-{uuid.uuid4().hex[:8]}"
+        create = await client.post(
+            "/settings/oauth-providers/",
+            json={
+                "slug": slug,
+                "display_name": "GHE",
+                "provider_type": "github",
+                "client_id": "ghe-id",
+                "client_secret": "ghe-secret",
+                "authorize_url": "https://ghe.example.com/login/oauth/authorize",
+                "token_url": "https://ghe.example.com/login/oauth/access_token",
+                "userinfo_url": "https://ghe.example.com/api/v3/user",
+            },
+            headers=admin_auth_header,
+        )
+        assert create.status_code == 201, create.text
+        provider_id = create.json()["id"]
+
+        # Clear the enterprise URLs (revert to GitHub.com) — frontend sends null.
+        update = await client.put(
+            f"/settings/oauth-providers/{provider_id}",
+            json={"authorize_url": None, "token_url": None, "userinfo_url": None},
+            headers=admin_auth_header,
+        )
+        assert update.status_code == 200, update.text
+        data = update.json()
+        assert data["authorize_url"] == GITHUB_AUTHORIZE_URL
+        assert data["token_url"] == GITHUB_TOKEN_URL
+        assert data["userinfo_url"] == GITHUB_USERINFO_URL
+
 
 # ---------------------------------------------------------------------------
 # Group 2: _resolve_github_identity — email resolution + security guard

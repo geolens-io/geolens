@@ -262,6 +262,20 @@ async def update_provider(
     for field, value in update_data.items():
         setattr(provider, field, value)
 
+    # Codex P2: mirror create_provider's GitHub endpoint defaulting on UPDATE too.
+    # GitHub is plain OAuth2 with fixed endpoints; if an admin saves a github
+    # provider with blank URLs — editing a provider into github, or clearing the
+    # GitHub Enterprise overrides to "revert to GitHub.com defaults" as the UI
+    # hint promises — fill the GitHub.com endpoints so the login client is never
+    # built with null URLs.
+    if provider.provider_type == "github":
+        if not provider.authorize_url:
+            provider.authorize_url = GITHUB_AUTHORIZE_URL
+        if not provider.token_url:
+            provider.token_url = GITHUB_TOKEN_URL
+        if not provider.userinfo_url:
+            provider.userinfo_url = GITHUB_USERINFO_URL
+
     await db.flush()
     await db.refresh(provider)
     return provider

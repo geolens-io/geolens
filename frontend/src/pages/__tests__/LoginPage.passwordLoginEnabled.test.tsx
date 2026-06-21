@@ -7,6 +7,7 @@
  * When true or undefined (absent — back-compat), the form must render normally.
  */
 import { render, screen, waitFor } from '@/test/test-utils';
+import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Routes, Route } from 'react-router';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { TooltipProvider } from '@/components/ui/tooltip';
@@ -134,6 +135,35 @@ describe('LoginPage — password_login_enabled conditional render (SSO-03)', () 
     // The username/password form must not render.
     expect(screen.queryByLabelText(/username/i)).not.toBeInTheDocument();
     expect(screen.queryByLabelText('Password', { exact: true })).not.toBeInTheDocument();
+  });
+
+  it('reveals the password form via the admin break-glass link in SSO-only mode', async () => {
+    // Codex P2: a manage_settings admin retains a server-side password break-glass
+    // even when password_login_enabled is false; the UI must keep it reachable.
+    const user = userEvent.setup();
+    mockGetAuthConfig.mockResolvedValue({
+      registration_enabled: false,
+      password_login_enabled: false,
+    });
+
+    const { Wrapper } = makeWrapper();
+    render(<LoginPage />, { wrapper: Wrapper });
+
+    // Default SSO-only state: form hidden, break-glass disclosure present.
+    await waitFor(() => {
+      expect(screen.getByText(/sign in using your organization/i)).toBeInTheDocument();
+    });
+    expect(screen.queryByLabelText(/username/i)).not.toBeInTheDocument();
+    const breakGlass = screen.getByRole('button', {
+      name: /admin\? sign in with a password/i,
+    });
+
+    // Clicking reveals the password form (the server still enforces the gate).
+    await user.click(breakGlass);
+    await waitFor(() => {
+      expect(screen.getByLabelText(/username/i)).toBeInTheDocument();
+    });
+    expect(screen.getByLabelText('Password', { exact: true })).toBeInTheDocument();
   });
 
   it('shows the username/password form (fail-open) when /auth/config fetch rejects', async () => {
