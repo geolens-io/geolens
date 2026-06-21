@@ -573,3 +573,50 @@ class TestBreakGlassInvariants:
                 "viewer": {MANAGE_USERS: False, MANAGE_SETTINGS: False},
             }
         )
+
+
+# ---------------------------------------------------------------------------
+# Codex P2: the SSO-only login gate must read committed state, not a stale cache
+# ---------------------------------------------------------------------------
+
+
+class TestSsoGateCacheBypass:
+    """The SSO-only login gate reads password_login_enabled cache-bypassed, so a
+    stale `true` repopulated into the cache during a password-disable's
+    invalidate->commit window cannot let a non-admin keep logging in after the
+    disable commits.
+    """
+
+    async def test_sso_gate_honors_committed_state_despite_stale_cache(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session: AsyncSession,
+    ) -> None:
+        from app.platform.cache import get_cache, init_cache
+
+        username, password = await _create_viewer(client, admin_auth_header)
+        provider = await _make_enabled_oauth_provider(test_db_session)
+        await test_db_session.commit()
+        try:
+            # Commit password_login_enabled=False (the PUT invalidates the cache).
+            await _set_password_login_enabled(client, admin_auth_header, False)
+            # Poison the cache with a stale True, as a concurrent reader would
+            # during the writer's invalidate->commit window.
+            init_cache()
+            await get_cache().set("config:password_login_enabled", True, ttl=30)
+
+            # The gate must read the committed False and reject the non-admin
+            # (403), NOT trust the stale cached True (which would yield 200).
+            resp = await client.post(
+                "/auth/login",
+                data={"username": username, "password": password},
+            )
+            assert resp.status_code == 403, (
+                f"SSO-only gate must honor committed password_login_enabled=False "
+                f"despite a stale cached True, got {resp.status_code}: {resp.text}"
+            )
+        finally:
+            await _reset_password_login_enabled(client, admin_auth_header)
+            await _delete_provider(test_db_session, provider)
+            await test_db_session.commit()

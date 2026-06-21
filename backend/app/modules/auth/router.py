@@ -113,8 +113,11 @@ async def login(
     # DOMAIN-04: enforce allowed_email_domains on password login.
     # Break-glass: users who hold manage_settings are exempt (admin escape hatch).
     # Skip the check when user.email is null (no address to gate on).
+    # Cache-bypass (get_uncached): security enforcement must observe the committed
+    # setting, not a value a concurrent reader repopulated into the cache during a
+    # writer's invalidate->commit window (same class as the lockout-guard fix).
     if user is not None and user.email:
-        domains = await ALLOWED_EMAIL_DOMAINS.get(db)
+        domains = await ALLOWED_EMAIL_DOMAINS.get_uncached(db)
         if not is_email_allowed(user.email, domains):
             # Lazy import to avoid adding DB dep at module top; follows D-17.
             from app.modules.auth.permissions import (  # LAZY — per D-17
@@ -132,7 +135,10 @@ async def login(
     # SSO-01/SSO-02 (Phase 1236 Plan 02): when password_login_enabled is False,
     # reject password login for non-admins.  manage_settings holders are always
     # allowed through (break-glass) — same capability used for the domain gate.
-    if user is not None and not await PASSWORD_LOGIN_ENABLED.get(db):
+    # Cache-bypass (get_uncached): otherwise a stale `true` repopulated during a
+    # password-disable's invalidate->commit window would let non-admins keep
+    # logging in for up to the 30s cache TTL after the disable commits (Codex P2).
+    if user is not None and not await PASSWORD_LOGIN_ENABLED.get_uncached(db):
         from app.modules.auth.permissions import (  # LAZY — per D-17
             MANAGE_SETTINGS,
             user_has_capability,
