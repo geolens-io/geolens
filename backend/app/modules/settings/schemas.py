@@ -485,6 +485,15 @@ def validate_allowed_email_domains(v: Any) -> list[str]:
 
     if not isinstance(v, list):
         raise ValueError("allowed_email_domains must be a list")
+    # Codex P3: reject non-string entries here (ValueError -> 422) before
+    # normalize_domains calls .strip() on them, which would raise AttributeError
+    # and surface as a 500 (update_settings only catches ValueError/TypeError).
+    for entry in v:
+        if not isinstance(entry, str):
+            raise ValueError(
+                "allowed_email_domains entries must be strings, got "
+                f"{type(entry).__name__}: {entry!r}"
+            )
     normalized = normalize_domains(v)
     for pattern in normalized:
         if not is_domain_pattern_valid(pattern):

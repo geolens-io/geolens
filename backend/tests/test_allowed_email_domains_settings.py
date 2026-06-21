@@ -100,6 +100,24 @@ class TestAllowedEmailDomainsSetting:
         unchanged_value = await _get_allowed_domains(client, admin_auth_header)
         assert unchanged_value == ["safe.org"]
 
+    async def test_put_non_string_entry_returns_422_not_500(
+        self, client: AsyncClient, admin_auth_header: dict
+    ):
+        """Codex P3: a non-string entry (e.g. 123) must be a 422, not a 500.
+
+        normalize_domains calls .strip() on each entry; a non-string would raise
+        AttributeError (uncaught -> 500) without the explicit type check.
+        """
+        resp = await client.put(
+            "/settings/",
+            json={"settings": {"allowed_email_domains": [123]}},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 422, (
+            f"Expected 422 for non-string entry, got {resp.status_code}: {resp.text}"
+        )
+        assert "allowed_email_domains" in resp.json()["detail"]
+
     async def test_put_empty_list_succeeds_and_get_returns_empty(
         self, client: AsyncClient, admin_auth_header: dict
     ):
