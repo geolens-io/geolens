@@ -312,3 +312,104 @@ async def test_callback_domain_not_allowed_emits_failure_audit(
     row = rows[0]
     assert row.details is not None
     assert row.details.get("outcome") == "domain_not_allowed"
+
+
+# ---------------------------------------------------------------------------
+# Test 6: FIX-C — generic exception mid-provisioning rolls back partial User;
+# only the failure-audit row is persisted (Codex P2).
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_generic_oauth_error_rolls_back_partial_jit_user(
+    client, client_session, _ensure_public_app_url
+):
+    """FIX-C: a generic exception raised after a JIT User is flushed must not
+    persist the user row.  The generic except block must rollback before
+    emitting the failure audit, so ONLY the audit row reaches the DB.
+
+    Simulates: find_or_create_oauth_user flushes a User then raises a generic
+    Exception (not OAuthDomainNotAllowedError / OAuthEmailUnverifiedError).
+    Expected: callback redirects with error=oauth_failed, failure-audit row IS
+    persisted, NO user row created.
+    """
+    from sqlalchemy import func as sa_func
+
+    from app.modules.auth.models import User
+
+    provider = await _create_test_provider(client_session)
+    slug = provider.slug
+
+    # Count users before the failed callback.
+    before_result = await client_session.execute(
+        select(sa_func.count()).select_from(User)
+    )
+    before_user_count = before_result.scalar_one()
+
+    # Count audit rows before the call so we can check a NEW one was added.
+    before_audit_result = await client_session.execute(
+        select(sa_func.count())
+        .select_from(AuditLog)
+        .where(AuditLog.action == "oauth.login.failure")
+    )
+    before_audit_count = before_audit_result.scalar_one()
+
+    async def _find_or_create_raises_generic(db, *args, **kwargs):
+        """Simulate a flush of a partial User then a generic crash."""
+        # Flush a minimal user row to the DB session (not committed yet) to
+        # replicate the partial JIT-provisioning side effect that FIX-C must
+        # roll back.  We use the same session that the router is using (injected
+        # via dependency override) so the flush IS visible before the rollback.
+        partial_user = User(
+            username=f"partial-jit-{uuid.uuid4().hex[:8]}",
+            email=None,
+            auth_provider="oauth",
+        )
+        db.add(partial_user)
+        await db.flush()
+        # Now raise a generic (non-OAuth-specific) exception.
+        raise RuntimeError("Simulated generic IdP error mid-provisioning")
+
+    mock_client = MagicMock()
+    mock_client.authorize_access_token = AsyncMock(return_value={"access_token": "t"})
+
+    with (
+        patch(
+            "app.modules.auth.oauth.router.build_oauth_client",
+            AsyncMock(return_value=(mock_client, provider)),
+        ),
+        patch(
+            "app.modules.auth.oauth.service.find_or_create_oauth_user",
+            new=_find_or_create_raises_generic,
+        ),
+    ):
+        resp = await client.get(f"/auth/oauth/{slug}/callback", follow_redirects=False)
+
+    # 1. Callback redirects with error=oauth_failed.
+    assert resp.status_code in (302, 307), f"Expected redirect, got {resp.status_code}"
+    location = resp.headers.get("location", "")
+    assert "oauth_failed" in location, (
+        f"Expected oauth_failed in redirect location: {location!r}"
+    )
+
+    # 2. The failure-audit row IS persisted (FIX-C runs audit_emit in a clean tx).
+    after_audit_result = await client_session.execute(
+        select(sa_func.count())
+        .select_from(AuditLog)
+        .where(AuditLog.action == "oauth.login.failure")
+    )
+    after_audit_count = after_audit_result.scalar_one()
+    assert after_audit_count == before_audit_count + 1, (
+        f"Expected a new oauth.login.failure audit row; "
+        f"before={before_audit_count}, after={after_audit_count}"
+    )
+
+    # 3. The partial JIT User was rolled back — user count must not increase.
+    after_user_result = await client_session.execute(
+        select(sa_func.count()).select_from(User)
+    )
+    after_user_count = after_user_result.scalar_one()
+    assert after_user_count == before_user_count, (
+        f"Partial JIT user should have been rolled back; "
+        f"before={before_user_count}, after={after_user_count}"
+    )

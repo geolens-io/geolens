@@ -365,6 +365,19 @@ async def oauth_callback(
             provider=provider_slug,
             correlation_id=correlation_id,
         )
+        # FIX-C (Codex P2): discard any partial JIT side effects (flushed User /
+        # OAuthAccount / refresh token) before writing the audit row.  Without
+        # this rollback, a generic exception mid-provisioning can persist a
+        # half-created user row.  The rollback + audit_emit + commit sequence
+        # means ONLY the failure-audit row reaches the DB.
+        try:
+            await db.rollback()
+        except Exception:
+            logger.exception(
+                "Failed to roll back DB after generic OAuth error; continuing",
+                provider=provider_slug,
+                correlation_id=correlation_id,
+            )
         # HARDEN-04: emit failure audit entry for generic OAuth error.
         await audit_emit(
             db,
