@@ -454,12 +454,27 @@ async def find_or_create_oauth_user(
     # Empty allowlist ⇒ is_email_allowed returns True (no-op, zero behavior change).
     # No break-glass here: a NEW identity has no established principal, so there
     # is nothing to exempt.
-    if email:
-        domains = await ALLOWED_EMAIL_DOMAINS.get(db)
+    #
+    # FIX-A (Codex P1): when the allowlist is NON-EMPTY and the IdP emits no
+    # email claim, the new identity cannot be verified against the allowlist.
+    # An unverifiable identity must be rejected (not silently provisioned with
+    # email=None) — otherwise a no-email claim is an accidental allowlist bypass.
+    # When the allowlist IS empty, a no-email new user still provisions as before
+    # (zero behavior change when unconfigured).
+    domains = await ALLOWED_EMAIL_DOMAINS.get(db)
+    if domains:
+        # Non-empty allowlist — email is required for verification.
+        if not email:
+            raise OAuthDomainNotAllowedError(
+                "OAuth identity has no email claim; cannot verify against the "
+                "allowed_email_domains allowlist."
+            )
         if not is_email_allowed(email, domains):
             raise OAuthDomainNotAllowedError(
                 "OAuth identity email domain is not in the allowed_email_domains allowlist."
             )
+    # Empty allowlist → is_email_allowed(email, []) returns True for any email,
+    # so no additional check is needed; a no-email new user still provisions.
 
     # Step 2: Check email match (case-insensitive)
     # Phase 268 H-30: only honor the email-match auto-link when the IdP

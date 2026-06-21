@@ -852,3 +852,108 @@ class TestSSOReturningUserDomainEnforcement:
             )
         finally:
             await _clear_allowed_domains(client, admin_auth_header)
+
+
+# ---------------------------------------------------------------------------
+# FIX-A: new JIT identity with no email claim and non-empty allowlist
+# (Codex P1 — DOMAIN-03 no-email bypass)
+# ---------------------------------------------------------------------------
+
+
+class TestSSONoeEmailNewUserDomainEnforcement:
+    """FIX-A: find_or_create_oauth_user rejects new JIT identity with no email when
+    the allowlist is non-empty, and still provisions when the allowlist is empty."""
+
+    async def _make_provider(self, db: AsyncSession) -> OAuthProvider:
+        """Insert a minimal OAuthProvider for tests."""
+        provider = OAuthProvider(
+            slug=f"test-{uuid.uuid4().hex[:8]}",
+            display_name="Test Provider",
+            provider_type="oidc",
+            client_id="test-client-id",
+            client_secret_encrypted=encrypt_secret("placeholder-secret"),
+            discovery_url="https://test.example.com/.well-known/openid-configuration",
+            scopes="openid email profile",
+            default_role="viewer",
+            enabled=True,
+        )
+        db.add(provider)
+        await db.flush()
+        await db.refresh(provider)
+        return provider
+
+    async def test_no_email_claim_new_user_rejected_when_allowlist_nonempty(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session: AsyncSession,
+    ) -> None:
+        """FIX-A: non-empty allowlist + new identity with no email claim → OAuthDomainNotAllowedError.
+
+        Before FIX-A, the `if email:` guard silently skipped the check and the
+        identity would be provisioned with email=None, bypassing the allowlist.
+        """
+        await _set_allowed_domains(client, admin_auth_header, _ALLOWLIST)
+        try:
+            provider = await self._make_provider(test_db_session)
+            before_count_result = await test_db_session.execute(
+                select(func.count()).select_from(User)
+            )
+            before_count = before_count_result.scalar_one()
+
+            userinfo_no_email = {
+                "sub": f"sso-noemail-new-{uuid.uuid4().hex[:8]}",
+                # email intentionally absent — IdP did not emit the claim
+            }
+
+            with pytest.raises(OAuthDomainNotAllowedError):
+                await find_or_create_oauth_user(
+                    test_db_session, provider, userinfo_no_email, {}
+                )
+
+            after_count_result = await test_db_session.execute(
+                select(func.count()).select_from(User)
+            )
+            after_count = after_count_result.scalar_one()
+            assert after_count == before_count, (
+                f"No user should be created when allowlist is active and email is absent; "
+                f"count went from {before_count} to {after_count}"
+            )
+        finally:
+            await _clear_allowed_domains(client, admin_auth_header)
+
+    async def test_no_email_claim_new_user_provisions_when_allowlist_empty(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session: AsyncSession,
+    ) -> None:
+        """FIX-A: empty allowlist + new identity with no email claim → user provisioned (back-compat).
+
+        When the allowlist is empty (allow-all), a no-email JIT identity must still
+        provision as it did before FIX-A — zero behavior change when unconfigured.
+        """
+        await _clear_allowed_domains(client, admin_auth_header)
+        provider = await self._make_provider(test_db_session)
+        before_count_result = await test_db_session.execute(
+            select(func.count()).select_from(User)
+        )
+        before_count = before_count_result.scalar_one()
+
+        userinfo_no_email = {
+            "sub": f"sso-noemail-empty-{uuid.uuid4().hex[:8]}",
+            # email intentionally absent
+        }
+
+        user = await find_or_create_oauth_user(
+            test_db_session, provider, userinfo_no_email, {}
+        )
+        assert user is not None
+
+        after_count_result = await test_db_session.execute(
+            select(func.count()).select_from(User)
+        )
+        after_count = after_count_result.scalar_one()
+        assert after_count == before_count + 1, (
+            "New user should be provisioned when allowlist is empty and email is absent"
+        )
