@@ -206,7 +206,8 @@ async def refresh(
     #   at refresh.
     user = await service.get_user_from_refresh_token(body.refresh_token)
     if user is not None and user.email:
-        domains = await ALLOWED_EMAIL_DOMAINS.get(db)
+        # Cache-bypass: security enforcement reads committed state (see login gate).
+        domains = await ALLOWED_EMAIL_DOMAINS.get_uncached(db)
         if not is_email_allowed(user.email, domains):
             from app.modules.auth.permissions import (  # LAZY — per D-17
                 MANAGE_SETTINGS,
@@ -285,7 +286,8 @@ async def register(
     # the allowlist to create an account.  A null/absent email is permitted
     # (no address to gate on — preserves no-email registration paths).
     if body.email:
-        domains = await ALLOWED_EMAIL_DOMAINS.get(db)
+        # Cache-bypass: security enforcement reads committed state (see login gate).
+        domains = await ALLOWED_EMAIL_DOMAINS.get_uncached(db)
         if not is_email_allowed(body.email, domains):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,

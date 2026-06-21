@@ -130,7 +130,8 @@ async def create_user(
             user_has_capability,
         )
 
-        domains = await ALLOWED_EMAIL_DOMAINS.get(db)
+        # Cache-bypass: enforcement reads committed state (see auth login gate).
+        domains = await ALLOWED_EMAIL_DOMAINS.get_uncached(db)
         if not is_email_allowed(body.email, domains):
             has_break_glass = await user_has_capability(
                 db, current_user, MANAGE_SETTINGS

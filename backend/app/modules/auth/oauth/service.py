@@ -452,7 +452,8 @@ async def find_or_create_oauth_user(
                 user_id=str(returning_user.id),
             )
         else:
-            domains = await ALLOWED_EMAIL_DOMAINS.get(db)
+            # Cache-bypass: enforcement reads committed state (see auth login gate).
+            domains = await ALLOWED_EMAIL_DOMAINS.get_uncached(db)
             if not is_email_allowed(check_email, domains):
                 # WR-01: break-glass for manage_settings admins.
                 if not await _is_manage_settings_admin(db, returning_user):
@@ -485,7 +486,8 @@ async def find_or_create_oauth_user(
     # email=None) — otherwise a no-email claim is an accidental allowlist bypass.
     # When the allowlist IS empty, a no-email new user still provisions as before
     # (zero behavior change when unconfigured).
-    domains = await ALLOWED_EMAIL_DOMAINS.get(db)
+    # Cache-bypass: enforcement reads committed state (see auth login gate).
+    domains = await ALLOWED_EMAIL_DOMAINS.get_uncached(db)
     if domains:
         # Non-empty allowlist — email is required for verification.
         if not email:
