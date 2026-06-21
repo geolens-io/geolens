@@ -434,6 +434,55 @@ class TestSSODomainEnforcement:
         finally:
             await _clear_allowed_domains(client, admin_auth_header)
 
+    async def test_returning_user_unverified_claim_cannot_bypass_allowlist(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session: AsyncSession,
+    ) -> None:
+        """Codex P1: a returning (linked) user whose STORED email is disallowed
+        must not bypass the allowlist by presenting an unverified allowed-domain
+        claim. The unverified claim is not trusted, so enforcement falls back to
+        the stored (disallowed) email and the login is refused.
+        """
+        from app.modules.auth.models import User
+        from app.modules.auth.oauth.models import OAuthAccount
+        from app.modules.auth.oauth.service import OAuthDomainNotAllowedError
+
+        await _set_allowed_domains(client, admin_auth_header, _ALLOWLIST)
+        try:
+            provider = await self._make_provider(test_db_session)
+            subject = f"returning-{uuid.uuid4().hex[:8]}"
+            stored_user = User(
+                username=f"returning-{uuid.uuid4().hex[:8]}",
+                email=f"insider@{_DISALLOWED_DOMAIN}",  # stored email is disallowed
+                auth_provider="oauth",
+                is_active=True,
+                status="active",
+            )
+            test_db_session.add(stored_user)
+            await test_db_session.flush()
+            test_db_session.add(
+                OAuthAccount(
+                    provider_id=provider.id,
+                    user_id=stored_user.id,
+                    subject=subject,
+                )
+            )
+            await test_db_session.flush()
+
+            # Same linked subject, but an UNVERIFIED allowed-domain claim.
+            userinfo = {
+                "sub": subject,
+                "email": f"attacker@{_ALLOWED_DOMAIN}",
+                "email_verified": False,
+                "name": "Returning Attacker",
+            }
+            with pytest.raises(OAuthDomainNotAllowedError):
+                await find_or_create_oauth_user(test_db_session, provider, userinfo, {})
+        finally:
+            await _clear_allowed_domains(client, admin_auth_header)
+
     async def test_empty_allowlist_sso_is_noop(
         self,
         client: AsyncClient,

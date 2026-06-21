@@ -203,7 +203,11 @@ async def oauth_callback(
         # separate /user/emails call (T-1237-01 ASVS guard, SSO-05, Phase 1237).
         # All other providers use the existing authlib userinfo path unchanged.
         if provider.provider_type == "github":
-            userinfo = await _resolve_github_identity(dict(token))
+            # Pass the provider's configured user endpoint so GitHub Enterprise
+            # providers resolve identity against their own API, not api.github.com.
+            userinfo = await _resolve_github_identity(
+                dict(token), userinfo_url=provider.userinfo_url
+            )
         else:
             userinfo = token.get("userinfo")
             if userinfo is None:

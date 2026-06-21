@@ -210,6 +210,30 @@ class TestResolveGithubIdentity:
         assert result["name"] == "The Octocat"
         assert result["email_verified"] is True
 
+    async def test_uses_configured_userinfo_url_for_github_enterprise(self) -> None:
+        """Codex P2: a GitHub Enterprise provider's configured user endpoint is
+        used (and the /emails endpoint derived from it), so the enterprise access
+        token is never sent to the hard-coded public api.github.com."""
+        emails = [{"email": "dev@ghe.example.com", "primary": True, "verified": True}]
+        token = {"access_token": "ghe_enterprise_token"}
+        mock = self._mock_client(self._USER_PAYLOAD, emails)
+        ghe_user_url = "https://ghe.example.com/api/v3/user"
+
+        with patch(
+            "app.modules.auth.oauth.service.httpx.AsyncClient", return_value=mock
+        ):
+            result = await _resolve_github_identity(token, userinfo_url=ghe_user_url)
+
+        assert result["email"] == "dev@ghe.example.com"
+        called_urls = [c.args[0] for c in mock.get.call_args_list]
+        assert called_urls == [
+            "https://ghe.example.com/api/v3/user",
+            "https://ghe.example.com/api/v3/user/emails",
+        ], f"GHE endpoints not used: {called_urls}"
+        assert not any("api.github.com" in u for u in called_urls), (
+            f"enterprise token must not be sent to public GitHub: {called_urls}"
+        )
+
     async def test_ignores_verified_but_not_primary(self) -> None:
         """An email that is verified-but-not-primary is NEVER selected."""
         # Only decoy entries — no primary+verified combo.

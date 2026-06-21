@@ -28,7 +28,8 @@ from app.modules.auth.oauth.schemas import (
 GITHUB_AUTHORIZE_URL = "https://github.com/login/oauth/authorize"
 GITHUB_TOKEN_URL = "https://github.com/login/oauth/access_token"
 GITHUB_USERINFO_URL = "https://api.github.com/user"
-GITHUB_EMAILS_URL = "https://api.github.com/user/emails"
+# The emails endpoint is derived from the (possibly provider-configured)
+# user endpoint at call time — see _resolve_github_identity (Codex P2).
 # Default scope: read:user to access the /user endpoint; user:email to access
 # /user/emails (needed to resolve the primary verified email when email is null
 # on /user — which is the normal case for users who have set email to private).
@@ -277,7 +278,9 @@ async def delete_provider(db: AsyncSession, provider: OAuthProvider) -> None:
 # ---------------------------------------------------------------------------
 
 
-async def _resolve_github_identity(token: dict) -> dict:
+async def _resolve_github_identity(
+    token: dict, userinfo_url: str | None = None
+) -> dict:
     """Resolve a GitHub user's primary+verified email and return a normalized userinfo dict.
 
     GitHub's ``/user`` endpoint omits the email field when the user has set their
@@ -320,15 +323,22 @@ async def _resolve_github_identity(token: dict) -> dict:
         "X-GitHub-Api-Version": "2022-11-28",
     }
 
+    # Codex P2: use the provider's configured user endpoint (GitHub Enterprise
+    # providers set a custom userinfo_url) and derive the emails endpoint from it,
+    # so an enterprise access token is never sent to the hard-coded public
+    # api.github.com. Falls back to the public GitHub API when unset.
+    user_url = userinfo_url or GITHUB_USERINFO_URL
+    emails_url = user_url.rstrip("/") + "/emails"
+
     async with httpx.AsyncClient(follow_redirects=False) as client:
         # Fetch basic user profile for id, login, name.
-        user_resp = await client.get(GITHUB_USERINFO_URL, headers=headers)
+        user_resp = await client.get(user_url, headers=headers)
         user_resp.raise_for_status()
         user_data = user_resp.json()
 
         # Fetch verified email list — required because /user returns email=null
         # when the user has set their email to private (the common case).
-        emails_resp = await client.get(GITHUB_EMAILS_URL, headers=headers)
+        emails_resp = await client.get(emails_url, headers=headers)
         emails_resp.raise_for_status()
         emails_data = emails_resp.json()
 
@@ -442,7 +452,13 @@ async def find_or_create_oauth_user(
         # A NEW (JIT) identity still has no principal and must satisfy the
         # allowlist; only returning users with an established account get the
         # exemption.
-        check_email = email or returning_user.email  # WR-02: fallback to stored email
+        # WR-02 / Codex P1: prefer the IdP email claim ONLY when it is verified.
+        # An unverified, caller-controlled claim must not be usable to satisfy the
+        # allowlist for a returning user whose stored email is disallowed (mirrors
+        # the JIT verified-email requirement). Fall back to the stored, already-
+        # trusted email otherwise.
+        claim_trusted = email is not None and userinfo.get("email_verified") is True
+        check_email = email if claim_trusted else returning_user.email
         if check_email is None:
             # No claim and no stored email — cannot enforce; log a warning so
             # operators can investigate IdP misconfiguration.
