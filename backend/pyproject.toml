@@ -40,7 +40,7 @@ dependencies = [
     "azure-storage-blob>=12.24.0",
     "azure-identity>=1.20.0",
     # PERF-01 (Phase 274): in-memory LRU fallback for tile cache when REDIS_URL is unset
-    "cachetools>=5.5.0",
+    "cachetools>=7.1.4",
     "redis>=5.0.0",
     "jsonschema>=4.19",
     "puremagic>=2.2.0",
