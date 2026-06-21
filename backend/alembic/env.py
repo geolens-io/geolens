@@ -252,8 +252,20 @@ def include_object(obj, name, type_, reflected, compare_to):
     installed. When no overlay is present, those columns are intentional
     schema/model drift and would be reported by ``alembic check`` on every
     OSS deployment — see migration-audit H-21.
+
+    ``ix_record_embeddings_hnsw`` is a pgvector HNSW index created and dropped
+    at runtime by ``embeddings/service.py`` (``rebuild_embedding_column``) once
+    an embedding dimension is configured. It cannot be a static model index —
+    the ``embedding`` column starts dimensionless — so it is intentionally
+    absent from the metadata. Without skipping it, autogenerate emits a phantom
+    ``remove_index`` whenever the index exists in the DB but not the model; under
+    ``pytest -n4`` a sibling test that built it on the shared worker DB before
+    ``alembic check`` ran turned this into a high-rate flake in
+    ``test_alembic_check_no_drift``.
     """
     if name and name.startswith("procrastinate_"):
+        return False
+    if type_ == "index" and name == "ix_record_embeddings_hnsw":
         return False
     if (
         type_ == "column"
