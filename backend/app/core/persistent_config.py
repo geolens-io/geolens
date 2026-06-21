@@ -167,6 +167,31 @@ class PersistentConfig(Generic[T]):
         self._update_sync_cache(effective)
         return effective
 
+    async def get_uncached(self, db: AsyncSession) -> T:
+        """Resolve the effective value directly from the DB, bypassing the cache.
+
+        Used by callers that must observe a value committed inside a lock they
+        hold — e.g. the SSO lockout guards (settings/router.py). The normal
+        cached ``get`` has a race: a writer invalidates the cache BEFORE its
+        commit, so a concurrent reader (e.g. ``/auth/config``) can repopulate the
+        cache with the pre-commit value; a guard waiting on the provider row lock
+        would then resume and read that stale value. Reading straight from the DB
+        under READ COMMITTED returns the just-committed value. This neither reads
+        nor writes the cache, so it cannot observe or create a stale entry.
+        """
+        if _is_env_only():
+            return self.env_default
+
+        result = await db.execute(
+            select(AppSetting.value).where(AppSetting.key == self.key)
+        )
+        row = result.scalar_one_or_none()
+        if row is not None:
+            unwrapped = row if not isinstance(row, dict) or "v" not in row else row["v"]
+            effective, _ = _validate_or_fallback(self, unwrapped)
+            return effective
+        return self.env_default
+
     async def set(
         self,
         db: AsyncSession,

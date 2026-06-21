@@ -186,6 +186,40 @@ async def test_set_invalidates_cache(client: AsyncClient):
 
 
 @pytest.mark.anyio
+async def test_get_uncached_bypasses_stale_cache(client: AsyncClient):
+    """Codex P2: get_uncached returns the committed DB value, ignoring a cache
+    entry holding a different value.
+
+    The SSO lockout guards rely on this: a concurrent password-disable
+    invalidates the cache BEFORE its commit, so another reader can repopulate
+    the cache with the pre-commit value. A guard reading the cached flag would
+    resume on a stale value and skip the last-provider check. get_uncached reads
+    straight from the DB so it observes the committed value under the held lock.
+    """
+    from app.core.persistent_config import PASSWORD_LOGIN_ENABLED
+    from app.platform.cache import get_cache, init_cache
+
+    from app.core.dependencies import get_db
+    from app.api.main import app
+
+    init_cache()
+    async for db in app.dependency_overrides[get_db]():
+        try:
+            # Commit the real DB value = False (set() invalidates the cache).
+            await PASSWORD_LOGIN_ENABLED.set(db, False)
+            # Poison the cache with a STALE True, simulating a reader that
+            # repopulated it during a writer's invalidate -> commit window.
+            await get_cache().set("config:password_login_enabled", True, ttl=30)
+
+            # The cached read returns the stale value...
+            assert await PASSWORD_LOGIN_ENABLED.get(db) is True
+            # ...but get_uncached returns the committed DB value.
+            assert await PASSWORD_LOGIN_ENABLED.get_uncached(db) is False
+        finally:
+            await PASSWORD_LOGIN_ENABLED.set(db, True)
+
+
+@pytest.mark.anyio
 async def test_set_public_url_invalidates_public_url_cache(client: AsyncClient):
     """BUG-025: writing a public-URL key invalidates the public_urls module cache.
 

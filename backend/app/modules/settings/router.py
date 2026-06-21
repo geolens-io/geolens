@@ -779,7 +779,10 @@ async def update_oauth_provider(
     update_data = body.model_dump(exclude_unset=True)
     if update_data.get("enabled") is False:
         locked_provider_ids = await oauth_service.lock_enabled_providers(db)
-        if not await PASSWORD_LOGIN_ENABLED.get(db):
+        # Cache-bypass read: a concurrent password-disable invalidates the cache
+        # before its commit, so a stale `true` could be repopulated by another
+        # reader; reading the committed DB value under the held lock avoids it.
+        if not await PASSWORD_LOGIN_ENABLED.get_uncached(db):
             enabled_others = [pid for pid in locked_provider_ids if pid != provider_id]
             if len(enabled_others) == 0:
                 raise HTTPException(
@@ -871,7 +874,9 @@ async def delete_oauth_provider(
     # serialization as the update guard. See oauth_service.lock_enabled_providers.
     if provider.enabled:
         locked_provider_ids = await oauth_service.lock_enabled_providers(db)
-        if not await PASSWORD_LOGIN_ENABLED.get(db):
+        # Cache-bypass read (see update_oauth_provider): observe the committed
+        # password_login_enabled under the held provider lock, not a stale cache.
+        if not await PASSWORD_LOGIN_ENABLED.get_uncached(db):
             enabled_others = [pid for pid in locked_provider_ids if pid != provider_id]
             if len(enabled_others) == 0:
                 raise HTTPException(
