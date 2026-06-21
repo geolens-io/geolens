@@ -562,6 +562,10 @@
       "clientSecret": "Secret client",
       "clientSecretKeep": "laisser vide pour conserver l'actuel",
       "discoveryUrl": "URL de découverte",
+      "githubEnterpriseHint": "Laissez les points de terminaison ci-dessous vides pour GitHub.com. Pour GitHub Enterprise Server, renseignez les URL de votre instance.",
+      "authorizeUrl": "URL d'autorisation (facultatif)",
+      "tokenUrl": "URL de jeton (facultatif)",
+      "userinfoUrl": "URL de l'API utilisateur (facultatif)",
       "scopes": "Portées",
       "defaultRole": "Rôle par défaut",
       "groupClaim": "Claim de groupe",
@@ -584,7 +588,8 @@
       "providerTypes": {
         "google": "Google",
         "microsoft": "Microsoft",
-        "oidc": "OIDC générique"
+        "oidc": "OIDC générique",
+        "github": "GitHub"
       },
       "roles": {
         "viewer": "Lecteur",

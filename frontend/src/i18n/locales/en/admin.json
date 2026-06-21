@@ -600,6 +600,10 @@
       "clientSecret": "Client Secret",
       "clientSecretKeep": "leave blank to keep current",
       "discoveryUrl": "Discovery URL",
+      "githubEnterpriseHint": "Leave the endpoints below blank for GitHub.com. For GitHub Enterprise Server, set them to your instance's URLs.",
+      "authorizeUrl": "Authorize URL (optional)",
+      "tokenUrl": "Token URL (optional)",
+      "userinfoUrl": "User API URL (optional)",
       "scopes": "Scopes",
       "defaultRole": "Default Role",
       "groupClaim": "Group Claim",
@@ -622,7 +626,8 @@
       "providerTypes": {
         "google": "Google",
         "microsoft": "Microsoft",
-        "oidc": "Generic OIDC"
+        "oidc": "Generic OIDC",
+        "github": "GitHub"
       },
       "roles": {
         "viewer": "Viewer",

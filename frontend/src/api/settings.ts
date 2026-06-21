@@ -181,7 +181,7 @@ export async function updateBranding(data: Partial<BrandingConfig>): Promise<voi
 
 // --- OAuth provider types and endpoints (admin-only) ---
 
-export type OAuthProviderType = 'google' | 'microsoft' | 'oidc';
+export type OAuthProviderType = 'google' | 'microsoft' | 'oidc' | 'github';
 
 export interface OAuthProviderConfig {
   id: string;
