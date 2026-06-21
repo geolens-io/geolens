@@ -488,7 +488,15 @@
       "tokenLifetimeNote": "Änderungen der Token-Lebensdauer gelten nur für neu ausgestellte Token.",
       "loginRateLimitDescription": "Maximale Anzahl der erlaubten Anmeldeanfragen pro Minute von einer einzelnen IP-Adresse (1–1000).",
       "saved": "Sicherheitseinstellungen gespeichert",
-      "saveFailed": "Sicherheitseinstellungen konnten nicht gespeichert werden"
+      "saveFailed": "Sicherheitseinstellungen konnten nicht gespeichert werden",
+      "passwordLogin": "Passwort-Anmeldung erlauben",
+      "passwordLoginDescription": "Erlaubt Benutzern, sich mit Benutzername und Passwort anzumelden. Wenn deaktiviert, müssen sich Benutzer über einen SSO-Anbieter anmelden — stellen Sie sicher, dass mindestens ein Anbieter aktiviert ist.",
+      "allowedEmailDomains": "Erlaubte E-Mail-Domains",
+      "allowedEmailDomainsDescription": "Beschränkt Registrierung und Anmeldung auf E-Mail-Adressen dieser Domains. Leer lassen, um alle Domains zu erlauben.",
+      "allowedEmailDomainsUnrestricted": "Keine Einschränkungen — alle E-Mail-Domains sind erlaubt.",
+      "addDomainPlaceholder": "beispiel.com",
+      "addDomain": "Hinzufügen",
+      "removeDomain": "Domain {{domain}} entfernen"
     },
     "envOnly": {
       "title": "Konfiguration durch Umgebungsvariablen gesperrt",

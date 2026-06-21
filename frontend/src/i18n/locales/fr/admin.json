@@ -488,7 +488,15 @@
       "tokenLifetimeNote": "Les modifications de durée de vie des jetons s'appliquent uniquement aux jetons nouvellement émis.",
       "loginRateLimitDescription": "Nombre maximum de requêtes de connexion autorisées par minute depuis une seule adresse IP (1–1000).",
       "saved": "Paramètres de sécurité enregistrés",
-      "saveFailed": "Échec de l'enregistrement des paramètres de sécurité"
+      "saveFailed": "Échec de l'enregistrement des paramètres de sécurité",
+      "passwordLogin": "Autoriser la connexion par mot de passe",
+      "passwordLoginDescription": "Permet aux utilisateurs de se connecter avec un nom d'utilisateur et un mot de passe. La désactivation oblige les utilisateurs à se connecter via un fournisseur SSO — assurez-vous qu'au moins un fournisseur est activé avant de désactiver cette option.",
+      "allowedEmailDomains": "Domaines de messagerie autorisés",
+      "allowedEmailDomainsDescription": "Restreint l'inscription et la connexion aux adresses e-mail de ces domaines. Laissez vide pour autoriser tous les domaines.",
+      "allowedEmailDomainsUnrestricted": "Sans restriction — tous les domaines de messagerie sont autorisés.",
+      "addDomainPlaceholder": "exemple.com",
+      "addDomain": "Ajouter",
+      "removeDomain": "Supprimer le domaine {{domain}}"
     },
     "envOnly": {
       "title": "Configuration verrouillée par variables d'environnement",

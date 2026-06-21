@@ -550,7 +550,15 @@
       "tokenLifetimeNote": "Token lifetime changes apply to newly issued tokens only.",
       "loginRateLimitDescription": "Maximum number of login requests allowed per minute from a single IP address (1–1000).",
       "saved": "Security settings saved",
-      "saveFailed": "Failed to save security settings"
+      "saveFailed": "Failed to save security settings",
+      "passwordLogin": "Allow Password Login",
+      "passwordLoginDescription": "Allow users to sign in with a username and password. Disabling this requires users to sign in via an SSO provider — ensure at least one provider is enabled before turning this off.",
+      "allowedEmailDomains": "Allowed Email Domains",
+      "allowedEmailDomainsDescription": "Restrict sign-up and sign-in to email addresses from these domains. Leave empty to allow any domain.",
+      "allowedEmailDomainsUnrestricted": "No restrictions — all email domains are allowed.",
+      "addDomainPlaceholder": "example.com",
+      "addDomain": "Add",
+      "removeDomain": "Remove domain {{domain}}"
     },
     "uploads": {
       "title": "Upload Settings",
