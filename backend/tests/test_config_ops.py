@@ -312,8 +312,22 @@ async def test_validate_requires_auth(client: AsyncClient):
 async def test_validate_oidc_empty(
     client: AsyncClient,
     admin_auth_header: dict,
+    test_db_session,
 ):
     """When no OAuth providers configured, oidc_providers is empty dict."""
+    # The validate endpoint reads the GLOBAL provider set. Under `pytest -n`
+    # each xdist worker shares one DB across its tests, and some sibling tests
+    # create providers without cleaning them up (e.g. the audit-redaction and
+    # SAML-conversion invariants), so a "must be empty" assertion is order-
+    # dependent. Purge providers up-front for a deterministic slate — mirrors
+    # _purge_all_oauth_providers in test_sso_login_mode.py.
+    from sqlalchemy import delete as sa_delete
+
+    from app.modules.auth.oauth.models import OAuthProvider
+
+    await test_db_session.execute(sa_delete(OAuthProvider))
+    await test_db_session.commit()
+
     resp = await client.post("/config-ops/validate/", headers=admin_auth_header)
     assert resp.status_code == 200
     data = resp.json()
