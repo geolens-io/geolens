@@ -4,7 +4,7 @@ import uuid
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.audit.service import AuditEvent, audit_emit
@@ -319,9 +319,15 @@ async def update_settings(
     # validation but BEFORE the apply loop so nothing is persisted on rejection.
     # An admin with manage_settings retains break-glass password-login regardless,
     # but we still prevent the foot-gun of locking out the entire org.
+    #
+    # Codex P2 (concurrency): row-lock the enabled providers (FOR UPDATE) so a
+    # concurrent provider-disable/delete (which locks the same rows) is serialized
+    # against this check — the two can no longer both pass and together remove the
+    # last provider while disabling password login. Replaces the reverted global
+    # advisory lock (898048b2); see oauth_service.lock_enabled_providers.
     if validated_settings.get("password_login_enabled") is False:
-        enabled_providers = await oauth_service.get_enabled_providers(db)
-        if len(enabled_providers) == 0:
+        locked_provider_ids = await oauth_service.lock_enabled_providers(db)
+        if len(locked_provider_ids) == 0:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail=(
@@ -764,20 +770,18 @@ async def update_oauth_provider(
     # refuse the operation.  We count enabled providers EXCLUDING the target so
     # that disabling a provider when >=2 others are enabled is still allowed.
     # The guard fires BEFORE any persist so nothing is written on rejection.
+    #
+    # Codex P2 (concurrency): row-lock the enabled providers FIRST — before
+    # reading password_login_enabled — so a concurrent password-disable cannot
+    # flip the flag between our read and our write. Counting from the locked set
+    # (rather than a fresh COUNT) keeps the decision consistent with the rows we
+    # hold. See oauth_service.lock_enabled_providers.
     update_data = body.model_dump(exclude_unset=True)
     if update_data.get("enabled") is False:
+        locked_provider_ids = await oauth_service.lock_enabled_providers(db)
         if not await PASSWORD_LOGIN_ENABLED.get(db):
-            from app.modules.auth.oauth.models import OAuthProvider as _OAuthProvider
-
-            enabled_others = await db.execute(
-                select(func.count())
-                .select_from(_OAuthProvider)
-                .where(
-                    _OAuthProvider.enabled.is_(True),
-                    _OAuthProvider.id != provider_id,
-                )
-            )
-            if enabled_others.scalar_one() == 0:
+            enabled_others = [pid for pid in locked_provider_ids if pid != provider_id]
+            if len(enabled_others) == 0:
                 raise HTTPException(
                     status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                     detail=(
@@ -861,19 +865,15 @@ async def delete_oauth_provider(
     # password_login_enabled is False would lock everyone out.  Count enabled
     # providers EXCLUDING the target; if zero remain, refuse.
     # Only applies when the provider being deleted is currently enabled.
+    #
+    # Codex P2 (concurrency): row-lock the enabled providers FIRST (before the
+    # password_login_enabled read) and count from the locked set — same
+    # serialization as the update guard. See oauth_service.lock_enabled_providers.
     if provider.enabled:
+        locked_provider_ids = await oauth_service.lock_enabled_providers(db)
         if not await PASSWORD_LOGIN_ENABLED.get(db):
-            from app.modules.auth.oauth.models import OAuthProvider as _OAuthProvider
-
-            enabled_others = await db.execute(
-                select(func.count())
-                .select_from(_OAuthProvider)
-                .where(
-                    _OAuthProvider.enabled.is_(True),
-                    _OAuthProvider.id != provider_id,
-                )
-            )
-            if enabled_others.scalar_one() == 0:
+            enabled_others = [pid for pid in locked_provider_ids if pid != provider_id]
+            if len(enabled_others) == 0:
                 raise HTTPException(
                     status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                     detail=(

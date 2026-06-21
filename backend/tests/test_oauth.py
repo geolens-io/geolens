@@ -595,6 +595,59 @@ class TestFindOrCreateOAuthUser:
         with pytest.raises(OAuthEmailUnverifiedError):
             await find_or_create_oauth_user(test_db_session, provider, userinfo, {})
 
+    async def test_unverified_email_collision_persists_no_partial_user(
+        self, client, test_db_session
+    ):
+        """Codex P2 (raise-before-provision invariant): the email_not_verified
+        collision branch raises BEFORE any db.add/flush, so the OAuth callback's
+        commit-without-rollback path cannot persist a partial User. Pin it — the
+        raise must leave the User count unchanged (only the pre-existing victim
+        row remains)."""
+        from sqlalchemy import func as sa_func
+        from sqlalchemy import select as sa_select
+
+        from app.modules.auth.models import User
+        from app.modules.auth.oauth.service import (
+            OAuthEmailUnverifiedError,
+            find_or_create_oauth_user,
+        )
+        from app.modules.auth.providers.local import hash_password
+
+        email = f"victim-inv-{uuid.uuid4().hex[:6]}@example.com"
+        local_user = User(
+            username=f"victim-inv-{uuid.uuid4().hex[:6]}",
+            email=email,
+            password_hash=hash_password("password123"),
+            is_active=True,
+            status="active",
+            auth_provider="local",
+        )
+        test_db_session.add(local_user)
+        await test_db_session.flush()
+        provider = await self._create_test_provider(test_db_session)
+        await test_db_session.commit()
+
+        before = (
+            await test_db_session.execute(sa_select(sa_func.count()).select_from(User))
+        ).scalar_one()
+
+        userinfo = {
+            "sub": f"attacker-inv-{uuid.uuid4().hex[:8]}",
+            "email": email,
+            "email_verified": False,
+            "name": "Attacker",
+        }
+        with pytest.raises(OAuthEmailUnverifiedError):
+            await find_or_create_oauth_user(test_db_session, provider, userinfo, {})
+
+        after = (
+            await test_db_session.execute(sa_select(sa_func.count()).select_from(User))
+        ).scalar_one()
+        assert after == before, (
+            f"Unverified-collision raise must not provision a partial user "
+            f"(count {before} -> {after})"
+        )
+
     async def test_email_linking_blocked_when_email_verified_missing(
         self, client, test_db_session
     ):

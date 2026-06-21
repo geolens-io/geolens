@@ -11,8 +11,9 @@ Covers:
 
 import uuid
 
+import pytest
 from httpx import AsyncClient
-from sqlalchemy import delete
+from sqlalchemy import delete, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.auth.oauth.encryption import encrypt_secret
@@ -414,3 +415,161 @@ class TestProviderDisableDeleteLockoutGuard:
         finally:
             await _delete_provider(test_db_session, provider)
             await test_db_session.commit()
+
+
+# ---------------------------------------------------------------------------
+# Codex P2: row-lock serialization of the SSO lockout guards
+# ---------------------------------------------------------------------------
+
+
+class TestLockoutGuardRowLockSerialization:
+    """Codex P2 (concurrency): the three lockout guards take a FOR UPDATE row
+    lock on the enabled providers (oauth_service.lock_enabled_providers) so a
+    concurrent password-disable and provider-disable cannot both pass and leave
+    the org with zero login methods. Replaces the reverted global advisory lock.
+    """
+
+    async def test_for_update_blocks_concurrent_acquirer(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session: AsyncSession,
+    ) -> None:
+        """A second session acquiring the same lock blocks until the first
+        releases — proven deterministically with a 1s statement_timeout (so it
+        can never hang CI). FAILS if the FOR UPDATE is ever removed, because the
+        second acquirer would then return immediately instead of timing out.
+        """
+        import app.core.db as db_module
+
+        from app.modules.auth.oauth import service as oauth_service
+
+        await _purge_all_oauth_providers(test_db_session)
+        provider = await _make_enabled_oauth_provider(test_db_session)
+        await test_db_session.commit()
+
+        s1 = db_module.async_session()
+        s2 = db_module.async_session()
+        try:
+            # S1 acquires and HOLDS the row lock (no commit/rollback yet).
+            locked = await oauth_service.lock_enabled_providers(s1)
+            assert provider.id in locked, "expected the enabled provider to be locked"
+
+            # S2 tries the same lock with a bounded timeout; it must be canceled
+            # because S1 holds the FOR UPDATE on that row. SET LOCAL (not plain
+            # SET) keeps the timeout transaction-scoped so it reverts on rollback
+            # and can never leak into a pooled connection in local sequential runs.
+            await s2.execute(text("SET LOCAL statement_timeout = '1000ms'"))
+            with pytest.raises(Exception) as exc_info:
+                await oauth_service.lock_enabled_providers(s2)
+            msg = str(exc_info.value).lower()
+            assert any(k in msg for k in ("cancel", "timeout", "lock")), (
+                f"Expected a lock/statement-timeout cancellation (FOR UPDATE "
+                f"contention), got: {exc_info.value!r}"
+            )
+        finally:
+            await s1.rollback()
+            await s2.rollback()
+            await s1.close()
+            await s2.close()
+            await _delete_provider(test_db_session, provider)
+            await test_db_session.commit()
+
+
+# ---------------------------------------------------------------------------
+# Codex P2 mitigation: break-glass is real and cannot be configured away
+# ---------------------------------------------------------------------------
+
+
+class TestBreakGlassInvariants:
+    """Codex P2 accepted-with-rationale: true lockout is impossible because a
+    manage_settings admin always retains password break-glass. Pin the two
+    properties that guarantee it: (1) the login path verifies the password
+    BEFORE the SSO-only gate, and (2) the permission matrix can never drop
+    manage_settings from admin (nor grant it to a non-admin).
+    """
+
+    async def test_password_verified_before_sso_only_gate(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session: AsyncSession,
+    ) -> None:
+        """Gate-order invariant: a wrong password fails at auth (401) — NOT at
+        the SSO-only gate (403) — while a correct-password admin still gets in
+        (break-glass) and a correct-password non-admin is gated (403)."""
+        from app.core.config import settings as app_settings
+
+        admin_username = app_settings.geolens_admin_username
+        admin_password = app_settings.geolens_admin_password.get_secret_value()
+
+        username, password = await _create_viewer(client, admin_auth_header)
+        provider = await _make_enabled_oauth_provider(test_db_session)
+        await test_db_session.commit()
+        try:
+            await _set_password_login_enabled(client, admin_auth_header, False)
+
+            # (a) Order proof: admin with WRONG password → 401 (auth runs first).
+            resp = await client.post(
+                "/auth/login",
+                data={"username": admin_username, "password": "wrong-password-xyz"},
+            )
+            assert resp.status_code == 401, (
+                f"Wrong-password admin must 401 (auth before SSO gate), "
+                f"got {resp.status_code}: {resp.text}"
+            )
+
+            # (b) Break-glass: admin with CORRECT password → 200 in sso-only mode.
+            resp = await client.post(
+                "/auth/login",
+                data={"username": admin_username, "password": admin_password},
+            )
+            assert resp.status_code == 200, (
+                f"Admin break-glass must succeed in sso-only mode: {resp.text}"
+            )
+
+            # (c) Gate fires for a non-admin with the CORRECT password → 403.
+            resp = await client.post(
+                "/auth/login",
+                data={"username": username, "password": password},
+            )
+            assert resp.status_code == 403, (
+                f"Non-admin must be gated in sso-only mode: {resp.text}"
+            )
+        finally:
+            await _reset_password_login_enabled(client, admin_auth_header)
+            await _delete_provider(test_db_session, provider)
+            await test_db_session.commit()
+
+    async def test_matrix_validator_pins_admin_manage_settings(self) -> None:
+        """Matrix invariant: validate_permission_matrix refuses to remove
+        manage_settings from admin or grant it to a non-admin — so at least one
+        role always holds the break-glass capability."""
+        from app.modules.auth.permissions import (
+            MANAGE_SETTINGS,
+            MANAGE_USERS,
+            validate_permission_matrix,
+        )
+
+        # Removing manage_settings from admin → rejected.
+        with pytest.raises(ValueError, match="manage_settings"):
+            validate_permission_matrix(
+                {"admin": {MANAGE_USERS: True, MANAGE_SETTINGS: False}}
+            )
+
+        # Granting manage_settings to a non-admin role → rejected.
+        with pytest.raises(ValueError, match="manage_settings"):
+            validate_permission_matrix(
+                {
+                    "admin": {MANAGE_USERS: True, MANAGE_SETTINGS: True},
+                    "viewer": {MANAGE_USERS: False, MANAGE_SETTINGS: True},
+                }
+            )
+
+        # A valid matrix (admin holds both; non-admins hold neither) passes.
+        validate_permission_matrix(
+            {
+                "admin": {MANAGE_USERS: True, MANAGE_SETTINGS: True},
+                "viewer": {MANAGE_USERS: False, MANAGE_SETTINGS: False},
+            }
+        )

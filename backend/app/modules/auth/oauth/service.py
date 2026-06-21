@@ -203,6 +203,30 @@ async def get_enabled_providers(db: AsyncSession) -> list[OAuthProvider]:
     return await list_providers(db, enabled_only=True)
 
 
+async def lock_enabled_providers(db: AsyncSession) -> list[uuid.UUID]:
+    """Row-lock every currently-enabled provider (``FOR UPDATE``) and return their ids.
+
+    Serializes the three SSO lockout guards (password-disable, provider-disable,
+    provider-delete) at the Postgres row-lock level. Two concurrent admin requests
+    that could together leave the org with zero login methods both contend on these
+    rows, so the second blocks until the first commits and then re-evaluates the
+    (now-updated) state — closing the check-then-act race without a global advisory
+    lock (whose constant key serialized unrelated settings writes; see git 898048b2).
+
+    The caller MUST invoke this BEFORE reading ``password_login_enabled`` so a
+    concurrent password-disable is serialized rather than read stale. ``ORDER BY id``
+    gives a deterministic multi-row lock order, so two callers can never deadlock.
+    The lock is transaction-scoped and releases on commit/rollback.
+    """
+    result = await db.execute(
+        select(OAuthProvider.id)
+        .where(OAuthProvider.enabled.is_(True))
+        .order_by(OAuthProvider.id)
+        .with_for_update()
+    )
+    return list(result.scalars().all())
+
+
 async def update_provider(
     db: AsyncSession,
     provider: OAuthProvider,
