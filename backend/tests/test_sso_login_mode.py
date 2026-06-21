@@ -12,6 +12,7 @@ Covers:
 import uuid
 
 from httpx import AsyncClient
+from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.auth.oauth.encryption import encrypt_secret
@@ -82,6 +83,21 @@ async def _delete_provider(db: AsyncSession, provider: OAuthProvider) -> None:
     """Remove a test OAuthProvider row."""
     await db.delete(provider)
     await db.flush()
+
+
+async def _purge_all_oauth_providers(db: AsyncSession) -> None:
+    """Delete every OAuth provider row so a lockout-guard test starts from a
+    deterministic clean slate.
+
+    The lockout guard reads a GLOBAL enabled-provider count (there is one provider
+    set per deployment). Under ``pytest -n`` each xdist worker shares one DB across
+    its tests, so a provider committed by a sibling test (e.g. the OAuth-CRUD suite)
+    pollutes that count and makes "zero providers → 422" / "last provider → 422"
+    flaky. Purging up-front makes the precondition deterministic regardless of
+    sibling state.
+    """
+    await db.execute(delete(OAuthProvider))
+    await db.commit()
 
 
 # ---------------------------------------------------------------------------
@@ -213,11 +229,15 @@ class TestAuthConfigPasswordLoginEnabled:
 
 class TestPasswordLoginLockoutGuard:
     async def test_disabling_password_login_with_zero_providers_returns_422(
-        self, client: AsyncClient, admin_auth_header: dict
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session: AsyncSession,
     ) -> None:
         """SSO-04: PUT /settings with password_login_enabled=false and no enabled providers → 422."""
-        # Confirm there are no enabled providers in the test DB.
-        # The default test fixture has no OAuth providers configured.
+        # Deterministic clean slate — purge any providers committed by sibling
+        # tests sharing this xdist worker's DB (the guard reads a GLOBAL count).
+        await _purge_all_oauth_providers(test_db_session)
         resp = await client.put(
             "/settings/",
             json={"settings": {"password_login_enabled": False}},
@@ -288,6 +308,7 @@ class TestProviderDisableDeleteLockoutGuard:
         test_db_session: AsyncSession,
     ) -> None:
         """CR-02: PATCH provider enabled=false on the last provider when sso-only → 422."""
+        await _purge_all_oauth_providers(test_db_session)
         provider = await _make_enabled_oauth_provider(test_db_session)
         await test_db_session.commit()
         try:
@@ -319,6 +340,7 @@ class TestProviderDisableDeleteLockoutGuard:
         test_db_session: AsyncSession,
     ) -> None:
         """CR-02: DELETE the last enabled provider when sso-only → 422."""
+        await _purge_all_oauth_providers(test_db_session)
         provider = await _make_enabled_oauth_provider(test_db_session)
         await test_db_session.commit()
         try:
@@ -347,6 +369,7 @@ class TestProviderDisableDeleteLockoutGuard:
         test_db_session: AsyncSession,
     ) -> None:
         """CR-02: With >=2 providers, disabling one still leaves one active → 200."""
+        await _purge_all_oauth_providers(test_db_session)
         provider_a = await _make_enabled_oauth_provider(test_db_session)
         provider_b = await _make_enabled_oauth_provider(test_db_session)
         await test_db_session.commit()
