@@ -495,6 +495,19 @@ async def find_or_create_oauth_user(
                 "OAuth identity has no email claim; cannot verify against the "
                 "allowed_email_domains allowlist."
             )
+        # FIX (Codex P1): an allowed DOMAIN only satisfies the allowlist if the
+        # email is VERIFIED. Without this, a provider where the caller controls
+        # the claim could assert attacker@allowed.example with email_verified
+        # false/absent; it would pass the domain check here, then the H-30 branch
+        # below would drop the unverified email and still provision a new account
+        # (email=None) — bypassing the allowlist entirely. Use the SAME
+        # email_verified trust signal H-30 relies on for auto-linking, so a
+        # trusted IdP that sets email_verified=True (incl. SAML JIT) is unaffected.
+        if userinfo.get("email_verified") is not True:
+            raise OAuthEmailUnverifiedError(
+                "OAuth identity email is not verified; a verified email in an "
+                "allowed domain is required when an allowlist is configured."
+            )
         if not is_email_allowed(email, domains):
             raise OAuthDomainNotAllowedError(
                 "OAuth identity email domain is not in the allowed_email_domains allowlist."

@@ -390,6 +390,50 @@ class TestSSODomainEnforcement:
         finally:
             await _clear_allowed_domains(client, admin_auth_header)
 
+    async def test_allowlist_active_unverified_email_rejected_no_user_created(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session: AsyncSession,
+    ) -> None:
+        """Codex P1: with a non-empty allowlist, an UNVERIFIED email in an allowed
+        domain must NOT satisfy the allowlist. Otherwise a provider where the
+        caller controls the claim could assert attacker@allowed (email_verified
+        false/absent), pass the domain check, and still get provisioned with
+        email=None via the H-30 branch — bypassing the allowlist. Expect
+        rejection + no user created, for both `email_verified: false` and an
+        omitted claim.
+        """
+        from app.modules.auth.oauth.service import OAuthEmailUnverifiedError
+
+        await _set_allowed_domains(client, admin_auth_header, _ALLOWLIST)
+        try:
+            provider = await self._make_provider(test_db_session)
+            for variant in ("explicit_false", "omitted"):
+                before_count = await self._user_count(test_db_session)
+                unique_sub = f"sso-unverified-{variant}-{uuid.uuid4().hex[:8]}"
+                userinfo = {
+                    "sub": unique_sub,
+                    "email": f"attacker-{unique_sub}@{_ALLOWED_DOMAIN}",
+                    "name": "Unverified Allowed-Domain User",
+                }
+                if variant == "explicit_false":
+                    userinfo["email_verified"] = False
+                # 'omitted' leaves email_verified out entirely.
+
+                with pytest.raises(OAuthEmailUnverifiedError):
+                    await find_or_create_oauth_user(
+                        test_db_session, provider, userinfo, {}
+                    )
+
+                after_count = await self._user_count(test_db_session)
+                assert after_count == before_count, (
+                    f"[{variant}] unverified email in an allowed domain must not "
+                    f"provision (count {before_count} -> {after_count})"
+                )
+        finally:
+            await _clear_allowed_domains(client, admin_auth_header)
+
     async def test_empty_allowlist_sso_is_noop(
         self,
         client: AsyncClient,
