@@ -35,27 +35,30 @@ function defaultSettings(overrides: SettingItem[] = []): SettingItem[] {
 function renderTab(
   settingsOverrides: SettingItem[] = [],
   {
-    onSave = vi.fn(),
-    onReset = vi.fn(),
-    onDirtyChange = vi.fn(),
+    onSave,
+    onReset,
+    onDirtyChange,
   }: {
-    onSave?: ReturnType<typeof vi.fn>;
-    onReset?: ReturnType<typeof vi.fn>;
-    onDirtyChange?: ReturnType<typeof vi.fn>;
+    onSave?: (changes: Record<string, unknown>) => void;
+    onReset?: (key: string) => void;
+    onDirtyChange?: (dirty: boolean) => void;
   } = {},
 ) {
+  const _onSave = onSave ?? vi.fn();
+  const _onReset = onReset ?? vi.fn();
+  const _onDirtyChange = onDirtyChange ?? vi.fn();
   const settings = defaultSettings(settingsOverrides);
   render(
     <SettingsAuthTab
       settings={settings}
       envOnly={false}
-      onSave={onSave}
-      onReset={onReset}
+      onSave={_onSave}
+      onReset={_onReset}
       isSaving={false}
-      onDirtyChange={onDirtyChange}
+      onDirtyChange={_onDirtyChange}
     />,
   );
-  return { onSave, onReset, onDirtyChange };
+  return { onSave: _onSave, onReset: _onReset, onDirtyChange: _onDirtyChange };
 }
 
 describe('SettingsAuthTab', () => {
@@ -132,7 +135,8 @@ describe('SettingsAuthTab', () => {
   describe('Test 4: Save calls onSave with allowed_email_domains as an array', () => {
     it('clicking Save invokes onSave with allowed_email_domains as a plain array', async () => {
       const user = userEvent.setup();
-      const onSave = vi.fn();
+      const capturedCalls: Record<string, unknown>[] = [];
+      const onSave = vi.fn((changes: Record<string, unknown>) => { capturedCalls.push(changes); });
       renderTab(
         [makeSetting('allowed_email_domains', [])],
         { onSave },
@@ -154,7 +158,7 @@ describe('SettingsAuthTab', () => {
       );
 
       // Confirm the value is an array containing the added domain
-      const payload = onSave.mock.calls[0][0] as Record<string, unknown>;
+      const payload = capturedCalls[0];
       expect(Array.isArray(payload.allowed_email_domains)).toBe(true);
       expect(payload.allowed_email_domains).toContain('corp.io');
     });
