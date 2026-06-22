@@ -418,6 +418,45 @@ def _resolve_role(
     return default
 
 
+_AZURE_MULTITENANT_AUTHORITIES = ("/common/", "/organizations/")
+
+
+def is_azure_multitenant(provider_type: str, discovery_url: str | None) -> bool:
+    """True for Azure multitenant Microsoft (``/common/``, ``/organizations/``).
+
+    These authorities accept identities from many tenants and advertise a
+    templated issuer, unlike a tenant-specific (or ``/consumers/``) authority
+    whose issuer is fixed. Both the relaxed id_token ``iss`` check and the
+    tenant-partitioned account subject are gated on this (geolens#303).
+    """
+    if provider_type != "microsoft":
+        return False
+    disco = (discovery_url or "").lower()
+    return any(authority in disco for authority in _AZURE_MULTITENANT_AUTHORITIES)
+
+
+def oauth_account_subject(
+    provider_type: str, discovery_url: str | None, userinfo: dict
+) -> str:
+    """Stable per-provider key for ``OAuthAccount.subject``.
+
+    For Azure *multitenant* Microsoft the bare ``sub`` is not globally unique
+    across tenants (Microsoft's stable id is tenant-scoped — ``tid`` + ``oid``),
+    so two users in different tenants sharing a ``sub`` would collide on
+    ``(provider_id, subject)`` and the second would be linked to the first's
+    local account — a cross-tenant account takeover. Prefix the subject with the
+    tenant id for multitenant Microsoft; every other provider (including
+    single-tenant Microsoft, whose issuer is fixed) keeps the bare ``sub``
+    (geolens#303).
+    """
+    sub = str(userinfo.get("sub", ""))
+    if is_azure_multitenant(provider_type, discovery_url):
+        tid = str(userinfo.get("tid", "")).strip()
+        if tid:
+            return f"{tid}:{sub}"
+    return sub
+
+
 async def find_or_create_oauth_user(
     db: AsyncSession,
     provider: OAuthProvider,
@@ -433,7 +472,9 @@ async def find_or_create_oauth_user(
 
     Group claims are mapped to roles per provider config (OAUTH-07).
     """
-    subject = str(userinfo.get("sub", ""))
+    subject = oauth_account_subject(
+        provider.provider_type, provider.discovery_url, userinfo
+    )
     email = userinfo.get("email")
     display_name = userinfo.get("name")
 

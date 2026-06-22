@@ -15,6 +15,7 @@ from app.modules.auth.oauth.service import (
     _resolve_github_identity,
     get_enabled_providers,
     get_provider_by_slug,
+    is_azure_multitenant,
 )
 from app.modules.auth.providers import AuthenticatedIdentity
 from app.modules.auth.service import AuthService
@@ -30,12 +31,6 @@ from app.standards.ogc.errors import ERROR_RESPONSES_AUTH
 logger = structlog.stdlib.get_logger(__name__)
 
 router = APIRouter(prefix="/auth/oauth", tags=["Auth"], responses=ERROR_RESPONSES_AUTH)
-
-
-# Azure authorities whose discovery doc advertises a TEMPLATED issuer
-# ("https://login.microsoftonline.com/{tenantid}/v2.0"). Tenant-specific and
-# /consumers/ authorities have a fixed issuer and are intentionally excluded.
-_AZURE_MULTITENANT_AUTHORITIES = ("/common/", "/organizations/")
 
 
 def _id_token_claims_options(
@@ -59,10 +54,8 @@ def _id_token_claims_options(
     (geolens#303 review). Returns None for every other case so authlib keeps its
     default iss pin.
     """
-    if provider_type == "microsoft":
-        disco = (discovery_url or "").lower()
-        if any(authority in disco for authority in _AZURE_MULTITENANT_AUTHORITIES):
-            return {"iss": {"essential": True}}
+    if is_azure_multitenant(provider_type, discovery_url):
+        return {"iss": {"essential": True}}
     return None
 
 
