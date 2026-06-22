@@ -505,6 +505,70 @@ class TestFindOrCreateOAuthUser:
         role_names = {r.name for r in user.roles}
         assert "viewer" in role_names
 
+    async def test_microsoft_multitenant_legacy_subject_fallback(
+        self, client, test_db_session
+    ):
+        """geolens#303: a returning Microsoft multitenant user whose OAuthAccount
+        was linked with the legacy bare ``sub`` (before tid-partitioning) is found
+        via the fallback and the link is canonicalized to ``tid:sub`` — never split
+        into a second local account."""
+        from sqlalchemy import func as safunc
+        from sqlalchemy import select as saselect
+
+        from app.modules.auth.models import User
+        from app.modules.auth.oauth.models import OAuthAccount
+        from app.modules.auth.oauth.service import find_or_create_oauth_user
+
+        provider = await self._create_test_provider(
+            test_db_session,
+            provider_type="microsoft",
+            discovery_url=(
+                "https://login.microsoftonline.com/common/v2.0/"
+                ".well-known/openid-configuration"
+            ),
+            default_role="editor",
+        )
+        user = User(
+            username=f"msuser-{uuid.uuid4().hex[:6]}",
+            email=f"ms-{uuid.uuid4().hex[:6]}@example.com",
+            is_active=True,
+            status="active",
+            auth_provider="oauth",
+        )
+        test_db_session.add(user)
+        await test_db_session.flush()
+        # Legacy link stored with the bare sub (pre tid-partitioning).
+        legacy = OAuthAccount(
+            provider_id=provider.id, user_id=user.id, subject="bare-sub-xyz"
+        )
+        test_db_session.add(legacy)
+        await test_db_session.commit()
+
+        userinfo = {
+            "sub": "bare-sub-xyz",
+            "tid": "TENANT-A",
+            "iss": "https://login.microsoftonline.com/TENANT-A/v2.0",
+            "email": user.email,
+            "email_verified": True,
+        }
+        returned = await find_or_create_oauth_user(
+            test_db_session, provider, userinfo, {}
+        )
+        await test_db_session.commit()
+
+        # Same user (found via fallback), link canonicalized, and no 2nd account.
+        assert returned.id == user.id
+        await test_db_session.refresh(legacy)
+        assert legacy.subject == "TENANT-A:bare-sub-xyz"
+        count = (
+            await test_db_session.execute(
+                saselect(safunc.count())
+                .select_from(OAuthAccount)
+                .where(OAuthAccount.provider_id == provider.id)
+            )
+        ).scalar_one()
+        assert count == 1
+
     async def test_email_linking(self, client, test_db_session):
         """OAUTH-06: OAuth login with existing email + verified email links
         to existing user. Phase 268 H-30: also requires email_verified=True."""
