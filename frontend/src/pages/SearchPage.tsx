@@ -54,7 +54,10 @@ export function SearchPage() {
   const limit = useSearchStore((s) => s.limit);
   const token = useAuthStore((s) => s.token);
   const { can } = usePermissions();
-  const canImport = can('upload');
+  // Require a token as well: usePermissions() keeps the cached ['auth','permissions']
+  // query after logout (it's disabled, not cleared), so can('upload') can briefly stay
+  // true for an anonymous viewer. Gating on token avoids showing a stale /import CTA.
+  const canImport = !!token && can('upload');
   const totalMatched = data ? Math.max(data.numberMatched ?? 0, data.features.length) : 0;
 
   useUrlSearchSync();
