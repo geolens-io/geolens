@@ -100,15 +100,20 @@ export function useBulkRegister() {
 }
 
 export function useUploadConfig() {
-  // The payload carries per-user `remaining_dataset_quota`, so scope the cache
-  // by user id — otherwise a stale entry leaks across an account switch on the
-  // SPA (logout only clears auth.me). The static config fields are identical
-  // across users, so the extra fetch on switch is cheap. (Codex P2 on PR #274)
+  // The payload carries per-user `remaining_dataset_quota`, which changes on any
+  // import or delete — so it is NOT static config and must not be cached like
+  // it. (Codex P2 on PR #274)
+  //   - key scoped by user id: a stale per-user value can't leak across an
+  //     account switch (logout only clears auth.me).
+  //   - staleTime 0 + refetchOnMount 'always': returning to Import after a
+  //     delete/import elsewhere re-reads the live count (a same-mount "Upload
+  //     More" is additionally handled by invalidate-on-reset in UploadForm).
   const userId = useAuthStore((s) => s.user?.id);
   return useQuery({
     queryKey: [...queryKeys.ingest.uploadConfig, userId ?? 'anon'],
     queryFn: getUploadConfig,
-    staleTime: 300_000, // 5 minutes -- storage provider changes rarely
+    staleTime: 0,
+    refetchOnMount: 'always',
   });
 }
 
