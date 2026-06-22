@@ -32,6 +32,28 @@ logger = structlog.stdlib.get_logger(__name__)
 router = APIRouter(prefix="/auth/oauth", tags=["Auth"], responses=ERROR_RESPONSES_AUTH)
 
 
+def _id_token_claims_options(provider_type: str) -> dict | None:
+    """id_token claim-validation overrides passed to ``authorize_access_token``.
+
+    Azure multitenant endpoints (``/common/``, ``/organizations/``) publish a
+    TEMPLATED issuer ``https://login.microsoftonline.com/{tenantid}/v2.0`` in
+    their OIDC discovery document, but issued id_tokens carry the resolved
+    per-tenant issuer (e.g. ``.../9188040d-.../v2.0`` for personal accounts).
+    authlib's default pins ``iss`` to the templated string via an exact
+    value-match and rejects every Microsoft login; joserfc only supports
+    value/values matching (no callable validator), so we relax ``iss`` to
+    required-but-not-value-pinned for Microsoft. The JWKS signature check and
+    the PKCE + client_secret code exchange still bind the token to Microsoft and
+    to this app, so signature/aud/nonce/exp validation is unaffected — only the
+    over-strict templated-``iss`` check is dropped (SSO-06).
+
+    Returns None for all other providers (authlib keeps its default iss pin).
+    """
+    if provider_type == "microsoft":
+        return {"iss": {"essential": True}}
+    return None
+
+
 async def build_oauth_client(provider_slug: str, db: AsyncSession) -> tuple:
     """Build an authlib OAuth client for the given provider slug.
 
@@ -193,8 +215,14 @@ async def oauth_callback(
     try:
         client, provider = await build_oauth_client(provider_slug, db)
 
-        # Exchange authorization code for tokens
-        token = await client.authorize_access_token(request)
+        # Exchange authorization code for tokens. For Microsoft multitenant the
+        # discovery issuer is templated, so relax the id_token iss check (SSO-06,
+        # see _id_token_claims_options).
+        authorize_kwargs: dict = {}
+        claims_options = _id_token_claims_options(provider.provider_type)
+        if claims_options is not None:
+            authorize_kwargs["claims_options"] = claims_options
+        token = await client.authorize_access_token(request, **authorize_kwargs)
 
         # Extract userinfo.
         # GitHub is plain OAuth2 (not OIDC) with no id_token / userinfo endpoint
