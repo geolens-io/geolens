@@ -15,6 +15,8 @@ from app.modules.auth.oauth.service import (
     _resolve_github_identity,
     get_enabled_providers,
     get_provider_by_slug,
+    is_azure_multitenant,
+    verify_azure_multitenant_issuer,
 )
 from app.modules.auth.providers import AuthenticatedIdentity
 from app.modules.auth.service import AuthService
@@ -30,6 +32,32 @@ from app.standards.ogc.errors import ERROR_RESPONSES_AUTH
 logger = structlog.stdlib.get_logger(__name__)
 
 router = APIRouter(prefix="/auth/oauth", tags=["Auth"], responses=ERROR_RESPONSES_AUTH)
+
+
+def _id_token_claims_options(
+    provider_type: str, discovery_url: str | None
+) -> dict | None:
+    """id_token claim-validation overrides passed to ``authorize_access_token``.
+
+    Azure *multitenant* authorities (``/common/``, ``/organizations/``) publish a
+    TEMPLATED issuer ``https://login.microsoftonline.com/{tenantid}/v2.0`` in
+    their OIDC discovery document, but issued id_tokens carry the resolved
+    per-tenant issuer (e.g. ``.../9188040d-.../v2.0`` for personal accounts).
+    authlib's default pins ``iss`` to that templated string via an exact
+    value-match and rejects every login; joserfc (no callable validator) only
+    supports value/values matching, so for multitenant Microsoft we relax ``iss``
+    to required-but-not-value-pinned. The JWKS signature check and the PKCE +
+    client_secret code exchange still bind the token to Microsoft and to this app.
+
+    Tenant-specific Microsoft providers (concrete ``/{tenant_id}/`` discovery URL,
+    as the admin UI builds) have a FIXED issuer that authlib can and must pin, so
+    they keep the default — relaxing them would drop cross-tenant ``iss`` isolation
+    (geolens#303 review). Returns None for every other case so authlib keeps its
+    default iss pin.
+    """
+    if is_azure_multitenant(provider_type, discovery_url):
+        return {"iss": {"essential": True}}
+    return None
 
 
 async def build_oauth_client(provider_slug: str, db: AsyncSession) -> tuple:
@@ -193,8 +221,16 @@ async def oauth_callback(
     try:
         client, provider = await build_oauth_client(provider_slug, db)
 
-        # Exchange authorization code for tokens
-        token = await client.authorize_access_token(request)
+        # Exchange authorization code for tokens. Azure multitenant authorities
+        # advertise a templated issuer, so relax the id_token iss check there only
+        # (see _id_token_claims_options; geolens#303).
+        authorize_kwargs: dict = {}
+        claims_options = _id_token_claims_options(
+            provider.provider_type, provider.discovery_url
+        )
+        if claims_options is not None:
+            authorize_kwargs["claims_options"] = claims_options
+        token = await client.authorize_access_token(request, **authorize_kwargs)
 
         # Extract userinfo.
         # GitHub is plain OAuth2 (not OIDC) with no id_token / userinfo endpoint
@@ -213,6 +249,13 @@ async def oauth_callback(
             if userinfo is None:
                 userinfo = await client.userinfo(token=token)
             userinfo = dict(userinfo)
+
+        # Azure multitenant: the templated-issuer pin was relaxed at parse time,
+        # so re-assert the resolved per-tenant issuer here before the identity is
+        # trusted (geolens#303).
+        verify_azure_multitenant_issuer(
+            provider.provider_type, provider.discovery_url, userinfo
+        )
 
         # Find or create the GeoLens user
         user = await find_or_create_oauth_user(db, provider, userinfo, dict(token))

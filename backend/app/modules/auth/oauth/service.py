@@ -418,6 +418,69 @@ def _resolve_role(
     return default
 
 
+_AZURE_MULTITENANT_AUTHORITIES = ("/common/", "/organizations/")
+
+
+def is_azure_multitenant(provider_type: str, discovery_url: str | None) -> bool:
+    """True for Azure multitenant Microsoft (``/common/``, ``/organizations/``).
+
+    These authorities accept identities from many tenants and advertise a
+    templated issuer, unlike a tenant-specific (or ``/consumers/``) authority
+    whose issuer is fixed. Both the relaxed id_token ``iss`` check and the
+    tenant-partitioned account subject are gated on this (geolens#303).
+    """
+    if provider_type != "microsoft":
+        return False
+    disco = (discovery_url or "").lower()
+    return any(authority in disco for authority in _AZURE_MULTITENANT_AUTHORITIES)
+
+
+def oauth_account_subject(
+    provider_type: str, discovery_url: str | None, userinfo: dict
+) -> str:
+    """Stable per-provider key for ``OAuthAccount.subject``.
+
+    For Azure *multitenant* Microsoft the bare ``sub`` is not globally unique
+    across tenants (Microsoft's stable id is tenant-scoped — ``tid`` + ``oid``),
+    so two users in different tenants sharing a ``sub`` would collide on
+    ``(provider_id, subject)`` and the second would be linked to the first's
+    local account — a cross-tenant account takeover. Prefix the subject with the
+    tenant id for multitenant Microsoft; every other provider (including
+    single-tenant Microsoft, whose issuer is fixed) keeps the bare ``sub``
+    (geolens#303).
+    """
+    sub = str(userinfo.get("sub", ""))
+    if is_azure_multitenant(provider_type, discovery_url):
+        tid = str(userinfo.get("tid", "")).strip()
+        if tid:
+            return f"{tid}:{sub}"
+    return sub
+
+
+class OAuthIssuerError(ValueError):
+    """Raised when an Azure multitenant id_token's resolved issuer is invalid."""
+
+
+def verify_azure_multitenant_issuer(
+    provider_type: str, discovery_url: str | None, claims: dict
+) -> None:
+    """Re-assert the resolved per-tenant issuer for Azure multitenant tokens.
+
+    The id_token ``iss`` value-pin is relaxed at parse time because joserfc cannot
+    substitute ``{tenantid}`` via a callable validator, so verify here that ``iss``
+    exactly equals the tenant-substituted template using the token's own ``tid``.
+    Rejects a Microsoft-signed token whose ``iss`` and ``tid`` disagree — the
+    account key is derived from ``tid:sub``, so they must be consistent. No-op for
+    non-multitenant providers (geolens#303).
+    """
+    if not is_azure_multitenant(provider_type, discovery_url):
+        return
+    tid = str(claims.get("tid", "")).strip()
+    iss = str(claims.get("iss", "")).strip()
+    if not tid or iss != f"https://login.microsoftonline.com/{tid}/v2.0":
+        raise OAuthIssuerError("Azure multitenant issuer/tid mismatch")
+
+
 async def find_or_create_oauth_user(
     db: AsyncSession,
     provider: OAuthProvider,
@@ -433,7 +496,9 @@ async def find_or_create_oauth_user(
 
     Group claims are mapped to roles per provider config (OAUTH-07).
     """
-    subject = str(userinfo.get("sub", ""))
+    subject = oauth_account_subject(
+        provider.provider_type, provider.discovery_url, userinfo
+    )
     email = userinfo.get("email")
     display_name = userinfo.get("name")
 
@@ -452,6 +517,14 @@ async def find_or_create_oauth_user(
         )
     )
     existing_link = result.scalar_one_or_none()
+    # No legacy bare-sub fallback for Microsoft multitenant (geolens#303 review):
+    # those subjects are tenant-partitioned (tid:sub), and a bare-sub-only match
+    # cannot prove the token is from the same Azure tenant — falling back would
+    # reintroduce the cross-tenant collision the partitioning exists to prevent.
+    # It is also unnecessary: multitenant Microsoft was un-loginable before this
+    # change (authlib rejected the templated /common/ issuer), so no bare-sub
+    # multitenant links exist. Any improbable legacy user with a verified email
+    # still re-links via the email path below.
     if existing_link is not None:
         returning_user = existing_link.user
 
