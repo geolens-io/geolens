@@ -63,6 +63,12 @@ export function useAuth() {
       // the previous user's stale identity. Must happen BEFORE setAuth so the
       // meQuery re-fetch races the new token, not the old cached data.
       await queryClient.invalidateQueries({ queryKey: queryKeys.auth.me });
+      // Drop the previous user's cached permissions too (usePermissions caches
+      // ['auth','permissions'] with a 60s staleTime). Without this, a no-upload
+      // viewer logging in right after an uploader would read the uploader's
+      // stale capabilities. Remove (not invalidate) so capability gates fail
+      // closed until the new user's permissions are fetched.
+      queryClient.removeQueries({ queryKey: queryKeys.auth.permissions });
       const userResponse = await getMe();
       setAuth(
         tokenResponse.access_token,
@@ -78,6 +84,9 @@ export function useAuth() {
     // BUG-021: clear the ['auth','me'] cache on logout so a subsequent login
     // does not see the previous user's cached identity.
     queryClient.removeQueries({ queryKey: queryKeys.auth.me });
+    // Also drop cached permissions so capability gates (e.g. the catalog import
+    // CTA) fail closed for the next anonymous/lower-privilege session.
+    queryClient.removeQueries({ queryKey: queryKeys.auth.permissions });
     storeLogout();
     navigate('/login');
   }, [storeLogout, navigate, queryClient]);
