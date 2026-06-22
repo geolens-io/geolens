@@ -7,7 +7,8 @@ import type { BulkRegisterRequest, VrtCreateRequest, SearchResponse } from '@/ty
 
 export function useUploadFile() {
   return useMutation({
-    mutationFn: uploadFile,
+    // Wrap so TanStack's injected 2nd arg (context) isn't passed as onProgress.
+    mutationFn: (file: File) => uploadFile(file),
   });
 }
 

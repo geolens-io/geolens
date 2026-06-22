@@ -8,6 +8,9 @@ import { buildAcceptMap, deriveFormatBadges } from '@/lib/file-utils';
 import { FormatPill, kindFromExtension } from './TypeTag';
 import type { DataKind } from '@/types/api';
 
+/** Client-side batch guard. Real caps (per-file size, dataset quota) are server-enforced. */
+const MAX_BATCH_FILES = 25;
+
 interface FileDropzoneProps {
   onFilesAccepted: (files: File[]) => void;
   disabled?: boolean;
@@ -59,7 +62,7 @@ export function FileDropzone({ onFilesAccepted, disabled, allowedExtensions, max
   const { getRootProps, getInputProps, isDragActive, isDragReject } =
     useDropzone({
       accept,
-      maxFiles: 10,
+      maxFiles: MAX_BATCH_FILES,
       maxSize: maxSizeMb ? maxSizeMb * 1024 * 1024 : undefined,
       multiple: true,
       disabled,
@@ -113,7 +116,8 @@ export function FileDropzone({ onFilesAccepted, disabled, allowedExtensions, max
 
       <p className="mb-5 text-[13px] text-muted-foreground">
         {t('dropzone.subtext', {
-          defaultValue: 'GeoLens will detect geometry, CRS, and schema before committing to the catalog. Batches up to 10 files.',
+          max: MAX_BATCH_FILES,
+          defaultValue: 'GeoLens will detect geometry, CRS, and schema before committing to the catalog. Batches up to {{max}} files.',
         })}
       </p>
 
@@ -130,7 +134,7 @@ export function FileDropzone({ onFilesAccepted, disabled, allowedExtensions, max
         {maxSizeMb != null
           ? t('dropzone.sizeLimitDynamic', { size: maxSizeMb, defaultValue: `Max ${maxSizeMb} MB per file` })
           : t('dropzone.sizeLimit')}{' '}
-        · {t('dropzone.batchLimit', { defaultValue: 'Up to 10 files per batch' })}
+        · {t('dropzone.batchLimit', { max: MAX_BATCH_FILES, defaultValue: 'Up to {{max}} files per batch' })}
       </p>
     </div>
   );

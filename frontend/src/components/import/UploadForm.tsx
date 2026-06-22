@@ -46,6 +46,14 @@ function buildErrorDisplay(err: unknown, fallbackKey: string, t: (key: string) =
   return hint ? `${msg}\n${hint}` : msg;
 }
 
+// Quota (422) errors are identical across every file in a batch — surface them
+// once as a banner instead of repeating the same red line on each row.
+function quotaMessage(err: unknown): string | null {
+  return err instanceof ApiError && err.message.startsWith('Dataset quota exceeded')
+    ? err.message
+    : null;
+}
+
 // GPKG-03 Phase 1058: per-layer result shape for the fan-out results modal.
 type FanOutResult = {
   layerName: string;
@@ -68,6 +76,8 @@ export function UploadForm({ onPhaseChange }: UploadFormProps) {
   }, []);
   const [entries, setEntries] = useState<FileEntry[]>([]);
   const [autoOpenVrt, setAutoOpenVrt] = useState(false);
+  // Batch-level quota notice (the "X of Y datasets used" detail), shown once.
+  const [quotaNotice, setQuotaNotice] = useState<string | null>(null);
   // GPKG-03 Phase 1058: results modal state for the multi-layer fan-out
   const [fanOutResults, setFanOutResults] = useState<{
     entryId: string;
@@ -91,6 +101,7 @@ export function UploadForm({ onPhaseChange }: UploadFormProps) {
     setPhase('idle');
     setEntries([]);
     setAutoOpenVrt(false);
+    setQuotaNotice(null);
   }, [setPhase]);
 
   // IMPORT-03 (Phase 1054): phase transitions were inlined inside setEntries
@@ -119,6 +130,7 @@ export function UploadForm({ onPhaseChange }: UploadFormProps) {
 
   const handleFilesAccepted = async (files: File[]) => {
     if (phase !== 'idle') return;
+    setQuotaNotice(null);
 
     // Duplicate detection against existing entries
     const existing = new Set(
@@ -144,6 +156,7 @@ export function UploadForm({ onPhaseChange }: UploadFormProps) {
       jobId: null,
       previewData: null,
       error: null,
+      progress: 0,
       submittedTitle: null,
       submittedVisibility: null,
       submittedKind: null,
@@ -154,11 +167,12 @@ export function UploadForm({ onPhaseChange }: UploadFormProps) {
 
     await Promise.allSettled(
       newEntries.map(async (entry) => {
+        const onProgress = (p: number) => updateEntry(entry.id, { progress: p });
         try {
           const result = uploadConfig?.presigned_uploads
-            ? await uploadPresigned(entry.file!)
-            : await uploadFile(entry.file!);
-          updateEntry(entry.id, { jobId: result.job_id, status: 'previewing' });
+            ? await uploadPresigned(entry.file!, onProgress)
+            : await uploadFile(entry.file!, onProgress);
+          updateEntry(entry.id, { jobId: result.job_id, status: 'previewing', progress: null });
 
           const preview = await previewFile(result.job_id);
           updateEntry(entry.id, {
@@ -167,10 +181,13 @@ export function UploadForm({ onPhaseChange }: UploadFormProps) {
             file: null,
           });
         } catch (err) {
+          const quota = quotaMessage(err);
+          if (quota) setQuotaNotice(quota);
           updateEntry(entry.id, {
             status: 'upload-failed',
-            error: buildErrorDisplay(err, 'upload.uploadFailed', t),
+            error: quota ? t('upload.quotaShort') : buildErrorDisplay(err, 'upload.uploadFailed', t),
             file: null,
+            progress: null,
           });
         }
       }),
@@ -205,7 +222,12 @@ export function UploadForm({ onPhaseChange }: UploadFormProps) {
       // dep'd on `entries`; no inline setPhase call here (IMPORT-03).
       toast.success(t('upload.importStarted'));
     } catch (err) {
-      updateEntry(entryId, { status: 'commit-failed', error: buildErrorDisplay(err, 'upload.commitFailed', t) });
+      const quota = quotaMessage(err);
+      if (quota) setQuotaNotice(quota);
+      updateEntry(entryId, {
+        status: 'commit-failed',
+        error: quota ? t('upload.quotaShort') : buildErrorDisplay(err, 'upload.commitFailed', t),
+      });
     }
   };
 
@@ -239,7 +261,12 @@ export function UploadForm({ onPhaseChange }: UploadFormProps) {
             submittedKind: inferImportedKind(entry),
           });
         } catch (err) {
-          updateEntry(entry.id, { status: 'commit-failed', error: buildErrorDisplay(err, 'upload.bulkCommitFailed', t) });
+          const quota = quotaMessage(err);
+          if (quota) setQuotaNotice(quota);
+          updateEntry(entry.id, {
+            status: 'commit-failed',
+            error: quota ? t('upload.quotaShort') : buildErrorDisplay(err, 'upload.bulkCommitFailed', t),
+          });
         }
       }),
     );
@@ -336,13 +363,30 @@ export function UploadForm({ onPhaseChange }: UploadFormProps) {
     // useEffect dep'd on `entries` (IMPORT-03).
   };
 
+  const quotaBanner = quotaNotice ? (
+    <div className="flex items-start gap-2.5 rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+      <AlertCircle className="mt-0.5 size-4 shrink-0" />
+      <div>
+        <p className="font-medium">{t('upload.quotaBannerTitle')}</p>
+        <p className="mt-0.5 text-destructive/90">{quotaNotice}</p>
+        <p className="mt-0.5 text-xs text-destructive/80">{t('upload.quotaBannerHint')}</p>
+      </div>
+    </div>
+  ) : null;
+
   if (phase === 'uploading') {
-    return <BulkUploadProgress entries={entries} />;
+    return (
+      <div className="space-y-4">
+        {quotaBanner}
+        <BulkUploadProgress entries={entries} />
+      </div>
+    );
   }
 
   if (phase === 'reviewing') {
     return (
       <div className="space-y-4">
+        {quotaBanner}
         <BulkReviewList
           entries={entries}
           onCommitSingle={handleCommitSingle}

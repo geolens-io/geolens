@@ -17,6 +17,9 @@
  * @param urls     Ordered list of presigned PUT URLs (one per part).
  * @param file     The File or Blob to slice and upload.
  * @param partSize Byte size of each chunk; the final part may be shorter.
+ * @param onProgress Optional callback invoked with the cumulative fraction
+ *                 (0–1) after each chunk completes. Coarse (per-chunk), not
+ *                 per-byte, but enough for a progress bar.
  * @returns        ETag header values in the same order as `urls`.
  *                 An empty string is returned for any part whose response
  *                 omitted the ETag header (preserves prior behaviour).
@@ -27,6 +30,7 @@ export async function uploadChunks(
   urls: string[],
   file: File | Blob,
   partSize: number,
+  onProgress?: (fraction: number) => void,
 ): Promise<string[]> {
   const etags: string[] = [];
 
@@ -39,6 +43,7 @@ export async function uploadChunks(
       throw new Error(`S3 part ${i + 1} upload failed: ${resp.status}`);
     }
     etags.push(resp.headers.get('ETag') ?? '');
+    onProgress?.(end / file.size);
   }
 
   return etags;

@@ -1411,6 +1411,8 @@ export interface FileEntry {
   jobId: string | null;
   previewData: FilePreviewResponse | RasterPreviewResponse | null;
   error: string | null;
+  /** Byte-transfer progress (0–1) during the `uploading` phase; null when unknown/done. */
+  progress?: number | null;
   submittedTitle?: string | null;
   submittedVisibility?: string | null;
   submittedKind?: DataKind | null;

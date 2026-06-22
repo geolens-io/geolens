@@ -67,7 +67,10 @@
     "multiLayerPartialFailed": "{{succeeded}} layers imported, {{failed}} failed.",
     "multiLayerResultsTitle": "Multi-layer ingest results",
     "multiLayerResultsSummary": "{{succeeded}} succeeded, {{failed}} failed.",
-    "multiLayerRetryClose": "Close (retry by re-clicking Ingest all layers)"
+    "multiLayerRetryClose": "Close (retry by re-clicking Ingest all layers)",
+    "quotaShort": "Skipped — dataset limit reached",
+    "quotaBannerTitle": "Dataset limit reached",
+    "quotaBannerHint": "Delete existing datasets to free space, or ask an administrator to raise the limit."
   },
   "warnings": {
     "bannerTitle": "Import completed with warnings",
@@ -103,12 +106,12 @@
     "instructions": "Drag and drop files here, or click to browse",
     "browse": "browse",
     "toUpload": "to upload",
-    "subtext": "GeoLens will detect geometry, CRS, and schema before committing to the catalog. Batches up to 10 files.",
+    "subtext": "GeoLens will detect geometry, CRS, and schema before committing to the catalog. Batches up to {{max}} files.",
     "dropHere": "Drop files here",
     "unsupportedType": "This file type is not supported",
     "sizeLimit": "Max 500 MB per file",
     "sizeLimitDynamic": "Max {{size}} MB per file",
-    "batchLimit": "Up to 10 files per batch",
+    "batchLimit": "Up to {{max}} files per batch",
     "fileRejected": "{{filename}}: {{reason}}"
   },
   "stac": {

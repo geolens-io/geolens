@@ -27,6 +27,10 @@ export function BulkUploadProgress({ entries }: BulkUploadProgressProps) {
       {entries.map((entry, i) => {
         const ext = fileExt(entry.fileName);
         const kind = kindFromEntry(entry);
+        const pct =
+          entry.status === 'uploading' && entry.progress != null
+            ? Math.round(entry.progress * 100)
+            : null;
 
         return (
           <div
@@ -42,11 +46,26 @@ export function BulkUploadProgress({ entries }: BulkUploadProgressProps) {
                 {entry.fileName.replace(/\.[^.]+$/, '')}
                 <span className="font-mono font-normal text-muted-foreground">{ext}</span>
               </div>
+              {pct != null && (
+                <div className="mt-1.5 h-1 w-full overflow-hidden rounded-full bg-surface-2">
+                  <div
+                    className="h-full rounded-full bg-primary transition-[width] duration-150 ease-out"
+                    style={{ width: `${pct}%` }}
+                  />
+                </div>
+              )}
               {entry.status === 'upload-failed' && entry.error && (
                 <p className="mt-0.5 text-xs text-destructive">{entry.error}</p>
               )}
             </div>
-            <StatusPill status={entry.status} />
+            <div className="flex items-center gap-2">
+              {pct != null && (
+                <span className="font-mono text-[11px] tabular-nums text-muted-foreground">
+                  {pct}%
+                </span>
+              )}
+              <StatusPill status={entry.status} />
+            </div>
           </div>
         );
       })}
