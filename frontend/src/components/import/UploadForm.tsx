@@ -86,7 +86,10 @@ export function UploadForm({ onPhaseChange }: UploadFormProps) {
     entryId: string;
     results: FanOutResult[];
   } | null>(null);
-  const { data: uploadConfig, isPending: configPending } = useUploadConfig();
+  // isFetching (not just isPending) so the dropzone is also disabled during the
+  // refetchOnMount background refresh — otherwise the cached-but-stale quota is
+  // briefly usable on remount before the live GET lands (Codex P2 on PR #274).
+  const { data: uploadConfig, isFetching: configFetching } = useUploadConfig();
 
   const allowedExtensions = useMemo(
     () => uploadConfig?.allowed_extensions?.split(',').map(e => e.trim()).filter(Boolean),
@@ -462,18 +465,19 @@ export function UploadForm({ onPhaseChange }: UploadFormProps) {
     return <BulkTrackingList entries={entries} onReset={reset} autoOpenVrt={autoOpenVrt} />;
   }
 
-  // idle. Disable until the config query settles so we never treat an
-  // unresolved quota (uploadConfig === undefined → null) as "unlimited" and
-  // offer the full 25-file batch on a capped deployment (Codex P2 on PR #274).
-  // After it settles, success carries the real remaining quota; an error
-  // degrades to permissive — consistent with allowedExtensions/maxSizeMb.
+  // idle. Disable while the quota query is fetching (initial load OR the
+  // refetch-on-mount refresh) so we never act on an unresolved/stale quota:
+  // treating undefined→null as "unlimited" would offer the full 25-file batch
+  // on a capped deployment (Codex P2 on PR #274). Once a fetch settles, success
+  // carries the live remaining quota; an error degrades to permissive —
+  // consistent with allowedExtensions/maxSizeMb.
   return (
     <FileDropzone
       onFilesAccepted={handleFilesAccepted}
       allowedExtensions={allowedExtensions}
       maxSizeMb={maxSizeMb}
       remainingQuota={uploadConfig?.remaining_dataset_quota ?? null}
-      disabled={configPending}
+      disabled={configFetching}
     />
   );
 }
