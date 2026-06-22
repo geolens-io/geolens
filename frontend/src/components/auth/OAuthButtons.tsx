@@ -74,7 +74,7 @@ function getButtonLabel(
   return t('oauth.signInWith', { provider: providerLabel });
 }
 
-export function OAuthButtons() {
+export function OAuthButtons({ showDivider = true }: { showDivider?: boolean } = {}) {
   const { t } = useTranslation('auth');
   const { data: providers, isLoading, isError } = useQuery({
     queryKey: queryKeys.authConfig.oauthProviders,
@@ -91,16 +91,21 @@ export function OAuthButtons() {
 
   return (
     <div className="w-full max-w-sm space-y-4">
-      <div className="relative">
-        <div className="absolute inset-0 flex items-center">
-          <span className="w-full border-t" />
+      {/* The "or continue with" divider only makes sense as an alternative to a
+          password form above it. In SSO-only mode there is no form, so the caller
+          passes showDivider={false} and the buttons are the primary path. */}
+      {showDivider && (
+        <div className="relative">
+          <div className="absolute inset-0 flex items-center">
+            <span className="w-full border-t" />
+          </div>
+          <div className="relative flex justify-center text-xs uppercase">
+            <span className="bg-background px-2 text-muted-foreground">
+              {t('oauth.divider')}
+            </span>
+          </div>
         </div>
-        <div className="relative flex justify-center text-xs uppercase">
-          <span className="bg-background px-2 text-muted-foreground">
-            {t('oauth.divider')}
-          </span>
-        </div>
-      </div>
+      )}
       <div className="flex flex-col gap-2">
         {providers.map((provider) => (
           <Button

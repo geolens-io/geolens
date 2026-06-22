@@ -2,7 +2,7 @@ import { useEffect, useCallback, useState } from 'react';
 import { Link, Navigate, useLocation, useNavigate } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { Bookmark, Loader2, Map, Upload } from 'lucide-react';
+import { FolderOpen, Loader2, Map, Upload } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuthStore } from '@/stores/auth-store';
 import { getAuthConfig } from '@/api/auth';
@@ -102,19 +102,19 @@ export function LoginPage() {
           </h1>
           <p className="mt-4 max-w-xl text-sm text-muted-foreground sm:text-base">
             {t('loginSubheadline', {
-              defaultValue: 'Sign in to save searches, build maps, and work with the catalog in one place.',
+              defaultValue: 'Sign in to organize collections, build maps, and work with the catalog in one place.',
             })}
           </p>
 
           <div className="mt-8 grid gap-4 sm:grid-cols-3">
             <div className="rounded-2xl border bg-background/80 p-4 text-start shadow-sm backdrop-blur">
-              <Bookmark className="size-4 text-primary" />
+              <FolderOpen className="size-4 text-primary" />
               <p className="mt-3 text-sm font-medium">
-                {t('loginHighlights.searches', { defaultValue: 'Save searches' })}
+                {t('loginHighlights.collections', { defaultValue: 'Organize collections' })}
               </p>
               <p className="mt-1 text-xs text-muted-foreground">
-                {t('loginHighlights.searchesCopy', {
-                  defaultValue: 'Keep the views and filters you come back to.',
+                {t('loginHighlights.collectionsCopy', {
+                  defaultValue: 'Group datasets into collections you revisit and share.',
                 })}
               </p>
             </div>
@@ -178,7 +178,7 @@ export function LoginPage() {
               </Button>
             </div>
           )}
-          <OAuthButtons />
+          <OAuthButtons showDivider={config?.password_login_enabled !== false || showBreakGlass} />
           <p className="max-w-sm text-center text-xs text-muted-foreground">
             {t('consentNote')}{' '}
             <a

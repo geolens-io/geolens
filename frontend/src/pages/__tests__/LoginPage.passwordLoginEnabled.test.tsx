@@ -30,13 +30,15 @@ vi.mock('@/hooks/use-auth', () => ({
   }),
 }));
 
-// Partial mock: control getAuthConfig; keep all other exports real.
+// Partial mock: control getAuthConfig + getOAuthProviders; keep all other exports real.
 const mockGetAuthConfig = vi.fn();
+const mockGetOAuthProviders = vi.fn();
 vi.mock('@/api/auth', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/api/auth')>();
   return {
     ...actual,
     getAuthConfig: () => mockGetAuthConfig(),
+    getOAuthProviders: () => mockGetOAuthProviders(),
   };
 });
 
@@ -74,6 +76,10 @@ describe('LoginPage — password_login_enabled conditional render (SSO-03)', () 
       user: null,
     });
     vi.clearAllMocks();
+    // Default: one OAuth provider configured so OAuthButtons renders.
+    mockGetOAuthProviders.mockResolvedValue([
+      { slug: 'github', display_name: 'GitHub', provider_type: 'github' },
+    ]);
   });
 
   afterEach(() => {
@@ -100,6 +106,8 @@ describe('LoginPage — password_login_enabled conditional render (SSO-03)', () 
     });
     expect(screen.getByLabelText('Password', { exact: true })).toBeInTheDocument();
     expect(screen.queryByText(/sign in using your organization/i)).not.toBeInTheDocument();
+    // Divider belongs above the OAuth buttons because a password form sits above it.
+    expect(await screen.findByText(/or continue with/i)).toBeInTheDocument();
   });
 
   it('shows the username/password form when password_login_enabled is absent (back-compat)', async () => {
@@ -135,6 +143,12 @@ describe('LoginPage — password_login_enabled conditional render (SSO-03)', () 
     // The username/password form must not render.
     expect(screen.queryByLabelText(/username/i)).not.toBeInTheDocument();
     expect(screen.queryByLabelText('Password', { exact: true })).not.toBeInTheDocument();
+    // SSO-only: OAuth buttons are the primary path, so the "or continue with"
+    // divider must be suppressed (it has no password form to be an alternative to).
+    expect(
+      await screen.findByRole('button', { name: /sign in with github/i }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/or continue with/i)).not.toBeInTheDocument();
   });
 
   it('reveals the password form via the admin break-glass link in SSO-only mode', async () => {
