@@ -83,7 +83,7 @@ export function UploadForm({ onPhaseChange }: UploadFormProps) {
     entryId: string;
     results: FanOutResult[];
   } | null>(null);
-  const { data: uploadConfig } = useUploadConfig();
+  const { data: uploadConfig, isPending: configPending } = useUploadConfig();
 
   const allowedExtensions = useMemo(
     () => uploadConfig?.allowed_extensions?.split(',').map(e => e.trim()).filter(Boolean),
@@ -455,13 +455,18 @@ export function UploadForm({ onPhaseChange }: UploadFormProps) {
     return <BulkTrackingList entries={entries} onReset={reset} autoOpenVrt={autoOpenVrt} />;
   }
 
-  // idle
+  // idle. Disable until the config query settles so we never treat an
+  // unresolved quota (uploadConfig === undefined → null) as "unlimited" and
+  // offer the full 25-file batch on a capped deployment (Codex P2). After it
+  // settles, success carries the real remaining quota; an error degrades to
+  // permissive — consistent with allowedExtensions/maxSizeMb.
   return (
     <FileDropzone
       onFilesAccepted={handleFilesAccepted}
       allowedExtensions={allowedExtensions}
       maxSizeMb={maxSizeMb}
       remainingQuota={uploadConfig?.remaining_dataset_quota ?? null}
+      disabled={configPending}
     />
   );
 }
