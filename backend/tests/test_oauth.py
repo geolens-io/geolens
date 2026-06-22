@@ -505,16 +505,13 @@ class TestFindOrCreateOAuthUser:
         role_names = {r.name for r in user.roles}
         assert "viewer" in role_names
 
-    async def test_microsoft_multitenant_legacy_subject_fallback(
+    async def test_microsoft_multitenant_no_cross_tenant_bare_sub_match(
         self, client, test_db_session
     ):
-        """geolens#303: a returning Microsoft multitenant user whose OAuthAccount
-        was linked with the legacy bare ``sub`` (before tid-partitioning) is found
-        via the fallback and the link is canonicalized to ``tid:sub`` — never split
-        into a second local account."""
-        from sqlalchemy import func as safunc
-        from sqlalchemy import select as saselect
-
+        """geolens#303: a legacy bare-``sub`` OAuthAccount must NOT be matched by a
+        Microsoft multitenant token from a *different* tenant that shares the bare
+        ``sub``. Subjects are tenant-partitioned (``tid:sub``) with no bare-sub
+        fallback, so tenant B never resolves to tenant A's local user."""
         from app.modules.auth.models import User
         from app.modules.auth.oauth.models import OAuthAccount
         from app.modules.auth.oauth.service import find_or_create_oauth_user
@@ -528,46 +525,42 @@ class TestFindOrCreateOAuthUser:
             ),
             default_role="editor",
         )
-        user = User(
-            username=f"msuser-{uuid.uuid4().hex[:6]}",
-            email=f"ms-{uuid.uuid4().hex[:6]}@example.com",
+        tenant_a_user = User(
+            username=f"tenanta-{uuid.uuid4().hex[:6]}",
+            email=f"tenanta-{uuid.uuid4().hex[:6]}@example.com",
             is_active=True,
             status="active",
             auth_provider="oauth",
         )
-        test_db_session.add(user)
+        test_db_session.add(tenant_a_user)
         await test_db_session.flush()
-        # Legacy link stored with the bare sub (pre tid-partitioning).
+        # Legacy bare-sub link belonging to tenant A.
         legacy = OAuthAccount(
-            provider_id=provider.id, user_id=user.id, subject="bare-sub-xyz"
+            provider_id=provider.id, user_id=tenant_a_user.id, subject="shared-sub"
         )
         test_db_session.add(legacy)
         await test_db_session.commit()
 
+        # Tenant B token: SAME bare sub, different tenant + different verified email.
         userinfo = {
-            "sub": "bare-sub-xyz",
-            "tid": "TENANT-A",
-            "iss": "https://login.microsoftonline.com/TENANT-A/v2.0",
-            "email": user.email,
+            "sub": "shared-sub",
+            "tid": "TENANT-B",
+            "iss": "https://login.microsoftonline.com/TENANT-B/v2.0",
+            "email": f"tenantb-{uuid.uuid4().hex[:6]}@example.com",
             "email_verified": True,
+            "name": "Tenant B User",
         }
         returned = await find_or_create_oauth_user(
             test_db_session, provider, userinfo, {}
         )
         await test_db_session.commit()
 
-        # Same user (found via fallback), link canonicalized, and no 2nd account.
-        assert returned.id == user.id
+        # Tenant B must NOT be resolved to tenant A's user, and the legacy link
+        # must be untouched (still bare-sub, still tenant A).
+        assert returned.id != tenant_a_user.id
         await test_db_session.refresh(legacy)
-        assert legacy.subject == "TENANT-A:bare-sub-xyz"
-        count = (
-            await test_db_session.execute(
-                saselect(safunc.count())
-                .select_from(OAuthAccount)
-                .where(OAuthAccount.provider_id == provider.id)
-            )
-        ).scalar_one()
-        assert count == 1
+        assert legacy.subject == "shared-sub"
+        assert legacy.user_id == tenant_a_user.id
 
     async def test_email_linking(self, client, test_db_session):
         """OAUTH-06: OAuth login with existing email + verified email links

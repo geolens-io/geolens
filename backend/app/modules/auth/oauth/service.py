@@ -517,22 +517,14 @@ async def find_or_create_oauth_user(
         )
     )
     existing_link = result.scalar_one_or_none()
-    # Upgrade fallback (geolens#303): a deployment that linked a Microsoft
-    # multitenant account before the tid-partitioned subject existed stored the
-    # bare `sub`. If the partitioned lookup misses, fall back to the legacy
-    # bare-sub link and canonicalize it to `tid:sub` so future lookups hit and a
-    # returning user is never split into a second account.
-    bare_sub = str(userinfo.get("sub", ""))
-    if existing_link is None and bare_sub and subject != bare_sub:
-        legacy_result = await db.execute(
-            select(OAuthAccount).where(
-                OAuthAccount.provider_id == provider.id,
-                OAuthAccount.subject == bare_sub,
-            )
-        )
-        existing_link = legacy_result.scalar_one_or_none()
-        if existing_link is not None:
-            existing_link.subject = subject
+    # No legacy bare-sub fallback for Microsoft multitenant (geolens#303 review):
+    # those subjects are tenant-partitioned (tid:sub), and a bare-sub-only match
+    # cannot prove the token is from the same Azure tenant — falling back would
+    # reintroduce the cross-tenant collision the partitioning exists to prevent.
+    # It is also unnecessary: multitenant Microsoft was un-loginable before this
+    # change (authlib rejected the templated /common/ issuer), so no bare-sub
+    # multitenant links exist. Any improbable legacy user with a verified email
+    # still re-links via the email path below.
     if existing_link is not None:
         returning_user = existing_link.user
 
