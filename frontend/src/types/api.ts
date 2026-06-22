@@ -1411,6 +1411,8 @@ export interface FileEntry {
   jobId: string | null;
   previewData: FilePreviewResponse | RasterPreviewResponse | null;
   error: string | null;
+  /** Byte-transfer progress (0–1) during the `uploading` phase; null when unknown/done. */
+  progress?: number | null;
   submittedTitle?: string | null;
   submittedVisibility?: string | null;
   submittedKind?: DataKind | null;
@@ -1536,6 +1538,8 @@ export interface UploadConfig {
   presigned_threshold_bytes: number;
   max_file_size_bytes: number;
   allowed_extensions: string;
+  /** Datasets the user may still create before the count cap; null = unlimited. */
+  remaining_dataset_quota: number | null;
 }
 
 export interface PresignedUploadRequest {

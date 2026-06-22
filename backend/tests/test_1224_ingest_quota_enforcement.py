@@ -271,6 +271,58 @@ class TestUploadCountCap:
         assert status_code == 201, f"Default unlimited must pass; got {status_code}"
 
 
+class TestUploadConfigRemainingQuota:
+    async def test_config_reports_remaining_when_cap_set(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session: AsyncSession,
+    ) -> None:
+        """GET /ingest/upload/config returns remaining = cap - current count.
+
+        Lets the client cap a batch at what the user can actually create.
+        """
+        from app.modules.quota.service import get_user_quota_usage
+
+        user_id = await _get_test_user_id(
+            test_db_session, settings.geolens_admin_username
+        )
+        await _create_record(test_db_session, user_id=user_id)
+
+        # Order-independent: derive expected from the actual count (other tests
+        # in this file leave committed records on the same admin user).
+        with (
+            patch(
+                "app.modules.quota.service.MAX_STORAGE_BYTES_PER_USER.get",
+                new_callable=AsyncMock,
+                return_value=0,
+            ),
+            patch(
+                "app.modules.quota.service.MAX_DATASETS_PER_USER.get",
+                new_callable=AsyncMock,
+                return_value=10,
+            ),
+        ):
+            usage = await get_user_quota_usage(test_db_session, user_id)
+            resp = await client.get("/ingest/upload/config", headers=admin_auth_header)
+
+        assert resp.status_code == 200, resp.text
+        assert usage.dataset_count >= 1  # our inserted record is counted
+        assert resp.json()["remaining_dataset_quota"] == max(
+            0, 10 - usage.dataset_count
+        )
+
+    async def test_config_remaining_is_null_when_unlimited(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+    ) -> None:
+        """Default config (cap=0) → remaining is null (unlimited)."""
+        resp = await client.get("/ingest/upload/config", headers=admin_auth_header)
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["remaining_dataset_quota"] is None
+
+
 class TestReuploadQuota:
     async def test_reupload_byte_cap_also_enforced(
         self,

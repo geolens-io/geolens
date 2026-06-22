@@ -67,7 +67,10 @@
     "multiLayerPartialFailed": "{{succeeded}} capas importadas, {{failed}} fallidas.",
     "multiLayerResultsTitle": "Resultados de ingesta multicapa",
     "multiLayerResultsSummary": "{{succeeded}} correctas, {{failed}} fallidas.",
-    "multiLayerRetryClose": "Cerrar (volver a hacer clic en 'Ingerir todas las capas')"
+    "multiLayerRetryClose": "Cerrar (volver a hacer clic en 'Ingerir todas las capas')",
+    "quotaShort": "Omitido: límite de conjuntos de datos alcanzado",
+    "quotaBannerTitle": "Límite de conjuntos de datos alcanzado",
+    "quotaBannerHint": "Elimina conjuntos de datos existentes para liberar espacio o pide a un administrador que aumente el límite."
   },
   "warnings": {
     "bannerTitle": "Importación completada con advertencias",
@@ -94,11 +97,11 @@
     "unsupportedType": "Este tipo de archivo no es compatible",
     "sizeLimit": "Máximo 500 MB por archivo",
     "sizeLimitDynamic": "Máximo {{size}} MB por archivo",
-    "batchLimit": "Hasta 10 archivos por lote",
+    "batchLimit": "Hasta {{max}} archivos por lote",
     "fileRejected": "{{filename}}: {{reason}}",
     "browse": "Examinar",
     "toUpload": "para cargar",
-    "subtext": "GeoLens detectará geometría, CRS y esquema antes de enviarlo al catálogo. Lotes de hasta 10 archivos."
+    "subtext": "GeoLens detectará geometría, CRS y esquema antes de enviarlo al catálogo. Lotes de hasta {{max}} archivos."
   },
   "stac": {
     "label": "URL de API STAC — pegue el endpoint raíz del catálogo",

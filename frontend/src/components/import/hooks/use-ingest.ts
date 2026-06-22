@@ -7,7 +7,8 @@ import type { BulkRegisterRequest, VrtCreateRequest, SearchResponse } from '@/ty
 
 export function useUploadFile() {
   return useMutation({
-    mutationFn: uploadFile,
+    // Wrap so TanStack's injected 2nd arg (context) isn't passed as onProgress.
+    mutationFn: (file: File) => uploadFile(file),
   });
 }
 
@@ -99,10 +100,20 @@ export function useBulkRegister() {
 }
 
 export function useUploadConfig() {
+  // The payload carries per-user `remaining_dataset_quota`, which changes on any
+  // import or delete — so it is NOT static config and must not be cached like
+  // it. (Codex P2 on PR #274)
+  //   - key scoped by user id: a stale per-user value can't leak across an
+  //     account switch (logout only clears auth.me).
+  //   - staleTime 0 + refetchOnMount 'always': returning to Import after a
+  //     delete/import elsewhere re-reads the live count (a same-mount "Upload
+  //     More" is additionally handled by invalidate-on-reset in UploadForm).
+  const userId = useAuthStore((s) => s.user?.id);
   return useQuery({
-    queryKey: queryKeys.ingest.uploadConfig,
+    queryKey: [...queryKeys.ingest.uploadConfig, userId ?? 'anon'],
     queryFn: getUploadConfig,
-    staleTime: 300_000, // 5 minutes -- storage provider changes rarely
+    staleTime: 0,
+    refetchOnMount: 'always',
   });
 }
 

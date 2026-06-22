@@ -63,7 +63,9 @@ describe('useUploadFile', () => {
     const file = new File(['{}'], 'test.geojson', { type: 'application/json' });
     await result.current.mutateAsync(file);
 
-    expect(mockUploadFile).toHaveBeenCalledWith(file, expect.anything());
+    // Hook wraps uploadFile so TanStack's injected context isn't passed as
+    // the (onProgress) 2nd arg — uploadFile receives the file only.
+    expect(mockUploadFile).toHaveBeenCalledWith(file);
   });
 
   it('returns error state on upload failure', async () => {

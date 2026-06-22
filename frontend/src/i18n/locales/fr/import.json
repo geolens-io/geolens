@@ -67,7 +67,10 @@
     "multiLayerPartialFailed": "{{succeeded}} couches importées, {{failed}} échouées.",
     "multiLayerResultsTitle": "Résultats d'ingestion multicouche",
     "multiLayerResultsSummary": "{{succeeded}} réussies, {{failed}} échouées.",
-    "multiLayerRetryClose": "Fermer (recliquer sur 'Ingérer toutes les couches')"
+    "multiLayerRetryClose": "Fermer (recliquer sur 'Ingérer toutes les couches')",
+    "quotaShort": "Ignoré — limite de jeux de données atteinte",
+    "quotaBannerTitle": "Limite de jeux de données atteinte",
+    "quotaBannerHint": "Supprimez des jeux de données existants pour libérer de l'espace, ou demandez à un administrateur d'augmenter la limite."
   },
   "warnings": {
     "bannerTitle": "Importation terminée avec des avertissements",
@@ -94,11 +97,11 @@
     "unsupportedType": "Ce type de fichier n'est pas pris en charge",
     "sizeLimit": "500 Mo maximum par fichier",
     "sizeLimitDynamic": "{{size}} Mo maximum par fichier",
-    "batchLimit": "Jusqu'à 10 fichiers par lot",
+    "batchLimit": "Jusqu'à {{max}} fichiers par lot",
     "fileRejected": "{{filename}} : {{reason}}",
     "browse": "Parcourir",
     "toUpload": "pour charger",
-    "subtext": "GeoLens détectera la géométrie, le SCR et le schéma avant de valider dans le catalogue. Lots jusqu'à 10 fichiers."
+    "subtext": "GeoLens détectera la géométrie, le SCR et le schéma avant de valider dans le catalogue. Lots jusqu'à {{max}} fichiers."
   },
   "stac": {
     "label": "URL de l'API STAC — collez le point d'accès racine du catalogue",

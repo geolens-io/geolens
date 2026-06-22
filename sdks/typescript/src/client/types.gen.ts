@@ -8825,6 +8825,12 @@ export type UploadConfigResponse = {
      * Whether presigned S3 uploads are enabled (requires `STORAGE_PROVIDER=s3`).
      */
     presigned_uploads: boolean;
+    /**
+     * Remaining Dataset Quota
+     *
+     * Datasets the caller may still create before hitting the per-user count cap, or null when no count cap is configured (unlimited). Advisory UX hint only — the cap is enforced server-side at upload.
+     */
+    remaining_dataset_quota?: number | null;
 };
 
 /**

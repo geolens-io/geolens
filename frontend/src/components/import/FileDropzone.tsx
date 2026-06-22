@@ -8,11 +8,17 @@ import { buildAcceptMap, deriveFormatBadges } from '@/lib/file-utils';
 import { FormatPill, kindFromExtension } from './TypeTag';
 import type { DataKind } from '@/types/api';
 
+/** Client-side batch guard. Real caps (per-file size, dataset quota) are server-enforced. */
+const MAX_BATCH_FILES = 25;
+
 interface FileDropzoneProps {
   onFilesAccepted: (files: File[]) => void;
   disabled?: boolean;
   allowedExtensions?: string[];
   maxSizeMb?: number;
+  /** Remaining per-user dataset quota; null = unlimited. Caps the batch so the
+   *  UI never offers more files than the user can actually create. */
+  remainingQuota?: number | null;
 }
 
 /** Group deduped extensions by data kind for the format pills */
@@ -36,8 +42,16 @@ function groupByKind(extensions: string[]): { kind: DataKind; ext: string }[] {
   return result;
 }
 
-export function FileDropzone({ onFilesAccepted, disabled, allowedExtensions, maxSizeMb }: FileDropzoneProps) {
+export function FileDropzone({ onFilesAccepted, disabled, allowedExtensions, maxSizeMb, remainingQuota }: FileDropzoneProps) {
   const { t } = useTranslation('import');
+
+  // Cap the batch at the smaller of the UX limit and remaining quota. Floor at
+  // 1 (not 0 — react-dropzone treats maxFiles:0 as unlimited) so an at-cap user
+  // can still drop one file and get the explicit server quota error + banner.
+  // ponytail: client-side UX guard only; the cap is enforced server-side at
+  // upload. Atomic batch enforcement is a deferred worker-side concern.
+  const effectiveMaxFiles =
+    remainingQuota != null ? Math.min(MAX_BATCH_FILES, Math.max(1, remainingQuota)) : MAX_BATCH_FILES;
 
   const accept = useMemo(() => {
     if (!allowedExtensions || allowedExtensions.length === 0) return undefined;
@@ -59,7 +73,7 @@ export function FileDropzone({ onFilesAccepted, disabled, allowedExtensions, max
   const { getRootProps, getInputProps, isDragActive, isDragReject } =
     useDropzone({
       accept,
-      maxFiles: 10,
+      maxFiles: effectiveMaxFiles,
       maxSize: maxSizeMb ? maxSizeMb * 1024 * 1024 : undefined,
       multiple: true,
       disabled,
@@ -113,7 +127,8 @@ export function FileDropzone({ onFilesAccepted, disabled, allowedExtensions, max
 
       <p className="mb-5 text-[13px] text-muted-foreground">
         {t('dropzone.subtext', {
-          defaultValue: 'GeoLens will detect geometry, CRS, and schema before committing to the catalog. Batches up to 10 files.',
+          max: effectiveMaxFiles,
+          defaultValue: 'GeoLens will detect geometry, CRS, and schema before committing to the catalog. Batches up to {{max}} files.',
         })}
       </p>
 
@@ -130,7 +145,7 @@ export function FileDropzone({ onFilesAccepted, disabled, allowedExtensions, max
         {maxSizeMb != null
           ? t('dropzone.sizeLimitDynamic', { size: maxSizeMb, defaultValue: `Max ${maxSizeMb} MB per file` })
           : t('dropzone.sizeLimit')}{' '}
-        · {t('dropzone.batchLimit', { defaultValue: 'Up to 10 files per batch' })}
+        · {t('dropzone.batchLimit', { max: effectiveMaxFiles, defaultValue: 'Up to {{max}} files per batch' })}
       </p>
     </div>
   );

@@ -84,7 +84,7 @@ from app.core.persistent_config import (
     UPLOAD_MAX_SIZE_MB,
     get_allowed_extensions_list,
 )
-from app.modules.quota.service import check_upload_quota
+from app.modules.quota.service import check_upload_quota, get_user_quota_usage
 from app.processing.raster.validation import validate_sources
 from app.platform.storage import get_storage
 from app.standards.ogc.errors import ERROR_RESPONSES_WRITE
@@ -136,6 +136,14 @@ async def get_upload_config(
     """Return upload configuration including presigned upload availability."""
     max_size_mb = await UPLOAD_MAX_SIZE_MB.get(db)
     allowed_exts = await UPLOAD_ALLOWED_EXTENSIONS.get(db)
+
+    # Advisory remaining-quota hint so the client can cap a batch at what the
+    # user can actually create. None when no count cap is set (unlimited).
+    usage = await get_user_quota_usage(db, user.id)
+    remaining = (
+        max(0, usage.count_cap - usage.dataset_count) if usage.count_cap > 0 else None
+    )
+
     return UploadConfigResponse(
         presigned_uploads=settings.storage_provider == "s3",
         presigned_threshold_bytes=settings.presigned_multipart_threshold_mb
@@ -143,6 +151,7 @@ async def get_upload_config(
         * 1024,
         max_file_size_bytes=max_size_mb * 1024 * 1024,
         allowed_extensions=allowed_exts,
+        remaining_dataset_quota=remaining,
     )
 
 

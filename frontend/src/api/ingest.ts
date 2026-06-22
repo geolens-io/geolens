@@ -1,5 +1,8 @@
-import { apiFetch } from './client';
+import { apiFetch, ApiError, tryRefresh } from './client';
 import { uploadChunks } from './_presignedUpload';
+import { API_BASE } from '@/lib/constants';
+import { translateError } from '@/lib/error-map';
+import { useAuthStore } from '@/stores/auth-store';
 import type {
   UploadResponse,
   JobStatusResponse,
@@ -18,14 +21,75 @@ import type {
   VrtCreateResponse,
 } from '@/types/api';
 
-export async function uploadFile(file: File): Promise<UploadResponse> {
+/** Byte-transfer progress callback (0–1). */
+export type UploadProgress = (fraction: number) => void;
+
+/**
+ * XHR-based POST so we can report upload-byte progress — `fetch()` cannot.
+ * Mirrors authenticatedRawFetch's proactive-refresh + single 401 retry so a
+ * first-after-idle upload doesn't hard-fail on a stale JWT.
+ * ponytail: a 401 retry re-sends the whole body — acceptable, refresh makes it rare.
+ */
+async function xhrUpload<T>(
+  path: string,
+  formData: FormData,
+  onProgress?: UploadProgress,
+): Promise<T> {
+  const { token, expiresAt } = useAuthStore.getState();
+  if (token && expiresAt && Date.now() > expiresAt - 30_000) {
+    await tryRefresh();
+  }
+
+  const attempt = (): Promise<{ status: number; body: string }> =>
+    new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', `${API_BASE}${path}`);
+      const jwt = useAuthStore.getState().token;
+      if (jwt) xhr.setRequestHeader('Authorization', `Bearer ${jwt}`);
+      if (onProgress) {
+        xhr.upload.onprogress = (e) => {
+          if (e.lengthComputable) onProgress(e.loaded / e.total);
+        };
+      }
+      xhr.onload = () => resolve({ status: xhr.status, body: xhr.responseText });
+      xhr.onerror = () =>
+        reject(new ApiError('Network unavailable — check your connection', 0));
+      xhr.send(formData);
+    });
+
+  let res = await attempt();
+  if (res.status === 401 && (await tryRefresh())) {
+    res = await attempt();
+  }
+
+  if (res.status < 200 || res.status >= 300) {
+    let detail = `HTTP ${res.status}`;
+    try {
+      const parsed = JSON.parse(res.body);
+      if (parsed?.detail !== undefined) {
+        detail =
+          typeof parsed.detail === 'string'
+            ? parsed.detail
+            : JSON.stringify(parsed.detail);
+      }
+    } catch {
+      // non-JSON body — keep the HTTP status fallback
+    }
+    if (res.status === 401) useAuthStore.getState().logout();
+    throw new ApiError(translateError(detail), res.status);
+  }
+
+  return JSON.parse(res.body) as T;
+}
+
+export async function uploadFile(
+  file: File,
+  onProgress?: UploadProgress,
+): Promise<UploadResponse> {
   const formData = new FormData();
   formData.append('file', file);
 
-  return apiFetch<UploadResponse>('/ingest/upload', {
-    method: 'POST',
-    body: formData,
-  });
+  return xhrUpload<UploadResponse>('/ingest/upload', formData, onProgress);
 }
 
 export async function getJobStatus(
@@ -130,7 +194,10 @@ export async function completePresignedUpload(
  * 3. Notify backend of completion
  * Returns the same UploadResponse as the regular upload endpoint.
  */
-export async function uploadPresigned(file: File): Promise<UploadResponse> {
+export async function uploadPresigned(
+  file: File,
+  onProgress?: UploadProgress,
+): Promise<UploadResponse> {
   const { job_id, urls, upload_id, part_size } = await requestPresignedUpload(
     file.name,
     file.size,
@@ -138,14 +205,17 @@ export async function uploadPresigned(file: File): Promise<UploadResponse> {
   );
 
   if (urls.length === 1 && !upload_id) {
-    // Simple PUT upload
+    // Simple PUT upload. ponytail: single-PUT is only used for small files —
+    // coarse 0→1 instead of an extra XHR-with-progress path.
+    onProgress?.(0);
     const resp = await fetch(urls[0], { method: 'PUT', body: file });
     if (!resp.ok) throw new Error(`S3 upload failed: ${resp.status} ${resp.statusText}`);
+    onProgress?.(1);
     return completePresignedUpload(job_id);
   }
 
-  // Multipart upload
-  const etags = await uploadChunks(urls, file, part_size!);
+  // Multipart upload — progress reported per completed chunk.
+  const etags = await uploadChunks(urls, file, part_size!, onProgress);
   const completedParts = etags.map((etag, i) => ({ etag, part_number: i + 1 }));
 
   return completePresignedUpload(job_id, completedParts);

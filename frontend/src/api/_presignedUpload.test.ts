@@ -68,6 +68,19 @@ describe('uploadChunks', () => {
     expect(mockFetch).toHaveBeenCalledTimes(3);
   });
 
+  it('reports cumulative progress (0–1) after each chunk completes', async () => {
+    mockFetch
+      .mockResolvedValueOnce(putResponse('"e1"'))
+      .mockResolvedValueOnce(putResponse('"e2"'))
+      .mockResolvedValueOnce(putResponse('"e3"'));
+
+    const file = new Blob(['aaaabbbbccc']); // 11 bytes, partSize 4 → 4/11, 8/11, 11/11
+    const progress: number[] = [];
+    await uploadChunks(['u1', 'u2', 'u3'], file, 4, (p) => progress.push(p));
+
+    expect(progress).toEqual([4 / 11, 8 / 11, 1]);
+  });
+
   it('falls back to empty string when ETag header is missing', async () => {
     mockFetch.mockResolvedValueOnce(putResponse(null));
 

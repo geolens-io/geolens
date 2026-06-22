@@ -67,7 +67,10 @@
     "multiLayerPartialFailed": "{{succeeded}} Ebenen importiert, {{failed}} fehlgeschlagen.",
     "multiLayerResultsTitle": "Mehrebenige Import-Ergebnisse",
     "multiLayerResultsSummary": "{{succeeded}} erfolgreich, {{failed}} fehlgeschlagen.",
-    "multiLayerRetryClose": "Schließen (erneut auf 'Alle Ebenen importieren' klicken)"
+    "multiLayerRetryClose": "Schließen (erneut auf 'Alle Ebenen importieren' klicken)",
+    "quotaShort": "Übersprungen – Datensatzlimit erreicht",
+    "quotaBannerTitle": "Datensatzlimit erreicht",
+    "quotaBannerHint": "Löschen Sie vorhandene Datensätze, um Platz zu schaffen, oder bitten Sie einen Administrator, das Limit zu erhöhen."
   },
   "warnings": {
     "bannerTitle": "Import mit Warnungen abgeschlossen",
@@ -94,11 +97,11 @@
     "unsupportedType": "Dieser Dateityp wird nicht unterstützt",
     "sizeLimit": "Maximal 500 MB pro Datei",
     "sizeLimitDynamic": "Maximal {{size}} MB pro Datei",
-    "batchLimit": "Bis zu 10 Dateien pro Stapel",
+    "batchLimit": "Bis zu {{max}} Dateien pro Stapel",
     "fileRejected": "{{filename}}: {{reason}}",
     "browse": "Durchsuchen",
     "toUpload": "zum Hochladen",
-    "subtext": "GeoLens erkennt Geometrie, KRS und Schema, bevor es in den Katalog übernommen wird. Stapel bis zu 10 Dateien."
+    "subtext": "GeoLens erkennt Geometrie, KRS und Schema, bevor es in den Katalog übernommen wird. Stapel bis zu {{max}} Dateien."
   },
   "stac": {
     "label": "STAC-API-URL — Katalog-Stammendpunkt einfügen",
