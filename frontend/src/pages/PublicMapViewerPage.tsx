@@ -129,7 +129,7 @@ export function PublicMapViewerPage() {
 
   return (
     <main id="map-viewport" className="w-full flex-1 min-h-0 relative overflow-hidden">
-      <MapErrorBoundary>
+      <MapErrorBoundary className="absolute inset-0">
         <Suspense fallback={<LoadingState message={t('viewer.loading')} />}>
           <ViewerMap
             layers={layers}

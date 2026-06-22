@@ -13,6 +13,15 @@ interface MapErrorBoundaryState {
 interface MapErrorBoundaryProps {
   children: ReactNode;
   hasUnsavedChanges?: boolean;
+  /**
+   * Layout classes for the wrapper. Defaults to `h-full`, which relies on the
+   * parent providing a definite height (the builder does, via an explicit
+   * `h-[calc(...)]` ancestor). The public viewer's parent gets its height from
+   * `flex-1`, which is not a definite height for a percentage-height child, so
+   * the viewer passes `absolute inset-0` to size the map against its relative
+   * `#map-viewport` container instead.
+   */
+  className?: string;
 }
 
 function MapErrorFallback({
@@ -78,6 +87,10 @@ export class MapErrorBoundary extends Component<MapErrorBoundaryProps, MapErrorB
         />
       );
     }
-    return <div key={this.state.resetKey} className="h-full">{this.props.children}</div>;
+    return (
+      <div key={this.state.resetKey} className={this.props.className ?? 'h-full'}>
+        {this.props.children}
+      </div>
+    );
   }
 }
