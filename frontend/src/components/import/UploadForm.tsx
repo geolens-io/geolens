@@ -1,8 +1,10 @@
 import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useQueryClient } from '@tanstack/react-query';
 import { uploadFile, previewFile, commitImport, uploadPresigned } from '@/api/ingest';
 import { commitFanOut } from '@/api/datasets';
 import { useUploadConfig } from '@/components/import/hooks/use-ingest';
+import { queryKeys } from '@/lib/query-keys';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import {
@@ -67,6 +69,7 @@ interface UploadFormProps {
 
 export function UploadForm({ onPhaseChange }: UploadFormProps) {
   const { t } = useTranslation('import');
+  const queryClient = useQueryClient();
   const [phase, _setPhase] = useState<BatchPhase>('idle');
   const onPhaseChangeRef = useRef(onPhaseChange);
   onPhaseChangeRef.current = onPhaseChange;
@@ -102,7 +105,11 @@ export function UploadForm({ onPhaseChange }: UploadFormProps) {
     setEntries([]);
     setAutoOpenVrt(false);
     setQuotaNotice(null);
-  }, [setPhase]);
+    // Refresh remaining_dataset_quota so "Upload More" after an import reflects
+    // the new dataset count instead of the cached pre-import value (Codex P2 on
+    // PR #274). invalidate matches the user-scoped key by prefix.
+    queryClient.invalidateQueries({ queryKey: queryKeys.ingest.uploadConfig });
+  }, [setPhase, queryClient]);
 
   // IMPORT-03 (Phase 1054): phase transitions were inlined inside setEntries
   // updaters, which violates React 19's "no setState during another
@@ -457,9 +464,9 @@ export function UploadForm({ onPhaseChange }: UploadFormProps) {
 
   // idle. Disable until the config query settles so we never treat an
   // unresolved quota (uploadConfig === undefined → null) as "unlimited" and
-  // offer the full 25-file batch on a capped deployment (Codex P2). After it
-  // settles, success carries the real remaining quota; an error degrades to
-  // permissive — consistent with allowedExtensions/maxSizeMb.
+  // offer the full 25-file batch on a capped deployment (Codex P2 on PR #274).
+  // After it settles, success carries the real remaining quota; an error
+  // degrades to permissive — consistent with allowedExtensions/maxSizeMb.
   return (
     <FileDropzone
       onFilesAccepted={handleFilesAccepted}

@@ -100,8 +100,13 @@ export function useBulkRegister() {
 }
 
 export function useUploadConfig() {
+  // The payload carries per-user `remaining_dataset_quota`, so scope the cache
+  // by user id — otherwise a stale entry leaks across an account switch on the
+  // SPA (logout only clears auth.me). The static config fields are identical
+  // across users, so the extra fetch on switch is cheap. (Codex P2 on PR #274)
+  const userId = useAuthStore((s) => s.user?.id);
   return useQuery({
-    queryKey: queryKeys.ingest.uploadConfig,
+    queryKey: [...queryKeys.ingest.uploadConfig, userId ?? 'anon'],
     queryFn: getUploadConfig,
     staleTime: 300_000, // 5 minutes -- storage provider changes rarely
   });
