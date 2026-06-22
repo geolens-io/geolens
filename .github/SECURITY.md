@@ -4,8 +4,8 @@
 
 | Version | Supported |
 |---------|-----------|
-| 2.x     | Yes       |
-| < 2.0   | No        |
+| 1.x     | Yes       |
+| < 1.0   | No        |
 
 We only patch the latest release. If you're running an older version, please upgrade before reporting.
 
