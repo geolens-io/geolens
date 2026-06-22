@@ -1538,6 +1538,8 @@ export interface UploadConfig {
   presigned_threshold_bytes: number;
   max_file_size_bytes: number;
   allowed_extensions: string;
+  /** Datasets the user may still create before the count cap; null = unlimited. */
+  remaining_dataset_quota: number | null;
 }
 
 export interface PresignedUploadRequest {

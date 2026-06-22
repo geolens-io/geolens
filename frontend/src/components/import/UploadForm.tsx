@@ -457,6 +457,11 @@ export function UploadForm({ onPhaseChange }: UploadFormProps) {
 
   // idle
   return (
-    <FileDropzone onFilesAccepted={handleFilesAccepted} allowedExtensions={allowedExtensions} maxSizeMb={maxSizeMb} />
+    <FileDropzone
+      onFilesAccepted={handleFilesAccepted}
+      allowedExtensions={allowedExtensions}
+      maxSizeMb={maxSizeMb}
+      remainingQuota={uploadConfig?.remaining_dataset_quota ?? null}
+    />
   );
 }

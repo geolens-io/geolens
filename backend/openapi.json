@@ -14873,6 +14873,18 @@
             "description": "Whether presigned S3 uploads are enabled (requires `STORAGE_PROVIDER=s3`).",
             "title": "Presigned Uploads",
             "type": "boolean"
+          },
+          "remaining_dataset_quota": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Datasets the caller may still create before hitting the per-user count cap, or null when no count cap is configured (unlimited). Advisory UX hint only \u2014 the cap is enforced server-side at upload.",
+            "title": "Remaining Dataset Quota"
           }
         },
         "required": [
