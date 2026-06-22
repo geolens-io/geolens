@@ -79,16 +79,23 @@ export class MapErrorBoundary extends Component<MapErrorBoundaryProps, MapErrorB
   };
 
   render() {
+    // Apply the same sizing wrapper to BOTH branches so the error/retry UI gets a
+    // definite-height box too. In the public viewer this is `absolute inset-0`; the
+    // fallback's own `h-full` would otherwise land back on the broken flex-derived
+    // percentage-height path and render blank/clipped.
+    const wrapperClassName = this.props.className ?? 'h-full';
     if (this.state.hasError) {
       return (
-        <MapErrorFallback
-          hasUnsavedChanges={this.props.hasUnsavedChanges}
-          onReset={this.handleReset}
-        />
+        <div className={wrapperClassName}>
+          <MapErrorFallback
+            hasUnsavedChanges={this.props.hasUnsavedChanges}
+            onReset={this.handleReset}
+          />
+        </div>
       );
     }
     return (
-      <div key={this.state.resetKey} className={this.props.className ?? 'h-full'}>
+      <div key={this.state.resetKey} className={wrapperClassName}>
         {this.props.children}
       </div>
     );
