@@ -16,6 +16,7 @@ from app.modules.auth.oauth.service import (
     get_enabled_providers,
     get_provider_by_slug,
     is_azure_multitenant,
+    verify_azure_multitenant_issuer,
 )
 from app.modules.auth.providers import AuthenticatedIdentity
 from app.modules.auth.service import AuthService
@@ -248,6 +249,13 @@ async def oauth_callback(
             if userinfo is None:
                 userinfo = await client.userinfo(token=token)
             userinfo = dict(userinfo)
+
+        # Azure multitenant: the templated-issuer pin was relaxed at parse time,
+        # so re-assert the resolved per-tenant issuer here before the identity is
+        # trusted (geolens#303).
+        verify_azure_multitenant_issuer(
+            provider.provider_type, provider.discovery_url, userinfo
+        )
 
         # Find or create the GeoLens user
         user = await find_or_create_oauth_user(db, provider, userinfo, dict(token))

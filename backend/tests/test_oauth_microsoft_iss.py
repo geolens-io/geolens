@@ -15,8 +15,15 @@ Tenant-specific Microsoft (fixed issuer) keeps authlib's default pin and the
 bare `sub`.
 """
 
+import pytest
+
 from app.modules.auth.oauth.router import _id_token_claims_options
-from app.modules.auth.oauth.service import is_azure_multitenant, oauth_account_subject
+from app.modules.auth.oauth.service import (
+    OAuthIssuerError,
+    is_azure_multitenant,
+    oauth_account_subject,
+    verify_azure_multitenant_issuer,
+)
 
 _COMMON = (
     "https://login.microsoftonline.com/common/v2.0/.well-known/openid-configuration"
@@ -56,3 +63,22 @@ def test_subject_partitioned_for_multitenant_only():
     assert oauth_account_subject("google", _COMMON, ui) == "S"
     # Defensive: multitenant token without a tid falls back to bare sub.
     assert oauth_account_subject("microsoft", _COMMON, {"sub": "S"}) == "S"
+
+
+def test_resolved_issuer_check_for_multitenant():
+    good = {"tid": "T", "iss": "https://login.microsoftonline.com/T/v2.0"}
+    # Matching iss/tid passes.
+    verify_azure_multitenant_issuer("microsoft", _COMMON, good)
+    # iss for a different tenant than tid -> rejected.
+    with pytest.raises(OAuthIssuerError):
+        verify_azure_multitenant_issuer(
+            "microsoft",
+            _COMMON,
+            {"tid": "T", "iss": "https://login.microsoftonline.com/EVIL/v2.0"},
+        )
+    # Missing tid -> rejected.
+    with pytest.raises(OAuthIssuerError):
+        verify_azure_multitenant_issuer("microsoft", _COMMON, {"iss": "x"})
+    # Non-multitenant providers are not checked (no raise even with junk claims).
+    verify_azure_multitenant_issuer("microsoft", _TENANT, {"iss": "x"})
+    verify_azure_multitenant_issuer("google", _COMMON, {"iss": "x"})

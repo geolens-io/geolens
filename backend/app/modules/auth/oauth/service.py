@@ -457,6 +457,30 @@ def oauth_account_subject(
     return sub
 
 
+class OAuthIssuerError(ValueError):
+    """Raised when an Azure multitenant id_token's resolved issuer is invalid."""
+
+
+def verify_azure_multitenant_issuer(
+    provider_type: str, discovery_url: str | None, claims: dict
+) -> None:
+    """Re-assert the resolved per-tenant issuer for Azure multitenant tokens.
+
+    The id_token ``iss`` value-pin is relaxed at parse time because joserfc cannot
+    substitute ``{tenantid}`` via a callable validator, so verify here that ``iss``
+    exactly equals the tenant-substituted template using the token's own ``tid``.
+    Rejects a Microsoft-signed token whose ``iss`` and ``tid`` disagree — the
+    account key is derived from ``tid:sub``, so they must be consistent. No-op for
+    non-multitenant providers (geolens#303).
+    """
+    if not is_azure_multitenant(provider_type, discovery_url):
+        return
+    tid = str(claims.get("tid", "")).strip()
+    iss = str(claims.get("iss", "")).strip()
+    if not tid or iss != f"https://login.microsoftonline.com/{tid}/v2.0":
+        raise OAuthIssuerError("Azure multitenant issuer/tid mismatch")
+
+
 async def find_or_create_oauth_user(
     db: AsyncSession,
     provider: OAuthProvider,
