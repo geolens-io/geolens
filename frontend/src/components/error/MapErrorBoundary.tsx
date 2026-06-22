@@ -13,6 +13,15 @@ interface MapErrorBoundaryState {
 interface MapErrorBoundaryProps {
   children: ReactNode;
   hasUnsavedChanges?: boolean;
+  /**
+   * Layout classes for the wrapper. Defaults to `h-full`, which relies on the
+   * parent providing a definite height (the builder does, via an explicit
+   * `h-[calc(...)]` ancestor). The public viewer's parent gets its height from
+   * `flex-1`, which is not a definite height for a percentage-height child, so
+   * the viewer passes `absolute inset-0` to size the map against its relative
+   * `#map-viewport` container instead.
+   */
+  className?: string;
 }
 
 function MapErrorFallback({
@@ -70,14 +79,25 @@ export class MapErrorBoundary extends Component<MapErrorBoundaryProps, MapErrorB
   };
 
   render() {
+    // Apply the same sizing wrapper to BOTH branches so the error/retry UI gets a
+    // definite-height box too. In the public viewer this is `absolute inset-0`; the
+    // fallback's own `h-full` would otherwise land back on the broken flex-derived
+    // percentage-height path and render blank/clipped.
+    const wrapperClassName = this.props.className ?? 'h-full';
     if (this.state.hasError) {
       return (
-        <MapErrorFallback
-          hasUnsavedChanges={this.props.hasUnsavedChanges}
-          onReset={this.handleReset}
-        />
+        <div className={wrapperClassName}>
+          <MapErrorFallback
+            hasUnsavedChanges={this.props.hasUnsavedChanges}
+            onReset={this.handleReset}
+          />
+        </div>
       );
     }
-    return <div key={this.state.resetKey} className="h-full">{this.props.children}</div>;
+    return (
+      <div key={this.state.resetKey} className={wrapperClassName}>
+        {this.props.children}
+      </div>
+    );
   }
 }

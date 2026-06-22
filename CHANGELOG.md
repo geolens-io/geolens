@@ -7,10 +7,10 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
-## [1.4.0] - 2026-06-20
-
-This release covers two internal milestones (v1044 demo lead-gen front door and v1045
-outbound notifications + email-verified signup) in operator-facing terms.
+These changes are on `main` but not yet published as a tagged release (latest
+release is 1.3.0). They cover two internal milestones (v1044 demo lead-gen front
+door and v1045 outbound notifications + email-verified signup) in operator-facing
+terms.
 
 ### Added
 
