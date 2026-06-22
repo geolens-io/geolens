@@ -32,25 +32,37 @@ logger = structlog.stdlib.get_logger(__name__)
 router = APIRouter(prefix="/auth/oauth", tags=["Auth"], responses=ERROR_RESPONSES_AUTH)
 
 
-def _id_token_claims_options(provider_type: str) -> dict | None:
+# Azure authorities whose discovery doc advertises a TEMPLATED issuer
+# ("https://login.microsoftonline.com/{tenantid}/v2.0"). Tenant-specific and
+# /consumers/ authorities have a fixed issuer and are intentionally excluded.
+_AZURE_MULTITENANT_AUTHORITIES = ("/common/", "/organizations/")
+
+
+def _id_token_claims_options(
+    provider_type: str, discovery_url: str | None
+) -> dict | None:
     """id_token claim-validation overrides passed to ``authorize_access_token``.
 
-    Azure multitenant endpoints (``/common/``, ``/organizations/``) publish a
+    Azure *multitenant* authorities (``/common/``, ``/organizations/``) publish a
     TEMPLATED issuer ``https://login.microsoftonline.com/{tenantid}/v2.0`` in
     their OIDC discovery document, but issued id_tokens carry the resolved
     per-tenant issuer (e.g. ``.../9188040d-.../v2.0`` for personal accounts).
-    authlib's default pins ``iss`` to the templated string via an exact
-    value-match and rejects every Microsoft login; joserfc only supports
-    value/values matching (no callable validator), so we relax ``iss`` to
-    required-but-not-value-pinned for Microsoft. The JWKS signature check and
-    the PKCE + client_secret code exchange still bind the token to Microsoft and
-    to this app, so signature/aud/nonce/exp validation is unaffected — only the
-    over-strict templated-``iss`` check is dropped (SSO-06).
+    authlib's default pins ``iss`` to that templated string via an exact
+    value-match and rejects every login; joserfc (no callable validator) only
+    supports value/values matching, so for multitenant Microsoft we relax ``iss``
+    to required-but-not-value-pinned. The JWKS signature check and the PKCE +
+    client_secret code exchange still bind the token to Microsoft and to this app.
 
-    Returns None for all other providers (authlib keeps its default iss pin).
+    Tenant-specific Microsoft providers (concrete ``/{tenant_id}/`` discovery URL,
+    as the admin UI builds) have a FIXED issuer that authlib can and must pin, so
+    they keep the default — relaxing them would drop cross-tenant ``iss`` isolation
+    (geolens#303 review). Returns None for every other case so authlib keeps its
+    default iss pin.
     """
     if provider_type == "microsoft":
-        return {"iss": {"essential": True}}
+        disco = (discovery_url or "").lower()
+        if any(authority in disco for authority in _AZURE_MULTITENANT_AUTHORITIES):
+            return {"iss": {"essential": True}}
     return None
 
 
@@ -215,11 +227,13 @@ async def oauth_callback(
     try:
         client, provider = await build_oauth_client(provider_slug, db)
 
-        # Exchange authorization code for tokens. For Microsoft multitenant the
-        # discovery issuer is templated, so relax the id_token iss check (SSO-06,
-        # see _id_token_claims_options).
+        # Exchange authorization code for tokens. Azure multitenant authorities
+        # advertise a templated issuer, so relax the id_token iss check there only
+        # (see _id_token_claims_options; geolens#303).
         authorize_kwargs: dict = {}
-        claims_options = _id_token_claims_options(provider.provider_type)
+        claims_options = _id_token_claims_options(
+            provider.provider_type, provider.discovery_url
+        )
         if claims_options is not None:
             authorize_kwargs["claims_options"] = claims_options
         token = await client.authorize_access_token(request, **authorize_kwargs)
