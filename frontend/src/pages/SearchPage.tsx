@@ -17,6 +17,7 @@ import { useSearchStore } from '@/stores/search-store';
 import { useAuthStore } from '@/stores/auth-store';
 import { useUrlSearchSync } from '@/components/search/hooks/use-url-search-sync';
 import { useDocumentTitle } from '@/hooks/use-document-title';
+import { usePermissions } from '@/hooks/use-permissions';
 
 interface SearchControlsProps {
   totalResults: number | undefined;
@@ -52,6 +53,8 @@ export function SearchPage() {
   const offset = useSearchStore((s) => s.offset);
   const limit = useSearchStore((s) => s.limit);
   const token = useAuthStore((s) => s.token);
+  const { can } = usePermissions();
+  const canImport = can('upload');
   const totalMatched = data ? Math.max(data.numberMatched ?? 0, data.features.length) : 0;
 
   useUrlSearchSync();
@@ -107,7 +110,7 @@ export function SearchPage() {
                 title={t('empty.title')}
                 description={t('empty.description')}
                 action={
-                  token ? (
+                  canImport ? (
                     <Button asChild>
                       <Link to="/import">
                         <Upload className="h-4 w-4 me-1" />
