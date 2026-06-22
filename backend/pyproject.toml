@@ -14,7 +14,7 @@ dependencies = [
     "sqlalchemy[asyncio]>=2.0.50",
     "asyncpg>=0.29.0",
     "alembic>=1.13.0",
-    "geoalchemy2>=0.15.0",
+    "geoalchemy2>=0.20.0",
     "pydantic[email]>=2.13.4",
     # >=2.14.2: fixes GHSA-4xgf-cpjx-pc3j (pydantic-settings 2.14.1 advisory).
     # Do not lower this floor.
@@ -28,22 +28,22 @@ dependencies = [
     "shapely>=2.0",
     "pygeofilter[backend-sqlalchemy]>=0.3.3",
     "structlog>=25.4.0",
-    "anthropic>=0.87.0",
-    "openai>=2.0.0,<3",
+    "anthropic>=0.111.0",
+    "openai>=2.43.0,<3",
     "pgvector>=0.3.6",
     "defusedxml>=0.7.1",
     "python-slugify>=8.0.4",
     "slowapi>=0.1.9",
-    "boto3>=1.43.20",
+    "boto3>=1.43.34",
     # Azure Blob Storage provider (STOR-01 / Phase 1210). azure-identity is included
     # for managed-identity / account-URL auth paths (account_url + credential constructor).
     "azure-storage-blob>=12.24.0",
     "azure-identity>=1.20.0",
     # PERF-01 (Phase 274): in-memory LRU fallback for tile cache when REDIS_URL is unset
-    "cachetools>=5.5.0",
-    "redis>=5.0.0",
+    "cachetools>=7.1.4",
+    "redis>=7.4.1",
     "jsonschema>=4.19",
-    "puremagic>=2.0.0",
+    "puremagic>=2.2.0",
     "rasterio>=1.4.0",
     "Pillow>=12.2.0",
     "numpy>=2.4.6",
@@ -92,7 +92,7 @@ dev = [
     "pytest-cov",
     "bandit>=1.8",
     "pip-audit>=2.7",
-    "moto[s3]>=5.0.0",
+    "moto[s3]>=5.2.2",
     "fakeredis>=2.21.0",
     "pystac>=1.14",
 ]

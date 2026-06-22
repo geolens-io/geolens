@@ -462,6 +462,55 @@ class TestAlembicCheckNoDrift:
         )
 
 
+class TestAlembicDriftIgnoresRuntimeHnswIndex:
+    """Regression (drift flake): env.include_object must exclude the
+    runtime-managed ``ix_record_embeddings_hnsw`` pgvector index from
+    autogenerate, so ``alembic check`` stays clean even when the index exists in
+    the DB but not the model.
+
+    ``embeddings/service.py`` creates and drops this HNSW index imperatively
+    once an embedding dimension is configured — it is intentionally absent from
+    the SQLAlchemy metadata. Under ``pytest -n4`` a sibling test that built it on
+    the shared worker DB before the drift check ran turned
+    ``TestAlembicCheckNoDrift.test_alembic_check_no_drift`` into a high-rate
+    flake. This deterministically reproduces that pollution and asserts the
+    drift gate ignores the index.
+    """
+
+    async def test_alembic_check_ignores_runtime_hnsw_index(self):
+        from sqlalchemy.ext.asyncio import create_async_engine
+
+        from app.core.config import settings
+
+        idx = "ix_record_embeddings_hnsw"
+        engine = create_async_engine(
+            settings.test_database_url,
+            isolation_level="AUTOCOMMIT",
+        )
+        try:
+            # A plain btree under the runtime index's name reproduces the
+            # name-keyed autogenerate ``remove_index`` drift without needing a
+            # dimensioned vector column (a real HNSW index requires a fixed dim).
+            async with engine.begin() as conn:
+                await conn.execute(
+                    sa.text(
+                        f"CREATE INDEX IF NOT EXISTS {idx} "
+                        "ON catalog.record_embeddings (record_id)"
+                    )
+                )
+            r = _run_alembic("check")
+            combined = r.stdout + r.stderr
+            assert r.returncode == 0, (
+                f"alembic check flagged the runtime-managed {idx} as drift — "
+                f"env.include_object exclusion missing or broken:\n{combined}"
+            )
+            assert "No new upgrade operations detected." in combined, combined
+        finally:
+            async with engine.begin() as conn:
+                await conn.execute(sa.text(f"DROP INDEX IF EXISTS catalog.{idx}"))
+            await engine.dispose()
+
+
 # ---------------------------------------------------------------------------
 # Tests F/G/H: apply_tenancy_rls() behaviour
 # ---------------------------------------------------------------------------

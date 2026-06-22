@@ -113,7 +113,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - uses: astral-sh/setup-uv@v8.1.0
+      - uses: astral-sh/setup-uv@v8.2.0
         with:
           version: "0.10.2"
           enable-cache: true
@@ -377,7 +377,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - uses: astral-sh/setup-uv@v8.1.0
+      - uses: astral-sh/setup-uv@v8.2.0
         with:
           version: "0.10.2"
           enable-cache: true
@@ -408,7 +408,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - uses: astral-sh/setup-uv@v8.1.0
+      - uses: astral-sh/setup-uv@v8.2.0
         with:
           version: "0.10.2"
           enable-cache: true
@@ -502,7 +502,7 @@ jobs:
             sleep 2
           done
 
-      - uses: astral-sh/setup-uv@v8.1.0
+      - uses: astral-sh/setup-uv@v8.2.0
         with:
           version: "0.10.2"
           enable-cache: true
@@ -652,7 +652,7 @@ jobs:
             sleep 2
           done
 
-      - uses: astral-sh/setup-uv@v8.1.0
+      - uses: astral-sh/setup-uv@v8.2.0
         with:
           version: "0.10.2"
           enable-cache: true
@@ -799,7 +799,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - uses: astral-sh/setup-uv@v8.1.0
+      - uses: astral-sh/setup-uv@v8.2.0
         with:
           version: "0.10.2"
           enable-cache: true
@@ -909,7 +909,7 @@ jobs:
             sleep 2
           done
 
-      - uses: astral-sh/setup-uv@v8.1.0
+      - uses: astral-sh/setup-uv@v8.2.0
         if: env.HAS_ENTERPRISE_TOKEN == '1'
         with:
           version: "0.10.2"
@@ -1038,7 +1038,7 @@ jobs:
             sleep 2
           done
 
-      - uses: astral-sh/setup-uv@v8.1.0
+      - uses: astral-sh/setup-uv@v8.2.0
         with:
           version: "0.10.2"
           enable-cache: true
@@ -1208,7 +1208,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - uses: astral-sh/setup-uv@v8.1.0
+      - uses: astral-sh/setup-uv@v8.2.0
         with:
           version: "0.10.2"
           enable-cache: true
@@ -1274,6 +1274,13 @@ jobs:
           #
           # Note: the probe uses the OSS image (no enterprise secret needed).
           # The dummy overlay is part of the backend source tree baked into the image.
+          #
+          # Invoke via `uv run --no-dev python` (the image's production launch
+          # pattern — see the api/worker CMD). The runtime image does NOT put the
+          # /app/.venv on PATH, so a bare `--entrypoint python` runs the base-image
+          # system interpreter with no project dependencies and the probe dies at
+          # the first third-party import (`import structlog`). uv run activates the
+          # baked /app/.venv so the probe exercises the real runtime.
           docker run \
             --rm \
             --no-healthcheck \
@@ -1282,9 +1289,9 @@ jobs:
             -e GEOLENS_ADMIN_USERNAME=probe \
             -e GEOLENS_ADMIN_PASSWORD=probe \
             -e POSTGRES_PASSWORD=probe \
-            --entrypoint python \
+            --entrypoint uv \
             geolens-probe-${{ matrix.target }}:ci \
-            scripts/probe_overlay_resolution.py --with-dummy-overlay
+            run --no-dev python scripts/probe_overlay_resolution.py --with-dummy-overlay
 
   # ---------- E2E (LOCAL-ONLY GATE — see .github/CONTRIBUTING.md "End-to-end (Playwright)") ----------
   # Disabled to save CI minutes: the dockerized stack + browser fixtures push the per-PR runtime
