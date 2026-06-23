@@ -141,7 +141,7 @@ export function MyApiKeySection() {
                     title={key.is_active ? t('admin:apiKeys.active') : t('admin:apiKeys.revoked')}
                     aria-hidden="true"
                   />
-                  {/* v1047 A11Y-COLOR-01: state was conveyed by dot color + non-announced title only; add a text alt for assistive tech */}
+                  {/* #305: state was conveyed by dot color + non-announced title only; add a text alt for assistive tech */}
                   <span className="sr-only">
                     {key.is_active ? t('admin:apiKeys.active') : t('admin:apiKeys.revoked')}
                   </span>

@@ -20,7 +20,7 @@ const buttonVariants = cva(
           "hover:bg-accent hover:text-accent-foreground dark:hover:bg-accent/50",
         link: "text-primary underline-offset-4 hover:underline",
       },
-      // v1047 TOUCH-01: pointer-coarse: bumps the primary action sizes to a
+      // #305: pointer-coarse: bumps the primary action sizes to a
       // >=44px tap target on touch devices only — desktop (fine pointer)
       // density is unchanged. xs / icon-xs stay compact for dense lists
       // (they already meet the 24px WCAG 2.2 AA minimum target size).

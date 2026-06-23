@@ -4,7 +4,7 @@ import { getVisibilityLabel } from '@/i18n/labels';
 
 export function VisibilityIcon({ visibility }: { visibility: string }) {
   const { t } = useTranslation();
-  // v1047 A11Y-COLOR-01: meaning was conveyed by icon/color alone. Render the
+  // #305: meaning was conveyed by icon/color alone. Render the
   // glyph as decorative (aria-hidden) and add an sr-only text label so the
   // visibility is announced to screen readers — and internal vs restricted,
   // which share the warning color, are differentiated by text. An sr-only span

@@ -51,12 +51,12 @@ export function FeaturePopup({
   const [activeIndex, setActiveIndex] = useState(0);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
-  // v1047 A11Y-POPUP-01: close button ref for soft focus move-in on open.
+  // #305: close button ref for soft focus move-in on open.
   const closeButtonRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => () => clearTimeout(timerRef.current), []);
 
-  // v1047 A11Y-POPUP-01: on open, soft-move focus to the close button so
+  // #305: on open, soft-move focus to the close button so
   // keyboard users land inside the popup; on close/unmount, restore focus to
   // the map canvas (or container) so the map stays keyboard-operable. This is a
   // soft move + restore, NOT a focus trap — map interaction is preserved.
@@ -75,7 +75,7 @@ export function FeaturePopup({
     };
   }, []);
 
-  // v1047 A11Y-POPUP-01: Escape closes the popup (focus is restored by the
+  // #305: Escape closes the popup (focus is restored by the
   // unmount effect above). Document-level listener so it fires regardless of
   // which element inside the popup holds focus, without putting a keyboard
   // handler on the non-interactive dialog container.
@@ -175,7 +175,7 @@ export function FeaturePopup({
       closeOnClick={false}
       maxWidth="360px"
     >
-      {/* v1047 A11Y-POPUP-01: labelled dialog container with focus management.
+      {/* #305: labelled dialog container with focus management.
           aria-label uses the feature title when present, else the layer name. */}
       <div
         role="dialog"

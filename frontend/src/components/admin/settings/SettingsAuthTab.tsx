@@ -174,7 +174,7 @@ function OAuthProvidersSection({ envOnly }: { envOnly: boolean }) {
   const [deleteTarget, setDeleteTarget] = useState<OAuthProviderConfig | null>(null);
   const [form, setForm] = useState<ProviderFormData>(EMPTY_FORM);
   const { data: tileConfig } = useTileConfig();
-  // v1047 OAUTH-01 (Codex P2): derive the callback from the CONFIGURED public
+  // #305: derive the callback from the CONFIGURED public
   // API URL (what the backend builds redirect_uri from, same as SAML settings),
   // NOT the browser origin — split frontend/API hosts, reverse proxies, or a
   // custom API root would otherwise hand admins the wrong redirect URI.
@@ -472,7 +472,7 @@ function OAuthProvidersSection({ envOnly }: { envOnly: boolean }) {
               </p>
             </div>
 
-            {/* v1047 OAUTH-01: read-only redirect/callback URL admins must register with the provider. */}
+            {/* #305: read-only redirect/callback URL admins must register with the provider. */}
             <div className="space-y-2">
               <Label htmlFor="callback-url">
                 {t('settings.oauth.callbackUrl', { defaultValue: 'Redirect / Callback URL' })}

@@ -121,7 +121,7 @@ function UserMenu() {
   const { t: tAuth } = useTranslation('auth');
   const { t: tReport } = useTranslation('report');
   const openReport = useReportDialog((s) => s.openReport);
-  // v1047 THEME-01: explicit light/dark override (default stays 'system', which
+  // #305: explicit light/dark override (default stays 'system', which
   // already honors prefers-color-scheme). resolvedTheme drives the icon/label.
   const { setTheme, resolvedTheme } = useTheme();
 
@@ -186,7 +186,7 @@ function UserMenu() {
           </Link>
         </DropdownMenuItem>
 
-        {/* v1047 THEME-01: light/dark toggle (no UI affordance existed before) */}
+        {/* #305: light/dark toggle (no UI affordance existed before) */}
         <DropdownMenuItem
           onClick={(e) => {
             e.preventDefault();

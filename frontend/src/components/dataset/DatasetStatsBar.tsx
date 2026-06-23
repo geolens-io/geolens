@@ -13,7 +13,7 @@ interface StatCellProps {
 
 function StatCell({ label, value, mono }: StatCellProps) {
   return (
-    // v1047 STATS-01: cell borders drawn on top/left so they read correctly
+    // #305: cell borders drawn on top/left so they read correctly
     // whether cells sit in one desktop row or wrap onto multiple mobile rows.
     <div className="px-4 py-3 border-t border-l border-border min-w-0">
       <div className="text-[10.5px] font-mono uppercase tracking-widest text-muted-foreground mb-1">
@@ -124,7 +124,7 @@ export function DatasetStatsBar({ dataset, className }: DatasetStatsBarProps) {
   // Limit to 6 cells max
   const displayCells = cells.slice(0, 6);
 
-  // v1047 STATS-01: reflow responsively so stats never get crushed/truncated on
+  // #305: reflow responsively so stats never get crushed/truncated on
   // small screens — 2 cols on mobile, 3 on sm, then the original N-up desktop row.
   const gridColsClass: Record<number, string> = {
     1: 'md:grid-cols-1', 2: 'md:grid-cols-2', 3: 'md:grid-cols-3',

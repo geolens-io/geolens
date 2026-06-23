@@ -73,7 +73,7 @@ export function DatasetDeleteDialog({ dataset, open, onOpenChange }: DatasetDele
         </AlertDialogHeader>
 
         <div className="space-y-2">
-          {/* v1047 A11Y-FORM-01: link the confirm input to the prompt; placeholder is not an accessible name */}
+          {/* #305: link the confirm input to the prompt; placeholder is not an accessible name */}
           <p id="dataset-delete-confirm-prompt" className="text-sm font-medium">{t('deleteDialog.confirmPrompt')}</p>
           <Input
             value={confirmName}

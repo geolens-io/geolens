@@ -28,8 +28,8 @@ export function AppLayout() {
         // Always a flex column so flex-1 page content fills the space the
         // navbar/banner/footer leave — fixes the public-map scroll (was a
         // hardcoded 100dvh-navbar that ignored the footer) AND lets standalone
-        // pages (404) center vertically in the available viewport (v1047
-        // STANDALONE-01). isMapRoute retained for any map-specific tweaks.
+        // pages (404) center vertically in the available viewport (#305).
+        // isMapRoute retained for any map-specific tweaks.
         className={cn('flex flex-1 flex-col animate-fade-in focus:outline-none', isMapRoute && 'flex-col')}
       >
         <Outlet />

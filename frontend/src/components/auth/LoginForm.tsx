@@ -65,7 +65,7 @@ export function LoginForm() {
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
           <div className="flex flex-col gap-2">
             <Label htmlFor="username">{t('username')}</Label>
-            {/* v1047 A11Y-FORM-01: on a server error both credentials are suspect; mark fields invalid + describe by the error */}
+            {/* #305: on a server error both credentials are suspect; mark fields invalid + describe by the error */}
             <Input
               id="username"
               type="text"

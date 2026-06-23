@@ -79,15 +79,16 @@
   --elevation-lg: 0 10px 15px -3px oklch(0 0 0 / 8%), 0 4px 6px -4px oklch(0 0 0 / 5%);
 
   /* ─ Semantic status colors ─
-   * v1047 CONTRAST-01: light fg darkened so text-warning/info/success clear
-   * WCAG AA (>=4.5:1) on card AND soft 10-percent-tint surfaces. Measured
-   * ratios: warning 6.01 and 5.05, info 5.41 and 4.54, success 5.5 and 4.64
-   * (was 2.19, 4.07, 4.07). --warning is now dark so --warning-foreground
-   * flips to light (white-on-warning 6.02:1). */
+   * #305: light fg darkened so text-warning/info/success clear WCAG AA
+   * (>=4.5:1) on card AND soft 10-percent-tint surfaces. Measured ratios:
+   * warning 6.01 and 5.05, info 5.41 and 4.54, success 5.5 and 4.64 (was
+   * 2.19, 4.07, 4.07). --warning-foreground stays DARK: it is used as text
+   * on light/soft surfaces (e.g. BulkReviewList, LayerStyleEditor), not on a
+   * solid warning fill, so a dark foreground keeps those readable. */
   --success: oklch(0.49 0.16 150);
   --success-foreground: oklch(0.985 0 0);
   --warning: oklch(0.50 0.13 68);
-  --warning-foreground: oklch(0.985 0 0);
+  --warning-foreground: oklch(0.28 0.07 46);
   --info: oklch(0.49 0.13 205);
   --info-foreground: oklch(0.985 0 0);
 
@@ -405,7 +406,7 @@
   background-size: 16px 16px;
 }
 
-/* ── v1047 STANDALONE-01 standalone-page surface gradient ──────────────────
+/* ── #305 standalone-page surface gradient ──────────────────
    Subtle branded depth for full-page surfaces (login, public viewers). The
    prior inline gradients wrapped OKLCH tokens in hsl() — invalid CSS that
    computed to `none` (flat/sparse first impression). color-mix(in oklab, …)
@@ -603,7 +604,7 @@ html.dragging-active {
   }
 }
 
-/* ── v1047 TOUCH-01 coarse-pointer tap targets ───────────────────────────
+/* ── #305 coarse-pointer tap targets ───────────────────────────
    On touch devices ensure map controls and form fields reach a ~44px hit
    target. Scoped to pointer:coarse so fine-pointer desktop density is
    unchanged (mirrors the existing maplibre popup-close 44px treatment). */
@@ -630,7 +631,7 @@ div:has(> [data-group-drop-target="true"]) > [id^="folder-group-children"] {
   border-radius: var(--radius-md);
 }
 
-/* ── v1047 SAFEAREA-01 notch / home-indicator safe-area padding ───────────
+/* ── #305 notch / home-indicator safe-area padding ───────────
    With viewport-fit=cover the page draws under the iOS notch and home
    indicator, so full-bleed mobile chrome gets clipped. Pad those surfaces by
    the relevant env(safe-area-inset-*) so controls clear the unsafe zone.
