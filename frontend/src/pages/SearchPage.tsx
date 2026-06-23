@@ -1,5 +1,5 @@
-import { type ReactNode } from 'react';
-import { Loader2, SearchX, Upload } from 'lucide-react';
+import { type ReactNode, useRef } from 'react';
+import { Database, Loader2, SearchX, Upload, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router';
 import { PageShell } from '@/components/layout/PageShell';
@@ -42,10 +42,6 @@ function SearchControls({ totalResults, children }: SearchControlsProps) {
   );
 }
 
-function handlePageChange(offset: number) {
-  useSearchStore.getState().setPage(offset);
-}
-
 export function SearchPage() {
   const { t } = useTranslation('search');
   useDocumentTitle(t('common:pageTitle.search'));
@@ -53,6 +49,22 @@ export function SearchPage() {
   const offset = useSearchStore((s) => s.offset);
   const limit = useSearchStore((s) => s.limit);
   const token = useAuthStore((s) => s.token);
+  const resetFilters = useSearchStore((s) => s.resetFilters);
+  // EMPTY-01: distinguish an empty catalog from a no-match query. toParams()
+  // only emits non-default values, so any key beyond pagination means the user
+  // has an active query / filter / sort.
+  const hasActiveSearch = useSearchStore((s) =>
+    Object.keys(s.toParams()).some((k) => k !== 'offset' && k !== 'limit'),
+  );
+  const resultsRef = useRef<HTMLDivElement>(null);
+  // PAGE-01: return to the top of the results (and move focus there for screen
+  // readers) on page change — previously the user stayed at the footer.
+  const handlePageChange = (newOffset: number) => {
+    useSearchStore.getState().setPage(newOffset);
+    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    resultsRef.current?.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'start' });
+    resultsRef.current?.focus({ preventScroll: true });
+  };
   const { can } = usePermissions();
   // Require a token as well: usePermissions() keeps the cached ['auth','permissions']
   // query after logout (it's disabled, not cleared), so can('upload') can briefly stay
@@ -108,29 +120,54 @@ export function SearchPage() {
             )}
 
             {data && data.features.length === 0 && (
-              <EmptyState
-                icon={SearchX}
-                title={t('empty.title')}
-                description={t('empty.description')}
-                action={
-                  canImport ? (
-                    <Button asChild>
-                      <Link to="/import">
-                        <Upload className="h-4 w-4 me-1" />
-                        {t('empty.cta')}
-                      </Link>
+              hasActiveSearch ? (
+                <EmptyState
+                  icon={SearchX}
+                  title={t('empty.title')}
+                  description={t('empty.description')}
+                  action={
+                    <Button variant="outline" onClick={() => resetFilters()}>
+                      <X className="h-4 w-4 me-1" />
+                      {t('empty.clear', { defaultValue: 'Clear search & filters' })}
                     </Button>
-                  ) : undefined
-                }
-              />
+                  }
+                />
+              ) : (
+                <EmptyState
+                  icon={Database}
+                  title={t('empty.catalogTitle', { defaultValue: 'Your catalog is empty' })}
+                  description={t('empty.catalogDescription', {
+                    defaultValue: 'Import a dataset to start building your geospatial catalog.',
+                  })}
+                  action={
+                    canImport ? (
+                      <Button asChild>
+                        <Link to="/import">
+                          <Upload className="h-4 w-4 me-1" />
+                          {t('empty.cta')}
+                        </Link>
+                      </Button>
+                    ) : undefined
+                  }
+                />
+              )
             )}
 
             {data && data.features.length > 0 && (
-              <section className="scroll-mt-24 space-y-3" aria-label={t('results', { defaultValue: 'Search results' })}>
-                {data.features.map((feature) => (
-                  <SearchResultCard key={feature.id} feature={feature} />
-                ))}
-              </section>
+              <div ref={resultsRef} tabIndex={-1} className="scroll-mt-24 space-y-3 outline-none">
+                {/* CATALOG-01: in-context results header — visible at all widths,
+                    unlike the count that previously lived only in the desktop rail. */}
+                <div className="flex items-center justify-between gap-3 px-0.5">
+                  <h2 className="text-sm font-medium text-foreground">
+                    {t('resultCount', { count: totalMatched })}
+                  </h2>
+                </div>
+                <section className="space-y-3" aria-label={t('results', { defaultValue: 'Search results' })}>
+                  {data.features.map((feature) => (
+                    <SearchResultCard key={feature.id} feature={feature} />
+                  ))}
+                </section>
+              </div>
             )}
 
             {data && totalMatched > 0 && (
