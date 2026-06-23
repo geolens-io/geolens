@@ -120,7 +120,11 @@ export function SearchPage() {
             )}
 
             {data && data.features.length === 0 && (
-              hasActiveSearch ? (
+              // #305: only the true empty-catalog case (no matches at all, no
+              // query) gets onboarding. A positive totalMatched with an empty
+              // page means an out-of-range offset (e.g. stale /?offset=1000) —
+              // show the no-results state (Clear resets offset to page 1).
+              hasActiveSearch || totalMatched > 0 ? (
                 <EmptyState
                   icon={SearchX}
                   title={t('empty.title')}
