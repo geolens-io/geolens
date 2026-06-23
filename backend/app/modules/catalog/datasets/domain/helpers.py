@@ -48,10 +48,13 @@ def _build_raster_metadata(
     # Build bands list from band_info JSONB
     bands = []
     if raster_asset.band_info:
-        for b in raster_asset.band_info:
+        # Default a missing "index" to the 1-based position, not 0, so legacy
+        # band_info rows without the key get unique, correct band numbers
+        # instead of every band collapsing onto 0.
+        for position, b in enumerate(raster_asset.band_info, start=1):
             bands.append(
                 RasterBandInfo(
-                    index=b.get("index", 0),
+                    index=b.get("index", position),
                     dtype=b.get("dtype", ""),
                     nodata=b.get("nodata"),
                     color_interp=b.get("color_interp"),

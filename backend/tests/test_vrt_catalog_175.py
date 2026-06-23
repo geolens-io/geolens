@@ -184,6 +184,36 @@ class TestRasterMetadataVrtFields:
         assert result is not None
         assert result.source_count == 0
 
+    def test_band_info_without_index_gets_unique_positions(self):
+        """Legacy band_info rows lacking 'index' default to 1-based positions,
+        not all 0 (which made every band collide on React key 0 + show '#'=0)."""
+        from app.modules.catalog.datasets.domain.helpers import _build_raster_metadata
+
+        dataset = _make_mock_dataset("raster_dataset")
+        asset = _make_mock_raster_asset()
+        asset.band_info = [{"dtype": "uint8"}, {"dtype": "uint8"}, {"dtype": "uint8"}]
+
+        result = _build_raster_metadata(dataset, asset, source_count=None)
+
+        assert result is not None
+        assert [b.index for b in result.bands] == [1, 2, 3]
+
+    def test_band_info_preserves_explicit_index(self):
+        """An explicit 'index' is preserved (not overwritten by position)."""
+        from app.modules.catalog.datasets.domain.helpers import _build_raster_metadata
+
+        dataset = _make_mock_dataset("raster_dataset")
+        asset = _make_mock_raster_asset()
+        asset.band_info = [
+            {"index": 1, "dtype": "uint8"},
+            {"index": 2, "dtype": "uint8"},
+        ]
+
+        result = _build_raster_metadata(dataset, asset, source_count=None)
+
+        assert result is not None
+        assert [b.index for b in result.bands] == [1, 2]
+
 
 # ---------------------------------------------------------------------------
 # TestDatasetToResponseVrt
