@@ -238,11 +238,14 @@ async def _run_rrf_merge(
     if filters.q is None:
         raise ValueError("_run_rrf_merge requires filters.q to be non-None")
     q_stripped = filters.q.strip()
+    # The RRF-ordered list is sliced [skip:skip+limit], so both candidate pools must
+    # reach at least skip+limit deep or a later page comes back empty.
+    page_end = filters.skip + filters.limit
     # Vector similarity ranks, restricted to the visibility/filter-vetted set so the
     # cosine top-k contains only records the caller may see that satisfy every active
     # filter (empty dict on any failure = FTS-only).
     vector_ranks = await _get_vector_ranks(
-        session, q_stripped, filters.limit, restrict_stmt=vet_stmt
+        session, q_stripped, page_end, restrict_stmt=vet_stmt
     )
 
     if not vector_ranks:
@@ -255,8 +258,9 @@ async def _run_rrf_merge(
     # Get FTS-ranked record IDs (up to a reasonable cap for merging).
     # Strip the inherited eager-loads -- only record_id is needed at
     # this stage, so 4 wasted selectinload queries per request are
-    # avoided (PERF-8).
-    fts_cap = max(filters.limit * 3, 100)
+    # avoided (PERF-8). Cap must cover the requested page end (skip+limit) so
+    # offset pages aren't truncated, plus headroom for RRF re-ranking.
+    fts_cap = max(page_end * 3, 100)
     fts_stmt = (
         stmt.with_only_columns(Dataset.record_id)
         .order_by(rank_col.desc())

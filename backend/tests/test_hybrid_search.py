@@ -704,3 +704,59 @@ async def test_semantic_visible_match_not_crowded_out_by_nearer_private(
     assert "Open Transit Hub Index" in titles
     for i in range(3):
         assert f"Private Near Neighbour {i}" not in titles
+
+
+@pytest.mark.anyio
+async def test_semantic_vector_only_pagination(
+    client: AsyncClient,
+    test_db_session,
+):
+    """Later pages of semantic-only matches must not be empty (Codex round-3 P2).
+
+    With five vector-only matches and limit=2, page 2 (offset=2) must return
+    results distinct from page 1 — the vector fetch must reach skip+limit deep.
+    """
+    session = test_db_session
+    admin_id = await get_user_id(session, "admin")
+    dim = await _get_embedding_dim(session)
+    await _set_semantic_search(session, True)
+
+    # Five public datasets in an isolated vector band (lo=70), decreasing similarity.
+    for i, base in enumerate((0.99, 0.95, 0.90, 0.85, 0.80)):
+        ds = await _create_search_dataset(
+            session,
+            created_by=admin_id,
+            name=f"Band Catalog Layer {i}",  # no lexical overlap with the query
+            description="public",
+        )
+        session.add(
+            RecordEmbedding(
+                record_id=ds.record_id,
+                embedding=_make_vector_band(base, dim=dim, lo=70),
+                model_name="text-embedding-3-small",
+                content_hash=f"page_band_{i}",
+            )
+        )
+    await session.commit()
+
+    async def _page(offset: int) -> list[str]:
+        with patch(
+            "app.modules.catalog.search.service_semantic.generate_embedding",
+            new_callable=AsyncMock,
+            return_value=_make_vector_band(1.0, dim=dim, lo=70),
+        ):
+            r = await client.get(
+                "/search/datasets/",
+                params={"q": "zzznolexicalmatchxyz", "limit": 2, "offset": offset},
+            )
+        assert r.status_code == 200
+        return [
+            f["properties"]["title"]
+            for f in r.json()["features"]
+            if f.get("properties")
+        ]
+
+    page1 = await _page(0)
+    page2 = await _page(2)
+    assert len(page2) >= 1, "second page of semantic-only results must not be empty"
+    assert set(page1).isdisjoint(set(page2)), "pages must not overlap"
