@@ -2,8 +2,10 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="theme-color" content="#3b6fd4" />
+    <!-- v1047 SAFEAREA-01: dark-mode browser-chrome color so PWA chrome tracks dark theme -->
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#1a1f2e" />
     <script src="/env-config.js"></script>
     <!-- FOUC prevention + lang sync. Externalized to /theme-init.js (SEC-020) so
          the page carries a strict script-src 'self' CSP with no inline script.

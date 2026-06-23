@@ -629,3 +629,30 @@ div:has(> [data-group-drop-target="true"]) > [id^="folder-group-children"] {
   background: oklch(0.97 0.02 250 / 60%);
   border-radius: var(--radius-md);
 }
+
+/* ── v1047 SAFEAREA-01 notch / home-indicator safe-area padding ───────────
+   With viewport-fit=cover the page draws under the iOS notch and home
+   indicator, so full-bleed mobile chrome gets clipped. Pad those surfaces by
+   the relevant env(safe-area-inset-*) so controls clear the unsafe zone.
+   Gated on @supports so non-notch / desktop browsers are unaffected (env()
+   resolves to 0 there anyway, but the guard keeps the rules from applying at
+   all where they're not needed). */
+@supports (padding: env(safe-area-inset-bottom)) {
+  /* Bottom maplibre controls (attribution + zoom/scale) clear the home indicator. */
+  .maplibregl-ctrl-bottom-right,
+  .maplibregl-ctrl-bottom-left {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  /* Left-edge mobile Sheet (shadcn) clears the notch on landscape / its content
+     clears the home indicator at the bottom. */
+  [data-slot="sheet-content"] {
+    padding-left: max(
+      var(--sheet-padding-left, 0px),
+      env(safe-area-inset-left)
+    );
+    padding-bottom: max(
+      var(--sheet-padding-bottom, 0px),
+      env(safe-area-inset-bottom)
+    );
+  }
+}
