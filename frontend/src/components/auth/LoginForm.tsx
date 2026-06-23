@@ -6,21 +6,15 @@ import { useAuth } from '@/hooks/use-auth';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card';
 
 /**
  * Login form for username + password authentication.
  *
  * On success, stores the JWT in `useAuthStore` and navigates to the original
- * destination (from `location.state.from`) or the catalog home. Renders next
- * to the optional OAuth provider buttons; both code paths feed the same auth
- * store. Handles password visibility toggling and inline error display.
+ * destination (from `location.state.from`) or the catalog home. Renders inside
+ * the right-hand sign-in panel next to the optional OAuth provider buttons;
+ * both code paths feed the same auth store. Handles password visibility
+ * toggling and inline error display.
  */
 export function LoginForm() {
   const [username, setUsername] = useState('');
@@ -54,77 +48,68 @@ export function LoginForm() {
   }
 
   return (
-    <Card className="w-full max-w-sm border-border/70 shadow-lg shadow-black/5">
-      <CardHeader>
-        <CardTitle className="text-xl">{t('signIn')}</CardTitle>
-        <CardDescription>
-          {t('enterCredentials')}
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="username">{t('username')}</Label>
-            {/* #305: on a server error both credentials are suspect; mark fields invalid + describe by the error */}
-            <Input
-              id="username"
-              type="text"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              placeholder={t('enterUsername')}
-              required
-              autoComplete="username"
-              aria-invalid={error ? true : undefined}
-              aria-describedby={error ? 'login-error' : undefined}
-            />
-          </div>
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="password">{t('password')}</Label>
-            <div className="relative">
-              <Input
-                id="password"
-                type={showPassword ? 'text' : 'password'}
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder={t('enterPassword')}
-                required
-                autoComplete="current-password"
-                className="pe-11"
-                aria-invalid={error ? true : undefined}
-                aria-describedby={error ? 'login-error' : undefined}
-              />
-              <button
-                type="button"
-                onClick={() => setShowPassword((visible) => !visible)}
-                className="absolute inset-y-0 end-0 flex items-center px-3 text-muted-foreground transition-colors hover:text-foreground"
-                aria-label={
-                  showPassword
-                    ? t('hidePassword', { defaultValue: 'Hide password' })
-                    : t('showPassword', { defaultValue: 'Show password' })
-                }
-              >
-                {showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
-              </button>
-            </div>
-          </div>
-          {error && (
-            <p id="login-error" role="alert" className="text-destructive text-sm">{error}</p>
-          )}
-          <Button
-            type="submit"
-            disabled={loading || !username.trim() || !password}
-            className="w-full"
+    <form onSubmit={handleSubmit} className="flex w-full flex-col gap-4">
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor="username" className="text-[12.5px]">
+          {t('username')}
+        </Label>
+        {/* #305: on a server error both credentials are suspect; mark fields invalid + describe by the error */}
+        <Input
+          id="username"
+          type="text"
+          value={username}
+          onChange={(e) => setUsername(e.target.value)}
+          placeholder={t('usernamePlaceholder')}
+          required
+          autoComplete="username"
+          className="h-10"
+          aria-invalid={error ? true : undefined}
+          aria-describedby={error ? 'login-error' : undefined}
+        />
+      </div>
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor="password" className="text-[12.5px]">
+          {t('password')}
+        </Label>
+        <div className="relative">
+          <Input
+            id="password"
+            type={showPassword ? 'text' : 'password'}
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            placeholder={t('enterPassword')}
+            required
+            autoComplete="current-password"
+            className="h-10 pe-11"
+            aria-invalid={error ? true : undefined}
+            aria-describedby={error ? 'login-error' : undefined}
+          />
+          <button
+            type="button"
+            onClick={() => setShowPassword((visible) => !visible)}
+            className="absolute inset-y-0 end-1 my-auto flex size-8 items-center justify-center rounded-md text-muted-foreground transition-[color,background-color,box-shadow,border-color,opacity] duration-200 ease-out hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background focus-visible:outline-none"
+            aria-label={showPassword ? t('hidePassword') : t('showPassword')}
           >
-            {loading && <Loader2 className="size-4 animate-spin" />}
-            {loading ? t('signingIn') : t('signIn')}
-          </Button>
-          <p className="text-xs text-muted-foreground">
-            {t('supportHint', {
-              defaultValue: 'Need access or a password reset? Contact a GeoLens administrator.',
-            })}
-          </p>
-        </form>
-      </CardContent>
-    </Card>
+            {showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+          </button>
+        </div>
+      </div>
+      {error && (
+        <p id="login-error" role="alert" className="text-sm text-destructive">
+          {error}
+        </p>
+      )}
+      <Button
+        type="submit"
+        disabled={loading || !username.trim() || !password}
+        className="h-[42px] w-full font-semibold"
+      >
+        {loading && <Loader2 className="size-4 animate-spin" />}
+        {loading ? t('signingIn') : t('signIn')}
+      </Button>
+      <p className="text-[12.5px] leading-relaxed text-muted-foreground">
+        {t('supportHint')}
+      </p>
+    </form>
   );
 }

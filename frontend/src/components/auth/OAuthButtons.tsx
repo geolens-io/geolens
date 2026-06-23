@@ -4,6 +4,7 @@ import { getOAuthProviders } from '@/api/auth';
 import { queryKeys } from '@/lib/query-keys';
 import { Button } from '@/components/ui/button';
 import { API_BASE } from '@/lib/constants';
+import { cn } from '@/lib/utils';
 
 function ProviderIcon({ providerType }: { providerType: string }) {
   if (providerType === 'google') {
@@ -58,6 +59,11 @@ function ProviderIcon({ providerType }: { providerType: string }) {
   );
 }
 
+// Provider types that render a recognizable branded mark. Only these are safe
+// to show as icon-only — generic OIDC/SAML providers share one fallback icon, so
+// in a multi-provider setup they'd be visually indistinguishable without a label.
+const BRANDED_PROVIDER_TYPES = new Set(['google', 'microsoft', 'github']);
+
 function getButtonLabel(
   t: (key: string, options?: Record<string, unknown>) => string,
   provider: { display_name: string; provider_type: string },
@@ -87,44 +93,67 @@ export function OAuthButtons({ showDivider = true }: { showDivider?: boolean } =
     return <p className="text-xs text-muted-foreground">{t('oauth.unavailable')}</p>;
   }
 
+  // Adaptive layout (per design handoff):
+  //   0 providers        → render nothing (no block, no divider, no SSO note)
+  //   1 provider         → single full-width labeled button
+  //   2-3, all branded   → equal-width row of icon-only buttons (label on aria-label/title)
+  //   2-3, any generic   → stacked labeled buttons so generic providers stay distinguishable
   if (isLoading || !providers || providers.length === 0) return null;
 
+  const count = providers.length;
+  // Icon-only is only safe when every provider has a *distinct, branded* icon —
+  // otherwise (generic providers, or two of the same branded type) the buttons
+  // are visually indistinguishable, so fall back to stacked labeled buttons.
+  const providerTypes = providers.map((p) => p.provider_type);
+  const compact =
+    count >= 2 &&
+    providerTypes.every((type) => BRANDED_PROVIDER_TYPES.has(type)) &&
+    new Set(providerTypes).size === count;
+
   return (
-    <div className="w-full max-w-sm space-y-4">
+    <div className="w-full space-y-4">
       {/* The "or continue with" divider only makes sense as an alternative to a
           password form above it. In SSO-only mode there is no form, so the caller
           passes showDivider={false} and the buttons are the primary path. */}
       {showDivider && (
         <div className="relative">
           <div className="absolute inset-0 flex items-center">
-            <span className="w-full border-t" />
+            <span className="w-full border-t opacity-60" />
           </div>
-          <div className="relative flex justify-center text-xs uppercase">
-            <span className="bg-background px-2 text-muted-foreground">
+          <div className="relative flex justify-center">
+            <span className="bg-background px-3 font-mono text-[10.5px] uppercase tracking-[0.1em] text-muted-foreground">
               {t('oauth.divider')}
             </span>
           </div>
         </div>
       )}
-      <div className="flex flex-col gap-2">
-        {providers.map((provider) => (
-          <Button
-            key={provider.slug}
-            variant="outline"
-            className="w-full"
-            onClick={() => {
-              window.location.href = `${API_BASE}/auth/oauth/${provider.slug}/login`;
-            }}
-          >
-            <ProviderIcon providerType={provider.provider_type} />
-            {getButtonLabel(t, provider)}
-          </Button>
-        ))}
-      </div>
-      <p className="text-center text-xs text-muted-foreground">
-        {t('oauth.helper', {
-          defaultValue: 'Single sign-on is available when your organization has configured it.',
+      <div
+        className={cn(
+          'grid gap-2',
+          compact ? (count === 3 ? 'grid-cols-3' : 'grid-cols-2') : 'grid-cols-1',
+        )}
+      >
+        {providers.map((provider) => {
+          const label = getButtonLabel(t, provider);
+          return (
+            <Button
+              key={provider.slug}
+              variant="outline"
+              className="h-10 w-full"
+              title={compact ? label : undefined}
+              aria-label={compact ? label : undefined}
+              onClick={() => {
+                window.location.href = `${API_BASE}/auth/oauth/${provider.slug}/login`;
+              }}
+            >
+              <ProviderIcon providerType={provider.provider_type} />
+              {!compact && <span>{label}</span>}
+            </Button>
+          );
         })}
+      </div>
+      <p className="text-center text-[11.5px] leading-snug text-muted-foreground">
+        {t('oauth.helper')}
       </p>
     </div>
   );
