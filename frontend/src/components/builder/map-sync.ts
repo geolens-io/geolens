@@ -846,7 +846,11 @@ function syncVectorLayer(
     } else {
       const src = map.getSource(sourceId);
       if (src && src.type === 'geojson') (src as GeoJSONSource).setData(geojsonData);
-      adapter.syncPaint(map, adapterInput);
+      // A second layer sharing this dataset's source (the SF-04 dedupe) hits this
+      // branch even though its own layer was never added. syncPaint no-ops when the
+      // layer is missing, so add it here instead. See #311.
+      if (!map.getLayer(layerId)) adapter.addLayers(map, adapterInput);
+      else adapter.syncPaint(map, adapterInput);
     }
     adapter.syncVisibility(map, adapterInput);
     syncLayerZoomRange(map, adapter.getLayerIds(layerId), layerMinzoom, layerMaxzoom);
@@ -896,7 +900,11 @@ function syncVectorLayer(
         signatureMap.set(tileUrlKey, adapterInput.tileUrl);
       }
     }
-    adapter.syncPaint(map, adapterInput);
+    // A second layer sharing this dataset's source (the SF-04 dedupe) reaches this
+    // branch with its own layer never added — the shared source was created by the
+    // first layer. syncPaint no-ops when the layer is missing, so add it here. #311.
+    if (!map.getLayer(layerId)) adapter.addLayers(map, adapterInput);
+    else adapter.syncPaint(map, adapterInput);
   }
 
   // Per-layer zoom range from custom layout props (main + outline companion)
