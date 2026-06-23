@@ -13,9 +13,11 @@ from sqlalchemy.orm import selectinload
 from sqlalchemy.sql.elements import Label
 from sqlalchemy.sql.selectable import Select
 
+from app.core.identity import Identity
 from app.core.persistent_config import EMBEDDING_MODEL
 from app.modules.auth.models import User
-from app.modules.catalog.datasets.domain.models import Dataset, Record
+from app.modules.catalog.authorization import apply_visibility_filter
+from app.modules.catalog.datasets.domain.models import Dataset, DatasetGrant, Record
 from app.modules.catalog.search.service_filters import SearchFilters
 from app.platform.extensions import get_catalog_port
 
@@ -205,8 +207,17 @@ async def _run_rrf_merge(
     stmt: Select,
     rank_col: Label[float],
     total: int,
+    user: Identity | None,
+    user_roles: set[str],
 ) -> tuple[list[Dataset], int] | None:
     """Execute hybrid FTS+vector RRF merge and return paginated results.
+
+    Surfaces vector-only matches (records that are semantically similar but do
+    not lexically match the FTS query) IN ADDITION to re-ranking FTS hits. Since
+    ``_get_vector_ranks`` does not apply RBAC visibility filtering, vector-only
+    candidates are run through the SAME ``apply_visibility_filter`` the FTS path
+    uses before being surfaced, so private/restricted datasets are never leaked
+    into a semantic match.
 
     Returns ``None`` when RRF doesn't apply (vector backend empty/failed).
     Caller falls through to the standard sort path on None.
@@ -242,15 +253,37 @@ async def _run_rrf_merge(
     fts_result = await session.execute(fts_stmt)
     fts_ids = [str(row[0]) for row in fts_result.all()]
 
-    # Compute RRF-ranked order (only includes IDs from FTS results + vector results)
-    # Filter vector_ranks to only include IDs that appear in FTS results
-    # (vector-only results are excluded to keep it simple per plan)
+    # RRF over FTS results UNION visibility-filtered vector-only results.
+    # FTS ids already passed apply_visibility_filter (via the inherited `stmt`).
+    # Vector-only ids did NOT — _get_vector_ranks queries record_embeddings with
+    # no RBAC filter — so they MUST be run through the same visibility filter
+    # before surfacing, or a semantic match would leak a private/restricted
+    # dataset (e.g. an embed-token-scoped one). The check is bounded to the small
+    # vector candidate set (<= filters.limit ids).
     fts_id_set = set(fts_ids)
-    filtered_vector_ranks = {
-        rid: rank for rid, rank in vector_ranks.items() if rid in fts_id_set
-    }
+    vector_only_ids = [rid for rid in vector_ranks if rid not in fts_id_set]
+    visible_vector_only: set[str] = set()
+    if vector_only_ids:
+        vis_stmt = select(Record.id).where(
+            Record.id.in_([uuid_mod.UUID(rid) for rid in vector_only_ids])
+        )
+        vis_stmt = apply_visibility_filter(
+            vis_stmt, user, user_roles, Record, DatasetGrant
+        )
+        vis_result = await session.execute(vis_stmt)
+        visible_vector_only = {str(rid) for rid in vis_result.scalars().all()}
 
-    rrf_ordered = _compute_rrf_scores(fts_ids, filtered_vector_ranks)
+    safe_vector_ranks = {
+        rid: rank
+        for rid, rank in vector_ranks.items()
+        if rid in fts_id_set or rid in visible_vector_only
+    }
+    # Surfaced vector-only matches are additional results beyond the FTS count.
+    # (A record that both vector-matches and FTS-matches below the fts_cap is a
+    # rare overlap; the resulting +1 overcount is acceptable for pagination.)
+    total += len(visible_vector_only)
+
+    rrf_ordered = _compute_rrf_scores(fts_ids, safe_vector_ranks)
 
     # Apply pagination to RRF-ordered list
     page_ids = rrf_ordered[filters.skip : filters.skip + filters.limit]

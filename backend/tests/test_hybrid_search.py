@@ -38,13 +38,14 @@ async def _create_search_dataset(
     name: str,
     keywords: list[str] | None = None,
     description: str | None = None,
+    visibility: str = "public",
 ) -> Dataset:
     """Insert a Record + Dataset pair for hybrid search tests."""
     table_name = f"ds_{uuid.uuid4().hex[:12]}"
     record = Record(
         title=name,
         summary=description or f"Description for {name}",
-        visibility="public",
+        visibility=visibility,
         record_status="published",
         created_by=created_by,
     )
@@ -473,3 +474,96 @@ def test_compute_rrf_scores_basic():
     assert result[2] == "a", f"Expected 'a' third, got {result}"
     # d has lowest score
     assert result[3] == "d", f"Expected 'd' last, got {result}"
+
+
+# ---------------------------------------------------------------------------
+# Tests: true semantic retrieval — vector-only matches are surfaced, but
+# never leak non-visible datasets (visibility-aware RRF union)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_semantic_surfaces_vector_only_match(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    hybrid_datasets_with_embeddings: dict,
+    hybrid_vectors: dict[str, list[float]],
+):
+    """A record that matches by MEANING but not by keyword is surfaced.
+
+    Query text that matches NO dataset lexically, with the query embedding close
+    to the 'roads'/'railways' vectors -> those vector-only matches must appear
+    (previously the RRF merge excluded vector-only ids and returned nothing).
+    """
+    with patch(
+        "app.modules.catalog.search.service_semantic.generate_embedding",
+        new_callable=AsyncMock,
+        return_value=hybrid_vectors["transport"],
+    ):
+        resp = await client.get(
+            "/search/datasets/",
+            params={"q": "zzznolexicalmatchxyz"},
+            headers=admin_auth_header,
+        )
+    assert resp.status_code == 200
+    titles = {
+        f["properties"]["title"] for f in resp.json()["features"] if f.get("properties")
+    }
+    # transport (1.0) is close to roads (0.95) + railways (0.90); far from
+    # population (-0.5) / rivers (-0.8) which exceed the 0.7 distance cutoff.
+    assert "Roads and Highways Network" in titles
+    assert "Railway Network Lines" in titles
+
+
+@pytest.mark.anyio
+async def test_semantic_vector_only_does_not_leak_private(
+    client: AsyncClient,
+    hybrid_datasets_with_embeddings: dict,
+    hybrid_vectors: dict[str, list[float]],
+    test_db_session,
+):
+    """A PRIVATE vector-only match must never surface to an anonymous caller.
+
+    The vector query (_get_vector_ranks) is not visibility-filtered, so the RRF
+    union must run vector-only candidates through apply_visibility_filter. A
+    private record with a near-perfect embedding match + a non-lexical title is
+    the exact leak this guards against.
+    """
+    session = test_db_session
+    admin_id = await get_user_id(session, "admin")
+
+    private_ds = await _create_search_dataset(
+        session,
+        created_by=admin_id,
+        name="Classified Restricted Layer",  # no lexical overlap with the query
+        description="Sensitive private dataset",
+        visibility="private",
+    )
+    session.add(
+        RecordEmbedding(
+            record_id=private_ds.record_id,
+            embedding=hybrid_vectors["transport"],  # ~identical to the query vector
+            model_name="text-embedding-3-small",
+            content_hash="test_hash_private_leak",
+        )
+    )
+    await session.commit()
+
+    # Anonymous request (no auth header) — filter_visible restricts to public.
+    with patch(
+        "app.modules.catalog.search.service_semantic.generate_embedding",
+        new_callable=AsyncMock,
+        return_value=hybrid_vectors["transport"],
+    ):
+        resp = await client.get(
+            "/search/datasets/",
+            params={"q": "zzznolexicalmatchxyz"},
+        )
+    assert resp.status_code == 200
+    titles = {
+        f["properties"]["title"] for f in resp.json()["features"] if f.get("properties")
+    }
+    # The private record must NOT leak, even though its embedding is the closest match.
+    assert "Classified Restricted Layer" not in titles
+    # ...but a PUBLIC vector-only match still surfaces (semantic retrieval works for anon).
+    assert "Roads and Highways Network" in titles
