@@ -14658,7 +14658,7 @@
           },
           "exaggeration": {
             "default": 1.0,
-            "maximum": 10.0,
+            "maximum": 3.0,
             "minimum": 0.0,
             "title": "Exaggeration",
             "type": "number"
