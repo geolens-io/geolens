@@ -408,7 +408,8 @@
     "removeField": "Quitar campo",
     "noFieldsSelected": "Ningún campo seleccionado (solo se mostrará el título)",
     "noColumns": "Esta capa no tiene columnas inspeccionables.",
-    "mediaHint": "Las URL e imágenes en los valores de los campos se muestran como enlaces y vistas previas automáticamente."
+    "mediaHint": "Las URL e imágenes en los valores de los campos se muestran como enlaces y vistas previas automáticamente.",
+    "showFullValue": "Mostrar valor completo"
   },
   "dataDriven": {
     "title": "Estilo basado en datos",

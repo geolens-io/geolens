@@ -33,8 +33,6 @@
   },
   "users": {
     "title": "Usuarios",
-    "titleCount_one": "Usuarios ({{count}})",
-    "titleCount_other": "Usuarios ({{count}})",
     "addUser": "Agregar usuario",
     "exportEmailsCsv": "Exportar correos (CSV)",
     "loading": "Cargando usuarios...",
@@ -370,7 +368,8 @@
     "copyAcsUrl": "Copiar URL ACS",
     "actions": {
       "discard": "Descartar cambios",
-      "resetDefaults": "Restablecer valores predeterminados"
+      "resetDefaults": "Restablecer valores predeterminados",
+      "saving": "Guardando..."
     },
     "unsaved": {
       "title": "Cambios sin guardar",

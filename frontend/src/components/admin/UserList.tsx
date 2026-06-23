@@ -144,8 +144,9 @@ export function UserList() {
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between">
-            <CardTitle className="text-sm font-medium">
-              {data ? t('users.titleCount', { count: data.total }) : t('users.title')}
+            <CardTitle className="flex items-center gap-2 text-sm font-medium">
+              {t('users.title')}
+              {data ? <Badge variant="secondary">{data.total}</Badge> : null}
             </CardTitle>
             <div className="flex items-center gap-3">
               <DataTableSearch

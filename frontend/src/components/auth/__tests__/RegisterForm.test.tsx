@@ -12,7 +12,9 @@ describe('RegisterForm', () => {
 
     expect(screen.getByLabelText(/username/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/email/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/password/i)).toBeInTheDocument();
+    // password field now carries a reveal toggle (aria-label "Show password"),
+    // so scope the lookup to the input to avoid matching the button.
+    expect(screen.getByLabelText(/password/i, { selector: 'input' })).toBeInTheDocument();
   });
 
   it('renders create account button', () => {
@@ -27,7 +29,7 @@ describe('RegisterForm', () => {
 
     const usernameInput = screen.getByLabelText(/username/i);
     const emailInput = screen.getByLabelText(/email/i);
-    const passwordInput = screen.getByLabelText(/password/i);
+    const passwordInput = screen.getByLabelText(/password/i, { selector: 'input' });
 
     await user.type(usernameInput, 'newuser');
     await user.type(emailInput, 'new@example.com');

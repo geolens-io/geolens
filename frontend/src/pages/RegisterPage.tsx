@@ -117,7 +117,7 @@ export function RegisterPage() {
   return (
     <div className="flex min-h-screen flex-col items-center justify-center gap-6 bg-background px-4">
       <div className="text-center">
-        <h1 className="text-3xl font-bold tracking-tight">{t('common:appName')}</h1>
+        <GeoLensLogo size="lg" className="justify-center" />
         <p className="text-muted-foreground mt-1 text-sm">
           {t('geospatialDataCatalog')}
         </p>

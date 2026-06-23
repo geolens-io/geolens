@@ -12,6 +12,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { PasswordInput } from '@/components/ui/password-input';
 import { Label } from '@/components/ui/label';
 import { RoleSelect } from './RoleSelect';
 
@@ -86,9 +87,8 @@ export function UserCreateDialog({ open, onOpenChange }: UserCreateDialogProps) 
           </div>
           <div className="space-y-2">
             <Label htmlFor="create-password">{t('userCreate.labels.password')}</Label>
-            <Input
+            <PasswordInput
               id="create-password"
-              type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required
