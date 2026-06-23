@@ -592,6 +592,23 @@ html.dragging-active {
   }
 }
 
+/* ── v1047 TOUCH-01 coarse-pointer tap targets ───────────────────────────
+   On touch devices ensure map controls and form fields reach a ~44px hit
+   target. Scoped to pointer:coarse so fine-pointer desktop density is
+   unchanged (mirrors the existing maplibre popup-close 44px treatment). */
+@media (pointer: coarse) {
+  .maplibregl-ctrl-group button {
+    min-width: 44px;
+    min-height: 44px;
+  }
+  [data-slot="input"],
+  [data-slot="select-trigger"],
+  textarea,
+  select {
+    min-height: 2.75rem;
+  }
+}
+
 /* Phase 1042: folder group-children wash when parent is drop target (1040 carry-over) */
 /* Use :has() to select the children container when a sibling carries data-group-drop-target.
    The keyed outer wrapper div contains both FolderGroupRowWrapper (which bears the attribute)
