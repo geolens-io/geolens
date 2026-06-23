@@ -210,6 +210,40 @@ describe('syncLayersToMap dedupes addSource by dataset_table_name', () => {
     expect(map.removeSource).not.toHaveBeenCalledWith('source-data-reefs');
   });
 
+  it('two non-cluster vector layers on the SAME dataset BOTH render (2nd layer on a shared source still gets added)', () => {
+    // Regression for #311: casing modeled as a second line layer on one dataset.
+    // The shared source is created by the first layer; the second layer hits the
+    // "source already exists" branch — which previously only ran syncPaint, and
+    // syncPaint no-ops when the layer is missing (line-adapter.ts:212). Result:
+    // the casing layer was never added on a fresh load.
+    const layers: SyncLayerInput[] = [
+      makeLayer({
+        id: 'base',
+        dataset_id: 'ds-rivers',
+        dataset_table_name: 'rivers',
+        dataset_geometry_type: 'LineString',
+      }),
+      makeLayer({
+        id: 'casing',
+        dataset_id: 'ds-rivers',
+        dataset_table_name: 'rivers',
+        dataset_geometry_type: 'LineString',
+      }),
+    ];
+    const tokenMap = new Map<string, TileToken>([
+      ['ds-rivers', makeVectorToken()],
+    ]);
+
+    syncLayersToMap(map, layers, tokenMap, undefined, managedSourcesRef, {
+      current: '',
+    });
+
+    // One shared source, but BOTH layers must be on the map.
+    expect(map.addSource).toHaveBeenCalledTimes(1);
+    expect(map.getLayer('layer-base')).toBeTruthy();
+    expect(map.getLayer('layer-casing')).toBeTruthy();
+  });
+
   it('removeStaleSourcesAndLayers DOES remove a source when no remaining layer references it', () => {
     const layers: SyncLayerInput[] = [
       makeLayer({ id: 'l1', dataset_id: 'ds-reefs', dataset_table_name: 'reefs' }),
