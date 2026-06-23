@@ -279,11 +279,12 @@ class Api:
         d = r.json()
         return {x["title"]: x["id"] for x in d.get("datasets", d.get("items", []))}
 
-    def list_collections(self) -> list[str]:
+    def collections_by_name(self) -> dict[str, str]:
+        """Map collection name -> id (name is UNIQUE in the catalog model)."""
         # Trailing slash required (redirect_slashes=False).
         r = self.client.get(f"{self.base}/api/catalog/collections/", headers=self.h)
         r.raise_for_status()
-        return [c["name"] for c in r.json().get("collections", [])]
+        return {c["name"]: c["id"] for c in r.json().get("collections", [])}
 
     def create_collection(self, name: str, description: str) -> str:
         # Collections have NO visibility/title/summary - only name (unique) + description.
@@ -1479,15 +1480,23 @@ PRIVATE_VIP_FC = {
 
 
 def build_collection(api: Api, force: bool = False) -> str:
-    if not force and "Discover the World" in api.list_collections():
-        print("  [skip] Discover the World collection already exists")
-        return "(skipped)"
-    print("\n[collection] Discover the World + private-dataset embed-token demo")
-    coll_id = api.create_collection(
-        "Discover the World",
-        "A guided tour of the GeoLens showcase - the NYC skyline, New York income, "
-        "world countries, rivers and airports - grouped into one browsable collection.",
-    )
+    # Collection.name is UNIQUE -> creating a second "Discover the World" 409s. On a
+    # --force reseed (no down -v) reuse the existing collection instead of recreating;
+    # add_to_collection is idempotent, so re-adding members is a no-op.
+    existing = api.collections_by_name()
+    if "Discover the World" in existing:
+        if not force:
+            print("  [skip] Discover the World collection already exists")
+            return "(skipped)"
+        coll_id = existing["Discover the World"]
+        print("\n[collection] reusing existing 'Discover the World' (--force)")
+    else:
+        print("\n[collection] Discover the World + private-dataset embed-token demo")
+        coll_id = api.create_collection(
+            "Discover the World",
+            "A guided tour of the GeoLens showcase - the NYC skyline, New York income, "
+            "world countries, rivers and airports - grouped into one browsable collection.",
+        )
     titles = api.datasets_by_title()
     wanted = [
         "Manhattan Building Heights",
