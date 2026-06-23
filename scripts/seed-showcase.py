@@ -1416,15 +1416,30 @@ def build_sentinel2(api: Api, force: bool = False) -> str:
     results = api.stac_import(SENTINEL_STAC, items, visibility="public")
     errored = [r for r in results if r.get("status") == "error"]
     if errored:
-        detail = "; ".join(r.get("error") or r.get("id", "?") for r in errored)
+        detail = "; ".join(r.get("error") or r.get("item_id", "?") for r in errored)
         raise RuntimeError(
             f"{len(errored)}/{len(results)} STAC imports failed: {detail}"
         )
-    ds_ids = [r["dataset_id"] for r in results if r.get("dataset_id")]
+    # 'created' results carry dataset_id; 'skipped' (the COG was already imported, e.g.
+    # a prior partial run) carry only item_id and no dataset_id, and the backend dedupe
+    # on source_url means --force won't re-create them. Resolve skipped items back to
+    # their existing dataset by the title we assigned ("Sentinel-2 TCI {id}").
+    id_to_title = {it["id"]: it["title"] for it in items}
+    by_title = None
+    ds_ids = []
+    for r in results:
+        if r.get("dataset_id"):
+            ds_ids.append(r["dataset_id"])
+        elif r.get("status") == "skipped":
+            if by_title is None:
+                by_title = api.datasets_by_title()
+            existing = by_title.get(id_to_title.get(r.get("item_id"), ""))
+            if existing:
+                ds_ids.append(existing)
     if not ds_ids:
         raise RuntimeError(
-            "STAC import returned no dataset_ids (all 'skipped' on a re-run?); "
-            "use --force or remove the existing datasets"
+            "STAC import resolved no dataset_ids (skipped items not found by title); "
+            "remove the existing Sentinel-2 datasets and retry"
         )
     map_id = api.create_map(
         "Sentinel-2 True Color - NYC",
