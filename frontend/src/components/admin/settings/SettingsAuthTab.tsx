@@ -46,6 +46,8 @@ import {
   deleteOAuthProvider,
 } from '@/api/settings';
 import { queryKeys } from '@/lib/query-keys';
+import { useTileConfig } from '@/hooks/use-settings';
+import { getPublicApiBaseUrl } from '@/lib/dataset-access';
 
 interface TabProps {
   settings: SettingItem[];
@@ -171,6 +173,12 @@ function OAuthProvidersSection({ envOnly }: { envOnly: boolean }) {
   const [editingProvider, setEditingProvider] = useState<OAuthProviderConfig | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<OAuthProviderConfig | null>(null);
   const [form, setForm] = useState<ProviderFormData>(EMPTY_FORM);
+  const { data: tileConfig } = useTileConfig();
+  // v1047 OAUTH-01 (Codex P2): derive the callback from the CONFIGURED public
+  // API URL (what the backend builds redirect_uri from, same as SAML settings),
+  // NOT the browser origin — split frontend/API hosts, reverse proxies, or a
+  // custom API root would otherwise hand admins the wrong redirect URI.
+  const oauthCallbackUrl = `${getPublicApiBaseUrl(tileConfig) ?? `${window.location.origin}/api`}/auth/oauth/${form.slug || '<provider>'}/callback`;
 
   function openAddDialog() {
     setEditingProvider(null);
@@ -472,7 +480,7 @@ function OAuthProvidersSection({ envOnly }: { envOnly: boolean }) {
               <div className="flex items-center gap-2">
                 <Input
                   id="callback-url"
-                  value={`${window.location.origin}/api/auth/oauth/${form.slug || '<provider>'}/callback`}
+                  value={oauthCallbackUrl}
                   readOnly
                   className="font-mono text-xs"
                 />
@@ -483,7 +491,7 @@ function OAuthProvidersSection({ envOnly }: { envOnly: boolean }) {
                   aria-label={t('settings.oauth.copyCallbackUrl', { defaultValue: 'Copy callback URL' })}
                   onClick={() => {
                     navigator.clipboard.writeText(
-                      `${window.location.origin}/api/auth/oauth/${form.slug || '<provider>'}/callback`,
+                      oauthCallbackUrl,
                     );
                     toast.success(
                       t('settings.oauth.callbackUrlCopied', { defaultValue: 'Callback URL copied to clipboard' }),
