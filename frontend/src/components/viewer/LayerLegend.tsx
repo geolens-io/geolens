@@ -119,6 +119,10 @@ function GraduatedLegend({
   const rawColor = paint[colorPaintKey(layer.geometry_type)];
   const parsedColor = parsePaintColors(rawColor);
   const colorColumn = expressionColumn(rawColor);
+  // parsePaintColors only handles data-driven expressions; a constant fill is a
+  // plain string, so fall back to it (the layer's real color) before gray.
+  const constantColor =
+    (typeof rawColor === 'string' ? rawColor : undefined) ?? MAP_COLORS.fallback;
 
   if (styleConfig.target === 'radius' && styleConfig.sizes) {
     return (
@@ -129,7 +133,7 @@ function GraduatedLegend({
         <GraduatedRadiusLegend
           sizes={styleConfig.sizes}
           breaks={breaks}
-          circleColor={parsedColor?.colors[0] ?? MAP_COLORS.fallback}
+          circleColor={parsedColor?.colors[0] ?? constantColor}
           style={swatchStyle}
         />
         {parsedColor && colorColumn && colorColumn !== styleConfig.column && (
