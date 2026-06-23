@@ -230,7 +230,11 @@ class MapVisibility(str, Enum):
 class TerrainConfig(BaseModel):
     enabled: bool = Field(default=False)
     source_dataset_id: uuid.UUID | None = Field(default=None)
-    exaggeration: float = Field(default=1.0, ge=0.0, le=10.0)
+    # Upper bound matches the frontend TERRAIN_EXAGGERATION_MAX (map-sync.ts) and the
+    # DEM editor slider cap. The frontend clamps the rendered value to [0, 3], so a
+    # stored value > 3 silently rendered as 3 — accept only what the client can
+    # actually render to keep the stored value and the mesh in agreement.
+    exaggeration: float = Field(default=1.0, ge=0.0, le=3.0)
 
     model_config = ConfigDict(extra="forbid")
 
