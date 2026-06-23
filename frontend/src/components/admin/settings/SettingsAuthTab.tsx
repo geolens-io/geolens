@@ -500,13 +500,22 @@ function OAuthProvidersSection({ envOnly }: { envOnly: boolean }) {
                   // copying so an admin can't register a premature value.
                   disabled={tileConfigLoading}
                   aria-label={t('settings.oauth.copyCallbackUrl', { defaultValue: 'Copy callback URL' })}
-                  onClick={() => {
-                    navigator.clipboard.writeText(
-                      oauthCallbackUrl,
-                    );
-                    toast.success(
-                      t('settings.oauth.callbackUrlCopied', { defaultValue: 'Callback URL copied to clipboard' }),
-                    );
+                  onClick={async () => {
+                    // #305: the Clipboard API is unavailable on non-secure
+                    // (HTTP) origins and can reject — await + catch so a failure
+                    // surfaces an error toast instead of a false success / throw.
+                    try {
+                      await navigator.clipboard.writeText(oauthCallbackUrl);
+                      toast.success(
+                        t('settings.oauth.callbackUrlCopied', { defaultValue: 'Callback URL copied to clipboard' }),
+                      );
+                    } catch {
+                      toast.error(
+                        t('settings.oauth.callbackUrlCopyFailed', {
+                          defaultValue: 'Could not copy — copy the URL manually.',
+                        }),
+                      );
+                    }
                   }}
                 >
                   <Copy className="h-4 w-4" />

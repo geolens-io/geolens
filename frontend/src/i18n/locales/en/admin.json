@@ -637,7 +637,8 @@
       "callbackUrl": "Redirect / Callback URL",
       "copyCallbackUrl": "Copy callback URL",
       "callbackUrlCopied": "Callback URL copied to clipboard",
-      "callbackUrlHint": "Register this URL with your provider (Google, Microsoft, or GitHub) as the authorized redirect / callback URL. It must match the deployment’s configured Public API URL (set PUBLIC_API_URL, or the Public API URL in General settings), or OAuth sign-in fails with a redirect mismatch."
+      "callbackUrlHint": "Register this URL with your provider (Google, Microsoft, or GitHub) as the authorized redirect / callback URL. It must match the deployment’s configured Public API URL (set PUBLIC_API_URL, or the Public API URL in General settings), or OAuth sign-in fails with a redirect mismatch.",
+      "callbackUrlCopyFailed": "Could not copy — copy the URL manually."
     }
   },
   "saml": {
