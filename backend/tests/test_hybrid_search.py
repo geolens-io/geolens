@@ -739,7 +739,7 @@ async def test_semantic_vector_only_pagination(
         )
     await session.commit()
 
-    async def _page(offset: int) -> list[str]:
+    async def _page(offset: int) -> tuple[list[str], int]:
         with patch(
             "app.modules.catalog.search.service_semantic.generate_embedding",
             new_callable=AsyncMock,
@@ -750,13 +750,18 @@ async def test_semantic_vector_only_pagination(
                 params={"q": "zzznolexicalmatchxyz", "limit": 2, "offset": offset},
             )
         assert r.status_code == 200
-        return [
-            f["properties"]["title"]
-            for f in r.json()["features"]
-            if f.get("properties")
+        body = r.json()
+        titles = [
+            f["properties"]["title"] for f in body["features"] if f.get("properties")
         ]
+        return titles, body.get("numberMatched", 0)
 
-    page1 = await _page(0)
-    page2 = await _page(2)
+    page1, matched = await _page(0)
+    page2, _ = await _page(2)
     assert len(page2) >= 1, "second page of semantic-only results must not be empty"
     assert set(page1).isdisjoint(set(page2)), "pages must not overlap"
+    # numberMatched must reflect ALL five semantic matches, not just the page window,
+    # or the router omits the `next` link (Codex round-4 count fix).
+    assert matched >= 5, (
+        f"numberMatched should count all semantic matches, got {matched}"
+    )

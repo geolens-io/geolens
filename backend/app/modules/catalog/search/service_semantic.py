@@ -7,7 +7,7 @@ import uuid as uuid_mod
 from collections import OrderedDict
 
 import structlog
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from sqlalchemy.sql.elements import Label
@@ -118,31 +118,33 @@ async def _get_vector_ranks(
     query_text: str,
     limit: int,
     restrict_stmt: Select | None = None,
-) -> dict[str, int]:
-    """Run vector similarity search and return {record_id_hex: rank} mapping.
+) -> tuple[dict[str, int], list[float] | None]:
+    """Run vector similarity search.
 
     ``restrict_stmt`` is a ``select(Record.id)`` carrying the active visibility +
     search filters; when provided, the cosine top-k is computed ONLY over records
     in that set, so a nearer but non-visible / filtered-out embedding cannot crowd
     a valid match out of the top ``limit`` rows.
 
-    Returns an empty dict on any failure (silent fallback).
+    Returns ``({record_id_hex: rank}, query_vector)``. The query vector is returned
+    so the caller can run an accurate total-match COUNT (which the ``limit``-bounded
+    ranks cannot provide). Returns ``({}, None)`` on any failure (silent fallback).
     """
     # Check if any embeddings exist at all
     if not await get_catalog_port().has_embeddings(session):
-        return {}
+        return {}, None
 
     # Generate query embedding
     try:
         query_vector = await generate_embedding(query_text.strip(), session)
     except EmbeddingUnavailableError:
         logger.warning("Embedding unavailable for semantic search, falling back to FTS")
-        return {}
+        return {}, None
     except Exception:  # broad: third-party embedding SDK can throw provider-specific errors; fall back to FTS
         logger.warning(
             "Failed to generate query embedding, falling back to FTS", exc_info=True
         )
-        return {}
+        return {}, None
 
     try:
         # Get current model name for filtering
@@ -177,10 +179,10 @@ async def _get_vector_ranks(
         logger.warning(
             "Vector similarity query failed, falling back to FTS", exc_info=True
         )
-        return {}
+        return {}, None
 
     # Assign positional ranks (1-based)
-    return {str(row.record_id): rank + 1 for rank, row in enumerate(rows)}
+    return {str(row.record_id): rank + 1 for rank, row in enumerate(rows)}, query_vector
 
 
 def _compute_rrf_scores(
@@ -243,8 +245,9 @@ async def _run_rrf_merge(
     page_end = filters.skip + filters.limit
     # Vector similarity ranks, restricted to the visibility/filter-vetted set so the
     # cosine top-k contains only records the caller may see that satisfy every active
-    # filter (empty dict on any failure = FTS-only).
-    vector_ranks = await _get_vector_ranks(
+    # filter (empty dict on any failure = FTS-only). The query vector is returned for
+    # the total-match count below.
+    vector_ranks, query_vector = await _get_vector_ranks(
         session, q_stripped, page_end, restrict_stmt=vet_stmt
     )
 
@@ -271,27 +274,33 @@ async def _run_rrf_merge(
 
     # RRF over FTS results UNION the (already vetted) vector matches. vector_ranks
     # is pre-filtered for visibility + every active filter via restrict_stmt, so it
-    # can be unioned directly.
-    fts_id_set = set(fts_ids)
-    vector_only_ids = [rid for rid in vector_ranks if rid not in fts_id_set]
-
-    # `total` is the full FTS match count. A vector-only id (absent from the capped
-    # fts_ids) may STILL be a full FTS match that ranked below fts_cap and is already
-    # counted -- so only count vector matches that are NOT FTS matches as additional,
-    # to avoid inflating numberMatched into empty trailing pages.
-    if vector_only_ids:
-        candidate_uuids = [uuid_mod.UUID(rid) for rid in vector_only_ids]
-        fts_match_stmt = (
-            select(Record.id)
-            .select_from(Dataset)
-            .join(Record, Dataset.record_id == Record.id)
-            .where(stmt.whereclause)
-            .where(Record.id.in_(candidate_uuids))
+    # can be unioned directly. (Only the top page_end ranks are fetched -- enough to
+    # fill the requested page; the accurate match total is computed separately.)
+    #
+    # numberMatched must count ALL semantic matches, not just the page_end window, or
+    # a semantic-only search drops its `next` link (offset+limit >= total) while later
+    # pages still have results. Count vetted vector matches that are NOT also FTS
+    # matches (those are already in `total`) via a single COUNT -- record_embeddings
+    # holds one row per record, so this scans the catalog, not feature rows.
+    fts_match_subq = (
+        select(Record.id)
+        .select_from(Dataset)
+        .join(Record, Dataset.record_id == Record.id)
+        .where(stmt.whereclause)
+    )
+    model_name = await EMBEDDING_MODEL.get(session)
+    RecordEmbedding = get_catalog_port().record_embedding_orm_class()
+    new_count_stmt = (
+        select(func.count())
+        .select_from(RecordEmbedding)
+        .where(
+            RecordEmbedding.model_name == model_name,
+            RecordEmbedding.embedding.cosine_distance(query_vector) <= 0.7,
+            RecordEmbedding.record_id.in_(vet_stmt),
+            RecordEmbedding.record_id.notin_(fts_match_subq),
         )
-        fts_matching = {
-            str(rid) for rid in (await session.execute(fts_match_stmt)).scalars().all()
-        }
-        total += sum(1 for rid in vector_only_ids if rid not in fts_matching)
+    )
+    total += (await session.execute(new_count_stmt)).scalar_one()
 
     rrf_ordered = _compute_rrf_scores(fts_ids, vector_ranks)
 
