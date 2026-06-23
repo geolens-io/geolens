@@ -633,7 +633,11 @@
         "viewer": "Viewer",
         "editor": "Editor",
         "admin": "Admin"
-      }
+      },
+      "callbackUrl": "Redirect / Callback URL",
+      "copyCallbackUrl": "Copy callback URL",
+      "callbackUrlCopied": "Callback URL copied to clipboard",
+      "callbackUrlHint": "Register this exact URL as the authorized redirect / callback URL with your provider (Google, Microsoft, or GitHub)."
     }
   },
   "saml": {

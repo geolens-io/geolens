@@ -678,7 +678,8 @@
     "copyFailed": "Failed to copy",
     "prev": "Previous feature",
     "next": "Next feature",
-    "close": "Close popup"
+    "close": "Close popup",
+    "dialogLabel": "Feature details"
   },
   "descriptionPlaceholder": "Add a description...",
   "titleBar": {

@@ -9,7 +9,10 @@
   "empty": {
     "title": "No results found",
     "description": "Try adjusting your search query or filters",
-    "cta": "Import your first dataset"
+    "cta": "Import your first dataset",
+    "catalogTitle": "Your catalog is empty",
+    "catalogDescription": "Import a dataset to start building your geospatial catalog.",
+    "clear": "Clear search & filters"
   },
   "error": {
     "message": "Failed to load results: {{message}}"

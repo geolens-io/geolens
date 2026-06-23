@@ -9,7 +9,10 @@
   "empty": {
     "title": "Keine Datensätze gefunden",
     "description": "Passen Sie Ihre Suchanfrage oder Filter an",
-    "cta": "Importieren Sie Ihren ersten Datensatz"
+    "cta": "Importieren Sie Ihren ersten Datensatz",
+    "catalogTitle": "Ihr Katalog ist leer",
+    "catalogDescription": "Importieren Sie ein Dataset, um Ihren Geodatenkatalog aufzubauen.",
+    "clear": "Suche und Filter zurücksetzen"
   },
   "error": {
     "message": "Ergebnisse konnten nicht geladen werden: {{message}}"

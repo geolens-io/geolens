@@ -596,7 +596,11 @@
         "editor": "Éditeur",
         "admin": "Administrateur"
       },
-      "loadFailed": "Impossible de charger les fournisseurs OAuth"
+      "loadFailed": "Impossible de charger les fournisseurs OAuth",
+      "callbackUrl": "URL de redirection / de rappel",
+      "copyCallbackUrl": "Copier l'URL de rappel",
+      "callbackUrlCopied": "URL de rappel copiée dans le presse-papiers",
+      "callbackUrlHint": "Enregistrez cette URL exacte comme URL de redirection / de rappel autorisée auprès de votre fournisseur (Google, Microsoft ou GitHub)."
     },
     "notifications": {
       "title": "Notifications sortantes",

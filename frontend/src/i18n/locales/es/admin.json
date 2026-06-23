@@ -596,7 +596,11 @@
         "editor": "Editor",
         "admin": "Administrador"
       },
-      "loadFailed": "No se pudieron cargar los proveedores OAuth"
+      "loadFailed": "No se pudieron cargar los proveedores OAuth",
+      "callbackUrl": "URL de redirección / devolución de llamada",
+      "copyCallbackUrl": "Copiar URL de devolución de llamada",
+      "callbackUrlCopied": "URL de devolución de llamada copiada al portapapeles",
+      "callbackUrlHint": "Registra esta URL exacta como la URL de redirección / devolución de llamada autorizada con tu proveedor (Google, Microsoft o GitHub)."
     },
     "notifications": {
       "title": "Notificaciones salientes",

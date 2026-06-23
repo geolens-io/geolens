@@ -38,7 +38,9 @@
     "virtualRaster": "Ráster Virtual",
     "skipToContent": "Ir al contenido principal",
     "mainNavigation": "Navegación principal",
-    "github": "Dar estrella en GitHub"
+    "github": "Dar estrella en GitHub",
+    "lightMode": "Modo claro",
+    "darkMode": "Modo oscuro"
   },
   "theme": {
     "toggle": "Cambiar tema",

@@ -38,7 +38,9 @@
     "virtualRaster": "Raster Virtuel",
     "skipToContent": "Aller au contenu principal",
     "mainNavigation": "Navigation principale",
-    "github": "Donner une étoile sur GitHub"
+    "github": "Donner une étoile sur GitHub",
+    "lightMode": "Mode clair",
+    "darkMode": "Mode sombre"
   },
   "theme": {
     "toggle": "Changer le thème",

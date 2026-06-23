@@ -678,7 +678,8 @@
     "copyFailed": "Échec de la copie",
     "prev": "Entité précédente",
     "next": "Entité suivante",
-    "close": "Fermer la popup"
+    "close": "Fermer la popup",
+    "dialogLabel": "Détails de l'entité"
   },
   "descriptionPlaceholder": "Ajouter une description...",
   "titleBar": {

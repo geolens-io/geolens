@@ -678,7 +678,8 @@
     "copyFailed": "Error al copiar",
     "prev": "Elemento anterior",
     "next": "Elemento siguiente",
-    "close": "Cerrar popup"
+    "close": "Cerrar popup",
+    "dialogLabel": "Detalles del elemento"
   },
   "descriptionPlaceholder": "Agregar una descripción...",
   "titleBar": {

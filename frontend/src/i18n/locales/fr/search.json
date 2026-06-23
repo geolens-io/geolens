@@ -9,7 +9,10 @@
   "empty": {
     "title": "Aucun jeu de données trouvé",
     "description": "Essayez d'ajuster votre recherche ou vos filtres",
-    "cta": "Importez votre premier jeu de données"
+    "cta": "Importez votre premier jeu de données",
+    "catalogTitle": "Votre catalogue est vide",
+    "catalogDescription": "Importez un jeu de données pour commencer à constituer votre catalogue géospatial.",
+    "clear": "Effacer la recherche et les filtres"
   },
   "error": {
     "message": "Échec du chargement des résultats : {{message}}"
