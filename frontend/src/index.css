@@ -405,6 +405,17 @@
   background-size: 16px 16px;
 }
 
+/* ── v1047 STANDALONE-01 standalone-page surface gradient ──────────────────
+   Subtle branded depth for full-page surfaces (login, public viewers). The
+   prior inline gradients wrapped OKLCH tokens in hsl() — invalid CSS that
+   computed to `none` (flat/sparse first impression). color-mix(in oklab, …)
+   resolves correctly in both light and dark. */
+.app-surface-gradient {
+  background-image:
+    radial-gradient(circle at top, color-mix(in oklab, var(--primary) 10%, transparent), transparent 42%),
+    linear-gradient(180deg, var(--background), color-mix(in oklab, var(--muted) 45%, var(--background)));
+}
+
 /* ── Base Layer ─────────────────────────────────────── */
 @layer base {
   * {

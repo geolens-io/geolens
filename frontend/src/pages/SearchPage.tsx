@@ -83,7 +83,7 @@ export function SearchPage() {
       <PageShell maxWidth="wide" className="pb-8 pt-5 sm:pt-6">
         <div className="grid gap-5 lg:grid-cols-[18rem_minmax(0,1fr)] xl:grid-cols-[20rem_minmax(0,1fr)]">
           <aside className="hidden lg:block">
-            <div className="sticky top-24 max-h-[calc(100vh-6rem)] overflow-y-auto">
+            <div className="sticky top-16 max-h-[calc(100vh-5rem)] overflow-y-auto">
               <FilterPanel
                 totalResults={totalMatched > 0 ? totalMatched : undefined}
                 showMobile={false}
@@ -154,7 +154,7 @@ export function SearchPage() {
             )}
 
             {data && data.features.length > 0 && (
-              <div ref={resultsRef} tabIndex={-1} className="scroll-mt-24 space-y-3 outline-none">
+              <div ref={resultsRef} tabIndex={-1} className="scroll-mt-20 space-y-3 outline-none">
                 {/* CATALOG-01: in-context results header — visible at all widths,
                     unlike the count that previously lived only in the desktop rail. */}
                 <div className="flex items-center justify-between gap-3 px-0.5">
