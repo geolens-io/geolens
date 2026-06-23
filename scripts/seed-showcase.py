@@ -839,14 +839,18 @@ def build_matterhorn(api: Api, force: bool = False) -> str:
         )
         print(f"  + {len(peaks_fc['features'])} named peaks labeled")
     # Camera tightened onto the summit so the DEM-footprint edge (and its -10000 m
-    # void) stays out of frame; terrain exaggeration 1.6x.
+    # void) stays out of frame. Exaggeration is 1.0 (true vertical scale): the DEM
+    # has a small ~3 km footprint, so anything above 1.0 amplifies the "pedestal"
+    # (an isolated tower over the 0 m out-of-footprint plane) the moment the camera
+    # zooms out past this framing. The durable fix is a global base DEM (see the
+    # terrain pedestal plan); true scale is the correct interim default.
     api.set_view(
         map_id,
         visibility="public",
         terrain_config={
             "enabled": True,
             "source_dataset_id": vrt_ds,
-            "exaggeration": 1.6,
+            "exaggeration": 1.0,
         },
         center_lng=7.6586,
         center_lat=45.9750,
