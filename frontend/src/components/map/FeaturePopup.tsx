@@ -419,6 +419,12 @@ function ValueDisplay({
             e.stopPropagation();
             setExpanded(true);
           }}
+          // Keep Enter/Space on this button from bubbling to the surrounding
+          // property row, whose keydown handler copies the value + preventDefaults
+          // (which would otherwise hijack the button's own activation). #313 a11y.
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') e.stopPropagation();
+          }}
         >
           ...
         </button>
