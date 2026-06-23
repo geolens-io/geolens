@@ -121,6 +121,35 @@ describe('LayerLegend', () => {
     expect(container.querySelector('circle[fill="#cccccc"]')).toBeNull();
   });
 
+  it('shows a raster icon, not a colored point swatch, for raster layers', () => {
+    // Regression: raster layers (no vector fill) were given the #6366f1 default
+    // color + a point swatch. They should render a raster icon like the builder.
+    const rasterLayer = layer({
+      id: 'raster-1',
+      display_name: 'Sentinel-2 scene 1',
+      layer_type: 'raster_geolens',
+      dataset_record_type: 'raster_dataset',
+      // geometry_type stays 'POINT' (as real raster layers report) so the bug —
+      // a purple circle swatch — is what we assert is gone.
+      paint: {},
+      style_config: null,
+    });
+
+    const { container } = render(
+      <LayerLegend
+        layers={[rasterLayer]}
+        visibleLayers={new Set(['raster-1'])}
+        onToggleVisibility={vi.fn()}
+        isOpen
+        onToggle={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText('Sentinel-2 scene 1')).toBeInTheDocument();
+    expect(container.querySelector('[fill="#6366f1"]')).toBeNull();
+    expect(container.querySelector('circle[fill="#6366f1"]')).toBeNull();
+  });
+
   it('uses stable layer keys for duplicate sort orders', () => {
     const onToggleVisibility = vi.fn();
     render(

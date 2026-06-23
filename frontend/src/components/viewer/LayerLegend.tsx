@@ -11,9 +11,10 @@ import {
   HeatmapLegend,
 } from '@/components/map/LegendEntries';
 import type { SwatchStyle } from '@/components/map/LegendEntries';
-import { Eye, EyeOff, Layers, Mountain, X } from 'lucide-react';
+import { Eye, EyeOff, Grid3x3, Layers, Mountain, X } from 'lucide-react';
 import { parseStepOrInterpolate } from '@/lib/normalize-style-config';
 import { MAP_COLORS } from '@/lib/map-colors';
+import { getLayerCapabilities } from '@/lib/layer-capabilities';
 import { createViewerLayerEntries } from '@/components/viewer/layer-identity';
 import {
   deriveTerrainLegendEntry,
@@ -280,7 +281,15 @@ export function LayerLegend({
             const isVisible = visibleLayers.has(key);
             const sc = layer.style_config;
             const isHeatmap = sc?.render_mode === 'heatmap';
-            const color = isHeatmap ? null : getLayerColors({
+            // Raster/VRT layers have no vector fill — show a raster icon (as the
+            // builder does), not the colored point/polygon swatch + default color.
+            const caps = getLayerCapabilities({
+              layer_type: layer.layer_type,
+              dataset_record_type: layer.dataset_record_type,
+              dataset_geometry_type: layer.geometry_type,
+            });
+            const isRasterLike = caps.kind === 'raster' || caps.kind === 'vrt';
+            const color = isHeatmap || isRasterLike ? null : getLayerColors({
               dataset_geometry_type: layer.geometry_type ?? null,
               paint: layer.paint ?? {},
               style_config: sc,
@@ -290,9 +299,15 @@ export function LayerLegend({
             return (
               <li key={key} className="px-3 py-2 hover:bg-accent/50">
                 <div className="flex items-center gap-2">
-                  {color && (
+                  {isRasterLike ? (
+                    caps.kind === 'vrt' ? (
+                      <Layers className="w-3.5 h-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+                    ) : (
+                      <Grid3x3 className="w-3.5 h-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+                    )
+                  ) : color ? (
                     <GeometrySwatch geometryType={layer.geometry_type} color={color} />
-                  )}
+                  ) : null}
                   <span className="text-sm text-foreground flex-1 line-clamp-2" title={layerName}>
                     {layerName}
                   </span>
