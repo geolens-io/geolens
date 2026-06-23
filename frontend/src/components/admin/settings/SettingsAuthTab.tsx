@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { Pencil, Trash2, Plus } from 'lucide-react';
+import { Pencil, Trash2, Plus, Copy } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
@@ -461,6 +461,43 @@ function OAuthProvidersSection({ envOnly }: { envOnly: boolean }) {
               />
               <p className="text-xs text-muted-foreground">
                 {t('settings.oauth.slugHint')}
+              </p>
+            </div>
+
+            {/* v1047 OAUTH-01: read-only redirect/callback URL admins must register with the provider. */}
+            <div className="space-y-2">
+              <Label htmlFor="callback-url">
+                {t('settings.oauth.callbackUrl', { defaultValue: 'Redirect / Callback URL' })}
+              </Label>
+              <div className="flex items-center gap-2">
+                <Input
+                  id="callback-url"
+                  value={`${window.location.origin}/api/auth/oauth/${form.slug || '<provider>'}/callback`}
+                  readOnly
+                  className="font-mono text-xs"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  aria-label={t('settings.oauth.copyCallbackUrl', { defaultValue: 'Copy callback URL' })}
+                  onClick={() => {
+                    navigator.clipboard.writeText(
+                      `${window.location.origin}/api/auth/oauth/${form.slug || '<provider>'}/callback`,
+                    );
+                    toast.success(
+                      t('settings.oauth.callbackUrlCopied', { defaultValue: 'Callback URL copied to clipboard' }),
+                    );
+                  }}
+                >
+                  <Copy className="h-4 w-4" />
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {t('settings.oauth.callbackUrlHint', {
+                  defaultValue:
+                    'Register this exact URL as the authorized redirect / callback URL with your provider (Google, Microsoft, or GitHub).',
+                })}
               </p>
             </div>
 
