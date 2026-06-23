@@ -38,13 +38,15 @@ async def _create_search_dataset(
     name: str,
     keywords: list[str] | None = None,
     description: str | None = None,
+    visibility: str = "public",
+    geometry_type: str = "MultiPolygon",
 ) -> Dataset:
     """Insert a Record + Dataset pair for hybrid search tests."""
     table_name = f"ds_{uuid.uuid4().hex[:12]}"
     record = Record(
         title=name,
         summary=description or f"Description for {name}",
-        visibility="public",
+        visibility=visibility,
         record_status="published",
         created_by=created_by,
     )
@@ -60,7 +62,7 @@ async def _create_search_dataset(
         record_id=record.id,
         table_name=table_name,
         srid=4326,
-        geometry_type="MultiPolygon",
+        geometry_type=geometry_type,
         feature_count=10,
         source_format="geojson",
         source_filename="test.geojson",
@@ -82,6 +84,19 @@ def _make_vector(base_value: float, dim: int = 1536) -> list[float]:
     for i in range(min(10, dim)):
         vec[i] = base_value + (i * 0.01)
     # Normalize roughly
+    magnitude = sum(v * v for v in vec) ** 0.5
+    return [v / magnitude for v in vec]
+
+
+def _make_vector_band(base_value: float, dim: int = 1536, lo: int = 40) -> list[float]:
+    """Vector with its signal in dims [lo, lo+10) and ZEROS elsewhere.
+
+    Orthogonal to ``_make_vector`` (dims 0..9), so a query built here matches only
+    records embedded here — isolating a test from other tests' committed vectors.
+    """
+    vec = [0.0] * dim
+    for i in range(lo, min(lo + 10, dim)):
+        vec[i] = base_value + ((i - lo) * 0.01)
     magnitude = sum(v * v for v in vec) ** 0.5
     return [v / magnitude for v in vec]
 
@@ -473,3 +488,280 @@ def test_compute_rrf_scores_basic():
     assert result[2] == "a", f"Expected 'a' third, got {result}"
     # d has lowest score
     assert result[3] == "d", f"Expected 'd' last, got {result}"
+
+
+# ---------------------------------------------------------------------------
+# Tests: true semantic retrieval — vector-only matches are surfaced, but
+# never leak non-visible datasets (visibility-aware RRF union)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_semantic_surfaces_vector_only_match(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    hybrid_datasets_with_embeddings: dict,
+    hybrid_vectors: dict[str, list[float]],
+):
+    """A record that matches by MEANING but not by keyword is surfaced.
+
+    Query text that matches NO dataset lexically, with the query embedding close
+    to the 'roads'/'railways' vectors -> those vector-only matches must appear
+    (previously the RRF merge excluded vector-only ids and returned nothing).
+    """
+    with patch(
+        "app.modules.catalog.search.service_semantic.generate_embedding",
+        new_callable=AsyncMock,
+        return_value=hybrid_vectors["transport"],
+    ):
+        resp = await client.get(
+            "/search/datasets/",
+            params={"q": "zzznolexicalmatchxyz"},
+            headers=admin_auth_header,
+        )
+    assert resp.status_code == 200
+    titles = {
+        f["properties"]["title"] for f in resp.json()["features"] if f.get("properties")
+    }
+    # transport (1.0) is close to roads (0.95) + railways (0.90); far from
+    # population (-0.5) / rivers (-0.8) which exceed the 0.7 distance cutoff.
+    assert "Roads and Highways Network" in titles
+    assert "Railway Network Lines" in titles
+
+
+@pytest.mark.anyio
+async def test_semantic_vector_only_does_not_leak_private(
+    client: AsyncClient,
+    hybrid_datasets_with_embeddings: dict,
+    hybrid_vectors: dict[str, list[float]],
+    test_db_session,
+):
+    """A PRIVATE vector-only match must never surface to an anonymous caller.
+
+    The vector query (_get_vector_ranks) is not visibility-filtered, so the RRF
+    union must run vector-only candidates through apply_visibility_filter. A
+    private record with a near-perfect embedding match + a non-lexical title is
+    the exact leak this guards against.
+    """
+    session = test_db_session
+    admin_id = await get_user_id(session, "admin")
+
+    private_ds = await _create_search_dataset(
+        session,
+        created_by=admin_id,
+        name="Classified Restricted Layer",  # no lexical overlap with the query
+        description="Sensitive private dataset",
+        visibility="private",
+    )
+    session.add(
+        RecordEmbedding(
+            record_id=private_ds.record_id,
+            embedding=hybrid_vectors["transport"],  # ~identical to the query vector
+            model_name="text-embedding-3-small",
+            content_hash="test_hash_private_leak",
+        )
+    )
+    await session.commit()
+
+    # Anonymous request (no auth header) — filter_visible restricts to public.
+    with patch(
+        "app.modules.catalog.search.service_semantic.generate_embedding",
+        new_callable=AsyncMock,
+        return_value=hybrid_vectors["transport"],
+    ):
+        resp = await client.get(
+            "/search/datasets/",
+            params={"q": "zzznolexicalmatchxyz"},
+        )
+    assert resp.status_code == 200
+    titles = {
+        f["properties"]["title"] for f in resp.json()["features"] if f.get("properties")
+    }
+    # The private record must NOT leak, even though its embedding is the closest match.
+    assert "Classified Restricted Layer" not in titles
+    # ...but a PUBLIC vector-only match still surfaces (semantic retrieval works for anon).
+    assert "Roads and Highways Network" in titles
+
+
+@pytest.mark.anyio
+async def test_semantic_vector_only_respects_active_filters(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    hybrid_datasets_with_embeddings: dict,
+    hybrid_vectors: dict[str, list[float]],
+    test_db_session,
+):
+    """A vector-only match must still satisfy the OTHER active filters.
+
+    With geometry_type=Point, a semantically similar POLYGON (vector-only, no
+    lexical hit) must NOT surface; only a Point dataset that also matches by
+    meaning may. Guards the filter-bypass the visibility-only check missed.
+    """
+    session = test_db_session
+    admin_id = await get_user_id(session, "admin")
+
+    point_ds = await _create_search_dataset(
+        session,
+        created_by=admin_id,
+        name="Transit Stops Inventory",  # no lexical overlap with the query
+        description="Point inventory",
+        geometry_type="Point",
+    )
+    session.add(
+        RecordEmbedding(
+            record_id=point_ds.record_id,
+            embedding=hybrid_vectors["transport"],
+            model_name="text-embedding-3-small",
+            content_hash="test_hash_point_geom",
+        )
+    )
+    await session.commit()
+
+    with patch(
+        "app.modules.catalog.search.service_semantic.generate_embedding",
+        new_callable=AsyncMock,
+        return_value=hybrid_vectors["transport"],
+    ):
+        resp = await client.get(
+            "/search/datasets/",
+            params={"q": "zzznolexicalmatchxyz", "geometry_type": "Point"},
+            headers=admin_auth_header,
+        )
+    assert resp.status_code == 200
+    titles = {
+        f["properties"]["title"] for f in resp.json()["features"] if f.get("properties")
+    }
+    # The Point vector-only match surfaces...
+    assert "Transit Stops Inventory" in titles
+    # ...but the MultiPolygon vector matches are excluded by geometry_type=Point.
+    assert "Roads and Highways Network" not in titles
+    assert "Railway Network Lines" not in titles
+
+
+@pytest.mark.anyio
+async def test_semantic_visible_match_not_crowded_out_by_nearer_private(
+    client: AsyncClient,
+    test_db_session,
+):
+    """A visible vector match must not be displaced from the top-k by nearer private ones.
+
+    With limit=2 and three PRIVATE records embedded nearer the query than the one
+    PUBLIC record, the public record must still surface — the cosine top-k is taken
+    over the visibility/filter-vetted set, not all embeddings (Codex P2a).
+    """
+    session = test_db_session
+    admin_id = await get_user_id(session, "admin")
+    dim = await _get_embedding_dim(session)
+    await _set_semantic_search(session, True)
+
+    public_ds = await _create_search_dataset(
+        session,
+        created_by=admin_id,
+        name="Open Transit Hub Index",  # no lexical overlap with the query
+        description="public",
+    )
+    session.add(
+        RecordEmbedding(
+            record_id=public_ds.record_id,
+            embedding=_make_vector_band(0.85, dim=dim),
+            model_name="text-embedding-3-small",
+            content_hash="p2a_public",
+        )
+    )
+    for i, base in enumerate((0.99, 0.98, 0.97)):
+        priv = await _create_search_dataset(
+            session,
+            created_by=admin_id,
+            name=f"Private Near Neighbour {i}",
+            description="private",
+            visibility="private",
+        )
+        session.add(
+            RecordEmbedding(
+                record_id=priv.record_id,
+                embedding=_make_vector_band(
+                    base, dim=dim
+                ),  # nearer than the public 0.85
+                model_name="text-embedding-3-small",
+                content_hash=f"p2a_priv_{i}",
+            )
+        )
+    await session.commit()
+
+    with patch(
+        "app.modules.catalog.search.service_semantic.generate_embedding",
+        new_callable=AsyncMock,
+        return_value=_make_vector_band(1.0, dim=dim),
+    ):
+        resp = await client.get(
+            "/search/datasets/",
+            params={"q": "zzznolexicalmatchxyz", "limit": 2},
+        )
+    assert resp.status_code == 200
+    titles = {
+        f["properties"]["title"] for f in resp.json()["features"] if f.get("properties")
+    }
+    assert "Open Transit Hub Index" in titles
+    for i in range(3):
+        assert f"Private Near Neighbour {i}" not in titles
+
+
+@pytest.mark.anyio
+async def test_semantic_vector_only_pagination(
+    client: AsyncClient,
+    test_db_session,
+):
+    """Later pages of semantic-only matches must not be empty (Codex round-3 P2).
+
+    With five vector-only matches and limit=2, page 2 (offset=2) must return
+    results distinct from page 1 — the vector fetch must reach skip+limit deep.
+    """
+    session = test_db_session
+    admin_id = await get_user_id(session, "admin")
+    dim = await _get_embedding_dim(session)
+    await _set_semantic_search(session, True)
+
+    # Five public datasets in an isolated vector band (lo=70), decreasing similarity.
+    for i, base in enumerate((0.99, 0.95, 0.90, 0.85, 0.80)):
+        ds = await _create_search_dataset(
+            session,
+            created_by=admin_id,
+            name=f"Band Catalog Layer {i}",  # no lexical overlap with the query
+            description="public",
+        )
+        session.add(
+            RecordEmbedding(
+                record_id=ds.record_id,
+                embedding=_make_vector_band(base, dim=dim, lo=70),
+                model_name="text-embedding-3-small",
+                content_hash=f"page_band_{i}",
+            )
+        )
+    await session.commit()
+
+    async def _page(offset: int) -> tuple[list[str], int]:
+        with patch(
+            "app.modules.catalog.search.service_semantic.generate_embedding",
+            new_callable=AsyncMock,
+            return_value=_make_vector_band(1.0, dim=dim, lo=70),
+        ):
+            r = await client.get(
+                "/search/datasets/",
+                params={"q": "zzznolexicalmatchxyz", "limit": 2, "offset": offset},
+            )
+        assert r.status_code == 200
+        body = r.json()
+        titles = [
+            f["properties"]["title"] for f in body["features"] if f.get("properties")
+        ]
+        return titles, body.get("numberMatched", 0)
+
+    page1, matched = await _page(0)
+    page2, _ = await _page(2)
+    assert len(page2) >= 1, "second page of semantic-only results must not be empty"
+    assert set(page1).isdisjoint(set(page2)), "pages must not overlap"
+    # numberMatched must reflect ALL five semantic matches, not just the page window,
+    # or the router omits the `next` link (Codex round-4 count fix).
+    assert matched >= 5, (
+        f"numberMatched should count all semantic matches, got {matched}"
+    )

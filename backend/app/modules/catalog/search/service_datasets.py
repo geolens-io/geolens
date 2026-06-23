@@ -212,7 +212,25 @@ async def search_datasets(
     # -- Hybrid semantic search with RRF --
     semantic_enabled = await SEMANTIC_SEARCH_ENABLED.get(session)
     if semantic_enabled and has_text_search and filters.q and filters.q.strip():
-        if rrf_result := await _run_rrf_merge(session, filters, stmt, rank_col, total):
+        # Vetting query for semantic vector-only candidates: identical visibility +
+        # common + search-only filters as the FTS `stmt`, but WITHOUT the text
+        # clause (vector-only hits match by meaning, not lexically). _run_rrf_merge
+        # constrains it to the candidate ids so a surfaced vector-only match
+        # satisfies every active filter (visibility, bbox, geometry_type, srid,
+        # keywords, dates, CQL) -- never leaking or violating a filter.
+        vet_stmt = (
+            select(Record.id)
+            .select_from(Dataset)
+            .join(Record, Dataset.record_id == Record.id)
+        )
+        vet_stmt = apply_visibility_filter(
+            vet_stmt, user, user_roles, Record, DatasetGrant
+        )
+        vet_stmt = _apply_common_filters(vet_stmt, filters, skip_text=True)
+        vet_stmt = _apply_search_only_filters(vet_stmt, filters)
+        if rrf_result := await _run_rrf_merge(
+            session, filters, stmt, rank_col, total, vet_stmt
+        ):
             return rrf_result
     # 6. Sort (standard FTS-only path or semantic=False)
     stmt = _resolve_sort_order(stmt, filters, has_text_search, rank_col)

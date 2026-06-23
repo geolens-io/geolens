@@ -7,7 +7,7 @@ import uuid as uuid_mod
 from collections import OrderedDict
 
 import structlog
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from sqlalchemy.sql.elements import Label
@@ -117,26 +117,34 @@ async def _get_vector_ranks(
     session: AsyncSession,
     query_text: str,
     limit: int,
-) -> dict[str, int]:
-    """Run vector similarity search and return {record_id_hex: rank} mapping.
+    restrict_stmt: Select | None = None,
+) -> tuple[dict[str, int], list[float] | None]:
+    """Run vector similarity search.
 
-    Returns an empty dict on any failure (silent fallback).
+    ``restrict_stmt`` is a ``select(Record.id)`` carrying the active visibility +
+    search filters; when provided, the cosine top-k is computed ONLY over records
+    in that set, so a nearer but non-visible / filtered-out embedding cannot crowd
+    a valid match out of the top ``limit`` rows.
+
+    Returns ``({record_id_hex: rank}, query_vector)``. The query vector is returned
+    so the caller can run an accurate total-match COUNT (which the ``limit``-bounded
+    ranks cannot provide). Returns ``({}, None)`` on any failure (silent fallback).
     """
     # Check if any embeddings exist at all
     if not await get_catalog_port().has_embeddings(session):
-        return {}
+        return {}, None
 
     # Generate query embedding
     try:
         query_vector = await generate_embedding(query_text.strip(), session)
     except EmbeddingUnavailableError:
         logger.warning("Embedding unavailable for semantic search, falling back to FTS")
-        return {}
+        return {}, None
     except Exception:  # broad: third-party embedding SDK can throw provider-specific errors; fall back to FTS
         logger.warning(
             "Failed to generate query embedding, falling back to FTS", exc_info=True
         )
-        return {}
+        return {}, None
 
     try:
         # Get current model name for filtering
@@ -147,20 +155,21 @@ async def _get_vector_ranks(
         RecordEmbedding = get_catalog_port().record_embedding_orm_class()
 
         # Vector similarity query: cosine distance <= 0.7 means similarity >= 0.3
-        vector_stmt = (
-            select(
-                RecordEmbedding.record_id,
-                RecordEmbedding.embedding.cosine_distance(query_vector).label(
-                    "distance"
-                ),
-            )
-            .where(
-                RecordEmbedding.model_name == model_name,
-                RecordEmbedding.embedding.cosine_distance(query_vector) <= 0.7,
-            )
-            .order_by("distance")
-            .limit(limit)
+        vector_stmt = select(
+            RecordEmbedding.record_id,
+            RecordEmbedding.embedding.cosine_distance(query_vector).label("distance"),
+        ).where(
+            RecordEmbedding.model_name == model_name,
+            RecordEmbedding.embedding.cosine_distance(query_vector) <= 0.7,
         )
+        if restrict_stmt is not None:
+            # Restrict candidates to the visibility/filter-vetted record set BEFORE
+            # the top-k cut, so private/filtered nearer neighbours can't displace a
+            # valid visible match out of the limit.
+            vector_stmt = vector_stmt.where(
+                RecordEmbedding.record_id.in_(restrict_stmt)
+            )
+        vector_stmt = vector_stmt.order_by("distance").limit(limit)
 
         result = await session.execute(vector_stmt)
         rows = result.all()
@@ -170,10 +179,10 @@ async def _get_vector_ranks(
         logger.warning(
             "Vector similarity query failed, falling back to FTS", exc_info=True
         )
-        return {}
+        return {}, None
 
     # Assign positional ranks (1-based)
-    return {str(row.record_id): rank + 1 for rank, row in enumerate(rows)}
+    return {str(row.record_id): rank + 1 for rank, row in enumerate(rows)}, query_vector
 
 
 def _compute_rrf_scores(
@@ -205,8 +214,20 @@ async def _run_rrf_merge(
     stmt: Select,
     rank_col: Label[float],
     total: int,
+    vet_stmt: Select,
 ) -> tuple[list[Dataset], int] | None:
     """Execute hybrid FTS+vector RRF merge and return paginated results.
+
+    Surfaces vector-only matches (records that are semantically similar but do
+    not lexically match the FTS query) IN ADDITION to re-ranking FTS hits. Since
+    ``_get_vector_ranks`` applies neither RBAC visibility nor the active search
+    filters, ``vet_stmt`` (a ``select(Record.id)`` with the same visibility +
+    bbox/geometry_type/srid/keywords/date/CQL filters as the FTS query, minus the
+    text clause) is passed as the vector query's ``restrict_stmt`` so the cosine
+    top-k is taken only over records the caller may see that satisfy every active
+    filter. This prevents leaking private/restricted datasets, returning records
+    that violate an active filter (e.g. a polygon under ``geometry_type=Point``),
+    AND a nearer non-visible neighbour displacing a valid match out of the top-k.
 
     Returns ``None`` when RRF doesn't apply (vector backend empty/failed).
     Caller falls through to the standard sort path on None.
@@ -219,8 +240,16 @@ async def _run_rrf_merge(
     if filters.q is None:
         raise ValueError("_run_rrf_merge requires filters.q to be non-None")
     q_stripped = filters.q.strip()
-    # Get vector similarity ranks (empty dict on any failure = FTS-only)
-    vector_ranks = await _get_vector_ranks(session, q_stripped, filters.limit)
+    # The RRF-ordered list is sliced [skip:skip+limit], so both candidate pools must
+    # reach at least skip+limit deep or a later page comes back empty.
+    page_end = filters.skip + filters.limit
+    # Vector similarity ranks, restricted to the visibility/filter-vetted set so the
+    # cosine top-k contains only records the caller may see that satisfy every active
+    # filter (empty dict on any failure = FTS-only). The query vector is returned for
+    # the total-match count below.
+    vector_ranks, query_vector = await _get_vector_ranks(
+        session, q_stripped, page_end, restrict_stmt=vet_stmt
+    )
 
     if not vector_ranks:
         logger.info(
@@ -232,8 +261,9 @@ async def _run_rrf_merge(
     # Get FTS-ranked record IDs (up to a reasonable cap for merging).
     # Strip the inherited eager-loads -- only record_id is needed at
     # this stage, so 4 wasted selectinload queries per request are
-    # avoided (PERF-8).
-    fts_cap = max(filters.limit * 3, 100)
+    # avoided (PERF-8). Cap must cover the requested page end (skip+limit) so
+    # offset pages aren't truncated, plus headroom for RRF re-ranking.
+    fts_cap = max(page_end * 3, 100)
     fts_stmt = (
         stmt.with_only_columns(Dataset.record_id)
         .order_by(rank_col.desc())
@@ -242,15 +272,37 @@ async def _run_rrf_merge(
     fts_result = await session.execute(fts_stmt)
     fts_ids = [str(row[0]) for row in fts_result.all()]
 
-    # Compute RRF-ranked order (only includes IDs from FTS results + vector results)
-    # Filter vector_ranks to only include IDs that appear in FTS results
-    # (vector-only results are excluded to keep it simple per plan)
-    fts_id_set = set(fts_ids)
-    filtered_vector_ranks = {
-        rid: rank for rid, rank in vector_ranks.items() if rid in fts_id_set
-    }
+    # RRF over FTS results UNION the (already vetted) vector matches. vector_ranks
+    # is pre-filtered for visibility + every active filter via restrict_stmt, so it
+    # can be unioned directly. (Only the top page_end ranks are fetched -- enough to
+    # fill the requested page; the accurate match total is computed separately.)
+    #
+    # numberMatched must count ALL semantic matches, not just the page_end window, or
+    # a semantic-only search drops its `next` link (offset+limit >= total) while later
+    # pages still have results. Count vetted vector matches that are NOT also FTS
+    # matches (those are already in `total`) via a single COUNT -- record_embeddings
+    # holds one row per record, so this scans the catalog, not feature rows.
+    fts_match_subq = (
+        select(Record.id)
+        .select_from(Dataset)
+        .join(Record, Dataset.record_id == Record.id)
+        .where(stmt.whereclause)
+    )
+    model_name = await EMBEDDING_MODEL.get(session)
+    RecordEmbedding = get_catalog_port().record_embedding_orm_class()
+    new_count_stmt = (
+        select(func.count())
+        .select_from(RecordEmbedding)
+        .where(
+            RecordEmbedding.model_name == model_name,
+            RecordEmbedding.embedding.cosine_distance(query_vector) <= 0.7,
+            RecordEmbedding.record_id.in_(vet_stmt),
+            RecordEmbedding.record_id.notin_(fts_match_subq),
+        )
+    )
+    total += (await session.execute(new_count_stmt)).scalar_one()
 
-    rrf_ordered = _compute_rrf_scores(fts_ids, filtered_vector_ranks)
+    rrf_ordered = _compute_rrf_scores(fts_ids, vector_ranks)
 
     # Apply pagination to RRF-ordered list
     page_ids = rrf_ordered[filters.skip : filters.skip + filters.limit]
