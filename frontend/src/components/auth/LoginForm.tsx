@@ -65,6 +65,7 @@ export function LoginForm() {
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
           <div className="flex flex-col gap-2">
             <Label htmlFor="username">{t('username')}</Label>
+            {/* v1047 A11Y-FORM-01: on a server error both credentials are suspect; mark fields invalid + describe by the error */}
             <Input
               id="username"
               type="text"
@@ -73,6 +74,8 @@ export function LoginForm() {
               placeholder={t('enterUsername')}
               required
               autoComplete="username"
+              aria-invalid={error ? true : undefined}
+              aria-describedby={error ? 'login-error' : undefined}
             />
           </div>
           <div className="flex flex-col gap-2">
@@ -87,6 +90,8 @@ export function LoginForm() {
                 required
                 autoComplete="current-password"
                 className="pe-11"
+                aria-invalid={error ? true : undefined}
+                aria-describedby={error ? 'login-error' : undefined}
               />
               <button
                 type="button"
@@ -103,7 +108,7 @@ export function LoginForm() {
             </div>
           </div>
           {error && (
-            <p role="alert" className="text-destructive text-sm">{error}</p>
+            <p id="login-error" role="alert" className="text-destructive text-sm">{error}</p>
           )}
           <Button
             type="submit"

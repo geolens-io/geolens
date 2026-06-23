@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { Link, NavLink, useLocation } from 'react-router';
 import { useTranslation } from 'react-i18next';
-import { ChevronDown, User, LogOut, Settings, Shield, Plus, Database, FolderOpen, Map, Menu, Layers, Upload, LogIn, LifeBuoy } from 'lucide-react';
+import { ChevronDown, User, LogOut, Settings, Shield, Plus, Database, FolderOpen, Map, Menu, Layers, Upload, LogIn, LifeBuoy, Sun, Moon } from 'lucide-react';
+import { useTheme } from '@/components/theme-provider';
 import { useAuth } from '@/hooks/use-auth';
 import { useReportDialog } from '@/lib/report';
 import { usePermissions } from '@/hooks/use-permissions';
@@ -120,6 +121,9 @@ function UserMenu() {
   const { t: tAuth } = useTranslation('auth');
   const { t: tReport } = useTranslation('report');
   const openReport = useReportDialog((s) => s.openReport);
+  // v1047 THEME-01: explicit light/dark override (default stays 'system', which
+  // already honors prefers-color-scheme). resolvedTheme drives the icon/label.
+  const { setTheme, resolvedTheme } = useTheme();
 
   // Anonymous: show sign-in button instead of user dropdown
   if (!user) {
@@ -180,6 +184,23 @@ function UserMenu() {
             <Settings className="h-4 w-4" />
             {t('nav.settings')}
           </Link>
+        </DropdownMenuItem>
+
+        {/* v1047 THEME-01: light/dark toggle (no UI affordance existed before) */}
+        <DropdownMenuItem
+          onClick={(e) => {
+            e.preventDefault();
+            setTheme(resolvedTheme === 'dark' ? 'light' : 'dark');
+          }}
+        >
+          {resolvedTheme === 'dark' ? (
+            <Sun className="h-4 w-4" />
+          ) : (
+            <Moon className="h-4 w-4" />
+          )}
+          {resolvedTheme === 'dark'
+            ? t('nav.lightMode', { defaultValue: 'Light mode' })
+            : t('nav.darkMode', { defaultValue: 'Dark mode' })}
         </DropdownMenuItem>
 
         {/* Admin (admin users only) */}

@@ -55,6 +55,7 @@ export function RegisterForm({ onSuccess }: RegisterFormProps) {
       </CardHeader>
       <CardContent>
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+          {/* v1047 A11Y-FORM-01: on a server error mark the credential fields invalid + describe by the error */}
           <div className="flex flex-col gap-2">
             <Label htmlFor="username">{t('username')}</Label>
             <Input
@@ -66,6 +67,8 @@ export function RegisterForm({ onSuccess }: RegisterFormProps) {
               required
               minLength={3}
               autoComplete="username"
+              aria-invalid={error ? true : undefined}
+              aria-describedby={error ? 'register-error' : undefined}
             />
           </div>
           <div className="flex flex-col gap-2">
@@ -78,6 +81,8 @@ export function RegisterForm({ onSuccess }: RegisterFormProps) {
               placeholder={t('enterEmail')}
               required
               autoComplete="email"
+              aria-invalid={error ? true : undefined}
+              aria-describedby={error ? 'register-error' : undefined}
             />
           </div>
           <div className="flex flex-col gap-2">
@@ -91,11 +96,13 @@ export function RegisterForm({ onSuccess }: RegisterFormProps) {
               required
               minLength={8}
               autoComplete="new-password"
+              aria-invalid={error ? true : undefined}
+              aria-describedby={error ? 'register-error' : undefined}
             />
             <p className="text-xs text-muted-foreground">{t('passwordRequirement')}</p>
           </div>
           {error && (
-            <p className="text-destructive text-sm" role="alert">{error}</p>
+            <p id="register-error" className="text-destructive text-sm" role="alert">{error}</p>
           )}
           <Button type="submit" disabled={loading || !username.trim() || !email.trim() || !password} className="w-full">
             {loading && <Loader2 className="size-4 animate-spin" />}
