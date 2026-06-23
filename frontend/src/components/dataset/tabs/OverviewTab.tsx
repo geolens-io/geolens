@@ -453,9 +453,9 @@ export function OverviewTab({
                           </TableRow>
                         </TableHeader>
                         <TableBody>
-                          {dataset.raster.bands.map((band) => (
-                            <TableRow key={band.index}>
-                              <TableCell>{band.index}</TableCell>
+                          {dataset.raster.bands.map((band, i) => (
+                            <TableRow key={i}>
+                              <TableCell>{band.index || i + 1}</TableCell>
                               <TableCell>{band.dtype}</TableCell>
                               <TableCell title={band.nodata != null ? String(band.nodata) : undefined}>{formatNodata(band.nodata)}</TableCell>
                               <TableCell>{band.color_interp && band.color_interp !== 'undefined' ? band.color_interp : t('common:notSpecified', { defaultValue: 'Not specified' })}</TableCell>
