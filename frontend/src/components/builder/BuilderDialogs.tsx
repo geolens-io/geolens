@@ -143,7 +143,7 @@ export function BuilderDialogs({
             <div className="flex justify-between items-center">
               <span className="text-muted-foreground">{t('info.visibility')}</span>
               <Badge variant="outline" className="flex items-center gap-1 text-xs">
-                <VisibilityIcon visibility={mapData.visibility ?? 'private'} />
+                <VisibilityIcon visibility={mapData.visibility ?? 'private'} withLabel={false} />
                 {getVisibilityLabel(t, mapData.visibility ?? 'private')}
               </Badge>
             </div>
