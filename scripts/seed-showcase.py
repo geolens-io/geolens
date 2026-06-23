@@ -59,9 +59,10 @@ GOTCHAS this script encodes (learned the hard way):
     MapLibre fills the mesh at the mapbox-encoding floor (-10000 m), so a small
     DEM looks like a floating slab. Keep draped vectors clipped to the DEM bbox
     and frame the camera inside it (both done for the Matterhorn below).
-  * GeoLens renders ONE MapLibre layer per dataset, so a colored line + a wide
-    casing line must come from TWO datasets (the same geometry ingested twice -
-    done for the Matterhorn route below).
+  * A line + a wider casing under it = TWO LAYERS on the SAME dataset. Map-sync
+    dedupes the tile source per dataset (SF-04), so two layers off one dataset
+    render as two MapLibre lines sharing one source - no need to ingest twice.
+    Done for the Matterhorn route and World Rivers below.
   * The live viewer's layer stack draws LOWER sort_order ON TOP (the inverse of
     the backend style order), so the line you want on top gets the LOWER
     sort_order: route=1 over casing=2, with peaks=3 underneath.
@@ -759,23 +760,16 @@ def build_matterhorn(api: Api, force: bool = False) -> str:
     if routes_fc["features"]:
         routes_bytes = json.dumps(routes_fc).encode()
         # A white casing under the red route makes it pop on the busy hillshade.
-        # GeoLens renders ONE MapLibre layer per dataset, so the casing must be the
-        # SAME geometry ingested as a SECOND dataset (one layer each). And the live
-        # viewer's stack draws LOWER sort_order ON TOP, so the route (wanted on top)
-        # takes the lower sort_order and the casing the higher.
+        # The casing is a second LAYER on the SAME dataset (map-sync dedupes the
+        # tile source per dataset), not a duplicate dataset. The live viewer's
+        # stack draws LOWER sort_order ON TOP, so the route (wanted on top) takes
+        # the lower sort_order and the casing the higher.
         routes_ds = api.ingest_geojson(
             "matterhorn_routes.geojson",
             routes_bytes,
             "Matterhorn Climbing Routes",
             "OSM alpine routes clipped to the swissALTI3D DEM footprint (incl. the "
             "Lion Ridge / cresta Leone Cervino). Source: OpenStreetMap contributors.",
-        )
-        casing_ds = api.ingest_geojson(
-            "matterhorn_route_casing.geojson",
-            routes_bytes,
-            "Matterhorn Route Casing",
-            "White casing under the climbing-route line (same geometry as the routes "
-            "dataset; separate so MapLibre renders it as its own layer).",
         )
         api.add_layer(
             map_id,
@@ -795,7 +789,7 @@ def build_matterhorn(api: Api, force: bool = False) -> str:
         api.add_layer(
             map_id,
             {
-                "dataset_id": casing_ds,
+                "dataset_id": routes_ds,
                 "sort_order": 2,
                 "opacity": 1.0,
                 "display_name": "Route casing",
@@ -1284,20 +1278,14 @@ def build_rivers(api: Api, force: bool = False) -> str:
     print("\n[rivers] World Rivers (line + casing, width by scalerank)")
     print("  downloading Natural Earth rivers...")
     rivers = fetch(NE_RIVERS)
-    # One MapLibre layer per dataset -> ingest the SAME geometry twice (line + casing).
+    # Casing = a second LAYER on the SAME dataset (a wider, darker line drawn
+    # underneath), not a duplicate dataset.
     line_ds = api.ingest_geojson(
         "world_rivers.geojson",
         rivers,
         "World Rivers & Lake Centerlines (Natural Earth 10m)",
         "Major rivers and lake centerlines worldwide, ranked by prominence. "
         "Source: Natural Earth, 1:10m (public domain).",
-    )
-    casing_ds = api.ingest_geojson(
-        "world_rivers_casing.geojson",
-        rivers,
-        "World Rivers - Casing",
-        "Wider casing under the river line (same geometry as the rivers dataset; "
-        "separate so MapLibre renders it as its own layer).",
     )
     map_id = api.create_map(
         "World Rivers",
@@ -1334,7 +1322,7 @@ def build_rivers(api: Api, force: bool = False) -> str:
     api.add_layer(
         map_id,
         {
-            "dataset_id": casing_ds,
+            "dataset_id": line_ds,
             "sort_order": 2,
             "opacity": 1.0,
             "display_name": "River casing",
