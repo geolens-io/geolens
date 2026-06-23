@@ -117,6 +117,9 @@ export function RegisterPage() {
   return (
     <div className="flex min-h-screen flex-col items-center justify-center gap-6 bg-background px-4">
       <div className="text-center">
+        {/* sr-only level-1 heading: the visual brand mark is the GeoLensLogo, but
+            screen-reader heading navigation still needs an <h1> on the page. */}
+        <h1 className="sr-only">{t('createAccount')}</h1>
         <GeoLensLogo size="lg" className="justify-center" />
         <p className="text-muted-foreground mt-1 text-sm">
           {t('geospatialDataCatalog')}
