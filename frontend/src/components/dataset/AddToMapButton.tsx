@@ -48,7 +48,7 @@ export function AddToMapButton({ datasetId, datasetTitle }: AddToMapButtonProps)
   return (
     <DropdownMenu open={open} onOpenChange={setOpen}>
       <DropdownMenuTrigger asChild>
-        <Button variant="outline" size="sm">
+        <Button size="sm">
           <Map className="me-1 size-3.5" />
           {t('addToMap.button')}
         </Button>

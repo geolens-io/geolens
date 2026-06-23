@@ -5,6 +5,7 @@ import { Loader2 } from 'lucide-react';
 import { registerUser } from '@/api/auth';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { PasswordInput } from '@/components/ui/password-input';
 import { Label } from '@/components/ui/label';
 import {
   Card,
@@ -56,8 +57,8 @@ export function RegisterForm({ onSuccess }: RegisterFormProps) {
       <CardContent>
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
           {/* #305: on a server error mark the credential fields invalid + describe by the error */}
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="username">{t('username')}</Label>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="username" className="text-[12.5px]">{t('username')}</Label>
             <Input
               id="username"
               type="text"
@@ -67,12 +68,13 @@ export function RegisterForm({ onSuccess }: RegisterFormProps) {
               required
               minLength={3}
               autoComplete="username"
+              className="h-10"
               aria-invalid={error ? true : undefined}
               aria-describedby={error ? 'register-error' : undefined}
             />
           </div>
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="email">{t('email')}</Label>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="email" className="text-[12.5px]">{t('email')}</Label>
             <Input
               id="email"
               type="email"
@@ -81,21 +83,22 @@ export function RegisterForm({ onSuccess }: RegisterFormProps) {
               placeholder={t('enterEmail')}
               required
               autoComplete="email"
+              className="h-10"
               aria-invalid={error ? true : undefined}
               aria-describedby={error ? 'register-error' : undefined}
             />
           </div>
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="password">{t('password')}</Label>
-            <Input
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="password" className="text-[12.5px]">{t('password')}</Label>
+            <PasswordInput
               id="password"
-              type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder={t('choosePassword')}
               required
               minLength={8}
               autoComplete="new-password"
+              className="h-10"
               aria-invalid={error ? true : undefined}
               aria-describedby={error ? 'register-error' : undefined}
             />
@@ -104,7 +107,7 @@ export function RegisterForm({ onSuccess }: RegisterFormProps) {
           {error && (
             <p id="register-error" className="text-destructive text-sm" role="alert">{error}</p>
           )}
-          <Button type="submit" disabled={loading || !username.trim() || !email.trim() || !password} className="w-full">
+          <Button type="submit" disabled={loading || !username.trim() || !email.trim() || !password} className="h-[42px] w-full font-semibold">
             {loading && <Loader2 className="size-4 animate-spin" />}
             {loading ? t('creatingAccount') : t('createAccount')}
           </Button>

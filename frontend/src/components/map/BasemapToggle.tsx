@@ -38,7 +38,7 @@ export function BasemapToggle({ value, onChange, title = 'Change basemap', class
       <button
         type="button"
         onClick={() => setOpen(!open)}
-        className="rounded-lg border-2 border-background shadow-lg overflow-hidden hover:border-primary/50 transition-colors"
+        className="rounded-lg border-2 border-background shadow-lg overflow-hidden hover:border-primary/50 transition-[color,background-color,box-shadow,border-color,opacity] duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         title={title}
         aria-label={title}
       >
@@ -60,7 +60,7 @@ export function BasemapToggle({ value, onChange, title = 'Change basemap', class
                 type="button"
                 onClick={() => { onChange(b.id); setOpen(false); }}
                 className={cn(
-                  'flex items-center gap-2 rounded-md px-1.5 py-1 transition-colors text-start',
+                  'flex items-center gap-2 rounded-md px-1.5 py-1 transition-[color,background-color,box-shadow,border-color,opacity] duration-200 ease-out text-start focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
                   isActive
                     ? 'bg-accent'
                     : 'hover:bg-accent/50',

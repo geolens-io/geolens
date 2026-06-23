@@ -29,6 +29,7 @@ import { VrtCreateDialog } from '@/components/import/VrtCreateDialog';
 const navLinkClass = ({ isActive }: { isActive: boolean }) =>
   cn(
     'inline-flex items-center justify-center rounded-md px-3 py-1.5 text-sm font-medium transition-colors',
+    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
     isActive
       ? 'bg-accent text-accent-foreground'
       : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground',
@@ -37,6 +38,7 @@ const navLinkClass = ({ isActive }: { isActive: boolean }) =>
 const mobileNavLinkClass = ({ isActive }: { isActive: boolean }) =>
   cn(
     'flex items-center rounded-md px-3 py-2 text-sm font-medium transition-colors',
+    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
     isActive
       ? 'bg-accent text-accent-foreground'
       : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground',
@@ -377,7 +379,7 @@ export function Navbar() {
       <div className="mx-auto flex h-14 max-w-7xl items-center justify-between px-6">
         <div className="flex items-center gap-4">
           <MobileNav />
-          <Link to="/" aria-label={t('appName')} className="hover:text-primary transition-colors duration-150">
+          <Link to="/" aria-label={t('appName')} className="rounded-md hover:text-primary transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background">
             <GeoLensLogo size="sm" />
           </Link>
           <Separator orientation="vertical" className="hidden md:block h-6" />

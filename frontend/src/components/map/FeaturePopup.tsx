@@ -299,6 +299,7 @@ function ValueDisplay({
   formatValue: (v: unknown) => string;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const { t } = useTranslation('builder');
 
   // Standalone URL: classify and render image / video / YouTube / plain anchor.
   // This branch handles the case where the entire property value is a URL.
@@ -411,10 +412,18 @@ function ValueDisplay({
       <span className="break-words">
         {truncated}
         <button
-          className="text-primary ms-0.5"
+          type="button"
+          className="text-primary ms-0.5 rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          aria-label={t('popup.showFullValue', { defaultValue: 'Show full value' })}
           onClick={(e) => {
             e.stopPropagation();
             setExpanded(true);
+          }}
+          // Keep Enter/Space on this button from bubbling to the surrounding
+          // property row, whose keydown handler copies the value + preventDefaults
+          // (which would otherwise hijack the button's own activation). #313 a11y.
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') e.stopPropagation();
           }}
         >
           ...

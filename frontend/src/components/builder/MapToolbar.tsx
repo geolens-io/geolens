@@ -81,7 +81,7 @@ export function MapToolbar({ onStyleJsonClick, onShortcutsClick }: MapToolbarPro
                 <button
                   onClick={tool.onClick}
                   className={cn(
-                    'flex cursor-pointer items-center justify-center h-7 w-7 rounded-md transition-colors',
+                    'flex cursor-pointer items-center justify-center h-7 w-7 rounded-md transition-[color,background-color,box-shadow,border-color,opacity] duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
                     tool.active
                       ? 'bg-foreground text-background'
                       : 'text-muted-foreground hover:bg-accent hover:text-foreground',
@@ -110,7 +110,7 @@ export function MapToolbar({ onStyleJsonClick, onShortcutsClick }: MapToolbarPro
                   <button
                     onClick={() => toggle('legend')}
                     className={cn(
-                      'flex cursor-pointer items-center justify-center h-7 w-7 rounded-md transition-colors',
+                      'flex cursor-pointer items-center justify-center h-7 w-7 rounded-md transition-[color,background-color,box-shadow,border-color,opacity] duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
                       legendActive
                         ? 'bg-foreground text-background'
                         : 'text-muted-foreground hover:bg-accent hover:text-foreground',
@@ -136,7 +136,7 @@ export function MapToolbar({ onStyleJsonClick, onShortcutsClick }: MapToolbarPro
                 <TooltipTrigger asChild>
                   <button
                     onClick={onStyleJsonClick}
-                    className="flex cursor-pointer items-center justify-center h-7 w-7 rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                    className="flex cursor-pointer items-center justify-center h-7 w-7 rounded-md text-muted-foreground transition-[color,background-color,box-shadow,border-color,opacity] duration-200 ease-out hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     aria-label={t('toolbar.styleJson', { defaultValue: 'Style JSON' })}
                   >
                     <FileJson className="h-3.5 w-3.5" />
@@ -156,7 +156,7 @@ export function MapToolbar({ onStyleJsonClick, onShortcutsClick }: MapToolbarPro
                 <TooltipTrigger asChild>
                   <button
                     onClick={onShortcutsClick}
-                    className="flex cursor-pointer items-center justify-center h-7 w-7 rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                    className="flex cursor-pointer items-center justify-center h-7 w-7 rounded-md text-muted-foreground transition-[color,background-color,box-shadow,border-color,opacity] duration-200 ease-out hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     aria-label={t('a11y.shortcuts.title', { defaultValue: 'Keyboard shortcuts' })}
                   >
                     <Keyboard className="h-3.5 w-3.5" />

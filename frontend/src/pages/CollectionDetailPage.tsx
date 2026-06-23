@@ -142,29 +142,29 @@ export function CollectionDetailPage() {
             {/* Left: metadata fields */}
             <div className="space-y-4">
               <div className="space-y-2">
-                <dt className="flex items-center gap-1.5 text-sm font-medium text-muted-foreground">
-                  <Database className="h-4 w-4" />
+                <dt className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  <Database className="h-3.5 w-3.5" />
                   {t('detail.datasets')}
                 </dt>
                 <dd className="text-sm">{formatNumber(collection.dataset_count)}</dd>
               </div>
               <div className="space-y-2">
-                <dt className="flex items-center gap-1.5 text-sm font-medium text-muted-foreground">
-                  <Calendar className="h-4 w-4" />
+                <dt className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  <Calendar className="h-3.5 w-3.5" />
                   {t('detail.temporalRange')}
                 </dt>
                 <dd className="text-sm">{formatTemporal()}</dd>
               </div>
               <div className="space-y-2">
-                <dt className="flex items-center gap-1.5 text-sm font-medium text-muted-foreground">
-                  <Calendar className="h-4 w-4" />
+                <dt className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  <Calendar className="h-3.5 w-3.5" />
                   {t('detail.created')}
                 </dt>
                 <dd className="text-sm">{formatDate(collection.created_at)}</dd>
               </div>
               <div className="space-y-2">
-                <dt className="flex items-center gap-1.5 text-sm font-medium text-muted-foreground">
-                  <Calendar className="h-4 w-4" />
+                <dt className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  <Calendar className="h-3.5 w-3.5" />
                   {t('detail.lastUpdated')}
                 </dt>
                 <dd className="text-sm">{formatDate(collection.updated_at)}</dd>
@@ -173,8 +173,8 @@ export function CollectionDetailPage() {
 
             {/* Right: spatial extent */}
             <div className="space-y-2">
-              <dt className="flex items-center gap-1.5 text-sm font-medium text-muted-foreground">
-                <MapPin className="h-4 w-4" />
+              <dt className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                <MapPin className="h-3.5 w-3.5" />
                 {t('detail.spatialExtent')}
               </dt>
               <dd>

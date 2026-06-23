@@ -432,7 +432,7 @@ export function DatasetPage() {
             {!isTable && isEditor && <AddToMapButton datasetId={dataset.id} datasetTitle={dataset.title} />}
             {!token && <AuthPrompt action={t('actions.edit', { defaultValue: 'edit' })} />}
             {isRaster && dataset.raster?.connect && (
-              <Button variant="default" size="sm" onClick={async () => {
+              <Button variant="outline" size="sm" onClick={async () => {
                 try { await downloadCog(dataset.id); } catch { toast.error(t('export.failed')); }
               }}>
                 <Download className="me-1 size-3" />

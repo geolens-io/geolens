@@ -33,8 +33,6 @@
   },
   "users": {
     "title": "Users",
-    "titleCount_one": "Users ({{count}})",
-    "titleCount_other": "Users ({{count}})",
     "addUser": "Add User",
     "exportEmailsCsv": "Export emails (CSV)",
     "loading": "Loading users...",
@@ -411,7 +409,8 @@
     },
     "actions": {
       "discard": "Discard Changes",
-      "resetDefaults": "Reset to Defaults"
+      "resetDefaults": "Reset to Defaults",
+      "saving": "Saving..."
     },
     "unsaved": {
       "title": "Unsaved changes",

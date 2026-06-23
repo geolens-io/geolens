@@ -1,10 +1,11 @@
 import { type FormEvent, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
-import { Eye, EyeOff, Loader2 } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { PasswordInput } from '@/components/ui/password-input';
 import { Label } from '@/components/ui/label';
 
 /**
@@ -21,7 +22,6 @@ export function LoginForm() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [showPassword, setShowPassword] = useState(false);
   const { login } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
@@ -71,28 +71,17 @@ export function LoginForm() {
         <Label htmlFor="password" className="text-[12.5px]">
           {t('password')}
         </Label>
-        <div className="relative">
-          <Input
-            id="password"
-            type={showPassword ? 'text' : 'password'}
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            placeholder={t('enterPassword')}
-            required
-            autoComplete="current-password"
-            className="h-10 pe-11"
-            aria-invalid={error ? true : undefined}
-            aria-describedby={error ? 'login-error' : undefined}
-          />
-          <button
-            type="button"
-            onClick={() => setShowPassword((visible) => !visible)}
-            className="absolute inset-y-0 end-1 my-auto flex size-8 items-center justify-center rounded-md text-muted-foreground transition-[color,background-color,box-shadow,border-color,opacity] duration-200 ease-out hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background focus-visible:outline-none"
-            aria-label={showPassword ? t('hidePassword') : t('showPassword')}
-          >
-            {showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
-          </button>
-        </div>
+        <PasswordInput
+          id="password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          placeholder={t('enterPassword')}
+          required
+          autoComplete="current-password"
+          className="h-10"
+          aria-invalid={error ? true : undefined}
+          aria-describedby={error ? 'login-error' : undefined}
+        />
       </div>
       {error && (
         <p id="login-error" role="alert" className="text-sm text-destructive">

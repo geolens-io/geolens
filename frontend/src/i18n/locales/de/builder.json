@@ -408,7 +408,8 @@
     "removeField": "Feld entfernen",
     "noFieldsSelected": "Keine Felder ausgewählt (nur der Titel wird angezeigt)",
     "noColumns": "Dieser Layer hat keine prüfbaren Spalten.",
-    "mediaHint": "URLs und Bilder in Feldwerten werden automatisch als Links und Vorschauen angezeigt."
+    "mediaHint": "URLs und Bilder in Feldwerten werden automatisch als Links und Vorschauen angezeigt.",
+    "showFullValue": "Vollständigen Wert anzeigen"
   },
   "dataDriven": {
     "title": "Datengesteuerter Stil",

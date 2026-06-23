@@ -235,7 +235,7 @@ export function LayerLegend({
         aria-expanded={isOpen}
         aria-controls="layer-legend-panel"
         aria-label={isOpen ? t('viewer.legend.hide') : t('viewer.legend.show')}
-        className="absolute left-3 top-3 z-20 flex items-center justify-center w-8 h-8 rounded-md bg-background/80 backdrop-blur-sm border border-border/50 shadow-sm text-foreground hover:bg-background transition-colors"
+        className="absolute left-3 top-3 z-20 flex items-center justify-center w-8 h-8 rounded-md bg-background/80 backdrop-blur-sm border border-border/50 shadow-sm text-foreground hover:bg-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
         {isOpen ? <X className="w-4 h-4" aria-hidden="true" /> : <Layers className="w-4 h-4" aria-hidden="true" />}
       </button>
@@ -314,7 +314,7 @@ export function LayerLegend({
                   <button
                     type="button"
                     onClick={() => onToggleVisibility(key)}
-                    className="flex-shrink-0 p-1 rounded hover:bg-accent text-muted-foreground hover:text-foreground"
+                    className="flex-shrink-0 p-1 rounded hover:bg-accent text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     aria-label={isVisible
                       ? t('viewer.legend.hideLayer', { name: layerName })
                       : t('viewer.legend.showLayer', { name: layerName })}

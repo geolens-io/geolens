@@ -48,7 +48,7 @@ async function submitRegistration() {
   const user = userEvent.setup();
   await user.type(screen.getByLabelText(/username/i), 'newuser');
   await user.type(screen.getByLabelText(/email/i), 'new@example.com');
-  await user.type(screen.getByLabelText(/password/i), 'TestPass1234!');
+  await user.type(screen.getByLabelText(/password/i, { selector: 'input' }), 'TestPass1234!');
   await user.click(screen.getByRole('button', { name: /create account/i }));
 }
 
