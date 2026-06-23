@@ -39,6 +39,7 @@ async def _create_search_dataset(
     keywords: list[str] | None = None,
     description: str | None = None,
     visibility: str = "public",
+    geometry_type: str = "MultiPolygon",
 ) -> Dataset:
     """Insert a Record + Dataset pair for hybrid search tests."""
     table_name = f"ds_{uuid.uuid4().hex[:12]}"
@@ -61,7 +62,7 @@ async def _create_search_dataset(
         record_id=record.id,
         table_name=table_name,
         srid=4326,
-        geometry_type="MultiPolygon",
+        geometry_type=geometry_type,
         feature_count=10,
         source_format="geojson",
         source_filename="test.geojson",
@@ -567,3 +568,58 @@ async def test_semantic_vector_only_does_not_leak_private(
     assert "Classified Restricted Layer" not in titles
     # ...but a PUBLIC vector-only match still surfaces (semantic retrieval works for anon).
     assert "Roads and Highways Network" in titles
+
+
+@pytest.mark.anyio
+async def test_semantic_vector_only_respects_active_filters(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    hybrid_datasets_with_embeddings: dict,
+    hybrid_vectors: dict[str, list[float]],
+    test_db_session,
+):
+    """A vector-only match must still satisfy the OTHER active filters.
+
+    With geometry_type=Point, a semantically similar POLYGON (vector-only, no
+    lexical hit) must NOT surface; only a Point dataset that also matches by
+    meaning may. Guards the filter-bypass the visibility-only check missed.
+    """
+    session = test_db_session
+    admin_id = await get_user_id(session, "admin")
+
+    point_ds = await _create_search_dataset(
+        session,
+        created_by=admin_id,
+        name="Transit Stops Inventory",  # no lexical overlap with the query
+        description="Point inventory",
+        geometry_type="Point",
+    )
+    session.add(
+        RecordEmbedding(
+            record_id=point_ds.record_id,
+            embedding=hybrid_vectors["transport"],
+            model_name="text-embedding-3-small",
+            content_hash="test_hash_point_geom",
+        )
+    )
+    await session.commit()
+
+    with patch(
+        "app.modules.catalog.search.service_semantic.generate_embedding",
+        new_callable=AsyncMock,
+        return_value=hybrid_vectors["transport"],
+    ):
+        resp = await client.get(
+            "/search/datasets/",
+            params={"q": "zzznolexicalmatchxyz", "geometry_type": "Point"},
+            headers=admin_auth_header,
+        )
+    assert resp.status_code == 200
+    titles = {
+        f["properties"]["title"] for f in resp.json()["features"] if f.get("properties")
+    }
+    # The Point vector-only match surfaces...
+    assert "Transit Stops Inventory" in titles
+    # ...but the MultiPolygon vector matches are excluded by geometry_type=Point.
+    assert "Roads and Highways Network" not in titles
+    assert "Railway Network Lines" not in titles
