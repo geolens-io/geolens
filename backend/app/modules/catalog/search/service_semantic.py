@@ -117,8 +117,14 @@ async def _get_vector_ranks(
     session: AsyncSession,
     query_text: str,
     limit: int,
+    restrict_stmt: Select | None = None,
 ) -> dict[str, int]:
     """Run vector similarity search and return {record_id_hex: rank} mapping.
+
+    ``restrict_stmt`` is a ``select(Record.id)`` carrying the active visibility +
+    search filters; when provided, the cosine top-k is computed ONLY over records
+    in that set, so a nearer but non-visible / filtered-out embedding cannot crowd
+    a valid match out of the top ``limit`` rows.
 
     Returns an empty dict on any failure (silent fallback).
     """
@@ -147,20 +153,21 @@ async def _get_vector_ranks(
         RecordEmbedding = get_catalog_port().record_embedding_orm_class()
 
         # Vector similarity query: cosine distance <= 0.7 means similarity >= 0.3
-        vector_stmt = (
-            select(
-                RecordEmbedding.record_id,
-                RecordEmbedding.embedding.cosine_distance(query_vector).label(
-                    "distance"
-                ),
-            )
-            .where(
-                RecordEmbedding.model_name == model_name,
-                RecordEmbedding.embedding.cosine_distance(query_vector) <= 0.7,
-            )
-            .order_by("distance")
-            .limit(limit)
+        vector_stmt = select(
+            RecordEmbedding.record_id,
+            RecordEmbedding.embedding.cosine_distance(query_vector).label("distance"),
+        ).where(
+            RecordEmbedding.model_name == model_name,
+            RecordEmbedding.embedding.cosine_distance(query_vector) <= 0.7,
         )
+        if restrict_stmt is not None:
+            # Restrict candidates to the visibility/filter-vetted record set BEFORE
+            # the top-k cut, so private/filtered nearer neighbours can't displace a
+            # valid visible match out of the limit.
+            vector_stmt = vector_stmt.where(
+                RecordEmbedding.record_id.in_(restrict_stmt)
+            )
+        vector_stmt = vector_stmt.order_by("distance").limit(limit)
 
         result = await session.execute(vector_stmt)
         rows = result.all()
@@ -212,11 +219,13 @@ async def _run_rrf_merge(
     Surfaces vector-only matches (records that are semantically similar but do
     not lexically match the FTS query) IN ADDITION to re-ranking FTS hits. Since
     ``_get_vector_ranks`` applies neither RBAC visibility nor the active search
-    filters, vector-only candidates are vetted through ``vet_stmt`` -- the same
-    visibility + bbox/geometry_type/srid/keywords/date/CQL filters as the FTS
-    query, minus the text clause -- before being surfaced. This prevents both
-    leaking private/restricted datasets and returning records that violate an
-    active filter (e.g. a polygon under ``geometry_type=Point``).
+    filters, ``vet_stmt`` (a ``select(Record.id)`` with the same visibility +
+    bbox/geometry_type/srid/keywords/date/CQL filters as the FTS query, minus the
+    text clause) is passed as the vector query's ``restrict_stmt`` so the cosine
+    top-k is taken only over records the caller may see that satisfy every active
+    filter. This prevents leaking private/restricted datasets, returning records
+    that violate an active filter (e.g. a polygon under ``geometry_type=Point``),
+    AND a nearer non-visible neighbour displacing a valid match out of the top-k.
 
     Returns ``None`` when RRF doesn't apply (vector backend empty/failed).
     Caller falls through to the standard sort path on None.
@@ -229,8 +238,12 @@ async def _run_rrf_merge(
     if filters.q is None:
         raise ValueError("_run_rrf_merge requires filters.q to be non-None")
     q_stripped = filters.q.strip()
-    # Get vector similarity ranks (empty dict on any failure = FTS-only)
-    vector_ranks = await _get_vector_ranks(session, q_stripped, filters.limit)
+    # Vector similarity ranks, restricted to the visibility/filter-vetted set so the
+    # cosine top-k contains only records the caller may see that satisfy every active
+    # filter (empty dict on any failure = FTS-only).
+    vector_ranks = await _get_vector_ranks(
+        session, q_stripped, filters.limit, restrict_stmt=vet_stmt
+    )
 
     if not vector_ranks:
         logger.info(
@@ -252,36 +265,31 @@ async def _run_rrf_merge(
     fts_result = await session.execute(fts_stmt)
     fts_ids = [str(row[0]) for row in fts_result.all()]
 
-    # RRF over FTS results UNION vetted vector-only results.
-    # FTS ids already passed visibility + every active filter (via the inherited
-    # `stmt`). Vector-only ids did NOT — _get_vector_ranks queries
-    # record_embeddings with neither RBAC nor the active search filters — so they
-    # MUST be vetted through `vet_stmt` (same visibility + bbox/geometry_type/
-    # srid/keywords/date/CQL filters, minus the text clause) before surfacing.
-    # Otherwise a semantic match could leak a private/restricted dataset OR
-    # violate an active filter. Bounded to the small vector candidate set.
+    # RRF over FTS results UNION the (already vetted) vector matches. vector_ranks
+    # is pre-filtered for visibility + every active filter via restrict_stmt, so it
+    # can be unioned directly.
     fts_id_set = set(fts_ids)
     vector_only_ids = [rid for rid in vector_ranks if rid not in fts_id_set]
-    vetted_vector_only: set[str] = set()
+
+    # `total` is the full FTS match count. A vector-only id (absent from the capped
+    # fts_ids) may STILL be a full FTS match that ranked below fts_cap and is already
+    # counted -- so only count vector matches that are NOT FTS matches as additional,
+    # to avoid inflating numberMatched into empty trailing pages.
     if vector_only_ids:
-        vetted = await session.execute(
-            vet_stmt.where(
-                Record.id.in_([uuid_mod.UUID(rid) for rid in vector_only_ids])
-            )
+        candidate_uuids = [uuid_mod.UUID(rid) for rid in vector_only_ids]
+        fts_match_stmt = (
+            select(Record.id)
+            .select_from(Dataset)
+            .join(Record, Dataset.record_id == Record.id)
+            .where(stmt.whereclause)
+            .where(Record.id.in_(candidate_uuids))
         )
-        vetted_vector_only = {str(rid) for rid in vetted.scalars().all()}
+        fts_matching = {
+            str(rid) for rid in (await session.execute(fts_match_stmt)).scalars().all()
+        }
+        total += sum(1 for rid in vector_only_ids if rid not in fts_matching)
 
-    safe_vector_ranks = {
-        rid: rank
-        for rid, rank in vector_ranks.items()
-        if rid in fts_id_set or rid in vetted_vector_only
-    }
-    # Surfaced vector-only matches are additional results beyond the FTS count.
-    # (A record that both vector-matches and FTS-matches below the fts_cap is a
-    # rare overlap; the resulting +1 overcount is acceptable for pagination.)
-    total += len(vetted_vector_only)
-
-    rrf_ordered = _compute_rrf_scores(fts_ids, safe_vector_ranks)
+    rrf_ordered = _compute_rrf_scores(fts_ids, vector_ranks)
 
     # Apply pagination to RRF-ordered list
     page_ids = rrf_ordered[filters.skip : filters.skip + filters.limit]

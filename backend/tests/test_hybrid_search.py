@@ -88,6 +88,19 @@ def _make_vector(base_value: float, dim: int = 1536) -> list[float]:
     return [v / magnitude for v in vec]
 
 
+def _make_vector_band(base_value: float, dim: int = 1536, lo: int = 40) -> list[float]:
+    """Vector with its signal in dims [lo, lo+10) and ZEROS elsewhere.
+
+    Orthogonal to ``_make_vector`` (dims 0..9), so a query built here matches only
+    records embedded here — isolating a test from other tests' committed vectors.
+    """
+    vec = [0.0] * dim
+    for i in range(lo, min(lo + 10, dim)):
+        vec[i] = base_value + ((i - lo) * 0.01)
+    magnitude = sum(v * v for v in vec) ** 0.5
+    return [v / magnitude for v in vec]
+
+
 async def _get_embedding_dim(session) -> int:
     """Return the current fixed vector dimension for record embeddings."""
     result = await session.execute(
@@ -623,3 +636,71 @@ async def test_semantic_vector_only_respects_active_filters(
     # ...but the MultiPolygon vector matches are excluded by geometry_type=Point.
     assert "Roads and Highways Network" not in titles
     assert "Railway Network Lines" not in titles
+
+
+@pytest.mark.anyio
+async def test_semantic_visible_match_not_crowded_out_by_nearer_private(
+    client: AsyncClient,
+    test_db_session,
+):
+    """A visible vector match must not be displaced from the top-k by nearer private ones.
+
+    With limit=2 and three PRIVATE records embedded nearer the query than the one
+    PUBLIC record, the public record must still surface — the cosine top-k is taken
+    over the visibility/filter-vetted set, not all embeddings (Codex P2a).
+    """
+    session = test_db_session
+    admin_id = await get_user_id(session, "admin")
+    dim = await _get_embedding_dim(session)
+    await _set_semantic_search(session, True)
+
+    public_ds = await _create_search_dataset(
+        session,
+        created_by=admin_id,
+        name="Open Transit Hub Index",  # no lexical overlap with the query
+        description="public",
+    )
+    session.add(
+        RecordEmbedding(
+            record_id=public_ds.record_id,
+            embedding=_make_vector_band(0.85, dim=dim),
+            model_name="text-embedding-3-small",
+            content_hash="p2a_public",
+        )
+    )
+    for i, base in enumerate((0.99, 0.98, 0.97)):
+        priv = await _create_search_dataset(
+            session,
+            created_by=admin_id,
+            name=f"Private Near Neighbour {i}",
+            description="private",
+            visibility="private",
+        )
+        session.add(
+            RecordEmbedding(
+                record_id=priv.record_id,
+                embedding=_make_vector_band(
+                    base, dim=dim
+                ),  # nearer than the public 0.85
+                model_name="text-embedding-3-small",
+                content_hash=f"p2a_priv_{i}",
+            )
+        )
+    await session.commit()
+
+    with patch(
+        "app.modules.catalog.search.service_semantic.generate_embedding",
+        new_callable=AsyncMock,
+        return_value=_make_vector_band(1.0, dim=dim),
+    ):
+        resp = await client.get(
+            "/search/datasets/",
+            params={"q": "zzznolexicalmatchxyz", "limit": 2},
+        )
+    assert resp.status_code == 200
+    titles = {
+        f["properties"]["title"] for f in resp.json()["features"] if f.get("properties")
+    }
+    assert "Open Transit Hub Index" in titles
+    for i in range(3):
+        assert f"Private Near Neighbour {i}" not in titles
