@@ -50,14 +50,14 @@ export function SearchPage() {
   const limit = useSearchStore((s) => s.limit);
   const token = useAuthStore((s) => s.token);
   const resetFilters = useSearchStore((s) => s.resetFilters);
-  // EMPTY-01: distinguish an empty catalog from a no-match query. toParams()
+  // #305: distinguish an empty catalog from a no-match query. toParams()
   // only emits non-default values, so any key beyond pagination means the user
   // has an active query / filter / sort.
   const hasActiveSearch = useSearchStore((s) =>
     Object.keys(s.toParams()).some((k) => k !== 'offset' && k !== 'limit'),
   );
   const resultsRef = useRef<HTMLDivElement>(null);
-  // PAGE-01: return to the top of the results (and move focus there for screen
+  // #305: return to the top of the results (and move focus there for screen
   // readers) on page change — previously the user stayed at the footer.
   const handlePageChange = (newOffset: number) => {
     useSearchStore.getState().setPage(newOffset);
@@ -159,7 +159,7 @@ export function SearchPage() {
 
             {data && data.features.length > 0 && (
               <div ref={resultsRef} tabIndex={-1} className="scroll-mt-20 space-y-3 outline-none">
-                {/* CATALOG-01: in-context results header — visible at all widths,
+                {/* #305: in-context results header — visible at all widths,
                     unlike the count that previously lived only in the desktop rail. */}
                 <div className="flex items-center justify-between gap-3 px-0.5">
                   <h2 className="text-sm font-medium text-foreground">
