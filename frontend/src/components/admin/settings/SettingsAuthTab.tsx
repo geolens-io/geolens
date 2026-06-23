@@ -125,7 +125,7 @@ const EMPTY_FORM: ProviderFormData = {
 
 // --- OAuth Provider Management Section ---
 
-function OAuthProvidersSection({ envOnly }: { envOnly: boolean }) {
+function OAuthProvidersSection({ envOnly, settings }: { envOnly: boolean; settings: SettingItem[] }) {
   const { t } = useTranslation('admin');
   const PROVIDER_TYPE_LABELS = useProviderTypeLabels();
   const queryClient = useQueryClient();
@@ -179,6 +179,14 @@ function OAuthProvidersSection({ envOnly }: { envOnly: boolean }) {
   // NOT the browser origin — split frontend/API hosts, reverse proxies, or a
   // custom API root would otherwise hand admins the wrong redirect URI.
   const oauthCallbackUrl = `${getPublicApiBaseUrl(tileConfig) ?? `${window.location.origin}/api`}/auth/oauth/${form.slug || '<provider>'}/callback`;
+  // #305: the OAuth login path only builds a redirect_uri from an EXPLICITLY
+  // configured public URL (for_external_use), whereas tile-config returns a
+  // request-derived one. If neither public_app_url nor public_api_url is set,
+  // the shown URL is provisional and the backend won't use it — block copy so
+  // an admin can't register a dead callback.
+  const publicUrlConfigured =
+    (findSetting(settings, 'public_api_url')?.source ?? 'default') !== 'default' ||
+    (findSetting(settings, 'public_app_url')?.source ?? 'default') !== 'default';
 
   function openAddDialog() {
     setEditingProvider(null);
@@ -491,7 +499,7 @@ function OAuthProvidersSection({ envOnly }: { envOnly: boolean }) {
                   // #305: until tile-config resolves, the URL may still be the
                   // origin fallback (wrong on split-host deployments) — block
                   // copying so an admin can't register a premature value.
-                  disabled={tileConfigLoading}
+                  disabled={tileConfigLoading || !publicUrlConfigured}
                   aria-label={t('settings.oauth.copyCallbackUrl', { defaultValue: 'Copy callback URL' })}
                   onClick={() => {
                     navigator.clipboard.writeText(
@@ -916,7 +924,7 @@ export function SettingsAuthTab({ settings, envOnly, onSave, onReset, isSaving, 
       <hr className="border-border" />
 
       {/* OAuth Providers */}
-      <OAuthProvidersSection envOnly={envOnly} />
+      <OAuthProvidersSection envOnly={envOnly} settings={settings} />
     </div>
   );
 }

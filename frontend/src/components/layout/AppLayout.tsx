@@ -30,7 +30,9 @@ export function AppLayout() {
         // hardcoded 100dvh-navbar that ignored the footer) AND lets standalone
         // pages (404) center vertically in the available viewport (#305).
         // isMapRoute retained for any map-specific tweaks.
-        className={cn('flex flex-1 flex-col animate-fade-in focus:outline-none', isMapRoute && 'flex-col')}
+        // scroll-mt clears the now-sticky navbar when the skip-link scrolls
+        // #main-content into view, so the heading isn't hidden under it (#305).
+        className={cn('flex flex-1 flex-col scroll-mt-16 animate-fade-in focus:outline-none', isMapRoute && 'flex-col')}
       >
         <Outlet />
       </main>
