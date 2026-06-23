@@ -9,7 +9,10 @@
   "empty": {
     "title": "No se encontraron conjuntos de datos",
     "description": "Intente ajustar su consulta de búsqueda o los filtros",
-    "cta": "Importe su primer conjunto de datos"
+    "cta": "Importe su primer conjunto de datos",
+    "catalogTitle": "Tu catálogo está vacío",
+    "catalogDescription": "Importa un conjunto de datos para empezar a crear tu catálogo geoespacial.",
+    "clear": "Borrar búsqueda y filtros"
   },
   "error": {
     "message": "Error al cargar resultados: {{message}}"

@@ -280,7 +280,7 @@ export function AccessTab({ dataset }: AccessTabProps) {
                 'bg-muted text-muted-foreground border-border'
               }
             >
-              <VisibilityIcon visibility={dataset.visibility} />
+              <VisibilityIcon visibility={dataset.visibility} withLabel={false} />
               <span className="ms-1">{getVisibilityLabel(t, dataset.visibility)}</span>
             </Badge>
           </div>

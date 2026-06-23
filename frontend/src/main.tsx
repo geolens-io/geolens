@@ -62,7 +62,10 @@ const queryClient = new QueryClient({
 
 function ThemedToaster() {
   const { resolvedTheme } = useTheme();
-  return <Toaster theme={resolvedTheme} />;
+  // #305: richColors differentiates success/error/warning/info by
+  // hue (was a single neutral surface for all 183 call sites); closeButton
+  // makes every toast dismissable.
+  return <Toaster theme={resolvedTheme} richColors closeButton />;
 }
 
 const router = createBrowserRouter(createRoutesFromElements(appRoutes));

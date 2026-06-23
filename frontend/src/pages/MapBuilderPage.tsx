@@ -1207,7 +1207,7 @@ export function MapBuilderPage() {
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center h-[calc(100vh-3.5rem)]">
+      <div className="flex items-center justify-center h-[calc(100vh-3.5rem-env(safe-area-inset-top))]">
         <LoadingState message={t('loadingMap')} />
       </div>
     );
@@ -1222,7 +1222,7 @@ export function MapBuilderPage() {
           ? t('common:errors.loadFailed', { defaultValue: 'Failed to load map' })
           : t('common:errors.mapNotFound');
     return (
-      <div className="flex items-center justify-center h-[calc(100vh-3.5rem)]">
+      <div className="flex items-center justify-center h-[calc(100vh-3.5rem-env(safe-area-inset-top))]">
         <div className="text-center space-y-4">
           <ErrorState message={msg} />
           <Link to="/maps" className="text-sm text-primary hover:underline">
@@ -1248,7 +1248,7 @@ export function MapBuilderPage() {
   );
 
   return (
-    <div className="flex flex-col h-[calc(100vh-3.5rem)]">
+    <div className="flex flex-col h-[calc(100vh-3.5rem-env(safe-area-inset-top))]">
       {/* Phase 1040 Plan 04: sr-only aria-live region for keyboard/mouse catalog drag announcements.
           Renders at root of the builder so screen readers in any panel can read it.
           Zero-width-space + timestamp suffix in dragAnnouncement forces aria-live re-fire on

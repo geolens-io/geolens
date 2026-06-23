@@ -85,14 +85,17 @@ export function IngestWarningsBanner({
     <div
       role="status"
       className={[
-        'rounded-md border border-yellow-500/40 bg-yellow-500/10 p-3 text-sm text-yellow-900 dark:text-yellow-100',
+        'rounded-md border border-warning/30 bg-warning/10 p-3 text-sm text-foreground',
         className ?? '',
       ]
         .join(' ')
         .trim()}
     >
       <div className="flex items-start gap-2">
-        <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+        <AlertTriangle
+          className="mt-0.5 size-4 shrink-0 text-warning"
+          aria-hidden="true"
+        />
         <div className="flex-1 space-y-3">
           <p className="font-semibold">{t('warnings.bannerTitle')}</p>
           {warnings.map((warning, idx) => {

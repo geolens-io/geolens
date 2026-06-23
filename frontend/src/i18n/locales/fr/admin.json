@@ -596,7 +596,12 @@
         "editor": "Éditeur",
         "admin": "Administrateur"
       },
-      "loadFailed": "Impossible de charger les fournisseurs OAuth"
+      "loadFailed": "Impossible de charger les fournisseurs OAuth",
+      "callbackUrl": "URL de redirection / de rappel",
+      "copyCallbackUrl": "Copier l'URL de rappel",
+      "callbackUrlCopied": "URL de rappel copiée dans le presse-papiers",
+      "callbackUrlHint": "Enregistrez cette URL auprès de votre fournisseur (Google, Microsoft ou GitHub) comme URL de redirection / de rappel autorisée. Elle doit correspondre à l’URL publique de l’API configurée pour le déploiement (définissez PUBLIC_API_URL ou l’URL publique de l’API dans les paramètres généraux), sinon la connexion OAuth échouera avec une redirection non concordante.",
+      "callbackUrlCopyFailed": "Impossible de copier — copiez l’URL manuellement."
     },
     "notifications": {
       "title": "Notifications sortantes",

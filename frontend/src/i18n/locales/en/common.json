@@ -38,7 +38,9 @@
     "virtualRaster": "Virtual Raster",
     "skipToContent": "Skip to main content",
     "mainNavigation": "Main navigation",
-    "github": "Star on GitHub"
+    "github": "Star on GitHub",
+    "lightMode": "Light mode",
+    "darkMode": "Dark mode"
   },
   "theme": {
     "toggle": "Toggle theme",

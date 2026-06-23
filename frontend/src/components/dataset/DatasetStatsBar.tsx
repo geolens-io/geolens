@@ -13,7 +13,9 @@ interface StatCellProps {
 
 function StatCell({ label, value, mono }: StatCellProps) {
   return (
-    <div className="px-4 py-3 border-r border-border last:border-r-0 min-w-0">
+    // #305: cell borders drawn on top/left so they read correctly
+    // whether cells sit in one desktop row or wrap onto multiple mobile rows.
+    <div className="px-4 py-3 border-t border-l border-border min-w-0">
       <div className="text-[10.5px] font-mono uppercase tracking-widest text-muted-foreground mb-1">
         {label}
       </div>
@@ -122,16 +124,25 @@ export function DatasetStatsBar({ dataset, className }: DatasetStatsBarProps) {
   // Limit to 6 cells max
   const displayCells = cells.slice(0, 6);
 
+  // #305: reflow responsively so stats never get crushed/truncated on small
+  // screens, and cap columns to the number of rendered cells at every
+  // breakpoint so a sparse dataset (1-2 stats) leaves no empty grid columns.
   const gridColsClass: Record<number, string> = {
-    1: 'grid-cols-1', 2: 'grid-cols-2', 3: 'grid-cols-3',
-    4: 'grid-cols-4', 5: 'grid-cols-5', 6: 'grid-cols-6',
+    1: 'grid-cols-1',
+    2: 'grid-cols-2',
+    3: 'grid-cols-2 sm:grid-cols-3 md:grid-cols-3',
+    4: 'grid-cols-2 sm:grid-cols-3 md:grid-cols-4',
+    5: 'grid-cols-2 sm:grid-cols-3 md:grid-cols-5',
+    6: 'grid-cols-2 sm:grid-cols-3 md:grid-cols-6',
   };
 
   return (
     <div
       className={cn(
-        'grid border-y border-border',
-        gridColsClass[displayCells.length] ?? 'grid-cols-6',
+        // Outer right/bottom borders complete the frame the per-cell top/left
+        // borders start, keeping the desktop row visually equivalent to before.
+        'grid border-r border-b border-border',
+        gridColsClass[displayCells.length] ?? 'grid-cols-2 sm:grid-cols-3 md:grid-cols-6',
         className,
       )}
     >

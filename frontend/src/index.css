@@ -78,12 +78,18 @@
   --elevation-md: 0 4px 6px -1px oklch(0 0 0 / 7%), 0 2px 4px -2px oklch(0 0 0 / 5%);
   --elevation-lg: 0 10px 15px -3px oklch(0 0 0 / 8%), 0 4px 6px -4px oklch(0 0 0 / 5%);
 
-  /* ─ Semantic status colors ─ */
-  --success: oklch(0.53 0.19 145);
+  /* ─ Semantic status colors ─
+   * #305: light fg darkened so text-warning/info/success clear WCAG AA
+   * (>=4.5:1) on card AND soft 10-percent-tint surfaces. Measured ratios:
+   * warning 6.01 and 5.05, info 5.41 and 4.54, success 5.5 and 4.64 (was
+   * 2.19, 4.07, 4.07). --warning-foreground stays DARK: it is used as text
+   * on light/soft surfaces (e.g. BulkReviewList, LayerStyleEditor), not on a
+   * solid warning fill, so a dark foreground keeps those readable. */
+  --success: oklch(0.49 0.16 150);
   --success-foreground: oklch(0.985 0 0);
-  --warning: oklch(0.75 0.15 85);
+  --warning: oklch(0.50 0.13 68);
   --warning-foreground: oklch(0.28 0.07 46);
-  --info: oklch(0.55 0.15 195);
+  --info: oklch(0.49 0.13 205);
   --info-foreground: oklch(0.985 0 0);
 
   /* ─ Record-type colors (import, catalog badges) ─ */
@@ -400,6 +406,17 @@
   background-size: 16px 16px;
 }
 
+/* ── #305 standalone-page surface gradient ──────────────────
+   Subtle branded depth for full-page surfaces (login, public viewers). The
+   prior inline gradients wrapped OKLCH tokens in hsl() — invalid CSS that
+   computed to `none` (flat/sparse first impression). color-mix(in oklab, …)
+   resolves correctly in both light and dark. */
+.app-surface-gradient {
+  background-image:
+    radial-gradient(circle at top, color-mix(in oklab, var(--primary) 10%, transparent), transparent 42%),
+    linear-gradient(180deg, var(--background), color-mix(in oklab, var(--muted) 45%, var(--background)));
+}
+
 /* ── Base Layer ─────────────────────────────────────── */
 @layer base {
   * {
@@ -587,6 +604,23 @@ html.dragging-active {
   }
 }
 
+/* ── #305 coarse-pointer tap targets ───────────────────────────
+   On touch devices ensure map controls and form fields reach a ~44px hit
+   target. Scoped to pointer:coarse so fine-pointer desktop density is
+   unchanged (mirrors the existing maplibre popup-close 44px treatment). */
+@media (pointer: coarse) {
+  .maplibregl-ctrl-group button {
+    min-width: 44px;
+    min-height: 44px;
+  }
+  [data-slot="input"],
+  [data-slot="select-trigger"],
+  textarea,
+  select {
+    min-height: 2.75rem;
+  }
+}
+
 /* Phase 1042: folder group-children wash when parent is drop target (1040 carry-over) */
 /* Use :has() to select the children container when a sibling carries data-group-drop-target.
    The keyed outer wrapper div contains both FolderGroupRowWrapper (which bears the attribute)
@@ -595,4 +629,38 @@ html.dragging-active {
 div:has(> [data-group-drop-target="true"]) > [id^="folder-group-children"] {
   background: oklch(0.97 0.02 250 / 60%);
   border-radius: var(--radius-md);
+}
+
+/* ── #305 notch / home-indicator safe-area padding ───────────
+   With viewport-fit=cover the page draws under the iOS notch and home
+   indicator, so full-bleed mobile chrome gets clipped. Pad those surfaces by
+   the relevant env(safe-area-inset-*) so controls clear the unsafe zone.
+   Gated on @supports so non-notch / desktop browsers are unaffected (env()
+   resolves to 0 there anyway, but the guard keeps the rules from applying at
+   all where they're not needed). */
+@supports (padding: env(safe-area-inset-bottom)) {
+  /* Bottom maplibre controls (attribution + zoom/scale) clear the home indicator. */
+  .maplibregl-ctrl-bottom-right,
+  .maplibregl-ctrl-bottom-left {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  /* Mobile Sheet (shadcn) clears the notch on landscape — both edges, since a
+     right-anchored drawer (report wizard, builder/editor) hits the right notch
+     and a left-anchored one hits the left. env()-left/right are each non-zero
+     only on the side that actually has an unsafe area, so padding both sides is
+     side-correct. Content also clears the home indicator at the bottom. */
+  [data-slot="sheet-content"] {
+    padding-left: max(
+      var(--sheet-padding-left, 0px),
+      env(safe-area-inset-left)
+    );
+    padding-right: max(
+      var(--sheet-padding-right, 0px),
+      env(safe-area-inset-right)
+    );
+    padding-bottom: max(
+      var(--sheet-padding-bottom, 0px),
+      env(safe-area-inset-bottom)
+    );
+  }
 }

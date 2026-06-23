@@ -40,7 +40,7 @@
   "affordances": {
     "sectionHint": {
       "editable": "Editors can update fields in this section.",
-      "readOnlyPassive": "This section is read-only. Attempt an edit for role guidance."
+      "readOnlyPassive": "This section is read-only. Editing requires additional access."
     },
     "pending": {
       "saved": "All pending edits saved.",

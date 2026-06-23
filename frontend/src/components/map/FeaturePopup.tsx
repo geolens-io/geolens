@@ -51,8 +51,44 @@ export function FeaturePopup({
   const [activeIndex, setActiveIndex] = useState(0);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  // #305: close button ref for soft focus move-in on open.
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => () => clearTimeout(timerRef.current), []);
+
+  // #305: on open, soft-move focus to the close button so
+  // keyboard users land inside the popup; on close/unmount, restore focus to
+  // the map canvas (or container) so the map stays keyboard-operable. This is a
+  // soft move + restore, NOT a focus trap — map interaction is preserved.
+  useEffect(() => {
+    const previouslyFocused = document.activeElement as HTMLElement | null;
+    closeButtonRef.current?.focus();
+    return () => {
+      // Restore focus to the map so the keyboard context returns to the map
+      // (canvas carries tabindex=0); fall back to the map container, then to
+      // wherever focus was before the popup opened.
+      const restoreTarget =
+        document.querySelector<HTMLElement>('.maplibregl-canvas') ??
+        document.querySelector<HTMLElement>('.maplibregl-map') ??
+        previouslyFocused;
+      restoreTarget?.focus?.();
+    };
+  }, []);
+
+  // #305: Escape closes the popup (focus is restored by the
+  // unmount effect above). Document-level listener so it fires regardless of
+  // which element inside the popup holds focus, without putting a keyboard
+  // handler on the non-interactive dialog container.
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        onClose();
+      }
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [onClose]);
 
   // Clamp activeIndex if features shrinks while popup is open (e.g. layer toggle race).
   useEffect(() => {
@@ -139,7 +175,17 @@ export function FeaturePopup({
       closeOnClick={false}
       maxWidth="360px"
     >
-      <div className="text-xs">
+      {/* #305: labelled dialog container with focus management.
+          aria-label uses the feature title when present, else the layer name. */}
+      <div
+        role="dialog"
+        aria-label={
+          title ||
+          layerName ||
+          t('featurePopup.dialogLabel', { defaultValue: 'Feature details' })
+        }
+        className="text-xs"
+      >
         {/* Header: layer name (left) + pager + close (right) */}
         <div className="flex items-center justify-between gap-2 mb-2 pb-2 border-b border-border">
           <span className="font-semibold font-mono text-xs uppercase tracking-wide text-muted-foreground truncate">
@@ -175,6 +221,7 @@ export function FeaturePopup({
               </>
             )}
             <Button
+              ref={closeButtonRef}
               type="button"
               variant="ghost"
               size="icon-xs"

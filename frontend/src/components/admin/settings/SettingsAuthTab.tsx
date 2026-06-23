@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { Pencil, Trash2, Plus } from 'lucide-react';
+import { Pencil, Trash2, Plus, Copy } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
@@ -46,6 +46,8 @@ import {
   deleteOAuthProvider,
 } from '@/api/settings';
 import { queryKeys } from '@/lib/query-keys';
+import { useTileConfig } from '@/hooks/use-settings';
+import { getPublicApiBaseUrl } from '@/lib/dataset-access';
 
 interface TabProps {
   settings: SettingItem[];
@@ -171,6 +173,19 @@ function OAuthProvidersSection({ envOnly }: { envOnly: boolean }) {
   const [editingProvider, setEditingProvider] = useState<OAuthProviderConfig | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<OAuthProviderConfig | null>(null);
   const [form, setForm] = useState<ProviderFormData>(EMPTY_FORM);
+  const { data: tileConfig, isLoading: tileConfigLoading } = useTileConfig();
+  // #305: derive the callback from the CONFIGURED public
+  // API URL (what the backend builds redirect_uri from, same as SAML settings),
+  // NOT the browser origin — split frontend/API hosts, reverse proxies, or a
+  // custom API root would otherwise hand admins the wrong redirect URI.
+  const oauthCallbackUrl = `${getPublicApiBaseUrl(tileConfig) ?? `${window.location.origin}/api`}/auth/oauth/${form.slug || '<provider>'}/callback`;
+  // #305: the OAuth login path resolves redirect_uri from an EXPLICITLY
+  // configured public URL (for_external_use) and raises if none is set, but
+  // both /settings/all and tile-config return a request-derived value — so the
+  // client cannot reliably tell "configured" from "derived" (neither source nor
+  // value is authoritative). Rather than gate copy on an unreliable heuristic,
+  // the field is informational and the hint states the hard requirement that
+  // the deployment's Public API URL (PUBLIC_API_URL) be configured to match.
 
   function openAddDialog() {
     setEditingProvider(null);
@@ -461,6 +476,56 @@ function OAuthProvidersSection({ envOnly }: { envOnly: boolean }) {
               />
               <p className="text-xs text-muted-foreground">
                 {t('settings.oauth.slugHint')}
+              </p>
+            </div>
+
+            {/* #305: read-only redirect/callback URL admins must register with the provider. */}
+            <div className="space-y-2">
+              <Label htmlFor="callback-url">
+                {t('settings.oauth.callbackUrl', { defaultValue: 'Redirect / Callback URL' })}
+              </Label>
+              <div className="flex items-center gap-2">
+                <Input
+                  id="callback-url"
+                  value={oauthCallbackUrl}
+                  readOnly
+                  className="font-mono text-xs"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  // #305: until tile-config resolves, the URL may still be the
+                  // origin fallback (wrong on split-host deployments) — block
+                  // copying so an admin can't register a premature value.
+                  disabled={tileConfigLoading}
+                  aria-label={t('settings.oauth.copyCallbackUrl', { defaultValue: 'Copy callback URL' })}
+                  onClick={async () => {
+                    // #305: the Clipboard API is unavailable on non-secure
+                    // (HTTP) origins and can reject — await + catch so a failure
+                    // surfaces an error toast instead of a false success / throw.
+                    try {
+                      await navigator.clipboard.writeText(oauthCallbackUrl);
+                      toast.success(
+                        t('settings.oauth.callbackUrlCopied', { defaultValue: 'Callback URL copied to clipboard' }),
+                      );
+                    } catch {
+                      toast.error(
+                        t('settings.oauth.callbackUrlCopyFailed', {
+                          defaultValue: 'Could not copy — copy the URL manually.',
+                        }),
+                      );
+                    }
+                  }}
+                >
+                  <Copy className="h-4 w-4" />
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {t('settings.oauth.callbackUrlHint', {
+                  defaultValue:
+                    'Register this exact URL as the authorized redirect / callback URL with your provider (Google, Microsoft, or GitHub).',
+                })}
               </p>
             </div>
 

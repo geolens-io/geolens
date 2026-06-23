@@ -20,15 +20,19 @@ const buttonVariants = cva(
           "hover:bg-accent hover:text-accent-foreground dark:hover:bg-accent/50",
         link: "text-primary underline-offset-4 hover:underline",
       },
+      // #305: pointer-coarse: bumps the primary action sizes to a
+      // >=44px tap target on touch devices only — desktop (fine pointer)
+      // density is unchanged. xs / icon-xs stay compact for dense lists
+      // (they already meet the 24px WCAG 2.2 AA minimum target size).
       size: {
-        default: "h-9 px-4 py-2 has-[>svg]:px-3",
+        default: "h-9 px-4 py-2 has-[>svg]:px-3 pointer-coarse:min-h-11",
         xs: "h-6 gap-1 rounded-md px-2 text-xs has-[>svg]:px-1.5 [&_svg:not([class*='size-'])]:size-3",
-        sm: "h-8 rounded-md gap-1.5 px-3 has-[>svg]:px-2.5",
-        lg: "h-10 rounded-md px-6 has-[>svg]:px-4",
-        icon: "size-9",
+        sm: "h-8 rounded-md gap-1.5 px-3 has-[>svg]:px-2.5 pointer-coarse:min-h-11",
+        lg: "h-10 rounded-md px-6 has-[>svg]:px-4 pointer-coarse:min-h-11",
+        icon: "size-9 pointer-coarse:size-11",
         "icon-xs": "size-6 rounded-md [&_svg:not([class*='size-'])]:size-3",
-        "icon-sm": "size-8",
-        "icon-lg": "size-10",
+        "icon-sm": "size-8 pointer-coarse:size-11",
+        "icon-lg": "size-10 pointer-coarse:size-11",
       },
     },
     defaultVariants: {

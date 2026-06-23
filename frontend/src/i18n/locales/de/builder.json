@@ -678,7 +678,8 @@
     "copyFailed": "Kopieren fehlgeschlagen",
     "prev": "Vorheriges Objekt",
     "next": "Nächstes Objekt",
-    "close": "Popup schließen"
+    "close": "Popup schließen",
+    "dialogLabel": "Objektdetails"
   },
   "descriptionPlaceholder": "Beschreibung hinzufügen...",
   "titleBar": {

@@ -83,7 +83,7 @@ export function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen bg-[radial-gradient(circle_at_top,_hsl(var(--primary)/0.12),_transparent_38%),linear-gradient(180deg,_hsl(var(--background)),_hsl(var(--muted)/0.2))] px-4 py-10">
+    <div className="app-surface-gradient min-h-screen px-4 py-10">
       <div className="mx-auto grid min-h-[calc(100vh-5rem)] max-w-5xl gap-8 lg:grid-cols-[1.1fr_0.9fr] lg:items-center">
         <section className="flex flex-col justify-center text-center lg:text-start">
           <Link

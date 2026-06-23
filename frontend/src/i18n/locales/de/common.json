@@ -38,7 +38,9 @@
     "virtualRaster": "Virtueller Raster",
     "skipToContent": "Zum Hauptinhalt springen",
     "mainNavigation": "Hauptnavigation",
-    "github": "Auf GitHub markieren"
+    "github": "Auf GitHub markieren",
+    "lightMode": "Heller Modus",
+    "darkMode": "Dunkler Modus"
   },
   "theme": {
     "toggle": "Design umschalten",
