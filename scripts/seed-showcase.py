@@ -1,17 +1,44 @@
 #!/usr/bin/env python3
 """Seed GeoLens with the marketing "showcase" maps.
 
-Builds three capability-showcase maps from public, openly-licensed data:
+Builds capability-showcase maps from public, openly-licensed data:
 
   1. Manhattan Skyline   - 3D fill-extrusion by real building height + graduated color
                            (NYC Open Data Building Footprints, Socrata 5zhs-2jue)
   2. New York Income     - data-driven quantile choropleth
                            (USDA ERS Atlas of Rural & Small-Town America)
-  3. The Matterhorn      - 3D terrain mesh + hillshade from a VRT mosaic of COG tiles
+  3. World Airports      - client-clustered points, categorical by airport class
+                           (OurAirports, public domain)
+  4. Recent Earthquakes  - graduated circles by magnitude + magnitude-weighted heatmap
+                           (USGS M4.5+ feed)
+  5. World Countries     - GDP quantile choropleth + graduated city dots; companion
+                           places/admin-1 datasets for catalog breadth (Natural Earth)
+  6. World Rivers        - line + casing, width by scalerank (Natural Earth 1:10m)
+  7. The Matterhorn      - 3D terrain mesh + hillshade from a VRT mosaic of COG tiles
                            (swisstopo swissALTI3D 2m lidar, OGD)   [--with-terrain]
+  8. Sentinel-2 NYC      - true-color COGs imported BY REFERENCE from a STAC API
+                           (Element84 Earth Search)                [--with-sentinel2]
+  9. Discover the World  - a collection of the above + a private-dataset embed-token demo
 
 Everything here is reproducible against a fresh stack. The flows and the
 non-obvious gotchas they encode were verified live against the running API.
+
+More gotchas the new builders encode:
+  * render_mode is its own field (cluster/heatmap/symbol/...) and COEXISTS with
+    style_config.mode (categorical/graduated). Cluster styling lives in
+    style_config.builder as SNAKE_CASE keys (cluster_radius, cluster_color, ...).
+  * Client clustering only engages for POINT datasets with <=5000 features (the
+    features.geojson endpoint hard-caps at 5000); over it the viewer silently falls
+    back to unclustered circles. Filter point datasets under the cap.
+  * Graduated SIZE (circle-radius/line-width) uses style_config target='radius'/'width'
+    with a parallel `sizes` array (not `colors`).
+  * Sentinel-2 by-reference import is POST /api/services/stac/import (storage_backend
+    remote, zero download) - NOT the manifest raster_cog path (that downloads). Query
+    the Element84 STAC API directly with httpx; the backend /search proxy 502s (SSRF
+    IP-pin). True color = raster_geolens + style_config {'builder':{}} + NO render_mode.
+  * Embed tokens are per-MAP (snapshot of the map's layer datasets at mint time); add
+    the layer BEFORE minting. A private dataset cannot get a public /m/ share URL, so
+    the private-embed demo keeps the map private and uses the X-Embed-Token header.
 
 Requires: pip install httpx
 
@@ -41,6 +68,7 @@ GOTCHAS this script encodes (learned the hard way):
 """
 
 import argparse
+import csv
 import io
 import json
 import os
@@ -74,6 +102,23 @@ SWISSALTI_STAC = (
     "https://data.geo.admin.ch/api/stac/v1/collections/"
     "ch.swisstopo.swissalti3d/items?bbox=7.645,45.968,7.675,45.987&limit=30"
 )
+# OurAirports (public domain) - 85k airports; filtered to <5000 for client clustering.
+OURAIRPORTS_CSV = "https://davidmegginson.github.io/ourairports-data/airports.csv"
+# USGS M4.5+ past 30 days (~500 significant quakes; public domain).
+USGS_QUAKES = (
+    "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/4.5_month.geojson"
+)
+# Natural Earth (public domain), pinned tag v5.1.2 for reproducibility.
+NE_BASE = (
+    "https://raw.githubusercontent.com/nvkelso/natural-earth-vector/v5.1.2/geojson/"
+)
+NE_COUNTRIES = NE_BASE + "ne_50m_admin_0_countries.geojson"
+NE_PLACES = NE_BASE + "ne_50m_populated_places.geojson"
+NE_RIVERS = NE_BASE + "ne_10m_rivers_lake_centerlines.geojson"
+NE_ADMIN1 = NE_BASE + "ne_50m_admin_1_states_provinces.geojson"
+# Element84 Earth Search STAC (sentinel-2-l2a true-color COGs, by reference).
+SENTINEL_STAC = "https://earth-search.aws.element84.com/v1"
+SENTINEL_BBOX = [-74.30, 40.55, -73.65, 41.00]  # NYC metro (W, S, E, N)
 
 
 # --- API helpers -------------------------------------------------------------
@@ -109,14 +154,21 @@ class Api:
         r.raise_for_status()
         return r.json()
 
-    def commit(self, job_id: str, title: str, summary: str, srid: int = 4326) -> None:
+    def commit(
+        self,
+        job_id: str,
+        title: str,
+        summary: str,
+        srid: int = 4326,
+        visibility: str = "public",
+    ) -> None:
         r = self.client.post(
             f"{self.base}/api/ingest/commit/{job_id}",
             headers=self.h,
             json={
                 "title": title,
                 "summary": summary,
-                "visibility": "public",
+                "visibility": visibility,
                 "srid_override": srid,
             },
         )
@@ -139,10 +191,17 @@ class Api:
                 raise TimeoutError(f"job {job_id} did not finish in {timeout}s")
             time.sleep(2)
 
-    def ingest_geojson(self, name: str, data: bytes, title: str, summary: str) -> str:
+    def ingest_geojson(
+        self,
+        name: str,
+        data: bytes,
+        title: str,
+        summary: str,
+        visibility: str = "public",
+    ) -> str:
         job = self.upload_geojson(name, data)
         self.preview(job)
-        self.commit(job, title, summary)
+        self.commit(job, title, summary, visibility=visibility)
         return self.poll(job)["dataset_id"]
 
     def create_map(self, name: str, description: str) -> str:
@@ -212,6 +271,60 @@ class Api:
         )
         r.raise_for_status()
         return r.json()["job_id"]
+
+    def datasets_by_title(self) -> dict[str, str]:
+        """Map dataset title -> id (list_datasets returns only titles)."""
+        r = self.client.get(f"{self.base}/api/datasets?limit=200", headers=self.h)
+        r.raise_for_status()
+        d = r.json()
+        return {x["title"]: x["id"] for x in d.get("datasets", d.get("items", []))}
+
+    def list_collections(self) -> list[str]:
+        # Trailing slash required (redirect_slashes=False).
+        r = self.client.get(f"{self.base}/api/catalog/collections/", headers=self.h)
+        r.raise_for_status()
+        return [c["name"] for c in r.json().get("collections", [])]
+
+    def create_collection(self, name: str, description: str) -> str:
+        # Collections have NO visibility/title/summary - only name (unique) + description.
+        r = self.client.post(
+            f"{self.base}/api/catalog/collections/",
+            headers=self.h,
+            json={"name": name, "description": description},
+        )
+        r.raise_for_status()
+        return r.json()["id"]
+
+    def add_to_collection(self, collection_id: str, dataset_ids: list) -> int:
+        # Trailing slash required; returns count of NEWLY added (idempotent).
+        r = self.client.post(
+            f"{self.base}/api/catalog/collections/{collection_id}/datasets/",
+            headers=self.h,
+            json={"dataset_ids": dataset_ids},
+        )
+        r.raise_for_status()
+        return r.json()["added"]
+
+    def mint_embed_token(self, map_id: str, name: str) -> dict:
+        # Per-MAP token; community edition allows only default 30-day/no-origin.
+        # raw_token is returned ONLY here. Map must have >=1 layer.
+        r = self.client.post(
+            f"{self.base}/api/maps/{map_id}/embed-tokens",
+            headers=self.h,
+            json={"name": name},
+        )
+        r.raise_for_status()
+        return r.json()
+
+    def stac_import(self, url: str, items: list, visibility: str = "public") -> list:
+        """Register STAC items as raster datasets BY REFERENCE (no download)."""
+        r = self.client.post(
+            f"{self.base}/api/services/stac/import",
+            headers=self.h,
+            json={"url": url, "items": items, "visibility": visibility},
+        )
+        r.raise_for_status()
+        return r.json().get("results", r.json())
 
 
 def fetch(url: str) -> bytes:
@@ -752,6 +865,694 @@ def build_matterhorn(api: Api, force: bool = False) -> str:
     return map_id
 
 
+def build_airports(api: Api, force: bool = False) -> str:
+    if not force and _map_exists(api, "World Airports"):
+        print("  [skip] World Airports already exists")
+        return "(skipped)"
+    print("\n[airports] World Airports (clustered, categorical by class)")
+    print("  downloading OurAirports CSV...")
+    rows = list(csv.DictReader(io.StringIO(fetch(OURAIRPORTS_CSV).decode("utf-8"))))
+    # Filter to large+medium with scheduled service => ~3.3k (<=5000 client-cluster cap).
+    feats = []
+    for r in rows:
+        if r.get("type") not in ("large_airport", "medium_airport"):
+            continue
+        if r.get("scheduled_service") != "yes":
+            continue
+        try:
+            lng, lat = float(r["longitude_deg"]), float(r["latitude_deg"])
+        except (TypeError, ValueError, KeyError):
+            continue
+        try:
+            elev = float(r["elevation_ft"]) if r.get("elevation_ft") else None
+        except (TypeError, ValueError):
+            elev = None
+        feats.append(
+            {
+                "type": "Feature",
+                "properties": {
+                    "type": r.get("type"),
+                    "name": r.get("name"),
+                    "iso_country": r.get("iso_country"),
+                    "municipality": r.get("municipality"),
+                    "iata_code": r.get("iata_code"),
+                    "elevation_ft": elev,
+                },
+                "geometry": {"type": "Point", "coordinates": [lng, lat]},
+            }
+        )
+    if len(feats) > 5000:
+        # The cluster cap is hard (features.geojson returns at most 5000); over it the
+        # live viewer silently drops the data and falls back to unclustered circles.
+        raise RuntimeError(
+            f"airports filter yielded {len(feats)} features (>5000 cluster cap); "
+            "tighten the filter (e.g. large_airport only)"
+        )
+    print(f"  ingesting {len(feats)} airports...")
+    data = json.dumps({"type": "FeatureCollection", "features": feats}).encode()
+    ds = api.ingest_geojson(
+        "world_airports.geojson",
+        data,
+        "World Airports (large + medium, scheduled)",
+        "Large and medium airports with scheduled passenger service. "
+        "Source: OurAirports (public domain).",
+    )
+    map_id = api.create_map(
+        "World Airports",
+        "Several thousand of the world's busiest airports, clustered at low zoom and "
+        "colored by airport class once you zoom in. Source: OurAirports.",
+    )
+    # column lowercased on ingest: "type" (already lowercase). Categorical match expr
+    # mirrors the frontend buildCategoricalExpression (case-null-guard + match + fallback).
+    match = [
+        "case",
+        ["==", ["get", "type"], None],
+        "#94a3b8",
+        [
+            "match",
+            ["get", "type"],
+            "large_airport",
+            "#1b9e77",
+            "medium_airport",
+            "#d95f02",
+            "#94a3b8",
+        ],
+    ]
+    api.add_layer(
+        map_id,
+        {
+            "dataset_id": ds,
+            "sort_order": 0,
+            "opacity": 1.0,
+            "display_name": "Airports (clustered, by class)",
+            "paint": {
+                "circle-color": match,
+                "circle-radius": 5,
+                "circle-stroke-color": "#0b0f14",
+                "circle-stroke-width": 1,
+                "circle-opacity": 0.95,
+            },
+            "style_config": {
+                "mode": "categorical",
+                "column": "type",
+                "ramp": "Dark2",
+                "categories": [
+                    {
+                        "value": "large_airport",
+                        "color": "#1b9e77",
+                        "label": "Large hub",
+                    },
+                    {"value": "medium_airport", "color": "#d95f02", "label": "Medium"},
+                ],
+                # render_mode and mode coexist; the viewer auto-creates the cluster
+                # circle + count companion layers from style_config.builder (snake_case).
+                "render_mode": "cluster",
+                "builder": {
+                    "cluster_radius": 48,
+                    "cluster_max_zoom": 14,
+                    "cluster_color": "#334155",
+                    "cluster_text_color": "#ffffff",
+                    "cluster_text_size": 12,
+                },
+            },
+        },
+    )
+    api.set_view(
+        map_id,
+        visibility="public",
+        center_lng=0,
+        center_lat=25,
+        zoom=1.4,
+        pitch=0,
+        bearing=0,
+        basemap_style="openfreemap-dark",
+        show_basemap_labels=True,
+    )
+    print(f"  -> map {map_id}")
+    return map_id
+
+
+def build_earthquakes(api: Api, force: bool = False) -> str:
+    if not force and _map_exists(api, "Recent Earthquakes"):
+        print("  [skip] Recent Earthquakes already exists")
+        return "(skipped)"
+    print("\n[earthquakes] Recent Earthquakes (graduated circles + heatmap)")
+    print("  downloading USGS M4.5+ feed...")
+    fc = json.loads(fetch(USGS_QUAKES))
+    for feat in fc["features"]:
+        p = feat["properties"]
+        try:
+            mag = float(p.get("mag")) if p.get("mag") is not None else None
+        except (TypeError, ValueError):
+            mag = None
+        feat["properties"] = {
+            "mag": mag,
+            "place": p.get("place"),
+            "time": p.get("time"),
+        }
+    data = json.dumps(fc).encode()
+    n = len(fc["features"])
+    # GeoLens renders ONE MapLibre layer per dataset, so the graduated-circle layer and
+    # the heatmap layer come from the SAME geometry ingested as TWO datasets (the proven
+    # casing pattern from build_matterhorn) rather than two layers off one dataset.
+    print(f"  ingesting {n} quakes (x2: circles + heatmap)...")
+    circles_ds = api.ingest_geojson(
+        "recent_quakes.geojson",
+        data,
+        "Recent Earthquakes (M4.5+, last 30 days)",
+        "Significant earthquakes (M4.5+) from the last 30 days. "
+        "Source: USGS Earthquake Hazards Program (public domain).",
+    )
+    heat_ds = api.ingest_geojson(
+        "recent_quakes_heat.geojson",
+        data,
+        "Recent Earthquakes - Heatmap source",
+        "Same M4.5+ quake geometry as the graduated-circle dataset, ingested "
+        "separately so MapLibre renders it as its own heatmap layer.",
+    )
+    map_id = api.create_map(
+        "Recent Earthquakes",
+        "M4.5+ earthquakes from the last 30 days - graduated by magnitude over a "
+        "magnitude-weighted heatmap. Source: USGS.",
+    )
+    # Lower sort_order draws ON TOP in the live viewer, so circles (0) sit above heatmap (1).
+    radius = ["step", ["to-number", ["get", "mag"], 0], 4, 5.0, 7, 6.0, 11, 7.0, 16]
+    api.add_layer(
+        map_id,
+        {
+            "dataset_id": circles_ds,
+            "sort_order": 0,
+            "opacity": 1.0,
+            "display_name": "Magnitude (graduated)",
+            "paint": {
+                "circle-radius": radius,
+                "circle-color": "#ef4444",
+                "circle-opacity": 0.85,
+                "circle-stroke-color": "#7f1d1d",
+                "circle-stroke-width": 0.5,
+            },
+            "style_config": {
+                "mode": "graduated",
+                "column": "mag",
+                "ramp": "YlOrRd",
+                "target": "radius",
+                "method": "manual",
+                "breaks": [5.0, 6.0, 7.0],
+                "sizes": [4, 7, 11, 16],
+                "sizeLabel": "Magnitude",
+            },
+        },
+    )
+    api.add_layer(
+        map_id,
+        {
+            "dataset_id": heat_ds,
+            "sort_order": 1,
+            "opacity": 1.0,
+            "display_name": "Magnitude heatmap",
+            "paint": {
+                "heatmap-radius": 28,
+                # weight expression references ['get','mag'] so the low-zoom tile cols=
+                # opt-in includes the magnitude column.
+                "heatmap-weight": [
+                    "interpolate",
+                    ["linear"],
+                    ["to-number", ["get", "mag"], 0],
+                    4,
+                    0.1,
+                    8,
+                    1,
+                ],
+                "heatmap-intensity": 1,
+                "heatmap-opacity": 0.75,
+                "heatmap-color": [
+                    "interpolate",
+                    ["linear"],
+                    ["heatmap-density"],
+                    0,
+                    "rgba(0,0,0,0)",
+                    0.2,
+                    "#ffffb2",
+                    0.4,
+                    "#fecc5c",
+                    0.6,
+                    "#fd8d3c",
+                    0.8,
+                    "#f03b20",
+                    1.0,
+                    "#bd0026",
+                ],
+            },
+            "style_config": {
+                "mode": "graduated",
+                "column": "",
+                "ramp": "YlOrRd",
+                "render_mode": "heatmap",
+                "builder": {"heatmap_ramp": "YlOrRd"},
+            },
+        },
+    )
+    api.set_view(
+        map_id,
+        visibility="public",
+        center_lng=150,
+        center_lat=5,
+        zoom=1.6,
+        pitch=0,
+        bearing=0,
+        basemap_style="openfreemap-dark",
+        show_basemap_labels=True,
+    )
+    print(f"  -> map {map_id}")
+    return map_id
+
+
+def build_countries(api: Api, force: bool = False) -> str:
+    if not force and _map_exists(api, "World Countries"):
+        print("  [skip] World Countries already exists")
+        return "(skipped)"
+    print("\n[countries] World Countries (choropleth + companion catalog datasets)")
+    print("  downloading Natural Earth admin-0...")
+    fc = json.loads(fetch(NE_COUNTRIES))
+    # Trim the 168-column admin-0 table to a handful of useful, styled props.
+    # Source props are UPPERCASE -> lowercased on ingest; reference the lowercased name.
+    keep = [
+        "NAME",
+        "NAME_LONG",
+        "POP_EST",
+        "GDP_MD",
+        "CONTINENT",
+        "SUBREGION",
+        "ECONOMY",
+        "INCOME_GRP",
+        "ISO_A3",
+    ]
+    gdps = []
+    for feat in fc["features"]:
+        p = feat["properties"]
+        feat["properties"] = {k: p.get(k) for k in keep}
+        g = p.get("GDP_MD")
+        # NE uses -99 / 0 sentinels for missing GDP; exclude from the quantile breaks.
+        if isinstance(g, (int, float)) and g > 0:
+            gdps.append(float(g))
+    data = json.dumps(fc).encode()
+    print(f"  ingesting {len(fc['features'])} countries...")
+    ds = api.ingest_geojson(
+        "world_countries.geojson",
+        data,
+        "World Countries (Natural Earth 1:50m)",
+        "All world countries with population, GDP, economy class and income group. "
+        "Source: Natural Earth admin-0, 1:50m (public domain).",
+    )
+    map_id = api.create_map(
+        "World Countries",
+        "Every country graded by GDP, with the world's major cities sized by population. "
+        "Source: Natural Earth.",
+    )
+    # Quantile (sextile) choropleth over the lowercased gdp_md column.
+    col = "gdp_md"
+    vals = sorted(gdps)
+    m = len(vals)
+    breaks = [vals[max(0, round(m * k / 6) - 1)] for k in range(1, 6)]
+    colors = ["#440154", "#414487", "#2a788e", "#22a884", "#7ad151", "#fde725"]
+    api.add_layer(
+        map_id,
+        {
+            "dataset_id": ds,
+            "sort_order": 1,
+            "opacity": 1.0,
+            "display_name": "GDP (USD millions)",
+            "paint": {
+                "fill-color": step_expr(col, breaks, colors),
+                "fill-opacity": 0.85,
+                "_outline-color": "#0b0f14",
+                "_outline-width": 0.4,
+            },
+            "style_config": {
+                "mode": "graduated",
+                "column": col,
+                "ramp": "Viridis",
+                "target": "color",
+                "method": "quantile",
+                "breaks": breaks,
+                "colors": colors,
+                "colorLabel": "GDP (USD millions)",
+                "builder": {"outline_color": "#0b0f14", "outline_width": 0.4},
+            },
+        },
+    )
+    # Companion 1: populated places, added as a graduated city-dot layer (catalog breadth
+    # + a richer map). pop_max drives circle radius.
+    print("  + companion: populated places...")
+    places = json.loads(fetch(NE_PLACES))
+    places_ds = api.ingest_geojson(
+        "world_places.geojson",
+        json.dumps(places).encode(),
+        "World Populated Places (Natural Earth 1:50m)",
+        "Cities and towns worldwide with population and admin context. "
+        "Source: Natural Earth populated places, 1:50m (public domain).",
+    )
+    city_radius = [
+        "step",
+        ["to-number", ["get", "pop_max"], 0],
+        1.5,
+        250000,
+        3,
+        1000000,
+        5,
+        5000000,
+        8,
+    ]
+    api.add_layer(
+        map_id,
+        {
+            "dataset_id": places_ds,
+            "sort_order": 0,
+            "opacity": 1.0,
+            "display_name": "Cities (by population)",
+            "paint": {
+                "circle-radius": city_radius,
+                "circle-color": "#fde725",
+                "circle-opacity": 0.9,
+                "circle-stroke-color": "#0b0f14",
+                "circle-stroke-width": 0.5,
+            },
+            "style_config": {
+                "mode": "graduated",
+                "column": "pop_max",
+                "ramp": "YlOrRd",
+                "target": "radius",
+                "method": "manual",
+                "breaks": [250000, 1000000, 5000000],
+                "sizes": [1.5, 3, 5, 8],
+                "sizeLabel": "Population",
+            },
+        },
+    )
+    # Companion 2: admin-1 states/provinces, committed SUMMARY-LESS so the AI metadata
+    # generator has a dataset to enrich (catalog-only; not added to the map).
+    print(
+        "  + companion: admin-1 states/provinces (summary-less, for AI-metadata demo)..."
+    )
+    admin1 = fetch(NE_ADMIN1)
+    api.ingest_geojson(
+        "world_admin1.geojson",
+        admin1,
+        "World States & Provinces (Natural Earth 1:50m)",
+        "",  # intentionally blank: raw material for the AI metadata-generation demo.
+    )
+    api.set_view(
+        map_id,
+        visibility="public",
+        center_lng=10,
+        center_lat=28,
+        zoom=1.7,
+        pitch=0,
+        bearing=0,
+        basemap_style="openfreemap-positron",
+        show_basemap_labels=False,
+    )
+    print(f"  -> map {map_id}  (gdp breaks={breaks})")
+    return map_id
+
+
+def build_rivers(api: Api, force: bool = False) -> str:
+    if not force and _map_exists(api, "World Rivers"):
+        print("  [skip] World Rivers already exists")
+        return "(skipped)"
+    print("\n[rivers] World Rivers (line + casing, width by scalerank)")
+    print("  downloading Natural Earth rivers...")
+    rivers = fetch(NE_RIVERS)
+    # One MapLibre layer per dataset -> ingest the SAME geometry twice (line + casing).
+    line_ds = api.ingest_geojson(
+        "world_rivers.geojson",
+        rivers,
+        "World Rivers & Lake Centerlines (Natural Earth 10m)",
+        "Major rivers and lake centerlines worldwide, ranked by prominence. "
+        "Source: Natural Earth, 1:10m (public domain).",
+    )
+    casing_ds = api.ingest_geojson(
+        "world_rivers_casing.geojson",
+        rivers,
+        "World Rivers - Casing",
+        "Wider casing under the river line (same geometry as the rivers dataset; "
+        "separate so MapLibre renders it as its own layer).",
+    )
+    map_id = api.create_map(
+        "World Rivers",
+        "The world's major rivers, drawn thicker the more prominent they are "
+        "(by Natural Earth scalerank), with a soft casing for contrast.",
+    )
+    # scalerank: lower = more major = wider. Width thickens with zoom. Lowercased column.
+    line_width = [
+        "interpolate",
+        ["linear"],
+        ["zoom"],
+        2,
+        ["step", ["to-number", ["get", "scalerank"], 10], 1.4, 4, 0.9, 7, 0.5],
+        8,
+        ["step", ["to-number", ["get", "scalerank"], 10], 4.0, 4, 2.5, 7, 1.4],
+    ]
+    casing_width = ["interpolate", ["linear"], ["zoom"], 2, 2.6, 8, 6.5]
+    # Lower sort_order draws ON TOP: the colored line (1) over the casing (2).
+    api.add_layer(
+        map_id,
+        {
+            "dataset_id": line_ds,
+            "sort_order": 1,
+            "opacity": 1.0,
+            "display_name": "Rivers",
+            "paint": {
+                "line-color": "#38bdf8",
+                "line-width": line_width,
+                "line-opacity": 0.95,
+            },
+            "layout": {"line-cap": "round", "line-join": "round"},
+        },
+    )
+    api.add_layer(
+        map_id,
+        {
+            "dataset_id": casing_ds,
+            "sort_order": 2,
+            "opacity": 1.0,
+            "display_name": "River casing",
+            "paint": {
+                "line-color": "#0c2233",
+                "line-width": casing_width,
+                "line-opacity": 0.7,
+            },
+            "layout": {"line-cap": "round", "line-join": "round"},
+        },
+    )
+    api.set_view(
+        map_id,
+        visibility="public",
+        center_lng=12,
+        center_lat=30,
+        zoom=1.9,
+        pitch=0,
+        bearing=0,
+        basemap_style="openfreemap-dark",
+        show_basemap_labels=False,
+    )
+    print(f"  -> map {map_id}")
+    return map_id
+
+
+def build_sentinel2(api: Api, force: bool = False) -> str:
+    if not force and _map_exists(api, "Sentinel-2 True Color - NYC"):
+        print("  [skip] Sentinel-2 True Color - NYC already exists")
+        return "(skipped)"
+    print("\n[sentinel2] Sentinel-2 True Color over NYC (COGs by reference)")
+    print("  querying Element84 STAC directly...")
+    # Query the STAC API DIRECTLY (the backend /services/stac/search proxy 502s on the
+    # SSRF IP-pin against Element84's CloudFront edge).
+    body = {
+        "collections": ["sentinel-2-l2a"],
+        "bbox": SENTINEL_BBOX,
+        "query": {"eo:cloud_cover": {"lt": 10}},
+        "sortby": [{"field": "properties.datetime", "direction": "desc"}],
+        "limit": 24,
+    }
+    r = httpx.post(f"{SENTINEL_STAC}/search", json=body, timeout=60.0)
+    r.raise_for_status()
+    feats = r.json().get("features", [])
+    items, seen_dates = [], set()
+    for f in feats:
+        a = (f.get("assets") or {}).get("visual")  # TCI COG
+        if not a or not a.get("href"):
+            continue
+        dt = f["properties"].get("datetime", "")
+        day = dt[:10]
+        if day in seen_dates:  # one scene per date keeps the mosaic clean
+            continue
+        seen_dates.add(day)
+        items.append(
+            {
+                "id": f["id"],
+                "collection": f.get("collection", "sentinel-2-l2a"),
+                "title": f"Sentinel-2 TCI {f['id']}",
+                "data_asset_href": a["href"],
+                "bbox": f.get("bbox"),
+                "epsg": f["properties"].get("proj:epsg"),
+                "datetime_start": dt,
+                "datetime_end": dt,
+                "keywords": [
+                    "sentinel-2",
+                    "true-color",
+                    "imagery",
+                    "esa",
+                    "copernicus",
+                ],
+            }
+        )
+        if len(items) >= 6:
+            break
+    if not items:
+        raise RuntimeError("no low-cloud Sentinel-2 TCI items matched the NYC AOI")
+    print(f"  importing {len(items)} TCI COGs by reference (no download)...")
+    results = api.stac_import(SENTINEL_STAC, items, visibility="public")
+    errored = [r for r in results if r.get("status") == "error"]
+    if errored:
+        detail = "; ".join(r.get("error") or r.get("id", "?") for r in errored)
+        raise RuntimeError(
+            f"{len(errored)}/{len(results)} STAC imports failed: {detail}"
+        )
+    ds_ids = [r["dataset_id"] for r in results if r.get("dataset_id")]
+    if not ds_ids:
+        raise RuntimeError(
+            "STAC import returned no dataset_ids (all 'skipped' on a re-run?); "
+            "use --force or remove the existing datasets"
+        )
+    map_id = api.create_map(
+        "Sentinel-2 True Color - NYC",
+        "Recent low-cloud Sentinel-2 L2A true-color imagery over New York, streamed by "
+        "reference from the AWS Earth Search open COG mirror (ESA Copernicus). No download "
+        "- Titiler renders the cloud-optimized GeoTIFFs directly.",
+    )
+    for i, ds_id in enumerate(ds_ids):
+        api.add_layer(
+            map_id,
+            {
+                "dataset_id": ds_id,
+                "sort_order": i,
+                "opacity": 1.0,
+                "display_name": f"Sentinel-2 scene {i + 1}",
+                "layer_type": "raster_geolens",
+                # true color = NO render_mode, no paint (default RGB path).
+                "style_config": {"builder": {}},
+            },
+        )
+    api.set_view(
+        map_id,
+        visibility="public",
+        center_lng=-73.97,
+        center_lat=40.78,
+        zoom=9.5,
+        pitch=0,
+        bearing=0,
+        basemap_style="openfreemap-positron",
+        show_basemap_labels=True,
+    )
+    print(f"  -> map {map_id}  ({len(ds_ids)} scenes)")
+    return map_id
+
+
+# A tiny inline private dataset for the embed-token capability demo (no external fetch
+# so it is fully reproducible).
+PRIVATE_VIP_FC = {
+    "type": "FeatureCollection",
+    "features": [
+        {
+            "type": "Feature",
+            "properties": {"name": "HQ - Manhattan", "tier": "gold"},
+            "geometry": {"type": "Point", "coordinates": [-73.9857, 40.7484]},
+        },
+        {
+            "type": "Feature",
+            "properties": {"name": "Field office - Brooklyn", "tier": "silver"},
+            "geometry": {"type": "Point", "coordinates": [-73.9442, 40.6782]},
+        },
+    ],
+}
+
+
+def build_collection(api: Api, force: bool = False) -> str:
+    if not force and "Discover the World" in api.list_collections():
+        print("  [skip] Discover the World collection already exists")
+        return "(skipped)"
+    print("\n[collection] Discover the World + private-dataset embed-token demo")
+    coll_id = api.create_collection(
+        "Discover the World",
+        "A guided tour of the GeoLens showcase - the NYC skyline, New York income, "
+        "world countries, rivers and airports - grouped into one browsable collection.",
+    )
+    titles = api.datasets_by_title()
+    wanted = [
+        "Manhattan Building Heights",
+        "New York Median Household Income by County",
+        "World Countries (Natural Earth 1:50m)",
+        "World Airports (large + medium, scheduled)",
+        "World Rivers & Lake Centerlines (Natural Earth 10m)",
+        "Recent Earthquakes (M4.5+, last 30 days)",
+        # present only with --with-terrain:
+        "swissALTI3D Matterhorn DEM (2m mosaic)",
+    ]
+    member_ids = [titles[t] for t in wanted if t in titles]
+    added = api.add_to_collection(coll_id, member_ids) if member_ids else 0
+    print(f"  + {added} datasets added to the collection")
+
+    # Private-dataset embed-token demo. A PUBLIC share URL is impossible with a private
+    # dataset (publishing the map 400s), so keep the map PRIVATE and demonstrate the
+    # X-Embed-Token header, which grants tile access to the scoped private dataset.
+    print("  building the private embed-token capability demo...")
+    priv_ds = api.ingest_geojson(
+        "vip_sites_private.geojson",
+        json.dumps(PRIVATE_VIP_FC).encode(),
+        "Private Embed Demo - VIP Sites",
+        "A private dataset shown ONLY to holders of a scoped embed token "
+        "(X-Embed-Token). Demonstrates token-gated access to non-public data.",
+        visibility="private",
+    )
+    map_id = api.create_map(
+        "Private Embed Demo",
+        "A private map (kept unpublished) used to mint a scoped embed token over a "
+        "private dataset.",
+    )
+    layer = api.add_layer(
+        map_id,
+        {
+            "dataset_id": priv_ds,
+            "sort_order": 0,
+            "opacity": 1.0,
+            "display_name": "VIP sites (private)",
+            "paint": {
+                "circle-color": "#ff3b30",
+                "circle-radius": 7,
+                "circle-stroke-color": "#ffffff",
+                "circle-stroke-width": 1.5,
+            },
+        },
+    )
+    table_name = layer.get("dataset_table_name")
+    # scoped_dataset_ids is a SNAPSHOT of the map's layers at mint time -> add the layer
+    # BEFORE minting. raw_token is returned ONLY here.
+    tok = api.mint_embed_token(map_id, "Discover the World - private embed demo")
+    raw = tok.get("raw_token")
+    print(f"  collection: {coll_id}  ({added} datasets)")
+    print(f"  embed token (private dataset): {raw}")
+    print(f"  scoped datasets: {tok.get('scoped_dataset_ids')}")
+    print(f"  expires: {tok.get('expires_at')}")
+    if table_name and raw:
+        print("  demo: this serves the PRIVATE dataset with NO login:")
+        print(
+            f"    curl -H 'X-Embed-Token: {raw}' "
+            f"{api.base}/api/tiles/data.{table_name}/12/1205/1539.pbf"
+        )
+    return coll_id
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="Seed GeoLens marketing showcase maps.")
     ap.add_argument(
@@ -773,8 +1574,23 @@ def main() -> int:
         help="also build the Matterhorn terrain hero (downloads ~9 COG tiles)",
     )
     ap.add_argument(
+        "--with-sentinel2",
+        action="store_true",
+        help="also build the Sentinel-2 true-color hero (needs Titiler->S3 egress at view time)",
+    )
+    ap.add_argument(
         "--only",
-        choices=["manhattan", "income", "matterhorn"],
+        choices=[
+            "manhattan",
+            "income",
+            "matterhorn",
+            "airports",
+            "earthquakes",
+            "countries",
+            "rivers",
+            "sentinel2",
+            "collection",
+        ],
         help="build only one showcase map",
     )
     ap.add_argument(
@@ -787,48 +1603,61 @@ def main() -> int:
     print(f"Logging in to {args.base_url} as {args.username}...")
     api = Api.login(args.base_url, args.username, args.password)
 
+    fns = {
+        "manhattan": build_manhattan,
+        "income": build_income,
+        "matterhorn": build_matterhorn,
+        "airports": build_airports,
+        "earthquakes": build_earthquakes,
+        "countries": build_countries,
+        "rivers": build_rivers,
+        "sentinel2": build_sentinel2,
+        "collection": build_collection,
+    }
+
     built = {}
     try:
         if args.only:
-            fn = {
-                "manhattan": build_manhattan,
-                "income": build_income,
-                "matterhorn": build_matterhorn,
-            }[args.only]
-            result = fn(api, force=args.force)
-            if result and result != "(skipped)":
-                built[args.only] = result
-            else:
-                print(f"  {args.only}: already exists, skipped (use --force to recreate)")
+            builders = [(args.only, fns[args.only])]
         else:
-            for name, fn in [
+            builders = [
                 ("manhattan", build_manhattan),
                 ("income", build_income),
-            ]:
-                result = fn(api, force=args.force)
-                if result and result != "(skipped)":
-                    built[name] = result
-                else:
-                    print(f"  {name}: already exists, skipped (use --force to recreate)")
+                ("airports", build_airports),
+                ("earthquakes", build_earthquakes),
+                ("countries", build_countries),
+                ("rivers", build_rivers),
+            ]
             if args.with_terrain:
-                result = build_matterhorn(api, force=args.force)
-                if result and result != "(skipped)":
-                    built["matterhorn"] = result
-                else:
-                    print("  matterhorn: already exists, skipped (use --force to recreate)")
+                builders.append(("matterhorn", build_matterhorn))
+            if args.with_sentinel2:
+                builders.append(("sentinel2", build_sentinel2))
+            # collection LAST: it references the datasets the others create.
+            builders.append(("collection", build_collection))
+        for name, fn in builders:
+            result = fn(api, force=args.force)
+            if result and result != "(skipped)":
+                built[name] = result
+            else:
+                print(f"  {name}: already exists, skipped (use --force to recreate)")
     except (httpx.HTTPStatusError, RuntimeError, TimeoutError) as e:
         print(f"\nERROR: {e}", file=sys.stderr)
         if isinstance(e, httpx.HTTPStatusError):
             print(e.response.text[:500], file=sys.stderr)
         return 1
 
-    print("\nDone. Showcase maps:")
+    print("\nDone. Showcase:")
     for name, mid in built.items():
-        print(f"  {name:10s} {args.base_url}/maps/{mid}")
-    if not args.with_terrain and not args.only:
-        print(
-            "\n(Run with --with-terrain to also build the Matterhorn 3D terrain hero.)"
-        )
+        # build_collection returns a collection id, not a map id.
+        path = "collections" if name == "collection" else "maps"
+        print(f"  {name:12s} {args.base_url}/{path}/{mid}")
+    if not args.only and (not args.with_terrain or not args.with_sentinel2):
+        extra = []
+        if not args.with_terrain:
+            extra.append("--with-terrain (Matterhorn 3D)")
+        if not args.with_sentinel2:
+            extra.append("--with-sentinel2 (Sentinel-2 true color)")
+        print(f"\n(Add {' and '.join(extra)} for the remaining heroes.)")
     return 0
 
 
