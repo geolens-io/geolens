@@ -600,7 +600,7 @@
       "callbackUrl": "URL de redirección / devolución de llamada",
       "copyCallbackUrl": "Copiar URL de devolución de llamada",
       "callbackUrlCopied": "URL de devolución de llamada copiada al portapapeles",
-      "callbackUrlHint": "Registra esta URL exacta como la URL de redirección / devolución de llamada autorizada con tu proveedor (Google, Microsoft o GitHub)."
+      "callbackUrlHint": "Registra esta URL en tu proveedor (Google, Microsoft o GitHub) como la URL de redirección / devolución autorizada. Debe coincidir con la URL pública de la API configurada en el despliegue (define PUBLIC_API_URL o la URL pública de la API en Configuración general); de lo contrario, el inicio de sesión OAuth fallará por una redirección no coincidente."
     },
     "notifications": {
       "title": "Notificaciones salientes",

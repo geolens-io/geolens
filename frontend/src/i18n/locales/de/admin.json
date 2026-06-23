@@ -600,7 +600,7 @@
       "callbackUrl": "Weiterleitungs-/Callback-URL",
       "copyCallbackUrl": "Callback-URL kopieren",
       "callbackUrlCopied": "Callback-URL in die Zwischenablage kopiert",
-      "callbackUrlHint": "Registrieren Sie genau diese URL als autorisierte Weiterleitungs-/Callback-URL bei Ihrem Anbieter (Google, Microsoft oder GitHub)."
+      "callbackUrlHint": "Registrieren Sie diese URL bei Ihrem Anbieter (Google, Microsoft oder GitHub) als autorisierte Weiterleitungs-/Callback-URL. Sie muss der konfigurierten öffentlichen API-URL der Installation entsprechen (PUBLIC_API_URL bzw. die öffentliche API-URL in den allgemeinen Einstellungen setzen), sonst schlägt die OAuth-Anmeldung mit einem Redirect-Fehler fehl."
     },
     "notifications": {
       "title": "Ausgehende Benachrichtigungen",

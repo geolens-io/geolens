@@ -125,7 +125,7 @@ const EMPTY_FORM: ProviderFormData = {
 
 // --- OAuth Provider Management Section ---
 
-function OAuthProvidersSection({ envOnly, settings }: { envOnly: boolean; settings: SettingItem[] }) {
+function OAuthProvidersSection({ envOnly }: { envOnly: boolean }) {
   const { t } = useTranslation('admin');
   const PROVIDER_TYPE_LABELS = useProviderTypeLabels();
   const queryClient = useQueryClient();
@@ -179,19 +179,13 @@ function OAuthProvidersSection({ envOnly, settings }: { envOnly: boolean; settin
   // NOT the browser origin — split frontend/API hosts, reverse proxies, or a
   // custom API root would otherwise hand admins the wrong redirect URI.
   const oauthCallbackUrl = `${getPublicApiBaseUrl(tileConfig) ?? `${window.location.origin}/api`}/auth/oauth/${form.slug || '<provider>'}/callback`;
-  // #305: the OAuth login path only builds a redirect_uri from an explicitly
-  // configured public URL (for_external_use); tile-config returns a
-  // request-derived one. Treat the callback as ready when public_api_url or
-  // public_app_url has a non-empty effective VALUE — this covers BOTH DB
-  // overrides and env vars (env-set rows report source 'default' but still
-  // carry the value), unlike a source check. Block copy otherwise so an admin
-  // can't register a dead callback.
-  const hasSettingValue = (key: string) => {
-    const v = findSetting(settings, key)?.value;
-    return typeof v === 'string' && v.trim().length > 0;
-  };
-  const publicUrlConfigured =
-    hasSettingValue('public_api_url') || hasSettingValue('public_app_url');
+  // #305: the OAuth login path resolves redirect_uri from an EXPLICITLY
+  // configured public URL (for_external_use) and raises if none is set, but
+  // both /settings/all and tile-config return a request-derived value — so the
+  // client cannot reliably tell "configured" from "derived" (neither source nor
+  // value is authoritative). Rather than gate copy on an unreliable heuristic,
+  // the field is informational and the hint states the hard requirement that
+  // the deployment's Public API URL (PUBLIC_API_URL) be configured to match.
 
   function openAddDialog() {
     setEditingProvider(null);
@@ -504,7 +498,7 @@ function OAuthProvidersSection({ envOnly, settings }: { envOnly: boolean; settin
                   // #305: until tile-config resolves, the URL may still be the
                   // origin fallback (wrong on split-host deployments) — block
                   // copying so an admin can't register a premature value.
-                  disabled={tileConfigLoading || !publicUrlConfigured}
+                  disabled={tileConfigLoading}
                   aria-label={t('settings.oauth.copyCallbackUrl', { defaultValue: 'Copy callback URL' })}
                   onClick={() => {
                     navigator.clipboard.writeText(
@@ -929,7 +923,7 @@ export function SettingsAuthTab({ settings, envOnly, onSave, onReset, isSaving, 
       <hr className="border-border" />
 
       {/* OAuth Providers */}
-      <OAuthProvidersSection envOnly={envOnly} settings={settings} />
+      <OAuthProvidersSection envOnly={envOnly} />
     </div>
   );
 }
