@@ -124,11 +124,16 @@ export function DatasetStatsBar({ dataset, className }: DatasetStatsBarProps) {
   // Limit to 6 cells max
   const displayCells = cells.slice(0, 6);
 
-  // #305: reflow responsively so stats never get crushed/truncated on
-  // small screens — 2 cols on mobile, 3 on sm, then the original N-up desktop row.
+  // #305: reflow responsively so stats never get crushed/truncated on small
+  // screens, and cap columns to the number of rendered cells at every
+  // breakpoint so a sparse dataset (1-2 stats) leaves no empty grid columns.
   const gridColsClass: Record<number, string> = {
-    1: 'md:grid-cols-1', 2: 'md:grid-cols-2', 3: 'md:grid-cols-3',
-    4: 'md:grid-cols-4', 5: 'md:grid-cols-5', 6: 'md:grid-cols-6',
+    1: 'grid-cols-1',
+    2: 'grid-cols-2',
+    3: 'grid-cols-2 sm:grid-cols-3 md:grid-cols-3',
+    4: 'grid-cols-2 sm:grid-cols-3 md:grid-cols-4',
+    5: 'grid-cols-2 sm:grid-cols-3 md:grid-cols-5',
+    6: 'grid-cols-2 sm:grid-cols-3 md:grid-cols-6',
   };
 
   return (
@@ -136,8 +141,8 @@ export function DatasetStatsBar({ dataset, className }: DatasetStatsBarProps) {
       className={cn(
         // Outer right/bottom borders complete the frame the per-cell top/left
         // borders start, keeping the desktop row visually equivalent to before.
-        'grid grid-cols-2 sm:grid-cols-3 border-r border-b border-border',
-        gridColsClass[displayCells.length] ?? 'md:grid-cols-6',
+        'grid border-r border-b border-border',
+        gridColsClass[displayCells.length] ?? 'grid-cols-2 sm:grid-cols-3 md:grid-cols-6',
         className,
       )}
     >
