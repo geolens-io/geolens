@@ -644,12 +644,19 @@ div:has(> [data-group-drop-target="true"]) > [id^="folder-group-children"] {
   .maplibregl-ctrl-bottom-left {
     padding-bottom: env(safe-area-inset-bottom);
   }
-  /* Left-edge mobile Sheet (shadcn) clears the notch on landscape / its content
-     clears the home indicator at the bottom. */
+  /* Mobile Sheet (shadcn) clears the notch on landscape — both edges, since a
+     right-anchored drawer (report wizard, builder/editor) hits the right notch
+     and a left-anchored one hits the left. env()-left/right are each non-zero
+     only on the side that actually has an unsafe area, so padding both sides is
+     side-correct. Content also clears the home indicator at the bottom. */
   [data-slot="sheet-content"] {
     padding-left: max(
       var(--sheet-padding-left, 0px),
       env(safe-area-inset-left)
+    );
+    padding-right: max(
+      var(--sheet-padding-right, 0px),
+      env(safe-area-inset-right)
     );
     padding-bottom: max(
       var(--sheet-padding-bottom, 0px),

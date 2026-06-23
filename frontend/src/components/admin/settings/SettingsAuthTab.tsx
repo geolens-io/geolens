@@ -173,7 +173,7 @@ function OAuthProvidersSection({ envOnly }: { envOnly: boolean }) {
   const [editingProvider, setEditingProvider] = useState<OAuthProviderConfig | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<OAuthProviderConfig | null>(null);
   const [form, setForm] = useState<ProviderFormData>(EMPTY_FORM);
-  const { data: tileConfig } = useTileConfig();
+  const { data: tileConfig, isLoading: tileConfigLoading } = useTileConfig();
   // #305: derive the callback from the CONFIGURED public
   // API URL (what the backend builds redirect_uri from, same as SAML settings),
   // NOT the browser origin — split frontend/API hosts, reverse proxies, or a
@@ -488,6 +488,10 @@ function OAuthProvidersSection({ envOnly }: { envOnly: boolean }) {
                   type="button"
                   variant="outline"
                   size="icon"
+                  // #305: until tile-config resolves, the URL may still be the
+                  // origin fallback (wrong on split-host deployments) — block
+                  // copying so an admin can't register a premature value.
+                  disabled={tileConfigLoading}
                   aria-label={t('settings.oauth.copyCallbackUrl', { defaultValue: 'Copy callback URL' })}
                   onClick={() => {
                     navigator.clipboard.writeText(
