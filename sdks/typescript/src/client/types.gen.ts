@@ -17100,9 +17100,11 @@ export type GetJobStatusByDatasetJobsByDatasetDatasetIdGetError = GetJobStatusBy
 
 export type GetJobStatusByDatasetJobsByDatasetDatasetIdGetResponses = {
     /**
+     * Response Get Job Status By Dataset Jobs By Dataset  Dataset Id  Get
+     *
      * Successful Response
      */
-    200: JobStatusResponse;
+    200: JobStatusResponse | null;
 };
 
 export type GetJobStatusByDatasetJobsByDatasetDatasetIdGetResponse = GetJobStatusByDatasetJobsByDatasetDatasetIdGetResponses[keyof GetJobStatusByDatasetJobsByDatasetDatasetIdGetResponses];

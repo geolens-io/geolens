@@ -4,7 +4,6 @@ import { useTranslation } from 'react-i18next';
 import { FileText, History, Sparkles } from 'lucide-react';
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import { ApiError } from '@/api/client';
-import { toast } from 'sonner';
 import {
   closestCenter,
   pointerWithin,
@@ -86,7 +85,6 @@ import {
   resetBasemapAppearance,
   resetBasemapSublayer,
   setBasemapBackgroundColor,
-  setBasemapLabelsVisible,
   setBasemapMasterOpacity,
   setBasemapPosition,
   setBasemapProjection,
@@ -513,8 +511,27 @@ export function MapBuilderPage() {
 
   // Phase 1119: basemap group display object derived from the canonical
   // controller state, not runtime-only sublayer state.
+  //
+  // Bugbash fix: when the basemap is blank ("No basemap"), still return a
+  // minimal non-null group so the stack renders a "Basemap · No basemap" row.
+  // Without it the row disappears entirely and the preset-picker flyout (which
+  // is the only way to choose a real basemap again after the Add-Data Basemap
+  // tab was removed) becomes unreachable. The flyout already excludes BLANK from
+  // its preset list and its SUBLAYERS section already hides itself when
+  // sublayers is empty (BasemapGroupEditorScene WR-02), so an empty-sublayer
+  // group renders cleanly and lets the user pick a real preset.
   const basemapGroup = useMemo(() => {
-    if (!basemapState.hasVisibleBasemap) return null;
+    if (!basemapState.hasVisibleBasemap) {
+      return {
+        id: 'basemap-group',
+        presetName: t('basemapGroup.noBasemap', { defaultValue: 'No basemap' }),
+        providerLabel: undefined,
+        // Phase 1199 STACK-02: session-local visibility (was hardcoded true).
+        visible: basemapVisible,
+        opacity: basemapState.config.opacity ?? 1,
+        sublayers: [],
+      };
+    }
     // Derive preset name from the basemap id (label portion after last dash, capitalized)
     const presetId = basemapState.basemapStyle;
     const presetName = presetId
@@ -531,7 +548,7 @@ export function MapBuilderPage() {
       opacity: basemapState.config.opacity ?? 1,
       sublayers: basemapState.sublayers,
     };
-  }, [basemapState, basemapVisible]);
+  }, [basemapState, basemapVisible, t]);
 
   const isBasemapExpanded = layers.groupMeta?.['basemap-group']?.expanded ?? false;
 
@@ -844,31 +861,13 @@ export function MapBuilderPage() {
       | undefined;
 
     if (data?.source === 'catalog') {
-      const { datasetId, recordType, name: datasetName = '' } = data;
+      const { datasetId, name: datasetName = '' } = data;
       if (!datasetId) return;
       const overId = String(over.id);
 
-      // Case 1: basemap row dropped onto the basemap group row → swap basemap (POL-04).
-      // Mirrors DatasetSearchPanel.handleBasemapSwap: four-step normalization.
-      if (recordType === 'basemap' && basemapGroup && overId === basemapGroup.id) {
-        applyBasemapPatch(swapBasemapPreset(basemapState, datasetId));
-        layers.markDirty();
-        toast.success(t('toasts.basemapChanged', { name: datasetName }), {
-          id: `swap-basemap-${datasetId}`,
-        });
-        // Phase 20260526-builder-audit BLD-20260526-11: reuse the toast copy for the basemap swap announce — "Basemap changed to {name}."
-        // is semantically correct; dragDropped copy ("added at position 1") is not.
-        announce(t('toasts.basemapChanged', { name: datasetName }));
-        return;
-      }
-
-      // Case 2: basemap row dropped onto a non-basemap target → silent reject (UI-SPEC §3d).
-      if (recordType === 'basemap') {
-        announce(t('a11y.dragCancelled'));
-        return;
-      }
-
       // Case 3: non-basemap row dropped onto the basemap group row → silent reject (UI-SPEC §3d).
+      // (Basemaps are no longer draggable from the catalog; basemap swaps go through the
+      // left-pane BasemapGroupEditorScene flyout instead.)
       if (basemapGroup && overId === basemapGroup.id) {
         announce(t('a11y.dragCancelled'));
         return;
@@ -1386,7 +1385,7 @@ export function MapBuilderPage() {
               onToggleSublayerVisibility={handleToggleSublayerVisibility}
               onSublayerOpacityChange={handleSublayerOpacityChange}
               onToggleBasemapVisibility={handleToggleBasemapVisibility}
-              onSwapBasemap={() => dialogs.setShowAddData(true)}
+              onSwapBasemap={() => handleSelectLayer('basemap-group')}
               onResetBasemapAppearance={handleResetBasemapAppearance}
               onRenameGroup={layers.handleRenameGroup}
               onAddLayerToGroup={handleAddLayerToFolderGroup}
@@ -1632,24 +1631,6 @@ export function MapBuilderPage() {
         })}
         layers={layers.localLayers}
         isAdding={addLayer.isPending}
-        basemapStyle={basemapState.basemapStyle}
-        showBasemapLabels={basemapState.showBasemapLabels}
-        basemapConfig={basemapState.config}
-        onBasemapChange={(key) => {
-          applyBasemapPatch(swapBasemapPreset(basemapState, key));
-          layers.markDirty();
-        }}
-        onBasemapLabelsChange={(show) => {
-          applyBasemapPatch(setBasemapLabelsVisible(basemapState, show));
-          layers.setHasUnsavedChanges(true);
-        }}
-        onBasemapConfigChange={(next) => {
-          applyBasemapPatch({
-            basemapConfig: next,
-            showBasemapLabels: next.label_mode !== 'hidden',
-          });
-          layers.markDirty();
-        }}
         showShare={dialogs.showShare}
         onShowShareChange={dialogs.setShowShare}
         hasUnsavedChanges={layers.hasUnsavedChanges}

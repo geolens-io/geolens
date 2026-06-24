@@ -78,10 +78,6 @@ vi.mock('@/components/builder/SharePanel', () => ({
   ShareDialog: () => <div data-testid="share-dialog" />,
 }));
 
-vi.mock('@/components/builder/BasemapPicker', () => ({
-  BasemapPicker: () => <div data-testid="basemap-picker" />,
-}));
-
 vi.mock('@/components/builder/SettingsEditorScene', () => ({
   SettingsEditorScene: () => <div data-testid="settings-editor-scene" />,
 }));

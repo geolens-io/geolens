@@ -264,6 +264,74 @@ describe('UX-03: BasemapGroupRow drag handle (sortable wiring)', () => {
   });
 });
 
+// Bugbash regression: when the basemap is blank ("No basemap"), MapBuilderPage
+// now produces a minimal non-null basemapGroup (empty sublayers, presetName
+// "No basemap") instead of null. Without it the basemap row vanished entirely
+// and the only way to choose a real basemap again (the preset-picker flyout)
+// became unreachable after the Add-Data Basemap tab was removed. These tests
+// pin that the blank-basemap group still renders a reachable row that routes
+// selection to 'basemap-group' (opening the flyout) and does not crash with an
+// empty sublayer list.
+describe('Blank basemap — basemap picker stays reachable', () => {
+  const blankBasemapGroup = {
+    id: 'basemap-group',
+    presetName: 'No basemap',
+    providerLabel: undefined,
+    visible: true,
+    opacity: 1,
+    sublayers: [],
+  };
+
+  it('renders the basemap row even when the basemap is blank (empty sublayers)', () => {
+    render(
+      <UnifiedStackPanel
+        {...defaultProps({
+          layers: [makeLayer({ id: 'l1' })],
+          basemapGroup: blankBasemapGroup,
+        })}
+      />,
+    );
+    expect(screen.getByTestId('basemap-dock')).toBeInTheDocument();
+    expect(document.querySelector('[data-row-id="basemap-group"]')).toBeTruthy();
+    // Row label surfaces the "No basemap" preset name.
+    expect(screen.getByText(/No basemap/)).toBeInTheDocument();
+  });
+
+  it('renders the blank basemap row in the empty stack (no data layers)', () => {
+    render(
+      <UnifiedStackPanel
+        {...defaultProps({
+          layers: [],
+          basemapGroup: blankBasemapGroup,
+        })}
+      />,
+    );
+    // Empty-state still shows AND the basemap dock is present, so the user can
+    // reach the picker from a fresh/blank map.
+    expect(screen.getByTestId('empty-stack-state')).toBeInTheDocument();
+    expect(screen.getByTestId('basemap-dock')).toBeInTheDocument();
+    expect(screen.getByText(/No basemap/)).toBeInTheDocument();
+  });
+
+  it('clicking the blank basemap row selects basemap-group (opens the preset flyout)', () => {
+    const onSelectLayer = vi.fn();
+    render(
+      <UnifiedStackPanel
+        {...defaultProps({
+          layers: [makeLayer({ id: 'l1' })],
+          basemapGroup: blankBasemapGroup,
+          onSelectLayer,
+        })}
+      />,
+    );
+    const row = document.querySelector('[data-row-id="basemap-group"] [id="stack-row-basemap-group"]')
+      ?? document.getElementById('stack-row-basemap-group');
+    expect(row).toBeTruthy();
+    fireEvent.click(row!);
+    expect(onSelectLayer).toHaveBeenCalledWith('basemap-group');
+  });
+});
+
 describe('UX-03: reorderBasemapAboveData (map-sync helper)', () => {
   function makeMockMap(
     layers: Array<{ id: string; source?: string; type?: string; layout?: Record<string, unknown> }>,

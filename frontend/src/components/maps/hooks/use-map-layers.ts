@@ -93,7 +93,21 @@ export function useMapLayers({
             'source-layer': sourceLayer,
             paint: {
               'fill-extrusion-color': MAP_COLORS.default.fill,
-              'fill-extrusion-height': ['max', ['coalesce', ['to-number', ['get', elevationColumn], 0], 0], 0],
+              // Null-safe height expression (#14): only read the property when
+              // present, then coalesce the raw value to 0 BEFORE ``to-number`` so
+              // a feature with a null/missing height never reaches a numeric
+              // operator as ``null`` (which throws the maplibre worker error
+              // "Expected value to be of type number, but found null").
+              'fill-extrusion-height': [
+                'max',
+                [
+                  'case',
+                  ['has', elevationColumn],
+                  ['to-number', ['coalesce', ['get', elevationColumn], 0], 0],
+                  0,
+                ],
+                0,
+              ],
               'fill-extrusion-base': 0,
               'fill-extrusion-opacity': 0.8,
             },

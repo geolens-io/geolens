@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { AlertCircle, AlertTriangle, CheckCircle2, Lightbulb } from 'lucide-react';
 import { useValidation } from '@/components/dataset/hooks/use-dataset';
-import { useAllSettings } from '@/hooks/use-settings';
+import { useFeatureFlags } from '@/hooks/use-settings';
 import { useAuthStore } from '@/stores/auth-store';
 import { semanticBadgeColors, validationLevelColors } from '@/lib/status-colors';
 import { Badge } from '@/components/ui/badge';
@@ -27,10 +27,11 @@ export function ValidationStatus({
   const token = useAuthStore((s) => s.token);
   const { data, isLoading } = useValidation(token ? datasetId : undefined);
   const [troubleshootOpen, setTroubleshootOpen] = useState(false);
-  const { data: allSettings } = useAllSettings({ enabled: !!token });
-  const requireMetadata = allSettings?.tabs?.general?.find(
-    (s: { key: string }) => s.key === 'require_metadata_for_publish'
-  )?.value ?? false;
+  // require_metadata_for_publish is exposed by the PUBLIC /settings/feature-flags/
+  // endpoint. Previously this read it from the admin-only /settings/all/ endpoint,
+  // which 403'd for non-admin/guest viewers on the dataset detail page (#15).
+  const { data: featureFlags } = useFeatureFlags();
+  const requireMetadata = featureFlags?.require_metadata_for_publish ?? false;
 
   if (isLoading || !data) return null;
 

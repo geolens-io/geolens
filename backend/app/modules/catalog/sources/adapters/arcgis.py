@@ -28,6 +28,30 @@ _ESRI_GEOM_TYPE_MAP = {
 }
 
 
+# Maps ESRI field types to the OGR field-type names the rest of the preview
+# pipeline expects (matching the ``type`` strings ogrinfo -json emits for the
+# WFS/OGC path). Unknown types fall back to "String".
+_ESRI_FIELD_TYPE_MAP = {
+    "esriFieldTypeOID": "Integer64",
+    "esriFieldTypeInteger": "Integer",
+    "esriFieldTypeSmallInteger": "Integer",
+    "esriFieldTypeBigInteger": "Integer64",
+    "esriFieldTypeDouble": "Real",
+    "esriFieldTypeSingle": "Real",
+    "esriFieldTypeString": "String",
+    "esriFieldTypeDate": "DateTime",
+    "esriFieldTypeGUID": "String",
+    "esriFieldTypeGlobalID": "String",
+}
+
+
+def _normalize_esri_field_type(esri_type: str | None) -> str:
+    """Map an ESRI field type to an OGR field-type name (default "String")."""
+    if not esri_type:
+        return "String"
+    return _ESRI_FIELD_TYPE_MAP.get(esri_type, "String")
+
+
 def _normalize_esri_geom_type(esri_type: str | None) -> str | None:
     """Convert esriGeometryPoint -> Point, etc.
 
@@ -199,3 +223,107 @@ async def enrich_arcgis_feature_counts(
 
     enriched = await asyncio.gather(*[_fetch_count(layer) for layer in layers])
     return list(enriched)
+
+
+async def fetch_arcgis_layer_preview(
+    base_url: str,
+    layer_id: int | str,
+    client: httpx.AsyncClient,
+    token: str | None = None,
+    sample_limit: int = 5,
+) -> dict:
+    """Preview an ArcGIS FeatureServer/MapServer layer from REST metadata.
+
+    GDAL's ESRIJSON driver ignores ``resultRecordCount`` and paginates the
+    *whole* layer to build an ogrinfo preview, which times out on large
+    layers (millions of rows). The native ArcGIS ``?f=json`` layer metadata
+    endpoint returns the field list, geometry type, and CRS in a single fast
+    call; a second ``/query`` call with ``resultRecordCount`` fetches a small
+    sample. This bypasses GDAL entirely for the preview path.
+
+    Returns a dict with the same shape ``run_service_preview`` returns:
+    keys ``srid``, ``geometry_type``, ``layer_name``, ``feature_count``,
+    ``columns``, ``sample_rows``.
+
+    Raises ``ArcGISTokenError`` on token errors so the router can surface a
+    403. Other HTTP/parse failures raise ``httpx.HTTPError``/``ValueError``.
+    """
+    base = base_url.rstrip("/")
+    safe_layer_id = str(layer_id).strip("/")
+
+    # --- Layer metadata: fields, geometry type, CRS, name ---
+    # Pass query params via httpx so a token containing URL-reserved characters
+    # (+, &, %) is percent-encoded instead of corrupting the query string.
+    meta_params: dict[str, str] = {"f": "json"}
+    if token:
+        meta_params["token"] = token
+    resp = await client.get(f"{base}/{safe_layer_id}", params=meta_params)
+    resp.raise_for_status()
+    meta = resp.json()
+
+    if "error" in meta:
+        error_info = meta["error"]
+        code = error_info.get("code", 0)
+        message = error_info.get("message", "Unknown ArcGIS error")
+        if code in (498, 499):
+            raise ArcGISTokenError(code, message)
+        raise ValueError(f"ArcGIS layer metadata error ({code}): {message}")
+
+    columns = [
+        {
+            "name": field.get("name"),
+            "type": _normalize_esri_field_type(field.get("type")),
+        }
+        for field in meta.get("fields", [])
+        if field.get("type") != "esriFieldTypeGeometry" and field.get("name")
+    ]
+
+    geometry_type = _normalize_esri_geom_type(meta.get("geometryType"))
+
+    # CRS: prefer extent.spatialReference (latestWkid wins over wkid).
+    srid: int | None = None
+    spatial_ref = (meta.get("extent") or {}).get("spatialReference") or {}
+    if isinstance(spatial_ref, dict):
+        srid = spatial_ref.get("latestWkid") or spatial_ref.get("wkid")
+    if not isinstance(srid, int):
+        srid = None
+
+    layer_name = meta.get("name")
+
+    # --- Sample rows: small bounded query ---
+    sample_rows: list[dict] = []
+    query_params: dict[str, str] = {
+        "where": "1=1",
+        "outFields": "*",
+        "resultRecordCount": str(sample_limit),
+        "f": "json",
+    }
+    if token:
+        query_params["token"] = token
+    try:
+        sample_resp = await client.get(
+            f"{base}/{safe_layer_id}/query", params=query_params
+        )
+        sample_resp.raise_for_status()
+        sample_data = sample_resp.json()
+        if "error" not in sample_data:
+            # ArcGIS query responses carry attributes under ``attributes``.
+            sample_rows = [
+                feat.get("attributes", {}) for feat in sample_data.get("features", [])
+            ]
+    except (httpx.HTTPError, ValueError) as exc:
+        logger.debug(
+            "ArcGIS sample-row fetch failed for %s/%s: %s",
+            base,
+            safe_layer_id,
+            exc,
+        )
+
+    return {
+        "srid": srid,
+        "geometry_type": geometry_type,
+        "layer_name": layer_name,
+        "feature_count": None,
+        "columns": columns,
+        "sample_rows": sample_rows,
+    }

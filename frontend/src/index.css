@@ -490,6 +490,20 @@
   margin-top: 32px;
 }
 
+/* ── BuilderMap coordinate-pill vs. MapToolbar offset ──────────────────────
+ * The builder renders a centered MapToolbar (pan/measure/legend/JSON/keyboard)
+ * at `top-3` (12px) + ~32px tall ≈ 44px bottom edge. The `MapCoordReadout`
+ * pill sits at `top-2 right-14`; when the map column narrows (editor flyout
+ * open), the right-anchored pill stretches leftward into the centered toolbar
+ * band and — being z-10 over the toolbar's z-[5] — paints on top of it.
+ * Drop the pill to `top-12` (48px) in the builder so it clears the toolbar,
+ * matching the PluginHost top-band convention. Scoped via `data-builder-canvas`
+ * so ViewerMap (no MapToolbar) keeps its `top-2` contract.
+ */
+[data-builder-canvas="true"] [data-coord-readout="true"] {
+  top: 3rem; /* 48px — below the centered MapToolbar band */
+}
+
 /* ── MapLibre Popup Styling ─────────────────────────── */
 .maplibregl-popup-content {
   background: var(--popover);

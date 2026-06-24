@@ -100,8 +100,14 @@ export async function getJobStatus(
 
 export async function getJobStatusByDataset(
   datasetId: string,
-): Promise<JobStatusResponse> {
-  return apiFetch<JobStatusResponse>(`/jobs/by-dataset/${datasetId}`);
+): Promise<JobStatusResponse | null> {
+  // Backend returns 200 + null when the dataset is visible but has no ingest
+  // job (remote/STAC/registered dataset); apiFetch resolves the null JSON body
+  // to null. A genuine 404 (dataset not visible) still throws ApiError.
+  // expected404 also keeps older servers (pre-200+null) from throwing here.
+  return apiFetch<JobStatusResponse | null>(`/jobs/by-dataset/${datasetId}`, {
+    expected404: true,
+  });
 }
 
 export async function previewFile(jobId: string, layerName?: string): Promise<FilePreviewResponse> {

@@ -575,6 +575,21 @@ export interface JobStatusResponse {
    * detail page. Empty array when the ingest had no warnings.
    */
   warnings: IngestJobWarning[];
+  /**
+   * Progress fields stamped by the ingest worker at step boundaries so the UI
+   * can render a determinate bar during multi-minute ingests. All three are
+   * null for pending jobs and for service ingests that never wrote them.
+   */
+  progress?: number | null;
+  current_step?:
+    | 'validating'
+    | 'ogr2ogr'
+    | 'finalize'
+    | 'complete'
+    | 'cog_convert'
+    | 'quicklook'
+    | null;
+  rows_processed?: number | null;
   archive_failed: boolean;
   temporal_parse_errors: Partial<
     Record<'temporal_start' | 'temporal_end', string>

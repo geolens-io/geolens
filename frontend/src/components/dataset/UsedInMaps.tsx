@@ -1,6 +1,5 @@
 import { Link } from 'react-router';
 import { useTranslation } from 'react-i18next';
-import { Map } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useDatasetMaps } from '@/hooks/use-maps';
 import { formatRelativeDate } from '@/lib/format';
@@ -19,13 +18,12 @@ export function UsedInMaps({ datasetId }: UsedInMapsProps) {
 
   return (
     <Card>
-      <CardHeader>
-        <CardTitle className="text-base flex items-center gap-2">
-          <Map className="h-5 w-5" />
+      <CardHeader className="pb-2">
+        <CardTitle className="text-[10.5px] font-mono font-medium uppercase tracking-[0.12em] text-muted-foreground">
           {t('usedInMaps.title')}
         </CardTitle>
       </CardHeader>
-      <CardContent>
+      <CardContent className="pt-0">
         <div className="space-y-2">
           {data.maps.map((map) => (
             <Link

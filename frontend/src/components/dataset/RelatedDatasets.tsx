@@ -1,6 +1,5 @@
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router';
-import { GitCompareArrows } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useRelatedDatasets } from '@/components/dataset/hooks/use-records';
 import { RecordTypeBadge } from '@/components/search/RecordTypeBadge';
@@ -24,19 +23,18 @@ export function RelatedDatasets({ datasetId }: RelatedDatasetsProps) {
 
   return (
     <Card>
-      <CardHeader>
-        <CardTitle className="text-base flex items-center gap-2">
-          <GitCompareArrows className="h-5 w-5" />
+      <CardHeader className="pb-2">
+        <CardTitle className="text-[10.5px] font-mono font-medium uppercase tracking-[0.12em] text-muted-foreground">
           {t('relatedDatasets.similarDatasets', { defaultValue: 'Similar datasets' })}
         </CardTitle>
       </CardHeader>
-      <CardContent>
-        <div className="flex gap-3 overflow-x-auto pb-1">
+      <CardContent className="pt-0">
+        <div className="flex flex-col gap-2">
           {uniqueItems.map((item) => (
             <Link
               key={item.id}
               to={`/datasets/${item.id}`}
-              className="block min-w-[180px] max-w-[220px] shrink-0 rounded-lg border p-3 transition-colors hover:bg-muted"
+              className="block rounded-lg border p-3 transition-colors hover:bg-muted"
             >
               <p className="text-sm font-medium truncate" title={item.name}>
                 {item.name}

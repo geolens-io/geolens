@@ -333,12 +333,12 @@ def _job_to_status_response(job: IngestJob) -> JobStatusResponse:
     )
 
 
-@router.get("/by-dataset/{dataset_id}", response_model=JobStatusResponse)
+@router.get("/by-dataset/{dataset_id}", response_model=JobStatusResponse | None)
 async def get_job_status_by_dataset(
     dataset_id: uuid.UUID,
     user: Identity = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
-) -> JobStatusResponse:
+) -> JobStatusResponse | None:
     """Look up the most recent ingest job for a dataset.
 
     Used by the dataset detail page to surface ingest warnings permanently
@@ -346,9 +346,13 @@ async def get_job_status_by_dataset(
     ``reserved_rename`` / ``dbf_truncation_collision`` / ``archive_failed``
     / ``temporal_parse_errors`` metadata.
 
-    Returns the most recently created completed job for the dataset, or 404
-    if none exists (e.g. the dataset was registered from an existing table,
-    not ingested).
+    Returns the most recently created completed job for the dataset. When the
+    dataset is visible but has no ingest job (e.g. registered from an existing
+    table, or a remote/STAC dataset), returns ``200`` with a ``null`` body
+    instead of 404 — a "no job" outcome is normal for these datasets and a
+    404 would needlessly pollute the browser console on the dataset detail
+    page. A genuine 404 is still raised when the dataset is not visible to the
+    user, to avoid leaking job existence (see visibility check below).
     """
     # Visibility check: reuse the dataset detail permission so only users
     # who can see the dataset can see the job warnings. Avoid leaking the
@@ -387,10 +391,10 @@ async def get_job_status_by_dataset(
     )
     job = job_result.scalar_one_or_none()
     if job is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="No ingest job found for this dataset",
-        )
+        # Dataset is visible but has no ingest job (remote/STAC/registered
+        # dataset). Return 200 + null rather than 404 so the dataset detail
+        # page can treat it as "no warnings" without a console 404.
+        return None
 
     return _job_to_status_response(job)
 

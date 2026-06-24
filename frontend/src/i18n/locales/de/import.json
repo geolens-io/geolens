@@ -120,6 +120,11 @@
     "createdCount": "{{count}} erstellt",
     "skippedCount": "{{count}} übersprungen (Duplikat)",
     "failedCount": "{{count}} fehlgeschlagen",
+    "failureDetails_one": "{{count}} Element konnte nicht importiert werden",
+    "failureDetails_other": "{{count}} Elemente konnten nicht importiert werden",
+    "failureGroupCount_one": "{{count}} Element",
+    "failureGroupCount_other": "{{count}} Elemente",
+    "failureUnknown": "Unbekannter Fehler",
     "importMore": "Weitere importieren",
     "backToResults": "Zurück zu den Ergebnissen",
     "catalogConnected": "STAC-Katalog — verbunden",
@@ -309,7 +314,16 @@
     "copiedXyzUrl": "XYZ-Tile-URL kopiert",
     "copyCogUrl": "COG-URL kopieren",
     "copyXyzUrl": "XYZ-Tile-URL kopieren",
-    "cogDownloadFailed": "COG-Download konnte nicht gestartet werden — bitte erneut versuchen"
+    "cogDownloadFailed": "COG-Download konnte nicht gestartet werden — bitte erneut versuchen",
+    "rowsSuffix": "Zeilen",
+    "step": {
+      "validating": "Wird validiert",
+      "ogr2ogr": "Features werden geladen",
+      "finalize": "Wird abgeschlossen",
+      "cog_convert": "Konvertierung zu COG",
+      "quicklook": "Vorschau wird erstellt",
+      "complete": "Abgeschlossen"
+    }
   },
   "review": {
     "headerStatus": "Detection complete",
