@@ -791,8 +791,10 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # contract ({relationships,total}); list_relationships DRY'd to delegate +
         # _visible_relationships extracted (shared, fail-closed). Cap 580 -> 595 (~7 LOC headroom).
         # Smoke-check backlog (#315): +source/target Dataset.id resolution so the
-        # list response returns dereferenceable ids. Cap 595 -> 605 (~7 LOC headroom).
-        "backend/app/modules/catalog/datasets/domain/service_relationships.py": 605,
+        # list response returns dereferenceable ids. Smoke-residual follow-up (#315):
+        # +try/except (ProgrammingError->503) around get_related_records table
+        # queries (raster/missing-table guard). Cap 595 -> 620 (~3 LOC headroom).
+        "backend/app/modules/catalog/datasets/domain/service_relationships.py": 620,
         "backend/app/modules/catalog/datasets/domain/service_metadata.py": 460,
         "backend/app/modules/catalog/datasets/domain/service_query.py": 390,
         # Phase 276 CODE-02: chat_*.py sub-modules are all under the 350
@@ -884,8 +886,10 @@ def test_router_orchestrator_modules_stay_within_loc_cap() -> None:
         "backend/app/modules/catalog/maps/router.py": 1900,
         # Smoke-check backlog (#315): raster coverage list metadata (itemType +
         # rel=tiles, omit rel=items), stable numberMatched + collection count,
-        # and the filter-lang 400. Cap 1600 -> 1625 (~5 LOC headroom).
-        "backend/app/modules/catalog/search/router.py": 1625,
+        # and the filter-lang 400. Smoke-residual follow-up (#315): +public_app_url
+        # fetches in 3 OGC-record handlers for the raster_tiles app-origin fix.
+        # Cap 1600 -> 1640 (~6 LOC headroom).
+        "backend/app/modules/catalog/search/router.py": 1640,
         # Phase 1176 PERF-002: +~60 lines for the raster tile auth/metadata
         # TTLCache (_RasterMeta + _resolve_raster_meta), mirroring the vector
         # tile meta cache so raster tiles aren't asymmetric.
