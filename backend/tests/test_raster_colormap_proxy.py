@@ -651,3 +651,33 @@ class TestRasterColormapProxy:
         assert "rescale=512.66,1304.31" not in tile_url, (
             f"SPIKE-01: tile URL must NOT use hardcoded percentile_2/percentile_98 values: {tile_url}"
         )
+
+    # ------------------------------------------------------------------
+    # A-fix (#315 follow-up): proxy-polluted {fmt} must be sanitized so the
+    # Titiler URL is never malformed with a double "?". Some reverse-proxy
+    # rewrites URL-encode the request query into the PATH, delivering
+    # fmt="png?stretch=...".
+    # ------------------------------------------------------------------
+
+    async def test_proxy_polluted_fmt_query_in_path_is_sanitized(self, client):
+        """fmt='png?stretch=...' (query encoded into the path) renders a tile with
+        a well-formed single-'?' Titiler URL, not a 422 from a double-'?'."""
+        # '?' percent-encoded into the fmt path segment (what a misbehaving proxy sends)
+        resp = await client.get(
+            f"/tiles/raster-proxy/{_DATASET_ID}/0/0/0.png%3Fstretch=percentile"
+        )
+        assert resp.status_code in (200, 204)
+        assert len(self._tile_titiler_calls) == 1
+        url = self._tile_titiler_calls[0]
+        assert url.count("?") == 1, f"Titiler URL must have exactly one '?': {url}"
+        # endpoint must be the clean ".png" with the query starting at url=
+        assert "/0/0/0.png?url=" in url, f"Polluted fmt leaked into endpoint: {url}"
+        assert "stretch=" not in url.split("?", 1)[0], (
+            f"Pollution before the query separator: {url}"
+        )
+
+    async def test_proxy_rejects_unsupported_fmt(self, client):
+        """A non-image fmt is rejected with 400 (hardening: {fmt} feeds an upstream URL)."""
+        resp = await client.get(f"/tiles/raster-proxy/{_DATASET_ID}/0/0/0.exe")
+        assert resp.status_code == 400
+        assert not self._tile_titiler_calls, "Titiler must not be called for a bad fmt"

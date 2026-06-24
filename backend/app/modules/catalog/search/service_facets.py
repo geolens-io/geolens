@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from sqlalchemy import String as SAString, func, or_, select
+from sqlalchemy import String as SAString, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.identity import Identity
@@ -57,19 +57,11 @@ async def get_facet_counts(
     result = await session.execute(type_stmt)
     counts = {row.record_type: row.count for row in result.all()}
 
-    # Separately count collections from the collections table
-    coll_stmt = select(func.count()).select_from(Collection)
-    if filters.q and filters.q.strip():
-        q_like = f"%{filters.q.strip().lower()}%"
-        coll_stmt = coll_stmt.where(
-            or_(
-                func.lower(Collection.name).like(q_like),
-                func.lower(func.coalesce(Collection.description, "")).like(q_like),
-            )
-        )
-    coll_count = (await session.execute(coll_stmt)).scalar_one()
-    if coll_count > 0:
-        counts["collection"] = coll_count
+    # fix(#315 follow-up, A4): do NOT inject a "collection" record_type facet.
+    # Collections live in the separate Collection table, not as Record rows with
+    # record_type='collection', so ?record_type=collection filters Record.record_type
+    # and always returns 0 -- a dead facet value (advertises N, filter yields 0).
+    # Collections are surfaced via the dedicated "collections" facet below instead.
 
     # Facet queries are intentionally sequential -- SQLAlchemy AsyncSession
     # is not safe for concurrent execute() on a shared connection.

@@ -152,9 +152,6 @@ export function OAuthButtons({ showDivider = true }: { showDivider?: boolean } =
           );
         })}
       </div>
-      <p className="text-center text-[11.5px] leading-snug text-muted-foreground">
-        {t('oauth.helper')}
-      </p>
     </div>
   );
 }

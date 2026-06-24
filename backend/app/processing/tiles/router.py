@@ -915,6 +915,22 @@ async def raster_tile_proxy(
     sigma: Standard-deviation multiplier for stretch=stddev (default 2.0).
     Must be > 0.
     """
+    # A-fix(#315 follow-up): defensively sanitize the {fmt} path param before it is
+    # interpolated into the Titiler endpoint URL. Some reverse-proxy rewrites (e.g.
+    # nginx `rewrite ... $is_args$args` + a variable `proxy_pass`) URL-encode the
+    # request's query string into the PATH, so {fmt} can arrive as "png?stretch=..."
+    # -> the built Titiler URL becomes ".../771.png?stretch=...?url=..." (double "?")
+    # which Titiler rejects with 422. The real render params still arrive as proper
+    # query params (parsed above), so stripping the pollution lets the tile render
+    # correctly. Also a hardening win: {fmt} feeds an upstream URL and must be an
+    # allowlisted extension.
+    fmt = fmt.split("?", 1)[0].lower()
+    if fmt not in ("png", "webp", "jpg", "jpeg", "tif", "tiff"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unsupported tile format: {fmt!r}",
+        )
+
     # Resolve effective bounds (apply defaults so callers downstream always receive
     # concrete values, not None).
     eff_pmin: float = pmin if pmin is not None else 2.0

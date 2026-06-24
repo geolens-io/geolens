@@ -197,12 +197,16 @@ async def test_facets_with_srid_filter(
 
 
 @pytest.mark.anyio
-async def test_facets_includes_collection_count(
+async def test_facets_excludes_dead_collection_record_type(
     client: AsyncClient,
     admin_auth_header: dict,
     test_db_session,
 ):
-    """GET /search/facets returns a 'collection' count when collections exist."""
+    """A4 (#315 follow-up): the record_type facet must NOT advertise a 'collection'
+    value. Collections live in the separate Collection table, not as Record rows
+    with record_type='collection', so ?record_type=collection always returns 0 --
+    a dead facet value. Collections are surfaced via the 'collections' facet instead.
+    """
     session = test_db_session
     admin_id = await get_user_id(session, "admin")
 
@@ -222,7 +226,11 @@ async def test_facets_includes_collection_count(
     assert resp.status_code == 200
     data = resp.json()
     counts = data["record_type"]
-    assert counts.get("collection", 0) >= 1
+    assert "collection" not in counts, (
+        "record_type facet must not advertise the unfilterable 'collection' value"
+    )
+    # Collections are exposed via the dedicated 'collections' facet group.
+    assert "collections" in data
 
 
 @pytest.mark.anyio
