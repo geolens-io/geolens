@@ -683,6 +683,11 @@ async def test_semantic_visible_match_not_crowded_out_by_nearer_private(
     dim = await _get_embedding_dim(session)
     await _set_semantic_search(session, True)
 
+    # Use a dedicated vector band (lo=110) orthogonal to every other test's
+    # records so a concurrent -n4 worker's public lo=40 embedding can't pollute
+    # this test's restricted top-k (same-band vectors are near-cosine-identical,
+    # so an unrelated public record would otherwise tie-break into the limit).
+    band_lo = 110
     public_ds = await _create_search_dataset(
         session,
         created_by=admin_id,
@@ -692,7 +697,7 @@ async def test_semantic_visible_match_not_crowded_out_by_nearer_private(
     session.add(
         RecordEmbedding(
             record_id=public_ds.record_id,
-            embedding=_make_vector_band(0.85, dim=dim),
+            embedding=_make_vector_band(0.85, dim=dim, lo=band_lo),
             model_name="text-embedding-3-small",
             content_hash="p2a_public",
         )
@@ -709,7 +714,7 @@ async def test_semantic_visible_match_not_crowded_out_by_nearer_private(
             RecordEmbedding(
                 record_id=priv.record_id,
                 embedding=_make_vector_band(
-                    base, dim=dim
+                    base, dim=dim, lo=band_lo
                 ),  # nearer than the public 0.85
                 model_name="text-embedding-3-small",
                 content_hash=f"p2a_priv_{i}",
@@ -720,7 +725,7 @@ async def test_semantic_visible_match_not_crowded_out_by_nearer_private(
     with patch(
         "app.modules.catalog.search.service_semantic.generate_embedding",
         new_callable=AsyncMock,
-        return_value=_make_vector_band(1.0, dim=dim),
+        return_value=_make_vector_band(1.0, dim=dim, lo=band_lo),
     ):
         resp = await client.get(
             "/search/datasets/",
