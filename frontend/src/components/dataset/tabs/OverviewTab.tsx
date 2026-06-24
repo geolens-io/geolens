@@ -220,6 +220,11 @@ export function OverviewTab({
         </CardContent>
       </Card>
 
+      {/* Related datasets & where this is used — discovery content kept high in
+          the rail so it isn't buried beneath metadata/tags/provenance */}
+      <RelatedDatasets datasetId={dataset.id} />
+      <UsedInMaps datasetId={dataset.id} />
+
       {/* VRT Derivation card — only for VRT datasets */}
       {isVrt && dataset.raster && (
         <Card>
@@ -278,12 +283,6 @@ export function OverviewTab({
 
       {/* Tags / Keywords */}
       <KeywordsSidebarCard recordId={dataset.record_id} />
-
-      {/* Related Datasets */}
-      <RelatedDatasets datasetId={dataset.id} />
-
-      {/* Used in Maps */}
-      <UsedInMaps datasetId={dataset.id} />
 
       {/* Provenance timeline */}
       <ProvenanceTimeline datasetId={dataset.id} />
