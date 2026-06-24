@@ -4,7 +4,7 @@
 
 **Your team's spatial data — searchable, mappable, and shareable in one place.**
 
-GeoLens is an open-source, self-hosted catalog and map builder for GIS and data teams — a single home for spatial data that you run on infrastructure you control, with no telemetry and nothing leaving your network. Upload Shapefiles, GeoTIFFs, GeoPackages, or CSVs (or register data you already have); GeoLens stores everything in PostGIS, indexes it with pgvector + pg_trgm for semantic and fuzzy search, and serves OGC/STAC APIs that QGIS, ArcGIS, and MapLibre clients connect to natively. Compose, style, and share multi-layer maps right in the browser. Built on FastAPI and React. Deployed with one command.
+GeoLens is an open-source, self-hosted catalog and map builder for GIS and data teams — a single home for spatial data that you run on infrastructure you control, with no telemetry — GeoLens itself phones home to nothing. (Features you opt into can make outbound calls: AI assist to your chosen OpenAI-compatible endpoint, OAuth/OIDC sign-in, SMTP, basemap tiles, remote/S3 data sources, and off-site backups.) Upload Shapefiles, GeoTIFFs, GeoPackages, or CSVs (or register data you already have); GeoLens stores everything in PostGIS, indexes it with pgvector + pg_trgm for semantic and fuzzy search, and serves OGC/STAC APIs that QGIS, ArcGIS, and MapLibre clients connect to natively. Compose, style, and share multi-layer maps right in the browser. Built on FastAPI and React. Deployed with one command.
 
 <p align="center">
   <a href="https://demo.getgeolens.com"><img src="https://img.shields.io/badge/%E2%96%B6%20Try%20the%20live%20demo-demo.getgeolens.com-2563eb?style=for-the-badge" alt="Try the live demo" /></a>
@@ -16,7 +16,7 @@ GeoLens is an open-source, self-hosted catalog and map builder for GIS and data 
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Python: backend 3.13 / SDK 3.10+](https://img.shields.io/badge/python-3.13_backend_%7C_3.10%2B_SDK-blue.svg)]()
 [![PostgreSQL 17 + PostGIS 3.5](https://img.shields.io/badge/PostGIS_3.5-PostgreSQL_17-336791.svg)](https://postgis.net/)
-[![OGC Compliant](https://img.shields.io/badge/OGC_API-Features_%7C_Records-green.svg)](https://ogcapi.ogc.org/)
+[![OGC API](https://img.shields.io/badge/OGC_API-Features_%7C_Records-green.svg)](https://ogcapi.ogc.org/)
 
 ```bash
 curl -fsSL https://getgeolens.com/install.sh | sh
@@ -165,7 +165,10 @@ The highlights above each have a full guide in the [docs](https://docs.getgeolen
 **Prerequisites:** Docker Engine 24+ and Docker Compose v2. The bundled stack
 ships PostgreSQL 17. If you point GeoLens at an externally managed database, it
 must be **PostgreSQL 13+** (for `gen_random_uuid()`) with **pgvector 0.5+** (for
-HNSW semantic-search indexes), plus PostGIS, pg_trgm, and unaccent.
+HNSW semantic-search indexes), plus PostGIS, pg_trgm, and unaccent. The API and
+worker run in containers (Python 3.13 bundled — no host Python needed). The
+optional CLI runs on your host and requires Python 3.11+; the Python SDK and
+seed scripts require Python 3.10+.
 
 The one-line install pulls the prebuilt, version-pinned images and starts the stack:
 
@@ -184,7 +187,7 @@ bash scripts/install.sh
 Either way, `scripts/install.sh` copies `.env.example` to `.env`, generates a JWT signing
 secret, sets up admin credentials, and runs `docker compose up -d`. The admin **username**
 defaults to `admin`; the admin **password** is auto-generated as a strong random value
-(shown once during install) unless you supply your own — it is never `admin` / `admin`.
+(written to `.env`, never printed to your terminal) unless you supply your own — it is never `admin` / `admin`.
 For unattended installs, set `GEOLENS_ADMIN_USERNAME` and `GEOLENS_ADMIN_PASSWORD` in the
 environment before running and the prompts are skipped. Re-running the script is idempotent —
 existing values in `.env` are preserved.
@@ -228,7 +231,7 @@ geolens login http://localhost:8080/api              # use your admin username +
 geolens publish examples/manifests/first-catalog/city-parks.geojson --name "City Parks"
 ```
 
-`geolens publish` runs the upload → preview → commit ingest flow and prints the new dataset's URL — clone to first dataset in one command.
+`geolens publish` runs the upload → preview → commit ingest flow and prints the new dataset's URL — one command takes a local file to a published, mappable dataset.
 
 For repeatable, multi-dataset catalogs, describe your sources in a **manifest** (`geolens.yaml`) and apply it with `geolens apply`. Manifest sources are referenced by HTTP(S) URL, S3 URI, or a path already staged on the server; the examples in [`examples/manifests/`](examples/manifests/) are templates to adapt. Scaffold a fresh one with `geolens init` and edit it for your sources:
 
@@ -306,8 +309,8 @@ All configuration is managed through environment variables in `.env`. See the [C
 ### Connection Pool Budget
 
 GeoLens ships tuned for a **single PostgreSQL** instance: the API, worker, and admin
-pools fit within **30 of 30 max_connections** out of the box (PERF-05 — Postgres
-`max_connections` lowered from 50 → 30), sized by `DB_POOL_SIZE` (`pool_size`) and
+pools fit within **30 of 30 max_connections** out of the box (Postgres
+`max_connections` is set to 30), sized by `DB_POOL_SIZE` (`pool_size`) and
 `DB_MAX_OVERFLOW` (`max_overflow`, default 3). See
 [Connection Pool Tuning](https://docs.getgeolens.com/guides/quickstart/configuration/#connection-pool-tuning)
 for the per-process budget and how to raise the ceiling.
@@ -350,6 +353,16 @@ for the compatibility note and the workaround.
 - [GitHub Discussions](https://github.com/geolens-io/geolens/discussions) — questions, ideas, show and tell
 - [Contributing Guide](.github/CONTRIBUTING.md) — development setup, code style, and PR guidelines
 
+## Known Limitations
+
+- Single PostgreSQL instance — no built-in high availability or clustering.
+- Off-site (S3) backups sign with AWS Signature V2; buckets that require Signature V4 need the `aws-cli` sidecar workaround (see [Backups](#backups)).
+- Multi-tenant cloud mode is not included — GeoLens is single-organization, self-hosted.
+- Terrain rendering assumes DEM units are in meters; datasets in other vertical units may render exaggerated.
+- The self-hosted distribution is young and some features and APIs may still change (see the Early release note above).
+
 ## License
 
-GeoLens is licensed under the [Apache License 2.0](LICENSE). The GeoLens name, logo, and brand assets are not covered by this license.
+GeoLens is licensed under the [Apache License 2.0](LICENSE). The GeoLens name, logo, and brand assets are not covered by this license — see [TRADEMARKS.md](TRADEMARKS.md). Third-party sample-data attribution is in [THIRD_PARTY_DATA.md](THIRD_PARTY_DATA.md).
+
+Project policies: [governance](GOVERNANCE.md) · [maintainers](MAINTAINERS.md) · [contributing](.github/CONTRIBUTING.md) · [security](.github/SECURITY.md) · [release process](RELEASE.md) · [egress &amp; air-gap](EGRESS.md).
