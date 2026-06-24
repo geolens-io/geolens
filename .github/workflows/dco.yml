@@ -1,0 +1,20 @@
+name: DCO
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  dco:
+    name: DCO sign-off check
+    runs-on: ubuntu-latest
+    steps:
+      # Verify every commit in the PR carries a `Signed-off-by:` trailer
+      # (added via `git commit -s`), certifying the Developer Certificate of
+      # Origin. See .github/CONTRIBUTING.md.
+      - name: Check DCO
+        uses: tisonkun/actions-dco@f1024cd563550b5632e754df11b7d30b73be54a5  # v1.1
