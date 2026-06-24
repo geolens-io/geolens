@@ -35,6 +35,7 @@ def build_cache_key(
     filters: SearchFilters,
     user_roles: set[str],
     public_api_url: str | None = None,
+    public_app_url: str | None = None,
     semantic_enabled: bool | None = None,
 ) -> str:
     """Build a deterministic cache key for the given request shape.
@@ -44,9 +45,13 @@ def build_cache_key(
     handles ``date``/``UUID`` fields on the dataclass; ``sort_keys=True`` makes
     the digest stable across Python versions.
 
-    ``public_api_url`` and ``semantic_enabled`` are included only for the
-    "search" endpoint — facets responses carry no URLs and do not run semantic
-    ranking, so passing ``None`` keeps facet keys stable.
+    ``public_api_url``, ``public_app_url`` and ``semantic_enabled`` are included
+    only for the "search" endpoint — facets responses carry no URLs and do not
+    run semantic ranking, so passing ``None`` keeps facet keys stable.
+    ``public_app_url`` is in the key because raster_tiles asset hrefs are built
+    against the app origin (fix(#315)); a multi-origin deployment with a fixed
+    PUBLIC_API_URL but request-derived PUBLIC_APP_URL would otherwise serve a
+    cached response with another origin's tile host.
 
     Maintenance contract:
     - Every ``SearchFilters`` field must be JSON-native or have a deterministic
@@ -62,6 +67,7 @@ def build_cache_key(
         "endpoint": endpoint,
         "roles": sorted(user_roles),
         "public_api_url": public_api_url or "",
+        "public_app_url": public_app_url or "",
     }
     if semantic_enabled is not None:
         payload["semantic_enabled"] = bool(semantic_enabled)

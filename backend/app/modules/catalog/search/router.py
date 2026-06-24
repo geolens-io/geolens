@@ -377,6 +377,9 @@ async def _handle_search(
             filters=filters,
             user_roles=user_roles,
             public_api_url=public_api_url,
+            # fix(#315): raster_tiles asset hrefs depend on the app origin, so it
+            # must be in the key (multi-origin deploys sharing one API host).
+            public_app_url=public_app_url,
             semantic_enabled=semantic_enabled_for_key,
         )
         cached = await search_cache.get_cached(cache_key)
