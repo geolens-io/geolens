@@ -157,22 +157,34 @@ async def _create_preview_job(
     request: ServicePreviewRequest,
     preview_data: dict,
     user_id: uuid.UUID,
+    *,
+    source_url: str | None = None,
+    layer_id: int | None = None,
 ) -> IngestJob:
     """Create the pending IngestJob for a successful preview, audit, and commit.
 
     Stores source_columns and geometry_type from preview so that ingest_service
     can (a) skip geometry flags for non-spatial tables, and (b) use them as a
     column_info fallback when the data table has no attribute columns.
+
+    ``source_url``/``layer_id`` override the request values so the commit step
+    ingests the exact resource that was previewed. This matters for ArcGIS:
+    the preview normalizes an embedded-layer URL (".../FeatureServer/0") into a
+    base URL + effective layer id, so persisting the original request would make
+    the ingest worker rebuild a wrong ".../FeatureServer/0/0/query" (or a None
+    layer when the id came only from the URL) — a preview that imports cleanly.
     """
+    effective_url = source_url if source_url is not None else request.url
+    effective_layer_id = layer_id if layer_id is not None else request.layer_id
     job = IngestJob(
         source_filename=request.layer_title or request.layer_name,
-        source_url=request.url,
+        source_url=effective_url,
         source_layer=request.layer_name,
         created_by=user_id,
         status="pending",
         user_metadata={
             "service_type": request.service_type,
-            "layer_id": request.layer_id,
+            "layer_id": effective_layer_id,
             "object_id_field": request.object_id_field,
             "geometry_type": preview_data.get("geometry_type"),
             "source_columns": preview_data.get("columns") or [],
@@ -510,7 +522,16 @@ async def preview_service_layer(
             )
             await _fail_preview(db, user.id, request.url, request.layer_name)
 
-        job = await _create_preview_job(db, request, preview_data, user.id)
+        # Persist the normalized base URL + effective layer id (not the original
+        # request) so the commit/ingest step targets the exact previewed layer.
+        job = await _create_preview_job(
+            db,
+            request,
+            preview_data,
+            user.id,
+            source_url=arcgis_base,
+            layer_id=arcgis_layer_id,
+        )
         return _build_preview_response(request, preview_data, job)
 
     # Step 2: Build GDAL source string (WFS / OGC API)

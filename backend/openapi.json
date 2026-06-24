@@ -32956,7 +32956,7 @@
     },
     "/jobs/by-dataset/{dataset_id}": {
       "get": {
-        "description": "Look up the most recent ingest job for a dataset.\n\nUsed by the dataset detail page to surface ingest warnings permanently\n(S3 completion) \u2014 the job is the source of truth for\n``reserved_rename`` / ``dbf_truncation_collision`` / ``archive_failed``\n/ ``temporal_parse_errors`` metadata.\n\nReturns the most recently created completed job for the dataset, or 404\nif none exists (e.g. the dataset was registered from an existing table,\nnot ingested).",
+        "description": "Look up the most recent ingest job for a dataset.\n\nUsed by the dataset detail page to surface ingest warnings permanently\n(S3 completion) \u2014 the job is the source of truth for\n``reserved_rename`` / ``dbf_truncation_collision`` / ``archive_failed``\n/ ``temporal_parse_errors`` metadata.\n\nReturns the most recently created completed job for the dataset. When the\ndataset is visible but has no ingest job (e.g. registered from an existing\ntable, or a remote/STAC dataset), returns ``200`` with a ``null`` body\ninstead of 404 \u2014 a \"no job\" outcome is normal for these datasets and a\n404 would needlessly pollute the browser console on the dataset detail\npage. A genuine 404 is still raised when the dataset is not visible to the\nuser, to avoid leaking job existence (see visibility check below).",
         "operationId": "get_job_status_by_dataset_jobs_by_dataset__dataset_id__get",
         "parameters": [
           {
@@ -32975,7 +32975,15 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/JobStatusResponse"
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/JobStatusResponse"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "title": "Response Get Job Status By Dataset Jobs By Dataset  Dataset Id  Get"
                 }
               }
             },

@@ -598,6 +598,45 @@ class TestPreviewEndpoint:
         # ArcGIS responses surface attributes (not GeoJSON properties).
         assert data["sample_rows"][0]["title"] == "Bulletin A"
 
+    async def test_preview_arcgis_persists_normalized_layer(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        mock_validate_ssrf,
+        mock_fetch_arcgis_preview,
+    ):
+        """An embedded-layer ArcGIS URL (.../FeatureServer/0) with no explicit
+        layer_id must persist the NORMALIZED base URL + effective layer id on
+        the pending job, so the commit/ingest step targets the right layer
+        instead of rebuilding ".../FeatureServer/0/0/query" or a None layer
+        (Codex P2 regression).
+        """
+        import uuid as _uuid
+        from types import SimpleNamespace
+
+        with patch(
+            "app.modules.catalog.sources.router._create_preview_job",
+            new_callable=AsyncMock,
+        ) as create_job:
+            create_job.return_value = SimpleNamespace(id=_uuid.uuid4())
+            resp = await client.post(
+                "/services/preview/",
+                json={
+                    "url": "https://services.arcgis.com/abc/rest/services/Embedded/FeatureServer/0",
+                    "service_type": "ArcGIS FeatureServer",
+                    "layer_name": "0",
+                },
+                headers=admin_auth_header,
+            )
+        assert resp.status_code == 200, resp.text
+        create_job.assert_awaited_once()
+        kwargs = create_job.await_args.kwargs
+        assert (
+            kwargs["source_url"]
+            == "https://services.arcgis.com/abc/rest/services/Embedded/FeatureServer"
+        )
+        assert kwargs["layer_id"] == 0
+
     async def test_preview_arcgis_token_error_returns_403(
         self,
         client: AsyncClient,
