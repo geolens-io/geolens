@@ -134,6 +134,9 @@ export const DatasetMap = memo(function DatasetMap({
   // could freeze the tab when titiler is cold and the tile grid is a mix of
   // 200/204/error). Refs are reset whenever a new map mounts via handleLoad.
   const readyFiredRef = useRef(false);
+  // Tracks a *confirmed* raster load (isSourceLoaded) vs a soft 204-only ready,
+  // so a sparse-COG 204 doesn't permanently block the error/retry overlay.
+  const readyConfirmedRef = useRef(false);
   const errorFiredRef = useRef(false);
   const rasterListenersRef = useRef<{
     error?: (e: { error: { message?: string; status?: number } }) => void;
@@ -533,6 +536,7 @@ export const DatasetMap = memo(function DatasetMap({
           map.off('sourcedata', rasterListenersRef.current.sourcedata);
         }
         readyFiredRef.current = false;
+        readyConfirmedRef.current = false;
         errorFiredRef.current = false;
 
         addRasterLayers(map);
@@ -540,13 +544,19 @@ export const DatasetMap = memo(function DatasetMap({
 
         // Fire heroState transitions at most once per mount so repeated
         // sourcedata/error events don't churn setState (freeze).
-        const fireReadyOnce = () => {
+        // `confirmed` marks a real source load (isSourceLoaded). A 204-only ready
+        // is "soft": it resolves the loading skeleton for a sparse remote COG but
+        // must NOT make success terminal — a later error threshold can override it.
+        const fireReadyOnce = (confirmed: boolean) => {
+          if (confirmed) readyConfirmedRef.current = true;
           if (readyFiredRef.current || errorFiredRef.current) return;
           readyFiredRef.current = true;
           onMapReady?.();
         };
         const fireErrorOnce = () => {
-          if (errorFiredRef.current || readyFiredRef.current) return;
+          // A confirmed load wins over sporadic tile errors; a soft 204-only
+          // ready does NOT block the error/retry overlay.
+          if (errorFiredRef.current || readyConfirmedRef.current) return;
           errorFiredRef.current = true;
           onTileError?.();
         };
@@ -560,7 +570,7 @@ export const DatasetMap = memo(function DatasetMap({
           // 'loading'. (#13)
           if (status === 204) {
             tileStats.total++;
-            fireReadyOnce();
+            fireReadyOnce(false);
             return;
           }
           if (e.error?.message?.includes('raster-tile-source') ||
@@ -578,7 +588,7 @@ export const DatasetMap = memo(function DatasetMap({
         const handleRasterSourceData = (e: { sourceId?: string; isSourceLoaded?: boolean }) => {
           if (e.sourceId === 'raster-tile-source' && e.isSourceLoaded) {
             tileStats.total++;
-            fireReadyOnce();
+            fireReadyOnce(true);
           }
         };
 
