@@ -490,35 +490,6 @@ def test_compute_rrf_scores_basic():
     assert result[3] == "d", f"Expected 'd' last, got {result}"
 
 
-def test_compute_rrf_scores_equal_score_deterministic_tiebreak():
-    """OGC-7/TQ-1: equal RRF scores get a stable, deterministic order.
-
-    Two ids with the SAME vector rank (and no FTS contribution) earn an
-    identical RRF score. Without a tiebreaker, their relative order would be
-    arbitrary (and could differ between runs / processes), which is what made
-    semantic-only matches drop or dupe across pages. The tiebreak is on the
-    record id string. Production coerces ids to str before merging, so this
-    uses str ids (not UUIDs).
-    """
-    from app.modules.catalog.search.service import _compute_rrf_scores
-
-    fts_ids: list[str] = []
-    # Identical rank => identical RRF score for both ids.
-    vector_ranks = {"id_aaa": 1, "id_zzz": 1}
-
-    result = _compute_rrf_scores(fts_ids, vector_ranks, k=60)
-
-    assert set(result) == {"id_aaa", "id_zzz"}
-    # Deterministic: sorted by (score, rid) descending, so the lexicographically
-    # larger id wins the tie. Stable across repeated calls regardless of dict
-    # insertion order.
-    assert result == ["id_zzz", "id_aaa"]
-
-    # Reversed insertion order yields the SAME deterministic result.
-    result_reversed = _compute_rrf_scores(fts_ids, {"id_zzz": 1, "id_aaa": 1}, k=60)
-    assert result_reversed == ["id_zzz", "id_aaa"]
-
-
 # ---------------------------------------------------------------------------
 # Tests: true semantic retrieval — vector-only matches are surfaced, but
 # never leak non-visible datasets (visibility-aware RRF union)
@@ -683,11 +654,6 @@ async def test_semantic_visible_match_not_crowded_out_by_nearer_private(
     dim = await _get_embedding_dim(session)
     await _set_semantic_search(session, True)
 
-    # Use a dedicated vector band (lo=110) orthogonal to every other test's
-    # records so a concurrent -n4 worker's public lo=40 embedding can't pollute
-    # this test's restricted top-k (same-band vectors are near-cosine-identical,
-    # so an unrelated public record would otherwise tie-break into the limit).
-    band_lo = 110
     public_ds = await _create_search_dataset(
         session,
         created_by=admin_id,
@@ -697,7 +663,7 @@ async def test_semantic_visible_match_not_crowded_out_by_nearer_private(
     session.add(
         RecordEmbedding(
             record_id=public_ds.record_id,
-            embedding=_make_vector_band(0.85, dim=dim, lo=band_lo),
+            embedding=_make_vector_band(0.85, dim=dim),
             model_name="text-embedding-3-small",
             content_hash="p2a_public",
         )
@@ -714,7 +680,7 @@ async def test_semantic_visible_match_not_crowded_out_by_nearer_private(
             RecordEmbedding(
                 record_id=priv.record_id,
                 embedding=_make_vector_band(
-                    base, dim=dim, lo=band_lo
+                    base, dim=dim
                 ),  # nearer than the public 0.85
                 model_name="text-embedding-3-small",
                 content_hash=f"p2a_priv_{i}",
@@ -725,7 +691,7 @@ async def test_semantic_visible_match_not_crowded_out_by_nearer_private(
     with patch(
         "app.modules.catalog.search.service_semantic.generate_embedding",
         new_callable=AsyncMock,
-        return_value=_make_vector_band(1.0, dim=dim, lo=band_lo),
+        return_value=_make_vector_band(1.0, dim=dim),
     ):
         resp = await client.get(
             "/search/datasets/",

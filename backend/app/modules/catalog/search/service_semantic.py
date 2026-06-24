@@ -169,13 +169,7 @@ async def _get_vector_ranks(
             vector_stmt = vector_stmt.where(
                 RecordEmbedding.record_id.in_(restrict_stmt)
             )
-        # OGC-7/TQ-1: add a unique secondary sort so the top-k window is
-        # deterministic on cosine-distance ties (otherwise which record falls
-        # inside the limit is arbitrary on equal distances, mirroring the
-        # FTS-pool tiebreaker on Dataset.record_id above).
-        vector_stmt = vector_stmt.order_by(
-            "distance", RecordEmbedding.record_id.desc()
-        ).limit(limit)
+        vector_stmt = vector_stmt.order_by("distance").limit(limit)
 
         result = await session.execute(vector_stmt)
         rows = result.all()
@@ -210,11 +204,8 @@ def _compute_rrf_scores(
     for record_id, v_rank in vector_ranks.items():
         scores[record_id] = scores.get(record_id, 0.0) + 1.0 / (k + v_rank)
 
-    # Sort by RRF score descending; tie-break on record id so equal-score rows
-    # get a deterministic order for a fixed candidate pool. (Cross-page pool
-    # growth -- the candidate set changing as page_end grows per page -- is a
-    # pre-existing limitation not addressed here.)
-    return sorted(scores.keys(), key=lambda rid: (scores[rid], rid), reverse=True)
+    # Sort by RRF score descending
+    return sorted(scores.keys(), key=lambda rid: scores[rid], reverse=True)
 
 
 async def _run_rrf_merge(
@@ -275,7 +266,7 @@ async def _run_rrf_merge(
     fts_cap = max(page_end * 3, 100)
     fts_stmt = (
         stmt.with_only_columns(Dataset.record_id)
-        .order_by(rank_col.desc(), Dataset.record_id.desc())
+        .order_by(rank_col.desc())
         .limit(fts_cap)
     )
     fts_result = await session.execute(fts_stmt)
