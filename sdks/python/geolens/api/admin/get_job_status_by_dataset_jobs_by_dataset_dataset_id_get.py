@@ -1,5 +1,5 @@
 from http import HTTPStatus
-from typing import Any
+from typing import Any, cast
 from urllib.parse import quote
 
 import httpx
@@ -29,9 +29,23 @@ def _get_kwargs(
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> JobStatusResponse | ProblemDetail | None:
+) -> JobStatusResponse | None | ProblemDetail | None:
     if response.status_code == 200:
-        response_200 = JobStatusResponse.from_dict(response.json())
+
+        def _parse_response_200(data: object) -> JobStatusResponse | None:
+            if data is None:
+                return data
+            try:
+                if not isinstance(data, dict):
+                    raise TypeError()
+                response_200_type_0 = JobStatusResponse.from_dict(data)
+
+                return response_200_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(JobStatusResponse | None, data)
+
+        response_200 = _parse_response_200(response.json())
 
         return response_200
 
@@ -73,7 +87,7 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[JobStatusResponse | ProblemDetail]:
+) -> Response[JobStatusResponse | None | ProblemDetail]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -86,8 +100,8 @@ def sync_detailed(
     dataset_id: UUID,
     *,
     client: AuthenticatedClient,
-) -> Response[JobStatusResponse | ProblemDetail]:
-    """Get Job Status By Dataset
+) -> Response[JobStatusResponse | None | ProblemDetail]:
+    r"""Get Job Status By Dataset
 
      Look up the most recent ingest job for a dataset.
 
@@ -96,9 +110,13 @@ def sync_detailed(
     ``reserved_rename`` / ``dbf_truncation_collision`` / ``archive_failed``
     / ``temporal_parse_errors`` metadata.
 
-    Returns the most recently created completed job for the dataset, or 404
-    if none exists (e.g. the dataset was registered from an existing table,
-    not ingested).
+    Returns the most recently created completed job for the dataset. When the
+    dataset is visible but has no ingest job (e.g. registered from an existing
+    table, or a remote/STAC dataset), returns ``200`` with a ``null`` body
+    instead of 404 — a \"no job\" outcome is normal for these datasets and a
+    404 would needlessly pollute the browser console on the dataset detail
+    page. A genuine 404 is still raised when the dataset is not visible to the
+    user, to avoid leaking job existence (see visibility check below).
 
     Args:
         dataset_id (UUID):
@@ -108,7 +126,7 @@ def sync_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[JobStatusResponse | ProblemDetail]
+        Response[JobStatusResponse | None | ProblemDetail]
     """
 
     kwargs = _get_kwargs(
@@ -126,8 +144,8 @@ def sync(
     dataset_id: UUID,
     *,
     client: AuthenticatedClient,
-) -> JobStatusResponse | ProblemDetail | None:
-    """Get Job Status By Dataset
+) -> JobStatusResponse | None | ProblemDetail | None:
+    r"""Get Job Status By Dataset
 
      Look up the most recent ingest job for a dataset.
 
@@ -136,9 +154,13 @@ def sync(
     ``reserved_rename`` / ``dbf_truncation_collision`` / ``archive_failed``
     / ``temporal_parse_errors`` metadata.
 
-    Returns the most recently created completed job for the dataset, or 404
-    if none exists (e.g. the dataset was registered from an existing table,
-    not ingested).
+    Returns the most recently created completed job for the dataset. When the
+    dataset is visible but has no ingest job (e.g. registered from an existing
+    table, or a remote/STAC dataset), returns ``200`` with a ``null`` body
+    instead of 404 — a \"no job\" outcome is normal for these datasets and a
+    404 would needlessly pollute the browser console on the dataset detail
+    page. A genuine 404 is still raised when the dataset is not visible to the
+    user, to avoid leaking job existence (see visibility check below).
 
     Args:
         dataset_id (UUID):
@@ -148,7 +170,7 @@ def sync(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        JobStatusResponse | ProblemDetail
+        JobStatusResponse | None | ProblemDetail
     """
 
     return sync_detailed(
@@ -161,8 +183,8 @@ async def asyncio_detailed(
     dataset_id: UUID,
     *,
     client: AuthenticatedClient,
-) -> Response[JobStatusResponse | ProblemDetail]:
-    """Get Job Status By Dataset
+) -> Response[JobStatusResponse | None | ProblemDetail]:
+    r"""Get Job Status By Dataset
 
      Look up the most recent ingest job for a dataset.
 
@@ -171,9 +193,13 @@ async def asyncio_detailed(
     ``reserved_rename`` / ``dbf_truncation_collision`` / ``archive_failed``
     / ``temporal_parse_errors`` metadata.
 
-    Returns the most recently created completed job for the dataset, or 404
-    if none exists (e.g. the dataset was registered from an existing table,
-    not ingested).
+    Returns the most recently created completed job for the dataset. When the
+    dataset is visible but has no ingest job (e.g. registered from an existing
+    table, or a remote/STAC dataset), returns ``200`` with a ``null`` body
+    instead of 404 — a \"no job\" outcome is normal for these datasets and a
+    404 would needlessly pollute the browser console on the dataset detail
+    page. A genuine 404 is still raised when the dataset is not visible to the
+    user, to avoid leaking job existence (see visibility check below).
 
     Args:
         dataset_id (UUID):
@@ -183,7 +209,7 @@ async def asyncio_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[JobStatusResponse | ProblemDetail]
+        Response[JobStatusResponse | None | ProblemDetail]
     """
 
     kwargs = _get_kwargs(
@@ -199,8 +225,8 @@ async def asyncio(
     dataset_id: UUID,
     *,
     client: AuthenticatedClient,
-) -> JobStatusResponse | ProblemDetail | None:
-    """Get Job Status By Dataset
+) -> JobStatusResponse | None | ProblemDetail | None:
+    r"""Get Job Status By Dataset
 
      Look up the most recent ingest job for a dataset.
 
@@ -209,9 +235,13 @@ async def asyncio(
     ``reserved_rename`` / ``dbf_truncation_collision`` / ``archive_failed``
     / ``temporal_parse_errors`` metadata.
 
-    Returns the most recently created completed job for the dataset, or 404
-    if none exists (e.g. the dataset was registered from an existing table,
-    not ingested).
+    Returns the most recently created completed job for the dataset. When the
+    dataset is visible but has no ingest job (e.g. registered from an existing
+    table, or a remote/STAC dataset), returns ``200`` with a ``null`` body
+    instead of 404 — a \"no job\" outcome is normal for these datasets and a
+    404 would needlessly pollute the browser console on the dataset detail
+    page. A genuine 404 is still raised when the dataset is not visible to the
+    user, to avoid leaking job existence (see visibility check below).
 
     Args:
         dataset_id (UUID):
@@ -221,7 +251,7 @@ async def asyncio(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        JobStatusResponse | ProblemDetail
+        JobStatusResponse | None | ProblemDetail
     """
 
     return (

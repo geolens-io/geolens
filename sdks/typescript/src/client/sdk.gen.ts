@@ -2026,9 +2026,13 @@ export const removeVrtSourceIngestVrtDatasetIdSourcesSourceDatasetIdDelete = <Th
  * ``reserved_rename`` / ``dbf_truncation_collision`` / ``archive_failed``
  * / ``temporal_parse_errors`` metadata.
  *
- * Returns the most recently created completed job for the dataset, or 404
- * if none exists (e.g. the dataset was registered from an existing table,
- * not ingested).
+ * Returns the most recently created completed job for the dataset. When the
+ * dataset is visible but has no ingest job (e.g. registered from an existing
+ * table, or a remote/STAC dataset), returns ``200`` with a ``null`` body
+ * instead of 404 — a "no job" outcome is normal for these datasets and a
+ * 404 would needlessly pollute the browser console on the dataset detail
+ * page. A genuine 404 is still raised when the dataset is not visible to the
+ * user, to avoid leaking job existence (see visibility check below).
  */
 export const getJobStatusByDatasetJobsByDatasetDatasetIdGet = <ThrowOnError extends boolean = false>(options: Options<GetJobStatusByDatasetJobsByDatasetDatasetIdGetData, ThrowOnError>) => (options.client ?? client).get<GetJobStatusByDatasetJobsByDatasetDatasetIdGetResponses, GetJobStatusByDatasetJobsByDatasetDatasetIdGetErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }],
