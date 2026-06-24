@@ -76,6 +76,43 @@ async def _create_test_table_and_dataset(
     return dataset
 
 
+async def _create_raster_dataset(
+    session,
+    *,
+    created_by: uuid.UUID,
+    visibility: str = "public",
+    record_type: str = "raster_dataset",
+) -> Dataset:
+    """Register a raster/VRT dataset with NO backing PostGIS feature table.
+
+    Raster records carry a table_name (NOT NULL on the model) but no data.<table>
+    is ever created — this is exactly the B1 bug-trigger condition where a feature
+    query would raise UndefinedTableError -> 500.
+    """
+    table_name = f"test_crud_raster_{uuid.uuid4().hex[:8]}"
+    record = Record(
+        title=f"Test Raster Layer {table_name}",
+        visibility=visibility,
+        record_status="published",
+        record_type=record_type,
+        created_by=created_by,
+    )
+    session.add(record)
+    await session.flush()
+    dataset = Dataset(
+        record_id=record.id,
+        table_name=table_name,
+        srid=4326,
+        geometry_type=None,
+        feature_count=None,
+        source_format="geotiff",
+    )
+    session.add(dataset)
+    await session.commit()
+    await session.refresh(dataset)
+    return dataset
+
+
 async def _cleanup_table(session, table_name: str) -> None:
     """Drop a test data table."""
     await session.execute(text(f"DROP TABLE IF EXISTS data.{table_name}"))
@@ -141,6 +178,24 @@ async def multipolygon_layer(client: AsyncClient, test_db_session, admin_auth_he
     rec_id = dataset.record_id
     yield dataset
     await _cleanup_table(test_db_session, tbl)
+    await test_db_session.execute(
+        text("DELETE FROM catalog.records WHERE id = :id"),
+        {"id": rec_id},
+    )
+    await test_db_session.commit()
+
+
+@pytest.fixture
+async def raster_layer(client: AsyncClient, test_db_session, admin_auth_header):
+    """Create a raster dataset with no backing feature table (B1 guard)."""
+    admin_id = await get_user_id(test_db_session, "admin")
+    dataset = await _create_raster_dataset(
+        test_db_session,
+        created_by=admin_id,
+    )
+    rec_id = dataset.record_id
+    # No data.<table> exists, so nothing to drop on teardown.
+    yield dataset
     await test_db_session.execute(
         text("DELETE FROM catalog.records WHERE id = :id"),
         {"id": rec_id},
@@ -883,3 +938,61 @@ class TestBboxFiltering:
         assert data["numberReturned"] == 0, (
             "Mid-globe features must not match antimeridian bbox"
         )
+
+
+# ---------------------------------------------------------------------------
+# B1: raster/VRT datasets have no feature table — must 404, never 500
+# ---------------------------------------------------------------------------
+
+
+class TestRasterDatasetFeatureGuard:
+    """A raster/VRT dataset has a table_name but no backing data.<table>.
+
+    Before the guard, a feature query raised UndefinedTableError. The native
+    features router previously diverged: list_features -> 503,
+    features.geojson -> 400, and get_single_feature -> an UNHANDLED 500 (a DoS
+    reachable by any authenticated user). All three read paths must now return a
+    uniform fast 404 before any table query, matching the OGC contract.
+    """
+
+    async def test_single_feature_on_raster_returns_404(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        raster_layer: Dataset,
+    ):
+        """GET /datasets/{raster_id}/features/{gid} returns 404 (was 500 DoS)."""
+        resp = await client.get(
+            f"/datasets/{raster_layer.id}/features/1",
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 404, resp.text
+        assert "raster collection" in resp.json()["detail"].lower()
+
+    async def test_list_features_on_raster_returns_404(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        raster_layer: Dataset,
+    ):
+        """GET /datasets/{raster_id}/features/ returns 404 (was 503)."""
+        resp = await client.get(
+            f"/datasets/{raster_layer.id}/features/",
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 404, resp.text
+        assert "raster collection" in resp.json()["detail"].lower()
+
+    async def test_geojson_tile_on_raster_returns_404(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        raster_layer: Dataset,
+    ):
+        """GET /datasets/{raster_id}/features.geojson returns 404 (was 400)."""
+        resp = await client.get(
+            f"/datasets/{raster_layer.id}/features.geojson",
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 404, resp.text
+        assert "raster collection" in resp.json()["detail"].lower()

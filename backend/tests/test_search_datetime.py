@@ -4,6 +4,7 @@ import uuid
 from datetime import date
 
 import pytest
+from fastapi import HTTPException
 from httpx import AsyncClient
 from app.modules.catalog.datasets.domain.models import Dataset, Record, RecordKeyword
 from app.modules.catalog.search.service import parse_ogc_datetime
@@ -92,6 +93,20 @@ def test_parse_open_end():
 def test_parse_full_datetime():
     result = parse_ogc_datetime("2024-01-15T00:00:00Z")
     assert result == (date(2024, 1, 15), date(2024, 1, 15))
+
+
+def test_parse_garbage_raises_http_400():
+    """A malformed datetime raises HTTPException(400), not a generic ValueError/500."""
+    with pytest.raises(HTTPException) as exc_info:
+        parse_ogc_datetime("garbage")
+    assert exc_info.value.status_code == 400
+
+
+def test_parse_garbage_interval_raises_http_400():
+    """A malformed datetime inside an interval also raises HTTPException(400)."""
+    with pytest.raises(HTTPException) as exc_info:
+        parse_ogc_datetime("garbage/2024-12-31")
+    assert exc_info.value.status_code == 400
 
 
 # ---------------------------------------------------------------------------
@@ -215,3 +230,50 @@ async def test_datetime_no_filter_returns_all(
     assert str(datetime_datasets["ds_2020"].id) in ids
     assert str(datetime_datasets["ds_2023"].id) in ids
     assert str(datetime_datasets["ds_none"].id) in ids
+
+
+# ---------------------------------------------------------------------------
+# B5e: malformed datetime -> 400 (not 500) on every datetime chokepoint
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_collection_items_garbage_datetime_returns_400(
+    client: AsyncClient,
+    admin_auth_header: dict,
+):
+    """GET /collections/datasets/items?datetime=garbage returns 400 (was 500)."""
+    resp = await client.get(
+        "/collections/datasets/items",
+        params={"datetime": "garbage"},
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 400
+
+
+@pytest.mark.anyio
+async def test_search_datasets_garbage_datetime_returns_400(
+    client: AsyncClient,
+    admin_auth_header: dict,
+):
+    """GET /search/datasets/?datetime=garbage returns 400 (was 500)."""
+    resp = await client.get(
+        "/search/datasets/",
+        params={"datetime": "garbage"},
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 400
+
+
+@pytest.mark.anyio
+async def test_facets_garbage_datetime_returns_400(
+    client: AsyncClient,
+    admin_auth_header: dict,
+):
+    """GET /search/facets/?datetime=garbage returns 400 (was 500)."""
+    resp = await client.get(
+        "/search/facets/",
+        params={"datetime": "garbage"},
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 400

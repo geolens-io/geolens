@@ -5,6 +5,7 @@ import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import JSONResponse
 from sqlalchemy import select
+from sqlalchemy.exc import OperationalError, ProgrammingError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db.tenant_session import current_tenant_var
@@ -317,21 +318,25 @@ async def get_dataset_collection(
             ]
         }
 
-    metadata = OGCCollectionMetadata(
-        id=str(dataset.id),
-        title=dataset.record.title,
-        description=dataset.record.summary,
-        extent=extent if extent else None,
-        links=[
-            OGCLink(
-                rel="self",
-                href=build_url(
-                    f"/collections/{dataset.id}",
-                    base_url=public_api_url,
-                ),
-                type="application/json",
-                title="This collection",
+    # B1: raster/VRT datasets have no backing feature table, so they expose no
+    # feature items. Advertise itemType=coverage and omit the rel=items link so
+    # clients are not led into the dead /items endpoint (which 404s, see
+    # get_collection_items).
+    is_raster = dataset.record.record_type in ("raster_dataset", "vrt_dataset")
+
+    links = [
+        OGCLink(
+            rel="self",
+            href=build_url(
+                f"/collections/{dataset.id}",
+                base_url=public_api_url,
             ),
+            type="application/json",
+            title="This collection",
+        ),
+    ]
+    if not is_raster:
+        links.append(
             OGCLink(
                 rel="items",
                 href=build_url(
@@ -340,14 +345,41 @@ async def get_dataset_collection(
                 ),
                 type="application/geo+json",
                 title="Features",
-            ),
+            )
+        )
+    else:
+        # OGC-6: a coverage collection has no rel=items, so without a
+        # replacement link the body would only carry self+root and be a
+        # dead-end. Advertise the raster tile endpoint so coverage clients have
+        # something to dereference. Mirrors the STAC raster_tiles asset href in
+        # search/service_records.py (the stable public tile URL).
+        links.append(
             OGCLink(
-                rel="root",
-                href=build_url("/", base_url=public_api_url),
-                type="application/json",
-                title="Landing page",
-            ),
-        ],
+                rel="tiles",
+                href=build_url(
+                    f"/raster-tiles/{dataset.id}/tiles/{{z}}/{{x}}/{{y}}.png",
+                    base_url=public_api_url,
+                ),
+                type="image/png",
+                title="Raster tiles",
+            )
+        )
+    links.append(
+        OGCLink(
+            rel="root",
+            href=build_url("/", base_url=public_api_url),
+            type="application/json",
+            title="Landing page",
+        )
+    )
+
+    metadata = OGCCollectionMetadata(
+        id=str(dataset.id),
+        title=dataset.record.title,
+        description=dataset.record.summary,
+        extent=extent if extent else None,
+        itemType="coverage" if is_raster else "feature",
+        links=links,
     )
 
     # METER-03 (Phase 1213-06): emit OGC collection-serve usage event through the
@@ -438,6 +470,31 @@ async def get_collection_items(
     public_api_url = await get_public_api_url(db, request=request)
     dataset = await _get_visible_dataset(db, user, dataset_id)
 
+    # B1: raster/VRT datasets have no backing PostGIS feature table, so a feature
+    # query would raise UndefinedTableError -> 500 (and hold a DB connection).
+    # Return a fast 404 before any feature query is attempted.
+    if dataset.record.record_type in ("raster_dataset", "vrt_dataset"):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=(
+                f"Collection '{dataset_id}' is a raster collection and has no "
+                "feature items; use the tile/coverage endpoints instead."
+            ),
+        )
+
+    # B4: CQL2 filtering is only supported on the datasets (records) collection,
+    # which has a dedicated handler. On per-dataset feature collections a filter
+    # would otherwise be silently dropped (or a malformed one return 200), so
+    # reject it explicitly with 400 — matching the records-path reject contract.
+    if request.query_params.get("filter") is not None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "CQL2 filter is not supported on feature collections; use the "
+                "datasets (records) collection for catalog-level CQL2 filtering."
+            ),
+        )
+
     # Parse bbox
     bbox_parsed = None
     if bbox:
@@ -461,6 +518,10 @@ async def get_collection_items(
         "crs",
         "api_key",
         "include_geometry",
+        # B4: filter/filter-lang are rejected above on feature collections; keep
+        # them out of property_filters so they never leak into the SQL WHERE.
+        "filter",
+        "filter-lang",
     }
     property_filters = {
         k: v for k, v in request.query_params.items() if k not in ogc_reserved
@@ -492,19 +553,30 @@ async def get_collection_items(
     # ST_AsGeoJSON cost (PERF-N1).
     # H-24: when after_gid is provided, the service uses keyset pagination and
     # ignores offset.
-    rows, total = await get_features(
-        db,
-        dataset.table_name,
-        limit=limit,
-        offset=offset,
-        after_gid=after_gid,
-        bbox=bbox_parsed,
-        has_geometry=has_geometry,
-        property_filters=property_filters,
-        allowed_columns=allowed_columns,
-        include_geometry=include_geometry,
-        cached_feature_count=dataset.feature_count,
-    )
+    # B1: the raster/VRT guard above handles datasets that never had a backing
+    # table. A genuinely-missing VECTOR table (cold-evicted / partial ingest)
+    # still raises ProgrammingError/OperationalError here; mirror the native
+    # list_features handler and return 503 rather than an unhandled 500 that
+    # holds a DB connection.
+    try:
+        rows, total = await get_features(
+            db,
+            dataset.table_name,
+            limit=limit,
+            offset=offset,
+            after_gid=after_gid,
+            bbox=bbox_parsed,
+            has_geometry=has_geometry,
+            property_filters=property_filters,
+            allowed_columns=allowed_columns,
+            include_geometry=include_geometry,
+            cached_feature_count=dataset.feature_count,
+        )
+    except (ProgrammingError, OperationalError):
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Dataset table is temporarily unavailable",
+        )
 
     # Convert rows to GeoJSON features
     features = []
@@ -637,6 +709,19 @@ async def get_collection_item_feature(
     _validate_f_param(f)
     public_api_url = await get_public_api_url(db, request=request)
     dataset = await _get_visible_dataset(db, user, dataset_id)
+
+    # B1: raster/VRT datasets have no backing PostGIS feature table, so a
+    # feature-by-id query would raise UndefinedTableError -> 500. Return 404
+    # before any query is attempted.
+    if dataset.record.record_type in ("raster_dataset", "vrt_dataset"):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=(
+                f"Collection '{dataset_id}' is a raster collection and has no "
+                "feature items; use the tile/coverage endpoints instead."
+            ),
+        )
+
     has_geometry = dataset.geometry_type is not None
 
     # COLD-02 (Phase 1214-04): cold-rehydrate seam — BEFORE feature-by-id query.
@@ -650,9 +735,19 @@ async def get_collection_item_feature(
         if _item_cold_result is not None:
             return _item_cold_result
 
-    row = await get_feature_by_id(
-        db, dataset.table_name, feature_id, has_geometry=has_geometry
-    )
+    # B1: as with get_collection_items, a genuinely-missing VECTOR table
+    # (cold-evicted / partial ingest) raises ProgrammingError/OperationalError;
+    # return 503 rather than an unhandled 500. The raster/VRT 404 guard above
+    # handles datasets that never had a backing table.
+    try:
+        row = await get_feature_by_id(
+            db, dataset.table_name, feature_id, has_geometry=has_geometry
+        )
+    except (ProgrammingError, OperationalError):
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Dataset table is temporarily unavailable",
+        )
     if row is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

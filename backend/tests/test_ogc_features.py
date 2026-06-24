@@ -97,6 +97,84 @@ async def _create_test_table_and_dataset(
     return dataset
 
 
+async def _create_raster_dataset(
+    session,
+    *,
+    created_by: uuid.UUID,
+    visibility: str = "public",
+    record_type: str = "raster_dataset",
+) -> Dataset:
+    """Register a raster/VRT dataset with NO backing PostGIS feature table.
+
+    Raster records carry a table_name (NOT NULL on the model) but no data.<table>
+    is ever created — this is exactly the B1 bug-trigger condition.
+    """
+    table_name = f"test_ogc_raster_{uuid.uuid4().hex[:8]}"
+    record = Record(
+        title=f"OGC Test Raster {table_name}",
+        summary="Test raster dataset for OGC Features hardening",
+        theme_category=["test"],
+        visibility=visibility,
+        record_status="published",
+        record_type=record_type,
+        created_by=created_by,
+    )
+    session.add(record)
+    await session.flush()
+    dataset = Dataset(
+        record_id=record.id,
+        table_name=table_name,
+        srid=4326,
+        geometry_type=None,
+        feature_count=None,
+        source_format="geotiff",
+    )
+    session.add(dataset)
+    await session.commit()
+    await session.refresh(dataset)
+    return dataset
+
+
+async def _create_missing_table_vector_dataset(
+    session,
+    *,
+    created_by: uuid.UUID,
+    visibility: str = "public",
+) -> Dataset:
+    """Register a VECTOR dataset whose backing data.<table> does NOT exist.
+
+    Simulates a cold-evicted / partially-ingested vector dataset: record_type is
+    vector_dataset and geometry_type is set (so the raster/VRT 404 guard does
+    NOT fire), but no data.<table> is created — so a feature query raises
+    ProgrammingError. The OGC handler must convert that to a 503, not a 500.
+    """
+    table_name = f"test_ogc_missing_{uuid.uuid4().hex[:8]}"
+    record = Record(
+        title=f"OGC Missing-Table Vector {table_name}",
+        summary="Test vector dataset with no backing table (B1 503 backstop)",
+        theme_category=["test"],
+        visibility=visibility,
+        record_status="published",
+        record_type="vector_dataset",
+        created_by=created_by,
+    )
+    session.add(record)
+    await session.flush()
+    dataset = Dataset(
+        record_id=record.id,
+        table_name=table_name,
+        srid=4326,
+        geometry_type="POINT",
+        feature_count=None,
+        column_info=[{"name": "name", "type": "text"}],
+        source_format="geojson",
+    )
+    session.add(dataset)
+    await session.commit()
+    await session.refresh(dataset)
+    return dataset
+
+
 async def _cleanup_table(session, table_name: str) -> None:
     await session.execute(text(f"DROP TABLE IF EXISTS data.{table_name}"))
     await session.commit()
@@ -133,6 +211,32 @@ async def private_dataset(client: AsyncClient, test_db_session):
     )
     yield dataset
     await _cleanup_table(test_db_session, dataset.table_name)
+
+
+@pytest.fixture
+async def raster_dataset(client: AsyncClient, test_db_session):
+    """Create a public raster dataset with no backing feature table (B1)."""
+    admin_id = await get_user_id(test_db_session, "admin")
+    dataset = await _create_raster_dataset(
+        test_db_session,
+        created_by=admin_id,
+        visibility="public",
+    )
+    # No data.<table> exists, so nothing to drop on teardown.
+    yield dataset
+
+
+@pytest.fixture
+async def missing_table_vector_dataset(client: AsyncClient, test_db_session):
+    """Create a public VECTOR dataset whose backing table is missing (B1 503)."""
+    admin_id = await get_user_id(test_db_session, "admin")
+    dataset = await _create_missing_table_vector_dataset(
+        test_db_session,
+        created_by=admin_id,
+        visibility="public",
+    )
+    # No data.<table> exists, so nothing to drop on teardown.
+    yield dataset
 
 
 # ---------------------------------------------------------------------------
@@ -358,6 +462,99 @@ async def test_get_single_feature_not_found(
     """GET /collections/{id}/items/99999 returns 404 for non-existent feature."""
     resp = await client.get(f"/collections/{public_dataset.id}/items/99999")
     assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# B1: raster/VRT collections have no feature items (must 404, never 500)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_raster_collection_items_returns_404(
+    client: AsyncClient, raster_dataset: Dataset
+):
+    """GET /collections/{raster_id}/items returns 404 problem+json, not a 500.
+
+    Raster datasets have no backing PostGIS table; querying it would raise
+    UndefinedTableError. The guard must short-circuit to a fast 404.
+    """
+    resp = await client.get(f"/collections/{raster_dataset.id}/items")
+    assert resp.status_code == 404
+    assert "application/problem+json" in resp.headers["content-type"]
+    data = resp.json()
+    assert "raster" in data["detail"].lower()
+
+
+@pytest.mark.anyio
+async def test_raster_collection_single_item_returns_404(
+    client: AsyncClient, raster_dataset: Dataset
+):
+    """GET /collections/{raster_id}/items/1 returns 404, not a 500."""
+    resp = await client.get(f"/collections/{raster_dataset.id}/items/1")
+    assert resp.status_code == 404
+    assert "application/problem+json" in resp.headers["content-type"]
+    data = resp.json()
+    assert "raster" in data["detail"].lower()
+
+
+@pytest.mark.anyio
+async def test_raster_collection_metadata_is_coverage(
+    client: AsyncClient, raster_dataset: Dataset
+):
+    """Raster collection metadata advertises itemType=coverage and omits rel=items."""
+    resp = await client.get(f"/collections/{raster_dataset.id}")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["itemType"] == "coverage"
+    rels = {link["rel"] for link in data["links"]}
+    assert "items" not in rels
+    assert "self" in rels
+
+
+@pytest.mark.anyio
+async def test_raster_collection_metadata_has_tiles_link(
+    client: AsyncClient, raster_dataset: Dataset
+):
+    """OGC-6: a coverage collection advertises a rel=tiles link so it is not a dead-end."""
+    resp = await client.get(f"/collections/{raster_dataset.id}")
+    assert resp.status_code == 200
+    data = resp.json()
+    tiles_link = next((link for link in data["links"] if link["rel"] == "tiles"), None)
+    assert tiles_link is not None, "coverage collection must expose a rel=tiles link"
+    assert tiles_link["type"] == "image/png"
+    assert f"/raster-tiles/{raster_dataset.id}/tiles/" in tiles_link["href"]
+
+
+# ---------------------------------------------------------------------------
+# B1: a missing-table VECTOR dataset must 503, never 500
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_missing_table_vector_items_returns_503(
+    client: AsyncClient, missing_table_vector_dataset: Dataset
+):
+    """A vector dataset whose backing table is gone returns 503 on /items, not 500.
+
+    The raster/VRT 404 guard does not fire (record_type=vector_dataset,
+    geometry_type set), so the feature query hits a missing data.<table> and
+    raises ProgrammingError. The handler must convert that to a 503.
+    """
+    resp = await client.get(f"/collections/{missing_table_vector_dataset.id}/items")
+    assert resp.status_code == 503
+    data = resp.json()
+    assert "unavailable" in data["detail"].lower()
+
+
+@pytest.mark.anyio
+async def test_missing_table_vector_single_item_returns_503(
+    client: AsyncClient, missing_table_vector_dataset: Dataset
+):
+    """A vector dataset whose backing table is gone returns 503 on a single item, not 500."""
+    resp = await client.get(f"/collections/{missing_table_vector_dataset.id}/items/1")
+    assert resp.status_code == 503
+    data = resp.json()
+    assert "unavailable" in data["detail"].lower()
 
 
 # ---------------------------------------------------------------------------

@@ -490,6 +490,35 @@ def test_compute_rrf_scores_basic():
     assert result[3] == "d", f"Expected 'd' last, got {result}"
 
 
+def test_compute_rrf_scores_equal_score_deterministic_tiebreak():
+    """OGC-7/TQ-1: equal RRF scores get a stable, deterministic order.
+
+    Two ids with the SAME vector rank (and no FTS contribution) earn an
+    identical RRF score. Without a tiebreaker, their relative order would be
+    arbitrary (and could differ between runs / processes), which is what made
+    semantic-only matches drop or dupe across pages. The tiebreak is on the
+    record id string. Production coerces ids to str before merging, so this
+    uses str ids (not UUIDs).
+    """
+    from app.modules.catalog.search.service import _compute_rrf_scores
+
+    fts_ids: list[str] = []
+    # Identical rank => identical RRF score for both ids.
+    vector_ranks = {"id_aaa": 1, "id_zzz": 1}
+
+    result = _compute_rrf_scores(fts_ids, vector_ranks, k=60)
+
+    assert set(result) == {"id_aaa", "id_zzz"}
+    # Deterministic: sorted by (score, rid) descending, so the lexicographically
+    # larger id wins the tie. Stable across repeated calls regardless of dict
+    # insertion order.
+    assert result == ["id_zzz", "id_aaa"]
+
+    # Reversed insertion order yields the SAME deterministic result.
+    result_reversed = _compute_rrf_scores(fts_ids, {"id_zzz": 1, "id_aaa": 1}, k=60)
+    assert result_reversed == ["id_zzz", "id_aaa"]
+
+
 # ---------------------------------------------------------------------------
 # Tests: true semantic retrieval — vector-only matches are surfaced, but
 # never leak non-visible datasets (visibility-aware RRF union)

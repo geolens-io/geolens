@@ -17,6 +17,7 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy import func, update
 
+from app.modules.catalog.collections.models import Collection
 from app.modules.catalog.datasets.domain.models import (
     Dataset,
     Record,
@@ -68,6 +69,7 @@ async def _create_search_dataset(
     theme_category: list[str] | None = None,
     lineage_summary: str | None = None,
     language: str | None = None,
+    record_type: str = "vector_dataset",
 ) -> Dataset:
     """Insert a Record + Dataset pair with optional spatial extent and keywords."""
     table_name = f"ds_{uuid.uuid4().hex[:12]}"
@@ -81,6 +83,7 @@ async def _create_search_dataset(
         "temporal_end": data_vintage_end,
         "theme_category": theme_category,
         "lineage_summary": lineage_summary,
+        "record_type": record_type,
     }
     if language is not None:
         record_kwargs["language"] = language
@@ -1132,3 +1135,204 @@ async def test_search_simple_tsvector_matches_unicode_lineage(
     assert resp.status_code == 200
     titles = [f["properties"]["title"] for f in resp.json()["features"]]
     assert title in titles
+
+
+@pytest.mark.anyio
+async def test_search_collections_counted_in_number_matched(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+    clean_tables,
+):
+    """B5c: appended collection features are counted in numberMatched.
+
+    On page 0 of a text search, matching collections (up to 5) are appended to
+    ``features`` alongside the dataset results. ``numberReturned`` counts those
+    appended collections, so ``numberMatched`` must include them too -- otherwise
+    numberReturned can exceed numberMatched.
+    """
+    session = test_db_session
+    admin_id = await get_user_id(session, "admin")
+    token = f"glb5c{uuid.uuid4().hex[:8]}"
+
+    # Two datasets that match the token via title (well under the default limit).
+    for i in range(2):
+        await _create_search_dataset(
+            session,
+            created_by=admin_id,
+            name=f"{token} Dataset {i}",
+        )
+
+    # One collection that matches the token via its name.
+    collection = Collection(
+        name=f"{token} Collection",
+        description="Collection that matches the search token",
+        created_by=admin_id,
+    )
+    session.add(collection)
+    await session.commit()
+    await session.refresh(collection)
+
+    resp = await client.get(
+        "/search/datasets/",
+        params={"q": token},
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+
+    feature_types = [f["properties"].get("type") for f in data["features"]]
+    appended_collections = feature_types.count("collection")
+    dataset_features = len(data["features"]) - appended_collections
+
+    # The seeded collection must have been appended.
+    assert appended_collections >= 1
+    # Invariant: numberReturned never exceeds numberMatched.
+    assert data["numberReturned"] <= data["numberMatched"]
+    assert data["numberReturned"] == len(data["features"])
+    # numberMatched accounts for datasets + appended collections.
+    assert data["numberMatched"] == dataset_features + appended_collections
+
+
+@pytest.mark.anyio
+async def test_ogc_collections_list_raster_is_coverage_no_items_link(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+):
+    """OGC-1: GET /collections advertises raster datasets as coverages.
+
+    A raster (or VRT) dataset has no backing feature table, so the per-dataset
+    LIST endpoint must mirror the detail endpoint: itemType=="coverage" and NO
+    rel=="items" link (which would 404 for crawlers). A vector dataset in the
+    same listing must still be itemType=="feature" with a rel=="items" link.
+    """
+    session = test_db_session
+    admin_id = await get_user_id(session, "admin")
+    token = uuid.uuid4().hex[:10]
+
+    raster = await _create_search_dataset(
+        session,
+        created_by=admin_id,
+        name=f"Raster {token}",
+        record_type="raster_dataset",
+    )
+    vector = await _create_search_dataset(
+        session,
+        created_by=admin_id,
+        name=f"Vector {token}",
+        record_type="vector_dataset",
+    )
+
+    resp = await client.get(
+        "/collections",
+        params={"limit": 200},
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 200
+    collections = {c["id"]: c for c in resp.json()["collections"]}
+
+    raster_entry = collections[str(raster.id)]
+    assert raster_entry["itemType"] == "coverage"
+    raster_rels = {link["rel"] for link in raster_entry["links"]}
+    assert "items" not in raster_rels
+
+    vector_entry = collections[str(vector.id)]
+    assert vector_entry["itemType"] == "feature"
+    vector_rels = {link["rel"] for link in vector_entry["links"]}
+    assert "items" in vector_rels
+
+
+@pytest.mark.anyio
+async def test_search_pagination_stable_number_matched_with_collection(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+    clean_tables,
+):
+    """B5c: numberMatched stable across pages; no phantom next-link.
+
+    Seed N datasets > limit (so dataset_total straddles the small limit
+    boundary) plus a matching collection. Page through every page and assert:
+      - numberMatched is IDENTICAL on every page (page-independent),
+      - numberReturned <= numberMatched on every page,
+      - no page returns 0 features while it advertised a next link,
+      - the union of dataset ids across pages has no dupes/drops.
+    """
+    session = test_db_session
+    admin_id = await get_user_id(session, "admin")
+    token = f"glpage{uuid.uuid4().hex[:8]}"
+
+    n_datasets = 3
+    limit = 2  # dataset_total (3) straddles the limit (2) boundary
+    seeded_dataset_ids = set()
+    for i in range(n_datasets):
+        ds = await _create_search_dataset(
+            session,
+            created_by=admin_id,
+            name=f"{token} Dataset {i}",
+        )
+        seeded_dataset_ids.add(str(ds.id))
+
+    # A matching collection so dataset_total + collections > limit on page 0.
+    collection = Collection(
+        name=f"{token} Collection",
+        description="Collection matching the search token",
+        created_by=admin_id,
+    )
+    session.add(collection)
+    await session.commit()
+
+    seen_dataset_ids: list[str] = []
+    number_matched_values: set[int] = set()
+
+    offset = 0
+    pages = 0
+    while True:
+        pages += 1
+        assert pages < 20, "pagination did not terminate"
+        resp = await client.get(
+            "/search/datasets/",
+            params={"q": token, "limit": limit, "offset": offset},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+
+        number_matched_values.add(data["numberMatched"])
+        # numberReturned never exceeds numberMatched on any page.
+        assert data["numberReturned"] <= data["numberMatched"]
+
+        page_dataset_ids = [
+            f["id"]
+            for f in data["features"]
+            if f["properties"].get("type") != "collection"
+        ]
+        seen_dataset_ids.extend(page_dataset_ids)
+
+        has_next = any(link["rel"] == "next" for link in data.get("links", []))
+        # No phantom next-link: a next link must not point at an empty page. If a
+        # next link was advertised, the FOLLOWING page must return >=1 feature.
+        if has_next:
+            next_resp = await client.get(
+                "/search/datasets/",
+                params={"q": token, "limit": limit, "offset": offset + limit},
+                headers=admin_auth_header,
+            )
+            assert next_resp.status_code == 200
+            assert next_resp.json()["numberReturned"] > 0, (
+                "next link advertised but the next page is empty (phantom next-link)"
+            )
+            offset += limit
+        else:
+            break
+
+    # numberMatched is identical on every page (page-independent).
+    assert len(number_matched_values) == 1
+    only_matched = number_matched_values.pop()
+    # Stable total = datasets (3) + the single matching collection (1).
+    assert only_matched == n_datasets + 1
+
+    # Union of dataset ids across pages: no dupes, no drops.
+    assert len(seen_dataset_ids) == len(set(seen_dataset_ids)), "duplicate dataset ids"
+    assert set(seen_dataset_ids) == seeded_dataset_ids, "dropped or extra dataset ids"

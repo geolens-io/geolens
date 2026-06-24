@@ -169,6 +169,44 @@ async def test_ai_endpoint_rate_limit(client: AsyncClient, admin_auth_header: di
 
 
 @pytest.mark.anyio
+async def test_rate_limit_429_includes_retry_after(client: AsyncClient):
+    """B5b: a 429 from the limiter carries a positive integer Retry-After header.
+
+    Drives POST /auth/login past its per-minute budget (5/minute by default)
+    with bad credentials so slowapi fires before the handler body, then asserts
+    the final 429 advertises the back-off window.
+    """
+    from app.modules.auth.router import limiter
+
+    original_enabled = limiter.enabled
+    try:
+        limiter.enabled = True
+        limiter._storage.reset()
+
+        last = None
+        for _ in range(8):
+            last = await client.post(
+                "/auth/login",
+                data={"username": "nobody", "password": "wrongpassword"},
+            )
+            if last.status_code == 429:
+                break
+
+        assert last is not None and last.status_code == 429, (
+            f"Expected a 429 after exhausting login limit, got: "
+            f"{last.status_code if last is not None else None}"
+        )
+        assert "retry-after" in last.headers, (
+            f"429 response missing Retry-After header; got: {dict(last.headers)}"
+        )
+        retry_after = int(last.headers["retry-after"])
+        assert retry_after > 0, f"Retry-After must be positive, got: {retry_after}"
+    finally:
+        limiter.enabled = original_enabled
+        limiter._storage.reset()
+
+
+@pytest.mark.anyio
 async def test_global_rate_limit_configurable(client: AsyncClient):
     """Global rate limit is configurable and defaults to 60/second."""
     from app.modules.auth.router import _global_rate_limit

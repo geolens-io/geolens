@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Literal, TypedDict
 
+from fastapi import HTTPException, status
 from sqlalchemy import exists, func, literal_column, or_, select
 from sqlalchemy.orm import aliased
 
@@ -200,15 +201,24 @@ def parse_ogc_datetime(datetime_str: str) -> tuple[date | None, date | None]:
     - Bounded interval: "2024-01-01/2024-12-31"
     - Open start: "../2024-12-31"
     - Open end: "2024-01-01/.."
+
+    A malformed value raises HTTP 400 (not a generic 500); this is the single
+    chokepoint for collection_items, search_datasets, and facets.
     """
-    if "/" in datetime_str:
-        left, right = datetime_str.split("/", 1)
-        dt_start = None if left == ".." else date.fromisoformat(left[:10])
-        dt_end = None if right == ".." else date.fromisoformat(right[:10])
-        return dt_start, dt_end
-    # Single instant
-    instant = date.fromisoformat(datetime_str[:10])
-    return instant, instant
+    try:
+        if "/" in datetime_str:
+            left, right = datetime_str.split("/", 1)
+            dt_start = None if left == ".." else date.fromisoformat(left[:10])
+            dt_end = None if right == ".." else date.fromisoformat(right[:10])
+            return dt_start, dt_end
+        # Single instant
+        instant = date.fromisoformat(datetime_str[:10])
+        return instant, instant
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid datetime value: {e}",
+        )
 
 
 def _apply_common_filters(stmt, filters: SearchFilters, *, skip_text: bool = False):

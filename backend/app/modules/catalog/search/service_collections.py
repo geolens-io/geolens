@@ -68,3 +68,30 @@ async def search_collections(
         }
         for c in collections
     ]
+
+
+async def count_collections(
+    session: AsyncSession,
+    q: str,
+) -> int:
+    """Count collections matching the text filter used by ``search_collections``.
+
+    Page-independent total of all matching collections (not just the <=5 shown
+    on page 0). Used to compute a stable ``numberMatched`` that includes the
+    page-0 collection augmentation. Mirrors the text filter in
+    ``search_collections`` exactly (no LIMIT, no visibility filter on the
+    Collection rows themselves — consistent with the search). Returns 0 when
+    ``q`` is empty.
+    """
+    if not q or not q.strip():
+        return 0
+
+    count_stmt = select(func.count()).select_from(Collection)
+    q_like = f"%{q.strip().lower()}%"
+    count_stmt = count_stmt.where(
+        or_(
+            func.lower(Collection.name).like(q_like),
+            func.lower(func.coalesce(Collection.description, "")).like(q_like),
+        )
+    )
+    return (await session.execute(count_stmt)).scalar_one()

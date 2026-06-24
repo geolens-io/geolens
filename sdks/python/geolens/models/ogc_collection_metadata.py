@@ -32,8 +32,8 @@ class OGCCollectionMetadata:
         description (None | str | Unset): Collection description.
         extent (None | OGCCollectionMetadataExtentType0 | Unset): Spatial and temporal extent (OGC API Features extent
             object).
-        item_type (str | Unset): Type of items in the collection. Always 'feature' for OGC API Features. Default:
-            'feature'.
+        item_type (str | Unset): Type of items in the collection: 'feature' for vector feature collections, 'coverage'
+            for raster/VRT collections (which expose tiles instead of feature items). Default: 'feature'.
     """
 
     id: str

@@ -1760,6 +1760,18 @@ export type ColumnStatsResponse = {
      */
     count?: number;
     /**
+     * Data Type
+     *
+     * 'categorical' for non-numeric columns; null for numeric.
+     */
+    data_type?: string | null;
+    /**
+     * Distinct Count
+     *
+     * Distinct non-null value count (categorical columns only).
+     */
+    distinct_count?: number | null;
+    /**
      * Max
      */
     max?: number | null;
@@ -5915,7 +5927,7 @@ export type OgcCollectionMetadata = {
     /**
      * Itemtype
      *
-     * Type of items in the collection. Always 'feature' for OGC API Features.
+     * Type of items in the collection: 'feature' for vector feature collections, 'coverage' for raster/VRT collections (which expose tiles instead of feature items).
      */
     itemType?: string;
     /**

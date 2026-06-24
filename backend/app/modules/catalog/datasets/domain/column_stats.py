@@ -7,6 +7,21 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 _IDENTIFIER_RE = re.compile(r"^[a-z][a-z0-9_]*$", re.IGNORECASE)
 
+# Postgres data_type values (from information_schema.columns) on which the
+# numeric MIN/MAX/AVG/percentile/stddev aggregation is valid. Anything else
+# (text, varchar, uuid, bool, etc.) is treated categorically so a stats request
+# on a text column returns a valid response instead of a 500.
+_NUMERIC_TYPES = {
+    "smallint",
+    "integer",
+    "bigint",
+    "decimal",
+    "numeric",
+    "real",
+    "double precision",
+    "money",
+}
+
 
 def _validate_identifier(name: str, label: str) -> None:
     """Validate a SQL identifier to prevent injection.
@@ -183,13 +198,49 @@ async def get_column_stats(
     if allowed_tables is not None and table_name not in allowed_tables:
         raise PermissionError(f"Access denied to table: {table_name!r}")
 
+    # Detect the column's data type so we never cast a text column ::numeric
+    # (which raises a DataError -> 500). Reuses the information_schema lookup
+    # pattern from get_column_null_cardinality.
+    type_result = await session.execute(
+        text(
+            "SELECT data_type FROM information_schema.columns "
+            "WHERE table_schema = 'data' AND table_name = :t "
+            "AND column_name = :c"
+        ).bindparams(t=table_name, c=column_name)
+    )
+    data_type = type_result.scalar_one_or_none()
+    if data_type is None:
+        raise ValueError(f"Column not found: {column_name!r}")
+
+    col_q = _sql_quote_ident(column_name)
+    tbl_q = _qtable(table_name)
+
+    if data_type not in _NUMERIC_TYPES:
+        # Non-numeric column: numeric aggregates are undefined, so return a
+        # categorical summary (row count + distinct count) instead of casting
+        # to ::numeric. Numeric fields are null/empty.
+        cat_sql = text(
+            f"SELECT COUNT({col_q}), COUNT(DISTINCT {col_q}) "
+            f"FROM {tbl_q} "
+            f"WHERE {col_q} IS NOT NULL"
+        )
+        cat_row = (await session.execute(cat_sql)).one()
+        return {
+            "min": None,
+            "max": None,
+            "count": int(cat_row[0]) if cat_row[0] is not None else 0,
+            "mean": None,
+            "quantiles": [],
+            "stddev": None,
+            "data_type": "categorical",
+            "distinct_count": int(cat_row[1]) if cat_row[1] is not None else 0,
+        }
+
     # Compute quantile fractions dynamically based on class_count
     fractions = [round(i / class_count, 4) for i in range(1, class_count)]
     fractions_str = ", ".join(str(f) for f in fractions)
 
     # Combined stats + quantiles in a single query (single table scan)
-    col_q = _sql_quote_ident(column_name)
-    tbl_q = _qtable(table_name)
     combined_sql = text(
         f"SELECT MIN({col_q}::numeric), MAX({col_q}::numeric), "
         f"COUNT({col_q}), AVG({col_q}::numeric), "

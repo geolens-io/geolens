@@ -542,6 +542,14 @@ class ColumnStatsResponse(BaseModel):
     mean: float | None = None
     quantiles: list[float] = []
     stddev: float | None = None
+    data_type: str | None = Field(
+        default=None,
+        description="'categorical' for non-numeric columns; null for numeric.",
+    )
+    distinct_count: int | None = Field(
+        default=None,
+        description="Distinct non-null value count (categorical columns only).",
+    )
 
 
 class AttributeMetadataResponse(BaseModel):

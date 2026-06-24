@@ -265,6 +265,63 @@ async def test_cql2_unsupported_filter_lang_returns_400(client: AsyncClient):
     assert "Unsupported filter-lang" in data["detail"]
 
 
+@pytest.mark.anyio
+async def test_search_datasets_unsupported_filter_lang_returns_400(client: AsyncClient):
+    """B5e: /search/datasets/ rejects a bogus filter-lang with 400 (was silently ignored)."""
+    resp = await client.get(
+        "/search/datasets/",
+        params={"filter": "title=x", "filter-lang": "bogus"},
+    )
+    assert resp.status_code == 400
+    data = resp.json()
+    assert "Unsupported filter-lang" in data["detail"]
+
+
+# ---------------------------------------------------------------------------
+# B4: feature collections reject filter (do not silently ignore)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "filter_value",
+    [
+        pytest.param("name='x'", id="valid-cql2-text"),
+        pytest.param("!!!INVALID!!!", id="malformed"),
+        pytest.param("", id="empty-string"),
+    ],
+)
+async def test_feature_items_rejects_filter_400(
+    client: AsyncClient, test_db_session, filter_value: str
+):
+    """B4: ANY ``filter`` param on a per-dataset FEATURE collection returns 400.
+
+    CQL2 filtering is only implemented on the datasets (records) collection. On
+    feature collections the filter was previously dropped (200); it must now be
+    explicitly rejected.
+
+    This reject is *presence-based*: the handler rejects on the mere presence of
+    a ``filter`` query param, BEFORE any parse, so the contract holds regardless
+    of whether the value is valid CQL2, malformed, or empty. The parametrize
+    cases make that explicit -- there is intentionally no parse-level validation
+    on this path (use the datasets collection for catalog-level CQL2).
+    """
+    session = test_db_session
+    admin_id = await get_user_id(session, "admin")
+    unique = uuid.uuid4().hex[:8]
+    dataset = await _create_dataset(
+        session, created_by=admin_id, name=f"b4-feature-filter-{unique}"
+    )
+
+    resp = await client.get(
+        f"/collections/{dataset.id}/items",
+        params={"filter": filter_value},
+    )
+    assert resp.status_code == 400
+    data = resp.json()
+    assert "filter is not supported" in data["detail"].lower()
+
+
 # ---------------------------------------------------------------------------
 # Default Behavior Tests
 # ---------------------------------------------------------------------------

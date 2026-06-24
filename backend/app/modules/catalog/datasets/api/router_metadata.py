@@ -414,7 +414,24 @@ async def create_dataset_relationship(
 
     rel = await create_relationship(db, dataset.record_id, body)
     await db.commit()
-    return DatasetRelationshipResponse.model_validate(rel)
+    # The relationship FK columns store catalog.records.id, but the response must
+    # carry dereferenceable Dataset.id values so /collections/{id} resolves them,
+    # matching the LIST path (_visible_relationships, B5d). We already resolved
+    # both endpoints to Dataset objects above. The create INPUT still accepts a
+    # record_id target (DatasetRelationshipCreate.target_dataset_id) — that input
+    # asymmetry is intentional and unchanged; only the RESPONSE ids change here.
+    return DatasetRelationshipResponse(
+        id=rel.id,
+        source_dataset_id=dataset.id,
+        target_dataset_id=target_dataset.id,
+        source_column=rel.source_column,
+        target_column=rel.target_column,
+        relationship_type=rel.relationship_type,
+        label=rel.label,
+        target_dataset_title=target_dataset.record.title
+        if target_dataset.record
+        else None,
+    )
 
 
 @router.delete("/relationships/{relationship_id}/", status_code=204)

@@ -187,6 +187,18 @@ async def _visible_relationships(
     """
     from app.modules.catalog.datasets.domain.models import DatasetRelationship
 
+    # The relationship FK columns store catalog.records.id (record_id), but every
+    # dereferenceable endpoint (e.g. /collections/{id}) resolves by Dataset.id.
+    # Resolve the source dataset's Dataset.id once (dataset_id is the source's
+    # record_id, passed down from the router) so the response carries
+    # dereferenceable ids. NOTE: the create-input side
+    # (create_dataset_relationship / DatasetRelationshipCreate) still resolves
+    # target_dataset_id by record_id — that asymmetry is intentional in this
+    # minimal fix and is not changed here.
+    source_dataset_id = (
+        await session.execute(select(Dataset.id).where(Dataset.record_id == dataset_id))
+    ).scalar_one_or_none()
+
     # Inner-join Dataset (and its Record, eager-loaded via lazy="joined") so the
     # target dataset object is available for the access check below. Relationships
     # whose target has no backing Dataset are dropped (fail-closed).
@@ -210,8 +222,10 @@ async def _visible_relationships(
         visible_items.append(
             {
                 "id": rel.id,
-                "source_dataset_id": rel.source_dataset_id,
-                "target_dataset_id": rel.target_dataset_id,
+                # Emit Dataset.id (dereferenceable) instead of the stored
+                # record_id so /collections/{id} resolves these (B5d fix).
+                "source_dataset_id": source_dataset_id,
+                "target_dataset_id": target_ds.id,
                 "source_column": rel.source_column,
                 "target_column": rel.target_column,
                 "relationship_type": rel.relationship_type,

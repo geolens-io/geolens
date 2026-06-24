@@ -460,6 +460,14 @@ app.state.limiter = limiter
 
 
 async def _rate_limit_handler(request: Request, exc: RateLimitExceeded) -> JSONResponse:
+    # B5b: advertise the window so clients can back off. slowapi knows the
+    # window via exc.limit.limit.get_expiry() (seconds). Guard the lookup so a
+    # surprise in slowapi internals can never turn the 429 into a 500.
+    headers = {}
+    try:
+        headers["Retry-After"] = str(int(exc.limit.limit.get_expiry()))
+    except Exception:
+        pass
     return JSONResponse(
         status_code=status.HTTP_429_TOO_MANY_REQUESTS,
         content=ProblemDetail(
@@ -468,6 +476,7 @@ async def _rate_limit_handler(request: Request, exc: RateLimitExceeded) -> JSONR
             detail=str(exc.detail),
         ).model_dump(),
         media_type="application/problem+json",
+        headers=headers,
     )
 
 

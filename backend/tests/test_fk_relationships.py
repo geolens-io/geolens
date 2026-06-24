@@ -57,6 +57,22 @@ class TestFKRelationships:
         assert data["label"] == "Links to target"
         assert "id" in data
 
+        # TQ-3: the CREATE response must carry dereferenceable Dataset.id values,
+        # NOT the stored record_ids, matching the LIST contract (B5d). The DB
+        # still stores record_ids and the create INPUT still takes a record_id
+        # target — only the RESPONSE ids are Dataset.id.
+        assert data["source_dataset_id"] == str(source.id)
+        assert data["target_dataset_id"] == str(target.id)
+        assert data["target_dataset_id"] != str(target.record_id)
+
+        # The returned target id dereferences via /collections/{id} (was a
+        # non-resolvable record_id pre-fix).
+        deref = await client.get(
+            f"/collections/{data['target_dataset_id']}",
+            headers=admin_auth_header,
+        )
+        assert deref.status_code == 200, deref.text
+
     async def test_list_relationships(
         self,
         client: AsyncClient,
@@ -97,7 +113,21 @@ class TestFKRelationships:
         assert isinstance(items, list)
         assert len(items) >= 1
         assert body["total"] >= 1
-        assert any(r["source_column"] == "ref_id" for r in items)
+        rel = next(r for r in items if r["source_column"] == "ref_id")
+
+        # B5d: the response ids are Dataset.id (dereferenceable), NOT the stored
+        # record_id. Clients fetch /collections/{id} which resolves by Dataset.id.
+        assert rel["target_dataset_id"] == str(target.id)
+        assert rel["target_dataset_id"] != str(target.record_id)
+        assert rel["source_dataset_id"] == str(source.id)
+
+        # The returned target id dereferences via /collections/{id} (was 404
+        # pre-fix because the record_id is not a Dataset.id).
+        deref = await client.get(
+            f"/collections/{rel['target_dataset_id']}",
+            headers=admin_auth_header,
+        )
+        assert deref.status_code == 200, deref.text
 
     async def test_list_relationships_envelope_total_reflects_full_count(
         self,
