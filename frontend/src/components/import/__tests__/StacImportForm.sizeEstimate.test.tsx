@@ -217,7 +217,12 @@ describe('StacImportForm — size-estimate confirmation step (EW-05)', () => {
       makeItem({ id: 'flow-item-1', data_asset_size_bytes: 500_000 }),
     ];
 
-    mockImportStacItems.mockResolvedValue({ created: 1, skipped: 0, errors: 0 });
+    mockImportStacItems.mockResolvedValue({
+      created: 1,
+      skipped: 0,
+      errors: 0,
+      results: [{ item_id: 'flow-item-1', dataset_id: 'ds-1', status: 'created', error: null }],
+    });
 
     const user = await driveToItemsStep(items);
 

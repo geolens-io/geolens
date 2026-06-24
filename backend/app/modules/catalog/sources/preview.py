@@ -64,7 +64,7 @@ async def run_service_preview(
     gdal_source: str,
     layer_name: str,
     sample_limit: int = 5,
-    timeout: float = 120.0,
+    timeout: float = 30.0,
     token: str | None = None,
 ) -> dict:
     """Run ogrinfo against a remote service to get layer metadata and sample rows.
@@ -146,7 +146,7 @@ async def run_service_preview(
 
         try:
             stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
-        except asyncio.TimeoutError:
+        except asyncio.TimeoutError as exc:
             proc.kill()
             await proc.wait()
             logger.warning(
@@ -155,7 +155,14 @@ async def run_service_preview(
                 layer_name=layer_name,
                 timeout=timeout,
             )
-            return empty_fallback
+            # A timeout is a real failure, not a genuinely-empty layer. Raise so
+            # the router surfaces a 502 error toast instead of returning a
+            # fake-success preview with zero columns (which left the UI showing
+            # a spinner then no attributes). empty_fallback is reserved for
+            # zero-feature layers only (handled below).
+            raise IngestionError(
+                f"ogrinfo timed out after {timeout:.0f}s for service preview"
+            ) from exc
     finally:
         if header_file_path is not None:
             try:

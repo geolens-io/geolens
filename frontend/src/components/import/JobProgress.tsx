@@ -81,6 +81,22 @@ export function JobProgress({ jobId, onReset, isRasterEntry = false }: JobProgre
   const retryMutation = useRetryJob();
   const warningShownRef = useRef(false);
 
+  // Warn before tab close / refresh while an import is still running —
+  // navigating away abandons the in-progress ingest. Mirrors the builder's
+  // beforeunload guard (see use-unsaved-guard.ts). In-app navigation blocking
+  // via useBlocker is intentionally NOT used here: it requires a data router
+  // and the leave-warning UX for a backgroundable ingest is the tab-close case.
+  const jobInProgress = job?.status === 'pending' || job?.status === 'running';
+  useEffect(() => {
+    if (!jobInProgress) return;
+    function handleBeforeUnload(e: BeforeUnloadEvent) {
+      e.preventDefault();
+      e.returnValue = '';
+    }
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [jobInProgress]);
+
   useEffect(() => {
     warningShownRef.current = false;
   }, [jobId]);
@@ -104,6 +120,7 @@ export function JobProgress({ jobId, onReset, isRasterEntry = false }: JobProgre
   }
 
   const isPolling = job.status === 'pending' || job.status === 'running';
+  const hasDeterminateProgress = isPolling && job.progress != null;
 
   const handleRetry = async () => {
     try {
@@ -129,6 +146,30 @@ export function JobProgress({ jobId, onReset, isRasterEntry = false }: JobProgre
             <span className="text-sm text-muted-foreground">{job.source_filename}</span>
           )}
         </div>
+
+        {hasDeterminateProgress && (
+          <div className="space-y-1.5">
+            <div className="h-1.5 w-full overflow-hidden rounded-full bg-surface-2">
+              <span
+                className="block h-full rounded-full bg-primary transition-[width] duration-300"
+                style={{ width: `${Math.round((job.progress ?? 0) * 100)}%` }}
+              />
+            </div>
+            <p className="font-mono text-[11px] text-muted-foreground tracking-wide">
+              {job.current_step &&
+                t(`jobProgress.step.${job.current_step}`, {
+                  defaultValue: job.current_step,
+                })}
+              {job.rows_processed != null && (
+                <>
+                  {' '}
+                  · {job.rows_processed.toLocaleString()}{' '}
+                  {t('jobProgress.rowsSuffix', { defaultValue: 'rows' })}
+                </>
+              )}
+            </p>
+          </div>
+        )}
 
         <div className="text-xs text-muted-foreground space-y-1">
           <p>{t('jobProgress.created')} {formatDateTimeSmart(job.created_at)}</p>

@@ -20,6 +20,7 @@ from app.platform.jobs.models import IngestJob
 from app.platform.extensions import get_catalog_port
 from app.modules.catalog.sources.adapters.arcgis import (
     ArcGISTokenError,
+    fetch_arcgis_layer_preview,
     normalize_arcgis_url,
 )
 from app.modules.catalog.sources.preview import build_gdal_source, run_service_preview
@@ -148,6 +149,77 @@ async def _fail_preview(
     raise HTTPException(
         status_code=status.HTTP_502_BAD_GATEWAY,
         detail="Failed to preview remote layer. The service may be unavailable or the layer format is unsupported.",
+    )
+
+
+async def _create_preview_job(
+    db: AsyncSession,
+    request: ServicePreviewRequest,
+    preview_data: dict,
+    user_id: uuid.UUID,
+) -> IngestJob:
+    """Create the pending IngestJob for a successful preview, audit, and commit.
+
+    Stores source_columns and geometry_type from preview so that ingest_service
+    can (a) skip geometry flags for non-spatial tables, and (b) use them as a
+    column_info fallback when the data table has no attribute columns.
+    """
+    job = IngestJob(
+        source_filename=request.layer_title or request.layer_name,
+        source_url=request.url,
+        source_layer=request.layer_name,
+        created_by=user_id,
+        status="pending",
+        user_metadata={
+            "service_type": request.service_type,
+            "layer_id": request.layer_id,
+            "object_id_field": request.object_id_field,
+            "geometry_type": preview_data.get("geometry_type"),
+            "source_columns": preview_data.get("columns") or [],
+        },
+    )
+    db.add(job)
+    await db.flush()
+
+    logger.info(
+        "Service preview success",
+        url=request.url,
+        layer=request.layer_name,
+        job_id=str(job.id),
+    )
+    await audit_emit(
+        db,
+        AuditEvent(
+            user_id=user_id,
+            action="preview_service_layer",
+            resource_type="service_url",
+            details={
+                "url": request.url,
+                "layer": request.layer_name,
+                "job_id": str(job.id),
+                "result": "success",
+            },
+        ),
+    )
+    await db.commit()
+    return job
+
+
+def _build_preview_response(
+    request: ServicePreviewRequest, preview_data: dict, job: IngestJob
+) -> ServicePreviewResponse:
+    """Assemble the ServicePreviewResponse from preview data and the job."""
+    return ServicePreviewResponse(
+        job_id=job.id,
+        source_filename=request.layer_title or request.layer_name,
+        columns=preview_data["columns"],
+        crs=preview_data["srid"],
+        geometry_type=preview_data["geometry_type"],
+        feature_count=preview_data["feature_count"],
+        sample_rows=preview_data["sample_rows"],
+        layer_name=request.layer_name
+        if request.service_type.startswith("ArcGIS")
+        else preview_data["layer_name"],
     )
 
 
@@ -376,7 +448,72 @@ async def preview_service_layer(
         # skip the duplicate check and let Step 2 handle validation.
         pass
 
-    # Step 2: Build GDAL source string
+    # Step 2 (ArcGIS): derive the preview from FeatureServer/MapServer REST
+    # metadata instead of running ogrinfo through GDAL's ESRIJSON driver. That
+    # driver ignores resultRecordCount and paginates the ENTIRE layer (millions
+    # of rows on big services), blowing past the subprocess timeout and
+    # silently returning an empty preview. The native ?f=json metadata returns
+    # all fields + CRS in a single fast call. (preview-fix / demo-bugbash)
+    if request.service_type.startswith("ArcGIS"):
+        try:
+            arcgis_base, url_arcgis_layer_id = normalize_arcgis_url(request.url)
+        except Exception:  # broad: malformed ArcGIS URL — degrade to raw URL
+            arcgis_base, url_arcgis_layer_id = request.url, None
+        arcgis_layer_id = (
+            request.layer_id if request.layer_id is not None else url_arcgis_layer_id
+        )
+        if arcgis_layer_id is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="ArcGIS layer preview requires a layer ID",
+            )
+        try:
+            async with make_safe_client(timeout=15.0) as client:
+                preview_data = await fetch_arcgis_layer_preview(
+                    arcgis_base,
+                    arcgis_layer_id,
+                    client,
+                    token=request.token,
+                )
+        except ArcGISTokenError as exc:
+            logger.warning(
+                "ArcGIS preview token error", url=request.url, error=str(exc)
+            )
+            await audit_emit(
+                db,
+                AuditEvent(
+                    user_id=user.id,
+                    action="preview_service_layer",
+                    resource_type="service_url",
+                    details={
+                        "url": request.url,
+                        "layer": request.layer_name,
+                        "result": "auth_required",
+                        "arcgis_code": exc.code,
+                    },
+                ),
+            )
+            await db.commit()
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=(
+                    "This service requires authentication. Provide a valid "
+                    "ArcGIS token and try again."
+                ),
+            )
+        except (httpx.HTTPError, ValueError) as exc:
+            logger.warning(
+                "ArcGIS preview failed",
+                url=request.url,
+                layer=request.layer_name,
+                error=str(exc),
+            )
+            await _fail_preview(db, user.id, request.url, request.layer_name)
+
+        job = await _create_preview_job(db, request, preview_data, user.id)
+        return _build_preview_response(request, preview_data, job)
+
+    # Step 2: Build GDAL source string (WFS / OGC API)
     try:
         gdal_source, layer_arg = build_gdal_source(
             request.service_type,
@@ -495,61 +632,6 @@ async def preview_service_layer(
                 srid=fallback_srid,
             )
 
-    # Step 5: Create IngestJob
-    # Store source_columns and geometry_type from preview so that ingest_service
-    # can (a) skip geometry flags for non-spatial tables, and (b) use as a
-    # column_info fallback when the data table has no attribute columns.
-    _preview_cols = preview_data.get("columns") or []
-    _preview_geom_type = preview_data.get("geometry_type")
-    job = IngestJob(
-        source_filename=request.layer_title or request.layer_name,
-        source_url=request.url,
-        source_layer=request.layer_name,
-        created_by=user.id,
-        status="pending",
-        user_metadata={
-            "service_type": request.service_type,
-            "layer_id": request.layer_id,
-            "object_id_field": request.object_id_field,
-            "geometry_type": _preview_geom_type,
-            "source_columns": _preview_cols,
-        },
-    )
-    db.add(job)
-    await db.flush()
-
-    # Step 6: Audit log on success
-    logger.info(
-        "Service preview success",
-        url=request.url,
-        layer=request.layer_name,
-        job_id=str(job.id),
-    )
-    await audit_emit(
-        db,
-        AuditEvent(
-            user_id=user.id,
-            action="preview_service_layer",
-            resource_type="service_url",
-            details={
-                "url": request.url,
-                "layer": request.layer_name,
-                "job_id": str(job.id),
-                "result": "success",
-            },
-        ),
-    )
-    await db.commit()
-
-    return ServicePreviewResponse(
-        job_id=job.id,
-        source_filename=request.layer_title or request.layer_name,
-        columns=preview_data["columns"],
-        crs=preview_data["srid"],
-        geometry_type=preview_data["geometry_type"],
-        feature_count=preview_data["feature_count"],
-        sample_rows=preview_data["sample_rows"],
-        layer_name=request.layer_name
-        if request.service_type.startswith("ArcGIS")
-        else preview_data["layer_name"],
-    )
+    # Step 5/6: Create IngestJob, audit-log, and build the response.
+    job = await _create_preview_job(db, request, preview_data, user.id)
+    return _build_preview_response(request, preview_data, job)

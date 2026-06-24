@@ -131,6 +131,11 @@
     "createdCount": "{{count}} created",
     "skippedCount": "{{count}} skipped (duplicate)",
     "failedCount": "{{count}} failed",
+    "failureDetails_one": "{{count}} item failed to import",
+    "failureDetails_other": "{{count}} items failed to import",
+    "failureGroupCount_one": "{{count}} item",
+    "failureGroupCount_other": "{{count}} items",
+    "failureUnknown": "Unknown error",
     "importMore": "Import more",
     "backToResults": "Back to results",
     "catalogConnected": "STAC Catalog — connected",
@@ -351,7 +356,16 @@
     "copiedXyzUrl": "Copied XYZ Tile URL",
     "copyCogUrl": "Copy COG URL",
     "copyXyzUrl": "Copy XYZ Tile URL",
-    "cogDownloadFailed": "Could not start COG download — try again"
+    "cogDownloadFailed": "Could not start COG download — try again",
+    "rowsSuffix": "rows",
+    "step": {
+      "validating": "Validating",
+      "ogr2ogr": "Loading features",
+      "finalize": "Finalizing",
+      "cog_convert": "Converting to COG",
+      "quicklook": "Generating preview",
+      "complete": "Complete"
+    }
   },
   "review": {
     "headerStatus": "Detection complete",

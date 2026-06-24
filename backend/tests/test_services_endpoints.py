@@ -92,6 +92,30 @@ def mock_run_preview():
         yield mock
 
 
+@pytest.fixture
+def mock_fetch_arcgis_preview():
+    """Patch fetch_arcgis_layer_preview (the metadata-driven ArcGIS path)."""
+    with patch(
+        "app.modules.catalog.sources.router.fetch_arcgis_layer_preview",
+        new_callable=AsyncMock,
+    ) as mock:
+        mock.return_value = {
+            "srid": 4326,
+            "geometry_type": "Point",
+            "layer_name": "Bulletins",
+            "feature_count": None,
+            "columns": [
+                {"name": "OBJECTID", "type": "Integer64"},
+                {"name": "title", "type": "String"},
+            ],
+            "sample_rows": [
+                {"OBJECTID": 1, "title": "Bulletin A"},
+                {"OBJECTID": 2, "title": "Bulletin B"},
+            ],
+        }
+        yield mock
+
+
 # ---------------------------------------------------------------------------
 # Probe endpoint
 # ---------------------------------------------------------------------------
@@ -533,6 +557,74 @@ class TestPreviewEndpoint:
             assert resp.status_code == 400
             assert "layer ID" in resp.json()["detail"]
 
+    async def test_preview_arcgis_uses_metadata_path(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        mock_validate_ssrf,
+        mock_fetch_arcgis_preview,
+    ):
+        """ArcGIS preview goes through fetch_arcgis_layer_preview, not ogrinfo.
+
+        Regression for the large-FeatureServer hang: GDAL's ESRIJSON driver
+        ignores resultRecordCount and paginates the whole layer (millions of
+        rows) → ogrinfo times out → empty preview. The metadata path returns
+        fields + CRS from ?f=json in one fast call.
+        """
+        with patch(
+            "app.modules.catalog.sources.router.run_service_preview",
+            new_callable=AsyncMock,
+        ) as run_preview:
+            resp = await client.post(
+                "/services/preview/",
+                json={
+                    "url": "https://services.arcgis.com/abc/rest/services/Big/FeatureServer",
+                    "service_type": "ArcGIS FeatureServer",
+                    "layer_name": "0",
+                    "layer_id": 0,
+                },
+                headers=admin_auth_header,
+            )
+        assert resp.status_code == 200, resp.text
+        # ogrinfo must NOT be invoked for ArcGIS layers.
+        run_preview.assert_not_called()
+        mock_fetch_arcgis_preview.assert_awaited_once()
+        data = resp.json()
+        assert data["crs"] == 4326
+        assert data["geometry_type"] == "Point"
+        assert len(data["columns"]) == 2
+        assert data["columns"][0]["name"] == "OBJECTID"
+        assert len(data["sample_rows"]) == 2
+        # ArcGIS responses surface attributes (not GeoJSON properties).
+        assert data["sample_rows"][0]["title"] == "Bulletin A"
+
+    async def test_preview_arcgis_token_error_returns_403(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        mock_validate_ssrf,
+    ):
+        """ArcGIS token error during metadata fetch surfaces as 403."""
+        from app.modules.catalog.sources.adapters.arcgis import ArcGISTokenError
+
+        with patch(
+            "app.modules.catalog.sources.router.fetch_arcgis_layer_preview",
+            new_callable=AsyncMock,
+            side_effect=ArcGISTokenError(499, "Token Required"),
+        ):
+            resp = await client.post(
+                "/services/preview/",
+                json={
+                    "url": "https://services.arcgis.com/abc/rest/services/Sec/FeatureServer",
+                    "service_type": "ArcGIS FeatureServer",
+                    "layer_name": "0",
+                    "layer_id": 0,
+                },
+                headers=admin_auth_header,
+            )
+        assert resp.status_code == 403
+        assert "authentication" in resp.json()["detail"].lower()
+
     async def test_preview_ogcapi_uri_form_crs_fallback(
         self,
         client: AsyncClient,
@@ -788,6 +880,7 @@ class TestDuplicateSourceDetection:
         mock_validate_ssrf,
         mock_build_gdal_source,
         mock_run_preview,
+        mock_fetch_arcgis_preview,
     ):
         """POST /services/preview/ for FeatureServer/1 when /0 exists should NOT return 409."""
         from tests.factories import get_user_id
@@ -824,6 +917,7 @@ class TestDuplicateSourceDetection:
         mock_validate_ssrf,
         mock_build_gdal_source,
         mock_run_preview,
+        mock_fetch_arcgis_preview,
     ):
         """POST /services/preview/ as different user for same URL should NOT return 409.
 

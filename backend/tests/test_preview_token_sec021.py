@@ -111,3 +111,95 @@ async def test_preview_passes_bearer_via_header_file_not_env(monkeypatch, client
     assert "GDAL_HTTP_HEADER_FILE" in env, "expected the 0600 header-file pattern"
     assert captured.get("mode") == 0o600
     assert f"Authorization: Bearer {token}" in captured.get("content", "")
+
+
+@pytest.mark.anyio
+async def test_preview_timeout_raises_not_empty(monkeypatch):
+    """An ogrinfo timeout must RAISE IngestionError, not return empty_fallback.
+
+    Regression: a timeout previously returned a zero-column preview that the
+    router treated as success, leaving the UI showing a spinner then no
+    attributes. A timeout is a real failure → surface a 502 error toast.
+    """
+    import asyncio as aio
+
+    from app.modules.catalog.sources import preview as preview_mod
+
+    class _HangingProc:
+        returncode = None
+
+        async def communicate(self):
+            await aio.sleep(10)  # longer than the test timeout below
+            return (b"", b"")
+
+        def kill(self):
+            pass
+
+        async def wait(self):
+            return 0
+
+    async def _fake_exec(*cmd, **kwargs):
+        return _HangingProc()
+
+    monkeypatch.setattr(aio, "create_subprocess_exec", _fake_exec)
+
+    with pytest.raises(preview_mod.IngestionError):
+        await preview_mod.run_service_preview(
+            "WFS:https://example.com/wfs", "layer", timeout=0.05
+        )
+
+
+@pytest.mark.anyio
+async def test_fetch_arcgis_layer_preview_maps_fields_crs_and_attributes():
+    """fetch_arcgis_layer_preview reads ?f=json metadata + a bounded sample.
+
+    Verifies ESRI field types map to OGR names, CRS prefers latestWkid, and
+    the sample query reads ``attributes`` (ArcGIS) not ``properties``.
+    """
+    from unittest.mock import AsyncMock, MagicMock
+
+    from app.modules.catalog.sources.adapters.arcgis import fetch_arcgis_layer_preview
+
+    meta = {
+        "name": "Parcels",
+        "geometryType": "esriGeometryPolygon",
+        "extent": {"spatialReference": {"wkid": 102100, "latestWkid": 3857}},
+        "fields": [
+            {"name": "OBJECTID", "type": "esriFieldTypeOID"},
+            {"name": "owner", "type": "esriFieldTypeString"},
+            {"name": "value", "type": "esriFieldTypeDouble"},
+            {"name": "Shape", "type": "esriFieldTypeGeometry"},
+        ],
+    }
+    sample = {
+        "features": [
+            {"attributes": {"OBJECTID": 1, "owner": "Smith", "value": 100.0}},
+            {"attributes": {"OBJECTID": 2, "owner": "Jones", "value": 200.0}},
+        ]
+    }
+
+    meta_resp = MagicMock()
+    meta_resp.raise_for_status = MagicMock()
+    meta_resp.json = MagicMock(return_value=meta)
+    sample_resp = MagicMock()
+    sample_resp.raise_for_status = MagicMock()
+    sample_resp.json = MagicMock(return_value=sample)
+
+    client = MagicMock()
+    client.get = AsyncMock(side_effect=[meta_resp, sample_resp])
+
+    result = await fetch_arcgis_layer_preview(
+        "https://services.arcgis.com/x/rest/services/Parcels/FeatureServer",
+        0,
+        client,
+    )
+
+    assert result["srid"] == 3857  # latestWkid wins over wkid
+    assert result["geometry_type"] == "Polygon"
+    assert result["layer_name"] == "Parcels"
+    assert result["feature_count"] is None
+    # Geometry field is skipped; OID→Integer64, String→String, Double→Real.
+    cols = {c["name"]: c["type"] for c in result["columns"]}
+    assert cols == {"OBJECTID": "Integer64", "owner": "String", "value": "Real"}
+    assert len(result["sample_rows"]) == 2
+    assert result["sample_rows"][0]["owner"] == "Smith"

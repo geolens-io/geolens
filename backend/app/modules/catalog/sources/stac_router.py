@@ -469,6 +469,15 @@ async def stac_import(
         try:
             await validate_url_for_ssrf(item.data_asset_href)
         except SSRFError as exc:
+            # Surface this otherwise-silent reject: catalogs commonly expose
+            # asset hrefs the SSRF guard rejects (e.g. ``s3://`` schemes),
+            # which fails every item with no server-side trace.
+            logger.warning(
+                "STAC item SSRF-rejected",
+                item_id=item.id,
+                href=item.data_asset_href,
+                error=str(exc),
+            )
             results.append(
                 StacImportResult(item_id=item.id, status="error", error=str(exc))
             )

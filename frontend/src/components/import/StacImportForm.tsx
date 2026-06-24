@@ -24,6 +24,7 @@ import type {
   StacCollectionSummary,
   StacItemSummary,
   StacImportItem,
+  StacImportResult,
 } from '@/types/api';
 import { Button } from '@/components/ui/button';
 
@@ -46,7 +47,12 @@ export function StacImportForm() {
   const [selectedCollection, setSelectedCollection] = useState<StacCollectionSummary | null>(null);
   const [searchResult, setSearchResult] = useState<{ items: StacItemSummary[]; matched: number | null }>({ items: [], matched: null });
   const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set());
-  const [importResult, setImportResult] = useState<{ created: number; skipped: number; errors: number } | null>(null);
+  const [importResult, setImportResult] = useState<{
+    created: number;
+    skipped: number;
+    errors: number;
+    results: StacImportResult[];
+  } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const items = searchResult.items;
@@ -161,10 +167,20 @@ export function StacImportForm() {
 
     try {
       const result = await importStacItems(catalogInfo!.url, importItems);
-      setImportResult({ created: result.created, skipped: result.skipped, errors: result.errors });
+      setImportResult({
+        created: result.created,
+        skipped: result.skipped,
+        errors: result.errors,
+        results: result.results,
+      });
       setStep('done');
       if (result.created > 0) {
         toast.success(t('stac.importedCount', { count: result.created }));
+      } else if (result.errors > 0) {
+        // No datasets created and at least one failure — surface the first
+        // distinct error so the toast isn't a silent "{n} failed".
+        const firstError = (result.results ?? []).find((r) => r.status === 'error')?.error;
+        toast.error(firstError ?? t('stac.failedCount', { count: result.errors }));
       }
     } catch (err) {
       const msg = err instanceof ApiError ? err.message : t('stac.importFailed');
@@ -250,6 +266,19 @@ export function StacImportForm() {
 
   // ── Done ──
   if (step === 'done' && importResult) {
+    // Group failures by error message so 40 identical SSRF rejects collapse to
+    // a single row showing the message + a count, with the failing item ids.
+    const failures = (importResult.results ?? []).filter((r) => r.status === 'error');
+    const groupedFailures = Array.from(
+      failures.reduce((acc, r) => {
+        const message = r.error ?? t('stac.failureUnknown');
+        const group = acc.get(message) ?? { message, itemIds: [] as string[] };
+        group.itemIds.push(r.item_id);
+        acc.set(message, group);
+        return acc;
+      }, new Map<string, { message: string; itemIds: string[] }>()).values(),
+    );
+
     return (
       <div className="space-y-4">
         <div className="rounded-xl border border-success/30 bg-success/5 p-5">
@@ -269,6 +298,33 @@ export function StacImportForm() {
             )}
           </div>
         </div>
+
+        {groupedFailures.length > 0 && (
+          <details className="overflow-hidden rounded-xl border border-destructive/30 bg-destructive/5" open>
+            <summary className="cursor-pointer select-none px-5 py-3 text-[13px] font-medium text-destructive">
+              {t('stac.failureDetails', { count: importResult.errors })}
+            </summary>
+            <ul className="divide-y divide-destructive/15 border-t border-destructive/20">
+              {groupedFailures.map((group) => (
+                <li key={group.message} className="px-5 py-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <p className="text-[13px] text-foreground">{group.message}</p>
+                    <span className="shrink-0 rounded-md bg-destructive/10 px-2 py-0.5 font-mono text-[11px] font-semibold text-destructive">
+                      {t('stac.failureGroupCount', { count: group.itemIds.length })}
+                    </span>
+                  </div>
+                  <p
+                    className="mt-1 truncate font-mono text-[10.5px] text-muted-foreground"
+                    title={group.itemIds.join(', ')}
+                  >
+                    {group.itemIds.join(', ')}
+                  </p>
+                </li>
+              ))}
+            </ul>
+          </details>
+        )}
+
         <div className="flex gap-2">
           <Button variant="outline" onClick={reset}>
             {t('stac.importMore')}

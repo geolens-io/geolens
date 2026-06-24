@@ -120,6 +120,11 @@
     "createdCount": "{{count}} créé(s)",
     "skippedCount": "{{count}} ignoré(s) (doublon)",
     "failedCount": "{{count}} échoué(s)",
+    "failureDetails_one": "{{count}} élément n'a pas pu être importé",
+    "failureDetails_other": "{{count}} éléments n'ont pas pu être importés",
+    "failureGroupCount_one": "{{count}} élément",
+    "failureGroupCount_other": "{{count}} éléments",
+    "failureUnknown": "Erreur inconnue",
     "importMore": "Importer davantage",
     "backToResults": "Retour aux résultats",
     "catalogConnected": "Catalogue STAC — connecté",
@@ -309,7 +314,16 @@
     "copiedXyzUrl": "URL tuile XYZ copiée",
     "copyCogUrl": "Copier l'URL COG",
     "copyXyzUrl": "Copier l'URL tuile XYZ",
-    "cogDownloadFailed": "Impossible de démarrer le téléchargement COG — réessayez"
+    "cogDownloadFailed": "Impossible de démarrer le téléchargement COG — réessayez",
+    "rowsSuffix": "lignes",
+    "step": {
+      "validating": "Validation",
+      "ogr2ogr": "Chargement des entités",
+      "finalize": "Finalisation",
+      "cog_convert": "Conversion en COG",
+      "quicklook": "Génération de l'aperçu",
+      "complete": "Terminé"
+    }
   },
   "review": {
     "headerStatus": "Detection complete",

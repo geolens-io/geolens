@@ -120,6 +120,11 @@
     "createdCount": "{{count}} creado(s)",
     "skippedCount": "{{count}} omitido(s) (duplicado)",
     "failedCount": "{{count}} fallido(s)",
+    "failureDetails_one": "{{count}} elemento no se pudo importar",
+    "failureDetails_other": "{{count}} elementos no se pudieron importar",
+    "failureGroupCount_one": "{{count}} elemento",
+    "failureGroupCount_other": "{{count}} elementos",
+    "failureUnknown": "Error desconocido",
     "importMore": "Importar más",
     "backToResults": "Volver a los resultados",
     "catalogConnected": "Catálogo STAC — conectado",
@@ -309,7 +314,16 @@
     "copiedXyzUrl": "URL de tesela XYZ copiada",
     "copyCogUrl": "Copiar URL COG",
     "copyXyzUrl": "Copiar URL de tesela XYZ",
-    "cogDownloadFailed": "No se pudo iniciar la descarga de COG — inténtelo de nuevo"
+    "cogDownloadFailed": "No se pudo iniciar la descarga de COG — inténtelo de nuevo",
+    "rowsSuffix": "filas",
+    "step": {
+      "validating": "Validando",
+      "ogr2ogr": "Cargando entidades",
+      "finalize": "Finalizando",
+      "cog_convert": "Convirtiendo a COG",
+      "quicklook": "Generando vista previa",
+      "complete": "Completado"
+    }
   },
   "review": {
     "headerStatus": "Detection complete",
