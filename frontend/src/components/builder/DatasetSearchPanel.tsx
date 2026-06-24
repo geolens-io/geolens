@@ -14,16 +14,13 @@ import {
   RotateCcw,
   Search,
   SearchX,
-  Shuffle,
   Upload,
 } from 'lucide-react';
 import { useDraggable } from '@dnd-kit/core';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { searchDatasets } from '@/api/search';
-import type { BasemapEntry } from '@/api/settings';
 import { queryKeys } from '@/lib/query-keys';
 import { useDebouncedValue } from '@/hooks/use-debounce';
-import { useBasemaps } from '@/hooks/use-settings';
 import { useQuicklook } from '@/components/maps/hooks/use-quicklook';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -32,44 +29,22 @@ import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { Skeleton } from '@/components/ui/skeleton';
 import { RecordTypeBadge } from '@/components/search/RecordTypeBadge';
 import { getGeometryTypeLabel } from '@/i18n/labels';
-import {
-  basemapThumbnail,
-  BLANK_BASEMAP_ID,
-  normalizeBasemapConfig,
-} from '@/lib/basemap-utils';
 import { formatNumber } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import type {
-  MapBasemapConfig,
   MapLayerResponse,
   OGCRecordResponse,
   RecordType,
 } from '@/types/api';
 
-type DatasetSearchTab = 'all' | 'vector' | 'raster' | 'basemap';
+type DatasetSearchTab = 'all' | 'vector' | 'raster';
 
 interface DatasetSearchPanelProps {
   onAddDataset: (datasetId: string) => void;
   onDuplicateRendering: (layerId: string) => void;
   layers: MapLayerResponse[];
   isAdding: boolean;
-  basemapStyle: string;
-  showBasemapLabels: boolean;
-  basemapConfig: MapBasemapConfig | null;
-  onBasemapChange: (key: string) => void;
-  onBasemapLabelsChange: (show: boolean) => void;
-  onBasemapConfigChange: (value: MapBasemapConfig) => void;
   initialQuery?: string;
-}
-
-function makeBlankBasemap(label: string): BasemapEntry {
-  return {
-    id: BLANK_BASEMAP_ID,
-    label,
-    url: BLANK_BASEMAP_ID,
-    enabled: true,
-    is_preset: false,
-  };
 }
 
 function tabRecordType(tab: DatasetSearchTab): string {
@@ -174,28 +149,6 @@ function DatasetMetadata({ record }: { record: OGCRecordResponse }) {
   );
 }
 
-function BasemapMetadata({ entry }: { entry: BasemapEntry }) {
-  const { t } = useTranslation('builder');
-  return (
-    <dl className="grid min-w-0 flex-1 grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-xs">
-      <div className="contents">
-        <dt className="text-muted-foreground">{t('search.metadata.type', { defaultValue: 'Type' })}</dt>
-        <dd className="font-medium text-foreground">{t('search.basemap', { defaultValue: 'Basemap' })}</dd>
-      </div>
-      <div className="contents">
-        <dt className="text-muted-foreground">{t('search.metadata.source', { defaultValue: 'Source' })}</dt>
-        <dd className="truncate font-medium text-foreground">{entry.is_preset ? 'GeoLens' : entry.url}</dd>
-      </div>
-      {entry.attribution && (
-        <div className="contents">
-          <dt className="text-muted-foreground">{t('search.metadata.attribution', { defaultValue: 'Attribution' })}</dt>
-          <dd className="truncate font-medium text-foreground">{entry.attribution}</dd>
-        </div>
-      )}
-    </dl>
-  );
-}
-
 // ---------------------------------------------------------------------------
 // DraggableDatasetRow: wraps a dataset result row with useDraggable so users
 // can drag it onto the unified stack. Registered in the lifted DndContext at
@@ -292,111 +245,11 @@ const DraggableDatasetRow = memo(function DraggableDatasetRow({
   );
 });
 
-// ---------------------------------------------------------------------------
-// DraggableBasemapRow: wraps a basemap entry row with useDraggable. Drop
-// semantics (swap) land in Plan 03; this plan just wires the drag affordance.
-// ---------------------------------------------------------------------------
-interface DraggableBasemapRowProps {
-  entry: BasemapEntry;
-  expanded: boolean;
-  setExpandedRowId: (id: string | null) => void;
-  renderBasemapAction: (entry: BasemapEntry, compact?: boolean) => ReactNode;
-}
-
-const DraggableBasemapRow = memo(function DraggableBasemapRow({
-  entry,
-  expanded,
-  setExpandedRowId,
-  renderBasemapAction,
-}: DraggableBasemapRowProps) {
-  const { t } = useTranslation('builder');
-  const rowId = `basemap:${entry.id}`;
-
-  const { attributes, listeners, setActivatorNodeRef, setNodeRef, isDragging } = useDraggable({
-    id: `catalog-basemap:${entry.id}`,
-    data: {
-      source: 'catalog' as const,
-      datasetId: entry.id,
-      recordType: 'basemap',
-      name: entry.label,
-    },
-  });
-
-  return (
-    <div
-      ref={setNodeRef}
-      className={cn(
-        'group/row rounded-md border border-border/60 bg-background',
-        isDragging && 'opacity-40 bg-[var(--surface-2)]',
-      )}
-    >
-      <div className={cn('flex items-center gap-2 px-2 py-2', !isDragging && 'cursor-grab', isDragging && 'cursor-grabbing')}>
-        {/* Grip handle — hidden at rest, appears on row hover */}
-        <button
-          ref={setActivatorNodeRef}
-          type="button"
-          {...attributes}
-          {...listeners}
-          aria-label={t('search.dragHandle', { defaultValue: 'Drag to add to map' })}
-          // Phase 1199 STACK-05: reveal the catalog drag grip on coarse-pointer/touch.
-          data-touch-reveal=""
-          className="flex h-7 w-5 shrink-0 items-center justify-center cursor-grab opacity-0 group-hover/row:opacity-35 hover:opacity-70 focus-visible:opacity-70 text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded active:cursor-grabbing"
-          onPointerDown={(e) => e.stopPropagation()}
-          onClick={(e) => e.stopPropagation()}
-        >
-          <GripVertical className="h-3.5 w-3.5" aria-hidden="true" />
-        </button>
-        <button
-          type="button"
-          className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-[var(--surface-2)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          aria-label={expanded ? `Collapse ${entry.label}` : `Expand ${entry.label}`}
-          onClick={() => setExpandedRowId(expanded ? null : rowId)}
-        >
-          <ChevronRight className={cn('h-3.5 w-3.5 transition-transform duration-[--motion-fast]', expanded && 'rotate-90')} />
-        </button>
-        <img
-          src={basemapThumbnail(entry.id)}
-          alt=""
-          aria-hidden="true"
-          className="h-9 w-9 rounded border object-cover"
-        />
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-medium">{entry.label}</p>
-          <Badge variant="outline" className="mt-0.5 h-5 rounded px-1.5 text-[10px]">
-            {t('search.basemap', { defaultValue: 'Basemap' })}
-          </Badge>
-        </div>
-        {renderBasemapAction(entry)}
-      </div>
-      {expanded && (
-        <div className="flex gap-3 border-t border-border/60 p-2">
-          <img
-            src={basemapThumbnail(entry.id)}
-            alt=""
-            aria-hidden="true"
-            className="h-24 w-28 rounded-md border object-cover"
-          />
-          <div className="flex min-w-0 flex-1 flex-col gap-2">
-            <BasemapMetadata entry={entry} />
-            <div className="flex justify-end">{renderBasemapAction(entry, true)}</div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-});
-
 export function DatasetSearchPanel({
   onAddDataset,
   onDuplicateRendering,
   layers,
   isAdding,
-  basemapStyle,
-  showBasemapLabels,
-  basemapConfig,
-  onBasemapChange,
-  onBasemapLabelsChange,
-  onBasemapConfigChange,
   initialQuery,
 }: DatasetSearchPanelProps) {
   const { t } = useTranslation('builder');
@@ -420,7 +273,6 @@ export function DatasetSearchPanel({
   const [keyword, setKeyword] = useState('');
   const [expandedRowId, setExpandedRowId] = useState<string | null>(null);
   const debouncedQuery = useDebouncedValue(query, 300);
-  const { data: basemaps } = useBasemaps();
 
   const recordType = tabRecordType(activeTab);
   const searchParams: Record<string, string> = { limit: '20' };
@@ -436,7 +288,6 @@ export function DatasetSearchPanel({
       keyword,
     ],
     queryFn: () => searchDatasets(searchParams),
-    enabled: activeTab !== 'basemap',
     staleTime: 30_000,
   });
 
@@ -462,27 +313,10 @@ export function DatasetSearchPanel({
     return map;
   }, [layers]);
 
-  const basemapOptions = useMemo(() => {
-    const blank = makeBlankBasemap(t('basemap.blank', { defaultValue: 'No basemap' }));
-    return [blank, ...(basemaps ?? []).filter((entry) => entry.enabled)];
-  }, [basemaps, t]);
-  const filteredBasemaps = useMemo(() => {
-    const needle = query.trim().toLowerCase();
-    if (!needle) return basemapOptions;
-    return basemapOptions.filter((entry) => entry.label.toLowerCase().includes(needle));
-  }, [basemapOptions, query]);
-
   function handleTabChange(value: string) {
     if (!value) return;
     setActiveTab(value as DatasetSearchTab);
     setExpandedRowId(null);
-  }
-
-  function handleBasemapSwap(entry: BasemapEntry) {
-    const nextConfig = normalizeBasemapConfig(basemapConfig, showBasemapLabels);
-    onBasemapChange(entry.id);
-    onBasemapLabelsChange(nextConfig.label_mode !== 'hidden');
-    onBasemapConfigChange(nextConfig);
   }
 
   function renderDatasetAction(record: OGCRecordResponse, compact = false) {
@@ -526,28 +360,6 @@ export function DatasetSearchPanel({
     );
   }
 
-  function renderBasemapAction(entry: BasemapEntry, compact = false) {
-    if (entry.id === basemapStyle) {
-      return (
-        <Button type="button" variant="secondary" size="sm" className="h-7 px-2 text-xs" disabled>
-          {t('search.inUse', { defaultValue: 'in use' })}
-        </Button>
-      );
-    }
-    return (
-      <Button
-        type="button"
-        variant={compact ? 'default' : 'outline'}
-        size="sm"
-        className="h-7 gap-1 px-2 text-xs"
-        onClick={() => handleBasemapSwap(entry)}
-      >
-        <Shuffle className="h-3.5 w-3.5" aria-hidden="true" />
-        {t('search.swap', { defaultValue: 'swap' })}
-      </Button>
-    );
-  }
-
   return (
     <div className="min-h-0 min-w-0 overflow-hidden">
       <div className="min-w-0 space-y-2 px-1">
@@ -567,7 +379,7 @@ export function DatasetSearchPanel({
           type="single"
           value={activeTab}
           onValueChange={handleTabChange}
-          className="grid w-full min-w-0 grid-cols-4 rounded-md bg-muted/50 p-1"
+          className="grid w-full min-w-0 grid-cols-3 rounded-md bg-muted/50 p-1"
         >
           <ToggleGroupItem value="all" className="h-7 min-w-0 px-2 text-xs">
             {t('search.allTypes', { defaultValue: 'All' })}
@@ -578,12 +390,9 @@ export function DatasetSearchPanel({
           <ToggleGroupItem value="raster" className="h-7 min-w-0 px-2 text-xs">
             {t('search.raster', { defaultValue: 'Raster' })}
           </ToggleGroupItem>
-          <ToggleGroupItem value="basemap" className="h-7 min-w-0 px-2 text-xs">
-            {t('search.basemap', { defaultValue: 'Basemap' })}
-          </ToggleGroupItem>
         </ToggleGroup>
 
-        {activeTab !== 'basemap' && (sourceOptions.length > 0 || keywordOptions.length > 0 || sourceOrganization || keyword) && (
+        {(sourceOptions.length > 0 || keywordOptions.length > 0 || sourceOrganization || keyword) && (
           <div className="flex min-w-0 flex-wrap items-center gap-1" aria-label={t('search.filters', { defaultValue: 'Filters' })}>
             {sourceOrganization && (
               <Button
@@ -636,7 +445,7 @@ export function DatasetSearchPanel({
       </div>
 
       {/* State: Error */}
-      {activeTab !== 'basemap' && isError && (
+      {isError && (
         <div role="alert" className="flex flex-col items-center gap-2 px-4 py-6 text-center">
           <AlertCircle className="h-4 w-4 text-destructive" aria-hidden="true" />
           <p className="text-sm text-foreground text-center">
@@ -655,7 +464,7 @@ export function DatasetSearchPanel({
       )}
 
       {/* State: Loading — first fetch skeleton rows (AUD-10) */}
-      {activeTab !== 'basemap' && !isError && isLoading && (
+      {!isError && isLoading && (
         <div className="mt-3 space-y-1 px-1">
           {Array.from({ length: 5 }).map((_, i) => (
             <Skeleton key={i} className="h-[58px] w-full rounded-md" />
@@ -663,12 +472,12 @@ export function DatasetSearchPanel({
         </div>
       )}
       {/* State: Refetching — progress band over stale list (AUD-13) */}
-      {activeTab !== 'basemap' && !isError && isFetching && !isLoading && (
+      {!isError && isFetching && !isLoading && (
         <div className="h-0.5 w-full bg-[var(--primary)] animate-pulse" />
       )}
 
       {/* State A: Unfiltered empty — catalog is empty */}
-      {activeTab !== 'basemap' && !isLoading && !isFetching && !isError
+      {!isLoading && !isFetching && !isError
         && debouncedQuery.trim().length === 0 && results.length === 0 && (
         <div role="status" className="flex flex-col items-center gap-2 px-4 py-6">
           <Inbox className="h-8 w-8 text-muted-foreground" aria-hidden="true" />
@@ -689,7 +498,7 @@ export function DatasetSearchPanel({
       )}
 
       {/* State B: Zero-result — query entered, no matches */}
-      {activeTab !== 'basemap' && !isLoading && !isFetching && !isError
+      {!isLoading && !isFetching && !isError
         && debouncedQuery.trim().length > 0 && results.length === 0 && (
         <div role="status" className="flex flex-col items-center gap-2 px-4 py-6">
           <SearchX className="h-8 w-8 text-muted-foreground" aria-hidden="true" />
@@ -713,18 +522,10 @@ export function DatasetSearchPanel({
       <div
         className={cn(
           'mt-3 max-h-[24rem] space-y-1 overflow-y-auto px-1',
-          isFetching && !isLoading && activeTab !== 'basemap' && 'pointer-events-none opacity-50',
+          isFetching && !isLoading && 'pointer-events-none opacity-50',
         )}
       >
-        {activeTab === 'basemap' ? filteredBasemaps.map((entry) => (
-          <DraggableBasemapRow
-            key={entry.id}
-            entry={entry}
-            expanded={expandedRowId === `basemap:${entry.id}`}
-            setExpandedRowId={setExpandedRowId}
-            renderBasemapAction={renderBasemapAction}
-          />
-        )) : results.map((record) => (
+        {results.map((record) => (
           <DraggableDatasetRow
             key={record.id}
             record={record}

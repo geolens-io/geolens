@@ -1,7 +1,6 @@
 import { fireEvent, render, screen, waitFor, within } from '@/test/test-utils';
 import { DatasetSearchPanel } from '../DatasetSearchPanel';
 import { searchDatasets } from '@/api/search';
-import type { BasemapEntry } from '@/api/settings';
 import type { MapLayerResponse, OGCRecordResponse, RecordType } from '@/types/api';
 
 vi.mock('@/api/search', async (importOriginal) => {
@@ -28,16 +27,6 @@ vi.mock('@tanstack/react-query', async (importOriginal) => {
     }),
   };
 });
-
-const mockBasemaps: BasemapEntry[] = [
-  { id: 'openfreemap-positron', label: 'Positron', url: 'https://example.com/positron', enabled: true, is_preset: true },
-  { id: 'openfreemap-dark', label: 'Dark', url: 'https://example.com/dark', enabled: true, is_preset: true },
-  { id: 'disabled', label: 'Disabled', url: 'https://example.com/disabled', enabled: false, is_preset: true },
-];
-
-vi.mock('@/hooks/use-settings', () => ({
-  useBasemaps: vi.fn(() => ({ data: mockBasemaps })),
-}));
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -125,12 +114,6 @@ function defaultProps(overrides: Partial<React.ComponentProps<typeof DatasetSear
     onDuplicateRendering: vi.fn(),
     layers: [],
     isAdding: false,
-    basemapStyle: 'openfreemap-positron',
-    showBasemapLabels: true,
-    basemapConfig: null,
-    onBasemapChange: vi.fn(),
-    onBasemapLabelsChange: vi.fn(),
-    onBasemapConfigChange: vi.fn(),
     ...overrides,
   } satisfies React.ComponentProps<typeof DatasetSearchPanel>;
 }
@@ -171,7 +154,7 @@ describe('DatasetSearchPanel', () => {
     expect(screen.getByRole('radio', { name: 'All' })).toBeInTheDocument();
     expect(screen.getByRole('radio', { name: 'Vector' })).toBeInTheDocument();
     expect(screen.getByRole('radio', { name: 'Raster' })).toBeInTheDocument();
-    expect(screen.getByRole('radio', { name: 'Basemap' })).toBeInTheDocument();
+    expect(screen.queryByRole('radio', { name: 'Basemap' })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('radio', { name: 'Vector' }));
     await waitFor(() => {
@@ -217,52 +200,6 @@ describe('DatasetSearchPanel', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Add to map Population' }));
     expect(onAddDataset).toHaveBeenCalledWith('population');
-  });
-
-  it('routes basemap swap and in-use states through map-level handlers', async () => {
-    const onBasemapChange = vi.fn();
-    const onBasemapLabelsChange = vi.fn();
-    const onBasemapConfigChange = vi.fn();
-
-    render(
-      <DatasetSearchPanel
-        {...defaultProps({
-          basemapConfig: {
-            label_mode: 'subtle',
-            road_visibility: 'hidden',
-            boundary_visibility: 'full',
-            building_visibility: false,
-            land_water_tone: 'muted',
-            relief_contrast: 'soft',
-          },
-          onBasemapChange,
-          onBasemapLabelsChange,
-          onBasemapConfigChange,
-        })}
-      />,
-    );
-
-    fireEvent.click(screen.getByRole('radio', { name: 'Basemap' }));
-    expect(screen.getByText('Positron')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'in use' })).toBeDisabled();
-    expect(screen.queryByText('Disabled')).not.toBeInTheDocument();
-
-    const darkRow = screen.getByText('Dark').closest('.rounded-md');
-    expect(darkRow).not.toBeNull();
-    fireEvent.click(within(darkRow as HTMLElement).getByRole('button', { name: 'swap' }));
-
-    expect(onBasemapChange).toHaveBeenCalledWith('openfreemap-dark');
-    expect(onBasemapLabelsChange).toHaveBeenCalledWith(true);
-    expect(onBasemapConfigChange).toHaveBeenCalledWith({
-      label_mode: 'subtle',
-      road_visibility: 'hidden',
-      boundary_visibility: 'full',
-      building_visibility: false,
-      land_water_tone: 'muted',
-      relief_contrast: 'soft',
-      opacity: 1,
-      background_color: null,
-    });
   });
 
   it('expands rows inline and links to the existing import page', async () => {

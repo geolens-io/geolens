@@ -20,7 +20,7 @@ import { SceneSpinnerFallback } from '@/components/builder/SceneSpinnerFallback'
 import { VisibilityIcon } from '@/components/maps/VisibilityIcon';
 import { formatRelativeDate } from '@/lib/format';
 import { getVisibilityLabel } from '@/i18n/labels';
-import type { MapBasemapConfig, MapLayerResponse, MapResponse } from '@/types/api';
+import type { MapLayerResponse, MapResponse } from '@/types/api';
 
 interface BuilderDialogsProps {
   mapId?: string;
@@ -32,12 +32,6 @@ interface BuilderDialogsProps {
   onDuplicateRendering: (layerId: string) => void;
   layers: MapLayerResponse[];
   isAdding: boolean;
-  basemapStyle: string;
-  showBasemapLabels: boolean;
-  basemapConfig: MapBasemapConfig | null;
-  onBasemapChange: (key: string) => void;
-  onBasemapLabelsChange: (show: boolean) => void;
-  onBasemapConfigChange: (value: MapBasemapConfig) => void;
   addDataInitialQuery?: string;
   // Share
   showShare: boolean;
@@ -62,12 +56,6 @@ export function BuilderDialogs({
   onDuplicateRendering,
   layers,
   isAdding,
-  basemapStyle,
-  showBasemapLabels,
-  basemapConfig,
-  onBasemapChange,
-  onBasemapLabelsChange,
-  onBasemapConfigChange,
   addDataInitialQuery,
   showShare,
   onShowShareChange,
@@ -96,12 +84,6 @@ export function BuilderDialogs({
               onDuplicateRendering={onDuplicateRendering}
               layers={layers}
               isAdding={isAdding}
-              basemapStyle={basemapStyle}
-              showBasemapLabels={showBasemapLabels}
-              basemapConfig={basemapConfig}
-              onBasemapChange={onBasemapChange}
-              onBasemapLabelsChange={onBasemapLabelsChange}
-              onBasemapConfigChange={onBasemapConfigChange}
               initialQuery={addDataInitialQuery}
             />
           </Suspense>
