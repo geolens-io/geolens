@@ -7,8 +7,9 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
-These changes are on `main` but not yet published as a tagged release (latest
-release is 1.3.0). They cover two internal milestones (v1044 demo lead-gen front
+## [1.4.0] - 2026-06-20
+
+These changes cover two internal milestones (v1044 demo lead-gen front
 door and v1045 outbound notifications + email-verified signup) in operator-facing
 terms.
 
@@ -26,6 +27,9 @@ terms.
 - **Per-user storage and upload quotas.** Administrators can cap per-user file
   storage and upload usage via admin settings. Quotas are enforced at upload
   time (HTTP 413/422 when exceeded) and are DB-configurable without a restart.
+  Quotas are an operator guardrail enforced at upload submission, not an atomic
+  billing/security boundary (concurrent uploads may marginally overshoot the
+  dataset-count cap; tracked as #302).
 - **Outbound notification channels (SMTP email + webhook).** A new notification
   port lets operators configure one or more outbound sinks — SMTP email or an
   HTTPS webhook — for server-side events. Connection parameters (host, port,
@@ -40,7 +44,12 @@ terms.
   self-serve signup with an email-verification step. When enabled, new
   registrations receive a verification email; accounts are activated only after
   the link is clicked. Requires outbound SMTP to be configured. The setting is
-  default-disabled and has no effect on installs that do not set it.
+  default-disabled and has no effect on installs that do not set it. Known
+  limitation: when this mode is enabled with SMTP, self-serve signup is not
+  username-enumeration-safe — the HTTP response is uniform but a verification
+  email is delivered only for a new (available) username, so a registrant can
+  infer username existence out-of-band (tracked as #267). It is rate-limited and
+  disabled by default.
 
 ### Fixed
 
