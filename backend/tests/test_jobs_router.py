@@ -460,13 +460,18 @@ class TestGetJobStatusByDataset:
         )
         assert resp.status_code == 404
 
-    async def test_returns_404_when_dataset_has_no_job(
+    async def test_returns_200_null_when_dataset_has_no_job(
         self,
         client: AsyncClient,
         admin_auth_header: dict,
         test_db_session,
     ):
-        """Dataset registered from an existing table has no ingest job → 404."""
+        """Dataset visible but with no ingest job → 200 + null (not 404).
+
+        Remote/STAC/registered datasets have no ingest job; a 404 here would
+        pollute the browser console on the dataset detail page, so the server
+        returns a null body instead.
+        """
         from tests.factories import create_dataset
 
         admin_id = await get_user_id(test_db_session, "admin")
@@ -479,7 +484,8 @@ class TestGetJobStatusByDataset:
         resp = await client.get(
             f"/jobs/by-dataset/{dataset.id}", headers=admin_auth_header
         )
-        assert resp.status_code == 404
+        assert resp.status_code == 200
+        assert resp.json() is None
 
     async def test_returns_warnings_for_dataset_with_job(
         self,
