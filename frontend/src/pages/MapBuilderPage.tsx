@@ -511,8 +511,27 @@ export function MapBuilderPage() {
 
   // Phase 1119: basemap group display object derived from the canonical
   // controller state, not runtime-only sublayer state.
+  //
+  // Bugbash fix: when the basemap is blank ("No basemap"), still return a
+  // minimal non-null group so the stack renders a "Basemap · No basemap" row.
+  // Without it the row disappears entirely and the preset-picker flyout (which
+  // is the only way to choose a real basemap again after the Add-Data Basemap
+  // tab was removed) becomes unreachable. The flyout already excludes BLANK from
+  // its preset list and its SUBLAYERS section already hides itself when
+  // sublayers is empty (BasemapGroupEditorScene WR-02), so an empty-sublayer
+  // group renders cleanly and lets the user pick a real preset.
   const basemapGroup = useMemo(() => {
-    if (!basemapState.hasVisibleBasemap) return null;
+    if (!basemapState.hasVisibleBasemap) {
+      return {
+        id: 'basemap-group',
+        presetName: t('basemapGroup.noBasemap', { defaultValue: 'No basemap' }),
+        providerLabel: undefined,
+        // Phase 1199 STACK-02: session-local visibility (was hardcoded true).
+        visible: basemapVisible,
+        opacity: basemapState.config.opacity ?? 1,
+        sublayers: [],
+      };
+    }
     // Derive preset name from the basemap id (label portion after last dash, capitalized)
     const presetId = basemapState.basemapStyle;
     const presetName = presetId
@@ -529,7 +548,7 @@ export function MapBuilderPage() {
       opacity: basemapState.config.opacity ?? 1,
       sublayers: basemapState.sublayers,
     };
-  }, [basemapState, basemapVisible]);
+  }, [basemapState, basemapVisible, t]);
 
   const isBasemapExpanded = layers.groupMeta?.['basemap-group']?.expanded ?? false;
 
