@@ -7,7 +7,10 @@ AI, platform defaults, and test callers.
 
 from __future__ import annotations
 
-from app.modules.catalog.search.service_collections import search_collections
+from app.modules.catalog.search.service_collections import (
+    count_collections,
+    search_collections,
+)
 from app.modules.catalog.search.service_datasets import search_datasets
 from app.modules.catalog.search.service_facets import get_facet_counts
 from app.modules.catalog.search.service_filters import (
@@ -30,6 +33,7 @@ __all__ = [
     "FacetCounts",
     "SearchFilters",
     "get_facet_counts",
+    "count_collections",
     "search_collections",
     "search_datasets",
     "build_assets",

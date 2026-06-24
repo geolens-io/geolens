@@ -1195,6 +1195,47 @@ async def test_search_collections_counted_in_number_matched(
 
 
 @pytest.mark.anyio
+async def test_number_matched_caps_collections_at_display_limit(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+    clean_tables,
+):
+    """B5c/Codex P2: numberMatched must not exceed retrievable results.
+
+    Only the first 5 matching collections are ever shown (page-0 cap) and they
+    are never paginated, so numberMatched must count at most 5 of them -- counting
+    the full match would advertise results no page can return.
+    """
+    session = test_db_session
+    admin_id = await get_user_id(session, "admin")
+    token = f"glcap{uuid.uuid4().hex[:8]}"
+
+    # Six collections match the token, zero datasets.
+    for i in range(6):
+        session.add(
+            Collection(
+                name=f"{token} Collection {i}",
+                description="matches the token",
+                created_by=admin_id,
+            )
+        )
+    await session.commit()
+
+    resp = await client.get(
+        "/search/datasets/", params={"q": token}, headers=admin_auth_header
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+
+    # 5 shown (the cap), numberMatched capped to match, invariant holds, no next.
+    assert data["numberReturned"] == 5
+    assert data["numberMatched"] == 5
+    assert data["numberReturned"] <= data["numberMatched"]
+    assert not any(link["rel"] == "next" for link in data["links"])
+
+
+@pytest.mark.anyio
 async def test_ogc_collections_list_raster_is_coverage_no_items_link(
     client: AsyncClient,
     admin_auth_header: dict,

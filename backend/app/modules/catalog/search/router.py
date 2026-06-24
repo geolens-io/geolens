@@ -61,12 +61,12 @@ from app.modules.catalog.search.schemas import (
 from app.modules.catalog.search import cache as search_cache
 from app.modules.catalog.search.service import (
     SearchFilters,
+    count_collections,
     dataset_to_ogc_record,
     get_facet_counts,
     search_collections,
     search_datasets,
 )
-from app.modules.catalog.search.service_collections import count_collections
 from app.core.persistent_config import (
     SEMANTIC_SEARCH_ENABLED,
     get_cached_semantic_search_rate_limit,
@@ -419,20 +419,23 @@ async def _handle_search(
         and not params.collection_id
     )
 
-    # B5c/OGC-4: numberMatched must be STABLE across pages and include the full
-    # count of matching collections (not just the <=5 shown on page 0). Compute
-    # the page-independent collection total on EVERY page so numberMatched does
-    # not change between pages. ``total`` (dataset-only count) is left untouched
-    # so it continues to drive the next-link decision below -- appended
-    # collections are a page-0-only display augmentation and are never paginated,
-    # so they must NOT inflate the dataset next-link math.
+    # B5c/OGC-4: count matching collections on EVERY page so numberMatched stays
+    # stable; ``total`` (dataset-only) still drives the next-link, since appended
+    # collections are a page-0-only augmentation that is never paginated. Cap the
+    # count at the page-0 display limit so numberMatched never claims more
+    # collections than are actually retrievable (only the first 5 are ever shown).
+    page0_collection_cap = 5
     collection_total = 0
     if collections_applicable:
-        collection_total = await count_collections(db, params.q)
+        collection_total = min(
+            await count_collections(db, params.q), page0_collection_cap
+        )
 
     # Append collection results on the first page only (display augmentation).
     if collections_applicable and params.offset == 0:
-        coll_results = await search_collections(db, params.q, user, user_roles, limit=5)
+        coll_results = await search_collections(
+            db, params.q, user, user_roles, limit=page0_collection_cap
+        )
         for coll in coll_results:
             features.append(
                 {
@@ -488,10 +491,8 @@ async def _handle_search(
         ),
     ]
 
-    # Next link: more results beyond current page. Driven by DATASET pagination
-    # only (``total`` is the dataset-only count) -- collections are a page-0
-    # display augmentation and are never paginated, so they must not produce a
-    # phantom next-link to an empty page (B5c).
+    # Next link driven by the dataset-only ``total`` (page-0 collections are not
+    # paginated, so they must not produce a phantom next-link to an empty page).
     if params.offset + params.limit < total:
         links.append(
             OGCRecordLink(
@@ -528,10 +529,8 @@ async def _handle_search(
         timeStamp=datetime.now(timezone.utc)
         .isoformat(timespec="seconds")
         .replace("+00:00", "Z"),
-        # B5c/OGC-4: stable across pages -- dataset total plus the full
-        # (page-independent) count of matching collections. >= numberReturned on
-        # every page because page 0 shows at most ``collection_total`` (capped at
-        # 5) collections and later pages show none.
+        # B5c/OGC-4: dataset total + full collection count = stable across pages
+        # and always >= numberReturned (page 0 shows <=5 collections; later none).
         numberMatched=total + collection_total,
         numberReturned=len(features),
         features=features,
@@ -660,10 +659,8 @@ async def search_datasets_endpoint(
     raw_keywords = request.query_params.getlist("keywords")
     if raw_keywords and not params.keywords:
         params = params.model_copy(update={"keywords": raw_keywords})
-    # Validate/apply the OGC CQL2 filter-lang param from the raw query string
-    # (hyphenated "filter-lang" is not resolved by Pydantic model Depends
-    # binding). Mirrors the collection_items handler so a bogus value 400s
-    # instead of being silently ignored.
+    # Validate the raw hyphenated "filter-lang" (not bound by Pydantic Depends);
+    # mirrors collection_items so a bogus value 400s instead of being ignored.
     raw_filter_lang = request.query_params.get("filter-lang")
     if raw_filter_lang:
         if raw_filter_lang not in ("cql2-text", "cql2-json"):
@@ -1048,11 +1045,8 @@ async def list_collections(
                 ]
             }
 
-        # B1/OGC-1: raster/VRT datasets have no backing feature table, so they
-        # expose no feature items. Mirror the detail endpoint (standards/ogc):
-        # advertise itemType=coverage and omit the rel=items link so crawlers
-        # are not led into the dead /items endpoint (which 404s). record_type is
-        # eager-loaded via joinedload(Dataset.record) above (no extra query).
+        # B1/OGC-1: raster/VRT have no feature table -> mirror the detail endpoint
+        # (itemType=coverage, omit rel=items) so crawlers skip the dead /items.
         is_raster = ds.record.record_type in ("raster_dataset", "vrt_dataset")
 
         links: list[dict] = [
