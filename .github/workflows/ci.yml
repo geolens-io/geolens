@@ -1167,11 +1167,9 @@ jobs:
           retention-days: 14
 
   # ---------- license-check ----------
-  # Non-blocking license-checker against the
-  # frontend dependency tree. Failure does not block PR merge — reviewers
-  # consult the uploaded artifact when a license-relevant change is suspected
-  # (new package added, license clause changed in lockfile, etc.). Promote to
-  # blocking once a curated allowlist is in place.
+  # BLOCKING license-checker against the frontend production dependency tree:
+  # fails CI on any license outside the curated permissive allowlist (validated
+  # against the current tree). The JSON report is still uploaded as an artifact.
   license-check:
     name: License Check (frontend)
     runs-on: ubuntu-latest
@@ -1190,16 +1188,25 @@ jobs:
         working-directory: frontend
         run: npm ci
 
-      - name: Run license-checker (non-blocking)
+      - name: Run license-checker (blocking — curated allowlist)
         working-directory: frontend
-        # Non-blocking: license-list changes shouldn't fail CI until we have a
-        # curated allowlist. Output is a JSON file uploaded as an artifact.
-        continue-on-error: true
+        # BLOCKING: fails CI if a production dependency carries a license outside
+        # the curated permissive allowlist (validated against the current tree:
+        # MIT/ISC/BSD/Apache-2.0/MPL-2.0/OFL-1.1/0BSD + two dual-license SPDX
+        # expressions). Exclusions:
+        #   --excludePrivatePackages          drops the app's own private package.
+        #   @mapbox/jsonlint-lines-primitives is MIT but declares its license as a
+        #     URL (reported "Custom"), so it is excluded by name, not by license.
+        # A new disallowed license (or a jsonlint version bump) fails here on
+        # purpose — extend the allowlist or the exclusion deliberately.
         run: |
           mkdir -p ../artifacts
-          npx --yes license-checker --json --out ../artifacts/license-report.json
-          echo "Top-level license summary:"
-          npx --yes license-checker --summary || true
+          npx --yes license-checker --production --json --out ../artifacts/license-report.json
+          npx --yes license-checker --production \
+            --onlyAllow 'MIT;ISC;BSD-2-Clause;BSD-3-Clause;Apache-2.0;MPL-2.0;OFL-1.1;0BSD;CC0-1.0;Unlicense;Python-2.0;BlueOak-1.0.0;(MIT OR Apache-2.0);(BSD-3-Clause AND Apache-2.0)' \
+            --excludePrivatePackages \
+            --excludePackages '@mapbox/jsonlint-lines-primitives@2.0.2' \
+            --summary
 
       - name: Upload license report
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7

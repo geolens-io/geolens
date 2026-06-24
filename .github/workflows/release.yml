@@ -1,9 +1,21 @@
 name: Release
 
+# Gated on the prod-smoke E2E. This workflow creates / updates the GitHub
+# Release (the "latest" pointer the website archive link + GitHub's release API
+# follow) ONLY AFTER the "Prod Compose Smoke" workflow — which boots the
+# published images and runs the Playwright audit suite through the prod reverse
+# proxy — succeeds for the tag. A failing tag E2E therefore never advances the
+# latest GitHub Release.
+#
+# Note: publish.yml still pushes the GHCR images on the tag push itself (the
+# smoke pulls + tests them), so the *images* for a failing tag can exist on
+# GHCR; only the GitHub Release is withheld. Fully withholding the images until
+# E2E passes is a larger publish-ordering redesign tracked separately.
 on:
-  push:
-    tags:
-      - "v*.*.*"
+  workflow_run:
+    workflows: ["Prod Compose Smoke"]
+    types:
+      - completed
 
 permissions:
   contents: write
@@ -11,10 +23,19 @@ permissions:
 jobs:
   release:
     name: Create GitHub Release
+    # Only for a SUCCESSFUL smoke of a vX.Y.Z tag. A manual workflow_dispatch
+    # smoke of `latest` has head_branch == the default branch (not a tag), so it
+    # is skipped here.
+    if: >
+      github.event.workflow_run.conclusion == 'success' &&
+      startsWith(github.event.workflow_run.head_branch, 'v')
     runs-on: ubuntu-latest
+    env:
+      TAG: ${{ github.event.workflow_run.head_branch }}
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
         with:
+          ref: ${{ github.event.workflow_run.head_sha }}
           fetch-depth: 0
 
       - name: Get previous tag
@@ -23,13 +44,12 @@ jobs:
           # Filter to strict semver (vMAJOR.MINOR.PATCH) before selection so that
           # 4-digit GSD milestone tags (v1044, v1043, …) — which version-sort above
           # the entire semver line — cannot shadow the real previous release.
-          PREV=$(git tag --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | grep -A1 "^${{ github.ref_name }}$" | tail -1)
+          PREV=$(git tag --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | grep -A1 "^${TAG}$" | tail -1)
           echo "tag=${PREV}" >> "$GITHUB_OUTPUT"
 
       - name: Generate release notes
         id: notes
         run: |
-          TAG="${{ github.ref_name }}"
           PREV="${{ steps.prev.outputs.tag }}"
 
           # Extract section from CHANGELOG.md for this version
@@ -48,17 +68,17 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          if gh release view "${{ github.ref_name }}" >/dev/null 2>&1; then
-            gh release edit "${{ github.ref_name }}" \
-              --title "${{ github.ref_name }}" \
+          if gh release view "${TAG}" >/dev/null 2>&1; then
+            gh release edit "${TAG}" \
+              --title "${TAG}" \
               --notes-file release-notes.md
           else
-            gh release create "${{ github.ref_name }}" \
-              --title "${{ github.ref_name }}" \
+            gh release create "${TAG}" \
+              --title "${TAG}" \
               --notes-file release-notes.md
           fi
 
       - name: Upload install script
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release upload "${{ github.ref_name }}" scripts/install.sh --clobber
+        run: gh release upload "${TAG}" scripts/install.sh --clobber

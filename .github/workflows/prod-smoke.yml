@@ -140,8 +140,9 @@ jobs:
 
       # E2E through the PROD reverse proxy: now that the published stack is
       # healthy, drive the existing Playwright audit suite against the prod nginx
-      # (127.0.0.1:8080) via E2E_BASE_URL. Because this workflow runs on the `v*`
-      # tag, a failing E2E blocks shipping that tag's artifact.
+      # (127.0.0.1:8080) via E2E_BASE_URL. release.yml is gated on this workflow's
+      # success (workflow_run), so a failing tag E2E withholds the GitHub Release
+      # (the "latest" pointer the website + release API follow).
       - name: Set up Node
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6
         with:
