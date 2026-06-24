@@ -2929,6 +2929,30 @@
             "title": "Count",
             "type": "integer"
           },
+          "data_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "'categorical' for non-numeric columns; null for numeric.",
+            "title": "Data Type"
+          },
+          "distinct_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Distinct non-null value count (categorical columns only).",
+            "title": "Distinct Count"
+          },
           "max": {
             "anyOf": [
               {
@@ -10199,7 +10223,7 @@
           },
           "itemType": {
             "default": "feature",
-            "description": "Type of items in the collection. Always 'feature' for OGC API Features.",
+            "description": "Type of items in the collection: 'feature' for vector feature collections, 'coverage' for raster/VRT collections (which expose tiles instead of feature items).",
             "title": "Itemtype",
             "type": "string"
           },

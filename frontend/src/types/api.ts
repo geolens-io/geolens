@@ -971,6 +971,14 @@ export interface ColumnStatsResponse {
    * here so the std-dev branch is correctly enabled once the backend ships it.
    */
   stddev?: number | null;
+  /**
+   * 'categorical' when the column is non-numeric (text/varchar/etc.); null for
+   * numeric columns. Lets callers skip graduated styling on text columns
+   * instead of treating an all-null numeric response as an error.
+   */
+  data_type?: string | null;
+  /** Distinct non-null value count; populated only for categorical columns. */
+  distinct_count?: number | null;
 }
 
 // Maps

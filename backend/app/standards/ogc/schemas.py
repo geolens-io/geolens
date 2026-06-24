@@ -52,7 +52,11 @@ class OGCCollectionMetadata(BaseModel):
     )
     itemType: str = Field(
         default="feature",
-        description="Type of items in the collection. Always 'feature' for OGC API Features.",
+        description=(
+            "Type of items in the collection: 'feature' for vector feature "
+            "collections, 'coverage' for raster/VRT collections (which expose "
+            "tiles instead of feature items)."
+        ),
     )
     crs: list[str] = Field(
         default=["http://www.opengis.net/def/crs/OGC/1.3/CRS84"],

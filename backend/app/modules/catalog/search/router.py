@@ -46,7 +46,7 @@ from app.standards.ogc.utils import (
     content_language_for_record_languages,
     normalize_language_tag,
 )
-from app.core.public_urls import get_public_api_url
+from app.core.public_urls import get_public_api_url, get_public_app_url
 from geoalchemy2.shape import to_shape
 from app.modules.catalog.search.schemas import (
     FacetCountResponse,
@@ -61,6 +61,7 @@ from app.modules.catalog.search.schemas import (
 from app.modules.catalog.search import cache as search_cache
 from app.modules.catalog.search.service import (
     SearchFilters,
+    count_collections,
     dataset_to_ogc_record,
     get_facet_counts,
     search_collections,
@@ -409,16 +410,32 @@ async def _handle_search(
         for d in datasets
     ]
 
-    # Append collection results on first page when text search is active
-    # Skip when filtering by a specific collection
-    if (
+    # Collections are surfaced alongside datasets only for text searches that
+    # are not scoped to a specific record_type or collection.
+    collections_applicable = bool(
         params.q
         and params.q.strip()
-        and params.offset == 0
         and not params.record_type
         and not params.collection_id
-    ):
-        coll_results = await search_collections(db, params.q, user, user_roles, limit=5)
+    )
+
+    # fix(#315): count matching collections on EVERY page so numberMatched stays
+    # stable; ``total`` (dataset-only) still drives the next-link, since appended
+    # collections are a page-0-only augmentation that is never paginated. Cap the
+    # count at the page-0 display limit so numberMatched never claims more
+    # collections than are actually retrievable (only the first 5 are ever shown).
+    page0_collection_cap = 5
+    collection_total = 0
+    if collections_applicable:
+        collection_total = min(
+            await count_collections(db, params.q), page0_collection_cap
+        )
+
+    # Append collection results on the first page only (display augmentation).
+    if collections_applicable and params.offset == 0:
+        coll_results = await search_collections(
+            db, params.q, user, user_roles, limit=page0_collection_cap
+        )
         for coll in coll_results:
             features.append(
                 {
@@ -474,7 +491,8 @@ async def _handle_search(
         ),
     ]
 
-    # Next link: more results beyond current page
+    # Next link driven by the dataset-only ``total`` (page-0 collections are not
+    # paginated, so they must not produce a phantom next-link to an empty page).
     if params.offset + params.limit < total:
         links.append(
             OGCRecordLink(
@@ -511,7 +529,9 @@ async def _handle_search(
         timeStamp=datetime.now(timezone.utc)
         .isoformat(timespec="seconds")
         .replace("+00:00", "Z"),
-        numberMatched=total,
+        # fix(#315): dataset total + full collection count = stable across pages
+        # and always >= numberReturned (page 0 shows <=5 collections; later none).
+        numberMatched=total + collection_total,
         numberReturned=len(features),
         features=features,
         links=links,
@@ -639,6 +659,16 @@ async def search_datasets_endpoint(
     raw_keywords = request.query_params.getlist("keywords")
     if raw_keywords and not params.keywords:
         params = params.model_copy(update={"keywords": raw_keywords})
+    # Validate the raw hyphenated "filter-lang" (not bound by Pydantic Depends);
+    # mirrors collection_items so a bogus value 400s instead of being ignored.
+    raw_filter_lang = request.query_params.get("filter-lang")
+    if raw_filter_lang:
+        if raw_filter_lang not in ("cql2-text", "cql2-json"):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Unsupported filter-lang: {raw_filter_lang}. Use cql2-text or cql2-json.",
+            )
+        params = params.model_copy(update={"cql2_filter_lang": raw_filter_lang})
     return await _handle_search(db, user, request, params)
 
 
@@ -961,6 +991,9 @@ async def list_collections(
 ) -> OGCCollectionsResponse:
     """List available OGC collections (catalog + per-dataset feature collections)."""
     public_api_url = await get_public_api_url(db, request=request)
+    # Raster tiles are served at the public APP origin (/raster-tiles/...), not
+    # the /api origin (which has no such route). fix(#315)
+    public_app_url = await get_public_app_url(db, request=request)
 
     # "datasets" catalog collection (OGC Records)
     catalog_collection = await _build_collection_metadata(db, user, public_api_url)
@@ -1015,21 +1048,23 @@ async def list_collections(
                 ]
             }
 
-        entry: dict = {
-            "id": str(ds.id),
-            "title": ds.record.title,
-            "description": ds.record.summary,
-            "itemType": "feature",
-            "crs": ["http://www.opengis.net/def/crs/OGC/1.3/CRS84"],
-            "links": [
-                {
-                    "rel": "self",
-                    "href": build_url(
-                        f"/collections/{ds.id}",
-                        base_url=public_api_url,
-                    ),
-                    "type": "application/json",
-                },
+        # fix(#315): raster/VRT have no feature table -> mirror the detail
+        # endpoint (itemType=coverage, omit rel=items, add rel=tiles) so crawlers
+        # starting from the list skip the dead /items and still find the data.
+        is_raster = ds.record.record_type in ("raster_dataset", "vrt_dataset")
+
+        links: list[dict] = [
+            {
+                "rel": "self",
+                "href": build_url(
+                    f"/collections/{ds.id}",
+                    base_url=public_api_url,
+                ),
+                "type": "application/json",
+            },
+        ]
+        if not is_raster:
+            links.append(
                 {
                     "rel": "items",
                     "href": build_url(
@@ -1037,13 +1072,34 @@ async def list_collections(
                         base_url=public_api_url,
                     ),
                     "type": "application/geo+json",
-                },
+                }
+            )
+        else:
+            links.append(
                 {
-                    "rel": "root",
-                    "href": build_url("/", base_url=public_api_url),
-                    "type": "application/json",
-                },
-            ],
+                    "rel": "tiles",
+                    "href": build_url(
+                        f"/raster-tiles/{ds.id}/tiles/{{z}}/{{x}}/{{y}}.png",
+                        base_url=public_app_url,
+                    ),
+                    "type": "image/png",
+                }
+            )
+        links.append(
+            {
+                "rel": "root",
+                "href": build_url("/", base_url=public_api_url),
+                "type": "application/json",
+            }
+        )
+
+        entry: dict = {
+            "id": str(ds.id),
+            "title": ds.record.title,
+            "description": ds.record.summary,
+            "itemType": "coverage" if is_raster else "feature",
+            "crs": ["http://www.opengis.net/def/crs/OGC/1.3/CRS84"],
+            "links": links,
         }
         if extent:
             entry["extent"] = extent

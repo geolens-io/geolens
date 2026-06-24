@@ -1230,7 +1230,7 @@ def _apply_datetime_filter(stmt, datetime_str: str):
 
     Delegates parsing to the canonical ``parse_ogc_datetime`` helper in
     search/service.py so STAC and OGC Records share one implementation.
-    Malformed inputs raise ValueError (was silently ignored before — that
+    Malformed inputs raise HTTP 400 (was silently ignored before — that
     masked client mistakes).
     """
     from app.modules.catalog.search.service import parse_ogc_datetime

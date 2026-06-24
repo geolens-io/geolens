@@ -156,6 +156,11 @@ def _resolve_sort_order(
         )
     else:
         stmt = stmt.order_by(Record.created_at.desc())
+    # Deterministic final tiebreaker: Record.id is the UUID PK and is unique, so
+    # rows tying on every other key get a stable order. SQLAlchemy appends this
+    # after the per-branch ORDER BY, keeping OFFSET/LIMIT pagination stable
+    # (no dupes / dropped rows across pages).
+    stmt = stmt.order_by(Record.id.desc())
     return stmt
 
 

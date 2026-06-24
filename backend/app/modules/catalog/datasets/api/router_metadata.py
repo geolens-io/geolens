@@ -400,10 +400,18 @@ async def create_dataset_relationship(
 
     from app.modules.catalog.datasets.domain.models import Dataset
 
+    # Accept either a Dataset.id (what list/create responses return) or the
+    # underlying record_id (the original input contract) so a relationship id
+    # round-trips back into a create call. fix(#315)
     target_result = await db.execute(
-        select(Dataset).where(Dataset.record_id == body.target_dataset_id)
+        select(Dataset).where(Dataset.id == body.target_dataset_id)
     )
     target_dataset = target_result.scalar_one_or_none()
+    if target_dataset is None:
+        target_result = await db.execute(
+            select(Dataset).where(Dataset.record_id == body.target_dataset_id)
+        )
+        target_dataset = target_result.scalar_one_or_none()
     if target_dataset is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Target dataset not found"
@@ -412,9 +420,26 @@ async def create_dataset_relationship(
         db, target_dataset, target_dataset.id, current_user, user_roles=user_roles
     )
 
+    # Normalize the target to its record_id (the FK column references
+    # catalog.records.id) regardless of which id form the client supplied.
+    body = body.model_copy(update={"target_dataset_id": target_dataset.record_id})
     rel = await create_relationship(db, dataset.record_id, body)
     await db.commit()
-    return DatasetRelationshipResponse.model_validate(rel)
+    # The relationship FK columns store catalog.records.id, but the response
+    # carries dereferenceable Dataset.id values so /collections/{id} resolves
+    # them, matching the LIST path (_visible_relationships). fix(#315)
+    return DatasetRelationshipResponse(
+        id=rel.id,
+        source_dataset_id=dataset.id,
+        target_dataset_id=target_dataset.id,
+        source_column=rel.source_column,
+        target_column=rel.target_column,
+        relationship_type=rel.relationship_type,
+        label=rel.label,
+        target_dataset_title=target_dataset.record.title
+        if target_dataset.record
+        else None,
+    )
 
 
 @router.delete("/relationships/{relationship_id}/", status_code=204)

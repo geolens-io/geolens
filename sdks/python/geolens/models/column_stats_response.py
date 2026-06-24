@@ -19,6 +19,8 @@ class ColumnStatsResponse:
     """
     Attributes:
         count (int | Unset):  Default: 0.
+        data_type (None | str | Unset): 'categorical' for non-numeric columns; null for numeric.
+        distinct_count (int | None | Unset): Distinct non-null value count (categorical columns only).
         max_ (float | None | Unset):
         mean (float | None | Unset):
         min_ (float | None | Unset):
@@ -27,6 +29,8 @@ class ColumnStatsResponse:
     """
 
     count: int | Unset = 0
+    data_type: None | str | Unset = UNSET
+    distinct_count: int | None | Unset = UNSET
     max_: float | None | Unset = UNSET
     mean: float | None | Unset = UNSET
     min_: float | None | Unset = UNSET
@@ -36,6 +40,18 @@ class ColumnStatsResponse:
 
     def to_dict(self) -> dict[str, Any]:
         count = self.count
+
+        data_type: None | str | Unset
+        if isinstance(self.data_type, Unset):
+            data_type = UNSET
+        else:
+            data_type = self.data_type
+
+        distinct_count: int | None | Unset
+        if isinstance(self.distinct_count, Unset):
+            distinct_count = UNSET
+        else:
+            distinct_count = self.distinct_count
 
         max_: float | None | Unset
         if isinstance(self.max_, Unset):
@@ -70,6 +86,10 @@ class ColumnStatsResponse:
         field_dict.update({})
         if count is not UNSET:
             field_dict["count"] = count
+        if data_type is not UNSET:
+            field_dict["data_type"] = data_type
+        if distinct_count is not UNSET:
+            field_dict["distinct_count"] = distinct_count
         if max_ is not UNSET:
             field_dict["max"] = max_
         if mean is not UNSET:
@@ -87,6 +107,24 @@ class ColumnStatsResponse:
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
         count = d.pop("count", UNSET)
+
+        def _parse_data_type(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        data_type = _parse_data_type(d.pop("data_type", UNSET))
+
+        def _parse_distinct_count(data: object) -> int | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(int | None | Unset, data)
+
+        distinct_count = _parse_distinct_count(d.pop("distinct_count", UNSET))
 
         def _parse_max_(data: object) -> float | None | Unset:
             if data is None:
@@ -128,6 +166,8 @@ class ColumnStatsResponse:
 
         column_stats_response = cls(
             count=count,
+            data_type=data_type,
+            distinct_count=distinct_count,
             max_=max_,
             mean=mean,
             min_=min_,

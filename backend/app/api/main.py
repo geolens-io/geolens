@@ -460,6 +460,12 @@ app.state.limiter = limiter
 
 
 async def _rate_limit_handler(request: Request, exc: RateLimitExceeded) -> JSONResponse:
+    # fix(#315): advertise the retry window (exc.limit.limit.get_expiry(), seconds).
+    headers = {}
+    try:
+        headers["Retry-After"] = str(int(exc.limit.limit.get_expiry()))
+    except Exception:  # broad: never let the optional Retry-After lookup 500 a 429
+        pass
     return JSONResponse(
         status_code=status.HTTP_429_TOO_MANY_REQUESTS,
         content=ProblemDetail(
@@ -468,6 +474,7 @@ async def _rate_limit_handler(request: Request, exc: RateLimitExceeded) -> JSONR
             detail=str(exc.detail),
         ).model_dump(),
         media_type="application/problem+json",
+        headers=headers,
     )
 
 

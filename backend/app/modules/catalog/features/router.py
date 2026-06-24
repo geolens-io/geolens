@@ -68,6 +68,18 @@ async def get_features_geojson_z_endpoint(
 
     await check_dataset_access(db, dataset, dataset_id, user)
 
+    # fix(#315): raster/VRT datasets have no backing PostGIS feature table, so a feature
+    # query would raise UndefinedTableError -> 500 (and hold a DB connection).
+    # Return a fast 404 before any feature query is attempted (mirrors OGC contract).
+    if dataset.record.record_type in ("raster_dataset", "vrt_dataset"):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=(
+                f"Dataset '{dataset_id}' is a raster collection and has no "
+                "feature items; use the tile/coverage endpoints instead."
+            ),
+        )
+
     if dataset.geometry_type is None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -144,6 +156,19 @@ async def list_features(
 
     # RBAC check
     await check_dataset_access(db, dataset, dataset_id, user)
+
+    # fix(#315): raster/VRT datasets have no backing PostGIS feature table, so a feature
+    # query would raise UndefinedTableError. Return a fast 404 before any query
+    # (mirrors OGC contract). The ProgrammingError->503 catch below remains a
+    # backstop for genuinely-missing tables on non-raster datasets.
+    if dataset.record.record_type in ("raster_dataset", "vrt_dataset"):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=(
+                f"Dataset '{dataset_id}' is a raster collection and has no "
+                "feature items; use the tile/coverage endpoints instead."
+            ),
+        )
 
     # Parse bbox
     parsed_bbox: list[float] | None = None
@@ -283,6 +308,19 @@ async def get_single_feature(
 
     # RBAC check
     await check_dataset_access(db, dataset, dataset_id, user)
+
+    # fix(#315): raster/VRT datasets have no backing PostGIS feature table, so
+    # get_feature_by_id would raise UndefinedTableError -> unhandled 500 (a DoS
+    # reachable by any authenticated user). Return a fast 404 before any query
+    # (mirrors OGC contract).
+    if dataset.record.record_type in ("raster_dataset", "vrt_dataset"):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=(
+                f"Dataset '{dataset_id}' is a raster collection and has no "
+                "feature items; use the tile/coverage endpoints instead."
+            ),
+        )
 
     has_geometry = dataset.geometry_type is not None
 
