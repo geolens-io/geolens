@@ -460,6 +460,26 @@ jobs:
       - name: Check all version sites agree
         run: python scripts/check_version_coherence.py
 
+  # ---------- docs contract ----------
+  # Enforce docs-contract.json: validates the contract against install.sh +
+  # pyproject (so it can't drift from the binaries) and scans the READMEs for
+  # the forbidden drift patterns (geolens.yml, raw-port OGC endpoints, "OGC
+  # Compliant", admin/admin-on-fresh-install). getgeolens.com vendors a copy of
+  # this contract and runs the same forbidden list over its site/docs content.
+  # Pure stdlib; runs on every push/PR.
+  docs-contract:
+    name: Docs Contract
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
+
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6
+        with:
+          python-version: "3.13"
+
+      - name: Check docs contract (install/ports/version + forbidden patterns)
+        run: python scripts/check_docs_contract.py
+
   # ---------- CLI ----------
   # Structural enforcement that the CLI never grows
   # a direct httpx/requests dependency. Runs on cli/** OR sdks/python/**
