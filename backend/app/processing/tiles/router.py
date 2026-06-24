@@ -8,6 +8,7 @@ import threading
 import time
 import uuid
 from typing import Any, Literal, NamedTuple
+from urllib.parse import parse_qs
 
 import httpx
 import structlog
@@ -920,10 +921,38 @@ async def raster_tile_proxy(
     # nginx `rewrite ... $is_args$args` + a variable `proxy_pass`) URL-encode the
     # request's query string into the PATH, so {fmt} can arrive as "png?stretch=..."
     # -> the built Titiler URL becomes ".../771.png?stretch=...?url=..." (double "?")
-    # which Titiler rejects with 422. The real render params still arrive as proper
-    # query params (parsed above), so stripping the pollution lets the tile render
-    # correctly. Also a hardening win: {fmt} feeds an upstream URL and must be an
-    # allowlisted extension.
+    # which Titiler rejects with 422. Strip the pollution so the Titiler URL is
+    # well-formed; also a hardening win since {fmt} feeds an upstream URL.
+    if "?" in fmt:
+        # The render params may have ONLY arrived buried in the path (a proxy that
+        # path-encodes the query without also forwarding it as a real query string).
+        # Recover them into the typed params they were parsed-as-None for, so styling
+        # is preserved rather than silently rendering the default tile (Codex P2).
+        _buried = parse_qs(fmt.split("?", 1)[1])
+        if stretch is None and _buried.get("stretch"):
+            _s = _buried["stretch"][0]
+            if _s in ("minmax", "percentile", "stddev"):
+                stretch = _s  # type: ignore[assignment]
+        if colormap_name is None and _buried.get("colormap_name"):
+            # Validated by the _ALLOWED_COLORMAPS allowlist below.
+            colormap_name = _buried["colormap_name"][0]  # type: ignore[assignment]
+
+        def _buried_float(key: str) -> float | None:
+            # pmin/pmax/sigma are validated by the 0<=pmin<pmax<=100 / sigma>0
+            # checks below, so an out-of-range recovered value still 422s cleanly.
+            if _buried.get(key):
+                try:
+                    return float(_buried[key][0])
+                except ValueError:
+                    return None
+            return None
+
+        if pmin is None:
+            pmin = _buried_float("pmin")
+        if pmax is None:
+            pmax = _buried_float("pmax")
+        if sigma is None:
+            sigma = _buried_float("sigma")
     fmt = fmt.split("?", 1)[0].lower()
     if fmt not in ("png", "webp", "jpg", "jpeg", "tif", "tiff"):
         raise HTTPException(

@@ -660,9 +660,11 @@ class TestRasterColormapProxy:
     # ------------------------------------------------------------------
 
     async def test_proxy_polluted_fmt_query_in_path_is_sanitized(self, client):
-        """fmt='png?stretch=...' (query encoded into the path) renders a tile with
-        a well-formed single-'?' Titiler URL, not a 422 from a double-'?'."""
-        # '?' percent-encoded into the fmt path segment (what a misbehaving proxy sends)
+        """fmt='png?stretch=...' (query encoded ONLY into the path) renders a tile
+        with a well-formed single-'?' Titiler URL, AND the buried stretch is
+        recovered + applied (not silently dropped to the default tile — Codex P2)."""
+        # '?' + '&' percent-encoded into the fmt path segment (a path-encoding proxy
+        # that did NOT also forward the query as a real ?query string).
         resp = await client.get(
             f"/tiles/raster-proxy/{_DATASET_ID}/0/0/0.png%3Fstretch=percentile"
         )
@@ -674,6 +676,24 @@ class TestRasterColormapProxy:
         assert "/0/0/0.png?url=" in url, f"Polluted fmt leaked into endpoint: {url}"
         assert "stretch=" not in url.split("?", 1)[0], (
             f"Pollution before the query separator: {url}"
+        )
+        # The recovered stretch=percentile must be APPLIED: a /cog/statistics lookup
+        # ran and the tile rescale is the percentile (512.66,1304.31), not default.
+        assert self._stats_titiler_calls, "buried stretch was dropped (no stats fetch)"
+        assert "rescale=512.66,1304.31" in url, (
+            f"recovered stretch=percentile not applied to tile URL: {url}"
+        )
+
+    async def test_proxy_recovers_buried_pmin_pmax_from_fmt(self, client):
+        """Buried pmin/pmax in the path are recovered and forwarded to /cog/statistics."""
+        resp = await client.get(
+            f"/tiles/raster-proxy/{_DATASET_ID}/0/0/0.png%3Fstretch=percentile%26pmin=5%26pmax=95"
+        )
+        assert resp.status_code in (200, 204)
+        assert self._stats_titiler_calls, "no stats fetch for recovered percentile"
+        stats_url = self._stats_titiler_calls[0]
+        assert "p=5" in stats_url and "p=95" in stats_url, (
+            f"recovered pmin/pmax not forwarded to statistics URL: {stats_url}"
         )
 
     async def test_proxy_rejects_unsupported_fmt(self, client):
