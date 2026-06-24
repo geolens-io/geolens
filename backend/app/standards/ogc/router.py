@@ -12,7 +12,7 @@ from app.core.db.tenant_session import current_tenant_var
 from app.core.dependencies import get_db
 from app.core.geo import extent_to_bbox
 from app.core.identity import Identity
-from app.core.public_urls import get_public_api_url
+from app.core.public_urls import get_public_api_url, get_public_app_url
 from app.core.tenancy import is_multi_tenant
 from app.modules.auth.dependencies import get_optional_user
 from app.modules.catalog.authorization import apply_visibility_filter, get_user_roles
@@ -351,14 +351,16 @@ async def get_dataset_collection(
         # fix(#315): a coverage collection has no rel=items, so without a
         # replacement link the body would only carry self+root and be a
         # dead-end. Advertise the raster tile endpoint so coverage clients have
-        # something to dereference. Mirrors the STAC raster_tiles asset href in
-        # search/service_records.py (the stable public tile URL).
+        # something to dereference. NOTE: raster tiles are served at the public
+        # APP origin (/raster-tiles/...), which nginx rewrites to the internal
+        # tile proxy; the /api origin has no such route, so use public_app_url.
+        public_app_url = await get_public_app_url(db, request=request)
         links.append(
             OGCLink(
                 rel="tiles",
                 href=build_url(
                     f"/raster-tiles/{dataset.id}/tiles/{{z}}/{{x}}/{{y}}.png",
-                    base_url=public_api_url,
+                    base_url=public_app_url,
                 ),
                 type="image/png",
                 title="Raster tiles",

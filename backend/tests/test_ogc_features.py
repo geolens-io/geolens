@@ -523,6 +523,8 @@ async def test_raster_collection_metadata_has_tiles_link(
     assert tiles_link is not None, "coverage collection must expose a rel=tiles link"
     assert tiles_link["type"] == "image/png"
     assert f"/raster-tiles/{raster_dataset.id}/tiles/" in tiles_link["href"]
+    # tiles are served at the app origin, not /api (which has no such route)
+    assert "/api/raster-tiles/" not in tiles_link["href"]
 
 
 # ---------------------------------------------------------------------------

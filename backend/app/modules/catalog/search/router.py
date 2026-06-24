@@ -46,7 +46,7 @@ from app.standards.ogc.utils import (
     content_language_for_record_languages,
     normalize_language_tag,
 )
-from app.core.public_urls import get_public_api_url
+from app.core.public_urls import get_public_api_url, get_public_app_url
 from geoalchemy2.shape import to_shape
 from app.modules.catalog.search.schemas import (
     FacetCountResponse,
@@ -991,6 +991,9 @@ async def list_collections(
 ) -> OGCCollectionsResponse:
     """List available OGC collections (catalog + per-dataset feature collections)."""
     public_api_url = await get_public_api_url(db, request=request)
+    # Raster tiles are served at the public APP origin (/raster-tiles/...), not
+    # the /api origin (which has no such route). fix(#315)
+    public_app_url = await get_public_app_url(db, request=request)
 
     # "datasets" catalog collection (OGC Records)
     catalog_collection = await _build_collection_metadata(db, user, public_api_url)
@@ -1077,7 +1080,7 @@ async def list_collections(
                     "rel": "tiles",
                     "href": build_url(
                         f"/raster-tiles/{ds.id}/tiles/{{z}}/{{x}}/{{y}}.png",
-                        base_url=public_api_url,
+                        base_url=public_app_url,
                     ),
                     "type": "image/png",
                 }
