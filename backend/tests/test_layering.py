@@ -888,8 +888,10 @@ def test_router_orchestrator_modules_stay_within_loc_cap() -> None:
         # rel=tiles, omit rel=items), stable numberMatched + collection count,
         # and the filter-lang 400. Smoke-residual follow-up (#315): +public_app_url
         # fetches in 3 OGC-record handlers for the raster_tiles app-origin fix.
-        # Cap 1600 -> 1640 (~6 LOC headroom).
-        "backend/app/modules/catalog/search/router.py": 1640,
+        # Hygiene follow-up (#317, A2): +~25 LOC for the record_type/sort_by
+        # allowlist constants + the to_filters() validation chokepoint.
+        # Cap 1640 -> 1700 (now 1671 LOC, ~1.7% headroom).
+        "backend/app/modules/catalog/search/router.py": 1700,
         # Phase 1176 PERF-002: +~60 lines for the raster tile auth/metadata
         # TTLCache (_RasterMeta + _resolve_raster_meta), mirroring the vector
         # tile meta cache so raster tiles aren't asymmetric.
