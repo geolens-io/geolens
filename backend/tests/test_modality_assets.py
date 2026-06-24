@@ -143,3 +143,53 @@ class TestModalityAssets:
 
         assert "download_geojson" in assets
         assert "raster_tiles" not in assets
+
+
+# Public APP origin (no /api suffix) vs the public API origin.
+APP_URL = "http://localhost:8080"
+
+
+class TestRasterTilesAssetOrigin:
+    """fix(#315 follow-up): the raster_tiles asset must use the APP origin
+    (/raster-tiles/...), never the /api origin which has no such route.
+    Sibling endpoints (STAC items, OGC records, search) thread public_app_url
+    into build_assets just like PR #315 did for the OGC rel=tiles links.
+    """
+
+    def test_raster_tiles_uses_app_origin_when_provided(self):
+        """raster_tiles href uses public_app_url; NOT /api/raster-tiles."""
+        ds = _make_dataset(record_type="raster_dataset")
+        assets = build_assets(ds, API_URL, public_app_url=APP_URL)
+
+        href = assets["raster_tiles"]["href"]
+        assert "/raster-tiles/" in href
+        # The /api origin has no /raster-tiles route -> must not appear.
+        assert "/api/raster-tiles" not in href
+        assert href.startswith(APP_URL + "/raster-tiles/")
+
+    def test_vrt_raster_tiles_uses_app_origin(self):
+        """VRT datasets get the same app-origin raster_tiles href."""
+        ds = _make_dataset(record_type="vrt_dataset")
+        assets = build_assets(ds, API_URL, public_app_url=APP_URL)
+
+        href = assets["raster_tiles"]["href"]
+        assert "/raster-tiles/" in href
+        assert "/api/raster-tiles" not in href
+
+    def test_raster_tiles_falls_back_to_api_url_when_app_url_omitted(self):
+        """No public_app_url -> falls back to public_api_url (old behavior)."""
+        ds = _make_dataset(record_type="raster_dataset")
+        assets = build_assets(ds, API_URL)
+
+        # Fallback preserves the pre-fix href on the api origin.
+        assert assets["raster_tiles"]["href"].startswith(API_URL + "/raster-tiles/")
+
+    def test_app_url_does_not_affect_vector_assets(self):
+        """public_app_url only steers raster_tiles; vector assets stay on /api."""
+        ds = _make_dataset(record_type="vector_dataset", table_name="parcels")
+        assets = build_assets(ds, API_URL, public_app_url=APP_URL)
+
+        # Vector tiles are correctly served under /api -> keep the api origin.
+        assert assets["vector_tiles"]["href"].startswith(API_URL + "/tiles/")
+        assert assets["ogc_features"]["href"].startswith(API_URL + "/collections/")
+        assert assets["download_geojson"]["href"].startswith(API_URL + "/datasets/")

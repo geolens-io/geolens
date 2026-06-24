@@ -11,6 +11,7 @@ from fastapi import (
     status,
 )
 from sqlalchemy import select
+from sqlalchemy.exc import OperationalError, ProgrammingError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.audit.service import AuditEvent, audit_emit
@@ -283,12 +284,33 @@ async def get_column_values(
     # Visibility check
     await check_dataset_access(db, dataset, dataset_id, user)
 
+    # fix(#315): raster/VRT datasets have a synthetic table_name (raster_<hex>)
+    # with NO backing data.<table>, so get_distinct_values would run SELECT ...
+    # FROM a missing table -> UndefinedTableError -> 500 (holding a DB
+    # connection). Return a fast 404 before any column query is attempted.
+    if dataset.record.record_type in ("raster_dataset", "vrt_dataset"):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=(
+                f"Dataset '{dataset_id}' is a raster dataset and has no tabular "
+                "columns; use the tile/coverage endpoints."
+            ),
+        )
+
     try:
         values = await get_distinct_values(db, dataset.table_name, column_name, limit)
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(exc),
+        )
+    except (ProgrammingError, OperationalError):
+        # A non-raster dataset whose backing data.<table> is missing
+        # (cold-evicted / partial ingest) raises here. Convert to a 503
+        # rather than letting it surface as an unhandled 500.
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Dataset table is temporarily unavailable",
         )
 
     return ColumnValuesResponse(values=values, count=len(values))

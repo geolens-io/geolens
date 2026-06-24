@@ -15,6 +15,7 @@ from httpx import AsyncClient
 from sqlalchemy import text
 
 from app.modules.catalog.datasets.domain.column_stats import get_column_stats
+from app.modules.catalog.datasets.domain.models import Dataset, Record
 from tests.factories import create_dataset, get_user_id
 
 TEST_TABLE_NAME = f"test_stddev_{uuid.uuid4().hex[:8]}"
@@ -205,3 +206,101 @@ async def test_column_stats_endpoint_nonexistent_column_returns_400(
         headers=admin_auth_header,
     )
     assert resp.status_code == 400, resp.text
+
+
+# ---------------------------------------------------------------------------
+# G2/E1: HTTP-layer coverage for /datasets/{id}/columns/{col}/values/
+# A raster_dataset/vrt_dataset has a synthetic table_name with NO backing
+# data.<table>; the distinct-values query would hit an UndefinedTableError ->
+# unhandled 500 (holding a DB connection). The guard must return 404 instead.
+# ---------------------------------------------------------------------------
+
+
+async def _create_raster_dataset(
+    session,
+    *,
+    created_by: uuid.UUID,
+    record_type: str = "raster_dataset",
+) -> Dataset:
+    """Register a raster/VRT dataset with NO backing PostGIS table.
+
+    The record carries a table_name (NOT NULL on the model) but no data.<table>
+    is ever created -- exactly the G2/E1 bug-trigger condition.
+    """
+    table_name = f"raster_{uuid.uuid4().hex}"
+    record = Record(
+        title=f"Column Values Raster {table_name}",
+        summary="Test raster dataset for column-values hardening",
+        theme_category=["test"],
+        visibility="public",
+        record_status="published",
+        record_type=record_type,
+        created_by=created_by,
+    )
+    session.add(record)
+    await session.flush()
+    dataset = Dataset(
+        record_id=record.id,
+        table_name=table_name,
+        srid=4326,
+        geometry_type=None,
+        feature_count=None,
+        source_format="geotiff",
+    )
+    session.add(dataset)
+    await session.commit()
+    await session.refresh(dataset)
+    return dataset
+
+
+@pytest.fixture
+async def raster_values_dataset(test_db_session):
+    """A raster dataset with no backing data.<table> (no cleanup needed)."""
+    admin_id = await get_user_id(test_db_session, "admin")
+    return await _create_raster_dataset(test_db_session, created_by=admin_id)
+
+
+@pytest.fixture
+async def vrt_values_dataset(test_db_session):
+    """A VRT dataset with no backing data.<table>."""
+    admin_id = await get_user_id(test_db_session, "admin")
+    return await _create_raster_dataset(
+        test_db_session, created_by=admin_id, record_type="vrt_dataset"
+    )
+
+
+async def test_column_values_endpoint_raster_returns_404_not_500(
+    client: AsyncClient, admin_auth_header: dict, raster_values_dataset
+):
+    """(G2/E1) GET values on a raster dataset returns 404, never a 500."""
+    resp = await client.get(
+        f"/datasets/{raster_values_dataset.id}/columns/anycol/values/",
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 404, resp.text
+    assert "raster" in resp.json()["detail"].lower()
+
+
+async def test_column_values_endpoint_vrt_returns_404_not_500(
+    client: AsyncClient, admin_auth_header: dict, vrt_values_dataset
+):
+    """(G2/E1) GET values on a VRT dataset returns 404, never a 500."""
+    resp = await client.get(
+        f"/datasets/{vrt_values_dataset.id}/columns/anycol/values/",
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 404, resp.text
+
+
+async def test_column_values_endpoint_vector_returns_distinct_values(
+    client: AsyncClient, admin_auth_header: dict, stats_dataset
+):
+    """Regression: a real vector dataset still returns its distinct values."""
+    resp = await client.get(
+        f"/datasets/{stats_dataset.id}/columns/label/values/",
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["count"] == 5
+    assert sorted(data["values"]) == ["a", "b", "c", "d", "e"]

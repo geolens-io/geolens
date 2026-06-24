@@ -39,6 +39,7 @@ async def _create_dataset(
     feature_count: int = 42,
     description: str | None = "A test dataset",
     column_info: list[dict] | None = None,
+    record_type: str = "vector_dataset",
 ) -> Dataset:
     """Insert a Record + Dataset pair directly into the DB."""
     if table_name is None:
@@ -54,6 +55,7 @@ async def _create_dataset(
         summary=description,
         visibility=visibility,
         record_status="published",
+        record_type=record_type,
         created_by=created_by,
     )
     session.add(record)
@@ -362,6 +364,98 @@ class TestExportValidation:
             headers=admin_auth_header,
         )
         assert resp.status_code == 200
+
+    @pytest.mark.anyio
+    async def test_export_table_dataset_csv_allowed(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        """A legitimate non-spatial TABLE dataset (record_type='table',
+        geometry_type=None) is a real CSV-exportable table and must NOT be
+        blocked by the raster/VRT record_type guard. Regression for the guard
+        keying on record_type (not geometry_type)."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_dataset(
+            test_db_session,
+            created_by=admin_id,
+            name="TableCsvDS",
+            geometry_type=None,
+            record_type="table",
+        )
+        resp = await client.get(
+            f"/datasets/{ds.id}/export",
+            params={"format": "csv"},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200
+
+    @pytest.mark.anyio
+    async def test_export_raster_dataset_csv_returns_400_not_500(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        """E2: a raster dataset (record_type='raster_dataset', geometry_type
+        None, synthetic table_name with no backing table) requesting format=csv
+        must return a clean 400 — NOT a raw 500 from ogr2ogr hitting a
+        nonexistent table."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_dataset(
+            test_db_session,
+            created_by=admin_id,
+            name="RasterCsvDS",
+            geometry_type=None,
+            record_type="raster_dataset",
+        )
+        resp = await client.get(
+            f"/datasets/{ds.id}/export",
+            params={"format": "csv"},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 400
+        assert "raster" in resp.json()["detail"].lower()
+
+    @pytest.mark.anyio
+    async def test_export_vrt_dataset_csv_returns_400(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        """E2: a VRT dataset (record_type='vrt_dataset') is likewise blocked
+        from tabular export with a 400."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_dataset(
+            test_db_session,
+            created_by=admin_id,
+            name="VrtCsvDS",
+            geometry_type=None,
+            record_type="vrt_dataset",
+        )
+        resp = await client.get(
+            f"/datasets/{ds.id}/export",
+            params={"format": "csv"},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 400
+        assert "raster" in resp.json()["detail"].lower()
+
+    @pytest.mark.anyio
+    async def test_export_raster_dataset_gpkg_returns_400(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        """E2: the raster guard fires before the geometry/format gate, so a
+        spatial format (gpkg) on a raster dataset also returns the raster 400
+        (not the generic non-spatial 400)."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_dataset(
+            test_db_session,
+            created_by=admin_id,
+            name="RasterGpkgDS",
+            geometry_type=None,
+            record_type="raster_dataset",
+        )
+        resp = await client.get(
+            f"/datasets/{ds.id}/export",
+            params={"format": "gpkg"},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 400
+        assert "raster" in resp.json()["detail"].lower()
 
 
 # ---------------------------------------------------------------------------
