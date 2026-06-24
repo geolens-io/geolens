@@ -252,8 +252,12 @@ async def fetch_arcgis_layer_preview(
     safe_layer_id = str(layer_id).strip("/")
 
     # --- Layer metadata: fields, geometry type, CRS, name ---
-    meta_url = f"{base}/{safe_layer_id}?f=json" + (f"&token={token}" if token else "")
-    resp = await client.get(meta_url)
+    # Pass query params via httpx so a token containing URL-reserved characters
+    # (+, &, %) is percent-encoded instead of corrupting the query string.
+    meta_params: dict[str, str] = {"f": "json"}
+    if token:
+        meta_params["token"] = token
+    resp = await client.get(f"{base}/{safe_layer_id}", params=meta_params)
     resp.raise_for_status()
     meta = resp.json()
 
@@ -288,12 +292,18 @@ async def fetch_arcgis_layer_preview(
 
     # --- Sample rows: small bounded query ---
     sample_rows: list[dict] = []
-    query_url = (
-        f"{base}/{safe_layer_id}/query?where=1%3D1&outFields=*"
-        f"&resultRecordCount={sample_limit}&f=json"
-    ) + (f"&token={token}" if token else "")
+    query_params: dict[str, str] = {
+        "where": "1=1",
+        "outFields": "*",
+        "resultRecordCount": str(sample_limit),
+        "f": "json",
+    }
+    if token:
+        query_params["token"] = token
     try:
-        sample_resp = await client.get(query_url)
+        sample_resp = await client.get(
+            f"{base}/{safe_layer_id}/query", params=query_params
+        )
         sample_resp.raise_for_status()
         sample_data = sample_resp.json()
         if "error" not in sample_data:

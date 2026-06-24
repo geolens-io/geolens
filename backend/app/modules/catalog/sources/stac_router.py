@@ -471,11 +471,21 @@ async def stac_import(
         except SSRFError as exc:
             # Surface this otherwise-silent reject: catalogs commonly expose
             # asset hrefs the SSRF guard rejects (e.g. ``s3://`` schemes),
-            # which fails every item with no server-side trace.
+            # which fails every item with no server-side trace. Redact the href
+            # (drop query string + any userinfo) so a presigned URL's
+            # credentials are never written to application logs.
+            from urllib.parse import urlsplit
+
+            _p = urlsplit(item.data_asset_href or "")
+            _redacted_href = (
+                f"{_p.scheme}://{_p.hostname or ''}{_p.path}"
+                if _p.scheme
+                else (item.data_asset_href or "").split("?", 1)[0]
+            )
             logger.warning(
                 "STAC item SSRF-rejected",
                 item_id=item.id,
-                href=item.data_asset_href,
+                href=_redacted_href,
                 error=str(exc),
             )
             results.append(
