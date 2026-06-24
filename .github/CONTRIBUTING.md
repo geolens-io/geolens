@@ -2,7 +2,7 @@
 
 Thanks for your interest in contributing to GeoLens. This guide covers the development setup, code conventions, and pull request process.
 
-No CLA required -- the Apache 2.0 license covers all contributions.
+No CLA required -- the Apache 2.0 license covers all contributions. We do ask that every commit is signed off under the [Developer Certificate of Origin](#developer-certificate-of-origin).
 
 ## Documentation
 
@@ -27,11 +27,12 @@ cd geolens
 ### 2. Start the stack
 
 ```bash
-cp .env.example .env
-docker compose up -d
+bash scripts/install.sh
 ```
 
-The app will be available at [http://localhost:8080](http://localhost:8080). Default credentials: `admin` / `admin`.
+The installer copies `.env.example` to `.env`, generates a strong `JWT_SECRET_KEY`, sets up the admin credentials, and runs `docker compose up -d`. (A bare `docker compose up -d` requires a populated `.env` first -- run `make dev`, which runs the preflight check.)
+
+The app will be available at [http://localhost:8080](http://localhost:8080). The admin username defaults to `admin` and the installer auto-generates a strong admin password -- retrieve it with `grep "^GEOLENS_ADMIN_PASSWORD=" .env`. It is never `admin` / `admin`.
 
 ### 3. Verify services are running
 
@@ -45,7 +46,7 @@ All services (db, migrate, api, worker, frontend, titiler) should show as health
 
 - **Backend (FastAPI):** Edit files under `backend/`. The API container mounts the source directory and reloads on changes.
 - **Frontend (React):** Edit files under `frontend/`. The `frontend` Docker service runs Vite, which provides hot module replacement automatically — edits to `frontend/src/` reload in the browser within a second.
-- **Migrations:** Add new Alembic migrations under `backend/alembic/versions/`. Run with `docker compose exec api alembic upgrade head`.
+- **Migrations:** Add new Alembic migrations under `backend/alembic/versions/`. Run with `docker compose exec api alembic upgrade heads` (plural -- the stack can carry multiple migration heads; this matches `make migrate`).
 
 ### Running tests
 
@@ -118,6 +119,10 @@ refactor: extract tile URL builder into shared utility
 ```
 
 Keep the subject line under 72 characters. Use the body for additional context when needed.
+
+## Developer Certificate of Origin
+
+We use the [Developer Certificate of Origin](https://developercertificate.org) (DCO). Each commit must be signed off with `git commit -s`, which adds a `Signed-off-by: Name <email>` trailer. This certifies that you have the right to submit the contribution under the Apache 2.0 license. No CLA is required.
 
 ## Pull Requests
 

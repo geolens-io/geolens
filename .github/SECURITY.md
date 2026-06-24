@@ -29,7 +29,14 @@ Email **security@getgeolens.com** with:
 
 ## Scope
 
-This policy covers the `geolens` repository.
+This policy covers:
+
+- The `geolens` source repository (this repo)
+- Official container images published to GHCR (`ghcr.io/geolens-io/*`)
+- Official packages published to PyPI (`geolens`, SDK) and npm (SDK/CLI)
+- The public demo at demo.getgeolens.com
+
+Out of scope here (report to the respective repo or contact): the marketing/docs website (getgeolens.com), and Helm/deployment packaging (geolens-deployments, geolens-helm).
 
 ## Recognition
 
