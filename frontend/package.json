@@ -4,6 +4,7 @@
   "version": "1.4.0",
   "type": "module",
   "license": "Apache-2.0",
+  "author": "Carto Concepts, LLC",
   "scripts": {
     "dev": "vite",
     "build:app": "vite build",

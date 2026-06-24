@@ -3,6 +3,7 @@
   "version": "1.4.0",
   "private": true,
   "license": "Apache-2.0",
+  "author": "Carto Concepts, LLC",
   "scripts": {
     "e2e": "npx playwright test",
     "e2e:smoke": "npm run e2e:smoke:core && npm run e2e:smoke:builder && npm run e2e:smoke:fixtures",
