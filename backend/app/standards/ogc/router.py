@@ -318,7 +318,7 @@ async def get_dataset_collection(
             ]
         }
 
-    # B1: raster/VRT datasets have no backing feature table, so they expose no
+    # fix(#315): raster/VRT datasets have no backing feature table, so they expose no
     # feature items. Advertise itemType=coverage and omit the rel=items link so
     # clients are not led into the dead /items endpoint (which 404s, see
     # get_collection_items).
@@ -348,7 +348,7 @@ async def get_dataset_collection(
             )
         )
     else:
-        # OGC-6: a coverage collection has no rel=items, so without a
+        # fix(#315): a coverage collection has no rel=items, so without a
         # replacement link the body would only carry self+root and be a
         # dead-end. Advertise the raster tile endpoint so coverage clients have
         # something to dereference. Mirrors the STAC raster_tiles asset href in
@@ -470,7 +470,7 @@ async def get_collection_items(
     public_api_url = await get_public_api_url(db, request=request)
     dataset = await _get_visible_dataset(db, user, dataset_id)
 
-    # B1: raster/VRT datasets have no backing PostGIS feature table, so a feature
+    # fix(#315): raster/VRT datasets have no backing PostGIS feature table, so a feature
     # query would raise UndefinedTableError -> 500 (and hold a DB connection).
     # Return a fast 404 before any feature query is attempted.
     if dataset.record.record_type in ("raster_dataset", "vrt_dataset"):
@@ -482,7 +482,7 @@ async def get_collection_items(
             ),
         )
 
-    # B4: CQL2 filtering is only supported on the datasets (records) collection,
+    # fix(#315): CQL2 filtering is only supported on the datasets (records) collection,
     # which has a dedicated handler. On per-dataset feature collections a filter
     # would otherwise be silently dropped (or a malformed one return 200), so
     # reject it explicitly with 400 — matching the records-path reject contract.
@@ -518,7 +518,7 @@ async def get_collection_items(
         "crs",
         "api_key",
         "include_geometry",
-        # B4: filter/filter-lang are rejected above on feature collections; keep
+        # fix(#315): filter/filter-lang are rejected above on feature collections; keep
         # them out of property_filters so they never leak into the SQL WHERE.
         "filter",
         "filter-lang",
@@ -553,7 +553,7 @@ async def get_collection_items(
     # ST_AsGeoJSON cost (PERF-N1).
     # H-24: when after_gid is provided, the service uses keyset pagination and
     # ignores offset.
-    # B1: the raster/VRT guard above handles datasets that never had a backing
+    # fix(#315): the raster/VRT guard above handles datasets that never had a backing
     # table. A genuinely-missing VECTOR table (cold-evicted / partial ingest)
     # still raises ProgrammingError/OperationalError here; mirror the native
     # list_features handler and return 503 rather than an unhandled 500 that
@@ -710,7 +710,7 @@ async def get_collection_item_feature(
     public_api_url = await get_public_api_url(db, request=request)
     dataset = await _get_visible_dataset(db, user, dataset_id)
 
-    # B1: raster/VRT datasets have no backing PostGIS feature table, so a
+    # fix(#315): raster/VRT datasets have no backing PostGIS feature table, so a
     # feature-by-id query would raise UndefinedTableError -> 500. Return 404
     # before any query is attempted.
     if dataset.record.record_type in ("raster_dataset", "vrt_dataset"):
@@ -735,7 +735,7 @@ async def get_collection_item_feature(
         if _item_cold_result is not None:
             return _item_cold_result
 
-    # B1: as with get_collection_items, a genuinely-missing VECTOR table
+    # fix(#315): as with get_collection_items, a genuinely-missing VECTOR table
     # (cold-evicted / partial ingest) raises ProgrammingError/OperationalError;
     # return 503 rather than an unhandled 500. The raster/VRT 404 guard above
     # handles datasets that never had a backing table.

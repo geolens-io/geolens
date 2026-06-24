@@ -170,7 +170,7 @@ async def test_ai_endpoint_rate_limit(client: AsyncClient, admin_auth_header: di
 
 @pytest.mark.anyio
 async def test_rate_limit_429_includes_retry_after(client: AsyncClient):
-    """B5b: a 429 from the limiter carries a positive integer Retry-After header.
+    """(#315) a 429 from the limiter carries a positive integer Retry-After header.
 
     Drives POST /auth/login past its per-minute budget (5/minute by default)
     with bad credentials so slowapi fires before the handler body, then asserts

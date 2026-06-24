@@ -267,7 +267,7 @@ async def test_cql2_unsupported_filter_lang_returns_400(client: AsyncClient):
 
 @pytest.mark.anyio
 async def test_search_datasets_unsupported_filter_lang_returns_400(client: AsyncClient):
-    """B5e: /search/datasets/ rejects a bogus filter-lang with 400 (was silently ignored)."""
+    """(#315) /search/datasets/ rejects a bogus filter-lang with 400 (was silently ignored)."""
     resp = await client.get(
         "/search/datasets/",
         params={"filter": "title=x", "filter-lang": "bogus"},
@@ -278,7 +278,7 @@ async def test_search_datasets_unsupported_filter_lang_returns_400(client: Async
 
 
 # ---------------------------------------------------------------------------
-# B4: feature collections reject filter (do not silently ignore)
+# fix(#315): feature collections reject filter (do not silently ignore)
 # ---------------------------------------------------------------------------
 
 
@@ -294,7 +294,7 @@ async def test_search_datasets_unsupported_filter_lang_returns_400(client: Async
 async def test_feature_items_rejects_filter_400(
     client: AsyncClient, test_db_session, filter_value: str
 ):
-    """B4: ANY ``filter`` param on a per-dataset FEATURE collection returns 400.
+    """(#315) ANY ``filter`` param on a per-dataset FEATURE collection returns 400.
 
     CQL2 filtering is only implemented on the datasets (records) collection. On
     feature collections the filter was previously dropped (200); it must now be

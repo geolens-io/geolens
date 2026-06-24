@@ -233,7 +233,7 @@ async def test_datetime_no_filter_returns_all(
 
 
 # ---------------------------------------------------------------------------
-# B5e: malformed datetime -> 400 (not 500) on every datetime chokepoint
+# fix(#315): malformed datetime -> 400 (not 500) on every datetime chokepoint
 # ---------------------------------------------------------------------------
 
 

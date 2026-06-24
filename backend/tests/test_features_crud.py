@@ -86,7 +86,7 @@ async def _create_raster_dataset(
     """Register a raster/VRT dataset with NO backing PostGIS feature table.
 
     Raster records carry a table_name (NOT NULL on the model) but no data.<table>
-    is ever created — this is exactly the B1 bug-trigger condition where a feature
+    is ever created — this is exactly the (#315) bug-trigger condition where a feature
     query would raise UndefinedTableError -> 500.
     """
     table_name = f"test_crud_raster_{uuid.uuid4().hex[:8]}"
@@ -187,7 +187,7 @@ async def multipolygon_layer(client: AsyncClient, test_db_session, admin_auth_he
 
 @pytest.fixture
 async def raster_layer(client: AsyncClient, test_db_session, admin_auth_header):
-    """Create a raster dataset with no backing feature table (B1 guard)."""
+    """Create a raster dataset with no backing feature table (#315 guard)."""
     admin_id = await get_user_id(test_db_session, "admin")
     dataset = await _create_raster_dataset(
         test_db_session,
@@ -941,7 +941,7 @@ class TestBboxFiltering:
 
 
 # ---------------------------------------------------------------------------
-# B1: raster/VRT datasets have no feature table — must 404, never 500
+# fix(#315): raster/VRT datasets have no feature table — must 404, never 500
 # ---------------------------------------------------------------------------
 
 

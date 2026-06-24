@@ -68,7 +68,7 @@ async def get_features_geojson_z_endpoint(
 
     await check_dataset_access(db, dataset, dataset_id, user)
 
-    # B1: raster/VRT datasets have no backing PostGIS feature table, so a feature
+    # fix(#315): raster/VRT datasets have no backing PostGIS feature table, so a feature
     # query would raise UndefinedTableError -> 500 (and hold a DB connection).
     # Return a fast 404 before any feature query is attempted (mirrors OGC contract).
     if dataset.record.record_type in ("raster_dataset", "vrt_dataset"):
@@ -157,7 +157,7 @@ async def list_features(
     # RBAC check
     await check_dataset_access(db, dataset, dataset_id, user)
 
-    # B1: raster/VRT datasets have no backing PostGIS feature table, so a feature
+    # fix(#315): raster/VRT datasets have no backing PostGIS feature table, so a feature
     # query would raise UndefinedTableError. Return a fast 404 before any query
     # (mirrors OGC contract). The ProgrammingError->503 catch below remains a
     # backstop for genuinely-missing tables on non-raster datasets.
@@ -309,7 +309,7 @@ async def get_single_feature(
     # RBAC check
     await check_dataset_access(db, dataset, dataset_id, user)
 
-    # B1: raster/VRT datasets have no backing PostGIS feature table, so
+    # fix(#315): raster/VRT datasets have no backing PostGIS feature table, so
     # get_feature_by_id would raise UndefinedTableError -> unhandled 500 (a DoS
     # reachable by any authenticated user). Return a fast 404 before any query
     # (mirrors OGC contract).

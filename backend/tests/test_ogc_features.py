@@ -107,7 +107,7 @@ async def _create_raster_dataset(
     """Register a raster/VRT dataset with NO backing PostGIS feature table.
 
     Raster records carry a table_name (NOT NULL on the model) but no data.<table>
-    is ever created — this is exactly the B1 bug-trigger condition.
+    is ever created — this is exactly the (#315) bug-trigger condition.
     """
     table_name = f"test_ogc_raster_{uuid.uuid4().hex[:8]}"
     record = Record(
@@ -151,7 +151,7 @@ async def _create_missing_table_vector_dataset(
     table_name = f"test_ogc_missing_{uuid.uuid4().hex[:8]}"
     record = Record(
         title=f"OGC Missing-Table Vector {table_name}",
-        summary="Test vector dataset with no backing table (B1 503 backstop)",
+        summary="Test vector dataset with no backing table (503 backstop)",
         theme_category=["test"],
         visibility=visibility,
         record_status="published",
@@ -215,7 +215,7 @@ async def private_dataset(client: AsyncClient, test_db_session):
 
 @pytest.fixture
 async def raster_dataset(client: AsyncClient, test_db_session):
-    """Create a public raster dataset with no backing feature table (B1)."""
+    """Create a public raster dataset with no backing feature table (#315)."""
     admin_id = await get_user_id(test_db_session, "admin")
     dataset = await _create_raster_dataset(
         test_db_session,
@@ -228,7 +228,7 @@ async def raster_dataset(client: AsyncClient, test_db_session):
 
 @pytest.fixture
 async def missing_table_vector_dataset(client: AsyncClient, test_db_session):
-    """Create a public VECTOR dataset whose backing table is missing (B1 503)."""
+    """Create a public VECTOR dataset whose backing table is missing (#315 503)."""
     admin_id = await get_user_id(test_db_session, "admin")
     dataset = await _create_missing_table_vector_dataset(
         test_db_session,
@@ -465,7 +465,7 @@ async def test_get_single_feature_not_found(
 
 
 # ---------------------------------------------------------------------------
-# B1: raster/VRT collections have no feature items (must 404, never 500)
+# fix(#315): raster/VRT collections have no feature items (must 404, never 500)
 # ---------------------------------------------------------------------------
 
 
@@ -515,7 +515,7 @@ async def test_raster_collection_metadata_is_coverage(
 async def test_raster_collection_metadata_has_tiles_link(
     client: AsyncClient, raster_dataset: Dataset
 ):
-    """OGC-6: a coverage collection advertises a rel=tiles link so it is not a dead-end."""
+    """(#315) a coverage collection advertises a rel=tiles link so it is not a dead-end."""
     resp = await client.get(f"/collections/{raster_dataset.id}")
     assert resp.status_code == 200
     data = resp.json()
@@ -526,7 +526,7 @@ async def test_raster_collection_metadata_has_tiles_link(
 
 
 # ---------------------------------------------------------------------------
-# B1: a missing-table VECTOR dataset must 503, never 500
+# fix(#315): a missing-table VECTOR dataset must 503, never 500
 # ---------------------------------------------------------------------------
 
 

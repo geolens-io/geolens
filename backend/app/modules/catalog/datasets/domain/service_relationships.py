@@ -218,7 +218,7 @@ async def _visible_relationships(
         visible_items.append(
             {
                 "id": rel.id,
-                # B5d: emit dereferenceable Dataset.id, not the stored record_id.
+                # fix(#315): emit dereferenceable Dataset.id, not the stored record_id.
                 "source_dataset_id": source_dataset_id,
                 "target_dataset_id": target_ds.id,
                 "source_column": rel.source_column,

@@ -86,7 +86,7 @@ async def test_get_column_stats_stddev_none_for_empty_column(
 async def test_get_column_stats_text_column_is_categorical(
     test_db_session, stddev_table
 ):
-    """B3: a text column returns a categorical summary, not a 500 (::numeric cast).
+    """(#315) a text column returns a categorical summary, not a 500 (::numeric cast).
 
     Numeric aggregates are None, count/distinct_count are populated, and
     data_type is 'categorical' so the endpoint maps to a 200 ColumnStatsResponse.
@@ -121,13 +121,13 @@ async def test_get_column_stats_numeric_column_has_no_categorical_marker(
 async def test_get_column_stats_nonexistent_column_raises_value_error(
     test_db_session, stddev_table
 ):
-    """B3: a missing column raises ValueError (endpoint maps to 400)."""
+    """(#315) a missing column raises ValueError (endpoint maps to 400)."""
     with pytest.raises(ValueError):
         await get_column_stats(test_db_session, stddev_table, "no_such_col")
 
 
 # ---------------------------------------------------------------------------
-# TQ-5: HTTP-layer coverage for /datasets/{id}/columns/{col}/stats/
+# fix(#315): HTTP-layer coverage for /datasets/{id}/columns/{col}/stats/
 # The tests above exercise the domain function directly; these drive the
 # endpoint so the ValueError->400 mapping and ColumnStatsResponse shape are
 # also covered.

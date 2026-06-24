@@ -460,7 +460,7 @@ app.state.limiter = limiter
 
 
 async def _rate_limit_handler(request: Request, exc: RateLimitExceeded) -> JSONResponse:
-    # B5b: advertise the retry window (exc.limit.limit.get_expiry(), seconds).
+    # fix(#315): advertise the retry window (exc.limit.limit.get_expiry(), seconds).
     headers = {}
     try:
         headers["Retry-After"] = str(int(exc.limit.limit.get_expiry()))

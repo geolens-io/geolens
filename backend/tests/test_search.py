@@ -1144,7 +1144,7 @@ async def test_search_collections_counted_in_number_matched(
     test_db_session,
     clean_tables,
 ):
-    """B5c: appended collection features are counted in numberMatched.
+    """(#315) appended collection features are counted in numberMatched.
 
     On page 0 of a text search, matching collections (up to 5) are appended to
     ``features`` alongside the dataset results. ``numberReturned`` counts those
@@ -1201,7 +1201,7 @@ async def test_number_matched_caps_collections_at_display_limit(
     test_db_session,
     clean_tables,
 ):
-    """B5c/Codex P2: numberMatched must not exceed retrievable results.
+    """(#315) numberMatched must not exceed retrievable results.
 
     Only the first 5 matching collections are ever shown (page-0 cap) and they
     are never paginated, so numberMatched must count at most 5 of them -- counting
@@ -1241,7 +1241,7 @@ async def test_ogc_collections_list_raster_is_coverage_no_items_link(
     admin_auth_header: dict,
     test_db_session,
 ):
-    """OGC-1: GET /collections advertises raster datasets as coverages.
+    """(#315) GET /collections advertises raster datasets as coverages.
 
     A raster (or VRT) dataset has no backing feature table, so the per-dataset
     LIST endpoint must mirror the detail endpoint: itemType=="coverage" and NO
@@ -1277,6 +1277,8 @@ async def test_ogc_collections_list_raster_is_coverage_no_items_link(
     assert raster_entry["itemType"] == "coverage"
     raster_rels = {link["rel"] for link in raster_entry["links"]}
     assert "items" not in raster_rels
+    # raster coverage exposes a tiles link instead of the dead items link
+    assert "tiles" in raster_rels
 
     vector_entry = collections[str(vector.id)]
     assert vector_entry["itemType"] == "feature"
@@ -1291,7 +1293,7 @@ async def test_search_pagination_stable_number_matched_with_collection(
     test_db_session,
     clean_tables,
 ):
-    """B5c: numberMatched stable across pages; no phantom next-link.
+    """(#315) numberMatched stable across pages; no phantom next-link.
 
     Seed N datasets > limit (so dataset_total straddles the small limit
     boundary) plus a matching collection. Page through every page and assert:

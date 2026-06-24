@@ -419,7 +419,7 @@ async def _handle_search(
         and not params.collection_id
     )
 
-    # B5c/OGC-4: count matching collections on EVERY page so numberMatched stays
+    # fix(#315): count matching collections on EVERY page so numberMatched stays
     # stable; ``total`` (dataset-only) still drives the next-link, since appended
     # collections are a page-0-only augmentation that is never paginated. Cap the
     # count at the page-0 display limit so numberMatched never claims more
@@ -529,7 +529,7 @@ async def _handle_search(
         timeStamp=datetime.now(timezone.utc)
         .isoformat(timespec="seconds")
         .replace("+00:00", "Z"),
-        # B5c/OGC-4: dataset total + full collection count = stable across pages
+        # fix(#315): dataset total + full collection count = stable across pages
         # and always >= numberReturned (page 0 shows <=5 collections; later none).
         numberMatched=total + collection_total,
         numberReturned=len(features),
@@ -1045,8 +1045,9 @@ async def list_collections(
                 ]
             }
 
-        # B1/OGC-1: raster/VRT have no feature table -> mirror the detail endpoint
-        # (itemType=coverage, omit rel=items) so crawlers skip the dead /items.
+        # fix(#315): raster/VRT have no feature table -> mirror the detail
+        # endpoint (itemType=coverage, omit rel=items, add rel=tiles) so crawlers
+        # starting from the list skip the dead /items and still find the data.
         is_raster = ds.record.record_type in ("raster_dataset", "vrt_dataset")
 
         links: list[dict] = [
@@ -1068,6 +1069,17 @@ async def list_collections(
                         base_url=public_api_url,
                     ),
                     "type": "application/geo+json",
+                }
+            )
+        else:
+            links.append(
+                {
+                    "rel": "tiles",
+                    "href": build_url(
+                        f"/raster-tiles/{ds.id}/tiles/{{z}}/{{x}}/{{y}}.png",
+                        base_url=public_api_url,
+                    ),
+                    "type": "image/png",
                 }
             )
         links.append(

@@ -1,6 +1,6 @@
 """Pagination stability tests for /search/datasets.
 
-Regression coverage for B2: the standard (non-RRF) sort path used 6 ORDER BY
+Regression coverage for (#315): the standard (non-RRF) sort path used 6 ORDER BY
 branches, none of which had a unique tiebreaker. When many rows tie on the
 sort key (same record_status, updated_at, created_at, title) OFFSET/LIMIT
 returned a non-stable order, so paging the full result set produced duplicate

@@ -790,7 +790,7 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # Phase 1191 GAP-033: +new list_relationships_with_total for the list-envelope
         # contract ({relationships,total}); list_relationships DRY'd to delegate +
         # _visible_relationships extracted (shared, fail-closed). Cap 580 -> 595 (~7 LOC headroom).
-        # Smoke-check backlog B5d: +source/target Dataset.id resolution so the
+        # Smoke-check backlog (#315): +source/target Dataset.id resolution so the
         # list response returns dereferenceable ids. Cap 595 -> 605 (~7 LOC headroom).
         "backend/app/modules/catalog/datasets/domain/service_relationships.py": 605,
         "backend/app/modules/catalog/datasets/domain/service_metadata.py": 460,
@@ -882,10 +882,10 @@ def test_router_orchestrator_modules_stay_within_loc_cap() -> None:
         # layers endpoint groups into sub-routers (per Phase 226 / Phase 238) —
         # queued. HARD ceiling — do NOT raise past 1900 without decomposing.
         "backend/app/modules/catalog/maps/router.py": 1900,
-        # Smoke-check backlog: +~10 lines for the raster coverage list metadata
-        # (B1/OGC-1), stable numberMatched + collection count (B5c), and the
-        # filter-lang 400 (B5e). Cap 1600 -> 1610 (~9 LOC headroom).
-        "backend/app/modules/catalog/search/router.py": 1610,
+        # Smoke-check backlog (#315): raster coverage list metadata (itemType +
+        # rel=tiles, omit rel=items), stable numberMatched + collection count,
+        # and the filter-lang 400. Cap 1600 -> 1625 (~5 LOC headroom).
+        "backend/app/modules/catalog/search/router.py": 1625,
         # Phase 1176 PERF-002: +~60 lines for the raster tile auth/metadata
         # TTLCache (_RasterMeta + _resolve_raster_meta), mirroring the vector
         # tile meta cache so raster tiles aren't asymmetric.

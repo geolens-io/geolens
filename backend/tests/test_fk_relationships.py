@@ -57,8 +57,8 @@ class TestFKRelationships:
         assert data["label"] == "Links to target"
         assert "id" in data
 
-        # TQ-3: the CREATE response must carry dereferenceable Dataset.id values,
-        # NOT the stored record_ids, matching the LIST contract (B5d). The DB
+        # fix(#315): the CREATE response must carry dereferenceable Dataset.id values,
+        # NOT the stored record_ids, matching the LIST contract (#315). The DB
         # still stores record_ids and the create INPUT still takes a record_id
         # target — only the RESPONSE ids are Dataset.id.
         assert data["source_dataset_id"] == str(source.id)
@@ -72,6 +72,38 @@ class TestFKRelationships:
             headers=admin_auth_header,
         )
         assert deref.status_code == 200, deref.text
+
+    async def test_create_relationship_accepts_dataset_id_input(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+    ):
+        """fix(#315): a relationship target id round-trips back into create.
+
+        Responses serialize target_dataset_id as Dataset.id, so the create input
+        must accept a Dataset.id too (not just the underlying record_id).
+        """
+        admin_id = await get_user_id(test_db_session, "admin")
+        source = await create_dataset(
+            test_db_session, created_by=admin_id, name="RT Source"
+        )
+        target = await create_dataset(
+            test_db_session, created_by=admin_id, name="RT Target"
+        )
+
+        resp = await client.post(
+            f"/datasets/{source.id}/relationships/",
+            json={
+                "target_dataset_id": str(target.id),  # Dataset.id, not record_id
+                "source_column": "fk_col",
+                "target_column": "gid",
+            },
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 201, resp.text
+        data = resp.json()
+        assert data["target_dataset_id"] == str(target.id)
 
     async def test_list_relationships(
         self,
@@ -115,7 +147,7 @@ class TestFKRelationships:
         assert body["total"] >= 1
         rel = next(r for r in items if r["source_column"] == "ref_id")
 
-        # B5d: the response ids are Dataset.id (dereferenceable), NOT the stored
+        # fix(#315): the response ids are Dataset.id (dereferenceable), NOT the stored
         # record_id. Clients fetch /collections/{id} which resolves by Dataset.id.
         assert rel["target_dataset_id"] == str(target.id)
         assert rel["target_dataset_id"] != str(target.record_id)
