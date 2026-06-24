@@ -253,6 +253,40 @@ async def test_search_text_match(
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("param", ["record_type", "sort_by"])
+async def test_search_rejects_bogus_enum_params(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    param: str,
+):
+    """A2 (#315 follow-up): a bogus record_type / sort_by is rejected (400) instead
+    of silently returning 200 (empty result / silent created_at fallback)."""
+    resp = await client.get(
+        "/search/datasets/",
+        params={param: "banana"},
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 400, (
+        f"bogus {param}=banana should 400, got {resp.status_code}"
+    )
+
+
+@pytest.mark.anyio
+async def test_search_accepts_valid_enum_params(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    search_datasets: dict,
+):
+    """A2: valid record_type / sort_by values still pass."""
+    resp = await client.get(
+        "/search/datasets/",
+        params={"record_type": "vector_dataset", "sort_by": "date_added"},
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 200
+
+
+@pytest.mark.anyio
 async def test_search_text_empty_returns_all(
     client: AsyncClient,
     admin_auth_header: dict,

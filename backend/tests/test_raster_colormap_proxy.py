@@ -651,3 +651,53 @@ class TestRasterColormapProxy:
         assert "rescale=512.66,1304.31" not in tile_url, (
             f"SPIKE-01: tile URL must NOT use hardcoded percentile_2/percentile_98 values: {tile_url}"
         )
+
+    # ------------------------------------------------------------------
+    # A-fix (#315 follow-up): proxy-polluted {fmt} must be sanitized so the
+    # Titiler URL is never malformed with a double "?". Some reverse-proxy
+    # rewrites URL-encode the request query into the PATH, delivering
+    # fmt="png?stretch=...".
+    # ------------------------------------------------------------------
+
+    async def test_proxy_polluted_fmt_query_in_path_is_sanitized(self, client):
+        """fmt='png?stretch=...' (query encoded ONLY into the path) renders a tile
+        with a well-formed single-'?' Titiler URL, AND the buried stretch is
+        recovered + applied (not silently dropped to the default tile — Codex P2)."""
+        # '?' + '&' percent-encoded into the fmt path segment (a path-encoding proxy
+        # that did NOT also forward the query as a real ?query string).
+        resp = await client.get(
+            f"/tiles/raster-proxy/{_DATASET_ID}/0/0/0.png%3Fstretch=percentile"
+        )
+        assert resp.status_code in (200, 204)
+        assert len(self._tile_titiler_calls) == 1
+        url = self._tile_titiler_calls[0]
+        assert url.count("?") == 1, f"Titiler URL must have exactly one '?': {url}"
+        # endpoint must be the clean ".png" with the query starting at url=
+        assert "/0/0/0.png?url=" in url, f"Polluted fmt leaked into endpoint: {url}"
+        assert "stretch=" not in url.split("?", 1)[0], (
+            f"Pollution before the query separator: {url}"
+        )
+        # The recovered stretch=percentile must be APPLIED: a /cog/statistics lookup
+        # ran and the tile rescale is the percentile (512.66,1304.31), not default.
+        assert self._stats_titiler_calls, "buried stretch was dropped (no stats fetch)"
+        assert "rescale=512.66,1304.31" in url, (
+            f"recovered stretch=percentile not applied to tile URL: {url}"
+        )
+
+    async def test_proxy_recovers_buried_pmin_pmax_from_fmt(self, client):
+        """Buried pmin/pmax in the path are recovered and forwarded to /cog/statistics."""
+        resp = await client.get(
+            f"/tiles/raster-proxy/{_DATASET_ID}/0/0/0.png%3Fstretch=percentile%26pmin=5%26pmax=95"
+        )
+        assert resp.status_code in (200, 204)
+        assert self._stats_titiler_calls, "no stats fetch for recovered percentile"
+        stats_url = self._stats_titiler_calls[0]
+        assert "p=5" in stats_url and "p=95" in stats_url, (
+            f"recovered pmin/pmax not forwarded to statistics URL: {stats_url}"
+        )
+
+    async def test_proxy_rejects_unsupported_fmt(self, client):
+        """A non-image fmt is rejected with 400 (hardening: {fmt} feeds an upstream URL)."""
+        resp = await client.get(f"/tiles/raster-proxy/{_DATASET_ID}/0/0/0.exe")
+        assert resp.status_code == 400
+        assert not self._tile_titiler_calls, "Titiler must not be called for a bad fmt"

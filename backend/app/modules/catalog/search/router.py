@@ -212,6 +212,21 @@ async def _build_raster_assets(
 # ---------------------------------------------------------------------------
 
 
+# Allowed values for record_type / sort_by query params (A2 validation). Kept in
+# sync with the Record.record_type CHECK constraint (models.py) and the sort
+# branches in service_datasets._resolve_sort_order.
+_ALLOWED_RECORD_TYPES = {
+    "vector_dataset",
+    "raster_dataset",
+    "vrt_dataset",
+    "map",
+    "service",
+    "collection",
+    "table",
+}
+_ALLOWED_SORT_BY = {"relevance", "date_added", "name", "title", "last_updated"}
+
+
 class SearchQueryParams(_BaseModel):
     """Query parameters for the search endpoints, injectable via FastAPI Depends().
 
@@ -276,6 +291,25 @@ class SearchQueryParams(_BaseModel):
 
     def to_filters(self) -> SearchFilters:
         """Convert raw query params into a service-layer SearchFilters."""
+        # fix(#315 follow-up, A2): reject unknown record_type / sort_by with a 400
+        # instead of silently returning a 200 (bogus record_type -> empty result;
+        # bogus sort_by -> silent created_at fallback). Validated here (the single
+        # conversion chokepoint for both the native and OGC search endpoints)
+        # rather than via a Pydantic field_validator, which FastAPI surfaces as an
+        # unhandled error instead of a clean 4xx on Depends() query-param models.
+        if (
+            self.record_type is not None
+            and self.record_type not in _ALLOWED_RECORD_TYPES
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"record_type must be one of: {sorted(_ALLOWED_RECORD_TYPES)}",
+            )
+        if self.sort_by not in _ALLOWED_SORT_BY:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"sort_by must be one of: {sorted(_ALLOWED_SORT_BY)}",
+            )
         geometry_geojson, bbox_parsed = _parse_spatial_params(self.geometry, self.bbox)
         return SearchFilters(
             q=self.q,
