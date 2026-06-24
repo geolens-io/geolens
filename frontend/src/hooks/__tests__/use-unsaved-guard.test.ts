@@ -27,14 +27,49 @@ describe('useUnsavedGuard', () => {
     removeSpy.mockRestore();
   });
 
-  it('calls useBlocker with true when hasUnsavedChanges is true', () => {
+  // The blocker is now passed as a FUNCTION (so hash-only tab navigation isn't
+  // blocked); it should only block on real PATHNAME changes when dirty.
+  it('blocks pathname changes when hasUnsavedChanges is true', () => {
     renderHook(() => useUnsavedGuard(true));
-    expect(mockUseBlocker).toHaveBeenCalledWith(true);
+    const blockerFn = mockUseBlocker.mock.calls[0][0] as (args: {
+      currentLocation: { pathname: string };
+      nextLocation: { pathname: string };
+    }) => boolean;
+    expect(typeof blockerFn).toBe('function');
+    expect(
+      blockerFn({
+        currentLocation: { pathname: '/datasets/1' },
+        nextLocation: { pathname: '/' },
+      }),
+    ).toBe(true);
   });
 
-  it('calls useBlocker with false when hasUnsavedChanges is false', () => {
+  it('does not block hash-only navigation even when hasUnsavedChanges is true', () => {
+    renderHook(() => useUnsavedGuard(true));
+    const blockerFn = mockUseBlocker.mock.calls[0][0] as (args: {
+      currentLocation: { pathname: string };
+      nextLocation: { pathname: string };
+    }) => boolean;
+    expect(
+      blockerFn({
+        currentLocation: { pathname: '/datasets/1' },
+        nextLocation: { pathname: '/datasets/1' },
+      }),
+    ).toBe(false);
+  });
+
+  it('does not block pathname changes when hasUnsavedChanges is false', () => {
     renderHook(() => useUnsavedGuard(false));
-    expect(mockUseBlocker).toHaveBeenCalledWith(false);
+    const blockerFn = mockUseBlocker.mock.calls[0][0] as (args: {
+      currentLocation: { pathname: string };
+      nextLocation: { pathname: string };
+    }) => boolean;
+    expect(
+      blockerFn({
+        currentLocation: { pathname: '/datasets/1' },
+        nextLocation: { pathname: '/' },
+      }),
+    ).toBe(false);
   });
 
   it('adds beforeunload listener when hasUnsavedChanges is true', () => {

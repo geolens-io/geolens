@@ -127,6 +127,19 @@ export const DatasetMap = memo(function DatasetMap({
   const [mapInstance, setMapInstance] = useState<MaplibreMap | null>(null);
   const { contextLost, reload } = useWebGLRecovery(mapRef, !!mapInstance);
 
+  // Raster hero-state hardening (#13): ensure onMapReady / onTileError each fire
+  // AT MOST ONCE per map mount, and that the imperatively-attached
+  // ``sourcedata``/``error`` listeners are removed on teardown so a
+  // ``key={mapKey}`` remount can't stack listeners (which churned setState and
+  // could freeze the tab when titiler is cold and the tile grid is a mix of
+  // 200/204/error). Refs are reset whenever a new map mounts via handleLoad.
+  const readyFiredRef = useRef(false);
+  const errorFiredRef = useRef(false);
+  const rasterListenersRef = useRef<{
+    error?: (e: { error: { message?: string; status?: number } }) => void;
+    sourcedata?: (e: { sourceId?: string; isSourceLoaded?: boolean }) => void;
+  }>({});
+
   const elevationColumn = useMemo(
     () => geometryType?.toUpperCase().includes('POLYGON') ? findElevationColumn(columnInfo) : null,
     [geometryType, columnInfo],
@@ -228,6 +241,24 @@ export const DatasetMap = memo(function DatasetMap({
   useEffect(() => {
     return () => { cleanupOverlayListener(); };
   }, [cleanupOverlayListener]);
+
+  // Clean up imperatively-attached raster tile listeners on unmount (#13).
+  // Prevents listeners stacking across a key={mapKey} remount, which churned
+  // setState on every tile event and could freeze the tab.
+  useEffect(() => {
+    return () => {
+      const map = mapRef.current;
+      if (map) {
+        if (rasterListenersRef.current.error) {
+          map.off('error', rasterListenersRef.current.error);
+        }
+        if (rasterListenersRef.current.sourcedata) {
+          map.off('sourcedata', rasterListenersRef.current.sourcedata);
+        }
+      }
+      rasterListenersRef.current = {};
+    };
+  }, []);
 
   const requestDiscardConfirmation = useCallback((action: () => void) => {
     discardActionRef.current = action;
@@ -494,27 +525,69 @@ export const DatasetMap = memo(function DatasetMap({
       });
 
       if (recordType === 'raster_dataset' || recordType === 'vrt_dataset') {
+        // Fresh mount: detach any stale listeners and reset the fire-once guards.
+        if (rasterListenersRef.current.error) {
+          map.off('error', rasterListenersRef.current.error);
+        }
+        if (rasterListenersRef.current.sourcedata) {
+          map.off('sourcedata', rasterListenersRef.current.sourcedata);
+        }
+        readyFiredRef.current = false;
+        errorFiredRef.current = false;
+
         addRasterLayers(map);
         const tileStats = { total: 0, failed: 0 };
-        map.on('error', (e: { error: { message: string; status?: number } }) => {
+
+        // Fire heroState transitions at most once per mount so repeated
+        // sourcedata/error events don't churn setState (freeze).
+        const fireReadyOnce = () => {
+          if (readyFiredRef.current || errorFiredRef.current) return;
+          readyFiredRef.current = true;
+          onMapReady?.();
+        };
+        const fireErrorOnce = () => {
+          if (errorFiredRef.current || readyFiredRef.current) return;
+          errorFiredRef.current = true;
+          onTileError?.();
+        };
+
+        const handleRasterError = (e: { error: { message?: string; status?: number } }) => {
+          const status = (e.error as { status?: number })?.status;
+          // HTTP 204 = tile present but empty (no data in this cell). That's a
+          // SUCCESS for a sparse remote COG, not a failure — don't count it
+          // toward the error threshold, and treat it as the source being usable
+          // so heroState resolves deterministically instead of sitting in
+          // 'loading'. (#13)
+          if (status === 204) {
+            tileStats.total++;
+            fireReadyOnce();
+            return;
+          }
           if (e.error?.message?.includes('raster-tile-source') ||
               e.error?.message?.includes('Error: HTTP') ||
-              (e.error as { status?: number })?.status === 404 ||
-              (e.error as { status?: number })?.status === 500) {
+              status === 404 ||
+              status === 500) {
             tileStats.failed++;
             tileStats.total++;
             if (tileStats.failed >= 3 ||
                 (tileStats.total >= 4 && tileStats.failed / tileStats.total > 0.5)) {
-              onTileError?.();
+              fireErrorOnce();
             }
           }
-        });
-        map.on('sourcedata', (e: { sourceId?: string; isSourceLoaded?: boolean }) => {
+        };
+        const handleRasterSourceData = (e: { sourceId?: string; isSourceLoaded?: boolean }) => {
           if (e.sourceId === 'raster-tile-source' && e.isSourceLoaded) {
             tileStats.total++;
-            onMapReady?.();
+            fireReadyOnce();
           }
-        });
+        };
+
+        map.on('error', handleRasterError);
+        map.on('sourcedata', handleRasterSourceData);
+        rasterListenersRef.current = {
+          error: handleRasterError,
+          sourcedata: handleRasterSourceData,
+        };
       } else {
         addVectorLayers(map);
         addOverlaySource(map);
