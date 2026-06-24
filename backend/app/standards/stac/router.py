@@ -34,7 +34,7 @@ from app.modules.catalog.datasets.domain.models import (
     RecordKeyword,
 )
 from app.core.dependencies import get_db
-from app.core.public_urls import get_public_api_url
+from app.core.public_urls import get_public_api_url, get_public_app_url
 from app.processing.raster.models import DatasetAsset, RasterAsset
 from app.standards.ogc.errors import ERROR_RESPONSES_PUBLIC
 from app.core.geo import make_bbox_filter
@@ -160,12 +160,18 @@ async def _dataset_to_stac_item(
     raster_meta: dict | None = None,
     collection_id: str | None = None,
     spatial_extent_geojson: str | None = None,
+    public_app_url: str | None = None,
 ) -> dict:
     """Convert a Dataset ORM object to a STAC Item dict with presigned URLs.
 
     ``spatial_extent_geojson`` (PERF-5) lets bulk callers (e.g. STAC items
     page) skip per-dataset Python-side WKB deserialization in
     ``dataset_to_ogc_record`` by precomputing ST_AsGeoJSON in one query.
+
+    ``public_app_url`` (fix(#315) follow-up): the raster/VRT ``raster_tiles``
+    asset is served at the public APP origin (/raster-tiles/...), not the /api
+    origin, so it is threaded to both ``dataset_to_ogc_record`` and the
+    presigned-URL ``build_assets`` re-build below.
     """
     record = dataset.record
 
@@ -176,6 +182,7 @@ async def _dataset_to_stac_item(
         stac_asset_rows=stac_asset_rows,
         raster_meta=raster_meta,
         spatial_extent_geojson=spatial_extent_geojson,
+        public_app_url=public_app_url,
     )
 
     # Re-build assets with storage_provider for presigned URLs
@@ -191,6 +198,7 @@ async def _dataset_to_stac_item(
         record_status=record.record_status or "draft",
         storage_backend=settings.storage_provider,
         storage_provider=storage,
+        public_app_url=public_app_url,
     )
 
     # Declare projection STAC extension for raster/VRT items that emit proj:* properties.
@@ -559,6 +567,8 @@ async def get_collection_items(
 ) -> JSONResponse:
     """List STAC Items within a collection."""
     stac_api_url, public_api_url = await _resolve_urls(db, request)
+    # fix(#315 follow-up): raster_tiles assets are served at the public APP origin.
+    public_app_url = await get_public_app_url(db, request=request)
     user_roles = await _resolve_roles(db, user)
 
     # Verify collection exists
@@ -653,6 +663,7 @@ async def get_collection_items(
             raster_meta=raster_meta_map.get(str(dataset.id)),
             collection_id=coll_id_str,
             spatial_extent_geojson=extent_geojson_map.get(str(dataset.id)),
+            public_app_url=public_app_url,
         )
         features.append(item)
 
@@ -712,6 +723,7 @@ async def _build_item_response(
     stac_api_url: str,
     *,
     collection_id: str | None = None,
+    public_app_url: str | None = None,
 ) -> JSONResponse:
     """Fetch assets/raster metadata, convert to STAC Item, return as geo+json."""
 
@@ -733,6 +745,7 @@ async def _build_item_response(
         stac_asset_rows=asset_rows.get(str(dataset.id)),
         raster_meta=raster_meta.get(str(dataset.id)),
         collection_id=collection_id,
+        public_app_url=public_app_url,
     )
     return JSONResponse(content=item, media_type="application/geo+json")
 
@@ -747,6 +760,8 @@ async def get_collection_item(
 ) -> JSONResponse:
     """Get a single STAC Item within a collection."""
     stac_api_url, public_api_url = await _resolve_urls(db, request)
+    # fix(#315 follow-up): raster_tiles assets are served at the public APP origin.
+    public_app_url = await get_public_app_url(db, request=request)
     user_roles = await _resolve_roles(db, user)
 
     # Verify collection exists
@@ -775,7 +790,12 @@ async def get_collection_item(
         )
 
     return await _build_item_response(
-        db, dataset, public_api_url, stac_api_url, collection_id=str(collection_id)
+        db,
+        dataset,
+        public_api_url,
+        stac_api_url,
+        collection_id=str(collection_id),
+        public_app_url=public_app_url,
     )
 
 
@@ -788,6 +808,8 @@ async def get_item(
 ) -> JSONResponse:
     """Get a single STAC Item by dataset ID."""
     stac_api_url, public_api_url = await _resolve_urls(db, request)
+    # fix(#315 follow-up): raster_tiles assets are served at the public APP origin.
+    public_app_url = await get_public_app_url(db, request=request)
     user_roles = await _resolve_roles(db, user)
 
     stmt = _base_published_raster_query(user, user_roles).where(Dataset.id == item_id)
@@ -798,7 +820,9 @@ async def get_item(
             status_code=status.HTTP_404_NOT_FOUND, detail="Item not found"
         )
 
-    return await _build_item_response(db, dataset, public_api_url, stac_api_url)
+    return await _build_item_response(
+        db, dataset, public_api_url, stac_api_url, public_app_url=public_app_url
+    )
 
 
 def _build_search_filters(
@@ -969,6 +993,7 @@ async def _execute_search(
     intersects: str | dict | None = None,
     limit: int = 10,
     offset: int = 0,
+    public_app_url: str | None = None,
 ) -> JSONResponse:
     """Shared STAC Item Search logic for GET and POST endpoints.
 
@@ -1058,6 +1083,7 @@ async def _execute_search(
             stac_asset_rows=asset_rows_map.get(str(dataset.id)),
             raster_meta=raster_meta_map.get(str(dataset.id)),
             collection_id=collection_id_map.get(str(dataset.id)),
+            public_app_url=public_app_url,
         )
         features.append(item)
 
@@ -1124,6 +1150,8 @@ async def search_get(
 ) -> JSONResponse:
     """STAC Item Search (GET)."""
     stac_api_url, public_api_url = await _resolve_urls(db, request)
+    # fix(#315 follow-up): raster_tiles assets are served at the public APP origin.
+    public_app_url = await get_public_app_url(db, request=request)
     user_roles = await _resolve_roles(db, user)
     return await _execute_search(
         db,
@@ -1138,6 +1166,7 @@ async def search_get(
         intersects=intersects,
         limit=limit,
         offset=offset,
+        public_app_url=public_app_url,
     )
 
 
@@ -1199,6 +1228,8 @@ async def search_post(
 ) -> JSONResponse:
     """STAC Item Search (POST with JSON body)."""
     stac_api_url, public_api_url = await _resolve_urls(db, request)
+    # fix(#315 follow-up): raster_tiles assets are served at the public APP origin.
+    public_app_url = await get_public_app_url(db, request=request)
     user_roles = await _resolve_roles(db, user)
 
     return await _execute_search(
@@ -1217,6 +1248,7 @@ async def search_post(
         # the min(body.limit, 200) keeps the operational 200-item ceiling.
         limit=max(1, min(body.limit, 200)),
         offset=max(0, body.offset),
+        public_app_url=public_app_url,
     )
 
 

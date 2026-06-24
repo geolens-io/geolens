@@ -357,6 +357,9 @@ async def _handle_search(
 ) -> OGCFeatureCollectionResponse:
     """Parse parameters, run search, and return OGC FeatureCollection."""
     public_api_url = await get_public_api_url(db, request=request)
+    # fix(#315 follow-up): raster/VRT raster_tiles assets are served at the
+    # public APP origin (/raster-tiles/...), not the /api origin.
+    public_app_url = await get_public_app_url(db, request=request)
 
     filters = params.to_filters()
 
@@ -374,6 +377,9 @@ async def _handle_search(
             filters=filters,
             user_roles=user_roles,
             public_api_url=public_api_url,
+            # fix(#315): raster_tiles asset hrefs depend on the app origin, so it
+            # must be in the key (multi-origin deploys sharing one API host).
+            public_app_url=public_app_url,
             semantic_enabled=semantic_enabled_for_key,
         )
         cached = await search_cache.get_cached(cache_key)
@@ -406,6 +412,7 @@ async def _handle_search(
             stac_asset_rows=stac_assets_by_dataset.get(str(d.id)),
             raster_meta=raster_meta.get(str(d.id)),
             spatial_extent_geojson=extent_geojson_map.get(str(d.id)),
+            public_app_url=public_app_url,
         )
         for d in datasets
     ]
@@ -1264,7 +1271,11 @@ async def _lookup_by_external_id(
     # dataset's full OGC metadata by UUID via ?externalId=.
     await check_dataset_access_or_anonymous(db, dataset, record_uuid, user)
     public_api_url = await get_public_api_url(db, request=request)
-    content = dataset_to_ogc_record(dataset, public_api_url)
+    # fix(#315 follow-up): raster_tiles asset href uses the public APP origin.
+    public_app_url = await get_public_app_url(db, request=request)
+    content = dataset_to_ogc_record(
+        dataset, public_api_url, public_app_url=public_app_url
+    )
     return JSONResponse(
         content=content,
         media_type="application/geo+json",
@@ -1434,11 +1445,14 @@ async def get_collection_item(
             item_raster_meta = None
 
     public_api_url = await get_public_api_url(db, request=request)
+    # fix(#315 follow-up): raster_tiles asset href uses the public APP origin.
+    public_app_url = await get_public_app_url(db, request=request)
     content = dataset_to_ogc_record(
         dataset,
         public_api_url,
         stac_asset_rows=stac_asset_rows or None,
         raster_meta=item_raster_meta,
+        public_app_url=public_app_url,
     )
     return JSONResponse(
         content=content,

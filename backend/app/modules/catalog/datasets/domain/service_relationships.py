@@ -13,7 +13,9 @@ if TYPE_CHECKING:
         DatasetRelationshipCreate,
     )
 
+from fastapi import HTTPException, status
 from sqlalchemy import select, text
+from sqlalchemy.exc import OperationalError, ProgrammingError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
@@ -568,23 +570,41 @@ async def get_related_records(
     ) or not SAFE_COLUMN_NAME_RE.match(rel.target_column):
         raise ValueError("Invalid column name in relationship")
 
-    # 4. Get FK value from source table
-    fk_value = await _fetch_fk_value(
-        session, source_ds.table_name, rel.source_column, feature_gid
-    )
-    if fk_value is None:
-        return {"rows": [], "approximate_total": 0, "next_cursor": None, "columns": []}
+    # 4-5. Touch the source/target tables. fix(#315 sibling): a raster/VRT
+    # endpoint dataset (or a cold-evicted/partial vector table) resolves to a
+    # missing data.<table>, so these queries raise UndefinedTableError. Map that
+    # to 503 instead of an uncaught 500 that holds the DB connection (mirrors the
+    # features-router ProgrammingError->503 guard from PR #315).
+    try:
+        # 4. Get FK value from source table
+        fk_value = await _fetch_fk_value(
+            session, source_ds.table_name, rel.source_column, feature_gid
+        )
+        if fk_value is None:
+            return {
+                "rows": [],
+                "approximate_total": 0,
+                "next_cursor": None,
+                "columns": [],
+            }
 
-    # 5. Query target table for matching rows
-    total = await _count_target_rows(
-        session, target_ds.table_name, rel.target_column, fk_value
-    )
-    rows = await _fetch_target_rows(
-        session, target_ds.table_name, rel.target_column, fk_value, limit, after
-    )
+        # 5. Query target table for matching rows
+        total = await _count_target_rows(
+            session, target_ds.table_name, rel.target_column, fk_value
+        )
+        rows = await _fetch_target_rows(
+            session, target_ds.table_name, rel.target_column, fk_value, limit, after
+        )
 
-    # Get column info for target table
-    columns = await get_catalog_port().get_column_info(session, target_ds.table_name)
+        # Get column info for target table
+        columns = await get_catalog_port().get_column_info(
+            session, target_ds.table_name
+        )
+    except (ProgrammingError, OperationalError):
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="A related dataset table is temporarily unavailable",
+        )
     col_list = [{"name": c["name"], "type": c["type"]} for c in columns]
 
     next_cursor = after + limit if after + limit < total else None

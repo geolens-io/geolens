@@ -310,6 +310,62 @@ class TestFKRelationships:
 
         assert resp.status_code == 404, resp.text
 
+    async def test_related_records_missing_target_table_returns_503(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+    ):
+        """A relationship whose target has no backing table returns 503, not 500.
+
+        fix(#315 sibling, G4/E3): the related-records traversal queries
+        data.<target_table> directly. If the target dataset is a raster/VRT (no
+        feature table) or its table was cold-evicted, that query raises
+        UndefinedTableError. The service must map ProgrammingError ->
+        HTTPException(503) so the connection is released cleanly instead of
+        bubbling an uncaught 500.
+        """
+        admin_id = await get_user_id(test_db_session, "admin")
+        source = await create_dataset(
+            test_db_session, created_by=admin_id, name="Missing-Tbl Source"
+        )
+        target = await create_dataset(
+            test_db_session, created_by=admin_id, name="Missing-Tbl Target"
+        )
+        # Create ONLY the source table + a row with a resolvable FK value. The
+        # target table is intentionally NOT created, so the target-side query
+        # hits data.<missing> -> UndefinedTableError.
+        await test_db_session.execute(
+            text(
+                f"CREATE TABLE data.{source.table_name} "
+                "(gid integer PRIMARY KEY, target_id integer)"
+            )
+        )
+        await test_db_session.execute(
+            text(
+                f"INSERT INTO data.{source.table_name} (gid, target_id) VALUES (1, 42)"
+            )
+        )
+        await test_db_session.commit()
+
+        create_resp = await client.post(
+            f"/datasets/{source.id}/relationships/",
+            json={
+                "target_dataset_id": str(target.record_id),
+                "source_column": "target_id",
+                "target_column": "target_id",
+            },
+            headers=admin_auth_header,
+        )
+        assert create_resp.status_code == 201, create_resp.text
+        rel_id = create_resp.json()["id"]
+
+        resp = await client.get(
+            f"/datasets/{source.id}/features/1/related/{rel_id}/",
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 503, resp.text
+
     async def test_related_records_rejects_relationship_for_different_source(
         self,
         client: AsyncClient,

@@ -47,8 +47,18 @@ def build_assets(
     record_status: str = "draft",
     storage_backend: str = "local",
     storage_provider: "StorageProvider | None" = None,
+    public_app_url: str | None = None,
 ) -> dict:
-    """Build a modality-aware unified assets dict for a dataset."""
+    """Build a modality-aware unified assets dict for a dataset.
+
+    fix(#315 follow-up): the raster/VRT ``raster_tiles`` asset is served at the
+    public APP origin (``/raster-tiles/...``, nginx-rewritten to the tile proxy),
+    NOT the ``/api`` origin (which has no such route). Callers thread
+    ``public_app_url`` so that one href uses the app origin; every other
+    asset/link (vector_tiles at ``/tiles/...``, downloads, ogc_features) stays on
+    ``public_api_url``. The ``or public_api_url`` fallback preserves prior
+    behavior when a caller omits it.
+    """
     record_type = (
         getattr(dataset.record, "record_type", "vector_dataset") or "vector_dataset"
     )
@@ -92,11 +102,11 @@ def build_assets(
             }
 
     elif record_type in ("raster_dataset", "vrt_dataset"):
-        # Raster tile endpoint
+        # Raster tile endpoint -- served at the public APP origin, not /api.
         assets["raster_tiles"] = {
             "href": build_url(
                 f"/raster-tiles/{dataset.id}/tiles/{{z}}/{{x}}/{{y}}.png",
-                base_url=public_api_url,
+                base_url=(public_app_url or public_api_url),
             ),
             "type": "image/png",
             "title": "Raster tiles",
@@ -205,8 +215,14 @@ def dataset_to_ogc_record(
     stac_asset_rows: list[dict] | None = None,
     raster_meta: dict | None = None,
     spatial_extent_geojson: str | None = None,
+    public_app_url: str | None = None,
 ) -> dict:
-    """Convert a Dataset ORM object to an OGC Record GeoJSON Feature dict."""
+    """Convert a Dataset ORM object to an OGC Record GeoJSON Feature dict.
+
+    ``public_app_url`` is threaded to :func:`build_assets` so the raster/VRT
+    ``raster_tiles`` asset href uses the app origin (see that function's
+    docstring); all other assets/links remain on ``public_api_url``.
+    """
     record = dataset.record
     updated_user = getattr(record, "_provenance_updated_user", None)
     last_edited = derive_last_edited(
@@ -421,6 +437,7 @@ def dataset_to_ogc_record(
             stac_asset_rows=stac_asset_rows,
             record_status=record.record_status or "draft",
             storage_backend=settings.storage_provider,
+            public_app_url=public_app_url,
         ),
     }
 

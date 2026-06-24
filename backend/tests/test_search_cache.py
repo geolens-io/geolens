@@ -374,3 +374,34 @@ async def test_authed_facets_bypasses_cache(
     assert second_total == first_total + 1, (
         "authed second request should reflect DB mutation (cache bypass)"
     )
+
+
+@pytest.mark.anyio
+async def test_build_cache_key_includes_public_app_url():
+    """fix(#315): public_app_url is in the search cache key.
+
+    raster_tiles asset hrefs are built against the app origin, so two requests
+    that differ only in public_app_url (e.g. a multi-origin deploy with a fixed
+    PUBLIC_API_URL) must NOT collide on one cache entry.
+    """
+    from app.modules.catalog.search.service import SearchFilters
+
+    filters = SearchFilters()
+    base = dict(
+        endpoint="search",
+        filters=filters,
+        user_roles=set(),
+        public_api_url="https://api.example.com",
+    )
+    key_app_a = search_cache.build_cache_key(
+        **base, public_app_url="https://a.example.com"
+    )
+    key_app_b = search_cache.build_cache_key(
+        **base, public_app_url="https://b.example.com"
+    )
+    key_app_a2 = search_cache.build_cache_key(
+        **base, public_app_url="https://a.example.com"
+    )
+
+    assert key_app_a != key_app_b  # different app origin -> different key
+    assert key_app_a == key_app_a2  # deterministic for the same inputs

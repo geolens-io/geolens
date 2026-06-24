@@ -128,14 +128,30 @@ async def export_dataset_endpoint(
                 detail="Invalid target_crs: must match EPSG:<code> (e.g. EPSG:3857)",
             )
 
-    # 5. Check geometry compatibility
+    # 5. Reject raster/VRT datasets: they have no tabular feature table.
+    # Key on record_type (loaded via joinedload(Dataset.record) in
+    # get_dataset), NOT geometry_type — a legitimate non-spatial TABLE
+    # dataset (record_type="table") also has geometry_type=None but IS a
+    # real CSV-exportable table and must NOT be blocked. A raster/VRT
+    # dataset has a synthetic table_name with no backing table, so letting
+    # csv proceed would hit ogr2ogr on a nonexistent table -> raw 500.
+    if dataset.record.record_type in ("raster_dataset", "vrt_dataset"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "Raster datasets have no tabular feature data to export; "
+                "use the raster tile/COG endpoints."
+            ),
+        )
+
+    # 6. Check geometry compatibility
     if dataset.geometry_type is None and format in ("gpkg", "geojson", "shp"):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Cannot export non-spatial dataset as {format}. Use csv format.",
         )
 
-    # 6. Run export
+    # 7. Run export
     try:
         file_path, filename, media_type = await export_dataset(
             dataset.table_name,
@@ -162,7 +178,7 @@ async def export_dataset_endpoint(
             detail="Export temporarily unavailable",
         )
 
-    # 7. Audit log. user_id may be None for anonymous exports (EXP-01).
+    # 8. Audit log. user_id may be None for anonymous exports (EXP-01).
     # The audit_logs.user_id column is nullable; AuditEvent.user_id is typed
     # uuid.UUID | None to match.
     await audit_emit(
@@ -183,7 +199,7 @@ async def export_dataset_endpoint(
     )
     await db.commit()
 
-    # 8. Return file with background cleanup
+    # 9. Return file with background cleanup
     temp_dir = os.path.dirname(file_path)
 
     return FileResponse(

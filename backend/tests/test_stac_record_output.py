@@ -358,3 +358,49 @@ class TestStacExtensionsRemoved:
 
         assert "stac_extensions" not in result
         assert "bands" not in result["properties"]
+
+
+# ---------------------------------------------------------------------------
+# raster_tiles asset origin (fix(#315) follow-up)
+# ---------------------------------------------------------------------------
+
+
+class TestRasterTilesAssetOrigin:
+    """The raster/VRT ``raster_tiles`` asset is served at the public APP origin
+    (/raster-tiles/...), not the /api origin which has no such route. The OGC
+    record builder threads ``public_app_url`` to that one asset; all other
+    assets stay on ``public_api_url``.
+    """
+
+    async def test_raster_tiles_asset_uses_app_origin(self, client, test_db_session):
+        """raster_tiles asset href contains /raster-tiles/ and NOT /api/raster-tiles."""
+        admin_id = await _get_admin_id(test_db_session)
+        dataset = await _create_record_and_dataset(test_db_session, admin_id=admin_id)
+        dataset.record.record_type = "raster_dataset"
+        await test_db_session.flush()
+        await _prepare_for_sync(test_db_session, dataset)
+
+        result = dataset_to_ogc_record(
+            dataset,
+            "http://localhost:8080/api",
+            public_app_url="http://localhost:8080",
+        )
+
+        href = result["assets"]["raster_tiles"]["href"]
+        assert "/raster-tiles/" in href
+        # The /api origin has no /raster-tiles route -> must not appear.
+        assert "/api/raster-tiles" not in href
+        assert href.startswith("http://localhost:8080/raster-tiles/")
+
+    async def test_raster_tiles_falls_back_to_api_url(self, client, test_db_session):
+        """Without public_app_url the href falls back to the api origin (old behavior)."""
+        admin_id = await _get_admin_id(test_db_session)
+        dataset = await _create_record_and_dataset(test_db_session, admin_id=admin_id)
+        dataset.record.record_type = "raster_dataset"
+        await test_db_session.flush()
+        await _prepare_for_sync(test_db_session, dataset)
+
+        result = dataset_to_ogc_record(dataset, "http://localhost:8080/api")
+
+        href = result["assets"]["raster_tiles"]["href"]
+        assert href.startswith("http://localhost:8080/api/raster-tiles/")
