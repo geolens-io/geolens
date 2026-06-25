@@ -15,7 +15,7 @@ import { CollectionMembershipManager } from '@/components/collections/Collection
 import { CollectionEditDialog } from '@/components/collections/CollectionEditDialog';
 import { CollectionDeleteDialog } from '@/components/collections/CollectionDeleteDialog';
 import { useCollection, useRemoveDatasetFromCollection } from '@/components/collections/hooks/use-collections';
-import { useAuthStore } from '@/stores/auth-store';
+import { useCanMutate } from '@/hooks/use-can-mutate';
 import { formatDate, formatNumber } from '@/lib/format';
 import {
   DropdownMenu,
@@ -30,8 +30,9 @@ export function CollectionDetailPage() {
   const { id } = useParams<{ id: string }>();
   const { data: collection, isLoading, error } = useCollection(id ?? '');
   const removeDataset = useRemoveDatasetFromCollection();
-  const isEditor = useAuthStore((s) => s.isEditor());
-  const isAdmin = useAuthStore((s) => s.isAdmin());
+  // Owner-or-admin: only the collection's creator or an admin may mutate it
+  // (mirrors the backend check_collection_ownership).
+  const canMutate = useCanMutate(collection);
 
   const [editOpen, setEditOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -104,32 +105,28 @@ export function CollectionDetailPage() {
         description={collection.description ?? undefined}
         breadcrumbs={[{ label: t('detail.breadcrumb'), to: '/collections' }]}
         actions={
-          (isEditor || isAdmin) ? (
+          canMutate ? (
             <>
-              {isEditor && (
-                <Button variant="outline" size="sm" onClick={() => setEditOpen(true)}>
-                  <Pencil className="h-4 w-4 me-1" />
-                  {t('common:edit')}
-                </Button>
-              )}
-              {isAdmin && (
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button variant="outline" size="sm" aria-label={t('common:moreActions', { defaultValue: 'More actions' })}>
-                      <MoreHorizontal className="h-4 w-4" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    <DropdownMenuItem
-                      className="text-destructive focus:text-destructive"
-                      onSelect={() => setDeleteOpen(true)}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                      {t('common:delete')}
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              )}
+              <Button variant="outline" size="sm" onClick={() => setEditOpen(true)}>
+                <Pencil className="h-4 w-4 me-1" />
+                {t('common:edit')}
+              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="sm" aria-label={t('common:moreActions', { defaultValue: 'More actions' })}>
+                    <MoreHorizontal className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem
+                    className="text-destructive focus:text-destructive"
+                    onSelect={() => setDeleteOpen(true)}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                    {t('common:delete')}
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </>
           ) : undefined
         }
@@ -190,12 +187,12 @@ export function CollectionDetailPage() {
         <h2 className="text-lg font-semibold">{t('detail.datasets')}</h2>
         <CollectionDatasetList
           collectionId={id!}
-          onRemove={isEditor ? handleRemoveDataset : undefined}
+          onRemove={canMutate ? handleRemoveDataset : undefined}
         />
       </div>
 
-      {/* Add datasets section (editors only) */}
-      {isEditor && (
+      {/* Add datasets section (owner or admin only) */}
+      {canMutate && (
         <CollectionMembershipManager
           collectionId={id!}
         />
