@@ -97,7 +97,8 @@
     "downloadCog": "Download COG",
     "delete": "Delete",
     "deleteTooltip": "Delete this dataset",
-    "connect": "Connect"
+    "connect": "Connect",
+    "addToMap": "add to a map"
   },
   "header": {
     "more": "More",

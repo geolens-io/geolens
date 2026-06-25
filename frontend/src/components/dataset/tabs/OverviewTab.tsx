@@ -44,7 +44,7 @@ function SideKV({ label, value, mono, title, children }: {
   children?: React.ReactNode;
 }) {
   return (
-    <div className="grid grid-cols-[110px_1fr] gap-3 py-2 text-[12.5px] items-baseline">
+    <div className="grid grid-cols-[110px_1fr] gap-3 py-2 text-xs items-baseline">
       {/* Quiet sans field label — tier 2 of the label system, deliberately
           distinct from the mono-caps SectionEyebrow marker above it. */}
       <span className="text-xs text-muted-foreground pt-px">
@@ -78,7 +78,7 @@ function KeywordsSidebarCard({ recordId }: { recordId: string }) {
           {data.keywords.map((kw) => (
             <span
               key={kw.id}
-              className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-muted border text-[11.5px] font-medium text-muted-foreground"
+              className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-muted border text-xs font-medium text-muted-foreground"
             >
               <span className="text-muted-foreground/60">#</span>
               {kw.keyword}
@@ -125,7 +125,7 @@ function ProvenanceTimeline({ datasetId }: { datasetId: string }) {
                 {v.source_filename ?? t('overview.provenanceUpload')}
               </div>
               {v.feature_count != null && (
-                <div className="text-[12px] text-muted-foreground mt-0.5">
+                <div className="text-xs text-muted-foreground mt-0.5">
                   {v.feature_count.toLocaleString(i18n.language)} {t('overview.provenanceFeatures')}
                 </div>
               )}

@@ -451,7 +451,15 @@ export function DatasetPage() {
         leadingContent={
           <div className="flex items-center gap-2">
             {!isTable && isEditor && <AddToMapButton datasetId={dataset.id} datasetTitle={dataset.title} />}
-            {!token && <AuthPrompt action={t('actions.edit', { defaultValue: 'edit' })} />}
+            {!token && (
+              <AuthPrompt
+                action={
+                  !isTable
+                    ? t('actions.addToMap', { defaultValue: 'add to a map' })
+                    : t('actions.edit', { defaultValue: 'edit' })
+                }
+              />
+            )}
             {isRaster && dataset.raster?.connect && (
               <Button variant="outline" size="sm" onClick={async () => {
                 try { await downloadCog(dataset.id); } catch { toast.error(t('export.failed')); }

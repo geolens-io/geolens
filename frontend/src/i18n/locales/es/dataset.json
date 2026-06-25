@@ -97,7 +97,8 @@
     "deleteTooltip": "Eliminar este conjunto de datos",
     "connect": "Conectar",
     "createVrt": "Crear VRT",
-    "downloadCog": "Descargar COG"
+    "downloadCog": "Descargar COG",
+    "addToMap": "añadirlo a un mapa"
   },
   "header": {
     "more": "Más",
