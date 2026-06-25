@@ -14,14 +14,15 @@ interface SectionCapabilityHintProps {
 export function SectionCapabilityHint({ capability, className }: SectionCapabilityHintProps) {
   const { t } = useTranslation('dataset');
 
-  const helper = capability.editable
-    ? t('affordances.sectionHint.editable')
-    : t('affordances.sectionHint.readOnlyPassive');
+  // When the section is editable, the inline pencil + editable field shells already
+  // signal it; the extra third-person "Editors can update fields…" banner is noise,
+  // so only surface the hint for the read-only case.
+  if (capability.editable) return null;
 
   return (
     <RoleCapabilityHint
       reason={capability.reason ?? 'read_only_field'}
-      helper={helper}
+      helper={t('affordances.sectionHint.readOnlyPassive')}
       className={className}
     />
   );

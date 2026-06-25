@@ -17,9 +17,9 @@ export function UsedInMaps({ datasetId }: UsedInMapsProps) {
   }
 
   return (
-    <Card>
+    <Card className="gap-2 py-4">
       <CardHeader className="pb-2">
-        <CardTitle className="text-[10.5px] font-mono font-medium uppercase tracking-[0.12em] text-muted-foreground">
+        <CardTitle className="text-[11px] font-mono font-semibold uppercase tracking-[0.1em] text-foreground/70">
           {t('usedInMaps.title')}
         </CardTitle>
       </CardHeader>

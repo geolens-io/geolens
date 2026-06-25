@@ -84,6 +84,7 @@ export function DetailPanel(props: DetailPanelProps) {
           summaryValue={resolveDraftValue('summary')}
           onSummaryDraftSave={(value) => stagePendingDraft('summary', value)}
           onSummaryDirtyChange={(isDirty) => handleDraftDirtyChange('summary', isDirty)}
+          onTabChange={onTabChange}
         />
       </TabsContent>
 
@@ -117,6 +118,7 @@ export function DetailPanel(props: DetailPanelProps) {
             canEdit={canEditData}
             columnInfo={dataset.column_info}
             capability={capabilities.theme_category}
+            gatedByDeployment={canEdit && !canEditData}
           />
         </TabsContent>
       )}

@@ -43,12 +43,12 @@ function SideKV({ label, value, mono, title, children }: {
   children?: React.ReactNode;
 }) {
   return (
-    <div className="grid grid-cols-[100px_1fr] gap-3 py-2.5 text-[12.5px] items-baseline">
-      <span className="font-mono text-[10.5px] uppercase tracking-[0.08em] text-muted-foreground pt-px">
+    <div className="grid grid-cols-[100px_1fr] gap-3 py-2 text-[12.5px] items-baseline">
+      <span className="font-mono text-[11px] uppercase tracking-[0.08em] text-muted-foreground pt-px">
         {label}
       </span>
       {children ?? (
-        <span className={cn('font-medium truncate', mono && 'font-mono text-xs tracking-wide')} title={title}>
+        <span className={cn('font-medium truncate', mono && 'font-mono text-xs tracking-wide')} title={title ?? value}>
           {value}
         </span>
       )}
@@ -64,9 +64,9 @@ function KeywordsSidebarCard({ recordId }: { recordId: string }) {
   if (isLoading || !data || data.keywords.length === 0) return null;
 
   return (
-    <Card>
+    <Card className="gap-2 py-4">
       <CardHeader className="pb-2">
-        <CardTitle className="text-[10.5px] font-mono font-medium uppercase tracking-[0.12em] text-muted-foreground">
+        <CardTitle className="text-[11px] font-mono font-semibold uppercase tracking-[0.1em] text-foreground/70">
           {t('overview.tagsTitle', { defaultValue: 'Tags' })}
         </CardTitle>
       </CardHeader>
@@ -97,9 +97,9 @@ function ProvenanceTimeline({ datasetId }: { datasetId: string }) {
   const versions = [...data.versions].sort((a, b) => b.version_number - a.version_number).slice(0, 5);
 
   return (
-    <Card>
+    <Card className="gap-2 py-4">
       <CardHeader className="pb-2">
-        <CardTitle className="text-[10.5px] font-mono font-medium uppercase tracking-[0.12em] text-muted-foreground">
+        <CardTitle className="text-[11px] font-mono font-semibold uppercase tracking-[0.1em] text-foreground/70">
           {t('overview.provenanceTitle')}
         </CardTitle>
       </CardHeader>
@@ -114,7 +114,7 @@ function ProvenanceTimeline({ datasetId }: { datasetId: string }) {
                 'absolute -start-5 top-[5px] size-[9px] rounded-full border-[1.5px]',
                 i === 0 ? 'border-primary bg-background' : 'border-muted-foreground/40 bg-muted',
               )} />
-              <div className="font-mono text-[10.5px] text-muted-foreground tracking-wider uppercase mb-0.5">
+              <div className="font-mono text-[11px] text-muted-foreground tracking-wider uppercase mb-0.5">
                 {formatDate(v.uploaded_at)}
                 {' · '}v{v.version_number}
               </div>
@@ -141,6 +141,8 @@ interface OverviewTabProps {
   summaryValue: string;
   onSummaryDraftSave: (value: string) => void;
   onSummaryDirtyChange: (isDirty: boolean) => void;
+  /** Switch the active detail tab (e.g. from "View all data →" / "Edit in Metadata →"). */
+  onTabChange?: (tab: string) => void;
 }
 
 export function OverviewTab({
@@ -150,6 +152,7 @@ export function OverviewTab({
   summaryValue,
   onSummaryDraftSave,
   onSummaryDirtyChange,
+  onTabChange,
 }: OverviewTabProps) {
   const { t } = useTranslation('dataset');
 
@@ -176,22 +179,20 @@ export function OverviewTab({
   const { data: generationsData } = useVrtGenerations(isVrt ? dataset.id : '', { limit: 1 });
   const lastGeneration = generationsData?.generations?.[0];
 
-  const bbox = dataset.extent_bbox && dataset.extent_bbox.length >= 4
-    ? dataset.extent_bbox as [number, number, number, number]
-    : null;
-
   // ── Sidebar content (right rail) ──
   const sidebar = (
     <aside className="space-y-4">
-      {/* Metadata card — spatial & catalog info */}
-      <Card>
+      {/* Details card — catalog info at a glance. Named "Details" (not "Metadata")
+          to avoid colliding with the full Metadata tab; bbox/CRS live in the stats
+          strip + Metadata tab, so they're intentionally not repeated here. */}
+      <Card className="gap-2 py-4">
         <CardHeader className="pb-2">
-          <CardTitle className="text-[10.5px] font-mono font-medium uppercase tracking-[0.12em] text-muted-foreground">
-            {t('overview.metadataTitle', { defaultValue: 'Metadata' })}
+          <CardTitle className="text-[11px] font-mono font-semibold uppercase tracking-[0.1em] text-foreground/70">
+            {t('overview.detailsTitle', { defaultValue: 'Details' })}
           </CardTitle>
         </CardHeader>
         <CardContent className="pt-0">
-          <div className="divide-y divide-dashed divide-border">
+          <div className="divide-y divide-border/60">
             {dataset.license && (
               <SideKV label={t('metadata.license', { defaultValue: 'License' })} value={dataset.license} />
             )}
@@ -209,14 +210,16 @@ export function OverviewTab({
             {dataset.update_frequency && (
               <SideKV label={t('overview.cadence', { defaultValue: 'Cadence' })} value={dataset.update_frequency} />
             )}
-            {bbox && (
-              <SideKV
-                label={t('overview.bbox', { defaultValue: 'BBox' })}
-                value={`${bbox[0].toFixed(2)}, ${bbox[1].toFixed(2)}, ${bbox[2].toFixed(2)}, ${bbox[3].toFixed(2)}`}
-                mono
-              />
-            )}
           </div>
+          {canEdit && onTabChange && (
+            <button
+              type="button"
+              onClick={() => onTabChange('metadata')}
+              className="mt-3 text-xs font-medium text-primary hover:underline"
+            >
+              {t('overview.editInMetadata', { defaultValue: 'Edit in Metadata →' })}
+            </button>
+          )}
         </CardContent>
       </Card>
 
@@ -227,14 +230,14 @@ export function OverviewTab({
 
       {/* VRT Derivation card — only for VRT datasets */}
       {isVrt && dataset.raster && (
-        <Card>
+        <Card className="gap-2 py-4">
           <CardHeader className="pb-2">
-            <CardTitle className="text-[10.5px] font-mono font-medium uppercase tracking-[0.12em] text-muted-foreground">
+            <CardTitle className="text-[11px] font-mono font-semibold uppercase tracking-[0.1em] text-foreground/70">
               {t('sections.identityAndDerivation', { defaultValue: 'Derivation' })}
             </CardTitle>
           </CardHeader>
           <CardContent className="pt-0">
-            <div className="divide-y divide-dashed divide-border">
+            <div className="divide-y divide-border/60">
               {dataset.raster.source_count != null && (
                 <SideKV label={t('metadata.sourceCount', { defaultValue: 'Sources' })} value={String(dataset.raster.source_count)} />
               )}
@@ -269,9 +272,9 @@ export function OverviewTab({
 
       {/* Collections */}
       {dataset.collections && dataset.collections.length > 0 && (
-        <Card>
+        <Card className="gap-2 py-4">
           <CardHeader className="pb-2">
-            <CardTitle className="text-[10.5px] font-mono font-medium uppercase tracking-[0.12em] text-muted-foreground">
+            <CardTitle className="text-[11px] font-mono font-semibold uppercase tracking-[0.1em] text-foreground/70">
               {t('overview.appearsIn', { defaultValue: 'Appears in' })}
             </CardTitle>
           </CardHeader>
@@ -365,9 +368,42 @@ export function OverviewTab({
             )}
           </section>
 
+          {/* Fields — compact schema glance for vector/table datasets so the main
+              column carries content (mirrors Raster Properties below; the two
+              branches are mutually exclusive by record type). */}
+          {!isRaster && !isVrt && dataset.column_info && dataset.column_info.length > 0 && (
+            <Card className="gap-2 py-4">
+              <CardHeader>
+                <CardTitle className="text-base">
+                  {t('overview.fieldsTitle', { defaultValue: 'Fields' })}
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-x-6 gap-y-2 text-sm">
+                  {dataset.column_info.slice(0, 12).map((col) => (
+                    <div key={col.name} className="flex items-baseline justify-between gap-2 min-w-0">
+                      <span className="font-medium truncate" title={col.name}>{col.name}</span>
+                      <span className="font-mono text-xs text-muted-foreground shrink-0">{col.type}</span>
+                    </div>
+                  ))}
+                </div>
+                {onTabChange && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="mt-3 -ms-2"
+                    onClick={() => onTabChange('data')}
+                  >
+                    {t('overview.viewAllData', { defaultValue: 'View all data →' })}
+                  </Button>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
           {/* Raster Properties */}
           {(isRaster || isVrt) && dataset.raster && (
-            <Card>
+            <Card className="gap-2 py-4">
               <CardHeader>
                 <CardTitle className="text-base">
                   {t('overview.rasterProperties', { defaultValue: 'Raster Properties' })}
