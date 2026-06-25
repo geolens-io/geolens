@@ -532,6 +532,12 @@
       "allowedExtensionsDescription": "Lista separada por comas de extensiones permitidas (ej. .zip,.gpkg,.geojson,.json,.csv,.tif,.tiff,.xlsx,.xls).",
       "tileCacheTtl": "TTL de caché de teselas (segundos)",
       "tileCacheTtlDescription": "Tiempo en segundos antes de que expiren las entradas de caché de teselas (0 = sin caché).",
+      "perUserLimitsTitle": "Límites por usuario",
+      "perUserLimitsDescription": "Límites aplicados a cada usuario, validados al subir archivos. 0 = ilimitado.",
+      "maxStoragePerUser": "Almacenamiento máx. por usuario (bytes)",
+      "maxStoragePerUserDescription": "Almacenamiento máximo de subidas por usuario en bytes (0 = ilimitado). Ejemplo: 5368709120 = 5 GB.",
+      "maxDatasetsPerUser": "Conjuntos de datos máx. por usuario",
+      "maxDatasetsPerUserDescription": "Número máximo de conjuntos de datos que cada usuario puede crear (0 = ilimitado).",
       "saved": "Configuración de subida guardada",
       "saveFailed": "Error al guardar la configuración de subida"
     },

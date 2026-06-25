@@ -532,6 +532,12 @@
       "allowedExtensionsDescription": "Liste d'extensions autorisées séparées par des virgules.",
       "tileCacheTtl": "TTL du cache de tuiles (secondes)",
       "tileCacheTtlDescription": "Temps en secondes avant l'expiration des entrées du cache de tuiles (0 = pas de cache).",
+      "perUserLimitsTitle": "Limites par utilisateur",
+      "perUserLimitsDescription": "Plafonds appliqués à chaque utilisateur, vérifiés lors du téléversement. 0 = illimité.",
+      "maxStoragePerUser": "Stockage max. par utilisateur (octets)",
+      "maxStoragePerUserDescription": "Stockage de téléversement maximal par utilisateur en octets (0 = illimité). Exemple : 5368709120 = 5 Go.",
+      "maxDatasetsPerUser": "Jeux de données max. par utilisateur",
+      "maxDatasetsPerUserDescription": "Nombre maximal de jeux de données que chaque utilisateur peut créer (0 = illimité).",
       "saved": "Paramètres de téléchargement enregistrés",
       "saveFailed": "Échec de l'enregistrement"
     },
