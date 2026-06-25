@@ -29,7 +29,7 @@ export function StructureTab({ datasetId, canEdit, columnInfo, capability, gated
       {/* Attribute Metadata */}
       <Card data-field-anchor="attribute_metadata">
         <CardHeader className="flex flex-row items-center justify-between space-y-0">
-          <CardTitle className="text-base">{t('attributeMetadata.title')}</CardTitle>
+          <CardTitle level={2} className="text-base">{t('attributeMetadata.title')}</CardTitle>
           {canEdit && columnInfo && capability.editable && (
             <Button
               variant="outline"

@@ -69,7 +69,7 @@ function KeywordsSidebarCard({ recordId }: { recordId: string }) {
   return (
     <Card className="gap-2 py-4">
       <CardHeader className="pb-2">
-        <CardTitle className={SECTION_EYEBROW}>
+        <CardTitle level={2} className={SECTION_EYEBROW}>
           {t('overview.tagsTitle', { defaultValue: 'Tags' })}
         </CardTitle>
       </CardHeader>
@@ -102,7 +102,7 @@ function ProvenanceTimeline({ datasetId }: { datasetId: string }) {
   return (
     <Card className="gap-2 py-4">
       <CardHeader className="pb-2">
-        <CardTitle className={SECTION_EYEBROW}>
+        <CardTitle level={2} className={SECTION_EYEBROW}>
           {t('overview.provenanceTitle')}
         </CardTitle>
       </CardHeader>
@@ -190,7 +190,7 @@ export function OverviewTab({
           strip + Metadata tab, so they're intentionally not repeated here. */}
       <Card className="gap-2 py-4">
         <CardHeader className="pb-2">
-          <CardTitle className={SECTION_EYEBROW}>
+          <CardTitle level={2} className={SECTION_EYEBROW}>
             {t('overview.detailsTitle', { defaultValue: 'Details' })}
           </CardTitle>
         </CardHeader>
@@ -235,7 +235,7 @@ export function OverviewTab({
       {isVrt && dataset.raster && (
         <Card className="gap-2 py-4">
           <CardHeader className="pb-2">
-            <CardTitle className={SECTION_EYEBROW}>
+            <CardTitle level={2} className={SECTION_EYEBROW}>
               {t('sections.identityAndDerivation', { defaultValue: 'Derivation' })}
             </CardTitle>
           </CardHeader>
@@ -277,7 +277,7 @@ export function OverviewTab({
       {dataset.collections && dataset.collections.length > 0 && (
         <Card className="gap-2 py-4">
           <CardHeader className="pb-2">
-            <CardTitle className={SECTION_EYEBROW}>
+            <CardTitle level={2} className={SECTION_EYEBROW}>
               {t('overview.appearsIn', { defaultValue: 'Appears in' })}
             </CardTitle>
           </CardHeader>
@@ -377,7 +377,7 @@ export function OverviewTab({
           {!isRaster && !isVrt && dataset.column_info && dataset.column_info.length > 0 && (
             <Card className="gap-2 py-4">
               <CardHeader>
-                <CardTitle className="text-base">
+                <CardTitle level={2} className="text-base">
                   {t('overview.fieldsTitle', { defaultValue: 'Fields' })}
                 </CardTitle>
               </CardHeader>
@@ -408,7 +408,7 @@ export function OverviewTab({
           {(isRaster || isVrt) && dataset.raster && (
             <Card className="gap-2 py-4">
               <CardHeader>
-                <CardTitle className="text-base">
+                <CardTitle level={2} className="text-base">
                   {t('overview.rasterProperties', { defaultValue: 'Raster Properties' })}
                 </CardTitle>
               </CardHeader>

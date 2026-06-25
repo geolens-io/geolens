@@ -125,9 +125,9 @@ export function RelatedRecordsPanel({ datasetId, featureGid }: RelatedRecordsPan
   return (
     <div className="border rounded-lg bg-card">
       <div className="px-3 py-2 border-b">
-        <h4 className="text-sm font-medium">
+        <h2 className="text-sm font-medium">
           {t('relatedRecords.title')}
-        </h4>
+        </h2>
       </div>
       <div className="divide-y">
         {relationships.map((rel) => (

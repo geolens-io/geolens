@@ -32,7 +32,7 @@ export function SpatialExtentCard({ extentBbox, srid, originalSrid }: SpatialExt
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-base flex items-center gap-2">
+        <CardTitle level={2} className="text-base flex items-center gap-2">
           <MapPin className="h-4 w-4" />
           {t('metadata.spatialExtent')}
         </CardTitle>

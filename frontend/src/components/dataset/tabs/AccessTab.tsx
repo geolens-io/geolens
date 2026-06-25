@@ -62,7 +62,7 @@ function TileUrlSection({ tileUrl }: { tileUrl: string }) {
   return (
     <Card className="mt-3">
       <CardHeader className="pb-3">
-        <CardTitle className="text-sm">{t('distributions.tiles')}</CardTitle>
+        <CardTitle level={3} className="text-sm">{t('distributions.tiles')}</CardTitle>
       </CardHeader>
       <CardContent>
         <div className="space-y-1.5">
@@ -222,7 +222,7 @@ export function AccessTab({ dataset }: AccessTabProps) {
       {/* Distributions */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">{t('distributions.title')}</CardTitle>
+          <CardTitle level={2} className="text-base">{t('distributions.title')}</CardTitle>
         </CardHeader>
         <CardContent>
           {dataset.record_id ? (
@@ -259,7 +259,7 @@ export function AccessTab({ dataset }: AccessTabProps) {
       {!isRaster && !isVrt && (
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">{t('page.export')}</CardTitle>
+            <CardTitle level={2} className="text-base">{t('page.export')}</CardTitle>
           </CardHeader>
           <CardContent>
             <ExportButton datasetId={dataset.id} datasetName={dataset.title} recordType={dataset.record_type} />

@@ -183,7 +183,7 @@ export function SourceQualityTab({
       {/* Source Information */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">{t('sections.sourceInformation')}</CardTitle>
+          <CardTitle level={2} className="text-base">{t('sections.sourceInformation')}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <SectionCapabilityHint capability={capabilities.lineage_summary} />
@@ -311,7 +311,7 @@ export function SourceQualityTab({
       {/* Quality */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">{t('sections.quality')}</CardTitle>
+          <CardTitle level={2} className="text-base">{t('sections.quality')}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <SectionCapabilityHint capability={capabilities.quality_statement} />
@@ -373,7 +373,7 @@ export function SourceQualityTab({
       {/* Theme Category */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">{t('iso.themeCategory')}</CardTitle>
+          <CardTitle level={2} className="text-base">{t('iso.themeCategory')}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
           <SectionCapabilityHint capability={capabilities.theme_category} />
@@ -408,7 +408,7 @@ export function SourceQualityTab({
       {/* Governance */}
       <Card data-field-anchor="governance">
         <CardHeader>
-          <CardTitle className="text-base">{t('sections.governance')}</CardTitle>
+          <CardTitle level={2} className="text-base">{t('sections.governance')}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <SectionCapabilityHint capability={capabilities.usage_constraints} />

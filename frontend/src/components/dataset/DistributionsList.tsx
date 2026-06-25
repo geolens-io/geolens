@@ -136,7 +136,7 @@ export function DistributionsList({ recordId }: DistributionsListProps) {
       {TYPE_ORDER.filter((type) => grouped.has(type)).map((type) => (
         <Card key={type}>
           <CardHeader className="pb-3">
-            <CardTitle className="text-sm">{t(TYPE_LABEL_KEYS[type])}</CardTitle>
+            <CardTitle level={3} className="text-sm">{t(TYPE_LABEL_KEYS[type])}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
             {grouped.get(type)!.map((dist) => (

@@ -47,7 +47,7 @@ export function TemporalExtentCard({
   return (
     <Card data-field-anchor="temporal_extent">
       <CardHeader>
-        <CardTitle className="text-base">{t('metadata.temporalExtent')}</CardTitle>
+        <CardTitle level={2} className="text-base">{t('metadata.temporalExtent')}</CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
         <SectionCapabilityHint capability={capabilities.data_vintage_start} />

@@ -25,7 +25,7 @@ export function RelatedDatasets({ datasetId }: RelatedDatasetsProps) {
   return (
     <Card className="gap-2 py-4">
       <CardHeader className="pb-2">
-        <CardTitle className={SECTION_EYEBROW}>
+        <CardTitle level={2} className={SECTION_EYEBROW}>
           {t('relatedDatasets.similarDatasets', { defaultValue: 'Similar datasets' })}
         </CardTitle>
       </CardHeader>
