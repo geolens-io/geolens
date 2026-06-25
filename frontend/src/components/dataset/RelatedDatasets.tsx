@@ -3,6 +3,7 @@ import { Link } from 'react-router';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useRelatedDatasets } from '@/components/dataset/hooks/use-records';
 import { RecordTypeBadge } from '@/components/search/RecordTypeBadge';
+import { SECTION_EYEBROW } from '@/components/dataset/SectionEyebrow';
 
 interface RelatedDatasetsProps {
   datasetId: string;
@@ -24,7 +25,7 @@ export function RelatedDatasets({ datasetId }: RelatedDatasetsProps) {
   return (
     <Card className="gap-2 py-4">
       <CardHeader className="pb-2">
-        <CardTitle className="text-[11px] font-mono font-semibold uppercase tracking-[0.1em] text-foreground/70">
+        <CardTitle className={SECTION_EYEBROW}>
           {t('relatedDatasets.similarDatasets', { defaultValue: 'Similar datasets' })}
         </CardTitle>
       </CardHeader>

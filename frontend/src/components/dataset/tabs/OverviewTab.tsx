@@ -27,6 +27,7 @@ import { useVrtGenerations } from '@/components/import/hooks/use-vrt';
 import { InlineEdit } from '@/components/dataset/InlineEdit';
 import { EditableFieldShell } from '@/components/dataset/EditableFieldShell';
 import { SectionCapabilityHint } from '@/components/dataset/SectionCapabilityHint';
+import { SECTION_EYEBROW } from '@/components/dataset/SectionEyebrow';
 import { RelatedDatasets } from '@/components/dataset/RelatedDatasets';
 import { UsedInMaps } from '@/components/dataset/UsedInMaps';
 import type { DatasetEditCapabilities } from '@/components/dataset/hooks/use-dataset-edit-capabilities';
@@ -43,8 +44,10 @@ function SideKV({ label, value, mono, title, children }: {
   children?: React.ReactNode;
 }) {
   return (
-    <div className="grid grid-cols-[100px_1fr] gap-3 py-2 text-[12.5px] items-baseline">
-      <span className="font-mono text-[11px] uppercase tracking-[0.08em] text-muted-foreground pt-px">
+    <div className="grid grid-cols-[110px_1fr] gap-3 py-2 text-[12.5px] items-baseline">
+      {/* Quiet sans field label — tier 2 of the label system, deliberately
+          distinct from the mono-caps SectionEyebrow marker above it. */}
+      <span className="text-xs text-muted-foreground pt-px">
         {label}
       </span>
       {children ?? (
@@ -66,7 +69,7 @@ function KeywordsSidebarCard({ recordId }: { recordId: string }) {
   return (
     <Card className="gap-2 py-4">
       <CardHeader className="pb-2">
-        <CardTitle className="text-[11px] font-mono font-semibold uppercase tracking-[0.1em] text-foreground/70">
+        <CardTitle className={SECTION_EYEBROW}>
           {t('overview.tagsTitle', { defaultValue: 'Tags' })}
         </CardTitle>
       </CardHeader>
@@ -99,7 +102,7 @@ function ProvenanceTimeline({ datasetId }: { datasetId: string }) {
   return (
     <Card className="gap-2 py-4">
       <CardHeader className="pb-2">
-        <CardTitle className="text-[11px] font-mono font-semibold uppercase tracking-[0.1em] text-foreground/70">
+        <CardTitle className={SECTION_EYEBROW}>
           {t('overview.provenanceTitle')}
         </CardTitle>
       </CardHeader>
@@ -187,7 +190,7 @@ export function OverviewTab({
           strip + Metadata tab, so they're intentionally not repeated here. */}
       <Card className="gap-2 py-4">
         <CardHeader className="pb-2">
-          <CardTitle className="text-[11px] font-mono font-semibold uppercase tracking-[0.1em] text-foreground/70">
+          <CardTitle className={SECTION_EYEBROW}>
             {t('overview.detailsTitle', { defaultValue: 'Details' })}
           </CardTitle>
         </CardHeader>
@@ -232,7 +235,7 @@ export function OverviewTab({
       {isVrt && dataset.raster && (
         <Card className="gap-2 py-4">
           <CardHeader className="pb-2">
-            <CardTitle className="text-[11px] font-mono font-semibold uppercase tracking-[0.1em] text-foreground/70">
+            <CardTitle className={SECTION_EYEBROW}>
               {t('sections.identityAndDerivation', { defaultValue: 'Derivation' })}
             </CardTitle>
           </CardHeader>
@@ -274,7 +277,7 @@ export function OverviewTab({
       {dataset.collections && dataset.collections.length > 0 && (
         <Card className="gap-2 py-4">
           <CardHeader className="pb-2">
-            <CardTitle className="text-[11px] font-mono font-semibold uppercase tracking-[0.1em] text-foreground/70">
+            <CardTitle className={SECTION_EYEBROW}>
               {t('overview.appearsIn', { defaultValue: 'Appears in' })}
             </CardTitle>
           </CardHeader>
