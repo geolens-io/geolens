@@ -315,6 +315,27 @@ class TestInsertFeature:
         )
         assert resp.status_code == 403
 
+    async def test_insert_feature_non_owner_editor_forbidden(
+        self,
+        client: AsyncClient,
+        editor_auth_header: dict,
+        test_layer: Dataset,
+    ):
+        """A non-owner editor cannot insert a feature into a peer's dataset (403).
+
+        test_layer is owned by admin; editing feature rows requires owner-or-admin
+        (the edit_metadata capability alone is not ownership).
+        """
+        resp = await client.post(
+            f"/datasets/{test_layer.id}/features/",
+            json={
+                "geometry": POINT_GEOJSON,
+                "properties": {"name": "Not yours"},
+            },
+            headers=editor_auth_header,
+        )
+        assert resp.status_code == 403
+
 
 # ---------------------------------------------------------------------------
 # REPLACE (PUT) tests
