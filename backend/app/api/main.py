@@ -47,9 +47,11 @@ structlog.contextvars.bind_contextvars(service="api")
 
 logger = structlog.stdlib.get_logger(__name__)
 
-# Arbitrary stable key for the admin-seed advisory lock (pg_advisory_xact_lock).
-# Any constant works; it only needs to be unique among advisory locks we take.
-_ADMIN_SEED_LOCK_KEY = 0x6C656E73  # "lens"
+# Arbitrary stable key for the boot-time seed advisory lock (pg_advisory_xact_lock).
+# Serializes seed_roles + seed_initial_admin so concurrent uvicorn workers don't
+# race the SELECT-then-INSERT on a fresh DB. Any constant works; it only needs to
+# be unique among advisory locks we take (conftest uses a different key).
+_SEED_LOCK_KEY = 0x6C656E73  # "lens"
 
 # Default roles to seed if they don't exist
 DEFAULT_ROLES = [
@@ -60,8 +62,18 @@ DEFAULT_ROLES = [
 
 
 async def seed_roles() -> None:
-    """Ensure default roles exist in the database (defensive safety net)."""
+    """Ensure default roles exist in the database (defensive safety net).
+
+    Concurrency-safe (see _SEED_LOCK_KEY): runs in the lifespan before
+    seed_initial_admin, so under `uvicorn --workers N` two workers on a fresh DB
+    would otherwise both SELECT-miss and both INSERT, colliding on the roles.name
+    unique constraint and crashing the loser's startup *before* the admin-seed
+    lock is ever reached.
+    """
     async with async_session() as session:
+        await session.execute(
+            text("SELECT pg_advisory_xact_lock(:k)"), {"k": _SEED_LOCK_KEY}
+        )
         for role_data in DEFAULT_ROLES:
             result = await session.execute(
                 select(Role).where(Role.name == role_data["name"])
@@ -109,7 +121,7 @@ async def seed_initial_admin() -> None:
     """
     async with async_session() as session:
         await session.execute(
-            text("SELECT pg_advisory_xact_lock(:k)"), {"k": _ADMIN_SEED_LOCK_KEY}
+            text("SELECT pg_advisory_xact_lock(:k)"), {"k": _SEED_LOCK_KEY}
         )
         result = await session.execute(select(func.count()).select_from(User))
         user_count = result.scalar() or 0
