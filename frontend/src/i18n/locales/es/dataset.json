@@ -59,7 +59,8 @@
       "insufficient_role": "Tiene acceso de solo lectura en esta sección.",
       "read_only_field": "Este campo se gestiona como metadato de solo lectura."
     },
-    "roleHelp": "Ayuda sobre roles"
+    "roleHelp": "Ayuda sobre roles",
+    "notOwner": "Solo el propietario del conjunto de datos o un administrador puede editar este registro."
   },
   "connect": {
     "copyCogUrl": "Copiar URL de COG",
@@ -534,7 +535,8 @@
     "noAttributes": "No hay metadatos de atributos disponibles.",
     "updated": "Atributo actualizado",
     "updateFailed": "Error al actualizar atributo",
-    "clickToEdit": "Haga clic para editar"
+    "clickToEdit": "Haga clic para editar",
+    "editingDisabled": "La edición de atributos está deshabilitada en esta instalación."
   },
   "distributions": {
     "title": "Puntos de acceso",
@@ -674,7 +676,11 @@
     "reviewIssues": "Revisar problemas",
     "source": "Fuente",
     "tagsTitle": "Etiquetas",
-    "vrtType": "Tipo VRT"
+    "vrtType": "Tipo VRT",
+    "detailsTitle": "Detalles",
+    "fieldsTitle": "Campos",
+    "viewAllData": "Ver todos los datos →",
+    "editInMetadata": "Editar en Metadatos →"
   },
   "sources": {
     "system": "Sistema",

@@ -59,7 +59,8 @@
       "insufficient_role": "Vous disposez d'un accès en lecture seule dans cette section.",
       "read_only_field": "Ce champ est géré comme une métadonnée en lecture seule."
     },
-    "roleHelp": "Aide sur les rôles"
+    "roleHelp": "Aide sur les rôles",
+    "notOwner": "Seul le propriétaire du jeu de données ou un administrateur peut modifier cet enregistrement."
   },
   "connect": {
     "copyCogUrl": "Copier l'URL COG",
@@ -534,7 +535,8 @@
     "noAttributes": "Aucune métadonnée d'attribut disponible.",
     "updated": "Attribut mis à jour",
     "updateFailed": "Échec de la mise à jour de l'attribut",
-    "clickToEdit": "Cliquez pour modifier"
+    "clickToEdit": "Cliquez pour modifier",
+    "editingDisabled": "La modification des attributs est désactivée pour ce déploiement."
   },
   "distributions": {
     "title": "Points d'accès",
@@ -674,7 +676,11 @@
     "reviewIssues": "Réviser les problèmes",
     "source": "Source",
     "tagsTitle": "Étiquettes",
-    "vrtType": "Type VRT"
+    "vrtType": "Type VRT",
+    "detailsTitle": "Détails",
+    "fieldsTitle": "Champs",
+    "viewAllData": "Voir toutes les données →",
+    "editInMetadata": "Modifier dans Métadonnées →"
   },
   "sources": {
     "system": "Système",

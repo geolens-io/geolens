@@ -59,7 +59,8 @@
       "insufficient_role": "You have view access in this section.",
       "read_only_field": "This field is managed as read-only metadata."
     },
-    "roleHelp": "Role help"
+    "roleHelp": "Role help",
+    "notOwner": "Only the dataset owner or an admin can edit this record."
   },
   "connect": {
     "copyCogUrl": "Copy COG URL",
@@ -488,7 +489,8 @@
     "noAttributes": "No attribute metadata available.",
     "updated": "Attribute updated",
     "updateFailed": "Failed to update attribute",
-    "clickToEdit": "Click to edit"
+    "clickToEdit": "Click to edit",
+    "editingDisabled": "Attribute editing is disabled for this deployment."
   },
   "distributions": {
     "title": "Access Points",
@@ -628,7 +630,11 @@
     "reviewIssues": "Review issues",
     "source": "Source",
     "tagsTitle": "Tags",
-    "vrtType": "VRT Type"
+    "vrtType": "VRT Type",
+    "detailsTitle": "Details",
+    "fieldsTitle": "Fields",
+    "viewAllData": "View all data →",
+    "editInMetadata": "Edit in Metadata →"
   },
   "sources": {
     "system": "System",
