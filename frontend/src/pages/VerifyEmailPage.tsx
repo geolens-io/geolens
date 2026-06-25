@@ -73,7 +73,7 @@ export function VerifyEmailPage() {
   }
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center gap-6 bg-background px-4">
+    <main className="flex min-h-screen flex-col items-center justify-center gap-6 bg-background px-4">
       <div className="text-center">
         {/* sr-only level-1 heading: the state cards below use CardTitle (a plain
             <div>), so without this the page has no heading-one for SR nav. */}
@@ -161,6 +161,6 @@ export function VerifyEmailPage() {
           </CardContent>
         </Card>
       )}
-    </div>
+    </main>
   );
 }

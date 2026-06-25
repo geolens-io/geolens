@@ -273,7 +273,7 @@ export function LoginPage() {
   ];
 
   return (
-    <div className="grid min-h-screen grid-cols-1 min-[880px]:grid-cols-[1.05fr_0.95fr]">
+    <main className="grid min-h-screen grid-cols-1 min-[880px]:grid-cols-[1.05fr_0.95fr]">
       {/* ───────── LEFT — brand / map panel (hidden ≤880px) ───────── */}
       <section className="relative hidden overflow-hidden border-r border-border bg-map-paper px-14 py-12 min-[880px]:flex min-[880px]:flex-col min-[880px]:justify-between">
         <BrandMapBackdrop />
@@ -437,6 +437,6 @@ export function LoginPage() {
           </div>
         </div>
       </section>
-    </div>
+    </main>
   );
 }

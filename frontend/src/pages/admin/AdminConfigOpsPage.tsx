@@ -76,7 +76,7 @@ function ExportSection() {
   const exportMutation = useExportConfig();
 
   return (
-    <Card>
+    <Card className="border border-border">
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <Download className="h-4 w-4" />
@@ -141,7 +141,7 @@ function ValidateSection() {
   const oidcEntries = result ? Object.entries(result.oidc_providers) : [];
 
   return (
-    <Card>
+    <Card className="border border-border">
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <ShieldCheck className="h-4 w-4" />
@@ -284,7 +284,7 @@ function ImportSection() {
       dryRunResult.oauth_providers.changes.some((c) => c.action !== 'no_change'));
 
   return (
-    <Card>
+    <Card className="border border-border">
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <Upload className="h-4 w-4" />
