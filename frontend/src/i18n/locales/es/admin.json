@@ -533,7 +533,7 @@
       "tileCacheTtl": "TTL de caché de teselas (segundos)",
       "tileCacheTtlDescription": "Tiempo en segundos antes de que expiren las entradas de caché de teselas (0 = sin caché).",
       "perUserLimitsTitle": "Límites por usuario",
-      "perUserLimitsDescription": "Límites aplicados a cada usuario, validados al subir archivos. 0 = ilimitado.",
+      "perUserLimitsDescription": "Límites aplicados a cada usuario al subir archivos. 0 = ilimitado.",
       "maxStoragePerUser": "Almacenamiento máx. por usuario (bytes)",
       "maxStoragePerUserDescription": "Almacenamiento máximo de subidas por usuario en bytes (0 = ilimitado). Ejemplo: 5368709120 = 5 GB.",
       "maxDatasetsPerUser": "Conjuntos de datos máx. por usuario",

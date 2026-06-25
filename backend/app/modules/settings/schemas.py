@@ -452,6 +452,18 @@ def validate_tile_cache_ttl(v: Any) -> int:
     return _validate_bounded_int(v, "tile_cache_ttl", 0, 86400)
 
 
+def validate_max_storage_bytes_per_user(v: Any) -> int:
+    # 0 = unlimited; reject negatives (which would otherwise persist and show as
+    # "overridden" yet behave as unlimited via the cap>0 guard). Ceiling is the
+    # JS safe-integer max so the admin number input round-trips losslessly.
+    return _validate_bounded_int(v, "max_storage_bytes_per_user", 0, 9007199254740991)
+
+
+def validate_max_datasets_per_user(v: Any) -> int:
+    # 0 = unlimited; reject negatives. Generous ceiling for a per-user count.
+    return _validate_bounded_int(v, "max_datasets_per_user", 0, 10_000_000)
+
+
 _VALID_LOG_LEVELS = frozenset({"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"})
 
 
@@ -523,5 +535,7 @@ SETTING_VALIDATORS: dict[str, Any] = {
     "refresh_token_expire_days": validate_refresh_token_expire,
     "embedding_dims": validate_embedding_dims,
     "tile_cache_ttl": validate_tile_cache_ttl,
+    "max_storage_bytes_per_user": validate_max_storage_bytes_per_user,
+    "max_datasets_per_user": validate_max_datasets_per_user,
     "allowed_email_domains": validate_allowed_email_domains,
 }

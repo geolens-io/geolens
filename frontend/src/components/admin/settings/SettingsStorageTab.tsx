@@ -84,9 +84,9 @@ export function SettingsStorageTab({ settings, envOnly, onSave, onReset, isSavin
 
       {/* Per-user quotas — global caps applied to every user (enforced at ingest).
           Grouped so they read as limits, not more global upload config. */}
-      <div className="space-y-4 border rounded-md p-4">
+      <div className="space-y-4 border rounded-md p-4" role="group" aria-labelledby="per-user-limits-heading">
         <div>
-          <h3 className="text-sm font-medium">{t('settings.uploads.perUserLimitsTitle')}</h3>
+          <h3 id="per-user-limits-heading" className="text-sm font-medium">{t('settings.uploads.perUserLimitsTitle')}</h3>
           <p className="text-sm text-muted-foreground mt-1">{t('settings.uploads.perUserLimitsDescription')}</p>
         </div>
 
