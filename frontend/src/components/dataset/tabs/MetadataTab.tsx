@@ -117,7 +117,7 @@ export function MetadataTab({
 
       <Card data-field-anchor="contacts">
         <CardHeader>
-          <CardTitle className="text-base">{t('contacts.title')}</CardTitle>
+          <CardTitle level={2} className="text-base">{t('contacts.title')}</CardTitle>
         </CardHeader>
         <CardContent>
           <ContactsEditor recordId={dataset.record_id} canEdit={canEdit} />
@@ -127,7 +127,7 @@ export function MetadataTab({
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between">
-            <CardTitle className="text-base">{t('keywords.title')}</CardTitle>
+            <CardTitle level={2} className="text-base">{t('keywords.title')}</CardTitle>
             {canEdit && isAIAvailable && (
               <AiAssistButton
                 onClick={() =>
@@ -202,7 +202,7 @@ export function MetadataTab({
 
       <Card data-field-anchor="validation">
         <CardHeader>
-          <CardTitle className="text-base">{t('validation.title')}</CardTitle>
+          <CardTitle level={2} className="text-base">{t('validation.title')}</CardTitle>
         </CardHeader>
         <CardContent>
           <ValidationStatus
@@ -220,7 +220,7 @@ export function MetadataTab({
             className="flex items-center gap-2 w-full text-start"
           >
             <History className="h-5 w-5" />
-            <CardTitle className="text-base flex-1">{t('tabs.history')}</CardTitle>
+            <CardTitle level={2} className="text-base flex-1">{t('tabs.history')}</CardTitle>
             {historyExpanded ? (
               <ChevronUp className="h-4 w-4 text-muted-foreground" />
             ) : (

@@ -304,11 +304,11 @@ export function AttributeTable({ datasetId, canEdit = false, compact = false }: 
       {/*
         PERF-07: scroll container is `parentRef`. Virtualization is applied to
         the <tbody> only — the native <table>/<thead>/<tr>/<td> structure is
-        preserved so column auto-sizing, sticky headers, and the existing
-        `w-max min-w-full` layout continue to work. Vertical scroll is captured
-        here (max-h + overflow-auto); the inner shadcn Table container's
-        `overflow-x-auto` continues to handle wide-column horizontal overflow
-        within this scroll region.
+        preserved so column auto-sizing and sticky headers keep working. The
+        table is `w-max` (content-sized): wide tables overflow and scroll via
+        the inner shadcn Table container's `overflow-x-auto`; few-column tables
+        size to their content instead of stretching to fill (no empty columns).
+        Vertical scroll is captured here (max-h + overflow-auto).
 
         The recommended TanStack pattern for native-table virtualization
         (https://tanstack.com/virtual/latest/docs/framework/react/examples/table)
@@ -328,7 +328,7 @@ export function AttributeTable({ datasetId, canEdit = false, compact = false }: 
               : { height: `${virtualizer.getTotalSize()}px`, width: '100%' }
           }
         >
-          <Table className="w-max min-w-full">
+          <Table className="w-max">
             <TableHeader className="sticky top-0 z-10 bg-muted/80 backdrop-blur-sm">
               {table.getHeaderGroups().map((headerGroup) => (
                 <TableRow key={headerGroup.id}>

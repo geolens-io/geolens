@@ -25,7 +25,10 @@ describe('EditableFieldShell', () => {
 
     const shell = screen.getByTestId('editable-field-shell');
     expect(shell).toHaveAttribute('data-editable', 'true');
-    expect(shell).toHaveClass('bg-primary/5');
+    // Tint is revealed on hover/focus rather than shown at rest (so the field
+    // doesn't read as "active/error" when idle); the pencil signals editability.
+    expect(shell).toHaveClass('hover:bg-primary/5');
+    expect(shell).not.toHaveClass('bg-primary/5');
     expect(screen.getByTestId('editable-field-shell-icon')).toBeInTheDocument();
     expect(screen.queryByTestId('role-capability-hint')).not.toBeInTheDocument();
 

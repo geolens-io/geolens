@@ -1,4 +1,4 @@
-import { lazy, Suspense, useState, useCallback, useEffect, useRef } from 'react';
+import { lazy, Suspense, useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { useParams, Link } from 'react-router';
 import { useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
@@ -9,7 +9,7 @@ import { ErrorState } from '@/components/layout/ErrorState';
 import { useDataset, useUpdateDataset, useSetTargetStatus, useValidation } from '@/components/dataset/hooks/use-dataset';
 import { useDatasetJobStatus } from '@/components/import/hooks/use-ingest';
 import { IngestWarningsBanner } from '@/components/import/IngestWarningsBanner';
-import { useDatasetEditCapabilities } from '@/components/dataset/hooks/use-dataset-edit-capabilities';
+import { useDatasetEditCapabilities, EDITABLE_FIELDS, type DatasetEditField } from '@/components/dataset/hooks/use-dataset-edit-capabilities';
 import { useDraftEditing } from '@/components/dataset/hooks/use-draft-editing';
 import { useFeatureGid } from '@/components/dataset/hooks/use-feature-gid';
 import { useHeroState } from '@/components/dataset/hooks/use-hero-state';
@@ -186,7 +186,21 @@ export function DatasetPage() {
   // ownership (or admin), mirroring the backend check_dataset_write_access.
   const canMutate = useCanMutate(dataset);
   const canEdit = isEditor && canMutate;
-  const capabilities = useDatasetEditCapabilities(undefined, canEdit);
+  // An editor who isn't the owner/admin can't mutate this record. Surface an
+  // ownership-specific reason on the editable fields so the denied hint explains
+  // *why* rather than the generic "Editors can make changes" viewer copy.
+  const notOwnerEditor = isEditor && !canMutate;
+  const capabilityHelperOverrides = useMemo<Partial<Record<DatasetEditField, string>> | undefined>(() => {
+    if (!notOwnerEditor) return undefined;
+    const msg = t('affordances.notOwner', {
+      defaultValue: 'Only the dataset owner or an admin can edit this record.',
+    });
+    return EDITABLE_FIELDS.reduce<Partial<Record<DatasetEditField, string>>>((acc, field) => {
+      acc[field] = msg;
+      return acc;
+    }, {});
+  }, [notOwnerEditor, t]);
+  const capabilities = useDatasetEditCapabilities(capabilityHelperOverrides, canEdit);
   const isDrawing = useDrawingStore((s) => s.isDrawing);
   const isGeometryEditDirty = useDrawingStore((s) => s.isEditDirty);
   useDocumentTitle(dataset?.title ?? t('common:pageTitle.dataset'));
@@ -437,7 +451,15 @@ export function DatasetPage() {
         leadingContent={
           <div className="flex items-center gap-2">
             {!isTable && isEditor && <AddToMapButton datasetId={dataset.id} datasetTitle={dataset.title} />}
-            {!token && <AuthPrompt action={t('actions.edit', { defaultValue: 'edit' })} />}
+            {!token && (
+              <AuthPrompt
+                action={
+                  !isTable
+                    ? t('actions.addToMap', { defaultValue: 'add to a map' })
+                    : t('actions.edit', { defaultValue: 'edit' })
+                }
+              />
+            )}
             {isRaster && dataset.raster?.connect && (
               <Button variant="outline" size="sm" onClick={async () => {
                 try { await downloadCog(dataset.id); } catch { toast.error(t('export.failed')); }

@@ -39,7 +39,7 @@ interface BuildDatasetEditCapabilitiesInput {
   helperOverrides?: Partial<Record<DatasetEditField, string>>;
 }
 
-const EDITABLE_FIELDS: DatasetEditField[] = [
+export const EDITABLE_FIELDS: DatasetEditField[] = [
   'title',
   'summary',
   'source_url',

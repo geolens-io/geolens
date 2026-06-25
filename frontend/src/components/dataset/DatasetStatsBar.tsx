@@ -16,7 +16,7 @@ function StatCell({ label, value, mono }: StatCellProps) {
     // #305: cell borders drawn on top/left so they read correctly
     // whether cells sit in one desktop row or wrap onto multiple mobile rows.
     <div className="px-4 py-3 border-t border-l border-border min-w-0">
-      <div className="text-[10.5px] font-mono uppercase tracking-widest text-muted-foreground mb-1">
+      <div className="text-[11px] font-mono uppercase tracking-widest text-muted-foreground mb-1">
         {label}
       </div>
       <div

@@ -3,6 +3,7 @@ import { Link } from 'react-router';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useRelatedDatasets } from '@/components/dataset/hooks/use-records';
 import { RecordTypeBadge } from '@/components/search/RecordTypeBadge';
+import { SECTION_EYEBROW } from '@/components/dataset/SectionEyebrow';
 
 interface RelatedDatasetsProps {
   datasetId: string;
@@ -22,39 +23,37 @@ export function RelatedDatasets({ datasetId }: RelatedDatasetsProps) {
   );
 
   return (
-    <Card>
+    <Card className="gap-2 py-4">
       <CardHeader className="pb-2">
-        <CardTitle className="text-[10.5px] font-mono font-medium uppercase tracking-[0.12em] text-muted-foreground">
+        <CardTitle level={2} className={SECTION_EYEBROW}>
           {t('relatedDatasets.similarDatasets', { defaultValue: 'Similar datasets' })}
         </CardTitle>
       </CardHeader>
       <CardContent className="pt-0">
-        <div className="flex flex-col gap-2">
+        {/* Grid so cards sit 2-up below lg (where the rail unstacks to full width)
+            and 1-up inside the 300px rail at lg+, keeping the section compact. */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 gap-2">
           {uniqueItems.map((item) => (
             <Link
               key={item.id}
               to={`/datasets/${item.id}`}
-              className="block rounded-lg border p-3 transition-colors hover:bg-muted"
+              className="block rounded-lg border p-2.5 transition-colors hover:bg-muted"
             >
               <p className="text-sm font-medium truncate" title={item.name}>
                 {item.name}
               </p>
-              <div className="mt-1.5 space-y-1">
+              <div className="mt-1.5 flex items-center gap-2 flex-wrap text-xs text-muted-foreground">
                 <RecordTypeBadge recordType={item.record_type ?? 'vector_dataset'} />
                 {item.feature_count != null && (
-                  <p className="text-xs text-muted-foreground">
-                    {t('relatedDatasets.featureCount', { count: item.feature_count, defaultValue: '{{count}} features' })}
-                  </p>
+                  <span>{t('relatedDatasets.featureCount', { count: item.feature_count, defaultValue: '{{count}} features' })}</span>
                 )}
                 {item.band_count != null && !item.feature_count && (
-                  <p className="text-xs text-muted-foreground">
-                    {item.band_count} bands
-                  </p>
+                  <span>{item.band_count} bands</span>
                 )}
+                <span className="ms-auto text-[11px]">
+                  {t('relatedDatasets.similarityMatch', { percent: Math.round(item.similarity * 100), defaultValue: '{{percent}}% match' })}
+                </span>
               </div>
-              <span className="text-[10px] text-muted-foreground mt-1 block">
-                {t('relatedDatasets.similarityMatch', { percent: Math.round(item.similarity * 100), defaultValue: '{{percent}}% match' })}
-              </span>
             </Link>
           ))}
         </div>

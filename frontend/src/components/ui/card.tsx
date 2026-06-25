@@ -28,10 +28,19 @@ function CardHeader({ className, ...props }: React.ComponentProps<"div">) {
   )
 }
 
-function CardTitle({ className, ...props }: React.ComponentProps<"div">) {
+function CardTitle({
+  className,
+  level,
+  ...props
+}: React.ComponentProps<"div"> & { level?: 1 | 2 | 3 | 4 | 5 | 6 }) {
   return (
     <div
       data-slot="card-title"
+      // Opt-in heading semantics: with `level` set, expose the title to the a11y
+      // tree as a heading of that level. Default (unset) stays a plain div, so
+      // dialog/popover/sheet card titles elsewhere are unaffected.
+      role={level ? "heading" : undefined}
+      aria-level={level}
       className={cn("leading-none font-semibold", className)}
       {...props}
     />

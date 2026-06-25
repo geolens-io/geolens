@@ -55,7 +55,7 @@ export function QualityScoreCard({ qualityScore, updateFrequency }: QualityScore
       <CardHeader className="space-y-3">
         <div className="flex items-start justify-between gap-3">
           <div className="space-y-1">
-            <CardTitle>{t('quality.title')}</CardTitle>
+            <CardTitle level={2}>{t('quality.title')}</CardTitle>
             <p className="text-xs text-muted-foreground" data-testid="quality-freshness-time">
               {absoluteTimestamp} ({relativeAge})
             </p>

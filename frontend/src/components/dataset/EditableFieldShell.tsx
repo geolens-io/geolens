@@ -54,7 +54,7 @@ export function EditableFieldShell({
         className={cn(
           'group w-full rounded-md px-2 py-1.5 transition-colors',
           capability.editable
-            ? 'cursor-pointer border border-primary/20 bg-primary/5 hover:bg-primary/10'
+            ? 'cursor-pointer border border-transparent hover:border-primary/20 hover:bg-primary/5 focus-within:border-primary/20 focus-within:bg-primary/5'
             : 'border border-transparent bg-transparent',
           !capability.editable && capability.canAttempt && 'cursor-help',
         )}
@@ -66,7 +66,7 @@ export function EditableFieldShell({
           <div className="min-w-0 flex-1">{children}</div>
           {capability.editable && (
             <Pencil
-              className="mt-0.5 h-3 w-3 shrink-0 text-primary/70"
+              className="mt-0.5 h-3 w-3 shrink-0 text-muted-foreground/50 transition-colors group-hover:text-primary/70 group-focus-within:text-primary/70"
               aria-hidden
               data-testid="editable-field-shell-icon"
             />

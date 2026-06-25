@@ -17,7 +17,7 @@ export function DataTab({ datasetId, canEdit, expanded = false, onToggleExpand }
 
   const toolbar = (
     <div className="flex items-center justify-between py-1.5 shrink-0">
-      <span className="text-sm font-medium">{t('page.attributeData')}</span>
+      <span role="heading" aria-level={2} className="text-sm font-medium">{t('page.attributeData')}</span>
       <div className="flex items-center gap-1">
         <Button
           variant="ghost"

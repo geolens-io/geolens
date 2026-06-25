@@ -429,9 +429,9 @@ export function SourcesTab({ dataset, canEdit, datasetId }: SourcesTabProps) {
         {/* Generation History */}
         {generationsData && generationsData.generations.length > 0 && (
           <div className="space-y-2">
-            <h4 className="text-sm font-medium text-muted-foreground">
+            <h2 className="text-sm font-medium text-muted-foreground">
               {t('vrt.generationHistory', { defaultValue: 'Generation History' })}
-            </h4>
+            </h2>
             <Table>
               <TableHeader>
                 <TableRow>

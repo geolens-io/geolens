@@ -59,7 +59,8 @@
       "insufficient_role": "Sie haben in diesem Abschnitt nur Lesezugriff.",
       "read_only_field": "Dieses Feld wird als schreibgeschütztes Metadatum verwaltet."
     },
-    "roleHelp": "Rollenhilfe"
+    "roleHelp": "Rollenhilfe",
+    "notOwner": "Nur der Eigentümer des Datensatzes oder ein Administrator kann diesen Eintrag bearbeiten."
   },
   "connect": {
     "copyCogUrl": "COG-URL kopieren",
@@ -96,7 +97,8 @@
     "deleteTooltip": "Diesen Datensatz löschen",
     "connect": "Verbinden",
     "createVrt": "VRT erstellen",
-    "downloadCog": "COG herunterladen"
+    "downloadCog": "COG herunterladen",
+    "addToMap": "zu einer Karte hinzuzufügen"
   },
   "header": {
     "more": "Mehr",
@@ -534,7 +536,8 @@
     "noAttributes": "Keine Attribut-Metadaten verfügbar.",
     "updated": "Attribut aktualisiert",
     "updateFailed": "Attribut konnte nicht aktualisiert werden",
-    "clickToEdit": "Zum Bearbeiten klicken"
+    "clickToEdit": "Zum Bearbeiten klicken",
+    "editingDisabled": "Die Attributbearbeitung ist für diese Installation deaktiviert."
   },
   "distributions": {
     "title": "Zugangspunkte",
@@ -674,7 +677,11 @@
     "reviewIssues": "Probleme prüfen",
     "source": "Quelle",
     "tagsTitle": "Tags",
-    "vrtType": "VRT-Typ"
+    "vrtType": "VRT-Typ",
+    "detailsTitle": "Details",
+    "fieldsTitle": "Felder",
+    "viewAllData": "Alle Daten anzeigen →",
+    "editInMetadata": "In Metadaten bearbeiten →"
   },
   "sources": {
     "system": "System",
