@@ -6,7 +6,7 @@
 SHELL := /bin/bash
 .SHELLFLAGS := -o pipefail -c
 
-.PHONY: dev down reset-db migrate migration alembic-check test test-sequential test-cov e2e logs logs-db logs-api status doctor preflight openapi openapi-check sdks sdks-check sdks-test manifest-contract-check publish-sdks-py publish-sdks-ts cli-build cli-test cli-check publish-cli audit-sink-discipline billing-extraction-discipline catalog-domain-discipline bump version-check
+.PHONY: dev dev-init down reset-db migrate migration alembic-check test test-sequential test-cov e2e logs logs-db logs-api status doctor preflight openapi openapi-check sdks sdks-check sdks-test manifest-contract-check publish-sdks-py publish-sdks-ts cli-build cli-test cli-check publish-cli audit-sink-discipline billing-extraction-discipline catalog-domain-discipline bump version-check
 
 # Pre-flight: verify boot-required env vars are non-empty in .env before any
 # `docker compose` build (which takes 5-10 minutes on a cold cache only to crash
@@ -19,6 +19,13 @@ endif
 
 dev: preflight
 	docker compose up --build
+
+# One-shot contributor bootstrap: scripts/install.sh generates .env with dev
+# creds + secrets and starts the stack. It prints how to retrieve the generated
+# admin password (`grep '^GEOLENS_ADMIN_PASSWORD=' .env`) rather than echoing the
+# secret itself (SEC-011 no-echo policy).
+dev-init: ## One-shot contributor bootstrap (.env + secrets + start stack)
+	@bash scripts/install.sh
 
 # Friendly per-service health view + URL crib sheet.
 status:

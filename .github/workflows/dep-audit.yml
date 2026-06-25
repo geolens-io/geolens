@@ -24,8 +24,8 @@ jobs:
       run:
         working-directory: backend
     steps:
-      - uses: actions/checkout@v6
-      - uses: astral-sh/setup-uv@v8.2.0
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
+      - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39  # v8.2.0
         with:
           version: "0.11.11"
           enable-cache: true
@@ -39,6 +39,16 @@ jobs:
       - name: License gate (block strong/network copyleft)
         run: uv run --with pip-licenses pip-licenses --fail-on="GPL-3.0-only;GPL-3.0;GPL-2.0;AGPL-3.0;SSPL-1.0;BSL-1.1"
 
+      # Extend the BLOCKING license gate to the CLI + Python SDK (same allowlist).
+      # Both ship their own uv.lock; `--project` resolves each locked env.
+      - name: License gate — CLI (block strong/network copyleft)
+        working-directory: cli
+        run: uv run --with pip-licenses pip-licenses --fail-on="GPL-3.0-only;GPL-3.0;GPL-2.0;AGPL-3.0;SSPL-1.0;BSL-1.1"
+
+      - name: License gate — Python SDK (block strong/network copyleft)
+        working-directory: sdks/python
+        run: uv run --with pip-licenses pip-licenses --fail-on="GPL-3.0-only;GPL-3.0;GPL-2.0;AGPL-3.0;SSPL-1.0;BSL-1.1"
+
   js-audit:
     name: JS audit (${{ matrix.directory }})
     runs-on: ubuntu-latest
@@ -47,8 +57,8 @@ jobs:
       matrix:
         directory: [".", "frontend", "sdks/typescript"]
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-node@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6
         with:
           node-version: "24" # CI tooling runner (LTS); build image is node 26
           cache: "npm"
@@ -80,7 +90,7 @@ jobs:
           - "nginxinc/nginx-unprivileged:1.31.1-alpine"
           - "postgis/postgis:17-3.5"
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
       # Report-only on introduction: Trivy prints CRITICAL/HIGH findings to the
       # job log but exits 0, so the check stays green while the base-image CVE
       # baseline is triaged. NOTE these scan the UPSTREAM base images; the built
@@ -88,10 +98,28 @@ jobs:
       # To enforce as a hard gate: set exit-code "1" (ideally after switching to
       # scan the built images, not the upstream refs).
       - name: Trivy scan (report-only)
-        uses: aquasecurity/trivy-action@v0.36.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
         with:
           image-ref: ${{ matrix.image }}
           format: "table"
           severity: "CRITICAL,HIGH"
           exit-code: "0"
           ignore-unfixed: true
+
+  iac-scan:
+    name: IaC config scan (Trivy)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
+      # Misconfiguration scan over the repo's IaC: Trivy config mode auto-detects
+      # Dockerfiles, docker-compose*.yml, and nginx config at the repo root.
+      # Report-only on introduction (exit-code 0), matching the docker-audit
+      # convention above. Helm charts live in sibling repos (geolens-helm /
+      # geolens-deployments) — out of scope here.
+      - name: Trivy config scan (report-only)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
+        with:
+          scan-type: "config"
+          scan-ref: "."
+          severity: "CRITICAL,HIGH"
+          exit-code: "0"

@@ -372,6 +372,11 @@ REGISTRATION_ENABLED = PersistentConfig[bool](
 # secure path by default; set to False to fall back to admin approval.
 # Independent of REGISTRATION_ENABLED — toggling verification does not affect
 # whether self-serve registration is available (that gate is REGISTRATION_ENABLED).
+# SECURITY NOTE (issue #267): when this mode is enabled with SMTP, self-serve
+# signup is NOT username-enumeration-safe.  The /auth/register HTTP response is
+# uniform, but a verification email is delivered only when the submitted identity
+# was free, so a registrant can infer username existence out-of-band.  Mitigated
+# by /register rate limiting; do not assume usernames are secret under this config.
 EMAIL_VERIFICATION_REQUIRED = PersistentConfig[bool](
     key="email_verification_required",
     type_=bool,
