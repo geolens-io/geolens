@@ -68,10 +68,24 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          # Semver pre-release tags carry a hyphenated suffix (e.g. v1.4.0-rc.1).
+          # Mark those as a GitHub pre-release so they are NEVER promoted to the
+          # "latest" pointer that the website archive link + install script follow.
+          # GA tags (vX.Y.Z, no suffix) stay full releases and become latest.
+          case "${TAG}" in
+            *-*) IS_PRERELEASE=true ;;
+            *)   IS_PRERELEASE=false ;;
+          esac
           if gh release view "${TAG}" >/dev/null 2>&1; then
             gh release edit "${TAG}" \
               --title "${TAG}" \
-              --notes-file release-notes.md
+              --notes-file release-notes.md \
+              --prerelease="${IS_PRERELEASE}"
+          elif [ "${IS_PRERELEASE}" = true ]; then
+            gh release create "${TAG}" \
+              --title "${TAG}" \
+              --notes-file release-notes.md \
+              --prerelease
           else
             gh release create "${TAG}" \
               --title "${TAG}" \
