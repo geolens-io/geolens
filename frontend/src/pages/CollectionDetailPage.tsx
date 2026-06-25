@@ -16,6 +16,7 @@ import { CollectionEditDialog } from '@/components/collections/CollectionEditDia
 import { CollectionDeleteDialog } from '@/components/collections/CollectionDeleteDialog';
 import { useCollection, useRemoveDatasetFromCollection } from '@/components/collections/hooks/use-collections';
 import { useCanMutate } from '@/hooks/use-can-mutate';
+import { useAuthStore } from '@/stores/auth-store';
 import { formatDate, formatNumber } from '@/lib/format';
 import {
   DropdownMenu,
@@ -30,9 +31,12 @@ export function CollectionDetailPage() {
   const { id } = useParams<{ id: string }>();
   const { data: collection, isLoading, error } = useCollection(id ?? '');
   const removeDataset = useRemoveDatasetFromCollection();
-  // Owner-or-admin: only the collection's creator or an admin may mutate it
-  // (mirrors the backend check_collection_ownership).
+  // Mutating a collection requires the manage_collections capability (proxied
+  // by the editor role) AND ownership (or admin) — mirrors the backend
+  // require_permission("manage_collections") + check_collection_ownership.
+  const isEditor = useAuthStore((s) => s.isEditor());
   const canMutate = useCanMutate(collection);
+  const canManage = isEditor && canMutate;
 
   const [editOpen, setEditOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -105,7 +109,7 @@ export function CollectionDetailPage() {
         description={collection.description ?? undefined}
         breadcrumbs={[{ label: t('detail.breadcrumb'), to: '/collections' }]}
         actions={
-          canMutate ? (
+          canManage ? (
             <>
               <Button variant="outline" size="sm" onClick={() => setEditOpen(true)}>
                 <Pencil className="h-4 w-4 me-1" />
@@ -187,12 +191,12 @@ export function CollectionDetailPage() {
         <h2 className="text-lg font-semibold">{t('detail.datasets')}</h2>
         <CollectionDatasetList
           collectionId={id!}
-          onRemove={canMutate ? handleRemoveDataset : undefined}
+          onRemove={canManage ? handleRemoveDataset : undefined}
         />
       </div>
 
       {/* Add datasets section (owner or admin only) */}
-      {canMutate && (
+      {canManage && (
         <CollectionMembershipManager
           collectionId={id!}
         />

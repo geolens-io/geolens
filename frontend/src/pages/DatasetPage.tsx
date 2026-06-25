@@ -417,7 +417,7 @@ export function DatasetPage() {
       icon: Trash2,
       onSelect: () => setActiveDialog('delete'),
       priority: 20,
-      visible: canMutate,
+      visible: canEdit,
       variant: 'destructive',
     },
   ];
@@ -557,7 +557,7 @@ export function DatasetPage() {
       />
 
       {/* Dialogs */}
-      {canMutate && (
+      {canEdit && (
         <DatasetDeleteDialog
           dataset={dataset}
           open={activeDialog === 'delete'}
