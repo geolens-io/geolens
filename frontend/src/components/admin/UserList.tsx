@@ -143,12 +143,12 @@ export function UserList() {
     <>
       <Card>
         <CardHeader>
-          <div className="flex items-center justify-between">
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <CardTitle className="flex items-center gap-2 text-sm font-medium">
               {t('users.title')}
               {data ? <Badge variant="secondary">{data.total}</Badge> : null}
             </CardTitle>
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-2">
               <DataTableSearch
                 value={searchQuery}
                 onChange={(v) => { setSearchQuery(v); setPage(0); }}

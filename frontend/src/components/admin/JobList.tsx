@@ -256,7 +256,10 @@ export function JobList() {
                         <TableCell>
                           {job.username ?? '-'}
                         </TableCell>
-                        <TableCell>
+                        <TableCell
+                          className="max-w-[36vw] truncate sm:max-w-none"
+                          title={job.source_filename ?? undefined}
+                        >
                           {job.source_filename ?? '-'}
                         </TableCell>
                         <TableCell>
