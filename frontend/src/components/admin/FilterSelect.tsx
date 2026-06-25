@@ -1,3 +1,4 @@
+import { useId } from 'react';
 import {
   Select,
   SelectContent,
@@ -22,10 +23,11 @@ interface FilterSelectProps {
  * Select does not support empty string values.
  */
 export function FilterSelect({ label, value, onChange, options, className }: FilterSelectProps) {
+  const labelId = useId();
   return (
     <div className={className}>
       {label && (
-        <label className="mb-1 block text-xs text-muted-foreground">
+        <label id={labelId} className="mb-1 block text-xs text-muted-foreground">
           {label}
         </label>
       )}
@@ -33,7 +35,14 @@ export function FilterSelect({ label, value, onChange, options, className }: Fil
         value={value || ALL_VALUE}
         onValueChange={(v) => onChange(v === ALL_VALUE ? '' : v)}
       >
-        <SelectTrigger className="h-8 w-auto min-w-[140px]">
+        {/* a11y: associate the visible label with the combobox trigger so it has
+            an accessible name (WCAG 4.1.2). Falls back to aria-label if a caller
+            ever omits a visible label. */}
+        <SelectTrigger
+          className="h-8 w-auto min-w-[140px]"
+          aria-labelledby={label ? labelId : undefined}
+          aria-label={label ? undefined : 'Filter'}
+        >
           <SelectValue />
         </SelectTrigger>
         <SelectContent>

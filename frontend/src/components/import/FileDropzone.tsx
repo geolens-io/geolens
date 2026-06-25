@@ -95,7 +95,7 @@ export function FileDropzone({ onFilesAccepted, disabled, allowedExtensions, max
         disabled && 'pointer-events-none opacity-50',
       )}
     >
-      <input {...getInputProps()} />
+      <input {...getInputProps({ 'aria-label': t('dropzone.ariaLabel') })} />
 
       {/* Glyph */}
       <div className="relative mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl border border-border bg-surface-0 text-primary">

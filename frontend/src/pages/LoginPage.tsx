@@ -339,6 +339,10 @@ export function LoginPage() {
         </Button>
 
         <div className="w-full max-w-[360px]">
+          {/* Mobile-only level-1 heading: the desktop brand panel's <h1> is
+              display:none below 880px, so screen-reader heading nav has no h1
+              on mobile without this. Hidden on desktop to keep a single h1. */}
+          <h1 className="sr-only min-[880px]:hidden">{t('signIn')}</h1>
           {/* Form head */}
           <div className="mb-6">
             <h2 className="text-[19px] font-semibold tracking-[-0.01em] text-foreground">

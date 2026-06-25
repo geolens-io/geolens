@@ -334,7 +334,7 @@ function ImportSection() {
         <div className="space-y-2">
           <Label>{t('configOps.import.modeLabel')}</Label>
           <Select value={mode} onValueChange={(v) => setMode(v as ImportMode)}>
-            <SelectTrigger className="w-[260px]">
+            <SelectTrigger className="w-[260px]" aria-label={t('configOps.import.modeLabel')}>
               <SelectValue />
             </SelectTrigger>
             <SelectContent>

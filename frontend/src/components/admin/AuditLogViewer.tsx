@@ -148,6 +148,7 @@ export function AuditLogViewer() {
             </label>
             <Input
               type="date"
+              aria-label={t('audit.filters.from')}
               value={dateFrom}
               onChange={(e) => {
                 setDateFrom(e.target.value);
@@ -162,6 +163,7 @@ export function AuditLogViewer() {
             </label>
             <Input
               type="date"
+              aria-label={t('audit.filters.to')}
               value={dateTo}
               onChange={(e) => {
                 setDateTo(e.target.value);
