@@ -27,6 +27,7 @@ from app.modules.catalog.collections.service import (
     add_datasets_to_collection,
     batch_collection_dataset_counts,
     batch_collection_extents,
+    check_collection_ownership,
     create_collection,
     delete_collection,
     get_collection,
@@ -201,7 +202,14 @@ async def update_collection_endpoint(
     user: Identity = Depends(require_permission("manage_collections")),
     db: AsyncSession = Depends(get_db),
 ) -> CollectionResponse:
-    """Update a collection's name and/or description."""
+    """Update a collection's name and/or description. Owner or admin only."""
+    existing = await get_collection(db, collection_id)
+    if existing is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Collection not found",
+        )
+    await check_collection_ownership(db, existing, user)
     try:
         collection = await update_collection(
             db, collection_id, name=body.name, description=body.description
@@ -250,7 +258,14 @@ async def delete_collection_endpoint(
     user: Identity = Depends(require_permission("manage_collections")),
     db: AsyncSession = Depends(get_db),
 ) -> Response:
-    """Delete a collection. Admin only."""
+    """Delete a collection. Owner or admin only."""
+    existing = await get_collection(db, collection_id)
+    if existing is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Collection not found",
+        )
+    await check_collection_ownership(db, existing, user)
     try:
         name = await delete_collection(db, collection_id)
     except ValueError:
@@ -284,7 +299,15 @@ async def add_datasets_endpoint(
     user: Identity = Depends(require_permission("manage_collections")),
     db: AsyncSession = Depends(get_db),
 ) -> AddDatasetsResponse:
-    """Add datasets to a collection."""
+    """Add datasets to a collection. Collection owner or admin only."""
+    collection = await get_collection(db, collection_id)
+    if collection is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Collection not found",
+        )
+    await check_collection_ownership(db, collection, user)
+
     # GAP-014: authorize each dataset being LINKED at write time, mirroring the
     # FK-relationship create path (router_metadata.create_dataset_relationship)
     # and the VRT SEC-C link-time check. manage_collections gates the action but
@@ -340,7 +363,15 @@ async def remove_dataset_endpoint(
     user: Identity = Depends(require_permission("manage_collections")),
     db: AsyncSession = Depends(get_db),
 ) -> Response:
-    """Remove a dataset from a collection."""
+    """Remove a dataset from a collection. Collection owner or admin only."""
+    collection = await get_collection(db, collection_id)
+    if collection is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Collection not found",
+        )
+    await check_collection_ownership(db, collection, user)
+
     removed = await remove_dataset_from_collection(db, collection_id, dataset_id)
     if not removed:
         raise HTTPException(

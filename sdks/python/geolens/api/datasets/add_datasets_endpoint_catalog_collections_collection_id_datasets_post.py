@@ -104,7 +104,7 @@ def sync_detailed(
 ) -> Response[AddDatasetsResponse | ProblemDetail]:
     """Add Datasets Endpoint
 
-     Add datasets to a collection.
+     Add datasets to a collection. Collection owner or admin only.
 
     Args:
         collection_id (UUID):
@@ -138,7 +138,7 @@ def sync(
 ) -> AddDatasetsResponse | ProblemDetail | None:
     """Add Datasets Endpoint
 
-     Add datasets to a collection.
+     Add datasets to a collection. Collection owner or admin only.
 
     Args:
         collection_id (UUID):
@@ -167,7 +167,7 @@ async def asyncio_detailed(
 ) -> Response[AddDatasetsResponse | ProblemDetail]:
     """Add Datasets Endpoint
 
-     Add datasets to a collection.
+     Add datasets to a collection. Collection owner or admin only.
 
     Args:
         collection_id (UUID):
@@ -199,7 +199,7 @@ async def asyncio(
 ) -> AddDatasetsResponse | ProblemDetail | None:
     """Add Datasets Endpoint
 
-     Add datasets to a collection.
+     Add datasets to a collection. Collection owner or admin only.
 
     Args:
         collection_id (UUID):

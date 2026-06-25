@@ -19,12 +19,13 @@ Handles CRUD operations for collections and collection-dataset membership.
 import json
 import uuid
 
+from fastapi import HTTPException, status
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
 from app.core.identity import Identity
-from app.modules.catalog.authorization import apply_visibility_filter
+from app.modules.catalog.authorization import apply_visibility_filter, get_user_roles
 from app.modules.catalog.collections.models import Collection, CollectionDataset
 from app.modules.catalog.datasets.domain.models import Dataset, DatasetGrant, Record
 
@@ -104,6 +105,30 @@ async def get_collection(
         select(Collection).where(Collection.id == collection_id)
     )
     return result.scalar_one_or_none()
+
+
+async def check_collection_ownership(
+    session: AsyncSession,
+    collection: Collection,
+    user: Identity,
+) -> None:
+    """Verify the user owns the collection or is admin. Raises 403 otherwise.
+
+    Mutating a collection (rename, delete, add/remove member datasets) is
+    restricted to its creator (``created_by``) or a global admin. Reading and
+    listing collections stay open (collections are organizational). Collections
+    with no recorded owner (``created_by`` is NULL — seeded data or rows whose
+    owner was deleted) are admin-only.
+    """
+    if collection.created_by is not None and collection.created_by == user.id:
+        return
+    user_roles = await get_user_roles(session, user)
+    if "admin" in user_roles:
+        return
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Only the collection owner or an admin may modify this collection.",
+    )
 
 
 async def list_collections(

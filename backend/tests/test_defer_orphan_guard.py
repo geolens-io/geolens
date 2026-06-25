@@ -215,7 +215,7 @@ class TestReuploadOrphanGuard:
                     new=AsyncMock(return_value=mock_dataset),
                 ),
                 patch(
-                    "app.modules.catalog.datasets.api.router_reupload.check_dataset_access",
+                    "app.modules.catalog.datasets.api.router_reupload.check_dataset_write_access",
                     new=AsyncMock(),
                 ),
                 patch(
@@ -272,7 +272,7 @@ class TestReuploadOrphanGuard:
                     new=AsyncMock(return_value=mock_dataset),
                 ),
                 patch(
-                    "app.modules.catalog.datasets.api.router_reupload.check_dataset_access",
+                    "app.modules.catalog.datasets.api.router_reupload.check_dataset_write_access",
                     new=AsyncMock(),
                 ),
                 patch(
@@ -323,7 +323,7 @@ class TestReuploadOrphanGuard:
                     new=AsyncMock(return_value=mock_dataset),
                 ),
                 patch(
-                    "app.modules.catalog.datasets.api.router_reupload.check_dataset_access",
+                    "app.modules.catalog.datasets.api.router_reupload.check_dataset_write_access",
                     new=AsyncMock(),
                 ),
                 patch(
@@ -664,7 +664,7 @@ class TestDatasetsVrtOrphanGuard:
                     new=AsyncMock(return_value=mock_dataset),
                 ),
                 patch(
-                    "app.modules.catalog.datasets.api.router_vrt.check_dataset_access",
+                    "app.modules.catalog.datasets.api.router_vrt.check_dataset_write_access",
                     new=AsyncMock(),
                 ),
                 patch(

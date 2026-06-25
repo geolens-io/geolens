@@ -95,7 +95,7 @@ def sync_detailed(
 ) -> Response[Any | ProblemDetail]:
     """Remove Dataset Endpoint
 
-     Remove a dataset from a collection.
+     Remove a dataset from a collection. Collection owner or admin only.
 
     Args:
         collection_id (UUID):
@@ -129,7 +129,7 @@ def sync(
 ) -> Any | ProblemDetail | None:
     """Remove Dataset Endpoint
 
-     Remove a dataset from a collection.
+     Remove a dataset from a collection. Collection owner or admin only.
 
     Args:
         collection_id (UUID):
@@ -158,7 +158,7 @@ async def asyncio_detailed(
 ) -> Response[Any | ProblemDetail]:
     """Remove Dataset Endpoint
 
-     Remove a dataset from a collection.
+     Remove a dataset from a collection. Collection owner or admin only.
 
     Args:
         collection_id (UUID):
@@ -190,7 +190,7 @@ async def asyncio(
 ) -> Any | ProblemDetail | None:
     """Remove Dataset Endpoint
 
-     Remove a dataset from a collection.
+     Remove a dataset from a collection. Collection owner or admin only.
 
     Args:
         collection_id (UUID):

@@ -104,7 +104,7 @@ def sync_detailed(
 ) -> Response[CollectionResponse | ProblemDetail]:
     """Update Collection Endpoint
 
-     Update a collection's name and/or description.
+     Update a collection's name and/or description. Owner or admin only.
 
     Args:
         collection_id (UUID):
@@ -138,7 +138,7 @@ def sync(
 ) -> CollectionResponse | ProblemDetail | None:
     """Update Collection Endpoint
 
-     Update a collection's name and/or description.
+     Update a collection's name and/or description. Owner or admin only.
 
     Args:
         collection_id (UUID):
@@ -167,7 +167,7 @@ async def asyncio_detailed(
 ) -> Response[CollectionResponse | ProblemDetail]:
     """Update Collection Endpoint
 
-     Update a collection's name and/or description.
+     Update a collection's name and/or description. Owner or admin only.
 
     Args:
         collection_id (UUID):
@@ -199,7 +199,7 @@ async def asyncio(
 ) -> CollectionResponse | ProblemDetail | None:
     """Update Collection Endpoint
 
-     Update a collection's name and/or description.
+     Update a collection's name and/or description. Owner or admin only.
 
     Args:
         collection_id (UUID):

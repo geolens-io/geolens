@@ -199,14 +199,44 @@ class TestUpdateDeleteCollection:
         )
         assert resp.status_code == 404
 
-    async def test_delete_collection_as_editor_allowed(
+    async def test_delete_collection_as_non_owner_editor_forbidden(
         self, client: AsyncClient, admin_auth_header: dict, editor_auth_header: dict
     ):
-        """DELETE /catalog/collections/{id} as editor succeeds (manage_collections capability)."""
+        """A non-owner editor cannot delete a collection they did not create (403).
+
+        Only the collection's creator or a global admin may delete it; the
+        manage_collections capability alone is not ownership.
+        """
         resp = await client.post(
             "/catalog/collections/",
             json={"name": f"Editor Delete {uuid.uuid4().hex[:6]}"},
             headers=admin_auth_header,
+        )
+        assert resp.status_code == 201
+        coll_id = resp.json()["id"]
+
+        # Non-owner editor is forbidden.
+        resp = await client.delete(
+            f"/catalog/collections/{coll_id}",
+            headers=editor_auth_header,
+        )
+        assert resp.status_code == 403
+
+        # The admin owner can still delete it.
+        resp = await client.delete(
+            f"/catalog/collections/{coll_id}",
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 204
+
+    async def test_delete_collection_as_owner_editor_allowed(
+        self, client: AsyncClient, editor_auth_header: dict
+    ):
+        """An editor may delete a collection they created (owner)."""
+        resp = await client.post(
+            "/catalog/collections/",
+            json={"name": f"My Own {uuid.uuid4().hex[:6]}"},
+            headers=editor_auth_header,
         )
         assert resp.status_code == 201
         coll_id = resp.json()["id"]
@@ -216,6 +246,25 @@ class TestUpdateDeleteCollection:
             headers=editor_auth_header,
         )
         assert resp.status_code == 204
+
+    async def test_update_collection_as_non_owner_editor_forbidden(
+        self, client: AsyncClient, admin_auth_header: dict, editor_auth_header: dict
+    ):
+        """A non-owner editor cannot rename a collection they did not create (403)."""
+        resp = await client.post(
+            "/catalog/collections/",
+            json={"name": f"Admin Owned {uuid.uuid4().hex[:6]}"},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 201
+        coll_id = resp.json()["id"]
+
+        resp = await client.patch(
+            f"/catalog/collections/{coll_id}",
+            json={"name": "Hijacked"},
+            headers=editor_auth_header,
+        )
+        assert resp.status_code == 403
 
 
 # ---------------------------------------------------------------------------

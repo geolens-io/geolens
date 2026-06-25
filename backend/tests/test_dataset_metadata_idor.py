@@ -315,3 +315,151 @@ async def test_set_target_status_other_user_private_returns_404(
         headers=editor_b_headers,
     )
     assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Owner-or-admin: PUBLIC+PUBLISHED datasets (the reported "unpublish a dataset
+# you did not publish" bug — visibility check alone let any editor through).
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_patch_dataset_other_user_public_returns_403(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+):
+    """Editor B cannot edit metadata of editor A's PUBLIC dataset (owner-or-admin)."""
+    session = test_db_session
+
+    _editor_a_headers, editor_a_id_str = await _create_test_user(
+        client, admin_auth_header, "editor"
+    )
+    editor_b_headers, _ = await _create_test_user(client, admin_auth_header, "editor")
+
+    public_ds = await create_dataset(
+        session,
+        created_by=uuid.UUID(editor_a_id_str),
+        name="A public dataset metadata",
+    )
+
+    resp = await client.patch(
+        f"/datasets/{public_ds.id}",
+        json={"title": "hijacked title"},
+        headers=editor_b_headers,
+    )
+    assert resp.status_code == 403
+
+
+@pytest.mark.anyio
+async def test_patch_dataset_owner_public_returns_200(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+):
+    """Owner can edit metadata of their own PUBLIC dataset (no over-restriction)."""
+    session = test_db_session
+
+    editor_a_headers, editor_a_id_str = await _create_test_user(
+        client, admin_auth_header, "editor"
+    )
+
+    public_ds = await create_dataset(
+        session,
+        created_by=uuid.UUID(editor_a_id_str),
+        name="Owner public dataset metadata",
+    )
+
+    resp = await client.patch(
+        f"/datasets/{public_ds.id}",
+        json={"title": "Updated by owner"},
+        headers=editor_a_headers,
+    )
+    assert resp.status_code == 200
+
+
+@pytest.mark.anyio
+async def test_unpublish_other_user_public_returns_403(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+):
+    """THE REPORTED BUG: editor B cannot unpublish editor A's published public dataset.
+
+    create_dataset defaults to public + published; published->internal is a
+    valid transition, so before the owner-or-admin gate any editor could
+    unpublish a dataset they did not publish.
+    """
+    session = test_db_session
+
+    _editor_a_headers, editor_a_id_str = await _create_test_user(
+        client, admin_auth_header, "editor"
+    )
+    editor_b_headers, _ = await _create_test_user(client, admin_auth_header, "editor")
+
+    published = await create_dataset(
+        session,
+        created_by=uuid.UUID(editor_a_id_str),
+        name="A published public dataset",
+    )
+
+    resp = await client.patch(
+        f"/datasets/{published.id}/status/",
+        json={"status": "internal"},
+        headers=editor_b_headers,
+    )
+    assert resp.status_code == 403
+
+
+@pytest.mark.anyio
+async def test_unpublish_owner_public_returns_200(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+):
+    """Owner can unpublish their own published dataset (no over-restriction)."""
+    session = test_db_session
+
+    editor_a_headers, editor_a_id_str = await _create_test_user(
+        client, admin_auth_header, "editor"
+    )
+
+    published = await create_dataset(
+        session,
+        created_by=uuid.UUID(editor_a_id_str),
+        name="Owner published dataset",
+    )
+
+    resp = await client.patch(
+        f"/datasets/{published.id}/status/",
+        json={"status": "internal"},
+        headers=editor_a_headers,
+    )
+    assert resp.status_code == 200
+
+
+@pytest.mark.anyio
+async def test_unpublish_admin_returns_200(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+):
+    """Admin can unpublish any user's published dataset (admin override preserved)."""
+    session = test_db_session
+
+    _editor_a_headers, editor_a_id_str = await _create_test_user(
+        client, admin_auth_header, "editor"
+    )
+
+    published = await create_dataset(
+        session,
+        created_by=uuid.UUID(editor_a_id_str),
+        name="Admin unpublishes other dataset",
+    )
+
+    resp = await client.patch(
+        f"/datasets/{published.id}/status/",
+        json={"status": "internal"},
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 200

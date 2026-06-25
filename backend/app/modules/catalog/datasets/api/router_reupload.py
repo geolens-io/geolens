@@ -19,7 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.identity import Identity
 from app.modules.auth.dependencies import require_permission
-from app.modules.catalog.authorization import check_dataset_access
+from app.modules.catalog.authorization import check_dataset_write_access
 from app.core.config import settings
 from app.core.db.tenant_session import defer_async_with_tenant
 from app.modules.catalog.datasets.domain.schemas import (
@@ -156,7 +156,7 @@ async def reupload_dataset(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Dataset not found",
         )
-    await check_dataset_access(db, dataset, dataset_id, user)
+    await check_dataset_write_access(db, dataset, dataset_id, user)
 
     _assert_compatible_record_type(dataset, file.filename)
 
@@ -237,7 +237,7 @@ async def reupload_service_preview(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Dataset not found",
         )
-    await check_dataset_access(db, dataset, dataset_id, user)
+    await check_dataset_write_access(db, dataset, dataset_id, user)
 
     # IA-P1-02: surface cross-record-type swaps as a useful 400 before the
     # pipeline executes (vector→raster or any→VRT explodes deep otherwise).
@@ -349,7 +349,7 @@ async def reupload_preview(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Dataset not found",
         )
-    await check_dataset_access(db, dataset, dataset_id, user)
+    await check_dataset_write_access(db, dataset, dataset_id, user)
 
     result = await db.execute(select(IngestJob).where(IngestJob.id == job_id))
     job = result.scalar_one_or_none()
@@ -472,7 +472,7 @@ async def reupload_commit(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Dataset not found",
         )
-    await check_dataset_access(db, dataset, dataset_id, user)
+    await check_dataset_write_access(db, dataset, dataset_id, user)
 
     result = await db.execute(select(IngestJob).where(IngestJob.id == job_id))
     job = result.scalar_one_or_none()
@@ -624,7 +624,7 @@ async def request_presigned_reupload(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Dataset not found",
         )
-    await check_dataset_access(db, dataset, dataset_id, user)
+    await check_dataset_write_access(db, dataset, dataset_id, user)
 
     _assert_compatible_record_type(dataset, request.filename)
 
@@ -739,7 +739,7 @@ async def complete_presigned_reupload(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Dataset not found",
         )
-    await check_dataset_access(db, dataset, dataset_id, user)
+    await check_dataset_write_access(db, dataset, dataset_id, user)
 
     job = await get_catalog_port().get_ingest_job_or_404(db, job_id, user)
     um = job.user_metadata or {}

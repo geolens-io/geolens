@@ -92,7 +92,7 @@ def sync_detailed(
 ) -> Response[Any | ProblemDetail]:
     """Delete Collection Endpoint
 
-     Delete a collection. Admin only.
+     Delete a collection. Owner or admin only.
 
     Args:
         collection_id (UUID):
@@ -123,7 +123,7 @@ def sync(
 ) -> Any | ProblemDetail | None:
     """Delete Collection Endpoint
 
-     Delete a collection. Admin only.
+     Delete a collection. Owner or admin only.
 
     Args:
         collection_id (UUID):
@@ -149,7 +149,7 @@ async def asyncio_detailed(
 ) -> Response[Any | ProblemDetail]:
     """Delete Collection Endpoint
 
-     Delete a collection. Admin only.
+     Delete a collection. Owner or admin only.
 
     Args:
         collection_id (UUID):
@@ -178,7 +178,7 @@ async def asyncio(
 ) -> Any | ProblemDetail | None:
     """Delete Collection Endpoint
 
-     Delete a collection. Admin only.
+     Delete a collection. Owner or admin only.
 
     Args:
         collection_id (UUID):

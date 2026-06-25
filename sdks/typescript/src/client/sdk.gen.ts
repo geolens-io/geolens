@@ -787,7 +787,7 @@ export const createCollectionEndpointCatalogCollectionsPost = <ThrowOnError exte
 /**
  * Delete Collection Endpoint
  *
- * Delete a collection. Admin only.
+ * Delete a collection. Owner or admin only.
  */
 export const deleteCollectionEndpointCatalogCollectionsCollectionIdDelete = <ThrowOnError extends boolean = false>(options: Options<DeleteCollectionEndpointCatalogCollectionsCollectionIdDeleteData, ThrowOnError>) => (options.client ?? client).delete<DeleteCollectionEndpointCatalogCollectionsCollectionIdDeleteResponses, DeleteCollectionEndpointCatalogCollectionsCollectionIdDeleteErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }],
@@ -809,7 +809,7 @@ export const getCollectionEndpointCatalogCollectionsCollectionIdGet = <ThrowOnEr
 /**
  * Update Collection Endpoint
  *
- * Update a collection's name and/or description.
+ * Update a collection's name and/or description. Owner or admin only.
  */
 export const updateCollectionEndpointCatalogCollectionsCollectionIdPatch = <ThrowOnError extends boolean = false>(options: Options<UpdateCollectionEndpointCatalogCollectionsCollectionIdPatchData, ThrowOnError>) => (options.client ?? client).patch<UpdateCollectionEndpointCatalogCollectionsCollectionIdPatchResponses, UpdateCollectionEndpointCatalogCollectionsCollectionIdPatchErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }],
@@ -835,7 +835,7 @@ export const getCollectionDatasetsEndpointCatalogCollectionsCollectionIdDatasets
 /**
  * Add Datasets Endpoint
  *
- * Add datasets to a collection.
+ * Add datasets to a collection. Collection owner or admin only.
  */
 export const addDatasetsEndpointCatalogCollectionsCollectionIdDatasetsPost = <ThrowOnError extends boolean = false>(options: Options<AddDatasetsEndpointCatalogCollectionsCollectionIdDatasetsPostData, ThrowOnError>) => (options.client ?? client).post<AddDatasetsEndpointCatalogCollectionsCollectionIdDatasetsPostResponses, AddDatasetsEndpointCatalogCollectionsCollectionIdDatasetsPostErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }],
@@ -850,7 +850,7 @@ export const addDatasetsEndpointCatalogCollectionsCollectionIdDatasetsPost = <Th
 /**
  * Remove Dataset Endpoint
  *
- * Remove a dataset from a collection.
+ * Remove a dataset from a collection. Collection owner or admin only.
  */
 export const removeDatasetEndpointCatalogCollectionsCollectionIdDatasetsDatasetIdDelete = <ThrowOnError extends boolean = false>(options: Options<RemoveDatasetEndpointCatalogCollectionsCollectionIdDatasetsDatasetIdDeleteData, ThrowOnError>) => (options.client ?? client).delete<RemoveDatasetEndpointCatalogCollectionsCollectionIdDatasetsDatasetIdDeleteResponses, RemoveDatasetEndpointCatalogCollectionsCollectionIdDatasetsDatasetIdDeleteErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }],

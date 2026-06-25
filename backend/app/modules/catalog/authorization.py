@@ -133,3 +133,40 @@ async def check_dataset_access(
         )
 
     return user_roles
+
+
+async def check_dataset_write_access(
+    db: AsyncSession,
+    dataset: Any,
+    dataset_id: uuid.UUID,
+    user: Identity,
+    *,
+    user_roles: set[str] | None = None,
+) -> set[str]:
+    """Enforce owner-or-admin for dataset MUTATIONS. Raises 404/403.
+
+    ``check_dataset_access`` is a VISIBILITY check: it lets any authenticated
+    user through on a public+published dataset, so it must not gate writes.
+    Mutating a dataset (edit metadata, publish/unpublish, change visibility,
+    reupload, delete, attributes, relationships, VRT regenerate) requires the
+    caller to be the dataset's creator (``record.created_by``) or a global admin.
+
+    Applies the visibility check first (404, so we don't leak datasets the user
+    cannot even see), then the ownership check (403). Datasets with no recorded
+    owner (``record.created_by`` is NULL — e.g. seeded/imported data, or rows
+    whose owner was deleted) are admin-only.
+
+    Returns the resolved ``user_roles`` set so callers can reuse it downstream.
+    """
+    user_roles = await check_dataset_access(
+        db, dataset, dataset_id, user, user_roles=user_roles
+    )
+    created_by = dataset.record.created_by
+    if created_by is not None and created_by == user.id:
+        return user_roles
+    if "admin" in user_roles:
+        return user_roles
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Only the dataset owner or an admin may modify this dataset.",
+    )

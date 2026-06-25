@@ -16,7 +16,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.identity import Identity
 from app.modules.auth.dependencies import get_current_active_user
-from app.modules.catalog.authorization import check_dataset_access
+from app.modules.catalog.authorization import (
+    check_dataset_access,
+    check_dataset_write_access,
+)
 from app.modules.catalog.datasets.domain.schemas import (
     VrtActiveGeneration,
     VrtGenerationItem,
@@ -328,7 +331,9 @@ async def regenerate_vrt_endpoint(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found"
         )
-    await check_dataset_access(db, dataset, dataset_id, user)
+    # Owner-or-admin: regenerating the VRT mutates asset status and enqueues
+    # work; previously any authenticated user could trigger it on a peer's raster.
+    await check_dataset_write_access(db, dataset, dataset_id, user)
 
     # Load VRT RasterAsset
     asset_result = await db.execute(

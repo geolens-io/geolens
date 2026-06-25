@@ -23,8 +23,8 @@ from app.modules.auth.dependencies import (
     require_permission,
 )
 from app.modules.catalog.authorization import (
-    check_dataset_access,
     check_dataset_access_or_anonymous,
+    check_dataset_write_access,
     get_user_roles,
 )
 from app.modules.catalog.datasets.domain.helpers import (
@@ -275,14 +275,16 @@ async def update_dataset_metadata(
     db: AsyncSession = Depends(get_db),
 ) -> DatasetResponse:
     """Update user-editable dataset metadata."""
-    # Phase 1061 SEC-S02: resource-level access check (role gate alone is insufficient).
+    # Owner-or-admin: editing metadata (incl. visibility/publication) is a
+    # mutation; the role gate + visibility check alone let any editor edit a
+    # peer's public dataset.
     dataset = await get_dataset(db, dataset_id)
     if dataset is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Dataset not found",
         )
-    await check_dataset_access(db, dataset, dataset_id, user)
+    await check_dataset_write_access(db, dataset, dataset_id, user)
 
     try:
         dataset = await update_user_metadata(
@@ -366,9 +368,11 @@ async def bulk_delete_datasets_endpoint(
                 )
                 continue
             try:
-                await check_dataset_access(db, item_dataset, item.dataset_id, user)
+                await check_dataset_write_access(
+                    db, item_dataset, item.dataset_id, user
+                )
             except HTTPException as exc:
-                # check_dataset_access raises 404 on access denial — surface as per-item error
+                # write-access raises 404 (not visible) / 403 (not owner) — surface per-item
                 results.append(
                     BulkDeleteResultItem(
                         dataset_id=item.dataset_id,
@@ -429,25 +433,14 @@ async def delete_dataset_endpoint(
     db: AsyncSession = Depends(get_db),
 ) -> Response:
     """Delete a dataset with cascade cleanup. Owner or admin only, requires confirm_title."""
-    # Phase 1061 SEC-S02: resource-level access check.
+    # Owner-or-admin: destructive op restricted to the dataset's creator or admin.
     dataset = await get_dataset(db, dataset_id)
     if dataset is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Dataset not found",
         )
-    await check_dataset_access(db, dataset, dataset_id, user)
-
-    # Phase 1061 SEC-S02: even for public datasets, only owner or admin may delete.
-    # check_dataset_access enforces ownership for private; widen to public for destructive ops.
-    user_roles = await get_user_roles(db, user)
-    is_admin = "admin" in user_roles
-    is_owner = dataset.record.created_by == user.id
-    if not (is_admin or is_owner):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only the dataset owner or an admin may delete this dataset.",
-        )
+    await check_dataset_write_access(db, dataset, dataset_id, user)
 
     try:
         table_name = await delete_dataset(db, dataset_id, body.confirm_title)
