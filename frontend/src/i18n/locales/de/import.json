@@ -92,6 +92,7 @@
     }
   },
   "dropzone": {
+    "ariaLabel": "Dateien hochladen",
     "instructions": "Dateien hierher ziehen oder klicken zum Durchsuchen",
     "dropHere": "Dateien hier ablegen",
     "unsupportedType": "Dieser Dateityp wird nicht unterstützt",

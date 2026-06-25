@@ -96,7 +96,7 @@ export function SettingsPage() {
                   void changeAppLanguage(lng);
                 }}
               >
-                <SelectTrigger className="w-48">
+                <SelectTrigger className="w-48" aria-label={t('settings.language.title')}>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>

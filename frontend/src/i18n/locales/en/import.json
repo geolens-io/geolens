@@ -103,6 +103,7 @@
     "importMore": "Import more"
   },
   "dropzone": {
+    "ariaLabel": "Upload files",
     "instructions": "Drag and drop files here, or click to browse",
     "browse": "browse",
     "toUpload": "to upload",

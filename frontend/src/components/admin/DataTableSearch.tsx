@@ -60,6 +60,7 @@ export function DataTableSearch({ value, onChange, placeholder, debounceMs }: Da
         <button
           type="button"
           onClick={handleClear}
+          aria-label={t('clearSearch')}
           className="absolute end-2 top-1/2 -translate-y-1/2 rounded-sm p-0.5 text-muted-foreground hover:text-foreground"
         >
           <X className="h-3.5 w-3.5" />

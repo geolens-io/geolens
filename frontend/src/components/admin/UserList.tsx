@@ -156,6 +156,7 @@ export function UserList() {
               />
               <FilterSelect
                 label=""
+                ariaLabel={t('users.table.status')}
                 value={statusFilter}
                 onChange={(v) => { setStatusFilter(v); setPage(0); }}
                 options={STATUS_OPTIONS.map((opt) => ({ value: opt.value, label: t(opt.labelKey) }))}

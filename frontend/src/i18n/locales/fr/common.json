@@ -1,5 +1,6 @@
 {
   "appName": "GeoLens",
+  "clearSearch": "Effacer la recherche",
   "loading": "Chargement...",
   "error": "Erreur",
   "save": "Enregistrer",

@@ -92,6 +92,7 @@
     }
   },
   "dropzone": {
+    "ariaLabel": "Subir archivos",
     "instructions": "Arrastre y suelte archivos aquí, o haga clic para explorar",
     "dropHere": "Suelte los archivos aquí",
     "unsupportedType": "Este tipo de archivo no es compatible",

@@ -314,9 +314,14 @@ function SidebarRail({
   )
 }
 
-function SidebarInset({ className, ...props }: React.ComponentProps<"main">) {
+function SidebarInset({ className, ...props }: React.ComponentProps<"div">) {
   return (
-    <main
+    // a11y: the app shell already provides the single top-level
+    // <main id="main-content"> (AppLayout). Rendering this inset as <main> too
+    // produced two nested <main> landmarks on every /admin/* route
+    // (axe landmark-no-duplicate-main / landmark-main-is-top-level /
+    // landmark-unique). Keep it a plain <div>; data-slot still drives styling.
+    <div
       data-slot="sidebar-inset"
       className={cn(
         "bg-background relative flex w-full flex-1 flex-col",

@@ -92,6 +92,7 @@
     }
   },
   "dropzone": {
+    "ariaLabel": "Téléverser des fichiers",
     "instructions": "Glissez-déposez des fichiers ici, ou cliquez pour parcourir",
     "dropHere": "Déposez les fichiers ici",
     "unsupportedType": "Ce type de fichier n'est pas pris en charge",
