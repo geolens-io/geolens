@@ -15,6 +15,9 @@ interface FilterSelectProps {
   onChange: (value: string) => void;
   options: readonly { value: string; label: string }[];
   className?: string;
+  /** Accessible name for the trigger when `label` is intentionally empty
+   *  (e.g. a layout that hides the visible label). Must be already localized. */
+  ariaLabel?: string;
 }
 
 /**
@@ -22,7 +25,7 @@ interface FilterSelectProps {
  * Converts empty-string values to a sentinel internally since Radix
  * Select does not support empty string values.
  */
-export function FilterSelect({ label, value, onChange, options, className }: FilterSelectProps) {
+export function FilterSelect({ label, value, onChange, options, className, ariaLabel }: FilterSelectProps) {
   const labelId = useId();
   return (
     <div className={className}>
@@ -36,12 +39,12 @@ export function FilterSelect({ label, value, onChange, options, className }: Fil
         onValueChange={(v) => onChange(v === ALL_VALUE ? '' : v)}
       >
         {/* a11y: associate the visible label with the combobox trigger so it has
-            an accessible name (WCAG 4.1.2). Falls back to aria-label if a caller
-            ever omits a visible label. */}
+            an accessible name (WCAG 4.1.2). When a caller intentionally omits the
+            visible label, fall back to the localized `ariaLabel`. */}
         <SelectTrigger
           className="h-8 w-auto min-w-[140px]"
           aria-labelledby={label ? labelId : undefined}
-          aria-label={label ? undefined : 'Filter'}
+          aria-label={label ? undefined : ariaLabel}
         >
           <SelectValue />
         </SelectTrigger>
