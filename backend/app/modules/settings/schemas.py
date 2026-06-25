@@ -427,6 +427,11 @@ def validate_enabled_plugins(v: Any) -> list[str] | None:
 def _validate_bounded_int(v: Any, name: str, min_val: int, max_val: int) -> int:
     if isinstance(v, bool):
         raise ValueError(f"{name} must be an integer")
+    if isinstance(v, float) and not v.is_integer():
+        # Reject fractional numbers up front; int(0.5) would otherwise truncate to
+        # 0 and pass the range check. For quotas 0 means "unlimited", so a typo'd
+        # 0.5 would silently disable the cap instead of returning 422.
+        raise ValueError(f"{name} must be an integer")
     try:
         result = int(v)
     except (ValueError, TypeError):

@@ -247,6 +247,21 @@ async def test_put_settings_rejects_negative_quota(
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("key", ["max_storage_bytes_per_user", "max_datasets_per_user"])
+async def test_put_settings_rejects_fractional_quota(
+    client: AsyncClient, admin_auth_header: dict, key: str
+):
+    """Fractional per-user quotas are rejected with 422. Without the guard,
+    int(0.5) truncates to 0 (= unlimited) and silently disables the cap."""
+    resp = await client.put(
+        "/settings/",
+        json={"settings": {key: 0.5}},
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 422
+
+
+@pytest.mark.anyio
 async def test_put_settings_accepts_valid_quota(
     client: AsyncClient, admin_auth_header: dict
 ):
