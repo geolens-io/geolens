@@ -24,18 +24,17 @@ from tests.factories import create_dataset, get_user_id
 async def test_metadata_edit_creates_audit_log(
     client: AsyncClient,
     admin_auth_header: dict,
-    editor_auth_header: dict,
     test_db_session,
 ):
     """PATCH /datasets/{id} creates a metadata.edit audit log entry."""
     admin_id = await get_user_id(test_db_session, "admin")
     ds = await create_dataset(test_db_session, created_by=admin_id)
 
-    # Editor edits the dataset metadata
+    # The owner (admin) edits the dataset metadata
     patch_resp = await client.patch(
         f"/datasets/{ds.id}",
-        json={"summary": "updated by editor"},
-        headers=editor_auth_header,
+        json={"summary": "updated by owner"},
+        headers=admin_auth_header,
     )
     assert patch_resp.status_code == 200
 

@@ -24,6 +24,7 @@ from app.modules.auth.dependencies import (
 from app.modules.catalog.authorization import (
     check_dataset_access,
     check_dataset_access_or_anonymous,
+    check_dataset_write_access,
 )
 from app.modules.catalog.datasets.domain.schemas import (
     AttributeMetadataListResponse,
@@ -155,7 +156,7 @@ async def update_attribute_endpoint(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found"
         )
-    await check_dataset_access(db, dataset, dataset_id, user)
+    await check_dataset_write_access(db, dataset, dataset_id, user)
     from app.modules.catalog.datasets.domain.service import (
         get_attribute as get_attr_svc,
     )
@@ -211,7 +212,7 @@ async def reset_attribute_endpoint(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found"
         )
-    await check_dataset_access(db, dataset, dataset_id, user)
+    await check_dataset_write_access(db, dataset, dataset_id, user)
     from app.modules.catalog.datasets.domain.service import (
         get_attribute as get_attr_svc,
     )
@@ -418,7 +419,9 @@ async def create_dataset_relationship(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found"
         )
-    user_roles = await check_dataset_access(db, dataset, dataset_id, current_user)
+    # Owner-or-admin of the SOURCE dataset: the relationship is attached to it.
+    # The target only needs to be readable (visibility check below).
+    user_roles = await check_dataset_write_access(db, dataset, dataset_id, current_user)
 
     from app.modules.catalog.datasets.domain.models import Dataset
 
@@ -482,7 +485,9 @@ async def delete_dataset_relationship(
             status_code=status.HTTP_404_NOT_FOUND, detail="Relationship not found"
         )
     _rel, source_dataset, target_dataset = relationship
-    user_roles = await check_dataset_access(
+    # Owner-or-admin of the SOURCE dataset (the relationship belongs to it);
+    # the target only needs to remain readable.
+    user_roles = await check_dataset_write_access(
         db, source_dataset, source_dataset.id, current_user
     )
     await check_dataset_access(

@@ -14,6 +14,7 @@ import { useDraftEditing } from '@/components/dataset/hooks/use-draft-editing';
 import { useFeatureGid } from '@/components/dataset/hooks/use-feature-gid';
 import { useHeroState } from '@/components/dataset/hooks/use-hero-state';
 import { useFeatureFlags } from '@/hooks/use-settings';
+import { useCanMutate } from '@/hooks/use-can-mutate';
 import { useAuthStore } from '@/stores/auth-store';
 import { useDrawingStore } from '@/stores/drawing-store';
 import { DatasetDeleteDialog } from '@/components/dataset/DatasetDeleteDialog';
@@ -180,9 +181,12 @@ export function DatasetPage() {
 
   const [isDataTabExpanded, setIsDataTabExpanded] = useState(false);
   const toggleDataTabExpand = useCallback(() => setIsDataTabExpanded((prev) => !prev), []);
-  const isAdmin = useAuthStore((s) => s.isAdmin());
   const isEditor = useAuthStore((s) => s.isEditor());
-  const capabilities = useDatasetEditCapabilities();
+  // Owner-or-admin: mutating this dataset requires the editor capability AND
+  // ownership (or admin), mirroring the backend check_dataset_write_access.
+  const canMutate = useCanMutate(dataset);
+  const canEdit = isEditor && canMutate;
+  const capabilities = useDatasetEditCapabilities(undefined, canEdit);
   const isDrawing = useDrawingStore((s) => s.isDrawing);
   const isGeometryEditDirty = useDrawingStore((s) => s.isEditDirty);
   useDocumentTitle(dataset?.title ?? t('common:pageTitle.dataset'));
@@ -331,7 +335,7 @@ export function DatasetPage() {
 
   // Gate geometry drawing and attribute cell editing behind the feature flag.
   // Metadata editing (overview/metadata tabs) and management actions remain ungated.
-  const canEditData = isEditor && dataEditingEnabled;
+  const canEditData = canEdit && dataEditingEnabled;
 
   const handlePublishToggle = async () => {
     if (!id) return;
@@ -384,7 +388,7 @@ export function DatasetPage() {
       icon: isPublished ? GlobeLock : Globe,
       onSelect: handlePublishToggle,
       priority: 5,
-      visible: isEditor,
+      visible: canEdit,
       disabled: setTargetStatus.isPending,
     },
     {
@@ -394,7 +398,7 @@ export function DatasetPage() {
       icon: Upload,
       onSelect: () => setActiveDialog('reupload'),
       priority: 10,
-      visible: isEditor && !isVrt,
+      visible: canEdit && !isVrt,
       variant: 'outline',
     },
     {
@@ -404,6 +408,9 @@ export function DatasetPage() {
       icon: Layers,
       onSelect: () => setActiveDialog('vrt'),
       priority: 11,
+      // Creating a VRT makes a NEW dataset from this raster; it does not mutate
+      // the source, so it needs read + upload capability (isEditor), not source
+      // ownership. Backend /vrt/create authorizes the source via check_dataset_access.
       visible: isRaster && isEditor,
     },
     {
@@ -413,7 +420,7 @@ export function DatasetPage() {
       icon: Trash2,
       onSelect: () => setActiveDialog('delete'),
       priority: 20,
-      visible: isAdmin,
+      visible: canEdit,
       variant: 'destructive',
     },
   ];
@@ -423,7 +430,7 @@ export function DatasetPage() {
       <DatasetDetailHeader
         title={dataset.title}
         onTitleSave={handleSaveName}
-        canEditTitle={isEditor}
+        canEditTitle={canEdit}
         breadcrumbs={[{ label: t('breadcrumbs.datasets'), to: '/' }]}
         actions={headerActions}
         statsLine={statsLine}
@@ -526,7 +533,7 @@ export function DatasetPage() {
       <Suspense fallback={<DatasetDetailSkeleton isTable={isTable} />}>
         <DetailPanel
           dataset={dataset}
-          canEdit={isEditor}
+          canEdit={canEdit}
           canEditData={canEditData}
           capabilities={capabilities}
           activeTab={activeTab}
@@ -553,7 +560,7 @@ export function DatasetPage() {
       />
 
       {/* Dialogs */}
-      {isAdmin && (
+      {canEdit && (
         <DatasetDeleteDialog
           dataset={dataset}
           open={activeDialog === 'delete'}
@@ -561,7 +568,7 @@ export function DatasetPage() {
         />
       )}
 
-      {isEditor && !isVrt && (
+      {canEdit && !isVrt && (
         <Suspense fallback={null}>
           <ReuploadDialog
             dataset={dataset}

@@ -1031,17 +1031,22 @@ async def add_vrt_source(
     # duplicate-link check so a foreign source 404s rather than leaking a 409.
     from app.modules.catalog.authorization import (
         check_dataset_access,
+        check_dataset_write_access,
         get_user_roles,
     )
     from app.modules.catalog.datasets.domain.service import get_dataset
 
     user_roles = await get_user_roles(db, user)
     source_dataset = await get_dataset(db, request.source_dataset_id)
+    # The source only needs to be readable by the caller (it is being linked, not
+    # modified); the VRT itself is being mutated, so it requires owner-or-admin.
     await check_dataset_access(
         db, source_dataset, request.source_dataset_id, user, user_roles=user_roles
     )
     vrt_dataset = await get_dataset(db, dataset_id)
-    await check_dataset_access(db, vrt_dataset, dataset_id, user, user_roles=user_roles)
+    await check_dataset_write_access(
+        db, vrt_dataset, dataset_id, user, user_roles=user_roles
+    )
 
     # 4. Check for duplicate link
     dup_result = await db.execute(
@@ -1209,6 +1214,14 @@ async def remove_vrt_source(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"VRT dataset {dataset_id} not found",
         )
+
+    # Owner-or-admin: removing a source mutates the VRT composition. The
+    # `upload` capability alone is not ownership.
+    from app.modules.catalog.authorization import check_dataset_write_access
+    from app.modules.catalog.datasets.domain.service import get_dataset
+
+    vrt_dataset = await get_dataset(db, dataset_id)
+    await check_dataset_write_access(db, vrt_dataset, dataset_id, user)
 
     # 2. Mutation serialization guard (SRC-05)
     if vrt_asset.status == "regenerating":

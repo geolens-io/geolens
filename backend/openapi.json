@@ -22015,7 +22015,7 @@
     },
     "/catalog/collections/{collection_id}": {
       "delete": {
-        "description": "Delete a collection. Admin only.",
+        "description": "Delete a collection. Owner or admin only.",
         "operationId": "delete_collection_endpoint_catalog_collections__collection_id__delete",
         "parameters": [
           {
@@ -22236,7 +22236,7 @@
         ]
       },
       "patch": {
-        "description": "Update a collection's name and/or description.",
+        "description": "Update a collection's name and/or description. Owner or admin only.",
         "operationId": "update_collection_endpoint_catalog_collections__collection_id__patch",
         "parameters": [
           {
@@ -22499,7 +22499,7 @@
         ]
       },
       "post": {
-        "description": "Add datasets to a collection.",
+        "description": "Add datasets to a collection. Collection owner or admin only.",
         "operationId": "add_datasets_endpoint_catalog_collections__collection_id__datasets__post",
         "parameters": [
           {
@@ -22625,7 +22625,7 @@
     },
     "/catalog/collections/{collection_id}/datasets/{dataset_id}": {
       "delete": {
-        "description": "Remove a dataset from a collection.",
+        "description": "Remove a dataset from a collection. Collection owner or admin only.",
         "operationId": "remove_dataset_endpoint_catalog_collections__collection_id__datasets__dataset_id__delete",
         "parameters": [
           {

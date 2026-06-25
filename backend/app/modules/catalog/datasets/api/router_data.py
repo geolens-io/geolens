@@ -21,8 +21,8 @@ from app.modules.auth.dependencies import (
     require_permission,
 )
 from app.modules.catalog.authorization import (
-    check_dataset_access,
     check_dataset_access_or_anonymous,
+    check_dataset_write_access,
 )
 from app.modules.catalog.datasets.domain.models import Dataset as DatasetModel
 from app.modules.catalog.datasets.domain.schemas import (
@@ -170,6 +170,18 @@ async def validate_dataset(
         )
     await check_dataset_access_or_anonymous(db, dataset, dataset_id, user)
 
+    # The explicit ?refresh=true path recomputes and PERSISTS a fresh quality
+    # score (an expensive write) — restrict it to the dataset owner or an admin.
+    # The implicit first-read populate (quality_detail is None) stays open so
+    # ordinary/anonymous readers still get a score lazily.
+    if refresh:
+        if user is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Authentication required to refresh validation.",
+            )
+        await check_dataset_write_access(db, dataset, dataset_id, user)
+
     validation = await run_validation(db, dataset.record, dataset)
 
     if refresh or dataset.quality_detail is None:
@@ -270,10 +282,10 @@ async def update_publication_status(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found"
         )
-    # Phase 1061 CR-01: resource-level access check (SEC-S02 pattern).
-    # require_permission("edit_metadata") is role-level only; any editor
-    # could otherwise promote another user's private dataset to published.
-    await check_dataset_access(db, dataset, dataset_id, user)
+    # Owner-or-admin: publish/unpublish is a mutation. The role gate +
+    # visibility check let any editor change the status of a peer's public
+    # dataset (e.g. unpublish a dataset they did not publish).
+    await check_dataset_write_access(db, dataset, dataset_id, user)
 
     current = dataset.record.record_status
     target = body.status
@@ -325,11 +337,10 @@ async def set_target_status(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found"
         )
-    # Phase 1061 CR-01: resource-level access check (SEC-S02 pattern).
-    # require_permission("edit_metadata") is role-level only; any editor
-    # could otherwise walk another user's private dataset through the full
-    # draft→ready→internal→published chain without ownership check.
-    await check_dataset_access(db, dataset, dataset_id, user)
+    # Owner-or-admin: walking the publication chain is a mutation. The role
+    # gate + visibility check let any editor publish/unpublish a peer's public
+    # dataset through the full draft→ready→internal→published chain.
+    await check_dataset_write_access(db, dataset, dataset_id, user)
 
     current = dataset.record.record_status
     target = body.status

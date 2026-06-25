@@ -100,8 +100,15 @@ export function buildDatasetEditCapabilities({
 
 export function useDatasetEditCapabilities(
   helperOverrides?: Partial<Record<DatasetEditField, string>>,
+  /**
+   * When provided, overrides the role-only check so field editability also
+   * respects ownership (owner-or-admin). Pass `isEditor && canMutate(dataset)`.
+   * Falls back to the store's role check for callers that don't have a resource.
+   */
+  canEdit?: boolean,
 ) {
-  const isEditor = useAuthStore((state) => state.isEditor());
+  const isEditorRole = useAuthStore((state) => state.isEditor());
+  const isEditor = canEdit ?? isEditorRole;
 
   return useMemo(
     () => buildDatasetEditCapabilities({

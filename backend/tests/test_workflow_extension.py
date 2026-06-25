@@ -28,32 +28,31 @@ def _clean_registry():
 
 
 async def _noop_check_dataset_access(db, dataset, dataset_id, user, **kwargs):
-    """No-op stub for check_dataset_access in workflow unit tests.
+    """No-op stub for the dataset write-access gate in workflow unit tests.
 
-    These tests exercise workflow extension dispatch, not RBAC.  Phase 1061
-    CR-01 added check_dataset_access to both status handlers; the _FakeDB
-    here does not wire up the role/grant queries those checks need.  Stub
-    the access gate so the workflow logic under test remains the focus.
+    These tests exercise workflow extension dispatch, not RBAC.  The status
+    handlers now gate on check_dataset_write_access (owner-or-admin); the
+    _FakeDB here does not wire up the role/grant queries that check needs.
+    Stub the gate so the workflow logic under test remains the focus.
     """
     return set()
 
 
 @pytest.fixture(autouse=True)
 def _bypass_dataset_access_check():
-    """Patch check_dataset_access to a no-op for workflow unit tests.
+    """Patch the dataset write-access gate to a no-op for workflow unit tests.
 
-    Phase 1061 CR-01 added check_dataset_access to both status handlers in
-    router_data.py, and it already existed in router.py (SEC-S02 Plan 02).
-    These tests exercise workflow extension dispatch, not RBAC, so we stub
-    the access gate in both modules.
+    Both status handlers in router_data.py and the metadata PATCH in router.py
+    gate on check_dataset_write_access (owner-or-admin). These tests exercise
+    workflow extension dispatch, not RBAC, so we stub the gate in both modules.
     """
     with (
         patch(
-            "app.modules.catalog.datasets.api.router_data.check_dataset_access",
+            "app.modules.catalog.datasets.api.router_data.check_dataset_write_access",
             side_effect=_noop_check_dataset_access,
         ),
         patch(
-            "app.modules.catalog.datasets.api.router.check_dataset_access",
+            "app.modules.catalog.datasets.api.router.check_dataset_write_access",
             side_effect=_noop_check_dataset_access,
         ),
     ):

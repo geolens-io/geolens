@@ -215,7 +215,7 @@ class TestReuploadOrphanGuard:
                     new=AsyncMock(return_value=mock_dataset),
                 ),
                 patch(
-                    "app.modules.catalog.datasets.api.router_reupload.check_dataset_access",
+                    "app.modules.catalog.datasets.api.router_reupload.check_dataset_write_access",
                     new=AsyncMock(),
                 ),
                 patch(
@@ -272,7 +272,7 @@ class TestReuploadOrphanGuard:
                     new=AsyncMock(return_value=mock_dataset),
                 ),
                 patch(
-                    "app.modules.catalog.datasets.api.router_reupload.check_dataset_access",
+                    "app.modules.catalog.datasets.api.router_reupload.check_dataset_write_access",
                     new=AsyncMock(),
                 ),
                 patch(
@@ -323,7 +323,7 @@ class TestReuploadOrphanGuard:
                     new=AsyncMock(return_value=mock_dataset),
                 ),
                 patch(
-                    "app.modules.catalog.datasets.api.router_reupload.check_dataset_access",
+                    "app.modules.catalog.datasets.api.router_reupload.check_dataset_write_access",
                     new=AsyncMock(),
                 ),
                 patch(
@@ -362,14 +362,13 @@ class TestVrtSourceOrphanGuard:
 
     @pytest.fixture(autouse=True)
     def _stub_vrt_source_authz(self):
-        """SEC-C (Phase 1172): add_vrt_source now authorizes the new source and
-        the parent VRT (check_dataset_access + get_user_roles + get_dataset),
-        each of which issues its own ``db.execute`` calls that would shift the
-        call-count-ordered mock ``db`` sequence in the add test. Stub them to
-        make ZERO db.execute calls (and always allow) so the sequence stays
-        valid; the authorization behavior is covered by
-        ``tests/test_vrt_source_authz_1172.py``. Harmless for the
-        remove_vrt_source test (which never invokes these helpers).
+        """SEC-C (Phase 1172): add_vrt_source authorizes the new source and the
+        parent VRT, and both add/remove_vrt_source now require owner-or-admin on
+        the VRT via ``check_dataset_write_access`` — each helper issues its own
+        ``db.execute`` calls that would shift the call-count-ordered mock ``db``
+        sequence. Stub them to make ZERO db.execute calls (and always allow) so
+        the sequence stays valid; the authorization behavior is covered by
+        ``tests/test_vrt_source_authz_1172.py``.
         """
         with (
             patch(
@@ -378,6 +377,10 @@ class TestVrtSourceOrphanGuard:
             ),
             patch(
                 "app.modules.catalog.authorization.check_dataset_access",
+                new=AsyncMock(return_value=set()),
+            ),
+            patch(
+                "app.modules.catalog.authorization.check_dataset_write_access",
                 new=AsyncMock(return_value=set()),
             ),
             patch(
@@ -664,7 +667,7 @@ class TestDatasetsVrtOrphanGuard:
                     new=AsyncMock(return_value=mock_dataset),
                 ),
                 patch(
-                    "app.modules.catalog.datasets.api.router_vrt.check_dataset_access",
+                    "app.modules.catalog.datasets.api.router_vrt.check_dataset_write_access",
                     new=AsyncMock(),
                 ),
                 patch(

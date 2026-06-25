@@ -12,7 +12,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.modules.audit.service import AuditEvent, audit_emit
 from app.core.identity import Identity
 from app.modules.auth.dependencies import get_current_active_user, require_permission
-from app.modules.catalog.authorization import check_dataset_access
+from app.modules.catalog.authorization import (
+    check_dataset_access,
+    check_dataset_write_access,
+)
 from app.modules.catalog.datasets.domain.service import get_dataset
 from app.core.dependencies import get_db
 from app.modules.catalog.features.schemas import (
@@ -377,7 +380,7 @@ async def create_feature(
             detail="Dataset not found",
         )
 
-    await check_dataset_access(db, dataset, dataset_id, user)
+    await check_dataset_write_access(db, dataset, dataset_id, user)
 
     try:
         row = await insert_feature(
@@ -462,7 +465,7 @@ async def replace_single_feature(
             detail="Dataset not found",
         )
 
-    await check_dataset_access(db, dataset, dataset_id, user)
+    await check_dataset_write_access(db, dataset, dataset_id, user)
 
     try:
         row = await replace_feature(
@@ -545,7 +548,7 @@ async def patch_single_feature(
             detail="Dataset not found",
         )
 
-    await check_dataset_access(db, dataset, dataset_id, user)
+    await check_dataset_write_access(db, dataset, dataset_id, user)
 
     try:
         row = await update_feature(
@@ -623,7 +626,7 @@ async def delete_single_feature(
             detail="Dataset not found",
         )
 
-    await check_dataset_access(db, dataset, dataset_id, user)
+    await check_dataset_write_access(db, dataset, dataset_id, user)
 
     try:
         await delete_feature(db, dataset.table_name, gid)
