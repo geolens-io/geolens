@@ -532,6 +532,12 @@
       "allowedExtensionsDescription": "Kommagetrennte Liste erlaubter Dateierweiterungen.",
       "tileCacheTtl": "Tile-Cache-TTL (Sekunden)",
       "tileCacheTtlDescription": "Zeit in Sekunden, bevor Tile-Cache-Einträge ablaufen (0 = kein Cache).",
+      "perUserLimitsTitle": "Limits pro Benutzer",
+      "perUserLimitsDescription": "Obergrenzen, die für jeden Benutzer gelten und beim Upload durchgesetzt werden. 0 = unbegrenzt.",
+      "maxStoragePerUser": "Max. Speicher pro Benutzer (Bytes)",
+      "maxStoragePerUserDescription": "Maximaler Upload-Speicher pro Benutzer in Bytes (0 = unbegrenzt). Beispiel: 5368709120 = 5 GB.",
+      "maxDatasetsPerUser": "Max. Datensätze pro Benutzer",
+      "maxDatasetsPerUserDescription": "Maximale Anzahl an Datensätzen, die jeder Benutzer erstellen kann (0 = unbegrenzt).",
       "saved": "Upload-Einstellungen gespeichert",
       "saveFailed": "Upload-Einstellungen konnten nicht gespeichert werden"
     },

@@ -20,6 +20,8 @@ const FIELDS = [
   { key: 'upload_max_size_mb', defaultValue: 500 },
   { key: 'upload_allowed_extensions', defaultValue: '.zip,.gpkg,.geojson,.json,.csv,.tif,.tiff,.xlsx,.xls' },
   { key: 'tile_cache_ttl', defaultValue: 300 },
+  { key: 'max_storage_bytes_per_user', defaultValue: 0 },
+  { key: 'max_datasets_per_user', defaultValue: 0 },
 ] as const;
 
 export function SettingsStorageTab({ settings, envOnly, onSave, onReset, isSaving, onDirtyChange }: TabProps) {
@@ -78,6 +80,51 @@ export function SettingsStorageTab({ settings, envOnly, onSave, onReset, isSavin
           disabled={envOnly}
           className="w-32"
         />
+      </div>
+
+      {/* Per-user quotas — global caps applied to every user (enforced at ingest).
+          Grouped so they read as limits, not more global upload config. */}
+      <div className="space-y-4 border rounded-md p-4" role="group" aria-labelledby="per-user-limits-heading">
+        <div>
+          <h3 id="per-user-limits-heading" className="text-sm font-medium">{t('settings.uploads.perUserLimitsTitle')}</h3>
+          <p className="text-sm text-muted-foreground mt-1">{t('settings.uploads.perUserLimitsDescription')}</p>
+        </div>
+
+        <div className="space-y-2">
+          <div className="flex items-center gap-2">
+            <Label htmlFor="max-storage-per-user">{t('settings.uploads.maxStoragePerUser')}</Label>
+            <SettingSourceBadge source={findSetting(settings, 'max_storage_bytes_per_user')?.source ?? 'default'} settingKey="max_storage_bytes_per_user" onReset={onReset} />
+          </div>
+          <p className="text-sm text-muted-foreground">{t('settings.uploads.maxStoragePerUserDescription')}</p>
+          <Input
+            id="max-storage-per-user"
+            type="number"
+            min={0}
+            step={1}
+            value={values.max_storage_bytes_per_user as number}
+            onChange={(e) => setters.max_storage_bytes_per_user(Number(e.target.value))}
+            disabled={envOnly}
+            className="w-56"
+          />
+        </div>
+
+        <div className="space-y-2">
+          <div className="flex items-center gap-2">
+            <Label htmlFor="max-datasets-per-user">{t('settings.uploads.maxDatasetsPerUser')}</Label>
+            <SettingSourceBadge source={findSetting(settings, 'max_datasets_per_user')?.source ?? 'default'} settingKey="max_datasets_per_user" onReset={onReset} />
+          </div>
+          <p className="text-sm text-muted-foreground">{t('settings.uploads.maxDatasetsPerUserDescription')}</p>
+          <Input
+            id="max-datasets-per-user"
+            type="number"
+            min={0}
+            step={1}
+            value={values.max_datasets_per_user as number}
+            onChange={(e) => setters.max_datasets_per_user(Number(e.target.value))}
+            disabled={envOnly}
+            className="w-32"
+          />
+        </div>
       </div>
 
       <SettingsFormActions dirty={dirty} hasDirty={hasDirty} envOnly={envOnly} isSaving={isSaving} onSave={onSave} onDiscard={discard} onDirtyChange={onDirtyChange} />

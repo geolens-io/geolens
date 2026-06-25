@@ -569,6 +569,12 @@
       "allowedExtensionsDescription": "Comma-separated list of allowed file extensions (e.g. .zip,.gpkg,.geojson,.json,.csv,.tif,.tiff,.xlsx,.xls).",
       "tileCacheTtl": "Tile Cache TTL (seconds)",
       "tileCacheTtlDescription": "Time in seconds before tile cache entries expire (0 = no cache).",
+      "perUserLimitsTitle": "Per-user limits",
+      "perUserLimitsDescription": "Caps applied to every user, enforced when they upload. Set 0 for unlimited.",
+      "maxStoragePerUser": "Max Storage per User (bytes)",
+      "maxStoragePerUserDescription": "Maximum total upload storage per user in bytes (0 = unlimited). Example: 5368709120 = 5 GB.",
+      "maxDatasetsPerUser": "Max Datasets per User",
+      "maxDatasetsPerUserDescription": "Maximum number of datasets each user can create (0 = unlimited).",
       "saved": "Upload settings saved",
       "saveFailed": "Failed to save upload settings"
     },

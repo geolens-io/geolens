@@ -223,3 +223,69 @@ async def test_get_tile_config_exposes_resolved_public_urls():
     assert response.public_app_url == "https://catalog.example.com"
     assert response.public_api_url == "https://catalog.example.com/api"
     assert response.public_base_url == "https://catalog.example.com/api"
+
+
+# ---------------------------------------------------------------------------
+# Per-user quota settings validation (PR #327)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("key", ["max_storage_bytes_per_user", "max_datasets_per_user"])
+async def test_put_settings_rejects_negative_quota(
+    client: AsyncClient, admin_auth_header: dict, key: str
+):
+    """Negative per-user quotas are rejected with 422 (parity with the other
+    bounded-int storage settings). Without the validator a -1 would persist and
+    show as 'overridden' while behaving as unlimited (cap>0 guard) — misleading."""
+    resp = await client.put(
+        "/settings/",
+        json={"settings": {key: -1}},
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 422
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("key", ["max_storage_bytes_per_user", "max_datasets_per_user"])
+async def test_put_settings_rejects_fractional_quota(
+    client: AsyncClient, admin_auth_header: dict, key: str
+):
+    """Fractional per-user quotas are rejected with 422. Without the guard,
+    int(0.5) truncates to 0 (= unlimited) and silently disables the cap."""
+    resp = await client.put(
+        "/settings/",
+        json={"settings": {key: 0.5}},
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 422
+
+
+@pytest.mark.anyio
+async def test_put_settings_accepts_valid_quota(
+    client: AsyncClient, admin_auth_header: dict
+):
+    """A valid per-user quota saves (200) and is reflected on the storage tab."""
+    resp = await client.put(
+        "/settings/",
+        json={
+            "settings": {
+                "max_storage_bytes_per_user": 1073741824,
+                "max_datasets_per_user": 25,
+            }
+        },
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 200
+    storage = {s["key"]: s["value"] for s in resp.json()["tabs"]["storage"]}
+    assert storage["max_storage_bytes_per_user"] == 1073741824
+    assert storage["max_datasets_per_user"] == 25
+
+    # Reset so we don't leave a cap on the shared per-worker DB.
+    await client.put(
+        "/settings/",
+        json={
+            "settings": {"max_storage_bytes_per_user": 0, "max_datasets_per_user": 0}
+        },
+        headers=admin_auth_header,
+    )
