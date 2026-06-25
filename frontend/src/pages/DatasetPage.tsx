@@ -408,7 +408,10 @@ export function DatasetPage() {
       icon: Layers,
       onSelect: () => setActiveDialog('vrt'),
       priority: 11,
-      visible: isRaster && canEdit,
+      // Creating a VRT makes a NEW dataset from this raster; it does not mutate
+      // the source, so it needs read + upload capability (isEditor), not source
+      // ownership. Backend /vrt/create authorizes the source via check_dataset_access.
+      visible: isRaster && isEditor,
     },
     {
       id: 'delete',
@@ -575,7 +578,7 @@ export function DatasetPage() {
         </Suspense>
       )}
 
-      {isRaster && canEdit && (
+      {isRaster && isEditor && (
         <Suspense fallback={null}>
           <VrtCreateDialog
             open={activeDialog === 'vrt'}
