@@ -50,15 +50,15 @@ export function RegisterPage() {
 
   if (isLoading) {
     return (
-      <div className="flex min-h-screen items-center justify-center">
+      <main className="flex min-h-screen items-center justify-center">
         <Loader2 className="size-6 animate-spin text-muted-foreground" />
-      </div>
+      </main>
     );
   }
 
   if (configError) {
     return (
-      <div className="flex min-h-screen flex-col items-center justify-center gap-6 bg-background px-4">
+      <main className="flex min-h-screen flex-col items-center justify-center gap-6 bg-background px-4">
         <div className="text-center">
           {/* sr-only level-1 heading: screen-reader heading nav needs an <h1>
               in every render branch, not just the form branch below. */}
@@ -84,13 +84,13 @@ export function RegisterPage() {
             </Link>
           </CardContent>
         </Card>
-      </div>
+      </main>
     );
   }
 
   if (!config || config.registration_enabled === false) {
     return (
-      <div className="flex min-h-screen flex-col items-center justify-center gap-6 bg-background px-4">
+      <main className="flex min-h-screen flex-col items-center justify-center gap-6 bg-background px-4">
         <div className="text-center">
           {/* sr-only level-1 heading: screen-reader heading nav needs an <h1>
               in every render branch, not just the form branch below. */}
@@ -116,12 +116,12 @@ export function RegisterPage() {
             </Link>
           </CardContent>
         </Card>
-      </div>
+      </main>
     );
   }
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center gap-6 bg-background px-4">
+    <main className="flex min-h-screen flex-col items-center justify-center gap-6 bg-background px-4">
       <div className="text-center">
         {/* sr-only level-1 heading: the visual brand mark is the GeoLensLogo, but
             screen-reader heading navigation still needs an <h1> on the page. */}
@@ -149,6 +149,6 @@ export function RegisterPage() {
           }}
         />
       )}
-    </div>
+    </main>
   );
 }

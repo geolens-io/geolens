@@ -34,7 +34,7 @@ export function SettingsPage() {
 
         <TabsContent value="preferences" className="space-y-4">
           {/* Profile */}
-          <Card>
+          <Card className="border border-border">
             <CardHeader>
               <CardTitle>{t('settings.profile.title')}</CardTitle>
             </CardHeader>
@@ -55,7 +55,7 @@ export function SettingsPage() {
           </Card>
 
           {/* Appearance */}
-          <Card>
+          <Card className="border border-border">
             <CardHeader>
               <CardTitle>{t('settings.appearance.title')}</CardTitle>
               <CardDescription>{t('settings.appearance.description')}</CardDescription>
@@ -85,7 +85,7 @@ export function SettingsPage() {
           </Card>
 
           {/* Language */}
-          <Card>
+          <Card className="border border-border">
             <CardHeader>
               <CardTitle>{t('settings.language.title')}</CardTitle>
             </CardHeader>
@@ -112,7 +112,7 @@ export function SettingsPage() {
         </TabsContent>
 
         <TabsContent value="apiKeys">
-          <Card>
+          <Card className="border border-border">
             <CardHeader>
               <CardTitle>{t('settings.tabs.apiKeys')}</CardTitle>
             </CardHeader>
