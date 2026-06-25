@@ -48,7 +48,7 @@ export function LoginForm() {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="flex w-full flex-col gap-4">
+    <form onSubmit={handleSubmit} className="flex w-full flex-col gap-3.5">
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="username" className="text-[12.5px]">
           {t('username')}

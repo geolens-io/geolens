@@ -344,7 +344,7 @@ export function LoginPage() {
               on mobile without this. Hidden on desktop to keep a single h1. */}
           <h1 className="sr-only min-[880px]:hidden">{t('signIn')}</h1>
           {/* Form head */}
-          <div className="mb-6">
+          <div className="mb-5">
             <h2 className="text-[19px] font-semibold tracking-[-0.01em] text-foreground">
               {t('signIn')}
             </h2>
@@ -390,12 +390,12 @@ export function LoginPage() {
           {/* Adaptive OAuth: 0 → renders nothing; 1 → labeled; 2-3 → icon row.
               The divider only belongs above the buttons when a password form
               sits above it. */}
-          <div className="mt-6">
+          <div className="mt-5">
             <OAuthButtons showDivider={showPasswordForm} />
           </div>
 
           {/* Legal */}
-          <p className="mt-6 text-center text-[11.5px] leading-relaxed text-muted-foreground">
+          <p className="mt-5 text-center text-[11.5px] leading-relaxed text-muted-foreground">
             {t('consentNote')}{' '}
             <a
               href={GEOLENS_PRIVACY_URL}
