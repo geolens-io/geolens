@@ -81,7 +81,11 @@ jobs:
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=semver,pattern={{major}}
-            type=raw,value=latest,enable=${{ github.event_name == 'push' && github.ref_type == 'tag' }}
+            # `latest` only on a real GA tag — exclude prereleases (a `-rc`/`-beta`
+            # suffix). Otherwise a `v1.4.0-rc.1` push clobbers `:latest` with an
+            # unreleased candidate (same spirit as #325 gating release.yml's
+            # isPrerelease). Fresh `:latest` pulls must track the last GA.
+            type=raw,value=latest,enable=${{ github.event_name == 'push' && github.ref_type == 'tag' && !contains(github.ref_name, '-') }}
           labels: |
             org.opencontainers.image.description=${{ matrix.description }}
             org.opencontainers.image.licenses=Apache-2.0
