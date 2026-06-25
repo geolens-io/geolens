@@ -382,7 +382,7 @@ export function OverviewTab({
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-x-6 gap-y-2 text-sm">
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-x-6 gap-y-2 text-sm">
                   {dataset.column_info.slice(0, 12).map((col) => (
                     <div key={col.name} className="flex items-baseline justify-between gap-2 min-w-0">
                       <span className="font-medium truncate" title={col.name}>{col.name}</span>

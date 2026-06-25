@@ -76,9 +76,9 @@ export function CollectionDatasetList({ collectionId, onRemove }: CollectionData
             >
               <Link
                 to={`/datasets/${dataset.id}`}
-                className="flex items-center justify-between gap-4 min-w-0 flex-1"
+                className="flex flex-col items-start gap-1 sm:flex-row sm:items-center sm:justify-between sm:gap-4 min-w-0 flex-1"
               >
-                <span className="text-sm font-medium truncate min-w-0">
+                <span className="text-sm font-medium truncate min-w-0 max-w-full">
                   {dataset.title}
                 </span>
                 <div className="flex items-center gap-2 flex-shrink-0">
