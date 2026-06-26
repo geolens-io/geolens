@@ -102,7 +102,17 @@ def test_uv_installer_pins_are_aligned() -> None:
 
 
 def test_deferred_overlay_not_documented_in_public_surfaces() -> None:
-    """API-10 / M-53: public docs do not advertise deferred commercial overlays."""
+    """API-10 / M-53: the private Enterprise *implementation* must not leak into
+    public surfaces.
+
+    The open-core Editions boundary itself (Community vs. Enterprise) IS
+    intentionally documented publicly in EDITIONS.md and the README Editions
+    section (v1048 REL-01) — open-core transparency is the goal, so naming the
+    "Enterprise" edition in the README is expected. What must stay private is the
+    enterprise *implementation*: the overlay compose file and the private
+    repo/image name. `.env.example` is a config template and stays free of
+    edition material.
+    """
     readme = _read("README.md")
     env_example = _read(".env.example")
 
@@ -112,4 +122,5 @@ def test_deferred_overlay_not_documented_in_public_surfaces() -> None:
     for body in (readme, env_example):
         assert "docker-compose.enterprise.yml" not in body
         assert "geolens-enterprise" not in body
-        assert "Enterprise" not in body
+    # README documents the Editions boundary (REL-01); .env.example must not.
+    assert "Enterprise" not in env_example

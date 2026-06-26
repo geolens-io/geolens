@@ -54,7 +54,7 @@ Use `.env.example` and `.env.test.example` as templates. Never commit secrets, c
 
 Keep assistant and internal-notes state out of git. `.gitignore` covers AI-assistant and internal directories (e.g. `.claude/`, `.planning/`, `docs-internal/`); if any of those become tracked, untrack them before committing.
 
-Keep root repository docs single-purpose: `README.md` is the public overview, `SUPPORT.md` is support routing, and `CHANGELOG.md` is the release-note source of truth. README images live in `.github/assets/`, detailed product docs live on docs.getgeolens.com, and private/internal notes stay in ignored `docs-internal/`. Do not reintroduce a root `docs/` directory or standalone narrative feature docs that duplicate the docs site.
+Keep root repository docs single-purpose: `README.md` is the public overview, `SUPPORT.md` is support routing, and `CHANGELOG.md` is the release-note source of truth. Two further root docs are sanctioned because product requirements mandate them in-repo: `EDITIONS.md` (the open-core/commercial boundary — required at the repo root for licensing transparency, REL-01) and `RUNBOOK.md` (the operator backup/restore & disaster-recovery runbook — must ship in-repo so a self-hoster can recover offline, BKP-04). README images live in `.github/assets/`, detailed product docs live on docs.getgeolens.com, contributor-facing architecture/onboarding docs live under `.github/` (e.g. `.github/CONTRIBUTING.md`, `.github/ARCHITECTURE.md`), and private/internal notes stay in ignored `docs-internal/`. Do not reintroduce a root `docs/` directory or standalone narrative feature docs that duplicate the docs site.
 
 ### Security pre-commit checklist
 

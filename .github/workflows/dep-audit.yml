@@ -84,26 +84,42 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        image:
-          - "node:26.3.0-alpine"
-          - "python:3.14.5-slim"
-          - "nginxinc/nginx-unprivileged:1.31.1-alpine"
-          - "postgis/postgis:17-3.5"
+        # `enforce: "1"` fails the job on a fixable CRITICAL CVE; `enforce: "0"`
+        # is report-only. The slim/alpine images we pin (node/python/nginx) are
+        # controllable — a CRITICAL there is actionable (bump the tag), so they
+        # ENFORCE. postgis/postgis:17-3.5 is an uncontrollable third-party fat
+        # Debian-11 image whose CRITICAL set is dominated by CVEs in baked-in Go
+        # binaries that only the upstream maintainer can rebuild — and that set
+        # shifts with every Trivy DB update. Gating on it would make CI red on
+        # upstream timing, not on our code, so it is scanned + REPORTED but not
+        # gated (tracked via Dependabot + this report; revisit at each postgis
+        # base bump).
+        include:
+          - image: "node:26.3.0-alpine"
+            enforce: "1"
+          - image: "python:3.14.5-slim"
+            enforce: "1"
+          - image: "nginxinc/nginx-unprivileged:1.31.1-alpine"
+            enforce: "1"
+          - image: "postgis/postgis:17-3.5"
+            enforce: "0"
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
-      # Report-only on introduction: Trivy prints CRITICAL/HIGH findings to the
-      # job log but exits 0, so the check stays green while the base-image CVE
-      # baseline is triaged. NOTE these scan the UPSTREAM base images; the built
-      # images run `apt-get upgrade`/`apk upgrade`, so real exposure is lower.
-      # To enforce as a hard gate: set exit-code "1" (ideally after switching to
-      # scan the built images, not the upstream refs).
-      - name: Trivy scan (report-only)
+      # Scope is CRITICAL (not HIGH): these scan UPSTREAM base images, whose HIGH
+      # OS-CVE count churns with every Debian/Alpine disclosure independent of our
+      # code — gating on HIGH would red the build on upstream timing. The built
+      # images also run `apt-get upgrade`/`apk upgrade`, lowering real exposure,
+      # and HIGH base CVEs are tracked via Dependabot. ignore-unfixed:true keeps
+      # the gate quiet for CVEs with no upstream fix. Per-image `enforce` above
+      # decides gate-vs-report. Transient Docker Hub i/o timeouts are not CVEs —
+      # rerun the job.
+      - name: Trivy scan
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
         with:
           image-ref: ${{ matrix.image }}
           format: "table"
-          severity: "CRITICAL,HIGH"
-          exit-code: "0"
+          severity: "CRITICAL"
+          exit-code: ${{ matrix.enforce }}
           ignore-unfixed: true
 
   iac-scan:
@@ -111,15 +127,21 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
-      # Misconfiguration scan over the repo's IaC: Trivy config mode auto-detects
-      # Dockerfiles, docker-compose*.yml, and nginx config at the repo root.
-      # Report-only on introduction (exit-code 0), matching the docker-audit
-      # convention above. Helm charts live in sibling repos (geolens-helm /
+      # Enforcing gate: Trivy config mode auto-detects Dockerfiles,
+      # docker-compose*.yml, and nginx config at the repo root; fails the job on
+      # any CRITICAL or HIGH misconfiguration finding. ignore-unfixed is inert for
+      # config/misconfiguration scans (no fixed-version concept) — severity scope
+      # alone bounds noise. Helm charts live in sibling repos (geolens-helm /
       # geolens-deployments) — out of scope here.
-      - name: Trivy config scan (report-only)
+      - name: Trivy config scan (enforcing)
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
         with:
           scan-type: "config"
           scan-ref: "."
           severity: "CRITICAL,HIGH"
-          exit-code: "0"
+          exit-code: "1"
+          # Path-scoped, justified suppressions only (db/Dockerfile postgres root
+          # user — see .trivyignore.yaml). Trivy <0.71 does not auto-detect the
+          # YAML ignore file, so point at it explicitly. DS-0002 stays enforced
+          # on every other Dockerfile.
+          trivyignores: ".trivyignore.yaml"

@@ -203,6 +203,45 @@ USER appuser
 ENTRYPOINT ["/app/scripts/worker-entrypoint.sh"]
 CMD ["sh", "-c", "uv run --no-dev python -m app.worker"]
 
+# ==============================================================================
+# Stage: backup — pg_dump 17 + SigV4-capable S3 client; self-contained backup
+# ==============================================================================
+# Base: official postgres:17 (Debian Bookworm, multi-arch: amd64 + arm64).
+# db/Dockerfile uses postgis/postgis:17-3.5 which is amd64-ONLY — this stage
+# uses the plain postgres:17 base so publish.yml can build both arches (BKP-01).
+# PostGIS is NOT needed client-side: pg_dump streams the raw catalog over the
+# wire and custom-format dumps preserve PostGIS types without PostGIS libs.
+#
+# Placement note: this stage is intentionally NOT last. An unqualified
+# `docker build .` resolves to the FINAL stage, and the default image must be an
+# app image (frontend), never this postgres-based backup tool. Every image is
+# built with an explicit `target:` (publish.yml + docker-compose*.yml), so stage
+# order only governs that unqualified-build default — keep `backup` non-final.
+FROM postgres:17 AS backup
+
+LABEL org.opencontainers.image.title="geolens-backup"
+LABEL org.opencontainers.image.description="Automated pg_dump backup service with S3 offload"
+LABEL org.opencontainers.image.licenses="Apache-2.0"
+
+# awscli (SigV4-capable S3 client) for the BKP-02 S3 upload path; procps for the
+# compose healthcheck (`pgrep -f backup-entrypoint || pgrep -f sleep`) — pgrep is
+# present in the postgres:17 base today but is installed explicitly so the
+# default-on healthcheck's pgrep dependency survives a base-image change.
+# Installed from Debian apt only — no pip/PyPI (T-1247-SC mitigation).
+RUN apt-get update && apt-get upgrade -y --no-install-recommends && \
+    apt-get install -y --no-install-recommends \
+    awscli \
+    procps \
+    && rm -rf /var/lib/apt/lists/*
+
+# Bake the backup and restore scripts so the image is self-contained and
+# runnable without a host bind-mount. The compose bind-mount
+# (./scripts:/scripts:ro) may override at runtime for local development.
+COPY scripts/backup-entrypoint.sh scripts/restore.sh /scripts/
+RUN chmod +x /scripts/backup-entrypoint.sh /scripts/restore.sh
+
+ENTRYPOINT ["/scripts/backup-entrypoint.sh"]
+
 FROM node:26.3.0-alpine AS frontend-build
 
 WORKDIR /app

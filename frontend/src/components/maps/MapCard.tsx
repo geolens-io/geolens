@@ -13,6 +13,7 @@ import {
 } from '@/components/ui/tooltip';
 import { formatDate } from '@/lib/format';
 import { getVisibilityLabel } from '@/i18n/labels';
+import { visibilityColors } from '@/lib/status-colors';
 import type { MapSummaryResponse } from '@/types/api';
 import { VisibilityIcon } from './VisibilityIcon';
 
@@ -58,16 +59,14 @@ export const MapCard = memo(function MapCard({ map, onDelete }: MapCardProps) {
             >
               {map.name}
             </Link>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <span className="shrink-0">
-                  <VisibilityIcon visibility={map.visibility} />
-                </span>
-              </TooltipTrigger>
-              <TooltipContent side="top">
-                {getVisibilityLabel(t, map.visibility)}
-              </TooltipContent>
-            </Tooltip>
+            {/* PR #330: always-visible badge so state is perceivable without color or hover (GLUX-005) */}
+            <Badge
+              variant="outline"
+              className={`shrink-0 gap-1 ${visibilityColors[map.visibility] ?? 'border-border bg-muted text-muted-foreground'}`}
+            >
+              <VisibilityIcon visibility={map.visibility} withLabel={false} />
+              {getVisibilityLabel(t, map.visibility)}
+            </Badge>
           </div>
 
           {map.description && (

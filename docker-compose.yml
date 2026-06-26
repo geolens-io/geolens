@@ -98,7 +98,7 @@ x-hardened-base: &hardened-base
 #   worker    — Procrastinate job queue (GDAL ingest, embeddings, exports)
 #   titiler   — Raster tile server (internal only, reachable at http://titiler:8000)
 #   frontend  — Vite dev server (host :8080 -> container :5173, proxies /api -> api:8000)
-#   backup    — pg_dump + S3 upload, opt-in via `--profile backup`
+#   backup    — pg_dump + object-storage archive, runs by default (no profile)
 #   minio     — local S3 emulation, opt-in via `--profile cloud-dev`
 #   valkey    — local Redis-compatible cache, opt-in via `--profile cloud-dev`
 #
@@ -465,18 +465,22 @@ services:
         condition: service_healthy
 
   backup:
-    # Enable with: docker compose --profile backup up -d
-    # Configure schedule/retention via BACKUP_* env vars (see .env.example)
-    profiles: ["backup"]
+    # Backup runs by default — no --profile flag needed (BKP-01).
+    # Configure schedule/retention via BACKUP_* env vars (see .env.example).
+    # Builds the multi-arch root Dockerfile backup stage (not ./db which is
+    # amd64-only via the postgis/postgis base).
     build:
-      context: ./db
+      context: .
+      dockerfile: Dockerfile
+      target: backup
     restart: unless-stopped
     # D03 (docker-audit-20260604): backup-entrypoint.sh runs as root throughout
-    # (pg_dump/cp/curl/openssl/sleep on files it owns under /backups; cron falls
-    # back to a sleep loop on the postgis image). It never drops privilege or
-    # chowns across uids, so it needs NO added capabilities — cap_drop ALL just
-    # removes the unused kernel surface. init:true reaps the sleep/cron loop.
-    # No read_only — the cron path writes a crontab under /var/spool/cron.
+    # (pg_dump/cp/tar/awscli/sleep on files it owns under /backups; the
+    # postgres:17 base ships no cron, so it runs the built-in sleep-loop
+    # scheduler). It never drops privilege or chowns across uids, so it needs NO
+    # added capabilities — cap_drop ALL just removes the unused kernel surface.
+    # init:true reaps the sleep loop. No read_only — the entrypoint writes under
+    # /backups (and a crontab under /var/spool/cron if a base ever provides cron).
     init: true
     security_opt:
       - no-new-privileges:true
@@ -506,18 +510,27 @@ services:
       S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-}
       S3_REGION: ${S3_REGION:-us-east-1}
       S3_ALLOW_HTTP: ${S3_ALLOW_HTTP:-false}
+      S3_ADDRESSING_STYLE: ${S3_ADDRESSING_STYLE:-auto}
     entrypoint: ["/scripts/backup-entrypoint.sh"]
     healthcheck:
-      # Backup runs cron-driven via the entrypoint script's sleep loop.
-      # Healthcheck verifies the entrypoint process is alive (sleep + cron tick).
+      # The entrypoint runs the built-in sleep-loop scheduler (postgres:17 has no
+      # cron); the probe just verifies that process is alive.
       test: ["CMD-SHELL", "pgrep -f backup-entrypoint || pgrep -f sleep || exit 1"]
-      interval: 60s
+      interval: 30s
       timeout: 5s
       retries: 3
       start_period: 30s
+      # Probe every 5s during start-up so the service reports healthy quickly — it
+      # starts last (gated on migrate) and must clear the installer's
+      # wait-for-healthy budget on a fresh install.
+      start_interval: 5s
     depends_on:
       db:
         condition: service_healthy
+      # Gate the first (on-startup) pg_dump behind migrations so a fresh install
+      # never captures a pre-migration / empty DB as its first retained backup.
+      migrate:
+        condition: service_completed_successfully
 
   # --- cloud-dev profile: local S3 + cache for testing ---
   # All cloud-dev services bind to 127.0.0.1 only — they're for local dev,

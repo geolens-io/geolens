@@ -156,24 +156,23 @@ Notes:
 - `scripts/restore.sh` takes a **custom-format (`-Fc`) dump** and restores it via
   `pg_restore` — the same format `scripts/upgrade.sh` and the manual flows
   produce. **Never** `psql < dump` a `-Fc` file; it is not plain SQL.
-- `scripts/restore.sh` issues its `docker compose` calls against
-  `docker-compose.yml`. The `db` / `api` / `worker` service names are identical
-  in both compose files and resolve to the same Compose-project containers, so
-  restore works for prebuilt installs too. (Edit the file's `-f` paths if you run
-  with a non-default project layout.)
+- `scripts/restore.sh` honours the `COMPOSE_FILE` from your `.env` (the prebuilt
+  installer pins `docker-compose.prod.yml`; it falls back to `docker-compose.yml`
+  for source builds), so restore targets the same Compose-project containers your
+  stack is running — no `-f` editing needed for the standard prebuilt or source
+  layouts.
 
 ---
 
 ## Backups
 
-- Automated, scheduled backups are **opt-in** via the `backup` Compose profile
-  (`docker compose --profile backup up -d`, `scripts/backup-entrypoint.sh`) with
-  daily/weekly retention. They are **not** enabled by a default install — see the
+- Automated, scheduled backups **run by default** (the `backup` Compose service,
+  `scripts/backup-entrypoint.sh`) with daily/weekly retention — no `--profile`
+  flag needed. Configure schedule/retention via the `BACKUP_*` env vars; see the
   [Backups & Restore guide](https://docs.getgeolens.com/guides/admin/backups/).
 - Off-site (S3) upload is additionally gated on `BACKUP_S3_ENABLED=true`. The
-  built-in uploader signs with **AWS Signature V2** (works with classic AWS
-  buckets and MinIO); new AWS buckets that require Sig-V4 need the `aws-cli`
-  sidecar workaround. SigV4 support is on the roadmap.
+  built-in uploader (awscli) signs with **AWS Signature V4**, compatible with
+  Cloudflare R2, modern AWS S3, and MinIO.
 - Each backup cycle archives **both** the `pg_dump` (`<db>_<timestamp>.dump`)
   **and** the object-storage staging volume (`staging-<timestamp>.tar.gz`) so a
   restore reproduces a working instance — DB rows *and* the staged source objects
@@ -181,33 +180,48 @@ Notes:
   only; deployments that offload objects to an external S3/MinIO bucket must back
   that bucket up separately.
 - The upgrade flow takes its own **pre-upgrade** dump under
-  `backups/pre-upgrade/` regardless of whether the backup profile is enabled, so
-  you always have a known-good restore point for the upgrade you just ran.
+  `backups/pre-upgrade/` independently of the scheduled backup service, so you
+  always have a known-good restore point for the upgrade you just ran.
 
 ---
 
 ## Disaster recovery
 
-To restore from a full backup (DB + object storage):
+> **[RUNBOOK.md](RUNBOOK.md) is the canonical day-2 operations and disaster-recovery
+> reference**, covering DR / restore / monitoring / incident response for both
+> bundled-Postgres and managed/external-Postgres modes. The quick commands below are
+> the bundled-mode summary; see RUNBOOK.md for managed-DB restore, monitoring, and
+> full incident-response guidance.
+
+To restore from a full backup (DB + object storage). Dumps are written to the
+`backup_data` named volume (not a host directory), so first copy the chosen dump
+and its paired staging archive out of the volume:
 
 ```bash
+# 0. Copy the chosen backup out of the backup_data volume to the host. Replace
+#    <project> with your Compose project name (see `docker volume ls`).
+mkdir -p ./restore
+docker run --rm \
+  -v <project>_backup_data:/backups:ro \
+  -v "$(pwd)/restore":/out \
+  alpine sh -c 'cp /backups/daily/geolens_<YYYYmmdd_HHMMSS>.dump /out/ && \
+                cp /backups/daily/staging-<YYYYmmdd_HHMMSS>.tar.gz /out/ 2>/dev/null; ls -lh /out'
+
 # 1. Restore the database (custom-format dump → pg_restore). This is THE
 #    canonical restore path; never `psql < dump` a -Fc file.
-./scripts/restore.sh backups/daily/geolens_<YYYYmmdd_HHMMSS>.dump
+./scripts/restore.sh ./restore/geolens_<YYYYmmdd_HHMMSS>.dump
 
 # 2. Restore the matching object-storage archive into the upload_staging volume.
-#    restore.sh keeps a single-arg, DB-focused contract, so this is a manual
-#    one-off container that mounts the named volume. Replace <project> with your
-#    Compose project name (run `docker volume ls` to find <project>_upload_staging).
 docker run --rm \
   -v <project>_upload_staging:/staging \
-  -v "$(pwd)/backups/daily":/restore:ro \
+  -v "$(pwd)/restore":/restore:ro \
   alpine sh -c 'cd /staging && tar xzf /restore/staging-<YYYYmmdd_HHMMSS>.tar.gz'
 ```
 
 `restore.sh` auto-detects a sibling `staging-<timestamp>.tar.gz` next to the dump
-and prints the exact `docker run` line above with the real paths filled in, so
-you can copy it from the restore output rather than hand-editing it.
+(here in `./restore`) and prints the exact `docker run` line above with the real
+paths filled in, so you can copy it from the restore output rather than
+hand-editing it.
 
 ---
 
@@ -222,8 +236,8 @@ you can copy it from the restore output rather than hand-editing it.
   Likewise the Backups & Restore guide (getgeolens.com docs/.../backups.mdx,
   linked from README) must reflect the same corrections made here in v1043
   (BKP-02/03): scripts/restore.sh is THE restore path (never `psql <` a -Fc
-  dump); backups are opt-in via `--profile backup`; the built-in S3 uploader is
-  SigV2 (AWS classic / MinIO), NOT Cloudflare R2 / modern AWS (SigV4 roadmap);
-  and a full restore includes the staging-<timestamp>.tar.gz object archive.
+  dump); backups run by default (no `--profile` gate); the built-in S3 uploader
+  is SigV4 (Cloudflare R2 / modern AWS S3 / MinIO compatible); and a full restore
+  copies the dump + staging-<timestamp>.tar.gz out of the backup_data volume.
   Cross-repo follow-up — intentionally NOT edited from the geolens repo.
 -->

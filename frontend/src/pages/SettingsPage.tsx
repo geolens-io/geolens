@@ -6,6 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { FieldLabel } from '@/components/ui/field-label';
 import { MyApiKeySection } from '@/components/settings/MyApiKeySection';
 import { useAuth } from '@/hooks/use-auth';
 import { useTheme } from '@/components/theme-provider';
@@ -125,10 +126,11 @@ export function SettingsPage() {
                     <button
                       key={themeOption}
                       onClick={() => setTheme(themeOption)}
+                      aria-pressed={theme === themeOption}
                       className={cn(
                         'flex items-center gap-2 rounded-md border px-4 py-2 text-sm font-medium transition-colors',
                         theme === themeOption
-                          ? 'border-primary bg-primary/10 text-primary'
+                          ? 'border-primary bg-primary/10 text-foreground'
                           : 'border-border text-muted-foreground hover:bg-accent hover:text-accent-foreground',
                       )}
                     >
@@ -147,13 +149,16 @@ export function SettingsPage() {
               <CardTitle>{t('settings.language.title')}</CardTitle>
             </CardHeader>
             <CardContent>
+              <FieldLabel htmlFor="settings-language-select">
+                {t('settings.language.title')}
+              </FieldLabel>
               <Select
                 value={i18n.resolvedLanguage ?? fallbackLng}
                 onValueChange={(lng) => {
                   void changeAppLanguage(lng);
                 }}
               >
-                <SelectTrigger className="w-48" aria-label={t('settings.language.title')}>
+                <SelectTrigger id="settings-language-select" className="w-48">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>

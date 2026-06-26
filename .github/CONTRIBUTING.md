@@ -146,6 +146,10 @@ If a PR template exists at `.github/PULL_REQUEST_TEMPLATE.md`, your PR descripti
 
 ## Project Structure
 
+For how these pieces fit together at runtime — the request and upload lifecycles, the
+open-core seam, and a "where do I change X?" map — see [ARCHITECTURE.md](ARCHITECTURE.md).
+The tree below is the file layout.
+
 ```
 geolens/
 ├── backend/                    # FastAPI application

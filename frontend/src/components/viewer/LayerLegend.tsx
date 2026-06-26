@@ -240,17 +240,15 @@ export function LayerLegend({
         {isOpen ? <X className="w-4 h-4" aria-hidden="true" /> : <Layers className="w-4 h-4" aria-hidden="true" />}
       </button>
 
-      {/* Legend panel — shown when open */}
+      {/* Legend panel — unmounted when closed (PR #330: prevent keyboard trap
+          into invisible per-layer toggles; was opacity-0 + pointer-events-none only). */}
+      {isOpen && (
       <div
         ref={panelRef}
         id="layer-legend-panel"
         role="region"
         aria-label={t('viewer.legend.title')}
-        className={`absolute left-3 top-14 z-10 w-64 max-h-[calc(100vh-5rem)] overflow-y-auto bg-background/90 backdrop-blur-md rounded-lg shadow-lg border border-border/50 transition-[opacity,transform] duration-200 ease-out ${
-          isOpen
-            ? 'opacity-100 translate-y-0'
-            : 'opacity-0 -translate-y-2 pointer-events-none'
-        }`}
+        className="absolute left-3 top-14 z-10 w-64 max-h-[calc(100vh-5rem)] overflow-y-auto bg-background/90 backdrop-blur-md rounded-lg shadow-lg border border-border/50"
       >
         <div className="p-3 border-b border-border/50">
           <h3 className="text-sm font-semibold text-foreground">
@@ -360,6 +358,7 @@ export function LayerLegend({
           })}
         </ul>
       </div>
+      )}
     </>
   );
 }

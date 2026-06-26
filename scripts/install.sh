@@ -521,32 +521,21 @@ main() {
     say "  docker compose ps"
   fi
 
-  # BKP-03 (Phase 1219): backups are OPT-IN. A default install brings up no
-  # backup service, so surface a clear status line rather than let operators
-  # assume they are protected. Treat backups as "enabled" only if the backup
-  # Compose profile is requested (COMPOSE_PROFILES contains "backup") OR S3
-  # offload is turned on (BACKUP_S3_ENABLED=true) in the environment/.env.
-  _backup_profiles="${COMPOSE_PROFILES:-}"
+  # BKP-01 (Phase 1247): backups are DEFAULT-ON. A plain `docker compose up`
+  # runs the backup container (no --profile flag needed). Surface the active
+  # mode: S3 offload when BACKUP_S3_ENABLED=true, otherwise local retention.
   _backup_s3="${BACKUP_S3_ENABLED:-false}"
   if [ -f .env ]; then
-    _env_profiles="$(grep -E '^COMPOSE_PROFILES=' .env 2>/dev/null | tail -n1 | cut -d= -f2- | tr -d '"' || true)"
-    [ -n "$_env_profiles" ] && _backup_profiles="${_backup_profiles},${_env_profiles}"
     _env_s3="$(grep -E '^BACKUP_S3_ENABLED=' .env 2>/dev/null | tail -n1 | cut -d= -f2- | tr -d '"' || true)"
     [ -n "$_env_s3" ] && _backup_s3="$_env_s3"
   fi
   say ""
-  case ",${_backup_profiles}," in
-    *,backup,*)
-      say "Automated backups: ENABLED (backup profile active)." ;;
-    *)
-      if [ "$_backup_s3" = "true" ]; then
-        say "Automated backups: ENABLED (S3 offload active)."
-      else
-        warn "Automated backups are NOT enabled — see UPGRADING.md or run with --profile backup"
-        warn "  e.g. docker compose --profile backup up -d"
-      fi
-      ;;
-  esac
+  if [ "$_backup_s3" = "true" ]; then
+    say "Automated backups: ENABLED (daily pg_dump + S3 offload active)."
+  else
+    say "Automated backups: ENABLED (daily pg_dump, local retention)."
+    say "  To also offload backups to S3/MinIO, set BACKUP_S3_ENABLED=true in .env."
+  fi
 }
 
 main "$@"
