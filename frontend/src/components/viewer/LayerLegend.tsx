@@ -240,7 +240,7 @@ export function LayerLegend({
         {isOpen ? <X className="w-4 h-4" aria-hidden="true" /> : <Layers className="w-4 h-4" aria-hidden="true" />}
       </button>
 
-      {/* Legend panel — unmounted when closed (fix(#GLUX-001): prevent keyboard trap
+      {/* Legend panel — unmounted when closed (PR #330: prevent keyboard trap
           into invisible per-layer toggles; was opacity-0 + pointer-events-none only). */}
       {isOpen && (
       <div

@@ -13,7 +13,7 @@ interface BasemapToggleProps {
 
 const POPOVER_ID = 'basemap-toggle-popover';
 
-/** Basemap selector — keyboard-complete disclosure (fix(#GLUX-008): aria-expanded/controls,
+/** Basemap selector — keyboard-complete disclosure (PR #330: aria-expanded/controls,
  *  aria-current on options, Escape-to-close, focus-return to trigger). */
 export function BasemapToggle({ value, onChange, title = 'Change basemap', className }: BasemapToggleProps) {
   const { data: basemaps } = useBasemaps();

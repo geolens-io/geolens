@@ -144,7 +144,7 @@ export function MyApiKeySection() {
                     }`}
                     aria-hidden="true"
                   />
-                  {/* fix(#305/GLUX-014): replace dot+title+sr-only with a visible status badge so state is
+                  {/* fix(#305): replace dot+title+sr-only with a visible status badge so state is
                       conveyed as visible text, not color alone. The dot stays as a secondary visual cue. */}
                   <span
                     className={cn(
