@@ -91,6 +91,43 @@ def extract_request_origin(request: Request) -> str | None:
     return None
 
 
+def build_embed_frame_ancestors(
+    *, is_valid: bool, allowed_origins: list[str] | None
+) -> str:
+    """Build the CSP ``frame-ancestors`` directive for the /m/{token} embed shell.
+
+    builder-audit P0-02: domain restrictions previously protected only the
+    tile/data calls, not the embeddable HTML document itself, so any site could
+    frame the shell. The validated edge route emits a per-token frame-ancestors
+    policy derived from ``EmbedToken.allowed_origins``:
+
+    - Invalid / revoked / expired token  -> ``frame-ancestors 'none'`` (fail
+      closed: the shell cannot be framed anywhere).
+    - Valid token WITH allowed_origins    -> ``frame-ancestors 'self' <origins>``
+      (only the configured domains may frame; the browser blocks all others
+      before app bootstrap).
+    - Valid token WITHOUT allowed_origins -> ``""`` (unrestricted Community
+      embed: open framing is intentional and explicit — no directive is emitted
+      so the shell stays frameable on any site; we never emit the forbidden
+      ``frame-ancestors *``, preserving the codebase no-wildcard invariant).
+
+    CRLF / wildcard entries are dropped (defense-in-depth on top of the
+    schema-layer _validate_origins 422 rejection) to prevent header splitting and
+    accidental clickjacking-protection bypass from any stale DB row.
+    """
+    if not is_valid:
+        return "frame-ancestors 'none'"
+    safe: list[str] = []
+    for o in allowed_origins or []:
+        if not o or "\r" in o or "\n" in o or "*" in o or not o.strip():
+            continue
+        safe.append(o.strip())
+    if not safe:
+        # Unrestricted Community embed -> intentional, explicit open framing.
+        return ""
+    return f"frame-ancestors 'self' {' '.join(safe)}"
+
+
 async def create_embed_token(
     db: AsyncSession,
     map_id: uuid.UUID,
@@ -214,6 +251,52 @@ async def revoke_embed_token(
         logger.error("Cache invalidation failed for embed token", exc_info=True)
 
     return token
+
+
+async def revoke_embed_tokens_by_map(
+    db: AsyncSession,
+    map_id: uuid.UUID,
+) -> int:
+    """Revoke ALL active embed tokens for a map and purge their Redis cache.
+
+    builder-audit P0-01: embed tokens survived share revocation and visibility
+    downgrades because the maps router's revoke / public->non-public paths only
+    flipped ``MapShareToken.is_active`` (via ``revoke_share_token_by_map``) and
+    never touched ``EmbedToken``. A copied embed token therefore kept serving
+    tiles until its natural expiry. The maps router wires THIS function into the
+    share-revoke, public->non-public visibility-downgrade, and layer-change
+    paths so a revoked map's embed tokens stop validating immediately.
+
+    Deactivates every active token for the map AND deletes its positive-cache
+    entry so the 5-minute cache TTL cannot extend access past revocation.
+
+    Returns the number of tokens revoked.
+    """
+    result = await db.execute(
+        select(EmbedToken).where(
+            EmbedToken.map_id == map_id,
+            EmbedToken.is_active.is_(True),
+        )
+    )
+    tokens = list(result.scalars().all())
+    if not tokens:
+        return 0
+
+    for token in tokens:
+        token.is_active = False
+    await db.flush()
+
+    # Best-effort cache invalidation — a cached positive entry must not outlive
+    # the revocation (builder-audit P0-01 acceptance: Redis positive cache does
+    # not extend access).
+    try:
+        cache = get_cache()
+        for token in tokens:
+            await cache.delete(f"embed_token:{token.token_hash}")
+    except Exception:  # broad: cache invalidation must not break callers; redis can throw varied pool/timeout errors
+        logger.error("Cache invalidation failed for embed token", exc_info=True)
+
+    return len(tokens)
 
 
 async def update_embed_token(
@@ -390,6 +473,35 @@ async def validate_embed_token_access(
             return False
         if token_tenant != dataset_tenant:
             return False
+
+    # builder-audit P0-01: fail-closed live layer-membership re-check.
+    # scoped_dataset_ids is a creation-time snapshot. If the dataset's layer was
+    # later removed from the map (or the whole map deleted), the snapshot is
+    # stale and would still grant tile access until token expiry. Re-query the
+    # map's CURRENT layer membership and deny if the requested dataset no longer
+    # belongs to a live layer on the token's map. Runs on BOTH the cache-hit and
+    # cache-miss paths so a cached positive entry cannot outlive a layer removal.
+    # Note: this deliberately does NOT recheck Map.visibility — embed tokens are
+    # a private-dataset capability (SEC-022), so a private map with private
+    # layers must still serve via an active token. Share-revoke /
+    # visibility-downgrade invalidation is enforced by revoke_embed_tokens_by_map.
+    if token is not None:
+        live_map_id: uuid.UUID | None = token.map_id
+    else:
+        raw_map_id = cached.get("map_id") if cached else None  # type: ignore[union-attr]
+        live_map_id = uuid.UUID(raw_map_id) if raw_map_id else None
+    if live_map_id is None:
+        return False
+    membership = await db.execute(
+        select(MapLayer.id)
+        .where(
+            MapLayer.map_id == live_map_id,
+            MapLayer.dataset_id == dataset_id,
+        )
+        .limit(1)
+    )
+    if membership.scalar_one_or_none() is None:
+        return False
 
     if token is not None:
         async with db.begin_nested():

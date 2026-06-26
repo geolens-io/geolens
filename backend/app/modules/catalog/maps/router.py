@@ -27,6 +27,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.audit.service import AuditEvent, audit_emit
+from app.core.edition import is_enterprise
 from app.core.identity import Identity
 from app.modules.auth.dependencies import (
     get_current_active_user,
@@ -99,6 +100,11 @@ from app.modules.catalog.maps.service import (
 )
 from app.modules.catalog.maps.models import MapLayer
 from app.modules.catalog.maps.service import _validate_share_token, remove_layers_bulk
+from app.modules.catalog.maps.service_public import (
+    revoke_embed_tokens_for_dropped_datasets,
+)
+from app.modules.embed_tokens.schemas import ADVANCED_SHARING_ERROR
+from app.modules.embed_tokens.service import revoke_embed_tokens_by_map
 from app.standards.ogc.errors import ERROR_RESPONSES_WRITE
 from app.core.public_urls import get_public_api_url
 from app.modules.catalog.maps._router_helpers import (
@@ -519,7 +525,9 @@ async def import_map_style_endpoint(
     and the auto-generated SDKs stop emitting an opaque ``Mapping[str, Any]``
     request type.
     """
-    style = body.model_dump(exclude_none=True, by_alias=True)
+    # builder-audit STYLE-08: MapStyleImportRequest defines no field aliases, so
+    # the prior by_alias=True was a no-op that implied aliasing that doesn't exist.
+    style = body.model_dump(exclude_none=True)
     try:
         imported = parse_maplibre_style_import(style)
     except ValueError as exc:
@@ -736,6 +744,10 @@ async def update_map_endpoint(
     if body.visibility is not None and body.visibility != MapVisibility.public:
         if map_obj.visibility == "public":
             await revoke_share_token_by_map(db, map_id)
+            # builder-audit P0-01: a public->non-public downgrade must also revoke
+            # embed tokens, which previously survived (only the share token was
+            # flipped) and kept serving tiles for a now-private map until expiry.
+            await revoke_embed_tokens_by_map(db, map_id)
 
     # Hard block: prevent publishing maps with non-public datasets
     if body.visibility == MapVisibility.public:
@@ -809,85 +821,83 @@ async def update_map_endpoint(
             ip_address=request.client.host if request.client else None,
         ),
     )
-    if (
-        "name" in kwargs
-        and kwargs["name"]
-        and kwargs["name"] != previous_values["name"]
-    ):
-        await record_map_history_event(
-            db,
-            map_id=map_id,
-            actor=user,
-            target_type="map",
-            target_id=map_id,
-            target_name=map_obj.name,
-            action="map.rename",
-            summary=f"Renamed map to {map_obj.name}",
-            details={
+    # builder-audit STYLE-06: the per-field history events were six near-identical
+    # copy-pasted record_map_history_event blocks. Drive them from one table of
+    # (changed, action, summary, details) and loop uniformly so a new
+    # history-tracked field is a single row, not another hand-written block. The
+    # emitted events/semantics are identical to the previous blocks.
+    new_visibility = (
+        _visibility_value(kwargs["visibility"])
+        if "visibility" in kwargs and kwargs["visibility"] is not None
+        else None
+    )
+    config_fields = sorted(
+        set(changed_fields)
+        - {"name", "visibility", "terrain_config", "basemap_config", "layers"}
+    )
+    history_events = [
+        (
+            "name" in kwargs
+            and bool(kwargs["name"])
+            and kwargs["name"] != previous_values["name"],
+            "map.rename",
+            f"Renamed map to {map_obj.name}",
+            {
                 "field": "name",
                 "previous": previous_values["name"],
                 "current": map_obj.name,
             },
-        )
-    if (
-        "visibility" in kwargs
-        and kwargs["visibility"] is not None
-        and _visibility_value(kwargs["visibility"]) != previous_values["visibility"]
-    ):
-        await record_map_history_event(
-            db,
-            map_id=map_id,
-            actor=user,
-            target_type="map",
-            target_id=map_id,
-            target_name=map_obj.name,
-            action="map.visibility_update",
-            summary=f"Changed visibility to {map_obj.visibility}",
-            details={
+        ),
+        (
+            "visibility" in kwargs
+            and kwargs["visibility"] is not None
+            and new_visibility != previous_values["visibility"],
+            "map.visibility_update",
+            f"Changed visibility to {map_obj.visibility}",
+            {
                 "field": "visibility",
                 "previous": previous_values["visibility"],
                 "current": map_obj.visibility,
             },
-        )
-    if (
-        "terrain_config" in kwargs
-        and kwargs["terrain_config"] != previous_values["terrain_config"]
-    ):
-        await record_map_history_event(
-            db,
-            map_id=map_id,
-            actor=user,
-            target_type="map",
-            target_id=map_id,
-            target_name=map_obj.name,
-            action="map.terrain_update",
-            summary="Updated terrain settings",
-            details={
+        ),
+        (
+            "terrain_config" in kwargs
+            and kwargs["terrain_config"] != previous_values["terrain_config"],
+            "map.terrain_update",
+            "Updated terrain settings",
+            {
                 "field": "terrain_config",
                 "previous": previous_values["terrain_config"],
                 "current": map_obj.terrain_config,
             },
-        )
-    if (
-        "basemap_config" in kwargs
-        and kwargs["basemap_config"] != previous_values["basemap_config"]
-    ):
-        await record_map_history_event(
-            db,
-            map_id=map_id,
-            actor=user,
-            target_type="map",
-            target_id=map_id,
-            target_name=map_obj.name,
-            action="map.basemap_update",
-            summary="Updated basemap appearance",
-            details={
+        ),
+        (
+            "basemap_config" in kwargs
+            and kwargs["basemap_config"] != previous_values["basemap_config"],
+            "map.basemap_update",
+            "Updated basemap appearance",
+            {
                 "field": "basemap_config",
                 "previous": previous_values["basemap_config"],
                 "current": map_obj.basemap_config,
             },
-        )
-    if "layers" in kwargs:
+        ),
+        (
+            "layers" in kwargs,
+            "layer.replace",
+            f"Replaced map layers with {len(layers)} layer(s)",
+            {"layer_count": len(layers)},
+        ),
+        (
+            bool(config_fields),
+            "map.config_update",
+            "Updated map settings",
+            {"changed_fields": config_fields},
+        ),
+    ]
+    for changed, action, summary, details in history_events:
+        if not changed:
+            continue
         await record_map_history_event(
             db,
             map_id=map_id,
@@ -895,30 +905,16 @@ async def update_map_endpoint(
             target_type="map",
             target_id=map_id,
             target_name=map_obj.name,
-            action="layer.replace",
-            summary=f"Replaced map layers with {len(layers)} layer(s)",
-            details={"layer_count": len(layers)},
+            action=action,
+            summary=summary,
+            details=details,
         )
 
-    config_fields = set(changed_fields) - {
-        "name",
-        "visibility",
-        "terrain_config",
-        "basemap_config",
-        "layers",
-    }
-    if config_fields:
-        await record_map_history_event(
-            db,
-            map_id=map_id,
-            actor=user,
-            target_type="map",
-            target_id=map_id,
-            target_name=map_obj.name,
-            action="map.config_update",
-            summary="Updated map settings",
-            details={"changed_fields": sorted(config_fields)},
-        )
+    if "layers" in kwargs:
+        # builder-audit P0-01: replacing the layer set can drop a dataset an
+        # embed token is scoped to; revoke any orphaned embed tokens so they
+        # stop serving tiles for content the map no longer exposes.
+        await revoke_embed_tokens_for_dropped_datasets(db, map_id)
     await db.commit()
 
     return _build_map_response(
@@ -1087,6 +1083,10 @@ async def patch_map_layers_endpoint(
             summary="Reordered layers",
             details={"order": [str(layer_id) for layer_id in body.order]},
         )
+    # builder-audit P0-01: a diff that removes layers can drop a dataset an embed
+    # token is scoped to; revoke any now-orphaned embed tokens.
+    if body.removed:
+        await revoke_embed_tokens_for_dropped_datasets(db, map_id)
     await db.commit()
 
     return _build_map_response(
@@ -1232,6 +1232,16 @@ async def share_map_endpoint(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Map must be public before sharing",
         )
+    # builder-audit P1-14: custom share expiration is an advanced-sharing control.
+    # The UI hides it in Community, but the backend accepted any expires_at — gate
+    # it here with the same error taxonomy embed tokens use so API clients cannot
+    # bypass the product gate. The basic Community share/revoke flow (no expiry)
+    # is unaffected. Enterprise accepts future expiration.
+    if body is not None and body.expires_at is not None and not is_enterprise():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=ADVANCED_SHARING_ERROR,
+        )
     try:
         token_obj = await create_share_token(
             db, map_id, user.id, expires_at=body.expires_at if body else None
@@ -1282,6 +1292,14 @@ async def update_map_share_token_endpoint(
             detail="Map not found",
         )
     await check_map_ownership(map_obj, user, db)
+    # builder-audit P1-14: gate custom expiration on update too. Null clears
+    # expiration (basic Community flow, allowed); a non-null custom expiry is an
+    # advanced-sharing control reserved for Enterprise.
+    if body.expires_at is not None and not is_enterprise():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=ADVANCED_SHARING_ERROR,
+        )
     try:
         token_obj = await update_share_token(db, map_id, body.expires_at)
     except ValueError as e:
@@ -1335,6 +1353,10 @@ async def revoke_map_share_endpoint(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="No active share token found",
         )
+    # builder-audit P0-01: revoking sharing must also revoke embed tokens for the
+    # map; previously they survived and kept serving tiles via copied iframe URLs
+    # until natural expiry.
+    await revoke_embed_tokens_by_map(db, map_id)
     await audit_emit(
         db,
         AuditEvent(
@@ -1763,6 +1785,9 @@ async def remove_layer_endpoint(
             "sort_order": layer.sort_order,
         },
     )
+    # builder-audit P0-01: removing a layer can drop a dataset an embed token is
+    # scoped to; revoke any now-orphaned embed tokens for the map.
+    await revoke_embed_tokens_for_dropped_datasets(db, map_id)
     await db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
@@ -1837,6 +1862,10 @@ async def bulk_delete_layers_endpoint(
                 "failed_count": len(failed_pairs),
             },
         )
+
+        # builder-audit P0-01: a bulk delete can drop a dataset an embed token is
+        # scoped to; revoke any now-orphaned embed tokens for the map.
+        await revoke_embed_tokens_for_dropped_datasets(db, map_id)
 
     await db.commit()
 

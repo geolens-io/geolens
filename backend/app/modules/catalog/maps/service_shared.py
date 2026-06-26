@@ -14,6 +14,10 @@ from app.modules.auth.models import User
 from app.modules.catalog.authorization import apply_visibility_filter, get_user_roles
 from app.modules.catalog.datasets.domain.models import Dataset, DatasetGrant, Record
 from app.modules.catalog.maps.models import Map, MapLayer
+from app.modules.catalog.maps.style_json import (
+    DEFAULT_FILL_COLOR,
+    DEFAULT_STROKE_COLOR,
+)
 from app.platform.extensions import get_catalog_port
 
 logger = structlog.stdlib.get_logger(__name__)
@@ -148,12 +152,14 @@ def generate_default_style(geometry_type: str | None) -> dict[str, dict | None]:
             "generate_default_style called with null geometry_type; defaulting to fill"
         )
 
+    # builder-audit STYLE-07: use the shared GeoLens-blue palette constants from
+    # style_json so storage defaults cannot silently diverge from export defaults.
     if "POINT" in gt:
         return {
             "paint": {
                 "circle-radius": 5,
-                "circle-color": "#3b82f6",
-                "circle-stroke-color": "#1d4ed8",
+                "circle-color": DEFAULT_FILL_COLOR,
+                "circle-stroke-color": DEFAULT_STROKE_COLOR,
                 "circle-stroke-width": 1,
                 "circle-opacity": 1,
             },
@@ -162,7 +168,7 @@ def generate_default_style(geometry_type: str | None) -> dict[str, dict | None]:
     elif "LINE" in gt:
         return {
             "paint": {
-                "line-color": "#3b82f6",
+                "line-color": DEFAULT_FILL_COLOR,
                 "line-width": 2,
                 "line-opacity": 1,
             },
@@ -175,13 +181,13 @@ def generate_default_style(geometry_type: str | None) -> dict[str, dict | None]:
         # Default to fill (polygon, geometry collection, unknown)
         return {
             "paint": {
-                "fill-color": "#3b82f6",
+                "fill-color": DEFAULT_FILL_COLOR,
                 "fill-opacity": 0.3,
             },
             "layout": {},
             "style_config": {
                 "builder": {
-                    "outline_color": "#1d4ed8",
+                    "outline_color": DEFAULT_STROKE_COLOR,
                     "outline_width": 1,
                 }
             },
