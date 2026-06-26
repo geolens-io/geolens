@@ -21,13 +21,20 @@ test.describe('Keyboard navigation — public routes', () => {
       if (await usernameField.evaluate((el) => el === document.activeElement)) break;
     }
     await expect(usernameField).toBeFocused();
+    await page.keyboard.type('keyboard-nav-smoke');
 
     // Password is next in tab order — proves no focus trap between them.
     await page.keyboard.press('Tab');
     await expect(passwordField).toBeFocused();
+    await page.keyboard.type('keyboard-nav-smoke');
 
-    // Submit button is next — completes the keyboard path through the login form.
-    await page.keyboard.press('Tab');
+    // With the form filled the submit button is enabled and reachable. A disabled
+    // submit (empty form) is correctly skipped in the tab order, so we fill first,
+    // then Tab forward until it receives focus (tolerates an intervening control).
+    for (let i = 0; i < 4; i++) {
+      await page.keyboard.press('Tab');
+      if (await submitButton.evaluate((el) => el === document.activeElement)) break;
+    }
     await expect(submitButton).toBeFocused();
   });
 
