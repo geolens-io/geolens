@@ -11,6 +11,11 @@ export function useMyUsage() {
     queryKey: queryKeys.auth.usage(user?.id),
     queryFn: getMyUsage,
     enabled: !!user,
-    staleTime: 60 * 1000, // 1 min — usage changes on upload/delete
+    // Usage changes on every upload/delete, so re-read it each time the user
+    // opens Settings rather than serving a stale used/cap figure. Mirrors the
+    // per-user remaining_dataset_quota handling in useUploadConfig
+    // (components/import/hooks/use-ingest.ts).
+    staleTime: 0,
+    refetchOnMount: 'always',
   });
 }

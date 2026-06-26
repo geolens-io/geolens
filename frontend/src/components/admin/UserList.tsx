@@ -185,7 +185,7 @@ export function UserList() {
                 <TableHead>{t('users.table.email')}</TableHead>
                 <TableHead>{t('users.table.roles')}</TableHead>
                 <TableHead>{t('users.table.status')}</TableHead>
-                <TableHead>Storage Used</TableHead>
+                <TableHead>{t('users.table.storage')}</TableHead>
                 <TableHead>{t('users.table.lastLogin')}</TableHead>
                 <TableHead>{t('users.table.created')}</TableHead>
                 <TableHead>{t('users.table.actions')}</TableHead>

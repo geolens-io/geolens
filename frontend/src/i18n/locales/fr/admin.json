@@ -48,6 +48,7 @@
       "email": "E-mail",
       "roles": "Rôles",
       "status": "Statut",
+      "storage": "Stockage de fichiers",
       "lastLogin": "Dernière connexion",
       "created": "Création",
       "actions": "Actions"

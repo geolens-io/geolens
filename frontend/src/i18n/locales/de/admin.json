@@ -48,6 +48,7 @@
       "email": "E-Mail",
       "roles": "Rollen",
       "status": "Status",
+      "storage": "Dateispeicher",
       "lastLogin": "Letzter Login",
       "created": "Erstellt",
       "actions": "Aktionen"

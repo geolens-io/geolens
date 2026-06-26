@@ -48,6 +48,7 @@
       "email": "Email",
       "roles": "Roles",
       "status": "Status",
+      "storage": "File storage",
       "lastLogin": "Last Login",
       "created": "Created",
       "actions": "Actions"
