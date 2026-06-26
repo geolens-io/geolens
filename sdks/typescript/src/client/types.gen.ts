@@ -11766,6 +11766,51 @@ export type MePermissionsAuthMePermissionsGetResponses = {
 
 export type MePermissionsAuthMePermissionsGetResponse = MePermissionsAuthMePermissionsGetResponses[keyof MePermissionsAuthMePermissionsGetResponses];
 
+export type MeUsageAuthMeUsageGetData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/auth/me/usage/';
+};
+
+export type MeUsageAuthMeUsageGetErrors = {
+    /**
+     * Bad request — invalid query parameters or payload
+     */
+    400: ProblemDetail;
+    /**
+     * Unauthorized — missing or invalid credentials
+     */
+    401: ProblemDetail;
+    /**
+     * Forbidden — caller lacks access to this resource
+     */
+    403: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Validation error
+     */
+    422: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+};
+
+export type MeUsageAuthMeUsageGetError = MeUsageAuthMeUsageGetErrors[keyof MeUsageAuthMeUsageGetErrors];
+
+export type MeUsageAuthMeUsageGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: UserQuotaUsage;
+};
+
+export type MeUsageAuthMeUsageGetResponse = MeUsageAuthMeUsageGetResponses[keyof MeUsageAuthMeUsageGetResponses];
+
 export type ListPublicProvidersAuthOauthProvidersGetData = {
     body?: never;
     path?: never;

@@ -13,6 +13,8 @@ import { changeAppLanguage } from '@/i18n';
 import { fallbackLng, languageOptions } from '@/i18n/config';
 import { cn } from '@/lib/utils';
 import { useDocumentTitle } from '@/hooks/use-document-title';
+import { useMyUsage } from '@/hooks/use-quota';
+import { formatBytes, formatNumber } from '@/lib/format';
 
 const themes = ['light', 'dark', 'system'] as const;
 const themeIcons = { light: Sun, dark: Moon, system: Monitor } as const;
@@ -21,6 +23,7 @@ export function SettingsPage() {
   const { t, i18n } = useTranslation();
   const { user } = useAuth();
   const { theme, setTheme } = useTheme();
+  const { data: usage } = useMyUsage();
   useDocumentTitle(t('common:pageTitle.settings'));
 
   return (
@@ -50,6 +53,60 @@ export function SettingsPage() {
                     <Badge variant="secondary">{user?.roles?.[0]}</Badge>
                   </div>
                 </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Storage usage */}
+          <Card className="border border-border">
+            <CardHeader>
+              <CardTitle>{t('settings.storage.title')}</CardTitle>
+              <CardDescription>{t('settings.storage.description')}</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-muted-foreground">{t('settings.storage.storageUsed')}</span>
+                  <span className="font-medium">
+                    {usage
+                      ? usage.storage_cap > 0
+                        ? `${formatBytes(usage.bytes_used)} / ${formatBytes(usage.storage_cap)}`
+                        : formatBytes(usage.bytes_used)
+                      : '—'}
+                  </span>
+                </div>
+                {usage && usage.storage_cap > 0 ? (
+                  <progress
+                    value={usage.bytes_used}
+                    max={usage.storage_cap}
+                    aria-label={t('settings.storage.storageUsed')}
+                    className="h-2 w-full appearance-none overflow-hidden rounded-full bg-muted [&::-webkit-progress-bar]:bg-muted [&::-webkit-progress-value]:bg-primary [&::-moz-progress-bar]:bg-primary"
+                  />
+                ) : usage ? (
+                  <p className="text-xs text-muted-foreground">{t('settings.storage.unlimited')}</p>
+                ) : null}
+              </div>
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-muted-foreground">{t('settings.storage.datasetsUsed')}</span>
+                  <span className="font-medium">
+                    {usage
+                      ? usage.count_cap > 0
+                        ? `${formatNumber(usage.dataset_count)} / ${formatNumber(usage.count_cap)}`
+                        : formatNumber(usage.dataset_count)
+                      : '—'}
+                  </span>
+                </div>
+                {usage && usage.count_cap > 0 ? (
+                  <progress
+                    value={usage.dataset_count}
+                    max={usage.count_cap}
+                    aria-label={t('settings.storage.datasetsUsed')}
+                    className="h-2 w-full appearance-none overflow-hidden rounded-full bg-muted [&::-webkit-progress-bar]:bg-muted [&::-webkit-progress-value]:bg-primary [&::-moz-progress-bar]:bg-primary"
+                  />
+                ) : usage ? (
+                  <p className="text-xs text-muted-foreground">{t('settings.storage.unlimited')}</p>
+                ) : null}
               </div>
             </CardContent>
           </Card>

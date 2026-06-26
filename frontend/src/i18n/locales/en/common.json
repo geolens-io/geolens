@@ -218,6 +218,13 @@
     },
     "language": {
       "title": "Language"
+    },
+    "storage": {
+      "title": "Storage Usage",
+      "description": "Your file storage and dataset usage",
+      "storageUsed": "File storage",
+      "datasetsUsed": "Datasets",
+      "unlimited": "Unlimited"
     }
   },
   "maps": {

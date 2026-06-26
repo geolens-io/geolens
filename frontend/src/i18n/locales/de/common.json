@@ -158,6 +158,13 @@
     },
     "language": {
       "title": "Sprache"
+    },
+    "storage": {
+      "title": "Speichernutzung",
+      "description": "Ihre Dateispeicher- und Datensatznutzung",
+      "storageUsed": "Dateispeicher",
+      "datasetsUsed": "Datensätze",
+      "unlimited": "Unbegrenzt"
     }
   },
   "footer": {
