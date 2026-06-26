@@ -18,6 +18,7 @@ import {
 } from '@/components/ui/select';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { TooltipProvider } from '@/components/ui/tooltip';
+import { FieldLabel } from '@/components/ui/field-label';
 import { MapCard } from '@/components/maps/MapCard';
 import { MapCardGrid } from '@/components/maps/MapCardGrid';
 import { MapCardSkeleton } from '@/components/maps/MapCardSkeleton';
@@ -131,8 +132,10 @@ export function MapsPage() {
       {/* Browse toolbar */}
       <div className="flex flex-wrap items-center gap-2">
         <div className="relative w-64">
+          <FieldLabel htmlFor="maps-search">{t('maps.searchPlaceholder')}</FieldLabel>
           <Search className="absolute start-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
+            id="maps-search"
             placeholder={t('maps.searchPlaceholder')}
             value={search}
             onChange={(e) => setSearch(e.target.value)}

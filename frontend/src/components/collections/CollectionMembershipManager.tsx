@@ -2,6 +2,7 @@ import { useState, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Search, Plus, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
+import { FieldLabel } from '@/components/ui/field-label';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { searchDatasets } from '@/api/search';
@@ -91,8 +92,12 @@ export function CollectionMembershipManager({
         className="flex gap-2"
       >
         <div className="relative flex-1">
+          <FieldLabel htmlFor="collection-membership-search">
+            {t('membership.searchPlaceholder')}
+          </FieldLabel>
           <Search className="absolute start-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
           <Input
+            id="collection-membership-search"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder={t('membership.searchPlaceholder')}
