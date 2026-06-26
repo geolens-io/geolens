@@ -29,9 +29,10 @@
   },
   "scripts": {
     "generate": "openapi-ts",
-    "build": "tsc",
+    "build": "tsc && node scripts/fix-esm-extensions.mjs",
+    "verify:esm": "node -e \"import('./dist/index.js').then(m => { if (typeof m.createGeolensClient !== 'function') throw new Error('createGeolensClient export missing'); console.log('esm import ok'); })\"",
     "test": "node --test test/auth_stale_headers.test.mjs",
-    "prepublishOnly": "npm run build"
+    "prepublishOnly": "npm run build && npm run verify:esm"
   },
   "dependencies": {
     "@hey-api/client-fetch": "0.13.1"
