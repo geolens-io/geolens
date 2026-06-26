@@ -351,11 +351,10 @@ services:
         condition: service_healthy
 
   backup:
-    # Opt-in via `--profile backup`. Built from ./db (no published image) —
-    # same as docker-compose.yml.
-    profiles: ["backup"]
-    build:
-      context: ./db
+    # Backup runs by default — no --profile flag needed (BKP-01).
+    # Pulls the published multi-arch geolens-backup image from GHCR;
+    # no local build required on the operator host.
+    image: ${REGISTRY:-ghcr.io}/${IMAGE_OWNER:-geolens-io}/geolens-backup:${GEOLENS_VERSION:-latest}
     restart: unless-stopped
     init: true
     security_opt:

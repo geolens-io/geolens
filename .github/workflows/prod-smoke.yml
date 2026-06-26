@@ -105,7 +105,7 @@ jobs:
         # (On a normal run the images already exist → attempt 1 succeeds, no wait.)
         run: |
           for attempt in $(seq 1 40); do
-            if docker compose -f docker-compose.prod.yml pull migrate api worker titiler frontend; then
+            if docker compose -f docker-compose.prod.yml pull migrate api worker titiler frontend backup; then
               echo "Pulled release images on attempt ${attempt}."
               exit 0
             fi

@@ -465,11 +465,14 @@ services:
         condition: service_healthy
 
   backup:
-    # Enable with: docker compose --profile backup up -d
-    # Configure schedule/retention via BACKUP_* env vars (see .env.example)
-    profiles: ["backup"]
+    # Backup runs by default — no --profile flag needed (BKP-01).
+    # Configure schedule/retention via BACKUP_* env vars (see .env.example).
+    # Builds the multi-arch root Dockerfile backup stage (not ./db which is
+    # amd64-only via the postgis/postgis base).
     build:
-      context: ./db
+      context: .
+      dockerfile: Dockerfile
+      target: backup
     restart: unless-stopped
     # D03 (docker-audit-20260604): backup-entrypoint.sh runs as root throughout
     # (pg_dump/cp/curl/openssl/sleep on files it owns under /backups; cron falls
