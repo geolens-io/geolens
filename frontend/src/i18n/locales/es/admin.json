@@ -48,6 +48,7 @@
       "email": "Correo electrónico",
       "roles": "Roles",
       "status": "Estado",
+      "storage": "Almacenamiento de archivos",
       "lastLogin": "Último acceso",
       "created": "Creado",
       "actions": "Acciones"
