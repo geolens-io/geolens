@@ -362,7 +362,11 @@ services:
     cap_drop:
       - ALL
     volumes:
-      - ./scripts:/scripts:ro
+      # No ./scripts bind-mount in prod: the published geolens-backup image bakes
+      # /scripts/backup-entrypoint.sh + restore.sh (BKP-01), so the prebuilt-prod
+      # path boots without a repo checkout. A stale/absent ./scripts host dir would
+      # otherwise mask the baked entrypoint and the container would exit. (The dev
+      # compose mounts ./scripts for live script iteration on its locally-built image.)
       - backup_data:/backups
       # BKP-01 (Phase 1219): include object storage in backup scope. The backup
       # service tars the upload_staging volume alongside the pg_dump so a restore
@@ -390,11 +394,17 @@ services:
       S3_ADDRESSING_STYLE: ${S3_ADDRESSING_STYLE:-auto}
     entrypoint: ["/scripts/backup-entrypoint.sh"]
     healthcheck:
+      # The entrypoint runs the built-in sleep-loop scheduler (postgres:17 has no
+      # cron); the probe just verifies that process is alive.
       test: ["CMD-SHELL", "pgrep -f backup-entrypoint || pgrep -f sleep || exit 1"]
-      interval: 60s
+      interval: 30s
       timeout: 5s
       retries: 3
       start_period: 30s
+      # Probe every 5s during start-up so the service reports healthy quickly — it
+      # starts last (gated on migrate) and must clear the installer's
+      # wait-for-healthy budget on a fresh install.
+      start_interval: 5s
     depends_on:
       db:
         condition: service_healthy

@@ -225,8 +225,8 @@ LABEL org.opencontainers.image.licenses="Apache-2.0"
 
 # awscli (SigV4-capable S3 client) for the BKP-02 S3 upload path; procps for the
 # compose healthcheck (`pgrep -f backup-entrypoint || pgrep -f sleep`) — pgrep is
-# present in the postgres:17 base today but is installed explicitly so the now
-# default-on healthcheck can never silently break on a base-image change.
+# present in the postgres:17 base today but is installed explicitly so the
+# default-on healthcheck's pgrep dependency survives a base-image change.
 # Installed from Debian apt only — no pip/PyPI (T-1247-SC mitigation).
 RUN apt-get update && apt-get upgrade -y --no-install-recommends && \
     apt-get install -y --no-install-recommends \

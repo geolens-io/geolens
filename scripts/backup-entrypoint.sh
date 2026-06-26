@@ -5,7 +5,7 @@ set -euo pipefail
 # GeoLens Automated Backup Entrypoint
 # ==============================================================================
 # Runs pg_dump on a cron schedule with daily/weekly retention and optional
-# S3 upload. Designed for the Docker Compose backup profile service.
+# S3 upload. Designed for the default-on Docker Compose backup service.
 #
 # Environment variables (set in docker-compose.yml):
 #   POSTGRES_USER          Database username

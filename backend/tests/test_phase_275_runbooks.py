@@ -24,12 +24,16 @@ def test_deferred_runbooks_are_not_linked_from_readme() -> None:
     assert "docs/saml.md" not in body
 
 
-def test_pg_dump_command_block_is_self_contained() -> None:
-    """API-11: backup profile stays discoverable from compose."""
+def test_backup_service_is_default_on() -> None:
+    """BKP-01: automated backups run by default (no --profile gate)."""
     readme = _read("README.md")
     compose = _read("docker-compose.yml")
-    assert "--profile backup" in compose
+    # The backup service is first-class and default-on, not opt-in behind a
+    # Compose profile (the pre-BKP-01 model). Guard against the profile gate
+    # being reintroduced.
+    assert "backup:" in compose
     assert "pg_dump" in compose
+    assert "--profile backup" not in compose
     assert "Edition deactivation" not in readme
 
 
