@@ -7,6 +7,10 @@ import structlog
 
 logger = structlog.stdlib.get_logger(__name__)
 
+# builder-audit MVT-09: SINGLE SOURCE OF TRUTH for the tile table/column name
+# regexes + validator. The router imports `_TABLE_NAME_RE` / `_validate_tile_table_name`
+# from here instead of re-declaring its own copy, so a future tightening of the
+# SQL-injection defense applies in exactly one place.
 # Strict table name validation to prevent SQL injection
 _TABLE_NAME_RE = re.compile(r"^[a-z0-9_]+$")
 
@@ -24,6 +28,15 @@ _COLUMN_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 # bound MVT tile size for wide-table datasets (e.g. 137-column
 # `populated_places_10m` produced 824 KB tiles before this change).
 # Datasets with an explicit `tile_columns` allowlist override this.
+#
+# builder-audit MVT-02: dropping attributes at z<10 is an INTENTIONAL,
+# documented perf tradeoff (824 KB -> bounded tiles), not a spec gap, so the
+# default is deliberately left unchanged. It is NOT all-or-nothing: callers opt
+# specific columns back in at every zoom via `additional_columns` (the runtime
+# `cols=` query param) — see `_select_tile_columns`, which UNIONs them in
+# regardless of this zoom budget. The frontend already opts in data-driven
+# styling columns this way; non-styling popup/identify reads at z<10 are the
+# residual tradeoff (export/runtime `cols=` emission is handled separately).
 _DEFAULT_NO_ATTR_BELOW_ZOOM = 10
 
 # Phase 269 C-02: hard cap on features per tile to bound query cost.
@@ -37,11 +50,59 @@ _TILE_FEATURE_LIMIT = 50000
 # datasets while still allowing many more points than client-side GeoJSON.
 _CLUSTER_INPUT_LIMIT = 100000
 
+# MVT tile extent (ST_AsMVTGeom resolution). One MVT coordinate unit spans
+# 360/(extent*2^z) degrees of longitude at zoom z.
+_MVT_EXTENT = 4096
+
+# builder-audit MVT-07: simplification tolerance schedule. Below this zoom the
+# geometry is simplified; at/above it the original geometry is served untouched.
+# (Distinct from _DEFAULT_NO_ATTR_BELOW_ZOOM, which happens to share the value 10
+# but governs attribute projection, not geometry simplification.)
+_NO_SIMPLIFY_AT_OR_ABOVE_ZOOM = 10
+
+# builder-audit MVT-07: sub-pixel factor applied to the degrees-per-MVT-unit
+# basis. 1.0 == one MVT coordinate unit, already ~1/16 of a rendered 256px tile
+# pixel, so vertices dropped at this tolerance are not visually distinguishable.
+# The prior piecewise schedule used this full-unit basis (360/(extent*2^z)) only
+# for z<6 and silently dropped the 360 degrees-per-tile factor for z6-9, making
+# that band's tolerance ~360x too small (effectively unsimplified). Using a
+# single continuous basis for all z<10 makes tolerance halve smoothly each zoom.
+_SIMPLIFY_SUBPIXEL_FACTOR = 1.0
+
 
 def _validate_tile_table_name(table_name: str) -> None:
     """Validate table name to prevent SQL injection."""
     if not _TABLE_NAME_RE.match(table_name):
         raise ValueError(f"Invalid table name: {table_name}")
+
+
+def _simplify_tolerance_degrees(z: int) -> float | None:
+    """Return the ST_SimplifyPreserveTopology tolerance in EPSG:4326 degrees for zoom ``z``.
+
+    builder-audit MVT-07: returns ``None`` at/above
+    ``_NO_SIMPLIFY_AT_OR_ABOVE_ZOOM`` (full detail). Below it the tolerance is
+    ``factor * 360/(extent*2^z)``, so it shrinks continuously — halving each zoom
+    — with no discontinuity at the old z5->z6 boundary. This Python helper mirrors
+    the SQL expression emitted by ``_build_tile_query`` exactly, so the
+    monotonicity test can assert the schedule without executing SQL.
+    """
+    if z >= _NO_SIMPLIFY_AT_OR_ABOVE_ZOOM:
+        return None
+    return _SIMPLIFY_SUBPIXEL_FACTOR * 360.0 / (_MVT_EXTENT * (2**z))
+
+
+def _mvt_layer_name(table_name: str) -> str:
+    """Return the MVT layer (source-layer) name for a dataset table.
+
+    builder-audit MVT-01: ALWAYS ``data.{table_name}`` regardless of the physical
+    schema the table lives in. In multi_tenant the table is in ``data_t_<tid>`` but
+    the client hardcodes the ``data.`` source-layer prefix; emitting the
+    schema-qualified name here made the MVT layer name diverge from the client's
+    source-layer reference, so no features rendered. The layer name is purely a
+    client-facing label inside the MVT payload — it does not need to match the
+    physical schema — so it is kept tenant-agnostic.
+    """
+    return f"data.{table_name}"
 
 
 def _select_tile_columns(
@@ -83,6 +144,10 @@ def _select_tile_columns(
         base = columns
 
     if additional_columns:
+        # builder-audit MVT-02: the `cols=` opt-in projects the requested columns
+        # at EVERY zoom, including z<_DEFAULT_NO_ATTR_BELOW_ZOOM where `base` is
+        # otherwise empty — this is what lets data-driven styling (and any column
+        # a caller explicitly requests) survive the low-zoom attribute budget.
         valid_extra = {
             name
             for name in additional_columns
@@ -122,12 +187,12 @@ def _build_tile_query(
 ) -> str:
     """Build the ST_AsMVT tile query for the given table and columns.
 
-    Phase 269 C-02: simplification now applies at all zooms below z=10
-    (was z<6) with a piecewise tolerance schedule, and the inner CTE has
-    a 50K-feature LIMIT to bound query cost on wide low-zoom tiles. The
-    tolerance is in EPSG:4326 degrees and shrinks exponentially with zoom
-    so low-zoom tiles stay lightweight while high-zoom tiles preserve
-    full detail (z>=10 still uses the original geometry untouched).
+    Phase 269 C-02: simplification applies at all zooms below z=10 (was z<6),
+    and the inner CTE has a 50K-feature LIMIT to bound query cost on wide
+    low-zoom tiles. builder-audit MVT-07: the tolerance is in EPSG:4326 degrees
+    and follows one continuous schedule (``_simplify_tolerance_degrees``) that
+    halves each zoom, so low/mid-zoom tiles stay lightweight while high-zoom
+    tiles preserve full detail (z>=10 uses the original geometry untouched).
 
     Phase 269 H-23: callers should pre-filter the ``columns`` list via
     ``_select_tile_columns`` so this function emits the SELECT projection
@@ -154,14 +219,14 @@ bounds AS (
 mvtgeom AS (
     SELECT ST_AsMVTGeom(
         ST_Transform(
+            -- builder-audit MVT-07: single continuous tolerance schedule for all
+            -- z<{_NO_SIMPLIFY_AT_OR_ABOVE_ZOOM}. tolerance = factor*360/(extent*2^z)
+            -- degrees (mirrors _simplify_tolerance_degrees) so it halves smoothly
+            -- each zoom instead of dropping ~360x across the old z5->z6 boundary.
             CASE
-                WHEN $1::integer < 6 THEN ST_SimplifyPreserveTopology(
+                WHEN $1::integer < {_NO_SIMPLIFY_AT_OR_ABOVE_ZOOM} THEN ST_SimplifyPreserveTopology(
                     t.geom_4326,
-                    360.0 / (4096 * power(2, $1::integer))
-                )
-                WHEN $1::integer < 10 THEN ST_SimplifyPreserveTopology(
-                    t.geom_4326,
-                    1.0 / (4096 * power(2, $1::integer))
+                    {_SIMPLIFY_SUBPIXEL_FACTOR} * 360.0 / ({_MVT_EXTENT} * power(2, $1::integer))
                 )
                 ELSE t.geom_4326
             END,
@@ -356,9 +421,10 @@ async def get_tile(
         additional_columns=additional_columns,
     )
     query = _build_tile_query(table_name, selected_columns, schema=schema)
-    # layer_name must match the schema-qualified table so clients can identify
-    # the MVT layer; mirrors the qualified table reference in the query.
-    layer_name = f"{schema}.{table_name}"
+    # builder-audit MVT-01: the MVT layer name is the client-facing source-layer
+    # label, kept tenant-agnostic ("data.{table}") so it matches the client even
+    # when the physical schema is "data_t_<tid>" in multi_tenant.
+    layer_name = _mvt_layer_name(table_name)
 
     if conn is not None:
         result = await conn.fetchval(query, z, x, y, layer_name)
@@ -402,7 +468,8 @@ async def get_cluster_tile(
     _validate_tile_table_name(table_name)
 
     query = _build_cluster_tile_query(table_name, schema=schema)
-    layer_name = f"{schema}.{table_name}"
+    # builder-audit MVT-01: tenant-agnostic source-layer label (see _mvt_layer_name).
+    layer_name = _mvt_layer_name(table_name)
 
     if conn is not None:
         result = await conn.fetchval(

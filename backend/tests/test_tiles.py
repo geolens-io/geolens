@@ -208,6 +208,58 @@ class TestTileEndpoint:
         finally:
             await _cleanup_data_table(test_db_session, table_name)
 
+    async def test_tile_response_has_etag_and_supports_304(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        """MVT-04: vector tile carries an ETag and honors If-None-Match -> 304."""
+        table_name = f"tile_etag_{uuid.uuid4().hex[:8]}"
+        user_id = await get_user_id(test_db_session, settings.geolens_admin_username)
+        await _create_tile_test_dataset(
+            test_db_session, created_by=user_id, table_name=table_name
+        )
+        await _create_data_table(test_db_session, table_name)
+
+        try:
+            resp = await client.get(f"/tiles/data.{table_name}/0/0/0.pbf")
+            assert resp.status_code == 200
+            etag = resp.headers.get("etag")
+            assert etag
+
+            conditional = await client.get(
+                f"/tiles/data.{table_name}/0/0/0.pbf",
+                headers={"If-None-Match": etag},
+            )
+            assert conditional.status_code == 304
+            assert conditional.headers.get("etag") == etag
+        finally:
+            await _cleanup_data_table(test_db_session, table_name)
+
+    async def test_cluster_tile_response_has_etag_and_supports_304(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        """MVT-04: cluster tile carries an ETag and honors If-None-Match -> 304."""
+        table_name = f"cluster_etag_{uuid.uuid4().hex[:8]}"
+        user_id = await get_user_id(test_db_session, settings.geolens_admin_username)
+        await _create_tile_test_dataset(
+            test_db_session, created_by=user_id, table_name=table_name
+        )
+        await _create_data_table(test_db_session, table_name)
+
+        try:
+            resp = await client.get(f"/tiles/clusters/data.{table_name}/0/0/0.pbf")
+            assert resp.status_code == 200
+            etag = resp.headers.get("etag")
+            assert etag
+
+            conditional = await client.get(
+                f"/tiles/clusters/data.{table_name}/0/0/0.pbf",
+                headers={"If-None-Match": etag},
+            )
+            assert conditional.status_code == 304
+            assert conditional.headers.get("etag") == etag
+        finally:
+            await _cleanup_data_table(test_db_session, table_name)
+
     async def test_cluster_tile_endpoint_returns_mvt(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ):
