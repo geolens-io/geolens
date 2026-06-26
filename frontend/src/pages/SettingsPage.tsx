@@ -130,7 +130,7 @@ export function SettingsPage() {
                       className={cn(
                         'flex items-center gap-2 rounded-md border px-4 py-2 text-sm font-medium transition-colors',
                         theme === themeOption
-                          ? 'border-primary bg-primary/10 text-primary'
+                          ? 'border-primary bg-primary/10 text-foreground'
                           : 'border-border text-muted-foreground hover:bg-accent hover:text-accent-foreground',
                       )}
                     >
