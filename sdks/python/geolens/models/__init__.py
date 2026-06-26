@@ -14,6 +14,7 @@ from .admin_job_response_user_metadata_type_0 import AdminJobResponseUserMetadat
 from .admin_share_token_list_response import AdminShareTokenListResponse
 from .admin_share_token_response import AdminShareTokenResponse
 from .admin_user_create import AdminUserCreate
+from .ai_availability_response import AIAvailabilityResponse
 from .ai_status_response import AIStatusResponse
 from .ai_status_update import AIStatusUpdate
 from .alter_column_type_request import AlterColumnTypeRequest
@@ -589,6 +590,7 @@ __all__ = (
     "AdminShareTokenListResponse",
     "AdminShareTokenResponse",
     "AdminUserCreate",
+    "AIAvailabilityResponse",
     "AIStatusResponse",
     "AIStatusUpdate",
     "AlterColumnTypeRequest",

@@ -1,6 +1,20 @@
 {
   "components": {
     "schemas": {
+      "AIAvailabilityResponse": {
+        "description": "Public-safe AI readiness signal (builder-audit P1-11).\n\nCarries a single boolean and intentionally exposes NO provider name, model,\nor key detail \u2014 it is readable by any non-admin editor holding\n``use_ai_chat`` so the builder can enable/disable chat without the\nadmin-only ``/admin/ai-status`` endpoint (which leaks provider/key info).",
+        "properties": {
+          "available": {
+            "title": "Available",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "available"
+        ],
+        "title": "AIAvailabilityResponse",
+        "type": "object"
+      },
       "AIStatusResponse": {
         "properties": {
           "configured": {
@@ -19175,6 +19189,99 @@
         "summary": "Reject User",
         "tags": [
           "Admin"
+        ]
+      }
+    },
+    "/ai/availability/": {
+      "get": {
+        "description": "Report whether builder AI chat is usable (builder-audit P1-11).\n\nPermission-gated on ``use_ai_chat`` so non-admin editors (who cannot read\n``/admin/ai-status``) can learn availability. Returns ``available=false``\nrather than 503 when provider keys are missing, so the builder shows a safe\ndisabled state without console-noise errors. A viewer (no ``use_ai_chat``)\ngets 403.",
+        "operationId": "ai_availability_endpoint_ai_availability__get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AIAvailabilityResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Bad request \u2014 invalid query parameters or payload"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Unauthorized \u2014 missing or invalid credentials"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Forbidden \u2014 caller lacks access to this resource"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Validation error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Internal server error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Ai Availability Endpoint",
+        "tags": [
+          "Maps"
         ]
       }
     },
