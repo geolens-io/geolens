@@ -3,7 +3,7 @@
 A map of how GeoLens fits together — the runtime pieces, how a request and an upload
 flow through them, and **where to make the most common changes**. For the full file
 tree, the per-module file pattern, and dev setup, see
-[`.github/CONTRIBUTING.md`](.github/CONTRIBUTING.md).
+[`CONTRIBUTING.md`](CONTRIBUTING.md).
 
 This document describes things that rarely change. If you find it out of date, a PR
 fixing it is a great first contribution.
@@ -108,7 +108,7 @@ private overlay** (`geolens-enterprise`), not behind inline gates in this repo.
 
 **Rule for contributors:** never move an existing open feature behind a gate, and never
 gate the standards (`standards/`). New paid features extend a Protocol; they do not add
-`if enterprise:` branches to core. See [`EDITIONS.md`](EDITIONS.md) for the
+`if enterprise:` branches to core. See [`EDITIONS.md`](../EDITIONS.md) for the
 open/commercial boundary.
 
 ---
