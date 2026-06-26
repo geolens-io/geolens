@@ -188,6 +188,12 @@ Notes:
 
 ## Disaster recovery
 
+> **[RUNBOOK.md](RUNBOOK.md) is the canonical day-2 operations and disaster-recovery
+> reference**, covering DR / restore / monitoring / incident response for both
+> bundled-Postgres and managed/external-Postgres modes. The quick commands below are
+> the bundled-mode summary; see RUNBOOK.md for managed-DB restore, monitoring, and
+> full incident-response guidance.
+
 To restore from a full backup (DB + object storage):
 
 ```bash
