@@ -19,8 +19,24 @@ setup('authenticate as admin', async ({ page }) => {
   // Submit the form
   await page.getByRole('button', { name: 'Sign In' }).click();
 
-  // Wait for redirect to the search workspace (index route)
-  await page.waitForURL('/');
+  // Wait for redirect to the search workspace (index route). On a credential
+  // rejection the SPA stays on /login and renders a role="alert" instead of
+  // navigating; surface that message immediately rather than letting waitForURL
+  // run out the full test timeout — an auth failure otherwise masquerades as a
+  // slow-redirect flake (e.g. the seeded admin not matching the test creds).
+  try {
+    await page.waitForURL('/', { timeout: 30_000 });
+  } catch (err) {
+    const alert = page.getByRole('alert');
+    if (await alert.isVisible().catch(() => false)) {
+      const message = (await alert.textContent())?.trim();
+      throw new Error(
+        `Login failed — credentials rejected ("${message}"). ` +
+          'Confirm GEOLENS_ADMIN_USERNAME/PASSWORD match the seeded admin.',
+      );
+    }
+    throw err;
+  }
 
   // Verify workspace loaded
   await expect(page.locator('[data-testid="search-page"], input[type="search"], [role="search"]').first()).toBeVisible({ timeout: 10000 }).catch(() => {
