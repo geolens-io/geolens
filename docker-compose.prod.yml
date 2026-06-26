@@ -387,6 +387,7 @@ services:
       S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-}
       S3_REGION: ${S3_REGION:-us-east-1}
       S3_ALLOW_HTTP: ${S3_ALLOW_HTTP:-false}
+      S3_ADDRESSING_STYLE: ${S3_ADDRESSING_STYLE:-auto}
     entrypoint: ["/scripts/backup-entrypoint.sh"]
     healthcheck:
       test: ["CMD-SHELL", "pgrep -f backup-entrypoint || pgrep -f sleep || exit 1"]
