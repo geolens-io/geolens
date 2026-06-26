@@ -69,3 +69,89 @@ describe('BasemapToggle', () => {
     expect(screen.queryByText('Satellite')).not.toBeInTheDocument();
   });
 });
+
+// GLUX-008: disclosure semantics tests
+describe('BasemapToggle — disclosure semantics (GLUX-008)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockUseBasemaps.mockReturnValue({ data: mockBasemaps });
+  });
+
+  it('trigger exposes aria-expanded=false initially', () => {
+    render(<BasemapToggle value="positron" onChange={vi.fn()} />);
+    const trigger = screen.getByRole('button', { name: 'Change basemap' });
+    expect(trigger).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  it('trigger exposes aria-expanded=true after opening', async () => {
+    const user = userEvent.setup();
+    render(<BasemapToggle value="positron" onChange={vi.fn()} />);
+    const trigger = screen.getByRole('button', { name: 'Change basemap' });
+
+    await user.click(trigger);
+
+    expect(trigger).toHaveAttribute('aria-expanded', 'true');
+  });
+
+  it('aria-controls resolves to the rendered popover element', async () => {
+    const user = userEvent.setup();
+    render(<BasemapToggle value="positron" onChange={vi.fn()} />);
+    const trigger = screen.getByRole('button', { name: 'Change basemap' });
+
+    await user.click(trigger);
+
+    const controlsId = trigger.getAttribute('aria-controls');
+    expect(controlsId).toBeTruthy();
+    const popover = document.getElementById(controlsId!);
+    expect(popover).toBeInTheDocument();
+  });
+
+  it('active option carries aria-current matching value', async () => {
+    const user = userEvent.setup();
+    render(<BasemapToggle value="dark" onChange={vi.fn()} />);
+
+    await user.click(screen.getByRole('button', { name: 'Change basemap' }));
+
+    const activeOption = screen.getByRole('button', { name: 'Dark' });
+    const inactiveOption = screen.getByRole('button', { name: 'Positron' });
+
+    expect(activeOption).toHaveAttribute('aria-current', 'true');
+    expect(inactiveOption).not.toHaveAttribute('aria-current');
+  });
+
+  it('Escape closes the popover', async () => {
+    const user = userEvent.setup();
+    render(<BasemapToggle value="positron" onChange={vi.fn()} />);
+
+    await user.click(screen.getByRole('button', { name: 'Change basemap' }));
+    // Confirm popover is open
+    expect(screen.getByText('Dark')).toBeInTheDocument();
+
+    await user.keyboard('{Escape}');
+
+    // Options should be gone
+    expect(screen.queryByText('Dark')).not.toBeInTheDocument();
+  });
+
+  it('Escape closes popover and returns focus to trigger', async () => {
+    const user = userEvent.setup();
+    render(<BasemapToggle value="positron" onChange={vi.fn()} />);
+    const trigger = screen.getByRole('button', { name: 'Change basemap' });
+
+    await user.click(trigger);
+    await user.keyboard('{Escape}');
+
+    expect(document.activeElement).toBe(trigger);
+  });
+
+  it('selecting an option returns focus to trigger', async () => {
+    const user = userEvent.setup();
+    render(<BasemapToggle value="positron" onChange={vi.fn()} />);
+    const trigger = screen.getByRole('button', { name: 'Change basemap' });
+
+    await user.click(trigger);
+    await user.click(screen.getByRole('button', { name: 'Dark' }));
+
+    expect(document.activeElement).toBe(trigger);
+  });
+});
