@@ -7,6 +7,22 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+### Changed
+
+- **Automated database backups now run by default.** The `backup` service
+  (scheduled `pg_dump` + object-storage archive, with daily/weekly retention)
+  previously required opting in via `--profile backup`; it now runs on every
+  `docker compose up`. Configure schedule and retention with the `BACKUP_*`
+  environment variables. Off-site S3 upload remains gated on
+  `BACKUP_S3_ENABLED=true` and signs with AWS Signature V4 (Cloudflare R2,
+  modern AWS S3, and MinIO compatible).
+
+### Added
+
+- **Standalone `geolens-backup` image.** A multi-arch (amd64 + arm64)
+  `geolens-backup` image is now published to GHCR alongside the api, worker, and
+  frontend images, so prebuilt installs run backups without a local build.
+
 ## [1.4.0] - 2026-06-20
 
 These changes cover two internal milestones (v1044 demo lead-gen front

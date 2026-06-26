@@ -116,34 +116,52 @@ not plain SQL, and will fail.
 
 ### Step-by-step: full restore (DB + object storage)
 
+With the default backup service, dumps are written to the **`backup_data` named
+volume** at `/backups/daily`, **not** to a host directory. `restore.sh` takes a
+**host file path**, so first copy the chosen dump (and its paired
+`staging-<timestamp>.tar.gz`) out of the volume, then restore from that copy.
+
 ```bash
-# 1. Restore the database.
-#    Replace the dump path with the backup you want to restore from.
-./scripts/restore.sh backups/daily/geolens_<YYYYmmdd_HHMMSS>.dump
+# 0. Copy the chosen backup out of the backup_data volume to the host.
+#    Replace <project> with your Compose project name (see `docker volume ls`;
+#    the volume is <project>_backup_data) and the timestamp with the one you
+#    picked from "Finding the dump to restore" below.
+mkdir -p ./restore
+docker run --rm \
+  -v <project>_backup_data:/backups:ro \
+  -v "$(pwd)/restore":/out \
+  alpine sh -c 'cp /backups/daily/geolens_<YYYYmmdd_HHMMSS>.dump /out/ && \
+                cp /backups/daily/staging-<YYYYmmdd_HHMMSS>.tar.gz /out/ 2>/dev/null; \
+                ls -lh /out'
+
+# 1. Restore the database from the extracted dump.
+./scripts/restore.sh ./restore/geolens_<YYYYmmdd_HHMMSS>.dump
 
 # 2. Restore the matching object-storage archive into the upload_staging volume.
 #    This step is MANUAL — restore.sh prints the exact command from step 1 output.
 #    Replace <project> with your Compose project name.
-#    Run `docker volume ls` to confirm the volume name (<project>_upload_staging).
 docker run --rm \
   -v <project>_upload_staging:/staging \
-  -v "$(pwd)/backups/daily":/restore:ro \
+  -v "$(pwd)/restore":/restore:ro \
   alpine sh -c 'cd /staging && tar xzf /restore/staging-<YYYYmmdd_HHMMSS>.tar.gz'
 ```
 
-`restore.sh` auto-detects the sibling staging archive (matched by timestamp) and
-prints the `docker run` line above with the real paths filled in. Copy the printed
-command from the restore output rather than hand-editing it.
+`restore.sh` auto-detects the sibling staging archive (matched by timestamp, in the
+same directory as the dump — here `./restore`) and prints the `docker run` line
+above with the real paths filled in. Copy the printed command from the restore
+output rather than hand-editing it.
 
 ### Finding the dump to restore
 
 ```bash
-# List available daily backups (newest first)
-ls -lt backups/daily/*.dump
+# List available daily backups in the backup_data volume (newest first).
+# Replace <project> with your Compose project name (see `docker volume ls`).
+docker run --rm -v <project>_backup_data:/backups:ro alpine \
+  ls -lt /backups/daily
 
-# Validate a specific dump before restoring
+# Validate a specific dump after copying it out of the volume (step 0 above)
 docker compose exec -T db \
-  pg_restore --list - < backups/daily/geolens_<YYYYmmdd_HHMMSS>.dump | head -20
+  pg_restore --list - < ./restore/geolens_<YYYYmmdd_HHMMSS>.dump | head -20
 ```
 
 ---
@@ -182,14 +200,21 @@ After restoration, verify that the DB is reachable and extensions are present
 
 **Step 2: Restore the object-storage archive into the `upload_staging` volume.**
 
-The GeoLens backup container will have archived the local `upload_staging` volume
-as `staging-<YYYYmmdd_HHMMSS>.tar.gz`. Copy the archive to the host, then extract:
+The GeoLens backup container archives the local `upload_staging` volume as
+`staging-<YYYYmmdd_HHMMSS>.tar.gz` inside the `backup_data` named volume. Copy it
+out to the host, then extract:
 
 ```bash
-# Replace <project> with your Compose project name.
+# Replace <project> with your Compose project name (see `docker volume ls`).
+mkdir -p ./restore
+docker run --rm \
+  -v <project>_backup_data:/backups:ro \
+  -v "$(pwd)/restore":/out \
+  alpine sh -c 'cp /backups/daily/staging-<YYYYmmdd_HHMMSS>.tar.gz /out/; ls -lh /out'
+
 docker run --rm \
   -v <project>_upload_staging:/staging \
-  -v "$(pwd)/backups/daily":/restore:ro \
+  -v "$(pwd)/restore":/restore:ro \
   alpine sh -c 'cd /staging && tar xzf /restore/staging-<YYYYmmdd_HHMMSS>.tar.gz'
 ```
 
@@ -283,17 +308,26 @@ Follow this ordered procedure to recover from data loss.
 Determine what was lost:
 - Is the database intact? (`docker compose exec db psql -U geolens -c '\l'`)
 - Are uploaded source files (in `upload_staging`) missing?
-- What is the latest backup timestamp? (`docker compose exec backup ls -lt /backups/daily/*.dump | head -5`)
+- What is the latest backup timestamp? (`docker compose exec backup sh -c 'ls -lt /backups/daily/*.dump' | head -5`)
 
 ### 2. Select the newest valid dump
 
 ```bash
-# List all daily dumps, newest first
-docker compose exec backup ls -lt /backups/daily/*.dump
+# List all daily dumps in the backup_data volume, newest first
+docker compose exec backup sh -c 'ls -lt /backups/daily/*.dump'
+
+# Copy the chosen dump (and its paired staging archive) out of the volume.
+# Replace <project> with your Compose project name (see `docker volume ls`).
+mkdir -p ./restore
+docker run --rm \
+  -v <project>_backup_data:/backups:ro \
+  -v "$(pwd)/restore":/out \
+  alpine sh -c 'cp /backups/daily/geolens_<YYYYmmdd_HHMMSS>.dump /out/ && \
+                cp /backups/daily/staging-<YYYYmmdd_HHMMSS>.tar.gz /out/ 2>/dev/null; ls -lh /out'
 
 # Validate the candidate dump before restoring
-docker compose -f docker-compose.yml exec -T db \
-  pg_restore --list - < backups/daily/geolens_<YYYYmmdd_HHMMSS>.dump | head -20
+docker compose exec -T db \
+  pg_restore --list - < ./restore/geolens_<YYYYmmdd_HHMMSS>.dump | head -20
 ```
 
 If the daily dump is corrupt, fall back to a weekly backup under
@@ -301,10 +335,10 @@ If the daily dump is corrupt, fall back to a weekly backup under
 
 ### 3. Restore the database
 
-**Bundled Postgres:**
+**Bundled Postgres:** (restore from the copy extracted in step 2 above)
 
 ```bash
-./scripts/restore.sh backups/daily/geolens_<YYYYmmdd_HHMMSS>.dump
+./scripts/restore.sh ./restore/geolens_<YYYYmmdd_HHMMSS>.dump
 ```
 
 **Managed / external Postgres:** restore via the provider snapshot or PITR — see
@@ -318,7 +352,7 @@ Extract the matching staging archive (copy the `docker run` command printed by
 ```bash
 docker run --rm \
   -v <project>_upload_staging:/staging \
-  -v "$(pwd)/backups/daily":/restore:ro \
+  -v "$(pwd)/restore":/restore:ro \
   alpine sh -c 'cd /staging && tar xzf /restore/staging-<YYYYmmdd_HHMMSS>.tar.gz'
 ```
 

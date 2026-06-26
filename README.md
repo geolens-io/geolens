@@ -371,7 +371,6 @@ For day-2 operations, restore procedures, and incident response, see
 ## Known Limitations
 
 - Single PostgreSQL instance — no built-in high availability or clustering.
-- Off-site (S3) backups sign with AWS Signature V2; buckets that require Signature V4 need the `aws-cli` sidecar workaround (see [Backups](#backups)).
 - Multi-tenant cloud mode is not included — GeoLens is single-organization, self-hosted.
 - Terrain rendering assumes DEM units are in meters; datasets in other vertical units may render exaggerated.
 - The self-hosted distribution is young and some features and APIs may still change (see the Early release note above).
