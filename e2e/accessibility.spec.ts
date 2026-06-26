@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
-import { getAuthToken, getSearchSeed } from './helpers/catalog';
+import { getAuthToken, seedDataset, deleteDataset } from './helpers/catalog';
 
 const wcagTags = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'];
 const BASE_URL = process.env.E2E_BASE_URL ?? 'http://localhost:8080';
@@ -20,8 +20,17 @@ test.describe('Accessibility - WCAG 2AA', () => {
   let builderMapId: string;
   let builderMapName: string;
   let shareToken: string;
+  let datasetId: string;
+  let datasetTitle: string;
 
   test.beforeAll(async () => {
+    // Seed a real dataset so the dataset-detail test has something to render.
+    // This spec runs standalone in the Accessibility CI job (empty stack), so
+    // nothing else creates catalog data.
+    const seeded = await seedDataset();
+    datasetId = seeded.id;
+    datasetTitle = seeded.title;
+
     builderMapName = `A11y Builder Test ${Date.now()}`;
     const response = await fetch(`${BASE_URL}/api/maps/`, {
       method: 'POST',
@@ -64,6 +73,7 @@ test.describe('Accessibility - WCAG 2AA', () => {
   });
 
   test.afterAll(async () => {
+    if (datasetId) await deleteDataset(datasetId, datasetTitle);
     if (!builderMapId) return;
     await fetch(`${BASE_URL}/api/maps/${builderMapId}`, {
       method: 'DELETE',
@@ -117,14 +127,12 @@ test.describe('Accessibility - WCAG 2AA', () => {
   });
 
   test('dataset detail page has no accessibility violations', async ({ page }) => {
-    const seed = await getSearchSeed();
-
-    await page.goto(`/datasets/${seed.id}`);
+    await page.goto(`/datasets/${datasetId}`);
     await page.waitForLoadState('networkidle');
 
     // Wait for dataset detail to load
     await expect(
-      page.getByRole('heading', { name: seed.title, exact: true }),
+      page.getByRole('heading', { name: datasetTitle, exact: true }),
     ).toBeVisible();
     await page.waitForLoadState('networkidle');
 
