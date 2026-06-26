@@ -148,13 +148,18 @@ jobs:
             IMAGE_TAG="${VERSION#v}"
           fi
 
+          # geolens-worker is intentionally NOT verified here: the shipped
+          # docker-compose.prod.yml runs the worker service on the geolens-api
+          # image (its baked ENTRYPOINT/CMD differs only), so no consumer pulls
+          # the geolens-worker package — it stays private and unused. Pulling it
+          # anonymously returns `unauthorized` and fails this gate on an image
+          # nobody actually consumes. Verify only what a self-hoster pulls.
           attempt=1
           while true; do
             if docker pull "ghcr.io/${OWNER}/geolens-api:${IMAGE_TAG}" \
-              && docker pull "ghcr.io/${OWNER}/geolens-worker:${IMAGE_TAG}" \
               && docker pull "ghcr.io/${OWNER}/geolens-frontend:${IMAGE_TAG}" \
               && docker pull "ghcr.io/${OWNER}/geolens-backup:${IMAGE_TAG}"; then
-              echo "verified geolens-api + geolens-worker + geolens-frontend + geolens-backup @ ${IMAGE_TAG} on attempt ${attempt}"
+              echo "verified geolens-api + geolens-frontend + geolens-backup @ ${IMAGE_TAG} on attempt ${attempt}"
               break
             fi
             if [ "${attempt}" -ge "${MAX_ATTEMPTS}" ]; then
