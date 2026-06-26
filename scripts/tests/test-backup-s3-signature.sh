@@ -1,82 +1,71 @@
 #!/bin/sh
-# Regression test for BUG-004: the backup S3 SigV2 signature must be computed
-# over a string-to-sign containing REAL newlines, not the literal two-character
-# sequence backslash-n.
+# Regression guard for BKP-02: the backup S3 uploader must sign with AWS
+# Signature V4 (awscli / s3v4) and surface upload failures as a visible
+# non-zero error — not a swallowed "(non-fatal)" warning.
 #
-# On main the string was built with bash double-quoted "PUT\n\n..." (which does
-# NOT expand \n) and signed via `printf '%s'` (verbatim), so every PUT was
-# rejected with SignatureDoesNotMatch — offsite backups silently never happened
-# while a non-fatal log warning masked the failure.
+# All assertions run against the shipped scripts/backup-entrypoint.sh without
+# a live S3 endpoint (pure structural / static analysis). The test runs in CI
+# as the existing installer-test step: sh scripts/tests/test-backup-s3-signature.sh
+#
+# Self-proving discipline: each negative guard (no sha1, no Authorization: AWS)
+# is written so it would FAIL on a script that (re)introduced SigV2 signing —
+# i.e., any commit that puts back openssl dgst -sha1 or Authorization: AWS
+# causes this test to exit 1.
 set -eu
 
 SCRIPT="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)/backup-entrypoint.sh"
 [ -f "$SCRIPT" ] || { echo "FAIL: cannot find backup-entrypoint.sh at $SCRIPT"; exit 1; }
 
-# The fixed construction uses bash ANSI-C quoting ($'\n'); evaluate it in bash.
-command -v bash >/dev/null 2>&1 || { echo "SKIP: bash not available"; exit 0; }
-command -v openssl >/dev/null 2>&1 || { echo "SKIP: openssl not available"; exit 0; }
+pass=0
+fail=0
 
-content_type="application/octet-stream"
-date_value="Thu, 01 Jan 1970 00:00:00 GMT"
-resource="/test-bucket/backups/db.dump"
-secret="test-secret-key"
-
-# --- behavioral: extract the real string_to_sign + signature construction -----
-# Pull the two assignment lines (string_to_sign=..., signature=...) straight
-# from the shipped script, strip the function-local `local ` prefix, and run
-# them so we exercise the ACTUAL signing code, not a copy.
-snippet="$(mktemp)"
-awk '
-  /string_to_sign=/ { f = 1 }
-  f && /=/ { line = $0; sub(/^[[:space:]]*local /, "", line); print line }
-  /openssl dgst/ { f = 0 }
-' "$SCRIPT" >"$snippet"
-grep -q 'string_to_sign=' "$snippet" || { echo "FAIL: could not extract signing snippet"; rm -f "$snippet"; exit 1; }
-
-result="$(bash -c '
-  set -eu
-  content_type="'"$content_type"'"
-  date_value="'"$date_value"'"
-  resource="'"$resource"'"
-  S3_SECRET_ACCESS_KEY="'"$secret"'"
-  . "'"$snippet"'"
-  printf "%s\n" "$(printf "%s" "$string_to_sign" | wc -l | tr -d " ")"
-  printf "%s\n" "$signature"
-')"
-rm -f "$snippet"
-
-nl_count="$(printf '%s\n' "$result" | sed -n 1p)"
-got_sig="$(printf '%s\n' "$result" | sed -n 2p)"
-
-# The canonical AWS SigV2 string-to-sign (PUT\n\n<ct>\n<date>\n<resource>) has
-# exactly 4 real newline separators. The buggy literal-\n form has 0.
-[ "${nl_count:-0}" -ge 4 ] || {
-  echo "FAIL: string_to_sign has ${nl_count:-0} real newlines (expected >=4) — signed over literal \\n (BUG-004)"
-  exit 1
+check() {
+    label="$1"; result="$2"
+    if [ "$result" = "ok" ]; then
+        printf "PASS: %s\n" "$label"
+        pass=$((pass + 1))
+    else
+        printf "FAIL: %s\n" "$label"
+        fail=$((fail + 1))
+    fi
 }
 
-# Reference signature, computed independently with REAL newlines (printf format
-# string interprets \n). The shipped code must produce exactly this.
-expected="$(printf 'PUT\n\n%s\n%s\n%s' "$content_type" "$date_value" "$resource" \
-  | openssl dgst -sha1 -hmac "$secret" -binary | base64)"
-[ "$got_sig" = "$expected" ] || {
-  echo "FAIL: signature mismatch — got '$got_sig', expected '$expected' (BUG-004)"
-  exit 1
-}
+# --- 1. SigV4 signature version configured ---
+grep -q 's3v4' "$SCRIPT" \
+    && check "SigV4 signature_version (s3v4) present in uploader" "ok" \
+    || check "SigV4 signature_version (s3v4) present in uploader — s3v4 not found" "fail"
 
-# Sanity: the broken literal-\n signature MUST differ, proving the test detects
-# the regression rather than passing trivially.
-broken="$(printf '%s' "PUT\\n\\n${content_type}\\n${date_value}\\n${resource}" \
-  | openssl dgst -sha1 -hmac "$secret" -binary | base64)"
-[ "$got_sig" != "$broken" ] || {
-  echo "FAIL: signature equals the broken literal-\\n form (BUG-004 not fixed)"
-  exit 1
-}
+# --- 2. awscli s3 cp used for upload ---
+grep -q 'aws s3 cp' "$SCRIPT" \
+    && check "awscli 'aws s3 cp' used for S3 upload" "ok" \
+    || check "awscli 'aws s3 cp' not found — uploader must use awscli" "fail"
 
-# --- structural: the buggy literal-\n string_to_sign must be gone -------------
-if grep -qE 'string_to_sign="PUT\\n' "$SCRIPT"; then
-  echo "FAIL: backup-entrypoint.sh still builds string_to_sign with literal \\n (BUG-004)"
-  exit 1
-fi
+# --- 3. No SigV2 HMAC-SHA1 signing path (self-proving: these patterns would
+#        trip if openssl dgst -sha1 / Authorization: AWS were reintroduced) ---
+! grep -qiE 'openssl dgst -sha1|Authorization: AWS ' "$SCRIPT" \
+    && check "No SigV2 HMAC-SHA1 or hand-built Authorization: AWS header" "ok" \
+    || check "SigV2 path not removed — openssl dgst -sha1 or Authorization: AWS still present" "fail"
 
-echo "PASS: backup S3 SigV2 signature over real newlines (BUG-004)"
+# Additional guard: the sigv2 label itself should not appear as a live code path.
+# (Comments referencing it are OK only if they are in past-tense removal notes.)
+! grep -qi 'sigv2' "$SCRIPT" \
+    && check "No 'sigv2' identifier remaining in uploader" "ok" \
+    || check "Stale 'sigv2' identifier found in uploader" "fail"
+
+# --- 4. Upload failure is surfaced as ERROR (not swallowed) ---
+grep -q 'ERROR.*S3 upload' "$SCRIPT" \
+    && check "Failed upload logs ERROR-level message" "ok" \
+    || check "Failed upload must log an ERROR — no ERROR.*S3 upload found" "fail"
+
+! grep -qiE '\(non-fatal\).*[Uu]pload|[Uu]pload.*(non-fatal)' "$SCRIPT" \
+    && check "No '(non-fatal)' suppression on S3 upload path" "ok" \
+    || check "S3 upload path still marks failure as (non-fatal) — must surface error" "fail"
+
+# --- 5. Credentials NOT passed on the aws s3 cp argv ---
+! grep -qE 'aws s3 cp.*(S3_SECRET_ACCESS_KEY|S3_ACCESS_KEY_ID|AWS_SECRET_ACCESS_KEY|AWS_ACCESS_KEY_ID)' "$SCRIPT" \
+    && check "S3 credentials passed via env, not on aws s3 cp argv" "ok" \
+    || check "Secret key found on aws s3 cp argv — credential leakage risk" "fail"
+
+# --- Summary ---
+printf "\n%d passed, %d failed\n" "$pass" "$fail"
+[ "$fail" -eq 0 ] || exit 1
