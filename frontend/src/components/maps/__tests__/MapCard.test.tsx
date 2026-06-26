@@ -50,6 +50,37 @@ describe('MapCard', () => {
   });
 });
 
+describe('MapCard visibility labels', () => {
+  beforeEach(() => {
+    mockUseMapThumbnail.mockReturnValue(null);
+  });
+
+  it.each([
+    ['public', 'Public'],
+    ['internal', 'Internal'],
+    ['restricted', 'Restricted'],
+    ['private', 'Private'],
+  ] as const)(
+    'renders visible %s label in the DOM without any hover event',
+    (visibility, expectedLabel) => {
+      render(<MapCard map={makeMap({ visibility })} />);
+      // Text must be present on initial render — no fireEvent/pointer interaction
+      expect(screen.getByText(expectedLabel)).toBeInTheDocument();
+    },
+  );
+
+  it('renders distinct visible text for internal and restricted (GLUX-005)', () => {
+    const { unmount } = render(<MapCard map={makeMap({ visibility: 'internal' })} />);
+    const internalLabel = screen.getByText('Internal').textContent ?? '';
+    unmount();
+
+    render(<MapCard map={makeMap({ visibility: 'restricted' })} />);
+    const restrictedLabel = screen.getByText('Restricted').textContent ?? '';
+
+    expect(internalLabel).not.toBe(restrictedLabel);
+  });
+});
+
 describe('MapCardGrid', () => {
   it('renders img when thumbnail is present and no error', () => {
     mockUseMapThumbnail.mockReturnValue('blob:http://localhost/fake-thumb');
