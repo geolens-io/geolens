@@ -1511,7 +1511,16 @@ jobs:
   # push(main) + nightly + dispatch               → accessibility (axe + keyboard-nav, below)
   accessibility:
     name: Accessibility (axe + keyboard-nav)
-    if: github.event_name == 'push' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    # always() so this still evaluates when the needed jobs are SKIPPED on
+    # schedule/manual runs (they only force-run on push) — without it GitHub
+    # auto-skips a job whose needs were skipped. The failure/cancelled guard
+    # preserves the push gate: don't run the expensive a11y suite if an upstream
+    # lint/test failed.
+    if: >-
+      always()
+      && (github.event_name == 'push' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+      && !contains(needs.*.result, 'failure')
+      && !contains(needs.*.result, 'cancelled')
     runs-on: ubuntu-latest
     needs: [backend-lint, backend-test, pytest-parallel-isolation, frontend-lint, frontend-test, security-scan]
     timeout-minutes: 15
