@@ -13,6 +13,11 @@
 #   - "The requested image's platform (linux/amd64) does not match the detected
 #     host platform (linux/arm64/v8)" on Apple Silicon — Rosetta/QEMU emulation,
 #     functional, slightly degraded postgres performance, acceptable for dev.
+#
+# NOTE: Trivy DS-0002 ("no non-root USER") is accepted for this image (see the
+# scoped entry + rationale in .trivyignore.yaml). The official postgis/postgres
+# entrypoint runs as root only to initdb/chown on first boot, then drops to the
+# unprivileged `postgres` user via gosu for the server process.
 FROM --platform=linux/amd64 postgis/postgis:17-3.5
 
 # pgvector for semantic-search embeddings, from the PGDG apt repository that the

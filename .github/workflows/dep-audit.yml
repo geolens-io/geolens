@@ -124,3 +124,8 @@ jobs:
           scan-ref: "."
           severity: "CRITICAL,HIGH"
           exit-code: "1"
+          # Path-scoped, justified suppressions only (db/Dockerfile postgres root
+          # user — see .trivyignore.yaml). Trivy <0.71 does not auto-detect the
+          # YAML ignore file, so point at it explicitly. DS-0002 stays enforced
+          # on every other Dockerfile.
+          trivyignores: ".trivyignore.yaml"

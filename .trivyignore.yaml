@@ -1,0 +1,13 @@
+# Trivy ignore policy (enforcing config + image scans — see .github/workflows/dep-audit.yml).
+# Scoped, justified suppressions only. Everything not listed here is still enforced.
+misconfigurations:
+  - id: AVD-DS-0002
+    paths:
+      - "db/Dockerfile"
+    statement: >-
+      PostGIS DB image. The official postgis/postgres entrypoint must start as
+      root to run initdb and chown the data directory on first boot, then drops
+      privileges to the unprivileged `postgres` user via gosu for the server
+      process. A Dockerfile-level `USER postgres` would break first-boot
+      initialization; the running database is non-root. Accepted as
+      postgres-family by design. DS-0002 stays enforced on all other Dockerfiles.
