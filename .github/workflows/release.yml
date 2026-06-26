@@ -96,3 +96,12 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh release upload "${TAG}" scripts/install.sh --clobber
+
+      - name: Generate + upload SHA256SUMS
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Compute checksums by basename so `sha256sum -c SHA256SUMS` works when
+          # install.sh and SHA256SUMS are downloaded into the same directory.
+          ( cd scripts && sha256sum install.sh ) > SHA256SUMS
+          gh release upload "${TAG}" SHA256SUMS --clobber
