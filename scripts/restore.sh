@@ -4,6 +4,17 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
+# Source .env early so COMPOSE_FILE (and POSTGRES_* below) reflect the operator's
+# install. The prebuilt-prod installer pins COMPOSE_FILE=docker-compose.prod.yml;
+# source builds use the default docker-compose.yml.
+if [ -f "$PROJECT_ROOT/.env" ]; then
+    set -a
+    # shellcheck source=/dev/null
+    . "$PROJECT_ROOT/.env"
+    set +a
+fi
+COMPOSE=(docker compose -f "$PROJECT_ROOT/${COMPOSE_FILE:-docker-compose.yml}")
+
 # Argument validation
 if [ $# -ne 1 ]; then
     echo "Usage: $0 <backup-file>" >&2
@@ -19,7 +30,7 @@ fi
 
 # Validate backup integrity before restore
 echo "Validating backup integrity..."
-if ! docker compose -f "$PROJECT_ROOT/docker-compose.yml" exec -T db \
+if ! "${COMPOSE[@]}" exec -T db \
     pg_restore --list - < "$BACKUP_FILE" > /dev/null 2>&1; then
     echo "ERROR: Backup file is corrupt or invalid: $BACKUP_FILE" >&2
     echo "pg_restore --list validation failed. Aborting restore." >&2
@@ -28,20 +39,12 @@ fi
 echo "Backup validation passed."
 echo ""
 
-# Source .env if present
-if [ -f "$PROJECT_ROOT/.env" ]; then
-    set -a
-    # shellcheck source=/dev/null
-    . "$PROJECT_ROOT/.env"
-    set +a
-fi
-
 # Configuration with defaults
 POSTGRES_USER="${POSTGRES_USER:-geolens}"
 POSTGRES_DB="${POSTGRES_DB:-geolens}"
 echo "Running pre-restore setup..."
 
-docker compose -f "$PROJECT_ROOT/docker-compose.yml" exec -T db \
+"${COMPOSE[@]}" exec -T db \
     psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" <<EOSQL
 -- Extensions
 CREATE EXTENSION IF NOT EXISTS postgis;
@@ -68,7 +71,7 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA data GRANT SELECT ON TABLES TO geolens_reader
 EOSQL
 
 echo "Stopping API to prevent write conflicts during restore..."
-docker compose -f "$PROJECT_ROOT/docker-compose.yml" stop api worker 2>/dev/null || true
+"${COMPOSE[@]}" stop api worker 2>/dev/null || true
 
 # BUG-022 (Phase 1184): ensure api/worker are always restarted, even on failure.
 # pg_restore --clean --if-exists exits nonzero on EXPECTED warnings (e.g. "object
@@ -92,7 +95,7 @@ docker compose -f "$PROJECT_ROOT/docker-compose.yml" stop api worker 2>/dev/null
 _cleanup() {
     echo ""
     echo "Restarting services..."
-    docker compose -f "$PROJECT_ROOT/docker-compose.yml" start api worker 2>/dev/null || true
+    "${COMPOSE[@]}" start api worker 2>/dev/null || true
 }
 trap _cleanup EXIT
 
@@ -102,7 +105,7 @@ echo "Restoring from: $BACKUP_FILE"
 RESTORE_STDERR="$(mktemp)"
 RESTORE_RC=0
 set +e
-docker compose -f "$PROJECT_ROOT/docker-compose.yml" exec -T db \
+"${COMPOSE[@]}" exec -T db \
     pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" --clean --if-exists --no-owner \
     < "$BACKUP_FILE" 2>"$RESTORE_STDERR"
 RESTORE_RC=$?
@@ -130,7 +133,7 @@ rm -f "$RESTORE_STDERR"
 # Post-restore validation
 echo ""
 echo "Verifying restore..."
-docker compose -f "$PROJECT_ROOT/docker-compose.yml" exec -T db \
+"${COMPOSE[@]}" exec -T db \
     psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c \
     "SELECT 'records' AS tbl, COUNT(*) FROM catalog.records UNION ALL SELECT 'datasets', COUNT(*) FROM catalog.datasets;" \
     2>/dev/null || echo "WARNING: Post-restore validation query failed (non-fatal)"
@@ -142,7 +145,8 @@ echo "Restore complete."
 # sibling staging-<timestamp>.tar.gz next to the dump. restore.sh keeps its
 # single-arg, DB-focused contract; restoring objects into the upload_staging
 # volume requires a one-off container with that volume mounted, so it is a
-# documented MANUAL step (see UPGRADING.md §"Disaster recovery"). If we can spot
+# documented MANUAL step (see RUNBOOK.md §"full restore (DB + object storage)").
+# If we can spot
 # the matching archive, point the operator at it rather than silently dropping
 # the staged objects.
 _dump_dir="$(cd "$(dirname "$BACKUP_FILE")" && pwd)"
@@ -161,7 +165,7 @@ if [ -n "$_staging_archive" ]; then
     echo "        ${_staging_archive}"
     echo "      The database is restored, but staged source objects are NOT"
     echo "      auto-extracted. To restore them into the upload_staging volume, run"
-    echo "      the documented manual step (UPGRADING.md §\"Disaster recovery\"):"
+    echo "      the documented manual step (RUNBOOK.md §\"full restore (DB + object storage)\"):"
     echo ""
     echo "        docker run --rm \\"
     echo "          -v <project>_upload_staging:/staging \\"
