@@ -44,6 +44,9 @@ jobs:
           - image: geolens-frontend
             target: frontend
             description: "PostGIS-native GIS data catalog frontend"
+          - image: geolens-backup
+            target: backup
+            description: "Automated pg_dump backup service with S3 offload"
 
     steps:
       # Fail fast (with guidance) if a real manual publish is dispatched off a
@@ -89,6 +92,7 @@ jobs:
           labels: |
             org.opencontainers.image.description=${{ matrix.description }}
             org.opencontainers.image.licenses=Apache-2.0
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
 
       # Gate BOTH published arches on Trivy. `load: true` can only materialize a
       # single-platform image, so amd64 and arm64 are built + scanned separately
