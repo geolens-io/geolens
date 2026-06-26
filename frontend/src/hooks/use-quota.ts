@@ -8,7 +8,7 @@ import { useAuth } from '@/hooks/use-auth';
 export function useMyUsage() {
   const { user } = useAuth();
   return useQuery({
-    queryKey: queryKeys.auth.usage,
+    queryKey: queryKeys.auth.usage(user?.id),
     queryFn: getMyUsage,
     enabled: !!user,
     staleTime: 60 * 1000, // 1 min — usage changes on upload/delete

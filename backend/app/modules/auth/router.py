@@ -797,7 +797,8 @@ async def me_permissions(
     return PermissionsResponse(permissions=effective)
 
 
-# ROUTE-01 (Phase 1092): dual-shape decorator — see /refresh above.
+# Register both /me/usage and /me/usage/ so neither 404s under
+# redirect_slashes=False (mirrors /me and /me/permissions above).
 @router.get("/me/usage", response_model=UserQuotaUsage, include_in_schema=False)
 @router.get("/me/usage/", response_model=UserQuotaUsage)
 async def me_usage(
