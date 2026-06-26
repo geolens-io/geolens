@@ -158,6 +158,13 @@
     },
     "language": {
       "title": "Langue"
+    },
+    "storage": {
+      "title": "Utilisation du stockage",
+      "description": "Votre utilisation du stockage de fichiers et des jeux de données",
+      "storageUsed": "Stockage de fichiers",
+      "datasetsUsed": "Jeux de données",
+      "unlimited": "Illimité"
     }
   },
   "footer": {

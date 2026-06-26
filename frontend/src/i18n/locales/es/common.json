@@ -158,6 +158,13 @@
     },
     "language": {
       "title": "Idioma"
+    },
+    "storage": {
+      "title": "Uso de almacenamiento",
+      "description": "Su uso de almacenamiento de archivos y conjuntos de datos",
+      "storageUsed": "Almacenamiento de archivos",
+      "datasetsUsed": "Conjuntos de datos",
+      "unlimited": "Ilimitado"
     }
   },
   "footer": {

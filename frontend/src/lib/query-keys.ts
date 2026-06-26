@@ -25,6 +25,10 @@ export const queryKeys = {
     all: ['auth'] as const,
     me: ['auth', 'me'] as const,
     permissions: ['auth', 'permissions'] as const,
+    // Scoped by user id so a store-only logout (e.g. failed-refresh in
+    // api/client.ts) followed by a different login can't render the prior
+    // user's cached usage.
+    usage: (userId: string | undefined) => ['auth', 'me', 'usage', userId] as const,
   },
 
   // -------------------------------------------------------------------------

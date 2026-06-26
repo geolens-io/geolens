@@ -32,6 +32,8 @@ from app.modules.auth.schemas import (
     VerifyEmailRequest,
 )
 from app.modules.auth.service import AuthService
+from app.modules.quota.schemas import UserQuotaUsage
+from app.modules.quota.service import get_user_quota_usage
 from app.core.config import settings
 from app.core.dependencies import get_client_ip, get_db
 from app.core.persistent_config import (
@@ -793,6 +795,18 @@ async def me_permissions(
         )
 
     return PermissionsResponse(permissions=effective)
+
+
+# Register both /me/usage and /me/usage/ so neither 404s under
+# redirect_slashes=False (mirrors /me and /me/permissions above).
+@router.get("/me/usage", response_model=UserQuotaUsage, include_in_schema=False)
+@router.get("/me/usage/", response_model=UserQuotaUsage)
+async def me_usage(
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+) -> UserQuotaUsage:
+    """Return the authenticated user's own storage and dataset quota usage."""
+    return await get_user_quota_usage(db, current_user.id)
 
 
 # ---------------------------------------------------------------------------
