@@ -83,7 +83,10 @@ run_backup() {
     local staging_archive=""
     staging_archive="$(backup_staging "$timestamp")"
 
-    # S3 upload — any upload failure returns non-zero so the cycle is reported as failed.
+    # S3 upload — record any failure but DON'T return yet. The local dump (and
+    # the staging archive, if any) already landed on disk; retention pruning
+    # below must still run so a transient S3 outage can't let them accumulate.
+    local cycle_failed=0
     if [ "$BACKUP_S3_ENABLED" = "true" ]; then
         local upload_failed=0
         upload_to_s3 "$filepath" "daily/${filename}" || upload_failed=1
@@ -98,15 +101,23 @@ run_backup() {
         fi
         if [ "$upload_failed" -eq 1 ]; then
             log "ERROR: backup S3 upload failed — check S3 credentials and endpoint reachability"
-            return 1
+            cycle_failed=1
         fi
     fi
 
-    # Retention (dumps and their paired staging archives share retention counts)
+    # Retention runs regardless of S3 outcome (dumps and their paired staging
+    # archives share retention counts) — local backups must be pruned even when
+    # the offsite upload failed, or backup_data fills up during an S3 outage.
     prune_old_backups "$DAILY_DIR" "$BACKUP_RETENTION_DAILY"
     prune_old_backups "$WEEKLY_DIR" "$BACKUP_RETENTION_WEEKLY"
     prune_old_staging "$DAILY_DIR" "$BACKUP_RETENTION_DAILY"
     prune_old_staging "$WEEKLY_DIR" "$BACKUP_RETENTION_WEEKLY"
+
+    # Surface the S3 failure now that retention has run, so the cycle is still
+    # reported as failed (non-zero) to the cron / sleep-loop caller.
+    if [ "$cycle_failed" -eq 1 ]; then
+        return 1
+    fi
 
     log "Backup cycle complete"
 }
