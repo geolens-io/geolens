@@ -65,6 +65,7 @@ fi
 SUFFIX="$$_$(date +%s)"
 SRC_DB="geolens_bkp_src_${SUFFIX}"
 DST_DB="geolens_bkp_dst_${SUFFIX}"
+SNAP_DB="geolens_bkp_snap_${SUFFIX}"   # managed-mode "provider snapshot" DB
 WORKDIR="$(mktemp -d)"
 DUMP_FILE="${WORKDIR}/roundtrip.dump"
 
@@ -72,8 +73,8 @@ psql_admin() { psql -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$ADMIN_DB" "$@"; 
 
 cleanup() {
     set +e
-    # Terminate any lingering connections, then drop BOTH throwaway DBs.
-    for db in "$SRC_DB" "$DST_DB"; do
+    # Terminate any lingering connections, then drop ALL throwaway DBs.
+    for db in "$SRC_DB" "$DST_DB" "$SNAP_DB"; do
         psql_admin -tAc \
             "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname='${db}' AND pid <> pg_backend_pid();" \
             >/dev/null 2>&1
@@ -85,15 +86,15 @@ trap cleanup EXIT
 
 fail() { echo "FAIL: $*" >&2; exit 1; }
 
-echo "=== BKP-04 backup+restore round-trip (local) ==="
+echo "=== BKP-04 backup+restore round-trip (local — bundled + managed modes) ==="
 echo "Test Postgres: ${PGHOST}:${PGPORT} (admin db: ${ADMIN_DB})"
-echo "Throwaway DBs: ${SRC_DB} -> ${DST_DB}"
+echo "Throwaway DBs: src=${SRC_DB} dst=${DST_DB} snap=${SNAP_DB}"
 echo ""
 
 # ------------------------------------------------------------------------------
-# 1. DB round-trip
+# 1. BUNDLED MODE — DB round-trip via pg_dump/pg_restore (restore.sh flags)
 # ------------------------------------------------------------------------------
-echo "[1/3] Creating source DB and seeding known rows..."
+echo "[1/4] Creating source DB and seeding known rows (bundled mode)..."
 createdb -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" "$SRC_DB"
 
 # Mirror the app's catalog schema shape just enough to be representative.
@@ -111,7 +112,7 @@ SRC_RECORDS="$(psql -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$SRC_DB" -tAc "SE
 SRC_DATASETS="$(psql -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$SRC_DB" -tAc "SELECT COUNT(*) FROM catalog.datasets;")"
 echo "      source counts: records=${SRC_RECORDS} datasets=${SRC_DATASETS}"
 
-echo "[2/3] pg_dump -Fc, then pg_restore into a fresh DB (restore.sh flags)..."
+echo "[2/4] pg_dump -Fc, then pg_restore into a fresh DB (restore.sh flags)..."
 pg_dump -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$SRC_DB" \
     -Fc --no-owner --no-acl -f "$DUMP_FILE"
 [ -s "$DUMP_FILE" ] || fail "dump file is empty"
@@ -148,7 +149,7 @@ echo ""
 # ------------------------------------------------------------------------------
 # 2. Object-storage (staging) round-trip — mirrors backup-entrypoint.sh tar step
 # ------------------------------------------------------------------------------
-echo "[3/3] Object-storage (staging) tar round-trip..."
+echo "[3/4] Object-storage (staging) tar round-trip..."
 STAGING_SRC="${WORKDIR}/staging-src"
 STAGING_DST="${WORKDIR}/staging-dst"
 mkdir -p "$STAGING_SRC/nested" "$STAGING_DST"
@@ -164,6 +165,64 @@ diff -r "$STAGING_SRC" "$STAGING_DST" >/dev/null || fail "staging tree differs a
 echo "      staging round-trip OK — object tree + contents match."
 echo ""
 
-echo "=== PASS: backup+restore round-trip verified (DB rows + objects) ==="
-echo "    records: ${SRC_RECORDS}==${DST_RECORDS}, datasets: ${SRC_DATASETS}==${DST_DATASETS}"
-# trap drops both throwaway DBs on exit.
+# ------------------------------------------------------------------------------
+# 3. MANAGED MODE — provider-snapshot DB + object-storage recovery
+# ------------------------------------------------------------------------------
+# In managed mode, the database is provider-owned (e.g. AWS RDS / Cloud SQL).
+# GeoLens's backup covers OBJECT STORAGE ONLY; the DB is recovered by the
+# provider from a native snapshot. This section models that pairing:
+#   (a) "Provider snapshot" — restore the dump into a fresh DB via direct
+#       pg_restore flags (NOT via restore.sh's docker-compose-exec path, which
+#       does not apply to an external DB). Simulates a provider-native restore.
+#   (b) Object-storage recovery — extract the staging archive produced in
+#       step [3/4] into a fresh location.
+#   (c) Functional-pairing assert — DB rows match source; objects are present.
+
+echo "[4/4] MANAGED MODE — provider-snapshot DB + object-storage recovery..."
+STAGING_MANAGED="${WORKDIR}/staging-managed"
+mkdir -p "$STAGING_MANAGED"
+
+# (a) Create the "provider snapshot" DB by restoring from the pg_dump produced
+#     in the bundled-mode leg. Use direct pg_restore flags only — NOT the
+#     restore.sh docker-compose-exec path, which is inapplicable to an external
+#     managed DB.
+createdb -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" "$SNAP_DB"
+SNAP_RESTORE_ERR="${WORKDIR}/snap_restore.err"
+set +e
+pg_restore -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$SNAP_DB" \
+    --clean --if-exists --no-owner "$DUMP_FILE" 2>"$SNAP_RESTORE_ERR"
+SNAP_RC=$?
+set -e
+if [ "$SNAP_RC" -ne 0 ]; then
+    if grep -qi "error:" "$SNAP_RESTORE_ERR"; then
+        echo "--- snapshot pg_restore stderr ---" >&2; cat "$SNAP_RESTORE_ERR" >&2
+        fail "managed-mode: pg_restore into snapshot DB reported errors (exit ${SNAP_RC})"
+    fi
+    echo "      snapshot pg_restore exit ${SNAP_RC} (warnings only — expected on fresh DB)"
+fi
+
+SNAP_RECORDS="$(psql -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$SNAP_DB" -tAc "SELECT COUNT(*) FROM catalog.records;")"
+SNAP_DATASETS="$(psql -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$SNAP_DB" -tAc "SELECT COUNT(*) FROM catalog.datasets;")"
+echo "      snapshot DB counts: records=${SNAP_RECORDS} datasets=${SNAP_DATASETS}"
+
+[ "$SRC_RECORDS" = "$SNAP_RECORDS" ]   || fail "managed-mode: snapshot records count mismatch: ${SRC_RECORDS} != ${SNAP_RECORDS}"
+[ "$SRC_DATASETS" = "$SNAP_DATASETS" ] || fail "managed-mode: snapshot datasets count mismatch: ${SRC_DATASETS} != ${SNAP_DATASETS}"
+echo "      managed-mode DB recovery OK (provider-snapshot rows match source)."
+
+# (b) Restore the object-storage archive into a fresh staging location.
+#     Reuses the archive produced in step [3/4] — same archive the backup
+#     entrypoint uploads to S3 for an operator to retrieve during DR.
+tar xzf "$ARCHIVE" -C "$STAGING_MANAGED"
+diff -r "$STAGING_SRC" "$STAGING_MANAGED" >/dev/null \
+    || fail "managed-mode: staging tree differs after recovery"
+echo "      managed-mode object-storage recovery OK — staging files present and intact."
+
+# (c) Functional-pairing: the snapshot DB rows + the restored objects together
+#     represent a working instance (row counts match source; staging files present).
+echo "PASS [MANAGED MODE]: provider-snapshot DB (records=${SNAP_RECORDS} datasets=${SNAP_DATASETS}) + object-storage archive verified."
+echo ""
+
+echo "=== PASS: backup+restore round-trip verified (bundled + managed modes) ==="
+echo "    bundled DB: records=${SRC_RECORDS}==${DST_RECORDS}, datasets=${SRC_DATASETS}==${DST_DATASETS}"
+echo "    managed snapshot: records=${SRC_RECORDS}==${SNAP_RECORDS}, datasets=${SRC_DATASETS}==${SNAP_DATASETS}"
+# trap drops all three throwaway DBs on exit.
