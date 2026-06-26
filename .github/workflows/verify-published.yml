@@ -137,7 +137,7 @@ jobs:
     name: Verify GHCR images
     runs-on: ubuntu-latest
     steps:
-      - name: docker pull public API and frontend images
+      - name: docker pull published GHCR images
         env:
           VERSION: ${{ env.VERIFY_VERSION }}
           OWNER: ${{ github.repository_owner }}
@@ -151,8 +151,10 @@ jobs:
           attempt=1
           while true; do
             if docker pull "ghcr.io/${OWNER}/geolens-api:${IMAGE_TAG}" \
-              && docker pull "ghcr.io/${OWNER}/geolens-frontend:${IMAGE_TAG}"; then
-              echo "verified geolens-api + geolens-frontend @ ${IMAGE_TAG} on attempt ${attempt}"
+              && docker pull "ghcr.io/${OWNER}/geolens-worker:${IMAGE_TAG}" \
+              && docker pull "ghcr.io/${OWNER}/geolens-frontend:${IMAGE_TAG}" \
+              && docker pull "ghcr.io/${OWNER}/geolens-backup:${IMAGE_TAG}"; then
+              echo "verified geolens-api + geolens-worker + geolens-frontend + geolens-backup @ ${IMAGE_TAG} on attempt ${attempt}"
               break
             fi
             if [ "${attempt}" -ge "${MAX_ATTEMPTS}" ]; then
