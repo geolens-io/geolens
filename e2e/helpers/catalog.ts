@@ -153,3 +153,68 @@ export async function getSearchSeed(): Promise<SearchSeed> {
 
   return searchSeedPromise;
 }
+
+export interface SeededDataset {
+  id: string;
+  title: string;
+}
+
+/**
+ * Ingest the sample fixture as a real dataset and return its id + title.
+ *
+ * Specs that need a dataset to exist but don't run alongside the upload flow
+ * (e.g. the accessibility job, which runs only the a11y specs against a fresh,
+ * empty stack) must seed their own — otherwise `getSearchSeed()` / a
+ * dataset-detail visit has nothing to find. Drives the same upload → commit →
+ * poll sequence the import UI uses. Pair every call with `deleteDataset()` in
+ * `afterAll`.
+ */
+export async function seedDataset(): Promise<SeededDataset> {
+  const title = `A11y Seed Dataset ${Date.now()}`;
+  const fixture = path.join(__dirname, '../fixtures/sample.geojson');
+  const bytes = fs.readFileSync(fixture);
+
+  const form = new FormData();
+  form.append('file', new Blob([bytes], { type: 'application/geo+json' }), 'sample.geojson');
+  const upload = await fetch(`${BASE_URL}/api/ingest/upload`, {
+    method: 'POST',
+    headers: authHeaders(),
+    body: form,
+  });
+  if (!upload.ok) throw new Error(`ingest upload failed: ${upload.status}`);
+  const { job_id: jobId } = (await upload.json()) as { job_id: string };
+
+  const commit = await fetch(`${BASE_URL}/api/ingest/commit/${jobId}`, {
+    method: 'POST',
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ title }),
+  });
+  if (!commit.ok) throw new Error(`ingest commit failed: ${commit.status}`);
+
+  // Commit returns 202 and queues an async ingest task; poll until the dataset row exists.
+  for (let attempt = 0; attempt < 60; attempt += 1) {
+    const res = await fetch(`${BASE_URL}/api/jobs/${jobId}`, { headers: authHeaders() });
+    if (res.ok) {
+      const job = (await res.json()) as { status?: string; dataset_id?: string | null };
+      if (job.dataset_id && ['complete', 'completed', 'succeeded'].includes(job.status ?? '')) {
+        return { id: job.dataset_id, title };
+      }
+      if (['failed', 'error'].includes(job.status ?? '')) {
+        throw new Error(`ingest job ${jobId} failed: ${JSON.stringify(job)}`);
+      }
+    }
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+  }
+  throw new Error(`ingest job ${jobId} did not produce a dataset in time`);
+}
+
+/** Best-effort teardown for a `seedDataset()` result (DELETE requires confirm_title). */
+export async function deleteDataset(id: string, title: string): Promise<void> {
+  await fetch(`${BASE_URL}/api/datasets/${id}`, {
+    method: 'DELETE',
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ confirm_title: title }),
+  }).catch(() => {
+    /* teardown is best-effort; the CI stack is torn down anyway */
+  });
+}
