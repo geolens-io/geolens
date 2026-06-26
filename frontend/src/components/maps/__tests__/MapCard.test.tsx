@@ -50,6 +50,7 @@ describe('MapCard', () => {
   });
 });
 
+// MapVisibility = 'public' | 'internal' | 'private' (maps do not use 'restricted')
 describe('MapCard visibility labels', () => {
   beforeEach(() => {
     mockUseMapThumbnail.mockReturnValue(null);
@@ -58,7 +59,6 @@ describe('MapCard visibility labels', () => {
   it.each([
     ['public', 'Public'],
     ['internal', 'Internal'],
-    ['restricted', 'Restricted'],
     ['private', 'Private'],
   ] as const)(
     'renders visible %s label in the DOM without any hover event',
@@ -69,15 +69,15 @@ describe('MapCard visibility labels', () => {
     },
   );
 
-  it('renders distinct visible text for internal and restricted (GLUX-005)', () => {
+  it('renders distinct visible text for internal and private (GLUX-005)', () => {
     const { unmount } = render(<MapCard map={makeMap({ visibility: 'internal' })} />);
     const internalLabel = screen.getByText('Internal').textContent ?? '';
     unmount();
 
-    render(<MapCard map={makeMap({ visibility: 'restricted' })} />);
-    const restrictedLabel = screen.getByText('Restricted').textContent ?? '';
+    render(<MapCard map={makeMap({ visibility: 'private' })} />);
+    const privateLabel = screen.getByText('Private').textContent ?? '';
 
-    expect(internalLabel).not.toBe(restrictedLabel);
+    expect(internalLabel).not.toBe(privateLabel);
   });
 });
 
