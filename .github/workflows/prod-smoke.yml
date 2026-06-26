@@ -77,6 +77,12 @@ jobs:
           # to satisfy the Settings validator (backend/app/config.py).
           sed -i -E 's|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=geolens_smoke_pw|' .env
           sed -i -E 's|^JWT_SECRET_KEY=.*|JWT_SECRET_KEY=prod-smoke-secret-key-padding-32chars-min|' .env
+          # .env.example ships GEOLENS_ADMIN_USERNAME= empty, so the seeded admin
+          # username is "" unless set here. The E2E auth.setup logs in as `admin`
+          # (see the GEOLENS_ADMIN_USERNAME below + the E2E step env), so without
+          # this the login deterministically 401s ("Incorrect username or
+          # password") and waitForURL('/') times out — set BOTH creds, like ci.yml.
+          sed -i -E 's|^GEOLENS_ADMIN_USERNAME=.*|GEOLENS_ADMIN_USERNAME=admin|' .env
           sed -i -E 's|^GEOLENS_ADMIN_PASSWORD=.*|GEOLENS_ADMIN_PASSWORD=admin|' .env
           # The prebuilt-image path: pin the version + select the prod compose so a
           # bare `docker compose` resolves to the published images.
