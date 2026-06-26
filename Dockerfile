@@ -286,11 +286,15 @@ LABEL org.opencontainers.image.title="geolens-backup"
 LABEL org.opencontainers.image.description="Automated pg_dump backup service with S3 offload"
 LABEL org.opencontainers.image.licenses="Apache-2.0"
 
-# awscli (SigV4-capable S3 client) for the BKP-02 S3 upload path.
+# awscli (SigV4-capable S3 client) for the BKP-02 S3 upload path; procps for the
+# compose healthcheck (`pgrep -f backup-entrypoint || pgrep -f sleep`) — pgrep is
+# present in the postgres:17 base today but is installed explicitly so the now
+# default-on healthcheck can never silently break on a base-image change.
 # Installed from Debian apt only — no pip/PyPI (T-1247-SC mitigation).
 RUN apt-get update && apt-get upgrade -y --no-install-recommends && \
     apt-get install -y --no-install-recommends \
     awscli \
+    procps \
     && rm -rf /var/lib/apt/lists/*
 
 # Bake the backup and restore scripts so the image is self-contained and
