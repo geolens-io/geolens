@@ -47,6 +47,12 @@ jobs:
           - image: geolens-backup
             target: backup
             description: "Automated pg_dump backup service with S3 offload"
+            # Report-only Trivy gate (exit 0): the postgres:17 base is an
+            # uncontrollable upstream fat image whose CRITICAL/HIGH CVEs we can't
+            # patch on our cadence (same policy as the postgis db image in
+            # dep-audit.yml). The scan still runs and prints findings to the log;
+            # it just doesn't block the release. Base churn is tracked separately.
+            scan_exit_code: '0'
 
     steps:
       # Fail fast (with guidance) if a real manual publish is dispatched off a
@@ -114,7 +120,7 @@ jobs:
         with:
           image-ref: ${{ matrix.image }}:scan-amd64
           format: table
-          exit-code: '1'
+          exit-code: ${{ matrix.scan_exit_code || '1' }}
           severity: CRITICAL,HIGH
           ignore-unfixed: true
 
@@ -134,7 +140,7 @@ jobs:
         with:
           image-ref: ${{ matrix.image }}:scan-arm64
           format: table
-          exit-code: '1'
+          exit-code: ${{ matrix.scan_exit_code || '1' }}
           severity: CRITICAL,HIGH
           ignore-unfixed: true
 
