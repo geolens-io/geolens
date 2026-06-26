@@ -522,6 +522,10 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      # Gate the first (on-startup) pg_dump behind migrations so a fresh install
+      # never captures a pre-migration / empty DB as its first retained backup.
+      migrate:
+        condition: service_completed_successfully
 
   # --- cloud-dev profile: local S3 + cache for testing ---
   # All cloud-dev services bind to 127.0.0.1 only — they're for local dev,
