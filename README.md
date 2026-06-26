@@ -365,4 +365,6 @@ for the compatibility note and the workaround.
 
 GeoLens is licensed under the [Apache License 2.0](LICENSE). The GeoLens name, logo, and brand assets are not covered by this license — see [TRADEMARKS.md](TRADEMARKS.md). Third-party sample-data attribution is in [THIRD_PARTY_DATA.md](THIRD_PARTY_DATA.md).
 
-Project policies: [governance](GOVERNANCE.md) · [maintainers](MAINTAINERS.md) · [contributing](.github/CONTRIBUTING.md) · [security](.github/SECURITY.md) · [release process](RELEASE.md) · [egress &amp; air-gap](EGRESS.md).
+GeoLens is **open core**: the full platform in this repository is Apache-2.0 and free to self-host for one organization with many users. A separately-licensed, commercial Enterprise overlay adds organization-scale identity, governance, compliance, and branding — it is never required to run GeoLens. See [EDITIONS.md](EDITIONS.md) for the exact free-vs-commercial boundary and the commitments we hold ourselves to.
+
+Project policies: [editions](EDITIONS.md) · [governance](GOVERNANCE.md) · [maintainers](MAINTAINERS.md) · [contributing](.github/CONTRIBUTING.md) · [security](.github/SECURITY.md) · [release process](RELEASE.md) · [egress &amp; air-gap](EGRESS.md).
