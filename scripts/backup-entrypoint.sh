@@ -22,6 +22,7 @@ set -euo pipefail
 #   S3_SECRET_ACCESS_KEY   S3 secret key
 #   S3_REGION              S3 region (default: us-east-1)
 #   S3_ALLOW_HTTP          Allow HTTP for S3 (default: false)
+#   S3_ADDRESSING_STYLE    S3 addressing style: auto, path, virtual (default: auto)
 # ==============================================================================
 
 BACKUP_DIR="/backups"
@@ -82,17 +83,22 @@ run_backup() {
     local staging_archive=""
     staging_archive="$(backup_staging "$timestamp")"
 
-    # S3 upload
+    # S3 upload — any upload failure returns non-zero so the cycle is reported as failed.
     if [ "$BACKUP_S3_ENABLED" = "true" ]; then
-        upload_to_s3 "$filepath" "daily/${filename}"
+        local upload_failed=0
+        upload_to_s3 "$filepath" "daily/${filename}" || upload_failed=1
         if [ -n "$staging_archive" ]; then
-            upload_to_s3 "$staging_archive" "daily/$(basename "$staging_archive")"
+            upload_to_s3 "$staging_archive" "daily/$(basename "$staging_archive")" || upload_failed=1
         fi
         if [ "$(date '+%u')" = "7" ]; then
-            upload_to_s3 "$filepath" "weekly/${filename}"
+            upload_to_s3 "$filepath" "weekly/${filename}" || upload_failed=1
             if [ -n "$staging_archive" ]; then
-                upload_to_s3 "$staging_archive" "weekly/$(basename "$staging_archive")"
+                upload_to_s3 "$staging_archive" "weekly/$(basename "$staging_archive")" || upload_failed=1
             fi
+        fi
+        if [ "$upload_failed" -eq 1 ]; then
+            log "ERROR: backup S3 upload failed — check S3 credentials and endpoint reachability"
+            return 1
         fi
     fi
 
@@ -137,20 +143,21 @@ backup_staging() {
         fi
         printf '%s\n' "$archive"
     else
-        log "WARNING: object-storage archive failed (non-fatal)" >&2
+        log "WARNING: object-storage archive failed — staging backup skipped" >&2
         rm -f "$archive"
     fi
 }
 
 # ---------------------------------------------------------------------------
-# S3 upload (uses pg_dump image's curl — no aws cli dependency)
+# S3 upload via awscli with AWS Signature V4
 #
-# Uses AWS Signature V2 (HMAC-SHA1). Compatible with
-# MinIO, Cloudflare R2, older AWS buckets, and S3 implementations that
-# accept Sig-V2. New AWS buckets (post-2018) require Sig-V4 — for those,
-# mount a sidecar with aws-cli and replace this function with
-# `aws s3 cp <file> s3://<bucket>/<key>`. See README §"Backup S3
-# Compatibility" for the rationale.
+# Uses SigV4 — the only signature version accepted by Cloudflare R2 and
+# required by modern AWS S3 (and MinIO). Credentials are passed through the
+# environment (AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY) — never on argv,
+# which would expose secrets in the process list. The endpoint, region, and
+# addressing style are read from S3_ENDPOINT, S3_REGION, and
+# S3_ADDRESSING_STYLE respectively. A failed upload returns non-zero and logs
+# an ERROR so silent offsite backup loss is detectable in container logs.
 # ---------------------------------------------------------------------------
 upload_to_s3() {
     local filepath="$1"
@@ -161,37 +168,29 @@ upload_to_s3() {
         return 0
     fi
 
-    local protocol="https"
-    if [ "${S3_ALLOW_HTTP:-false}" = "true" ]; then
-        protocol="http"
+    # Pass credentials via environment — not on argv (prevents secret leakage
+    # in the process list and shell history).
+    export AWS_ACCESS_KEY_ID="${S3_ACCESS_KEY_ID}"
+    export AWS_SECRET_ACCESS_KEY="${S3_SECRET_ACCESS_KEY}"
+    export AWS_DEFAULT_REGION="${S3_REGION:-us-east-1}"
+
+    # Force SigV4 and configure addressing style (use 'path' for MinIO/R2 when needed).
+    aws configure set default.s3.signature_version s3v4
+    aws configure set default.s3.addressing_style "${S3_ADDRESSING_STYLE:-auto}"
+
+    # Build argument list; --endpoint-url is only added when S3_ENDPOINT is set.
+    local aws_args=()
+    if [ -n "${S3_ENDPOINT:-}" ]; then
+        aws_args+=(--endpoint-url "$S3_ENDPOINT")
     fi
-
-    local endpoint="${S3_ENDPOINT:-${protocol}://s3.${S3_REGION}.amazonaws.com}"
-    local date_value
-    date_value="$(date -R)"
-    local content_type="application/octet-stream"
-    local resource="/${S3_BUCKET}/backups/${s3_key}"
-    # BUG-004: the AWS SigV2 string-to-sign must contain REAL newlines. Bash
-    # double quotes do NOT expand "\n", and `printf '%s'` prints its argument
-    # verbatim, so the previous "PUT\n\n..." form signed over the literal
-    # two-character sequence backslash-n — every PUT was rejected with
-    # SignatureDoesNotMatch and offsite backups silently never happened. Use
-    # ANSI-C quoting ($'\n') so the separators are actual newline bytes.
-    local string_to_sign=$'PUT\n\n'"${content_type}"$'\n'"${date_value}"$'\n'"${resource}"
-    local signature
-    signature="$(printf '%s' "$string_to_sign" | openssl dgst -sha1 -hmac "$S3_SECRET_ACCESS_KEY" -binary | base64)"
-
-    local url="${endpoint}/${S3_BUCKET}/backups/${s3_key}"
+    aws_args+=(--region "${S3_REGION:-us-east-1}" --no-progress)
 
     log "Uploading to S3: ${s3_key}"
-    if curl -sf -X PUT -T "$filepath" \
-        -H "Date: ${date_value}" \
-        -H "Content-Type: ${content_type}" \
-        -H "Authorization: AWS ${S3_ACCESS_KEY_ID}:${signature}" \
-        "$url"; then
+    if aws s3 cp "$filepath" "s3://${S3_BUCKET}/backups/${s3_key}" "${aws_args[@]}"; then
         log "S3 upload complete: ${s3_key}"
     else
-        log "WARNING: S3 upload failed for ${s3_key} (non-fatal)"
+        log "ERROR: S3 upload failed for ${s3_key}"
+        return 1
     fi
 }
 
@@ -322,7 +321,7 @@ log "Retention: ${BACKUP_RETENTION_DAILY} daily, ${BACKUP_RETENTION_WEEKLY} week
 log "S3 upload: ${BACKUP_S3_ENABLED}"
 
 # Run an initial backup on startup
-run_backup || log "WARNING: Initial backup failed"
+run_backup || log "ERROR: Initial backup failed"
 
 # Try cron daemon first, fall back to sleep loop
 if command -v crontab >/dev/null 2>&1; then
@@ -342,7 +341,7 @@ while true; do
     current_hour="$(date '+%-H')"
     current_min="$(date '+%-M')"
     if [ "$current_hour" = "$sched_hour" ] && [ "$current_min" = "$sched_min" ]; then
-        run_backup || log "WARNING: Scheduled backup failed"
+        run_backup || log "ERROR: Scheduled backup failed"
         sleep 60  # Avoid double-trigger within the same minute
     fi
 done
