@@ -2,10 +2,12 @@ import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useMyApiKeys, useCreateMyApiKey, useRevokeMyApiKey } from '@/hooks/use-api-keys';
 import { formatDate } from '@/lib/format';
-import { activeDotColor } from '@/lib/status-colors';
+import { activeDotColor, semanticBadgeColors } from '@/lib/status-colors';
+import { cn } from '@/lib/utils';
 import type { MyApiKeyResponse, ApiKeyCreateResponse } from '@/types/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { FieldLabel } from '@/components/ui/field-label';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -86,7 +88,9 @@ export function MyApiKeySection() {
 
       {showCreateForm && (
         <form onSubmit={handleCreate} className="flex items-center gap-2">
+          <FieldLabel htmlFor="api-key-name-input">{t('admin:apiKeys.keyName')}</FieldLabel>
           <Input
+            id="api-key-name-input"
             value={keyName}
             onChange={(e) => setKeyName(e.target.value)}
             placeholder={t('admin:apiKeys.keyName')}
@@ -113,7 +117,7 @@ export function MyApiKeySection() {
       )}
 
       {createApiKey.error && (
-        <p className="text-sm text-destructive">
+        <p role="alert" className="text-sm text-destructive">
           {createApiKey.error instanceof Error ? createApiKey.error.message : t('admin:apiKeys.createError')}
         </p>
       )}
@@ -138,11 +142,16 @@ export function MyApiKeySection() {
                     className={`inline-block h-2 w-2 rounded-full ${
                       activeDotColor[String(key.is_active) as keyof typeof activeDotColor]
                     }`}
-                    title={key.is_active ? t('admin:apiKeys.active') : t('admin:apiKeys.revoked')}
                     aria-hidden="true"
                   />
-                  {/* #305: state was conveyed by dot color + non-announced title only; add a text alt for assistive tech */}
-                  <span className="sr-only">
+                  {/* fix(#305/GLUX-014): replace dot+title+sr-only with a visible status badge so state is
+                      conveyed as visible text, not color alone. The dot stays as a secondary visual cue. */}
+                  <span
+                    className={cn(
+                      'inline-flex items-center rounded-full border px-1.5 py-0.5 text-xs font-medium',
+                      key.is_active ? semanticBadgeColors.success : semanticBadgeColors.destructive,
+                    )}
+                  >
                     {key.is_active ? t('admin:apiKeys.active') : t('admin:apiKeys.revoked')}
                   </span>
                 </div>
@@ -156,8 +165,9 @@ export function MyApiKeySection() {
                   size="sm"
                   className="text-destructive hover:text-destructive h-8 w-8 p-0"
                   onClick={() => setRevokingKey(key)}
+                  aria-label={t('admin:apiKeys.revokeDialog.revoke')}
                 >
-                  <Trash className="h-4 w-4" />
+                  <Trash className="h-4 w-4" aria-hidden="true" />
                 </Button>
               )}
             </div>
@@ -166,7 +176,7 @@ export function MyApiKeySection() {
       )}
 
       {revokeApiKey.error && (
-        <p className="text-sm text-destructive">
+        <p role="alert" className="text-sm text-destructive">
           {revokeApiKey.error instanceof Error ? revokeApiKey.error.message : t('admin:apiKeys.revokeError')}
         </p>
       )}
