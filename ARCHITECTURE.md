@@ -40,7 +40,7 @@ flowchart TD
 | **migrate** | Runs Alembic migrations on boot, then exits. |
 | **valkey** | Redis-compatible cache (tiles, hot config). |
 | **minio / azurite** | Dev object storage (S3 / Azure Blob). Prod points at real buckets via the storage abstraction. |
-| **backup** | Opt-in `pg_dump` + object-store backup (`--profile backup`). |
+| **backup** | Default-on `pg_dump` + object-store backup (cron-driven; pull-able `geolens-backup` image). See `RUNBOOK.md`. |
 
 The app version, edition flags, and DB session live in `backend/app/core/`. The FastAPI
 app factory, root router, middleware, and lifespan are in `backend/app/api/`.
