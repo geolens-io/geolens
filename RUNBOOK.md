@@ -75,11 +75,10 @@ S3_REGION=us-east-1
 Also set `S3_SECRET_ACCESS_KEY` to your access secret. See `.env.example` for all
 available S3 options including `S3_ALLOW_HTTP`.
 
-The built-in uploader signs with **AWS Signature V2** (compatible with classic AWS
-buckets and MinIO). For buckets requiring Sig-V4 (most modern AWS buckets), replace
-the upload step with a sidecar using `aws-cli`. S3 upload failures are non-fatal and
-logged as `WARNING: S3 upload failed for <key> (non-fatal)` — a failed upload does
-not abort the local backup cycle.
+The built-in uploader signs requests with **AWS Signature V4** (awscli), compatible
+with Cloudflare R2, modern AWS S3, and MinIO. A failed upload returns non-zero and
+is logged as `ERROR: S3 upload failed for <key>` — a failed offsite upload aborts
+the current backup cycle so the failure is immediately visible in container logs.
 
 ### Scope caveat
 
@@ -241,7 +240,7 @@ docker compose logs -f backup
 | `Backup complete: <filename> (<size>)` | `pg_dump` succeeded; dump is in `/backups/daily/` |
 | `Object-storage archive complete: staging-<ts>.tar.gz (<size>)` | `upload_staging` archived alongside the dump |
 | `Backup cycle complete` | Full cycle (dump + staging + S3 if enabled) finished |
-| `WARNING: S3 upload failed for <key> (non-fatal)` | Offsite upload failed; local backup is intact |
+| `ERROR: S3 upload failed for <key>` | Offsite upload failed; cycle returns non-zero |
 | `WARNING: object-storage archive failed (non-fatal)` | Staging tar failed; DB dump is still good |
 | `ERROR: pg_dump failed` | DB dump failed; no artifacts written for this cycle |
 
@@ -266,11 +265,12 @@ docker run --rm -v <project>_backup_data:/backups alpine ls -lh /backups/daily/
 When `BACKUP_S3_ENABLED=true`, search the logs for the failure marker:
 
 ```bash
-docker compose logs backup | grep 'WARNING: S3 upload failed'
+docker compose logs backup | grep 'ERROR: S3 upload failed'
 ```
 
-A failed S3 upload does not affect the local backup cycle but means the offsite
-copy is absent for that cycle. Investigate S3 credentials and endpoint reachability.
+A failed S3 upload causes the backup cycle to exit non-zero (visible as an
+`ERROR: backup S3 upload failed` log line). Investigate S3 credentials and
+endpoint reachability before the next scheduled run.
 
 ---
 

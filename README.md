@@ -317,23 +317,21 @@ for the per-process budget and how to raise the ceiling.
 
 ### Backups
 
-Automated, scheduled backups are **opt-in**. Enable them with the `backup`
-Compose profile:
-
-```bash
-docker compose --profile backup up -d
-```
-
-This runs `pg_dump` on a daily/weekly schedule and also archives the
-object-storage staging volume, so a restore reproduces a working instance (DB +
-objects). A default install does **not** enable backups.
+Automated, scheduled backups run **by default** — no `--profile backup` flag is
+required. The backup service starts alongside `api`, `worker`, and `db` on every
+`docker compose up` and runs `pg_dump` on a daily/weekly schedule alongside an
+archive of the object-storage staging volume, so a restore reproduces a working
+instance (DB + uploaded files).
 
 **Off-site (S3) upload** is additionally gated on `BACKUP_S3_ENABLED=true`. The
-built-in uploader signs with **AWS Signature V2**, which works with classic AWS
-buckets and MinIO. New AWS buckets that require Signature V4 need the `aws-cli`
-sidecar workaround (SigV4 support is on the roadmap). See
-[Backups & Restore](https://docs.getgeolens.com/guides/admin/backups/#backup-destinations)
-for the compatibility note and the workaround.
+built-in uploader signs requests with **AWS Signature V4** (awscli), compatible
+with Cloudflare R2, modern AWS S3, and MinIO. A failed upload surfaces a visible
+`ERROR` in container logs — not a swallowed warning — so silent offsite backup
+loss is detectable immediately.
+
+For day-2 operations, restore procedures, and incident response, see
+[RUNBOOK.md](RUNBOOK.md). For provider-specific configuration options, see
+[Backups & Restore](https://docs.getgeolens.com/guides/admin/backups/#backup-destinations).
 
 ## Reference
 
