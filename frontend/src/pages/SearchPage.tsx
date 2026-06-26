@@ -66,9 +66,13 @@ export function SearchPage() {
     resultsRef.current?.focus({ preventScroll: true });
   };
   const { can } = usePermissions();
-  // fix(GLUX-006): align with Navbar pattern — can('upload') is false when permissions
-  // is null (hook disabled with no token), so no stale-CTA risk; see Navbar.tsx CreateMenu.
-  const canImport = can('upload');
+  // fix(GLUX-006): gate the Import CTA on capability, not token presence alone (a
+  // viewer with a token must not see a dead-end /import). Keep the `!!token` guard
+  // too: on logout the cached ['auth','permissions'] query can briefly still return
+  // data, so `can('upload')` may lag true for the now-anonymous session — `token`
+  // clears synchronously in the auth store, closing that race. Both conditions =
+  // logged in AND allowed. See Navbar.tsx CreateMenu.
+  const canImport = !!token && can('upload');
   const totalMatched = data ? Math.max(data.numberMatched ?? 0, data.features.length) : 0;
 
   useUrlSearchSync();

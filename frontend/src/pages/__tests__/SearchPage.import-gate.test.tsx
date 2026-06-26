@@ -155,4 +155,25 @@ describe('SearchPage — Import CTA capability gate (GLUX-006)', () => {
     expect(cta).toBeInTheDocument();
     expect(cta).toHaveAttribute('href', '/import');
   });
+
+  it('post-logout (token cleared, stale permissions cache still allows upload) — no Import CTA', () => {
+    // Regression: on logout the token clears synchronously but the cached
+    // ['auth','permissions'] query can briefly still return data, so can('upload')
+    // may lag true for the now-anonymous session. The `!!token` guard must suppress
+    // the CTA regardless.
+    act(() => {
+      useAuthStore.setState({ ...initialAuthState, token: null, user: null }, true);
+    });
+    mockUsePermissions.mockReturnValue({
+      can: (cap: string) => cap === 'upload',
+      isLoading: false,
+      permissions: { upload: true },
+    });
+
+    render(<SearchPage />, { route: '/' });
+
+    expect(
+      screen.queryByRole('link', { name: /import your first dataset/i }),
+    ).not.toBeInTheDocument();
+  });
 });
