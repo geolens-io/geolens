@@ -744,24 +744,37 @@ async def list_api_keys(
 
 def _ai_status(
     enabled: bool,
+    provider: str,
     semantic_search_enabled: bool = False,
     has_embeddings: bool = False,
 ) -> AIStatusResponse:
-    """Build AIStatusResponse from current env config + DB toggle."""
-    if app_settings.anthropic_api_key:
-        provider = "anthropic"
-        model = app_settings.llm_model
-    elif app_settings.openai_api_key:
-        provider = "openai"
-        model = app_settings.openai_model
-    else:
-        provider = None
-        model = None
+    """Build AIStatusResponse from the SELECTED provider + DB toggle.
 
-    configured = bool(app_settings.anthropic_api_key or app_settings.openai_api_key)
+    builder-audit P1-12: ``configured`` reports readiness of the SELECTED
+    ``LLM_PROVIDER`` only — not "any key exists". The chat route
+    (``_check_ai_available``) gates on the selected provider's key, so admin
+    status and chat readiness must agree: if the operator selects ``anthropic``
+    but only an OpenAI key is set, ``configured`` is False even though a key
+    exists. The presence of the OTHER provider's key is treated as metadata
+    only (it never flips ``configured``/``provider``, which gate chat).
+    """
+    keys = {
+        "anthropic": app_settings.anthropic_api_key,
+        "openai_compatible": app_settings.openai_api_key,
+    }
+    models = {
+        "anthropic": app_settings.llm_model,
+        "openai_compatible": app_settings.openai_model,
+    }
+    # Normalize the internal provider id ("openai_compatible") to the public
+    # display name ("openai") the AIStatusResponse contract already uses.
+    display_names = {"anthropic": "anthropic", "openai_compatible": "openai"}
+
+    selected_key = keys.get(provider)
+    configured = bool(selected_key)
     return AIStatusResponse(
-        provider=provider,
-        model=model,
+        provider=display_names.get(provider) if configured else None,
+        model=models.get(provider) if configured else None,
         enabled=enabled,
         configured=configured,
         semantic_search_enabled=semantic_search_enabled,
@@ -785,15 +798,20 @@ async def get_ai_status(
     db: AsyncSession = Depends(get_db),
 ) -> AIStatusResponse:
     """Return single-deployment AI status; no provider-routing policy controls (admin only)."""
-    from app.core.persistent_config import AI_ENABLED, SEMANTIC_SEARCH_ENABLED
+    from app.core.persistent_config import (
+        AI_ENABLED,
+        LLM_PROVIDER,
+        SEMANTIC_SEARCH_ENABLED,
+    )
 
     from app.processing.embeddings.helpers import has_embeddings
 
     enabled = await AI_ENABLED.get(db)
+    provider = await LLM_PROVIDER.get(db)
     semantic = await SEMANTIC_SEARCH_ENABLED.get(db)
     has_embeds = await has_embeddings(db)
     return _ai_status(
-        enabled, semantic_search_enabled=semantic, has_embeddings=has_embeds
+        enabled, provider, semantic_search_enabled=semantic, has_embeddings=has_embeds
     )
 
 
@@ -816,13 +834,21 @@ async def update_ai_status(
 ) -> AIStatusResponse:
     """Toggle base AI features on/off at runtime; no provider-routing policy controls (admin only)."""
     from app.processing.embeddings.helpers import has_embeddings
-    from app.core.persistent_config import AI_ENABLED, SEMANTIC_SEARCH_ENABLED
+    from app.core.persistent_config import (
+        AI_ENABLED,
+        LLM_PROVIDER,
+        SEMANTIC_SEARCH_ENABLED,
+    )
 
     await AI_ENABLED.set(db, body.enabled, user_id=user.id)
+    provider = await LLM_PROVIDER.get(db)
     semantic = await SEMANTIC_SEARCH_ENABLED.get(db)
     has_embeds = await has_embeddings(db)
     return _ai_status(
-        body.enabled, semantic_search_enabled=semantic, has_embeddings=has_embeds
+        body.enabled,
+        provider,
+        semantic_search_enabled=semantic,
+        has_embeddings=has_embeds,
     )
 
 
