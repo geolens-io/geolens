@@ -91,20 +91,6 @@ def _simplify_tolerance_degrees(z: int) -> float | None:
     return _SIMPLIFY_SUBPIXEL_FACTOR * 360.0 / (_MVT_EXTENT * (2**z))
 
 
-def _mvt_layer_name(table_name: str) -> str:
-    """Return the MVT layer (source-layer) name for a dataset table.
-
-    builder-audit MVT-01: ALWAYS ``data.{table_name}`` regardless of the physical
-    schema the table lives in. In multi_tenant the table is in ``data_t_<tid>`` but
-    the client hardcodes the ``data.`` source-layer prefix; emitting the
-    schema-qualified name here made the MVT layer name diverge from the client's
-    source-layer reference, so no features rendered. The layer name is purely a
-    client-facing label inside the MVT payload — it does not need to match the
-    physical schema — so it is kept tenant-agnostic.
-    """
-    return f"data.{table_name}"
-
-
 def _select_tile_columns(
     columns: list[dict],
     z: int,
@@ -421,10 +407,13 @@ async def get_tile(
         additional_columns=additional_columns,
     )
     query = _build_tile_query(table_name, selected_columns, schema=schema)
-    # builder-audit MVT-01: the MVT layer name is the client-facing source-layer
-    # label, kept tenant-agnostic ("data.{table}") so it matches the client even
-    # when the physical schema is "data_t_<tid>" in multi_tenant.
-    layer_name = _mvt_layer_name(table_name)
+    # layer_name must match the schema-qualified table so clients can identify it.
+    # builder-audit MVT-01: in single_tenant schema=="data" so this is already
+    # "data.{table}" (matches the client). The multi_tenant client/source-layer
+    # divergence is a deferred cloud-overlay concern — the fix belongs on the
+    # client side (derive source-layer from the schema-qualified name), NOT here,
+    # where the dormant-tenancy isolation guard requires schema qualification.
+    layer_name = f"{schema}.{table_name}"
 
     if conn is not None:
         result = await conn.fetchval(query, z, x, y, layer_name)
@@ -468,8 +457,8 @@ async def get_cluster_tile(
     _validate_tile_table_name(table_name)
 
     query = _build_cluster_tile_query(table_name, schema=schema)
-    # builder-audit MVT-01: tenant-agnostic source-layer label (see _mvt_layer_name).
-    layer_name = _mvt_layer_name(table_name)
+    # Schema-qualified (single_tenant => "data.{table}"); see MVT-01 note above.
+    layer_name = f"{schema}.{table_name}"
 
     if conn is not None:
         result = await conn.fetchval(

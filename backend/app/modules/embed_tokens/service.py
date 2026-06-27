@@ -299,6 +299,40 @@ async def revoke_embed_tokens_by_map(
     return len(tokens)
 
 
+async def revoke_embed_tokens_for_dropped_datasets(
+    db: AsyncSession,
+    map_id: uuid.UUID,
+) -> int:
+    """builder-audit P0-01: revoke embed tokens orphaned by a layer change.
+
+    An embed token is scoped to a fixed set of dataset ids that were layers on
+    the map when it was minted. After a layer replacement/removal, a token scoped
+    to a dataset that is no longer a layer on the map would keep serving tiles for
+    content the map no longer exposes. We compare each active token's
+    ``scoped_dataset_ids`` against the map's current layer dataset ids; if any
+    active token references a dropped dataset we revoke ALL embed tokens for the
+    map via ``revoke_embed_tokens_by_map`` (the map-scoped revoke primitive, which
+    also purges the Redis positive cache). Pure additions/reorders that keep every
+    scoped dataset present do not revoke anything. Returns the number revoked.
+    """
+    current = await db.execute(
+        select(MapLayer.dataset_id).where(MapLayer.map_id == map_id)
+    )
+    current_ids = {str(did) for did in current.scalars().all()}
+
+    result = await db.execute(
+        select(EmbedToken).where(
+            EmbedToken.map_id == map_id,
+            EmbedToken.is_active.is_(True),
+        )
+    )
+    for token in result.scalars().all():
+        scoped = {str(d) for d in (token.scoped_dataset_ids or [])}
+        if not scoped.issubset(current_ids):
+            return await revoke_embed_tokens_by_map(db, map_id)
+    return 0
+
+
 async def update_embed_token(
     db: AsyncSession,
     token_id: uuid.UUID,

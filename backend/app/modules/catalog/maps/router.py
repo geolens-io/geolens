@@ -100,11 +100,11 @@ from app.modules.catalog.maps.service import (
 )
 from app.modules.catalog.maps.models import MapLayer
 from app.modules.catalog.maps.service import _validate_share_token, remove_layers_bulk
-from app.modules.catalog.maps.service_public import (
+from app.modules.embed_tokens.schemas import ADVANCED_SHARING_ERROR
+from app.modules.embed_tokens.service import (
+    revoke_embed_tokens_by_map,
     revoke_embed_tokens_for_dropped_datasets,
 )
-from app.modules.embed_tokens.schemas import ADVANCED_SHARING_ERROR
-from app.modules.embed_tokens.service import revoke_embed_tokens_by_map
 from app.standards.ogc.errors import ERROR_RESPONSES_WRITE
 from app.core.public_urls import get_public_api_url
 from app.modules.catalog.maps._router_helpers import (

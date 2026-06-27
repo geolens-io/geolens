@@ -10,10 +10,6 @@ import structlog
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.identity import Identity
-from app.modules.catalog.maps.filter_grammar import (
-    FilterValidationError,
-    validate_filter,
-)
 from app.processing.ai.schemas import ChatAction, ChatMapLayer
 
 if TYPE_CHECKING:
@@ -162,6 +158,15 @@ async def _validate_actions(
         # forms with bad arity / legacy "in" raise FilterValidationError and the
         # action is dropped rather than surfaced as a 422.
         if action.type == "set_filter" and action.expression is not None:
+            # Lazy import: app.processing must not module-level-import app.modules
+            # .catalog (Phase 225 PROCESS-02 layering guard). filter_grammar is a
+            # pure, dependency-free validator, so a function-scope import is the
+            # sanctioned access pattern.
+            from app.modules.catalog.maps.filter_grammar import (
+                FilterValidationError,
+                validate_filter,
+            )
+
             target_layer = layer_map.get(action.layer_id) if action.layer_id else None
             try:
                 normalized = validate_filter(action.expression)

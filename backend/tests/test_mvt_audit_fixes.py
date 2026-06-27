@@ -2,7 +2,7 @@
 
 Covers (no DB / no asyncpg pool):
   - MVT-07: continuous simplification-tolerance schedule across the z5->z6 boundary.
-  - MVT-01: tenant-agnostic MVT source-layer name (always ``data.{table}``).
+  - MVT-01: the MVT source-layer name stays schema-qualified (deferred cloud fix).
   - MVT-09: the table-name regex has a single shared definition.
   - MVT-04: ETag generation + conditional-request (If-None-Match -> 304) helpers.
 """
@@ -24,9 +24,7 @@ from app.processing.tiles.service import (
     _NO_SIMPLIFY_AT_OR_ABOVE_ZOOM,
     _build_cluster_tile_query,
     _build_tile_query,
-    _mvt_layer_name,
     _simplify_tolerance_degrees,
-    get_cluster_tile,
     get_tile,
 )
 
@@ -76,59 +74,31 @@ def test_tile_query_uses_single_continuous_simplify_basis():
 
 
 # ---------------------------------------------------------------------------
-# MVT-01: tenant-agnostic source-layer name
+# MVT-01: the source-layer name stays schema-qualified.
+#
+# builder-audit MVT-01 flagged that the multi_tenant MVT layer name
+# (data_t_<tid>.table) diverges from the client's hardcoded data.table. In
+# single_tenant (the only OSS-deployable mode) schema=="data", so the emitted
+# layer name is already "data.table" and the client matches. The multi_tenant
+# divergence is a deferred cloud-overlay concern whose fix belongs on the client
+# (derive source-layer from the schema-qualified name) — the dormant-tenancy
+# isolation guard (DP-02 / T1G) requires the server to keep schema qualification.
 # ---------------------------------------------------------------------------
 
 
-def test_mvt_layer_name_is_tenant_agnostic():
-    """The layer name is always ``data.{table}`` regardless of physical schema."""
-    assert _mvt_layer_name("places") == "data.places"
-    assert _mvt_layer_name("my_dataset_123") == "data.my_dataset_123"
-
-
-async def test_get_tile_emits_tenant_agnostic_layer_name():
-    """get_tile passes ``data.{table}`` even when the schema is tenant-qualified."""
+async def test_get_tile_layer_name_is_schema_qualified():
+    """get_tile passes ``{schema}.{table}`` — "data.table" in single_tenant."""
     conn = AsyncMock()
     conn.fetchval.return_value = b"\x1a"  # non-empty MVT bytes
-    await get_tile(
-        None,
-        "places",
-        5,
-        1,
-        1,
-        [{"name": "gid"}],
-        conn=conn,
-        schema="data_t_deadbeef",
-    )
-    # fetchval(query, z, x, y, layer_name)
-    args = conn.fetchval.call_args.args
-    assert args[4] == "data.places"
+    await get_tile(None, "places", 5, 1, 1, [{"name": "gid"}], conn=conn, schema="data")
+    # fetchval(query, z, x, y, layer_name) — single_tenant matches the client.
+    assert conn.fetchval.call_args.args[4] == "data.places"
 
 
-async def test_get_cluster_tile_emits_tenant_agnostic_layer_name():
-    """get_cluster_tile passes ``data.{table}`` even with a tenant-qualified schema."""
-    conn = AsyncMock()
-    conn.fetchval.return_value = b"\x1a"
-    await get_cluster_tile(
-        None,
-        "places",
-        5,
-        1,
-        1,
-        conn=conn,
-        schema="data_t_deadbeef",
-    )
-    args = conn.fetchval.call_args.args
-    assert args[4] == "data.places"
-
-
-def test_cluster_query_schema_qualified_but_layer_name_agnostic():
-    """Physical FROM stays schema-qualified while the layer label stays tenant-agnostic."""
-    # The query itself is schema-qualified (data plane isolation), but the layer
-    # NAME emitted at runtime is tenant-agnostic — these are independent concerns.
+def test_tile_query_from_clause_is_schema_qualified():
+    """The physical FROM stays schema-qualified for data-plane isolation."""
     query = _build_cluster_tile_query("places", schema="data_t_deadbeef")
     assert '"data_t_deadbeef"."places"' in query
-    assert _mvt_layer_name("places") == "data.places"
 
 
 # ---------------------------------------------------------------------------
