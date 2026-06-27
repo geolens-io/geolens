@@ -330,3 +330,22 @@ CHAT_TOOLS_ANTHROPIC = [
         },
     },
 ]
+
+
+# Read-only chat tools: a user who can VIEW a map but not edit it (non-owner /
+# non-admin) may ask the AI questions about the map's data but must not be able
+# to change it. We enforce this by withholding every mutating tool from the
+# model — with only ``query_data`` available it can answer questions (sandboxed,
+# RBAC-scoped SELECTs) but has no tool to emit a style / filter / label /
+# visibility / opacity / add- or remove-layer edit. Edit *persistence* is
+# separately owner-gated at Save, so this is defense-in-depth, not the only gate.
+CHAT_TOOLS_READONLY = [t for t in CHAT_TOOLS_ANTHROPIC if t["name"] == "query_data"]
+
+
+def select_chat_tools(can_edit: bool) -> list:
+    """Return the chat tool set for a caller.
+
+    Full tool set when the caller may edit the map; read-only (``query_data``
+    only) when they may only view it.
+    """
+    return CHAT_TOOLS_ANTHROPIC if can_edit else CHAT_TOOLS_READONLY

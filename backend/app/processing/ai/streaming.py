@@ -27,7 +27,7 @@ from app.processing.ai.llm_loop import (
 )
 from app.processing.ai.schemas import ChatAction, ChatHistoryMessage, history_to_dicts
 from app.processing.ai.token_usage import record_token_usage
-from app.processing.ai.tools import CHAT_TOOLS_ANTHROPIC
+from app.processing.ai.tools import CHAT_TOOLS_ANTHROPIC, select_chat_tools
 from typing import TYPE_CHECKING
 
 from app.core.identity import Identity
@@ -114,6 +114,7 @@ async def _stream_anthropic_chat(
     client,
     port: "ProcessingPort",
     map_id: str | None = None,
+    tools: list | None = None,
 ) -> AsyncGenerator[dict, None]:
     """Stream Anthropic chat with tool-calling loop."""
     messages = build_history_messages(history)
@@ -123,7 +124,9 @@ async def _stream_anthropic_chat(
     cached_system = [
         {"type": "text", "text": system_prompt, "cache_control": {"type": "ephemeral"}}
     ]
-    cached_tools = add_tool_cache_control(CHAT_TOOLS_ANTHROPIC)
+    cached_tools = add_tool_cache_control(
+        CHAT_TOOLS_ANTHROPIC if tools is None else tools
+    )
 
     collected_actions: list[dict] = []
     total_input = 0
@@ -297,6 +300,7 @@ async def _stream_openai_chat(
     client,
     port: "ProcessingPort",
     map_id: str | None = None,
+    tools: list | None = None,
 ) -> AsyncGenerator[dict, None]:
     """Stream OpenAI-compatible chat with tool-calling loop."""
     messages = [{"role": "system", "content": system_prompt}]
@@ -341,7 +345,7 @@ async def _stream_openai_chat(
                     "parameters": t["input_schema"],
                 },
             }
-            for t in CHAT_TOOLS_ANTHROPIC
+            for t in (CHAT_TOOLS_ANTHROPIC if tools is None else tools)
         ]
         response_stream = await client.chat.completions.create(
             model=model,
@@ -567,16 +571,20 @@ async def stream_chat_edit(
     *,
     port: "ProcessingPort",
     map_id: str | None = None,
+    can_edit: bool = True,
 ) -> AsyncGenerator[dict, None]:
     """Main streaming orchestrator. Yields typed event dicts.
 
     map_id is forwarded so the schema-context cache partitions per-map
     (PERF-04 / Phase 274).
+
+    can_edit gates the tool set: a view-only caller gets read-only tools so the
+    AI answers questions but cannot emit edit actions (see select_chat_tools).
     """
     try:
         provider, model, runtime_config = await resolve_provider(db)
         system_prompt = build_chat_system_prompt(
-            layers, language=language, basemap_style=basemap_style
+            layers, language=language, basemap_style=basemap_style, can_edit=can_edit
         )
 
         history_dicts = history_to_dicts(history)
@@ -593,6 +601,7 @@ async def stream_chat_edit(
             history=history_dicts,
             port=port,
             map_id=map_id,
+            tools=select_chat_tools(can_edit),
         ):
             yield event
     except Exception as e:  # broad: SSE stream generator — any unhandled SDK/runtime error must yield a graceful error event

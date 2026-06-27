@@ -279,6 +279,25 @@ describe('ChatPanel', () => {
     expect(mockSendChat).not.toHaveBeenCalled();
   });
 
+  it('a streamed error event WITH an HTTP status classifies by status (403 → forbidden banner), not a generic retry', async () => {
+    // A pre-flight HTTPException from the SSE endpoint carries a numeric `status`
+    // (the SSE body is always a 200 stream). It must classify like the
+    // non-streaming path — 403 → sticky forbidden banner — instead of collapsing
+    // to the generic retryable "Something went wrong" inline bubble. It must also
+    // NOT fall through to the non-streaming retry (no double LLM call).
+    mockStreamChat.mockImplementation(async function* () {
+      yield { event: 'error', data: { message: 'You do not own this map', status: 403 } };
+    });
+
+    const user = userEvent.setup();
+    renderPanel();
+    await typeAndSend(user, 'edit a map I cannot edit');
+
+    const banner = await screen.findByRole('alert');
+    expect(banner).toHaveTextContent(/permission/i);
+    expect(mockSendChat).not.toHaveBeenCalled();
+  });
+
   it('ignores malformed style paint payloads instead of applying indexed string keys', async () => {
     mockStreamChat.mockImplementation(async function* () {
       yield {
