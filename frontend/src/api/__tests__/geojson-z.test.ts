@@ -92,6 +92,26 @@ describe('fetchBoundedGeoJson', () => {
     });
   });
 
+  it('flattens MultiPoint features to Point so clustering (Supercluster) renders them', () => {
+    const multiPoint = {
+      type: 'FeatureCollection' as const,
+      features: [
+        {
+          type: 'Feature' as const,
+          geometry: { type: 'MultiPoint' as const, coordinates: [[1, 2], [3, 4]] },
+          properties: { id: 7, name: 'airport' },
+        },
+      ],
+      truncated: false,
+      total_count: 1,
+    };
+
+    expect(asFeatureCollection(multiPoint).features).toEqual([
+      { type: 'Feature', geometry: { type: 'Point', coordinates: [1, 2] }, properties: { id: 7, name: 'airport' } },
+      { type: 'Feature', geometry: { type: 'Point', coordinates: [3, 4] }, properties: { id: 7, name: 'airport' } },
+    ]);
+  });
+
   it('throws for failed direct bounded GeoJSON requests', async () => {
     mockFetch.mockResolvedValueOnce(jsonResponse({ detail: 'Forbidden' }, 403));
 
