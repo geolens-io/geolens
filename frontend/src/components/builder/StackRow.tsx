@@ -1,8 +1,7 @@
 /* eslint-disable jsx-a11y/no-static-element-interactions, jsx-a11y/no-noninteractive-tabindex -- Phase 1111 LINT-01: stack rows are composite focus targets with nested controls, so role="button"/listbox roles are intentionally avoided. */
-import { memo, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import { memo, useMemo, useState, type KeyboardEvent } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { DraggableAttributes, DraggableSyntheticListeners } from '@dnd-kit/core';
-import { ClipboardPaste, Copy, Crosshair, Eye, EyeOff, GripVertical, MoreVertical, Type } from 'lucide-react';
+import { ClipboardPaste, Copy, Crosshair, Eye, EyeOff, MoreVertical, Type } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import {
@@ -16,13 +15,14 @@ import {
 import { ColorizedGeometryIcon, extractStyleHints, getLayerColors } from '@/components/map/layer-icons';
 import { getLayerCapabilities } from '@/lib/layer-capabilities';
 import { cn } from '@/lib/utils';
+import {
+  DragGripButton,
+  STACK_ROW_GRID,
+  rowStateClasses,
+  type DragHandleProps,
+} from '@/components/builder/row-chrome';
+import { useInlineRename } from '@/components/builder/useInlineRename';
 import type { MapLayerResponse } from '@/types/api';
-
-interface DragHandleProps {
-  attributes: DraggableAttributes;
-  listeners?: DraggableSyntheticListeners;
-  setActivatorNodeRef: (node: HTMLButtonElement | null) => void;
-}
 
 interface StackRowProps {
   layer: MapLayerResponse;
@@ -148,20 +148,25 @@ export const StackRow = memo(function StackRow({
   disambiguationLabel = null,
 }: StackRowProps) {
   const { t } = useTranslation('builder');
-  const [editing, setEditing] = useState(false);
-  const [nameValue, setNameValue] = useState<string>('');
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [keyboardReorderActive, setKeyboardReorderActive] = useState(false);
-  const escapeRef = useRef(false);
-  const committingRef = useRef(false);
-  const inputRef = useRef<HTMLInputElement | null>(null);
-  // Mirrors FolderGroupRow's BUG-03 follow-up: gate Radix `restoreFocus` so
-  // the rename input keeps focus after the kebab menu closes. The prior
-  // `_e.preventDefault()` strategy kept the menu open and trapped focus inside
-  // it, leaving the input unfocused.
-  const skipCloseAutoFocusRef = useRef(false);
 
   const displayName = layer.display_name ?? layer.dataset_name;
+
+  // builder-audit STACK-03: shared inline-rename state machine (was duplicated
+  // verbatim with FolderGroupRow).
+  const {
+    editing,
+    nameValue,
+    inputRef,
+    inputHandlers,
+    startRename,
+    skipCloseAutoFocusRef,
+    handleMenuCloseAutoFocus,
+  } = useInlineRename({
+    value: displayName,
+    onCommit: (next) => onRename(layer.id, next),
+  });
 
   // Derived label indicator — mirrors map-sync.ts:795 gate exactly.
   // LabelConfig has no `enabled` field; `column` being set is the sole signal.
@@ -169,11 +174,6 @@ export const StackRow = memo(function StackRow({
   // suppress the indicator too to avoid false positives.
   const renderMode = (layer.style_config as Record<string, unknown> | null | undefined)?.render_mode as string | undefined;
   const hasLabels = !!layer.label_config?.column && renderMode !== 'heatmap' && renderMode !== 'symbol';
-
-  function handleStartRename() {
-    setNameValue(displayName);
-    setEditing(true);
-  }
 
   function handleDragHandleKeyDown(e: KeyboardEvent<HTMLButtonElement>) {
     const isToggleKey = e.key === ' ' || e.key === 'Spacebar' || e.key === 'Enter';
@@ -195,34 +195,6 @@ export const StackRow = memo(function StackRow({
     e.preventDefault();
     e.stopPropagation();
     onKeyboardReorder?.(layer.id, e.key === 'ArrowUp' ? 'up' : 'down');
-  }
-
-  // Focus + select the rename input when entering edit mode. rAF defers the
-  // call so it runs after React commits the input; the onCloseAutoFocus gate
-  // on DropdownMenuContent prevents Radix from stealing focus back.
-  useEffect(() => {
-    if (editing) {
-      requestAnimationFrame(() => {
-        if (inputRef.current) {
-          inputRef.current.focus();
-          inputRef.current.select();
-        }
-      });
-    }
-  }, [editing]);
-
-  function commitRename() {
-    if (escapeRef.current) {
-      escapeRef.current = false;
-      return;
-    }
-    if (committingRef.current) return; // block blur double-fire after Enter
-    committingRef.current = true;
-    setEditing(false);
-    onRename(layer.id, nameValue.trim() || null);
-    // committingRef stays true during the synchronous blur triggered by setEditing(false);
-    // reset it async so it does not block a subsequent genuine focus+blur cycle.
-    requestAnimationFrame(() => { committingRef.current = false; });
   }
 
   // Phase 1041: modifier-aware click handler (POL-06)
@@ -249,14 +221,13 @@ export const StackRow = memo(function StackRow({
       aria-current={selected || isMultiSelected ? 'true' : undefined}
       tabIndex={0}
       className={cn(
-        // SP-14: explicit cursor-pointer + hover:bg-[var(--surface-2)] on the row body
-        // so hover affordance is discoverable across the whole row, not just child controls.
-        'group/row grid grid-cols-[16px_14px_22px_22px_1fr_22px] gap-2 items-center py-2 px-2 cursor-pointer select-none',
+        // SP-14: explicit cursor-pointer + hover tint on the row body so hover
+        // affordance is discoverable across the whole row, not just child controls.
+        // builder-audit STACK-04: shared grid template + state classes.
+        'group/row grid', STACK_ROW_GRID, 'gap-2 items-center py-2 px-2 cursor-pointer select-none',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset',
         // Row states — unified: either single-selection focus OR multi-selection shows primary tint
-        !(selected || isMultiSelected) && !isDragging && 'hover:bg-[var(--surface-2)]',
-        (selected || isMultiSelected) && 'bg-[var(--primary-50,theme(colors.accent.DEFAULT))] shadow-[inset_2px_0_0_var(--primary)]',
-        isDragging && 'opacity-40 bg-[var(--surface-2)] scale-[0.98]',
+        rowStateClasses({ selected: selected || isMultiSelected, isDragging }),
         // Phase 1042 POL-15: entry animation — animate-in/fade-in from tw-animate-css
         isFresh && 'animate-in fade-in duration-[--motion-fast]',
       )}
@@ -293,29 +264,18 @@ export const StackRow = memo(function StackRow({
         </span>
       )}
 
-      {/* Cell 2: Grip handle */}
-      <button
-        ref={dragHandleProps.setActivatorNodeRef}
-        type="button"
-        {...dragHandleProps.attributes}
-        {...dragHandleProps.listeners}
-        aria-label={t('stackRow.dragHandle', {
+      {/* Cell 2: Grip handle (builder-audit STACK-04: shared DragGripButton).
+          Phase 1199 STACK-05: reveal the reorder grip on coarse-pointer/touch. */}
+      <DragGripButton
+        dragHandleProps={dragHandleProps}
+        ariaLabel={t('stackRow.dragHandle', {
           defaultValue: 'Drag to reorder {{name}}',
           name: displayName,
         })}
-        // Phase 1199 STACK-05: reveal the reorder grip on coarse-pointer/touch.
-        data-touch-reveal=""
-        className="flex items-center justify-center cursor-grab opacity-35 group-hover/row:opacity-70 text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded active:cursor-grabbing"
-        // 2026-05-18: do NOT add onPointerDown={stopPropagation} — it overrides
-        // dnd-kit's PointerSensor activator (spread above) and breaks pointer
-        // drag. onClick stopPropagation alone suppresses row selection on grip
-        // click; pointer events don't trigger onClick handlers.
-        onClick={(e) => e.stopPropagation()}
+        touchReveal
         onKeyDown={handleDragHandleKeyDown}
         onBlur={() => setKeyboardReorderActive(false)}
-      >
-        <GripVertical className="h-3.5 w-3.5" aria-hidden="true" />
-      </button>
+      />
 
       {/* Cell 3: Eye visibility toggle. SP-10: aria-pressed reflects the
           current visible state so screen readers announce it as a toggle. */}
@@ -353,20 +313,7 @@ export const StackRow = memo(function StackRow({
             data-testid="stack-row-rename-input"
             className="h-6 w-full min-w-0 border-b border-primary bg-transparent text-sm outline-none focus:ring-1 focus:ring-ring"
             value={nameValue}
-            onChange={(e) => setNameValue(e.target.value)}
-            onBlur={commitRename}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                e.preventDefault();
-                commitRename();
-              }
-              if (e.key === 'Escape') {
-                escapeRef.current = true;
-                setEditing(false);
-                setNameValue(displayName);
-              }
-            }}
-            onClick={(e) => e.stopPropagation()}
+            {...inputHandlers}
             // eslint-disable-next-line jsx-a11y/no-autofocus -- triggered by explicit rename action
             autoFocus
           />
@@ -376,7 +323,7 @@ export const StackRow = memo(function StackRow({
               className="truncate text-sm min-w-0"
               onDoubleClick={(e) => {
                 e.stopPropagation();
-                handleStartRename();
+                startRename();
               }}
             >
               {displayName}
@@ -438,12 +385,7 @@ export const StackRow = memo(function StackRow({
           <DropdownMenuContent
             align="end"
             className="w-56"
-            onCloseAutoFocus={(e) => {
-              if (skipCloseAutoFocusRef.current) {
-                e.preventDefault();
-                skipCloseAutoFocusRef.current = false;
-              }
-            }}
+            onCloseAutoFocus={handleMenuCloseAutoFocus}
           >
             {/* Source info — read-only dataset metadata. Per v3 design,
                 Source is no longer a panel section; the layer-row (···) menu
@@ -507,11 +449,11 @@ export const StackRow = memo(function StackRow({
             })()}
             <DropdownMenuItem
               onSelect={() => {
-                // Let the menu close; the editing useEffect's rAF focus +
-                // select runs once Radix unmounts the menu. onCloseAutoFocus
-                // skips restoreFocus so the input keeps focus.
+                // Let the menu close; the hook's rAF focus + select runs once
+                // Radix unmounts the menu. onCloseAutoFocus skips restoreFocus so
+                // the input keeps focus.
                 skipCloseAutoFocusRef.current = true;
-                handleStartRename();
+                startRename();
               }}
             >
               {t('stackRow.kebabRenameLayer', { defaultValue: 'Rename layer' })}

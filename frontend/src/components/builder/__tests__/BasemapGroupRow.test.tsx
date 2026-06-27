@@ -226,44 +226,10 @@ describe('BasemapGroupRow', () => {
     expect(eyeBtn).toBeInTheDocument();
   });
 
-  // SP-13: visibilityDisabled renders a non-interactive glyph (not a disabled <button>).
-  it('Test 10d: visibilityDisabled renders a non-button glyph with tooltip, no Toggle button', () => {
-    render(<BasemapGroupRow {...defaultProps({ visibilityDisabled: true })} />);
-
-    // The disabled-but-button is gone: no "Toggle visibility" button.
-    expect(
-      screen.queryByRole('button', { name: /Toggle visibility/i }),
-    ).not.toBeInTheDocument();
-
-    // A non-interactive glyph element renders in its place, carrying the explanatory tooltip.
-    const glyph = screen.getByTestId('basemap-visibility-locked');
-    expect(glyph.tagName.toLowerCase()).toBe('span');
-    expect(glyph).toHaveAttribute(
-      'title',
-      'Basemap is always visible — use Remove basemap to hide.',
-    );
-    expect(glyph).toHaveAttribute(
-      'aria-label',
-      'Basemap is always visible — use Remove basemap to hide.',
-    );
-  });
-
-  it('Test 10e: visibilityDisabled glyph does not call onToggleVisibility when clicked', () => {
-    const onToggleVisibility = vi.fn();
-    render(
-      <BasemapGroupRow {...defaultProps({ visibilityDisabled: true, onToggleVisibility })} />,
-    );
-
-    const glyph = screen.getByTestId('basemap-visibility-locked');
-    fireEvent.click(glyph);
-
-    expect(onToggleVisibility).not.toHaveBeenCalled();
-  });
-
-  // Phase 1199 STACK-02: the production basemap dock no longer passes visibilityDisabled,
-  // so by default the eye is an ENABLED button (not the locked glyph) and clicking it
-  // toggles the session-local basemap visibility. This pins the new production default.
-  it('Test 10f: without visibilityDisabled the eye is an enabled button (no locked glyph) and toggles', () => {
+  // builder-audit STACK-06: the dead visibilityDisabled locked-eye branch was
+  // removed (no call site ever passed it). Former tests 10d/10e that exercised
+  // that branch are deleted; Test 10f below pins the production default.
+  it('Test 10f: the eye is an enabled button (no locked glyph) and toggles', () => {
     const onToggleVisibility = vi.fn();
     render(
       <BasemapGroupRow

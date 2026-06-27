@@ -118,6 +118,7 @@ describe('map composition sync', () => {
       expect.anything(),
       basemapConfig.sublayer_overrides,
       'viewer-source-',
+      1, // builder-audit CORR-01: master opacity (config.opacity undefined → 1)
     );
     expect(reorderDataLayersMock).toHaveBeenCalledWith(expect.anything(), layers, 'viewer-');
     expect(callOrder).toEqual([
@@ -154,6 +155,7 @@ describe('map composition sync', () => {
       expect.anything(),
       basemapConfig.sublayer_overrides,
       'viewer-source-',
+      1, // builder-audit CORR-01: master opacity (config.opacity undefined → 1)
     );
     expect(applyBasemapConfigToMapMock).not.toHaveBeenCalled();
     expect(reorderBasemapLabelsMock).not.toHaveBeenCalled();

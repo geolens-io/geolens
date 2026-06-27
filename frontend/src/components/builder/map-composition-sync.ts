@@ -46,15 +46,19 @@ export function applyMapBasemapAppearance({
   reorderDataLayerIds,
 }: ApplyMapBasemapAppearanceOptions) {
   const sourcePrefix = sourcePrefixFor(idPrefix);
+  // builder-audit CORR-01: pass master opacity so per-sublayer opacity overrides
+  // COMPOSE with it (override * master) rather than clobbering the master-opacity
+  // paint applyBasemapConfigToMap just wrote.
+  const masterOpacity = basemapConfig?.opacity ?? 1;
 
   if (!map.isStyleLoaded()) {
-    applySublayerOverrides(map, basemapConfig?.sublayer_overrides ?? null, sourcePrefix);
+    applySublayerOverrides(map, basemapConfig?.sublayer_overrides ?? null, sourcePrefix, masterOpacity);
     return;
   }
 
   reorderBasemapLabels(map, showBasemapLabels, sourcePrefix);
   applyBasemapConfigToMap(map, basemapConfig, showBasemapLabels, sourcePrefix);
-  applySublayerOverrides(map, basemapConfig?.sublayer_overrides ?? null, sourcePrefix);
+  applySublayerOverrides(map, basemapConfig?.sublayer_overrides ?? null, sourcePrefix, masterOpacity);
 
   if (reorderDataLayerIds) {
     reorderDataLayers(map, reorderDataLayerIds, idPrefix);

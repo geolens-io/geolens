@@ -6,18 +6,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-
-/**
- * Platform detection for the Save shortcut chord.
- * Mirrors the same detection in MapTitleBar.tsx (lines 19-23).
- */
-const IS_MAC =
-  typeof navigator !== 'undefined' &&
-  (('userAgentData' in navigator &&
-    (navigator.userAgentData as { platform?: string })?.platform === 'macOS') ||
-    /Mac/i.test(navigator.userAgent));
-
-const SAVE_CHORD = IS_MAC ? '⌘S' : 'Ctrl+S';
+// builder-audit STACK-07: shared platform detection + Save chord (was duplicated
+// from MapTitleBar.tsx).
+import { SAVE_SHORTCUT } from '@/lib/platform';
 
 interface ShortcutRowProps {
   id: string;
@@ -54,7 +45,7 @@ export function KeyboardShortcutsSheet({
     {
       id: 'save',
       label: t('a11y.shortcuts.save', { defaultValue: 'Save map' }),
-      chord: SAVE_CHORD,
+      chord: SAVE_SHORTCUT,
     },
     {
       id: 'pan',

@@ -1,5 +1,6 @@
 import { act, fireEvent, render, screen } from '@/test/test-utils';
 import { FolderGroupRow } from '../FolderGroupRow';
+import { useInlineRename } from '../useInlineRename';
 import type { DraggableAttributes, DraggableSyntheticListeners } from '@dnd-kit/core';
 
 vi.mock('react-i18next', () => ({
@@ -441,12 +442,13 @@ describe('FolderGroupRow', () => {
       expect(onRenameGroup).toHaveBeenCalledWith('group-1', 'Blurred Name');
     });
 
-    it('Test 25: BUG-03 — the editing useEffect schedules its focus call via requestAnimationFrame (source assertion)', () => {
+    it('Test 25: BUG-03 — the inline-rename hook schedules its focus call via requestAnimationFrame (source assertion)', () => {
       // Defense-in-depth: the rAF-deferred focus is what wins the race vs Radix
       // restoreFocus in production. A regression that drops the rAF wrapper would
-      // re-introduce the focus-race bug. This source assertion catches that.
-      const inner = (FolderGroupRow as unknown as { type: (...args: unknown[]) => unknown }).type;
-      const source = inner.toString();
+      // re-introduce the focus-race bug. builder-audit STACK-03 moved this logic
+      // into the shared useInlineRename hook, so the source assertion now targets
+      // the hook (consumed by both FolderGroupRow and StackRow).
+      const source = useInlineRename.toString();
       expect(source).toContain('requestAnimationFrame');
     });
 

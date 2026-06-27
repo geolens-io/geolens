@@ -17,23 +17,16 @@
 import type { Map as MaplibreMap, StyleSpecification } from 'maplibre-gl';
 import type { MapSublayerOverride } from '@/types/api';
 import {
+  OPACITY_PAINT_KEYS_BY_TYPE,
   SUBLAYER_CLASSIFIERS,
+  isBasemapOwnedLayer,
   type StyleLayer,
 } from '@/lib/basemap-utils';
 
-// Mirror frontend/src/lib/basemap-utils.ts OPACITY_PAINT_KEYS_BY_TYPE.
-// Plan B duplicates this table rather than exporting it from basemap-utils
-// because the helper applies per-sublayer opacity, not master opacity, and
-// the semantics differ (no prominence stamps to compose).
-const OPACITY_PAINT_KEYS_BY_TYPE: Record<string, readonly string[]> = {
-  raster: ['raster-opacity'],
-  fill: ['fill-opacity'],
-  'fill-extrusion': ['fill-extrusion-opacity'],
-  line: ['line-opacity'],
-  symbol: ['text-opacity', 'icon-opacity'],
-  circle: ['circle-opacity'],
-  heatmap: ['heatmap-opacity'],
-};
+// builder-audit DUP-01: the opacity-key table is now imported from
+// basemap-utils (single source of truth) rather than re-declared here. The
+// per-sublayer semantics (no prominence stamps to compose) live in
+// applyOverrideToLayer below, not in the table itself.
 
 /**
  * Apply per-sublayer style overrides to a live MapLibre map.
@@ -43,6 +36,10 @@ const OPACITY_PAINT_KEYS_BY_TYPE: Record<string, readonly string[]> = {
  * @param sourcePrefix - Optional source prefix used to scope mutations to basemap-owned
  *   layers only (pass VIEWER_SOURCE_PREFIX in viewer contexts). When undefined, all
  *   classified basemap layers are targeted (appropriate for builder context).
+ * @param masterOpacity - The whole-basemap master opacity (BasemapConfig.opacity, 0-1).
+ *   builder-audit CORR-01: a per-sublayer opacity override COMPOSES on top of master
+ *   (override * master) so the documented "additive on top of the master opacity"
+ *   contract holds and the master slider is never silently clobbered. Defaults to 1.
  *
  * Order of operations per D-07: this helper is called AFTER `applyBasemapConfigToMap`
  * so sublayer-specific overrides sit on top of visibility-mode mutations. If a layer is
@@ -52,6 +49,7 @@ export function applySublayerOverrides(
   map: MaplibreMap,
   overrides: Record<string, MapSublayerOverride> | null | undefined,
   sourcePrefix?: string,
+  masterOpacity = 1,
 ): void {
   if (!overrides || Object.keys(overrides).length === 0) return;
 
@@ -59,7 +57,7 @@ export function applySublayerOverrides(
   // Without this recovery, fresh-add scenarios (basemap style not yet loaded)
   // silently drop all overrides on first paint — the SP-03 B-01-followup bug shape.
   if (!map.isStyleLoaded()) {
-    const retry = () => applySublayerOverrides(map, overrides, sourcePrefix);
+    const retry = () => applySublayerOverrides(map, overrides, sourcePrefix, masterOpacity);
     map.once('idle', retry);
     return;
   }
@@ -75,20 +73,17 @@ export function applySublayerOverrides(
       const styleLayer = layer as StyleLayer;
       if (!classifier(styleLayer)) continue;
 
-      // sourcePrefix scoping: when a prefix is provided (viewer context), skip layers
-      // whose source is a string NOT starting with the prefix. Background layers and
-      // layers without a string source always pass through (they are basemap-owned).
-      if (
-        sourcePrefix &&
-        typeof styleLayer.source === 'string' &&
-        styleLayer.source.startsWith(sourcePrefix)
-      ) {
-        // Layer's source is one of the viewer's data-layer sources — skip it so
+      // sourcePrefix scoping: when a prefix is provided (viewer context), skip
+      // layers that are NOT basemap-owned (their source is a data-layer source).
+      // builder-audit DUP-02: classification is delegated to the shared
+      // isBasemapOwnedLayer predicate so the missing/non-string-source edge
+      // cases are defined once.
+      if (sourcePrefix && !isBasemapOwnedLayer(styleLayer, sourcePrefix)) {
         // user data layers are not misclassified as basemap sublayers.
         continue;
       }
 
-      applyOverrideToLayer(map, styleLayer, override);
+      applyOverrideToLayer(map, styleLayer, override, masterOpacity);
     }
   }
 }
@@ -97,6 +92,7 @@ function applyOverrideToLayer(
   map: MaplibreMap,
   layer: StyleLayer,
   override: MapSublayerOverride,
+  masterOpacity: number,
 ): void {
   const layerId = layer.id;
   const layerType = (layer.type ?? '') as string;
@@ -133,11 +129,17 @@ function applyOverrideToLayer(
 
   // OPACITY — multiplexed across layer types per OPACITY_PAINT_KEYS_BY_TYPE.
   // Symbol layers get both text-opacity and icon-opacity set simultaneously.
+  // builder-audit CORR-01: compose the per-sublayer override with the master
+  // opacity (override * master) instead of writing the override absolutely.
+  // applyBasemapConfigToMap wrote absolute master opacity onto these same keys
+  // just before this call; writing override.opacity raw would clobber master,
+  // contradicting the schema's "additive on top of the master opacity" contract.
   if (override.opacity != null) {
     const keys = OPACITY_PAINT_KEYS_BY_TYPE[layerType];
     if (keys) {
+      const composedOpacity = override.opacity * masterOpacity;
       for (const key of keys) {
-        safeSetPaint(map, layerId, key, override.opacity);
+        safeSetPaint(map, layerId, key, composedOpacity);
       }
     }
   }

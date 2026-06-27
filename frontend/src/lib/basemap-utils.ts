@@ -45,6 +45,20 @@ export type StyleLayer = StyleSpecification['layers'][number] & {
   layout?: Record<string, unknown>;
 };
 
+// builder-audit DUP-02: single source of truth for "is this style layer
+// basemap-owned vs a user data layer?". A layer is basemap-owned when its
+// source is NOT a string starting with the data `sourcePrefix` — this includes
+// background/style layers with no source and layers whose source is non-string.
+// Reused by basemap-style-mutation (override scoping) so the missing-source and
+// non-string-source edge cases are defined once.
+export function isBasemapOwnedLayer(
+  layer: { source?: unknown },
+  sourcePrefix: string,
+): boolean {
+  const source = layer.source;
+  return typeof source !== 'string' || !source.startsWith(sourcePrefix);
+}
+
 const ROAD_PATTERNS = [
   'road',
   'street',
@@ -378,7 +392,10 @@ function applyReliefContrast(
 // Keep this set narrow: only canonical *-opacity scalars MapLibre treats
 // as numeric. Expression values (arrays/objects) and non-number scalars
 // are left untouched.
-const OPACITY_PAINT_KEYS_BY_TYPE: Record<string, readonly string[]> = {
+// builder-audit DUP-01: canonical opacity-key table. Exported and imported by
+// basemap-style-mutation (per-sublayer overrides) so the two copies cannot drift
+// again — previously basemap-style-mutation omitted `circle-stroke-opacity`.
+export const OPACITY_PAINT_KEYS_BY_TYPE: Record<string, readonly string[]> = {
   raster: ['raster-opacity'],
   fill: ['fill-opacity'],
   'fill-extrusion': ['fill-extrusion-opacity'],
