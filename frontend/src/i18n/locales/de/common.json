@@ -210,7 +210,27 @@
     "mapError": "Kachelfehler — einige Ebenen werden möglicherweise nicht korrekt angezeigt.",
     "openMaps": "Karten öffnen",
     "signIn": "Anmelden",
-    "tokenError": "Kartenebenentokens konnten nicht geladen werden — einige Ebenen werden möglicherweise nicht angezeigt."
+    "tokenError": "Kartenebenentokens konnten nicht geladen werden — einige Ebenen werden möglicherweise nicht angezeigt.",
+    "ai": {
+      "launch": "KI fragen",
+      "title": "KI fragen",
+      "placeholder": "Fragen Sie zu dieser Karte...",
+      "send": "Senden",
+      "cancel": "Stopp",
+      "cancelled": "Abgebrochen.",
+      "thinking": "Denkt nach...",
+      "emptyHint": "Stellen Sie eine Frage zu den Daten dieser Karte.",
+      "readOnlyNote": "Antworten sind schreibgeschützt — erkunden Sie die Daten, ohne die Karte zu ändern.",
+      "error": "Etwas ist schiefgelaufen. Bitte versuchen Sie es erneut.",
+      "retry": "Erneut versuchen",
+      "queryResult": {
+        "empty": "Keine passenden Ergebnisse.",
+        "tableLabel": "Tabelle der Abfrageergebnisse",
+        "rowCount_one": "{{count}} Zeile",
+        "rowCount_other": "{{count}} Zeilen",
+        "truncated": "(Stichprobe wird angezeigt)"
+      }
+    }
   },
   "maps": {
     "title": "Karten",

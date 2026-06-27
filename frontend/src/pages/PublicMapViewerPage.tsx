@@ -1,5 +1,6 @@
-import { lazy, Suspense, useCallback, useMemo, useState } from 'react';
+import { lazy, Suspense, useCallback, useMemo, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router';
+import type { Map as MaplibreMap } from 'maplibre-gl';
 import { useMap } from '@/hooks/use-maps';
 import { useViewerLayers } from '@/components/viewer/hooks/use-viewer-layers';
 // PERF-06 (Phase 274): lazy-load ViewerMap so map-vendor chunk fetch
@@ -7,6 +8,7 @@ import { useViewerLayers } from '@/components/viewer/hooks/use-viewer-layers';
 const ViewerMap = lazy(() =>
   import('@/components/viewer/ViewerMap').then((m) => ({ default: m.ViewerMap }))
 );
+import { ViewerChatPanel } from '@/components/viewer/ViewerChatPanel';
 import { LayerLegend } from '@/components/viewer/LayerLegend';
 import { MapTitlePill } from '@/components/map/MapTitlePill';
 import { BasemapToggle } from '@/components/map/BasemapToggle';
@@ -68,6 +70,7 @@ export function PublicMapViewerPage() {
     useViewerLayers(layers);
 
   const [basemapId, setBasemapId] = useState<string | null>(null);
+  const mapInstanceRef = useRef<MaplibreMap | null>(null);
   const handleLegendToggle = useCallback(() => setIsLegendOpen((prev) => !prev), [setIsLegendOpen]);
 
   if (isLoading) {
@@ -139,6 +142,9 @@ export function PublicMapViewerPage() {
             terrainConfig={data.terrain_config ?? null}
             initialViewState={viewState}
             visibleLayers={visibleLayers}
+            onMapReady={(map) => {
+              mapInstanceRef.current = map;
+            }}
           />
         </Suspense>
       </MapErrorBoundary>
@@ -161,6 +167,12 @@ export function PublicMapViewerPage() {
         title={t('viewer.changeBasemap')}
         className="absolute bottom-8 left-3 z-10"
       />
+
+      {/* Read-only "Ask AI" — self-gates on AI availability + use_ai_chat, so anonymous
+          and unpermitted viewers render nothing (PR #339 follow-up). */}
+      {id && (
+        <ViewerChatPanel mapId={id} layers={data.layers} mapInstanceRef={mapInstanceRef} />
+      )}
     </main>
   );
 }
