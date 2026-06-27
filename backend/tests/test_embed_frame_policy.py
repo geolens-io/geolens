@@ -224,9 +224,15 @@ def test_nginx_m_route_uses_frame_policy_auth_request():
         "auth_request_set $embed_frame_ancestors $upstream_http_x_embed_frame_ancestors;"
         in conf
     ), "P0-02: the frame-ancestors directive must be copied from the API response."
-    assert "/embed/frame-policy?token=$arg_et" in conf, (
-        "Codex P1 (#338): the subrequest must forward the `et` query param (the "
-        "real embed token), not the path segment (which is the share token)."
+    # Codex P1 (#338): the auth_request subrequest does not carry the parent
+    # query string, so the parent's `et` is captured into `set $embed_et $arg_et`
+    # in the /m/ location and forwarded (subrequests share parent `set` vars).
+    assert "set $embed_et $arg_et;" in conf, (
+        "the /m/ location must capture the `et` query param into $embed_et."
+    )
+    assert "/embed/frame-policy?token=$embed_et" in conf, (
+        "the subrequest must forward the captured embed token ($embed_et), not "
+        "the share-token path segment or the (empty) subrequest $arg_et."
     )
     assert "${embed_frame_ancestors}" in conf, (
         "P0-02: the /m/ CSP must interpolate the per-token frame-ancestors value."
