@@ -72,7 +72,7 @@ import { useUnsavedGuard } from '@/hooks/use-unsaved-guard';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
-import { visibilityColors } from '@/lib/status-colors';
+import { ingestionStatusColors, visibilityColors } from '@/lib/status-colors';
 import type { DatasetResponse } from '@/types/api';
 import { downloadCog } from '@/api/datasets';
 
@@ -381,12 +381,19 @@ export function DatasetPage() {
     }
   };
 
+  // Lead with visibility (the access question users actually have). "Published"
+  // is the steady state and carries no information here — show a status badge
+  // ONLY when it's the exception that needs action (draft). Mirrors the pattern
+  // SearchResultCard already uses (showStatusBadge = record_status !== 'published').
   const statsLine = (
     <>
       <RecordTypeBadge recordType={dataset.record_type} />
-      <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-        <span>{getRecordStatusLabel(t, dataset.record_status)}</span>
-        <span className="text-muted-foreground/50">·</span>
+      <div className="flex items-center gap-1.5">
+        {dataset.record_status !== 'published' && (
+          <Badge variant="outline" className={cn('text-xs', ingestionStatusColors[dataset.record_status] ?? '')}>
+            {getRecordStatusLabel(t, dataset.record_status)}
+          </Badge>
+        )}
         <Badge variant="outline" className={cn('text-xs', visibilityColors[dataset.visibility] ?? '')}>
           {dataset.visibility === 'public' ? <Eye className="me-1 h-3 w-3" /> : dataset.visibility === 'restricted' ? <ShieldAlert className="me-1 h-3 w-3" /> : <EyeOff className="me-1 h-3 w-3" />}
           {getVisibilityLabel(t, dataset.visibility)}
