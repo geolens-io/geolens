@@ -59,6 +59,7 @@ async def _execute_and_yield_tools(
     *,
     port: "ProcessingPort",
     map_id: str | None = None,
+    allowed_tools: set[str] | None = None,
 ) -> AsyncGenerator[dict, None]:
     """Execute a list of (name, args) tool calls and yield SSE events for each.
 
@@ -67,8 +68,23 @@ async def _execute_and_yield_tools(
 
     map_id is forwarded to query_data so the schema-context cache partitions
     per-map (PERF-04 / Phase 274).
+
+    allowed_tools, when provided, restricts which tool names may run: a call
+    whose name is outside the set is dropped before execution AND collection.
+    This enforces the read-only tool set for view-only callers even when a tool
+    call arrives via the XML fallback (parse_xml_tool_calls), which bypasses the
+    advertised tool schema. Native tool calls are always advertised-constrained
+    (allowed_tools == the advertised set), so they are never dropped here and the
+    caller's results_out↔tool_calls zip stays aligned.
     """
     for fn_name, fn_args in tool_calls:
+        if allowed_tools is not None and fn_name not in allowed_tools:
+            logger.warning(
+                "Dropped disallowed chat tool call (read-only caller)",
+                tool=fn_name,
+                allowed=sorted(allowed_tools),
+            )
+            continue
         stage_events: list[dict] = []
         stage_cb = _make_stage_callback(fn_name, stage_events)
 
@@ -124,9 +140,9 @@ async def _stream_anthropic_chat(
     cached_system = [
         {"type": "text", "text": system_prompt, "cache_control": {"type": "ephemeral"}}
     ]
-    cached_tools = add_tool_cache_control(
-        CHAT_TOOLS_ANTHROPIC if tools is None else tools
-    )
+    _raw_tools = CHAT_TOOLS_ANTHROPIC if tools is None else tools
+    cached_tools = add_tool_cache_control(_raw_tools)
+    allowed_tool_names = {t["name"] for t in _raw_tools}
 
     collected_actions: list[dict] = []
     total_input = 0
@@ -228,6 +244,7 @@ async def _stream_anthropic_chat(
                         results_out=raw_results,
                         port=port,
                         map_id=map_id,
+                        allowed_tools=allowed_tool_names,
                     ):
                         yield evt
 
@@ -311,6 +328,13 @@ async def _stream_openai_chat(
     deadline = time.monotonic() + MAX_STREAMING_WALL_CLOCK_SECONDS
     total_input = 0
     total_output = 0
+    # Read-only enforcement backstop: the XML fallback (parse_xml_tool_calls)
+    # below extracts tool calls from model text, bypassing the advertised schema.
+    # Restrict execution/collection to the selected tool set so a view-only caller
+    # cannot get a mutating action even from an XML-emitting model.
+    allowed_tool_names = {
+        t["name"] for t in (CHAT_TOOLS_ANTHROPIC if tools is None else tools)
+    }
 
     for round_num in range(MAX_TOOL_ROUNDS):
         if time.monotonic() > deadline:
@@ -482,6 +506,7 @@ async def _stream_openai_chat(
                 results_out=native_results,
                 port=port,
                 map_id=map_id,
+                allowed_tools=allowed_tool_names,
             ):
                 yield evt
 
@@ -519,6 +544,7 @@ async def _stream_openai_chat(
                 collected_actions,
                 port=port,
                 map_id=map_id,
+                allowed_tools=allowed_tool_names,
             ):
                 yield evt
 

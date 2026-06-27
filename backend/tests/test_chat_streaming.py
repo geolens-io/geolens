@@ -367,3 +367,56 @@ async def test_stream_ai_disabled(client: AsyncClient, admin_auth_header: dict):
     assert resp.status_code == 200
     assert "event: error" in resp.text
     assert "AI features are disabled by administrator" in resp.text
+
+
+@pytest.mark.anyio
+async def test_execute_and_yield_tools_drops_disallowed_for_readonly(monkeypatch):
+    """A tool call outside allowed_tools is dropped before execution AND collection.
+
+    Covers the read-only enforcement backstop for the XML fallback path: a
+    view-only caller (allowed_tools={"query_data"}) whose model emits a mutating
+    set_style call must not have it executed or collected into a ChatAction.
+    """
+    from app.processing.ai import streaming
+
+    executed: list[str] = []
+    collected_names: list[str] = []
+
+    async def fake_exec(name, *args, **kwargs):
+        executed.append(name)
+        return {"ok": True}
+
+    def fake_collect(name, tool_input, result):
+        collected_names.append(name)
+        return {"type": name}
+
+    monkeypatch.setattr(streaming, "_execute_chat_tool", fake_exec)
+    monkeypatch.setattr(streaming, "_collect_chat_action", fake_collect)
+
+    collected_actions: list[dict] = []
+    events = [
+        evt
+        async for evt in streaming._execute_and_yield_tools(
+            [
+                ("set_style", {"layer_id": "x"}),
+                ("query_data", {"question": "how many?"}),
+            ],
+            None,  # session — unused (executor patched)
+            None,  # user
+            set(),  # user_roles
+            [],  # layers
+            collected_actions,
+            port=None,
+            map_id=None,
+            allowed_tools={"query_data"},
+        )
+    ]
+
+    # set_style was dropped; only query_data ran and was collected.
+    assert executed == ["query_data"]
+    assert collected_names == ["query_data"]
+    assert [a["type"] for a in collected_actions] == ["query_data"]
+    # Exactly one tool_result event (for query_data); none for the dropped tool.
+    assert [e for e in events if e.get("type") == "tool_result"] == [
+        {"type": "tool_result", "tool": "query_data", "success": True}
+    ]

@@ -358,8 +358,21 @@ async def chat_edit_map(
 
     history_dicts = history_to_dicts(history)
 
-    # Build tool executor bound to this session/user/layers
+    selected_tools = select_chat_tools(can_edit)
+    allowed_tool_names = {t["name"] for t in selected_tools}
+
+    # Build tool executor bound to this session/user/layers. The non-streaming
+    # complete() loop is advertised-tool constrained and has no XML fallback, but
+    # we still reject tool names outside the selected set at execution AND
+    # collection so a view-only caller can never run or receive a mutating action
+    # (defense-in-depth, uniform with the streaming path).
     async def tool_executor(tool_name: str, tool_input: dict) -> dict:
+        if tool_name not in allowed_tool_names:
+            logger.warning(
+                "Dropped disallowed chat tool call (read-only caller)",
+                tool=tool_name,
+            )
+            return {"error": "Tool not permitted for this map."}
         return await _execute_chat_tool(
             tool_name,
             tool_input,
@@ -371,13 +384,20 @@ async def chat_edit_map(
             map_id=map_id,
         )
 
+    def collect_allowed_action(
+        tool_name: str, tool_input: dict, tool_result: dict
+    ) -> dict | None:
+        if tool_name not in allowed_tool_names:
+            return None
+        return _collect_chat_action(tool_name, tool_input, tool_result)
+
     result = await provider_ext.complete(
         model=model,
         system_prompt=system_prompt,
         user_message=message,
-        tools=select_chat_tools(can_edit),
+        tools=selected_tools,
         tool_executor=tool_executor,
-        action_collector=_collect_chat_action,
+        action_collector=collect_allowed_action,
         history=history_dicts,
         base_url=runtime_config.get("base_url"),
         temperature=0.3,
