@@ -13,6 +13,7 @@ import type { MapLayerResponse, StyleConfig } from '@/types/api';
 import { MAP_COLORS } from '@/lib/map-colors';
 import { parseStepOrInterpolate } from '@/lib/normalize-style-config';
 import { inferGeometryType } from '@/lib/geo-utils';
+import { getLayerCapabilities } from '@/lib/layer-capabilities';
 import { Mountain, Pencil, Check } from 'lucide-react';
 import {
   deriveTerrainLegendEntry,
@@ -285,7 +286,11 @@ const LegendLayerEntry = memo(function LegendLayerEntry({
                   style_config: layer.style_config,
                 })}
                 layerId={`legend-plugin-${idx}`}
-                layerType={layer.layer_type ?? undefined}
+                // Pass the capability kind ('raster'/'vrt'/'vector'), not the raw
+                // layer_type ('raster_geolens') — ColorizedGeometryIcon keys its
+                // raster/vrt icons off kind, same contract StackRow uses. Raw
+                // layer_type fell through to a polygon swatch for raster layers.
+                layerType={getLayerCapabilities(layer).kind}
                 styleHints={extractStyleHints(
                   layer.paint ?? {},
                   layer.layout ?? {},
