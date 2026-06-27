@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import type { MapTerrainConfig } from '@/types/api';
-import { deriveTerrainLegendEntry, isDemTerrainVisualSuppressed } from '../terrain-legend';
+import {
+  deriveTerrainLegendEntry,
+  isDemTerrainVisualSuppressed,
+  terrainSourceIsShownAsLayer,
+} from '../terrain-legend';
 
 describe('terrain-legend helper', () => {
   describe('isDemTerrainVisualSuppressed (re-exported single source of truth)', () => {
@@ -119,6 +123,23 @@ describe('terrain-legend helper', () => {
           { labelKey },
         ),
       ).toBeNull();
+    });
+  });
+
+  describe('terrainSourceIsShownAsLayer (dedup guard)', () => {
+    const active: MapTerrainConfig = { enabled: true, source_dataset_id: 'dem-1', exaggeration: 1 };
+
+    it('is true when the terrain source dataset has a shown per-layer entry', () => {
+      expect(terrainSourceIsShownAsLayer(active, [{ dataset_id: 'dem-1' }, { dataset_id: 'roads' }])).toBe(true);
+    });
+
+    it('is false when the source dataset is not among the shown entries (suppressed/hidden)', () => {
+      expect(terrainSourceIsShownAsLayer(active, [{ dataset_id: 'roads' }])).toBe(false);
+    });
+
+    it('is false when terrain is disabled or has no source', () => {
+      expect(terrainSourceIsShownAsLayer({ enabled: false, source_dataset_id: 'dem-1', exaggeration: 1 }, [{ dataset_id: 'dem-1' }])).toBe(false);
+      expect(terrainSourceIsShownAsLayer(null, [{ dataset_id: 'dem-1' }])).toBe(false);
     });
   });
 });

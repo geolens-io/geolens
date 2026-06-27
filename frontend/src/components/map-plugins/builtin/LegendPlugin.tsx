@@ -18,6 +18,7 @@ import { Mountain, Pencil, Check } from 'lucide-react';
 import {
   deriveTerrainLegendEntry,
   isDemTerrainVisualSuppressed,
+  terrainSourceIsShownAsLayer,
 } from '@/components/builder/terrain-legend';
 import type { PluginContext } from '../types';
 
@@ -113,10 +114,17 @@ export function LegendPlugin({ ctx }: { ctx: PluginContext }) {
   // D-01: single synthetic "3D terrain" entry driven by terrain_config — only
   // when a backing terrain-capable DEM layer for the source dataset is present
   // (999.17 MD-01: no phantom entry for a dangling terrain_config).
-  const terrainEntry = useMemo(
+  const terrainEntryRaw = useMemo(
     () => deriveTerrainLegendEntry(ctx.terrainConfig, ctx.layers, { labelKey: 'plugins.legend.terrain3d' }),
     [ctx.terrainConfig, ctx.layers],
   );
+  // Dedup: drop the synthetic entry when the terrain source DEM is ALSO shown as
+  // a per-layer entry (e.g. a visible hillshade of the same dataset), so the
+  // legend doesn't list one DEM twice. Keeps it for the pure-terrain / hidden
+  // case where the synthetic is the only terrain indicator.
+  const terrainEntry = terrainEntryRaw && !terrainSourceIsShownAsLayer(ctx.terrainConfig, legendLayers)
+    ? terrainEntryRaw
+    : null;
 
   if (legendLayers.length === 0 && !terrainEntry) {
     return (
