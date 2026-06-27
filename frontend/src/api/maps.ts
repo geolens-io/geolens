@@ -433,7 +433,7 @@ function toChatLayers(layers: MapLayerResponse[]): ChatMapLayer[] {
 }
 
 /**
- * Public-safe AI readiness signal (builder-audit P1-11).
+ * Public-safe AI readiness signal (builder-audit #338 P1-11).
  *
  * Permission-gated on `use_ai_chat` server-side, so a non-admin editor (who
  * cannot read `/admin/ai-status/`) can learn whether builder chat is usable

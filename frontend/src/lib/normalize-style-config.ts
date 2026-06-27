@@ -63,7 +63,7 @@ export interface NormalizedLayerStyleState {
   paint: Record<string, unknown>;
 }
 
-// builder-audit SPEC-08 / DRY-01 (cross-cutting): the legacy builder-private
+// builder-audit #338 SPEC-08 / DRY-01 (cross-cutting): the legacy builder-private
 // paint-key set and the snake->camel builder-key alias map are now single-sourced
 // from layer-adapters/shared.ts (CUSTOM_PAINT_PROPS / BUILDER_STYLE_KEY_ALIASES)
 // so the two frontend copies can no longer drift. The raster re-hydration block in
@@ -74,7 +74,7 @@ const LEGACY_BUILDER_KEY_ALIASES = BUILDER_STYLE_KEY_ALIASES;
 
 export const RENDER_MODES = new Set(['heatmap', 'hillshade', 'symbol', 'arrow', 'cluster', 'terrain', 'image']);
 
-// builder-audit CPLX-01: data-driven table for the repetitive "read the first
+// builder-audit #338 CPLX-01: data-driven table for the repetitive "read the first
 // typed paint key, else fall back to the normalized builder value" chains.
 type BuilderFieldType = 'string' | 'number' | 'boolean';
 
@@ -136,7 +136,7 @@ function normalizeBuilderStyleConfig(
   }, {});
   delete normalizedRawBuilder.render_mode;
 
-  // builder-audit CPLX-01: table-driven "typed paint key (try each in order),
+  // builder-audit #338 CPLX-01: table-driven "typed paint key (try each in order),
   // else normalized builder value" resolution — replaces nine near-identical
   // ternary ladders. Heatmap fields keep a bespoke chain below because they also
   // fall back to legacy top-level raw.* keys.
@@ -207,7 +207,7 @@ function normalizedRawStyleBase(
 }
 
 /**
- * builder-audit CPLX-01: early-return ladder replacing the prior 3-level nested
+ * builder-audit #338 CPLX-01: early-return ladder replacing the prior 3-level nested
  * ternary. Picks the base StyleConfig shape: legacy field-name mapping, canonical
  * mode+column passthrough, or a builder/render-mode-only shell — else null.
  */

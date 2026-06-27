@@ -1,4 +1,4 @@
-"""Public embed-shell framing-policy endpoint (builder-audit P0-02).
+"""Public embed-shell framing-policy endpoint (builder-audit #338 P0-02).
 
 The ``/m/{token}`` embed HTML shell is served statically by the edge (nginx),
 so its per-token ``Content-Security-Policy: frame-ancestors`` directive cannot
@@ -49,7 +49,7 @@ async def embed_frame_policy(
 ) -> Response:
     """Return the per-token frame-ancestors framing policy for the embed shell.
 
-    builder-audit P0-02. Always 200; the framing decision is carried in the
+    builder-audit #338 P0-02. Always 200; the framing decision is carried in the
     ``Content-Security-Policy`` and ``X-Embed-Frame-Ancestors`` headers.
     """
     tok: EmbedToken | None = None

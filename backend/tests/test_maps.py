@@ -1693,7 +1693,7 @@ class TestShareToken:
     ):
         """Public maps can create expiring share links.
 
-        builder-audit P1-14: custom share expiration is now an Enterprise-only
+        builder-audit #338 P1-14: custom share expiration is now an Enterprise-only
         advanced-sharing control; the mechanism is exercised under Enterprise.
         """
         created = await _create_map(client, admin_auth_header)
@@ -2451,7 +2451,7 @@ class TestMapLayers:
         admin_auth_header: dict,
         test_db_session,
     ):
-        """builder-audit B-011: DEM hypsometric (color-relief) builder-private
+        """builder-audit #338 B-011: DEM hypsometric (color-relief) builder-private
         keys _hypso-enabled/_hypso-ramp are accepted and moved into
         style_config.builder. Before the fix, saving a DEM layer with the
         Elevation tint enabled hit split_legacy_builder_paint's unknown-key
@@ -3265,7 +3265,7 @@ class TestUpdateShareToken:
     ):
         """PATCH /maps/{id}/share with expires_at returns 200 with updated expiration.
 
-        builder-audit P1-14: expiration is Enterprise-only; mechanism tested here.
+        builder-audit #338 P1-14: expiration is Enterprise-only; mechanism tested here.
         """
         map_id, original_token = await _make_public_map_with_share_token(
             client, admin_auth_header
@@ -3286,7 +3286,7 @@ class TestUpdateShareToken:
     ):
         """PATCH /maps/{id}/share with expires_at=null removes expiration.
 
-        builder-audit P1-14: the setup step sets a custom expiration, which is
+        builder-audit #338 P1-14: the setup step sets a custom expiration, which is
         Enterprise-only; clearing it (None) is allowed in any edition.
         """
         map_id, original_token = await _make_public_map_with_share_token(
@@ -3315,7 +3315,7 @@ class TestUpdateShareToken:
     ):
         """PATCH with expires_at on a never-expires token adds expiration.
 
-        builder-audit P1-14: expiration is Enterprise-only; mechanism tested here.
+        builder-audit #338 P1-14: expiration is Enterprise-only; mechanism tested here.
         """
         map_id, original_token = await _make_public_map_with_share_token(
             client, admin_auth_header
@@ -3336,7 +3336,7 @@ class TestUpdateShareToken:
     ):
         """PATCH /maps/{id}/share on a map with no share token returns 404.
 
-        builder-audit P1-14: runs under Enterprise so the expiration edition gate
+        builder-audit #338 P1-14: runs under Enterprise so the expiration edition gate
         does not pre-empt the missing-token 404.
         """
         created = await _create_map(client, admin_auth_header)
@@ -3369,7 +3369,7 @@ class TestUpdateShareToken:
     ):
         """Token hint does not change after PATCH (same underlying token).
 
-        builder-audit P1-14: expiration is Enterprise-only; mechanism tested here.
+        builder-audit #338 P1-14: expiration is Enterprise-only; mechanism tested here.
         """
         map_id, original_token = await _make_public_map_with_share_token(
             client, admin_auth_header

@@ -1,5 +1,5 @@
 /**
- * builder-audit COMPLEX-01: the hillshade sun-position compass, extracted out of
+ * builder-audit #338 COMPLEX-01: the hillshade sun-position compass, extracted out of
  * DEMEditorScene's main render where it was ~55 lines of inline-styled absolutely
  * positioned divs. Presentational only — the parent owns the azimuth state and the
  * accessible label.

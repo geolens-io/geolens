@@ -115,7 +115,7 @@ const VISIBILITY_OPTIONS: Array<{
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 
 /**
- * builder-audit SHARE-02: single source of truth for the share-link expiration
+ * builder-audit #338 SHARE-02: single source of truth for the share-link expiration
  * presets. The Select options, detectPreset matching windows, and apply math all
  * derive from this table, so adding/changing a preset is a one-line edit that
  * cannot drift between the three former copies.
@@ -205,7 +205,7 @@ function ShareLinkSettings({
     try {
       const newExpires = expiresValue ? new Date(expiresValue + 'T23:59:59Z').toISOString() : null;
       await updateShareToken.mutateAsync({ mapId, expiresAt: newExpires });
-      // Phase 20260526-builder-audit BLD-20260526-11: distinct message when expiration is cleared vs. updated.
+      // Phase 20260526-builder-audit #338 BLD-20260526-11: distinct message when expiration is cleared vs. updated.
       if (newExpires) {
         toast.success(t('share.expirationUpdated'));
       } else {
@@ -554,7 +554,7 @@ function EmbedPreviewPane({ shareToken, embedTokenRaw, origin }: EmbedPreviewPan
     return () => clearTimeout(timer);
   }, [expanded, loaded, errored, reloadKey]);
 
-  // builder-audit SHARE-04 / IN-01: share the exact URL construction with
+  // builder-audit #338 SHARE-04 / IN-01: share the exact URL construction with
   // generateEmbedCode via buildEmbedSrc so the preview and the copyable snippet
   // can never diverge on path or query-param shape.
   const src = buildEmbedSrc({ shareToken, embedTokenRaw, origin });
@@ -635,7 +635,7 @@ interface ShareDialogProps {
 }
 
 /**
- * builder-audit SHARE-01: owns the full share-token + embed-token lifecycle for a
+ * builder-audit #338 SHARE-01: owns the full share-token + embed-token lifecycle for a
  * single map, so the "create an embed token when the map has non-public layers"
  * sequence lives in exactly ONE place instead of being copy-pasted across the
  * get/regenerate handlers. ShareDialog consumes this and is reduced to
@@ -664,7 +664,7 @@ function useShareTokens({ mapId, open }: { mapId: string; open: boolean }) {
   const isExpired = shareExpires ? new Date(shareExpires) < new Date() : false;
 
   const embedTokensQuery = useMapEmbedTokens(open && hasShareToken ? mapId : undefined);
-  // builder-audit SHARE-03: name the predicate param `token` so it no longer
+  // builder-audit #338 SHARE-03: name the predicate param `token` so it no longer
   // shadows the `t` translation function destructured above.
   const activeEmbedToken = embedTokensQuery.data?.tokens?.find(
     token => token.is_active && new Date(token.expires_at) > new Date()
@@ -701,7 +701,7 @@ function useShareTokens({ mapId, open }: { mapId: string; open: boolean }) {
    *
    * Mirror of ChatPanel.tsx inflightRef pattern lifted in v1010.2.
    *
-   * builder-audit P2-01: this is also the explicit create-embed-token path that
+   * builder-audit #338 P2-01: this is also the explicit create-embed-token path that
    * lets a fully-public map (no non-public layers) mint a token so the owner can
    * configure allowed domains.
    *
@@ -782,7 +782,7 @@ function useShareTokens({ mapId, open }: { mapId: string; open: boolean }) {
     setRawShareToken(null);
   }
 
-  // Phase 20260526-builder-audit BLD-20260526-11: regenerate embed token when the raw value was lost.
+  // Phase 20260526-builder-audit #338 BLD-20260526-11: regenerate embed token when the raw value was lost.
   async function regenerateEmbed() {
     if (!activeEmbedToken) return;
     try {
@@ -835,7 +835,7 @@ export function ShareDialog({
   const { isEnterprise } = useEdition();
   const publishMap = usePublishMap();
 
-  // builder-audit SHARE-01: token lifecycle lives in a dedicated hook.
+  // builder-audit #338 SHARE-01: token lifecycle lives in a dedicated hook.
   const tokens = useShareTokens({ mapId, open });
   const {
     hasNonPublic,
@@ -1173,7 +1173,7 @@ export function ShareDialog({
                       </p>
                     </div>
                   )}
-                  {/* Phase 20260526-builder-audit BLD-20260526-11: warn when embed token was created in a previous session. */}
+                  {/* Phase 20260526-builder-audit #338 BLD-20260526-11: warn when embed token was created in a previous session. */}
                   {!embedTokenRaw && activeEmbedToken && (
                     <div className="flex items-start gap-2 rounded-md border border-warning/30 bg-warning/5 px-3 py-2">
                       <AlertTriangle className="h-3.5 w-3.5 text-warning mt-0.5 flex-shrink-0" />
@@ -1208,7 +1208,7 @@ export function ShareDialog({
                       <li><code className="bg-muted px-1 rounded text-[11px]">legend=true|false</code> {t('share.customizeLegend')}</li>
                     </ul>
                   </div>
-                  {/* builder-audit P2-01: a fully-public map has no embed token (none was
+                  {/* builder-audit #338 P2-01: a fully-public map has no embed token (none was
                       forced by non-public layers), so the domain controls in Link Settings
                       never appear. Offer an explicit create-embed-token path so the owner
                       can mint a token and then restrict embedding to specific domains. */}

@@ -82,7 +82,7 @@ def sync_detailed(
 ) -> Response[AIAvailabilityResponse | ProblemDetail]:
     """Ai Availability Endpoint
 
-     Report whether builder AI chat is usable (builder-audit P1-11).
+     Report whether builder AI chat is usable (builder-audit #338 P1-11).
 
     Permission-gated on ``use_ai_chat`` so non-admin editors (who cannot read
     ``/admin/ai-status``) can learn availability. Returns ``available=false``
@@ -113,7 +113,7 @@ def sync(
 ) -> AIAvailabilityResponse | ProblemDetail | None:
     """Ai Availability Endpoint
 
-     Report whether builder AI chat is usable (builder-audit P1-11).
+     Report whether builder AI chat is usable (builder-audit #338 P1-11).
 
     Permission-gated on ``use_ai_chat`` so non-admin editors (who cannot read
     ``/admin/ai-status``) can learn availability. Returns ``available=false``
@@ -140,7 +140,7 @@ async def asyncio_detailed(
 ) -> Response[AIAvailabilityResponse | ProblemDetail]:
     """Ai Availability Endpoint
 
-     Report whether builder AI chat is usable (builder-audit P1-11).
+     Report whether builder AI chat is usable (builder-audit #338 P1-11).
 
     Permission-gated on ``use_ai_chat`` so non-admin editors (who cannot read
     ``/admin/ai-status``) can learn availability. Returns ``available=false``
@@ -169,7 +169,7 @@ async def asyncio(
 ) -> AIAvailabilityResponse | ProblemDetail | None:
     """Ai Availability Endpoint
 
-     Report whether builder AI chat is usable (builder-audit P1-11).
+     Report whether builder AI chat is usable (builder-audit #338 P1-11).
 
     Permission-gated on ``use_ai_chat`` so non-admin editors (who cannot read
     ``/admin/ai-status``) can learn availability. Returns ``available=false``

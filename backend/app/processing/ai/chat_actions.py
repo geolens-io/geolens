@@ -228,7 +228,7 @@ async def _execute_chat_tool(
                 return {"status": "ok", "warnings": warnings, **tool_input}
 
     # add_layer: resolve the dataset's display title server-side so the staging
-    # chip can show a human name instead of the raw UUID (builder-audit B-002).
+    # chip can show a human name instead of the raw UUID (builder-audit #338 B-002).
     # Name resolution is best-effort — a lookup miss/error must not block the
     # add, so we degrade silently to the dataset_id fallback on the frontend.
     if tool_name == "add_layer":
@@ -284,7 +284,7 @@ def _collect_chat_action(tool_name: str, tool_input: dict, result: dict) -> dict
     if tool_name == "set_label":
         return _build_label_action(tool_input)
 
-    # add_layer: carry the server-resolved dataset_name (builder-audit B-002) so
+    # add_layer: carry the server-resolved dataset_name (builder-audit #338 B-002) so
     # the staging chip shows a human name instead of the raw UUID. The name is
     # resolved during _execute_chat_tool and arrives on `result`, not tool_input.
     if tool_name == "add_layer":

@@ -23,7 +23,7 @@ interface FilterChip {
 /**
  * Produce a human-readable summary of a filter expression.
  *
- * builder-audit DRY-01/FILT-01/FILT-02: renders from the single canonical filter
+ * builder-audit #338 DRY-01/FILT-01/FILT-02: renders from the single canonical filter
  * parser (parseCanonicalFilter) shared with LayerFilterEditor, so numeric
  * (to-number-wrapped) filters now produce a chip (FILT-01) and the substring
  * "contains" shape is labelled correctly rather than mislabelled as `<value> in

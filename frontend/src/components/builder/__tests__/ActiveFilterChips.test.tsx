@@ -129,7 +129,7 @@ describe('ActiveFilterChips — MAP-20 layout constraints', () => {
 });
 
 // ===========================================================================
-// builder-audit FILT-01 / FILT-02 — chip summarizer / canonical-parser fixes
+// builder-audit #338 FILT-01 / FILT-02 — chip summarizer / canonical-parser fixes
 // ===========================================================================
 
 describe('ActiveFilterChips — filter summary (FILT-01 / FILT-02)', () => {

@@ -18,14 +18,14 @@ export interface ZoomExpressionValidationResult {
   errors: string[];
 }
 
-// builder-audit DRY-03: exported so ZoomExpressionEditor imports this one copy
+// builder-audit #338 DRY-03: exported so ZoomExpressionEditor imports this one copy
 // instead of redefining an identical local guard.
 export function isFiniteNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value);
 }
 
 /**
- * builder-audit DRY-04: shared low-level pair walker for the `[..., a0, b0, a1,
+ * builder-audit #338 DRY-04: shared low-level pair walker for the `[..., a0, b0, a1,
  * b1, ...]` tail of step / interpolate / line-gradient expressions. Zips from
  * `startIndex` in steps of 2 and returns one entry per first-element; `hasSecond`
  * is false for a dangling final element (odd-length tail).

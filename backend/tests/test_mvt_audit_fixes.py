@@ -1,4 +1,4 @@
-"""Unit tests for the builder-audit MVT remediation (service/router pure helpers).
+"""Unit tests for the builder-audit #338 MVT remediation (service/router pure helpers).
 
 Covers (no DB / no asyncpg pool):
   - MVT-07: continuous simplification-tolerance schedule across the z5->z6 boundary.
@@ -76,7 +76,7 @@ def test_tile_query_uses_single_continuous_simplify_basis():
 # ---------------------------------------------------------------------------
 # MVT-01: the source-layer name stays schema-qualified.
 #
-# builder-audit MVT-01 flagged that the multi_tenant MVT layer name
+# builder-audit #338 MVT-01 flagged that the multi_tenant MVT layer name
 # (data_t_<tid>.table) diverges from the client's hardcoded data.table. In
 # single_tenant (the only OSS-deployable mode) schema=="data", so the emitted
 # layer name is already "data.table" and the client matches. The multi_tenant

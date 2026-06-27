@@ -147,7 +147,7 @@ function visibleLayerBoundsKey(bounds: VisibleLayerBounds | null): string {
  * recoverable case".
  */
 /**
- * builder-audit SYNC-02 + SYNC-03: the SINGLE signed-vector-tile-URL builder used
+ * builder-audit #338 SYNC-02 + SYNC-03: the SINGLE signed-vector-tile-URL builder used
  * by BOTH the 401/403 re-sign retry and the token-refresh effect, so the two
  * paths cannot drift. Cluster radius / max-zoom are clamped through the canonical
  * `getClusterSourceOptions` (1..256 / 0..22) instead of the previous inline
@@ -231,7 +231,7 @@ export const BuilderMap = memo(function BuilderMap({
   const managedSourcesRef = useRef<Set<string>>(new Set());
   const errorHandlerRef = useRef<((e: { error: { message?: string; status?: number }; sourceId?: string }) => void) | null>(null);
   const styleImageMissingHandlerRef = useRef<((e: { id: string }) => void) | null>(null);
-  // builder-audit SYNC-08: hold the dataloading/idle handlers so unmount detaches
+  // builder-audit #338 SYNC-08: hold the dataloading/idle handlers so unmount detaches
   // them symmetrically with the error/styleimagemissing handlers.
   const dataLoadingHandlerRef = useRef<(() => void) | null>(null);
   const idleHandlerRef = useRef<(() => void) | null>(null);
@@ -566,7 +566,7 @@ export const BuilderMap = memo(function BuilderMap({
       // the ViewerMap hook from 6a5f0181.
       map.once('idle', () => setTilesIdle(true));
 
-      // Tile loading indicator. builder-audit SYNC-08: keep references so the
+      // Tile loading indicator. builder-audit #338 SYNC-08: keep references so the
       // unmount cleanup can detach them symmetrically.
       dataLoadingHandlerRef.current = () => setTilesLoading(true);
       idleHandlerRef.current = () => setTilesLoading(false);
@@ -703,7 +703,7 @@ export const BuilderMap = memo(function BuilderMap({
   }, []);
 
   /**
-   * builder-audit SYNC-07: the SINGLE syncMapComposition invocation shared by the
+   * builder-audit #338 SYNC-07: the SINGLE syncMapComposition invocation shared by the
    * style.load handler and the main sync effect's `runSync`. Both read inputs from
    * `syncInputsRef.current` (immune to closure-stale inputs) and wire identical
    * syncOptions / basemapConfig / reorderDataLayerIds — the ONLY difference is
@@ -1087,7 +1087,7 @@ export const BuilderMap = memo(function BuilderMap({
 
   // Update tile URLs in-place when tokens refresh (vector only).
   //
-  // builder-audit (verifier-missed) + SYNC-02/SYNC-03: this effect depends on
+  // builder-audit #338 (verifier-missed) + SYNC-02/SYNC-03: this effect depends on
   // `layers`, which changes on EVERY paint/filter/visibility edit. Previously it
   // called `setTiles([newUrl])` unconditionally for every vector source on every
   // such change, bypassing the `${sourceId}::tileurl` flicker guard that
@@ -1169,7 +1169,7 @@ export const BuilderMap = memo(function BuilderMap({
       if (mapRef.current && styleImageMissingHandlerRef.current) {
         mapRef.current.off('styleimagemissing', styleImageMissingHandlerRef.current);
       }
-      // builder-audit SYNC-08: detach the dataloading/idle handlers too.
+      // builder-audit #338 SYNC-08: detach the dataloading/idle handlers too.
       if (mapRef.current && dataLoadingHandlerRef.current) {
         mapRef.current.off('dataloading', dataLoadingHandlerRef.current);
       }

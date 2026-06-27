@@ -46,7 +46,7 @@ def _prepare_layer_storage(
 ) -> dict:
     """Normalize one *added* layer's storage shape before it is persisted.
 
-    builder-audit STYLE-08: this is the single normalization boundary on the
+    builder-audit #338 STYLE-08: this is the single normalization boundary on the
     add / full-replace write path — it resolves the layer_type, fills default
     paint/layout/style_config for vector geometries, runs
     ``split_legacy_builder_paint`` (the MapLibre paint storage boundary), and

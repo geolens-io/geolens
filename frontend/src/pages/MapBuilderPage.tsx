@@ -622,7 +622,7 @@ export function MapBuilderPage() {
         prev,
         lastToggleAnchor.current,
       );
-      // Phase 20260526-builder-audit BLD-20260526-11: treat the helper's return as immutable. Range may include
+      // Phase 20260526-builder-audit #338 BLD-20260526-11: treat the helper's return as immutable. Range may include
       // basemap-boundary ids if selectableRowIds drifts; build a fresh Set.
       const filtered = new Set<string>();
       for (const rid of selection) {
@@ -656,7 +656,7 @@ export function MapBuilderPage() {
   // Each dep is the specific stable useCallback from use-builder-layers, NOT the
   // entire `layers` object (which is a plain literal re-created on every render).
   // Depending on `layers` defeats React.memo() on BulkActionBar / UnifiedStackPanel
-  // on every opacity-slider move, which fires at ~60fps (Phase 20260526-builder-audit BLD-20260526-11).
+  // on every opacity-slider move, which fires at ~60fps (Phase 20260526-builder-audit #338 BLD-20260526-11).
   const handleBulkVisibility = useCallback((ids: Set<string>) => {
     applyBulkVisibility(ids);
     setSelectedIds(new Set());
@@ -715,7 +715,7 @@ export function MapBuilderPage() {
 
   // Phase 1059 BSE-01: helper that merges a single field into basemap_config.sublayer_overrides[sublayerId].
   // Trims the entry if every field becomes null/undefined (no-op state).
-  // Uses setBasemapConfig which auto-marks dirty (Phase 20260526-builder-audit BLD-20260526-11).
+  // Uses setBasemapConfig which auto-marks dirty (Phase 20260526-builder-audit #338 BLD-20260526-11).
   const updateSublayerOverride = useCallback(
     (sublayerId: string, field: keyof MapSublayerOverride, value: string | number | null) => {
       applyBasemapPatch(updateBasemapSublayerOverride(basemapState, sublayerId, field, value));
@@ -879,7 +879,7 @@ export function MapBuilderPage() {
       const parentGroupId = (targetLayer && isFolderGroupLayer(targetLayer)) ? overId : null;
       const dropPosition = layers.localLayers.findIndex((l) => l.id === overId) + 1;
       const safePosition = dropPosition > 0 ? dropPosition : 1;
-      // Phase 20260526-builder-audit BLD-20260526-11: announce fires inside onSuccessCb — only after the async mutation resolves
+      // Phase 20260526-builder-audit #338 BLD-20260526-11: announce fires inside onSuccessCb — only after the async mutation resolves
       // successfully. If the mutation errors, the hook fires toast.error and the announce
       // is never called, avoiding contradictory screen-reader output.
       // Modal stays open per POL-05 — onSuccessCb is not used to auto-select the layer.
@@ -1088,7 +1088,7 @@ export function MapBuilderPage() {
     const sublayer = basemapGroup.sublayers.find((s) => s.id === layers.expandedLayerId);
     breadcrumbPresetName = basemapGroup.presetName;
     if (sublayer) {
-      // Phase 20260526-builder-audit BLD-20260526-11: translate the UI routing ID (e.g. 'basemap:roads') to the bare semantic
+      // Phase 20260526-builder-audit #338 BLD-20260526-11: translate the UI routing ID (e.g. 'basemap:roads') to the bare semantic
       // key ('road') used in basemap_config.sublayer_overrides so reads and writes are
       // consistent with what applySublayerOverrides expects from SUBLAYER_CLASSIFIERS.
       const overrideKey = SUBLAYER_ID_OVERRIDE_KEY[sublayer.id] ?? sublayer.id;

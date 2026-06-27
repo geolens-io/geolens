@@ -32,7 +32,7 @@ class StreamModelError extends Error {
 }
 
 /**
- * builder-audit COMPLEX-01: discriminated classification of a chat-send failure.
+ * builder-audit #338 COMPLEX-01: discriminated classification of a chat-send failure.
  *
  * Pure decision function lifted out of handleSend's catch block so the
  * branch order (aborted → partial → service banner → inline → retry) lives in
@@ -232,8 +232,8 @@ export function ChatPanel({
   // Keep a ref to the latest layers so snapshots capture fresh state
   const layersRef = useRef(layers);
   layersRef.current = layers;
-  // Phase 20260526-builder-audit BLD-20260526-04: single-level undo for chat-initiated map mutations.
-  // builder-audit DEAD-01: messageIndex dropped — it was only ever read as `!== undefined`
+  // Phase 20260526-builder-audit #338 BLD-20260526-04: single-level undo for chat-initiated map mutations.
+  // builder-audit #338 DEAD-01: messageIndex dropped — it was only ever read as `!== undefined`
   // (vacuously true); the real ordering gate is messages.indexOf(msg) === length - 1.
   const lastSnapshotRef = useRef<{ layers: MapLayerResponse[]; supportsUndo: boolean } | null>(null);
 
@@ -324,7 +324,7 @@ export function ChatPanel({
       action.bbox.every((n: unknown) => typeof n === 'number')
     ) {
       const [minX, minY, maxX, maxY] = action.bbox as [number, number, number, number];
-      // Phase 20260526-builder-audit BLD-20260526-11: reject bbox values outside WGS84 bounds.
+      // Phase 20260526-builder-audit #338 BLD-20260526-11: reject bbox values outside WGS84 bounds.
       if (minX < -180 || minY < -90 || maxX > 180 || maxY > 90) return;
       onQueryResult?.(
         geojson as GeoJSON.FeatureCollection,
@@ -333,18 +333,18 @@ export function ChatPanel({
     }
   }
 
-  // Phase 20260526-builder-audit BLD-20260526-04: restore layers from the last snapshot.
+  // Phase 20260526-builder-audit #338 BLD-20260526-04: restore layers from the last snapshot.
   const handleUndo = useCallback(() => {
     const snapshot = lastSnapshotRef.current;
     if (!snapshot?.supportsUndo) return;
     const snapshotIds = new Set(snapshot.layers.map((l) => l.id));
     const currentIds = new Set(layersRef.current.map((l) => l.id));
 
-    // Phase 20260526-builder-audit BLD-20260526-04: remove layers that were added after the snapshot.
+    // Phase 20260526-builder-audit #338 BLD-20260526-04: remove layers that were added after the snapshot.
     for (const id of currentIds) {
       if (!snapshotIds.has(id)) onRemove(id);
     }
-    // Phase 20260526-builder-audit BLD-20260526-04: re-add layers that were removed after the snapshot.
+    // Phase 20260526-builder-audit #338 BLD-20260526-04: re-add layers that were removed after the snapshot.
     for (const layer of snapshot.layers) {
       if (!currentIds.has(layer.id)) {
         onAddDataset(layer.dataset_id);
@@ -368,7 +368,7 @@ export function ChatPanel({
     switch (action.type) {
       case 'set_filter':
         if (layerId) {
-          // builder-audit P1-13: validate AI-produced filters through the shared
+          // builder-audit #338 P1-13: validate AI-produced filters through the shared
           // filter contract (validateRawFilter mirrors backend filter_grammar)
           // BEFORE applying. null/undefined/[] clear the filter; a malformed array
           // is REJECTED (not applied) rather than handed to MapLibre where it would
@@ -458,7 +458,7 @@ export function ChatPanel({
   const staging = useChatActionStaging((action) => handleChatAction(action));
 
   /**
-   * builder-audit DUP-01 / COMPLEX-01: single owner of the snapshot + destructive-
+   * builder-audit #338 DUP-01 / COMPLEX-01: single owner of the snapshot + destructive-
    * routing + undo-downgrade loop, shared by both the streaming and non-streaming
    * fallback paths (which had drifted — the root cause of STALE-01).
    *
@@ -466,7 +466,7 @@ export function ChatPanel({
    * destructive add/remove into the staging buffer, dispatches everything else
    * through handleChatAction, and maintains the per-turn undo snapshot.
    *
-   * builder-audit STALE-01: the snapshot is (re)captured at most once per turn —
+   * builder-audit #338 STALE-01: the snapshot is (re)captured at most once per turn —
    * only when no snapshot yet exists for the turn AND there is at least one
    * undo-relevant mutating action. handleSend resets lastSnapshotRef to null at the
    * start of every turn, so a query-only turn leaves it null and the undo affordance
@@ -530,7 +530,7 @@ export function ChatPanel({
   }, []);
 
   /**
-   * builder-audit COMPLEX-01: the streaming consumer, extracted from handleSend.
+   * builder-audit #338 COMPLEX-01: the streaming consumer, extracted from handleSend.
    * Owns the SSE for-await loop only — token/tool progress, action application
    * (delegated to the shared applyActions), the success `done` message, and the
    * StreamModelError sentinel. Partial streamed text is exposed via the mutable
@@ -585,7 +585,7 @@ export function ChatPanel({
   }
 
   /**
-   * builder-audit COMPLEX-01: non-streaming retry path, extracted from handleSend.
+   * builder-audit #338 COMPLEX-01: non-streaming retry path, extracted from handleSend.
    * Only reached when streaming failed before applying any actions (classifyChatError
    * → 'retry'), so re-issuing the call cannot double an already-applied LLM turn.
    */
@@ -646,7 +646,7 @@ export function ChatPanel({
     setIsLoading(true);
     const controller = new AbortController();
     abortRef.current = controller;
-    // builder-audit STALE-01: clear the undo snapshot at the START of every turn so a
+    // builder-audit #338 STALE-01: clear the undo snapshot at the START of every turn so a
     // stale snapshot from a previous turn can never outlive it. A query-only turn (or
     // any turn with no undo-relevant mutating actions) leaves this null, so the Undo
     // affordance never appears under an answer that reverts an earlier, unrelated edit.
@@ -898,7 +898,7 @@ export function ChatPanel({
                       </div>
                       <p className="mt-1 mb-1 px-2 text-xs text-muted-foreground">
                         {t('chat.queryResult.rowCount', { count: queryResultAction.row_count ?? rows.length })}
-                        {/* builder-audit DEAD-01: surface the wire `truncated` flag so the card
+                        {/* builder-audit #338 DEAD-01: surface the wire `truncated` flag so the card
                             cannot show a capped table as if it were the complete result set. */}
                         {queryResultAction.truncated && (
                           <span className="ms-1 text-muted-foreground/80">
@@ -909,7 +909,7 @@ export function ChatPanel({
                     </div>
                   );
                 })()}
-                {/* builder-audit Applied-N nit: a pure query-result turn mutates nothing, so it
+                {/* builder-audit #338 Applied-N nit: a pure query-result turn mutates nothing, so it
                     must not render "Applied N changes". Count only non-query actions. */}
                 {(() => {
                   const appliedActions = msg.actions?.filter((a) => a.type !== 'show_query_result') ?? [];
@@ -919,7 +919,7 @@ export function ChatPanel({
                     <p className="text-xs text-muted-foreground">
                       {t('chat.appliedChanges', { count: appliedActions.length })}
                     </p>
-                    {/* Phase 20260526-builder-audit BLD-20260526-04: undo only for replay-safe style/filter edits. */}
+                    {/* Phase 20260526-builder-audit #338 BLD-20260526-04: undo only for replay-safe style/filter edits. */}
                     {/* Phase 1135 AI-01: undo button is suppressed while staging tray is visible (mutual exclusion). */}
                     {lastSnapshotRef.current?.supportsUndo &&
                       messages.indexOf(msg) === messages.length - 1 &&

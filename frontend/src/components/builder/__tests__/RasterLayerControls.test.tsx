@@ -56,7 +56,7 @@ vi.mock('@/components/ui/select', () => ({
   SelectValue: () => null,
 }));
 
-// builder-audit DEAD-01 / DUP-01: RasterLayerControls is now raster-only. The former
+// builder-audit #338 DEAD-01 / DUP-01: RasterLayerControls is now raster-only. The former
 // hillshade branch (and its color pickers) was unreachable dead code — DEM layers route
 // to DEMEditorScene, the single hillshade editor (covered by DEMEditorScene.test.tsx).
 // The two hillshade tests and the StyleColorPicker mock were removed here.

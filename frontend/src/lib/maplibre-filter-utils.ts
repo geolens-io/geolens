@@ -1,7 +1,7 @@
 import type { FilterSpecification } from 'maplibre-gl';
 
 /**
- * builder-audit SPEC-09 / DRY-01 / DRY-02 / FILT-01 / FILT-02 / P1-04:
+ * builder-audit #338 SPEC-09 / DRY-01 / DRY-02 / FILT-01 / FILT-02 / P1-04:
  * Single source of truth for the *editable* MapLibre filter-expression subset
  * the map builder authors and recognizes.
  *
@@ -24,7 +24,7 @@ import type { FilterSpecification } from 'maplibre-gl';
  * bugs were direct consequences of two independent hand-rolled walkers).
  */
 
-// builder-audit DRY-02: the single canonical comparison-operator set. Imported
+// builder-audit #338 DRY-02: the single canonical comparison-operator set. Imported
 // by LayerFilterEditor and ActiveFilterChips instead of re-declared per file.
 export const NUMERIC_COMPARISON_OPERATORS = new Set(['==', '!=', '>', '<', '>=', '<=']);
 
@@ -50,13 +50,13 @@ export function buildNullableSafeNumericAccessor(
 }
 
 // ---------------------------------------------------------------------------
-// builder-audit FILT-01 / DRY-01: one canonical field extractor + filter parser
+// builder-audit #338 FILT-01 / DRY-01: one canonical field extractor + filter parser
 // ---------------------------------------------------------------------------
 
 /**
  * Extract the underlying property name a filter operand reads.
  *
- * builder-audit FILT-01: also unwraps the ["to-number", ["get", field], _]
+ * builder-audit #338 FILT-01: also unwraps the ["to-number", ["get", field], _]
  * accessor the editor emits for every numeric-column comparison — the chip
  * summarizer previously only understood ["get", field] and bare strings, so
  * numeric filters silently produced no chip.
@@ -195,7 +195,7 @@ export function parseCanonicalFilter(expr: FilterSpecification | null | undefine
 }
 
 // ---------------------------------------------------------------------------
-// builder-audit P1-04: raw-JSON filter validator/normalizer
+// builder-audit #338 P1-04: raw-JSON filter validator/normalizer
 // ---------------------------------------------------------------------------
 // Mirrors backend/app/modules/catalog/maps/filter_grammar.py:validate_filter so
 // a filter accepted in the raw-JSON editor is accepted, stored, exported, and
@@ -294,7 +294,7 @@ function normalizeFilterNode(node: unknown): unknown {
 }
 
 /**
- * Validate + normalize a raw-JSON MapLibre layer filter (builder-audit P1-04).
+ * Validate + normalize a raw-JSON MapLibre layer filter (builder-audit #338 P1-04).
  * `null` and `[]` both clear the filter (return null). A recognized form with
  * invalid arity throws `FilterValidationError`; opaque unsupported filters are
  * preserved verbatim.

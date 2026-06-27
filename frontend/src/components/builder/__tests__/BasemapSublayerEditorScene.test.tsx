@@ -302,7 +302,7 @@ describe('BasemapSublayerEditorScene', () => {
     expect(screen.getByText('ZOOM RANGE')).toBeInTheDocument();
   });
 
-  // builder-audit MAINT-02: STROKE/CASING only mutate line sublayers
+  // builder-audit #338 MAINT-02: STROKE/CASING only mutate line sublayers
   // (roads/boundaries). For label (symbol) and building (fill-extrusion)
   // sublayers those sections write override fields that have no visible effect,
   // so the editor must hide them and only surface ZOOM + opacity.

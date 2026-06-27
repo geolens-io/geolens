@@ -47,7 +47,7 @@ export interface DEMEditorSceneProps {
    * LayerEditorHandlers — same wiring used by the default layer editor. */
   onRemove: (layerId: string) => void;
   /**
-   * POLISH-02 / builder-audit YAGNI-01: when true, this DEM is already powering the
+   * POLISH-02 / builder-audit #338 YAGNI-01: when true, this DEM is already powering the
    * map's terrain source. A muted advisory note is rendered in hillshade mode to inform
    * the user that hillshade shading is hidden (two raster-dem consumers on one source
    * cause MapLibre errors). Defaults to false when omitted.
@@ -192,7 +192,7 @@ export const DEMEditorScene = memo(function DEMEditorScene({
     { id: 'terrain', label: t('demEditor.renderAsTerrain', { defaultValue: '◬ Terrain' }) },
   ];
 
-  // builder-audit CONSIST-01: read hillshade fallbacks from the adapter's
+  // builder-audit #338 CONSIST-01: read hillshade fallbacks from the adapter's
   // HILLSHADE_PAINT_DEFAULTS (the values buildHillshadePaint actually renders) rather
   // than re-typing literals, so the editor swatch can never diverge from the rendered
   // default (the prior '#D4A97A' accent showed brown while the map painted black).
@@ -265,7 +265,7 @@ export const DEMEditorScene = memo(function DEMEditorScene({
 
           {mode === 'hillshade' && (
             <div className="space-y-4">
-              {/* builder-audit YAGNI-01: advisory note when this DEM is also bound as the
+              {/* builder-audit #338 YAGNI-01: advisory note when this DEM is also bound as the
                   map's 3D terrain source. Hillshade shading is hidden in that case to avoid
                   two raster-dem consumers on one source (a MapLibre error). The parent
                   computes isTerrainBound via isHillshadeTerrainBound. */}
@@ -283,7 +283,7 @@ export const DEMEditorScene = memo(function DEMEditorScene({
                   {t('demEditor.sunPositionLabel', { defaultValue: 'SUN POSITION' })}
                 </p>
 
-                {/* builder-audit COMPLEX-01: compass extracted to SunCompass. */}
+                {/* builder-audit #338 COMPLEX-01: compass extracted to SunCompass. */}
                 <SunCompass
                   azimuth={azimuth}
                   ariaLabel={t('demEditor.compassAriaLabel', {
@@ -411,7 +411,7 @@ export const DEMEditorScene = memo(function DEMEditorScene({
                     rampName={getStringPaint(paint, '_hypso-ramp', 'Viridis')}
                     onChange={(name) => handlePaintValue('_hypso-ramp', name)}
                   />
-                  {/* builder-audit MAINT-01: surface the hardcoded 0–4000 m, meters-only
+                  {/* builder-audit #338 MAINT-01: surface the hardcoded 0–4000 m, meters-only
                       elevation range limitation in-product (buildElevationExpression in
                       color-relief-sync.ts has no min/max control yet). */}
                   <p className="text-[11px] leading-snug text-muted-foreground">

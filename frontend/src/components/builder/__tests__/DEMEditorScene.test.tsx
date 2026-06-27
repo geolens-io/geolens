@@ -405,7 +405,7 @@ describe('DEMEditorScene', () => {
     );
   });
 
-  // builder-audit CONSIST-01: the accent swatch default must match the adapter's
+  // builder-audit #338 CONSIST-01: the accent swatch default must match the adapter's
   // HILLSHADE_PAINT_DEFAULTS (black #000000) — the value buildHillshadePaint renders —
   // not the prior divergent brown literal that lied about the rendered default.
   it('shows the adapter hillshade defaults (black accent) on an untouched DEM', () => {
@@ -669,7 +669,7 @@ describe('DEMEditorScene', () => {
       expect(picker).toHaveAttribute('data-ramp', 'Viridis');
     });
 
-    // builder-audit MAINT-01: the 0–4000 m, meters-only limitation is surfaced in-product
+    // builder-audit #338 MAINT-01: the 0–4000 m, meters-only limitation is surfaced in-product
     // alongside the ramp picker (only when the tint is enabled).
     it('surfaces the 0–4000 m meters-only limitation note when the tint is enabled', () => {
       const { rerender } = render(
@@ -696,7 +696,7 @@ describe('DEMEditorScene', () => {
     });
   });
 
-  // builder-audit YAGNI-01: the POLISH-02 terrain-bound advisory note is implemented
+  // builder-audit #338 YAGNI-01: the POLISH-02 terrain-bound advisory note is implemented
   // (it consumes the isTerrainBound value the parent already computes).
   describe('terrain-bound hillshade advisory note', () => {
     it('renders the advisory note in hillshade mode when isTerrainBound is true', () => {
@@ -760,7 +760,7 @@ describe('DEMEditorScene', () => {
 });
 
 // ---------------------------------------------------------------------------
-// builder-audit YAGNI-01: the POLISH-02 terrain-bound advisory note (previously
+// builder-audit #338 YAGNI-01: the POLISH-02 terrain-bound advisory note (previously
 // removed as unreachable under CLEANUP-01) is now implemented and wired to the
 // isTerrainBound prop the parent already computes. See the
 // "terrain-bound hillshade advisory note" describe block above.

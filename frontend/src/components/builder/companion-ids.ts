@@ -1,4 +1,4 @@
-// builder-audit SYNC-04: single source of truth for the companion-layer id
+// builder-audit #338 SYNC-04: single source of truth for the companion-layer id
 // scheme. Before this module the suffixes (`-outline`, `-extrusion`, `-arrow`,
 // `-label`, `-colorrelief`, `-cluster`, `-cluster-count`) were hand-spelled in
 // map-sync.ts, use-layer-map-sync.ts, use-builder-layers.ts, and

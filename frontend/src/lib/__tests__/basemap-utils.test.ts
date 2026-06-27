@@ -526,7 +526,7 @@ describe('applyBasemapConfigToStyle master opacity', () => {
   });
 });
 
-describe('applyBasemapConfigToStyle prominence reversibility (builder-audit COMPLEX-01)', () => {
+describe('applyBasemapConfigToStyle prominence reversibility (builder-audit #338 COMPLEX-01)', () => {
   // Lock the prose invariants in basemap-utils.ts (CR-01 / prominence-stamp
   // composition) with CI-enforced regression tests: a subtle+dimmed pass
   // followed by a full+opacity-1 pass must restore the canonical *-opacity

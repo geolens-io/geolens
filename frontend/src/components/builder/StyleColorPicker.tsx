@@ -13,7 +13,7 @@ interface StyleColorPickerProps {
   onChange: (hex: string) => void;
 }
 
-// builder-audit DRY-02: single source for the 6-digit hex validation regex.
+// builder-audit #338 DRY-02: single source for the 6-digit hex validation regex.
 // Previously copied inline in DataDrivenStyleEditor (two sites).
 export const HEX_REGEX = /^#[0-9a-fA-F]{6}$/;
 
@@ -38,7 +38,7 @@ const PRESET_COLORS = [
 ];
 
 /**
- * builder-audit DRY-02: compact swatch button + popover hex editor shared by the
+ * builder-audit #338 DRY-02: compact swatch button + popover hex editor shared by the
  * DataDrivenStyleEditor categorical and graduated color lists. Replaces two
  * near-identical inline Popover+HexColorPicker+HexColorInput blocks (each with
  * its own copy of the hex regex). Debouncing, if any, is owned by the caller's

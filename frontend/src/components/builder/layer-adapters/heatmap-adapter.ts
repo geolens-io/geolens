@@ -1,13 +1,13 @@
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { AdapterLayerInput, LayerAdapter } from './types';
 import { getBuilderStyleConfig, syncOwnedPaintProperties, syncSingleLayerVisibility, syncLayerFilter } from './shared';
-// builder-audit ADAPT-05: the radius/weight/intensity/opacity defaults come from the
+// builder-audit #338 ADAPT-05: the radius/weight/intensity/opacity defaults come from the
 // single builder-defaults source of truth (radius 30 / weight 1) instead of the magic
 // literals that previously diverged from renderAs's heatmap default (radius 18 / weight 0.5).
 import { DEFAULT_HEATMAP_PAINT as HEATMAP_PAINT_DEFAULTS } from './builder-defaults';
 import { getRampColors } from '@/lib/color-ramps';
 
-/** builder-audit ADAPT-11: typed coercion so an out-of-range / string / expression
+/** builder-audit #338 ADAPT-11: typed coercion so an out-of-range / string / expression
  *  heatmap-opacity cannot flow through a bare `as number` cast into NaN math
  *  (storedHeatmapOpacity * masterOpacity). Mirrors fill-adapter's finiteNumber. */
 function finiteNumber(value: unknown): number | null {
@@ -66,7 +66,7 @@ export const heatmapAdapter: LayerAdapter = {
     // add-time, which overwrote persisted heatmap-opacity on every page load,
     // render-mode swap, or basemap switch — producing a visible flash and silent
     // drift until any subsequent paint sync.
-    // builder-audit ADAPT-11: finiteNumber rejects a string/array/NaN opacity that a
+    // builder-audit #338 ADAPT-11: finiteNumber rejects a string/array/NaN opacity that a
     // bare `as number` cast would have multiplied into NaN.
     const storedHeatmapOpacity = finiteNumber(rawPaint['heatmap-opacity']) ?? HEATMAP_PAINT_DEFAULTS['heatmap-opacity'];
     const heatmapOpacity = storedHeatmapOpacity * (opacity ?? 1);
@@ -110,7 +110,7 @@ export const heatmapAdapter: LayerAdapter = {
     }, { ownedProperties: HEATMAP_OWNED_PAINT_PROPERTIES.filter((prop) => prop !== 'heatmap-opacity') });
 
     // Compound stored heatmap-opacity with master opacity. Single source of truth.
-    // builder-audit ADAPT-11: finiteNumber guards the same NaN path as add-time.
+    // builder-audit #338 ADAPT-11: finiteNumber guards the same NaN path as add-time.
     const storedOpacity = finiteNumber(rawPaint['heatmap-opacity']) ?? HEATMAP_PAINT_DEFAULTS['heatmap-opacity'];
     map.setPaintProperty(layerId, 'heatmap-opacity', storedOpacity * (input.opacity ?? 1));
 

@@ -31,7 +31,7 @@ STYLE_VERSION = 8
 GEOLENS_SPRITE_ID = "geolens"
 SPRITE_URL = "/maps/sprites/geolens"
 GLYPHS_URL = "https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf"
-# builder-audit STYLE-07 / DRY-06: GeoLens default fill/stroke palette and the
+# builder-audit #338 STYLE-07 / DRY-06: GeoLens default fill/stroke palette and the
 # arrow/extrusion magic constants live here as named module constants and are
 # re-exported so `service_shared.generate_default_style` imports the same values
 # instead of hardcoding bare literals (which silently diverged on export vs
@@ -44,7 +44,7 @@ DEFAULT_ARROW_BASE_SIZE = 14
 DEFAULT_ARROW_SPACING = 80
 DEFAULT_EXTRUSION_MIN_ZOOM = 14
 EXTRUSION_OPACITY_CAP = 0.85
-# builder-audit P1-06: backend color-relief companion defaults. Elevation range
+# builder-audit #338 P1-06: backend color-relief companion defaults. Elevation range
 # 0-4000 m (mirrors color-relief-sync.ts Assumption A1) with a 7-stop ramp; the
 # emitted layer reuses the same ramp name the builder DEM editor authored.
 COLOR_RELIEF_DEFAULT_RAMP = "Viridis"
@@ -86,7 +86,7 @@ _STYLE_METADATA_KEYS = {
     "render_mode",
     "symbol",
     "builder",
-    # builder-audit SPEC-03: round-trippable legend/ramp/render-mode UI state that
+    # builder-audit #338 SPEC-03: round-trippable legend/ramp/render-mode UI state that
     # was previously dropped on the style-JSON export/import path (legend titles,
     # reversed-ramp flag, [min,max] size range, and saved heatmap/circle paint used
     # to restore a prior render mode). These already round-trip through the open
@@ -119,7 +119,7 @@ _SYMBOL_METADATA_KEYS = {
     "categoryColumn",
     "categories",
 }
-# builder-audit STYLE-01: the snake_case->camelCase builder alias table used on
+# builder-audit #338 STYLE-01: the snake_case->camelCase builder alias table used on
 # export is NOT redefined here. It is imported from schemas as the single-source
 # `BUILDER_SNAKE_TO_CAMEL_KEYS`, which is derived programmatically as the exact
 # inverse of the authoritative `_BUILDER_CAMEL_TO_SNAKE_KEYS` storage map (and is
@@ -148,7 +148,7 @@ class ImportedStyleMap:
     summary: MapStyleImportSummary = field(default_factory=MapStyleImportSummary)
     terrain_config: dict | None = None
     basemap_config: dict | None = None
-    # builder-audit SPEC-07: preserve GL root `light`/`transition` blocks across the
+    # builder-audit #338 SPEC-07: preserve GL root `light`/`transition` blocks across the
     # import path so a spec-conformant consumer's lighting/fade state is not silently
     # dropped. There is no dedicated Map column for these yet, so they are captured
     # here for callers/round-trip preservation rather than re-emitted from storage.
@@ -269,7 +269,7 @@ def _clean_basemap_config(
 ) -> dict[str, Any] | None:
     """Validate stored basemap_config metadata.
 
-    builder-audit STYLE-04: the export/read path passes ``lenient=True`` so a
+    builder-audit #338 STYLE-04: the export/read path passes ``lenient=True`` so a
     stored basemap_config containing a key the running backend's ``BasemapConfig``
     no longer knows about (forward-compat write then rollback, or an out-of-band
     write) does NOT raise and 500 ``GET /maps/{id}/style.json``. In lenient mode
@@ -431,7 +431,7 @@ def _append_cluster_source_metadata(
 ) -> None:
     """Annotate a cluster source with the resolved render strategy.
 
-    builder-audit STYLE-09 (documentation, the lower-risk option vs dropping):
+    builder-audit #338 STYLE-09 (documentation, the lower-risk option vs dropping):
     ``source.metadata.geolens.cluster_renderers`` is ADVISORY metadata with NO
     backend consumer — ``parse_maplibre_style_import`` does not read it back, and a
     grep across ``frontend/src`` finds no reader either. It is emitted purely so an
@@ -493,7 +493,7 @@ def _geometry_layer_type(
 def _mvt_source_layer(layer: MapLayerResponse) -> str:
     """Return the MVT ``source-layer`` name for a GeoLens vector layer.
 
-    builder-audit P1-01: the runtime client (``map-sync.ts``) names the vector
+    builder-audit #338 P1-01: the runtime client (``map-sync.ts``) names the vector
     tile layer ``data.<table>`` (matching the ``/tiles/data.<table>/...`` path the
     tile server signs and serves). Style export MUST emit the SAME name or the
     exported MapLibre style loads the source but renders no features because the
@@ -508,7 +508,7 @@ def _mvt_source_layer(layer: MapLayerResponse) -> str:
 def _source_type_for_layer(layer: MapLayerResponse) -> str:
     """Return the MapLibre source ``type`` for a layer: raster-dem / raster / vector.
 
-    builder-audit STYLE-03: this is the SINGLE 3-way branch consumed by both
+    builder-audit #338 STYLE-03: this is the SINGLE 3-way branch consumed by both
     ``_source_for_layer`` (which actually constructs the source dict) and the
     line-gradient gating in ``_style_layer_for_map_layer``. Keeping one helper
     prevents the two from silently desyncing when a new raster record_type is
@@ -543,7 +543,7 @@ def _walk_get_has_columns(node: Any, cols: set[str]) -> None:
 def _data_driven_columns_for_layer(layer: MapLayerResponse) -> list[str]:
     """Return the SORTED set of feature-property columns a vector layer references.
 
-    builder-audit P1-02 / P1-03: ports the runtime ``getDataDrivenColumnsForLayer``
+    builder-audit #338 P1-02 / P1-03: ports the runtime ``getDataDrivenColumnsForLayer``
     collector to the backend so exported tile URLs can request these columns via
     ``cols=``. The tile server projects no attribute columns at z<10 unless asked,
     which otherwise breaks categorical/graduated styling, labels, heatmap weights,
@@ -584,7 +584,7 @@ def _data_driven_columns_for_layer(layer: MapLayerResponse) -> list[str]:
     for value in paint.values():
         _walk_get_has_columns(value, cols)
 
-    # builder-audit P1-03/P1-04: normalize the filter through the SHARED validator
+    # builder-audit #338 P1-03/P1-04: normalize the filter through the SHARED validator
     # first so legacy bare-field comparisons (["==", "field", v]) are rewritten to
     # expression form (["==", ["get", "field"], v]) before the get/has walk — a
     # filter-only column would otherwise be dropped at low zoom.
@@ -610,7 +610,7 @@ def _tile_url_for_layer(layer: MapLayerResponse) -> str:
         "exp": exp,
         "scope": layer.dataset_table_name,
     }
-    # builder-audit P1-02/P1-03: opt the referenced attribute columns into the tile
+    # builder-audit #338 P1-02/P1-03: opt the referenced attribute columns into the tile
     # so data-driven styling, labels, heatmap weights, 3D heights, and filter refs
     # evaluate against real data at z<10. Stable, sorted to keep the URL determinate.
     cols = _data_driven_columns_for_layer(layer)
@@ -914,7 +914,7 @@ def _line_arrow_companion_layer(
     return arrow_layer
 
 
-# builder-audit P1-06: backend color-relief (hypsometric tint) companion support.
+# builder-audit #338 P1-06: backend color-relief (hypsometric tint) companion support.
 # Representative 7-stop ramps mirroring the frontend chroma-js palettes used by
 # `color-relief-sync.ts`. Exact hex parity with chroma is not required (external
 # consumers render whatever stops we emit); unknown ramp names fall back to YlOrRd,
@@ -1056,7 +1056,7 @@ def _color_relief_companion_layer(
 ) -> dict[str, Any] | None:
     """Emit a native ``color-relief`` companion for a hypsometric-tinted DEM layer.
 
-    builder-audit P1-06: a map that shows hypsometric tint in the builder/viewer
+    builder-audit #338 P1-06: a map that shows hypsometric tint in the builder/viewer
     previously exported WITHOUT that visual layer. The builder-internal ``_hypso-*``
     paint keys are already stripped from the primary paint by ``_clean_paint``; this
     reconstructs the visible tint as a spec-valid layer that re-imports cleanly.
@@ -1101,7 +1101,7 @@ def _style_layer_for_map_layer(
         legacy_dasharray = dict(layer.layout or {}).get("line-dasharray")
         if legacy_dasharray is not None and "line-dasharray" not in paint:
             paint["line-dasharray"] = legacy_dasharray
-    # builder-audit STYLE-03: source type gates line-gradient paint; reuse the single
+    # builder-audit #338 STYLE-03: source type gates line-gradient paint; reuse the single
     # `_source_type_for_layer` helper instead of recomputing the 3-way branch here.
     source_type = _source_type_for_layer(layer)
     paint = _drop_unsupported_line_gradient(layer, paint, source_type)
@@ -1149,7 +1149,7 @@ def _style_layer_for_map_layer(
         if arrow_layer:
             above_companions.append(arrow_layer)
     elif layer_type == "hillshade":
-        # builder-audit P1-06: color-relief renders BELOW the hillshade so the
+        # builder-audit #338 P1-06: color-relief renders BELOW the hillshade so the
         # shading sits on top of the tint (mirrors color-relief-sync.ts beforeId).
         relief = _color_relief_companion_layer(layer, source_id, layer_id)
         if relief is not None:
@@ -1191,7 +1191,7 @@ def _style_layer_for_map_layer(
     return [*below_companions, base, *above_companions]
 
 
-# builder-audit SPEC-01: per-layer-type MapLibre paint/layout property allow-lists.
+# builder-audit #338 SPEC-01: per-layer-type MapLibre paint/layout property allow-lists.
 # `build_maplibre_style` copies stored paint/layout into the output verbatim (minus
 # `_`-prefixed builder keys), so without this a misspelled ('fill-colour') or
 # wrong-surface property would be persisted and re-emitted, producing a document
@@ -1394,7 +1394,7 @@ def _strip_unknown_properties(
 def _strip_wrong_typed_values(layer: dict[str, Any], key: str) -> None:
     """Strip paint/layout values whose scalar type violates the GL spec contract.
 
-    builder-audit SPEC-01: the property-name allowlist catches misspelled keys,
+    builder-audit #338 SPEC-01: the property-name allowlist catches misspelled keys,
     but not a wrong-typed value (e.g. a string where ``*-opacity`` expects a
     number — the source of the NaN-opacity math flagged in ADAPT-11). Expressions
     (lists) are validated at runtime by MapLibre, so they are passed through; only
@@ -1481,7 +1481,7 @@ def build_maplibre_style(
         if src_type in _LINE_GRADIENT_SOURCE_TYPES:
             src["lineMetrics"] = True
         else:
-            # Phase 20260526-builder-audit BLD-20260526-11: builder-intent on incompatible source emits no warning otherwise. The
+            # Phase 20260526-builder-audit #338 BLD-20260526-11: builder-intent on incompatible source emits no warning otherwise. The
             # paint-drop path warns when paint['line-gradient'] is present, but a builder-
             # intent-only mismatch (e.g. raster layer with style_config.builder.lineGradient)
             # would silently fail without this. Symmetric to _drop_unsupported_line_gradient.
@@ -1508,7 +1508,7 @@ def build_maplibre_style(
             # the terrain root straight at it.
             terrain_block = {"source": terrain_source_id, "exaggeration": exaggeration}
         else:
-            # builder-audit P1-05: the DEM dataset is rendered as a plain raster (e.g.
+            # builder-audit #338 P1-05: the DEM dataset is rendered as a plain raster (e.g.
             # the "image" DEM render mode) or has no visible layer, so the existing
             # source is NOT a valid `raster-dem` for the MapLibre terrain root. Emit a
             # DEDICATED raster-dem mesh source for the terrain dataset regardless of
@@ -1550,7 +1550,7 @@ def build_maplibre_style(
                 "description": map_obj.description,
                 "basemap_style": map_obj.basemap_style,
                 "show_basemap_labels": map_obj.show_basemap_labels,
-                # builder-audit STYLE-04: lenient on the read/export path so stored
+                # builder-audit #338 STYLE-04: lenient on the read/export path so stored
                 # schema skew degrades instead of 500-ing GET style.json.
                 "basemap_config": _clean_basemap_config(
                     getattr(map_obj, "basemap_config", None), lenient=True
@@ -1563,13 +1563,13 @@ def build_maplibre_style(
         "sources": sources,
         "layers": style_layers,
     }
-    # builder-audit SPEC-07: emit `projection` at the GL style root from
+    # builder-audit #338 SPEC-07: emit `projection` at the GL style root from
     # basemap_config so a spec-conformant consumer honors it in spec position
     # (not only inside the private basemap_config metadata namespace).
     basemap_config = style["metadata"]["geolens"]["basemap_config"]
     if isinstance(basemap_config, dict) and basemap_config.get("projection"):
         style["projection"] = {"type": basemap_config["projection"]}
-    # builder-audit SPEC-07: pass through GL root light/transition when the Map
+    # builder-audit #338 SPEC-07: pass through GL root light/transition when the Map
     # carries them (no dedicated column yet — preserved opportunistically).
     for root_key in ("light", "transition"):
         value = getattr(map_obj, root_key, None)
@@ -1583,7 +1583,7 @@ def build_maplibre_style(
     style["pitch"] = map_obj.pitch or 0
     if terrain_block:
         style["terrain"] = terrain_block
-    # builder-audit SPEC-01: validate the produced document against a per-layer
+    # builder-audit #338 SPEC-01: validate the produced document against a per-layer
     # paint/layout property allow-list before returning, so a misspelled or
     # wrong-surface property cannot be emitted in the MapLibre style JSON.
     _validate_emitted_style(style)
@@ -1727,7 +1727,7 @@ def _builder_from_color_relief_companion(
     style_config: dict[str, Any],
     builder: dict[str, Any],
 ) -> None:
-    # builder-audit P1-06: reconstruct the DEM hypsometric-tint builder flags from
+    # builder-audit #338 P1-06: reconstruct the DEM hypsometric-tint builder flags from
     # the color-relief companion (the ramp name is carried in companion metadata).
     if "hypso_enabled" not in builder and "hypsoEnabled" not in builder:
         builder["hypso_enabled"] = True
@@ -1742,7 +1742,7 @@ def _builder_from_color_relief_companion(
         builder["hypso_ramp"] = ramp
 
 
-# builder-audit STYLE-02: per-companion-type parse registry. Paired with the emit
+# builder-audit #338 STYLE-02: per-companion-type parse registry. Paired with the emit
 # helpers above (`_fill_companion_layers` / `_line_arrow_companion_layer` /
 # `_color_relief_companion_layer`), this keeps export and import for each builder
 # companion type discoverable together and makes adding a type a single entry rather
@@ -1787,7 +1787,7 @@ def parse_maplibre_style_import(style: dict[str, Any]) -> ImportedStyleMap:
         summary.sources_matched += 1
 
     imported_layers: list[MapLayerInput] = []
-    # builder-audit STYLE-02: one companion bucket keyed by parent layer id, then by
+    # builder-audit #338 STYLE-02: one companion bucket keyed by parent layer id, then by
     # companion type — instead of N parallel dicts that must each be remembered when
     # a new companion type is added.
     companions_by_parent: dict[str, dict[str, dict[str, Any]]] = {}
@@ -1941,7 +1941,7 @@ def parse_maplibre_style_import(style: dict[str, Any]) -> ImportedStyleMap:
         summary=summary,
         terrain_config=terrain_config,
         basemap_config=basemap_config,
-        # builder-audit SPEC-07: preserve GL root light/transition across import.
+        # builder-audit #338 SPEC-07: preserve GL root light/transition across import.
         light=style.get("light") if isinstance(style.get("light"), dict) else None,
         transition=style.get("transition")
         if isinstance(style.get("transition"), dict)

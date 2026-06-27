@@ -59,7 +59,7 @@ _STYLE_CONFIG_BUILDER_KEY = "builder"
 # style_config.builder keys to snake_case before storage — keeping the DB
 # schema consistent regardless of which client wrote the row.
 #
-# builder-audit STYLE-01 / SPEC-08: this table is the AUTHORITATIVE backend
+# builder-audit #338 STYLE-01 / SPEC-08: this table is the AUTHORITATIVE backend
 # builder camelCase->snake_case alias map. The snake_case->camelCase direction
 # used on style export is derived programmatically below as
 # `BUILDER_SNAKE_TO_CAMEL_KEYS`; `style_json.py` imports that inverse instead
@@ -93,7 +93,7 @@ _BUILDER_CAMEL_TO_SNAKE_KEYS = {
     "folderGroupExpanded": "folder_group_expanded",
 }
 
-# builder-audit STYLE-01 / SPEC-08: derived snake_case->camelCase inverse of the
+# builder-audit #338 STYLE-01 / SPEC-08: derived snake_case->camelCase inverse of the
 # authoritative table above. `style_json.py` imports THIS instead of redefining
 # its own `_BUILDER_KEY_ALIASES`, so the export direction can never drift from
 # the storage-canonicalization direction (the inverse is exhaustive — it
@@ -361,7 +361,7 @@ class SublayerOverride(BaseModel):
             "Per-sublayer opacity (0-1), or null to use the basemap default. "
             "Composes on top of BasemapConfig.opacity (the whole-basemap master "
             "opacity): the rendered opacity is override.opacity * master_opacity "
-            "(builder-audit CORR-01). The UI opacity slider in "
+            "(builder-audit #338 CORR-01). The UI opacity slider in "
             "BasemapSublayerEditorScene persists through this field: "
             "MapBuilderPage.handleSublayerOpacityChange -> setBasemapSublayerOpacity "
             "-> updateBasemapSublayerOverride writes config.sublayer_overrides[key].opacity."
@@ -496,7 +496,7 @@ class LabelTextAnchor(str, Enum):
 
 
 class LabelConfig(BaseModel):
-    """Per-layer text-label configuration (builder-audit P2-05).
+    """Per-layer text-label configuration (builder-audit #338 P2-05).
 
     Previously ``label_config`` was an untyped ``dict`` at the API boundary
     while the frontend adapters (``label-layer-utils.ts``) assumed specific
@@ -559,7 +559,7 @@ class LabelConfig(BaseModel):
 def _validate_label_config_dict(v: dict | None) -> dict | None:
     """Validate label_config bounds/enums through LabelConfig, return a dict.
 
-    builder-audit P2-05: the field stays a plain ``dict`` on the wire/storage
+    builder-audit #338 P2-05: the field stays a plain ``dict`` on the wire/storage
     boundary (downstream code assigns it straight to a JSONB column), but every
     write is now validated against ``LabelConfig`` — out-of-range haloWidth,
     bad placement/textAnchor enums, etc. are rejected with a 422. ``extra=
@@ -612,14 +612,14 @@ class MapLayerInput(BaseModel):
 
     _validate_paint = field_validator("paint")(_validate_style_dict)
     _validate_layout = field_validator("layout")(_validate_style_dict)
-    # builder-audit P2-05: validate label_config bounds/enums via LabelConfig but
+    # builder-audit #338 P2-05: validate label_config bounds/enums via LabelConfig but
     # keep the stored value a plain dict so downstream JSONB assignment is
     # unchanged (see _validate_label_config_dict).
     _validate_label_config = field_validator("label_config")(
         _validate_label_config_dict
     )
     _validate_style_config = field_validator("style_config")(_validate_style_dict)
-    # builder-audit P1-04: validate/normalize the editable MapLibre filter subset
+    # builder-audit #338 P1-04: validate/normalize the editable MapLibre filter subset
     # (shared with style import/export and AI set_filter via filter_grammar).
     _validate_filter = field_validator("filter")(validate_filter)
     layer_type: str | None = Field(
@@ -672,14 +672,14 @@ class MapLayerPatch(BaseModel):
 
     _validate_paint = field_validator("paint")(_validate_style_dict)
     _validate_layout = field_validator("layout")(_validate_style_dict)
-    # builder-audit P2-05: validate label_config bounds/enums via LabelConfig but
+    # builder-audit #338 P2-05: validate label_config bounds/enums via LabelConfig but
     # keep the stored value a plain dict so downstream JSONB assignment is
     # unchanged (see _validate_label_config_dict).
     _validate_label_config = field_validator("label_config")(
         _validate_label_config_dict
     )
     _validate_style_config = field_validator("style_config")(_validate_style_dict)
-    # builder-audit P1-04: validate/normalize the editable MapLibre filter subset
+    # builder-audit #338 P1-04: validate/normalize the editable MapLibre filter subset
     # (shared with style import/export and AI set_filter via filter_grammar).
     _validate_filter = field_validator("filter")(validate_filter)
 

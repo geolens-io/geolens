@@ -4,7 +4,7 @@ import { getNumberPaint } from './paint-accessors';
 import { RASTER_PAINT_DEFAULTS } from './layer-adapters/raster-adapter';
 
 /**
- * builder-audit DUP-04: the single brightness/contrast/saturation/hue appearance
+ * builder-audit #338 DUP-04: the single brightness/contrast/saturation/hue appearance
  * slider surface, previously implemented twice — once in RasterEditor (RenderModeSwitch
  * path) and once in RasterLayerControls (LayerEditorPanel path) with subtly different
  * step values and formatting. Both editors now consume this component so a fix lands once.

@@ -153,7 +153,7 @@ export const StackRow = memo(function StackRow({
 
   const displayName = layer.display_name ?? layer.dataset_name;
 
-  // builder-audit STACK-03: shared inline-rename state machine (was duplicated
+  // builder-audit #338 STACK-03: shared inline-rename state machine (was duplicated
   // verbatim with FolderGroupRow).
   const {
     editing,
@@ -223,7 +223,7 @@ export const StackRow = memo(function StackRow({
       className={cn(
         // SP-14: explicit cursor-pointer + hover tint on the row body so hover
         // affordance is discoverable across the whole row, not just child controls.
-        // builder-audit STACK-04: shared grid template + state classes.
+        // builder-audit #338 STACK-04: shared grid template + state classes.
         'group/row grid', STACK_ROW_GRID, 'gap-2 items-center py-2 px-2 cursor-pointer select-none',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset',
         // Row states — unified: either single-selection focus OR multi-selection shows primary tint
@@ -264,7 +264,7 @@ export const StackRow = memo(function StackRow({
         </span>
       )}
 
-      {/* Cell 2: Grip handle (builder-audit STACK-04: shared DragGripButton).
+      {/* Cell 2: Grip handle (builder-audit #338 STACK-04: shared DragGripButton).
           Phase 1199 STACK-05: reveal the reorder grip on coarse-pointer/touch. */}
       <DragGripButton
         dragHandleProps={dragHandleProps}

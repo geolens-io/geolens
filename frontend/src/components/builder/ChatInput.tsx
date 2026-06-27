@@ -24,7 +24,7 @@ const SLASH_COMMAND_IDS = ['style', 'filter', 'label', 'query', 'add'] as const;
 
 /**
  * Detect an active @-mention or /-command trigger ending at `cursorPos`.
- * Exported for unit testing (builder-audit TEST-01): the cursor-sliced regex is
+ * Exported for unit testing (builder-audit #338 TEST-01): the cursor-sliced regex is
  * exactly the off-by-one-prone logic that previously had zero coverage.
  */
 export function detectTrigger(value: string, cursorPos: number): TriggerState | null {
@@ -60,7 +60,7 @@ function filterItems(items: MentionItem[], query: string): MentionItem[] {
 
 /**
  * Compute the value + cursor position after inserting `item` for an active
- * trigger. Pure and exported for unit testing (builder-audit TEST-01) — covers
+ * trigger. Pure and exported for unit testing (builder-audit #338 TEST-01) — covers
  * bracket vs plain insertion and the +1-for-trigger-char offset arithmetic.
  *
  * `@`-mentions whose label contains a space use bracket syntax (`@[Layer Name] `);

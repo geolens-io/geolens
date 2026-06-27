@@ -238,7 +238,7 @@ async def test_sprite_png_reuses_cache_until_icon_catalog_changes(monkeypatch):
     assert storage.get_count == 3
 
 
-# builder-audit STYLE-05: the hand-rolled SVG path parser/rasterizer is a
+# builder-audit #338 STYLE-05: the hand-rolled SVG path parser/rasterizer is a
 # deliberate no-native-dependency tradeoff that approximates bezier/arc curves
 # (C/S/Q/T/A) by their endpoint only. The tests below PIN that approximation so
 # it cannot silently regress (or be silently "fixed" without acknowledgement).
@@ -258,7 +258,7 @@ def _render_alpha(d: str, fill: str = "#2563eb") -> bytes:
 
 
 def test_path_points_collapses_bezier_to_endpoints():
-    # builder-audit STYLE-05: cubic (C) + quadratic (Q) commands keep only the
+    # builder-audit #338 STYLE-05: cubic (C) + quadratic (Q) commands keep only the
     # final endpoint of each curve. Z closes the subpath back to the start.
     assert _path_points("M2 2 C 4 8 8 8 10 2 Q 14 0 18 6 Z") == [
         [(2.0, 2.0), (10.0, 2.0), (18.0, 6.0), (2.0, 2.0)],
@@ -266,7 +266,7 @@ def test_path_points_collapses_bezier_to_endpoints():
 
 
 def test_path_points_collapses_arc_to_endpoint():
-    # builder-audit STYLE-05: an elliptical arc (A) collapses to its endpoint;
+    # builder-audit #338 STYLE-05: an elliptical arc (A) collapses to its endpoint;
     # the 7 arc params are consumed but only the final (x, y) is plotted.
     assert _path_points("M4 12 A 8 8 0 0 1 20 12 L 12 20 Z") == [
         [(4.0, 12.0), (20.0, 12.0), (12.0, 20.0), (4.0, 12.0)],
@@ -274,7 +274,7 @@ def test_path_points_collapses_arc_to_endpoint():
 
 
 def test_path_points_relative_curve_collapses_to_endpoint():
-    # builder-audit STYLE-05: relative curve commands resolve against the
+    # builder-audit #338 STYLE-05: relative curve commands resolve against the
     # running cursor, still collapsing to the (relative) endpoint.
     assert _path_points("m2 2 c 2 6 6 6 8 0 z") == [
         [(2.0, 2.0), (10.0, 2.0), (2.0, 2.0)],
@@ -282,7 +282,7 @@ def test_path_points_relative_curve_collapses_to_endpoint():
 
 
 def test_render_icon_bezier_matches_straight_line_approximation():
-    # builder-audit STYLE-05 golden image: a path with cubic/quadratic curves
+    # builder-audit #338 STYLE-05 golden image: a path with cubic/quadratic curves
     # rasterizes pixel-identical to the same path with the curves replaced by
     # straight lines to their endpoints — proving the curve approximation.
     curved = _render_alpha("M2 2 C 4 8 8 8 10 2 Q 14 0 18 6 Z")
@@ -293,7 +293,7 @@ def test_render_icon_bezier_matches_straight_line_approximation():
 
 
 def test_render_icon_arc_matches_straight_line_approximation():
-    # builder-audit STYLE-05 golden image: an elliptical-arc path rasterizes
+    # builder-audit #338 STYLE-05 golden image: an elliptical-arc path rasterizes
     # pixel-identical to the same path with the arc replaced by a straight line
     # to its endpoint.
     curved = _render_alpha("M4 12 A 8 8 0 0 1 20 12 L 12 20 Z", fill="#0f766e")

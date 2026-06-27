@@ -2,7 +2,7 @@ import { fireEvent, render, screen } from '@/test/test-utils';
 import { UnifiedStackPanel, CatalogDragGhost } from '../UnifiedStackPanel';
 import type { MapLayerResponse } from '@/types/api';
 // MAP-16: raw source import for the rAF source-text pin (project pattern from preserve-drawing-buffer.test.ts)
-// builder-audit STACK-03: the rAF-deferred rename focus moved from FolderGroupRow
+// builder-audit #338 STACK-03: the rAF-deferred rename focus moved from FolderGroupRow
 // into the shared useInlineRename hook; the source-text pin below targets the hook.
 import useInlineRenameSrc from '../useInlineRename.ts?raw';
 import type { DraggableAttributes, DraggableSyntheticListeners } from '@dnd-kit/core';

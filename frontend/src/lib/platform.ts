@@ -1,4 +1,4 @@
-// builder-audit STACK-07: single source of truth for Mac-platform detection and
+// builder-audit #338 STACK-07: single source of truth for Mac-platform detection and
 // the Save keyboard chord. Previously duplicated in MapTitleBar.tsx and
 // KeyboardShortcutsSheet.tsx, which could (and did) drift on the displayed glyph.
 export const IS_MAC =

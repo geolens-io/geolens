@@ -108,7 +108,7 @@ describe('renderAs view model', () => {
 
     expect(RENDERER_CAPABILITIES.length).toBeGreaterThan(0);
     expect(capabilities.map((entry) => entry.id)).toEqual(['line', 'arrow']);
-    // builder-audit ADAPT-07: RendererCapability is trimmed to {id,label,source,
+    // builder-audit #338 ADAPT-07: RendererCapability is trimmed to {id,label,source,
     // requiresClusterSource}; assert the surviving consumed fields only (no inert
     // backend/companionLayers/viewerSupport/styleJsonSupport/writableFields metadata).
     expect(arrow).toMatchObject({ id: 'arrow', label: 'Arrow', source: 'vector-line' });

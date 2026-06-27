@@ -1,6 +1,6 @@
 """Shared MapLibre filter-expression validator/normalizer.
 
-builder-audit P1-04: a single source of truth for the editable subset of
+builder-audit #338 P1-04: a single source of truth for the editable subset of
 MapLibre expression-form layer filters. Backend layer schemas, the
 style-export/import path, and the AI ``set_filter`` validation all call
 ``validate_filter`` so a filter that is accepted, stored, exported, and
@@ -158,7 +158,7 @@ def _normalize_node(node: Any) -> list:
 
 
 def validate_filter(value: list | None) -> list | None:
-    """Validate + normalize a MapLibre layer filter (builder-audit P1-04).
+    """Validate + normalize a MapLibre layer filter (builder-audit #338 P1-04).
 
     ``None`` and ``[]`` both clear the filter (return ``None``). A recognized
     form with invalid arity raises ``FilterValidationError``; opaque

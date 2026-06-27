@@ -62,7 +62,7 @@ export const queryKeys = {
     history: (mapId: string | undefined, skip: number, limit: number) =>
       ['map-history', mapId, skip, limit] as const,
     historyPrefix: (mapId: string | undefined) => ['map-history', mapId] as const,
-    // builder-audit P1-11: public-safe AI readiness signal for non-admin editors.
+    // builder-audit #338 P1-11: public-safe AI readiness signal for non-admin editors.
     aiAvailability: ['ai-availability'] as const,
     shareToken: (mapId: string | undefined) => ['map-share-token', mapId] as const,
     embedTokens: (mapId: string | undefined) => ['map-embed-tokens', mapId] as const,

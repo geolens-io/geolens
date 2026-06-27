@@ -10,7 +10,7 @@ export function resolveTileBaseUrl(
 }
 
 /**
- * builder-audit P1-01: the single MVT `source-layer` name helper.
+ * builder-audit #338 P1-01: the single MVT `source-layer` name helper.
  *
  * The MapLibre vector source-layer name must match the layer name the tile
  * server emits inside the MVT payload AND the URL path used to sign tiles. This

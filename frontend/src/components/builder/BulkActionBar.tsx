@@ -40,7 +40,7 @@ export interface BulkActionBarProps {
 }
 
 // ---------------------------------------------------------------------------
-// builder-audit STACK-01/STACK-08: getParentGroupId and isFolderGroupLayer are
+// builder-audit #338 STACK-01/STACK-08: getParentGroupId and isFolderGroupLayer are
 // imported from their canonical homes (folder-groups.ts / layer-capabilities.ts)
 // instead of being re-implemented inline with `as unknown as` / a hard-coded
 // 'group:folder' substring check.

@@ -12,7 +12,7 @@ T = TypeVar("T", bound="AIAvailabilityResponse")
 
 @_attrs_define
 class AIAvailabilityResponse:
-    """Public-safe AI readiness signal (builder-audit P1-11).
+    """Public-safe AI readiness signal (builder-audit #338 P1-11).
 
     Carries a single boolean and intentionally exposes NO provider name, model,
     or key detail — it is readable by any non-admin editor holding

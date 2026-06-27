@@ -1,4 +1,4 @@
-// builder-audit STACK-05: shared types for the unified stack sub-components,
+// builder-audit #338 STACK-05: shared types for the unified stack sub-components,
 // extracted from UnifiedStackPanel.tsx so the sortable wrappers can live in
 // sibling files without importing the 1200-line panel module.
 

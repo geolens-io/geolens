@@ -3,7 +3,7 @@ import { GripVertical } from 'lucide-react';
 import type { DraggableAttributes, DraggableSyntheticListeners } from '@dnd-kit/core';
 import { cn } from '@/lib/utils';
 
-// builder-audit STACK-04: shared 6-cell grid template for every stack row
+// builder-audit #338 STACK-04: shared 6-cell grid template for every stack row
 // (StackRow, FolderGroupRow, BasemapGroupRow). Hoisted to one const so a
 // column-width change happens in a single place. SublayerRow keeps its own
 // 7-column variant (it carries an extra indicator/opacity cell).
@@ -15,7 +15,7 @@ export interface DragHandleProps {
   setActivatorNodeRef: (node: HTMLButtonElement | null) => void;
 }
 
-// builder-audit STACK-04: shared selected / hover / dragging tint block. All
+// builder-audit #338 STACK-04: shared selected / hover / dragging tint block. All
 // three rows previously copy-pasted near-identical cn() expressions; the
 // `--surface-2` theme fallback variant is the superset and is used everywhere.
 export function rowStateClasses({
@@ -48,7 +48,7 @@ interface DragGripButtonProps {
   onBlur?: (e: FocusEvent<HTMLButtonElement>) => void;
 }
 
-// builder-audit STACK-04: the grip <button> + its load-bearing dnd-kit warning
+// builder-audit #338 STACK-04: the grip <button> + its load-bearing dnd-kit warning
 // previously lived (copy-pasted) in StackRow, FolderGroupRow, and BasemapGroupRow.
 // Consolidated here so the warning is stated once and cannot drift.
 export function DragGripButton({
@@ -77,7 +77,7 @@ export function DragGripButton({
         listenersSuppressed && 'cursor-not-allowed opacity-20',
         className,
       )}
-      // 2026-05-18 (builder-audit STACK-04): do NOT add onPointerDown={stopPropagation}
+      // 2026-05-18 (builder-audit #338 STACK-04): do NOT add onPointerDown={stopPropagation}
       // here — it overrides dnd-kit's PointerSensor activator (spread above) and breaks
       // pointer drag entirely. onClick stopPropagation alone suppresses row selection on
       // grip click; pointer events do not trigger onClick handlers.

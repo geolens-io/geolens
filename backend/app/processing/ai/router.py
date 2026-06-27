@@ -69,7 +69,7 @@ _AI_METADATA_LIMIT = "20/minute"
 
 
 class AIAvailabilityResponse(BaseModel):
-    """Public-safe AI readiness signal (builder-audit P1-11).
+    """Public-safe AI readiness signal (builder-audit #338 P1-11).
 
     Carries a single boolean and intentionally exposes NO provider name, model,
     or key detail — it is readable by any non-admin editor holding
@@ -83,7 +83,7 @@ class AIAvailabilityResponse(BaseModel):
 async def _ai_availability(db: AsyncSession) -> bool:
     """Return whether builder chat is usable WITHOUT raising or leaking detail.
 
-    builder-audit P1-11: same readiness predicate as ``_check_ai_available``
+    builder-audit #338 P1-11: same readiness predicate as ``_check_ai_available``
     (AI enabled at runtime AND the admin-selected LLM provider has a key), but
     collapsed to a boolean so a permitted editor gets a graceful disabled state
     instead of a 403/503. Provider/key specifics are never surfaced here.
@@ -127,7 +127,7 @@ async def ai_availability_endpoint(
     user: Identity = Depends(require_permission("use_ai_chat")),
     db: AsyncSession = Depends(get_db),
 ) -> AIAvailabilityResponse:
-    """Report whether builder AI chat is usable (builder-audit P1-11).
+    """Report whether builder AI chat is usable (builder-audit #338 P1-11).
 
     Permission-gated on ``use_ai_chat`` so non-admin editors (who cannot read
     ``/admin/ai-status``) can learn availability. Returns ``available=false``

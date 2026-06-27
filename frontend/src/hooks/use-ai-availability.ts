@@ -9,7 +9,7 @@ import { queryKeys } from '@/lib/query-keys';
  * Resolves whether the caller can use builder AI chat, combining AI readiness
  * with the caller's `use_ai_chat` capability.
  *
- * ## Two readiness sources (builder-audit P1-11)
+ * ## Two readiness sources (builder-audit #338 P1-11)
  *
  * - **Admins** read the detailed `/api/admin/ai-status/` endpoint (provider, key
  *   presence) so the disabled-state UI can distinguish `env_disabled` vs `no_key`.

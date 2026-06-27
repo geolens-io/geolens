@@ -1,4 +1,4 @@
-"""builder-audit P1-13: AI set_filter actions are validated against the full
+"""builder-audit #338 P1-13: AI set_filter actions are validated against the full
 shared MapLibre filter grammar (filter_grammar.validate_filter), not just
 ``["get", ...]`` column refs.
 

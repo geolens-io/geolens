@@ -12,7 +12,7 @@ import {
   syncLayerFilter,
 } from './shared';
 import { MAP_COLORS } from '@/lib/map-colors';
-// builder-audit DRY-06: arrow render-mode defaults come from the single builder-defaults
+// builder-audit #338 DRY-06: arrow render-mode defaults come from the single builder-defaults
 // source of truth (shared with renderAs + backend mirror) instead of bare 14/80 literals.
 import { DEFAULT_ARROW_SIZE, DEFAULT_ARROW_SPACING } from './builder-defaults';
 

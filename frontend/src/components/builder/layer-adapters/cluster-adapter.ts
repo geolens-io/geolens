@@ -11,7 +11,7 @@ import {
   syncOwnedPaintProperties,
   syncSingleLayerVisibility,
 } from './shared';
-// builder-audit ADAPT-03: the unclustered point mirrors the standalone circle adapter —
+// builder-audit #338 ADAPT-03: the unclustered point mirrors the standalone circle adapter —
 // reuse its exact owned-property set and default paint instead of duplicating them.
 import { CIRCLE_OWNED_PAINT_PROPERTIES } from './circle-adapter';
 import { DEFAULT_CIRCLE_PAINT } from './builder-defaults';
@@ -103,7 +103,7 @@ function unclusteredPointPaint(input: AdapterLayerInput) {
     : { ...DEFAULT_CIRCLE_PAINT };
 }
 
-// builder-audit ADAPT-04: the cluster-circle paint, cluster-count layout, and
+// builder-audit #338 ADAPT-04: the cluster-circle paint, cluster-count layout, and
 // cluster-count paint are built ONCE here and consumed by both the add-time and
 // sync-time paths, so the step bucket thresholds (100/750) and stroke/text styling
 // can no longer drift between first render and a subsequent sync.

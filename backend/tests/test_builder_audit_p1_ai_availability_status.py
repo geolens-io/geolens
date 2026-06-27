@@ -1,4 +1,4 @@
-"""builder-audit P1-11 + P1-12: AI availability signal for non-admin editors,
+"""builder-audit #338 P1-11 + P1-12: AI availability signal for non-admin editors,
 and admin AI status built from the SELECTED LLM provider.
 
 P1-11: a ``use_ai_chat`` editor can read ``GET /ai/availability/`` (a

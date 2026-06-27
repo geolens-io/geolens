@@ -124,7 +124,7 @@ describe('getDataDrivenColumnsForLayer', () => {
     expect(cols).toEqual([]);
   });
 
-  // builder-audit P1-03: filter-only columns must survive the z<10 attribute
+  // builder-audit #338 P1-03: filter-only columns must survive the z<10 attribute
   // budget, so the column collector now walks layer.filter for get/has refs.
   it('extracts a filter-only column referenced via ["get", col] (P1-03)', () => {
     const cols = getDataDrivenColumnsForLayer({

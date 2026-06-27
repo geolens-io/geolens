@@ -6,7 +6,7 @@ import { RasterStretchControls } from './LayerStyleEditor/RasterStretchControls'
 import { RasterAppearanceSliders, RasterSliderRow } from './RasterAppearanceSliders';
 import { RASTER_PAINT_DEFAULTS } from './layer-adapters/raster-adapter';
 
-// builder-audit DUP-02: derive the reset allowlist from the adapter's
+// builder-audit #338 DUP-02: derive the reset allowlist from the adapter's
 // RASTER_PAINT_DEFAULTS (the documented single source of truth / paint-key
 // allowlist) instead of re-hardcoding the 7 keys here.
 const RASTER_PAINT_KEYS = Object.keys(RASTER_PAINT_DEFAULTS) as (keyof typeof RASTER_PAINT_DEFAULTS)[];
@@ -22,7 +22,7 @@ interface RasterLayerControlsProps {
   bandCount?: number | null;
 }
 
-// builder-audit DEAD-01 / DUP-01: this control is raster-only. The former
+// builder-audit #338 DEAD-01 / DUP-01: this control is raster-only. The former
 // renderMode==='hillshade' branch was unreachable dead code — DEM layers route to
 // DEMEditorScene (the single hillshade editor) via deriveBuilderEditorScene, never to
 // LayerEditorPanel/RasterLayerControls. The hillshade UI + HILLSHADE_PAINT_KEYS + getString

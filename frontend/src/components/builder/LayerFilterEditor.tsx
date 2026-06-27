@@ -42,7 +42,7 @@ interface OperatorDef {
   value: string;
 }
 
-// builder-audit DRY-02: NUMERIC_COMPARISON_OPERATORS now imported from
+// builder-audit #338 DRY-02: NUMERIC_COMPARISON_OPERATORS now imported from
 // maplibre-filter-utils (the single canonical copy) instead of re-declared here.
 
 // Discriminated union returned by parseFilterExpression
@@ -162,7 +162,7 @@ export function buildFilterExpression(
 }
 
 export function parseFilterExpression(expr: FilterSpecification | null): ParseResult {
-  // builder-audit DRY-01/FILT-01/FILT-02: delegate all filter recognition to the
+  // builder-audit #338 DRY-01/FILT-01/FILT-02: delegate all filter recognition to the
   // single canonical parser in maplibre-filter-utils so the structured editor and
   // ActiveFilterChips cannot drift again. We only re-attach editor-local row ids.
   const canonical = parseCanonicalFilter(expr);
@@ -223,7 +223,7 @@ export function LayerFilterEditor({
     return col ? classifyColumnType(col.type) : 'other';
   }
 
-  // Phase 20260526-builder-audit BLD-20260526-11: cleanup debounce timer on unmount.
+  // Phase 20260526-builder-audit #338 BLD-20260526-11: cleanup debounce timer on unmount.
   useEffect(() => {
     return () => {
       if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
@@ -237,7 +237,7 @@ export function LayerFilterEditor({
     onFilterChange(newFilter);
   }
 
-  // Phase 20260526-builder-audit BLD-20260526-11: debounced version for value input keystrokes.
+  // Phase 20260526-builder-audit #338 BLD-20260526-11: debounced version for value input keystrokes.
   const debouncedEmit = useCallback(
     (updated: FilterCondition[], combo: 'all' | 'any') => {
       if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
@@ -332,7 +332,7 @@ export function LayerFilterEditor({
       return;
     }
 
-    // builder-audit P1-04: validate + normalize against the shared filter grammar
+    // builder-audit #338 P1-04: validate + normalize against the shared filter grammar
     // (mirrors backend validate_filter) so invalid arity / unsupported legacy
     // forms are rejected here instead of being saved and surfacing late as a
     // MapLibre setFilter error. Opaque-but-valid filters are preserved verbatim.

@@ -525,7 +525,7 @@ async def import_map_style_endpoint(
     and the auto-generated SDKs stop emitting an opaque ``Mapping[str, Any]``
     request type.
     """
-    # builder-audit STYLE-08: MapStyleImportRequest defines no field aliases, so
+    # builder-audit #338 STYLE-08: MapStyleImportRequest defines no field aliases, so
     # the prior by_alias=True was a no-op that implied aliasing that doesn't exist.
     style = body.model_dump(exclude_none=True)
     try:
@@ -744,7 +744,7 @@ async def update_map_endpoint(
     if body.visibility is not None and body.visibility != MapVisibility.public:
         if map_obj.visibility == "public":
             await revoke_share_token_by_map(db, map_id)
-            # builder-audit P0-01: a public->non-public downgrade must also revoke
+            # builder-audit #338 P0-01: a public->non-public downgrade must also revoke
             # embed tokens, which previously survived (only the share token was
             # flipped) and kept serving tiles for a now-private map until expiry.
             await revoke_embed_tokens_by_map(db, map_id)
@@ -821,7 +821,7 @@ async def update_map_endpoint(
             ip_address=request.client.host if request.client else None,
         ),
     )
-    # builder-audit STYLE-06: the per-field history events were six near-identical
+    # builder-audit #338 STYLE-06: the per-field history events were six near-identical
     # copy-pasted record_map_history_event blocks. Drive them from one table of
     # (changed, action, summary, details) and loop uniformly so a new
     # history-tracked field is a single row, not another hand-written block. The
@@ -911,7 +911,7 @@ async def update_map_endpoint(
         )
 
     if "layers" in kwargs:
-        # builder-audit P0-01: replacing the layer set can drop a dataset an
+        # builder-audit #338 P0-01: replacing the layer set can drop a dataset an
         # embed token is scoped to; revoke any orphaned embed tokens so they
         # stop serving tiles for content the map no longer exposes.
         await revoke_embed_tokens_for_dropped_datasets(db, map_id)
@@ -1083,7 +1083,7 @@ async def patch_map_layers_endpoint(
             summary="Reordered layers",
             details={"order": [str(layer_id) for layer_id in body.order]},
         )
-    # builder-audit P0-01: a diff that removes layers can drop a dataset an embed
+    # builder-audit #338 P0-01: a diff that removes layers can drop a dataset an embed
     # token is scoped to; revoke any now-orphaned embed tokens.
     if body.removed:
         await revoke_embed_tokens_for_dropped_datasets(db, map_id)
@@ -1232,7 +1232,7 @@ async def share_map_endpoint(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Map must be public before sharing",
         )
-    # builder-audit P1-14: custom share expiration is an advanced-sharing control.
+    # builder-audit #338 P1-14: custom share expiration is an advanced-sharing control.
     # The UI hides it in Community, but the backend accepted any expires_at — gate
     # it here with the same error taxonomy embed tokens use so API clients cannot
     # bypass the product gate. The basic Community share/revoke flow (no expiry)
@@ -1292,7 +1292,7 @@ async def update_map_share_token_endpoint(
             detail="Map not found",
         )
     await check_map_ownership(map_obj, user, db)
-    # builder-audit P1-14: gate custom expiration on update too. Null clears
+    # builder-audit #338 P1-14: gate custom expiration on update too. Null clears
     # expiration (basic Community flow, allowed); a non-null custom expiry is an
     # advanced-sharing control reserved for Enterprise.
     if body.expires_at is not None and not is_enterprise():
@@ -1347,16 +1347,18 @@ async def revoke_map_share_endpoint(
             detail="Map not found",
         )
     await check_map_ownership(map_obj, user, db)
-    revoked = await revoke_share_token_by_map(db, map_id)
-    if not revoked:
+    # builder-audit #338 P0-01: revoking sharing must also revoke the map's embed
+    # tokens; previously they survived and kept serving tiles via copied iframe URLs
+    # until natural expiry. Revoke embeds INDEPENDENT of the share token so an
+    # orphaned embed token (no active share token) is still cleaned up rather than
+    # short-circuited by the share-token 404 (Codex P1).
+    revoked_share = await revoke_share_token_by_map(db, map_id)
+    revoked_embed = await revoke_embed_tokens_by_map(db, map_id)
+    if not revoked_share and not revoked_embed:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="No active share token found",
+            detail="No active share or embed token found",
         )
-    # builder-audit P0-01: revoking sharing must also revoke embed tokens for the
-    # map; previously they survived and kept serving tiles via copied iframe URLs
-    # until natural expiry.
-    await revoke_embed_tokens_by_map(db, map_id)
     await audit_emit(
         db,
         AuditEvent(
@@ -1785,7 +1787,7 @@ async def remove_layer_endpoint(
             "sort_order": layer.sort_order,
         },
     )
-    # builder-audit P0-01: removing a layer can drop a dataset an embed token is
+    # builder-audit #338 P0-01: removing a layer can drop a dataset an embed token is
     # scoped to; revoke any now-orphaned embed tokens for the map.
     await revoke_embed_tokens_for_dropped_datasets(db, map_id)
     await db.commit()
@@ -1826,7 +1828,7 @@ async def bulk_delete_layers_endpoint(
 
     deleted_count = len(deleted_ids)
 
-    # Phase 20260526-builder-audit BLD-20260526-11: only emit audit/history when something was actually deleted.
+    # Phase 20260526-builder-audit #338 BLD-20260526-11: only emit audit/history when something was actually deleted.
     # A request where all IDs are not_found produces deleted_count=0; emitting
     # audit rows in that case creates false positives for monitoring systems.
     if deleted_count > 0:
@@ -1845,7 +1847,7 @@ async def bulk_delete_layers_endpoint(
             ),
         )
 
-        # Phase 20260526-builder-audit BLD-20260526-11: use target_type="map" with target_id=map_id since there is no
+        # Phase 20260526-builder-audit #338 BLD-20260526-11: use target_type="map" with target_id=map_id since there is no
         # single layer target for a bulk operation.  Mirrors how layer.replace is
         # recorded elsewhere and prevents broken "jump to layer" links in history.
         await record_map_history_event(
@@ -1863,7 +1865,7 @@ async def bulk_delete_layers_endpoint(
             },
         )
 
-        # builder-audit P0-01: a bulk delete can drop a dataset an embed token is
+        # builder-audit #338 P0-01: a bulk delete can drop a dataset an embed token is
         # scoped to; revoke any now-orphaned embed tokens for the map.
         await revoke_embed_tokens_for_dropped_datasets(db, map_id)
 

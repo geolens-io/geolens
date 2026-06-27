@@ -205,7 +205,7 @@ async def _check_cold_rehydrate(
 
 router = APIRouter(prefix="/tiles", tags=["Tiles"], responses=ERROR_RESPONSES_PUBLIC)
 
-# builder-audit MVT-09: `_TABLE_NAME_RE` is imported from tiles.service (the single
+# builder-audit #338 MVT-09: `_TABLE_NAME_RE` is imported from tiles.service (the single
 # source of truth) rather than re-declared here, so the SQL-injection-defense regex
 # has exactly one definition shared by the router and the query builder.
 
@@ -1567,7 +1567,7 @@ def _tile_headers(cache_scope: str, cache_ttl: int) -> dict[str, str]:
 
 
 def _tile_etag(content: bytes) -> str:
-    """builder-audit MVT-04: strong ETag derived from a hash of the served tile bytes."""
+    """builder-audit #338 MVT-04: strong ETag derived from a hash of the served tile bytes."""
     return '"' + hashlib.sha256(content).hexdigest()[:32] + '"'
 
 
@@ -1628,7 +1628,7 @@ async def _acquire_and_serve_tile(
     log_event: str = "tile_access",
     log_extra: dict | None = None,
 ) -> Response:
-    """Shared acquire->bind-role->run-query->gzip->cache->respond core (builder-audit MVT-10).
+    """Shared acquire->bind-role->run-query->gzip->cache->respond core (builder-audit #338 MVT-10).
 
     Both the vector and cluster endpoints supply only a ``query_callable`` (async
     ``(pool, conn) -> bytes | None``) plus a cache key; this helper owns the

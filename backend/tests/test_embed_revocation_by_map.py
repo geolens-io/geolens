@@ -1,4 +1,4 @@
-"""builder-audit P0-01 regression: embed tokens must not survive share revocation,
+"""builder-audit #338 P0-01 regression: embed tokens must not survive share revocation,
 visibility downgrade, or layer removal.
 
 These tests prove the two halves of the fix in
@@ -53,7 +53,7 @@ async def _setup_map_with_layer(
     )
     map_obj = Map(
         name=f"P0-01 Embed Map {uuid.uuid4().hex[:6]}",
-        description="builder-audit P0-01 revocation test",
+        description="builder-audit #338 P0-01 revocation test",
         visibility="public",
         created_by=created_by,
     )
@@ -128,7 +128,7 @@ async def test_revoke_by_map_is_idempotent_when_no_active_tokens(
 async def test_layer_removal_denies_scoped_token_even_when_cached(
     test_db_session: AsyncSession, clean_tables
 ):
-    """builder-audit P0-01 live membership re-check: removing the dataset's layer
+    """builder-audit #338 P0-01 live membership re-check: removing the dataset's layer
     from the map denies a token scoped to that dataset, even with a positive
     cache entry present (the snapshot scoped_dataset_ids must not outlive the
     layer removal)."""

@@ -178,7 +178,7 @@ describe('applySublayerOverrides', () => {
   });
 
   it('composes_per_sublayer_opacity_with_master_opacity', () => {
-    // builder-audit CORR-01: a per-sublayer opacity override must COMPOSE on top
+    // builder-audit #338 CORR-01: a per-sublayer opacity override must COMPOSE on top
     // of the whole-basemap master opacity (override * master), not clobber it.
     // master 0.5 + road override 0.5 → 0.25 on-screen.
     map.getStyle.mockReturnValue({ layers: [makeRoadLineLayer('road-primary')] });
@@ -189,7 +189,7 @@ describe('applySublayerOverrides', () => {
   });
 
   it('master_opacity_defaults_to_1_preserving_raw_override', () => {
-    // builder-audit CORR-01: when master is omitted (default 1) the override is
+    // builder-audit #338 CORR-01: when master is omitted (default 1) the override is
     // applied as-is — preserves backward-compatible behavior for direct callers.
     map.getStyle.mockReturnValue({ layers: [makeRoadSymbolLayer('road-label')] });
 

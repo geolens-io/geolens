@@ -1,6 +1,6 @@
 """Sprite-backed icon asset helpers for map symbols.
 
-# builder-audit STYLE-05: this module contains a hand-rolled SVG path
+# builder-audit #338 STYLE-05: this module contains a hand-rolled SVG path
 # parser (``_path_points``) and rasterizer (``_draw_svg_element``) that turn
 # uploaded/built-in SVG icons into a server-side PNG sprite sheet. This is a
 # DELIBERATE no-native-dependency tradeoff: it avoids pulling in a native
@@ -376,7 +376,7 @@ def _point(
 
 
 def _path_points(path_data: str) -> list[list[tuple[float, float]]]:
-    # builder-audit STYLE-05: hand-rolled SVG path tokenizer/state machine,
+    # builder-audit #338 STYLE-05: hand-rolled SVG path tokenizer/state machine,
     # deliberately kept dependency-free (no native Cairo). Curve/arc commands
     # (C/S/Q/T/A) are collapsed to their endpoint below — a documented fidelity
     # tradeoff. The exact polyline output is pinned by golden tests in
@@ -431,7 +431,7 @@ def _path_points(path_data: str) -> list[list[tuple[float, float]]]:
             y1 = number()
             add_point(x, y1 if absolute else y + y1)
         elif op in {"C", "S", "Q", "T", "A"}:
-            # builder-audit STYLE-05: approximate curves and arcs by their
+            # builder-audit #338 STYLE-05: approximate curves and arcs by their
             # endpoint. This keeps uploaded SVG icons visible without depending
             # on native Cairo bindings (deliberate no-native-dep tradeoff).
             needed = {"C": 6, "S": 4, "Q": 4, "T": 2, "A": 7}[op]

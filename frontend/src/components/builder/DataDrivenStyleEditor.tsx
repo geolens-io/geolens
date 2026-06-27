@@ -144,7 +144,7 @@ function defaultSizeRange(tgt: 'color' | 'radius' | 'width'): [number, number] {
 }
 
 /**
- * builder-audit COMPLEXITY-01: the three styling effects (categorical color,
+ * builder-audit #338 COMPLEXITY-01: the three styling effects (categorical color,
  * graduated color, graduated size) each wrote back canonical style via
  * onStyleConfigChange, guarded by a long deep-equality skip-check whose ONLY job
  * is to prevent an infinite onStyleConfigChange -> re-render -> effect loop.
@@ -280,7 +280,7 @@ export function DataDrivenStyleEditor({
     existingConfig?.reversed ?? false,
   );
 
-  // Phase 20260526-builder-audit BLD-20260526-11: 200ms debounce for per-category / per-class color picker.
+  // Phase 20260526-builder-audit #338 BLD-20260526-11: 200ms debounce for per-category / per-class color picker.
   // drags in DataDrivenStyleEditor. The HexColorPicker fires onChange on every
   // drag pixel; debouncing collapses rapid calls into a single map repaint.
   const colorDebounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -365,7 +365,7 @@ export function DataDrivenStyleEditor({
     const colorProp = getColorProperty(geomType);
 
     // Preserve existing per-category colors when column and ramp haven't changed.
-    // builder-audit COMPLEXITY-01: skip-guard lives in styleConfigAlreadyMatches.
+    // builder-audit #338 COMPLEXITY-01: skip-guard lives in styleConfigAlreadyMatches.
     if (styleConfigAlreadyMatches({
       existing: styleConfig,
       mode: 'categorical',
@@ -421,7 +421,7 @@ export function DataDrivenStyleEditor({
     if (invalid || breaks.length === 0) return;
 
     // Preserve existing graduated colors when config hasn't changed.
-    // builder-audit COMPLEXITY-01: skip-guard lives in styleConfigAlreadyMatches.
+    // builder-audit #338 COMPLEXITY-01: skip-guard lives in styleConfigAlreadyMatches.
     if (styleConfigAlreadyMatches({
       existing: styleConfig,
       mode: 'graduated',
@@ -482,7 +482,7 @@ export function DataDrivenStyleEditor({
 
     if (invalid || breaks.length === 0) return;
 
-    // Guard: skip if existing config already matches. builder-audit COMPLEXITY-01:
+    // Guard: skip if existing config already matches. builder-audit #338 COMPLEXITY-01:
     // skip-guard lives in styleConfigAlreadyMatches, which uses classCount (local
     // state) consistently with the written config below to prevent infinite effect
     // loops when effectiveClassCount differs from classCount.
@@ -604,7 +604,7 @@ export function DataDrivenStyleEditor({
       );
       const newConfig: StyleConfig = { ...styleConfig, categories: updated, ramp: 'custom' };
       const paint = { ...layerPaint, [colorProp]: expression };
-      // Phase 20260526-builder-audit BLD-20260526-11: 200ms debounce — HexColorPicker fires on every drag pixel.
+      // Phase 20260526-builder-audit #338 BLD-20260526-11: 200ms debounce — HexColorPicker fires on every drag pixel.
       clearTimeout(colorDebounceRef.current);
       colorDebounceRef.current = setTimeout(() => {
         onStyleConfigChange(layerId, newConfig, paint);
@@ -624,7 +624,7 @@ export function DataDrivenStyleEditor({
       const expression = buildGraduatedExpression(styleConfig.column, styleConfig.breaks, updatedColors);
       const newConfig: StyleConfig = { ...styleConfig, colors: updatedColors, ramp: 'custom' };
       const paint = { ...layerPaint, [colorProp]: expression };
-      // Phase 20260526-builder-audit BLD-20260526-11: 200ms debounce — HexColorPicker fires on every drag pixel.
+      // Phase 20260526-builder-audit #338 BLD-20260526-11: 200ms debounce — HexColorPicker fires on every drag pixel.
       clearTimeout(colorDebounceRef.current);
       colorDebounceRef.current = setTimeout(() => {
         onStyleConfigChange(layerId, newConfig, paint);

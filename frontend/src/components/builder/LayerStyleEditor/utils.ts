@@ -88,7 +88,7 @@ export function getPaintValue<T>(paint: Record<string, unknown>, key: string, fa
   return val !== undefined && val !== null ? (val as T) : fallback;
 }
 
-// builder-audit TYPE-01: returns either a scalar number or a MapLibre expression
+// builder-audit #338 TYPE-01: returns either a scalar number or a MapLibre expression
 // array (data-driven / zoom expression) — never an arbitrary `unknown`. Typed as
 // `number | unknown[]` so callers (ZoomExpressionEditor `value`) get the
 // scalar-or-expression contract the name promises.

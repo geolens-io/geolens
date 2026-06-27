@@ -226,7 +226,7 @@ describe('BasemapGroupRow', () => {
     expect(eyeBtn).toBeInTheDocument();
   });
 
-  // builder-audit STACK-06: the dead visibilityDisabled locked-eye branch was
+  // builder-audit #338 STACK-06: the dead visibilityDisabled locked-eye branch was
   // removed (no call site ever passed it). Former tests 10d/10e that exercised
   // that branch are deleted; Test 10f below pins the production default.
   it('Test 10f: the eye is an enabled button (no locked glyph) and toggles', () => {

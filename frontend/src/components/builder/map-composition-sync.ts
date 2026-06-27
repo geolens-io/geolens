@@ -46,7 +46,7 @@ export function applyMapBasemapAppearance({
   reorderDataLayerIds,
 }: ApplyMapBasemapAppearanceOptions) {
   const sourcePrefix = sourcePrefixFor(idPrefix);
-  // builder-audit CORR-01: pass master opacity so per-sublayer opacity overrides
+  // builder-audit #338 CORR-01: pass master opacity so per-sublayer opacity overrides
   // COMPOSE with it (override * master) rather than clobbering the master-opacity
   // paint applyBasemapConfigToMap just wrote.
   const masterOpacity = basemapConfig?.opacity ?? 1;

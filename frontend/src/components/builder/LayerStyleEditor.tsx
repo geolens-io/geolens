@@ -103,7 +103,7 @@ function StylePreview({ layer, onReset }: { layer: MapLayerResponse; onReset: ()
  *
  * Responsibilities:
  *  - Compute geomType, renderMode, dispatchKey from layer props
- *  - Maintain the master opacity debounce (Phase 20260526-builder-audit BLD-20260526-11)
+ *  - Maintain the master opacity debounce (Phase 20260526-builder-audit #338 BLD-20260526-11)
  *  - Render the "Render as" dropdown (point layers only)
  *  - Delegate per-mode appearance controls to RenderModeSwitch
  *  - Render master opacity + zoom range sliders (cross-mode)
@@ -188,7 +188,7 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
     [layer, renderMode],
   );
 
-  // Phase 20260526-builder-audit BLD-20260526-11: 100ms debounce for master opacity slider.
+  // Phase 20260526-builder-audit #338 BLD-20260526-11: 100ms debounce for master opacity slider.
   // Local state holds the slider's displayed value so drags feel instant,
   // while the debounced effect coalesces rapid changes into a single
   // onOpacityChange call. The `opacityFromPropRef` tracks the last value
@@ -215,7 +215,7 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [localOpacity, layer.id]);
 
-  // builder-audit DRY-01: forward map derived from the single BUILDER_PAINT_FIELDS
+  // builder-audit #338 DRY-01: forward map derived from the single BUILDER_PAINT_FIELDS
   // table (builder-paint-map.ts), which also backs handlePaintProp's reverse router
   // and the strip allowlist — so the three can no longer drift.
   const controlPaint = useMemo(
@@ -228,7 +228,7 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
   }, [layer.id, layer.style_config, paint, onStyleConfigChange]);
 
   const handlePaintProp = useCallback((key: string, value: unknown) => {
-    // builder-audit DRY-01: reverse router derived from BUILDER_PAINT_FIELDS.
+    // builder-audit #338 DRY-01: reverse router derived from BUILDER_PAINT_FIELDS.
     const builderKey = routeBuilderPaintProp(key);
     if (builderKey) {
       updateBuilderConfig({ [builderKey]: value } as BuilderStyleConfig);
@@ -348,7 +348,7 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
   );
 
   // Shared props passed to every per-mode editor via RenderModeSwitch.
-  // builder-audit MAINT-01: this ~25-field mega-prop is a deliberate trade-off —
+  // builder-audit #338 MAINT-01: this ~25-field mega-prop is a deliberate trade-off —
   // a single uniform BaseStyleEditorProps keeps RenderModeSwitch's lookup-table
   // dispatch trivial; most editors consume only a subset. Acceptable as-is; if it
   // grows further, split into a common core + per-mode prop slices.

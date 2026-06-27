@@ -3,7 +3,7 @@ import type { AdapterLayerInput, LayerAdapter } from './types';
 import { normalizeRasterBounds, paintValueChanged, syncSingleLayerVisibility } from './shared';
 import { DEFAULT_HILLSHADE_PAINT } from './builder-defaults';
 
-// builder-audit ADAPT-06: re-export the single hillshade default from builder-defaults
+// builder-audit #338 ADAPT-06: re-export the single hillshade default from builder-defaults
 // (was a byte-identical local copy that diverged from renderAs's DEFAULT_HILLSHADE_PAINT).
 export const HILLSHADE_PAINT_DEFAULTS = DEFAULT_HILLSHADE_PAINT;
 
@@ -121,7 +121,7 @@ export const hillshadeAdapter: LayerAdapter = {
   addLayers(map: MaplibreMap, input: AdapterLayerInput): void {
     const { layerId, sourceId, tileUrl, tileSize, minzoom, maxzoom, visible, bounds } = input;
     if (!map.getSource(sourceId)) {
-      // builder-audit ADAPT-01: shared normalizeRasterBounds, computed once instead
+      // builder-audit #338 ADAPT-01: shared normalizeRasterBounds, computed once instead
       // of the prior double-call inside the spread ternary.
       const normalizedBounds = normalizeRasterBounds(bounds);
       map.addSource(sourceId, {
@@ -165,7 +165,7 @@ export const hillshadeAdapter: LayerAdapter = {
       }
     }
 
-    // builder-audit ADAPT-09: reconcile visibility through the SAME shared helper the
+    // builder-audit #338 ADAPT-09: reconcile visibility through the SAME shared helper the
     // vector adapters use, instead of a hand-rolled setLayoutProperty. syncRasterLayer
     // (map-sync) calls syncPaint without a following syncVisibility for the raster/DEM
     // path, so visibility must still be reconciled here — but now uniformly.

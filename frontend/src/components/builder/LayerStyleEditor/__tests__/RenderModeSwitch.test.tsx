@@ -104,7 +104,7 @@ describe('RenderModeSwitch', () => {
 
     // vitest runs with NODE_ENV !== 'production', so the DEV warn path is active.
     // Cast past the narrowed EditorDispatchKey type to exercise the defensive
-    // runtime guard (builder-audit TYPE-01).
+    // runtime guard (builder-audit #338 TYPE-01).
     const { container } = render(
       <RenderModeSwitch {...baseProps} dispatchKey={'unsupported-xyz' as EditorDispatchKey} />,
     );

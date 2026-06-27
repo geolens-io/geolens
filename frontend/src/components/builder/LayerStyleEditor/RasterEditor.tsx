@@ -24,7 +24,7 @@ import type { BaseStyleEditorProps } from './types';
  * Pitfall #2: Reading values from props.paint with RASTER_PAINT_DEFAULTS fallback
  * guarantees save→reload symmetry (serialize → deserialize → renders identically).
  *
- * builder-audit DUP-04: the appearance sliders are now the shared
+ * builder-audit #338 DUP-04: the appearance sliders are now the shared
  * RasterAppearanceSliders component (also consumed by RasterLayerControls). The
  * RAF coalesce keys are still per-layer per-property (coalesceId={layer.id}).
  */

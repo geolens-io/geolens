@@ -80,7 +80,7 @@ api_router.include_router(oauth_router)
 api_router.include_router(config_ops_router)
 api_router.include_router(embed_tokens_router)
 api_router.include_router(embed_tokens_admin_router)
-# builder-audit P0-02: public, unauthenticated framing-policy endpoint for the
+# builder-audit #338 P0-02: public, unauthenticated framing-policy endpoint for the
 # /m/{token} embed shell (consumed by the nginx auth_request edge wiring).
 api_router.include_router(embed_frame_policy_router)
 api_router.include_router(tiles_router)

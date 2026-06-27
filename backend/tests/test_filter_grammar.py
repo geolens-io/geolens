@@ -1,6 +1,6 @@
 """Unit tests for the shared MapLibre filter validator/normalizer.
 
-builder-audit P1-04 (filter grammar), STYLE-01/SPEC-08 (builder alias single
+builder-audit #338 P1-04 (filter grammar), STYLE-01/SPEC-08 (builder alias single
 source of truth), and P2-05 (LabelConfig schema). These exercise the schema
 contract directly without a DB so the orchestrator's serial suite stays cheap.
 """

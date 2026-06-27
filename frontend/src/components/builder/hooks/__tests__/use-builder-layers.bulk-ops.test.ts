@@ -231,7 +231,7 @@ describe('useBuilderLayers — handleBulkVisibility (POL-09)', () => {
 });
 
 // ---------------------------------------------------------------------------
-// STATE-01 (builder-audit 20260626) — bulk visibility must not drift from the
+// STATE-01 (builder-audit #338 20260626) — bulk visibility must not drift from the
 // single-layer side-effect: it enumerates the colorrelief companion and honors
 // the strokeDisabled gate on the fill outline.
 // ---------------------------------------------------------------------------
@@ -280,7 +280,7 @@ describe('useBuilderLayers — handleBulkVisibility STATE-01 parity', () => {
 });
 
 // ---------------------------------------------------------------------------
-// P1-09 (builder-audit 20260626) — toggle_group_visibility flips every child +
+// P1-09 (builder-audit #338 20260626) — toggle_group_visibility flips every child +
 // the group row atomically and routes child map side effects through the shared
 // companion visibility helper.
 // ---------------------------------------------------------------------------

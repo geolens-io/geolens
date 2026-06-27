@@ -6,7 +6,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-// builder-audit STACK-07: shared platform detection + Save chord (was duplicated
+// builder-audit #338 STACK-07: shared platform detection + Save chord (was duplicated
 // from MapTitleBar.tsx).
 import { SAVE_SHORTCUT } from '@/lib/platform';
 

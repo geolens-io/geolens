@@ -1,6 +1,6 @@
 import { detectTrigger, computeMentionInsertion, type TriggerState } from '../ChatInput';
 
-// builder-audit TEST-01: the @-mention / slash-command parsing was previously
+// builder-audit #338 TEST-01: the @-mention / slash-command parsing was previously
 // untested. detectTrigger uses cursor-sliced regex and computeMentionInsertion
 // does bracket-syntax insertion with +1-for-trigger-char offset arithmetic —
 // both are off-by-one-prone.

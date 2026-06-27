@@ -90,7 +90,7 @@ export function RasterStretchControls({
               <span className="w-28 shrink-0 text-xs text-muted-foreground">
                 {t('style.raster.colormapLabel', { defaultValue: 'Colormap' })}
               </span>
-              {/* builder-audit DUP-03: these 8 colormap values are hand-mirrored against the
+              {/* builder-audit #338 DUP-03: these 8 colormap values are hand-mirrored against the
                   backend validator _ALLOWED_COLORMAPS (backend/app/processing/tiles/router.py:459-461),
                   which 422s anything not in that frozenset. There is no codegen guard — adding or
                   renaming a colormap on either side must be mirrored here (and vice-versa). */}

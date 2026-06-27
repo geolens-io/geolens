@@ -204,7 +204,7 @@ const DraggableDatasetRow = memo(function DraggableDatasetRow({
           // Phase 1199 STACK-05: reveal the catalog drag grip on coarse-pointer/touch.
           data-touch-reveal=""
           className="flex h-7 w-5 shrink-0 items-center justify-center cursor-grab opacity-0 group-hover/row:opacity-35 hover:opacity-70 focus-visible:opacity-70 text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded active:cursor-grabbing"
-          // builder-audit P1-10: {...listeners} spreads dnd-kit's PointerSensor
+          // builder-audit #338 P1-10: {...listeners} spreads dnd-kit's PointerSensor
           // activator (incl. onPointerDown). A bare onPointerDown={stopPropagation}
           // AFTER the spread would OVERRIDE the activator and break drag-to-add from
           // the handle. Compose instead: invoke the activator first, then stop
@@ -264,7 +264,7 @@ export function DatasetSearchPanel({
 }: DatasetSearchPanelProps) {
   const { t } = useTranslation('builder');
   const queryClient = useQueryClient();
-  // builder-audit SEARCH-01: gate the Import/Upload CTAs on capability (matching
+  // builder-audit #338 SEARCH-01: gate the Import/Upload CTAs on capability (matching
   // the catalog SearchPage, fix GLUX-006) so a viewer-capable session that lands
   // here does not see dead-end Import affordances. Keep the `!!token` guard too:
   // on logout the cached permissions query can briefly still return data, while
@@ -502,7 +502,7 @@ export function DatasetSearchPanel({
           <p className="text-center text-sm font-semibold">
             {t('search.catalogEmpty', { defaultValue: 'Your catalog is empty. Upload a dataset to get started.' })}
           </p>
-          {/* builder-audit SEARCH-01: only show the Upload CTA when the session can upload. */}
+          {/* builder-audit #338 SEARCH-01: only show the Upload CTA when the session can upload. */}
           {canImport && (
             <Button variant="ghost" size="sm" asChild>
               <Link to="/import">
@@ -557,7 +557,7 @@ export function DatasetSearchPanel({
         ))}
       </div>
 
-      {/* builder-audit SEARCH-01: gate the footer Import CTA on can('upload'),
+      {/* builder-audit #338 SEARCH-01: gate the footer Import CTA on can('upload'),
           matching the catalog search panel. */}
       {canImport && (
         <div className="mt-3 flex justify-end border-t border-border/60 px-1 pt-3">

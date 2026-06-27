@@ -33,7 +33,7 @@ describe('sanitizeNullableNumericFilter', () => {
 });
 
 // ---------------------------------------------------------------------------
-// builder-audit FILT-01 / DRY-01: shared field extractor + canonical parser
+// builder-audit #338 FILT-01 / DRY-01: shared field extractor + canonical parser
 // ---------------------------------------------------------------------------
 describe('extractFilterField', () => {
   it('unwraps ["get", f]', () => {
@@ -97,7 +97,7 @@ describe('parseCanonicalFilter', () => {
 });
 
 // ---------------------------------------------------------------------------
-// builder-audit P1-04: raw-JSON filter validator/normalizer
+// builder-audit #338 P1-04: raw-JSON filter validator/normalizer
 // ---------------------------------------------------------------------------
 describe('validateRawFilter', () => {
   it('treats null and [] as clear (returns null)', () => {

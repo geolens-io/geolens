@@ -4,7 +4,7 @@
  * ## Shape B Lock — NON-NEGOTIABLE (1135-CONTEXT.md D-Shape-B / Pitfall #3)
  *
  * This module wraps the CALLER'S supplied `dispatch` handler — it does NOT call
- * `dispatchLayerAction` directly (builder-audit PARITY-01). In production it is
+ * `dispatchLayerAction` directly (builder-audit #338 PARITY-01). In production it is
  * instantiated as `useChatActionStaging((action) => handleChatAction(action))`,
  * so accepted actions flow through ChatPanel's `handleChatAction` switch, which
  * in turn routes to the builder layer-action contract. The staging buffer holds

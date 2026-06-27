@@ -18,7 +18,7 @@ export const CUSTOM_PAINT_PROPS = new Set([
 export type GeometryFamily = 'point' | 'line' | 'polygon' | 'other';
 
 /**
- * builder-audit ADAPT-02/DRY-05: single canonical geometry classifier.
+ * builder-audit #338 ADAPT-02/DRY-05: single canonical geometry classifier.
  * getLayerType, renderAs.geometryFamily, layer-capabilities, and
  * color-ramps.getColorProperty all DERIVE from this one uppercase+substring scan
  * so a new geometry token or normalization rule is patched in exactly one place.
@@ -44,7 +44,7 @@ export function getLayerType(geometryType: string | null): 'circle' | 'line' | '
 export type RasterBounds = [number, number, number, number];
 
 /**
- * builder-audit ADAPT-01: single raster-bounds guard hoisted from the verbatim
+ * builder-audit #338 ADAPT-01: single raster-bounds guard hoisted from the verbatim
  * copies in raster-adapter, hillshade-adapter, and map-sync. Returns the bounds
  * as a 4-tuple, or undefined when the input is not exactly four finite numbers.
  */
@@ -55,7 +55,7 @@ export function normalizeRasterBounds(bounds: number[] | null | undefined): Rast
 }
 
 /**
- * builder-audit ADAPT-08/SPEC-10: extract a flat scalar fallback from a MapLibre
+ * builder-audit #338 ADAPT-08/SPEC-10: extract a flat scalar fallback from a MapLibre
  * expression using EXPLICIT per-op shape guards. Each op verifies the expression
  * has enough elements before reading a positional index, so a malformed or
  * newly-shaped expression (interpolate-hcl, single-stop step, multi-pair case,
@@ -455,7 +455,7 @@ export function syncVectorPaint(
   }
 }
 
-/** builder-audit SPEC-08 / cross-cutting DRY-02: the single canonical frontend
+/** builder-audit #338 SPEC-08 / cross-cutting DRY-02: the single canonical frontend
  *  snake_case -> camelCase builder-key alias map. normalize-style-config imports
  *  this instead of maintaining a second copy (the two had diverged: this map was
  *  missing the folder_group_* keys, added below as a harmless consistency fix). */

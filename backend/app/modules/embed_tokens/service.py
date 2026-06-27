@@ -96,7 +96,7 @@ def build_embed_frame_ancestors(
 ) -> str:
     """Build the CSP ``frame-ancestors`` directive for the /m/{token} embed shell.
 
-    builder-audit P0-02: domain restrictions previously protected only the
+    builder-audit #338 P0-02: domain restrictions previously protected only the
     tile/data calls, not the embeddable HTML document itself, so any site could
     frame the shell. The validated edge route emits a per-token frame-ancestors
     policy derived from ``EmbedToken.allowed_origins``:
@@ -259,7 +259,7 @@ async def revoke_embed_tokens_by_map(
 ) -> int:
     """Revoke ALL active embed tokens for a map and purge their Redis cache.
 
-    builder-audit P0-01: embed tokens survived share revocation and visibility
+    builder-audit #338 P0-01: embed tokens survived share revocation and visibility
     downgrades because the maps router's revoke / public->non-public paths only
     flipped ``MapShareToken.is_active`` (via ``revoke_share_token_by_map``) and
     never touched ``EmbedToken``. A copied embed token therefore kept serving
@@ -287,7 +287,7 @@ async def revoke_embed_tokens_by_map(
     await db.flush()
 
     # Best-effort cache invalidation — a cached positive entry must not outlive
-    # the revocation (builder-audit P0-01 acceptance: Redis positive cache does
+    # the revocation (builder-audit #338 P0-01 acceptance: Redis positive cache does
     # not extend access).
     try:
         cache = get_cache()
@@ -303,7 +303,7 @@ async def revoke_embed_tokens_for_dropped_datasets(
     db: AsyncSession,
     map_id: uuid.UUID,
 ) -> int:
-    """builder-audit P0-01: revoke embed tokens orphaned by a layer change.
+    """builder-audit #338 P0-01: revoke embed tokens orphaned by a layer change.
 
     An embed token is scoped to a fixed set of dataset ids that were layers on
     the map when it was minted. After a layer replacement/removal, a token scoped
@@ -508,7 +508,7 @@ async def validate_embed_token_access(
         if token_tenant != dataset_tenant:
             return False
 
-    # builder-audit P0-01: fail-closed live layer-membership re-check.
+    # builder-audit #338 P0-01: fail-closed live layer-membership re-check.
     # scoped_dataset_ids is a creation-time snapshot. If the dataset's layer was
     # later removed from the map (or the whole map deleted), the snapshot is
     # stale and would still grant tile access until token expiry. Re-query the

@@ -7,7 +7,7 @@ import structlog
 
 logger = structlog.stdlib.get_logger(__name__)
 
-# builder-audit MVT-09: SINGLE SOURCE OF TRUTH for the tile table/column name
+# builder-audit #338 MVT-09: SINGLE SOURCE OF TRUTH for the tile table/column name
 # regexes + validator. The router imports `_TABLE_NAME_RE` / `_validate_tile_table_name`
 # from here instead of re-declaring its own copy, so a future tightening of the
 # SQL-injection defense applies in exactly one place.
@@ -29,7 +29,7 @@ _COLUMN_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 # `populated_places_10m` produced 824 KB tiles before this change).
 # Datasets with an explicit `tile_columns` allowlist override this.
 #
-# builder-audit MVT-02: dropping attributes at z<10 is an INTENTIONAL,
+# builder-audit #338 MVT-02: dropping attributes at z<10 is an INTENTIONAL,
 # documented perf tradeoff (824 KB -> bounded tiles), not a spec gap, so the
 # default is deliberately left unchanged. It is NOT all-or-nothing: callers opt
 # specific columns back in at every zoom via `additional_columns` (the runtime
@@ -54,13 +54,13 @@ _CLUSTER_INPUT_LIMIT = 100000
 # 360/(extent*2^z) degrees of longitude at zoom z.
 _MVT_EXTENT = 4096
 
-# builder-audit MVT-07: simplification tolerance schedule. Below this zoom the
+# builder-audit #338 MVT-07: simplification tolerance schedule. Below this zoom the
 # geometry is simplified; at/above it the original geometry is served untouched.
 # (Distinct from _DEFAULT_NO_ATTR_BELOW_ZOOM, which happens to share the value 10
 # but governs attribute projection, not geometry simplification.)
 _NO_SIMPLIFY_AT_OR_ABOVE_ZOOM = 10
 
-# builder-audit MVT-07: sub-pixel factor applied to the degrees-per-MVT-unit
+# builder-audit #338 MVT-07: sub-pixel factor applied to the degrees-per-MVT-unit
 # basis. 1.0 == one MVT coordinate unit, already ~1/16 of a rendered 256px tile
 # pixel, so vertices dropped at this tolerance are not visually distinguishable.
 # The prior piecewise schedule used this full-unit basis (360/(extent*2^z)) only
@@ -79,7 +79,7 @@ def _validate_tile_table_name(table_name: str) -> None:
 def _simplify_tolerance_degrees(z: int) -> float | None:
     """Return the ST_SimplifyPreserveTopology tolerance in EPSG:4326 degrees for zoom ``z``.
 
-    builder-audit MVT-07: returns ``None`` at/above
+    builder-audit #338 MVT-07: returns ``None`` at/above
     ``_NO_SIMPLIFY_AT_OR_ABOVE_ZOOM`` (full detail). Below it the tolerance is
     ``factor * 360/(extent*2^z)``, so it shrinks continuously — halving each zoom
     — with no discontinuity at the old z5->z6 boundary. This Python helper mirrors
@@ -130,7 +130,7 @@ def _select_tile_columns(
         base = columns
 
     if additional_columns:
-        # builder-audit MVT-02: the `cols=` opt-in projects the requested columns
+        # builder-audit #338 MVT-02: the `cols=` opt-in projects the requested columns
         # at EVERY zoom, including z<_DEFAULT_NO_ATTR_BELOW_ZOOM where `base` is
         # otherwise empty — this is what lets data-driven styling (and any column
         # a caller explicitly requests) survive the low-zoom attribute budget.
@@ -175,7 +175,7 @@ def _build_tile_query(
 
     Phase 269 C-02: simplification applies at all zooms below z=10 (was z<6),
     and the inner CTE has a 50K-feature LIMIT to bound query cost on wide
-    low-zoom tiles. builder-audit MVT-07: the tolerance is in EPSG:4326 degrees
+    low-zoom tiles. builder-audit #338 MVT-07: the tolerance is in EPSG:4326 degrees
     and follows one continuous schedule (``_simplify_tolerance_degrees``) that
     halves each zoom, so low/mid-zoom tiles stay lightweight while high-zoom
     tiles preserve full detail (z>=10 uses the original geometry untouched).
@@ -205,7 +205,7 @@ bounds AS (
 mvtgeom AS (
     SELECT ST_AsMVTGeom(
         ST_Transform(
-            -- builder-audit MVT-07: single continuous tolerance schedule for all
+            -- builder-audit #338 MVT-07: single continuous tolerance schedule for all
             -- z<{_NO_SIMPLIFY_AT_OR_ABOVE_ZOOM}. tolerance = factor*360/(extent*2^z)
             -- degrees (mirrors _simplify_tolerance_degrees) so it halves smoothly
             -- each zoom instead of dropping ~360x across the old z5->z6 boundary.
@@ -408,7 +408,7 @@ async def get_tile(
     )
     query = _build_tile_query(table_name, selected_columns, schema=schema)
     # layer_name must match the schema-qualified table so clients can identify it.
-    # builder-audit MVT-01: in single_tenant schema=="data" so this is already
+    # builder-audit #338 MVT-01: in single_tenant schema=="data" so this is already
     # "data.{table}" (matches the client). The multi_tenant client/source-layer
     # divergence is a deferred cloud-overlay concern — the fix belongs on the
     # client side (derive source-layer from the schema-qualified name), NOT here,

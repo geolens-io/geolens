@@ -1,4 +1,4 @@
-// builder-audit STACK-05: extracted from UnifiedStackPanel.tsx into a sibling
+// builder-audit #338 STACK-05: extracted from UnifiedStackPanel.tsx into a sibling
 // file. Compact pill shown in the DragOverlay during a catalog drag, so the
 // overlay reads as a "new-dataset-to-be-added" rather than an existing stack row.
 

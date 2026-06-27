@@ -32,7 +32,7 @@ interface ZoomExpressionEditorProps {
 const MAX_STOPS = 6;
 const DEFAULT_ZOOM_GAP = 4;
 
-// builder-audit DRY-03: isFiniteNumber imported from zoom-expressions (single copy).
+// builder-audit #338 DRY-03: isFiniteNumber imported from zoom-expressions (single copy).
 
 function formatDisplayValue(value: number, format?: NumericFormat): string {
   if (format === 'percent') {

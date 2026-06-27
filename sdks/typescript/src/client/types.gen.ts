@@ -7,7 +7,7 @@ export type ClientOptions = {
 /**
  * AIAvailabilityResponse
  *
- * Public-safe AI readiness signal (builder-audit P1-11).
+ * Public-safe AI readiness signal (builder-audit #338 P1-11).
  *
  * Carries a single boolean and intentionally exposes NO provider name, model,
  * or key detail — it is readable by any non-admin editor holding
@@ -8612,7 +8612,7 @@ export type SublayerOverride = {
     /**
      * Opacity
      *
-     * Per-sublayer opacity (0-1), or null to use the basemap default. Composes on top of BasemapConfig.opacity (the whole-basemap master opacity): the rendered opacity is override.opacity * master_opacity (builder-audit CORR-01). The UI opacity slider in BasemapSublayerEditorScene persists through this field: MapBuilderPage.handleSublayerOpacityChange -> setBasemapSublayerOpacity -> updateBasemapSublayerOverride writes config.sublayer_overrides[key].opacity.
+     * Per-sublayer opacity (0-1), or null to use the basemap default. Composes on top of BasemapConfig.opacity (the whole-basemap master opacity): the rendered opacity is override.opacity * master_opacity (builder-audit #338 CORR-01). The UI opacity slider in BasemapSublayerEditorScene persists through this field: MapBuilderPage.handleSublayerOpacityChange -> setBasemapSublayerOpacity -> updateBasemapSublayerOverride writes config.sublayer_overrides[key].opacity.
      */
     opacity?: number | null;
     /**

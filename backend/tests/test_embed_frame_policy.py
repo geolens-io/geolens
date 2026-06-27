@@ -1,4 +1,4 @@
-"""builder-audit P0-02 regression: per-token frame-ancestors on the /m/{token}
+"""builder-audit #338 P0-02 regression: per-token frame-ancestors on the /m/{token}
 embed HTML shell.
 
 Domain restrictions previously protected only the tile/data calls, not the
@@ -38,7 +38,7 @@ from tests.repo_paths import repo_root
 async def _create_public_map(session: AsyncSession, *, created_by: uuid.UUID) -> Map:
     map_obj = Map(
         name=f"Frame Policy Map {uuid.uuid4().hex[:6]}",
-        description="builder-audit P0-02 frame policy test",
+        description="builder-audit #338 P0-02 frame policy test",
         visibility="public",
         created_by=created_by,
     )

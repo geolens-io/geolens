@@ -67,7 +67,7 @@ export const FolderGroupRow = memo(function FolderGroupRow({
   const { t } = useTranslation('builder');
   const [confirmingDelete, setConfirmingDelete] = useState(false);
 
-  // builder-audit STACK-03: shared inline-rename state machine (was duplicated
+  // builder-audit #338 STACK-03: shared inline-rename state machine (was duplicated
   // verbatim with StackRow, including the BUG-03 focus-race gating). Empty input
   // is a silent revert per UI-SPEC — onCommit ignores a null name.
   const {
@@ -126,7 +126,7 @@ export const FolderGroupRow = memo(function FolderGroupRow({
         }
       }}
     >
-      {/* Row grid — builder-audit STACK-04: shared grid template + state classes. */}
+      {/* Row grid — builder-audit #338 STACK-04: shared grid template + state classes. */}
       <div
         className={cn(
           'group/row grid', STACK_ROW_GRID, 'gap-2 items-center py-2 px-2 cursor-pointer select-none',
@@ -169,7 +169,7 @@ export const FolderGroupRow = memo(function FolderGroupRow({
           </button>
         )}
 
-        {/* Cell 2: Grip handle (builder-audit STACK-04: shared DragGripButton). */}
+        {/* Cell 2: Grip handle (builder-audit #338 STACK-04: shared DragGripButton). */}
         <DragGripButton
           dragHandleProps={dragHandleProps}
           ariaLabel={t('stackRow.dragHandle', {
@@ -178,7 +178,7 @@ export const FolderGroupRow = memo(function FolderGroupRow({
           })}
         />
 
-        {/* Cell 3: Eye visibility toggle. builder-audit (aria-pressed nit):
+        {/* Cell 3: Eye visibility toggle. builder-audit #338 (aria-pressed nit):
             aria-pressed reflects the visible state so AT announces it as a toggle,
             matching StackRow and BasemapGroupRow. */}
         <button

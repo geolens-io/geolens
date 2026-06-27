@@ -25,7 +25,7 @@ import { getCompanionLayerIds, COLOR_RELIEF_SUFFIX } from './companion-ids';
 
 // Shared utilities — imported for local use and re-exported for backward compatibility
 import { getLayerType, resolveAdapterType, normalizeRasterBounds } from './layer-adapters/shared';
-// builder-audit SYNC-01: re-export the SINGLE isTerrainCapableDemLayer predicate
+// builder-audit #338 SYNC-01: re-export the SINGLE isTerrainCapableDemLayer predicate
 // from map-stack so the legend, the delete-time terrain-clear check, AND the 3D
 // mesh resolver (BuilderMap imports it from here) all consume one function. The
 // previous local copy meant the mesh resolver used a different definition that
@@ -67,7 +67,7 @@ export function normalizeTerrainExaggeration(value: number | null | undefined) {
   return Math.min(Math.max(value as number, TERRAIN_EXAGGERATION_MIN), TERRAIN_EXAGGERATION_MAX);
 }
 
-// builder-audit ADAPT-01: normalizeRasterBounds now lives once in
+// builder-audit #338 ADAPT-01: normalizeRasterBounds now lives once in
 // layer-adapters/shared.ts and is imported above; the verbatim copies in
 // raster-adapter, hillshade-adapter, and this module collapse to one.
 
@@ -266,7 +266,7 @@ export function reorderBasemapLabels(map: MaplibreMap, show: boolean, sourcePref
   if (!style?.layers) return;
 
   const basemapSymbolLayers = style.layers.filter(
-    // builder-audit DUP-02: shared basemap-owned predicate.
+    // builder-audit #338 DUP-02: shared basemap-owned predicate.
     (l) => l.type === 'symbol' && isBasemapOwnedLayer(l, sourcePrefix),
   );
 
@@ -282,7 +282,7 @@ export function reorderBasemapLabels(map: MaplibreMap, show: boolean, sourcePref
 }
 
 function basemapStyleLayers(style: StyleSpecification, sourcePrefix: string) {
-  // builder-audit DUP-02: shared basemap-owned predicate.
+  // builder-audit #338 DUP-02: shared basemap-owned predicate.
   return style.layers.filter((layer) =>
     isBasemapOwnedLayer(layer, sourcePrefix),
   ) as StyleSpecification['layers'];
@@ -320,7 +320,7 @@ export function reorderBasemapAboveData(
   for (const layer of style.layers) {
     // basemap layers do NOT have a source matching the data sourcePrefix.
     // 'source' may be undefined for some background-style layers — those count
-    // as basemap layers too. builder-audit DUP-02: shared predicate.
+    // as basemap layers too. builder-audit #338 DUP-02: shared predicate.
     if (!isBasemapOwnedLayer(layer, sourcePrefix)) continue;
     if (!map.getLayer(layer.id)) continue;
     // Never lift the opaque base fills (background / land / water) above the
@@ -400,7 +400,7 @@ export function prefixed(kind: 'source' | 'layer' | 'outline' | 'extrusion' | 'a
 }
 
 function removeKnownVectorLayers(map: MaplibreMap, layerId: string, id: string, prefix: string | undefined) {
-  // builder-audit SYNC-04: every companion id derived from one helper.
+  // builder-audit #338 SYNC-04: every companion id derived from one helper.
   const ids = getCompanionLayerIds(id, prefix);
   for (const candidate of [ids.label, ids.arrow, ids.extrusion, ids.outline, ids.clusterCount, ids.cluster, layerId]) {
     if (map.getLayer(candidate)) map.removeLayer(candidate);
@@ -415,7 +415,7 @@ function syncLayerZoomRange(map: MaplibreMap, layerIds: string[], minzoom: numbe
   }
 }
 
-// builder-audit SYNC-05: the cluster signature and the tile-url signature are
+// builder-audit #338 SYNC-05: the cluster signature and the tile-url signature are
 // kept in SEPARATE per-map WeakMaps. They were previously crammed into one Map
 // (cluster key = sourceId, tile-url key = `${sourceId}::tileurl`), where a
 // single `signatureMap.delete(sourceId)` in the non-cluster block risked wiping
@@ -437,7 +437,7 @@ function removeClusterCompanionLayers(map: MaplibreMap, layerId: string) {
 }
 
 function removeColorReliefCompanionLayer(map: MaplibreMap, layerId: string) {
-  // builder-audit SYNC-04: -colorrelief suffix lives in companion-ids.ts.
+  // builder-audit #338 SYNC-04: -colorrelief suffix lives in companion-ids.ts.
   const colorReliefId = `${layerId}${COLOR_RELIEF_SUFFIX}`;
   if (map.getLayer(colorReliefId)) map.removeLayer(colorReliefId);
 }
@@ -461,7 +461,7 @@ function tileUrlSignatureStore(map: MaplibreMap) {
 }
 
 /**
- * builder-audit SYNC-03 + token-refresh: refresh a vector source's tiles ONLY
+ * builder-audit #338 SYNC-03 + token-refresh: refresh a vector source's tiles ONLY
  * when the signed URL actually changed, honoring the per-source tile-url
  * signature. Both the in-pass sync (`syncVectorTiles`) and the BuilderMap
  * token-refresh effect call this, so a paint/visibility edit that does not
@@ -544,7 +544,7 @@ export interface SourceIdLayer {
  *  - paint expressions of shape `["get", "<colname>"]` — generic catch-all
  *  - `label_config.column` — label text-field is a LAYOUT property the paint
  *    walk cannot see, which is exactly why an explicit read is required here
- *  - `filter` expressions (builder-audit P1-03) — a filter that references a
+ *  - `filter` expressions (builder-audit #338 P1-03) — a filter that references a
  *    column NOT also used by paint/label would otherwise evaluate against
  *    missing properties at z<10, producing empty/inconsistent rendering.
  */
@@ -820,7 +820,7 @@ const VECTOR_SOURCE_MINZOOM = 0;
 const VECTOR_SOURCE_MAXZOOM = 14;
 
 /** Resolved per-layer source decisions — pure, no map side effects.
- *  builder-audit SYNC-05: extracted from syncVectorLayer so the type/cluster
+ *  builder-audit #338 SYNC-05: extracted from syncVectorLayer so the type/cluster
  *  resolution is testable and the gnarly source mutation lives separately. */
 interface VectorSourceMode {
   adapter: LayerAdapter;
@@ -1044,7 +1044,7 @@ function syncLabelCompanion(
 }
 
 /** Add or update a vector (MVT / GeoJSON-Z) layer, including labels and visibility.
- *  builder-audit SYNC-05: orchestrates resolveVectorSourceMode → ensureVectorSource
+ *  builder-audit #338 SYNC-05: orchestrates resolveVectorSourceMode → ensureVectorSource
  *  → syncLabelCompanion so each concern is an isolated, testable unit. */
 function syncVectorLayer(
   map: MaplibreMap,
@@ -1116,7 +1116,7 @@ function removeStaleSourcesAndLayers(
     for (const candidate of [ids.label, ids.arrow, ids.extrusion, ids.outline, ids.clusterCount, ids.cluster, ids.layer]) {
       if (map.getLayer(candidate)) map.removeLayer(candidate);
     }
-    // builder-audit SYNC-06: enumerate any remaining layers still referencing
+    // builder-audit #338 SYNC-06: enumerate any remaining layers still referencing
     // this source (the deduped case where the derived ids above never matched)
     // and remove them BEFORE removeSource. Previously this relied on a sibling
     // path (removePerLayerCompanions) that early-returns mid-style-transition,
@@ -1176,7 +1176,7 @@ export function syncLayersToMap(
       // per-layer. Layer ids (per-layer paint/visibility) remain unchanged.
       const sourceId = getSourceIdForLayer(layer, prefix);
       const layerId = prefixed('layer', layer.id, prefix);
-      // builder-audit P1-01: one MVT source-layer-name helper shared with tile signing.
+      // builder-audit #338 P1-01: one MVT source-layer-name helper shared with tile signing.
       const sourceLayer = getMvtSourceLayerName(layer.dataset_table_name);
       const token = tokenMap.get(layer.dataset_id) ?? null;
 

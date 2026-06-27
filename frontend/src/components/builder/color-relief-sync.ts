@@ -5,7 +5,7 @@
  * adapter already owns.  It is inserted BELOW the hillshade layer so the shading renders on top.
  *
  * Elevation range default: 0–4000 m (Assumption A1, documented in 1140-RESEARCH.md).
- * builder-audit MAINT-01: this range is meters-only and has no min/max control yet; the
+ * builder-audit #338 MAINT-01: this range is meters-only and has no min/max control yet; the
  * limitation is now surfaced in-product by the DEMEditorScene hypsometric note. Users who
  * need different ranges should use a future min/max-elevation control (follow-up).
  *
@@ -70,7 +70,7 @@ export function syncColorReliefLayer(
   map: MaplibreMap,
   input: AdapterLayerInput,
 ): void {
-  // builder-audit SYNC-04: the -colorrelief suffix lives in companion-ids.ts.
+  // builder-audit #338 SYNC-04: the -colorrelief suffix lives in companion-ids.ts.
   const reliefLayerId = `${input.layerId}${COLOR_RELIEF_SUFFIX}`;
 
   const renderMode = (input.style_config as Record<string, unknown> | null | undefined)?.render_mode;
@@ -98,7 +98,7 @@ export function syncColorReliefLayer(
     map.removeLayer(reliefLayerId);
   }
 
-  // builder-audit MAINT-02: pin a narrow local shape for the color-relief layer and cast
+  // builder-audit #338 MAINT-02: pin a narrow local shape for the color-relief layer and cast
   // ONCE at the addLayer boundary, instead of `as unknown as` on both the type string and
   // the whole object. 'color-relief' is a native MapLibre 5.24 layer type whose paint keys
   // (color-relief-color / -opacity) the @maplibre/maplibre-gl-style-spec LayerSpecification
@@ -122,7 +122,7 @@ export function syncColorReliefLayer(
 }
 
 /**
- * builder-audit MAINT-02: narrow local type for the native MapLibre 5.24 `color-relief`
+ * builder-audit #338 MAINT-02: narrow local type for the native MapLibre 5.24 `color-relief`
  * layer, which the maplibre-gl-style-spec LayerSpecification union does not yet include.
  */
 interface ColorReliefLayerSpec {

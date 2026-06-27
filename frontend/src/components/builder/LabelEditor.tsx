@@ -31,7 +31,7 @@ const PLACEMENT_OPTIONS = [
   { value: 'line-center', labelKey: 'labels.placementLineCenter' },
 ] as const;
 
-// builder-audit LABEL-02: every anchor option carries an i18n labelKey so the
+// builder-audit #338 LABEL-02: every anchor option carries an i18n labelKey so the
 // four corner anchors translate instead of rendering hardcoded English.
 const ANCHOR_OPTIONS = [
   { value: 'center', labelKey: 'labels.anchorCenter' },
@@ -56,7 +56,7 @@ export function LabelEditor({ columns, labelConfig, onLabelChange, geometryType 
     return PLACEMENT_OPTIONS.filter(p => p.value === 'point');
   }, [geometryType]);
 
-  // Phase 20260526-builder-audit BLD-20260526-11: sync from prop so the ref survives unmount/remount cycles.
+  // Phase 20260526-builder-audit #338 BLD-20260526-11: sync from prop so the ref survives unmount/remount cycles.
   const lastConfigRef = useRef<LabelConfig | null>(labelConfig);
   if (labelConfig) lastConfigRef.current = labelConfig;
 

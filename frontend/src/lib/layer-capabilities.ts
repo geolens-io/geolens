@@ -65,7 +65,7 @@ export function getLayerCapabilities(
   }
 
   // Vector layer — derive map layer type from geometry.
-  // builder-audit ADAPT-02/DRY-05: consume the canonical classifier instead of a
+  // builder-audit #338 ADAPT-02/DRY-05: consume the canonical classifier instead of a
   // local POINT/LINE substring ladder. polygon and `other` (e.g.
   // GEOMETRYCOLLECTION) both map to fill/polygon, preserving prior behavior.
   const family = classifyGeometry(layer.dataset_geometry_type);

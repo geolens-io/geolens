@@ -750,7 +750,7 @@ def _ai_status(
 ) -> AIStatusResponse:
     """Build AIStatusResponse from the SELECTED provider + DB toggle.
 
-    builder-audit P1-12: ``configured`` reports readiness of the SELECTED
+    builder-audit #338 P1-12: ``configured`` reports readiness of the SELECTED
     ``LLM_PROVIDER`` only — not "any key exists". The chat route
     (``_check_ai_available``) gates on the selected provider's key, so admin
     status and chat readiness must agree: if the operator selects ``anthropic``

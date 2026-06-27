@@ -1,7 +1,7 @@
 import type { BuilderStyleConfig } from '@/types/api';
 
 /**
- * builder-audit DRY-01: single declarative source for the
+ * builder-audit #338 DRY-01: single declarative source for the
  * builderConfig-key <-> underscore-paint-key <-> reverse-routed parity table.
  *
  * Historically this mapping was hand-maintained across three sites — the

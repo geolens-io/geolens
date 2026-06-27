@@ -152,7 +152,7 @@ def generate_default_style(geometry_type: str | None) -> dict[str, dict | None]:
             "generate_default_style called with null geometry_type; defaulting to fill"
         )
 
-    # builder-audit STYLE-07: use the shared GeoLens-blue palette constants from
+    # builder-audit #338 STYLE-07: use the shared GeoLens-blue palette constants from
     # style_json so storage defaults cannot silently diverge from export defaults.
     if "POINT" in gt:
         return {

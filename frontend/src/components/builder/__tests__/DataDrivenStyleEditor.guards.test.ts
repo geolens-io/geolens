@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { styleConfigAlreadyMatches } from '../DataDrivenStyleEditor';
 import type { StyleConfig } from '@/types/api';
 
-// builder-audit COMPLEXITY-01: the three styling effects' infinite-loop skip
+// builder-audit #338 COMPLEXITY-01: the three styling effects' infinite-loop skip
 // guards now live in one helper. Each case below builds the config the matching
 // effect WOULD write, then asserts the guard reports a match (so the effect
 // skips the write) — and that a single diverging field breaks the match.

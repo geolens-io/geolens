@@ -14,7 +14,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
-// builder-audit STACK-07: shared platform detection + Save chord.
+// builder-audit #338 STACK-07: shared platform detection + Save chord.
 import { SAVE_SHORTCUT } from '@/lib/platform';
 
 export interface OverflowActions {

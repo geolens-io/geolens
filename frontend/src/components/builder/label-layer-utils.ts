@@ -6,7 +6,7 @@ export const LABEL_FONT_STACK = [
   'Noto Sans Regular',
 ] as const;
 
-/** Phase 20260526-builder-audit BLD-20260526-11: resolve symbol-placement, enforcing point-only for fill geometries. */
+/** Phase 20260526-builder-audit #338 BLD-20260526-11: resolve symbol-placement, enforcing point-only for fill geometries. */
 export function resolvePlacement(
   lc: Pick<LabelConfig, 'placement'>,
   geomType: string,
@@ -17,7 +17,7 @@ export function resolvePlacement(
 }
 
 /**
- * builder-audit LABEL-01: the single canonical {layout, paint} mapping for a
+ * builder-audit #338 LABEL-01: the single canonical {layout, paint} mapping for a
  * label layer, derived from `LabelConfig` + geometry. Both `buildLabelLayerSpec`
  * (add path) and `syncLabelLayer` (update path) consume this ONE object so the
  * GL property list and its defaults exist exactly once and cannot drift — a new

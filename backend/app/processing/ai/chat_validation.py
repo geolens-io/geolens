@@ -150,7 +150,7 @@ async def _validate_actions(
             dropped.append(f"{action.type} (invalid layer_id: {action.layer_id})")
             continue
         # Validate filter expressions against the FULL shared grammar before
-        # they reach the client. builder-audit P1-13: reuse filter_grammar's
+        # they reach the client. builder-audit #338 P1-13: reuse filter_grammar's
         # validate_filter (the same validator the layer schemas / style export
         # use) so an AI set_filter cannot emit a filter that is accepted here
         # but fails at MapLibre runtime or round-trips into invalid saved state.

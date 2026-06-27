@@ -1,4 +1,4 @@
-// builder-audit STACK-05: extracted from UnifiedStackPanel.tsx into a sibling
+// builder-audit #338 STACK-05: extracted from UnifiedStackPanel.tsx into a sibling
 // file. Sortable wrapper for a loose layer or a folder-group child row.
 import { memo, useCallback } from 'react';
 import { useSortable } from '@dnd-kit/sortable';

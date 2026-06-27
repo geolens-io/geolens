@@ -146,7 +146,7 @@ export const rasterAdapter: LayerAdapter = {
 
   addLayers(map: MaplibreMap, input: AdapterLayerInput): void {
     const { layerId, sourceId, tileUrl, tileSize, minzoom, maxzoom, visible, bounds } = input;
-    // builder-audit ADAPT-10: source construction reads input.tileUrl directly. The
+    // builder-audit #338 ADAPT-10: source construction reads input.tileUrl directly. The
     // colormap/stretch query params are applied by buildColormapTileUrl (exported from
     // THIS module) — but the call site lives in map-sync.syncRasterLayer, which mutates
     // adapterInput.tileUrl before handing it here. The URL builder is co-located in this
@@ -202,7 +202,7 @@ export const rasterAdapter: LayerAdapter = {
     if (currentOpacity !== (opacity ?? 1)) {
       map.setPaintProperty(layerId, 'raster-opacity', opacity ?? 1);
     }
-    // builder-audit ADAPT-09: reconcile visibility through the SAME shared helper the
+    // builder-audit #338 ADAPT-09: reconcile visibility through the SAME shared helper the
     // vector adapters use. syncRasterLayer (map-sync) calls syncPaint without a
     // following syncVisibility, so visibility must still be reconciled here — uniformly.
     syncSingleLayerVisibility(map, layerId, visible);

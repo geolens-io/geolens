@@ -76,7 +76,7 @@ export const BasemapGroupRow = memo(function BasemapGroupRow({
       aria-current={selected ? 'true' : undefined}
       tabIndex={0}
       className={cn(
-        // builder-audit STACK-04: shared grid template + state classes.
+        // builder-audit #338 STACK-04: shared grid template + state classes.
         'group/row grid', STACK_ROW_GRID, 'gap-2 items-center py-2 px-2 cursor-pointer select-none',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset',
         rowStateClasses({ selected, isDragging }),
@@ -123,7 +123,7 @@ export const BasemapGroupRow = memo(function BasemapGroupRow({
           per sketch findings (3D maps need basemap rendered above data). When
           isMultiSelectionActive is true, the listeners are suppressed (drag +
           multi-select are mutually exclusive per UI-SPEC §"Cross-Plan Visual
-          Conflict Check"). builder-audit STACK-04: shared DragGripButton.
+          Conflict Check"). builder-audit #338 STACK-04: shared DragGripButton.
           Phase 1199 STACK-05: reveal the reorder grip on coarse-pointer/touch. */}
       <DragGripButton
         dragHandleProps={dragHandleProps}
@@ -134,7 +134,7 @@ export const BasemapGroupRow = memo(function BasemapGroupRow({
       />
 
       {/* Cell 3: Eye visibility toggle.
-          builder-audit STACK-06: the dead visibilityDisabled locked-eye branch was
+          builder-audit #338 STACK-06: the dead visibilityDisabled locked-eye branch was
           removed — no call site ever passed it (the basemap dock wires a real toggle).
           SP-10: aria-pressed reflects the visible state so AT users hear "Basemap pressed". */}
       <button

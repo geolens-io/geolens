@@ -23,7 +23,7 @@ import {
   type StyleLayer,
 } from '@/lib/basemap-utils';
 
-// builder-audit DUP-01: the opacity-key table is now imported from
+// builder-audit #338 DUP-01: the opacity-key table is now imported from
 // basemap-utils (single source of truth) rather than re-declared here. The
 // per-sublayer semantics (no prominence stamps to compose) live in
 // applyOverrideToLayer below, not in the table itself.
@@ -37,7 +37,7 @@ import {
  *   layers only (pass VIEWER_SOURCE_PREFIX in viewer contexts). When undefined, all
  *   classified basemap layers are targeted (appropriate for builder context).
  * @param masterOpacity - The whole-basemap master opacity (BasemapConfig.opacity, 0-1).
- *   builder-audit CORR-01: a per-sublayer opacity override COMPOSES on top of master
+ *   builder-audit #338 CORR-01: a per-sublayer opacity override COMPOSES on top of master
  *   (override * master) so the documented "additive on top of the master opacity"
  *   contract holds and the master slider is never silently clobbered. Defaults to 1.
  *
@@ -75,7 +75,7 @@ export function applySublayerOverrides(
 
       // sourcePrefix scoping: when a prefix is provided (viewer context), skip
       // layers that are NOT basemap-owned (their source is a data-layer source).
-      // builder-audit DUP-02: classification is delegated to the shared
+      // builder-audit #338 DUP-02: classification is delegated to the shared
       // isBasemapOwnedLayer predicate so the missing/non-string-source edge
       // cases are defined once.
       if (sourcePrefix && !isBasemapOwnedLayer(styleLayer, sourcePrefix)) {
@@ -129,7 +129,7 @@ function applyOverrideToLayer(
 
   // OPACITY — multiplexed across layer types per OPACITY_PAINT_KEYS_BY_TYPE.
   // Symbol layers get both text-opacity and icon-opacity set simultaneously.
-  // builder-audit CORR-01: compose the per-sublayer override with the master
+  // builder-audit #338 CORR-01: compose the per-sublayer override with the master
   // opacity (override * master) instead of writing the override absolutely.
   // applyBasemapConfigToMap wrote absolute master opacity onto these same keys
   // just before this call; writing override.opacity raw would clobber master,

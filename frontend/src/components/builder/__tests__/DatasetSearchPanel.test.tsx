@@ -36,7 +36,7 @@ vi.mock('react-i18next', () => ({
   }),
 }));
 
-// builder-audit SEARCH-01: the panel now gates its Import/Upload CTAs on
+// builder-audit #338 SEARCH-01: the panel now gates its Import/Upload CTAs on
 // `!!token && can('upload')`. Default to an upload-capable, signed-in session so
 // the existing suites (which assert on the CTAs) keep passing; the dedicated
 // SEARCH-01 describe flips these to cover the gated-off path.
@@ -303,7 +303,7 @@ describe('DatasetSearchPanel', () => {
     expect(uploadLink).toHaveAttribute('href', '/import');
   });
 
-  // builder-audit SEARCH-01: Import/Upload CTAs are gated on `!!token && can('upload')`.
+  // builder-audit #338 SEARCH-01: Import/Upload CTAs are gated on `!!token && can('upload')`.
   describe('SEARCH-01: Import/Upload CTAs gated on upload capability', () => {
     afterEach(() => {
       mockCanUpload = true;

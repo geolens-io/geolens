@@ -445,7 +445,7 @@ describe('FolderGroupRow', () => {
     it('Test 25: BUG-03 — the inline-rename hook schedules its focus call via requestAnimationFrame (source assertion)', () => {
       // Defense-in-depth: the rAF-deferred focus is what wins the race vs Radix
       // restoreFocus in production. A regression that drops the rAF wrapper would
-      // re-introduce the focus-race bug. builder-audit STACK-03 moved this logic
+      // re-introduce the focus-race bug. builder-audit #338 STACK-03 moved this logic
       // into the shared useInlineRename hook, so the source assertion now targets
       // the hook (consumed by both FolderGroupRow and StackRow).
       const source = useInlineRename.toString();

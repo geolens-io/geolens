@@ -384,7 +384,7 @@ export const rejectUserAdminUsersUserIdRejectPost = <ThrowOnError extends boolea
 /**
  * Ai Availability Endpoint
  *
- * Report whether builder AI chat is usable (builder-audit P1-11).
+ * Report whether builder AI chat is usable (builder-audit #338 P1-11).
  *
  * Permission-gated on ``use_ai_chat`` so non-admin editors (who cannot read
  * ``/admin/ai-status``) can learn availability. Returns ``available=false``

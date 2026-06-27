@@ -17,7 +17,7 @@
  * and keeps SSR rendering correct.
  */
 
-// builder-audit SYNC-09 (single-builder-instance assumption): `pending` is a
+// builder-audit #338 SYNC-09 (single-builder-instance assumption): `pending` is a
 // process-global map keyed ONLY by the coalesce key (e.g. `paint:${layerId}`),
 // with no map-instance discriminator. This is intentional for the current
 // single-live-builder use case — exactly one BuilderMap is mounted at a time and

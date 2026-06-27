@@ -1456,7 +1456,7 @@ def test_build_maplibre_style_round_trip_preserves_builder_line_gradient_intent(
 
 
 # ---------------------------------------------------------------------------
-# builder-audit remediation tests (STYLE_JSON cluster)
+# builder-audit #338 remediation tests (STYLE_JSON cluster)
 # ---------------------------------------------------------------------------
 
 

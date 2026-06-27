@@ -33,7 +33,7 @@ from app.modules.catalog.maps.schemas import LEGACY_BUILDER_PAINT_KEYS
 from tests.repo_paths import repo_root
 
 REPO_ROOT = repo_root(__file__)
-# builder-audit SPEC-08 / DRY-01: the frontend paint-key allowlist is now
+# builder-audit #338 SPEC-08 / DRY-01: the frontend paint-key allowlist is now
 # single-sourced as CUSTOM_PAINT_PROPS in layer-adapters/shared.ts;
 # normalize-style-config.ts aliases it (LEGACY_BUILDER_PAINT_KEYS = CUSTOM_PAINT_PROPS).
 SHARED_TS = (

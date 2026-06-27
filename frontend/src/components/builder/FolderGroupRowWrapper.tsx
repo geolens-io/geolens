@@ -1,4 +1,4 @@
-// builder-audit STACK-05: extracted from UnifiedStackPanel.tsx into a sibling
+// builder-audit #338 STACK-05: extracted from UnifiedStackPanel.tsx into a sibling
 // file. Sortable wrapper for folder group rows.
 import { memo, useCallback } from 'react';
 import { useDndContext } from '@dnd-kit/core';

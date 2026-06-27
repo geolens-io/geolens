@@ -2,7 +2,7 @@ import type { MapLayerResponse, MapLayerType, StyleConfig } from '@/types/api';
 import { canUseClusterSource } from './cluster-source';
 import { classifyGeometry } from './layer-adapters/shared';
 import { MAP_COLORS } from '@/lib/map-colors';
-// builder-audit ADAPT-05/06 / DRY-04/06: pull the per-render-mode default paint and
+// builder-audit #338 ADAPT-05/06 / DRY-04/06: pull the per-render-mode default paint and
 // the arrow/extrusion magic constants from the single builder-defaults source of truth
 // instead of re-declaring divergent copies here.
 import {
@@ -44,7 +44,7 @@ export interface RenderAsOption {
   source: RenderAsSource;
 }
 
-// builder-audit ADAPT-07: trimmed RendererCapability to the fields runtime code
+// builder-audit #338 ADAPT-07: trimmed RendererCapability to the fields runtime code
 // actually reads. The previous schema modeled backend/viewerSupport/styleJsonSupport/
 // companionLayers/sourceRequirement/writableFields/enabled, none of which had a
 // consumer outside this module and its tests (every row was backend:'maplibre',
@@ -120,7 +120,7 @@ function isRasterLayer(layer: RenderAsLayer) {
   );
 }
 
-// builder-audit ADAPT-02/DRY-05: derive from the single classifyGeometry scanner.
+// builder-audit #338 ADAPT-02/DRY-05: derive from the single classifyGeometry scanner.
 function geometryFamily(geometryType: string | null): 'point' | 'line' | 'polygon' | null {
   const family = classifyGeometry(geometryType);
   return family === 'other' ? null : family;
@@ -431,7 +431,7 @@ export function buildRenderAsPatch(layer: RenderAsLayer, renderAs: RenderAsId): 
       builder.heightColumn = numericHeightColumn(layer);
       builder.heightScale = typeof priorHeightScale === 'number' ? priorHeightScale : 1;
       builder.extrusionMinZoom = typeof priorExtrusionMinZoom === 'number' ? priorExtrusionMinZoom : DEFAULT_EXTRUSION_MIN_ZOOM;
-      // builder-audit (verifier nit): the prior `Math.min(0.85, 1)` was a no-op that
+      // builder-audit #338 (verifier nit): the prior `Math.min(0.85, 1)` was a no-op that
       // always evaluated to 0.85; use the shared extrusion-opacity cap directly.
       builder.extrusionOpacity = typeof priorExtrusionOpacity === 'number' ? priorExtrusionOpacity : DEFAULT_EXTRUSION_OPACITY_CAP;
     }

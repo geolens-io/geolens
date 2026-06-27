@@ -7,7 +7,7 @@ vi.mock('@/api/admin', () => ({
   getAIStatus: vi.fn(),
 }));
 
-// builder-audit P1-11: non-admin editors read the public-safe availability endpoint.
+// builder-audit #338 P1-11: non-admin editors read the public-safe availability endpoint.
 vi.mock('@/api/maps', () => ({
   getAIAvailability: vi.fn(),
 }));

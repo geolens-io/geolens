@@ -39,8 +39,8 @@ class SublayerOverride:
                 default.
             opacity (float | None | Unset): Per-sublayer opacity (0-1), or null to use the basemap default. Composes on top
                 of BasemapConfig.opacity (the whole-basemap master opacity): the rendered opacity is override.opacity *
-                master_opacity (builder-audit CORR-01). The UI opacity slider in BasemapSublayerEditorScene persists through
-                this field: MapBuilderPage.handleSublayerOpacityChange -> setBasemapSublayerOpacity ->
+                master_opacity (builder-audit #338 CORR-01). The UI opacity slider in BasemapSublayerEditorScene persists
+                through this field: MapBuilderPage.handleSublayerOpacityChange -> setBasemapSublayerOpacity ->
                 updateBasemapSublayerOverride writes config.sublayer_overrides[key].opacity.
             stroke_color (None | str | Unset): Stroke color in #RRGGBB hex format, or null to use the basemap default.
             stroke_width (float | None | Unset): Stroke width in pixels (0-20), or null to use the basemap default.

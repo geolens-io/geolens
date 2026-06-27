@@ -15,7 +15,7 @@ import { Eye, EyeOff, GripVertical, Plus, Search, Settings } from 'lucide-react'
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { StackRow } from '@/components/builder/StackRow';
-// builder-audit STACK-05: sortable wrappers + the catalog drag ghost moved to
+// builder-audit #338 STACK-05: sortable wrappers + the catalog drag ghost moved to
 // sibling files so this panel module stays focused on the list orchestration.
 import { SortableStackRow } from '@/components/builder/SortableStackRow';
 import { BasemapGroupRowWrapper } from '@/components/builder/BasemapGroupRowWrapper';
@@ -23,7 +23,7 @@ import { FolderGroupRowWrapper } from '@/components/builder/FolderGroupRowWrappe
 import { CatalogDragGhost } from '@/components/builder/CatalogDragGhost';
 import { EmptyStackState, eyebrowClassName } from '@/components/builder/EmptyStackState';
 import { BulkActionBar } from '@/components/builder/BulkActionBar';
-// builder-audit STACK-01: use the single typed helper instead of a local
+// builder-audit #338 STACK-01: use the single typed helper instead of a local
 // `as unknown as` re-implementation.
 import { getParentGroupId } from '@/components/builder/folder-groups';
 import { isFolderGroupLayer } from '@/lib/layer-capabilities';
@@ -34,7 +34,7 @@ import { isDemTerrainVisualSuppressed } from './map-sync';
 import { computeDisambiguationLabels } from './map-stack';
 import { geometryClassOf, type GeometryStyleClass } from '@/lib/builder/layer-style-clipboard';
 
-// builder-audit STACK-05: re-exported so existing imports
+// builder-audit #338 STACK-05: re-exported so existing imports
 // (`import { CatalogDragGhost } from '@/components/builder/UnifiedStackPanel'`)
 // keep working after the component moved to its own file.
 export { CatalogDragGhost };
@@ -55,10 +55,10 @@ interface UnifiedStackPanelProps {
   selectedLayerId: string | null;
   onSelectLayer: (id: string | null) => void;
   onToggleVisibility: (id: string) => void;
-  /** @deprecated builder-audit STACK-05: inert in this component (drag-reorder is
+  /** @deprecated builder-audit #338 STACK-05: inert in this component (drag-reorder is
    *  lifted to MapBuilderPage). Retained only for call-site compatibility. */
   onReorder: (layers: MapLayerResponse[]) => void;
-  /** @deprecated builder-audit STACK-05: inert in this component (opacity editing
+  /** @deprecated builder-audit #338 STACK-05: inert in this component (opacity editing
    *  moved to the LayerEditorPanel flyout). Retained only for call-site compatibility. */
   onOpacityChange: (layerId: string, opacity: number) => void;
   onRemove: (id: string) => void;
@@ -86,7 +86,7 @@ interface UnifiedStackPanelProps {
   basemapGroup?: BasemapGroupInfo | null;
   isBasemapExpanded?: boolean;
   onToggleSublayerVisibility?: (sublayerId: string) => void;
-  /** @deprecated builder-audit STACK-05: inert in this component (per-sublayer
+  /** @deprecated builder-audit #338 STACK-05: inert in this component (per-sublayer
    *  opacity moved to the LayerEditorPanel flyout). Retained for call-site compatibility. */
   onSublayerOpacityChange?: (sublayerId: string, opacity: number) => void;
   onSwapBasemap?: () => void;
@@ -129,7 +129,7 @@ interface UnifiedStackPanelProps {
 }
 
 // ---------------------------------------------------------------------------
-// builder-audit STACK-05: SortableStackRow, BasemapGroupRowWrapper, and
+// builder-audit #338 STACK-05: SortableStackRow, BasemapGroupRowWrapper, and
 // FolderGroupRowWrapper were extracted to sibling files (imported above).
 // ---------------------------------------------------------------------------
 
@@ -237,7 +237,7 @@ const SublayerRow = memo(function SublayerRow({
       </div>
 
       {/* Cell 6: Config-state indicators slot (Phase 1051 UX-02 — replaces opacity slider).
-          builder-audit DEAD-02: SublayerConfigIndicators was always rendered with
+          builder-audit #338 DEAD-02: SublayerConfigIndicators was always rendered with
           layer={null} here (BasemapSublayerInfo only carries id/name/visible/opacity/kind,
           not the full MapLayerResponse the indicators derive from), so its entire logic was
           unreachable in production. The always-null render is removed; this slot stays empty.
@@ -262,7 +262,7 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
   selectedLayerId,
   onSelectLayer,
   onToggleVisibility,
-  // builder-audit STACK-05: onReorder / onOpacityChange / onSublayerOpacityChange
+  // builder-audit #338 STACK-05: onReorder / onOpacityChange / onSublayerOpacityChange
   // are deliberately NOT destructured here — drag-reorder is lifted to
   // MapBuilderPage and all opacity editing moved to the LayerEditorPanel flyout.
   // The props remain on UnifiedStackPanelProps only for call-site compatibility

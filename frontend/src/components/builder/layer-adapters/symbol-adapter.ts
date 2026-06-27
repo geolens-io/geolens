@@ -8,7 +8,7 @@ import { LABEL_FONT_STACK } from '../label-layer-utils';
 const DEFAULT_ICON = 'marker';
 const GEOLENS_SPRITE_ID = 'geolens';
 const GEOLENS_SPRITE_PATH = '/api/maps/sprites/geolens';
-// builder-audit SPEC-02: symbol authoring is a DELIBERATE curated subset — icon
+// builder-audit #338 SPEC-02: symbol authoring is a DELIBERATE curated subset — icon
 // (image/size/rotate/anchor/offset/allow-overlap) + basic label (field/size/font/anchor/
 // offset/allow-overlap/max-width) and the paint set below. The other ~30 spec symbol
 // properties (symbol-placement/spacing/sort-key, icon-text-fit, icon-keep-upright,

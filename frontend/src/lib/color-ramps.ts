@@ -213,7 +213,7 @@ export function buildGraduatedExpression(
  * Return the MapLibre paint property name for coloring based on geometry type.
  */
 export function getColorProperty(geometryType: string | null): string {
-  // builder-audit ADAPT-02/DRY-05: derive from the single classifyGeometry scanner.
+  // builder-audit #338 ADAPT-02/DRY-05: derive from the single classifyGeometry scanner.
   switch (classifyGeometry(geometryType)) {
     case 'point':
       return 'circle-color';

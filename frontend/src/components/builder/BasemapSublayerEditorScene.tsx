@@ -89,7 +89,7 @@ export function BasemapSublayerEditorScene({
 
   const safeOpacity = typeof opacity === 'number' && Number.isFinite(opacity) ? opacity : 1;
 
-  // builder-audit MAINT-02: STROKE/CASING only mutate line sublayers in
+  // builder-audit #338 MAINT-02: STROKE/CASING only mutate line sublayers in
   // applyOverrideToLayer (stroke_color/width require layerType==='line';
   // casing requires a 'casing' line sibling). Roads and boundaries are line
   // layers; labels (symbol) and buildings (fill-extrusion) are not, so the

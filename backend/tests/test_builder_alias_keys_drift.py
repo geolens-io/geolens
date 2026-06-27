@@ -1,7 +1,7 @@
 """Static-analysis test: the frontend builder snake_case->camelCase alias map
 must stay identical to the backend's authoritative inverse.
 
-Contract (builder-audit DRY-03 / SPEC-08):
+Contract (builder-audit #338 DRY-03 / SPEC-08):
   The builder block keys are authored in camelCase on the frontend but stored
   snake_case. Both sides translate between the two, and historically the
   mapping was hand-maintained in four places (frontend ``shared.ts`` +
@@ -86,7 +86,7 @@ def test_builder_alias_map_parity():
     }
 
     assert frontend == backend, (
-        "builder-audit DRY-03/SPEC-08 DRIFT: the frontend builder alias map and "
+        "builder-audit #338 DRY-03/SPEC-08 DRIFT: the frontend builder alias map and "
         "the backend inverse have diverged.\n"
         f"\nKeys only in frontend (shared.ts): {sorted(only_frontend)}"
         f"\nKeys only in backend (schemas.py): {sorted(only_backend)}"

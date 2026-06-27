@@ -7,7 +7,7 @@ import {
 } from '../builder-paint-map';
 import { CUSTOM_PAINT_PROPS } from '@/components/builder/layer-adapters/shared';
 
-// builder-audit DRY-01: the forward map (controlPaint), the reverse router
+// builder-audit #338 DRY-01: the forward map (controlPaint), the reverse router
 // (handlePaintProp), and the strip allowlist must all agree. Previously these
 // were three hand-maintained sites that drifted; now they derive from one table.
 describe('builder-paint-map (DRY-01 parity)', () => {

@@ -218,7 +218,7 @@ const pendingCaptures = new Map<string, ReturnType<typeof setTimeout>>();
  *  Vite-dev StrictMode (unmount → remount → guard cleared → second PUT fires
  *  after the first's debounce has already settled).
  *
- *  STATE-07 (builder-audit 20260626): the guard is now a bounded LRU instead of
+ *  STATE-07 (builder-audit #338 20260626): the guard is now a bounded LRU instead of
  *  an unbounded write-only Set. The just-captured map's key stays resident (so
  *  StrictMode remount is still deduped), but the structure no longer accumulates
  *  one entry per visited map for the lifetime of the tab, and old maps age out

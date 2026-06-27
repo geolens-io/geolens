@@ -1,4 +1,4 @@
-"""builder-audit P0-01 (wiring) + P1-14 (share-expiration edition gate) + STYLE-06.
+"""builder-audit #338 P0-01 (wiring) + P1-14 (share-expiration edition gate) + STYLE-06.
 
 P0-01 wiring: the maps router must revoke a map's embed tokens (not just its
 share token) when sharing is revoked or when a public map is downgraded to
@@ -77,7 +77,7 @@ async def _public_map_with_layer(
     )
     map_obj = Map(
         name=f"P0P1 Map {uuid.uuid4().hex[:6]}",
-        description="builder-audit P0-01/P1-14 sharing test",
+        description="builder-audit #338 P0-01/P1-14 sharing test",
         visibility="public",
         created_by=created_by,
     )
@@ -106,7 +106,7 @@ class TestP001EmbedRevokeWiring:
     ):
         """PUT /maps/{id} public->private must revoke the map's embed tokens.
 
-        builder-audit P0-01: previously only the share token was flipped, so a
+        builder-audit #338 P0-01: previously only the share token was flipped, so a
         copied embed token kept validating after the downgrade.
         """
         init_cache()
@@ -191,6 +191,46 @@ class TestP001EmbedRevokeWiring:
             await validate_embed_token_access(raw, dataset_id, test_db_session) is False
         )
 
+    async def test_share_revoke_revokes_orphaned_embed_without_share_token(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session: AsyncSession,
+        clean_tables,
+    ):
+        """DELETE /maps/{id}/share/ revokes an orphaned embed token even when no
+        active share token exists — the embed purge must not be short-circuited by
+        the share-token 404 (Codex P1 on builder-audit #338)."""
+        init_cache()
+        uid = await get_user_id(test_db_session, settings.geolens_admin_username)
+        dataset_id, map_obj, _layer = await _public_map_with_layer(
+            test_db_session, created_by=uid
+        )
+        # Embed token but NO share token (the orphaned state).
+        _token, raw = await create_embed_token(test_db_session, map_obj.id, uid)
+        await test_db_session.commit()
+
+        cache = get_cache()
+        await cache.delete(_cache_key(raw))
+        assert (
+            await validate_embed_token_access(raw, dataset_id, test_db_session) is True
+        )
+
+        # No share token exists, but the embed token must still be revoked (204,
+        # not the old 404 that left it serving tiles).
+        mid = map_obj.id
+        resp = await client.delete(f"/maps/{mid}/share/", headers=admin_auth_header)
+        assert resp.status_code == 204, resp.text
+
+        test_db_session.expire_all()
+        row = await test_db_session.execute(
+            select(EmbedToken).where(EmbedToken.map_id == mid)
+        )
+        assert row.scalar_one().is_active is False
+        assert (
+            await validate_embed_token_access(raw, dataset_id, test_db_session) is False
+        )
+
     async def test_layer_replacement_revokes_orphaned_embed_token(
         self,
         client: AsyncClient,
@@ -199,7 +239,7 @@ class TestP001EmbedRevokeWiring:
         clean_tables,
     ):
         """PUT /maps/{id} replacing layers so the token's scoped dataset is gone
-        must revoke the orphaned embed token (builder-audit P0-01)."""
+        must revoke the orphaned embed token (builder-audit #338 P0-01)."""
         init_cache()
         uid = await get_user_id(test_db_session, settings.geolens_admin_username)
         dataset_id, map_obj, _layer = await _public_map_with_layer(
@@ -385,7 +425,7 @@ class TestStyle06HistoryEvents:
         clean_tables,
     ):
         """A single PUT touching every tracked field must still emit one history
-        event per field (builder-audit STYLE-06 keeps semantics identical)."""
+        event per field (builder-audit #338 STYLE-06 keeps semantics identical)."""
         uid = await get_user_id(test_db_session, settings.geolens_admin_username)
         dataset = await create_dataset(
             test_db_session,

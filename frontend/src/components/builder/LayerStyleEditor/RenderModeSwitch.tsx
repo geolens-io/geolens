@@ -26,7 +26,7 @@ export type EditorDispatchKey =
 interface RenderModeSwitchProps extends BaseStyleEditorProps {
   /**
    * The resolved dispatch key. Computed by the orchestrator from geomType +
-   * renderMode. builder-audit TYPE-01: narrowed to EditorDispatchKey (no `| string`
+   * renderMode. builder-audit #338 TYPE-01: narrowed to EditorDispatchKey (no `| string`
    * widening) so a typo or new render mode is a compile error, not a silent
    * DEV-warn + null render. The orchestrator owns the exhaustive mapping.
    */

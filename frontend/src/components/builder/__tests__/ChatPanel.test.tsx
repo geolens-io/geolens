@@ -178,7 +178,7 @@ describe('ChatPanel', () => {
     await typeAndSend(user, 'filter to parks');
 
     await waitFor(() => {
-      // builder-audit P1-13: AI filters are validated + normalized through the shared
+      // builder-audit #338 P1-13: AI filters are validated + normalized through the shared
       // filter contract before apply, so the legacy bare-field form is canonicalized.
       expect(props.onFilterChange).toHaveBeenCalledWith('layer-1', ['==', ['get', 'type'], 'park']);
     });
