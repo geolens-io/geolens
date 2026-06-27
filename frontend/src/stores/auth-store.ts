@@ -83,3 +83,20 @@ export const useAuthStore = create<AuthState>()(
     persistConfig,
   ),
 );
+
+/**
+ * Cross-tab token sync.
+ *
+ * Refresh tokens are single-use: the backend revokes a refresh token the moment
+ * it is rotated (auth/service.py rotate_refresh_token). Without this listener,
+ * a refresh in one tab leaves every OTHER tab holding the now-revoked token in
+ * memory — the next request there 401s, its refresh 401s, and the tab logs out
+ * (e.g. "saved a map → logged out" with two tabs open). The `storage` event
+ * fires only in the tabs that did NOT make the change, so rehydrating here makes
+ * all tabs converge on the latest rotated token (and propagates logout).
+ */
+if (typeof window !== 'undefined') {
+  window.addEventListener('storage', (e) => {
+    if (e.key === persistConfig.name) void useAuthStore.persist.rehydrate();
+  });
+}
