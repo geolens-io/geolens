@@ -29,9 +29,15 @@ async def _get_user(session, username: str) -> User:
     return result.scalar_one()
 
 
-async def _create_map(session, *, created_by: uuid.UUID, name: str = "Test Map") -> Map:
+async def _create_map(
+    session,
+    *,
+    created_by: uuid.UUID,
+    name: str = "Test Map",
+    visibility: str = "private",
+) -> Map:
     """Create a minimal Map."""
-    map_obj = Map(name=name, created_by=created_by)
+    map_obj = Map(name=name, created_by=created_by, visibility=visibility)
     session.add(map_obj)
     await session.flush()
     await session.commit()
@@ -68,17 +74,8 @@ async def test_validate_rejects_invalid_map_id(
     assert exc_info.value.status_code == 404
 
 
-@pytest.mark.anyio
-async def test_validate_rejects_non_owner(
-    client: AsyncClient,
-    test_db_session,
-):
-    """Returns 403 when user doesn't own the map."""
-    session = test_db_session
-    admin = await _get_user(session, settings.geolens_admin_username)
-
-    map_obj = await _create_map(session, created_by=admin.id)
-
+async def _create_other_user(session) -> User:
+    """Create a fresh non-admin user that owns nothing."""
     other_user = User(
         username=f"other_{uuid.uuid4().hex[:8]}",
         password_hash="unused",
@@ -88,13 +85,71 @@ async def test_validate_rejects_non_owner(
     await session.flush()
     await session.commit()
     await session.refresh(other_user)
+    return other_user
+
+
+@pytest.mark.anyio
+async def test_validate_rejects_non_viewer_of_private_map(
+    client: AsyncClient,
+    test_db_session,
+):
+    """Returns 404 (no existence oracle) when the user cannot view a private map.
+
+    AI chat is gated on VIEW access, not ownership: a non-owner of a *private*
+    map cannot view it, so it is indistinguishable from a missing map (404).
+    """
+    session = test_db_session
+    admin = await _get_user(session, settings.geolens_admin_username)
+    map_obj = await _create_map(session, created_by=admin.id, visibility="private")
+    other_user = await _create_other_user(session)
 
     with pytest.raises(HTTPException) as exc_info:
         await _validate_chat_layers(
             session, other_user, str(map_obj.id), [], port=_default_port
         )
 
-    assert exc_info.value.status_code == 403
+    assert exc_info.value.status_code == 404
+
+
+@pytest.mark.anyio
+async def test_validate_allows_viewer_of_public_map_read_only(
+    client: AsyncClient,
+    test_db_session,
+):
+    """A non-owner who can VIEW a public map is allowed, but read-only (can_edit=False).
+
+    This is the builder-audit follow-up: anyone who can view a map may ask the
+    AI questions about it; only the owner/admin may use the AI to edit. can_edit
+    selects the read-only vs full tool set downstream.
+    """
+    session = test_db_session
+    admin = await _get_user(session, settings.geolens_admin_username)
+    map_obj = await _create_map(session, created_by=admin.id, visibility="public")
+    other_user = await _create_other_user(session)
+
+    validated, _basemap, can_edit = await _validate_chat_layers(
+        session, other_user, str(map_obj.id), [], port=_default_port
+    )
+
+    assert validated == []
+    assert can_edit is False
+
+
+@pytest.mark.anyio
+async def test_validate_owner_can_edit(
+    client: AsyncClient,
+    test_db_session,
+):
+    """The map owner gets can_edit=True (full AI tool set)."""
+    session = test_db_session
+    admin = await _get_user(session, settings.geolens_admin_username)
+    map_obj = await _create_map(session, created_by=admin.id, visibility="private")
+
+    _validated, _basemap, can_edit = await _validate_chat_layers(
+        session, admin, str(map_obj.id), [], port=_default_port
+    )
+
+    assert can_edit is True
 
 
 @pytest.mark.anyio
@@ -115,7 +170,7 @@ async def test_validate_overwrites_client_table_name(
     )
 
     layer = _make_chat_layer(dataset, table_name_override="fake_injected_table")
-    validated, _basemap = await _validate_chat_layers(
+    validated, _basemap, _can_edit = await _validate_chat_layers(
         session, admin, str(map_obj.id), [layer], port=_default_port
     )
 
@@ -153,7 +208,7 @@ async def test_validate_filters_inaccessible_dataset(
     viewer_map = await _create_map(session, created_by=viewer.id, name="Viewer Map")
 
     layer = _make_chat_layer(private_ds)
-    validated, _basemap = await _validate_chat_layers(
+    validated, _basemap, _can_edit = await _validate_chat_layers(
         session, viewer, str(viewer_map.id), [layer], port=_default_port
     )
 

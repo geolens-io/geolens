@@ -763,10 +763,15 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         "backend/app/modules/catalog/search/service.py": 80,
         "backend/app/modules/catalog/datasets/domain/service.py": 110,
         # Phase 276 CODE-02 — chat_service.py is now a facade re-exporting
-        # from chat_*.py sub-modules. 400 is the established Phase-226 cap
+        # from chat_*.py sub-modules. 400 was the established Phase-226 cap
         # for facade modules that retain a meaty orchestrator + system-prompt
         # builder.
-        "backend/app/processing/ai/chat_service.py": 400,
+        # builder-audit follow-up (read-only AI access model): +36 LOC —
+        # build_chat_system_prompt gains a can_edit read-only directive, and
+        # chat_edit_map gains the per-turn allowed-tool guard on the tool
+        # executor + action collector (so a view-only caller cannot execute or
+        # collect a mutating tool). Cap raised 400 -> 440 (~4 LOC headroom).
+        "backend/app/processing/ai/chat_service.py": 440,
     }
     private_service_default_line_budget = 350
     private_service_line_budget_allowlist = {

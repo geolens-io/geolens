@@ -145,12 +145,19 @@ async def _validate_chat_layers(
     layers: list[ChatMapLayer],
     *,
     port: "ProcessingPort",
-) -> tuple[list[ChatMapLayer], str | None]:
-    """Validate map ownership and overwrite layer metadata with authoritative DB values.
+) -> tuple[list[ChatMapLayer], str | None, bool]:
+    """Validate map view-access and overwrite layer metadata with authoritative DB values.
 
-    - Verifies the map exists and is owned by the current user.
+    - Verifies the map exists and the current user can VIEW it (404 otherwise).
     - Resolves each layer's dataset_table_name from the DB by dataset_id.
     - Rejects layers whose datasets the user cannot access.
+
+    **Access model (builder-audit follow-up):** AI chat is read-only w.r.t. map
+    state — edit actions are applied client-side and only persist at Save, which
+    is owner-gated. So chat is gated on VIEW access, not ownership: any user who
+    can view the map may ask the AI questions about it. The returned ``can_edit``
+    (owner-or-admin, matching the Save boundary) selects the AI tool set — a
+    view-only caller gets read-only tools so the model cannot emit edit actions.
 
     **Visibility decision (Pitfall #5 — v1030 Phase 1135 AI-04):** This function
     does NOT filter layers by their ``visible`` state, even if the frontend
@@ -169,8 +176,12 @@ async def _validate_chat_layers(
     Returns (validated_layers, basemap_style).
     """
     from app.modules.catalog.maps.models import Map as MapORM
+    from app.modules.catalog.maps._router_helpers import (
+        _can_edit_map,
+        _check_map_read_access,
+    )
 
-    # Verify map ownership
+    # Verify map view access
     try:
         map_uuid = uuid_mod.UUID(map_id)
     except ValueError:
@@ -184,14 +195,15 @@ async def _validate_chat_layers(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Map not found"
         )
-    if map_row.created_by != user.id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, detail="You do not own this map"
-        )
+    # Gate on VIEW access, not ownership — a non-viewer gets 404 (no existence
+    # oracle), same as a missing map. can_edit (owner-or-admin) selects the AI
+    # tool set so a viewer can ask questions but cannot use the AI to edit.
+    await _check_map_read_access(map_row, user, db)
+    can_edit = await _can_edit_map(map_row, user, db)
     basemap_style = getattr(map_row, "basemap_style", None)
 
     if not layers:
-        return layers, basemap_style
+        return layers, basemap_style, can_edit
 
     # Build the user's allowed table set
     allowed_tables = await build_table_allowlist(db, user)
@@ -233,7 +245,7 @@ async def _validate_chat_layers(
             layer.geometry_type = ds["geometry_type"]
         validated.append(layer)
 
-    return validated, basemap_style
+    return validated, basemap_style, can_edit
 
 
 @router.post("/generate-map/", response_model=MapGenerateResponse)
@@ -338,7 +350,7 @@ async def chat_endpoint(
     """Chat-based map editing: send a message and get back edit actions."""
     await _check_ai_available(db)
 
-    validated_layers, basemap_style = await _validate_chat_layers(
+    validated_layers, basemap_style, can_edit = await _validate_chat_layers(
         db, user, body.map_id, body.layers, port=port
     )
     user_roles = await port.get_user_roles(db, user)
@@ -355,6 +367,7 @@ async def chat_endpoint(
             basemap_style=basemap_style,
             port=port,
             map_id=body.map_id,
+            can_edit=can_edit,
         ),
         error_prefix="Chat map editing",
         tool_loop_message="Request required too many steps. Try a simpler instruction.",
@@ -387,13 +400,22 @@ async def chat_stream_endpoint(
         # cannot decode.
         try:
             await _check_ai_available(db)
-            validated_layers, basemap_style = await _validate_chat_layers(
+            validated_layers, basemap_style, can_edit = await _validate_chat_layers(
                 db, user, body.map_id, body.layers, port=port
             )
             user_roles = await port.get_user_roles(db, user)
         except HTTPException as exc:
+            # Thread the HTTP status into the SSE error so the client can classify
+            # it like a normal HTTP error (403/503 → banner, etc.) instead of a
+            # generic retryable failure — the SSE body is always a 200 stream.
             yield ServerSentEvent(
-                data=json.dumps({"type": "error", "message": exc.detail}),
+                data=json.dumps(
+                    {
+                        "type": "error",
+                        "message": exc.detail,
+                        "status": exc.status_code,
+                    }
+                ),
                 event="error",
             )
             return
@@ -421,6 +443,7 @@ async def chat_stream_endpoint(
                 basemap_style=basemap_style,
                 port=port,
                 map_id=body.map_id,
+                can_edit=can_edit,
             ):
                 if await request.is_disconnected():
                     break

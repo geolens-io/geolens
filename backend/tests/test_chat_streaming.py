@@ -100,7 +100,7 @@ async def test_stream_returns_sse_events(client: AsyncClient, admin_auth_header:
         patch(
             "app.processing.ai.router._validate_chat_layers",
             new_callable=AsyncMock,
-            return_value=(CHAT_BODY["layers"], None),
+            return_value=(CHAT_BODY["layers"], None, True),
         ),
         patch(
             "app.processing.ai.router.stream_chat_edit", side_effect=_mock_stream_tokens
@@ -131,7 +131,7 @@ async def test_non_streaming_fallback(client: AsyncClient, admin_auth_header: di
         patch(
             "app.processing.ai.router._validate_chat_layers",
             new_callable=AsyncMock,
-            return_value=(CHAT_BODY["layers"], None),
+            return_value=(CHAT_BODY["layers"], None, True),
         ),
         patch(
             "app.processing.ai.router.chat_edit_map", new_callable=AsyncMock
@@ -152,7 +152,7 @@ async def test_tool_progress_events(client: AsyncClient, admin_auth_header: dict
         patch(
             "app.processing.ai.router._validate_chat_layers",
             new_callable=AsyncMock,
-            return_value=(CHAT_BODY["layers"], None),
+            return_value=(CHAT_BODY["layers"], None, True),
         ),
         patch(
             "app.processing.ai.router.stream_chat_edit", side_effect=_mock_stream_tools
@@ -210,7 +210,7 @@ async def test_query_data_stage_events(client: AsyncClient, admin_auth_header: d
         patch(
             "app.processing.ai.router._validate_chat_layers",
             new_callable=AsyncMock,
-            return_value=(body["layers"], None),
+            return_value=(body["layers"], None, True),
         ),
         patch(
             "app.processing.ai.router.stream_chat_edit",
@@ -313,7 +313,7 @@ async def test_show_query_result_action_in_stream(
         patch(
             "app.processing.ai.router._validate_chat_layers",
             new_callable=AsyncMock,
-            return_value=(body["layers"], None),
+            return_value=(body["layers"], None, True),
         ),
         patch(
             "app.processing.ai.router.stream_chat_edit",
@@ -367,3 +367,69 @@ async def test_stream_ai_disabled(client: AsyncClient, admin_auth_header: dict):
     assert resp.status_code == 200
     assert "event: error" in resp.text
     assert "AI features are disabled by administrator" in resp.text
+
+
+@pytest.mark.anyio
+async def test_execute_and_yield_tools_drops_disallowed_for_readonly(monkeypatch):
+    """A tool call outside allowed_tools is dropped before execution AND collection.
+
+    Covers the read-only enforcement backstop for the XML fallback path: a
+    view-only caller (allowed_tools={"query_data"}) whose model emits a mutating
+    set_style call must not have it executed or collected into a ChatAction. A
+    dropped call still records a refusal in results_out so the OpenAI-native
+    tool_call_id zip stays aligned.
+    """
+    from app.processing.ai import streaming
+
+    executed: list[str] = []
+    collected_names: list[str] = []
+
+    async def fake_exec(name, *args, **kwargs):
+        executed.append(name)
+        return {"ok": True}
+
+    def fake_collect(name, tool_input, result):
+        collected_names.append(name)
+        return {"type": name}
+
+    monkeypatch.setattr(streaming, "_execute_chat_tool", fake_exec)
+    monkeypatch.setattr(streaming, "_collect_chat_action", fake_collect)
+
+    collected_actions: list[dict] = []
+    results_out: list[dict] = []
+    events = [
+        evt
+        async for evt in streaming._execute_and_yield_tools(
+            [
+                ("set_style", {"layer_id": "x"}),
+                ("query_data", {"question": "how many?"}),
+            ],
+            None,  # session — unused (executor patched)
+            None,  # user
+            set(),  # user_roles
+            [],  # layers
+            collected_actions,
+            results_out=results_out,
+            port=None,
+            map_id=None,
+            allowed_tools={"query_data"},
+        )
+    ]
+
+    # set_style was dropped; only query_data ran and was collected.
+    assert executed == ["query_data"]
+    assert collected_names == ["query_data"]
+    assert [a["type"] for a in collected_actions] == ["query_data"]
+    # results_out stays 1:1 with the two input tool calls so the OpenAI-native
+    # tool_call_id zip cannot misalign: a refusal for the dropped call, then the
+    # real result.
+    assert results_out == [
+        {"error": "Tool not permitted for this map."},
+        {"ok": True},
+    ]
+    # A tool_result event for BOTH calls: failure for the dropped one, success
+    # for query_data.
+    assert [e for e in events if e.get("type") == "tool_result"] == [
+        {"type": "tool_result", "tool": "set_style", "success": False},
+        {"type": "tool_result", "tool": "query_data", "success": True},
+    ]

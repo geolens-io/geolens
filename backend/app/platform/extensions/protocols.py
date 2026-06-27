@@ -221,6 +221,11 @@ class AIProviderExtension(Protocol):
         history: list[dict] | None = None,
         port: Any,
         map_id: str | None = None,
+        # The advertised tool set for this turn. None means the provider's
+        # default chat tools; a restricted list (e.g. read-only) must be honored.
+        # Implementations with an explicit signature must accept this kwarg —
+        # stream_chat_edit always passes it.
+        tools: list[dict] | None = None,
     ) -> AsyncIterator[dict[str, object]]: ...
 
     async def structured_complete(

@@ -27,7 +27,7 @@ from app.processing.ai.llm_loop import (
 )
 from app.processing.ai.schemas import ChatAction, ChatHistoryMessage, history_to_dicts
 from app.processing.ai.token_usage import record_token_usage
-from app.processing.ai.tools import CHAT_TOOLS_ANTHROPIC
+from app.processing.ai.tools import CHAT_TOOLS_ANTHROPIC, select_chat_tools
 from typing import TYPE_CHECKING
 
 from app.core.identity import Identity
@@ -59,6 +59,7 @@ async def _execute_and_yield_tools(
     *,
     port: "ProcessingPort",
     map_id: str | None = None,
+    allowed_tools: set[str] | None = None,
 ) -> AsyncGenerator[dict, None]:
     """Execute a list of (name, args) tool calls and yield SSE events for each.
 
@@ -67,8 +68,30 @@ async def _execute_and_yield_tools(
 
     map_id is forwarded to query_data so the schema-context cache partitions
     per-map (PERF-04 / Phase 274).
+
+    allowed_tools, when provided, restricts which tool names may run: a call
+    whose name is outside the set is dropped before execution AND collection,
+    enforcing the read-only tool set for view-only callers even when a call
+    arrives via the XML fallback (parse_xml_tool_calls), which bypasses the
+    advertised tool schema. A dropped call still appends a refusal entry to
+    results_out (when provided) so the caller's results_out↔tool_calls zip stays
+    aligned — the OpenAI-native path zips the original calls/ids with results_out
+    to build the next round's tool messages, so a missing entry would misalign
+    tool_call ids or emit an unmatched call. The model receives an explicit
+    "not permitted" result instead.
     """
     for fn_name, fn_args in tool_calls:
+        if allowed_tools is not None and fn_name not in allowed_tools:
+            logger.warning(
+                "Dropped disallowed chat tool call (read-only caller)",
+                tool=fn_name,
+                allowed=sorted(allowed_tools),
+            )
+            if results_out is not None:
+                results_out.append({"error": "Tool not permitted for this map."})
+            # Balance the tool_start the streaming loop already emitted for this call.
+            yield {"type": "tool_result", "tool": fn_name, "success": False}
+            continue
         stage_events: list[dict] = []
         stage_cb = _make_stage_callback(fn_name, stage_events)
 
@@ -114,6 +137,7 @@ async def _stream_anthropic_chat(
     client,
     port: "ProcessingPort",
     map_id: str | None = None,
+    tools: list | None = None,
 ) -> AsyncGenerator[dict, None]:
     """Stream Anthropic chat with tool-calling loop."""
     messages = build_history_messages(history)
@@ -123,7 +147,9 @@ async def _stream_anthropic_chat(
     cached_system = [
         {"type": "text", "text": system_prompt, "cache_control": {"type": "ephemeral"}}
     ]
-    cached_tools = add_tool_cache_control(CHAT_TOOLS_ANTHROPIC)
+    _raw_tools = CHAT_TOOLS_ANTHROPIC if tools is None else tools
+    cached_tools = add_tool_cache_control(_raw_tools)
+    allowed_tool_names = {t["name"] for t in _raw_tools}
 
     collected_actions: list[dict] = []
     total_input = 0
@@ -225,6 +251,7 @@ async def _stream_anthropic_chat(
                         results_out=raw_results,
                         port=port,
                         map_id=map_id,
+                        allowed_tools=allowed_tool_names,
                     ):
                         yield evt
 
@@ -297,6 +324,7 @@ async def _stream_openai_chat(
     client,
     port: "ProcessingPort",
     map_id: str | None = None,
+    tools: list | None = None,
 ) -> AsyncGenerator[dict, None]:
     """Stream OpenAI-compatible chat with tool-calling loop."""
     messages = [{"role": "system", "content": system_prompt}]
@@ -307,6 +335,13 @@ async def _stream_openai_chat(
     deadline = time.monotonic() + MAX_STREAMING_WALL_CLOCK_SECONDS
     total_input = 0
     total_output = 0
+    # Read-only enforcement backstop: the XML fallback (parse_xml_tool_calls)
+    # below extracts tool calls from model text, bypassing the advertised schema.
+    # Restrict execution/collection to the selected tool set so a view-only caller
+    # cannot get a mutating action even from an XML-emitting model.
+    allowed_tool_names = {
+        t["name"] for t in (CHAT_TOOLS_ANTHROPIC if tools is None else tools)
+    }
 
     for round_num in range(MAX_TOOL_ROUNDS):
         if time.monotonic() > deadline:
@@ -341,7 +376,7 @@ async def _stream_openai_chat(
                     "parameters": t["input_schema"],
                 },
             }
-            for t in CHAT_TOOLS_ANTHROPIC
+            for t in (CHAT_TOOLS_ANTHROPIC if tools is None else tools)
         ]
         response_stream = await client.chat.completions.create(
             model=model,
@@ -478,6 +513,7 @@ async def _stream_openai_chat(
                 results_out=native_results,
                 port=port,
                 map_id=map_id,
+                allowed_tools=allowed_tool_names,
             ):
                 yield evt
 
@@ -515,6 +551,7 @@ async def _stream_openai_chat(
                 collected_actions,
                 port=port,
                 map_id=map_id,
+                allowed_tools=allowed_tool_names,
             ):
                 yield evt
 
@@ -567,16 +604,20 @@ async def stream_chat_edit(
     *,
     port: "ProcessingPort",
     map_id: str | None = None,
+    can_edit: bool = True,
 ) -> AsyncGenerator[dict, None]:
     """Main streaming orchestrator. Yields typed event dicts.
 
     map_id is forwarded so the schema-context cache partitions per-map
     (PERF-04 / Phase 274).
+
+    can_edit gates the tool set: a view-only caller gets read-only tools so the
+    AI answers questions but cannot emit edit actions (see select_chat_tools).
     """
     try:
         provider, model, runtime_config = await resolve_provider(db)
         system_prompt = build_chat_system_prompt(
-            layers, language=language, basemap_style=basemap_style
+            layers, language=language, basemap_style=basemap_style, can_edit=can_edit
         )
 
         history_dicts = history_to_dicts(history)
@@ -593,6 +634,7 @@ async def stream_chat_edit(
             history=history_dicts,
             port=port,
             map_id=map_id,
+            tools=select_chat_tools(can_edit),
         ):
             yield event
     except Exception as e:  # broad: SSE stream generator — any unhandled SDK/runtime error must yield a graceful error event

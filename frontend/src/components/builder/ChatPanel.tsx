@@ -576,9 +576,17 @@ export function ChatPanel({
           break;
         }
         case 'error':
-          // Model emitted an error event mid-stream (tool-loop exhausted,
-          // deadline). Throw a typed sentinel so the catch shows an inline
-          // error instead of re-calling the LLM via the non-streaming path.
+          // A pre-flight HTTPException from the SSE endpoint carries a numeric
+          // `status` (e.g. 403 forbidden, 503 unavailable) — the SSE body is
+          // always a 200 stream, so the status would otherwise be lost. Surface
+          // it as an ApiError so the catch classifies it like the non-streaming
+          // path (banner / inline, no blind retry) rather than a generic
+          // retryable failure. A model-emitted error mid-stream (tool-loop
+          // exhausted, deadline) has no status → StreamModelError, which shows
+          // inline without re-calling the LLM via the non-streaming path.
+          if (typeof data.status === 'number') {
+            throw new ApiError(typeof data.message === 'string' ? data.message : '', data.status);
+          }
           throw new StreamModelError(typeof data.message === 'string' ? data.message : '');
       }
     }

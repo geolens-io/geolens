@@ -16,6 +16,11 @@ and releases use semantic versioning.
   environment variables. Off-site S3 upload remains gated on
   `BACKUP_S3_ENABLED=true` and signs with AWS Signature V4 (Cloudflare R2,
   modern AWS S3, and MinIO compatible).
+- **The map builder's AI assistant is available to anyone who can view a map.**
+  Viewers — not just the map's owner — can now ask the assistant questions about
+  a map's data (counts, statistics, spatial analysis). Using the AI to *edit* a
+  map remains limited to the owner, and AI-suggested changes still only persist
+  when the owner saves the map.
 
 ### Added
 
@@ -38,6 +43,11 @@ and releases use semantic versioning.
 
 ### Fixed
 
+- **AI assistant no longer fails with a generic error on maps you don't own.**
+  Asking the builder's AI about a map you can view but not edit previously
+  surfaced "Something went wrong. Please try again." with a retry that never
+  worked; it now answers read-only questions, and genuine permission errors
+  show a clear, non-retryable message instead of a blind retry.
 - **Map Builder correctness fixes.** Bulk visibility/opacity on a multi-layer
   selection now matches single-layer behavior (companion outlines, labels,
   hypsometric relief, and clusters included); numeric-column filters now show a

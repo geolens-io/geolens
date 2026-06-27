@@ -85,7 +85,7 @@ from app.processing.ai.sql_generator import (
     generate_sql,
 )  # re-exported (test patch target)
 from app.processing.ai.token_usage import record_token_usage
-from app.processing.ai.tools import CHAT_TOOLS_ANTHROPIC
+from app.processing.ai.tools import select_chat_tools
 
 if TYPE_CHECKING:
     from app.core.processing_port import ProcessingPort
@@ -175,8 +175,14 @@ def build_chat_system_prompt(
     layers: list[ChatMapLayer],
     language: str | None = None,
     basemap_style: str | None = None,
+    can_edit: bool = True,
 ) -> str:
-    """Build a system prompt that describes the user's current map state."""
+    """Build a system prompt that describes the user's current map state.
+
+    When ``can_edit`` is False the caller may view but not edit the map (the AI
+    is given read-only tools — see ``select_chat_tools``); a read-only directive
+    is injected so the model declines edit requests instead of silently failing.
+    """
     # Cap layers to prevent unbounded prompt growth
     display_layers = layers[:_MAX_SYSTEM_PROMPT_LAYERS]
     truncated_count = len(layers) - len(display_layers)
@@ -246,10 +252,24 @@ def build_chat_system_prompt(
     if truncated_count > 0:
         truncation_note = f"\n\n(... and {truncated_count} more layers not shown. If the user references a layer not listed above, tell them you cannot see that layer.)"
 
+    readonly_note = (
+        ""
+        if can_edit
+        else (
+            "\n\n## Read-Only Access\n"
+            "You do NOT have edit access to this map — the current user can view it "
+            "but does not own it. You may ONLY answer questions about the map's data "
+            "using the query_data tool. You cannot change styles, filters, labels, "
+            "visibility, opacity, or add or remove layers; those tools are unavailable "
+            "to you. If the user asks you to modify the map, briefly explain that only "
+            "the map's owner can edit it, then offer to answer questions about the data."
+        )
+    )
+
     return f"""\
 You are a map editing assistant. The user has a map with these layers:
 
-{chr(10).join(layers_desc)}{truncation_note}
+{chr(10).join(layers_desc)}{truncation_note}{readonly_note}
 
 ## Instructions
 - Modify the map based on the user's instructions using the available tools.
@@ -316,6 +336,7 @@ async def chat_edit_map(
     *,
     port: "ProcessingPort",
     map_id: str | None = None,
+    can_edit: bool = True,
 ) -> ChatResponse:
     """Main orchestrator: run LLM tool-calling loop for chat map editing.
 
@@ -324,17 +345,34 @@ async def chat_edit_map(
 
     map_id is forwarded to query_data so the schema-context cache partitions
     per-map (PERF-04 / Phase 274).
+
+    can_edit gates the tool set: an owner gets the full editing toolbox; a
+    view-only caller gets read-only tools (query_data) so the AI can answer
+    questions but cannot emit edit actions.
     """
     system_prompt = build_chat_system_prompt(
-        layers, language=language, basemap_style=basemap_style
+        layers, language=language, basemap_style=basemap_style, can_edit=can_edit
     )
     provider, model, runtime_config = await resolve_provider(session)
     provider_ext = get_ai_provider(provider)
 
     history_dicts = history_to_dicts(history)
 
-    # Build tool executor bound to this session/user/layers
+    selected_tools = select_chat_tools(can_edit)
+    allowed_tool_names = {t["name"] for t in selected_tools}
+
+    # Build tool executor bound to this session/user/layers. The non-streaming
+    # complete() loop is advertised-tool constrained and has no XML fallback, but
+    # we still reject tool names outside the selected set at execution AND
+    # collection so a view-only caller can never run or receive a mutating action
+    # (defense-in-depth, uniform with the streaming path).
     async def tool_executor(tool_name: str, tool_input: dict) -> dict:
+        if tool_name not in allowed_tool_names:
+            logger.warning(
+                "Dropped disallowed chat tool call (read-only caller)",
+                tool=tool_name,
+            )
+            return {"error": "Tool not permitted for this map."}
         return await _execute_chat_tool(
             tool_name,
             tool_input,
@@ -346,13 +384,20 @@ async def chat_edit_map(
             map_id=map_id,
         )
 
+    def collect_allowed_action(
+        tool_name: str, tool_input: dict, tool_result: dict
+    ) -> dict | None:
+        if tool_name not in allowed_tool_names:
+            return None
+        return _collect_chat_action(tool_name, tool_input, tool_result)
+
     result = await provider_ext.complete(
         model=model,
         system_prompt=system_prompt,
         user_message=message,
-        tools=CHAT_TOOLS_ANTHROPIC,
+        tools=selected_tools,
         tool_executor=tool_executor,
-        action_collector=_collect_chat_action,
+        action_collector=collect_allowed_action,
         history=history_dicts,
         base_url=runtime_config.get("base_url"),
         temperature=0.3,
