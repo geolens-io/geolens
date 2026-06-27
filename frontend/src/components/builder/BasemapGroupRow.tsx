@@ -1,8 +1,7 @@
 /* eslint-disable jsx-a11y/no-static-element-interactions, jsx-a11y/no-noninteractive-tabindex -- Phase 1111 LINT-01: stack rows are composite focus targets with nested controls, so role="button"/listbox roles are intentionally avoided. */
 import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { DraggableAttributes, DraggableSyntheticListeners } from '@dnd-kit/core';
-import { ChevronRight, Eye, EyeOff, GripVertical, MoreVertical } from 'lucide-react';
+import { ChevronRight, Eye, EyeOff, MoreVertical } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -10,12 +9,12 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
-
-interface DragHandleProps {
-  attributes: DraggableAttributes;
-  listeners?: DraggableSyntheticListeners;
-  setActivatorNodeRef: (node: HTMLButtonElement | null) => void;
-}
+import {
+  DragGripButton,
+  STACK_ROW_GRID,
+  rowStateClasses,
+  type DragHandleProps,
+} from '@/components/builder/row-chrome';
 
 interface BasemapGroupRowProps {
   groupId: string;
@@ -25,9 +24,6 @@ interface BasemapGroupRowProps {
   selected: boolean;
   isExpanded: boolean;
   isDragging?: boolean;
-  /** When true, the visibility eye button is rendered with aria-disabled and tabIndex={-1}
-   * so it does not appear interactive. Use when the toggle is not yet wired. */
-  visibilityDisabled?: boolean;
   dragHandleProps: DragHandleProps;
   onSelectGroup: (id: string) => void;
   onToggleExpand: (id: string) => void;
@@ -46,7 +42,6 @@ export const BasemapGroupRow = memo(function BasemapGroupRow({
   selected,
   isExpanded,
   isDragging = false,
-  visibilityDisabled = false,
   dragHandleProps,
   onSelectGroup,
   onToggleExpand,
@@ -81,11 +76,10 @@ export const BasemapGroupRow = memo(function BasemapGroupRow({
       aria-current={selected ? 'true' : undefined}
       tabIndex={0}
       className={cn(
-        'group/row grid grid-cols-[16px_14px_22px_22px_1fr_22px] gap-2 items-center py-2 px-2 cursor-pointer select-none',
+        // builder-audit #338 STACK-04: shared grid template + state classes.
+        'group/row grid', STACK_ROW_GRID, 'gap-2 items-center py-2 px-2 cursor-pointer select-none',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset',
-        !selected && !isDragging && 'hover:bg-[var(--surface-2,theme(colors.accent.DEFAULT))]',
-        selected && 'bg-[var(--primary-50,theme(colors.accent.DEFAULT))] shadow-[inset_2px_0_0_var(--primary)]',
-        isDragging && 'opacity-40 bg-[var(--surface-2,theme(colors.accent.DEFAULT))] scale-[0.98]',
+        rowStateClasses({ selected, isDragging }),
         // Phase 1041 POL-11: cursor-not-allowed signals basemap boundary during multi-selection mode
         isMultiSelectionActive && 'cursor-not-allowed',
       )}
@@ -126,74 +120,42 @@ export const BasemapGroupRow = memo(function BasemapGroupRow({
 
       {/* Cell 2: Grip — UX-03 (Phase 1051 Plan 06): basemap group IS user-draggable
           for top/bottom reordering. AUD-04's "pinned-at-bottom" decision is reversed
-          per sketch findings (3D maps need basemap rendered above data). Mirrors
-          FolderGroupRow.tsx:196-210 grip pattern. When isMultiSelectionActive is
-          true, the listeners are suppressed (drag + multi-select are mutually
-          exclusive per UI-SPEC §"Cross-Plan Visual Conflict Check"). */}
-      <button
-        ref={dragHandleProps.setActivatorNodeRef}
-        type="button"
-        {...dragHandleProps.attributes}
-        {...(isMultiSelectionActive ? {} : dragHandleProps.listeners)}
-        aria-label={t('basemapGroup.dragHandle', { defaultValue: 'Drag to reorder basemap' })}
-        data-testid="basemap-drag-handle"
-        // Phase 1199 STACK-05: reveal the reorder grip on coarse-pointer/touch (parity with StackRow).
-        data-touch-reveal=""
-        className={cn(
-          'flex items-center justify-center cursor-grab opacity-35 group-hover/row:opacity-70 text-muted-foreground',
-          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded active:cursor-grabbing',
-          isMultiSelectionActive && 'cursor-not-allowed opacity-20',
-        )}
-        // 2026-05-18: do NOT add onPointerDown={stopPropagation} — it overrides
-        // dnd-kit's PointerSensor activator (spread above), breaking pointer
-        // drag entirely. onClick stopPropagation alone is enough to suppress
-        // row selection on grip click.
-        onClick={(e) => e.stopPropagation()}
-      >
-        <GripVertical className="h-3.5 w-3.5" aria-hidden="true" />
-      </button>
+          per sketch findings (3D maps need basemap rendered above data). When
+          isMultiSelectionActive is true, the listeners are suppressed (drag +
+          multi-select are mutually exclusive per UI-SPEC §"Cross-Plan Visual
+          Conflict Check"). builder-audit #338 STACK-04: shared DragGripButton.
+          Phase 1199 STACK-05: reveal the reorder grip on coarse-pointer/touch. */}
+      <DragGripButton
+        dragHandleProps={dragHandleProps}
+        ariaLabel={t('basemapGroup.dragHandle', { defaultValue: 'Drag to reorder basemap' })}
+        testId="basemap-drag-handle"
+        touchReveal
+        listenersSuppressed={isMultiSelectionActive}
+      />
 
       {/* Cell 3: Eye visibility toggle.
-          SP-13: when visibilityDisabled (current v1 behavior), render a non-interactive
-          <span> glyph with a tooltip rather than a disabled <button>. The slot footprint
-          is identical to the active button so layout doesn't shift.
-          SP-10: aria-pressed reflects the visible state so AT users hear "Basemap pressed"
-          when the toggle is actually wired. */}
-      {visibilityDisabled ? (
-        <span
-          role="img"
-          aria-label={t('basemapGroup.visibilityLocked', {
-            defaultValue: 'Basemap is always visible — use Remove basemap to hide.',
-          })}
-          title={t('basemapGroup.visibilityLocked', {
-            defaultValue: 'Basemap is always visible — use Remove basemap to hide.',
-          })}
-          data-testid="basemap-visibility-locked"
-          className="flex items-center justify-center h-[22px] w-[22px] rounded text-muted-foreground opacity-40 cursor-default"
-        >
+          builder-audit #338 STACK-06: the dead visibilityDisabled locked-eye branch was
+          removed — no call site ever passed it (the basemap dock wires a real toggle).
+          SP-10: aria-pressed reflects the visible state so AT users hear "Basemap pressed". */}
+      <button
+        type="button"
+        aria-label={t('stackRow.toggleVisibility', {
+          defaultValue: 'Toggle visibility for {{name}}',
+          name: rowName,
+        })}
+        aria-pressed={visible}
+        className="flex items-center justify-center h-[22px] w-[22px] rounded text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        onClick={(e) => {
+          e.stopPropagation();
+          onToggleVisibility(groupId);
+        }}
+      >
+        {visible ? (
           <Eye className="h-3.5 w-3.5" aria-hidden="true" />
-        </span>
-      ) : (
-        <button
-          type="button"
-          aria-label={t('stackRow.toggleVisibility', {
-            defaultValue: 'Toggle visibility for {{name}}',
-            name: rowName,
-          })}
-          aria-pressed={visible}
-          className="flex items-center justify-center h-[22px] w-[22px] rounded text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          onClick={(e) => {
-            e.stopPropagation();
-            onToggleVisibility(groupId);
-          }}
-        >
-          {visible ? (
-            <Eye className="h-3.5 w-3.5" aria-hidden="true" />
-          ) : (
-            <EyeOff className="h-3.5 w-3.5" aria-hidden="true" />
-          )}
-        </button>
-      )}
+        ) : (
+          <EyeOff className="h-3.5 w-3.5" aria-hidden="true" />
+        )}
+      </button>
 
       {/* Cell 4: Type icon — fixed ⊞ glyph with primary colors */}
       <div className="flex items-center justify-center h-[22px] w-[22px]">

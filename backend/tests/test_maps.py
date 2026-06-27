@@ -1689,8 +1689,13 @@ class TestShareToken:
         self,
         client: AsyncClient,
         admin_auth_header: dict,
+        enterprise_edition,
     ):
-        """Public maps can create expiring share links."""
+        """Public maps can create expiring share links.
+
+        builder-audit #338 P1-14: custom share expiration is now an Enterprise-only
+        advanced-sharing control; the mechanism is exercised under Enterprise.
+        """
         created = await _create_map(client, admin_auth_header)
         map_id = created["id"]
         expires_at = _future_expires_at()
@@ -2446,7 +2451,7 @@ class TestMapLayers:
         admin_auth_header: dict,
         test_db_session,
     ):
-        """builder-audit B-011: DEM hypsometric (color-relief) builder-private
+        """builder-audit #338 B-011: DEM hypsometric (color-relief) builder-private
         keys _hypso-enabled/_hypso-ramp are accepted and moved into
         style_config.builder. Before the fix, saving a DEM layer with the
         Elevation tint enabled hit split_legacy_builder_paint's unknown-key
@@ -3256,9 +3261,12 @@ async def _make_public_map_with_share_token(
 
 class TestUpdateShareToken:
     async def test_patch_share_token_set_expiration(
-        self, client: AsyncClient, admin_auth_header: dict
+        self, client: AsyncClient, admin_auth_header: dict, enterprise_edition
     ):
-        """PATCH /maps/{id}/share with expires_at returns 200 with updated expiration."""
+        """PATCH /maps/{id}/share with expires_at returns 200 with updated expiration.
+
+        builder-audit #338 P1-14: expiration is Enterprise-only; mechanism tested here.
+        """
         map_id, original_token = await _make_public_map_with_share_token(
             client, admin_auth_header
         )
@@ -3274,9 +3282,13 @@ class TestUpdateShareToken:
         assert original_token.startswith(data["token"])
 
     async def test_patch_share_token_remove_expiration(
-        self, client: AsyncClient, admin_auth_header: dict
+        self, client: AsyncClient, admin_auth_header: dict, enterprise_edition
     ):
-        """PATCH /maps/{id}/share with expires_at=null removes expiration."""
+        """PATCH /maps/{id}/share with expires_at=null removes expiration.
+
+        builder-audit #338 P1-14: the setup step sets a custom expiration, which is
+        Enterprise-only; clearing it (None) is allowed in any edition.
+        """
         map_id, original_token = await _make_public_map_with_share_token(
             client, admin_auth_header
         )
@@ -3299,9 +3311,12 @@ class TestUpdateShareToken:
         assert original_token.startswith(data["token"])
 
     async def test_patch_share_token_add_expiration_to_never_expires(
-        self, client: AsyncClient, admin_auth_header: dict
+        self, client: AsyncClient, admin_auth_header: dict, enterprise_edition
     ):
-        """PATCH with expires_at on a never-expires token adds expiration."""
+        """PATCH with expires_at on a never-expires token adds expiration.
+
+        builder-audit #338 P1-14: expiration is Enterprise-only; mechanism tested here.
+        """
         map_id, original_token = await _make_public_map_with_share_token(
             client, admin_auth_header
         )
@@ -3317,9 +3332,13 @@ class TestUpdateShareToken:
         assert "2030-06-01" in data["expires_at"]
 
     async def test_patch_share_token_no_token_404(
-        self, client: AsyncClient, admin_auth_header: dict
+        self, client: AsyncClient, admin_auth_header: dict, enterprise_edition
     ):
-        """PATCH /maps/{id}/share on a map with no share token returns 404."""
+        """PATCH /maps/{id}/share on a map with no share token returns 404.
+
+        builder-audit #338 P1-14: runs under Enterprise so the expiration edition gate
+        does not pre-empt the missing-token 404.
+        """
         created = await _create_map(client, admin_auth_header)
         map_id = created["id"]
         await client.put(
@@ -3346,9 +3365,12 @@ class TestUpdateShareToken:
         assert resp.status_code == 403
 
     async def test_patch_share_token_preserves_token_string(
-        self, client: AsyncClient, admin_auth_header: dict
+        self, client: AsyncClient, admin_auth_header: dict, enterprise_edition
     ):
-        """Token hint does not change after PATCH (same underlying token)."""
+        """Token hint does not change after PATCH (same underlying token).
+
+        builder-audit #338 P1-14: expiration is Enterprise-only; mechanism tested here.
+        """
         map_id, original_token = await _make_public_map_with_share_token(
             client, admin_auth_header
         )

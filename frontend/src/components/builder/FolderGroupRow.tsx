@@ -1,8 +1,7 @@
 /* eslint-disable jsx-a11y/no-static-element-interactions, jsx-a11y/no-noninteractive-tabindex -- Phase 1111 LINT-01: stack rows are composite focus targets with nested controls, so role="button"/listbox roles are intentionally avoided. */
-import { memo, useEffect, useRef, useState } from 'react';
+import { memo, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { DraggableAttributes, DraggableSyntheticListeners } from '@dnd-kit/core';
-import { ChevronRight, Eye, EyeOff, GripVertical, MoreVertical } from 'lucide-react';
+import { ChevronRight, Eye, EyeOff, MoreVertical } from 'lucide-react';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Button } from '@/components/ui/button';
 import {
@@ -13,12 +12,13 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
-
-interface DragHandleProps {
-  attributes: DraggableAttributes;
-  listeners?: DraggableSyntheticListeners;
-  setActivatorNodeRef: (node: HTMLButtonElement | null) => void;
-}
+import {
+  DragGripButton,
+  STACK_ROW_GRID,
+  rowStateClasses,
+  type DragHandleProps,
+} from '@/components/builder/row-chrome';
+import { useInlineRename } from '@/components/builder/useInlineRename';
 
 interface FolderGroupRowProps {
   groupId: string;
@@ -65,61 +65,32 @@ export const FolderGroupRow = memo(function FolderGroupRow({
   onCheckboxClick,
 }: FolderGroupRowProps) {
   const { t } = useTranslation('builder');
-  const [editing, setEditing] = useState(false);
-  const [nameValue, setNameValue] = useState<string>('');
-  const escapeRef = useRef(false);
-  const committingRef = useRef(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
-  const inputRef = useRef<HTMLInputElement | null>(null);
-  // BUG-03 follow-up (2026-05-18 MCP smoke): the single-rAF strategy in the
-  // editing useEffect lost the focus race to Radix DropdownMenu's
-  // `restoreFocus` in real browsers (jsdom did not exercise the race, so the
-  // unit test passed). This ref gates Radix's `onCloseAutoFocus` so that
-  // restoreFocus is skipped specifically when the rename item was just
-  // selected; other dismiss paths (Escape, outside click) still restore focus
-  // to the kebab trigger as expected.
-  const skipCloseAutoFocusRef = useRef(false);
+
+  // builder-audit #338 STACK-03: shared inline-rename state machine (was duplicated
+  // verbatim with StackRow, including the BUG-03 focus-race gating). Empty input
+  // is a silent revert per UI-SPEC — onCommit ignores a null name.
+  const {
+    editing,
+    setEditing,
+    nameValue,
+    inputRef,
+    inputHandlers,
+    startRename,
+    skipCloseAutoFocusRef,
+    handleMenuCloseAutoFocus,
+  } = useInlineRename({
+    value: groupName,
+    onCommit: (next) => {
+      if (next) onRenameGroup(groupId, next);
+    },
+  });
 
   // Reset state on groupId change
   useEffect(() => {
     setEditing(false);
     setConfirmingDelete(false);
-  }, [groupId]);
-
-  // Auto-focus + select input text when entering edit mode. The rAF defer is
-  // defense-in-depth alongside the onCloseAutoFocus gate below — without the
-  // gate, Radix's restoreFocus reliably wins the race in real browsers.
-  useEffect(() => {
-    if (editing) {
-      requestAnimationFrame(() => {
-        if (inputRef.current) {
-          inputRef.current.focus();
-          inputRef.current.select();
-        }
-      });
-    }
-  }, [editing]);
-
-  function handleStartRename() {
-    setNameValue(groupName);
-    setEditing(true);
-  }
-
-  function commitRename() {
-    if (escapeRef.current) {
-      escapeRef.current = false;
-      return;
-    }
-    if (committingRef.current) return; // block blur double-fire after Enter
-    committingRef.current = true;
-    setEditing(false);
-    const trimmed = nameValue.trim();
-    if (trimmed) onRenameGroup(groupId, trimmed);
-    // else: silent revert per UI-SPEC
-    // committingRef stays true during the synchronous blur triggered by setEditing(false);
-    // reset it async so it does not block a subsequent genuine focus+blur cycle.
-    requestAnimationFrame(() => { committingRef.current = false; });
-  }
+  }, [groupId, setEditing]);
 
   // Phase 1041: modifier-aware click handler (POL-06)
   function handleRowClick(e: React.MouseEvent) {
@@ -155,13 +126,11 @@ export const FolderGroupRow = memo(function FolderGroupRow({
         }
       }}
     >
-      {/* Row grid */}
+      {/* Row grid — builder-audit #338 STACK-04: shared grid template + state classes. */}
       <div
         className={cn(
-          'group/row grid grid-cols-[16px_14px_22px_22px_1fr_22px] gap-2 items-center py-2 px-2 cursor-pointer select-none',
-          !(selected || isMultiSelected) && !isDragging && 'hover:bg-[var(--surface-2,theme(colors.accent.DEFAULT))]',
-          (selected || isMultiSelected) && 'bg-[var(--primary-50,theme(colors.accent.DEFAULT))] shadow-[inset_2px_0_0_var(--primary)]',
-          isDragging && 'opacity-40 bg-[var(--surface-2,theme(colors.accent.DEFAULT))] scale-[0.98]',
+          'group/row grid', STACK_ROW_GRID, 'gap-2 items-center py-2 px-2 cursor-pointer select-none',
+          rowStateClasses({ selected: selected || isMultiSelected, isDragging }),
         )}
       >
         {/* Cell 1: Caret column — Checkbox during multi-selection mode; caret button otherwise (Phase 1041) */}
@@ -200,32 +169,25 @@ export const FolderGroupRow = memo(function FolderGroupRow({
           </button>
         )}
 
-        {/* Cell 2: Grip handle */}
-        <button
-          ref={dragHandleProps.setActivatorNodeRef}
-          type="button"
-          {...dragHandleProps.attributes}
-          {...dragHandleProps.listeners}
-          aria-label={t('stackRow.dragHandle', {
+        {/* Cell 2: Grip handle (builder-audit #338 STACK-04: shared DragGripButton). */}
+        <DragGripButton
+          dragHandleProps={dragHandleProps}
+          ariaLabel={t('stackRow.dragHandle', {
             defaultValue: 'Drag to reorder {{name}}',
             name: groupName,
           })}
-          className="flex items-center justify-center cursor-grab opacity-35 group-hover/row:opacity-70 text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded active:cursor-grabbing"
-          // 2026-05-18: do NOT add onPointerDown={stopPropagation} — it overrides
-          // dnd-kit's PointerSensor activator (spread above) and breaks pointer
-          // drag. onClick stopPropagation alone suppresses row selection.
-          onClick={(e) => e.stopPropagation()}
-        >
-          <GripVertical className="h-3.5 w-3.5" aria-hidden="true" />
-        </button>
+        />
 
-        {/* Cell 3: Eye visibility toggle */}
+        {/* Cell 3: Eye visibility toggle. builder-audit #338 (aria-pressed nit):
+            aria-pressed reflects the visible state so AT announces it as a toggle,
+            matching StackRow and BasemapGroupRow. */}
         <button
           type="button"
           aria-label={t('stackRow.toggleVisibility', {
             defaultValue: 'Toggle visibility for {{name}}',
             name: groupName,
           })}
+          aria-pressed={visible}
           className="flex items-center justify-center h-[22px] w-[22px] rounded text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           onClick={(e) => {
             e.stopPropagation();
@@ -258,20 +220,7 @@ export const FolderGroupRow = memo(function FolderGroupRow({
               placeholder={t('folderGroup.renameInputPlaceholder', { defaultValue: 'Group name' })}
               className="h-6 w-full min-w-0 border-b border-primary bg-transparent text-sm font-semibold outline-none focus:ring-1 focus:ring-ring"
               value={nameValue}
-              onChange={(e) => setNameValue(e.target.value)}
-              onBlur={commitRename}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  e.preventDefault();
-                  commitRename();
-                }
-                if (e.key === 'Escape') {
-                  escapeRef.current = true;
-                  setEditing(false);
-                  setNameValue(groupName);
-                }
-              }}
-              onClick={(e) => e.stopPropagation()}
+              {...inputHandlers}
               // eslint-disable-next-line jsx-a11y/no-autofocus -- triggered by explicit rename action
               autoFocus
             />
@@ -280,7 +229,7 @@ export const FolderGroupRow = memo(function FolderGroupRow({
               className="text-sm font-semibold truncate block"
               onDoubleClick={(e) => {
                 e.stopPropagation();
-                handleStartRename();
+                startRename();
               }}
             >
               {groupName}
@@ -316,24 +265,16 @@ export const FolderGroupRow = memo(function FolderGroupRow({
             <DropdownMenuContent
               align="end"
               className="w-44"
-              onCloseAutoFocus={(e) => {
-                // Gate Radix's restoreFocus: when the rename item was just
-                // selected, the editing useEffect's rAF focus should land on
-                // the input — not be overridden back to the kebab trigger.
-                if (skipCloseAutoFocusRef.current) {
-                  e.preventDefault();
-                  skipCloseAutoFocusRef.current = false;
-                }
-              }}
+              onCloseAutoFocus={handleMenuCloseAutoFocus}
             >
               <DropdownMenuItem
                 onSelect={() => {
-                  // Let Radix close the menu cleanly; the rename input mounts
-                  // in the next render and gets focused by the editing
-                  // useEffect. The skipCloseAutoFocusRef flag prevents Radix
-                  // from immediately stealing focus back to the kebab.
+                  // Let Radix close the menu cleanly; the rename input mounts in
+                  // the next render and is focused by the hook's rAF. The
+                  // skipCloseAutoFocusRef flag prevents Radix from stealing focus
+                  // back to the kebab.
                   skipCloseAutoFocusRef.current = true;
-                  handleStartRename();
+                  startRename();
                 }}
               >
                 {t('stackRow.kebabRenameGroup', { defaultValue: 'Rename group' })}

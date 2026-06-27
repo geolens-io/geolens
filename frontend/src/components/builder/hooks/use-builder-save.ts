@@ -213,22 +213,24 @@ const pendingCaptures = new Map<string, ReturnType<typeof setTimeout>>();
  *  remembers "an auto-capture has already been initiated for this map in
  *  this session" until an explicit reset.
  *
- *  WR-03 (Phase 1050-rev): this set is deliberately WRITE-ONLY in
- *  production code. We do NOT clear it on hook unmount or mapId change,
- *  because doing so re-introduces the SF-07 duplicate-capture bug under
- *  Vite-dev StrictMode (unmount → remount → guard cleared → second PUT
- *  fires after the first's debounce has already settled). The only
- *  in-app recovery path is a hard reload (which re-evaluates the
- *  module). Server-side thumbnail deletion or admin re-trigger therefore
- *  requires the user to reload the editor; this is a deliberate
- *  trade-off favouring the more-frequent StrictMode-safety case. The
- *  `__resetThumbnailDebounceForTests` helper clears the set in vitest
- *  setup. */
+ *  WR-03 (Phase 1050-rev): this guard is NOT cleared on hook unmount or mapId
+ *  change, because doing so re-introduces the SF-07 duplicate-capture bug under
+ *  Vite-dev StrictMode (unmount → remount → guard cleared → second PUT fires
+ *  after the first's debounce has already settled).
+ *
+ *  STATE-07 (builder-audit #338 20260626): the guard is now a bounded LRU instead of
+ *  an unbounded write-only Set. The just-captured map's key stays resident (so
+ *  StrictMode remount is still deduped), but the structure no longer accumulates
+ *  one entry per visited map for the lifetime of the tab, and old maps age out
+ *  past the cap — so a server-side thumbnail deletion can re-trigger auto-capture
+ *  once the user has moved through enough other maps, without a hard reload. The
+ *  `__resetThumbnailDebounceForTests` helper clears it in vitest setup. */
 /** Phase 1051 WR-07: keyed by `userId:mapId` so a cross-user session does NOT
  *  inherit the previous user's guard entry. Previously keyed by `mapId` only,
  *  which leaked across auth-switch and blocked legitimate auto-captures after
  *  the same browser logged in as a different user with access to the same map. */
-const autoCapturedKeys = new Set<string>();
+const AUTO_CAPTURE_LRU_LIMIT = 64;
+const autoCapturedKeys = new Map<string, true>();
 
 function captureThumbnail(
   map: MaplibreMap,
@@ -266,8 +268,20 @@ function shouldAutoCapture(mapId: string, userId: string | null): boolean {
   // no resolvable user) collapse to a stable 'anon' bucket so anonymous
   // sessions still benefit from StrictMode dedupe within a single tab.
   const key = `${userId ?? 'anon'}:${mapId}`;
-  if (autoCapturedKeys.has(key)) return false;
-  autoCapturedKeys.add(key);
+  if (autoCapturedKeys.has(key)) {
+    // Refresh recency (re-insert at the tail) so an actively-edited map stays
+    // resident through StrictMode unmount/remount churn rather than aging out.
+    autoCapturedKeys.delete(key);
+    autoCapturedKeys.set(key, true);
+    return false;
+  }
+  autoCapturedKeys.set(key, true);
+  // Map preserves insertion order; evict the oldest entries beyond the cap.
+  while (autoCapturedKeys.size > AUTO_CAPTURE_LRU_LIMIT) {
+    const oldest = autoCapturedKeys.keys().next().value;
+    if (oldest === undefined) break;
+    autoCapturedKeys.delete(oldest);
+  }
   return true;
 }
 

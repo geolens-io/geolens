@@ -7,6 +7,7 @@ from typing import TypeVar
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+from pydantic import BaseModel
 from sqlalchemy import select
 from sse_starlette.sse import EventSourceResponse, ServerSentEvent
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -67,6 +68,36 @@ _AI_GENERATE_LIMIT = "10/minute"
 _AI_METADATA_LIMIT = "20/minute"
 
 
+class AIAvailabilityResponse(BaseModel):
+    """Public-safe AI readiness signal (builder-audit #338 P1-11).
+
+    Carries a single boolean and intentionally exposes NO provider name, model,
+    or key detail — it is readable by any non-admin editor holding
+    ``use_ai_chat`` so the builder can enable/disable chat without the
+    admin-only ``/admin/ai-status`` endpoint (which leaks provider/key info).
+    """
+
+    available: bool
+
+
+async def _ai_availability(db: AsyncSession) -> bool:
+    """Return whether builder chat is usable WITHOUT raising or leaking detail.
+
+    builder-audit #338 P1-11: same readiness predicate as ``_check_ai_available``
+    (AI enabled at runtime AND the admin-selected LLM provider has a key), but
+    collapsed to a boolean so a permitted editor gets a graceful disabled state
+    instead of a 403/503. Provider/key specifics are never surfaced here.
+    """
+    if not await AI_ENABLED.get(db):
+        return False
+    provider = await LLM_PROVIDER.get(db)
+    keys = {
+        "anthropic": settings.anthropic_api_key,
+        "openai_compatible": settings.openai_api_key,
+    }
+    return bool(keys.get(provider))
+
+
 async def _check_ai_available(db: AsyncSession) -> None:
     """Raise if AI is not configured or has been disabled at runtime.
 
@@ -89,6 +120,22 @@ async def _check_ai_available(db: AsyncSession) -> None:
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Selected LLM provider API key not configured",
         )
+
+
+@router.get("/availability/", response_model=AIAvailabilityResponse)
+async def ai_availability_endpoint(
+    user: Identity = Depends(require_permission("use_ai_chat")),
+    db: AsyncSession = Depends(get_db),
+) -> AIAvailabilityResponse:
+    """Report whether builder AI chat is usable (builder-audit #338 P1-11).
+
+    Permission-gated on ``use_ai_chat`` so non-admin editors (who cannot read
+    ``/admin/ai-status``) can learn availability. Returns ``available=false``
+    rather than 503 when provider keys are missing, so the builder shows a safe
+    disabled state without console-noise errors. A viewer (no ``use_ai_chat``)
+    gets 403.
+    """
+    return AIAvailabilityResponse(available=await _ai_availability(db))
 
 
 async def _validate_chat_layers(

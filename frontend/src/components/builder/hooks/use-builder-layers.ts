@@ -3,27 +3,17 @@ import { useSearchParams } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import type { Map as MaplibreMap } from 'maplibre-gl';
-import { useQueryClient } from '@tanstack/react-query';
-import { getLayerType, getSourceIdForLayer, isDemTerrainVisualSuppressed, normalizeTerrainExaggeration, reorderDataLayers } from '@/components/builder/map-sync';
-import { getAdapter } from '@/components/builder/layer-adapters/registry';
-import type { AdapterLayerInput } from '@/components/builder/layer-adapters/types';
-import { DEFAULT_HEATMAP_PAINT } from '@/components/builder/layer-adapters/heatmap-adapter';
+import { isDemTerrainVisualSuppressed, normalizeTerrainExaggeration, reorderDataLayers } from '@/components/builder/map-sync';
 import type { LayerActions } from '@/components/builder/ChatPanel';
 import {
   dispatchBuilderLayerAction,
   type BuilderLayerAction,
 } from '@/components/builder/builder-action-contract';
-import { buildSignedTileUrl } from '@/lib/tile-utils';
-import { buildLabelLayerSpec } from '@/components/builder/label-layer-utils';
 import { resolveBasemapId } from '@/lib/basemap-utils';
-import { normalizeDemStyleConfig } from '@/lib/dem-render-mode';
 import type { MapBasemapConfig, MapLayerResponse, MapResponse, MapTerrainConfig, StyleConfig } from '@/types/api';
 import type { useAddLayer, useRemoveLayer } from '@/hooks/use-maps';
 import { useEphemeralLayers } from '@/components/builder/hooks/use-ephemeral-layers';
 import { useLayerMapSync } from '@/components/builder/hooks/use-layer-map-sync';
-import { buildRenderAsPatch } from '@/components/builder/renderAs';
-import type { RenderAsId, RenderAsAdapterType } from '@/components/builder/renderAs';
-import { bulkDeleteLayersApi } from '@/api/maps';
 import {
   buildDuplicateRenderingInput,
   removePerLayerCompanions,
@@ -33,13 +23,14 @@ import {
   hydrateFolderGroupLayers,
   type GroupedLayer,
 } from '@/components/builder/folder-groups';
-import {
-  extractCopyableStyle,
-  isStyleCompatible,
-  applyCopiedStyleToLayer,
-  type CopiedStyle,
-  type GeometryStyleClass,
-} from '@/lib/builder/layer-style-clipboard';
+// STATE-02: cohesive handler clusters extracted into focused hooks. This hook
+// composes them and keeps its return surface identical so MapBuilderPage is
+// unchanged. PURE RELOCATION — see each hook for the verbatim handler bodies.
+import { useFolderGroupLayers } from '@/components/builder/hooks/use-folder-group-layers';
+import { useBulkLayerActions } from '@/components/builder/hooks/use-bulk-layer-actions';
+import { useTerrainLayers } from '@/components/builder/hooks/use-terrain-layers';
+import { useRenderModeLayers } from '@/components/builder/hooks/use-render-mode-layers';
+import { useLayerStyleClipboard } from '@/components/builder/hooks/use-layer-style-clipboard';
 export { buildDuplicateRenderingInput } from '@/components/builder/hooks/builder-layer-mutations';
 
 export function useBuilderLayers(
@@ -51,7 +42,6 @@ export function useBuilderLayers(
 ) {
   const [searchParams, setSearchParams] = useSearchParams();
   const { t } = useTranslation('builder');
-  const queryClient = useQueryClient();
 
   const initializedRef = useRef(false);
   const addDatasetProcessedRef = useRef(false);
@@ -82,17 +72,8 @@ export function useBuilderLayers(
   // ENH-06 (Phase 1201-06): map-level custom legend title. Null = no override.
   const [localLegendTitle, setLocalLegendTitle] = useState<string | null>(null);
   const [freshLayerId, setFreshLayerId] = useState<string | null>(null);
-  // Phase 1047-04 (PERF-03): tracks in-flight bulk-delete to gate BulkActionBar spinner
-  const [isDeleting, setIsDeleting] = useState(false);
   const freshLayerTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const savedLayerBaselineRef = useRef<MapLayerResponse[]>([]);
-
-  // ENH-02/ENH-03 (Phase 1201-01): session-local style clipboard. The ref holds
-  // the last-copied geometry-compatible style snapshot; the state mirror exposes
-  // its geometry class so the kebab "Paste style" item can enable/disable per-row
-  // without invalidating the stable copy/paste callbacks on every copy.
-  const copiedStyleRef = useRef<CopiedStyle | null>(null);
-  const [copiedStyleGeometryClass, setCopiedStyleGeometryClass] = useState<GeometryStyleClass | null>(null);
 
   // Mirror current layers in a ref so stable callbacks can read fresh state
   // without invalidating on every layer mutation. Without this, each layer
@@ -121,6 +102,81 @@ export function useBuilderLayers(
     handlePopupChange,
     syncStyleConfigToMap,
   } = useLayerMapSync(localLayers, setLocalLayers, setHasUnsavedChanges, mapInstanceRef);
+
+  // STATE-02: per-row style clipboard (copy / paste). Owns the session clipboard
+  // ref + geometry-class mirror; the bulk apply-style handler reads the same ref.
+  const {
+    copiedStyleRef,
+    copiedStyleGeometryClass,
+    handleCopyStyle,
+    handlePasteStyle,
+  } = useLayerStyleClipboard({ layersRef, handleStyleConfigChange });
+
+  // STATE-02: bulk-operation handlers (apply-style / visibility / opacity /
+  // group / ungroup / delete) + in-flight isDeleting state.
+  const {
+    handleBulkApplyStyle,
+    handleBulkVisibility,
+    handleBulkOpacity,
+    handleBulkGroup,
+    handleBulkUngroup,
+    handleBulkDelete,
+    isDeleting,
+  } = useBulkLayerActions({
+    layersRef,
+    setLocalLayers,
+    setHasUnsavedChanges,
+    setExpandedLayerId,
+    setGroupMeta,
+    mapInstanceRef,
+    mapId,
+    localTerrainConfig,
+    setLocalTerrainConfig,
+    savedLayerBaselineRef,
+    copiedStyleRef,
+    syncStyleConfigToMap,
+  });
+
+  // STATE-02: folder-group handlers (create / rename / ungroup / toggle-vis /
+  // delete / add-to-group / move-out).
+  const {
+    handleCreateGroupWithLayer,
+    handleRenameGroup,
+    handleUngroup,
+    handleToggleGroupVisibility,
+    handleDeleteGroup,
+    handleAddLayerToExistingGroup,
+    handleMoveLayerOutOfGroup,
+  } = useFolderGroupLayers({
+    layersRef,
+    setLocalLayers,
+    setGroupMeta,
+    setHasUnsavedChanges,
+    mapInstanceRef,
+  });
+
+  // STATE-02: DEM terrain bind / unbind / exaggeration handlers.
+  const {
+    handleDEMTerrainBind,
+    handleDEMTerrainUnbind,
+    handleDEMTerrainExaggerationChange,
+  } = useTerrainLayers({
+    layersRef,
+    localTerrainConfig,
+    setLocalTerrainConfig,
+    setHasUnsavedChanges,
+  });
+
+  // STATE-02: render-mode / layer-swap handlers.
+  const {
+    handleRenderAsChange,
+    handleRenderModeChange,
+  } = useRenderModeLayers({
+    layersRef,
+    setLocalLayers,
+    setHasUnsavedChanges,
+    mapInstanceRef,
+  });
 
   // Initialize local state from API data (once).
   //
@@ -304,33 +360,6 @@ export function useBuilderLayers(
     }
   }, [mapInstanceRef]);
 
-  // ENH-02 (Phase 1201-01): copy a layer's geometry-compatible style into the
-  // session clipboard. Pure extraction via the clipboard helper; the geometry
-  // class is mirrored into state so the UI can enable "Paste style" per-row.
-  const handleCopyStyle = useCallback((layerId: string) => {
-    const layer = layersRef.current.find((l) => l.id === layerId);
-    if (!layer) return;
-    const copied = extractCopyableStyle(layer);
-    copiedStyleRef.current = copied;
-    setCopiedStyleGeometryClass(copied.geometryClass);
-    toast.success(t('toasts.styleCopied'));
-  }, [t]);
-
-  // ENH-02 (Phase 1201-01): paste the clipboard style onto a geometry-compatible
-  // target. Routes through handleStyleConfigChange — the SAME atomic
-  // single-setLocalLayers write path used for every style mutation — so paint +
-  // style_config land in ONE render (never field-by-field, per the
-  // applyLayerUpdate-stale-ref-clobber rule) and the live map repaints.
-  const handlePasteStyle = useCallback((layerId: string) => {
-    const copied = copiedStyleRef.current;
-    if (!copied) return;
-    const target = layersRef.current.find((l) => l.id === layerId);
-    if (!target || !isStyleCompatible(copied, target)) return;
-    const merged = applyCopiedStyleToLayer(target, copied);
-    handleStyleConfigChange(layerId, merged.style_config ?? null, merged.paint);
-    toast.success(t('toasts.stylePasted'));
-  }, [handleStyleConfigChange, t]);
-
   // ENH-06 (Phase 1201-06): set the map-level custom legend title. Empty/null
   // clears the override. Marks the map dirty so the save path persists it.
   const handleLegendTitleChange = useCallback((title: string | null) => {
@@ -361,68 +390,6 @@ export function useBuilderLayers(
     const hasKeys = Object.keys(nextConfig).length > 0;
     handleStyleConfigChange(layerId, hasKeys ? nextConfig : null, target.paint);
   }, [handleStyleConfigChange]);
-
-  // ENH-03 (Phase 1201-01): apply one source style to every OTHER compatible
-  // selected layer in a SINGLE setLocalLayers pass (no per-field clobber).
-  // Source = the copied style if present, else the lowest-sort_order selected
-  // layer. Incompatible-geometry targets are skipped and surfaced via a count
-  // toast. No-ops when fewer than 2 compatible targets would be written.
-  const handleBulkApplyStyle = useCallback((selectedIds: Set<string>) => {
-    const current = layersRef.current;
-    const selected = current
-      .filter((l) => selectedIds.has(l.id))
-      .sort((a, b) => a.sort_order - b.sort_order);
-    if (selected.length === 0) return;
-
-    const copied = copiedStyleRef.current;
-    // Determine the source style + which selected layer (if any) authored it so
-    // we never re-apply a layer's own style onto itself.
-    let source: CopiedStyle;
-    let sourceLayerId: string | null;
-    if (copied) {
-      source = copied;
-      sourceLayerId = null; // copied style may originate from a non-selected layer
-    } else {
-      const first = selected[0];
-      source = extractCopyableStyle(first);
-      sourceLayerId = first.id;
-    }
-
-    const targets = selected.filter(
-      (l) => l.id !== sourceLayerId && isStyleCompatible(source, l),
-    );
-    if (targets.length === 0) return;
-
-    const targetIds = new Set(targets.map((l) => l.id));
-    // Count selected layers that were skipped for geometry incompatibility
-    // (exclude the source layer itself from the skip count).
-    const skipped = selected.filter(
-      (l) => l.id !== sourceLayerId && !targetIds.has(l.id),
-    ).length;
-
-    // Single atomic write — replace every compatible target in one pass
-    // (the multi-field clobber rule: never field-by-field per layer).
-    setLocalLayers((prev) =>
-      prev.map((l) => (targetIds.has(l.id) ? applyCopiedStyleToLayer(l, source) : l)),
-    );
-    setHasUnsavedChanges(true);
-
-    // Live-map sync: repaint each target via the map-ONLY adapter sync (it does
-    // NOT re-write React state — the single setLocalLayers above owns state).
-    // Gated internally on map.isStyleLoaded().
-    const map = mapInstanceRef.current;
-    if (map && map.isStyleLoaded()) {
-      for (const target of targets) {
-        const merged = applyCopiedStyleToLayer(target, source);
-        syncStyleConfigToMap(map, merged, merged.paint);
-      }
-    }
-
-    toast.success(t('toasts.bulkStyleApplied', { count: targets.length }));
-    if (skipped > 0) {
-      toast.info(t('toasts.bulkStyleSkipped', { count: skipped }));
-    }
-  }, [mapInstanceRef, syncStyleConfigToMap, t]);
 
   const handleRemove = useCallback((layerId: string) => {
     if (!mapId) return;
@@ -495,442 +462,6 @@ export function useBuilderLayers(
     );
   }, [mapId, mapInstanceRef, removeLayerMutation, localTerrainConfig, t]);
 
-  // --- Folder-group handlers ---
-  // These operate on the in-memory localLayers array. Group layers are encoded
-  // as layers with layer_type: 'group:folder' or 'group:basemap'. Child layers
-  // reference their parent via parent_group_id (frontend-only field, not persisted to API).
-
-  const handleCreateGroupWithLayer = useCallback((layerId: string) => {
-    // Generate id OUTSIDE the updater so both setters share the same value.
-    // Phase 1051 WR-01: crypto.randomUUID is collision-safe across bulk +
-    // single create paths firing in the same millisecond. The prior
-    // `group-${Date.now()}` form collided under rapid bulk operations.
-    const groupId = `group-${crypto.randomUUID()}`;
-
-    setLocalLayers((prev) => {
-      const idx = prev.findIndex((l) => l.id === layerId);
-      if (idx < 0) return prev;
-
-      // Generate a unique group name
-      const existingGroupCount = prev.filter((l) =>
-        (l as GroupedLayer).layer_type === 'group:folder',
-      ).length;
-      const groupName = `Group ${existingGroupCount + 1}`;
-
-      const groupRow: GroupedLayer = {
-        ...(prev[idx] as GroupedLayer),
-        id: groupId,
-        display_name: groupName,
-        layer_type: 'group:folder',
-        sort_order: prev[idx].sort_order,
-        parent_group_id: null,
-      };
-
-      const childLayer: GroupedLayer = {
-        ...(prev[idx] as GroupedLayer),
-        parent_group_id: groupId,
-      };
-
-      const next = [...prev];
-      next.splice(idx, 1, groupRow as unknown as MapLayerResponse, childLayer as unknown as MapLayerResponse);
-      return next.map((l, i) => ({ ...l, sort_order: i }));
-    });
-    // groupId is now in scope — auto-expand so the child layer is visible immediately.
-    setGroupMeta((prev) => ({ ...prev, [groupId]: { expanded: true } }));
-    setHasUnsavedChanges(true);
-  }, []);
-
-  const handleRenameGroup = useCallback((groupId: string, name: string) => {
-    const trimmed = name.trim();
-    if (!trimmed) return; // silent revert per UI-SPEC
-    setLocalLayers((prev) =>
-      prev.map((l) =>
-        l.id === groupId ? { ...l, display_name: trimmed } : l,
-      ),
-    );
-    setHasUnsavedChanges(true);
-  }, []);
-
-  const handleUngroup = useCallback((groupId: string) => {
-    setLocalLayers((prev) => {
-      // Remove the group container, keep children (clear their parent_group_id)
-      const next = prev
-        .filter((l) => l.id !== groupId)
-        .map((l) => {
-          const gl = l as GroupedLayer;
-          if (gl.parent_group_id === groupId) {
-            return { ...gl, parent_group_id: null } as MapLayerResponse;
-          }
-          return l;
-        });
-      return next.map((l, i) => ({ ...l, sort_order: i }));
-    });
-    setHasUnsavedChanges(true);
-  }, []);
-
-  const handleDeleteGroup = useCallback((groupId: string) => {
-    // B-007: collect the group's child layer ids BEFORE the state mutation and
-    // imperatively tear down their MapLibre companions (fill/outline/label/
-    // extrusion/arrow/cluster glyphs), mirroring handleRemove. Without this the
-    // children's paint layers linger as ghost visuals on the map until the next
-    // full syncFromState. Deduped sources are left for the reference-count-aware
-    // prune. (Group delete stays draft-until-Save for server persistence.)
-    const childIds = layersRef.current
-      .filter((l) => (l as GroupedLayer).parent_group_id === groupId && l.id !== groupId)
-      .map((l) => l.id);
-    if (childIds.length > 0) {
-      removePerLayerCompanions(mapInstanceRef.current, childIds);
-    }
-    setLocalLayers((prev) => {
-      const next = prev.filter((l) => {
-        if (l.id === groupId) return false;
-        const gl = l as GroupedLayer;
-        if (gl.parent_group_id === groupId) return false;
-        return true;
-      });
-      return next.map((l, i) => ({ ...l, sort_order: i }));
-    });
-    setHasUnsavedChanges(true);
-  }, [mapInstanceRef]);
-
-  // --- Bulk operation handlers ---
-  // Visibility, opacity, group, and ungroup are PURE LOCAL STATE MUTATIONS
-  // (single setLocalLayers call each, persisted via the existing Save gate).
-  // Only handleBulkDelete calls the per-layer DELETE endpoint.
-
-  const handleBulkVisibility = useCallback((selectedIds: Set<string>) => {
-    const current = layersRef.current;
-    const selectedLayers = current.filter((l) => selectedIds.has(l.id));
-    if (selectedLayers.length === 0) return;
-
-    const visibleCount = selectedLayers.filter((l) => l.visible !== false).length;
-    const majorityVisible = visibleCount > selectedLayers.length / 2;
-    const nextVisible = !majorityVisible;
-
-    // Single setState call for the entire batch
-    setLocalLayers((prev) =>
-      prev.map((l) => (selectedIds.has(l.id) ? { ...l, visible: nextVisible } : l)),
-    );
-    setHasUnsavedChanges(true);
-
-    // Live-map sync: mirror the setLayoutProperty calls from handleToggleVisibility
-    // for each selected layer without firing N separate React re-renders.
-    const map = mapInstanceRef.current;
-    if (map && map.isStyleLoaded()) {
-      const newVis = nextVisible ? 'visible' : 'none';
-      for (const l of selectedLayers) {
-        const id = l.id;
-        const ids = [
-          `layer-${id}`,
-          `layer-${id}-outline`,
-          `layer-${id}-label`,
-          `layer-${id}-extrusion`,
-          `layer-${id}-arrow`,
-          `layer-${id}-cluster`,
-          `layer-${id}-cluster-count`,
-        ];
-        for (const subId of ids) {
-          if (map.getLayer(subId)) map.setLayoutProperty(subId, 'visibility', newVis);
-        }
-      }
-    }
-  }, [mapInstanceRef]);
-
-  const handleBulkOpacity = useCallback((selectedIds: Set<string>, opacity: number) => {
-    const current = layersRef.current;
-    const selectedLayers = current.filter((l) => selectedIds.has(l.id));
-    if (selectedLayers.length === 0) return;
-
-    // Single setState call for the entire batch
-    setLocalLayers((prev) =>
-      prev.map((l) => (selectedIds.has(l.id) ? { ...l, opacity } : l)),
-    );
-    setHasUnsavedChanges(true);
-
-    // Live-map sync: set opacity paint properties on each selected layer
-    const map = mapInstanceRef.current;
-    if (map && map.isStyleLoaded()) {
-      for (const l of selectedLayers) {
-        const id = l.id;
-        const mapLayerId = `layer-${id}`;
-        const outlineId = `layer-${id}-outline`;
-        if (isDemTerrainVisualSuppressed(l)) {
-          continue;
-        }
-
-        if (l.layer_type === 'raster_geolens' && l.is_dem === true && l.style_config?.render_mode === 'hillshade') {
-          const input: AdapterLayerInput & { style_config?: StyleConfig | null } = {
-            id: l.id,
-            dataset_table_name: l.dataset_table_name,
-            dataset_geometry_type: l.dataset_geometry_type,
-            opacity,
-            visible: l.visible,
-            paint: l.paint ?? {},
-            layout: l.layout ?? {},
-            filter: l.filter ?? null,
-            sourceId: getSourceIdForLayer(l),
-            layerId: mapLayerId,
-            sourceLayer: `data.${l.dataset_table_name}`,
-            tileUrl: '',
-            style_config: l.style_config ?? null,
-            is_dem: l.is_dem,
-          };
-          getAdapter('hillshade').syncPaint(map, input);
-        } else if (l.layer_type === 'raster_geolens') {
-          if (map.getLayer(mapLayerId)) {
-            map.setPaintProperty(mapLayerId, 'raster-opacity', opacity);
-          }
-        } else if (l.style_config?.render_mode === 'heatmap') {
-          if (map.getLayer(mapLayerId)) {
-            const storedHeatmapOpacity = (l.paint?.['heatmap-opacity'] as number) ?? 0.8;
-            map.setPaintProperty(mapLayerId, 'heatmap-opacity', opacity * storedHeatmapOpacity);
-          }
-        } else {
-          // fill, line, circle — use adapter type derived from geometry type
-          const geomType = l.dataset_geometry_type;
-          const adapterType =
-            geomType === 'Polygon' || geomType === 'MultiPolygon' ? 'fill'
-            : geomType === 'LineString' || geomType === 'MultiLineString' ? 'line'
-            : 'circle';
-          if (map.getLayer(mapLayerId)) {
-            map.setPaintProperty(mapLayerId, `${adapterType}-opacity`, opacity);
-          }
-          if (adapterType === 'fill' && map.getLayer(outlineId)) {
-            map.setPaintProperty(outlineId, 'line-opacity', opacity);
-          }
-        }
-      }
-    }
-  }, [mapInstanceRef]);
-
-  const handleBulkGroup = useCallback((selectedIds: Set<string>) => {
-    const current = layersRef.current;
-    // Defense-in-depth: all selected must be loose vector layers
-    const selectedLayers = current.filter((l) =>
-      selectedIds.has(l.id) &&
-      l.dataset_record_type === 'vector_dataset' &&
-      !(l as GroupedLayer).parent_group_id &&
-      (l as GroupedLayer).layer_type !== 'group:folder',
-    );
-    if (selectedLayers.length !== selectedIds.size || selectedLayers.length < 2) return;
-
-    // Phase 1051 WR-01: crypto.randomUUID is collision-safe — see
-    // handleCreateGroupWithLayer for the bulk + single race rationale.
-    const groupId = `group-${crypto.randomUUID()}`;
-    const existingGroupCount = current.filter(
-      (l) => (l as GroupedLayer).layer_type === 'group:folder',
-    ).length;
-    const groupName = `Group ${existingGroupCount + 1}`;
-    const minSortOrder = Math.min(...selectedLayers.map((l) => l.sort_order));
-
-    const groupRow: GroupedLayer = {
-      ...(selectedLayers[0] as GroupedLayer),
-      id: groupId,
-      display_name: groupName,
-      layer_type: 'group:folder',
-      sort_order: minSortOrder,
-      parent_group_id: null,
-    };
-
-    setLocalLayers((prev) => {
-      const next = prev.map((l) =>
-        selectedIds.has(l.id)
-          ? ({ ...l, parent_group_id: groupId } as unknown as MapLayerResponse)
-          : l,
-      );
-      // Insert group row at position of first selected layer (smallest sort_order)
-      const insertIdx = next.findIndex((l) => selectedIds.has(l.id));
-      if (insertIdx >= 0) {
-        next.splice(insertIdx, 0, groupRow as unknown as MapLayerResponse);
-      } else {
-        next.push(groupRow as unknown as MapLayerResponse);
-      }
-      return next.map((l, i) => ({ ...l, sort_order: i }));
-    });
-    setGroupMeta((prev) => ({ ...prev, [groupId]: { expanded: true } }));
-    setHasUnsavedChanges(true);
-  }, []);
-
-  const handleBulkUngroup = useCallback((selectedIds: Set<string>) => {
-    const current = layersRef.current;
-    // Defense-in-depth: all selected must be folder-group rows
-    const selectedGroups = current.filter(
-      (l) => selectedIds.has(l.id) && (l as GroupedLayer).layer_type === 'group:folder',
-    );
-    if (selectedGroups.length !== selectedIds.size || selectedGroups.length === 0) return;
-
-    setLocalLayers((prev) => {
-      const next = prev
-        .filter((l) => !selectedIds.has(l.id)) // remove group container rows
-        .map((l) => {
-          const gl = l as GroupedLayer;
-          if (gl.parent_group_id && selectedIds.has(gl.parent_group_id)) {
-            return { ...gl, parent_group_id: null } as MapLayerResponse;
-          }
-          return l;
-        });
-      return next.map((l, i) => ({ ...l, sort_order: i }));
-    });
-    setHasUnsavedChanges(true);
-  }, []);
-
-  const handleBulkDelete = useCallback(async (selectedIds: Set<string>): Promise<boolean> => {
-    if (!mapId || selectedIds.size === 0) return false;
-
-    const previousLayers = layersRef.current;
-    // Filter out frontend-only group container rows — they have no backend record
-    // and would produce a not_found error in the bulk-delete endpoint.
-    const idsToDelete = Array.from(selectedIds).filter((id) => {
-      const layer = previousLayers.find((l) => l.id === id);
-      if (!layer) return false;
-      if ((layer as GroupedLayer).layer_type === 'group:folder') return false;
-      return true;
-    });
-    if (idsToDelete.length === 0) return false;
-
-    // Clear expanded layer if it's being deleted
-    setExpandedLayerId((prev) => (prev && selectedIds.has(prev) ? null : prev));
-
-    // Optimistic update — remove only layers actually sent to the backend (idsToDelete),
-    // not the full selectedIds which may include frontend-only group folder rows (WR-04).
-    const idsToDeleteSet = new Set(idsToDelete);
-    setLocalLayers((prev) =>
-      prev
-        .filter((l) => !idsToDeleteSet.has(l.id))
-        .map((l, i) => ({ ...l, sort_order: i })),
-    );
-
-    // Phase 999.17 Fix 2 (D-05/A2): if the batch removes the last DEM layer
-    // backing active 3D terrain, auto-clear terrain_config + non-blocking toast.
-    // Keyed on dataset identity so unrelated DEM/vector deletes leave it intact.
-    // HI-01 (999.17 gap-closure): snapshot the prior terrain_config so any
-    // failure/rollback branch below can restore it. Without this, a failed bulk
-    // delete leaves the DEM layer restored but 3D terrain silently disabled.
-    const previousTerrainConfig = localTerrainConfig;
-    const remainingAfterBulk = previousLayers.filter((l) => !idsToDeleteSet.has(l.id));
-    const clearedTerrainOnBulk = shouldClearTerrainOnDelete(remainingAfterBulk, localTerrainConfig);
-    if (clearedTerrainOnBulk) {
-      setLocalTerrainConfig((prev) => ({
-        enabled: false,
-        source_dataset_id: null,
-        exaggeration: normalizeTerrainExaggeration(prev?.exaggeration),
-      }));
-      setHasUnsavedChanges(true);
-      toast.success(t('toasts.terrainDisabledSourceRemoved'));
-    }
-
-    // WR-01 (Phase 1050-rev): imperatively clean per-layer companions for
-    // every id in the batch so visual artifacts vanish in lockstep with the
-    // optimistic state update. removeStaleSourcesAndLayers cannot derive
-    // these ids under the SF-04 dedupe contract — the stripped source id
-    // produces `data-${dataset_table_name}`, not the real per-layer id.
-    removePerLayerCompanions(mapInstanceRef.current, idsToDelete);
-
-    // Phase 1047-04 (PERF-03): one batched call replaces N sequential DELETEs
-    setIsDeleting(true);
-    try {
-      const result = await bulkDeleteLayersApi(mapId, idsToDelete);
-
-      if (result.failed.length === 0) {
-        // Full success — sync baseline immediately so the subsequent invalidateQueries
-        // refetch is not blocked by a stale savedLayerBaselineRef (CR-01).
-        savedLayerBaselineRef.current = savedLayerBaselineRef.current.filter(
-          (l) => !idsToDeleteSet.has(l.id),
-        );
-        await queryClient.invalidateQueries({ queryKey: ['map', mapId] });
-        toast.success(t('bulkActions.deleteSuccess', { count: idsToDelete.length }));
-        return true;
-      }
-
-      if (result.deleted.length === 0) {
-        // Full failure — rollback all layers
-        setLocalLayers(previousLayers);
-        // HI-01: nothing was actually deleted, so restore terrain_config too.
-        if (clearedTerrainOnBulk) {
-          setLocalTerrainConfig(previousTerrainConfig);
-        }
-        toast.error(t('bulkActions.deleteRollback'));
-        return false;
-      }
-
-      // Partial failure: keep deleted layers removed, restore failed layers
-      const failedIds = new Set(result.failed.map((f) => f.id));
-      setLocalLayers((current) => {
-        // Re-insert failed layers from previousLayers at their original sort_order positions
-        const failedLayers = previousLayers.filter((l) => failedIds.has(l.id));
-        const merged = [...current, ...failedLayers];
-        // Re-sort by original sort_order so failed layers slot back in naturally
-        merged.sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
-        return merged.map((l, i) => ({ ...l, sort_order: i }));
-      });
-      // HI-01: the optimistic terrain clear assumed the WHOLE batch was deleted.
-      // Re-evaluate against the layers that ACTUALLY remain after restoring the
-      // failed ones; if terrain is still backed (its source DEM was among the
-      // failures), restore terrain_config so it is not silently disabled.
-      if (clearedTerrainOnBulk) {
-        const deletedIds = new Set(result.deleted);
-        const remainingAfterPartial = previousLayers.filter((l) => !deletedIds.has(l.id));
-        if (!shouldClearTerrainOnDelete(remainingAfterPartial, previousTerrainConfig)) {
-          setLocalTerrainConfig(previousTerrainConfig);
-        }
-      }
-      // Partial state differs from server — prevent silent refetch wipe (CR-01)
-      setHasUnsavedChanges(true);
-      toast.error(
-        t('bulkActions.deletePartialFailure', {
-          deleted: result.deleted.length,
-          count: idsToDelete.length,
-          failed: result.failed.length,
-        }),
-        {
-          action: {
-            label: t('bulkActions.retryAction'),
-            onClick: () => handleBulkDelete(new Set(result.failed.map((f) => f.id))),
-          },
-        },
-      );
-      return false;
-    } finally {
-      setIsDeleting(false);
-    }
-  }, [mapId, mapInstanceRef, localTerrainConfig, t, queryClient]);
-
-  const handleAddLayerToExistingGroup = useCallback((layerId: string, groupId: string) => {
-    setLocalLayers((prev) => {
-      const targetIdx = prev.findIndex((l) => l.id === layerId);
-      if (targetIdx < 0) return prev;
-      const updatedLayer: GroupedLayer = { ...(prev[targetIdx] as GroupedLayer), parent_group_id: groupId };
-      const next = [...prev];
-      next[targetIdx] = updatedLayer as MapLayerResponse;
-      return next;
-    });
-    setGroupMeta((prev) => {
-      if (prev[groupId]?.expanded) return prev;
-      return { ...prev, [groupId]: { expanded: true } };
-    });
-    setHasUnsavedChanges(true);
-  }, []);
-
-  const handleMoveLayerOutOfGroup = useCallback((layerId: string) => {
-    setLocalLayers((prev) => {
-      const idx = prev.findIndex((l) => l.id === layerId);
-      if (idx < 0) return prev;
-      const gl = prev[idx] as GroupedLayer;
-      const parentGroupId = gl.parent_group_id;
-      if (!parentGroupId) return prev; // already not in a group
-
-      // Find the position of the group container to place the layer just after it
-      const groupIdx = prev.findIndex((l) => l.id === parentGroupId);
-      const updatedLayer: GroupedLayer = { ...gl, parent_group_id: null };
-
-      const next = prev.filter((l) => l.id !== layerId) as MapLayerResponse[];
-      const insertAt = groupIdx >= 0 ? groupIdx + 1 : next.length;
-      next.splice(insertAt, 0, updatedLayer as MapLayerResponse);
-      return next.map((l, i) => ({ ...l, sort_order: i }));
-    });
-    setHasUnsavedChanges(true);
-  }, []);
-
   const handleAddDataset = useCallback(
     (
       datasetId: string,
@@ -948,21 +479,51 @@ export function useBuilderLayers(
         { mapId, data: { dataset_id: datasetId, sort_order: 0 } },
         {
           onSuccess: (createdLayer) => {
-            // CR-02: when dropping onto a folder group, the new layer is not yet in
-            // localLayers at this point — the invalidation refetch is async and the
-            // useEffect sync only runs when !hasUnsavedChanges. Optimistically prepend
-            // the layer with parent_group_id already set so handleAddLayerToExistingGroup
-            // finds it immediately instead of getting targetIdx === -1 and silently no-oping.
-            if (parentGroupId && createdLayer?.id) {
+            // P1-08: optimistically merge EVERY created layer into localLayers +
+            // the saved baseline so it appears immediately, even while the map is
+            // dirty — the API-refetch sync (apiLayers effect) is gated on
+            // !hasUnsavedChanges, so a non-group add during dirty state otherwise
+            // stayed hidden until save/reload and users retried → duplicates.
+            // CR-02: dropping onto a folder group is the SAME single insertion,
+            // just also stamping parent_group_id so the row renders inside the
+            // group immediately.
+            if (createdLayer?.id) {
+              const insertedLayer: GroupedLayer = parentGroupId
+                ? { ...createdLayer, parent_group_id: parentGroupId }
+                : { ...createdLayer };
               setLocalLayers((prev) => {
-                if (prev.some((l) => l.id === createdLayer.id)) return prev;
-                const newLayer: GroupedLayer = {
-                  ...createdLayer,
-                  parent_group_id: parentGroupId,
-                };
-                return [newLayer as MapLayerResponse, ...prev];
+                const existingIdx = prev.findIndex((l) => l.id === createdLayer.id);
+                if (existingIdx >= 0) {
+                  // Already present (e.g. a refetch landed first) — do not insert a
+                  // duplicate. Only stamp group membership when this is a folder
+                  // drop and it isn't already set.
+                  if (!parentGroupId) return prev;
+                  const existing = prev[existingIdx] as GroupedLayer;
+                  if (existing.parent_group_id === parentGroupId) return prev;
+                  const next = [...prev];
+                  next[existingIdx] = { ...existing, parent_group_id: parentGroupId } as MapLayerResponse;
+                  return next;
+                }
+                // Prepend at top of the user stack (sort_order 0) then renumber,
+                // matching the sort_order:0 add request above.
+                return [insertedLayer as MapLayerResponse, ...prev].map((l, i) => ({ ...l, sort_order: i }));
               });
-              handleAddLayerToExistingGroup(createdLayer.id, parentGroupId);
+              // Keep the saved baseline in sync (mirrors handleDuplicateRendering)
+              // so a later clean refetch is not blocked by a stale baseline. The
+              // baseline carries the pure server layer (no parent_group_id, which
+              // is unsaved frontend state). Unrelated dirty edits are untouched.
+              if (!savedLayerBaselineRef.current.some((l) => l.id === createdLayer.id)) {
+                savedLayerBaselineRef.current = [createdLayer, ...savedLayerBaselineRef.current];
+              }
+              if (parentGroupId) {
+                // Group membership is unsaved frontend state — mark dirty so the
+                // save path persists it (and the refetch sync does not wipe it),
+                // and auto-expand the group so the child is visible.
+                setGroupMeta((prev) =>
+                  prev[parentGroupId]?.expanded ? prev : { ...prev, [parentGroupId]: { expanded: true } },
+                );
+                setHasUnsavedChanges(true);
+              }
             }
             // Phase 1040 POL-05: named toast when datasetName is provided; generic
             // fallback preserves backward-compat for callers that omit the name.
@@ -994,7 +555,7 @@ export function useBuilderLayers(
         },
       );
     },
-    [mapId, addLayerMutation, t, handleAddLayerToExistingGroup],
+    [mapId, addLayerMutation, t],
   );
 
   // AI-specific remove: removes locally (persisted on Save).
@@ -1028,280 +589,6 @@ export function useBuilderLayers(
     setHasUnsavedChanges(true);
   }, []);
 
-  /** Swap the MapLibre layer for a given dataset between adapter types (e.g. circle <-> heatmap).
-   *
-   *  Phase 1050 SF-04: sourceId now routes through `getSourceIdForLayer` so
-   *  non-cluster vector layers correctly inherit the deduped
-   *  `source-data-${dataset_table_name}` source's tile URL. Cluster and
-   *  raster/hillshade layers keep their per-layer source id via the helper's
-   *  branching contract.
-   */
-  const swapLayerOnMap = useCallback((
-    layer: MapLayerResponse,
-    adapterType: RenderAsAdapterType,
-    updatedPaint: Record<string, unknown>,
-  ) => {
-    const map = mapInstanceRef.current;
-    if (!map) return;
-    // BUG-018: mirror the idle-retry pattern from BuilderMap.tsx (~:923).
-    // A render-mode switch during a basemap style transition must not be silently
-    // dropped. Register a one-shot `idle` listener so the swap is retried as soon
-    // as the map settles (idle fires after style.load + tiles + transitions).
-    if (!map.isStyleLoaded()) {
-      map.once('idle', () => swapLayerOnMap(layer, adapterType, updatedPaint));
-      return;
-    }
-
-    const mapLayerId = `layer-${layer.id}`;
-    const sourceId = getSourceIdForLayer(layer);
-    const labelId = `layer-${layer.id}-label`;
-    const colorReliefId = `layer-${layer.id}-colorrelief`;
-
-    // Remove old layer
-    if (map.getLayer(colorReliefId)) {
-      map.removeLayer(colorReliefId);
-    }
-    if (map.getLayer(mapLayerId)) {
-      map.removeLayer(mapLayerId);
-    }
-    const outlineId = `layer-${layer.id}-outline`;
-    if (map.getLayer(outlineId)) {
-      map.removeLayer(outlineId);
-    }
-    const extrusionId = `layer-${layer.id}-extrusion`;
-    if (map.getLayer(extrusionId)) {
-      map.removeLayer(extrusionId);
-    }
-    const arrowId = `layer-${layer.id}-arrow`;
-    if (map.getLayer(arrowId)) {
-      map.removeLayer(arrowId);
-    }
-    // Per-layer raster/hillshade source removal — these layer types keep
-    // their per-layer source id via `getSourceIdForLayer`'s raster branch,
-    // so this is still safe (no sibling layer shares it).
-    if ((adapterType === 'raster' || adapterType === 'hillshade') && map.getSource(sourceId)) {
-      map.removeSource(sourceId);
-    }
-
-    // Get tile URL from existing source
-    const source = map.getSource(sourceId) as { tiles?: string[] } | undefined;
-    const tileUrl = source?.tiles?.[0] ?? buildSignedTileUrl(layer.dataset_table_name, null, undefined);
-    const sourceLayer = `data.${layer.dataset_table_name}`;
-
-    const adapterInput: AdapterLayerInput & { style_config?: StyleConfig | null } = {
-      id: layer.id,
-      dataset_table_name: layer.dataset_table_name,
-      dataset_geometry_type: layer.dataset_geometry_type,
-      opacity: layer.opacity ?? 1,
-      visible: layer.visible,
-      paint: updatedPaint,
-      layout: layer.layout ?? {},
-      filter: layer.filter,
-      label_config: layer.label_config ?? null,
-      sourceId,
-      layerId: mapLayerId,
-      sourceLayer,
-      tileUrl,
-      style_config: layer.style_config ?? null,
-      is_dem: layer.is_dem ?? null,
-    };
-
-    try {
-      const adapter = getAdapter(adapterType);
-      adapter.addLayers(map, adapterInput);
-      // BUG-01: explicitly re-assert visibility after addLayers. The adapter
-      // contract honors `input.visible` at initial add (defense-in-depth in
-      // each adapter), and calling syncVisibility here also covers companion
-      // layers (e.g. fill outline / cluster count) so the freshly-swapped
-      // layer cannot become a "ghost visible" layer when the user is on a
-      // hidden render-mode source.
-      adapter.syncVisibility(map, adapterInput);
-    } catch (e) {
-      toast.error(t('toasts.renderModeSwitchFailed'));
-      if (import.meta.env.DEV) console.error('[builder] swapLayerOnMap failed:', e);
-      return;
-    }
-
-    // Manage companion label layer: heatmap hides labels, symbol consolidates
-    // icon/text in the primary symbol layer, points restore companion labels.
-    if (adapterType === 'heatmap') {
-      if (map.getLayer(labelId)) {
-        map.setLayoutProperty(labelId, 'visibility', 'none');
-      }
-    } else if (adapterType === 'symbol') {
-      if (map.getLayer(labelId)) {
-        map.removeLayer(labelId);
-      }
-    } else if (layer.label_config?.column) {
-      const vis = layer.visible ? 'visible' : 'none';
-      if (!map.getLayer(labelId) && map.getSource(sourceId)) {
-        const geomType = getLayerType(layer.dataset_geometry_type);
-        map.addLayer(buildLabelLayerSpec({ labelId, sourceId, sourceLayer, lc: layer.label_config, geomType }));
-        map.setLayoutProperty(labelId, 'visibility', vis);
-      } else if (map.getLayer(labelId)) {
-        map.setLayoutProperty(labelId, 'visibility', vis);
-      }
-    }
-  }, [mapInstanceRef, t]);
-
-  const handleRenderAsChange = useCallback((layerId: string, renderAs: RenderAsId) => {
-    const layer = layersRef.current.find((l) => l.id === layerId);
-    if (!layer) return;
-
-    const mutation = buildRenderAsPatch(layer, renderAs);
-    if (!mutation) return;
-
-    const updatedLayer: MapLayerResponse = {
-      ...layer,
-      ...mutation.patch,
-      paint: mutation.patch.paint ?? layer.paint,
-      layout: mutation.patch.layout ?? layer.layout,
-      style_config: normalizeDemStyleConfig(
-        'style_config' in mutation.patch ? mutation.patch.style_config : layer.style_config,
-        layer.is_dem,
-      ),
-      layer_type: mutation.patch.layer_type ?? layer.layer_type,
-    };
-
-    setLocalLayers((prev) =>
-      prev.map((candidate) => (candidate.id === layerId ? updatedLayer : candidate)),
-    );
-    swapLayerOnMap(updatedLayer, mutation.adapterType, updatedLayer.paint ?? {});
-    setHasUnsavedChanges(true);
-  }, [swapLayerOnMap]);
-
-  const handleRenderModeChange = useCallback((layerId: string, mode: RenderAsId | 'points') => {
-    const layer = layersRef.current.find((l) => l.id === layerId);
-    if (!layer) return;
-
-    // SF-02 (Phase 1049): renderAsOptions in LayerEditorPanel surfaces ALL RenderAsId
-    // values (arrow / fill / stroke / fill-stroke / extrusion-3d / line plus the
-    // legacy circle quartet handled below). Route everything that isn't a
-    // circle-family transition through handleRenderAsChange + buildRenderAsPatch
-    // so the layout/paint replacement is computed correctly. Without this gate,
-    // line→arrow on a MultiLineString layer was falling through to the `circle`
-    // branch and dispatching addLayer with stale line-cap / line-join layout
-    // keys, which MapLibre rejects with `unknown property` validation errors.
-    if (
-      mode === 'cluster' ||
-      mode === 'arrow' ||
-      mode === 'line' ||
-      mode === 'fill' ||
-      mode === 'stroke' ||
-      mode === 'fill-stroke' ||
-      mode === 'extrusion-3d' ||
-      mode === 'image' ||
-      mode === 'hillshade'
-    ) {
-      handleRenderAsChange(layerId, mode);
-      return;
-    }
-
-    const currentStyleConfig: Partial<StyleConfig> = layer.style_config ?? {};
-    let updatedPaint = { ...layer.paint };
-
-    if (mode === 'heatmap') {
-      const savedCirclePaint = { ...updatedPaint };
-      const savedHeatmapPaint = currentStyleConfig.heatmapPaint ?? {};
-
-      updatedPaint = Object.keys(savedHeatmapPaint).length > 0
-        ? { ...savedHeatmapPaint }
-        : { ...DEFAULT_HEATMAP_PAINT };
-
-      const builder = {
-        ...currentStyleConfig.builder,
-        heatmapRamp: currentStyleConfig.builder?.heatmapRamp ?? 'YlOrRd',
-      };
-
-      setLocalLayers((prev) =>
-        prev.map((l) =>
-          l.id === layerId
-            ? { ...l, paint: updatedPaint, style_config: { ...l.style_config, ...currentStyleConfig, render_mode: 'heatmap', savedCirclePaint, builder } as StyleConfig }
-            : l,
-        ),
-      );
-
-      swapLayerOnMap(layer, 'heatmap', updatedPaint);
-    } else if (mode === 'symbol') {
-      const savedCirclePaint = currentStyleConfig.savedCirclePaint ?? { ...updatedPaint };
-      const nextStyleConfig = {
-        ...layer.style_config,
-        ...currentStyleConfig,
-        render_mode: 'symbol',
-        savedCirclePaint,
-        symbol: currentStyleConfig.symbol ?? { iconImage: 'marker', iconSize: 1, iconRotation: 0, iconAnchor: 'center', iconOffset: [0, 0] },
-      } as StyleConfig;
-
-      setLocalLayers((prev) =>
-        prev.map((l) =>
-          l.id === layerId
-            ? { ...l, paint: updatedPaint, style_config: nextStyleConfig }
-            : l,
-        ),
-      );
-
-      swapLayerOnMap({ ...layer, style_config: nextStyleConfig }, 'symbol', updatedPaint);
-    } else {
-      const savedHeatmapPaint = { ...updatedPaint };
-      const savedCirclePaint = currentStyleConfig.savedCirclePaint ?? {};
-
-      updatedPaint = Object.keys(savedCirclePaint).length > 0 ? savedCirclePaint : {
-        'circle-color': '#3b82f6',
-        'circle-radius': 5,
-        'circle-stroke-color': '#ffffff',
-        'circle-stroke-width': 1,
-      };
-
-      const { savedCirclePaint: _dropped, symbol: _symbol, ...restConfig } = currentStyleConfig;
-
-      setLocalLayers((prev) =>
-        prev.map((l) =>
-          l.id === layerId
-            ? { ...l, paint: updatedPaint, style_config: { ...l.style_config, ...restConfig, render_mode: undefined, heatmapPaint: savedHeatmapPaint } as StyleConfig }
-            : l,
-        ),
-      );
-
-      swapLayerOnMap(layer, 'circle', updatedPaint);
-    }
-
-    setHasUnsavedChanges(true);
-  }, [handleRenderAsChange, swapLayerOnMap]);
-
-  const handleDEMTerrainBind = useCallback((layerId: string) => {
-    const layer = layersRef.current.find((l) => l.id === layerId);
-    if (!layer) return;
-    setLocalTerrainConfig((prev) => ({
-      enabled: true,
-      source_dataset_id: layer.dataset_id,
-      exaggeration: normalizeTerrainExaggeration(prev?.exaggeration),
-    }));
-    setHasUnsavedChanges(true);
-  }, []);
-
-  const handleDEMTerrainUnbind = useCallback((layerId: string) => {
-    const layer = layersRef.current.find((l) => l.id === layerId);
-    if (!layer) return;
-    if (!localTerrainConfig || localTerrainConfig.source_dataset_id !== layer.dataset_id) return;
-    setLocalTerrainConfig({
-      enabled: false,
-      source_dataset_id: null,
-      exaggeration: normalizeTerrainExaggeration(localTerrainConfig.exaggeration),
-    });
-    setHasUnsavedChanges(true);
-  }, [localTerrainConfig]);
-
-  const handleDEMTerrainExaggerationChange = useCallback((layerId: string, value: number) => {
-    const layer = layersRef.current.find((l) => l.id === layerId);
-    if (!layer) return;
-    setLocalTerrainConfig(() => ({
-      enabled: true,
-      source_dataset_id: layer.dataset_id,
-      exaggeration: normalizeTerrainExaggeration(value),
-    }));
-    setHasUnsavedChanges(true);
-  }, []);
-
   const handleDuplicateRendering = useCallback((layerId: string) => {
     if (!mapId) return;
     const layer = layersRef.current.find((candidate) => candidate.id === layerId);
@@ -1325,14 +612,16 @@ export function useBuilderLayers(
       { mapId, data },
       {
         onSuccess: (createdLayer) => {
+          // STATE-05: the functional updater stays pure — no in-updater
+          // `layersRef.current = next` side-write. The useLayoutEffect mirror
+          // (lines ~101-103) syncs layersRef from committed state, which is the
+          // single, StrictMode-safe place this hook updates the ref.
           setLocalLayers((prev) => {
             if (prev.some((candidate) => candidate.id === createdLayer.id)) return prev;
-            const next = [...prev, createdLayer].map((candidate, index) => ({
+            return [...prev, createdLayer].map((candidate, index) => ({
               ...candidate,
               sort_order: candidate.id === createdLayer.id ? nextSortOrder : candidate.sort_order ?? index,
             }));
-            layersRef.current = next;
-            return next;
           });
           savedLayerBaselineRef.current = [
             ...savedLayerBaselineRef.current.filter((candidate) => candidate.id !== createdLayer.id),
@@ -1368,6 +657,7 @@ export function useBuilderLayers(
       setPopup: handlePopupChange,
       setLayout: handleLayoutChange,
       setVisibility: handleToggleVisibility,
+      toggleGroupVisibility: handleToggleGroupVisibility,
       setOpacity: handleOpacityChange,
       addDataset: (datasetId) => handleAddDataset(datasetId),
       removePersistedLayer: handleRemove,
@@ -1395,6 +685,7 @@ export function useBuilderLayers(
     handleReorder,
     handleStyleConfigChange,
     handleToggleVisibility,
+    handleToggleGroupVisibility,
   ]);
 
   // Atomic multi-field restore for chat undo. Restoring a snapshot field-by-field

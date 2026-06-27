@@ -15,6 +15,7 @@ function makeHandlers(): BuilderLayerActionHandlers {
     setPopup: vi.fn(),
     setLayout: vi.fn(),
     setVisibility: vi.fn(),
+    toggleGroupVisibility: vi.fn(),
     setOpacity: vi.fn(),
     addDataset: vi.fn(),
     removePersistedLayer: vi.fn(),
@@ -88,6 +89,11 @@ describe('builder action contract', () => {
         action: { type: 'set_opacity', layerId: 'layer-1', opacity: 0.42 },
         handler: 'setOpacity',
         args: ['layer-1', 0.42],
+      },
+      {
+        action: { type: 'toggle_group_visibility', groupId: 'group-1' },
+        handler: 'toggleGroupVisibility',
+        args: ['group-1'],
       },
       {
         action: { type: 'add_dataset', datasetId: 'dataset-1' },

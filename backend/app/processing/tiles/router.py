@@ -2,8 +2,8 @@
 
 import asyncio
 import gzip
+import hashlib
 import math
-import re
 import threading
 import time
 import uuid
@@ -36,7 +36,11 @@ from app.core.db.tenant_schema import tenant_data_schema
 from app.core.db.tenant_session import current_tenant_var
 from app.core.tenancy import is_multi_tenant
 from app.processing.tiles.pool import get_tile_pool, set_tenant_role_for_tile_request
-from app.processing.tiles.service import get_cluster_tile, get_tile
+from app.processing.tiles.service import (
+    _TABLE_NAME_RE,
+    get_cluster_tile,
+    get_tile,
+)
 from app.modules.auth.router import limiter
 from app.processing.tiles.schemas import (
     RasterTileToken,
@@ -201,7 +205,9 @@ async def _check_cold_rehydrate(
 
 router = APIRouter(prefix="/tiles", tags=["Tiles"], responses=ERROR_RESPONSES_PUBLIC)
 
-_TABLE_NAME_RE = re.compile(r"^[a-z0-9_]+$")
+# builder-audit #338 MVT-09: `_TABLE_NAME_RE` is imported from tiles.service (the single
+# source of truth) rather than re-declared here, so the SQL-injection-defense regex
+# has exactly one definition shared by the router and the query builder.
 
 # ---------------------------------------------------------------------------
 # Module-level HTTP client for Titiler proxy (reused across requests).
@@ -1560,6 +1566,179 @@ def _tile_headers(cache_scope: str, cache_ttl: int) -> dict[str, str]:
     }
 
 
+def _tile_etag(content: bytes) -> str:
+    """builder-audit #338 MVT-04: strong ETag derived from a hash of the served tile bytes."""
+    return '"' + hashlib.sha256(content).hexdigest()[:32] + '"'
+
+
+def _if_none_match_satisfied(if_none_match: str | None, etag: str) -> bool:
+    """Whether an ``If-None-Match`` header matches the current tile ETag (MVT-04)."""
+    if not if_none_match:
+        return False
+    value = if_none_match.strip()
+    if value == "*":
+        return True
+    # Compare ignoring an optional weak-validator prefix on either side.
+    candidates = {c.strip().removeprefix("W/") for c in value.split(",")}
+    return etag.removeprefix("W/") in candidates
+
+
+def _tile_response(
+    request: Request, content: bytes, base_headers: dict[str, str]
+) -> Response:
+    """Build an MVT tile response with an ETag, honoring conditional requests (MVT-04).
+
+    ``content`` is the gzipped tile payload that is also written to the cache, so
+    the ETag is a hash of those exact bytes: a geometry edit/reupload produces a
+    different MVT and therefore a new ETag, busting browser/CDN caches that
+    revalidate. When the client's ``If-None-Match`` matches, return 304 with the
+    cache validators but no entity body (and no ``Content-Encoding``).
+    """
+    etag = _tile_etag(content)
+    if _if_none_match_satisfied(request.headers.get("if-none-match"), etag):
+        cond_headers = {
+            k: v for k, v in base_headers.items() if k.lower() != "content-encoding"
+        }
+        cond_headers["ETag"] = etag
+        return Response(status_code=status.HTTP_304_NOT_MODIFIED, headers=cond_headers)
+    return Response(
+        content=content,
+        media_type="application/vnd.mapbox-vector-tile",
+        headers={**base_headers, "ETag": etag},
+    )
+
+
+async def _acquire_and_serve_tile(
+    *,
+    request: Request,
+    table_name: str,
+    z: int,
+    x: int,
+    y: int,
+    tid: Any,
+    schema: str,
+    query_callable: Any,
+    tile_cache: Any,
+    cache_key: str,
+    cache_ttl: int,
+    base_headers: dict[str, str],
+    cols_cache_key: str = "",
+    tenant_sem: Any = None,
+    mode: str = "vector",
+    log_event: str = "tile_access",
+    log_extra: dict | None = None,
+) -> Response:
+    """Shared acquire->bind-role->run-query->gzip->cache->respond core (builder-audit #338 MVT-10).
+
+    Both the vector and cluster endpoints supply only a ``query_callable`` (async
+    ``(pool, conn) -> bytes | None``) plus a cache key; this helper owns the
+    duplicated scaffold: the tile-pool acquire (503 on failure), the optional
+    FAIR-01 per-tenant semaphore (a no-op when ``tenant_sem`` is None, preserving
+    the cluster path's no-semaphore behavior), the single-connection transaction
+    with the per-tenant role/search_path bind (DP-02), error mapping
+    (``asyncio.TimeoutError`` -> 429, broad ``Exception`` -> 503), empty-tile
+    sentinel caching (-> 204), the PERF-005 gzip offload, the cache write, the
+    METER-03 usage event, and the MVT-04 ETag/304 response.
+
+    Callers keep their own cache-hit short-circuit and COLD-02 cold-rehydrate seam,
+    which differ between the two paths.
+    """
+    try:
+        pool = get_tile_pool()
+    except RuntimeError as exc:
+        logger.warning(
+            "Tile pool unavailable",
+            table_name=table_name,
+            mode=mode,
+            error=str(exc),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Tile service unavailable",
+        )
+
+    # FAIR-01: per-tenant semaphore acquisition (cloud only; no-op when None).
+    _sem_acquired = False
+    if tenant_sem is not None:
+        try:
+            await asyncio.wait_for(tenant_sem.acquire(), timeout=10.0)
+            _sem_acquired = True
+        except asyncio.TimeoutError:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="Tile concurrency limit reached for tenant, please retry",
+                headers={"Retry-After": "2"},
+            )
+
+    # DP-02 (Phase 1209-03): acquire ONE connection and open a transaction so
+    # SET LOCAL ROLE + SET LOCAL search_path survive for the tile query
+    # (PgBouncer transaction-mode: SET LOCAL is valid within one txn; T-1209-10).
+    try:
+        async with pool.acquire() as tile_conn:
+            async with tile_conn.transaction():
+                # Bind per-tenant role + search_path BEFORE the tile query.
+                # No-op in single_tenant or when tid is None.
+                await set_tenant_role_for_tile_request(tile_conn, tid)
+                tile_data = await query_callable(pool, tile_conn)
+    except asyncio.TimeoutError:
+        logger.warning(
+            "Tile pool acquire timeout",
+            table_name=table_name,
+            mode=mode,
+            z=z,
+            x=x,
+            y=y,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Tile service busy, please retry",
+            headers={"Retry-After": "2"},
+        )
+    except Exception as exc:  # broad: tile query spans MVT SQL/PostGIS — varied DB errors map to a controlled 503 with logged context
+        logger.exception(
+            "Tile query failed",
+            table_name=table_name,
+            mode=mode,
+            z=z,
+            x=x,
+            y=y,
+            error=str(exc),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Tile service unavailable",
+        )
+    finally:
+        # FAIR-01: always release the per-tenant semaphore (cloud only).
+        if _sem_acquired and tenant_sem is not None:
+            tenant_sem.release()
+
+    if tile_data is None:
+        # Cache empty tiles to avoid repeated PostGIS queries for sparse datasets.
+        if tile_cache is not None:
+            await tile_cache.set(
+                cache_key, z, x, y, b"", ttl=cache_ttl, cols_key=cols_cache_key
+            )
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+    logger.debug(log_event, table_name=table_name, z=z, x=x, y=y, **(log_extra or {}))
+
+    # METER-03 (Phase 1213-06): emit tile-request usage event through the
+    # billing-import-free seam so the cloud overlay can update last_accessed_at.
+    await _emit_tile_usage_event(table_name)
+
+    # PERF-005: gzip is CPU-bound — offload to a thread so the event loop isn't
+    # stalled compressing wide low-zoom tiles. mtime=0 makes the gzip stream
+    # deterministic so the MVT-04 content-hash ETag is stable across requests.
+    compressed = await asyncio.to_thread(gzip.compress, tile_data, 6, mtime=0)
+    if tile_cache is not None:
+        await tile_cache.set(
+            cache_key, z, x, y, compressed, ttl=cache_ttl, cols_key=cols_cache_key
+        )
+
+    return _tile_response(request, compressed, base_headers)
+
+
 @router.get(
     "/clusters/{table_path:path}/{z:int}/{x:int}/{y:int}.pbf",
     response_class=Response,
@@ -1621,10 +1800,9 @@ async def cluster_tile_endpoint(
         if cached is not None:
             if len(cached) == 0:
                 return Response(status_code=status.HTTP_204_NO_CONTENT)
-            return Response(
-                content=cached,
-                media_type="application/vnd.mapbox-vector-tile",
-                headers=_tile_headers(cache_scope, cache_ttl),
+            # MVT-04: cache hits also carry an ETag / honor If-None-Match.
+            return _tile_response(
+                request, cached, _tile_headers(cache_scope, cache_ttl)
             )
 
     # COLD-02 (Phase 1214-04): cold-rehydrate seam — BEFORE cluster tile query.
@@ -1639,101 +1817,44 @@ async def cluster_tile_endpoint(
     if _cluster_cold_result is not None:
         return _cluster_cold_result
 
-    try:
-        pool = get_tile_pool()
-    except RuntimeError as exc:
-        logger.warning(
-            "Tile pool unavailable",
-            table_name=table_name,
-            mode="cluster",
-            error=str(exc),
-        )
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Tile service unavailable",
-        )
-
-    # DP-02 (Phase 1209-03): acquire ONE connection and open a transaction so
-    # SET LOCAL ROLE + SET LOCAL search_path survive for the tile query
-    # (PgBouncer transaction-mode: SET LOCAL is valid within one txn; T-1209-10).
     tid = current_tenant_var.get()
     _schema = tenant_data_schema(tid)
 
-    try:
-        async with pool.acquire() as tile_conn:
-            async with tile_conn.transaction():
-                # Bind per-tenant role + search_path BEFORE the tile query.
-                # No-op in single_tenant or when tid is None.
-                await set_tenant_role_for_tile_request(tile_conn, tid)
-                tile_data = await get_cluster_tile(
-                    pool,
-                    table_name,
-                    z,
-                    x,
-                    y,
-                    cluster_radius=cluster_radius,
-                    cluster_max_zoom=cluster_max_zoom,
-                    conn=tile_conn,
-                    schema=_schema,
-                )
-    except asyncio.TimeoutError:
-        logger.warning(
-            "Cluster tile pool acquire timeout",
-            table_name=table_name,
-            z=z,
-            x=x,
-            y=y,
-        )
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail="Tile service busy, please retry",
-            headers={"Retry-After": "2"},
-        )
-    except Exception as exc:  # broad: cluster tile SQL/PostGIS errors are varied; callers get controlled 503
-        logger.exception(
-            "Cluster tile query failed",
-            table_name=table_name,
-            z=z,
-            x=x,
-            y=y,
-            error=str(exc),
-        )
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Tile service unavailable",
+    async def _run_cluster_query(pool: Any, conn: Any) -> bytes | None:
+        return await get_cluster_tile(
+            pool,
+            table_name,
+            z,
+            x,
+            y,
+            cluster_radius=cluster_radius,
+            cluster_max_zoom=cluster_max_zoom,
+            conn=conn,
+            schema=_schema,
         )
 
-    if tile_data is None:
-        if tile_cache is not None:
-            await tile_cache.set(cluster_cache_key, z, x, y, b"", ttl=cache_ttl)
-        return Response(status_code=status.HTTP_204_NO_CONTENT)
-
-    logger.debug(
-        "cluster_tile_access",
-        dataset_id=str(meta.record_id),
+    # MVT-10: cluster path has no FAIR-01 semaphore (tenant_sem=None preserves that).
+    return await _acquire_and_serve_tile(
+        request=request,
         table_name=table_name,
         z=z,
         x=x,
         y=y,
-        cluster_radius=cluster_radius,
-        cluster_max_zoom=cluster_max_zoom,
-        scope=scope or cache_scope,
-    )
-
-    # METER-03 (Phase 1213-06): emit usage event through the billing-import-free
-    # seam for cluster tile serves (same path as the regular tile endpoint).
-    await _emit_tile_usage_event(table_name)
-
-    # PERF-005: gzip is CPU-bound — offload to a thread so the event loop isn't
-    # stalled compressing wide low-zoom tiles (asyncio.to_thread convention).
-    compressed = await asyncio.to_thread(gzip.compress, tile_data, 6)
-    if tile_cache is not None:
-        await tile_cache.set(cluster_cache_key, z, x, y, compressed, ttl=cache_ttl)
-
-    return Response(
-        content=compressed,
-        media_type="application/vnd.mapbox-vector-tile",
-        headers=_tile_headers(cache_scope, cache_ttl),
+        tid=tid,
+        schema=_schema,
+        query_callable=_run_cluster_query,
+        tile_cache=tile_cache,
+        cache_key=cluster_cache_key,
+        cache_ttl=cache_ttl,
+        base_headers=_tile_headers(cache_scope, cache_ttl),
+        mode="cluster",
+        log_event="cluster_tile_access",
+        log_extra={
+            "dataset_id": str(meta.record_id),
+            "cluster_radius": cluster_radius,
+            "cluster_max_zoom": cluster_max_zoom,
+            "scope": scope or cache_scope,
+        },
     )
 
 
@@ -1817,10 +1938,9 @@ async def tile_endpoint(
             if len(cached) == 0:
                 # Empty sentinel — tile was previously confirmed empty
                 return Response(status_code=status.HTTP_204_NO_CONTENT)
-            return Response(
-                content=cached,
-                media_type="application/vnd.mapbox-vector-tile",
-                headers=_tile_headers(cache_scope, cache_ttl),
+            # MVT-04: cache hits also carry an ETag / honor If-None-Match.
+            return _tile_response(
+                request, cached, _tile_headers(cache_scope, cache_ttl)
             )
 
     # COLD-02 (Phase 1214-04): cold-rehydrate seam — BEFORE tile query.
@@ -1851,126 +1971,11 @@ async def tile_endpoint(
         _sem_key = str(current_tenant_var.get(None) or "anon")
         _tenant_sem = _get_sem(_sem_key)
 
-    # Get tile from PostGIS.
-    # RES-5 / RES-N7: catch pool exhaustion and DB errors explicitly so that
-    # a vector-tile query failure doesn't surface as a raw 500 to the client
-    # (which would break every layer on the map at once). Pool exhaustion →
-    # 429 (retryable); other errors → 503.
-    try:
-        pool = get_tile_pool()
-    except RuntimeError as exc:
-        logger.warning(
-            "Tile pool unavailable",
-            table_name=table_name,
-            error=str(exc),
-        )
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Tile service unavailable",
-        )
-
     # DP-02 (Phase 1209-03): acquire ONE connection and open a transaction so
     # SET LOCAL ROLE + SET LOCAL search_path survive for the tile query
     # (PgBouncer transaction-mode: SET LOCAL is valid within one txn; T-1209-10).
     tid = current_tenant_var.get()
     _schema = tenant_data_schema(tid)
-
-    # FAIR-01: per-tenant semaphore acquisition (cloud only; no-op when absent).
-    _sem_acquired = False
-    if _tenant_sem is not None:
-        try:
-            await asyncio.wait_for(_tenant_sem.acquire(), timeout=10.0)
-            _sem_acquired = True
-        except asyncio.TimeoutError:
-            raise HTTPException(
-                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                detail="Tile concurrency limit reached for tenant, please retry",
-                headers={"Retry-After": "2"},
-            )
-
-    try:
-        async with pool.acquire() as tile_conn:
-            async with tile_conn.transaction():
-                # Bind per-tenant role + search_path BEFORE the tile query.
-                # No-op in single_tenant or when tid is None.
-                await set_tenant_role_for_tile_request(tile_conn, tid)
-                tile_data = await get_tile(
-                    pool,
-                    table_name,
-                    z,
-                    x,
-                    y,
-                    columns,
-                    tile_columns=meta.tile_columns,
-                    additional_columns=additional_columns,
-                    conn=tile_conn,
-                    schema=_schema,
-                )
-    except asyncio.TimeoutError:
-        logger.warning(
-            "Tile pool acquire timeout",
-            table_name=table_name,
-            z=z,
-            x=x,
-            y=y,
-        )
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail="Tile service busy, please retry",
-            headers={"Retry-After": "2"},
-        )
-    except Exception as exc:  # broad: tile query spans MVT SQL/PostGIS — varied DB errors map to 500 with logged context
-        logger.exception(
-            "Vector tile query failed",
-            table_name=table_name,
-            z=z,
-            x=x,
-            y=y,
-            error=str(exc),
-        )
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Tile service unavailable",
-        )
-    finally:
-        # FAIR-01: always release the per-tenant semaphore (cloud only).
-        if _sem_acquired and _tenant_sem is not None:
-            _tenant_sem.release()
-
-    if tile_data is None:
-        # Cache empty tiles to avoid repeated PostGIS queries for sparse datasets
-        if tile_cache is not None:
-            await tile_cache.set(
-                _tile_cache_key, z, x, y, b"", ttl=cache_ttl, cols_key=cols_cache_key
-            )
-        return Response(status_code=status.HTTP_204_NO_CONTENT)
-
-    # Log successful tile access
-    logger.debug(
-        "tile_access",
-        dataset_id=str(meta.record_id),
-        table_name=table_name,
-        z=z,
-        x=x,
-        y=y,
-        scope=scope or "public",
-    )
-
-    # METER-03 (Phase 1213-06): emit tile-request usage event through the
-    # billing-import-free seam so the cloud overlay can update last_accessed_at.
-    # Best-effort fire-and-forget — errors logged, tile response unaffected.
-    await _emit_tile_usage_event(table_name)
-
-    # Compress and return with proper headers.
-    # PERF-005: gzip is CPU-bound — offload to a thread so the event loop isn't
-    # stalled compressing wide low-zoom tiles (asyncio.to_thread convention).
-    compressed = await asyncio.to_thread(gzip.compress, tile_data, 6)
-
-    # Cache the compressed tile bytes for subsequent requests
-    if tile_cache is not None:
-        await tile_cache.set(
-            _tile_cache_key, z, x, y, compressed, ttl=cache_ttl, cols_key=cols_cache_key
-        )
 
     # FAIR-01: when cloud overlay is active, override Cache-Control header with
     # the CDN cache-hit SLO value from tile_cache_control_value() so tile
@@ -1981,8 +1986,41 @@ async def tile_endpoint(
         _, _, _cc_fn = _cloud_fairness
         _response_headers = {**_response_headers, "Cache-Control": _cc_fn()}
 
-    return Response(
-        content=compressed,
-        media_type="application/vnd.mapbox-vector-tile",
-        headers=_response_headers,
+    async def _run_vector_query(pool: Any, conn: Any) -> bytes | None:
+        return await get_tile(
+            pool,
+            table_name,
+            z,
+            x,
+            y,
+            columns,
+            tile_columns=meta.tile_columns,
+            additional_columns=additional_columns,
+            conn=conn,
+            schema=_schema,
+        )
+
+    # MVT-10: shared acquire->bind-role->run-query->gzip->cache->respond core.
+    # FAIR-01 per-tenant semaphore (cloud only) is threaded through tenant_sem.
+    return await _acquire_and_serve_tile(
+        request=request,
+        table_name=table_name,
+        z=z,
+        x=x,
+        y=y,
+        tid=tid,
+        schema=_schema,
+        query_callable=_run_vector_query,
+        tile_cache=tile_cache,
+        cache_key=_tile_cache_key,
+        cache_ttl=cache_ttl,
+        base_headers=_response_headers,
+        cols_cache_key=cols_cache_key,
+        tenant_sem=_tenant_sem,
+        mode="vector",
+        log_event="tile_access",
+        log_extra={
+            "dataset_id": str(meta.record_id),
+            "scope": scope or "public",
+        },
     )

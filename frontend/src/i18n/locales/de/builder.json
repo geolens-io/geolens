@@ -198,6 +198,7 @@
     },
     "pattern": "Muster",
     "extrusionRange": "Bereich: {{min}}–{{max}}, {{count}} Objekte",
+    "heightColumnRemoved": "Die Höhenspalte „{{column}}“ wurde beim erneuten Hochladen entfernt. Wählen Sie eine neue Spalte aus oder setzen Sie diese Einstellung zurück.",
     "lineEnds": "Linienenden",
     "lineCap": "Ende",
     "lineCapButt": "Stumpf",
@@ -347,6 +348,7 @@
     "rawJson": "JSON",
     "rawJsonApply": "Anwenden",
     "rawJsonError": "Ungültiges JSON",
+    "rawFilterInvalid": "Ungültiger Filterausdruck",
     "opaqueWarning": "Dieser Filter verwendet erweiterte Ausdrücke. Verwenden Sie den JSON-Modus zum Bearbeiten.",
     "operators": {
       "equals": "gleich",
@@ -565,7 +567,9 @@
     "makePublicHint": "Karte öffentlich machen, um einen Freigabelink zu erstellen",
     "rawTokenUnavailable": "Aus Sicherheitsgründen wird der vollständige Freigabelink nur beim Erstellen angezeigt. Link neu generieren, um ihn erneut zu kopieren.",
     "regenerate": "Neu generieren",
-    "regenerateLink": "Link neu generieren"
+    "regenerateLink": "Link neu generieren",
+    "embedTokenForDomains": "Erstellen Sie ein Einbettungs-Token, um diese Einbettung auf bestimmte Domains zu beschränken.",
+    "createEmbedToken": "Einbettungs-Token erstellen"
   },
   "chat": {
     "experimental": "Experimentell",
@@ -631,7 +635,8 @@
       "emptyHint": "Try a broader area or different filter.",
       "tableLabel": "Query result table",
       "rowCount_one": "{{count}} row",
-      "rowCount_other": "{{count}} rows"
+      "rowCount_other": "{{count}} rows",
+      "truncated": "(Auszug wird angezeigt)"
     },
     "bannerForbiddenTitle": "AI access lost",
     "bannerForbiddenBody": "You no longer have permission to use AI chat. Contact your administrator to restore access.",
@@ -1086,7 +1091,9 @@
     "compassAriaLabel": "Sonnenazimut: {{azimuth}}°",
     "sectionHypsometricTint": "HYPSOMETRISCHE FÄRBUNG",
     "hypsometricEnable": "Höhentönung",
-    "hypsometricTerrainHint": "Höhentönung ist im Terrain-Modus nicht verfügbar"
+    "hypsometricTerrainHint": "Höhentönung ist im Terrain-Modus nicht verfügbar",
+    "terrainBoundNote": "Dieses DGM speist auch das 3D-Gelände der Karte. Die Schummerung wird ausgeblendet, um einen Quellenkonflikt zu vermeiden.",
+    "hypsometricRangeNote": "Die Höhenfärbung umfasst 0–4000 m und setzt Meter voraus. DGMs in anderen Einheiten oder Bereichen können flach wirken."
   },
   "folderGroup": {
     "defaultName": "Gruppe {{n}}",

@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { fireEvent, render, screen, waitFor } from '@/test/test-utils';
 import { checkMapVisibility } from '@/api/maps';
 import { ApiError } from '@/api/client';
-import { ShareDialog, generateEmbedCode } from '@/components/builder/SharePanel';
+import { ShareDialog, generateEmbedCode, buildEmbedSrc } from '@/components/builder/SharePanel';
 import {
   useCreateEmbedToken,
   useMapEmbedTokens,
@@ -306,6 +306,27 @@ describe('SEC-07: embed code sandbox attribute', () => {
     expect(textarea).toBeTruthy();
     expect(textarea.value).toContain('sandbox="allow-scripts"');
     expect(textarea.value).not.toContain('allow-same-origin');
+  });
+});
+
+describe('SHARE-04: buildEmbedSrc shared URL builder', () => {
+  it('builds the viewer src with embed=true and et=<token>', () => {
+    const src = buildEmbedSrc({
+      shareToken: 'abc123',
+      embedTokenRaw: 'tok-456',
+      origin: 'https://geolens.example.com',
+    });
+    expect(src).toBe('https://geolens.example.com/m/abc123?embed=true&et=tok-456');
+  });
+
+  it('omits et= when no embed token is supplied', () => {
+    const src = buildEmbedSrc({ shareToken: 'abc123', embedTokenRaw: '', origin: 'https://x.io' });
+    expect(src).toBe('https://x.io/m/abc123?embed=true');
+  });
+
+  it('generateEmbedCode wraps the exact buildEmbedSrc output (no drift)', () => {
+    const args = { shareToken: 'abc123', embedTokenRaw: 'tok-456', origin: 'https://x.io' };
+    expect(generateEmbedCode(args)).toContain(`src="${buildEmbedSrc(args)}"`);
   });
 });
 
@@ -921,5 +942,65 @@ describe('Pitfall #7 inflightEmbedCreate race guard', () => {
 
     // KEY ASSERTION: exactly ONE backend POST should have fired despite 2 clicks
     expect(slowCreateEmbedToken).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('P2-01 explicit create-embed-token for public-only embeds', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('offers a Create embed token button on a fully-public map with no embed token, and creates one', async () => {
+    const user = userEvent.setup();
+    const createEmbedToken = vi.fn().mockResolvedValue({
+      id: 'embed-new',
+      raw_token: 'raw-token',
+      token_hint: 'raw...',
+      expires_at: FUTURE_EMBED_EXPIRES_AT,
+      is_active: true,
+    });
+
+    mockedUseEdition.mockReturnValue({
+      edition: 'enterprise',
+      features: ['advanced-sharing'],
+      isEnterprise: true,
+      isMultiTenant: false,
+      isLoading: false,
+    });
+    mockedUsePublishMap.mockReturnValue(mutationResult());
+    mockedUseCreateShareToken.mockReturnValue(mutationResult(
+      vi.fn().mockResolvedValue({ token: 'share-token', share_url: '/m/share-token', expires_at: null, is_active: true }),
+    ));
+    mockedUseRevokeShareToken.mockReturnValue(mutationResult());
+    mockedUseUpdateShareToken.mockReturnValue(mutationResult());
+    mockedUseCreateEmbedToken.mockReturnValue(mutationResult(createEmbedToken));
+    mockedUseUpdateEmbedToken.mockReturnValue(mutationResult());
+    mockedUseRevokeEmbedToken.mockReturnValue(mutationResult());
+    // Share token exists (so rawShareToken hint present), but there are NO embed tokens.
+    mockedUseMapShareToken.mockReturnValue({
+      data: { token: 'share-token', share_url: 'http://test/m/share-token', expires_at: null, is_active: true },
+      isLoading: false,
+      isError: false,
+    } as never);
+    mockedUseMapEmbedTokens.mockReturnValue({
+      data: { tokens: [], total: 0 },
+      isLoading: false,
+      isError: false,
+    } as never);
+    mockedCheckMapVisibility.mockResolvedValue({ has_non_public: false, non_public_datasets: [] });
+
+    render(
+      <ShareDialog mapId="map-1" visibility="public" open onOpenChange={vi.fn()} />,
+    );
+
+    // Regenerate the link to obtain a raw share token so the embed section renders.
+    await user.click(await screen.findByRole('button', { name: /regenerate link/i }));
+
+    const createBtn = await screen.findByRole('button', { name: /create embed token/i });
+    await user.click(createBtn);
+
+    await waitFor(() => {
+      expect(createEmbedToken).toHaveBeenCalledWith({ mapId: 'map-1' });
+    });
   });
 });

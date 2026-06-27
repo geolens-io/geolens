@@ -2,7 +2,9 @@ import { fireEvent, render, screen } from '@/test/test-utils';
 import { UnifiedStackPanel, CatalogDragGhost } from '../UnifiedStackPanel';
 import type { MapLayerResponse } from '@/types/api';
 // MAP-16: raw source import for the rAF source-text pin (project pattern from preserve-drawing-buffer.test.ts)
-import folderGroupRowSrc from '../FolderGroupRow.tsx?raw';
+// builder-audit #338 STACK-03: the rAF-deferred rename focus moved from FolderGroupRow
+// into the shared useInlineRename hook; the source-text pin below targets the hook.
+import useInlineRenameSrc from '../useInlineRename.ts?raw';
 import type { DraggableAttributes, DraggableSyntheticListeners } from '@dnd-kit/core';
 
 vi.mock('react-i18next', () => ({
@@ -713,19 +715,20 @@ describe('MAP-16 — rename-group rAF-deferred focus integration', () => {
 
   it('rename-group input: rAF wraps the focus call — autoFocus is NOT the sole mechanism (source-text pin)', () => {
     // Defense-in-depth source assertion: catches a regression where someone removes
-    // the requestAnimationFrame wrapper from the editing useEffect in FolderGroupRow.tsx.
-    // The rAF deferral is load-bearing — without it, Radix DropdownMenu's restoreFocus
-    // wins the focus race in real browsers and the rename input never receives focus.
-    // Cross-reference: v1011 BUG-03 commit 80bddc14.
+    // the requestAnimationFrame wrapper from the editing focus effect. builder-audit
+    // STACK-03 moved this into the shared useInlineRename hook, consumed by both
+    // FolderGroupRow and StackRow. The rAF deferral is load-bearing — without it,
+    // Radix DropdownMenu's restoreFocus wins the focus race in real browsers and the
+    // rename input never receives focus. Cross-reference: v1011 BUG-03 commit 80bddc14.
     //
     // Pattern: Vite ?raw import (see preserve-drawing-buffer.test.ts for precedent).
-    const fileSrc = folderGroupRowSrc;
+    const fileSrc = useInlineRenameSrc;
 
     // The rAF call must wrap the inputRef.current.focus() call
     // (source uses explicit `if (inputRef.current)` guard, not optional chaining)
     expect(fileSrc).toMatch(/requestAnimationFrame\([\s\S]{0,200}?inputRef\.current[\s\S]{0,10}?\.focus/);
 
-    // The rAF must appear inside an `if (editing)` guard — this is the editing useEffect
+    // The rAF must appear inside an `if (editing)` guard — this is the editing effect
     expect(fileSrc).toMatch(/if\s*\(\s*editing\s*\)[\s\S]{0,100}?requestAnimationFrame/);
   });
 });

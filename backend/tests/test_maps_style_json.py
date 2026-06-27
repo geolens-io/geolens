@@ -7,6 +7,7 @@ import pytest
 
 from app.modules.catalog.maps.models import Map
 from app.modules.catalog.maps.schemas import MapLayerResponse
+from app.modules.catalog.maps import style_json
 from app.modules.catalog.maps.style_json import (
     build_maplibre_style,
     parse_maplibre_style_import,
@@ -1452,3 +1453,416 @@ def test_build_maplibre_style_round_trip_preserves_builder_line_gradient_intent(
         re_line_export["metadata"]["geolens"]["style_config"]["builder"]["lineGradient"]
         == builder_intent
     )
+
+
+# ---------------------------------------------------------------------------
+# builder-audit #338 remediation tests (STYLE_JSON cluster)
+# ---------------------------------------------------------------------------
+
+
+def test_export_uses_data_prefixed_mvt_source_layer_p1_01():
+    """P1-01: exported vector source-layer must be `data.<table>` to match runtime."""
+    layer = _layer(
+        dataset_geometry_type="POLYGON",
+        dataset_table_name="parcels",
+        paint={"fill-color": "#94a3b8"},
+        label_config={"column": "name"},
+        style_config={"builder": {"outlineColor": "#112233", "outlineWidth": 2}},
+    )
+    style = build_maplibre_style(_map(), [layer])
+    # primary + outline + label all carry the data.-prefixed source-layer.
+    for entry in style["layers"]:
+        if "source-layer" in entry:
+            assert entry["source-layer"] == "data.parcels", entry["id"]
+
+
+def test_export_tile_url_includes_sorted_cols_for_all_references_p1_02():
+    """P1-02/P1-03: cols= contains data-driven, label, paint ['get'], and filter columns."""
+    dataset_id = uuid.uuid4()
+    layer = _layer(
+        dataset_id=dataset_id,
+        dataset_geometry_type="POINT",
+        style_config={"column": "pop"},
+        paint={"circle-color": ["get", "category"], "circle-radius": 6},
+        label_config={"column": "name"},
+        # legacy bare-field filter — must be normalized then walked for `status`.
+        filter=["==", "status", "open"],
+    )
+    style = build_maplibre_style(_map(), [layer])
+    tile_url = style["sources"][f"geolens-{dataset_id}"]["tiles"][0]
+    cols = parse_qs(urlsplit(tile_url).query)["cols"][0].split(",")
+    assert cols == sorted(["pop", "category", "name", "status"])
+    # Stable + sorted output.
+    assert cols == sorted(cols)
+
+
+def test_export_cols_includes_extrusion_and_heatmap_builder_columns_p1_02():
+    layer = _layer(
+        dataset_geometry_type="POLYGON",
+        dataset_table_name="parcels",
+        paint={"fill-color": "#94a3b8"},
+        label_config=None,
+        filter=None,
+        style_config={
+            "builder": {
+                "heightColumn": "height_m",
+                "heatmapWeightColumn": "magnitude",
+            }
+        },
+    )
+    style = build_maplibre_style(_map(), [layer])
+    tile_url = style["sources"][f"geolens-{layer.dataset_id}"]["tiles"][0]
+    cols = parse_qs(urlsplit(tile_url).query)["cols"][0].split(",")
+    assert "height_m" in cols
+    assert "magnitude" in cols
+
+
+def test_terrain_export_emits_dedicated_raster_dem_source_for_image_dem_p1_05():
+    """P1-05: terrain must point at a raster-dem source even when DEM renders as image."""
+    dem_id = uuid.uuid4()
+    map_obj = _map()
+    map_obj.terrain_config = {
+        "enabled": True,
+        "source_dataset_id": str(dem_id),
+        "exaggeration": 2.0,
+    }
+    # DEM rendered as a plain raster image (NOT hillshade) → visible source is `raster`.
+    image_dem = _dem_layer(
+        dem_id=dem_id,
+        style_config={"render_mode": "image"},
+        paint={},
+    )
+    style = build_maplibre_style(map_obj, [image_dem])
+    mesh_source_id = f"geolens-terrain-{dem_id}"
+    assert style["terrain"]["source"] == mesh_source_id
+    assert style["terrain"]["exaggeration"] == 2.0
+    assert style["sources"][mesh_source_id]["type"] == "raster-dem"
+    assert style["sources"][mesh_source_id]["encoding"] == "mapbox"
+    # The visible DEM source stays a plain raster (suppressed terrain-mode visuals).
+    assert style["sources"][f"geolens-{dem_id}"]["type"] == "raster"
+
+
+def test_terrain_export_reuses_visible_raster_dem_when_hillshade_p1_05():
+    """P1-05 regression: hillshade DEM keeps pointing terrain at its raster-dem source."""
+    dem_id = uuid.uuid4()
+    map_obj = _map()
+    map_obj.terrain_config = {
+        "enabled": True,
+        "source_dataset_id": str(dem_id),
+        "exaggeration": 2.5,
+    }
+    style = build_maplibre_style(map_obj, [_dem_layer(dem_id=dem_id)])
+    assert style["terrain"] == {"source": f"geolens-{dem_id}", "exaggeration": 2.5}
+    assert f"geolens-terrain-{dem_id}" not in style["sources"]
+
+
+def test_export_emits_color_relief_companion_for_hypso_dem_p1_06():
+    """P1-06: a hypsometric-tinted DEM exports a valid color-relief companion layer."""
+    dem_id = uuid.uuid4()
+    layer = _dem_layer(
+        dem_id=dem_id,
+        style_config={
+            "render_mode": "hillshade",
+            "builder": {"hypso_enabled": True, "hypso_ramp": "Inferno"},
+        },
+    )
+    style = build_maplibre_style(_map(), [layer])
+    types = [entry["type"] for entry in style["layers"]]
+    assert "color-relief" in types
+    # Color-relief renders BELOW the hillshade (drawn first in the array).
+    assert types.index("color-relief") < types.index("hillshade")
+    relief = next(e for e in style["layers"] if e["type"] == "color-relief")
+    color_expr = relief["paint"]["color-relief-color"]
+    assert color_expr[0] == "interpolate"
+    assert color_expr[1] == ["linear"]
+    assert color_expr[2] == ["elevation"]
+    assert "color-relief-opacity" in relief["paint"]
+    assert relief["metadata"]["geolens"]["companion"] == "color-relief"
+    assert relief["metadata"]["geolens"]["ramp"] == "Inferno"
+    # Builder-internal _hypso-* keys never leak into emitted paint anywhere.
+    for entry in style["layers"]:
+        assert not any(str(k).startswith("_hypso") for k in entry.get("paint", {}))
+
+
+def test_color_relief_round_trips_through_build_parse_p1_06():
+    dem_id = uuid.uuid4()
+    layer = _dem_layer(
+        dem_id=dem_id,
+        style_config={
+            "render_mode": "hillshade",
+            "builder": {"hypso_enabled": True, "hypso_ramp": "Plasma"},
+        },
+    )
+    style = build_maplibre_style(_map(), [layer])
+    imported = parse_maplibre_style_import(style)
+    assert imported.summary.layers_imported == 1
+    builder = imported.layers[0].style_config["builder"]
+    assert builder.get("hypso_enabled") is True
+    assert builder.get("hypso_ramp") == "Plasma"
+
+    # Re-export must emit the color-relief companion again (full round-trip).
+    re_layer = _dem_layer(
+        dem_id=dem_id,
+        style_config=imported.layers[0].style_config,
+    )
+    re_style = build_maplibre_style(_map(), [re_layer])
+    assert any(e["type"] == "color-relief" for e in re_style["layers"])
+
+
+def test_export_basemap_config_drops_unknown_key_forward_skew_style_04():
+    """STYLE-04: a stored basemap_config with an unknown key degrades, never 500s."""
+    map_obj = _map()
+    # Forward-compat write then rollback: a key the running backend doesn't know.
+    map_obj.basemap_config = {
+        "label_mode": "subtle",
+        "future_unknown_field": {"nested": 1},
+    }
+    style = build_maplibre_style(map_obj, [_layer()])
+    basemap_config = style["metadata"]["geolens"]["basemap_config"]
+    assert basemap_config is not None
+    assert "future_unknown_field" not in basemap_config
+    assert basemap_config["label_mode"] == "subtle"
+
+
+def test_export_basemap_config_degrades_to_none_on_invalid_value_style_04():
+    """STYLE-04: a structurally-invalid stored basemap_config degrades to None."""
+    map_obj = _map()
+    # background_color must be #RRGGBB; an invalid value would raise under strict
+    # validation. On the export path it must degrade rather than 500 the document.
+    map_obj.basemap_config = {"background_color": "not-a-hex-color"}
+    style = build_maplibre_style(map_obj, [_layer()])
+    assert style["metadata"]["geolens"]["basemap_config"] is None
+
+
+def test_emitted_style_strips_unknown_paint_properties_spec_01():
+    """SPEC-01: misspelled / wrong-surface paint properties are stripped on emit."""
+    layer = _layer(
+        dataset_geometry_type="POLYGON",
+        paint={
+            "fill-color": "#94a3b8",
+            "fill-colour": "#000000",  # misspelled — not a real property
+            "circle-radius": 9,  # wrong surface for a fill layer
+        },
+        label_config=None,
+        filter=None,
+        style_config=None,
+    )
+    style = build_maplibre_style(_map(), [layer])
+    fill = next(e for e in style["layers"] if e["type"] == "fill")
+    assert "fill-color" in fill["paint"]
+    assert "fill-colour" not in fill["paint"]
+    assert "circle-radius" not in fill["paint"]
+
+
+def test_emitted_style_strips_wrong_typed_paint_values_spec_01():
+    """SPEC-01: a string where ``*-opacity`` expects a number, or a non-string
+    ``*-color``, is dropped on emit; valid scalars and expressions survive."""
+    layer = _layer(
+        dataset_geometry_type="POLYGON",
+        paint={
+            "fill-color": 123,  # number where a color string is required
+            "fill-opacity": "0.5",  # string where a number is required (NaN risk)
+            "fill-outline-color": "#1d4ed8",  # valid — kept
+        },
+        label_config=None,
+        filter=None,
+        style_config=None,
+    )
+    style = build_maplibre_style(_map(), [layer])
+    fill = next(e for e in style["layers"] if e["type"] == "fill")
+    assert "fill-color" not in fill["paint"]
+    assert "fill-opacity" not in fill["paint"]
+    assert fill["paint"]["fill-outline-color"] == "#1d4ed8"
+
+
+def test_emitted_style_keeps_expression_opacity_spec_01():
+    """SPEC-01 guard: a zoom expression for opacity is a list and is preserved."""
+    expr = ["interpolate", ["linear"], ["zoom"], 0, 0.2, 10, 0.9]
+    layer = _layer(
+        dataset_geometry_type="POLYGON",
+        paint={"fill-color": "#94a3b8", "fill-opacity": expr},
+        label_config=None,
+        filter=None,
+        style_config=None,
+    )
+    style = build_maplibre_style(_map(), [layer])
+    fill = next(e for e in style["layers"] if e["type"] == "fill")
+    assert fill["paint"]["fill-opacity"] == expr
+
+
+def test_emitted_style_keeps_all_valid_companion_properties_spec_01():
+    """SPEC-01 guard: validation must not strip any property the builder emits."""
+    layer = _layer(
+        dataset_geometry_type="POLYGON",
+        paint={"fill-color": "#94a3b8"},
+        label_config={"column": "name"},
+        style_config={
+            "builder": {
+                "outlineColor": "#112233",
+                "outlineWidth": 2,
+                "heightColumn": "height_m",
+            }
+        },
+    )
+    style = build_maplibre_style(_map(), [layer])
+    extrusion = next(e for e in style["layers"] if e["type"] == "fill-extrusion")
+    assert "fill-extrusion-height" in extrusion["paint"]
+    assert "fill-extrusion-vertical-gradient" in extrusion["paint"]
+    label = next(e for e in style["layers"] if e["id"].endswith("-label"))
+    assert label["layout"]["text-field"] == ["get", "name"]
+    assert "text-color" in label["paint"]
+
+
+def test_style_config_round_trippable_keys_survive_build_parse_spec_03():
+    """SPEC-03: legend/ramp/render-mode UI state survives the export/import path."""
+    style_config = {
+        "mode": "graduated",
+        "column": "pop",
+        "legendLabel": "Population",
+        "reversed": True,
+        "sizeRange": [2, 10],
+        "sizeLabel": "Size",
+        "colorLabel": "Color",
+        "heatmapPaint": {"heatmap-radius": 20},
+        "savedCirclePaint": {"circle-radius": 5},
+    }
+    layer = _layer(
+        dataset_geometry_type="POINT",
+        label_config=None,
+        filter=None,
+        style_config=style_config,
+    )
+    style = build_maplibre_style(_map(), [layer])
+    emitted = style["layers"][0]["metadata"]["geolens"]["style_config"]
+    for key in (
+        "legendLabel",
+        "reversed",
+        "sizeRange",
+        "sizeLabel",
+        "colorLabel",
+        "heatmapPaint",
+        "savedCirclePaint",
+    ):
+        assert emitted[key] == style_config[key], key
+
+    imported = parse_maplibre_style_import(style)
+    imported_config = imported.layers[0].style_config
+    for key in (
+        "legendLabel",
+        "reversed",
+        "sizeRange",
+        "sizeLabel",
+        "colorLabel",
+        "heatmapPaint",
+        "savedCirclePaint",
+    ):
+        assert imported_config[key] == style_config[key], key
+
+
+def test_export_emits_projection_at_style_root_spec_07():
+    """SPEC-07: basemap_config.projection is emitted at the GL style root."""
+    map_obj = _map()
+    map_obj.basemap_config = {"projection": "globe"}
+    style = build_maplibre_style(map_obj, [_layer()])
+    assert style["projection"] == {"type": "globe"}
+
+
+def test_root_light_and_transition_preserved_on_import_spec_07():
+    """SPEC-07: GL root light/transition are preserved across import."""
+    style = {
+        "version": 8,
+        "name": "Lit",
+        "sources": {},
+        "layers": [],
+        "light": {"anchor": "viewport", "intensity": 0.4},
+        "transition": {"duration": 300, "delay": 0},
+    }
+    imported = parse_maplibre_style_import(style)
+    assert imported.light == {"anchor": "viewport", "intensity": 0.4}
+    assert imported.transition == {"duration": 300, "delay": 0}
+
+
+@pytest.mark.parametrize(
+    "style_config",
+    [
+        None,
+        {"render_mode": "arrow", "builder": {"arrowColor": "#fb923c", "arrowSize": 18}},
+        {
+            "builder": {
+                "outlineColor": "#112233",
+                "outlineWidth": 4,
+                "heightColumn": "height_m",
+                "heightScale": 1.5,
+            }
+        },
+        {
+            "render_mode": "cluster",
+            "builder": {"clusterRadius": 64, "clusterMaxZoom": 12},
+        },
+    ],
+)
+def test_build_parse_build_idempotence_per_render_mode_style_02(style_config):
+    """STYLE-02: build -> parse -> build is idempotent per render mode/companion set."""
+    geometry = "POLYGON"
+    if style_config and style_config.get("render_mode") == "arrow":
+        geometry = "LINESTRING"
+    elif style_config and style_config.get("render_mode") == "cluster":
+        geometry = "POINT"
+    dataset_id = uuid.uuid4()
+    layer = _layer(
+        dataset_id=dataset_id,
+        dataset_geometry_type=geometry,
+        dataset_table_name="features",
+        paint={"fill-color": "#94a3b8"}
+        if geometry == "POLYGON"
+        else (
+            {"line-color": "#2255aa", "line-width": 3}
+            if geometry == "LINESTRING"
+            else {"circle-color": "#2255aa", "circle-radius": 6}
+        ),
+        label_config=None,
+        filter=None,
+        style_config=style_config,
+        dataset_feature_count=120,
+    )
+    style = build_maplibre_style(_map(), [layer])
+    imported = parse_maplibre_style_import(style)
+    assert imported.summary.layers_imported == 1
+
+    imported_layer = imported.layers[0]
+    re_layer = _layer(
+        dataset_id=dataset_id,
+        dataset_geometry_type=geometry,
+        dataset_table_name="features",
+        paint=imported_layer.paint,
+        label_config=imported_layer.label_config,
+        filter=imported_layer.filter,
+        style_config=imported_layer.style_config,
+        dataset_feature_count=120,
+    )
+    re_style = build_maplibre_style(_map(), [re_layer])
+
+    def _layer_types(doc):
+        return [entry["type"] for entry in doc["layers"]]
+
+    assert _layer_types(style) == _layer_types(re_style)
+
+
+def test_default_palette_constants_exported_for_service_shared_style_07():
+    """STYLE-07: the default palette/magic constants are named, importable values."""
+    assert style_json.DEFAULT_FILL_COLOR == "#3b82f6"
+    assert style_json.DEFAULT_STROKE_COLOR == "#1d4ed8"
+    assert style_json.DEFAULT_OUTLINE_WIDTH == 1
+    assert style_json.DEFAULT_ARROW_BASE_SIZE == 14
+    assert style_json.DEFAULT_ARROW_SPACING == 80
+    assert style_json.DEFAULT_EXTRUSION_MIN_ZOOM == 14
+    assert style_json.EXTRUSION_OPACITY_CAP == 0.85
+
+
+def test_builder_alias_table_is_single_source_inverse_style_01():
+    """STYLE-01: style_json reuses the schemas inverse (incl. folder_group_* keys)."""
+    from app.modules.catalog.maps.schemas import BUILDER_SNAKE_TO_CAMEL_KEYS
+
+    assert style_json._BUILDER_KEY_ALIASES is BUILDER_SNAKE_TO_CAMEL_KEYS
+    # The previously-drifting folder_group_* keys are now present on export.
+    assert style_json._BUILDER_KEY_ALIASES["folder_group_id"] == "folderGroupId"

@@ -1,4 +1,5 @@
 import chroma from 'chroma-js';
+import { classifyGeometry } from '@/components/builder/layer-adapters/shared';
 
 // --- Curated palette definitions ---
 //
@@ -212,12 +213,15 @@ export function buildGraduatedExpression(
  * Return the MapLibre paint property name for coloring based on geometry type.
  */
 export function getColorProperty(geometryType: string | null): string {
-  if (!geometryType) return 'fill-color';
-
-  const gt = geometryType.toLowerCase().replace('multi', '');
-  if (gt.includes('line') || gt.includes('linestring')) return 'line-color';
-  if (gt.includes('point')) return 'circle-color';
-  return 'fill-color';
+  // builder-audit #338 ADAPT-02/DRY-05: derive from the single classifyGeometry scanner.
+  switch (classifyGeometry(geometryType)) {
+    case 'point':
+      return 'circle-color';
+    case 'line':
+      return 'line-color';
+    default:
+      return 'fill-color';
+  }
 }
 
 /**

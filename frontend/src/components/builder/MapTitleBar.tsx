@@ -14,13 +14,8 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
-
-
-const IS_MAC = typeof navigator !== 'undefined' && (
-  ('userAgentData' in navigator && (navigator.userAgentData as { platform?: string })?.platform === 'macOS') ||
-  /Mac/i.test(navigator.userAgent)
-);
-const SAVE_SHORTCUT = IS_MAC ? '\u2318S' : 'Ctrl+S';
+// builder-audit #338 STACK-07: shared platform detection + Save chord.
+import { SAVE_SHORTCUT } from '@/lib/platform';
 
 export interface OverflowActions {
   onExportPNG: () => void;

@@ -11,10 +11,12 @@ from pydantic import (
     Field,
     StringConstraints,
     field_validator,
+    model_serializer,
     model_validator,
 )
 
 from app.core.text import normalize_nfc as _nfc
+from app.modules.catalog.maps.filter_grammar import validate_filter
 
 LEGACY_BUILDER_PAINT_KEYS = {
     "_outline-width": "outline_width",
@@ -53,10 +55,18 @@ _STYLE_CONFIG_BUILDER_KEY = "builder"
 # When a layer is duplicated, the React state's camelCase keys are POSTed
 # back, and without server-side normalization the new layer would persist
 # camelCase while the original (created via default style) stays snake_case.
-# This map inverts `style_json._BUILDER_KEY_ALIASES` so the validator can
-# canonicalize incoming style_config.builder keys to snake_case before
-# storage — keeping the DB schema consistent regardless of which client
-# wrote the row.
+# `canonicalize_builder_style_config` uses this map to rewrite incoming
+# style_config.builder keys to snake_case before storage — keeping the DB
+# schema consistent regardless of which client wrote the row.
+#
+# builder-audit #338 STYLE-01 / SPEC-08: this table is the AUTHORITATIVE backend
+# builder camelCase->snake_case alias map. The snake_case->camelCase direction
+# used on style export is derived programmatically below as
+# `BUILDER_SNAKE_TO_CAMEL_KEYS`; `style_json.py` imports that inverse instead
+# of hand-maintaining its own `_BUILDER_KEY_ALIASES` (which previously drifted —
+# it lacked the folder_group_* keys, so they leaked snake_case into exported
+# style.json metadata). Add a new builder key here ONCE and both directions stay
+# in sync.
 _BUILDER_CAMEL_TO_SNAKE_KEYS = {
     "fillDisabled": "fill_disabled",
     "strokeDisabled": "stroke_disabled",
@@ -81,6 +91,15 @@ _BUILDER_CAMEL_TO_SNAKE_KEYS = {
     "folderGroupId": "folder_group_id",
     "folderGroupName": "folder_group_name",
     "folderGroupExpanded": "folder_group_expanded",
+}
+
+# builder-audit #338 STYLE-01 / SPEC-08: derived snake_case->camelCase inverse of the
+# authoritative table above. `style_json.py` imports THIS instead of redefining
+# its own `_BUILDER_KEY_ALIASES`, so the export direction can never drift from
+# the storage-canonicalization direction (the inverse is exhaustive — it
+# includes the folder_group_* keys the old hand-written table was missing).
+BUILDER_SNAKE_TO_CAMEL_KEYS = {
+    snake: camel for camel, snake in _BUILDER_CAMEL_TO_SNAKE_KEYS.items()
 }
 
 
@@ -340,13 +359,12 @@ class SublayerOverride(BaseModel):
         le=1.0,
         description=(
             "Per-sublayer opacity (0-1), or null to use the basemap default. "
-            "Additive on top of BasemapConfig.opacity (the whole-basemap master opacity). "
-            "IN-02 (Phase 1059 code review): this field is populated via API or a future "
-            "Phase milestone. The current UI opacity slider in BasemapSublayerEditorScene "
-            "routes through the legacy sublayerState path (MapBuilderPage.tsx "
-            "handleSublayerOpacityChange) per D-09 ('OPACITY — existing slider untouched') "
-            "and does not call updateSublayerOverride. See TODO(BUILDER-SUBLAYER-PERSIST) "
-            "comment at MapBuilderPage.tsx for the deferral rationale."
+            "Composes on top of BasemapConfig.opacity (the whole-basemap master "
+            "opacity): the rendered opacity is override.opacity * master_opacity "
+            "(builder-audit #338 CORR-01). The UI opacity slider in "
+            "BasemapSublayerEditorScene persists through this field: "
+            "MapBuilderPage.handleSublayerOpacityChange -> setBasemapSublayerOpacity "
+            "-> updateBasemapSublayerOverride writes config.sublayer_overrides[key].opacity."
         ),
     )
 
@@ -459,6 +477,101 @@ class BasemapConfig(BaseModel):
         return v
 
 
+class LabelPlacement(str, Enum):
+    point = "point"
+    line = "line"
+    line_center = "line-center"
+
+
+class LabelTextAnchor(str, Enum):
+    center = "center"
+    top = "top"
+    bottom = "bottom"
+    left = "left"
+    right = "right"
+    top_left = "top-left"
+    top_right = "top-right"
+    bottom_left = "bottom-left"
+    bottom_right = "bottom-right"
+
+
+class LabelConfig(BaseModel):
+    """Per-layer text-label configuration (builder-audit #338 P2-05).
+
+    Previously ``label_config`` was an untyped ``dict`` at the API boundary
+    while the frontend adapters (``label-layer-utils.ts``) assumed specific
+    camelCase fields. This schema gives the editable fields bounds/enums while
+    staying forward-compatible:
+
+    * ``model_config = ConfigDict(extra="allow")`` keeps unknown / future keys
+      (migration-safe for rows written by older or newer clients);
+    * the ``model_serializer`` drops ``None`` values so the stored JSONB shape
+      stays minimal and byte-compatible with existing rows — a ``.get(key,
+      default)`` lookup in ``style_json._label_layout`` still falls back to its
+      default instead of reading a stored ``null`` (backward compatibility).
+
+    Field names intentionally mirror the camelCase storage keys (``fontSize``,
+    ``textColor``, ...) so no aliasing is needed and the round-trip is exact.
+    ``fontSize``/``textOpacity`` accept either a scalar or a MapLibre zoom
+    expression (a list), matching the frontend ``ZoomExpression`` union.
+    """
+
+    column: str | None = Field(default=None, max_length=255)
+    fontSize: float | list | None = Field(default=None)
+    textColor: str | None = Field(default=None, max_length=64)
+    haloColor: str | None = Field(default=None, max_length=64)
+    haloWidth: float | None = Field(default=None, ge=0.0, le=20.0)
+    minZoom: float | None = Field(default=None, ge=0.0, le=24.0)
+    maxZoom: float | None = Field(default=None, ge=0.0, le=24.0)
+    placement: LabelPlacement | None = Field(default=None)
+    textAnchor: LabelTextAnchor | None = Field(default=None)
+    textOpacity: float | list | None = Field(default=None)
+    textOffset: list | None = Field(default=None)
+    allowOverlap: bool | None = Field(default=None)
+
+    model_config = ConfigDict(extra="allow")
+
+    @field_validator("fontSize")
+    @classmethod
+    def _validate_font_size(cls, v: float | list | None) -> float | list | None:
+        # Bound the scalar form; pass MapLibre zoom expressions (lists) through.
+        if isinstance(v, (int, float)) and not isinstance(v, bool):
+            if not 0.0 < v <= 512.0:
+                raise ValueError("fontSize must be in (0, 512] points")
+        return v
+
+    @field_validator("textOpacity")
+    @classmethod
+    def _validate_text_opacity(cls, v: float | list | None) -> float | list | None:
+        if isinstance(v, (int, float)) and not isinstance(v, bool):
+            if not 0.0 <= v <= 1.0:
+                raise ValueError("textOpacity must be in [0, 1]")
+        return v
+
+    @model_serializer(mode="wrap")
+    def _serialize_drop_none(self, handler) -> dict:
+        # Keep the persisted JSONB shape minimal and backward-compatible: only
+        # emit keys the client actually set (extras included via extra="allow").
+        data = handler(self)
+        return {key: value for key, value in data.items() if value is not None}
+
+
+def _validate_label_config_dict(v: dict | None) -> dict | None:
+    """Validate label_config bounds/enums through LabelConfig, return a dict.
+
+    builder-audit #338 P2-05: the field stays a plain ``dict`` on the wire/storage
+    boundary (downstream code assigns it straight to a JSONB column), but every
+    write is now validated against ``LabelConfig`` — out-of-range haloWidth,
+    bad placement/textAnchor enums, etc. are rejected with a 422. ``extra=
+    "allow"`` plus the None-dropping serializer keep unknown/forward-compat keys
+    and the minimal stored shape, so existing rows round-trip unchanged.
+    """
+    if v is None:
+        return None
+    _validate_style_dict(v)  # 64 KB serialized cap (shared with paint/layout)
+    return LabelConfig.model_validate(v).model_dump()
+
+
 class MapLayerInput(BaseModel):
     dataset_id: uuid.UUID
     sort_order: int = Field(
@@ -499,8 +612,16 @@ class MapLayerInput(BaseModel):
 
     _validate_paint = field_validator("paint")(_validate_style_dict)
     _validate_layout = field_validator("layout")(_validate_style_dict)
-    _validate_label_config = field_validator("label_config")(_validate_style_dict)
+    # builder-audit #338 P2-05: validate label_config bounds/enums via LabelConfig but
+    # keep the stored value a plain dict so downstream JSONB assignment is
+    # unchanged (see _validate_label_config_dict).
+    _validate_label_config = field_validator("label_config")(
+        _validate_label_config_dict
+    )
     _validate_style_config = field_validator("style_config")(_validate_style_dict)
+    # builder-audit #338 P1-04: validate/normalize the editable MapLibre filter subset
+    # (shared with style import/export and AI set_filter via filter_grammar).
+    _validate_filter = field_validator("filter")(validate_filter)
     layer_type: str | None = Field(
         default=None,
         pattern=r"^(vector_geolens|raster_geolens|geojson)$",
@@ -551,8 +672,16 @@ class MapLayerPatch(BaseModel):
 
     _validate_paint = field_validator("paint")(_validate_style_dict)
     _validate_layout = field_validator("layout")(_validate_style_dict)
-    _validate_label_config = field_validator("label_config")(_validate_style_dict)
+    # builder-audit #338 P2-05: validate label_config bounds/enums via LabelConfig but
+    # keep the stored value a plain dict so downstream JSONB assignment is
+    # unchanged (see _validate_label_config_dict).
+    _validate_label_config = field_validator("label_config")(
+        _validate_label_config_dict
+    )
     _validate_style_config = field_validator("style_config")(_validate_style_dict)
+    # builder-audit #338 P1-04: validate/normalize the editable MapLibre filter subset
+    # (shared with style import/export and AI set_filter via filter_grammar).
+    _validate_filter = field_validator("filter")(validate_filter)
 
     @model_validator(mode="after")
     def _normalize_paint_boundary(self) -> "MapLayerPatch":

@@ -198,6 +198,7 @@
     },
     "pattern": "Pattern",
     "extrusionRange": "Range: {{min}}–{{max}}, {{count}} features",
+    "heightColumnRemoved": "Height column “{{column}}” was removed during re-upload. Select a new column or clear this setting.",
     "lineEnds": "Line ends",
     "lineCap": "Cap",
     "lineCapButt": "Butt",
@@ -349,6 +350,7 @@
     "rawJson": "JSON",
     "rawJsonApply": "Apply",
     "rawJsonError": "Invalid JSON",
+    "rawFilterInvalid": "Invalid filter expression",
     "opaqueWarning": "This filter uses advanced expressions. Use JSON mode to edit.",
     "operators": {
       "equals": "equals",
@@ -565,7 +567,9 @@
     "makePublicHint": "Make this map public to generate a share link",
     "rawTokenUnavailable": "For security, the full share link is only shown when it is created. Regenerate the link to copy it again.",
     "regenerate": "Regenerate",
-    "regenerateLink": "Regenerate link"
+    "regenerateLink": "Regenerate link",
+    "embedTokenForDomains": "Create an embed token to restrict this embed to specific domains.",
+    "createEmbedToken": "Create embed token"
   },
   "chat": {
     "experimental": "Experimental",
@@ -631,7 +635,8 @@
       "emptyHint": "Try a broader area or different filter.",
       "tableLabel": "Query result table",
       "rowCount_one": "{{count}} row",
-      "rowCount_other": "{{count}} rows"
+      "rowCount_other": "{{count}} rows",
+      "truncated": "(showing a sample)"
     },
     "bannerForbiddenTitle": "AI access lost",
     "bannerForbiddenBody": "You no longer have permission to use AI chat. Contact your administrator to restore access.",
@@ -1090,7 +1095,9 @@
     "compassAriaLabel": "Sun azimuth: {{azimuth}}°",
     "sectionHypsometricTint": "HYPSOMETRIC TINT",
     "hypsometricEnable": "Elevation tint",
-    "hypsometricTerrainHint": "Elevation tint is not available in Terrain mode"
+    "hypsometricTerrainHint": "Elevation tint is not available in Terrain mode",
+    "terrainBoundNote": "This DEM also powers the map's 3D terrain. Hillshade shading is hidden to avoid a source conflict.",
+    "hypsometricRangeNote": "Elevation tint spans 0–4000 m and assumes meters. DEMs in other units or ranges may appear flat."
   },
   "folderGroup": {
     "defaultName": "Group {{n}}",

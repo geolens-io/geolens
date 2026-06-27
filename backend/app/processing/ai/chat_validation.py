@@ -149,15 +149,47 @@ async def _validate_actions(
             )
             dropped.append(f"{action.type} (invalid layer_id: {action.layer_id})")
             continue
-        # Validate column refs in filter expressions
+        # Validate filter expressions against the FULL shared grammar before
+        # they reach the client. builder-audit #338 P1-13: reuse filter_grammar's
+        # validate_filter (the same validator the layer schemas / style export
+        # use) so an AI set_filter cannot emit a filter that is accepted here
+        # but fails at MapLibre runtime or round-trips into invalid saved state.
+        # Legacy bare-field forms are normalized to expression form; recognized
+        # forms with bad arity / legacy "in" raise FilterValidationError and the
+        # action is dropped rather than surfaced as a 422.
         if action.type == "set_filter" and action.expression is not None:
+            # Lazy import: app.processing must not module-level-import app.modules
+            # .catalog (Phase 225 PROCESS-02 layering guard). filter_grammar is a
+            # pure, dependency-free validator, so a function-scope import is the
+            # sanctioned access pattern.
+            from app.modules.catalog.maps.filter_grammar import (
+                FilterValidationError,
+                validate_filter,
+            )
+
             target_layer = layer_map.get(action.layer_id) if action.layer_id else None
-            validated_expr = _validate_filter_columns(action.expression, target_layer)
-            if validated_expr is None:
-                dropped.append(
-                    f"{action.type} (invalid column refs in filter expression)"
+            try:
+                normalized = validate_filter(action.expression)
+            except FilterValidationError as exc:
+                logger.warning(
+                    "AI set_filter rejected: invalid filter grammar",
+                    layer_id=action.layer_id,
+                    error=str(exc),
                 )
-                continue  # skip action with invalid column refs
-            action.expression = validated_expr
+                dropped.append(f"{action.type} (invalid filter expression)")
+                continue  # skip action with a malformed filter grammar
+            if normalized is None:
+                # Empty array / null normalized to "clear the filter".
+                action.expression = None
+            else:
+                # Column refs validated against the (normalized) expression, so
+                # legacy bare-field comparisons are caught too.
+                validated_expr = _validate_filter_columns(normalized, target_layer)
+                if validated_expr is None:
+                    dropped.append(
+                        f"{action.type} (invalid column refs in filter expression)"
+                    )
+                    continue  # skip action with invalid column refs
+                action.expression = validated_expr
         validated.append(action)
     return validated, dropped

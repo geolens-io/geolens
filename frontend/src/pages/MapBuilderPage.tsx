@@ -199,7 +199,7 @@ export function MapBuilderPage() {
   }, [mapData?.notes, id]);
 
   // Composed hooks
-  const dialogs = useBuilderDialogs(aiAvailable, isEditorHidden);
+  const dialogs = useBuilderDialogs();
   const layers = useBuilderLayers(
     mapData,
     mapInstanceRef,
@@ -622,7 +622,7 @@ export function MapBuilderPage() {
         prev,
         lastToggleAnchor.current,
       );
-      // Phase 20260526-builder-audit BLD-20260526-11: treat the helper's return as immutable. Range may include
+      // Phase 20260526-builder-audit #338 BLD-20260526-11: treat the helper's return as immutable. Range may include
       // basemap-boundary ids if selectableRowIds drifts; build a fresh Set.
       const filtered = new Set<string>();
       for (const rid of selection) {
@@ -656,7 +656,7 @@ export function MapBuilderPage() {
   // Each dep is the specific stable useCallback from use-builder-layers, NOT the
   // entire `layers` object (which is a plain literal re-created on every render).
   // Depending on `layers` defeats React.memo() on BulkActionBar / UnifiedStackPanel
-  // on every opacity-slider move, which fires at ~60fps (Phase 20260526-builder-audit BLD-20260526-11).
+  // on every opacity-slider move, which fires at ~60fps (Phase 20260526-builder-audit #338 BLD-20260526-11).
   const handleBulkVisibility = useCallback((ids: Set<string>) => {
     applyBulkVisibility(ids);
     setSelectedIds(new Set());
@@ -715,7 +715,7 @@ export function MapBuilderPage() {
 
   // Phase 1059 BSE-01: helper that merges a single field into basemap_config.sublayer_overrides[sublayerId].
   // Trims the entry if every field becomes null/undefined (no-op state).
-  // Uses setBasemapConfig which auto-marks dirty (Phase 20260526-builder-audit BLD-20260526-11).
+  // Uses setBasemapConfig which auto-marks dirty (Phase 20260526-builder-audit #338 BLD-20260526-11).
   const updateSublayerOverride = useCallback(
     (sublayerId: string, field: keyof MapSublayerOverride, value: string | number | null) => {
       applyBasemapPatch(updateBasemapSublayerOverride(basemapState, sublayerId, field, value));
@@ -879,7 +879,7 @@ export function MapBuilderPage() {
       const parentGroupId = (targetLayer && isFolderGroupLayer(targetLayer)) ? overId : null;
       const dropPosition = layers.localLayers.findIndex((l) => l.id === overId) + 1;
       const safePosition = dropPosition > 0 ? dropPosition : 1;
-      // Phase 20260526-builder-audit BLD-20260526-11: announce fires inside onSuccessCb — only after the async mutation resolves
+      // Phase 20260526-builder-audit #338 BLD-20260526-11: announce fires inside onSuccessCb — only after the async mutation resolves
       // successfully. If the mutation errors, the hook fires toast.error and the announce
       // is never called, avoiding contradictory screen-reader output.
       // Modal stays open per POL-05 — onSuccessCb is not used to auto-select the layer.
@@ -920,6 +920,41 @@ export function MapBuilderPage() {
     const oldIndex = currentLayers.findIndex((layer) => layer.id === active.id);
     const newIndex = currentLayers.findIndex((layer) => layer.id === over.id);
     if (oldIndex < 0 || newIndex < 0) return;
+
+    // P2-07: dragging a folder group row moves the WHOLE group block (the row +
+    // all its child layers) atomically, so a single-row arrayMove can never
+    // split the group by leaving its children behind. Loose/child row drags are
+    // unchanged (the simple arrayMove below).
+    const activeLayer = currentLayers[oldIndex];
+    if (isFolderGroupLayer(activeLayer)) {
+      const groupId = String(active.id);
+      const block = currentLayers.filter(
+        (l) =>
+          l.id === groupId ||
+          (l as { parent_group_id?: string | null }).parent_group_id === groupId,
+      );
+      const blockIds = new Set(block.map((l) => l.id));
+      // Dropping a group onto itself or one of its own children is a no-op.
+      if (blockIds.has(String(over.id))) return;
+      const remaining = currentLayers.filter((l) => !blockIds.has(l.id));
+      const targetIdx = remaining.findIndex((l) => l.id === over.id);
+      // Moving downward inserts the block AFTER the drop target (matching the
+      // single-row arrayMove feel); moving upward inserts before it.
+      const insertIdx =
+        targetIdx < 0
+          ? remaining.length
+          : newIndex > oldIndex
+            ? targetIdx + 1
+            : targetIdx;
+      const next = [
+        ...remaining.slice(0, insertIdx),
+        ...block,
+        ...remaining.slice(insertIdx),
+      ];
+      dispatchLayerAction({ type: 'reorder_layers', source: 'manual', layers: next });
+      return;
+    }
+
     dispatchLayerAction({
       type: 'reorder_layers',
       source: 'manual',
@@ -1053,7 +1088,7 @@ export function MapBuilderPage() {
     const sublayer = basemapGroup.sublayers.find((s) => s.id === layers.expandedLayerId);
     breadcrumbPresetName = basemapGroup.presetName;
     if (sublayer) {
-      // Phase 20260526-builder-audit BLD-20260526-11: translate the UI routing ID (e.g. 'basemap:roads') to the bare semantic
+      // Phase 20260526-builder-audit #338 BLD-20260526-11: translate the UI routing ID (e.g. 'basemap:roads') to the bare semantic
       // key ('road') used in basemap_config.sublayer_overrides so reads and writes are
       // consistent with what applySublayerOverrides expects from SUBLAYER_CLASSIFIERS.
       const overrideKey = SUBLAYER_ID_OVERRIDE_KEY[sublayer.id] ?? sublayer.id;
@@ -1328,11 +1363,25 @@ export function MapBuilderPage() {
               layers={layers.localLayers}
               selectedLayerId={layers.expandedLayerId}
               onSelectLayer={handleSelectLayer}
-              onToggleVisibility={(layerId) => layers.dispatchLayerAction({
-                type: 'set_visibility',
-                source: 'manual',
-                layerId,
-              })}
+              onToggleVisibility={(layerId) => {
+                // P1-09: a folder group row is a synthetic row, not a map layer.
+                // Route its eye toggle to toggle_group_visibility so every child
+                // (and its companions) follows; loose/child rows use set_visibility.
+                const target = layers.localLayers.find((l) => l.id === layerId);
+                if (target && isFolderGroupLayer(target)) {
+                  layers.dispatchLayerAction({
+                    type: 'toggle_group_visibility',
+                    source: 'manual',
+                    groupId: layerId,
+                  });
+                } else {
+                  layers.dispatchLayerAction({
+                    type: 'set_visibility',
+                    source: 'manual',
+                    layerId,
+                  });
+                }
+              }}
               onReorder={(reorderedLayers) => layers.dispatchLayerAction({
                 type: 'reorder_layers',
                 source: 'manual',

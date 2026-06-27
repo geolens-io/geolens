@@ -12,6 +12,8 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
+import { isFolderGroupLayer } from '@/lib/layer-capabilities';
+import { getParentGroupId } from '@/components/builder/folder-groups';
 import type { MapLayerResponse } from '@/types/api';
 
 // ---------------------------------------------------------------------------
@@ -38,12 +40,11 @@ export interface BulkActionBarProps {
 }
 
 // ---------------------------------------------------------------------------
-// Helper: parent_group_id is an in-memory field added by use-builder-layers,
-// not in the MapLayerResponse type definition. Cast to access it safely.
+// builder-audit #338 STACK-01/STACK-08: getParentGroupId and isFolderGroupLayer are
+// imported from their canonical homes (folder-groups.ts / layer-capabilities.ts)
+// instead of being re-implemented inline with `as unknown as` / a hard-coded
+// 'group:folder' substring check.
 // ---------------------------------------------------------------------------
-function getParentGroupId(layer: MapLayerResponse): string | null {
-  return (layer as unknown as { parent_group_id?: string | null }).parent_group_id ?? null;
-}
 
 // ---------------------------------------------------------------------------
 // BulkActionBar component
@@ -95,7 +96,7 @@ export const BulkActionBar = memo(function BulkActionBar({
       selectedLayers.every(
         (l) =>
           !getParentGroupId(l) &&
-          !((l.layer_type as string | null | undefined) ?? '').startsWith('group:folder') &&
+          !isFolderGroupLayer(l) &&
           l.dataset_record_type === 'vector_dataset',
       ),
     [selectedLayers, N],
@@ -105,9 +106,7 @@ export const BulkActionBar = memo(function BulkActionBar({
   const canUngroup = useMemo(
     () =>
       N > 0 &&
-      selectedLayers.every((l) =>
-        ((l.layer_type as string | null | undefined) ?? '').startsWith('group:folder'),
-      ),
+      selectedLayers.every((l) => isFolderGroupLayer(l)),
     [selectedLayers, N],
   );
 

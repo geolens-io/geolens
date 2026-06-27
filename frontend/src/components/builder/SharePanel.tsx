@@ -44,6 +44,30 @@ import type { MapVisibility } from '@/types/api';
  * Exported so SharePanel.test.tsx can pin the rendered snippet shape
  * without mounting the full ShareDialog component.
  */
+/**
+ * Build the embedded-viewer iframe `src` URL for a shared map (builder-audit
+ * SHARE-04). Single source of truth shared by generateEmbedCode (full iframe
+ * snippet) and EmbedPreviewPane (live preview) so the viewer URL shape — path,
+ * `embed` flag, `et` token param — cannot drift between the two.
+ *
+ * URLSearchParams handles any future percent-encodable characters in the token.
+ */
+export function buildEmbedSrc({
+  shareToken,
+  embedTokenRaw,
+  origin,
+}: {
+  shareToken: string;
+  embedTokenRaw: string;
+  origin: string;
+}): string {
+  const params = new URLSearchParams({ embed: 'true' });
+  if (embedTokenRaw) {
+    params.set('et', embedTokenRaw);
+  }
+  return `${origin}/m/${shareToken}?${params.toString()}`;
+}
+
 export function generateEmbedCode({
   shareToken,
   embedTokenRaw,
@@ -54,11 +78,7 @@ export function generateEmbedCode({
   origin: string;
 }): string {
   if (!shareToken) return '';
-  const params = new URLSearchParams({ embed: 'true' });
-  if (embedTokenRaw) {
-    params.set('et', embedTokenRaw);
-  }
-  const url = `${origin}/m/${shareToken}?${params.toString()}`;
+  const url = buildEmbedSrc({ shareToken, embedTokenRaw, origin });
   return `<iframe src="${url}" width="800" height="600" sandbox="allow-scripts" style="border:none;"></iframe>`;
 }
 
@@ -91,6 +111,21 @@ const VISIBILITY_OPTIONS: Array<{
     descKey: 'share.publicDescription',
   },
 ];
+
+const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * builder-audit #338 SHARE-02: single source of truth for the share-link expiration
+ * presets. The Select options, detectPreset matching windows, and apply math all
+ * derive from this table, so adding/changing a preset is a one-line edit that
+ * cannot drift between the three former copies.
+ */
+const EXPIRATION_PRESETS = [
+  { key: '1d', days: 1, i18nKey: 'share.expiration1Day', defaultValue: '1 day' },
+  { key: '7d', days: 7, i18nKey: 'share.expiration7Days', defaultValue: '7 days' },
+  { key: '30d', days: 30, i18nKey: 'share.expiration30Days', defaultValue: '30 days' },
+  { key: '1y', days: 365, i18nKey: 'share.expiration1Year', defaultValue: '1 year' },
+] as const;
 
 /* ------------------------------------------------------------------ */
 /*  ShareLinkSettings – collapsible expiration / domain / revoke      */
@@ -135,14 +170,7 @@ function ShareLinkSettings({
     if (!shareExpiresIso) return 'never';
     const target = new Date(shareExpiresIso);
     const now = new Date();
-    const ONE_DAY_MS = 24 * 60 * 60 * 1000;
-    const PRESET_DAYS: Array<[number, ExpirationPreset]> = [
-      [1, '1d'],
-      [7, '7d'],
-      [30, '30d'],
-      [365, '1y'],
-    ];
-    for (const [days, key] of PRESET_DAYS) {
+    for (const { key, days } of EXPIRATION_PRESETS) {
       const presetDate = new Date(now.getTime() + days * ONE_DAY_MS);
       if (Math.abs(target.getTime() - presetDate.getTime()) < ONE_DAY_MS) {
         return key;
@@ -177,7 +205,7 @@ function ShareLinkSettings({
     try {
       const newExpires = expiresValue ? new Date(expiresValue + 'T23:59:59Z').toISOString() : null;
       await updateShareToken.mutateAsync({ mapId, expiresAt: newExpires });
-      // Phase 20260526-builder-audit BLD-20260526-11: distinct message when expiration is cleared vs. updated.
+      // Phase 20260526-builder-audit #338 BLD-20260526-11: distinct message when expiration is cleared vs. updated.
       if (newExpires) {
         toast.success(t('share.expirationUpdated'));
       } else {
@@ -200,16 +228,10 @@ function ShareLinkSettings({
    * button and embed textarea stay visible).
    */
   async function handleApplyPreset(preset: Exclude<ExpirationPreset, 'custom'>) {
-    const ONE_DAY_MS = 24 * 60 * 60 * 1000;
-    const PRESET_MS: Record<Exclude<ExpirationPreset, 'custom' | 'never'>, number> = {
-      '1d': 1 * ONE_DAY_MS,
-      '7d': 7 * ONE_DAY_MS,
-      '30d': 30 * ONE_DAY_MS,
-      '1y': 365 * ONE_DAY_MS,
-    };
     let expiresAt: string | null = null;
     if (preset !== 'never') {
-      const datePart = new Date(Date.now() + PRESET_MS[preset]).toISOString().split('T')[0];
+      const days = EXPIRATION_PRESETS.find((p) => p.key === preset)?.days ?? 0;
+      const datePart = new Date(Date.now() + days * ONE_DAY_MS).toISOString().split('T')[0];
       expiresAt = `${datePart}T23:59:59.000Z`;
     }
     try {
@@ -349,10 +371,9 @@ function ShareLinkSettings({
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="never">{t('share.expirationNever', { defaultValue: 'Never' })}</SelectItem>
-                  <SelectItem value="1d">{t('share.expiration1Day', { defaultValue: '1 day' })}</SelectItem>
-                  <SelectItem value="7d">{t('share.expiration7Days', { defaultValue: '7 days' })}</SelectItem>
-                  <SelectItem value="30d">{t('share.expiration30Days', { defaultValue: '30 days' })}</SelectItem>
-                  <SelectItem value="1y">{t('share.expiration1Year', { defaultValue: '1 year' })}</SelectItem>
+                  {EXPIRATION_PRESETS.map((p) => (
+                    <SelectItem key={p.key} value={p.key}>{t(p.i18nKey, { defaultValue: p.defaultValue })}</SelectItem>
+                  ))}
                   <SelectItem value="custom">{t('share.expirationCustom', { defaultValue: 'Custom date…' })}</SelectItem>
                 </SelectContent>
               </Select>
@@ -533,13 +554,10 @@ function EmbedPreviewPane({ shareToken, embedTokenRaw, origin }: EmbedPreviewPan
     return () => clearTimeout(timer);
   }, [expanded, loaded, errored, reloadKey]);
 
-  // Use URLSearchParams to match generateEmbedCode — prevents drift if the
-  // token format ever gains percent-encodable characters (IN-01).
-  const src = (() => {
-    const params = new URLSearchParams({ embed: 'true' });
-    if (embedTokenRaw) params.set('et', embedTokenRaw);
-    return `${origin}/m/${shareToken}?${params.toString()}`;
-  })();
+  // builder-audit #338 SHARE-04 / IN-01: share the exact URL construction with
+  // generateEmbedCode via buildEmbedSrc so the preview and the copyable snippet
+  // can never diverge on path or query-param shape.
+  const src = buildEmbedSrc({ shareToken, embedTokenRaw, origin });
 
   return (
     <div className="space-y-2 border-t pt-3">
@@ -616,17 +634,15 @@ interface ShareDialogProps {
   saveStatus?: 'saved' | 'unsaved' | 'saving' | 'failed';
 }
 
-export function ShareDialog({
-  mapId,
-  visibility,
-  open,
-  onOpenChange,
-  hasUnsavedChanges = false,
-  saveStatus = hasUnsavedChanges ? 'unsaved' : 'saved',
-}: ShareDialogProps) {
+/**
+ * builder-audit #338 SHARE-01: owns the full share-token + embed-token lifecycle for a
+ * single map, so the "create an embed token when the map has non-public layers"
+ * sequence lives in exactly ONE place instead of being copy-pasted across the
+ * get/regenerate handlers. ShareDialog consumes this and is reduced to
+ * presentation. Behavior is unchanged from the previous inline implementation.
+ */
+function useShareTokens({ mapId, open }: { mapId: string; open: boolean }) {
   const { t } = useTranslation('builder');
-  const { isEnterprise } = useEdition();
-  const publishMap = usePublishMap();
   const createShareToken = useCreateShareToken();
   const revokeShareToken = useRevokeShareToken();
   const createEmbedToken = useCreateEmbedToken();
@@ -648,8 +664,10 @@ export function ShareDialog({
   const isExpired = shareExpires ? new Date(shareExpires) < new Date() : false;
 
   const embedTokensQuery = useMapEmbedTokens(open && hasShareToken ? mapId : undefined);
+  // builder-audit #338 SHARE-03: name the predicate param `token` so it no longer
+  // shadows the `t` translation function destructured above.
   const activeEmbedToken = embedTokensQuery.data?.tokens?.find(
-    t => t.is_active && new Date(t.expires_at) > new Date()
+    token => token.is_active && new Date(token.expires_at) > new Date()
   );
   const resolvedEmbedTokenId = activeEmbedToken?.id ?? null;
   // Stabilize with useMemo so the array reference is only new when the data
@@ -660,41 +678,6 @@ export function ShareDialog({
     () => activeEmbedToken?.allowed_origins ?? [],
     [activeEmbedToken?.allowed_origins],
   );
-
-  const isPublic = visibility === 'public';
-  const canUseAdvancedSharing = isEnterprise;
-
-  async function handleVisibilityChange(newVisibility: MapVisibility) {
-    if (newVisibility === visibility) return;
-    try {
-      await publishMap.mutateAsync({ id: mapId, visibility: newVisibility });
-      if (newVisibility === 'public') {
-        toast.success(t('toasts.mapNowPublic'));
-      } else if (newVisibility === 'internal') {
-        toast.success(t('toasts.mapNowInternal'));
-      } else {
-        toast.success(t('toasts.mapNowPrivate'));
-      }
-      if (newVisibility !== 'public') {
-        setHasNonPublic(false);
-        setEmbedTokenRaw(null);
-        setRawShareToken(null);
-      }
-    } catch (err) {
-      if (err instanceof ApiError && err.status === 400) {
-        let datasets = err.message;
-        try {
-          const parsed = JSON.parse(err.message);
-          if (parsed.datasets) datasets = parsed.datasets.join(', ');
-        } catch {
-          // Legacy format or unparseable — use raw message
-        }
-        toast.error(t('share.cannotPublish', { datasets }));
-      } else {
-        toast.error(t('toasts.visibilityFailed'));
-      }
-    }
-  }
 
   async function runVisibilityCheck() {
     try {
@@ -718,10 +701,14 @@ export function ShareDialog({
    *
    * Mirror of ChatPanel.tsx inflightRef pattern lifted in v1010.2.
    *
+   * builder-audit #338 P2-01: this is also the explicit create-embed-token path that
+   * lets a fully-public map (no non-public layers) mint a token so the owner can
+   * configure allowed domains.
+   *
    * Regression pin: SharePanel.test.tsx Pitfall #7 test asserts call count
    * equals 1 under a 2-concurrent-click scenario.
    */
-  async function maybeCreateEmbedToken() {
+  async function createEmbed() {
     if (embedTokenRaw) return;
     if (activeEmbedToken) return;
     // Pitfall #7: dedupe concurrent calls. Mirrors ChatPanel inflightRef.
@@ -747,23 +734,23 @@ export function ShareDialog({
     }
   }
 
-  async function handleGetShareLink() {
+  async function getLink() {
     if (hasShareToken) {
       const check = await runVisibilityCheck();
-      if (check?.has_non_public) await maybeCreateEmbedToken();
+      if (check?.has_non_public) await createEmbed();
       return;
     }
     try {
       const created = await createShareToken.mutateAsync({ mapId });
       setRawShareToken(created.share_url ? created.token : null);
       const check = await runVisibilityCheck();
-      if (check?.has_non_public) await maybeCreateEmbedToken();
+      if (check?.has_non_public) await createEmbed();
     } catch {
       toast.error(t('toasts.shareLinkFailed'));
     }
   }
 
-  async function handleRegenerateShareLink() {
+  async function regenerateLink() {
     try {
       await revokeShareToken.mutateAsync(mapId);
       setEmbedTokenRaw(null);
@@ -782,14 +769,21 @@ export function ShareDialog({
     }
   }
 
-  function handleRevoked() {
+  function onRevoked() {
     setRawShareToken(null);
     setEmbedTokenRaw(null);
     setHasNonPublic(false);
   }
 
-  // Phase 20260526-builder-audit BLD-20260526-11: regenerate embed token when the raw value was lost.
-  async function handleRegenerateEmbedToken() {
+  /** Clear all locally-held token state — used when a map leaves public visibility. */
+  function clearSharedState() {
+    setHasNonPublic(false);
+    setEmbedTokenRaw(null);
+    setRawShareToken(null);
+  }
+
+  // Phase 20260526-builder-audit #338 BLD-20260526-11: regenerate embed token when the raw value was lost.
+  async function regenerateEmbed() {
     if (!activeEmbedToken) return;
     try {
       await revokeEmbedToken.mutateAsync({ mapId, tokenId: activeEmbedToken.id });
@@ -800,6 +794,99 @@ export function ShareDialog({
       toast.success(t('share.embedTokenRegenerated', { defaultValue: 'Embed token regenerated' }));
     } catch {
       toast.error(t('share.embedTokenFailed'));
+    }
+  }
+
+  return {
+    state: {
+      hasNonPublic,
+      embedTokenRaw,
+      rawShareToken,
+      hasShareToken,
+      shareExpires,
+      isExpired,
+      activeEmbedToken,
+      resolvedEmbedTokenId,
+      configOrigins,
+    },
+    getLink,
+    regenerateLink,
+    regenerateEmbed,
+    createEmbed,
+    onRevoked,
+    clearSharedState,
+    // Mutation objects exposed so the presentation layer can read isPending.
+    shareMutation: createShareToken,
+    revokeShareMutation: revokeShareToken,
+    embedMutation: createEmbedToken,
+    revokeEmbedMutation: revokeEmbedToken,
+  };
+}
+
+export function ShareDialog({
+  mapId,
+  visibility,
+  open,
+  onOpenChange,
+  hasUnsavedChanges = false,
+  saveStatus = hasUnsavedChanges ? 'unsaved' : 'saved',
+}: ShareDialogProps) {
+  const { t } = useTranslation('builder');
+  const { isEnterprise } = useEdition();
+  const publishMap = usePublishMap();
+
+  // builder-audit #338 SHARE-01: token lifecycle lives in a dedicated hook.
+  const tokens = useShareTokens({ mapId, open });
+  const {
+    hasNonPublic,
+    embedTokenRaw,
+    rawShareToken,
+    hasShareToken,
+    shareExpires,
+    isExpired,
+    activeEmbedToken,
+    resolvedEmbedTokenId,
+    configOrigins,
+  } = tokens.state;
+  const handleGetShareLink = tokens.getLink;
+  const handleRegenerateShareLink = tokens.regenerateLink;
+  const handleRegenerateEmbedToken = tokens.regenerateEmbed;
+  const handleRevoked = tokens.onRevoked;
+  const createShareToken = tokens.shareMutation;
+  const revokeShareToken = tokens.revokeShareMutation;
+  const createEmbedToken = tokens.embedMutation;
+  const revokeEmbedToken = tokens.revokeEmbedMutation;
+
+  const isPublic = visibility === 'public';
+  const canUseAdvancedSharing = isEnterprise;
+
+  async function handleVisibilityChange(newVisibility: MapVisibility) {
+    if (newVisibility === visibility) return;
+    try {
+      await publishMap.mutateAsync({ id: mapId, visibility: newVisibility });
+      if (newVisibility === 'public') {
+        toast.success(t('toasts.mapNowPublic'));
+      } else if (newVisibility === 'internal') {
+        toast.success(t('toasts.mapNowInternal'));
+      } else {
+        toast.success(t('toasts.mapNowPrivate'));
+      }
+      if (newVisibility !== 'public') {
+        tokens.clearSharedState();
+      }
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 400) {
+        let datasets = err.message;
+        try {
+          const parsed = JSON.parse(err.message);
+          if (parsed.datasets) datasets = parsed.datasets.join(', ');
+        } catch {
+          // Legacy format or unparseable — use raw message
+        }
+        toast.error(t('share.cannotPublish', { datasets }));
+      } else {
+        toast.error(t('toasts.visibilityFailed'));
+      }
     }
   }
 
@@ -1086,7 +1173,7 @@ export function ShareDialog({
                       </p>
                     </div>
                   )}
-                  {/* Phase 20260526-builder-audit BLD-20260526-11: warn when embed token was created in a previous session. */}
+                  {/* Phase 20260526-builder-audit #338 BLD-20260526-11: warn when embed token was created in a previous session. */}
                   {!embedTokenRaw && activeEmbedToken && (
                     <div className="flex items-start gap-2 rounded-md border border-warning/30 bg-warning/5 px-3 py-2">
                       <AlertTriangle className="h-3.5 w-3.5 text-warning mt-0.5 flex-shrink-0" />
@@ -1121,6 +1208,36 @@ export function ShareDialog({
                       <li><code className="bg-muted px-1 rounded text-[11px]">legend=true|false</code> {t('share.customizeLegend')}</li>
                     </ul>
                   </div>
+                  {/* builder-audit #338 P2-01: a fully-public map has no embed token (none was
+                      forced by non-public layers), so the domain controls in Link Settings
+                      never appear. Offer an explicit create-embed-token path so the owner
+                      can mint a token and then restrict embedding to specific domains. */}
+                  {canUseAdvancedSharing && !hasNonPublic && !embedTokenRaw && !resolvedEmbedTokenId && (
+                    <div className="flex items-start gap-2 rounded-md border border-border bg-muted/20 px-3 py-2">
+                      <Shield className="h-3.5 w-3.5 text-muted-foreground mt-0.5 flex-shrink-0" />
+                      <div className="flex-1 space-y-1.5">
+                        <p className="text-xs text-foreground">
+                          {t('share.embedTokenForDomains', {
+                            defaultValue: 'Create an embed token to restrict this embed to specific domains.',
+                          })}
+                        </p>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-7 text-xs"
+                          onClick={() => void tokens.createEmbed()}
+                          disabled={createEmbedToken.isPending}
+                        >
+                          {createEmbedToken.isPending ? (
+                            <Loader2 className="h-3 w-3 animate-spin me-1.5" />
+                          ) : (
+                            <Shield className="h-3 w-3 me-1.5" />
+                          )}
+                          {t('share.createEmbedToken', { defaultValue: 'Create embed token' })}
+                        </Button>
+                      </div>
+                    </div>
+                  )}
                   {/* SHARE-03: embed preview pane — gated on embedTokenRaw to ensure et= param is available */}
                   {embedTokenRaw && (
                     <EmbedPreviewPane

@@ -5,7 +5,9 @@
  * adapter already owns.  It is inserted BELOW the hillshade layer so the shading renders on top.
  *
  * Elevation range default: 0–4000 m (Assumption A1, documented in 1140-RESEARCH.md).
- * Users who need different ranges should use a future min/max-elevation control (follow-up).
+ * builder-audit #338 MAINT-01: this range is meters-only and has no min/max control yet; the
+ * limitation is now surfaced in-product by the DEMEditorScene hypsometric note. Users who
+ * need different ranges should use a future min/max-elevation control (follow-up).
  *
  * Pitfall 1 (color-relief-color): `color-relief-color` uses `ColorRampProperty` — the same class
  * as `heatmap-color` and `line-gradient`. `setPaintProperty` does not reliably trigger the ramp
@@ -23,6 +25,7 @@
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import { getRampColors } from '@/lib/color-ramps';
 import type { AdapterLayerInput } from './layer-adapters/types';
+import { COLOR_RELIEF_SUFFIX } from './companion-ids';
 
 // Default elevation range (metres) for the interpolation stops.
 // Assumption A1: 0–4000 m covers the majority of terrain use-cases for a builder tool.
@@ -67,7 +70,8 @@ export function syncColorReliefLayer(
   map: MaplibreMap,
   input: AdapterLayerInput,
 ): void {
-  const reliefLayerId = `${input.layerId}-colorrelief`;
+  // builder-audit #338 SYNC-04: the -colorrelief suffix lives in companion-ids.ts.
+  const reliefLayerId = `${input.layerId}${COLOR_RELIEF_SUFFIX}`;
 
   const renderMode = (input.style_config as Record<string, unknown> | null | undefined)?.render_mode;
   const isHillshade = renderMode === 'hillshade';
@@ -94,21 +98,40 @@ export function syncColorReliefLayer(
     map.removeLayer(reliefLayerId);
   }
 
+  // builder-audit #338 MAINT-02: pin a narrow local shape for the color-relief layer and cast
+  // ONCE at the addLayer boundary, instead of `as unknown as` on both the type string and
+  // the whole object. 'color-relief' is a native MapLibre 5.24 layer type whose paint keys
+  // (color-relief-color / -opacity) the @maplibre/maplibre-gl-style-spec LayerSpecification
+  // union does not yet model, so this local type is the typed contract for those fields.
+  const reliefLayer: ColorReliefLayerSpec = {
+    id: reliefLayerId,
+    type: 'color-relief',
+    source: input.sourceId, // existing raster-dem source from hillshade-adapter
+    layout: { visibility: input.visible ? 'visible' : 'none' },
+    paint: {
+      'color-relief-color': buildElevationExpression(rampName),
+      'color-relief-opacity': 0.7,
+    },
+  };
+
   map.addLayer(
-    {
-      id: reliefLayerId,
-      // 'color-relief' is a native MapLibre 5.24 layer type.
-      // The @maplibre/maplibre-gl-style-spec LayerSpecification union predates this type, so we
-      // cast to silence the type checker while keeping full runtime safety.
-      type: 'color-relief' as unknown as 'hillshade',
-      source: input.sourceId, // existing raster-dem source from hillshade-adapter
-      layout: { visibility: input.visible ? 'visible' : 'none' },
-      paint: {
-        'color-relief-color': buildElevationExpression(rampName),
-        'color-relief-opacity': 0.7,
-      },
-    } as unknown as import('maplibre-gl').AddLayerObject,
+    reliefLayer as unknown as import('maplibre-gl').AddLayerObject,
     // Insert BELOW the hillshade layer so shading renders on top of the tint.
     input.layerId,
   );
+}
+
+/**
+ * builder-audit #338 MAINT-02: narrow local type for the native MapLibre 5.24 `color-relief`
+ * layer, which the maplibre-gl-style-spec LayerSpecification union does not yet include.
+ */
+interface ColorReliefLayerSpec {
+  id: string;
+  type: 'color-relief';
+  source: string;
+  layout: { visibility: 'visible' | 'none' };
+  paint: {
+    'color-relief-color': unknown[];
+    'color-relief-opacity': number;
+  };
 }

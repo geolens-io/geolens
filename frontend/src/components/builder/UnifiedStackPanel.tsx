@@ -10,23 +10,34 @@ import {
   useSortable,
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
-import { CSS } from '@dnd-kit/utilities';
 import { useTranslation } from 'react-i18next';
 import { Eye, EyeOff, GripVertical, Plus, Search, Settings } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { StackRow } from '@/components/builder/StackRow';
-import { BasemapGroupRow } from '@/components/builder/BasemapGroupRow';
-import { FolderGroupRow } from '@/components/builder/FolderGroupRow';
-import { SublayerConfigIndicators } from '@/components/builder/SublayerConfigIndicators';
+// builder-audit #338 STACK-05: sortable wrappers + the catalog drag ghost moved to
+// sibling files so this panel module stays focused on the list orchestration.
+import { SortableStackRow } from '@/components/builder/SortableStackRow';
+import { BasemapGroupRowWrapper } from '@/components/builder/BasemapGroupRowWrapper';
+import { FolderGroupRowWrapper } from '@/components/builder/FolderGroupRowWrapper';
+import { CatalogDragGhost } from '@/components/builder/CatalogDragGhost';
 import { EmptyStackState, eyebrowClassName } from '@/components/builder/EmptyStackState';
 import { BulkActionBar } from '@/components/builder/BulkActionBar';
+// builder-audit #338 STACK-01: use the single typed helper instead of a local
+// `as unknown as` re-implementation.
+import { getParentGroupId } from '@/components/builder/folder-groups';
 import { isFolderGroupLayer } from '@/lib/layer-capabilities';
 import { cn } from '@/lib/utils';
 import type { MapLayerResponse } from '@/types/api';
+import type { BasemapGroupInfo, BasemapSublayerInfo } from '@/components/builder/stack-types';
 import { isDemTerrainVisualSuppressed } from './map-sync';
 import { computeDisambiguationLabels } from './map-stack';
 import { geometryClassOf, type GeometryStyleClass } from '@/lib/builder/layer-style-clipboard';
+
+// builder-audit #338 STACK-05: re-exported so existing imports
+// (`import { CatalogDragGhost } from '@/components/builder/UnifiedStackPanel'`)
+// keep working after the component moved to its own file.
+export { CatalogDragGhost };
 
 // ---------------------------------------------------------------------------
 // Stable noop — created once at module scope so optional-prop fallbacks never
@@ -34,36 +45,6 @@ import { geometryClassOf, type GeometryStyleClass } from '@/lib/builder/layer-st
 // children (BasemapGroupRowWrapper, FolderGroupRowWrapper, SortableStackRow).
 // ---------------------------------------------------------------------------
 const NOOP = () => {};
-
-// ---------------------------------------------------------------------------
-// Helper utilities
-// ---------------------------------------------------------------------------
-
-function getParentGroupId(layer: MapLayerResponse): string | null {
-  // In-memory `parent_group_id` set by use-builder-layers folder handlers
-  return (layer as unknown as { parent_group_id?: string | null }).parent_group_id ?? null;
-}
-
-// ---------------------------------------------------------------------------
-// Sub-interfaces
-// ---------------------------------------------------------------------------
-
-interface BasemapSublayerInfo {
-  id: string;
-  name: string;
-  visible: boolean;
-  opacity: number;
-  kind: 'vector' | 'raster';
-}
-
-interface BasemapGroupInfo {
-  id: string;
-  presetName: string;
-  providerLabel?: string;
-  visible: boolean;
-  opacity: number;
-  sublayers: BasemapSublayerInfo[];
-}
 
 // ---------------------------------------------------------------------------
 // Props
@@ -74,7 +55,11 @@ interface UnifiedStackPanelProps {
   selectedLayerId: string | null;
   onSelectLayer: (id: string | null) => void;
   onToggleVisibility: (id: string) => void;
+  /** @deprecated builder-audit #338 STACK-05: inert in this component (drag-reorder is
+   *  lifted to MapBuilderPage). Retained only for call-site compatibility. */
   onReorder: (layers: MapLayerResponse[]) => void;
+  /** @deprecated builder-audit #338 STACK-05: inert in this component (opacity editing
+   *  moved to the LayerEditorPanel flyout). Retained only for call-site compatibility. */
   onOpacityChange: (layerId: string, opacity: number) => void;
   onRemove: (id: string) => void;
   onRename: (layerId: string, newName: string | null) => void;
@@ -101,6 +86,8 @@ interface UnifiedStackPanelProps {
   basemapGroup?: BasemapGroupInfo | null;
   isBasemapExpanded?: boolean;
   onToggleSublayerVisibility?: (sublayerId: string) => void;
+  /** @deprecated builder-audit #338 STACK-05: inert in this component (per-sublayer
+   *  opacity moved to the LayerEditorPanel flyout). Retained for call-site compatibility. */
   onSublayerOpacityChange?: (sublayerId: string, opacity: number) => void;
   onSwapBasemap?: () => void;
   onResetBasemapAppearance?: () => void;
@@ -142,348 +129,9 @@ interface UnifiedStackPanelProps {
 }
 
 // ---------------------------------------------------------------------------
-// SortableStackRow — loose layer or folder-group child row
+// builder-audit #338 STACK-05: SortableStackRow, BasemapGroupRowWrapper, and
+// FolderGroupRowWrapper were extracted to sibling files (imported above).
 // ---------------------------------------------------------------------------
-
-interface SortableStackRowProps {
-  layer: MapLayerResponse;
-  selected: boolean;
-  onSelectLayer: (id: string | null) => void;
-  onToggleVisibility: (id: string) => void;
-  onRemove: (id: string) => void;
-  onRename: (layerId: string, newName: string | null) => void;
-  onDuplicate: (id: string) => void;
-  // Phase 1201-01 (ENH-01/ENH-02): kebab authoring actions threaded to StackRow.
-  onZoomToLayer?: (id: string) => void;
-  onCopyStyle?: (id: string) => void;
-  onPasteStyle?: (id: string) => void;
-  canPasteStyle?: boolean;
-  onKeyboardReorder?: (layerId: string, direction: 'up' | 'down') => void;
-  existingFolderGroups?: Array<{ id: string; name: string }>;
-  parentGroupId?: string | null;
-  onAddToGroup?: (layerId: string, groupId: string) => void;
-  onCreateGroupWithLayer?: (layerId: string) => void;
-  onMoveLayerOutOfGroup?: (layerId: string) => void;
-  // Phase 1041: multi-selection
-  isMultiSelected?: boolean;
-  isMultiSelectionActive?: boolean;
-  onCmdClick?: (id: string) => void;
-  onShiftClick?: (id: string) => void;
-  onCheckboxClick?: (id: string) => void;
-  // Phase 1042 POL-15: entry animation
-  isFresh?: boolean;
-  // Phase 1199 STACK-01: "Copy N of M" duplicate label, null when not a duplicate
-  disambiguationLabel?: string | null;
-  // Phase 1201-02 (ENH-07): disable drag while search is active to prevent
-  // sort_order corruption when only a filtered subset is visible.
-  dragDisabled?: boolean;
-}
-
-const SortableStackRow = memo(function SortableStackRow({
-  layer,
-  selected,
-  onSelectLayer,
-  onToggleVisibility,
-  onRemove,
-  onRename,
-  onDuplicate,
-  onZoomToLayer,
-  onCopyStyle,
-  onPasteStyle,
-  canPasteStyle,
-  onKeyboardReorder,
-  existingFolderGroups,
-  parentGroupId,
-  onAddToGroup,
-  onCreateGroupWithLayer,
-  onMoveLayerOutOfGroup,
-  isMultiSelected,
-  isMultiSelectionActive,
-  onCmdClick,
-  onShiftClick,
-  onCheckboxClick,
-  isFresh,
-  disambiguationLabel,
-  dragDisabled = false,
-}: SortableStackRowProps) {
-  const {
-    attributes,
-    listeners,
-    setActivatorNodeRef,
-    setNodeRef,
-    transform,
-    transition,
-    isDragging,
-    isOver,
-  } = useSortable({ id: layer.id, disabled: dragDisabled });
-
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-  };
-
-  const handleSelectLayer = useCallback(
-    (id: string) => onSelectLayer(id),
-    [onSelectLayer],
-  );
-
-  return (
-    <div ref={setNodeRef} style={style} data-dnd-over={isOver ? 'true' : undefined} data-row-id={layer.id}>
-      <StackRow
-        layer={layer}
-        selected={selected}
-        isDragging={isDragging}
-        dragHandleProps={{ attributes, listeners, setActivatorNodeRef }}
-        onSelectLayer={handleSelectLayer}
-        onToggleVisibility={onToggleVisibility}
-        onRemove={onRemove}
-        onRename={onRename}
-        onDuplicate={onDuplicate}
-        onZoomToLayer={onZoomToLayer}
-        onCopyStyle={onCopyStyle}
-        onPasteStyle={onPasteStyle}
-        canPasteStyle={canPasteStyle}
-        onKeyboardReorder={onKeyboardReorder}
-        existingFolderGroups={existingFolderGroups}
-        parentGroupId={parentGroupId}
-        onAddToGroup={onAddToGroup}
-        onCreateGroupWithLayer={onCreateGroupWithLayer}
-        onMoveLayerOutOfGroup={onMoveLayerOutOfGroup}
-        isMultiSelected={isMultiSelected}
-        isMultiSelectionActive={isMultiSelectionActive}
-        onCmdClick={onCmdClick}
-        onShiftClick={onShiftClick}
-        onCheckboxClick={onCheckboxClick}
-        isFresh={isFresh}
-        disambiguationLabel={disambiguationLabel}
-      />
-    </div>
-  );
-});
-
-// ---------------------------------------------------------------------------
-// BasemapGroupRowWrapper — sortable wrapper for the basemap group row
-// ---------------------------------------------------------------------------
-
-interface BasemapGroupRowWrapperProps {
-  group: BasemapGroupInfo;
-  selected: boolean;
-  isExpanded: boolean;
-  /** When true, the eye button is rendered as aria-disabled. Pass true when the toggle is not yet wired. */
-  visibilityDisabled?: boolean;
-  onSelectGroup: (id: string | null) => void;
-  onToggleExpand: (id: string) => void;
-  onToggleVisibility: (id: string) => void;
-  onSwapBasemap: () => void;
-  onResetAppearance: () => void;
-  // Phase 1041: boundary signal — shows cursor-not-allowed when multi-selection is active
-  isMultiSelectionActive?: boolean;
-}
-
-// UX-03 (Phase 1051 Plan 06): basemap group is now SORTABLE — was useDroppable-only
-// in Phase 1040 (AUD-04 pinned it to bottom). Lifted to useSortable mirroring
-// FolderGroupRowWrapper (lines 312-389) so the user can drag the basemap between
-// top and bottom positions in the layer stack. The `data` option preserves the
-// catalog drop-target semantics (handleDragEnd in MapBuilderPage still reads
-// `over.id === basemapGroup.id` for catalog basemap-swap drops at line 623).
-// Persistence: position is encoded in MapBasemapConfig.basemap_position (jsonb,
-// no migration) and serialized via use-builder-save.ts.
-const BasemapGroupRowWrapper = memo(function BasemapGroupRowWrapper({
-  group,
-  selected,
-  isExpanded,
-  visibilityDisabled = false,
-  onSelectGroup,
-  onToggleExpand,
-  onToggleVisibility,
-  onSwapBasemap,
-  onResetAppearance,
-  isMultiSelectionActive,
-}: BasemapGroupRowWrapperProps) {
-  // Phase 1051 Plan 13 (CTRL-01 gate-fix): when a NON-basemap catalog item is
-  // being dragged, disable the basemap-group sortable so dnd-kit's collision
-  // detection does not resolve to basemap-group via closestCenter fallback.
-  // The shadcn Dialog backdrop (`fixed inset-0 z-50`) intercepts pointer events
-  // over the sidebar listbox, which makes `pointerWithin` return empty hits and
-  // forces the fallback to closestCenter — and closestCenter can rank the
-  // basemap row as nearest even when the user pointer is clearly over an
-  // overlay row. Since handleDragEnd in MapBuilderPage silent-rejects this
-  // exact combo (Case 3 at line 647), short-circuiting it here gives the same
-  // semantics but allows dnd-kit to land the drop on the actual overlay row
-  // target. Basemap catalog drags (recordType === 'basemap') still need
-  // basemap-group as a drop target — keep the sortable enabled for those.
-  const { active } = useDndContext();
-  const activeData = active?.data?.current as
-    | { source?: string; recordType?: string }
-    | undefined;
-  const disableForCatalogNonBasemap =
-    activeData?.source === 'catalog' && activeData?.recordType !== 'basemap';
-
-  const {
-    attributes,
-    listeners,
-    setActivatorNodeRef,
-    setNodeRef,
-    transform,
-    transition,
-    isDragging,
-    isOver,
-  } = useSortable({
-    id: group.id,
-    data: { source: 'stack', kind: 'basemap-group' },
-    // Only disable the DROPPABLE side; keep draggable enabled so the basemap
-    // row can still be dragged out (basemap reposition). When a non-basemap
-    // catalog drag is active, this prevents dnd-kit from picking basemap-group
-    // via the closestCenter fallback when shadcn Dialog's backdrop blocks
-    // pointerWithin hits.
-    disabled: {
-      draggable: false,
-      droppable: disableForCatalogNonBasemap,
-    },
-  });
-
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-  };
-
-  const handleSelectGroup = useCallback(
-    (id: string) => onSelectGroup(id),
-    [onSelectGroup],
-  );
-
-  return (
-    <div
-      ref={setNodeRef}
-      style={style}
-      data-basemap-drop-target={isOver ? 'true' : undefined}
-      data-row-id={group.id}
-    >
-      <BasemapGroupRow
-        groupId={group.id}
-        presetName={group.presetName}
-        providerLabel={group.providerLabel}
-        visible={group.visible}
-        selected={selected}
-        isExpanded={isExpanded}
-        isDragging={isDragging}
-        visibilityDisabled={visibilityDisabled}
-        dragHandleProps={{ attributes, listeners, setActivatorNodeRef }}
-        onSelectGroup={handleSelectGroup}
-        onToggleExpand={onToggleExpand}
-        onToggleVisibility={onToggleVisibility}
-        onSwapBasemap={onSwapBasemap}
-        onResetAppearance={onResetAppearance}
-        isMultiSelectionActive={isMultiSelectionActive}
-      />
-    </div>
-  );
-});
-
-// ---------------------------------------------------------------------------
-// FolderGroupRowWrapper — sortable wrapper for folder group rows
-// ---------------------------------------------------------------------------
-
-interface FolderGroupRowWrapperProps {
-  layer: MapLayerResponse;
-  selected: boolean;
-  isExpanded: boolean;
-  onSelectGroup: (id: string | null) => void;
-  onToggleExpand: (id: string) => void;
-  onToggleVisibility: (id: string) => void;
-  onRenameGroup: (id: string, name: string) => void;
-  onAddLayer: (id: string) => void;
-  onUngroup: (id: string) => void;
-  onDeleteGroup: (id: string) => void;
-  // Phase 1041: multi-selection
-  isMultiSelected?: boolean;
-  isMultiSelectionActive?: boolean;
-  onCmdClick?: (id: string) => void;
-  onShiftClick?: (id: string) => void;
-  onCheckboxClick?: (id: string) => void;
-  // Phase 1201-02 (ENH-07): disable drag while search is active.
-  dragDisabled?: boolean;
-}
-
-const FolderGroupRowWrapper = memo(function FolderGroupRowWrapper({
-  layer,
-  selected,
-  isExpanded,
-  onSelectGroup,
-  onToggleExpand,
-  onToggleVisibility,
-  onRenameGroup,
-  onAddLayer,
-  onUngroup,
-  onDeleteGroup,
-  isMultiSelected,
-  isMultiSelectionActive,
-  onCmdClick,
-  onShiftClick,
-  onCheckboxClick,
-  dragDisabled = false,
-}: FolderGroupRowWrapperProps) {
-  const {
-    attributes,
-    listeners,
-    setActivatorNodeRef,
-    setNodeRef,
-    transform,
-    transition,
-    isDragging,
-    isOver,
-  } = useSortable({ id: layer.id, disabled: dragDisabled });
-
-  // Phase 1040 POL-03: folder group is a drop target for catalog drags.
-  // data-group-drop-target activates only when a catalog drag is in flight,
-  // so intra-stack reorder visuals (insertion line) remain the affordance for
-  // intra-stack drags.
-  const { active } = useDndContext();
-  const isCatalogDragActive = (active?.data?.current as { source?: string } | undefined)?.source === 'catalog';
-
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-  };
-
-  const handleSelectGroup = useCallback(
-    (id: string) => onSelectGroup(id),
-    [onSelectGroup],
-  );
-
-  const displayName = layer.display_name ?? layer.dataset_name;
-
-  return (
-    <div
-      ref={setNodeRef}
-      style={style}
-      data-group-drop-target={isOver && isCatalogDragActive ? 'true' : undefined}
-      data-row-id={layer.id}
-    >
-      <FolderGroupRow
-        groupId={layer.id}
-        groupName={displayName}
-        visible={layer.visible}
-        selected={selected}
-        isExpanded={isExpanded}
-        isDragging={isDragging}
-        dragHandleProps={{ attributes, listeners, setActivatorNodeRef }}
-        onSelectGroup={handleSelectGroup}
-        onToggleExpand={onToggleExpand}
-        onToggleVisibility={onToggleVisibility}
-        onRenameGroup={onRenameGroup}
-        onAddLayer={onAddLayer}
-        onUngroup={onUngroup}
-        onDeleteGroup={onDeleteGroup}
-        isMultiSelected={isMultiSelected}
-        isMultiSelectionActive={isMultiSelectionActive}
-        onCmdClick={onCmdClick}
-        onShiftClick={onShiftClick}
-        onCheckboxClick={onCheckboxClick}
-      />
-    </div>
-  );
-});
 
 // ---------------------------------------------------------------------------
 // SublayerRow — basemap sublayer row (useSortable disabled — cannot be dragged)
@@ -588,16 +236,15 @@ const SublayerRow = memo(function SublayerRow({
         <span className="truncate text-sm block">{sublayer.name}</span>
       </div>
 
-      {/* Cell 6: Config-state indicators (Phase 1051 UX-02 — replaces opacity slider) */}
-      {/* Indicators derive from full MapLayerResponse config (label_config, filter,
-          data-driven paint, opacity). BasemapSublayerInfo only carries id/name/visible/
-          opacity/kind, so per UI-SPEC §UX-02 footnote the indicator strip renders empty
-          for basemap sublayers in this build (acceptable — opacity-only diffs surface
-          via the LayerEditorPanel flyout). Plumbing the full layer through is a
-          deferred enhancement once basemap sublayers gain user-editable filter/label. */}
-      <div className="flex items-center">
-        <SublayerConfigIndicators layer={null} />
-      </div>
+      {/* Cell 6: Config-state indicators slot (Phase 1051 UX-02 — replaces opacity slider).
+          builder-audit #338 DEAD-02: SublayerConfigIndicators was always rendered with
+          layer={null} here (BasemapSublayerInfo only carries id/name/visible/opacity/kind,
+          not the full MapLayerResponse the indicators derive from), so its entire logic was
+          unreachable in production. The always-null render is removed; this slot stays empty.
+          Deferred enhancement: plumb the full layer through and re-add the indicator strip
+          once basemap sublayers gain user-editable filter/label config — see
+          SublayerConfigIndicators.tsx. */}
+      <div className="flex items-center" aria-hidden="true" />
 
       {/* Cell 7: Kebab — hidden for basemap sublayers (per UI-SPEC) */}
       <span aria-hidden="true" style={{ visibility: 'hidden' }} className="h-[22px] w-[22px]" />
@@ -605,64 +252,6 @@ const SublayerRow = memo(function SublayerRow({
   );
 });
 /* eslint-enable jsx-a11y/no-static-element-interactions, jsx-a11y/no-noninteractive-tabindex */
-
-// ---------------------------------------------------------------------------
-// CatalogDragGhost — compact pill shown in DragOverlay during a catalog drag.
-// Rendered instead of the intra-stack StackRow ghost so the overlay accurately
-// represents a "new-dataset-to-be-added" rather than an existing stack row.
-// Exported so vitest can import and assert on it directly.
-// ---------------------------------------------------------------------------
-
-export function CatalogDragGhost({
-  recordType,
-  name,
-}: {
-  recordType: string;
-  name: string;
-}) {
-  // Type-icon swatch palette per UI-SPEC section 2.
-  // Basemap → primary-50/primary-700; raster/vrt → type-raster-bg/type-raster; default (vector) → type-vector-bg/type-vector.
-  let swatchBg: string;
-  let swatchColor: string;
-  let swatchGlyph: string;
-  if (recordType === 'basemap') {
-    swatchBg = 'var(--primary-50, oklch(0.97 0.02 250))';
-    swatchColor = 'var(--primary-700, oklch(0.40 0.15 250))';
-    swatchGlyph = 'B';
-  } else if (recordType === 'raster_dataset' || recordType === 'vrt_dataset') {
-    swatchBg = 'var(--type-raster-bg, oklch(0.95 0.04 60))';
-    swatchColor = 'var(--type-raster, oklch(0.55 0.12 60))';
-    swatchGlyph = 'R';
-  } else {
-    // vector_dataset or unknown
-    swatchBg = 'var(--type-vector-bg, oklch(0.95 0.04 145))';
-    swatchColor = 'var(--type-vector, oklch(0.45 0.12 145))';
-    swatchGlyph = 'V';
-  }
-
-  return (
-    <div
-      data-testid="catalog-ghost"
-      className="pointer-events-none flex items-center gap-2 rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 cursor-grabbing"
-      style={{
-        boxShadow: '0 4px 12px oklch(0 0 0 / 15%)',
-        maxWidth: 260,
-        minHeight: 36,
-      }}
-    >
-      {/* Type swatch */}
-      <span
-        aria-hidden="true"
-        className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded"
-        style={{ background: swatchBg, color: swatchColor }}
-      >
-        <span className="text-[10px] font-semibold uppercase">{swatchGlyph}</span>
-      </span>
-      {/* Dataset name */}
-      <span className="truncate text-sm" style={{ maxWidth: 200 }}>{name}</span>
-    </div>
-  );
-}
 
 // ---------------------------------------------------------------------------
 // Main panel
@@ -673,24 +262,12 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
   selectedLayerId,
   onSelectLayer,
   onToggleVisibility,
-  // onReorder is intentionally not destructured here — Phase 1040 lifted DragEnd
-  // to MapBuilderPage which calls layers.handleReorder directly. The prop is kept
-  // in the interface for call-site compatibility (MapBuilderPage still passes it).
-  // onOpacityChange is intentionally not destructured here — the basemap-group
-  // wrapper hard-codes `() => {}` (opacity goes through Scene B's master slider),
-  // FolderGroupRow no longer renders a row slider (quick task 260515-sqf), and
-  // StackRow no longer renders a row slider (quick task 260515-rdn). The prop is
-  // kept in the interface for call-site compatibility (MapBuilderPage still
-  // passes it, and `handlers.onOpacityChange` still feeds LayerEditorPanel).
-  //
-  // onSublayerOpacityChange is also intentionally not destructured here as of
-  // Phase 1051 UX-02 — the per-sublayer-row Slider was removed in favour of
-  // SublayerConfigIndicators. Opacity editing now happens in the LayerEditorPanel
-  // flyout (BasemapSublayerEditorScene + BasemapGroupEditorScene), and MapBuilderPage
-  // passes the handler directly to those scenes. The prop is kept in the
-  // UnifiedStackPanelProps interface for call-site compatibility (MapBuilderPage
-  // still passes it through; removing the prop pass is a follow-up cleanup that
-  // would touch MapBuilderPage and is intentionally out of scope for this plan).
+  // builder-audit #338 STACK-05: onReorder / onOpacityChange / onSublayerOpacityChange
+  // are deliberately NOT destructured here — drag-reorder is lifted to
+  // MapBuilderPage and all opacity editing moved to the LayerEditorPanel flyout.
+  // The props remain on UnifiedStackPanelProps only for call-site compatibility
+  // (MapBuilderPage still passes them through to other scenes); they are inert in
+  // this component.
   onRemove,
   onRename,
   onDuplicate,
@@ -947,9 +524,9 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
           group={basemapGroup}
           selected={basemapGroup.id === selectedLayerId}
           isExpanded={isBasemapExpanded}
-          // Phase 1199 STACK-02: the eye is now a real, enabled toggle wired to the
-          // session-local basemap-visibility state in MapBuilderPage. (visibilityDisabled
-          // remains a supported prop for other call paths but is no longer passed here.)
+          // Phase 1199 STACK-02: the eye is a real, enabled toggle wired to the
+          // session-local basemap-visibility state in MapBuilderPage. (builder-audit
+          // STACK-06 removed the dead visibilityDisabled locked-eye branch.)
           onSelectGroup={onSelectLayer}
           onToggleExpand={safeToggleGroupExpand}
           onToggleVisibility={safeToggleBasemapVisibility}

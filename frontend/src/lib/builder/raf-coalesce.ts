@@ -17,6 +17,15 @@
  * and keeps SSR rendering correct.
  */
 
+// builder-audit #338 SYNC-09 (single-builder-instance assumption): `pending` is a
+// process-global map keyed ONLY by the coalesce key (e.g. `paint:${layerId}`),
+// with no map-instance discriminator. This is intentional for the current
+// single-live-builder use case — exactly one BuilderMap is mounted at a time and
+// `layer.id` is globally unique, and each queued fn captures its own map/input,
+// so there is no cross-instance interference. If two map surfaces with
+// overlapping layer ids are ever mounted concurrently (e.g. a builder plus an
+// embedded preview), their writes would last-write-wins clobber on the shared
+// frame; in that case include a map-instance discriminator in the coalesce key.
 const pending = new Map<string, () => void>();
 let rafHandle: number | null = null;
 

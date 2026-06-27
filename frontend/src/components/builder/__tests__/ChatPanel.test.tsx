@@ -178,7 +178,9 @@ describe('ChatPanel', () => {
     await typeAndSend(user, 'filter to parks');
 
     await waitFor(() => {
-      expect(props.onFilterChange).toHaveBeenCalledWith('layer-1', ['==', 'type', 'park']);
+      // builder-audit #338 P1-13: AI filters are validated + normalized through the shared
+      // filter contract before apply, so the legacy bare-field form is canonicalized.
+      expect(props.onFilterChange).toHaveBeenCalledWith('layer-1', ['==', ['get', 'type'], 'park']);
     });
     expect(await screen.findByText('Filtered to parks')).toBeInTheDocument();
   });
@@ -450,6 +452,98 @@ describe('ChatPanel', () => {
     // The clobbering per-field restore handlers are no longer used by undo.
     expect(props.onStyleConfigChange).not.toHaveBeenCalled();
     expect(props.onLabelChange).not.toHaveBeenCalled();
+  });
+
+  it('STALE-01: a query-only turn after a style edit does not leave a stale undo button', async () => {
+    mockStreamChat
+      .mockImplementationOnce(async function* () {
+        yield {
+          event: 'actions',
+          data: { actions: [{ type: 'set_style', layer_id: 'layer-1', paint: { 'fill-color': '#ff0000' } }] },
+        };
+        yield { event: 'done', data: { explanation: 'Styled' } };
+      })
+      .mockImplementationOnce(async function* () {
+        yield {
+          event: 'actions',
+          data: { actions: [{ type: 'show_query_result', rows: [['x']], columns: ['name'], row_count: 1 }] },
+        };
+        yield { event: 'done', data: { explanation: 'Here are your results' } };
+      });
+
+    const user = userEvent.setup();
+    renderPanel();
+
+    await typeAndSend(user, 'make it red');
+    expect(await screen.findByText('Styled')).toBeInTheDocument();
+    // Undo is offered after a replay-safe style turn.
+    expect(await screen.findByRole('button', { name: /undo/i })).toBeInTheDocument();
+
+    await typeAndSend(user, 'how many parks');
+    expect(await screen.findByText('Here are your results')).toBeInTheDocument();
+
+    // STALE-01: the snapshot is reset at the start of every turn, so the query-only
+    // turn (which captures no snapshot) cannot leave a stale Undo button that would
+    // revert the earlier, unrelated style edit.
+    await waitFor(() => {
+      expect(screen.queryByRole('button', { name: /undo/i })).not.toBeInTheDocument();
+    });
+  });
+
+  it('Applied-N nit: a pure query-result turn does not render "Applied N changes"', async () => {
+    mockStreamChat.mockImplementation(async function* () {
+      yield {
+        event: 'actions',
+        data: { actions: [{ type: 'show_query_result', rows: [['x']], columns: ['name'], row_count: 1 }] },
+      };
+      yield { event: 'done', data: { explanation: 'Results' } };
+    });
+    const user = userEvent.setup();
+    renderPanel();
+    await typeAndSend(user, 'how many parks');
+    expect(await screen.findByText('Results')).toBeInTheDocument();
+    // show_query_result mutates nothing — the "Applied N changes" line must not appear.
+    expect(screen.queryByText(/applied/i)).not.toBeInTheDocument();
+  });
+
+  it('P1-13: an invalid AI set_filter expression is rejected and never applied', async () => {
+    mockStreamChat.mockImplementation(async function* () {
+      yield {
+        event: 'actions',
+        // Legacy bare-field "in" form — rejected by the shared filter validator.
+        data: { actions: [{ type: 'set_filter', layer_id: 'layer-1', expression: ['in', 'type', 'a', 'b'] }] },
+      };
+      yield { event: 'done', data: { explanation: 'Tried to filter' } };
+    });
+    const user = userEvent.setup();
+    const props = renderPanel();
+    await typeAndSend(user, 'filter');
+    expect(await screen.findByText('Tried to filter')).toBeInTheDocument();
+    expect(props.onFilterChange).not.toHaveBeenCalled();
+  });
+
+  it('P1-13: a valid compound AI set_filter expression is applied', async () => {
+    mockStreamChat.mockImplementation(async function* () {
+      yield {
+        event: 'actions',
+        data: {
+          actions: [{
+            type: 'set_filter',
+            layer_id: 'layer-1',
+            expression: ['all', ['==', ['get', 'type'], 'park'], ['>', ['get', 'area'], 10]],
+          }],
+        },
+      };
+      yield { event: 'done', data: { explanation: 'Filtered' } };
+    });
+    const user = userEvent.setup();
+    const props = renderPanel();
+    await typeAndSend(user, 'filter');
+    await waitFor(() => {
+      expect(props.onFilterChange).toHaveBeenCalledWith('layer-1', [
+        'all', ['==', ['get', 'type'], 'park'], ['>', ['get', 'area'], 10],
+      ]);
+    });
   });
 
   it('does not offer undo for remove_layer actions (requires staging accept)', async () => {

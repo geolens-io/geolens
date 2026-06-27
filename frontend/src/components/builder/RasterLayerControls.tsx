@@ -1,34 +1,15 @@
 import { RotateCcw } from 'lucide-react';
-import { Slider } from '@/components/ui/slider';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { formatNumber } from '@/lib/format';
 import { useTranslation } from 'react-i18next';
-import { StyleColorPicker } from './StyleColorPicker';
 import { RasterStretchControls } from './LayerStyleEditor/RasterStretchControls';
-import { normalizeHillshadeExaggeration } from './layer-adapters/hillshade-adapter';
-const RASTER_PAINT_KEYS = [
-  'raster-brightness-min',
-  'raster-brightness-max',
-  'raster-contrast',
-  'raster-saturation',
-  'raster-hue-rotate',
-  'raster-resampling',
-  'raster-fade-duration',
-] as const;
+import { RasterAppearanceSliders, RasterSliderRow } from './RasterAppearanceSliders';
+import { RASTER_PAINT_DEFAULTS } from './layer-adapters/raster-adapter';
 
-type RasterPaintKey = typeof RASTER_PAINT_KEYS[number];
-
-const HILLSHADE_PAINT_KEYS = [
-  'hillshade-illumination-direction',
-  'hillshade-illumination-anchor',
-  'hillshade-exaggeration',
-  'hillshade-shadow-color',
-  'hillshade-highlight-color',
-  'hillshade-accent-color',
-] as const;
-
-type HillshadePaintKey = typeof HILLSHADE_PAINT_KEYS[number];
+// builder-audit #338 DUP-02: derive the reset allowlist from the adapter's
+// RASTER_PAINT_DEFAULTS (the documented single source of truth / paint-key
+// allowlist) instead of re-hardcoding the 7 keys here.
+const RASTER_PAINT_KEYS = Object.keys(RASTER_PAINT_DEFAULTS) as (keyof typeof RASTER_PAINT_DEFAULTS)[];
 
 interface RasterLayerControlsProps {
   paint: Record<string, unknown>;
@@ -41,6 +22,11 @@ interface RasterLayerControlsProps {
   bandCount?: number | null;
 }
 
+// builder-audit #338 DEAD-01 / DUP-01: this control is raster-only. The former
+// renderMode==='hillshade' branch was unreachable dead code — DEM layers route to
+// DEMEditorScene (the single hillshade editor) via deriveBuilderEditorScene, never to
+// LayerEditorPanel/RasterLayerControls. The hillshade UI + HILLSHADE_PAINT_KEYS + getString
+// were deleted. isDem is retained only to suppress the stretch/colormap section for DEMs.
 export function RasterLayerControls({
   paint,
   onPaintChange,
@@ -50,32 +36,14 @@ export function RasterLayerControls({
   bandCount = null,
 }: RasterLayerControlsProps) {
   const { t } = useTranslation('builder');
-  const renderMode = isDem ? 'hillshade' : 'raster';
-  const brightnessMin = getNumber('raster-brightness-min', 0);
-  const brightnessMax = getNumber('raster-brightness-max', 1);
-  const hasBrightnessRangeError = renderMode === 'raster' && brightnessMin > brightnessMax;
 
-  function getNumber(key: RasterPaintKey | HillshadePaintKey, fallback: number): number {
-    return typeof paint[key] === 'number' ? paint[key] : fallback;
-  }
-
-  function getString(key: HillshadePaintKey, fallback: string): string {
-    return typeof paint[key] === 'string' ? paint[key] : fallback;
-  }
-
-  function setPaintValue(key: RasterPaintKey | HillshadePaintKey, value: number | string) {
-    const nextValue = key === 'hillshade-exaggeration' && typeof value === 'number'
-      ? normalizeHillshadeExaggeration(value)
-      : value;
-    onPaintChange({ ...paint, [key]: nextValue });
-  }
+  const setPaintProp = (key: string, value: unknown) => {
+    onPaintChange({ ...paint, [key]: value });
+  };
 
   function handleReset() {
     const nextPaint = { ...paint };
     for (const key of RASTER_PAINT_KEYS) {
-      delete nextPaint[key];
-    }
-    for (const key of HILLSHADE_PAINT_KEYS) {
       delete nextPaint[key];
     }
     onPaintChange(nextPaint);
@@ -100,131 +68,17 @@ export function RasterLayerControls({
         </Button>
       </div>
       <p className="text-[11px] leading-snug text-muted-foreground">
-        {renderMode === 'hillshade'
-          ? t('style.hillshade.help', { defaultValue: 'Tune the relief overlay generated from this DEM layer.' })
-          : t('style.raster.help', { defaultValue: 'Adjust imagery appearance for this layer only.' })}
+        {t('style.raster.help', { defaultValue: 'Adjust imagery appearance for this layer only.' })}
       </p>
 
-      {renderMode === 'hillshade' ? (
-        <>
-          <RasterSliderRow
-            label={t('style.hillshade.direction', { defaultValue: 'Direction' })}
-            value={getNumber('hillshade-illumination-direction', 335)}
-            min={0}
-            max={359}
-            step={1}
-            suffix="deg"
-            onChange={(v) => setPaintValue('hillshade-illumination-direction', v)}
-          />
-          <div className="flex items-center gap-2">
-            <span className="w-28 shrink-0 text-xs text-muted-foreground">
-              {t('style.hillshade.anchor', { defaultValue: 'Anchor' })}
-            </span>
-            <Select
-              value={getString('hillshade-illumination-anchor', 'viewport')}
-              onValueChange={(v) => setPaintValue('hillshade-illumination-anchor', v)}
-            >
-              <SelectTrigger
-                aria-label={t('style.hillshade.anchor', { defaultValue: 'Anchor' })}
-                className="h-8 flex-1 text-xs"
-              >
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="viewport" className="text-xs">
-                  {t('style.hillshade.anchorViewport', { defaultValue: 'Viewport' })}
-                </SelectItem>
-                <SelectItem value="map" className="text-xs">
-                  {t('style.hillshade.anchorMap', { defaultValue: 'Map' })}
-                </SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <RasterSliderRow
-            label={t('style.hillshade.exaggeration', { defaultValue: 'Relief' })}
-            value={normalizeHillshadeExaggeration(getNumber('hillshade-exaggeration', 0.5))}
-            min={0}
-            max={1}
-            step={0.05}
-            onChange={(v) => setPaintValue('hillshade-exaggeration', v)}
-          />
-          <StyleColorPicker
-            label={t('style.hillshade.shadow', { defaultValue: 'Shadow' })}
-            color={getString('hillshade-shadow-color', '#000000')}
-            onChange={(v) => setPaintValue('hillshade-shadow-color', v)}
-          />
-          <StyleColorPicker
-            label={t('style.hillshade.highlight', { defaultValue: 'Highlight' })}
-            color={getString('hillshade-highlight-color', '#ffffff')}
-            onChange={(v) => setPaintValue('hillshade-highlight-color', v)}
-          />
-          <StyleColorPicker
-            label={t('style.hillshade.accent', { defaultValue: 'Accent' })}
-            color={getString('hillshade-accent-color', '#000000')}
-            onChange={(v) => setPaintValue('hillshade-accent-color', v)}
-          />
-        </>
-      ) : (
-        <>
-      <RasterSliderRow
-        label={t('style.raster.brightnessMin', { defaultValue: 'Brightness min' })}
-        value={brightnessMin}
-        min={0}
-        max={1}
-        step={0.01}
-        format="percent"
-        onChange={(v) => setPaintValue('raster-brightness-min', v)}
+      <RasterAppearanceSliders
+        paint={paint}
+        onPaintProp={setPaintProp}
+        t={t}
+        showBrightnessMax
+        showFade
       />
-      <RasterSliderRow
-        label={t('style.raster.brightnessMax', { defaultValue: 'Brightness max' })}
-        value={brightnessMax}
-        min={0}
-        max={1}
-        step={0.01}
-        format="percent"
-        onChange={(v) => setPaintValue('raster-brightness-max', v)}
-      />
-      {hasBrightnessRangeError && (
-        <p className="rounded-md bg-warning/15 px-2 py-1.5 text-[11px] leading-snug text-warning-foreground">
-          {t('style.raster.brightnessRangeError', { defaultValue: 'Brightness min must be less than or equal to brightness max.' })}
-        </p>
-      )}
-      <RasterSliderRow
-        label={t('style.raster.contrast', { defaultValue: 'Contrast' })}
-        value={getNumber('raster-contrast', 0)}
-        min={-1}
-        max={1}
-        step={0.05}
-        signed
-        onChange={(v) => setPaintValue('raster-contrast', v)}
-      />
-      <RasterSliderRow
-        label={t('style.raster.saturation', { defaultValue: 'Saturation' })}
-        value={getNumber('raster-saturation', 0)}
-        min={-1}
-        max={1}
-        step={0.05}
-        signed
-        onChange={(v) => setPaintValue('raster-saturation', v)}
-      />
-      <RasterSliderRow
-        label={t('style.raster.hueRotate', { defaultValue: 'Hue' })}
-        value={getNumber('raster-hue-rotate', 0)}
-        min={0}
-        max={360}
-        step={1}
-        suffix="deg"
-        onChange={(v) => setPaintValue('raster-hue-rotate', v)}
-      />
-      <RasterSliderRow
-        label={t('style.raster.fadeDuration', { defaultValue: 'Fade' })}
-        value={getNumber('raster-fade-duration', 300)}
-        min={0}
-        max={1000}
-        step={50}
-        suffix="ms"
-        onChange={(v) => setPaintValue('raster-fade-duration', v)}
-      />
+
       {onOpacityChange && (
         <RasterSliderRow
           label={t('style.raster.opacity', { defaultValue: 'Opacity' })}
@@ -243,7 +97,7 @@ export function RasterLayerControls({
         </span>
         <Select
           value={paint['raster-resampling'] === 'nearest' ? 'nearest' : 'linear'}
-          onValueChange={(v) => setPaintValue('raster-resampling', v as 'linear' | 'nearest')}
+          onValueChange={(v) => setPaintProp('raster-resampling', v as 'linear' | 'nearest')}
         >
           <SelectTrigger className="h-8 flex-1 text-xs">
             <SelectValue />
@@ -266,67 +120,10 @@ export function RasterLayerControls({
       <RasterStretchControls
         bandCount={bandCount}
         paint={paint}
-        onPaintProp={(key, value) => onPaintChange({ ...paint, [key]: value })}
+        onPaintProp={setPaintProp}
         isDem={isDem}
         t={t}
       />
-        </>
-      )}
     </div>
   );
-}
-
-interface RasterSliderRowProps {
-  label: string;
-  value: number;
-  min: number;
-  max: number;
-  step: number;
-  onChange: (value: number) => void;
-  format?: 'percent';
-  signed?: boolean;
-  suffix?: string;
-}
-
-function RasterSliderRow({
-  label,
-  value,
-  min,
-  max,
-  step,
-  onChange,
-  format,
-  signed,
-  suffix,
-}: RasterSliderRowProps) {
-  return (
-    <div className="flex items-center gap-2">
-      <span className="w-28 shrink-0 text-xs text-muted-foreground">{label}</span>
-      <Slider
-        min={min}
-        max={max}
-        step={step}
-        value={[value]}
-        onValueChange={([v]) => onChange(v)}
-        className="flex-1"
-        aria-label={label}
-      />
-      <span className="w-12 shrink-0 text-end text-xs tabular-nums text-muted-foreground">
-        {formatRasterValue(value, { format, signed, suffix })}
-      </span>
-    </div>
-  );
-}
-
-function formatRasterValue(
-  value: number,
-  options: Pick<RasterSliderRowProps, 'format' | 'signed' | 'suffix'>,
-) {
-  if (options.format === 'percent') {
-    return formatNumber(value, { style: 'percent', maximumFractionDigits: 0 });
-  }
-
-  const formatted = formatNumber(value, { maximumFractionDigits: 2 });
-  const prefix = options.signed && value > 0 ? '+' : '';
-  return `${prefix}${formatted}${options.suffix ?? ''}`;
 }

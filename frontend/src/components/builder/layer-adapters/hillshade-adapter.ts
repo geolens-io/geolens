@@ -1,15 +1,11 @@
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { AdapterLayerInput, LayerAdapter } from './types';
-import { paintValueChanged } from './shared';
+import { normalizeRasterBounds, paintValueChanged, syncSingleLayerVisibility } from './shared';
+import { DEFAULT_HILLSHADE_PAINT } from './builder-defaults';
 
-export const HILLSHADE_PAINT_DEFAULTS = {
-  'hillshade-illumination-direction': 335,
-  'hillshade-illumination-anchor': 'viewport',
-  'hillshade-exaggeration': 0.5,
-  'hillshade-shadow-color': '#000000',
-  'hillshade-highlight-color': '#ffffff',
-  'hillshade-accent-color': '#000000',
-} as const;
+// builder-audit #338 ADAPT-06: re-export the single hillshade default from builder-defaults
+// (was a byte-identical local copy that diverged from renderAs's DEFAULT_HILLSHADE_PAINT).
+export const HILLSHADE_PAINT_DEFAULTS = DEFAULT_HILLSHADE_PAINT;
 
 type HillshadePaintProperty = keyof typeof HILLSHADE_PAINT_DEFAULTS;
 
@@ -26,12 +22,6 @@ const HILLSHADE_COLOR_PROPERTIES = [
 export function normalizeHillshadeExaggeration(value: number | null | undefined): number {
   if (!Number.isFinite(value)) return HILLSHADE_PAINT_DEFAULTS['hillshade-exaggeration'];
   return Math.min(Math.max(value as number, HILLSHADE_EXAGGERATION_MIN), HILLSHADE_EXAGGERATION_MAX);
-}
-
-function normalizeRasterBounds(bounds: number[] | null | undefined) {
-  if (!Array.isArray(bounds) || bounds.length !== 4) return undefined;
-  if (!bounds.every((value) => Number.isFinite(value))) return undefined;
-  return [bounds[0], bounds[1], bounds[2], bounds[3]] as [number, number, number, number];
 }
 
 function getSupportedHillshadePaint(
@@ -131,13 +121,16 @@ export const hillshadeAdapter: LayerAdapter = {
   addLayers(map: MaplibreMap, input: AdapterLayerInput): void {
     const { layerId, sourceId, tileUrl, tileSize, minzoom, maxzoom, visible, bounds } = input;
     if (!map.getSource(sourceId)) {
+      // builder-audit #338 ADAPT-01: shared normalizeRasterBounds, computed once instead
+      // of the prior double-call inside the spread ternary.
+      const normalizedBounds = normalizeRasterBounds(bounds);
       map.addSource(sourceId, {
         type: 'raster-dem',
         tiles: [`${window.location.origin}${tileUrl}`],
         tileSize: tileSize ?? 256,
         minzoom: minzoom ?? 0,
         maxzoom: maxzoom ?? 18,
-        ...(normalizeRasterBounds(bounds) ? { bounds: normalizeRasterBounds(bounds) } : {}),
+        ...(normalizedBounds ? { bounds: normalizedBounds } : {}),
         encoding: 'mapbox',
       });
     }
@@ -172,18 +165,15 @@ export const hillshadeAdapter: LayerAdapter = {
       }
     }
 
-    const vis = visible ? 'visible' : 'none';
-    if (map.getLayoutProperty(layerId, 'visibility') !== vis) {
-      map.setLayoutProperty(layerId, 'visibility', vis);
-    }
+    // builder-audit #338 ADAPT-09: reconcile visibility through the SAME shared helper the
+    // vector adapters use, instead of a hand-rolled setLayoutProperty. syncRasterLayer
+    // (map-sync) calls syncPaint without a following syncVisibility for the raster/DEM
+    // path, so visibility must still be reconciled here — but now uniformly.
+    syncSingleLayerVisibility(map, layerId, visible);
   },
 
   syncVisibility(map: MaplibreMap, input: AdapterLayerInput): void {
-    const { layerId, visible } = input;
-    const vis = visible ? 'visible' : 'none';
-    if (map.getLayer(layerId)) {
-      map.setLayoutProperty(layerId, 'visibility', vis);
-    }
+    syncSingleLayerVisibility(map, input.layerId, input.visible);
   },
 
   getLayerIds(layerId: string): string[] {

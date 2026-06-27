@@ -88,21 +88,25 @@ export function RasterStretchControls({
           {isSingleBand && (
             <div className="flex items-center gap-2">
               <span className="w-28 shrink-0 text-xs text-muted-foreground">
-                {t('style.raster.colormapLabel')}
+                {t('style.raster.colormapLabel', { defaultValue: 'Colormap' })}
               </span>
+              {/* builder-audit #338 DUP-03: these 8 colormap values are hand-mirrored against the
+                  backend validator _ALLOWED_COLORMAPS (backend/app/processing/tiles/router.py:459-461),
+                  which 422s anything not in that frozenset. There is no codegen guard — adding or
+                  renaming a colormap on either side must be mirrored here (and vice-versa). */}
               <Select value={currentColormap} onValueChange={(v) => onPaintProp('_colormap', v)}>
                 <SelectTrigger className="h-8 text-xs flex-1">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="gray">{t('style.raster.colormapGray')}</SelectItem>
-                  <SelectItem value="viridis">{t('style.raster.colormapViridis')}</SelectItem>
-                  <SelectItem value="inferno">{t('style.raster.colormapInferno')}</SelectItem>
-                  <SelectItem value="plasma">{t('style.raster.colormapPlasma')}</SelectItem>
-                  <SelectItem value="magma">{t('style.raster.colormapMagma')}</SelectItem>
-                  <SelectItem value="ylorrd">{t('style.raster.colormapYlorrd')}</SelectItem>
-                  <SelectItem value="bugn">{t('style.raster.colormapBugn')}</SelectItem>
-                  <SelectItem value="terrain">{t('style.raster.colormapTerrain')}</SelectItem>
+                  <SelectItem value="gray">{t('style.raster.colormapGray', { defaultValue: 'Grayscale' })}</SelectItem>
+                  <SelectItem value="viridis">{t('style.raster.colormapViridis', { defaultValue: 'Viridis' })}</SelectItem>
+                  <SelectItem value="inferno">{t('style.raster.colormapInferno', { defaultValue: 'Inferno' })}</SelectItem>
+                  <SelectItem value="plasma">{t('style.raster.colormapPlasma', { defaultValue: 'Plasma' })}</SelectItem>
+                  <SelectItem value="magma">{t('style.raster.colormapMagma', { defaultValue: 'Magma' })}</SelectItem>
+                  <SelectItem value="ylorrd">{t('style.raster.colormapYlorrd', { defaultValue: 'Yellow-Red' })}</SelectItem>
+                  <SelectItem value="bugn">{t('style.raster.colormapBugn', { defaultValue: 'Blue-Green' })}</SelectItem>
+                  <SelectItem value="terrain">{t('style.raster.colormapTerrain', { defaultValue: 'Terrain' })}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -113,16 +117,16 @@ export function RasterStretchControls({
               Titiler /cog/statistics. Visible for all band_count >= 1 (RASTER-STRETCH-03). */}
           <div className="flex items-center gap-2">
             <span className="w-28 shrink-0 text-xs text-muted-foreground">
-              {t('style.raster.stretchLabel')}
+              {t('style.raster.stretchLabel', { defaultValue: 'Stretch' })}
             </span>
             <Select value={currentStretch} onValueChange={(v) => onPaintProp('_stretch', v)}>
               <SelectTrigger className="h-8 text-xs flex-1">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="minmax">{t('style.raster.stretchMinmax')}</SelectItem>
-                <SelectItem value="percentile">{t('style.raster.stretchPercentile')}</SelectItem>
-                <SelectItem value="stddev">{t('style.raster.stretchStddev')}</SelectItem>
+                <SelectItem value="minmax">{t('style.raster.stretchMinmax', { defaultValue: 'Min/Max' })}</SelectItem>
+                <SelectItem value="percentile">{t('style.raster.stretchPercentile', { defaultValue: 'Percentile' })}</SelectItem>
+                <SelectItem value="stddev">{t('style.raster.stretchStddev', { defaultValue: 'Std Deviation' })}</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -131,7 +135,7 @@ export function RasterStretchControls({
           {currentStretch === 'percentile' && (
             <div className="flex gap-2">
               <div className="flex-1 flex flex-col gap-1">
-                <Label className="text-xs text-muted-foreground">{t('style.raster.pminLabel')}</Label>
+                <Label className="text-xs text-muted-foreground">{t('style.raster.pminLabel', { defaultValue: 'Low %' })}</Label>
                 <input
                   type="number"
                   className="h-8 text-xs w-full rounded-md border border-input bg-background px-2"
@@ -143,7 +147,7 @@ export function RasterStretchControls({
                 />
               </div>
               <div className="flex-1 flex flex-col gap-1">
-                <Label className="text-xs text-muted-foreground">{t('style.raster.pmaxLabel')}</Label>
+                <Label className="text-xs text-muted-foreground">{t('style.raster.pmaxLabel', { defaultValue: 'High %' })}</Label>
                 <input
                   type="number"
                   className="h-8 text-xs w-full rounded-md border border-input bg-background px-2"
@@ -161,7 +165,7 @@ export function RasterStretchControls({
           {currentStretch === 'stddev' && (
             <div className="flex items-center gap-2">
               <Label className="w-28 shrink-0 text-xs text-muted-foreground">
-                {t('style.raster.sigmaLabel')}
+                {t('style.raster.sigmaLabel', { defaultValue: 'Sigma (σ)' })}
               </Label>
               <div className="flex gap-1">
                 {([1, 2, 3] as const).map((v) => (
@@ -188,7 +192,7 @@ export function RasterStretchControls({
               shown when stretch is not minmax AND colormap is not gray */}
           {isSingleBand && currentStretch !== 'minmax' && currentColormap !== 'gray' && (
             <p role="note" className="text-[11px] leading-snug text-muted-foreground">
-              {t('style.raster.stretchColormapHint')}
+              {t('style.raster.stretchColormapHint', { defaultValue: 'Stretch sets the input range for the colormap.' })}
             </p>
           )}
         </div>

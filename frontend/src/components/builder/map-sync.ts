@@ -4,21 +4,33 @@ import { toast } from 'sonner';
 import type { MapBasemapConfig, MapLayerResponse, LabelConfig, StyleConfig, MapTerrainConfig } from '@/types/api';
 import type { RasterTileToken, TileToken, VectorTileToken } from '@/api/tiles';
 import i18n from '@/i18n/i18n';
-import { buildClusterTileUrl, buildSignedTileUrl } from '@/lib/tile-utils';
-import { applyBasemapConfigToStyle, isLandLayer, isWaterLayer } from '@/lib/basemap-utils';
+import { buildClusterTileUrl, buildSignedTileUrl, getMvtSourceLayerName } from '@/lib/tile-utils';
+import {
+  applyBasemapConfigToStyle,
+  isBasemapOwnedLayer,
+  isLandLayer,
+  isWaterLayer,
+} from '@/lib/basemap-utils';
 import { sanitizeNullableNumericFilter } from '@/lib/maplibre-filter-utils';
 import { isFolderGroupLayer } from '@/lib/layer-capabilities';
 import { effectiveDemRenderMode, normalizeDemStyleConfig } from '@/lib/dem-render-mode';
 import { getAdapter } from './layer-adapters/registry';
-import type { AdapterLayerInput } from './layer-adapters/types';
+import type { AdapterLayerInput, LayerAdapter } from './layer-adapters/types';
 import { buildLabelLayerSpec, syncLabelLayer } from './label-layer-utils';
 import { clusterCircleLayerId, clusterCountLayerId, getClusterSourceOptions } from './layer-adapters/cluster-adapter';
 import { getClusterSourceStrategy } from './cluster-source';
 import { syncColorReliefLayer } from './color-relief-sync';
 import { buildColormapTileUrl } from './layer-adapters/raster-adapter';
+import { getCompanionLayerIds, COLOR_RELIEF_SUFFIX } from './companion-ids';
 
 // Shared utilities — imported for local use and re-exported for backward compatibility
-import { getLayerType, resolveAdapterType } from './layer-adapters/shared';
+import { getLayerType, resolveAdapterType, normalizeRasterBounds } from './layer-adapters/shared';
+// builder-audit #338 SYNC-01: re-export the SINGLE isTerrainCapableDemLayer predicate
+// from map-stack so the legend, the delete-time terrain-clear check, AND the 3D
+// mesh resolver (BuilderMap imports it from here) all consume one function. The
+// previous local copy meant the mesh resolver used a different definition that
+// could silently drift from the legend/stack copy.
+export { isTerrainCapableDemLayer } from './map-stack';
 // Re-export for backward compatibility with existing consumers
 export {
   CUSTOM_PAINT_PROPS,
@@ -42,14 +54,6 @@ export const MAP_STACK_Z_ORDER_POLICY = [
   'user data labels',
 ] as const;
 
-export function isTerrainCapableDemLayer(layer: {
-  is_dem?: boolean | null;
-  dataset_record_type?: string | null;
-}) {
-  return layer.is_dem === true
-    && (layer.dataset_record_type === 'raster_dataset' || layer.dataset_record_type === 'vrt_dataset');
-}
-
 export function isDemTerrainVisualSuppressed(layer: {
   is_dem?: boolean | null;
   style_config?: Pick<StyleConfig, 'render_mode'> | null;
@@ -63,13 +67,9 @@ export function normalizeTerrainExaggeration(value: number | null | undefined) {
   return Math.min(Math.max(value as number, TERRAIN_EXAGGERATION_MIN), TERRAIN_EXAGGERATION_MAX);
 }
 
-type RasterBounds = [number, number, number, number];
-
-function normalizeRasterBounds(bounds: number[] | null | undefined): RasterBounds | undefined {
-  if (!Array.isArray(bounds) || bounds.length !== 4) return undefined;
-  if (!bounds.every((value) => Number.isFinite(value))) return undefined;
-  return [bounds[0], bounds[1], bounds[2], bounds[3]];
-}
+// builder-audit #338 ADAPT-01: normalizeRasterBounds now lives once in
+// layer-adapters/shared.ts and is imported above; the verbatim copies in
+// raster-adapter, hillshade-adapter, and this module collapse to one.
 
 function absolutizeTileUrl(tileUrl: string) {
   if (tileUrl.startsWith('http')) return tileUrl;
@@ -186,6 +186,14 @@ export interface SyncLayerInput {
   maxzoom?: number | null;
   bounds?: number[] | null;
   format?: string | null;
+  /** MVT-05: per-dataset attribution string for the vector/raster source spec
+   *  (rendered in the MapLibre attribution control). Optional — populated only
+   *  when the dataset carries a credit/licensing string. */
+  attribution?: string | null;
+  /** MVT-04: dataset content/version stamp threaded into the tile URL's
+   *  `_v=` cache-buster so a reupload/geometry edit busts client/CDN caches.
+   *  Optional — only emitted when a content version is available. */
+  tile_version?: string | null;
 }
 
 /** Options that vary between Builder and Viewer contexts. */
@@ -222,6 +230,9 @@ export function toSyncInput(layer: MapLayerResponse): SyncLayerInput {
     feature_count: layer.dataset_feature_count,
     layer_type: layer.layer_type,
     dataset_record_type: layer.dataset_record_type ?? null,
+    // MVT-06: surface the dataset spatial extent so the vector source can bound
+    // tile fetching to the data footprint (the raster path already passes bounds).
+    bounds: layer.dataset_extent_bbox ?? null,
   };
 }
 
@@ -255,7 +266,8 @@ export function reorderBasemapLabels(map: MaplibreMap, show: boolean, sourcePref
   if (!style?.layers) return;
 
   const basemapSymbolLayers = style.layers.filter(
-    (l) => l.type === 'symbol' && (!('source' in l) || !String(l.source ?? '').startsWith(sourcePrefix)),
+    // builder-audit #338 DUP-02: shared basemap-owned predicate.
+    (l) => l.type === 'symbol' && isBasemapOwnedLayer(l, sourcePrefix),
   );
 
   for (const layer of basemapSymbolLayers) {
@@ -270,8 +282,9 @@ export function reorderBasemapLabels(map: MaplibreMap, show: boolean, sourcePref
 }
 
 function basemapStyleLayers(style: StyleSpecification, sourcePrefix: string) {
-  return style.layers.filter(
-    (layer) => !('source' in layer) || !String(layer.source ?? '').startsWith(sourcePrefix),
+  // builder-audit #338 DUP-02: shared basemap-owned predicate.
+  return style.layers.filter((layer) =>
+    isBasemapOwnedLayer(layer, sourcePrefix),
   ) as StyleSpecification['layers'];
 }
 
@@ -307,9 +320,8 @@ export function reorderBasemapAboveData(
   for (const layer of style.layers) {
     // basemap layers do NOT have a source matching the data sourcePrefix.
     // 'source' may be undefined for some background-style layers — those count
-    // as basemap layers too.
-    const src = ('source' in layer) ? String(layer.source ?? '') : '';
-    if (src.startsWith(sourcePrefix)) continue;
+    // as basemap layers too. builder-audit #338 DUP-02: shared predicate.
+    if (!isBasemapOwnedLayer(layer, sourcePrefix)) continue;
     if (!map.getLayer(layer.id)) continue;
     // Never lift the opaque base fills (background / land / water) above the
     // data layers — doing so paints them over the data and makes a
@@ -388,14 +400,9 @@ export function prefixed(kind: 'source' | 'layer' | 'outline' | 'extrusion' | 'a
 }
 
 function removeKnownVectorLayers(map: MaplibreMap, layerId: string, id: string, prefix: string | undefined) {
-  const labelId = prefixed('label', id, prefix);
-  const arrowId = prefixed('arrow', id, prefix);
-  const extrusionId = prefixed('extrusion', id, prefix);
-  const outlineId = prefixed('outline', id, prefix);
-  const clusterCountId = clusterCountLayerId(layerId);
-  const clusterCircleId = clusterCircleLayerId(layerId);
-
-  for (const candidate of [labelId, arrowId, extrusionId, outlineId, clusterCountId, clusterCircleId, layerId]) {
+  // builder-audit #338 SYNC-04: every companion id derived from one helper.
+  const ids = getCompanionLayerIds(id, prefix);
+  for (const candidate of [ids.label, ids.arrow, ids.extrusion, ids.outline, ids.clusterCount, ids.cluster, layerId]) {
     if (map.getLayer(candidate)) map.removeLayer(candidate);
   }
 }
@@ -408,7 +415,14 @@ function syncLayerZoomRange(map: MaplibreMap, layerIds: string[], minzoom: numbe
   }
 }
 
+// builder-audit #338 SYNC-05: the cluster signature and the tile-url signature are
+// kept in SEPARATE per-map WeakMaps. They were previously crammed into one Map
+// (cluster key = sourceId, tile-url key = `${sourceId}::tileurl`), where a
+// single `signatureMap.delete(sourceId)` in the non-cluster block risked wiping
+// the tile-url guard if anyone "cleaned up" the deletes. With two typed stores
+// the lifecycle rules are structural, not comment-enforced.
 const clusterSourceSignatures = new WeakMap<MaplibreMap, Map<string, string>>();
+const tileUrlSignatures = new WeakMap<MaplibreMap, Map<string, string>>();
 
 function clusterSourceSignature(input: AdapterLayerInput) {
   const options = getClusterSourceOptions(input);
@@ -423,17 +437,46 @@ function removeClusterCompanionLayers(map: MaplibreMap, layerId: string) {
 }
 
 function removeColorReliefCompanionLayer(map: MaplibreMap, layerId: string) {
-  const colorReliefId = `${layerId}-colorrelief`;
+  // builder-audit #338 SYNC-04: -colorrelief suffix lives in companion-ids.ts.
+  const colorReliefId = `${layerId}${COLOR_RELIEF_SUFFIX}`;
   if (map.getLayer(colorReliefId)) map.removeLayer(colorReliefId);
 }
 
-function signatureStore(map: MaplibreMap) {
+function clusterSignatureStore(map: MaplibreMap) {
   let store = clusterSourceSignatures.get(map);
   if (!store) {
     store = new Map<string, string>();
     clusterSourceSignatures.set(map, store);
   }
   return store;
+}
+
+function tileUrlSignatureStore(map: MaplibreMap) {
+  let store = tileUrlSignatures.get(map);
+  if (!store) {
+    store = new Map<string, string>();
+    tileUrlSignatures.set(map, store);
+  }
+  return store;
+}
+
+/**
+ * builder-audit #338 SYNC-03 + token-refresh: refresh a vector source's tiles ONLY
+ * when the signed URL actually changed, honoring the per-source tile-url
+ * signature. Both the in-pass sync (`syncVectorTiles`) and the BuilderMap
+ * token-refresh effect call this, so a paint/visibility edit that does not
+ * change the cols=/sig URL no longer re-issues setTiles (the flicker/refetch
+ * guard that the standalone token-refresh effect previously bypassed). Returns
+ * true when it actually re-tiled.
+ */
+export function refreshVectorSourceTiles(map: MaplibreMap, sourceId: string, tileUrl: string): boolean {
+  const source = map.getSource(sourceId) as { type?: string; setTiles?: (tiles: string[]) => void } | undefined;
+  if (!source || source.type !== 'vector' || typeof source.setTiles !== 'function') return false;
+  const store = tileUrlSignatureStore(map);
+  if (store.get(sourceId) === tileUrl) return false;
+  source.setTiles([tileUrl]);
+  store.set(sourceId, tileUrl);
+  return true;
 }
 
 export function getSourceId(layerId: string) {
@@ -501,9 +544,17 @@ export interface SourceIdLayer {
  *  - paint expressions of shape `["get", "<colname>"]` — generic catch-all
  *  - `label_config.column` — label text-field is a LAYOUT property the paint
  *    walk cannot see, which is exactly why an explicit read is required here
+ *  - `filter` expressions (builder-audit #338 P1-03) — a filter that references a
+ *    column NOT also used by paint/label would otherwise evaluate against
+ *    missing properties at z<10, producing empty/inconsistent rendering.
  */
 export function getDataDrivenColumnsForLayer(
-  layer: { style_config?: StyleConfig | null; paint?: Record<string, unknown>; label_config?: LabelConfig | null },
+  layer: {
+    style_config?: StyleConfig | null;
+    paint?: Record<string, unknown>;
+    label_config?: LabelConfig | null;
+    filter?: FilterSpecification | unknown[] | null;
+  },
 ): string[] {
   const cols = new Set<string>();
   const styleCol = layer.style_config?.column;
@@ -517,17 +568,20 @@ export function getDataDrivenColumnsForLayer(
   // property — a LAYOUT expression the paint walk below cannot reach.
   const labelCol = layer.label_config?.column;
   if (typeof labelCol === 'string' && labelCol) cols.add(labelCol);
-  // Walk paint expressions for `["get", "<name>"]` references.
-  // ["get", x] is the canonical MapLibre way to read a feature property.
+  // Walk MapLibre expressions for `["get", "<name>"]` / `["has", "<name>"]`
+  // references — the canonical ways to read a feature property. Used for both
+  // paint values AND the filter (P1-03), so filter-only columns survive the
+  // z<10 attribute budget.
   function walk(node: unknown): void {
     if (!Array.isArray(node) || node.length === 0) return;
-    if (node[0] === 'get' && typeof node[1] === 'string') {
+    if ((node[0] === 'get' || node[0] === 'has') && typeof node[1] === 'string') {
       cols.add(node[1]);
       return;
     }
     for (const child of node) walk(child);
   }
   for (const val of Object.values(paint)) walk(val);
+  if (layer.filter) walk(layer.filter);
   return Array.from(cols);
 }
 
@@ -544,6 +598,7 @@ export function getDataDrivenColumnsForSource(
       style_config?: StyleConfig | null;
       paint?: Record<string, unknown>;
       label_config?: LabelConfig | null;
+      filter?: FilterSpecification | unknown[] | null;
     };
     for (const c of getDataDrivenColumnsForLayer(layerWithStyle)) cols.add(c);
   }
@@ -752,21 +807,51 @@ function syncRasterLayer(
   desiredSources.add(adapterInput.sourceId);
 }
 
-/** Add or update a vector (MVT / GeoJSON-Z) layer, including labels and visibility. */
-function syncVectorLayer(
-  map: MaplibreMap,
+// MVT-03: vector sources serve world zoom 0 (the tile server validates and
+// serves z0); a minzoom of 1 would make MapLibre never request z0 tiles, so
+// data would vanish at the full-world view.
+const VECTOR_SOURCE_MINZOOM = 0;
+// MVT-04 (verifier over-fetch note): cap the vector source maxzoom so MapLibre
+// OVERZOOMS a cached tile above this level instead of firing a fresh PostGIS
+// tile query at every integer zoom up to 22. Feature geometry does not gain
+// detail above ~z14 (the server stops simplifying at z>=10), so overzooming a
+// full-detail z14 tile renders identically while collapsing the high-zoom query
+// fanout.
+const VECTOR_SOURCE_MAXZOOM = 14;
+// Codex P2 (#338): server-cluster sources are the exception — the backend stops
+// clustering only for z > cluster_max_zoom (default 14), so the client MUST be
+// allowed to fetch z15+ unclustered tiles for clusters to expand into individual
+// points. Capping these at 14 would overzoom the clustered z14 tile forever.
+const VECTOR_SOURCE_CLUSTER_MAXZOOM = 22;
+
+/** Resolved per-layer source decisions — pure, no map side effects.
+ *  builder-audit #338 SYNC-05: extracted from syncVectorLayer so the type/cluster
+ *  resolution is testable and the gnarly source mutation lives separately. */
+interface VectorSourceMode {
+  adapter: LayerAdapter;
+  /** Effective adapter type (cluster may downgrade to circle when ineligible). */
+  type: string;
+  canUseCluster: boolean;
+  canUseServerCluster: boolean;
+  canUseBoundedCluster: boolean;
+  useGeoJsonSource: boolean;
+  desiredSourceType: 'vector' | 'geojson';
+  clusterOptions: ReturnType<typeof getClusterSourceOptions>;
+  /** Composite signature for cluster sources (null for non-cluster). */
+  desiredClusterSignature: string | null;
+}
+
+/** SYNC-05 unit 1 (resolveSourceMode): decide adapter type, cluster eligibility,
+ *  geojson-vs-vector, and the signed tile URL. Sets `adapterInput.tileUrl`. */
+function resolveVectorSourceMode(
   layer: SyncLayerInput,
   allLayers: SyncLayerInput[],
   adapterInput: AdapterLayerInput,
   tileBaseUrl: string | undefined,
   token: VectorTileToken | null,
-  desiredSources: Set<string>,
   geojsonDataMap: Map<string, GeoJSON.FeatureCollection> | undefined,
   prefix: string | undefined,
-) {
-  const { sourceId, layerId, sourceLayer } = adapterInput;
-  desiredSources.add(sourceId);
-
+): VectorSourceMode {
   const resolvedType = resolveAdapterType(layer.dataset_geometry_type, layer.style_config, layer.paint);
   const wantsCluster = resolvedType === 'cluster';
   const clusterStrategy = getClusterSourceStrategy(layer);
@@ -776,50 +861,92 @@ function syncVectorLayer(
   const canUseCluster = canUseBoundedCluster || canUseServerCluster;
   const type = wantsCluster && !canUseCluster ? 'circle' : resolvedType;
   const adapter = getAdapter(type);
-  const filter = adapterInput.filter;
   const clusterOptions = getClusterSourceOptions(adapterInput);
-  // Gather data-driven columns from every layer sharing this source. The
-  // tile server's z<10 attribute budget would otherwise strip them, breaking
-  // categorical / graduated / heatmap / 3D-extrusion paint at low zooms.
+  // Gather data-driven columns from every layer sharing this source. The tile
+  // server's z<10 attribute budget would otherwise strip them, breaking
+  // categorical / graduated / heatmap / 3D-extrusion / filter-only paint at low
+  // zooms (filter columns are folded in by getDataDrivenColumnsForLayer, P1-03).
   const sharedSourceCols = canUseServerCluster
     ? null
-    : getDataDrivenColumnsForSource(sourceId, allLayers, prefix);
+    : getDataDrivenColumnsForSource(adapterInput.sourceId, allLayers, prefix);
+  // MVT-04: thread the dataset content/version stamp into the `_v=` cache-buster
+  // so a reupload/geometry edit busts client/CDN caches (undefined when the
+  // dataset exposes no version).
+  const tileVersion = layer.tile_version ?? undefined;
   adapterInput.tileUrl = canUseServerCluster
-    ? buildClusterTileUrl(layer.dataset_table_name, token, tileBaseUrl, undefined, clusterOptions)
-    : buildSignedTileUrl(layer.dataset_table_name, token, tileBaseUrl, undefined, sharedSourceCols);
+    ? buildClusterTileUrl(layer.dataset_table_name, token, tileBaseUrl, tileVersion, clusterOptions)
+    : buildSignedTileUrl(layer.dataset_table_name, token, tileBaseUrl, tileVersion, sharedSourceCols);
 
   // GeoJSON branch: 3D small datasets and eligible Cluster layers use GeoJSON
   // sources instead of the normal vector-tile path.
-  // NOTE: GeoJSON sources also support a `lineMetrics` field, but Phase 255 only
-  // wires the flag on the vector tile path. GeoJSON-Z line-gradient authoring is
-  // Phase 256 scope (see .planning/phases/255-line-gradient-engine-foundation/255-CONTEXT.md).
   const isGeoJsonZ = layer.is_3d && layer.feature_count != null && layer.feature_count <= 5000;
   const useGeoJsonSource = (isGeoJsonZ || canUseBoundedCluster) && hasBoundedGeoJson;
-  const desiredSourceType = useGeoJsonSource ? 'geojson' : 'vector';
-  const currentSource = map.getSource(sourceId) as { type?: string } | undefined;
-  const signatureMap = signatureStore(map);
+  const desiredSourceType: 'vector' | 'geojson' = useGeoJsonSource ? 'geojson' : 'vector';
   const desiredClusterSignature = canUseCluster
     ? `${clusterStrategy.kind}:${clusterSourceSignature(adapterInput)}:${adapterInput.tileUrl}`
     : null;
-  const currentClusterSignature = signatureMap.get(sourceId);
+
+  return {
+    adapter, type, canUseCluster, canUseServerCluster, canUseBoundedCluster,
+    useGeoJsonSource, desiredSourceType, clusterOptions, desiredClusterSignature,
+  };
+}
+
+/** SYNC-05 unit 3 (syncVectorTiles): refresh the tiles of an EXISTING vector
+ *  source through the guarded `refreshVectorSourceTiles` (one path for cluster
+ *  and non-cluster), then advance the cluster signature for server clusters. */
+function syncVectorTiles(
+  map: MaplibreMap,
+  adapterInput: AdapterLayerInput,
+  mode: VectorSourceMode,
+  currentClusterSignature: string | undefined,
+) {
+  const { sourceId } = adapterInput;
+  refreshVectorSourceTiles(map, sourceId, adapterInput.tileUrl);
+  if (mode.canUseServerCluster
+    && currentClusterSignature !== mode.desiredClusterSignature
+    && mode.desiredClusterSignature) {
+    clusterSignatureStore(map).set(sourceId, mode.desiredClusterSignature);
+  }
+}
+
+/** SYNC-05 unit 2 (ensureVectorSource): create / recreate the geojson or vector
+ *  source and reconcile its tiles. Returns true when the geojson path fully
+ *  handled visibility + zoom range (caller returns early). */
+function ensureVectorSource(
+  map: MaplibreMap,
+  layer: SyncLayerInput,
+  allLayers: SyncLayerInput[],
+  adapterInput: AdapterLayerInput,
+  mode: VectorSourceMode,
+  geojsonDataMap: Map<string, GeoJSON.FeatureCollection> | undefined,
+  prefix: string | undefined,
+): boolean {
+  const { sourceId, layerId } = adapterInput;
+  const {
+    adapter, canUseCluster, canUseServerCluster, canUseBoundedCluster,
+    useGeoJsonSource, desiredSourceType, clusterOptions, desiredClusterSignature,
+  } = mode;
+  const clusterStore = clusterSignatureStore(map);
+  const tileStore = tileUrlSignatureStore(map);
+  const currentSource = map.getSource(sourceId) as { type?: string } | undefined;
+  const currentClusterSignature = clusterStore.get(sourceId);
+
   const geoJsonClusterSourceOptionsChanged = canUseBoundedCluster
     && currentSource?.type === 'geojson'
     && currentClusterSignature !== desiredClusterSignature;
   if (currentSource && (currentSource.type !== desiredSourceType || geoJsonClusterSourceOptionsChanged)) {
     removeKnownVectorLayers(map, layerId, layer.id, prefix);
     map.removeSource(sourceId);
-    signatureMap.delete(sourceId);
-    signatureMap.delete(`${sourceId}::tileurl`);
+    clusterStore.delete(sourceId);
+    tileStore.delete(sourceId);
   }
   if (!canUseCluster) {
     removeClusterCompanionLayers(map, layerId);
-    signatureMap.delete(sourceId);
-    // NOTE: do NOT delete the `${sourceId}::tileurl` key here. This block runs on
-    // every sync for non-cluster vector layers (the common case); clearing the key
-    // each pass would make the guarded refresh below always see `undefined` and
-    // call setTiles on every syncLayersToMap pass, defeating the flicker/refetch
-    // guard. The key is cleared only when the source is actually removed/recreated
-    // (the type-change block above) and is updated in place when the URL changes.
+    // Clear only the CLUSTER signature. The tile-url signature lives in its own
+    // WeakMap (SYNC-05), so this per-pass cleanup can no longer wipe the flicker
+    // guard — the lifecycle is structural, not comment-enforced.
+    clusterStore.delete(sourceId);
   }
 
   const layerLayout = layer.layout ?? {};
@@ -827,20 +954,15 @@ function syncVectorLayer(
   const layerMaxzoom = (layerLayout['_maxzoom'] as number) ?? 22;
 
   if (useGeoJsonSource) {
-    const geojsonData = geojsonDataMap.get(layer.id)!;
+    const geojsonData = geojsonDataMap!.get(layer.id)!;
     adapterInput.sourceType = 'geojson';
     if (!map.getSource(sourceId)) {
       if (canUseBoundedCluster) {
-        map.addSource(sourceId, {
-          type: 'geojson',
-          data: geojsonData,
-          cluster: true,
-          ...clusterOptions,
-        });
-        signatureMap.set(sourceId, desiredClusterSignature ?? '');
+        map.addSource(sourceId, { type: 'geojson', data: geojsonData, cluster: true, ...clusterOptions });
+        clusterStore.set(sourceId, desiredClusterSignature ?? '');
       } else {
         map.addSource(sourceId, { type: 'geojson', data: geojsonData });
-        signatureMap.delete(sourceId);
+        clusterStore.delete(sourceId);
       }
       adapter.addLayers(map, adapterInput);
     } else {
@@ -854,96 +976,131 @@ function syncVectorLayer(
     }
     adapter.syncVisibility(map, adapterInput);
     syncLayerZoomRange(map, adapter.getLayerIds(layerId), layerMinzoom, layerMaxzoom);
-    return;
+    return true;
   }
 
   if (!map.getSource(sourceId)) {
     const needsLineMetrics = lineGradientNeededFor(sourceId, allLayers, prefix);
+    // MVT-06: bound tile fetching to the dataset footprint. MVT-05: surface the
+    // dataset attribution string when available.
+    const bounds = normalizeRasterBounds(layer.bounds);
+    const attribution = typeof layer.attribution === 'string' && layer.attribution.length > 0
+      ? layer.attribution
+      : undefined;
     // lineMetrics is sticky per D-02 (255-CONTEXT.md): we only set it at source CREATE time.
-    // Removing line-gradient mid-session does NOT tear down the source — the cost of leaving
-    // the per-vertex distance computation on is small compared to the visual jank of recreation.
-    const sourceSpec: VectorSourceSpecification = {
+    const vectorSpec: VectorSourceSpecification = {
       type: 'vector',
       tiles: [adapterInput.tileUrl],
-      minzoom: 1,
-      maxzoom: 22,
+      minzoom: VECTOR_SOURCE_MINZOOM,
+      maxzoom: canUseServerCluster
+        ? VECTOR_SOURCE_CLUSTER_MAXZOOM
+        : VECTOR_SOURCE_MAXZOOM,
       ...(needsLineMetrics && { lineMetrics: true }),
+      ...(bounds ? { bounds } : {}),
+      ...(attribution ? { attribution } : {}),
     };
-    map.addSource(sourceId, sourceSpec);
-    if (canUseServerCluster && desiredClusterSignature) {
-      signatureMap.set(sourceId, desiredClusterSignature);
-    } else {
-      signatureMap.delete(sourceId);
-    }
-    // Seed the tileUrl so the first post-create sync does not redundantly re-fire setTiles.
-    signatureMap.set(`${sourceId}::tileurl`, adapterInput.tileUrl);
+    map.addSource(sourceId, vectorSpec);
+    if (canUseServerCluster && desiredClusterSignature) clusterStore.set(sourceId, desiredClusterSignature);
+    else clusterStore.delete(sourceId);
+    // Seed the tile-url signature so the first post-create sync (and the
+    // token-refresh effect) do not redundantly re-fire setTiles.
+    tileStore.set(sourceId, adapterInput.tileUrl);
     adapter.addLayers(map, adapterInput);
   } else {
     adapterInput.sourceType = 'vector';
-    if (canUseServerCluster && currentClusterSignature !== desiredClusterSignature) {
-      const source = map.getSource(sourceId) as { type?: string; setTiles?: (tiles: string[]) => void } | undefined;
-      if (source?.type === 'vector' && source.setTiles) {
-        source.setTiles([adapterInput.tileUrl]);
-      }
-      if (desiredClusterSignature) signatureMap.set(sourceId, desiredClusterSignature);
-    } else if (!canUseServerCluster) {
-      // Non-cluster vector path: refresh tiles only when the computed tileUrl
-      // changes (e.g. a label column was added, changing the cols= param).
-      // Guarded by signature to avoid needless refetch / flicker on unchanged URLs.
-      const tileUrlKey = `${sourceId}::tileurl`;
-      const storedTileUrl = signatureMap.get(tileUrlKey);
-      if (storedTileUrl !== adapterInput.tileUrl) {
-        const source = map.getSource(sourceId) as { type?: string; setTiles?: (tiles: string[]) => void } | undefined;
-        if (source?.type === 'vector' && typeof source.setTiles === 'function') {
-          source.setTiles([adapterInput.tileUrl]);
-        }
-        signatureMap.set(tileUrlKey, adapterInput.tileUrl);
-      }
-    }
+    syncVectorTiles(map, adapterInput, mode, currentClusterSignature);
     // A second layer sharing this dataset's source (the SF-04 dedupe) reaches this
     // branch with its own layer never added — the shared source was created by the
     // first layer. syncPaint no-ops when the layer is missing, so add it here. #311.
     if (!map.getLayer(layerId)) adapter.addLayers(map, adapterInput);
     else adapter.syncPaint(map, adapterInput);
   }
+  return false;
+}
 
-  // Per-layer zoom range from custom layout props (main + outline companion)
+/** SYNC-05 unit 4 (syncLabelCompanion): add / update / remove the companion
+ *  label symbol layer for the layer. */
+function syncLabelCompanion(
+  map: MaplibreMap,
+  layer: SyncLayerInput,
+  adapterInput: AdapterLayerInput,
+  mode: VectorSourceMode,
+  prefix: string | undefined,
+) {
+  const { sourceId, sourceLayer } = adapterInput;
+  const filter = adapterInput.filter;
+  const labelId = prefixed('label', layer.id, prefix);
+  const isHeatmap = mode.type === 'heatmap';
+  const isSymbol = mode.type === 'symbol';
+  if (!map.getSource(sourceId)) return;
+  if (layer.label_config?.column && !isHeatmap && !isSymbol) {
+    const lc = layer.label_config;
+    const geomType = getLayerType(layer.dataset_geometry_type);
+    const vis = layer.visible ? 'visible' : 'none';
+    if (!map.getLayer(labelId)) {
+      map.addLayer(buildLabelLayerSpec({ labelId, sourceId, sourceLayer, lc, geomType, visibility: vis }));
+      if (filter) map.setFilter(labelId, filter);
+    } else {
+      syncLabelLayer(map, labelId, lc, geomType);
+      map.setFilter(labelId, filter ?? null);
+    }
+  } else if (map.getLayer(labelId)) {
+    if (isHeatmap) map.setLayoutProperty(labelId, 'visibility', 'none');
+    else map.removeLayer(labelId);
+  }
+}
+
+/** Add or update a vector (MVT / GeoJSON-Z) layer, including labels and visibility.
+ *  builder-audit #338 SYNC-05: orchestrates resolveVectorSourceMode → ensureVectorSource
+ *  → syncLabelCompanion so each concern is an isolated, testable unit. */
+function syncVectorLayer(
+  map: MaplibreMap,
+  layer: SyncLayerInput,
+  allLayers: SyncLayerInput[],
+  adapterInput: AdapterLayerInput,
+  tileBaseUrl: string | undefined,
+  token: VectorTileToken | null,
+  desiredSources: Set<string>,
+  geojsonDataMap: Map<string, GeoJSON.FeatureCollection> | undefined,
+  prefix: string | undefined,
+) {
+  const { sourceId, layerId } = adapterInput;
+  desiredSources.add(sourceId);
+
+  const mode = resolveVectorSourceMode(layer, allLayers, adapterInput, tileBaseUrl, token, geojsonDataMap, prefix);
+  const handledGeoJson = ensureVectorSource(map, layer, allLayers, adapterInput, mode, geojsonDataMap, prefix);
+  if (handledGeoJson) return;
+
+  // Per-layer zoom range from custom layout props (main + companions).
+  const layerLayout = layer.layout ?? {};
+  const layerMinzoom = (layerLayout['_minzoom'] as number) ?? 0;
+  const layerMaxzoom = (layerLayout['_maxzoom'] as number) ?? 22;
   const outlineLayerId = prefixed('outline', layer.id, prefix);
   const extrusionLayerId = prefixed('extrusion', layer.id, prefix);
   const arrowLayerId = prefixed('arrow', layer.id, prefix);
   syncLayerZoomRange(map, [layerId, outlineLayerId, extrusionLayerId, arrowLayerId], layerMinzoom, layerMaxzoom);
 
-  // Sync companion label layer (add/update/remove). Heatmap layers don't support
-  // labels, and symbol layers consolidate icon/text in the primary symbol layer.
+  syncLabelCompanion(map, layer, adapterInput, mode, prefix);
+
+  mode.adapter.syncVisibility(map, adapterInput);
   const labelId = prefixed('label', layer.id, prefix);
-  const isHeatmap = type === 'heatmap';
-  const isSymbol = type === 'symbol';
-  if (map.getSource(sourceId)) {
-    if (layer.label_config?.column && !isHeatmap && !isSymbol) {
-      const lc = layer.label_config;
-      const geomType = getLayerType(layer.dataset_geometry_type);
-      const vis = layer.visible ? 'visible' : 'none';
-
-      if (!map.getLayer(labelId)) {
-        map.addLayer(buildLabelLayerSpec({ labelId, sourceId, sourceLayer, lc, geomType, visibility: vis }));
-        if (filter) map.setFilter(labelId, filter);
-      } else {
-        syncLabelLayer(map, labelId, lc, geomType);
-        map.setFilter(labelId, filter ?? null);
-      }
-    } else if (map.getLayer(labelId)) {
-      if (isHeatmap) {
-        map.setLayoutProperty(labelId, 'visibility', 'none');
-      } else {
-        map.removeLayer(labelId);
-      }
-    }
+  if (map.getLayer(labelId) && mode.type !== 'heatmap' && mode.type !== 'symbol') {
+    map.setLayoutProperty(labelId, 'visibility', layer.visible ? 'visible' : 'none');
   }
+}
 
-  adapter.syncVisibility(map, adapterInput);
-  if (map.getLayer(labelId) && !isHeatmap && !isSymbol) {
-    const vis = layer.visible ? 'visible' : 'none';
-    map.setLayoutProperty(labelId, 'visibility', vis);
+/** Remove every map layer whose `source` references `sourceId`. builder-audit
+ *  SYNC-06: for a DEDUPED vector source the id derived from the source name is
+ *  `data-${table}`, so the per-layer companion ids never match the real
+ *  `layer-${layer.id}` ids — those orphan layers must be found structurally by
+ *  walking the live style, not derived from the source key. */
+function removeLayersUsingSource(map: MaplibreMap, sourceId: string) {
+  const style = map.getStyle();
+  if (!style?.layers) return;
+  for (const styleLayer of style.layers) {
+    if ('source' in styleLayer && styleLayer.source === sourceId && map.getLayer(styleLayer.id)) {
+      map.removeLayer(styleLayer.id);
+    }
   }
 }
 
@@ -958,25 +1115,23 @@ function removeStaleSourcesAndLayers(
   for (const sourceId of currentSources) {
     if (desiredSources.has(sourceId)) continue;
     const id = sourceId.replace(sourcePrefix, '');
-    const layerId = prefixed('layer', id, prefix);
-    const outlineId = prefixed('outline', id, prefix);
-    const labelId = prefixed('label', id, prefix);
-    const extrusionId = prefixed('extrusion', id, prefix);
-    const arrowId = prefixed('arrow', id, prefix);
-    const clusterCountId = clusterCountLayerId(layerId);
-    const clusterCircleId = clusterCircleLayerId(layerId);
+    const ids = getCompanionLayerIds(id, prefix);
     // EDITOR-DEM-05: color-relief companion has no own source (it reuses the
     // raster-dem source), so it is not found by the source-keyed loop and must
     // be removed explicitly here.
-    removeColorReliefCompanionLayer(map, layerId);
-    if (map.getLayer(labelId)) map.removeLayer(labelId);
-    if (map.getLayer(arrowId)) map.removeLayer(arrowId);
-    if (map.getLayer(extrusionId)) map.removeLayer(extrusionId);
-    if (map.getLayer(outlineId)) map.removeLayer(outlineId);
-    if (map.getLayer(clusterCountId)) map.removeLayer(clusterCountId);
-    if (map.getLayer(clusterCircleId)) map.removeLayer(clusterCircleId);
-    if (map.getLayer(layerId)) map.removeLayer(layerId);
+    removeColorReliefCompanionLayer(map, ids.layer);
+    for (const candidate of [ids.label, ids.arrow, ids.extrusion, ids.outline, ids.clusterCount, ids.cluster, ids.layer]) {
+      if (map.getLayer(candidate)) map.removeLayer(candidate);
+    }
+    // builder-audit #338 SYNC-06: enumerate any remaining layers still referencing
+    // this source (the deduped case where the derived ids above never matched)
+    // and remove them BEFORE removeSource. Previously this relied on a sibling
+    // path (removePerLayerCompanions) that early-returns mid-style-transition,
+    // leaving orphan layers that made removeSource throw 'source ... in use'.
+    removeLayersUsingSource(map, sourceId);
     if (map.getSource(sourceId)) map.removeSource(sourceId);
+    clusterSourceSignatures.get(map)?.delete(sourceId);
+    tileUrlSignatures.get(map)?.delete(sourceId);
   }
 }
 
@@ -1028,7 +1183,8 @@ export function syncLayersToMap(
       // per-layer. Layer ids (per-layer paint/visibility) remain unchanged.
       const sourceId = getSourceIdForLayer(layer, prefix);
       const layerId = prefixed('layer', layer.id, prefix);
-      const sourceLayer = `data.${layer.dataset_table_name}`;
+      // builder-audit #338 P1-01: one MVT source-layer-name helper shared with tile signing.
+      const sourceLayer = getMvtSourceLayerName(layer.dataset_table_name);
       const token = tokenMap.get(layer.dataset_id) ?? null;
 
       const adapterInput: AdapterLayerInput & { style_config?: StyleConfig | null } = {
@@ -1113,7 +1269,7 @@ function reorderDataGeometry(
     const oid = prefixed('outline', layers[i].id, idPrefix);
     const eid = prefixed('extrusion', layers[i].id, idPrefix);
     const aid = prefixed('arrow', layers[i].id, idPrefix);
-    const colorReliefId = `${lid}-colorrelief`;
+    const colorReliefId = `${lid}${COLOR_RELIEF_SUFFIX}`;
     const cid = clusterCircleLayerId(lid);
     const ccid = clusterCountLayerId(lid);
     if (map.getLayer(cid)) map.moveLayer(cid);

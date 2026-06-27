@@ -5,7 +5,13 @@ import type { FilterSpecification } from 'maplibre-gl';
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { buildNullableSafeNumericAccessor } from '@/lib/maplibre-filter-utils';
+import {
+  buildNullableSafeNumericAccessor,
+  parseCanonicalFilter,
+  validateRawFilter,
+  FilterValidationError,
+  NUMERIC_COMPARISON_OPERATORS,
+} from '@/lib/maplibre-filter-utils';
 
 interface FilterCondition {
   id: string;
@@ -36,7 +42,8 @@ interface OperatorDef {
   value: string;
 }
 
-const NUMERIC_COMPARISON_OPERATORS = new Set(['==', '!=', '>', '<', '>=', '<=']);
+// builder-audit #338 DRY-02: NUMERIC_COMPARISON_OPERATORS now imported from
+// maplibre-filter-utils (the single canonical copy) instead of re-declared here.
 
 // Discriminated union returned by parseFilterExpression
 export type ParseResult =
@@ -155,142 +162,23 @@ export function buildFilterExpression(
 }
 
 export function parseFilterExpression(expr: FilterSpecification | null): ParseResult {
-  if (!expr || !Array.isArray(expr) || expr.length === 0) {
-    return { kind: 'editable', combinator: 'all', conditions: [] };
+  // builder-audit #338 DRY-01/FILT-01/FILT-02: delegate all filter recognition to the
+  // single canonical parser in maplibre-filter-utils so the structured editor and
+  // ActiveFilterChips cannot drift again. We only re-attach editor-local row ids.
+  const canonical = parseCanonicalFilter(expr);
+  if (canonical.kind === 'opaque') {
+    return { kind: 'opaque', raw: canonical.raw };
   }
-
-  function parseSingle(e: unknown[]): FilterCondition | null {
-    if (!Array.isArray(e) || e.length === 0) return null;
-
-    // Phase 20260526-builder-audit BLD-20260526-11: is_null full pattern.
-    if (
-      e[0] === 'any' &&
-      e.length === 3 &&
-      Array.isArray(e[1]) && e[1][0] === '!' && Array.isArray(e[1][1]) && e[1][1][0] === 'has' &&
-      Array.isArray(e[2]) && e[2][0] === '==' && Array.isArray(e[2][1]) && e[2][1][0] === 'get' && e[2][2] === null &&
-      e[1][1][1] === e[2][1][1]
-    ) {
-      return {
-        id: crypto.randomUUID(),
-        field: e[1][1][1] as string,
-        operator: 'is_null',
-        value: '',
-      };
-    }
-
-    // is_null: ["!", ["has", field]] (legacy/short form)
-    if (e[0] === '!' && Array.isArray(e[1]) && e[1][0] === 'has') {
-      return {
-        id: crypto.randomUUID(),
-        field: e[1][1] as string,
-        operator: 'is_null',
-        value: '',
-      };
-    }
-
-    // Phase 20260526-builder-audit BLD-20260526-11: not_in_list pattern.
-    if (
-      e[0] === '!' &&
-      Array.isArray(e[1]) && e[1][0] === 'in' &&
-      Array.isArray(e[1][1]) && e[1][1][0] === 'get' &&
-      Array.isArray(e[1][2]) && e[1][2][0] === 'literal'
-    ) {
-      return {
-        id: crypto.randomUUID(),
-        field: e[1][1][1] as string,
-        operator: 'not_in_list',
-        value: (e[1][2][1] as unknown[]).join(', '),
-      };
-    }
-
-    // Phase 20260526-builder-audit BLD-20260526-11: in_list pattern.
-    if (
-      e[0] === 'in' &&
-      Array.isArray(e[1]) && e[1][0] === 'get' &&
-      Array.isArray(e[2]) && e[2][0] === 'literal'
-    ) {
-      return {
-        id: crypto.randomUUID(),
-        field: e[1][1] as string,
-        operator: 'in_list',
-        value: (e[2][1] as unknown[]).join(', '),
-      };
-    }
-
-    // contains: ["in", value, ["get", field]]
-    if (e[0] === 'in' && Array.isArray(e[2]) && e[2][0] === 'get') {
-      return {
-        id: crypto.randomUUID(),
-        field: e[2][1] as string,
-        operator: 'contains',
-        value: String(e[1]),
-      };
-    }
-
-    // Phase 20260526-builder-audit BLD-20260526-11: has pattern.
-    if (e[0] === 'has' && typeof e[1] === 'string') {
-      return {
-        id: crypto.randomUUID(),
-        field: e[1],
-        operator: 'has',
-        value: '',
-      };
-    }
-
-    // standard: [op, ["get", field], value]
-    if (Array.isArray(e[1]) && e[1][0] === 'get') {
-      return {
-        id: crypto.randomUUID(),
-        field: e[1][1] as string,
-        operator: e[0] as string,
-        value: String(e[2] ?? ''),
-      };
-    }
-
-    // numeric-safe standard: [op, ["to-number", ["get", field], fallback], value]
-    if (
-      Array.isArray(e[1]) &&
-      e[1][0] === 'to-number' &&
-      Array.isArray(e[1][1]) &&
-      e[1][1][0] === 'get'
-    ) {
-      return {
-        id: crypto.randomUUID(),
-        field: e[1][1][1] as string,
-        operator: e[0] as string,
-        value: String(e[2] ?? ''),
-      };
-    }
-
-    return null;
-  }
-
-  const topLevelSingle = parseSingle(expr);
-  if (topLevelSingle) {
-    return { kind: 'editable', combinator: 'all', conditions: [topLevelSingle] };
-  }
-
-  // Handle "all" or "any" combinator expressions
-  if (expr[0] === 'all' || expr[0] === 'any') {
-    const combinator = expr[0] as 'all' | 'any';
-    const results: FilterCondition[] = [];
-    for (let i = 1; i < expr.length; i++) {
-      if (!Array.isArray(expr[i])) {
-        return { kind: 'opaque', raw: expr };
-      }
-      // Array.isArray confirms expr[i] is an array; cast narrows for parseSingle's signature.
-      const parsed = parseSingle(expr[i] as unknown[]);
-      if (parsed === null) {
-        // Any unparseable sub-expression makes the whole thing opaque
-        return { kind: 'opaque', raw: expr };
-      }
-      results.push(parsed);
-    }
-    return { kind: 'editable', combinator, conditions: results };
-  }
-
-  // Unknown top-level expression — opaque
-  return { kind: 'opaque', raw: expr };
+  return {
+    kind: 'editable',
+    combinator: canonical.combinator,
+    conditions: canonical.conditions.map((c) => ({
+      id: crypto.randomUUID(),
+      field: c.field,
+      operator: c.operator,
+      value: c.value,
+    })),
+  };
 }
 
 export function LayerFilterEditor({
@@ -335,7 +223,7 @@ export function LayerFilterEditor({
     return col ? classifyColumnType(col.type) : 'other';
   }
 
-  // Phase 20260526-builder-audit BLD-20260526-11: cleanup debounce timer on unmount.
+  // Phase 20260526-builder-audit #338 BLD-20260526-11: cleanup debounce timer on unmount.
   useEffect(() => {
     return () => {
       if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
@@ -349,7 +237,7 @@ export function LayerFilterEditor({
     onFilterChange(newFilter);
   }
 
-  // Phase 20260526-builder-audit BLD-20260526-11: debounced version for value input keystrokes.
+  // Phase 20260526-builder-audit #338 BLD-20260526-11: debounced version for value input keystrokes.
   const debouncedEmit = useCallback(
     (updated: FilterCondition[], combo: 'all' | 'any') => {
       if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
@@ -432,32 +320,48 @@ export function LayerFilterEditor({
   }
 
   function handleRawApply() {
+    let parsed: unknown;
     try {
-      const parsed = JSON.parse(rawText) as FilterSpecification;
-      if (parsed !== null && !Array.isArray(parsed)) {
-        setRawError(t('filters.rawJsonError'));
-        return;
-      }
-      // EDIT-03: an empty array is not a valid maplibre filter — persisting it and
-      // calling map.setFilter(id, []) throws and the throw was being swallowed and
-      // mis-surfaced as "Invalid JSON" AFTER filter: [] was already saved. Treat an
-      // empty-array expression as CLEAR: emit null (remove the filter), reset the
-      // structured editor state, and clear the raw error (no error toast).
-      if (Array.isArray(parsed) && parsed.length === 0) {
-        lastEmittedFilterRef.current = null;
-        onFilterChange(null);
-        applyParseResult(parseFilterExpression(null));
-        setRawError(null);
-        return;
-      }
-      lastEmittedFilterRef.current = parsed;
-      onFilterChange(parsed);
-      const result = parseFilterExpression(parsed);
-      applyParseResult(result);
-      setRawError(null);
+      parsed = JSON.parse(rawText);
     } catch {
       setRawError(t('filters.rawJsonError'));
+      return;
     }
+    if (parsed !== null && !Array.isArray(parsed)) {
+      setRawError(t('filters.rawJsonError'));
+      return;
+    }
+
+    // builder-audit #338 P1-04: validate + normalize against the shared filter grammar
+    // (mirrors backend validate_filter) so invalid arity / unsupported legacy
+    // forms are rejected here instead of being saved and surfacing late as a
+    // MapLibre setFilter error. Opaque-but-valid filters are preserved verbatim.
+    let normalized: FilterSpecification | null;
+    try {
+      normalized = validateRawFilter(parsed);
+    } catch (e) {
+      setRawError(
+        e instanceof FilterValidationError
+          ? t('filters.rawFilterInvalid')
+          : t('filters.rawJsonError'),
+      );
+      return;
+    }
+
+    // EDIT-03: null / empty-array both clear the filter (validateRawFilter maps []
+    // to null) so map.setFilter(id, []) can never be reached. Reset editor state.
+    if (normalized === null) {
+      lastEmittedFilterRef.current = null;
+      onFilterChange(null);
+      applyParseResult(parseFilterExpression(null));
+      setRawError(null);
+      return;
+    }
+
+    lastEmittedFilterRef.current = normalized;
+    onFilterChange(normalized);
+    applyParseResult(parseFilterExpression(normalized));
+    setRawError(null);
   }
 
   function handleEnableRawMode() {

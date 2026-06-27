@@ -7,6 +7,7 @@ import { StyleColorPicker } from './StyleColorPicker';
 import type { BuilderStyleConfig, StyleConfig } from '@/types/api';
 import { cn } from '@/lib/utils';
 import { MAP_COLORS } from '@/lib/map-colors';
+import { walkExpressionPairs } from '@/lib/zoom-expressions';
 
 export const DEFAULT_GRADIENT_STOPS: ReadonlyArray<{ position: number; color: string }> = [
   { position: 0, color: '#0066cc' },
@@ -91,7 +92,7 @@ export function lineGradientExpressionToStops(
   if (!Array.isArray(expr)) return null;
   if (expr[0] !== 'interpolate') return null;
   const interp = expr[1];
-  // Phase 20260526-builder-audit BLD-20260526-11: accept ['linear', ...trailing] from third-party serializers that pad
+  // Phase 20260526-builder-audit #338 BLD-20260526-11: accept ['linear', ...trailing] from third-party serializers that pad
   // with extra args. By MapLibre spec the linear arg list is empty, but only
   // operator identity actually matters for gradient parsing.
   if (!Array.isArray(interp) || interp[0] !== 'linear') return null;
@@ -99,10 +100,9 @@ export function lineGradientExpressionToStops(
   if (!Array.isArray(input) || input[0] !== 'line-progress' || input.length !== 1) return null;
   const tail = expr.slice(3);
   if (tail.length === 0 || tail.length % 2 !== 0) return null;
+  // builder-audit #338 DRY-04: keep-all stop semantics over the shared pair walker.
   const stops: Array<{ position: number; color: string }> = [];
-  for (let i = 0; i < tail.length; i += 2) {
-    const position = tail[i];
-    const color = tail[i + 1];
+  for (const { first: position, second: color } of walkExpressionPairs(expr, 3)) {
     if (typeof position !== 'number' || !Number.isFinite(position)) return null;
     if (typeof color !== 'string') return null;
     stops.push({ position, color });
@@ -277,7 +277,7 @@ export function LineGradientControls({ paint, styleConfig, onPaintProp, onBuilde
       return;
     }
     // commitStops() resets pendingPositionEdits to {} so this index's
-    // entry is dropped along with any other stale entries (Phase 20260526-builder-audit BLD-20260526-11).
+    // entry is dropped along with any other stale entries (Phase 20260526-builder-audit #338 BLD-20260526-11).
     const next = liveStops.map((s, i) => (i === index ? { ...s, position: raw } : s));
     commitStops(next);
   }
@@ -305,7 +305,7 @@ export function LineGradientControls({ paint, styleConfig, onPaintProp, onBuilde
     // Compose nextPaint once and pass it to onBuilderChange so the upstream save
     // sees a single consistent state. Without nextPaint, onBuilderChange would
     // resolve `paint` from a stale closure and shadow the gradient committed by
-    // onPaintProp — same Phase 20260526-builder-audit BLD-20260526-11 race that commitStops/activateSolid avoid.
+    // onPaintProp — same Phase 20260526-builder-audit #338 BLD-20260526-11 race that commitStops/activateSolid avoid.
     const nextPaint = { ...paint, 'line-gradient': result.value };
     onPaintProp('line-gradient', result.value);
     // If canonical, hydrate builder.lineGradient.stops; else clear builder.lineGradient

@@ -12,8 +12,13 @@ import {
   syncLayerFilter,
 } from './shared';
 import { MAP_COLORS } from '@/lib/map-colors';
+// builder-audit #338 DRY-06: arrow render-mode defaults come from the single builder-defaults
+// source of truth (shared with renderAs + backend mirror) instead of bare 14/80 literals.
+import { DEFAULT_ARROW_SIZE, DEFAULT_ARROW_SPACING } from './builder-defaults';
 
 const ARROW_IMAGE_ID = 'geolens-line-arrow';
+/** SVG base pixel size at which icon-size renders 1:1 — NOT the default arrow size
+ *  (that is DEFAULT_ARROW_SIZE); kept local since it is intrinsic to arrowImageData. */
 const ARROW_BASE_SIZE = 14;
 export const LINE_OWNED_LAYOUT_PROPERTIES = [
   'line-cap',
@@ -88,8 +93,8 @@ function arrowConfig(input: AdapterLayerInput) {
     : MAP_COLORS.default.fill;
   return {
     color: typeof builder.arrowColor === 'string' ? builder.arrowColor : lineColor,
-    size: typeof builder.arrowSize === 'number' ? builder.arrowSize : 14,
-    spacing: typeof builder.arrowSpacing === 'number' ? builder.arrowSpacing : 80,
+    size: typeof builder.arrowSize === 'number' ? builder.arrowSize : DEFAULT_ARROW_SIZE,
+    spacing: typeof builder.arrowSpacing === 'number' ? builder.arrowSpacing : DEFAULT_ARROW_SPACING,
   };
 }
 

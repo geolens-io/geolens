@@ -56,22 +56,10 @@ vi.mock('@/components/ui/select', () => ({
   SelectValue: () => null,
 }));
 
-vi.mock('../StyleColorPicker', () => ({
-  StyleColorPicker: ({
-    label,
-    color,
-    onChange,
-  }: {
-    label: string;
-    color: string;
-    onChange: (value: string) => void;
-  }) => (
-    <button type="button" aria-label={label} onClick={() => onChange('#123456')}>
-      {label}:{color}
-    </button>
-  ),
-}));
-
+// builder-audit #338 DEAD-01 / DUP-01: RasterLayerControls is now raster-only. The former
+// hillshade branch (and its color pickers) was unreachable dead code — DEM layers route
+// to DEMEditorScene, the single hillshade editor (covered by DEMEditorScene.test.tsx).
+// The two hillshade tests and the StyleColorPicker mock were removed here.
 describe('RasterLayerControls', () => {
   it('renders first-class raster paint controls', () => {
     render(
@@ -168,54 +156,5 @@ describe('RasterLayerControls', () => {
 
     expect(onPaintChange).toHaveBeenCalledWith({ 'custom-keep': true });
     expect(onOpacityChange).toHaveBeenCalledWith(1);
-  });
-
-  it('shows DEM hillshade controls without a raw raster render switch', () => {
-    const onPaintChange = vi.fn();
-    render(
-      <RasterLayerControls
-        paint={{
-          'hillshade-illumination-direction': 280,
-          'hillshade-illumination-anchor': 'map',
-          'hillshade-exaggeration': 0.7,
-        }}
-        opacity={1}
-        isDem
-        onPaintChange={onPaintChange}
-        onOpacityChange={vi.fn()}
-      />,
-    );
-
-    expect(screen.queryByRole('combobox', { name: 'Render' })).not.toBeInTheDocument();
-    expect(screen.getByRole('slider', { name: 'Direction' })).toBeInTheDocument();
-    expect(screen.getByRole('slider', { name: 'Relief' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Shadow' })).toBeInTheDocument();
-    expect(screen.queryByRole('slider', { name: 'Brightness min' })).not.toBeInTheDocument();
-
-    fireEvent.change(screen.getByRole('slider', { name: 'Direction' }), { target: { value: '315' } });
-    expect(onPaintChange).toHaveBeenCalledWith(expect.objectContaining({
-      'hillshade-illumination-direction': 315,
-    }));
-
-    fireEvent.change(screen.getByRole('slider', { name: 'Relief' }), { target: { value: '2.1' } });
-    expect(onPaintChange).toHaveBeenCalledWith(expect.objectContaining({
-      'hillshade-exaggeration': 1,
-    }));
-  });
-
-  it('treats DEMs with no style config as hillshade', () => {
-    render(
-      <RasterLayerControls
-        paint={{}}
-        opacity={1}
-        isDem
-        onPaintChange={vi.fn()}
-        onOpacityChange={vi.fn()}
-      />,
-    );
-
-    expect(screen.queryByRole('combobox', { name: 'Render' })).not.toBeInTheDocument();
-    expect(screen.getByRole('slider', { name: 'Direction' })).toBeInTheDocument();
-    expect(screen.queryByRole('slider', { name: 'Brightness min' })).not.toBeInTheDocument();
   });
 });

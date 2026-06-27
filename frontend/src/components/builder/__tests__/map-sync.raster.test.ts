@@ -5,6 +5,7 @@ import type { MapLayerResponse, MapTerrainConfig } from '@/types/api';
 import type { TileToken, RasterTileToken, VectorTileToken } from '@/api/tiles';
 
 vi.mock('@/lib/tile-utils', () => ({
+  getMvtSourceLayerName: (table: string) => `data.${table}`,
   buildSignedTileUrl: vi.fn(() => '/tiles/mock/{z}/{x}/{y}.pbf'),
   buildClusterTileUrl: vi.fn(() => '/tiles/clusters/mock/{z}/{x}/{y}.pbf'),
 }));

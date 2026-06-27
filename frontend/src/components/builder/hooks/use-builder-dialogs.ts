@@ -1,10 +1,10 @@
 import { useState } from 'react';
 
-// Phase 1199 STACK-06: the `isMobile` parameter is retained as part of the
-// documented positional hook contract (MapBuilderPage calls
-// useBuilderDialogs(aiAvailable, isEditorHidden)) even though the sidebar-collapse
-// state it once drove has been removed as dead code (zero production consumers).
-export function useBuilderDialogs(_aiAvailable: boolean | undefined, _isMobile = false) {
+// STATE-08 (builder-audit #338 20260626): the former `aiAvailable`/`isMobile`
+// positional params were ignored — the sidebar-collapse state they once drove
+// was removed as dead code (zero production consumers). Dropped to remove the
+// phantom API surface.
+export function useBuilderDialogs() {
   const [showChat, setShowChat] = useState(false);
   const [showAddData, setShowAddData] = useState(false);
   const [addDataInitialQuery, setAddDataInitialQuery] = useState('');

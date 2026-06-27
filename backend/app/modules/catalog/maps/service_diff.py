@@ -44,6 +44,23 @@ def _prepare_layer_storage(
     layer_data: dict,
     ds_meta: dict[uuid.UUID, tuple[str | None, str | None, bool | None]],
 ) -> dict:
+    """Normalize one *added* layer's storage shape before it is persisted.
+
+    builder-audit #338 STYLE-08: this is the single normalization boundary on the
+    add / full-replace write path — it resolves the layer_type, fills default
+    paint/layout/style_config for vector geometries, runs
+    ``split_legacy_builder_paint`` (the MapLibre paint storage boundary), and
+    normalizes DEM style_config. Both ``apply_layer_diff`` (added) and
+    ``_replace_layers`` route every new layer through here.
+
+    The ``split_legacy_builder_paint`` call below is idempotent: ``layer_data``
+    has already been split once by ``MapLayerInput._normalize_paint_boundary``
+    at the API boundary (which is also where unknown private paint keys are
+    rejected and where the PATCH/updated path — which does NOT pass through this
+    function — gets normalized). Re-running it here keeps this function correct
+    for any caller and covers the default styles synthesized just above. Do not
+    remove it without making this the only write path.
+    """
     dataset_id = layer_data["dataset_id"]
     record_type, geometry_type, is_dem = ds_meta.get(dataset_id, (None, None, None))
 

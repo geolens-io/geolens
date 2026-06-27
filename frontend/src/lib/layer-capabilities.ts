@@ -1,4 +1,5 @@
 import type { MapLayerResponse } from '@/types/api';
+import { classifyGeometry } from '@/components/builder/layer-adapters/shared';
 
 export type LayerKind = 'vector' | 'raster' | 'vrt';
 
@@ -63,15 +64,18 @@ export function getLayerCapabilities(
     };
   }
 
-  // Vector layer — derive map layer type from geometry
-  const gt = (layer.dataset_geometry_type ?? '').toUpperCase();
+  // Vector layer — derive map layer type from geometry.
+  // builder-audit #338 ADAPT-02/DRY-05: consume the canonical classifier instead of a
+  // local POINT/LINE substring ladder. polygon and `other` (e.g.
+  // GEOMETRYCOLLECTION) both map to fill/polygon, preserving prior behavior.
+  const family = classifyGeometry(layer.dataset_geometry_type);
   let mapLayerType: 'fill' | 'line' | 'circle';
   let iconVariant: 'point' | 'line' | 'polygon';
 
-  if (gt.includes('POINT')) {
+  if (family === 'point') {
     mapLayerType = 'circle';
     iconVariant = 'point';
-  } else if (gt.includes('LINE')) {
+  } else if (family === 'line') {
     mapLayerType = 'line';
     iconVariant = 'line';
   } else {

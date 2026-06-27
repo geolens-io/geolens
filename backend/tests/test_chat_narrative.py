@@ -194,12 +194,12 @@ async def test_query_data_via_execute_chat_tool_preserves_geojson():
     assert result["truncated"] is False
 
 
-# --- add_layer: dataset_name resolution end-to-end (builder-audit B-002) ---
+# --- add_layer: dataset_name resolution end-to-end (builder-audit #338 B-002) ---
 
 
 @pytest.mark.anyio
 async def test_add_layer_resolves_dataset_name_end_to_end():
-    """builder-audit B-002: an add_layer action must carry the dataset's display
+    """builder-audit #338 B-002: an add_layer action must carry the dataset's display
     title so the staging chip shows a human name, not the raw UUID.
 
     Earlier the field was added to the ChatAction model + read by the frontend,

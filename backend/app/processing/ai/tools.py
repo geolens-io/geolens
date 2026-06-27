@@ -96,7 +96,10 @@ CHAT_TOOLS_ANTHROPIC = [
         "description": (
             "Set or clear a filter on a map layer. Pass a MapLibre filter "
             "expression array to filter features, or null to clear the filter. "
-            'Example: ["all", [">", "population", 1000000]]'
+            "Always reference columns with the expression form "
+            '["get", "column"] -- never bare field names. '
+            'Example: ["all", [">", ["get", "population"], 1000000], '
+            '["==", ["get", "state"], "CA"]]'
         ),
         "input_schema": {
             "type": "object",

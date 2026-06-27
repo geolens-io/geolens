@@ -21,6 +21,8 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { searchDatasets } from '@/api/search';
 import { queryKeys } from '@/lib/query-keys';
 import { useDebouncedValue } from '@/hooks/use-debounce';
+import { usePermissions } from '@/hooks/use-permissions';
+import { useAuthStore } from '@/stores/auth-store';
 import { useQuicklook } from '@/components/maps/hooks/use-quicklook';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -202,7 +204,15 @@ const DraggableDatasetRow = memo(function DraggableDatasetRow({
           // Phase 1199 STACK-05: reveal the catalog drag grip on coarse-pointer/touch.
           data-touch-reveal=""
           className="flex h-7 w-5 shrink-0 items-center justify-center cursor-grab opacity-0 group-hover/row:opacity-35 hover:opacity-70 focus-visible:opacity-70 text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded active:cursor-grabbing"
-          onPointerDown={(e) => e.stopPropagation()}
+          // builder-audit #338 P1-10: {...listeners} spreads dnd-kit's PointerSensor
+          // activator (incl. onPointerDown). A bare onPointerDown={stopPropagation}
+          // AFTER the spread would OVERRIDE the activator and break drag-to-add from
+          // the handle. Compose instead: invoke the activator first, then stop
+          // propagation so the row-level pointer handlers stay suppressed.
+          onPointerDown={(e) => {
+            listeners?.onPointerDown?.(e);
+            e.stopPropagation();
+          }}
           onClick={(e) => e.stopPropagation()}
         >
           <GripVertical className="h-3.5 w-3.5" aria-hidden="true" />
@@ -254,6 +264,14 @@ export function DatasetSearchPanel({
 }: DatasetSearchPanelProps) {
   const { t } = useTranslation('builder');
   const queryClient = useQueryClient();
+  // builder-audit #338 SEARCH-01: gate the Import/Upload CTAs on capability (matching
+  // the catalog SearchPage, fix GLUX-006) so a viewer-capable session that lands
+  // here does not see dead-end Import affordances. Keep the `!!token` guard too:
+  // on logout the cached permissions query can briefly still return data, while
+  // `token` clears synchronously in the auth store.
+  const token = useAuthStore((s) => s.token);
+  const { can } = usePermissions();
+  const canImport = !!token && can('upload');
   const [query, setQuery] = useState<string>(initialQuery ?? '');
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -484,11 +502,14 @@ export function DatasetSearchPanel({
           <p className="text-center text-sm font-semibold">
             {t('search.catalogEmpty', { defaultValue: 'Your catalog is empty. Upload a dataset to get started.' })}
           </p>
-          <Button variant="ghost" size="sm" asChild>
-            <Link to="/import">
-              {t('search.uploadCta', { defaultValue: 'Upload a file →' })}
-            </Link>
-          </Button>
+          {/* builder-audit #338 SEARCH-01: only show the Upload CTA when the session can upload. */}
+          {canImport && (
+            <Button variant="ghost" size="sm" asChild>
+              <Link to="/import">
+                {t('search.uploadCta', { defaultValue: 'Upload a file →' })}
+              </Link>
+            </Button>
+          )}
           <Button variant="link" size="sm" className="text-muted-foreground text-xs" asChild>
             <Link to="/collections">
               {t('search.browseCatalogCta', { defaultValue: 'Browse public catalog →' })}
@@ -536,14 +557,18 @@ export function DatasetSearchPanel({
         ))}
       </div>
 
-      <div className="mt-3 flex justify-end border-t border-border/60 px-1 pt-3">
-        <Button asChild variant="ghost" size="sm" className="h-8 gap-1 text-xs">
-          <Link to="/import">
-            <Upload className="h-3.5 w-3.5" aria-hidden="true" />
-            {t('search.importData', { defaultValue: 'Import data...' })}
-          </Link>
-        </Button>
-      </div>
+      {/* builder-audit #338 SEARCH-01: gate the footer Import CTA on can('upload'),
+          matching the catalog search panel. */}
+      {canImport && (
+        <div className="mt-3 flex justify-end border-t border-border/60 px-1 pt-3">
+          <Button asChild variant="ghost" size="sm" className="h-8 gap-1 text-xs">
+            <Link to="/import">
+              <Upload className="h-3.5 w-3.5" aria-hidden="true" />
+              {t('search.importData', { defaultValue: 'Import data...' })}
+            </Link>
+          </Button>
+        </div>
+      )}
     </div>
   );
 }

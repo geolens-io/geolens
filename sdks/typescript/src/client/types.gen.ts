@@ -5,6 +5,23 @@ export type ClientOptions = {
 };
 
 /**
+ * AIAvailabilityResponse
+ *
+ * Public-safe AI readiness signal (builder-audit #338 P1-11).
+ *
+ * Carries a single boolean and intentionally exposes NO provider name, model,
+ * or key detail — it is readable by any non-admin editor holding
+ * ``use_ai_chat`` so the builder can enable/disable chat without the
+ * admin-only ``/admin/ai-status`` endpoint (which leaks provider/key info).
+ */
+export type AiAvailabilityResponse = {
+    /**
+     * Available
+     */
+    available: boolean;
+};
+
+/**
  * AIStatusResponse
  */
 export type AiStatusResponse = {
@@ -8595,7 +8612,7 @@ export type SublayerOverride = {
     /**
      * Opacity
      *
-     * Per-sublayer opacity (0-1), or null to use the basemap default. Additive on top of BasemapConfig.opacity (the whole-basemap master opacity). IN-02 (Phase 1059 code review): this field is populated via API or a future Phase milestone. The current UI opacity slider in BasemapSublayerEditorScene routes through the legacy sublayerState path (MapBuilderPage.tsx handleSublayerOpacityChange) per D-09 ('OPACITY — existing slider untouched') and does not call updateSublayerOverride. See TODO(BUILDER-SUBLAYER-PERSIST) comment at MapBuilderPage.tsx for the deferral rationale.
+     * Per-sublayer opacity (0-1), or null to use the basemap default. Composes on top of BasemapConfig.opacity (the whole-basemap master opacity): the rendered opacity is override.opacity * master_opacity (builder-audit #338 CORR-01). The UI opacity slider in BasemapSublayerEditorScene persists through this field: MapBuilderPage.handleSublayerOpacityChange -> setBasemapSublayerOpacity -> updateBasemapSublayerOverride writes config.sublayer_overrides[key].opacity.
      */
     opacity?: number | null;
     /**
@@ -10881,6 +10898,51 @@ export type RejectUserAdminUsersUserIdRejectPostResponses = {
 };
 
 export type RejectUserAdminUsersUserIdRejectPostResponse = RejectUserAdminUsersUserIdRejectPostResponses[keyof RejectUserAdminUsersUserIdRejectPostResponses];
+
+export type AiAvailabilityEndpointAiAvailabilityGetData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/ai/availability/';
+};
+
+export type AiAvailabilityEndpointAiAvailabilityGetErrors = {
+    /**
+     * Bad request — invalid query parameters or payload
+     */
+    400: ProblemDetail;
+    /**
+     * Unauthorized — missing or invalid credentials
+     */
+    401: ProblemDetail;
+    /**
+     * Forbidden — caller lacks access to this resource
+     */
+    403: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Validation error
+     */
+    422: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+};
+
+export type AiAvailabilityEndpointAiAvailabilityGetError = AiAvailabilityEndpointAiAvailabilityGetErrors[keyof AiAvailabilityEndpointAiAvailabilityGetErrors];
+
+export type AiAvailabilityEndpointAiAvailabilityGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: AiAvailabilityResponse;
+};
+
+export type AiAvailabilityEndpointAiAvailabilityGetResponse = AiAvailabilityEndpointAiAvailabilityGetResponses[keyof AiAvailabilityEndpointAiAvailabilityGetResponses];
 
 export type ChatEndpointAiChatPostData = {
     body: ChatRequest;

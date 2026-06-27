@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { buildLabelLayerSpec, syncLabelLayer } from '../label-layer-utils';
+import { buildLabelLayerSpec, buildLabelStyle, syncLabelLayer } from '../label-layer-utils';
 import type { LabelConfig } from '@/types/api';
 
 // The helper returns a MapLibre `AddLayerObject`, which is a discriminated
@@ -81,8 +81,12 @@ describe('buildLabelLayerSpec', () => {
 
     const layout = spec.layout as Record<string, unknown>;
     expect(layout['symbol-placement']).toBe('line');
-    expect(layout['text-anchor']).toBeUndefined();
-    expect(layout['text-offset']).toBeUndefined();
+    // LABEL-01: text-anchor/text-offset are now always present (pinned to the
+    // neutral center/[0,0] for non-point placement) so the add path and the
+    // update path derive from one canonical object. center/[0,0] equal
+    // MapLibre's defaults, so line labels render identically.
+    expect(layout['text-anchor']).toBe('center');
+    expect(layout['text-offset']).toEqual([0, 0]);
   });
 
   it('respects explicit placement override', () => {
@@ -96,7 +100,8 @@ describe('buildLabelLayerSpec', () => {
 
     const layout = spec.layout as Record<string, unknown>;
     expect(layout['symbol-placement']).toBe('line-center');
-    expect(layout['text-anchor']).toBeUndefined();
+    // LABEL-01: non-point placement pins text-anchor to the neutral default.
+    expect(layout['text-anchor']).toBe('center');
   });
 
   it('uses circle offset default for point placement on circle geometry', () => {
@@ -220,5 +225,23 @@ describe('syncLabelLayer', () => {
     syncLabelLayer(map, 'label-4', { column: 'x' }, 'fill');
 
     expect(map.setLayerZoomRange).toHaveBeenCalledWith('label-4', 0, 22);
+  });
+
+  // LABEL-01: the add path and update path consume ONE canonical {layout, paint}
+  // object, so symbol-avoid-edges (fill-only) is applied on BOTH paths — the
+  // exact drift the audit flagged (build set it, sync did not).
+  it('applies symbol-avoid-edges for fill geometry on the update path too', () => {
+    const map = createMockMap();
+    syncLabelLayer(map, 'label-fill', { column: 'x' }, 'fill');
+    expect(map.setLayoutProperty).toHaveBeenCalledWith('label-fill', 'symbol-avoid-edges', true);
+  });
+
+  it('builds the same canonical layout/paint that buildLabelLayerSpec spreads', () => {
+    const { layout, paint } = buildLabelStyle(baseLc, 'fill');
+    const spec = buildLabelLayerSpec({
+      labelId: 'l', sourceId: 's', sourceLayer: 'data.t', lc: baseLc, geomType: 'fill',
+    }) as unknown as SpecRecord;
+    expect(spec.layout).toEqual(layout);
+    expect(spec.paint).toEqual(paint);
   });
 });

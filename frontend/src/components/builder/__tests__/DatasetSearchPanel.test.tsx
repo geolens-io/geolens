@@ -36,6 +36,20 @@ vi.mock('react-i18next', () => ({
   }),
 }));
 
+// builder-audit #338 SEARCH-01: the panel now gates its Import/Upload CTAs on
+// `!!token && can('upload')`. Default to an upload-capable, signed-in session so
+// the existing suites (which assert on the CTAs) keep passing; the dedicated
+// SEARCH-01 describe flips these to cover the gated-off path.
+let mockToken: string | null = 'test-token';
+let mockCanUpload = true;
+vi.mock('@/stores/auth-store', () => ({
+  useAuthStore: (selector: (s: { token: string | null }) => unknown) =>
+    selector({ token: mockToken }),
+}));
+vi.mock('@/hooks/use-permissions', () => ({
+  usePermissions: () => ({ can: () => mockCanUpload, permissions: { upload: mockCanUpload }, isLoading: false }),
+}));
+
 const mockSearchDatasets = vi.mocked(searchDatasets);
 
 function makeRecord(overrides: {
@@ -287,6 +301,40 @@ describe('DatasetSearchPanel', () => {
     // Upload CTA link
     const uploadLink = screen.getByRole('link', { name: /upload a file/i });
     expect(uploadLink).toHaveAttribute('href', '/import');
+  });
+
+  // builder-audit #338 SEARCH-01: Import/Upload CTAs are gated on `!!token && can('upload')`.
+  describe('SEARCH-01: Import/Upload CTAs gated on upload capability', () => {
+    afterEach(() => {
+      mockCanUpload = true;
+      mockToken = 'test-token';
+    });
+
+    it('hides the footer Import CTA when the session cannot upload', async () => {
+      mockCanUpload = false;
+      render(<DatasetSearchPanel {...defaultProps()} />);
+      expect(await screen.findByText('Roads')).toBeInTheDocument();
+      expect(screen.queryByRole('link', { name: /import data/i })).not.toBeInTheDocument();
+    });
+
+    it('hides the empty-state Upload CTA when the session cannot upload', async () => {
+      mockCanUpload = false;
+      mockSearchDatasets.mockResolvedValue({
+        type: 'FeatureCollection' as const,
+        numberMatched: 0,
+        numberReturned: 0,
+        features: [],
+      });
+      render(<DatasetSearchPanel {...defaultProps()} />);
+      expect(await screen.findByRole('status')).toBeInTheDocument();
+      expect(screen.queryByRole('link', { name: /upload a file/i })).not.toBeInTheDocument();
+    });
+
+    it('shows the footer Import CTA when the session can upload', async () => {
+      render(<DatasetSearchPanel {...defaultProps()} />);
+      const importLink = await screen.findByRole('link', { name: /import data/i });
+      expect(importLink).toHaveAttribute('href', '/import');
+    });
   });
 
   it('Test 5: Zero-result state — query entered, no matches — shows SearchX and Clear search button', async () => {

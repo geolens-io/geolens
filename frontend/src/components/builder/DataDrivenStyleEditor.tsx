@@ -1,12 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { X } from 'lucide-react';
-import { HexColorPicker, HexColorInput } from 'react-colorful';
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from '@/components/ui/popover';
+import { SwatchColorPopover } from './StyleColorPicker';
 import {
   Select,
   SelectContent,
@@ -148,6 +143,102 @@ function defaultSizeRange(tgt: 'color' | 'radius' | 'width'): [number, number] {
   return [2, 20]; // radius default
 }
 
+/**
+ * builder-audit #338 COMPLEXITY-01: the three styling effects (categorical color,
+ * graduated color, graduated size) each wrote back canonical style via
+ * onStyleConfigChange, guarded by a long deep-equality skip-check whose ONLY job
+ * is to prevent an infinite onStyleConfigChange -> re-render -> effect loop.
+ * Those three guards were hand-maintained and had to stay in lockstep with the
+ * config each effect writes (a missed field = infinite loop or stale style).
+ *
+ * This single helper parameterized by (mode, target) is the one tested place
+ * those guards live. It returns true when the existing config already matches
+ * what the effect would write, so the effect can skip the write. Behavior is
+ * preserved exactly — each branch is the original guard verbatim.
+ */
+export interface StyleGuardParams {
+  existing: StyleConfig | null | undefined;
+  mode: 'categorical' | 'graduated';
+  target: 'color' | 'radius' | 'width';
+  column: string;
+  ramp: string;
+  reversed: boolean;
+  method: ClassificationMethod;
+  classCount: number;
+  /** Computed breaks for the candidate write (graduated modes); [] for categorical. */
+  breaks: number[];
+  /** Candidate size range (graduated size only). */
+  sizeRange: [number, number];
+  /** Candidate category values, in order (categorical only). */
+  categoryValues?: unknown[];
+}
+
+export function styleConfigAlreadyMatches(p: StyleGuardParams): boolean {
+  const ec = p.existing;
+  if (!ec) return false;
+
+  // Categorical color
+  if (p.mode === 'categorical') {
+    const values = p.categoryValues ?? [];
+    return Boolean(
+      ec.mode === 'categorical' &&
+      ec.column === p.column &&
+      ec.ramp === p.ramp &&
+      (ec.reversed ?? false) === p.reversed &&
+      ec.categories &&
+      ec.categories.length === values.length &&
+      ec.categories.every((c, i) => c.value === values[i]),
+    );
+  }
+
+  // Graduated color
+  if (p.target === 'color') {
+    return Boolean(
+      ec.mode === 'graduated' &&
+      ec.column === p.column &&
+      ec.ramp === p.ramp &&
+      (ec.reversed ?? false) === p.reversed &&
+      ec.method === p.method &&
+      ec.classCount === p.classCount &&
+      ec.colors &&
+      ec.breaks &&
+      (p.method !== 'manual' ||
+        (ec.breaks.length === p.breaks.length &&
+          ec.breaks.every((b, i) => b === p.breaks[i]))) &&
+      (!ec.target || ec.target === 'color'),
+    );
+  }
+
+  // Graduated size (radius or width)
+  return Boolean(
+    ec.target === p.target &&
+    ec.column === p.column &&
+    ec.method === p.method &&
+    ec.classCount === p.classCount &&
+    ec.sizes &&
+    ec.sizeRange &&
+    ec.sizeRange[0] === p.sizeRange[0] &&
+    ec.sizeRange[1] === p.sizeRange[1] &&
+    (p.method !== 'manual' ||
+      (ec.breaks?.length === p.breaks.length &&
+        (ec.breaks ?? []).every((b, i) => b === p.breaks[i]))),
+  );
+}
+
+// P1-07: when a line layer's color switches to a data-driven solid color
+// (categorical/graduated), a stale `line-gradient` paint entry is incompatible
+// and must be dropped from the candidate paint. No-op for non-line color props.
+// The `builder.lineGradient` intent stub is cleared centrally in
+// handleStyleConfigChange (use-layer-map-sync.ts).
+function stripStaleLineGradient(
+  paint: Record<string, unknown>,
+  colorProp: string,
+): Record<string, unknown> {
+  if (colorProp !== 'line-color' || !('line-gradient' in paint)) return paint;
+  const { 'line-gradient': _droppedGradient, ...rest } = paint;
+  return rest;
+}
+
 export function DataDrivenStyleEditor({
   layer,
   onStyleConfigChange,
@@ -189,7 +280,7 @@ export function DataDrivenStyleEditor({
     existingConfig?.reversed ?? false,
   );
 
-  // Phase 20260526-builder-audit BLD-20260526-11: 200ms debounce for per-category / per-class color picker.
+  // Phase 20260526-builder-audit #338 BLD-20260526-11: 200ms debounce for per-category / per-class color picker.
   // drags in DataDrivenStyleEditor. The HexColorPicker fires onChange on every
   // drag pixel; debouncing collapses rapid calls into a single map repaint.
   const colorDebounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -274,17 +365,20 @@ export function DataDrivenStyleEditor({
     const colorProp = getColorProperty(geomType);
 
     // Preserve existing per-category colors when column and ramp haven't changed.
-    // Treat a missing `reversed` field as false (backward-compatible with saved configs).
-    const ec = styleConfig;
-    if (
-      ec?.mode === 'categorical' &&
-      ec.column === column &&
-      ec.ramp === ramp &&
-      (ec.reversed ?? false) === reversed &&
-      ec.categories &&
-      ec.categories.length === values.length &&
-      ec.categories.every((c, i) => c.value === values[i])
-    ) {
+    // builder-audit #338 COMPLEXITY-01: skip-guard lives in styleConfigAlreadyMatches.
+    if (styleConfigAlreadyMatches({
+      existing: styleConfig,
+      mode: 'categorical',
+      target: 'color',
+      column,
+      ramp,
+      reversed,
+      method,
+      classCount,
+      breaks: [],
+      sizeRange,
+      categoryValues: values,
+    })) {
       return;
     }
 
@@ -299,7 +393,7 @@ export function DataDrivenStyleEditor({
 
     const categories = values.map((v, i) => ({ value: v, color: colors[i] }));
     const config: StyleConfig = { mode: 'categorical', column, ramp: effectiveRamp, reversed, categories };
-    const paint = { ...layer.paint, [colorProp]: expression };
+    const paint = stripStaleLineGradient({ ...layer.paint, [colorProp]: expression }, colorProp);
     onStyleConfigChange(layerId, config, paint);
   // eslint-disable-next-line react-hooks/exhaustive-deps -- layer.paint excluded: narrowed colorPaintProp covers the relevant slice
   }, [column, mode, ramp, reversed, valuesData, styleConfig, geomType, colorPaintProp, layerId, onStyleConfigChange]);
@@ -327,22 +421,19 @@ export function DataDrivenStyleEditor({
     if (invalid || breaks.length === 0) return;
 
     // Preserve existing graduated colors when config hasn't changed.
-    // Treat a missing `reversed` field as false (backward-compatible with saved configs).
-    const ec = styleConfig;
-    if (
-      ec?.mode === 'graduated' &&
-      ec.column === column &&
-      ec.ramp === ramp &&
-      (ec.reversed ?? false) === reversed &&
-      ec.method === method &&
-      ec.classCount === classCount &&
-      ec.colors &&
-      ec.breaks &&
-      (method !== 'manual' ||
-        (ec.breaks.length === breaks.length &&
-          ec.breaks.every((b, i) => b === breaks[i]))) &&
-      (!ec.target || ec.target === 'color')
-    ) {
+    // builder-audit #338 COMPLEXITY-01: skip-guard lives in styleConfigAlreadyMatches.
+    if (styleConfigAlreadyMatches({
+      existing: styleConfig,
+      mode: 'graduated',
+      target: 'color',
+      column,
+      ramp,
+      reversed,
+      method,
+      classCount,
+      breaks,
+      sizeRange,
+    })) {
       return;
     }
 
@@ -366,7 +457,7 @@ export function DataDrivenStyleEditor({
       colors,
       target: 'color',
     };
-    const paint = { ...layer.paint, [colorProp]: expression };
+    const paint = stripStaleLineGradient({ ...layer.paint, [colorProp]: expression }, colorProp);
     onStyleConfigChange(layerId, config, paint);
   // eslint-disable-next-line react-hooks/exhaustive-deps -- layer.paint excluded: narrowed colorPaintProp covers the relevant slice
   }, [column, mode, ramp, reversed, classCount, method, target, statsData, styleConfig, geomType, colorPaintProp, layerId, onStyleConfigChange, manualBreakValues]);
@@ -391,23 +482,22 @@ export function DataDrivenStyleEditor({
 
     if (invalid || breaks.length === 0) return;
 
-    // Guard: skip if existing config already matches — use classCount (local
-    // state) consistently in both the guard and the written config to prevent
-    // infinite effect loops when effectiveClassCount differs from classCount.
-    const ec = styleConfig;
-    if (
-      ec?.target === target &&
-      ec.column === column &&
-      ec.method === method &&
-      ec.classCount === classCount &&
-      ec.sizes &&
-      ec.sizeRange &&
-      ec.sizeRange[0] === sizeRange[0] &&
-      ec.sizeRange[1] === sizeRange[1] &&
-      (method !== 'manual' ||
-        (ec.breaks?.length === breaks.length &&
-          ec.breaks.every((b, i) => b === breaks[i])))
-    ) {
+    // Guard: skip if existing config already matches. builder-audit #338 COMPLEXITY-01:
+    // skip-guard lives in styleConfigAlreadyMatches, which uses classCount (local
+    // state) consistently with the written config below to prevent infinite effect
+    // loops when effectiveClassCount differs from classCount.
+    if (styleConfigAlreadyMatches({
+      existing: styleConfig,
+      mode: 'graduated',
+      target,
+      column,
+      ramp,
+      reversed,
+      method,
+      classCount,
+      breaks,
+      sizeRange,
+    })) {
       return;
     }
 
@@ -514,7 +604,7 @@ export function DataDrivenStyleEditor({
       );
       const newConfig: StyleConfig = { ...styleConfig, categories: updated, ramp: 'custom' };
       const paint = { ...layerPaint, [colorProp]: expression };
-      // Phase 20260526-builder-audit BLD-20260526-11: 200ms debounce — HexColorPicker fires on every drag pixel.
+      // Phase 20260526-builder-audit #338 BLD-20260526-11: 200ms debounce — HexColorPicker fires on every drag pixel.
       clearTimeout(colorDebounceRef.current);
       colorDebounceRef.current = setTimeout(() => {
         onStyleConfigChange(layerId, newConfig, paint);
@@ -534,7 +624,7 @@ export function DataDrivenStyleEditor({
       const expression = buildGraduatedExpression(styleConfig.column, styleConfig.breaks, updatedColors);
       const newConfig: StyleConfig = { ...styleConfig, colors: updatedColors, ramp: 'custom' };
       const paint = { ...layerPaint, [colorProp]: expression };
-      // Phase 20260526-builder-audit BLD-20260526-11: 200ms debounce — HexColorPicker fires on every drag pixel.
+      // Phase 20260526-builder-audit #338 BLD-20260526-11: 200ms debounce — HexColorPicker fires on every drag pixel.
       clearTimeout(colorDebounceRef.current);
       colorDebounceRef.current = setTimeout(() => {
         onStyleConfigChange(layerId, newConfig, paint);
@@ -715,31 +805,10 @@ export function DataDrivenStyleEditor({
           <div className="max-h-36 overflow-y-auto space-y-0.5">
             {layer.style_config.categories.map((cat) => (
               <div key={String(cat.value)} className="flex items-center gap-2">
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <button
-                      className="w-5 h-5 rounded-sm border border-border shrink-0 cursor-pointer hover:ring-2 hover:ring-primary/30 transition-shadow"
-                      style={{ background: cat.color }}
-                      title={cat.color}
-                    />
-                  </PopoverTrigger>
-                  <PopoverContent className="w-auto p-3" align="start" side="right">
-                    <HexColorPicker
-                      color={cat.color}
-                      onChange={(hex) => handleCategoryColorChange(cat.value, hex)}
-                    />
-                    <HexColorInput
-                      color={cat.color}
-                      onChange={(hex) => {
-                        if (/^#[0-9a-fA-F]{6}$/.test(hex)) {
-                          handleCategoryColorChange(cat.value, hex);
-                        }
-                      }}
-                      className="mt-2 w-full text-xs border rounded px-2 py-1 bg-background text-foreground"
-                      prefixed
-                    />
-                  </PopoverContent>
-                </Popover>
+                <SwatchColorPopover
+                  color={cat.color}
+                  onChange={(hex) => handleCategoryColorChange(cat.value, hex)}
+                />
                 <span className="text-xs truncate">{cat.value}</span>
               </div>
             ))}
@@ -762,31 +831,10 @@ export function DataDrivenStyleEditor({
                     : `${breaks[i - 1]} – ${breaks[i]}`;
               return (
                 <div key={i} className="flex items-center gap-2">
-                  <Popover>
-                    <PopoverTrigger asChild>
-                      <button
-                        className="w-5 h-5 rounded-sm border border-border shrink-0 cursor-pointer hover:ring-2 hover:ring-primary/30 transition-shadow"
-                        style={{ background: color }}
-                        title={color}
-                      />
-                    </PopoverTrigger>
-                    <PopoverContent className="w-auto p-3" align="start" side="right">
-                      <HexColorPicker
-                        color={color}
-                        onChange={(hex) => handleGraduatedColorChange(i, hex)}
-                      />
-                      <HexColorInput
-                        color={color}
-                        onChange={(hex) => {
-                          if (/^#[0-9a-fA-F]{6}$/.test(hex)) {
-                            handleGraduatedColorChange(i, hex);
-                          }
-                        }}
-                        className="mt-2 w-full text-xs border rounded px-2 py-1 bg-background text-foreground"
-                        prefixed
-                      />
-                    </PopoverContent>
-                  </Popover>
+                  <SwatchColorPopover
+                    color={color}
+                    onChange={(hex) => handleGraduatedColorChange(i, hex)}
+                  />
                   <span className="text-xs text-muted-foreground truncate">{label}</span>
                 </div>
               );

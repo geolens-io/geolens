@@ -7,9 +7,12 @@ import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { StyleColorPicker } from './StyleColorPicker';
 import { ColorRampPicker } from './ColorRampPicker';
+import { SunCompass } from './SunCompass';
+import { getNumberPaint, getStringPaint } from './paint-accessors';
 import {
   HILLSHADE_EXAGGERATION_MAX,
   HILLSHADE_EXAGGERATION_MIN,
+  HILLSHADE_PAINT_DEFAULTS,
   normalizeHillshadeExaggeration,
 } from './layer-adapters/hillshade-adapter';
 import {
@@ -44,10 +47,10 @@ export interface DEMEditorSceneProps {
    * LayerEditorHandlers — same wiring used by the default layer editor. */
   onRemove: (layerId: string) => void;
   /**
-   * POLISH-02: when true, this DEM is already powering the map's terrain source.
-   * A muted advisory note is rendered in hillshade mode to inform the user that
-   * hillshade is suppressed (two raster-dem consumers cause MapLibre errors).
-   * Defaults to false when omitted.
+   * POLISH-02 / builder-audit #338 YAGNI-01: when true, this DEM is already powering the
+   * map's terrain source. A muted advisory note is rendered in hillshade mode to inform
+   * the user that hillshade shading is hidden (two raster-dem consumers on one source
+   * cause MapLibre errors). Defaults to false when omitted.
    */
   isTerrainBound?: boolean;
 }
@@ -56,14 +59,6 @@ function currentMode(layer: MapLayerResponse): DemRenderMode {
   return effectiveDemRenderMode(layer.style_config, layer.is_dem) === 'terrain'
     ? 'terrain'
     : 'hillshade';
-}
-
-function getNumber(paint: Record<string, unknown>, key: string, fallback: number): number {
-  return typeof paint[key] === 'number' ? (paint[key] as number) : fallback;
-}
-
-function getString(paint: Record<string, unknown>, key: string, fallback: string): string {
-  return typeof paint[key] === 'string' ? (paint[key] as string) : fallback;
 }
 
 function clampZoom(v: number): number {
@@ -148,7 +143,7 @@ export const DEMEditorScene = memo(function DEMEditorScene({
   terrainExaggeration,
   onTerrainExaggerationChange,
   onRemove,
-  isTerrainBound: _isTerrainBound = false,
+  isTerrainBound = false,
 }: DEMEditorSceneProps) {
   const { t } = useTranslation('builder');
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -197,13 +192,17 @@ export const DEMEditorScene = memo(function DEMEditorScene({
     { id: 'terrain', label: t('demEditor.renderAsTerrain', { defaultValue: '◬ Terrain' }) },
   ];
 
-  const azimuth = getNumber(paint, 'hillshade-illumination-direction', 335);
-  const exaggeration = normalizeHillshadeExaggeration(getNumber(paint, 'hillshade-exaggeration', 0.5));
+  // builder-audit #338 CONSIST-01: read hillshade fallbacks from the adapter's
+  // HILLSHADE_PAINT_DEFAULTS (the values buildHillshadePaint actually renders) rather
+  // than re-typing literals, so the editor swatch can never diverge from the rendered
+  // default (the prior '#D4A97A' accent showed brown while the map painted black).
+  const azimuth = getNumberPaint(paint, 'hillshade-illumination-direction', HILLSHADE_PAINT_DEFAULTS['hillshade-illumination-direction']);
+  const exaggeration = normalizeHillshadeExaggeration(getNumberPaint(paint, 'hillshade-exaggeration', HILLSHADE_PAINT_DEFAULTS['hillshade-exaggeration']));
   const terrainSurfaceExaggeration = normalizeTerrainExaggeration(terrainExaggeration);
 
-  const highlightColor = getString(paint, 'hillshade-highlight-color', '#FFFFFF');
-  const shadowColor = getString(paint, 'hillshade-shadow-color', '#000000');
-  const accentColor = getString(paint, 'hillshade-accent-color', '#D4A97A');
+  const highlightColor = getStringPaint(paint, 'hillshade-highlight-color', HILLSHADE_PAINT_DEFAULTS['hillshade-highlight-color']);
+  const shadowColor = getStringPaint(paint, 'hillshade-shadow-color', HILLSHADE_PAINT_DEFAULTS['hillshade-shadow-color']);
+  const accentColor = getStringPaint(paint, 'hillshade-accent-color', HILLSHADE_PAINT_DEFAULTS['hillshade-accent-color']);
 
   const opacity = typeof layer.opacity === 'number' && Number.isFinite(layer.opacity)
     ? layer.opacity
@@ -266,68 +265,32 @@ export const DEMEditorScene = memo(function DEMEditorScene({
 
           {mode === 'hillshade' && (
             <div className="space-y-4">
+              {/* builder-audit #338 YAGNI-01: advisory note when this DEM is also bound as the
+                  map's 3D terrain source. Hillshade shading is hidden in that case to avoid
+                  two raster-dem consumers on one source (a MapLibre error). The parent
+                  computes isTerrainBound via isHillshadeTerrainBound. */}
+              {isTerrainBound && (
+                <p role="note" className="rounded-md bg-muted/50 px-2 py-1.5 text-[11px] leading-snug text-muted-foreground">
+                  {t('demEditor.terrainBoundNote', {
+                    defaultValue: "This DEM also powers the map's 3D terrain. Hillshade shading is hidden to avoid a source conflict.",
+                  })}
+                </p>
+              )}
+
               {/* Sub-section: SUN POSITION */}
               <div>
                 <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground mb-3">
                   {t('demEditor.sunPositionLabel', { defaultValue: 'SUN POSITION' })}
                 </p>
 
-                {/* Compass widget — 90×90 circular card */}
-                <div
-                  role="img"
-                  aria-label={t('demEditor.compassAriaLabel', {
+                {/* builder-audit #338 COMPLEX-01: compass extracted to SunCompass. */}
+                <SunCompass
+                  azimuth={azimuth}
+                  ariaLabel={t('demEditor.compassAriaLabel', {
                     azimuth,
                     defaultValue: 'Sun azimuth: {{azimuth}}°',
                   })}
-                  className="relative mx-auto mb-3"
-                  style={{
-                    width: '90px',
-                    height: '90px',
-                    borderRadius: '50%',
-                    border: '1px solid var(--border)',
-                    background: 'radial-gradient(circle, var(--surface-1), var(--surface-2))',
-                  }}
-                >
-                  {/* N-S crosshair */}
-                  <div
-                    style={{
-                      position: 'absolute',
-                      left: '50%',
-                      top: 0,
-                      bottom: 0,
-                      width: '1px',
-                      background: 'var(--border)',
-                      transform: 'translateX(-50%)',
-                    }}
-                  />
-                  {/* E-W crosshair */}
-                  <div
-                    style={{
-                      position: 'absolute',
-                      top: '50%',
-                      left: 0,
-                      right: 0,
-                      height: '1px',
-                      background: 'var(--border)',
-                      transform: 'translateY(-50%)',
-                    }}
-                  />
-                  {/* Needle */}
-                  <div
-                    aria-hidden="true"
-                    style={{
-                      position: 'absolute',
-                      left: '50%',
-                      top: '50%',
-                      width: '2px',
-                      height: '38px',
-                      background: 'var(--primary)',
-                      transformOrigin: 'center bottom',
-                      transform: `translate(-50%, -100%) rotate(${azimuth}deg)`,
-                      borderRadius: '1px',
-                    }}
-                  />
-                </div>
+                />
 
                 {/* Sliders */}
                 <div className="space-y-2">
@@ -442,18 +405,28 @@ export const DEMEditorScene = memo(function DEMEditorScene({
               </div>
               {/* Ramp picker — conditionally rendered (mount/unmount) when enabled */}
               {paint['_hypso-enabled'] === true && (
-                <ColorRampPicker
-                  mode="graduated"
-                  rampName={getString(paint, '_hypso-ramp', 'Viridis')}
-                  onChange={(name) => handlePaintValue('_hypso-ramp', name)}
-                />
+                <>
+                  <ColorRampPicker
+                    mode="graduated"
+                    rampName={getStringPaint(paint, '_hypso-ramp', 'Viridis')}
+                    onChange={(name) => handlePaintValue('_hypso-ramp', name)}
+                  />
+                  {/* builder-audit #338 MAINT-01: surface the hardcoded 0–4000 m, meters-only
+                      elevation range limitation in-product (buildElevationExpression in
+                      color-relief-sync.ts has no min/max control yet). */}
+                  <p className="text-[11px] leading-snug text-muted-foreground">
+                    {t('demEditor.hypsometricRangeNote', {
+                      defaultValue: 'Elevation tint spans 0–4000 m and assumes meters. DEMs in other units or ranges may appear flat.',
+                    })}
+                  </p>
+                </>
               )}
             </div>
           )}
         </div>
       </section>
 
-      {/* 5. VISIBILITY section — always expanded */}
+      {/* 4. VISIBILITY section — always expanded */}
       <section
         aria-labelledby={`section-visibility-dem-${layer.id}`}
         className="border-b"

@@ -11,6 +11,7 @@ import type { TileToken } from '@/api/tiles';
 // existing auth-error toast. Mock the signing functions so the URL is deterministic
 // and the call can be counted — same approach as map-sync.tile-refresh.test.ts.
 vi.mock('@/lib/tile-utils', () => ({
+  getMvtSourceLayerName: (table: string) => `data.${table}`,
   buildSignedTileUrl: vi.fn(
     (table: string, t: { sig: string } | null) => `/api/tiles/data.${table}/{z}/{x}/{y}.pbf?sig=${t?.sig ?? ''}`,
   ),

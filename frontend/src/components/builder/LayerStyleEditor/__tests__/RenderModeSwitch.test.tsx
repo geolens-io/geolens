@@ -1,5 +1,6 @@
 import { render, screen } from '@/test/test-utils';
 import { RenderModeSwitch } from '../RenderModeSwitch';
+import type { EditorDispatchKey } from '../RenderModeSwitch';
 import type { BaseStyleEditorProps } from '../types';
 import type { MapLayerResponse } from '@/types/api';
 
@@ -101,8 +102,12 @@ describe('RenderModeSwitch', () => {
   it('returns null and emits console.warn for an unsupported dispatchKey', () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
-    // vitest runs with NODE_ENV !== 'production', so the DEV warn path is active
-    const { container } = render(<RenderModeSwitch {...baseProps} dispatchKey="unsupported-xyz" />);
+    // vitest runs with NODE_ENV !== 'production', so the DEV warn path is active.
+    // Cast past the narrowed EditorDispatchKey type to exercise the defensive
+    // runtime guard (builder-audit #338 TYPE-01).
+    const { container } = render(
+      <RenderModeSwitch {...baseProps} dispatchKey={'unsupported-xyz' as EditorDispatchKey} />,
+    );
 
     expect(container.firstChild).toBeNull();
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('unsupported-xyz'));

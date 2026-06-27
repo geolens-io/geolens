@@ -14,7 +14,7 @@ interface ChatInputProps {
   grow?: boolean;
 }
 
-interface TriggerState {
+export interface TriggerState {
   type: '@' | '/';
   startIndex: number;
   query: string;
@@ -22,7 +22,12 @@ interface TriggerState {
 
 const SLASH_COMMAND_IDS = ['style', 'filter', 'label', 'query', 'add'] as const;
 
-function detectTrigger(value: string, cursorPos: number): TriggerState | null {
+/**
+ * Detect an active @-mention or /-command trigger ending at `cursorPos`.
+ * Exported for unit testing (builder-audit #338 TEST-01): the cursor-sliced regex is
+ * exactly the off-by-one-prone logic that previously had zero coverage.
+ */
+export function detectTrigger(value: string, cursorPos: number): TriggerState | null {
   const before = value.slice(0, cursorPos);
 
   // Check for @ trigger: not preceded by a word character
@@ -51,6 +56,34 @@ function detectTrigger(value: string, cursorPos: number): TriggerState | null {
 function filterItems(items: MentionItem[], query: string): MentionItem[] {
   const q = query.toLowerCase();
   return items.filter((item) => item.label.toLowerCase().includes(q));
+}
+
+/**
+ * Compute the value + cursor position after inserting `item` for an active
+ * trigger. Pure and exported for unit testing (builder-audit #338 TEST-01) — covers
+ * bracket vs plain insertion and the +1-for-trigger-char offset arithmetic.
+ *
+ * `@`-mentions whose label contains a space use bracket syntax (`@[Layer Name] `);
+ * otherwise a bare `@Name `. Slash commands always insert `<label> `.
+ */
+export function computeMentionInsertion(
+  value: string,
+  trigger: TriggerState,
+  item: Pick<MentionItem, 'label'>,
+): { value: string; cursor: number } {
+  const before = value.slice(0, trigger.startIndex);
+  const after = value.slice(
+    trigger.startIndex + 1 + trigger.query.length, // +1 for trigger char
+  );
+
+  let insertion: string;
+  if (trigger.type === '@') {
+    insertion = item.label.includes(' ') ? `@[${item.label}] ` : `@${item.label} `;
+  } else {
+    insertion = `${item.label} `;
+  }
+
+  return { value: before + insertion + after, cursor: before.length + insertion.length };
 }
 
 export function ChatInput({
@@ -132,21 +165,7 @@ export function ChatInput({
     const item = filteredItems[index];
     if (!item) return;
 
-    const before = value.slice(0, triggerState.startIndex);
-    const after = value.slice(
-      triggerState.startIndex + 1 + triggerState.query.length, // +1 for trigger char
-    );
-
-    let insertion: string;
-    if (triggerState.type === '@') {
-      // Bracket syntax for names with spaces
-      insertion = item.label.includes(' ') ? `@[${item.label}] ` : `@${item.label} `;
-    } else {
-      insertion = `${item.label} `;
-    }
-
-    const newValue = before + insertion + after;
-    const newCursor = before.length + insertion.length;
+    const { value: newValue, cursor: newCursor } = computeMentionInsertion(value, triggerState, item);
 
     onChange(newValue);
     setTriggerState(null);

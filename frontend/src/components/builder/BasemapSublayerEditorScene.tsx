@@ -89,9 +89,20 @@ export function BasemapSublayerEditorScene({
 
   const safeOpacity = typeof opacity === 'number' && Number.isFinite(opacity) ? opacity : 1;
 
+  // builder-audit #338 MAINT-02: STROKE/CASING only mutate line sublayers in
+  // applyOverrideToLayer (stroke_color/width require layerType==='line';
+  // casing requires a 'casing' line sibling). Roads and boundaries are line
+  // layers; labels (symbol) and buildings (fill-extrusion) are not, so the
+  // sections render no-op controls for them and persist junk override fields.
+  // Gate on the sublayer kind so we only surface controls that actually mutate
+  // the current sublayer. Matches both the override keys ('road'/'boundary')
+  // and the builder sublayer ids ('basemap:roads'/'basemap:boundaries').
+  const supportsStrokeAndCasing = /road|boundar/i.test(sublayerId);
+
   return (
     <>
-      {/* 1. STROKE section — Phase 1059 BSE-01 restored */}
+      {/* 1. STROKE section — Phase 1059 BSE-01 restored (MAINT-02: roads/boundaries only) */}
+      {supportsStrokeAndCasing && (
       <section className="border-b">
         <div className="px-4 py-2">
           <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground mb-2">
@@ -123,8 +134,10 @@ export function BasemapSublayerEditorScene({
           </div>
         </div>
       </section>
+      )}
 
-      {/* 2. CASING section — Phase 1059 BSE-01 restored */}
+      {/* 2. CASING section — Phase 1059 BSE-01 restored (MAINT-02: roads/boundaries only) */}
+      {supportsStrokeAndCasing && (
       <section className="border-b">
         <div className="px-4 py-2">
           <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground mb-2">
@@ -156,6 +169,7 @@ export function BasemapSublayerEditorScene({
           </div>
         </div>
       </section>
+      )}
 
       {/* 3. ZOOM RANGE section — Phase 1059 BSE-01 restored */}
       <section className="border-b">

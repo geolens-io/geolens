@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input';
 import { SliderRow } from './HeatmapStyleControls';
 import {
   buildZoomExpression,
+  isFiniteNumber,
   parseZoomExpression,
   validateZoomExpressionDraft,
   type ZoomExpression,
@@ -31,9 +32,7 @@ interface ZoomExpressionEditorProps {
 const MAX_STOPS = 6;
 const DEFAULT_ZOOM_GAP = 4;
 
-function isFiniteNumber(value: unknown): value is number {
-  return typeof value === 'number' && Number.isFinite(value);
-}
+// builder-audit #338 DRY-03: isFiniteNumber imported from zoom-expressions (single copy).
 
 function formatDisplayValue(value: number, format?: NumericFormat): string {
   if (format === 'percent') {

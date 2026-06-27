@@ -22,6 +22,7 @@ from app.modules.catalog.datasets.api.router_reupload import (
 )
 from app.modules.catalog.datasets.api.router_vrt import router as datasets_vrt_router
 from app.modules.embed_tokens.admin_router import router as embed_tokens_admin_router
+from app.modules.embed_tokens.public_router import router as embed_frame_policy_router
 from app.modules.embed_tokens.router import router as embed_tokens_router
 from app.processing.export.router import router as export_router
 from app.modules.catalog.features.router import features_router
@@ -79,6 +80,9 @@ api_router.include_router(oauth_router)
 api_router.include_router(config_ops_router)
 api_router.include_router(embed_tokens_router)
 api_router.include_router(embed_tokens_admin_router)
+# builder-audit #338 P0-02: public, unauthenticated framing-policy endpoint for the
+# /m/{token} embed shell (consumed by the nginx auth_request edge wiring).
+api_router.include_router(embed_frame_policy_router)
 api_router.include_router(tiles_router)
 api_router.include_router(stac_router)
 

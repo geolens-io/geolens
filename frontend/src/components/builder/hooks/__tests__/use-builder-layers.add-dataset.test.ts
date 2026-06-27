@@ -143,6 +143,27 @@ describe('handleAddDataset (BSR-18)', () => {
     expect(onSuccessCb).not.toHaveBeenCalled();
   });
 
+  it('P1-08: optimistically merges the created layer into localLayers immediately (non-group add)', () => {
+    const existing = makeMockLayer({ id: 'existing', sort_order: 0 });
+    const { result, mutate } = renderBuilderLayers(makeMapData([existing]));
+
+    act(() => {
+      result.current.handleAddDataset('ds-42');
+    });
+
+    const [, { onSuccess }] = mutate.mock.calls[0];
+    act(() => { onSuccess({ id: 'created-layer-id', dataset_id: 'ds-42' }); });
+
+    // The created layer appears right away (prepended at top of the stack) even
+    // though no refetch/invalidation has rehydrated state — so a dirty map shows
+    // the add immediately instead of staying hidden until save/reload.
+    const ids = result.current.localLayers.map((l) => l.id);
+    expect(ids).toContain('created-layer-id');
+    expect(ids[0]).toBe('created-layer-id');
+    // And it is recorded in the saved baseline so it is treated as persisted.
+    expect(result.current.savedLayerBaseline.some((l) => l.id === 'created-layer-id')).toBe(true);
+  });
+
   it('Test D: backward-compat — no onSuccessCb arg does not throw', () => {
     const layer = makeMockLayer();
     const { result, mutate } = renderBuilderLayers(makeMapData([layer]));

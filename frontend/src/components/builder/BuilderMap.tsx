@@ -42,14 +42,17 @@ import {
   clearTerrainForStyleSwap,
   isTerrainCapableDemLayer,
   normalizeTerrainExaggeration,
+  refreshVectorSourceTiles,
   TERRAIN_SOURCE_ID,
 } from './map-sync';
+import { getClusterSourceOptions } from './layer-adapters/cluster-adapter';
+import type { AdapterLayerInput } from './layer-adapters/types';
 import { maybeWarnSmallDemCoverage, resetSmallDemWarning } from './terrain-coverage';
 import { applyMapBasemapAppearance, syncMapComposition } from './map-composition-sync';
 import type { MapLibreEvent, MapMouseEvent } from 'maplibre-gl';
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { MapBasemapConfig, MapLayerResponse, MapTerrainConfig } from '@/types/api';
-import type { TileToken } from '@/api/tiles';
+import type { TileToken, VectorTileToken } from '@/api/tiles';
 import 'maplibre-gl/dist/maplibre-gl.css';
 
 /**
@@ -143,6 +146,32 @@ function visibleLayerBoundsKey(bounds: VisibleLayerBounds | null): string {
  * eliminate it. The success criterion is "no unhandled vector 403 surfaced for the
  * recoverable case".
  */
+/**
+ * builder-audit #338 SYNC-02 + SYNC-03: the SINGLE signed-vector-tile-URL builder used
+ * by BOTH the 401/403 re-sign retry and the token-refresh effect, so the two
+ * paths cannot drift. Cluster radius / max-zoom are clamped through the canonical
+ * `getClusterSourceOptions` (1..256 / 0..22) instead of the previous inline
+ * `48`/`14` with no clamping — an out-of-range builder value now produces the
+ * SAME clamped URL the original source was built with, keeping MapLibre's tile
+ * cache warm. The cols= set is the union across every layer sharing the source.
+ */
+export function buildVectorSourceTileUrl(
+  layer: MapLayerResponse,
+  token: VectorTileToken,
+  tileBaseUrl: string | undefined,
+  allLayers: MapLayerResponse[],
+  sourceId: string,
+): string {
+  if (getClusterSourceStrategy(layer).kind === 'server-tile') {
+    const { clusterRadius, clusterMaxZoom } = getClusterSourceOptions(
+      { style_config: layer.style_config } as AdapterLayerInput,
+    );
+    return buildClusterTileUrl(layer.dataset_table_name, token, tileBaseUrl, undefined, { clusterRadius, clusterMaxZoom });
+  }
+  const sharedSourceCols = getDataDrivenColumnsForSource(sourceId, allLayers);
+  return buildSignedTileUrl(layer.dataset_table_name, token, tileBaseUrl, undefined, sharedSourceCols);
+}
+
 export function resignVectorSourceForRetry(
   map: MaplibreMap,
   sourceId: string,
@@ -162,19 +191,7 @@ export function resignVectorSourceForRetry(
   if (!source || source.type !== 'vector') return false;
 
   const tileBaseUrl = getEnvConfig().TILE_BASE_URL || tileConfig?.cdn_base_url || undefined;
-  const strategy = getClusterSourceStrategy(layer);
-  const builder = layer.style_config?.builder;
-  // Mirror the token-sync effect exactly so the refreshed URL is identical in shape
-  // (just a fresh sig/exp) and MapLibre's tile cache stays warm.
-  const sharedSourceCols = strategy.kind === 'server-tile'
-    ? null
-    : getDataDrivenColumnsForSource(sourceId, layers);
-  const newUrl = strategy.kind === 'server-tile'
-    ? buildClusterTileUrl(layer.dataset_table_name, token, tileBaseUrl, undefined, {
-        clusterRadius: typeof builder?.clusterRadius === 'number' ? builder.clusterRadius : 48,
-        clusterMaxZoom: typeof builder?.clusterMaxZoom === 'number' ? builder.clusterMaxZoom : 14,
-      })
-    : buildSignedTileUrl(layer.dataset_table_name, token, tileBaseUrl, undefined, sharedSourceCols);
+  const newUrl = buildVectorSourceTileUrl(layer, token, tileBaseUrl, layers, sourceId);
   (source as VectorTileSource).setTiles([newUrl]);
   return true;
 }
@@ -214,6 +231,10 @@ export const BuilderMap = memo(function BuilderMap({
   const managedSourcesRef = useRef<Set<string>>(new Set());
   const errorHandlerRef = useRef<((e: { error: { message?: string; status?: number }; sourceId?: string }) => void) | null>(null);
   const styleImageMissingHandlerRef = useRef<((e: { id: string }) => void) | null>(null);
+  // builder-audit #338 SYNC-08: hold the dataloading/idle handlers so unmount detaches
+  // them symmetrically with the error/styleimagemissing handlers.
+  const dataLoadingHandlerRef = useRef<(() => void) | null>(null);
+  const idleHandlerRef = useRef<(() => void) | null>(null);
   // SF-08: latch first-load success so transient 5xx during save don't surface as outage
   const basemapLoadedAtRef = useRef<number | null>(null);
   const lastOrderKeyRef = useRef('');
@@ -545,9 +566,12 @@ export const BuilderMap = memo(function BuilderMap({
       // the ViewerMap hook from 6a5f0181.
       map.once('idle', () => setTilesIdle(true));
 
-      // Tile loading indicator
-      map.on('dataloading', () => setTilesLoading(true));
-      map.on('idle', () => setTilesLoading(false));
+      // Tile loading indicator. builder-audit #338 SYNC-08: keep references so the
+      // unmount cleanup can detach them symmetrically.
+      dataLoadingHandlerRef.current = () => setTilesLoading(true);
+      idleHandlerRef.current = () => setTilesLoading(false);
+      map.on('dataloading', dataLoadingHandlerRef.current);
+      map.on('idle', idleHandlerRef.current);
 
       // Absolutify URLs and attach auth header for raster tile requests
       map.setTransformRequest((url: string) => {
@@ -662,57 +686,10 @@ export const BuilderMap = memo(function BuilderMap({
     [onMapRef, t],
   );
 
-  // Re-add data layers after basemap switch (persistent listener).
-  // Unlike the previous map.once() approach that re-registered per URL change,
-  // this listener survives any number of rapid style swaps — fixing the race
-  // where cleanup removed the listener before style.load fired.
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map) return;
-
-    const onStyleLoad = () => {
-      const { layers: l, tokenMap: t, tileConfig: tc, showBasemapLabels: sbl, basemapConfig: bc } = syncInputsRef.current;
-      managedSourcesRef.current = new Set();
-      lastOrderKeyRef.current = '';
-      // Phase 20260526-builder-audit BLD-20260526-11: gate on tokenMap presence rather than the isLoading boolean
-      // so a later token arrival is picked up by the main sync effect's
-      // tokenMap dep — no separate retry needed.
-      if (l.some((layer) => layer.dataset_id && !t.has(layer.dataset_id))) return;
-      const tileBaseUrl = getEnvConfig().TILE_BASE_URL || tc?.cdn_base_url || undefined;
-      const syncInputs = l.map(toSyncInput);
-      syncMapComposition({
-        map,
-        layers: syncInputs,
-        tokenMap: t,
-        tileBaseUrl,
-        managedSourcesRef,
-        orderKeyRef: lastOrderKeyRef,
-        geojsonDataMap: clusterGeoJsonDataRef.current,
-        // POLISH-02: thread terrainConfig (style.load path)
-        syncOptions: { showBasemapLabels: sbl, basemapPosition: bc?.basemap_position, terrainConfig: terrainStateRef.current.terrainConfig },
-        basemapConfig: bc,
-        showBasemapLabels: sbl,
-        reorderDataLayerIds: syncInputs,
-        afterSync: () => {
-          map.once('idle', applyTerrainConfig);
-          refreshQueryLayerIds();
-        },
-      });
-    };
-
-    map.on('style.load', onStyleLoad);
-    return () => {
-      map.off('style.load', onStyleLoad);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- refreshQueryLayerIds is stable; [mapReady] is the only structural trigger
-  }, [mapReady, applyTerrainConfig]);
-
-  // Helper: refresh the cached list of queryable layer IDs.
-  // Called after every syncLayersToMap so the click/hover handlers
-  // see the layers that actually exist on the map right now.
-  // Reads from `layersRef.current` (updated on every render) so the callback
-  // identity stays stable — required because `runSync` below lists it as a
-  // dep and is itself a dep of the main sync effect.
+  // Helper: refresh the cached list of queryable layer IDs. Called after every
+  // sync so the click/hover handlers see the layers that actually exist on the
+  // map right now. Reads from `layersRef.current` (updated on every render) so
+  // the callback identity stays stable.
   const refreshQueryLayerIds = useCallback(() => {
     const map = mapRef.current;
     if (!map) return;
@@ -726,12 +703,14 @@ export const BuilderMap = memo(function BuilderMap({
   }, []);
 
   /**
-   * Run a full layer sync against the map, reading all inputs from
-   * `syncInputsRef.current` so the effect that calls this is immune to
-   * closure-stale inputs. Mirrors ViewerMap.tsx's `runSync` shape — see the
-   * SP-03 / B-01-followup quick task for why this pattern is required.
+   * builder-audit #338 SYNC-07: the SINGLE syncMapComposition invocation shared by the
+   * style.load handler and the main sync effect's `runSync`. Both read inputs from
+   * `syncInputsRef.current` (immune to closure-stale inputs) and wire identical
+   * syncOptions / basemapConfig / reorderDataLayerIds — the ONLY difference is
+   * whether terrain is applied immediately or deferred to the next `idle`
+   * (post-basemap-swap). The token gate stays at each call site.
    */
-  const runSync = useCallback((map: MaplibreMap) => {
+  const composeSync = useCallback((map: MaplibreMap, { immediateTerrain }: { immediateTerrain: boolean }) => {
     const { layers: ls, tokenMap: tm, tileConfig: tc, showBasemapLabels: sbl, basemapConfig: bc } = syncInputsRef.current;
     const tileBaseUrl = getEnvConfig().TILE_BASE_URL || tc?.cdn_base_url || undefined;
     const syncInputs = ls.map(toSyncInput);
@@ -750,11 +729,46 @@ export const BuilderMap = memo(function BuilderMap({
       showBasemapLabels: sbl,
       reorderDataLayerIds: syncInputs,
       afterSync: () => {
-        applyTerrainConfig();
+        if (immediateTerrain) applyTerrainConfig();
+        else map.once('idle', applyTerrainConfig);
         refreshQueryLayerIds();
       },
     });
   }, [applyTerrainConfig, refreshQueryLayerIds]);
+
+  // Re-add data layers after basemap switch (persistent listener). Unlike a
+  // map.once() approach that re-registered per URL change, this listener survives
+  // any number of rapid style swaps — fixing the race where cleanup removed the
+  // listener before style.load fired.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    const onStyleLoad = () => {
+      const { layers: l, tokenMap: t } = syncInputsRef.current;
+      managedSourcesRef.current = new Set();
+      lastOrderKeyRef.current = '';
+      // Gate on tokenMap presence so a later token arrival is picked up by the
+      // main sync effect's tokenMap dep — no separate retry needed.
+      if (l.some((layer) => layer.dataset_id && !t.has(layer.dataset_id))) return;
+      // Post-basemap-swap: defer terrain to the next idle (immediateTerrain=false).
+      composeSync(map, { immediateTerrain: false });
+    };
+
+    map.on('style.load', onStyleLoad);
+    return () => {
+      map.off('style.load', onStyleLoad);
+    };
+  }, [mapReady, composeSync]);
+
+  /**
+   * Run a full layer sync against the map. Mirrors ViewerMap.tsx's `runSync`
+   * shape (see SP-03 / B-01-followup). The style is already loaded on this path,
+   * so terrain is applied immediately.
+   */
+  const runSync = useCallback((map: MaplibreMap) => {
+    composeSync(map, { immediateTerrain: true });
+  }, [composeSync]);
 
   // O(1) lookup map: feature.layer.id (with `layer-` prefix) → layer/source metadata.
   // Rebuilt only when the layers ref content changes; kept in a ref so the
@@ -1071,42 +1085,31 @@ export const BuilderMap = memo(function BuilderMap({
     });
   }, [basemapConfig, showBasemapLabels, mapReady]);
 
-  // Update tile URLs in-place when tokens refresh (vector only)
+  // Update tile URLs in-place when tokens refresh (vector only).
+  //
+  // builder-audit #338 (verifier-missed) + SYNC-02/SYNC-03: this effect depends on
+  // `layers`, which changes on EVERY paint/filter/visibility edit. Previously it
+  // called `setTiles([newUrl])` unconditionally for every vector source on every
+  // such change, bypassing the `${sourceId}::tileurl` flicker guard that
+  // map-sync builds and re-tiling far more often than token rotation requires.
+  // It now routes through the SAME `buildVectorSourceTileUrl` helper (clamped
+  // cluster options) and `refreshVectorSourceTiles`, which consults the shared
+  // tile-url signature store and only re-tiles when the signed URL actually
+  // changed — so a paint edit with an unchanged sig/cols set no longer refetches.
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapReady) return;
-    const tileBaseUrl = getEnvConfig().TILE_BASE_URL || tileConfig?.cdn_base_url;
+    const tileBaseUrl = getEnvConfig().TILE_BASE_URL || tileConfig?.cdn_base_url || undefined;
 
     for (const layer of layers) {
       const token = tokenMap.get(layer.dataset_id) ?? null;
-      // Raster tile URLs use nginx auth-check subrequest — nothing to refresh
-      if (token?.kind === 'raster') continue;
-      // Phase 1050-rev CR-02: route through getSourceIdForLayer so the
-      // deduped vector source (`source-data-${dataset_table_name}`) is
-      // actually located and `setTiles([newUrl])` propagates the refreshed
-      // signed token. Before the fix, every non-cluster vector layer's
-      // tile URL silently fell out of sync once the signed token expired
-      // (~1hr into a session) → MapLibre started emitting 401/403 on every
-      // subsequent tile fetch.
+      // Raster tile URLs use nginx auth-check subrequest — nothing to refresh.
+      if (!token || token.kind === 'raster') continue;
+      // Phase 1050-rev CR-02: route through getSourceIdForLayer so the deduped
+      // vector source (`source-data-${dataset_table_name}`) is actually located.
       const sourceId = getSourceIdForLayer(layer);
-      const source = map.getSource(sourceId);
-      if (source && source.type === 'vector') {
-        const strategy = getClusterSourceStrategy(layer);
-        const builder = layer.style_config?.builder;
-        // Mirror map-sync.ts: include data-driven cols from every layer
-        // sharing this source so the token-refresh URL is identical in shape
-        // (just with a fresh sig/exp) and MapLibre's tile cache stays warm.
-        const sharedSourceCols = strategy.kind === 'server-tile'
-          ? null
-          : getDataDrivenColumnsForSource(sourceId, layers);
-        const newUrl = strategy.kind === 'server-tile'
-          ? buildClusterTileUrl(layer.dataset_table_name, token, tileBaseUrl, undefined, {
-              clusterRadius: typeof builder?.clusterRadius === 'number' ? builder.clusterRadius : 48,
-              clusterMaxZoom: typeof builder?.clusterMaxZoom === 'number' ? builder.clusterMaxZoom : 14,
-            })
-          : buildSignedTileUrl(layer.dataset_table_name, token, tileBaseUrl, undefined, sharedSourceCols);
-        (source as VectorTileSource).setTiles([newUrl]);
-      }
+      const newUrl = buildVectorSourceTileUrl(layer, token, tileBaseUrl, layers, sourceId);
+      refreshVectorSourceTiles(map, sourceId, newUrl);
     }
   }, [tokenMap, layers, mapReady, tileConfig?.cdn_base_url]);
 
@@ -1165,6 +1168,13 @@ export const BuilderMap = memo(function BuilderMap({
       }
       if (mapRef.current && styleImageMissingHandlerRef.current) {
         mapRef.current.off('styleimagemissing', styleImageMissingHandlerRef.current);
+      }
+      // builder-audit #338 SYNC-08: detach the dataloading/idle handlers too.
+      if (mapRef.current && dataLoadingHandlerRef.current) {
+        mapRef.current.off('dataloading', dataLoadingHandlerRef.current);
+      }
+      if (mapRef.current && idleHandlerRef.current) {
+        mapRef.current.off('idle', idleHandlerRef.current);
       }
       // Phase 1051 WR-04: keep state mirror in sync on teardown.
       setMapInstance(null);

@@ -302,6 +302,43 @@ describe('BasemapSublayerEditorScene', () => {
     expect(screen.getByText('ZOOM RANGE')).toBeInTheDocument();
   });
 
+  // builder-audit #338 MAINT-02: STROKE/CASING only mutate line sublayers
+  // (roads/boundaries). For label (symbol) and building (fill-extrusion)
+  // sublayers those sections write override fields that have no visible effect,
+  // so the editor must hide them and only surface ZOOM + opacity.
+  it('Test 22: hides STROKE/CASING for the labels sublayer but keeps ZOOM + opacity', () => {
+    render(
+      <BasemapSublayerEditorScene
+        {...defaultProps({ sublayerId: 'basemap:labels', sublayerName: 'Labels' })}
+      />,
+    );
+    expect(screen.queryByText('STROKE')).not.toBeInTheDocument();
+    expect(screen.queryByText('CASING')).not.toBeInTheDocument();
+    expect(screen.getByText('ZOOM RANGE')).toBeInTheDocument();
+    expect(screen.getByText('Visibility')).toBeInTheDocument();
+  });
+
+  it('Test 23: hides STROKE/CASING for the buildings sublayer', () => {
+    render(
+      <BasemapSublayerEditorScene
+        {...defaultProps({ sublayerId: 'basemap:buildings', sublayerName: 'Buildings' })}
+      />,
+    );
+    expect(screen.queryByText('STROKE')).not.toBeInTheDocument();
+    expect(screen.queryByText('CASING')).not.toBeInTheDocument();
+    expect(screen.getByText('ZOOM RANGE')).toBeInTheDocument();
+  });
+
+  it('Test 24: shows STROKE/CASING for the boundaries sublayer', () => {
+    render(
+      <BasemapSublayerEditorScene
+        {...defaultProps({ sublayerId: 'basemap:boundaries', sublayerName: 'Boundaries' })}
+      />,
+    );
+    expect(screen.getByText('STROKE')).toBeInTheDocument();
+    expect(screen.getByText('CASING')).toBeInTheDocument();
+  });
+
   // ---------------------------------------------------------------------------
   // EDITOR-BASEMAP-03 — v1011 INV-01 DETAIL LEVEL stays-gone regression pin
   //

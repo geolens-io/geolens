@@ -1,5 +1,4 @@
 import { MAP_COLORS } from '@/lib/map-colors';
-import { stripLegacyBuilderPaint } from '@/lib/normalize-style-config';
 import type { BuilderStyleConfig, MapLayerResponse, StyleConfig } from '@/types/api';
 
 // ---------------------------------------------------------------------------
@@ -89,9 +88,19 @@ export function getPaintValue<T>(paint: Record<string, unknown>, key: string, fa
   return val !== undefined && val !== null ? (val as T) : fallback;
 }
 
-export function getEditableNumericPaintValue(paint: Record<string, unknown>, key: string, fallback: number): number | unknown {
+// builder-audit #338 TYPE-01: returns either a scalar number or a MapLibre expression
+// array (data-driven / zoom expression) — never an arbitrary `unknown`. Typed as
+// `number | unknown[]` so callers (ZoomExpressionEditor `value`) get the
+// scalar-or-expression contract the name promises.
+export function getEditableNumericPaintValue(
+  paint: Record<string, unknown>,
+  key: string,
+  fallback: number,
+): number | unknown[] {
   const val = paint[key];
-  return val !== undefined && val !== null ? val : fallback;
+  if (typeof val === 'number') return val;
+  if (Array.isArray(val)) return val;
+  return fallback;
 }
 
 export function compactBuilder(builder: BuilderStyleConfig): BuilderStyleConfig | undefined {
@@ -148,19 +157,4 @@ export function hasUnsupportedBuilderState(layer: MapLayerResponse, geomType: st
   if (config.mode !== undefined && config.mode !== 'categorical' && config.mode !== 'graduated') return true;
   if (geomType === 'circle' || geomType === 'line' || geomType === 'fill') return false;
   return true;
-}
-
-/**
- * Applies a builder config patch and strips legacy paint keys, then calls onStyleConfigChange.
- * Convenience wrapper used by the orchestrator's handleHeatmapPaintChange and
- * handleSymbolConfigChange callbacks.
- */
-export function applyBuilderPatch(
-  layerId: string,
-  styleConfig: StyleConfig | null | undefined,
-  patch: BuilderStyleConfig,
-  paint: Record<string, unknown>,
-  onStyleConfigChange: (layerId: string, config: StyleConfig | null, paint: Record<string, unknown>) => void,
-): void {
-  onStyleConfigChange(layerId, withBuilderConfig(styleConfig, patch), stripLegacyBuilderPaint(paint));
 }

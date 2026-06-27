@@ -99,7 +99,7 @@ def test_non_query_tool_emits_no_action() -> None:
 
 
 def test_chat_action_round_trip_preserves_query_result_fields() -> None:
-    """Regression (builder-audit B-001): the inline data-table fields are built
+    """Regression (builder-audit #338 B-001): the inline data-table fields are built
     by _collect_chat_action but were absent from the ChatAction model, so
     ``ChatAction(**a).model_dump(exclude_none=True)`` silently dropped them and
     the frontend data card never rendered."""
@@ -119,7 +119,7 @@ def test_chat_action_round_trip_preserves_query_result_fields() -> None:
 
 
 def test_chat_action_round_trip_preserves_add_layer_dataset_name() -> None:
-    """Regression (builder-audit B-002): add_layer carried dataset_name but the
+    """Regression (builder-audit #338 B-002): add_layer carried dataset_name but the
     ChatAction model dropped it, so staging chips showed the raw UUID."""
     action = {"type": "add_layer", "dataset_id": "ds-1", "dataset_name": "Parks"}
     dumped = ChatAction(**action).model_dump(exclude_none=True)

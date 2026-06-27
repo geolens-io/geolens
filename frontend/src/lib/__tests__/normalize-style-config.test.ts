@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { normalizeLayerStyleState, normalizeStyleConfig, RENDER_MODES } from '../normalize-style-config';
+import { normalizeLayerStyleState, normalizeStyleConfig, parseStepOrInterpolate, RENDER_MODES } from '../normalize-style-config';
 
 describe('normalizeLayerStyleState', () => {
   it('moves legacy builder paint metadata into style_config.builder and returns clean paint', () => {
@@ -258,5 +258,37 @@ describe('normalizeLayerStyleState — raster stretch/colormap round-trip (v1034
     expect(style_config?.render_mode).toBe('hillshade');
     expect(style_config?.builder?.hypso_enabled).toBe(true);
     expect(style_config?.builder?.hypso_ramp).toBe('Inferno');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// builder-audit #338 SPEC-05: parseStepOrInterpolate only treats LINEAR interpolate
+// stops as uniform legend breaks; non-linear curves fall back to opaque (null).
+// ---------------------------------------------------------------------------
+describe('parseStepOrInterpolate — SPEC-05 linear gate', () => {
+  it('extracts breaks/values from a linear interpolate expression', () => {
+    const parsed = parseStepOrInterpolate([
+      'interpolate', ['linear'], ['get', 'x'], 0, '#fee', 50, '#f88', 100, '#f00',
+    ]);
+    expect(parsed).toEqual({ values: ['#fee', '#f88', '#f00'], breaks: [50, 100] });
+  });
+
+  it('returns null for an exponential interpolate (would mislabel a non-linear curve)', () => {
+    const parsed = parseStepOrInterpolate([
+      'interpolate', ['exponential', 2], ['get', 'x'], 0, '#fee', 100, '#f00',
+    ]);
+    expect(parsed).toBeNull();
+  });
+
+  it('returns null for a cubic-bezier interpolate', () => {
+    const parsed = parseStepOrInterpolate([
+      'interpolate', ['cubic-bezier', 0.4, 0, 0.6, 1], ['get', 'x'], 0, 1, 10, 5,
+    ]);
+    expect(parsed).toBeNull();
+  });
+
+  it('still parses step expressions unchanged', () => {
+    const parsed = parseStepOrInterpolate(['step', ['get', 'pop'], '#fee', 10, '#f00']);
+    expect(parsed).toEqual({ values: ['#fee', '#f00'], breaks: [10] });
   });
 });

@@ -260,7 +260,7 @@ describe('useBuilderLayers — folder group handlers', () => {
     expect(result.current.hasUnsavedChanges).toBe(true);
   });
 
-  // Test 9b (builder-audit B-007): handleDeleteGroup tears down child companion
+  // Test 9b (builder-audit #338 B-007): handleDeleteGroup tears down child companion
   // MapLibre layers so they don't linger as ghost visuals until the next sync.
   it('handleDeleteGroup removes child companion MapLibre layers (B-007)', () => {
     const removed: string[] = [];

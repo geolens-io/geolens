@@ -525,3 +525,112 @@ describe('applyBasemapConfigToStyle master opacity', () => {
     expect(layer.paint['icon-opacity']).toBeCloseTo(0.225, 5);
   });
 });
+
+describe('applyBasemapConfigToStyle prominence reversibility (builder-audit #338 COMPLEX-01)', () => {
+  // Lock the prose invariants in basemap-utils.ts (CR-01 / prominence-stamp
+  // composition) with CI-enforced regression tests: a subtle+dimmed pass
+  // followed by a full+opacity-1 pass must restore the canonical *-opacity
+  // defaults (1.0) across line, symbol, and raster layer types. A future edit
+  // that adds a new stamp, a new opacity key, or reorders applyMasterOpacity
+  // relative to applyProminence will fail here rather than ship the
+  // monotonic-slider bug the comments describe.
+
+  it('line: road subtle (master 0.5) then full (master 1.0) restores line-opacity to 1', () => {
+    const style: StyleSpecification = {
+      version: 8,
+      sources: { v: { type: 'vector', tiles: ['x'] } },
+      layers: [
+        { id: 'road-primary', type: 'line', source: 'v', 'source-layer': 'transportation', paint: {} },
+      ],
+    };
+    const dimmed = applyBasemapConfigToStyle(style, { road_visibility: 'subtle', opacity: 0.5 });
+    const dimmedLayer = dimmed.layers[0] as unknown as { paint: { 'line-opacity': number } };
+    expect(dimmedLayer.paint['line-opacity']).toBeCloseTo(0.35 * 0.5, 5);
+
+    const restored = applyBasemapConfigToStyle(dimmed, { road_visibility: 'full', opacity: 1 });
+    const restoredLayer = restored.layers[0] as unknown as { paint: { 'line-opacity': number } };
+    expect(restoredLayer.paint['line-opacity']).toBeCloseTo(1, 5);
+  });
+
+  it('symbol: label subtle (master 0.5) then full (master 1.0) restores text/icon-opacity to 1', () => {
+    const style: StyleSpecification = {
+      version: 8,
+      sources: { v: { type: 'vector', tiles: ['x'] } },
+      layers: [
+        {
+          id: 'place_label',
+          type: 'symbol',
+          source: 'v',
+          'source-layer': 'place',
+          layout: { 'text-field': ['get', 'name'], 'icon-image': 'dot' },
+          paint: {},
+        },
+      ],
+    };
+    const dimmed = applyBasemapConfigToStyle(style, { label_mode: 'subtle', opacity: 0.5 });
+    const dimmedLayer = dimmed.layers[0] as unknown as {
+      paint: { 'text-opacity': number; 'icon-opacity': number };
+    };
+    expect(dimmedLayer.paint['text-opacity']).toBeCloseTo(0.55 * 0.5, 5);
+    expect(dimmedLayer.paint['icon-opacity']).toBeCloseTo(0.45 * 0.5, 5);
+
+    const restored = applyBasemapConfigToStyle(dimmed, { label_mode: 'full', opacity: 1 });
+    const restoredLayer = restored.layers[0] as unknown as {
+      paint: { 'text-opacity': number; 'icon-opacity': number };
+    };
+    expect(restoredLayer.paint['text-opacity']).toBeCloseTo(1, 5);
+    expect(restoredLayer.paint['icon-opacity']).toBeCloseTo(1, 5);
+  });
+
+  it('raster: master 0.5 then master 1.0 restores raster-opacity to 1', () => {
+    const style: StyleSpecification = {
+      version: 8,
+      sources: { osm: { type: 'raster', tiles: ['x'], tileSize: 256 } },
+      layers: [{ id: 'osm', type: 'raster', source: 'osm', paint: {} }],
+    };
+    const dimmed = applyBasemapConfigToStyle(style, { opacity: 0.5 });
+    const dimmedLayer = dimmed.layers[0] as unknown as { paint: { 'raster-opacity': number } };
+    expect(dimmedLayer.paint['raster-opacity']).toBeCloseTo(0.5, 5);
+
+    const restored = applyBasemapConfigToStyle(dimmed, { opacity: 1 });
+    const restoredLayer = restored.layers[0] as unknown as { paint: { 'raster-opacity': number } };
+    expect(restoredLayer.paint['raster-opacity']).toBeCloseTo(1, 5);
+  });
+
+  it('mixed style: subtle+master 0.5 then full+master 1.0 restores every opacity key across all three types', () => {
+    const style: StyleSpecification = {
+      version: 8,
+      sources: {
+        v: { type: 'vector', tiles: ['x'] },
+        osm: { type: 'raster', tiles: ['x'], tileSize: 256 },
+      },
+      layers: [
+        { id: 'road-primary', type: 'line', source: 'v', 'source-layer': 'transportation', paint: {} },
+        {
+          id: 'place_label',
+          type: 'symbol',
+          source: 'v',
+          'source-layer': 'place',
+          layout: { 'text-field': ['get', 'name'], 'icon-image': 'dot' },
+          paint: {},
+        },
+        { id: 'osm', type: 'raster', source: 'osm', paint: {} },
+      ],
+    };
+    const dimmed = applyBasemapConfigToStyle(style, {
+      road_visibility: 'subtle',
+      label_mode: 'subtle',
+      opacity: 0.5,
+    });
+    const restored = applyBasemapConfigToStyle(dimmed, {
+      road_visibility: 'full',
+      label_mode: 'full',
+      opacity: 1,
+    });
+    const [line, symbol, raster] = restored.layers as unknown as Array<{ paint: Record<string, number> }>;
+    expect(line.paint['line-opacity']).toBeCloseTo(1, 5);
+    expect(symbol.paint['text-opacity']).toBeCloseTo(1, 5);
+    expect(symbol.paint['icon-opacity']).toBeCloseTo(1, 5);
+    expect(raster.paint['raster-opacity']).toBeCloseTo(1, 5);
+  });
+});

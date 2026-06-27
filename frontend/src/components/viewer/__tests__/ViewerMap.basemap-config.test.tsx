@@ -303,6 +303,7 @@ describe('ViewerMap basemap config runtime', () => {
         mapState.fakeMap,
         BASEMAP_CONFIG_WITH_OVERRIDES.sublayer_overrides,
         'viewer-source-',
+        1, // builder-audit #338 CORR-01: master opacity (config.opacity undefined → 1)
       );
     });
   });
@@ -318,6 +319,7 @@ describe('ViewerMap basemap config runtime', () => {
       mapState.fakeMap,
       BASEMAP_CONFIG_WITH_OVERRIDES.sublayer_overrides,
       'viewer-source-',
+      1, // builder-audit #338 CORR-01: master opacity (config.opacity undefined → 1)
     );
   });
 
@@ -349,6 +351,7 @@ describe('ViewerMap basemap config runtime', () => {
         mapState.fakeMap,
         changedConfig.sublayer_overrides,
         'viewer-source-',
+        1, // builder-audit #338 CORR-01: master opacity (config.opacity undefined → 1)
       );
     });
   });
