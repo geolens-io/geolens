@@ -7,6 +7,7 @@ import { StyleColorPicker } from './StyleColorPicker';
 import type { BuilderStyleConfig, StyleConfig } from '@/types/api';
 import { cn } from '@/lib/utils';
 import { MAP_COLORS } from '@/lib/map-colors';
+import { walkExpressionPairs } from '@/lib/zoom-expressions';
 
 export const DEFAULT_GRADIENT_STOPS: ReadonlyArray<{ position: number; color: string }> = [
   { position: 0, color: '#0066cc' },
@@ -99,10 +100,9 @@ export function lineGradientExpressionToStops(
   if (!Array.isArray(input) || input[0] !== 'line-progress' || input.length !== 1) return null;
   const tail = expr.slice(3);
   if (tail.length === 0 || tail.length % 2 !== 0) return null;
+  // builder-audit DRY-04: keep-all stop semantics over the shared pair walker.
   const stops: Array<{ position: number; color: string }> = [];
-  for (let i = 0; i < tail.length; i += 2) {
-    const position = tail[i];
-    const color = tail[i + 1];
+  for (const { first: position, second: color } of walkExpressionPairs(expr, 3)) {
     if (typeof position !== 'number' || !Number.isFinite(position)) return null;
     if (typeof color !== 'string') return null;
     stops.push({ position, color });

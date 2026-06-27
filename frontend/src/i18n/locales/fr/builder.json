@@ -347,6 +347,7 @@
     "rawJson": "JSON",
     "rawJsonApply": "Appliquer",
     "rawJsonError": "JSON invalide",
+    "rawFilterInvalid": "Expression de filtre invalide",
     "opaqueWarning": "Ce filtre utilise des expressions avancées. Utilisez le mode JSON pour modifier.",
     "operators": {
       "equals": "égal à",

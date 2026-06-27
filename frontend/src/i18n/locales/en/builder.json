@@ -349,6 +349,7 @@
     "rawJson": "JSON",
     "rawJsonApply": "Apply",
     "rawJsonError": "Invalid JSON",
+    "rawFilterInvalid": "Invalid filter expression",
     "opaqueWarning": "This filter uses advanced expressions. Use JSON mode to edit.",
     "operators": {
       "equals": "equals",

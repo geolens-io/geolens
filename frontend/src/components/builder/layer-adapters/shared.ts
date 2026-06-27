@@ -455,7 +455,11 @@ export function syncVectorPaint(
   }
 }
 
-const BUILDER_STYLE_KEY_ALIASES: Record<string, string> = {
+/** builder-audit SPEC-08 / cross-cutting DRY-02: the single canonical frontend
+ *  snake_case -> camelCase builder-key alias map. normalize-style-config imports
+ *  this instead of maintaining a second copy (the two had diverged: this map was
+ *  missing the folder_group_* keys, added below as a harmless consistency fix). */
+export const BUILDER_STYLE_KEY_ALIASES: Record<string, string> = {
   fill_disabled: 'fillDisabled',
   stroke_disabled: 'strokeDisabled',
   fill_opacity_saved: 'fillOpacitySaved',
@@ -476,6 +480,9 @@ const BUILDER_STYLE_KEY_ALIASES: Record<string, string> = {
   cluster_color: 'clusterColor',
   cluster_text_color: 'clusterTextColor',
   cluster_text_size: 'clusterTextSize',
+  folder_group_id: 'folderGroupId',
+  folder_group_name: 'folderGroupName',
+  folder_group_expanded: 'folderGroupExpanded',
 };
 
 export function getBuilderStyleConfig(input: unknown): NonNullable<StyleConfig['builder']> {

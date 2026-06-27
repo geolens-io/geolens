@@ -127,3 +127,54 @@ describe('ActiveFilterChips — MAP-20 layout constraints', () => {
     expect(activeFilterChipsSrc).toContain('overflow-y-auto');
   });
 });
+
+// ===========================================================================
+// builder-audit FILT-01 / FILT-02 — chip summarizer / canonical-parser fixes
+// ===========================================================================
+
+describe('ActiveFilterChips — filter summary (FILT-01 / FILT-02)', () => {
+  // FILT-01: every numeric-column comparison the editor builds is wrapped in the
+  // nullable-safe ["to-number", ["get", f], fallback] accessor. The chip
+  // summarizer previously could not unwrap that and dropped the chip entirely.
+  it('FILT-01: renders a chip for a to-number-wrapped numeric comparison (bare)', () => {
+    const filter = ['>', ['to-number', ['get', 'population'], -1_000_000_000_000], 5000] as FilterSpecification;
+    const layer = makeLayer({ filter });
+    render(<ActiveFilterChips layers={[layer]} onClearFilter={vi.fn()} />);
+    // Numeric RHS rendered without quotes; field unwrapped from the to-number node.
+    expect(screen.getByText('population > 5000')).toBeInTheDocument();
+  });
+
+  it('FILT-01: renders a chip for a to-number numeric comparison inside an "all" combinator', () => {
+    const filter = [
+      'all',
+      ['<=', ['to-number', ['get', 'pop'], 1_000_000_000_000], 100],
+    ] as FilterSpecification;
+    const layer = makeLayer({ filter });
+    render(<ActiveFilterChips layers={[layer]} onClearFilter={vi.fn()} />);
+    expect(screen.getByText('pop <= 100')).toBeInTheDocument();
+  });
+
+  // FILT-02: ["in", value, ["get", f]] is a substring/contains filter. It must be
+  // labelled `<field> contains "<value>"`, NOT `<value> in (…)` (the prior dead
+  // branch produced the wrong label because the literal-list branch ran first).
+  it('FILT-02: labels a substring/contains filter as `<field> contains "<value>"`', () => {
+    const filter = ['in', 'Main', ['get', 'name']] as unknown as FilterSpecification;
+    const layer = makeLayer({ filter });
+    render(<ActiveFilterChips layers={[layer]} onClearFilter={vi.fn()} />);
+    expect(screen.getByText('name contains "Main"')).toBeInTheDocument();
+  });
+
+  it('renders an in_list chip with a value preview', () => {
+    const filter = ['in', ['get', 'kind'], ['literal', ['a', 'b', 'c']]] as unknown as FilterSpecification;
+    const layer = makeLayer({ filter });
+    render(<ActiveFilterChips layers={[layer]} onClearFilter={vi.fn()} />);
+    expect(screen.getByText('kind in (a, b, …)')).toBeInTheDocument();
+  });
+
+  it('renders no chip for an opaque/advanced filter', () => {
+    const filter = ['case', ['==', ['get', 'x'], 1], true, false] as unknown as FilterSpecification;
+    const layer = makeLayer({ filter });
+    const { container } = render(<ActiveFilterChips layers={[layer]} onClearFilter={vi.fn()} />);
+    expect(container.firstChild).toBeNull();
+  });
+});

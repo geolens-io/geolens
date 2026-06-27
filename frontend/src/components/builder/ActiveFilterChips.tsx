@@ -3,6 +3,11 @@ import { useTranslation } from 'react-i18next';
 import { X } from 'lucide-react';
 import type { FilterSpecification } from 'maplibre-gl';
 import type { MapLayerResponse } from '@/types/api';
+import {
+  NUMERIC_COMPARISON_OPERATORS,
+  parseCanonicalFilter,
+  type CanonicalFilterCondition,
+} from '@/lib/maplibre-filter-utils';
 
 interface ActiveFilterChipsProps {
   layers: MapLayerResponse[];
@@ -15,82 +20,52 @@ interface FilterChip {
   label: string;
 }
 
-/** Attempt to produce a human-readable summary of a filter expression. */
+/**
+ * Produce a human-readable summary of a filter expression.
+ *
+ * builder-audit DRY-01/FILT-01/FILT-02: renders from the single canonical filter
+ * parser (parseCanonicalFilter) shared with LayerFilterEditor, so numeric
+ * (to-number-wrapped) filters now produce a chip (FILT-01) and the substring
+ * "contains" shape is labelled correctly rather than mislabelled as `<value> in
+ * (…)` (FILT-02). Opaque/advanced filters intentionally render no chip.
+ */
 function summarizeFilter(filter: FilterSpecification): string | null {
-  if (!Array.isArray(filter) || filter.length === 0) return null;
+  const parsed = parseCanonicalFilter(filter);
+  if (parsed.kind === 'opaque') return null;
 
-  const op = filter[0];
-
-  // Simple comparison: ["==", ["get", "field"], value]
-  if (['==', '!=', '>', '<', '>=', '<='].includes(op) && filter.length === 3) {
-    const field = extractField(filter[1]);
-    const value = formatValue(filter[2]);
-    if (field) return `${field} ${op} ${value}`;
-  }
-
-  // is_null compound: ["any", ["!", ["has", f]], ["==", ["get", f], null]]
-  // Must be checked BEFORE the generic all/any combinator handler
-  if (op === 'any' && filter.length === 3 &&
-      Array.isArray(filter[1]) && filter[1][0] === '!' &&
-      Array.isArray(filter[1][1]) && filter[1][1][0] === 'has' &&
-      Array.isArray(filter[2]) && filter[2][0] === '==' &&
-      Array.isArray(filter[2][1]) && filter[2][1][0] === 'get' && filter[2][2] === null) {
-    return `${filter[1][1][1]} is null`;
-  }
-
-  // "all" / "any" combinator: ["all", cond1, cond2, ...]
-  if ((op === 'all' || op === 'any') && filter.length > 1) {
-    const parts = filter
-      .slice(1)
-      .map((c) => summarizeFilter(c as FilterSpecification))
-      .filter((s): s is string => s !== null);
-    if (parts.length === 0) return null;
-    if (parts.length === 1) return parts[0];
-    const joiner = op === 'all' ? ' & ' : ' | ';
-    return parts.join(joiner);
-  }
-
-  // "in" expression: ["in", ["get", "field"], ["literal", [...]]]
-  if (op === 'in' && filter.length === 3) {
-    const field = extractField(filter[1]);
-    if (field && Array.isArray(filter[2]) && filter[2][0] === 'literal') {
-      // WR-02: guard against malformed ["literal", null] or ["literal"] (no value arg)
-      // before casting as array — avoids TypeError on .slice() at render time.
-      const raw = filter[2][1];
-      if (!Array.isArray(raw)) {
-        return `${field} in (…)`;
-      }
-      const vals = raw as unknown[];
-      const preview = vals.slice(0, 2).map(v => String(v)).join(', ');
-      return `${field} in (${preview}${vals.length > 2 ? ', …' : ''})`;
-    }
-    if (field) return `${field} in (…)`;
-    // "in" substring: ["in", value, ["get", field]]
-    if (!Array.isArray(filter[1]) && Array.isArray(filter[2]) && filter[2][0] === 'get') {
-      return `${filter[2][1]} contains "${filter[1]}"`;
-    }
-  }
-
-  // "has" expression: ["has", "field"]
-  if (op === 'has' && typeof filter[1] === 'string') {
-    return `${filter[1]} exists`;
-  }
-
-  // "!" negation: ["!", innerExpr]
-  if (op === '!' && Array.isArray(filter[1])) {
-    const inner = summarizeFilter(filter[1] as FilterSpecification);
-    if (inner) return `NOT (${inner})`;
-  }
-
-  return null;
+  const parts = parsed.conditions
+    .map(summarizeCondition)
+    .filter((s): s is string => s !== null);
+  if (parts.length === 0) return null;
+  if (parts.length === 1) return parts[0];
+  const joiner = parsed.combinator === 'all' ? ' & ' : ' | ';
+  return parts.join(joiner);
 }
 
-function extractField(expr: unknown): string | null {
-  if (Array.isArray(expr) && expr[0] === 'get' && typeof expr[1] === 'string') {
-    return expr[1];
+function summarizeCondition(c: CanonicalFilterCondition): string | null {
+  switch (c.operator) {
+    case 'is_null':
+      return `${c.field} is null`;
+    case 'has':
+      return `${c.field} exists`;
+    case 'contains':
+      return `${c.field} contains "${c.value}"`;
+    case 'in_list':
+      return `${c.field} in (${previewList(c.listValues)})`;
+    case 'not_in_list':
+      return `NOT (${c.field} in (${previewList(c.listValues)}))`;
+    default:
+      if (NUMERIC_COMPARISON_OPERATORS.has(c.operator)) {
+        return `${c.field} ${c.operator} ${formatValue(c.rawValue)}`;
+      }
+      return null;
   }
-  if (typeof expr === 'string') return expr;
-  return null;
+}
+
+function previewList(values: unknown[] | undefined): string {
+  if (!Array.isArray(values)) return '…';
+  const preview = values.slice(0, 2).map((v) => String(v)).join(', ');
+  return `${preview}${values.length > 2 ? ', …' : ''}`;
 }
 
 function formatValue(val: unknown): string {
