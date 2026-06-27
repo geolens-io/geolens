@@ -370,4 +370,31 @@ describe('LayerLegend terrain consistency (Fix 1)', () => {
     expect(screen.queryByTestId('legend-terrain-synthetic')).not.toBeInTheDocument();
     expect(screen.queryByText('3D terrain')).not.toBeInTheDocument();
   });
+
+  // Codex P2: the viewer keeps toggled-off layers in the list (visibility lives
+  // in visibleLayers, not the list), but 3D terrain stays active from
+  // terrain_config regardless. If the source hillshade is toggled OFF, the
+  // synthetic entry must STILL show — otherwise active 3D terrain has no legend
+  // representation. So dedup against visible entries only.
+  it('keeps the synthetic entry when the source DEM is toggled off but terrain is active', () => {
+    render(
+      <LayerLegend
+        layers={[
+          demLayer({
+            id: 'dem-hillshade',
+            display_name: 'swissALTI3D relief',
+            style_config: { render_mode: 'hillshade' } as SharedLayerResponse['style_config'],
+          }),
+        ]}
+        visibleLayers={new Set()} /* source layer toggled OFF */
+        terrainConfig={activeTerrain}
+        onToggleVisibility={vi.fn()}
+        isOpen
+        onToggle={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId('legend-terrain-synthetic')).toBeInTheDocument();
+    expect(screen.getByText('3D terrain')).toBeInTheDocument();
+  });
 });
