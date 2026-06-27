@@ -339,16 +339,19 @@ export function computeDisambiguationMetadata(
 
     const datasetCount = datasetCounts.get(datasetKey) ?? 1;
     const nameCount = nameCounts.get(name) ?? 1;
-    const duplicateCount = Math.max(datasetCount, nameCount);
-    const copyOccurrence = datasetCount > 1 ? datasetOccurrence : nameOccurrence;
-    const copyCount = datasetCount > 1 ? datasetCount : nameCount;
+    // Disambiguate on NAME collisions only. The badge answers "which of these
+    // identical-looking rows is which?" — only ambiguous when the names match.
+    // Two differently-named layers off one dataset (e.g. a line + its casing)
+    // are an intentional cartographic pair, not a duplicate; badging them on
+    // shared dataset_id was pure noise. datasetCount/-Occurrence remain in the
+    // metadata for informational consumers.
     byLayerId.set(layer.id, {
       datasetKey,
       datasetOccurrence,
       datasetCount,
       nameOccurrence,
       nameCount,
-      disambiguationLabel: duplicateCount > 1 ? `Copy ${copyOccurrence} of ${copyCount}` : null,
+      disambiguationLabel: nameCount > 1 ? `Copy ${nameOccurrence} of ${nameCount}` : null,
     });
   }
 

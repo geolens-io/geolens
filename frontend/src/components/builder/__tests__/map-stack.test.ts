@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   MAP_STACK_GROUP_ORDER,
   buildMapStack,
+  computeDisambiguationLabels,
   flattenMapStack,
   type MapStackGroup,
   type MapStackMapInput,
@@ -416,5 +417,25 @@ describe('buildMapStack', () => {
         },
       },
     });
+  });
+});
+
+describe('computeDisambiguationLabels', () => {
+  it('badges duplicates that share a display name', () => {
+    const labels = computeDisambiguationLabels([
+      makeLayer({ id: 'a', display_name: 'Counties' }),
+      makeLayer({ id: 'b', display_name: 'Counties' }),
+    ]);
+    expect(labels.get('a')).toBe('Copy 1 of 2');
+    expect(labels.get('b')).toBe('Copy 2 of 2');
+  });
+
+  it('does not badge differently-named layers off the same dataset (line + casing)', () => {
+    const labels = computeDisambiguationLabels([
+      makeLayer({ id: 'route', dataset_id: 'routes', display_name: 'Climbing routes' }),
+      makeLayer({ id: 'casing', dataset_id: 'routes', display_name: 'Route casing' }),
+    ]);
+    expect(labels.get('route')).toBeNull();
+    expect(labels.get('casing')).toBeNull();
   });
 });
