@@ -405,6 +405,24 @@ describe('DEMEditorScene', () => {
     );
   });
 
+  // builder-audit CONSIST-01: the accent swatch default must match the adapter's
+  // HILLSHADE_PAINT_DEFAULTS (black #000000) — the value buildHillshadePaint renders —
+  // not the prior divergent brown literal that lied about the rendered default.
+  it('shows the adapter hillshade defaults (black accent) on an untouched DEM', () => {
+    render(
+      <DEMEditorScene
+        {...defaultProps({
+          layer: makeDEMLayer({ style_config: { render_mode: 'hillshade' }, paint: {} }),
+        })}
+      />,
+    );
+
+    // The mock StyleColorPicker renders `{label}:{color}`.
+    expect(screen.getByTestId('color-picker-accent')).toHaveTextContent('#000000');
+    expect(screen.getByTestId('color-picker-highlight')).toHaveTextContent('#ffffff');
+    expect(screen.getByTestId('color-picker-shadow')).toHaveTextContent('#000000');
+  });
+
   // Test 11: Terrain mode shows terrain hint and layer-owned terrain exaggeration
   it('in Terrain mode, Appearance section shows terrain controls without hillshade controls', () => {
     render(
@@ -650,6 +668,72 @@ describe('DEMEditorScene', () => {
       const picker = screen.getByTestId('color-ramp-picker');
       expect(picker).toHaveAttribute('data-ramp', 'Viridis');
     });
+
+    // builder-audit MAINT-01: the 0–4000 m, meters-only limitation is surfaced in-product
+    // alongside the ramp picker (only when the tint is enabled).
+    it('surfaces the 0–4000 m meters-only limitation note when the tint is enabled', () => {
+      const { rerender } = render(
+        <DEMEditorScene
+          {...defaultProps({
+            layer: makeDEMLayer({ style_config: { render_mode: 'hillshade' }, paint: {} }),
+          })}
+        />,
+      );
+      // Absent until enabled.
+      expect(screen.queryByText(/spans 0–4000 m and assumes meters/i)).not.toBeInTheDocument();
+
+      rerender(
+        <DEMEditorScene
+          {...defaultProps({
+            layer: makeDEMLayer({
+              style_config: { render_mode: 'hillshade' },
+              paint: { '_hypso-enabled': true },
+            }),
+          })}
+        />,
+      );
+      expect(screen.getByText(/spans 0–4000 m and assumes meters/i)).toBeInTheDocument();
+    });
+  });
+
+  // builder-audit YAGNI-01: the POLISH-02 terrain-bound advisory note is implemented
+  // (it consumes the isTerrainBound value the parent already computes).
+  describe('terrain-bound hillshade advisory note', () => {
+    it('renders the advisory note in hillshade mode when isTerrainBound is true', () => {
+      render(
+        <DEMEditorScene
+          {...defaultProps({
+            layer: makeDEMLayer({ style_config: { render_mode: 'hillshade' } }),
+            isTerrainBound: true,
+          })}
+        />,
+      );
+      expect(screen.getByRole('note')).toHaveTextContent(/also powers the map's 3D terrain/i);
+    });
+
+    it('does not render the advisory note when isTerrainBound is false', () => {
+      render(
+        <DEMEditorScene
+          {...defaultProps({
+            layer: makeDEMLayer({ style_config: { render_mode: 'hillshade' } }),
+            isTerrainBound: false,
+          })}
+        />,
+      );
+      expect(screen.queryByRole('note')).not.toBeInTheDocument();
+    });
+
+    it('does not render the advisory note in terrain mode even when isTerrainBound is true', () => {
+      render(
+        <DEMEditorScene
+          {...defaultProps({
+            layer: makeDEMLayer({ style_config: { render_mode: 'terrain' } as unknown as MapLayerResponse['style_config'] }),
+            isTerrainBound: true,
+          })}
+        />,
+      );
+      expect(screen.queryByRole('note')).not.toBeInTheDocument();
+    });
   });
 
   // Test 14: Switching render mode preserves style_config keys not under current mode
@@ -676,8 +760,8 @@ describe('DEMEditorScene', () => {
 });
 
 // ---------------------------------------------------------------------------
-// CLEANUP-01: hillshade terrain advisory note removed (unreachable JSX).
-// The 5 POLISH-02 tests that asserted the note renders/queries getByRole('note')
-// have been removed because the note JSX block was deleted from DEMEditorScene.tsx.
-// The isTerrainBound prop still exists on the component interface.
+// builder-audit YAGNI-01: the POLISH-02 terrain-bound advisory note (previously
+// removed as unreachable under CLEANUP-01) is now implemented and wired to the
+// isTerrainBound prop the parent already computes. See the
+// "terrain-bound hillshade advisory note" describe block above.
 // ---------------------------------------------------------------------------

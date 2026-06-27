@@ -31,16 +31,18 @@ const PLACEMENT_OPTIONS = [
   { value: 'line-center', labelKey: 'labels.placementLineCenter' },
 ] as const;
 
+// builder-audit LABEL-02: every anchor option carries an i18n labelKey so the
+// four corner anchors translate instead of rendering hardcoded English.
 const ANCHOR_OPTIONS = [
   { value: 'center', labelKey: 'labels.anchorCenter' },
   { value: 'top', labelKey: 'labels.anchorTop' },
   { value: 'bottom', labelKey: 'labels.anchorBottom' },
   { value: 'left', labelKey: 'labels.anchorLeft' },
   { value: 'right', labelKey: 'labels.anchorRight' },
-  { value: 'top-left', label: 'Top Left' },
-  { value: 'top-right', label: 'Top Right' },
-  { value: 'bottom-left', label: 'Bottom Left' },
-  { value: 'bottom-right', label: 'Bottom Right' },
+  { value: 'top-left', labelKey: 'labels.anchorTopLeft' },
+  { value: 'top-right', labelKey: 'labels.anchorTopRight' },
+  { value: 'bottom-left', labelKey: 'labels.anchorBottomLeft' },
+  { value: 'bottom-right', labelKey: 'labels.anchorBottomRight' },
 ] as const;
 
 export function LabelEditor({ columns, labelConfig, onLabelChange, geometryType }: LabelEditorProps) {
@@ -221,7 +223,7 @@ export function LabelEditor({ columns, labelConfig, onLabelChange, geometryType 
                 <SelectContent>
                   {ANCHOR_OPTIONS.map((opt) => (
                     <SelectItem key={opt.value} value={opt.value} className="text-xs">
-                      {'labelKey' in opt ? t(opt.labelKey, { defaultValue: opt.value }) : opt.label}
+                      {t(opt.labelKey, { defaultValue: opt.value })}
                     </SelectItem>
                   ))}
                 </SelectContent>

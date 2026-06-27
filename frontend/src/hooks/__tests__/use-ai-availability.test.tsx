@@ -7,6 +7,11 @@ vi.mock('@/api/admin', () => ({
   getAIStatus: vi.fn(),
 }));
 
+// builder-audit P1-11: non-admin editors read the public-safe availability endpoint.
+vi.mock('@/api/maps', () => ({
+  getAIAvailability: vi.fn(),
+}));
+
 // Mutable mock so individual tests can override the `can` return value.
 const mockCan = vi.fn(() => true);
 vi.mock('@/hooks/use-permissions', () => ({
@@ -14,11 +19,13 @@ vi.mock('@/hooks/use-permissions', () => ({
 }));
 
 import { getAIStatus } from '@/api/admin';
+import { getAIAvailability } from '@/api/maps';
 import { useAIStatus } from '@/hooks/use-admin';
 import { useAIAvailability } from '@/hooks/use-ai-availability';
 import { useAuthStore } from '@/stores/auth-store';
 
 const mockGetAIStatus = vi.mocked(getAIStatus);
+const mockGetAIAvailability = vi.mocked(getAIAvailability);
 
 function makeWrapper(client: QueryClient) {
   return function Wrapper({ children }: { children: ReactNode }) {
@@ -144,7 +151,10 @@ describe('useAIAvailability — CONSOLE-01 gating', () => {
     expect(mockGetAIStatus).not.toHaveBeenCalled();
   });
 
-  it('authed non-admin (viewer token, no admin role): does NOT fire getAIStatus — query stays idle', async () => {
+  it('authed viewer WITHOUT use_ai_chat: fires NEITHER endpoint — query stays idle, reason=permission', async () => {
+    // A genuine viewer lacks use_ai_chat → no admin status probe AND no public
+    // availability probe (P1-11: no 403 console noise for viewers).
+    mockCan.mockReturnValue(false);
     useAuthStore.setState({
       token: 'viewer-token',
       refreshToken: null,
@@ -168,6 +178,67 @@ describe('useAIAvailability — CONSOLE-01 gating', () => {
     const { result } = renderHook(() => useAIAvailability(), { wrapper });
 
     expect(result.current.fetchStatus).toBe('idle');
+    expect(mockGetAIStatus).not.toHaveBeenCalled();
+    expect(mockGetAIAvailability).not.toHaveBeenCalled();
+    expect(result.current.isAIAvailable).toBe(false);
+    expect(result.current.reason).toBe('permission');
+  });
+
+  it('P1-11: non-admin editor WITH use_ai_chat fires the public availability endpoint, NOT admin status', async () => {
+    mockCan.mockReturnValue(true);
+    mockGetAIAvailability.mockResolvedValue({ available: true });
+    useAuthStore.setState({
+      token: 'editor-token',
+      refreshToken: null,
+      expiresAt: null,
+      user: {
+        id: 'u4',
+        username: 'editor',
+        email: 'editor@x',
+        roles: ['editor'],
+        is_active: true,
+        status: 'active',
+        last_login_at: null,
+        created_at: '',
+      },
+    });
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const wrapper = makeWrapper(qc);
+
+    const { result } = renderHook(() => useAIAvailability(), { wrapper });
+
+    await waitFor(() => expect(result.current.isAIAvailable).toBe(true));
+    expect(mockGetAIAvailability).toHaveBeenCalledTimes(1);
+    expect(mockGetAIStatus).not.toHaveBeenCalled();
+    expect(result.current.reason).toBeNull();
+  });
+
+  it('P1-11: non-admin editor sees a safe disabled state (reason=no_key) when AI is not configured', async () => {
+    mockCan.mockReturnValue(true);
+    mockGetAIAvailability.mockResolvedValue({ available: false });
+    useAuthStore.setState({
+      token: 'editor-token',
+      refreshToken: null,
+      expiresAt: null,
+      user: {
+        id: 'u4',
+        username: 'editor',
+        email: 'editor@x',
+        roles: ['editor'],
+        is_active: true,
+        status: 'active',
+        last_login_at: null,
+        created_at: '',
+      },
+    });
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const wrapper = makeWrapper(qc);
+
+    const { result } = renderHook(() => useAIAvailability(), { wrapper });
+
+    await waitFor(() => expect(result.current.data).toBeDefined());
+    expect(result.current.isAIAvailable).toBe(false);
+    expect(result.current.reason).toBe('no_key');
     expect(mockGetAIStatus).not.toHaveBeenCalled();
   });
 

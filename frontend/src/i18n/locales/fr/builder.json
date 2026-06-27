@@ -567,7 +567,9 @@
     "makePublicHint": "Rendez cette carte publique pour générer un lien de partage",
     "rawTokenUnavailable": "Pour des raisons de sécurité, le lien complet n'est affiché qu'à sa création. Régénérez le lien pour le copier à nouveau.",
     "regenerate": "Régénérer",
-    "regenerateLink": "Régénérer le lien"
+    "regenerateLink": "Régénérer le lien",
+    "embedTokenForDomains": "Créez un jeton d’intégration pour limiter cette intégration à des domaines spécifiques.",
+    "createEmbedToken": "Créer un jeton d’intégration"
   },
   "chat": {
     "experimental": "Expérimental",
@@ -633,7 +635,8 @@
       "emptyHint": "Try a broader area or different filter.",
       "tableLabel": "Query result table",
       "rowCount_one": "{{count}} row",
-      "rowCount_other": "{{count}} rows"
+      "rowCount_other": "{{count}} rows",
+      "truncated": "(échantillon affiché)"
     },
     "bannerForbiddenTitle": "AI access lost",
     "bannerForbiddenBody": "You no longer have permission to use AI chat. Contact your administrator to restore access.",
@@ -1088,7 +1091,9 @@
     "compassAriaLabel": "Azimut solaire : {{azimuth}}°",
     "sectionHypsometricTint": "TEINTE HYPSOMÉTRIQUE",
     "hypsometricEnable": "Teinte d'élévation",
-    "hypsometricTerrainHint": "La teinte d'élévation n'est pas disponible en mode Terrain"
+    "hypsometricTerrainHint": "La teinte d'élévation n'est pas disponible en mode Terrain",
+    "terrainBoundNote": "Ce MNT alimente aussi le terrain 3D de la carte. L'ombrage est masqué pour éviter un conflit de source.",
+    "hypsometricRangeNote": "La teinte d'altitude couvre 0–4000 m et suppose des mètres. Les MNT dans d'autres unités ou plages peuvent paraître plats."
   },
   "folderGroup": {
     "defaultName": "Groupe {{n}}",

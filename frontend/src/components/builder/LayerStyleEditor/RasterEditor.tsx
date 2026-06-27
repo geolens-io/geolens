@@ -5,15 +5,13 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from '@/components/ui/collapsible';
-import { Slider } from '@/components/ui/slider';
 import { Button } from '@/components/ui/button';
-import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
-import { coalesceFrame } from '@/lib/builder/raf-coalesce';
 import {
   RASTER_PAINT_DEFAULTS,
   RASTER_OWNED_PAINT_PROPERTIES,
 } from '../layer-adapters/raster-adapter';
+import { RasterAppearanceSliders } from '../RasterAppearanceSliders';
 import { RasterStretchControls } from './RasterStretchControls';
 import type { BaseStyleEditorProps } from './types';
 
@@ -26,56 +24,12 @@ import type { BaseStyleEditorProps } from './types';
  * Pitfall #2: Reading values from props.paint with RASTER_PAINT_DEFAULTS fallback
  * guarantees save→reload symmetry (serialize → deserialize → renders identically).
  *
- * coalesceFrame keys are per-layer per-property so last-write-wins within a frame.
+ * builder-audit DUP-04: the appearance sliders are now the shared
+ * RasterAppearanceSliders component (also consumed by RasterLayerControls). The
+ * RAF coalesce keys are still per-layer per-property (coalesceId={layer.id}).
  */
 export function RasterEditor({ layer, paint, onPaintProp, t }: BaseStyleEditorProps) {
   const [resetOpen, setResetOpen] = useState(false);
-
-  // Read current values from paint props, fall back to MapLibre defaults.
-  const brightnessValue =
-    typeof paint['raster-brightness-min'] === 'number'
-      ? (paint['raster-brightness-min'] as number)
-      : RASTER_PAINT_DEFAULTS['raster-brightness-min'];
-
-  const contrastValue =
-    typeof paint['raster-contrast'] === 'number'
-      ? (paint['raster-contrast'] as number)
-      : RASTER_PAINT_DEFAULTS['raster-contrast'];
-
-  const saturationValue =
-    typeof paint['raster-saturation'] === 'number'
-      ? (paint['raster-saturation'] as number)
-      : RASTER_PAINT_DEFAULTS['raster-saturation'];
-
-  const hueValue =
-    typeof paint['raster-hue-rotate'] === 'number'
-      ? (paint['raster-hue-rotate'] as number)
-      : RASTER_PAINT_DEFAULTS['raster-hue-rotate'];
-
-  // Slider write handlers — all route through coalesceFrame + onPaintProp (Pitfall #9).
-  const handleBrightnessChange = (next: number) => {
-    coalesceFrame(`raster-paint:${layer.id}:raster-brightness-min`, () => {
-      onPaintProp('raster-brightness-min', next);
-    });
-  };
-
-  const handleContrastChange = (next: number) => {
-    coalesceFrame(`raster-paint:${layer.id}:raster-contrast`, () => {
-      onPaintProp('raster-contrast', next);
-    });
-  };
-
-  const handleSaturationChange = (next: number) => {
-    coalesceFrame(`raster-paint:${layer.id}:raster-saturation`, () => {
-      onPaintProp('raster-saturation', next);
-    });
-  };
-
-  const handleHueChange = (next: number) => {
-    coalesceFrame(`raster-paint:${layer.id}:raster-hue-rotate`, () => {
-      onPaintProp('raster-hue-rotate', next);
-    });
-  };
 
   // Reset: restore all 4 owned properties to MapLibre defaults.
   // Non-destructive (restores to known defaults) — no confirm step needed.
@@ -94,81 +48,12 @@ export function RasterEditor({ layer, paint, onPaintProp, t }: BaseStyleEditorPr
             {t('style.raster.title')}
           </p>
           <div className="space-y-3">
-            {/* Brightness row */}
-            <div className="grid grid-cols-[auto_1fr_auto] gap-2 items-center">
-              <Label className="text-xs text-muted-foreground w-28 shrink-0">
-                {t('style.raster.brightnessMin')}
-              </Label>
-              <Slider
-                aria-label={t('style.raster.brightnessMin')}
-                aria-valuetext={brightnessValue.toFixed(2)}
-                value={[brightnessValue]}
-                min={0}
-                max={1}
-                step={0.05}
-                onValueChange={([next]) => handleBrightnessChange(next ?? 0)}
-              />
-              <span className="text-xs tabular-nums text-muted-foreground w-12 shrink-0 text-end">
-                {brightnessValue.toFixed(2)}
-              </span>
-            </div>
-
-            {/* Contrast row */}
-            <div className="grid grid-cols-[auto_1fr_auto] gap-2 items-center">
-              <Label className="text-xs text-muted-foreground w-28 shrink-0">
-                {t('style.raster.contrast')}
-              </Label>
-              <Slider
-                aria-label={t('style.raster.contrast')}
-                aria-valuetext={contrastValue.toFixed(2)}
-                value={[contrastValue]}
-                min={-1}
-                max={1}
-                step={0.05}
-                onValueChange={([next]) => handleContrastChange(next ?? 0)}
-              />
-              <span className="text-xs tabular-nums text-muted-foreground w-12 shrink-0 text-end">
-                {contrastValue.toFixed(2)}
-              </span>
-            </div>
-
-            {/* Saturation row */}
-            <div className="grid grid-cols-[auto_1fr_auto] gap-2 items-center">
-              <Label className="text-xs text-muted-foreground w-28 shrink-0">
-                {t('style.raster.saturation')}
-              </Label>
-              <Slider
-                aria-label={t('style.raster.saturation')}
-                aria-valuetext={saturationValue.toFixed(2)}
-                value={[saturationValue]}
-                min={-1}
-                max={1}
-                step={0.05}
-                onValueChange={([next]) => handleSaturationChange(next ?? 0)}
-              />
-              <span className="text-xs tabular-nums text-muted-foreground w-12 shrink-0 text-end">
-                {saturationValue.toFixed(2)}
-              </span>
-            </div>
-
-            {/* Hue-rotate row */}
-            <div className="grid grid-cols-[auto_1fr_auto] gap-2 items-center">
-              <Label className="text-xs text-muted-foreground w-28 shrink-0">
-                {t('style.raster.hueRotate')}
-              </Label>
-              <Slider
-                aria-label={t('style.raster.hueRotate')}
-                aria-valuetext={`${Math.round(hueValue)}°`}
-                value={[hueValue]}
-                min={0}
-                max={360}
-                step={1}
-                onValueChange={([next]) => handleHueChange(next ?? 0)}
-              />
-              <span className="text-xs tabular-nums text-muted-foreground w-12 shrink-0 text-end">
-                {Math.round(hueValue)}°
-              </span>
-            </div>
+            <RasterAppearanceSliders
+              paint={paint}
+              onPaintProp={onPaintProp}
+              t={t}
+              coalesceId={layer.id}
+            />
           </div>
         </div>
       </section>

@@ -7,6 +7,7 @@ import { sendChatMessage, streamChatMessage } from '@/api/maps';
 import { ApiError } from '@/api/client';
 import { cn } from '@/lib/utils';
 import { normalizeLayerOpacity } from '@/components/builder/builder-action-contract';
+import { validateRawFilter, FilterValidationError } from '@/lib/maplibre-filter-utils';
 import { useChatActionStaging, isDestructiveAction } from '@/builder/ai/chat-action-staging';
 import type { FilterSpecification } from 'maplibre-gl';
 import type { MapLayerResponse, ChatAction, ChatHistoryMessage, LabelConfig, StyleConfig } from '@/types/api';
@@ -28,6 +29,38 @@ class StreamModelError extends Error {
     super(message);
     this.name = 'StreamModelError';
   }
+}
+
+/**
+ * builder-audit COMPLEX-01: discriminated classification of a chat-send failure.
+ *
+ * Pure decision function lifted out of handleSend's catch block so the
+ * branch order (aborted → partial → service banner → inline → retry) lives in
+ * one auditable place. The caller renders the result. Order is significant:
+ * `hasPendingActions` is checked before the StreamModelError/ApiError branches
+ * so a stream that applied actions before failing never falls through to the
+ * non-streaming retry (which would double the LLM call — see StreamModelError).
+ */
+type ChatErrorOutcome =
+  | { kind: 'aborted' }
+  | { kind: 'partial' }
+  | { kind: 'banner'; bannerKind: 'forbidden' | 'unavailable' }
+  | { kind: 'inline' }
+  | { kind: 'retry' };
+
+function classifyChatError(
+  err: unknown,
+  opts: { aborted: boolean; hasPendingActions: boolean },
+): ChatErrorOutcome {
+  if (opts.aborted) return { kind: 'aborted' };
+  if (opts.hasPendingActions) return { kind: 'partial' };
+  if (err instanceof ApiError && (err.status === 403 || err.status === 503)) {
+    return { kind: 'banner', bannerKind: err.status === 403 ? 'forbidden' : 'unavailable' };
+  }
+  if (err instanceof ApiError && (err.status === 401 || err.status === 502)) return { kind: 'inline' };
+  // StreamModelError: model errored mid-stream — nothing to retry, show inline.
+  if (err instanceof StreamModelError) return { kind: 'inline' };
+  return { kind: 'retry' };
 }
 
 /** Remove chat history entries that reference a removed layer. */
@@ -200,7 +233,9 @@ export function ChatPanel({
   const layersRef = useRef(layers);
   layersRef.current = layers;
   // Phase 20260526-builder-audit BLD-20260526-04: single-level undo for chat-initiated map mutations.
-  const lastSnapshotRef = useRef<{ layers: MapLayerResponse[]; messageIndex: number; supportsUndo: boolean } | null>(null);
+  // builder-audit DEAD-01: messageIndex dropped — it was only ever read as `!== undefined`
+  // (vacuously true); the real ordering gate is messages.indexOf(msg) === length - 1.
+  const lastSnapshotRef = useRef<{ layers: MapLayerResponse[]; supportsUndo: boolean } | null>(null);
 
   // Persist chat history to sessionStorage
   useEffect(() => {
@@ -332,7 +367,23 @@ export function ChatPanel({
     const layerId = getActionLayerId(action);
     switch (action.type) {
       case 'set_filter':
-        if (layerId) onFilterChange(layerId, Array.isArray(action.expression) ? action.expression : null);
+        if (layerId) {
+          // builder-audit P1-13: validate AI-produced filters through the shared
+          // filter contract (validateRawFilter mirrors backend filter_grammar)
+          // BEFORE applying. null/undefined/[] clear the filter; a malformed array
+          // is REJECTED (not applied) rather than handed to MapLibre where it would
+          // fail at runtime or round-trip into invalid saved map state.
+          try {
+            const validated = action.expression == null ? null : validateRawFilter(action.expression);
+            onFilterChange(layerId, validated);
+          } catch (err) {
+            if (err instanceof FilterValidationError) {
+              if (import.meta.env.DEV) console.warn('[ChatPanel] rejected invalid AI filter:', err.message);
+            } else {
+              throw err;
+            }
+          }
+        }
         break;
       case 'set_style':
         if (layerId && hasPaintMutation(action)) {
@@ -406,6 +457,59 @@ export function ChatPanel({
   // BuilderActionSource is NOT widened — Shape B invariant preserved.
   const staging = useChatActionStaging((action) => handleChatAction(action));
 
+  /**
+   * builder-audit DUP-01 / COMPLEX-01: single owner of the snapshot + destructive-
+   * routing + undo-downgrade loop, shared by both the streaming and non-streaming
+   * fallback paths (which had drifted — the root cause of STALE-01).
+   *
+   * Appends each handled action to `pendingActions` (for the message bubble), routes
+   * destructive add/remove into the staging buffer, dispatches everything else
+   * through handleChatAction, and maintains the per-turn undo snapshot.
+   *
+   * builder-audit STALE-01: the snapshot is (re)captured at most once per turn —
+   * only when no snapshot yet exists for the turn AND there is at least one
+   * undo-relevant mutating action. handleSend resets lastSnapshotRef to null at the
+   * start of every turn, so a query-only turn leaves it null and the undo affordance
+   * can never outlive the turn that created it.
+   */
+  function applyActions(actions: ChatAction[], pendingActions: ChatAction[]) {
+    if (actions.length === 0) return;
+    const mutatingActions = actions.filter(
+      (action) => action.type !== 'show_query_result' && !isDestructiveAction(action),
+    );
+    if (lastSnapshotRef.current === null && mutatingActions.length > 0) {
+      lastSnapshotRef.current = {
+        layers: [...layersRef.current],
+        supportsUndo: mutatingActions.every(isUndoSafeAction),
+      };
+    }
+    for (const action of actions) {
+      if (action.type === 'show_query_result') {
+        // show_query_result: dispatch flyover path AND record in pendingActions for
+        // the inline data card render (rows field handled in the message bubble).
+        dispatchQueryResult(action);
+        pendingActions.push(action);
+        continue;
+      }
+      // Phase 1135 AI-01: destructive actions (add_layer / remove_layer) go into the
+      // staging buffer — they do NOT dispatch immediately. The user must accept them.
+      if (isDestructiveAction(action)) {
+        staging.push(action);
+        // Record in pendingActions so the message's actions[] captures the intent.
+        pendingActions.push(action);
+        // B-013: a destructive action is never undo-safe. Downgrade the turn's
+        // snapshot so undo stays suppressed even after the user accepts.
+        if (lastSnapshotRef.current) lastSnapshotRef.current.supportsUndo = false;
+        continue;
+      }
+      handleChatAction(action);
+      pendingActions.push(action);
+      if (!isUndoSafeAction(action) && lastSnapshotRef.current) {
+        lastSnapshotRef.current.supportsUndo = false;
+      }
+    }
+  }
+
   function buildHistory(): ChatHistoryMessage[] {
     // Send last 20 messages as conversation history (capped server-side too)
     return messages
@@ -425,6 +529,108 @@ export function ChatPanel({
     };
   }, []);
 
+  /**
+   * builder-audit COMPLEX-01: the streaming consumer, extracted from handleSend.
+   * Owns the SSE for-await loop only — token/tool progress, action application
+   * (delegated to the shared applyActions), the success `done` message, and the
+   * StreamModelError sentinel. Partial streamed text is exposed via the mutable
+   * `streamState` holder so the caller's catch can render cancelled/interrupted
+   * messages without re-deriving it.
+   */
+  async function consumeStream(opts: {
+    userMsg: string;
+    history: ChatHistoryMessage[];
+    signal: AbortSignal;
+    pendingActions: ChatAction[];
+    streamState: { text: string };
+  }) {
+    const { userMsg, history, signal, pendingActions, streamState } = opts;
+    for await (const { event, data } of streamChatMessage(mapId, userMsg, layers, i18n.language, history, signal)) {
+      switch (event) {
+        case 'token':
+          streamState.text += data.text;
+          setStreamingText(streamState.text);
+          break;
+        case 'tool_start':
+          setToolProgress(typeof data.label === 'string' ? data.label : '');
+          break;
+        case 'tool_result':
+          setToolProgress(null);
+          break;
+        case 'actions':
+          applyActions(getChatActions(data.actions), pendingActions);
+          break;
+        case 'done': {
+          const finalText = (typeof data.explanation === 'string' ? data.explanation : '') || streamState.text;
+          // Phase 1135 AI-03: clear any existing error banner on successful response.
+          setErrorBanner(null);
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: crypto.randomUUID(),
+              role: 'assistant',
+              content: finalText,
+              actions: pendingActions.length > 0 ? pendingActions : undefined,
+            },
+          ]);
+          break;
+        }
+        case 'error':
+          // Model emitted an error event mid-stream (tool-loop exhausted,
+          // deadline). Throw a typed sentinel so the catch shows an inline
+          // error instead of re-calling the LLM via the non-streaming path.
+          throw new StreamModelError(typeof data.message === 'string' ? data.message : '');
+      }
+    }
+  }
+
+  /**
+   * builder-audit COMPLEX-01: non-streaming retry path, extracted from handleSend.
+   * Only reached when streaming failed before applying any actions (classifyChatError
+   * → 'retry'), so re-issuing the call cannot double an already-applied LLM turn.
+   */
+  async function sendNonStreamingFallback(opts: {
+    userMsg: string;
+    history: ChatHistoryMessage[];
+    pendingActions: ChatAction[];
+  }) {
+    const { userMsg, history, pendingActions } = opts;
+    try {
+      const response = await sendChatMessage(mapId, userMsg, layers, i18n.language, [...history, { role: 'user', content: userMsg }]);
+      const responseActions = getChatActions(response.actions);
+      applyActions(responseActions, pendingActions);
+      // Phase 1135 AI-03: clear any existing error banner on non-streaming success.
+      setErrorBanner(null);
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: crypto.randomUUID(),
+          role: 'assistant',
+          content: response.explanation,
+          actions: responseActions.length > 0 ? responseActions : undefined,
+        },
+      ]);
+    } catch (fallbackErr) {
+      // Phase 1135 AI-03: mirror streaming error classification — 403/503 → sticky banner.
+      if (fallbackErr instanceof ApiError && (fallbackErr.status === 403 || fallbackErr.status === 503)) {
+        setErrorBanner({
+          kind: fallbackErr.status === 403 ? 'forbidden' : 'unavailable',
+          retryMessage: opts.userMsg,
+        });
+      } else {
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: crypto.randomUUID(),
+            role: 'error',
+            content: mapApiErrorToMessage(fallbackErr),
+            retryMessage: opts.userMsg,
+          },
+        ]);
+      }
+    }
+  }
+
   async function handleSend() {
     if (!input.trim() || isLoading || inflightRef.current) return;
     // Phase 1135 AI-01: auto-reject any unflushed staging when the user sends a new message.
@@ -440,219 +646,67 @@ export function ChatPanel({
     setIsLoading(true);
     const controller = new AbortController();
     abortRef.current = controller;
-    let text = '';
+    // builder-audit STALE-01: clear the undo snapshot at the START of every turn so a
+    // stale snapshot from a previous turn can never outlive it. A query-only turn (or
+    // any turn with no undo-relevant mutating actions) leaves this null, so the Undo
+    // affordance never appears under an answer that reverts an earlier, unrelated edit.
+    lastSnapshotRef.current = null;
+    const streamState = { text: '' };
     const pendingActions: ChatAction[] = [];
     try {
-
-      for await (const { event, data } of streamChatMessage(mapId, userMsg, layers, i18n.language, history, controller.signal)) {
-        switch (event) {
-          case 'token':
-            text += data.text;
-            setStreamingText(text);
-            break;
-          case 'tool_start':
-            setToolProgress(typeof data.label === 'string' ? data.label : '');
-            break;
-          case 'tool_result':
-            setToolProgress(null);
-            break;
-          case 'actions': {
-            const actions = getChatActions(data.actions);
-            if (actions.length === 0) break;
-            // Phase 20260526-builder-audit BLD-20260526-04: snapshot only for actions undo can safely replay.
-            // For destructive actions, we snapshot here but only activate undo after the user accepts
-            // (the staging acceptAll/acceptOne path calls handleChatAction, which fires the existing
-            // snapshot bookkeeping naturally). Non-destructive actions use the existing immediate path.
-            const mutatingActions = actions.filter(
-              (action) => action.type !== 'show_query_result' && !isDestructiveAction(action),
-            );
-            if (pendingActions.length === 0 && mutatingActions.length > 0) {
-              lastSnapshotRef.current = {
-                layers: [...layersRef.current],
-                messageIndex: messages.length,
-                supportsUndo: mutatingActions.every(isUndoSafeAction),
-              };
-            }
-            for (const action of actions) {
-              if (action.type === 'show_query_result') {
-                // show_query_result: dispatch flyover path AND record in pendingActions for
-                // the inline data card render (rows field handled in the message bubble).
-                dispatchQueryResult(action);
-                pendingActions.push(action);
-                continue;
-              }
-              // Phase 1135 AI-01: destructive actions (add_layer / remove_layer) go into the
-              // staging buffer — they do NOT dispatch immediately. The user must accept them.
-              if (isDestructiveAction(action)) {
-                staging.push(action);
-                // Also record in pendingActions so the message's actions[] captures the intent
-                // for display purposes (the "applied N changes" line shows after accept).
-                pendingActions.push(action);
-                // B-013: a destructive action is never undo-safe (handleUndo can't truly
-                // restore an add/remove). Downgrade the turn's snapshot so the undo
-                // affordance stays suppressed even after the user accepts the staged action.
-                if (lastSnapshotRef.current) {
-                  lastSnapshotRef.current.supportsUndo = false;
-                }
-                continue;
-              }
-              handleChatAction(action);
-              pendingActions.push(action);
-              if (!isUndoSafeAction(action) && lastSnapshotRef.current) {
-                lastSnapshotRef.current.supportsUndo = false;
-              }
-            }
-            break;
-          }
-          case 'done': {
-            const finalText = (typeof data.explanation === 'string' ? data.explanation : '') || text;
-            // Phase 1135 AI-03: clear any existing error banner on successful response.
-            setErrorBanner(null);
-            setMessages((prev) => [
-              ...prev,
-              {
-                id: crypto.randomUUID(),
-                role: 'assistant',
-                content: finalText,
-                actions: pendingActions.length > 0 ? pendingActions : undefined,
-              },
-            ]);
-            break;
-          }
-          case 'error':
-            // Model emitted an error event mid-stream (tool-loop exhausted,
-            // deadline). Throw a typed sentinel so the catch shows an inline
-            // error instead of re-calling the LLM via the non-streaming path.
-            throw new StreamModelError(
-              typeof data.message === 'string' ? data.message : '',
-            );
-        }
-      }
+      await consumeStream({ userMsg, history, signal: controller.signal, pendingActions, streamState });
     } catch (err) {
-      // If aborted, show cancellation message and don't retry
-      if (controller.signal.aborted) {
-        if (pendingActions.length > 0) {
+      const outcome = classifyChatError(err, {
+        aborted: controller.signal.aborted,
+        hasPendingActions: pendingActions.length > 0,
+      });
+      switch (outcome.kind) {
+        case 'aborted':
+          // Aborted — show cancellation message and don't retry.
+          setMessages((prev) => [
+            ...prev,
+            pendingActions.length > 0
+              ? {
+                  id: crypto.randomUUID(),
+                  role: 'assistant',
+                  content: streamState.text || t('chat.cancelled'),
+                  actions: pendingActions,
+                }
+              : { id: crypto.randomUUID(), role: 'assistant', content: t('chat.cancelled') },
+          ]);
+          return;
+        case 'partial':
+          // Streaming already applied some actions before failing — keep them, no retry.
           setMessages((prev) => [
             ...prev,
             {
               id: crypto.randomUUID(),
               role: 'assistant',
-              content: text || t('chat.cancelled'),
+              content: streamState.text || t('chat.streamInterrupted'),
               actions: pendingActions,
             },
           ]);
-        } else {
-          setMessages((prev) => [
-            ...prev,
-            { id: crypto.randomUUID(), role: 'assistant', content: t('chat.cancelled') },
-          ]);
-        }
-        return;
-      }
-
-      // Only fall back to non-streaming if no actions were already applied
-      if (pendingActions.length > 0) {
-        // Streaming already applied some actions before failing
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: crypto.randomUUID(),
-            role: 'assistant',
-            content: text || t('chat.streamInterrupted'),
-            actions: pendingActions,
-          },
-        ]);
-      } else if (err instanceof ApiError && (err.status === 403 || err.status === 503)) {
-        // Phase 1135 AI-03: service-level errors (permission revoked or AI temporarily down)
-        // → show persistent sticky banner, NOT inline error bubble.
-        setErrorBanner({
-          kind: err.status === 403 ? 'forbidden' : 'unavailable',
-          retryMessage: userMsg,
-        });
-        // Do NOT push an inline error message. Do NOT fall through to non-streaming retry.
-      } else if (err instanceof ApiError && (err.status === 401 || err.status === 502)) {
-        // Known auth/service error — don't retry, show inline error bubble directly
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: crypto.randomUUID(),
-            role: 'error',
-            content: mapApiErrorToMessage(err),
-            retryMessage: userMsg,
-          },
-        ]);
-      } else if (err instanceof StreamModelError) {
-        // The model itself errored mid-stream (tool-loop exhausted, deadline).
-        // There is nothing to retry — re-calling the LLM via the non-streaming
-        // path would just double the (already-failed) call. Show inline error.
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: crypto.randomUUID(),
-            role: 'error',
-            content: mapApiErrorToMessage(err),
-            retryMessage: userMsg,
-          },
-        ]);
-      } else {
-        // No actions applied yet — safe to retry via non-streaming
-        try {
-          const response = await sendChatMessage(mapId, userMsg, layers, i18n.language, [...history, { role: 'user', content: userMsg }]);
-          // Phase 20260526-builder-audit BLD-20260526-04: snapshot layers before non-streaming fallback mutations.
-          const responseActions = getChatActions(response.actions);
-          if (responseActions.length > 0) {
-            lastSnapshotRef.current = {
-              layers: [...layersRef.current],
-              messageIndex: messages.length,
-              supportsUndo: responseActions.every(isUndoSafeAction),
-            };
-          }
-          for (const action of responseActions) {
-            if (isDestructiveAction(action)) {
-              staging.push(action);
-              // Still recorded in responseActions message bubble; map mutation deferred to user accept.
-              // B-013: destructive actions are never undo-safe — downgrade the snapshot so undo
-              // stays suppressed after the user accepts the staged add/remove.
-              if (lastSnapshotRef.current) {
-                lastSnapshotRef.current.supportsUndo = false;
-              }
-              continue;
-            }
-            handleChatAction(action);
-            if (!isUndoSafeAction(action) && lastSnapshotRef.current) {
-              lastSnapshotRef.current.supportsUndo = false;
-            }
-          }
-          // Phase 1135 AI-03: clear any existing error banner on non-streaming success.
-          setErrorBanner(null);
+          break;
+        case 'banner':
+          // Service-level error (permission revoked / AI down) → sticky banner, no retry.
+          setErrorBanner({ kind: outcome.bannerKind, retryMessage: userMsg });
+          break;
+        case 'inline':
+          // Known auth/service error or model-emitted StreamModelError — inline bubble, no retry.
           setMessages((prev) => [
             ...prev,
             {
               id: crypto.randomUUID(),
-              role: 'assistant',
-              content: response.explanation,
-              actions: responseActions.length > 0 ? responseActions : undefined,
+              role: 'error',
+              content: mapApiErrorToMessage(err),
+              retryMessage: userMsg,
             },
           ]);
-        } catch (fallbackErr) {
-          // Phase 1135 AI-03: mirror streaming error classification — 403/503 → sticky banner.
-          if (fallbackErr instanceof ApiError && (fallbackErr.status === 403 || fallbackErr.status === 503)) {
-            setErrorBanner({
-              kind: fallbackErr.status === 403 ? 'forbidden' : 'unavailable',
-              retryMessage: userMsg,
-            });
-          } else {
-            setMessages((prev) => [
-              ...prev,
-              {
-                id: crypto.randomUUID(),
-                role: 'error',
-                content: mapApiErrorToMessage(fallbackErr),
-                retryMessage: userMsg,
-              },
-            ]);
-          }
-        }
+          break;
+        case 'retry':
+          // No actions applied yet — safe to retry via the non-streaming path.
+          await sendNonStreamingFallback({ userMsg, history, pendingActions });
+          break;
       }
     } finally {
       abortRef.current = null;
@@ -844,19 +898,30 @@ export function ChatPanel({
                       </div>
                       <p className="mt-1 mb-1 px-2 text-xs text-muted-foreground">
                         {t('chat.queryResult.rowCount', { count: queryResultAction.row_count ?? rows.length })}
+                        {/* builder-audit DEAD-01: surface the wire `truncated` flag so the card
+                            cannot show a capped table as if it were the complete result set. */}
+                        {queryResultAction.truncated && (
+                          <span className="ms-1 text-muted-foreground/80">
+                            {t('chat.queryResult.truncated', { defaultValue: '(showing a sample)' })}
+                          </span>
+                        )}
                       </p>
                     </div>
                   );
                 })()}
-                {msg.actions && msg.actions.length > 0 && (
+                {/* builder-audit Applied-N nit: a pure query-result turn mutates nothing, so it
+                    must not render "Applied N changes". Count only non-query actions. */}
+                {(() => {
+                  const appliedActions = msg.actions?.filter((a) => a.type !== 'show_query_result') ?? [];
+                  if (appliedActions.length === 0) return null;
+                  return (
                   <div className="flex items-center gap-2 mt-1">
                     <p className="text-xs text-muted-foreground">
-                      {t('chat.appliedChanges', { count: msg.actions.length })}
+                      {t('chat.appliedChanges', { count: appliedActions.length })}
                     </p>
                     {/* Phase 20260526-builder-audit BLD-20260526-04: undo only for replay-safe style/filter edits. */}
                     {/* Phase 1135 AI-01: undo button is suppressed while staging tray is visible (mutual exclusion). */}
                     {lastSnapshotRef.current?.supportsUndo &&
-                      lastSnapshotRef.current?.messageIndex !== undefined &&
                       messages.indexOf(msg) === messages.length - 1 &&
                       msg.role === 'assistant' &&
                       staging.pendingActions.length === 0 && (
@@ -870,7 +935,8 @@ export function ChatPanel({
                       </button>
                     )}
                   </div>
-                )}
+                  );
+                })()}
               </div>
             </div>
           ),

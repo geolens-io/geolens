@@ -432,6 +432,22 @@ function toChatLayers(layers: MapLayerResponse[]): ChatMapLayer[] {
   }));
 }
 
+/**
+ * Public-safe AI readiness signal (builder-audit P1-11).
+ *
+ * Permission-gated on `use_ai_chat` server-side, so a non-admin editor (who
+ * cannot read `/admin/ai-status/`) can learn whether builder chat is usable
+ * without leaking provider/key detail. Returns `available=false` (not a 503)
+ * when provider keys are missing. A viewer without `use_ai_chat` gets 403.
+ */
+export interface AIAvailabilityResponse {
+  available: boolean;
+}
+
+export async function getAIAvailability(): Promise<AIAvailabilityResponse> {
+  return apiFetch<AIAvailabilityResponse>('/ai/availability/');
+}
+
 export async function sendChatMessage(
   mapId: string,
   message: string,

@@ -567,7 +567,9 @@
     "makePublicHint": "Haz pública esta mapa para generar un enlace de compartición",
     "rawTokenUnavailable": "Por seguridad, el enlace completo solo se muestra cuando se crea. Vuelve a generar el enlace para copiarlo de nuevo.",
     "regenerate": "Regenerar",
-    "regenerateLink": "Regenerar enlace"
+    "regenerateLink": "Regenerar enlace",
+    "embedTokenForDomains": "Crea un token de inserción para restringir esta inserción a dominios específicos.",
+    "createEmbedToken": "Crear token de inserción"
   },
   "chat": {
     "experimental": "Experimental",
@@ -633,7 +635,8 @@
       "emptyHint": "Try a broader area or different filter.",
       "tableLabel": "Query result table",
       "rowCount_one": "{{count}} row",
-      "rowCount_other": "{{count}} rows"
+      "rowCount_other": "{{count}} rows",
+      "truncated": "(mostrando una muestra)"
     },
     "bannerForbiddenTitle": "AI access lost",
     "bannerForbiddenBody": "You no longer have permission to use AI chat. Contact your administrator to restore access.",
@@ -1088,7 +1091,9 @@
     "compassAriaLabel": "Azimut solar: {{azimuth}}°",
     "sectionHypsometricTint": "TINTE HIPSOMÉTRICO",
     "hypsometricEnable": "Tintura de elevación",
-    "hypsometricTerrainHint": "La tintura de elevación no está disponible en modo Terreno"
+    "hypsometricTerrainHint": "La tintura de elevación no está disponible en modo Terreno",
+    "terrainBoundNote": "Este MDE también alimenta el terreno 3D del mapa. El sombreado de relieve se oculta para evitar un conflicto de origen.",
+    "hypsometricRangeNote": "El tinte de elevación abarca 0–4000 m y asume metros. Los MDE en otras unidades o rangos pueden verse planos."
   },
   "folderGroup": {
     "defaultName": "Grupo {{n}}",

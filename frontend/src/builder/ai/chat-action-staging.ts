@@ -3,9 +3,13 @@
  *
  * ## Shape B Lock — NON-NEGOTIABLE (1135-CONTEXT.md D-Shape-B / Pitfall #3)
  *
- * This module sits ABOVE `dispatchLayerAction`. It accepts a consumer-supplied
- * `dispatch` function and holds pending destructive actions in a React state
- * buffer until the user explicitly accepts or rejects them.
+ * This module wraps the CALLER'S supplied `dispatch` handler — it does NOT call
+ * `dispatchLayerAction` directly (builder-audit PARITY-01). In production it is
+ * instantiated as `useChatActionStaging((action) => handleChatAction(action))`,
+ * so accepted actions flow through ChatPanel's `handleChatAction` switch, which
+ * in turn routes to the builder layer-action contract. The staging buffer holds
+ * pending destructive actions in a React state buffer until the user explicitly
+ * accepts or rejects them, regardless of what the caller's dispatch does.
  *
  * Accepting flushes actions through the caller's dispatch in original push
  * order. Rejecting clears the buffer with zero map mutations — the map state
