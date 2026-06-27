@@ -1,5 +1,14 @@
 import { describe, it, expect, vi } from 'vitest';
-import { syncLayerFilter, setLayerProperty, syncOwnedLayoutProperties, syncOwnedPaintProperties } from '../shared';
+import {
+  syncLayerFilter,
+  setLayerProperty,
+  syncOwnedLayoutProperties,
+  syncOwnedPaintProperties,
+  simplifyPaint,
+  classifyGeometry,
+  getLayerType,
+  normalizeRasterBounds,
+} from '../shared';
 import type { FilterSpecification } from 'maplibre-gl';
 
 function createMockMap(layerExists = true) {
@@ -217,6 +226,133 @@ describe('syncOwnedPaintProperties', () => {
     );
 
     expect(map.setPaintProperty).not.toHaveBeenCalled();
+  });
+});
+
+describe('simplifyPaint (ADAPT-08 / SPEC-10 shape guards)', () => {
+  it('passes scalar and boolean values through unchanged', () => {
+    expect(simplifyPaint({ 'fill-color': '#abc', 'fill-antialias': true, 'circle-radius': 5 }))
+      .toEqual({ 'fill-color': '#abc', 'fill-antialias': true, 'circle-radius': 5 });
+  });
+
+  it('interpolate: returns the first output stop (index 4)', () => {
+    const expr = ['interpolate', ['linear'], ['zoom'], 5, '#111111', 12, '#222222'];
+    expect(simplifyPaint({ 'line-color': expr })).toEqual({ 'line-color': '#111111' });
+  });
+
+  it('interpolate-hcl is treated like interpolate (index 4)', () => {
+    const expr = ['interpolate-hcl', ['linear'], ['get', 'v'], 0, '#0000ff', 1, '#ff0000'];
+    expect(simplifyPaint({ 'fill-color': expr })).toEqual({ 'fill-color': '#0000ff' });
+  });
+
+  it('interpolate with fewer than 5 elements degrades to undefined', () => {
+    const expr = ['interpolate', ['linear'], ['zoom']]; // malformed: no stops
+    expect(simplifyPaint({ 'line-color': expr })).toEqual({ 'line-color': undefined });
+  });
+
+  it('step: returns the default output (index 2)', () => {
+    const expr = ['step', ['get', 'pop'], '#cccccc', 100, '#ff0000'];
+    expect(simplifyPaint({ 'fill-color': expr })).toEqual({ 'fill-color': '#cccccc' });
+  });
+
+  it('step with a single output (length 3) still returns index 2', () => {
+    const expr = ['step', ['get', 'x'], 7];
+    expect(simplifyPaint({ 'circle-radius': expr })).toEqual({ 'circle-radius': 7 });
+  });
+
+  it('match: returns the last element (fallback) when well-formed', () => {
+    const expr = ['match', ['get', 'cat'], 'a', '#aaaaaa', 'b', '#bbbbbb', '#000000'];
+    expect(simplifyPaint({ 'fill-color': expr })).toEqual({ 'fill-color': '#000000' });
+  });
+
+  it('match shorter than 5 elements degrades to undefined', () => {
+    const expr = ['match', ['get', 'cat'], '#fallback']; // no label/output pair
+    expect(simplifyPaint({ 'fill-color': expr })).toEqual({ 'fill-color': undefined });
+  });
+
+  it('nested case wrapping interpolate: pulls the inner interpolate fallback', () => {
+    const inner = ['interpolate', ['linear'], ['get', 'v'], 0, '#111111', 1, '#222222'];
+    const expr = ['case', ['==', ['get', 'v'], null], '#999999', inner];
+    expect(simplifyPaint({ 'fill-color': expr })).toEqual({ 'fill-color': '#111111' });
+  });
+
+  it('nested case wrapping step: pulls the inner step default', () => {
+    const inner = ['step', ['get', 'pop'], '#cccccc', 100, '#ff0000'];
+    const expr = ['case', ['==', ['get', 'pop'], null], '#999999', inner];
+    expect(simplifyPaint({ 'fill-color': expr })).toEqual({ 'fill-color': '#cccccc' });
+  });
+
+  it('nested case wrapping match: pulls the inner match fallback', () => {
+    const inner = ['match', ['get', 'cat'], 'a', '#aaaaaa', '#000000'];
+    const expr = ['case', ['==', ['get', 'cat'], null], '#999999', inner];
+    expect(simplifyPaint({ 'fill-color': expr })).toEqual({ 'fill-color': '#000000' });
+  });
+
+  it('case with a scalar last element uses the case literal fallback (index 2)', () => {
+    const expr = ['case', ['==', ['get', 'x'], null], '#999999', '#777777'];
+    expect(simplifyPaint({ 'fill-color': expr })).toEqual({ 'fill-color': '#999999' });
+  });
+
+  it('unknown op degrades to undefined instead of mis-indexing', () => {
+    const expr = ['coalesce', ['get', 'h'], 0];
+    expect(simplifyPaint({ 'fill-color': expr })).toEqual({ 'fill-color': undefined });
+  });
+
+  it('array shorter than 3 elements degrades to undefined', () => {
+    expect(simplifyPaint({ 'fill-color': ['get', 'x'] })).toEqual({ 'fill-color': undefined });
+  });
+
+  it('non-scalar expression fallback collapses to undefined', () => {
+    // step whose default output is itself an array (e.g. an rgb expression)
+    const expr = ['step', ['get', 'x'], ['rgb', 1, 2, 3], 100, '#fff'];
+    expect(simplifyPaint({ 'fill-color': expr })).toEqual({ 'fill-color': undefined });
+  });
+});
+
+describe('classifyGeometry / getLayerType (ADAPT-02 / DRY-05)', () => {
+  it.each([
+    ['POINT', 'point', 'circle'],
+    ['MULTIPOINT', 'point', 'circle'],
+    ['LINESTRING', 'line', 'line'],
+    ['MULTILINESTRING', 'line', 'line'],
+    ['POLYGON', 'polygon', 'fill'],
+    ['MULTIPOLYGON', 'polygon', 'fill'],
+    ['GEOMETRYCOLLECTION', 'other', 'fill'],
+    ['', 'other', 'fill'],
+  ] as const)('classifies %s as %s / layer type %s', (geom, family, layerType) => {
+    expect(classifyGeometry(geom)).toBe(family);
+    expect(getLayerType(geom)).toBe(layerType);
+  });
+
+  it('classifies null as other / fill', () => {
+    expect(classifyGeometry(null)).toBe('other');
+    expect(getLayerType(null)).toBe('fill');
+  });
+
+  it('is case-insensitive', () => {
+    expect(classifyGeometry('multipolygon')).toBe('polygon');
+    expect(getLayerType('point')).toBe('circle');
+  });
+});
+
+describe('normalizeRasterBounds (ADAPT-01)', () => {
+  it('returns the four-number tuple unchanged', () => {
+    expect(normalizeRasterBounds([-1, -2, 3, 4])).toEqual([-1, -2, 3, 4]);
+  });
+
+  it('returns undefined when not an array', () => {
+    expect(normalizeRasterBounds(null)).toBeUndefined();
+    expect(normalizeRasterBounds(undefined)).toBeUndefined();
+  });
+
+  it('returns undefined when length is not 4', () => {
+    expect(normalizeRasterBounds([1, 2, 3])).toBeUndefined();
+    expect(normalizeRasterBounds([1, 2, 3, 4, 5])).toBeUndefined();
+  });
+
+  it('returns undefined when any element is not finite', () => {
+    expect(normalizeRasterBounds([1, 2, 3, NaN])).toBeUndefined();
+    expect(normalizeRasterBounds([1, Infinity, 3, 4])).toBeUndefined();
   });
 });
 

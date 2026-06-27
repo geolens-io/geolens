@@ -13,51 +13,105 @@ export const CUSTOM_PAINT_PROPS = new Set([
   '_hypso-enabled', '_hypso-ramp',
 ]);
 
-export function getLayerType(geometryType: string | null): 'circle' | 'line' | 'fill' {
+/** Canonical geometry family. `other` covers null/empty and tokens that are
+ *  neither point/line/polygon (e.g. GEOMETRYCOLLECTION). */
+export type GeometryFamily = 'point' | 'line' | 'polygon' | 'other';
+
+/**
+ * builder-audit ADAPT-02/DRY-05: single canonical geometry classifier.
+ * getLayerType, renderAs.geometryFamily, layer-capabilities, and
+ * color-ramps.getColorProperty all DERIVE from this one uppercase+substring scan
+ * so a new geometry token or normalization rule is patched in exactly one place.
+ */
+export function classifyGeometry(geometryType: string | null): GeometryFamily {
   const gt = (geometryType ?? '').toUpperCase();
-  if (gt.includes('POINT')) return 'circle';
+  if (gt.includes('POINT')) return 'point';
   if (gt.includes('LINE')) return 'line';
-  return 'fill';
+  if (gt.includes('POLYGON')) return 'polygon';
+  return 'other';
+}
+
+/** MapLibre vector layer type for a geometry. polygon/other both render as fill. */
+export function getLayerType(geometryType: string | null): 'circle' | 'line' | 'fill' {
+  switch (classifyGeometry(geometryType)) {
+    case 'point': return 'circle';
+    case 'line': return 'line';
+    default: return 'fill';
+  }
+}
+
+/** Raster bounds as a fixed [west, south, east, north] tuple. */
+export type RasterBounds = [number, number, number, number];
+
+/**
+ * builder-audit ADAPT-01: single raster-bounds guard hoisted from the verbatim
+ * copies in raster-adapter, hillshade-adapter, and map-sync. Returns the bounds
+ * as a 4-tuple, or undefined when the input is not exactly four finite numbers.
+ */
+export function normalizeRasterBounds(bounds: number[] | null | undefined): RasterBounds | undefined {
+  if (!Array.isArray(bounds) || bounds.length !== 4) return undefined;
+  if (!bounds.every((value) => Number.isFinite(value))) return undefined;
+  return [bounds[0], bounds[1], bounds[2], bounds[3]];
+}
+
+/**
+ * builder-audit ADAPT-08/SPEC-10: extract a flat scalar fallback from a MapLibre
+ * expression using EXPLICIT per-op shape guards. Each op verifies the expression
+ * has enough elements before reading a positional index, so a malformed or
+ * newly-shaped expression (interpolate-hcl, single-stop step, multi-pair case,
+ * unknown op) degrades to undefined instead of mis-indexing a wrong color/width.
+ * The fallback is only the pre-addLayer scalar; finalizeLayer replays the real
+ * expression via replayExpressions.
+ */
+function expressionFallback(value: unknown[]): unknown {
+  if (value.length < 3) return undefined;
+  const op = value[0];
+  switch (op) {
+    case 'match':
+      // ["match", input, label0, output0, ..., fallback]; fallback is the last element.
+      // Smallest meaningful form has one label/output pair + fallback => length 5.
+      return value.length >= 5 ? value[value.length - 1] : undefined;
+    case 'interpolate':
+    case 'interpolate-hcl':
+    case 'interpolate-lab':
+      // ["interpolate", method, input, stop0, output0, ...]; first output at index 4.
+      return value.length >= 5 ? value[4] : undefined;
+    case 'step':
+      // ["step", input, default, stop0, output0, ...]; default output at index 2.
+      return value[2];
+    case 'case':
+      return caseFallback(value);
+    default:
+      return undefined;
+  }
+}
+
+/** GeoLens wraps step/interpolate in a null-guard case:
+ *  ["case", cond, fallbackOutput, innerExpr]. Prefer the nested expression's own
+ *  fallback; otherwise use the case's literal fallback output at index 2. */
+function caseFallback(value: unknown[]): unknown {
+  const inner = value[value.length - 1];
+  if (Array.isArray(inner) && inner.length >= 3) {
+    return expressionFallback(inner);
+  }
+  return value.length >= 3 ? value[2] : undefined;
 }
 
 /**
  * Simplify paint properties by stripping expression arrays.
- * Falls back to the first concrete color/number in expressions like
+ * Falls back to a concrete color/number pulled from expressions like
  * ["match", ...] or ["step", ...] so the layer renders with a flat color
- * instead of erroring out.
+ * instead of erroring out. Non-scalar fallbacks collapse to undefined.
  */
 export function simplifyPaint(paint: Record<string, unknown>): Record<string, unknown> {
   const result: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(paint)) {
     if (typeof value === 'boolean') { result[key] = value; continue; }
-    if (Array.isArray(value) && value.length >= 3) {
-      const op = value[0];
-      let fallback: unknown;
-      if (op === 'case') {
-        // case wraps step/interpolate: ["case", cond, fallbackColor, innerExpr]
-        const inner = value[value.length - 1];
-        if (Array.isArray(inner) && inner.length >= 3) {
-          const innerOp = inner[0];
-          fallback = innerOp === 'match'
-            ? inner[inner.length - 1]
-            : innerOp === 'interpolate'
-              ? inner[4]
-              : inner[2];
-        } else {
-          fallback = value[2];
-        }
-      } else {
-        fallback = op === 'match'
-          ? value[value.length - 1]
-          : op === 'interpolate'
-            ? value[4]  // first output stop value after [method, input, stop0, output0]
-            : value[2]; // step: first output after [input, default]
-      }
+    if (Array.isArray(value)) {
+      const fallback = expressionFallback(value);
       result[key] = typeof fallback === 'string' || typeof fallback === 'number'
         ? fallback
         : undefined;
-    } else if (Array.isArray(value)) {
-      result[key] = undefined;
     } else {
       result[key] = value;
     }

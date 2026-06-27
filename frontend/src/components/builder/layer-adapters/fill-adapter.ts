@@ -12,8 +12,10 @@ import {
 } from './shared';
 import { MAP_COLORS } from '@/lib/map-colors';
 import { ensureFillPatternImages } from './fill-pattern-images';
+// builder-audit DRY-06: extrusion min-zoom (14) and opacity cap (0.85) come from the
+// single builder-defaults source of truth (shared with renderAs + backend mirror).
+import { DEFAULT_EXTRUSION_MIN_ZOOM, DEFAULT_EXTRUSION_OPACITY_CAP } from './builder-defaults';
 
-const DEFAULT_EXTRUSION_MIN_ZOOM = 14;
 const FILL_OWNED_PAINT_PROPERTIES = [
   'fill-color',
   'fill-opacity',
@@ -24,6 +26,10 @@ const FILL_OWNED_PAINT_PROPERTIES = [
   'fill-translate-anchor',
 ] as const;
 const OUTLINE_OWNED_PAINT_PROPERTIES = ['line-color', 'line-width', 'line-opacity'] as const;
+// builder-audit SPEC-11: 3D extrusion authoring is a DELIBERATE single-purpose subset
+// (column height only). fill-extrusion-base is intentionally fixed to 0 and
+// fill-extrusion-pattern / -translate / -translate-anchor are intentionally NOT authored;
+// this is column-height extrusion, not a general fill-extrusion editor.
 const EXTRUSION_OWNED_PAINT_PROPERTIES = [
   'fill-extrusion-height',
   'fill-extrusion-base',
@@ -55,7 +61,7 @@ function getExtrusionOptions(input: AdapterLayerInput) {
     heightScale,
     extrusionMinZoom,
     extrusionOpacity: configuredOpacity == null
-      ? Math.min(input.opacity ?? 1, 0.85)
+      ? Math.min(input.opacity ?? 1, DEFAULT_EXTRUSION_OPACITY_CAP)
       : clamp(configuredOpacity, 0, 1),
   };
 }

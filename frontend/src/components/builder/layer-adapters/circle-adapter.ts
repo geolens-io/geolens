@@ -9,9 +9,14 @@ import {
   syncSingleLayerVisibility,
   syncLayerFilter,
 } from './shared';
-import { MAP_COLORS } from '@/lib/map-colors';
+import { DEFAULT_CIRCLE_PAINT } from './builder-defaults';
 
-const CIRCLE_OWNED_PAINT_PROPERTIES = [
+// builder-audit ADAPT-03: exported so cluster-adapter's unclustered point reuses
+// this exact owned set (was a byte-identical UNCLUSTERED_OWNED_PAINT_PROPERTIES copy).
+// builder-audit SPEC-06: 'circle-stroke-blur' removed — it is not a MapLibre GL paint
+// property (the spec has circle-blur + circle-stroke-{width,color,opacity}, no stroke-blur);
+// it was a silent no-op swallowed by setPaintProperty's try/catch.
+export const CIRCLE_OWNED_PAINT_PROPERTIES = [
   'circle-radius',
   'circle-color',
   'circle-blur',
@@ -23,7 +28,6 @@ const CIRCLE_OWNED_PAINT_PROPERTIES = [
   'circle-stroke-width',
   'circle-stroke-color',
   'circle-stroke-opacity',
-  'circle-stroke-blur',
 ] as const;
 
 export const circleAdapter: LayerAdapter = {
@@ -44,12 +48,7 @@ export const circleAdapter: LayerAdapter = {
         type: 'circle',
         source: sourceId,
         ...(input.sourceType !== 'geojson' && { 'source-layer': sourceLayer }),
-        paint: Object.keys(circlePaint).length ? circlePaint : {
-          'circle-radius': 5,
-          'circle-color': MAP_COLORS.default.fill,
-          'circle-stroke-color': MAP_COLORS.default.stroke,
-          'circle-stroke-width': 1,
-        },
+        paint: Object.keys(circlePaint).length ? circlePaint : { ...DEFAULT_CIRCLE_PAINT },
         layout: initialLayout,
       });
       finalizeLayer(map, layerId, rawPaint, 'circle', opacity ?? 1, filter, hasExpressions);

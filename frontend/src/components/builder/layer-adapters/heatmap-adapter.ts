@@ -1,7 +1,18 @@
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { AdapterLayerInput, LayerAdapter } from './types';
 import { getBuilderStyleConfig, syncOwnedPaintProperties, syncSingleLayerVisibility, syncLayerFilter } from './shared';
+// builder-audit ADAPT-05: the radius/weight/intensity/opacity defaults come from the
+// single builder-defaults source of truth (radius 30 / weight 1) instead of the magic
+// literals that previously diverged from renderAs's heatmap default (radius 18 / weight 0.5).
+import { DEFAULT_HEATMAP_PAINT as HEATMAP_PAINT_DEFAULTS } from './builder-defaults';
 import { getRampColors } from '@/lib/color-ramps';
+
+/** builder-audit ADAPT-11: typed coercion so an out-of-range / string / expression
+ *  heatmap-opacity cannot flow through a bare `as number` cast into NaN math
+ *  (storedHeatmapOpacity * masterOpacity). Mirrors fill-adapter's finiteNumber. */
+function finiteNumber(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
 
 /** Build the default heatmap-color interpolation expression using a named ramp.
  *  The expression has transparent (rgba 0,0,0,0) at density 0 so low-density
@@ -28,13 +39,13 @@ const HEATMAP_OWNED_PAINT_PROPERTIES = [
   'heatmap-opacity',
 ] as const;
 
-/** Default paint properties for a new heatmap layer. */
+/** Default paint properties for a new heatmap layer. The numeric defaults are the
+ *  shared builder-defaults (radius/weight/intensity/opacity); only the ramp-derived
+ *  heatmap-color is layered on here (it lives in this module to avoid a builder-defaults
+ *  -> color-ramps circular import). */
 export const DEFAULT_HEATMAP_PAINT: Record<string, unknown> = {
-  'heatmap-radius': 30,
-  'heatmap-weight': 1,
-  'heatmap-intensity': 1,
+  ...HEATMAP_PAINT_DEFAULTS,
   'heatmap-color': buildHeatmapColorExpression(DEFAULT_RAMP),
-  'heatmap-opacity': 0.8,
 };
 
 export const heatmapAdapter: LayerAdapter = {
@@ -44,17 +55,20 @@ export const heatmapAdapter: LayerAdapter = {
     const { layerId, sourceId, sourceLayer, paint: rawPaint, filter, opacity, visible } = input;
     const builder = getBuilderStyleConfig(input);
 
-    // Extract heatmap-specific props from paint, falling back to defaults
-    const heatmapRadius = rawPaint['heatmap-radius'] ?? 30;
-    const heatmapWeight = rawPaint['heatmap-weight'] ?? 1;
-    const heatmapIntensity = rawPaint['heatmap-intensity'] ?? 1;
+    // Extract heatmap-specific props from paint, falling back to shared defaults.
+    // radius/weight/intensity may legitimately be zoom expressions (arrays), so they
+    // keep `?? default` rather than finiteNumber coercion.
+    const heatmapRadius = rawPaint['heatmap-radius'] ?? HEATMAP_PAINT_DEFAULTS['heatmap-radius'];
+    const heatmapWeight = rawPaint['heatmap-weight'] ?? HEATMAP_PAINT_DEFAULTS['heatmap-weight'];
+    const heatmapIntensity = rawPaint['heatmap-intensity'] ?? HEATMAP_PAINT_DEFAULTS['heatmap-intensity'];
     // Phase 1051 CR-04: read stored heatmap-opacity (matching syncPaint formula
-    // at line 91) and compound with master opacity. Previously hard-coded 0.8 at
+    // below) and compound with master opacity. Previously hard-coded 0.8 at
     // add-time, which overwrote persisted heatmap-opacity on every page load,
     // render-mode swap, or basemap switch — producing a visible flash and silent
-    // drift until any subsequent paint sync. Mirrors the rawPaint['heatmap-*']
-    // ?? default pattern used for radius/weight/intensity above.
-    const storedHeatmapOpacity = (rawPaint['heatmap-opacity'] as number) ?? 0.8;
+    // drift until any subsequent paint sync.
+    // builder-audit ADAPT-11: finiteNumber rejects a string/array/NaN opacity that a
+    // bare `as number` cast would have multiplied into NaN.
+    const storedHeatmapOpacity = finiteNumber(rawPaint['heatmap-opacity']) ?? HEATMAP_PAINT_DEFAULTS['heatmap-opacity'];
     const heatmapOpacity = storedHeatmapOpacity * (opacity ?? 1);
 
     // Use stored color expression or build the default
@@ -89,14 +103,15 @@ export const heatmapAdapter: LayerAdapter = {
     const builder = getBuilderStyleConfig(input);
 
     syncOwnedPaintProperties(map, layerId, {
-      'heatmap-radius': rawPaint['heatmap-radius'] ?? 30,
-      'heatmap-weight': rawPaint['heatmap-weight'] ?? 1,
-      'heatmap-intensity': rawPaint['heatmap-intensity'] ?? 1,
+      'heatmap-radius': rawPaint['heatmap-radius'] ?? HEATMAP_PAINT_DEFAULTS['heatmap-radius'],
+      'heatmap-weight': rawPaint['heatmap-weight'] ?? HEATMAP_PAINT_DEFAULTS['heatmap-weight'],
+      'heatmap-intensity': rawPaint['heatmap-intensity'] ?? HEATMAP_PAINT_DEFAULTS['heatmap-intensity'],
       'heatmap-color': rawPaint['heatmap-color'] ?? buildHeatmapColorExpression(builder.heatmapRamp ?? DEFAULT_RAMP),
     }, { ownedProperties: HEATMAP_OWNED_PAINT_PROPERTIES.filter((prop) => prop !== 'heatmap-opacity') });
 
     // Compound stored heatmap-opacity with master opacity. Single source of truth.
-    const storedOpacity = (rawPaint['heatmap-opacity'] as number) ?? 0.8;
+    // builder-audit ADAPT-11: finiteNumber guards the same NaN path as add-time.
+    const storedOpacity = finiteNumber(rawPaint['heatmap-opacity']) ?? HEATMAP_PAINT_DEFAULTS['heatmap-opacity'];
     map.setPaintProperty(layerId, 'heatmap-opacity', storedOpacity * (input.opacity ?? 1));
 
     syncLayerFilter(map, layerId, filter);

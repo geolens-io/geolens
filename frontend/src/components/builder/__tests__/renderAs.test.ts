@@ -101,39 +101,31 @@ describe('renderAs view model', () => {
     expect(getCurrentRenderAs(line)).toBe('line');
   });
 
-  it('documents line arrow as a MapLibre companion renderer capability', () => {
+  it('exposes line arrow as a renderer capability for line layers', () => {
     const line = layer({ dataset_geometry_type: 'MULTILINESTRING' });
     const capabilities = getRendererCapabilities(line);
     const arrow = getRendererCapability('arrow', line);
 
     expect(RENDERER_CAPABILITIES.length).toBeGreaterThan(0);
     expect(capabilities.map((entry) => entry.id)).toEqual(['line', 'arrow']);
-    expect(arrow).toMatchObject({
-      id: 'arrow',
-      backend: 'maplibre',
-      sourceRequirement: 'vector-tile',
-      companionLayers: ['arrow'],
-      viewerSupport: 'native',
-      styleJsonSupport: 'native',
-    });
-    expect(arrow?.writableFields).toEqual(RENDER_AS_WRITABLE_FIELDS);
+    // builder-audit ADAPT-07: RendererCapability is trimmed to {id,label,source,
+    // requiresClusterSource}; assert the surviving consumed fields only (no inert
+    // backend/companionLayers/viewerSupport/styleJsonSupport/writableFields metadata).
+    expect(arrow).toMatchObject({ id: 'arrow', label: 'Arrow', source: 'vector-line' });
+    expect(arrow?.requiresClusterSource).toBeUndefined();
   });
 
-  it('documents point cluster as a bounded GeoJSON renderer capability', () => {
+  it('exposes point cluster as a cluster-source-gated capability for bounded point layers', () => {
     const point = layer({ dataset_geometry_type: 'POINT', dataset_feature_count: 100 });
     const cluster = getRendererCapability('cluster', point);
 
     expect(getRendererCapabilities(point).map((entry) => entry.id)).toEqual(['point', 'symbol', 'heatmap', 'cluster']);
     expect(cluster).toMatchObject({
       id: 'cluster',
-      backend: 'maplibre',
-      sourceRequirement: 'geojson-or-cluster-tile',
-      companionLayers: ['cluster', 'cluster-count', 'unclustered'],
-      viewerSupport: 'native',
-      styleJsonSupport: 'fallback',
+      label: 'Cluster',
+      source: 'vector-point',
       requiresClusterSource: true,
     });
-    expect(cluster?.writableFields).toEqual(RENDER_AS_WRITABLE_FIELDS);
   });
 
   it('detects line arrow render mode from style_config', () => {

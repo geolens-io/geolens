@@ -1,6 +1,6 @@
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { AdapterLayerInput, LayerAdapter } from './types';
-import { paintValueChanged } from './shared';
+import { normalizeRasterBounds, paintValueChanged, syncSingleLayerVisibility } from './shared';
 
 /** Default lower percentile bound for the raster stretch. Backend default is 2. */
 const STRETCH_PMIN_DEFAULT = 2;
@@ -110,12 +110,6 @@ export function buildColormapTileUrl(
   return qs ? `${baseUrl}?${qs}` : baseUrl;
 }
 
-function normalizeRasterBounds(bounds: number[] | null | undefined) {
-  if (!Array.isArray(bounds) || bounds.length !== 4) return undefined;
-  if (!bounds.every((value) => Number.isFinite(value))) return undefined;
-  return [bounds[0], bounds[1], bounds[2], bounds[3]] as [number, number, number, number];
-}
-
 function buildRasterPaint(input: AdapterLayerInput): Record<string, number | string> {
   return {
     ...getSupportedRasterPaint(input.paint),
@@ -152,6 +146,12 @@ export const rasterAdapter: LayerAdapter = {
 
   addLayers(map: MaplibreMap, input: AdapterLayerInput): void {
     const { layerId, sourceId, tileUrl, tileSize, minzoom, maxzoom, visible, bounds } = input;
+    // builder-audit ADAPT-10: source construction reads input.tileUrl directly. The
+    // colormap/stretch query params are applied by buildColormapTileUrl (exported from
+    // THIS module) — but the call site lives in map-sync.syncRasterLayer, which mutates
+    // adapterInput.tileUrl before handing it here. The URL builder is co-located in this
+    // file so a reader inspecting raster source/colormap behavior finds it next to the
+    // adapter; map-sync owns the wiring (cross-linked here intentionally).
     // WALK-R-05: split source guard from layer guard so that when a style swap
     // removes layers but retains sources (raster basemap reload scenario), the
     // layer is re-added without re-adding the already-existing source.
@@ -202,18 +202,14 @@ export const rasterAdapter: LayerAdapter = {
     if (currentOpacity !== (opacity ?? 1)) {
       map.setPaintProperty(layerId, 'raster-opacity', opacity ?? 1);
     }
-    const vis = visible ? 'visible' : 'none';
-    if (map.getLayoutProperty(layerId, 'visibility') !== vis) {
-      map.setLayoutProperty(layerId, 'visibility', vis);
-    }
+    // builder-audit ADAPT-09: reconcile visibility through the SAME shared helper the
+    // vector adapters use. syncRasterLayer (map-sync) calls syncPaint without a
+    // following syncVisibility, so visibility must still be reconciled here — uniformly.
+    syncSingleLayerVisibility(map, layerId, visible);
   },
 
   syncVisibility(map: MaplibreMap, input: AdapterLayerInput): void {
-    const { layerId, visible } = input;
-    const vis = visible ? 'visible' : 'none';
-    if (map.getLayer(layerId)) {
-      map.setLayoutProperty(layerId, 'visibility', vis);
-    }
+    syncSingleLayerVisibility(map, input.layerId, input.visible);
   },
 
   getLayerIds(layerId: string): string[] {

@@ -1,5 +1,20 @@
 import type { MapLayerResponse, MapLayerType, StyleConfig } from '@/types/api';
 import { canUseClusterSource } from './cluster-source';
+import { classifyGeometry } from './layer-adapters/shared';
+import { MAP_COLORS } from '@/lib/map-colors';
+// builder-audit ADAPT-05/06 / DRY-04/06: pull the per-render-mode default paint and
+// the arrow/extrusion magic constants from the single builder-defaults source of truth
+// instead of re-declaring divergent copies here.
+import {
+  DEFAULT_ARROW_SIZE,
+  DEFAULT_ARROW_SPACING,
+  DEFAULT_CIRCLE_PAINT,
+  DEFAULT_EXTRUSION_MIN_ZOOM,
+  DEFAULT_EXTRUSION_OPACITY_CAP,
+  DEFAULT_FILL_PAINT,
+  DEFAULT_HEATMAP_PAINT,
+  DEFAULT_HILLSHADE_PAINT,
+} from './layer-adapters/builder-defaults';
 
 export type RenderAsId =
   | 'point'
@@ -29,31 +44,17 @@ export interface RenderAsOption {
   source: RenderAsSource;
 }
 
-// GUARD-05: 'deckgl-future' removed — no registry entries ever used it and no
-// runtime code branched on it. The `enabled` gate and `backend` field are kept
-// because getRendererCapabilities/getRendererCapability filter on them and
-// existing tests assert `backend: 'maplibre'` values.
-export type RendererBackend = 'maplibre';
-export type RendererSourceRequirement =
-  | 'vector-tile'
-  | 'geojson'
-  | 'geojson-or-cluster-tile'
-  | 'raster'
-  | 'raster-dem'
-  | 'h3-column'
-  | 'path-timestamp';
-
+// builder-audit ADAPT-07: trimmed RendererCapability to the fields runtime code
+// actually reads. The previous schema modeled backend/viewerSupport/styleJsonSupport/
+// companionLayers/sourceRequirement/writableFields/enabled, none of which had a
+// consumer outside this module and its tests (every row was backend:'maplibre',
+// enabled:true). GUARD-05: 'deckgl-future' was already removed; with the single
+// backend gone there is no multi-backend abstraction left to model.
 export interface RendererCapability {
   id: RenderAsId;
   label: string;
   source: Exclude<RenderAsSource, 'unsupported'>;
-  backend: RendererBackend;
-  sourceRequirement: RendererSourceRequirement;
-  writableFields: readonly (typeof RENDER_AS_WRITABLE_FIELDS)[number][];
-  companionLayers: readonly string[];
-  viewerSupport: 'native' | 'fallback' | 'unsupported';
-  styleJsonSupport: 'native' | 'fallback' | 'unsupported';
-  enabled: boolean;
+  /** Cluster needs a GeoJSON/cluster source — the only capability-level gate read at runtime. */
   requiresClusterSource?: boolean;
 }
 
@@ -96,138 +97,20 @@ export const UNSUPPORTED_V1002_RENDERERS = [
   'blend-mode',
 ] as const;
 
-function capability(
-  id: RenderAsId,
-  label: string,
-  source: Exclude<RenderAsSource, 'unsupported'>,
-  options: Pick<RendererCapability, 'backend' | 'sourceRequirement' | 'companionLayers' | 'viewerSupport' | 'styleJsonSupport' | 'requiresClusterSource'>,
-): RendererCapability {
-  return {
-    id,
-    label,
-    source,
-    writableFields: RENDER_AS_WRITABLE_FIELDS,
-    enabled: true,
-    ...options,
-  };
-}
-
 export const RENDERER_CAPABILITIES: readonly RendererCapability[] = [
-  capability('point', 'Point', 'vector-point', {
-    backend: 'maplibre',
-    sourceRequirement: 'vector-tile',
-    companionLayers: [],
-    viewerSupport: 'native',
-    styleJsonSupport: 'native',
-  }),
-  capability('symbol', 'Symbols', 'vector-point', {
-    backend: 'maplibre',
-    sourceRequirement: 'vector-tile',
-    companionLayers: [],
-    viewerSupport: 'native',
-    styleJsonSupport: 'native',
-  }),
-  capability('heatmap', 'Heatmap', 'vector-point', {
-    backend: 'maplibre',
-    sourceRequirement: 'vector-tile',
-    companionLayers: [],
-    viewerSupport: 'native',
-    styleJsonSupport: 'native',
-  }),
-  capability('cluster', 'Cluster', 'vector-point', {
-    backend: 'maplibre',
-    sourceRequirement: 'geojson-or-cluster-tile',
-    companionLayers: ['cluster', 'cluster-count', 'unclustered'],
-    viewerSupport: 'native',
-    styleJsonSupport: 'fallback',
-    requiresClusterSource: true,
-  }),
-  capability('line', 'Line', 'vector-line', {
-    backend: 'maplibre',
-    sourceRequirement: 'vector-tile',
-    companionLayers: [],
-    viewerSupport: 'native',
-    styleJsonSupport: 'native',
-  }),
-  capability('arrow', 'Arrow', 'vector-line', {
-    backend: 'maplibre',
-    sourceRequirement: 'vector-tile',
-    companionLayers: ['arrow'],
-    viewerSupport: 'native',
-    styleJsonSupport: 'native',
-  }),
-  capability('fill', 'Fill', 'vector-polygon', {
-    backend: 'maplibre',
-    sourceRequirement: 'vector-tile',
-    companionLayers: ['outline'],
-    viewerSupport: 'native',
-    styleJsonSupport: 'native',
-  }),
-  capability('stroke', 'Stroke', 'vector-polygon', {
-    backend: 'maplibre',
-    sourceRequirement: 'vector-tile',
-    companionLayers: ['outline'],
-    viewerSupport: 'native',
-    styleJsonSupport: 'native',
-  }),
-  capability('fill-stroke', 'Fill + Stroke', 'vector-polygon', {
-    backend: 'maplibre',
-    sourceRequirement: 'vector-tile',
-    companionLayers: ['outline'],
-    viewerSupport: 'native',
-    styleJsonSupport: 'native',
-  }),
-  capability('extrusion-3d', '3D extrusion', 'vector-polygon', {
-    backend: 'maplibre',
-    sourceRequirement: 'vector-tile',
-    companionLayers: ['outline', 'extrusion'],
-    viewerSupport: 'native',
-    styleJsonSupport: 'native',
-  }),
-  capability('image', 'Image', 'raster', {
-    backend: 'maplibre',
-    sourceRequirement: 'raster',
-    companionLayers: [],
-    viewerSupport: 'native',
-    styleJsonSupport: 'native',
-  }),
-  capability('hillshade', 'Hillshade', 'raster-dem', {
-    backend: 'maplibre',
-    sourceRequirement: 'raster-dem',
-    companionLayers: [],
-    viewerSupport: 'native',
-    styleJsonSupport: 'native',
-  }),
+  { id: 'point', label: 'Point', source: 'vector-point' },
+  { id: 'symbol', label: 'Symbols', source: 'vector-point' },
+  { id: 'heatmap', label: 'Heatmap', source: 'vector-point' },
+  { id: 'cluster', label: 'Cluster', source: 'vector-point', requiresClusterSource: true },
+  { id: 'line', label: 'Line', source: 'vector-line' },
+  { id: 'arrow', label: 'Arrow', source: 'vector-line' },
+  { id: 'fill', label: 'Fill', source: 'vector-polygon' },
+  { id: 'stroke', label: 'Stroke', source: 'vector-polygon' },
+  { id: 'fill-stroke', label: 'Fill + Stroke', source: 'vector-polygon' },
+  { id: 'extrusion-3d', label: '3D extrusion', source: 'vector-polygon' },
+  { id: 'image', label: 'Image', source: 'raster' },
+  { id: 'hillshade', label: 'Hillshade', source: 'raster-dem' },
 ];
-
-const DEFAULT_CIRCLE_PAINT = {
-  'circle-color': '#3b82f6',
-  'circle-radius': 5,
-  'circle-stroke-color': '#ffffff',
-  'circle-stroke-width': 1,
-} as const;
-
-const DEFAULT_HEATMAP_PAINT = {
-  'heatmap-radius': 18,
-  'heatmap-weight': 0.5,
-  'heatmap-intensity': 1,
-  'heatmap-opacity': 0.8,
-} as const;
-
-const DEFAULT_FILL_PAINT = {
-  'fill-color': '#3b82f6',
-  'fill-opacity': 0.45,
-  'fill-outline-color': '#1d4ed8',
-} as const;
-
-const DEFAULT_HILLSHADE_PAINT = {
-  'hillshade-illumination-direction': 335,
-  'hillshade-illumination-anchor': 'viewport',
-  'hillshade-exaggeration': 0.5,
-  'hillshade-shadow-color': '#000000',
-  'hillshade-highlight-color': '#ffffff',
-  'hillshade-accent-color': '#000000',
-} as const;
 
 function isRasterLayer(layer: RenderAsLayer) {
   return (
@@ -237,12 +120,10 @@ function isRasterLayer(layer: RenderAsLayer) {
   );
 }
 
+// builder-audit ADAPT-02/DRY-05: derive from the single classifyGeometry scanner.
 function geometryFamily(geometryType: string | null): 'point' | 'line' | 'polygon' | null {
-  const normalized = (geometryType ?? '').toUpperCase();
-  if (normalized.includes('POINT')) return 'point';
-  if (normalized.includes('LINE')) return 'line';
-  if (normalized.includes('POLYGON')) return 'polygon';
-  return null;
+  const family = classifyGeometry(geometryType);
+  return family === 'other' ? null : family;
 }
 
 function truthyBuilderFlag(value: unknown) {
@@ -349,14 +230,14 @@ export function getRendererCapabilities(layer: RenderAsLayer): RendererCapabilit
   const source = getRenderAsSource(layer);
   if (source === 'unsupported') return [];
   return RENDERER_CAPABILITIES.filter((entry) => {
-    if (!entry.enabled || entry.source !== source) return false;
+    if (entry.source !== source) return false;
     if (entry.requiresClusterSource) return canUseClusterSource(layer);
     return true;
   });
 }
 
 export function getRendererCapability(id: RenderAsId, layer?: RenderAsLayer): RendererCapability | null {
-  const entries = layer ? getRendererCapabilities(layer) : RENDERER_CAPABILITIES.filter((entry) => entry.enabled);
+  const entries = layer ? getRendererCapabilities(layer) : RENDERER_CAPABILITIES;
   return entries.find((entry) => entry.id === id) ?? null;
 }
 
@@ -400,7 +281,7 @@ export function getCurrentRenderAs(layer: RenderAsLayer): RenderAsId | null {
 }
 
 export function isSupportedRenderAsId(value: string): value is RenderAsId {
-  return RENDERER_CAPABILITIES.some((entry) => entry.enabled && entry.id === value);
+  return RENDERER_CAPABILITIES.some((entry) => entry.id === value);
 }
 
 export function buildRenderAsPatch(layer: RenderAsLayer, renderAs: RenderAsId): RenderAsMutation | null {
@@ -503,7 +384,7 @@ export function buildRenderAsPatch(layer: RenderAsLayer, renderAs: RenderAsId): 
   if (renderAs === 'arrow') {
     const lineColor = typeof layer.paint?.['line-color'] === 'string'
       ? layer.paint['line-color']
-      : '#3b82f6';
+      : MAP_COLORS.default.fill;
     return {
       adapterType: 'line',
       patch: {
@@ -511,8 +392,8 @@ export function buildRenderAsPatch(layer: RenderAsLayer, renderAs: RenderAsId): 
         style_config: styleWithBuilder(layer, {
           ...builderRecord(layer),
           arrowColor: layer.style_config?.builder?.arrowColor ?? lineColor,
-          arrowSize: layer.style_config?.builder?.arrowSize ?? 14,
-          arrowSpacing: layer.style_config?.builder?.arrowSpacing ?? 80,
+          arrowSize: layer.style_config?.builder?.arrowSize ?? DEFAULT_ARROW_SIZE,
+          arrowSpacing: layer.style_config?.builder?.arrowSpacing ?? DEFAULT_ARROW_SPACING,
         }, { render_mode: 'arrow' }),
       },
     };
@@ -549,8 +430,10 @@ export function buildRenderAsPatch(layer: RenderAsLayer, renderAs: RenderAsId): 
     if (renderAs === 'extrusion-3d') {
       builder.heightColumn = numericHeightColumn(layer);
       builder.heightScale = typeof priorHeightScale === 'number' ? priorHeightScale : 1;
-      builder.extrusionMinZoom = typeof priorExtrusionMinZoom === 'number' ? priorExtrusionMinZoom : 14;
-      builder.extrusionOpacity = typeof priorExtrusionOpacity === 'number' ? priorExtrusionOpacity : Math.min(0.85, 1);
+      builder.extrusionMinZoom = typeof priorExtrusionMinZoom === 'number' ? priorExtrusionMinZoom : DEFAULT_EXTRUSION_MIN_ZOOM;
+      // builder-audit (verifier nit): the prior `Math.min(0.85, 1)` was a no-op that
+      // always evaluated to 0.85; use the shared extrusion-opacity cap directly.
+      builder.extrusionOpacity = typeof priorExtrusionOpacity === 'number' ? priorExtrusionOpacity : DEFAULT_EXTRUSION_OPACITY_CAP;
     }
 
     return {
