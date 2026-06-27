@@ -186,13 +186,19 @@ async def test_frame_policy_unknown_token_fails_closed_none(
     )
 
 
-async def test_frame_policy_empty_token_fails_closed_none(client: AsyncClient):
-    """The bare /m/ path (no token) yields an empty token query -> fail closed."""
+async def test_frame_policy_empty_token_is_open_framing(client: AsyncClient):
+    """Codex P1 (#338): a plain /m/<shareToken> view sends NO embed token (empty
+    `et`), which must yield OPEN framing — not the old fail-closed 'none' that
+    broke every normal shared-map iframe. Fail-closed is reserved for a PRESENT
+    but invalid/revoked token; private data stays protected at the tile layer."""
     resp = await client.get("/embed/frame-policy", params={"token": ""})
     assert resp.status_code == 200
     csp = resp.headers.get("content-security-policy", "")
-    assert "frame-ancestors 'none'" in csp, (
-        f"Empty token must fail closed with frame-ancestors 'none', got: {csp!r}"
+    assert resp.headers.get("x-embed-frame-ancestors", "") == "", (
+        "No embed token must emit an EMPTY frame-ancestors directive (open framing)."
+    )
+    assert "frame-ancestors" not in csp, (
+        f"A plain share (no et) must not restrict framing, got: {csp!r}"
     )
 
 
@@ -218,8 +224,9 @@ def test_nginx_m_route_uses_frame_policy_auth_request():
         "auth_request_set $embed_frame_ancestors $upstream_http_x_embed_frame_ancestors;"
         in conf
     ), "P0-02: the frame-ancestors directive must be copied from the API response."
-    assert "/embed/frame-policy?token=$embed_token" in conf, (
-        "P0-02: the internal subrequest must forward the captured token."
+    assert "/embed/frame-policy?token=$arg_et" in conf, (
+        "Codex P1 (#338): the subrequest must forward the `et` query param (the "
+        "real embed token), not the path segment (which is the share token)."
     )
     assert "${embed_frame_ancestors}" in conf, (
         "P0-02: the /m/ CSP must interpolate the per-token frame-ancestors value."

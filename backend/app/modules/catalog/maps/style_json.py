@@ -1569,12 +1569,10 @@ def build_maplibre_style(
     basemap_config = style["metadata"]["geolens"]["basemap_config"]
     if isinstance(basemap_config, dict) and basemap_config.get("projection"):
         style["projection"] = {"type": basemap_config["projection"]}
-    # builder-audit #338 SPEC-07: pass through GL root light/transition when the Map
-    # carries them (no dedicated column yet — preserved opportunistically).
-    for root_key in ("light", "transition"):
-        value = getattr(map_obj, root_key, None)
-        if isinstance(value, dict) and value:
-            style[root_key] = value
+    # builder-audit #338 SPEC-07: root `light`/`sky`/`fog`/`transition` are a
+    # documented non-goal — the Map model has no column to persist them, so there
+    # is nothing to round-trip. The inert getattr-based pass-through (Codex P2) was
+    # removed; emitting them would require a schema migration (deferred).
     if map_obj.center_lng is not None and map_obj.center_lat is not None:
         style["center"] = [map_obj.center_lng, map_obj.center_lat]
     if map_obj.zoom is not None:

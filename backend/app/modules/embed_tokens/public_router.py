@@ -52,8 +52,16 @@ async def embed_frame_policy(
     builder-audit #338 P0-02. Always 200; the framing decision is carried in the
     ``Content-Security-Policy`` and ``X-Embed-Frame-Ancestors`` headers.
     """
-    tok: EmbedToken | None = None
-    if token:
+    if not token:
+        # Codex P1 (#338): NO embed token on the request — a plain
+        # /m/<shareToken> share view, or a public map embed without a domain-
+        # locked embed token. No per-token domain restriction applies, so framing
+        # stays open (matching the pre-P0-02 behavior). Fail-closed 'none' is
+        # reserved for a token that is PRESENT but invalid/revoked/expired, so a
+        # normal shared-map iframe is never blocked. Private data remains
+        # protected at the tile layer (X-Embed-Token validation).
+        frame_ancestors = ""
+    else:
         token_hash = hashlib.sha256(token.encode()).hexdigest()
         now = datetime.now(timezone.utc)
         result = await db.execute(
@@ -64,11 +72,10 @@ async def embed_frame_policy(
             )
         )
         tok = result.scalar_one_or_none()
-
-    frame_ancestors = build_embed_frame_ancestors(
-        is_valid=tok is not None,
-        allowed_origins=tok.allowed_origins if tok is not None else None,
-    )
+        frame_ancestors = build_embed_frame_ancestors(
+            is_valid=tok is not None,
+            allowed_origins=tok.allowed_origins if tok is not None else None,
+        )
 
     csp = (
         f"{_BASE_EMBED_CSP}; {frame_ancestors}" if frame_ancestors else _BASE_EMBED_CSP
