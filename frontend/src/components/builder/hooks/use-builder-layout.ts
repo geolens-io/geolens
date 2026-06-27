@@ -27,11 +27,11 @@ export function useBuilderLayout() {
     }
   }, [])
 
+  // STATE-08 (builder-audit 20260626): the deprecated isCompact/isMobile aliases
+  // were removed — the only production consumer (MapBuilderPage) reads
+  // isRail/isEditorHidden directly.
   return {
     isRail,
     isEditorHidden,
-    // Backward-compat aliases — deprecated; callers should migrate to isRail/isEditorHidden
-    isCompact: isRail,
-    isMobile: isEditorHidden,
   }
 }

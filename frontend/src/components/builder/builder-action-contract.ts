@@ -15,6 +15,7 @@ export type BuilderLayerAction =
   | (BuilderActionBase & { type: 'set_popup'; layerId: string; config: PopupConfig | null })
   | (BuilderActionBase & { type: 'set_layout'; layerId: string; layout: Record<string, unknown> })
   | (BuilderActionBase & { type: 'set_visibility'; layerId: string; visible?: boolean })
+  | (BuilderActionBase & { type: 'toggle_group_visibility'; groupId: string })
   | (BuilderActionBase & { type: 'set_opacity'; layerId: string; opacity: number })
   | (BuilderActionBase & { type: 'add_dataset'; datasetId: string })
   | (BuilderActionBase & { type: 'remove_layer'; layerId: string; persistence: 'server' | 'draft' })
@@ -43,6 +44,7 @@ export interface BuilderLayerActionHandlers {
   setPopup: (layerId: string, config: PopupConfig | null) => void;
   setLayout: (layerId: string, layout: Record<string, unknown>) => void;
   setVisibility: (layerId: string, visible?: boolean) => void;
+  toggleGroupVisibility: (groupId: string) => void;
   setOpacity: (layerId: string, opacity: number) => void;
   addDataset: (datasetId: string) => void;
   removePersistedLayer: (layerId: string) => void;
@@ -84,6 +86,9 @@ export function dispatchBuilderLayerAction(
       break;
     case 'set_visibility':
       handlers.setVisibility(action.layerId, action.visible);
+      break;
+    case 'toggle_group_visibility':
+      handlers.toggleGroupVisibility(action.groupId);
       break;
     case 'set_opacity': {
       const opacity = normalizeLayerOpacity(action.opacity);

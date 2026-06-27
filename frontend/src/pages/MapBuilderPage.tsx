@@ -199,7 +199,7 @@ export function MapBuilderPage() {
   }, [mapData?.notes, id]);
 
   // Composed hooks
-  const dialogs = useBuilderDialogs(aiAvailable, isEditorHidden);
+  const dialogs = useBuilderDialogs();
   const layers = useBuilderLayers(
     mapData,
     mapInstanceRef,
@@ -920,6 +920,41 @@ export function MapBuilderPage() {
     const oldIndex = currentLayers.findIndex((layer) => layer.id === active.id);
     const newIndex = currentLayers.findIndex((layer) => layer.id === over.id);
     if (oldIndex < 0 || newIndex < 0) return;
+
+    // P2-07: dragging a folder group row moves the WHOLE group block (the row +
+    // all its child layers) atomically, so a single-row arrayMove can never
+    // split the group by leaving its children behind. Loose/child row drags are
+    // unchanged (the simple arrayMove below).
+    const activeLayer = currentLayers[oldIndex];
+    if (isFolderGroupLayer(activeLayer)) {
+      const groupId = String(active.id);
+      const block = currentLayers.filter(
+        (l) =>
+          l.id === groupId ||
+          (l as { parent_group_id?: string | null }).parent_group_id === groupId,
+      );
+      const blockIds = new Set(block.map((l) => l.id));
+      // Dropping a group onto itself or one of its own children is a no-op.
+      if (blockIds.has(String(over.id))) return;
+      const remaining = currentLayers.filter((l) => !blockIds.has(l.id));
+      const targetIdx = remaining.findIndex((l) => l.id === over.id);
+      // Moving downward inserts the block AFTER the drop target (matching the
+      // single-row arrayMove feel); moving upward inserts before it.
+      const insertIdx =
+        targetIdx < 0
+          ? remaining.length
+          : newIndex > oldIndex
+            ? targetIdx + 1
+            : targetIdx;
+      const next = [
+        ...remaining.slice(0, insertIdx),
+        ...block,
+        ...remaining.slice(insertIdx),
+      ];
+      dispatchLayerAction({ type: 'reorder_layers', source: 'manual', layers: next });
+      return;
+    }
+
     dispatchLayerAction({
       type: 'reorder_layers',
       source: 'manual',
@@ -1328,11 +1363,25 @@ export function MapBuilderPage() {
               layers={layers.localLayers}
               selectedLayerId={layers.expandedLayerId}
               onSelectLayer={handleSelectLayer}
-              onToggleVisibility={(layerId) => layers.dispatchLayerAction({
-                type: 'set_visibility',
-                source: 'manual',
-                layerId,
-              })}
+              onToggleVisibility={(layerId) => {
+                // P1-09: a folder group row is a synthetic row, not a map layer.
+                // Route its eye toggle to toggle_group_visibility so every child
+                // (and its companions) follows; loose/child rows use set_visibility.
+                const target = layers.localLayers.find((l) => l.id === layerId);
+                if (target && isFolderGroupLayer(target)) {
+                  layers.dispatchLayerAction({
+                    type: 'toggle_group_visibility',
+                    source: 'manual',
+                    groupId: layerId,
+                  });
+                } else {
+                  layers.dispatchLayerAction({
+                    type: 'set_visibility',
+                    source: 'manual',
+                    layerId,
+                  });
+                }
+              }}
               onReorder={(reorderedLayers) => layers.dispatchLayerAction({
                 type: 'reorder_layers',
                 source: 'manual',

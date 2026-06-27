@@ -712,3 +712,86 @@ describe('applyLayerUpdate — multi-field composition (BUG-019)', () => {
     expect(layer?.paint).toEqual({});
   });
 });
+
+describe('useLayerMapSync — handleStyleConfigChange line-gradient cleanup (P1-07)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('drops line-gradient paint + builder.lineGradient when switching to data-driven solid color', () => {
+    const initialLayer = makeLayer({
+      dataset_geometry_type: 'LineString',
+      paint: {
+        'line-color': '#888888',
+        'line-gradient': ['interpolate', ['linear'], ['line-progress'], 0, '#000000', 1, '#ffffff'],
+      },
+      style_config: {
+        builder: { lineGradient: { stops: [{ position: 0, color: '#000000' }] } },
+      } as MapLayerResponse['style_config'],
+    });
+    let finalLayers: MapLayerResponse[] = [initialLayer];
+
+    const { result } = renderHook(() => {
+      const [layers, setLayers] = React.useState([initialLayer]);
+      finalLayers = layers;
+      return useLayerMapSync(
+        layers,
+        setLayers as React.Dispatch<React.SetStateAction<MapLayerResponse[]>>,
+        vi.fn(),
+        { current: makeMapStub() } as unknown as React.RefObject<import('maplibre-gl').Map | null>,
+      );
+    });
+
+    act(() => {
+      result.current.handleStyleConfigChange(
+        LAYER_ID,
+        { mode: 'categorical', column: 'kind', ramp: 'Set2' },
+        {
+          'line-color': ['match', ['get', 'kind'], 'a', '#ff0000', '#00ff00'],
+          'line-gradient': ['interpolate', ['linear'], ['line-progress'], 0, '#000000', 1, '#ffffff'],
+        },
+      );
+    });
+
+    const updated = finalLayers.find((l) => l.id === LAYER_ID)!;
+    expect('line-gradient' in (updated.paint ?? {})).toBe(false);
+    const builder = (updated.style_config as { builder?: { lineGradient?: unknown } } | null)?.builder;
+    expect(builder?.lineGradient).toBeUndefined();
+  });
+
+  it('preserves line-gradient when switching a graduated SIZE target (not color)', () => {
+    const initialLayer = makeLayer({
+      dataset_geometry_type: 'LineString',
+      paint: {
+        'line-gradient': ['interpolate', ['linear'], ['line-progress'], 0, '#000000', 1, '#ffffff'],
+      },
+      style_config: {
+        builder: { lineGradient: { stops: [{ position: 0, color: '#000000' }] } },
+      } as MapLayerResponse['style_config'],
+    });
+    let finalLayers: MapLayerResponse[] = [initialLayer];
+
+    const { result } = renderHook(() => {
+      const [layers, setLayers] = React.useState([initialLayer]);
+      finalLayers = layers;
+      return useLayerMapSync(
+        layers,
+        setLayers as React.Dispatch<React.SetStateAction<MapLayerResponse[]>>,
+        vi.fn(),
+        { current: makeMapStub() } as unknown as React.RefObject<import('maplibre-gl').Map | null>,
+      );
+    });
+
+    act(() => {
+      result.current.handleStyleConfigChange(
+        LAYER_ID,
+        { mode: 'graduated', column: 'len', ramp: 'YlOrRd', target: 'width' },
+        { 'line-gradient': ['interpolate', ['linear'], ['line-progress'], 0, '#000000', 1, '#ffffff'], 'line-width': 3 },
+      );
+    });
+
+    const updated = finalLayers.find((l) => l.id === LAYER_ID)!;
+    // A size-target change must NOT clear the gradient.
+    expect('line-gradient' in (updated.paint ?? {})).toBe(true);
+  });
+});

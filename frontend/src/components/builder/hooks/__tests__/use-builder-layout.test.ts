@@ -45,16 +45,6 @@ describe('useBuilderLayout', () => {
       expect(result.current.isRail).toBe(false);
       expect(result.current.isEditorHidden).toBe(false);
     });
-
-    it('backward-compat: isCompact and isMobile alias to isRail and isEditorHidden', () => {
-      Object.defineProperty(window, 'innerWidth', { writable: true, configurable: true, value: 1200 });
-      vi.stubGlobal('matchMedia', makeMatchMedia(1200));
-
-      const { result } = renderHook(() => useBuilderLayout());
-
-      expect(result.current.isCompact).toBe(result.current.isRail);
-      expect(result.current.isMobile).toBe(result.current.isEditorHidden);
-    });
   });
 
   describe('viewport band: rail mode (800–1099px)', () => {

@@ -9,12 +9,13 @@ import type { AdapterLayerInput } from '@/components/builder/layer-adapters/type
 import { buildLabelLayerSpec, syncLabelLayer } from '@/components/builder/label-layer-utils';
 import type { MapLayerResponse, LabelConfig, PopupConfig, StyleConfig } from '@/types/api';
 import { sanitizeNullableNumericFilter } from '@/lib/maplibre-filter-utils';
+import { getCompanionLayerIds, COLOR_RELIEF_SUFFIX } from '@/components/builder/companion-ids';
 
 type LayerUpdater = (layer: MapLayerResponse) => MapLayerResponse;
 type LayerSideEffect = (map: MaplibreMap, updated: MapLayerResponse) => void;
 
 function removeColorReliefLayer(map: MaplibreMap, layerId: string) {
-  const colorReliefId = `${layerId}-colorrelief`;
+  const colorReliefId = `${layerId}${COLOR_RELIEF_SUFFIX}`;
   if (map.getLayer(colorReliefId)) map.removeLayer(colorReliefId);
 }
 
@@ -25,6 +26,115 @@ function resolveLayerAdapterType(layer: MapLayerResponse, paint: Record<string, 
       : 'raster';
   }
   return resolveAdapterType(layer.dataset_geometry_type, styleConfig ?? layer.style_config, paint);
+}
+
+// STATE-01 / SYNC-04: the canonical per-layer visibility map side-effect. The
+// single-layer (`handleToggleVisibility`) AND the bulk
+// (`handleBulkVisibility`) paths both call this so the strokeDisabled gate and
+// the full companion set (including colorrelief + cluster) can never diverge.
+// Companion ids are derived through `getCompanionLayerIds` — the one place the
+// suffix convention lives.
+export function applyLayerVisibilityToMap(
+  map: MaplibreMap,
+  layer: MapLayerResponse,
+  nextVisible: boolean,
+): void {
+  const ids = getCompanionLayerIds(layer.id);
+  const newVis = nextVisible ? 'visible' : 'none';
+  if (map.getLayer(ids.layer)) map.setLayoutProperty(ids.layer, 'visibility', newVis);
+  // BUG-036: a disabled fill outline carries its state as the outline layer's
+  // layout visibility. Restoring it on the raw newVis resurrects a 1px outline
+  // the user turned off (render-as 'Fill only'). Gate the outline on
+  // strokeDisabled — mirror of fillAdapter.syncVisibility.
+  if (map.getLayer(ids.outline)) {
+    const builder = getBuilderStyleConfig(layer);
+    const rawPaint = (layer.paint ?? {}) as Record<string, unknown>;
+    const strokeDisabled = builder.strokeDisabled ?? !!rawPaint['_stroke-disabled'];
+    map.setLayoutProperty(ids.outline, 'visibility', nextVisible && !strokeDisabled ? 'visible' : 'none');
+  }
+  if (map.getLayer(ids.label)) map.setLayoutProperty(ids.label, 'visibility', newVis);
+  if (map.getLayer(ids.extrusion)) map.setLayoutProperty(ids.extrusion, 'visibility', newVis);
+  if (map.getLayer(ids.arrow)) map.setLayoutProperty(ids.arrow, 'visibility', newVis);
+  if (map.getLayer(ids.colorRelief)) map.setLayoutProperty(ids.colorRelief, 'visibility', newVis);
+  if (map.getLayer(ids.cluster)) map.setLayoutProperty(ids.cluster, 'visibility', newVis);
+  if (map.getLayer(ids.clusterCount)) map.setLayoutProperty(ids.clusterCount, 'visibility', newVis);
+}
+
+// STATE-03 / SYNC-04: the canonical per-layer opacity map side-effect. The
+// single-layer (`handleOpacityChange`) AND the bulk (`handleBulkOpacity`)
+// paths both call this so the getCompoundOpacity wrapping and the dedicated
+// cluster branch can never diverge.
+export function applyLayerOpacityToMap(
+  map: MaplibreMap,
+  layer: MapLayerResponse,
+  opacity: number,
+): void {
+  if (isDemTerrainVisualSuppressed(layer)) return;
+
+  const ids = getCompanionLayerIds(layer.id);
+  const mapLayerId = ids.layer;
+  const paint = layer.paint ?? {};
+  const adapterType = resolveLayerAdapterType(layer, paint, layer.style_config);
+
+  if (adapterType === 'hillshade') {
+    const input: AdapterLayerInput & { style_config?: StyleConfig | null } = {
+      id: layer.id,
+      dataset_table_name: layer.dataset_table_name,
+      dataset_geometry_type: layer.dataset_geometry_type,
+      opacity,
+      visible: layer.visible,
+      paint,
+      layout: layer.layout ?? {},
+      filter: layer.filter ?? null,
+      sourceId: getSourceIdForLayer(layer),
+      layerId: mapLayerId,
+      sourceLayer: `data.${layer.dataset_table_name}`,
+      tileUrl: '',
+      style_config: layer.style_config ?? null,
+      is_dem: layer.is_dem,
+    };
+    getAdapter('hillshade').syncPaint(map, input);
+  } else if (layer.layer_type === 'raster_geolens') {
+    if (map.getLayer(mapLayerId)) {
+      map.setPaintProperty(mapLayerId, 'raster-opacity', opacity);
+    }
+  } else if (adapterType === 'heatmap') {
+    if (map.getLayer(mapLayerId)) {
+      const storedHeatmapOpacity = (paint['heatmap-opacity'] as number) ?? 0.8;
+      map.setPaintProperty(mapLayerId, 'heatmap-opacity', opacity * storedHeatmapOpacity);
+    }
+  } else if (adapterType === 'cluster') {
+    const input: AdapterLayerInput & { style_config?: StyleConfig | null } = {
+      id: layer.id,
+      dataset_table_name: layer.dataset_table_name,
+      dataset_geometry_type: layer.dataset_geometry_type,
+      opacity,
+      visible: layer.visible,
+      paint,
+      layout: layer.layout ?? {},
+      filter: layer.filter ?? null,
+      // SF-04: cluster layers keep their per-layer source id; the helper routes
+      // them through the cluster branch.
+      sourceId: getSourceIdForLayer(layer),
+      layerId: mapLayerId,
+      sourceLayer: `data.${layer.dataset_table_name}`,
+      tileUrl: '',
+      style_config: layer.style_config ?? null,
+      is_dem: layer.is_dem,
+    };
+    getAdapter('cluster').syncPaint(map, input);
+  } else if (adapterType === 'fill' || adapterType === 'line' || adapterType === 'circle') {
+    if (map.getLayer(mapLayerId)) {
+      map.setPaintProperty(
+        mapLayerId,
+        `${adapterType}-opacity`,
+        getCompoundOpacity(paint, adapterType, opacity),
+      );
+    }
+    if (adapterType === 'fill' && map.getLayer(ids.outline)) {
+      map.setPaintProperty(ids.outline, 'line-opacity', opacity);
+    }
+  }
 }
 
 export function useLayerMapSync(
@@ -90,34 +200,7 @@ export function useLayerMapSync(
       applyLayerUpdate(
         layerId,
         (l) => ({ ...l, visible: nextVisible }),
-        (map, updated) => {
-          const newVis = nextVisible ? 'visible' : 'none';
-          const mapLayerId = `layer-${layerId}`;
-          const outlineId = `layer-${layerId}-outline`;
-          const labelId = `layer-${layerId}-label`;
-          const extrusionId = `layer-${layerId}-extrusion`;
-          const arrowId = `layer-${layerId}-arrow`;
-          const colorReliefId = `layer-${layerId}-colorrelief`;
-          const clusterId = `layer-${layerId}-cluster`;
-          const clusterCountId = `layer-${layerId}-cluster-count`;
-          if (map.getLayer(mapLayerId)) map.setLayoutProperty(mapLayerId, 'visibility', newVis);
-          // BUG-036: a disabled fill outline carries its state as the outline
-          // layer's layout visibility. Restoring it on the raw newVis resurrects
-          // a 1px outline the user turned off (render-as 'Fill only'). Gate the
-          // outline on strokeDisabled — mirror of fillAdapter.syncVisibility.
-          if (map.getLayer(outlineId)) {
-            const builder = getBuilderStyleConfig(updated);
-            const rawPaint = (updated.paint ?? {}) as Record<string, unknown>;
-            const strokeDisabled = builder.strokeDisabled ?? !!rawPaint['_stroke-disabled'];
-            map.setLayoutProperty(outlineId, 'visibility', nextVisible && !strokeDisabled ? 'visible' : 'none');
-          }
-          if (map.getLayer(labelId)) map.setLayoutProperty(labelId, 'visibility', newVis);
-          if (map.getLayer(extrusionId)) map.setLayoutProperty(extrusionId, 'visibility', newVis);
-          if (map.getLayer(arrowId)) map.setLayoutProperty(arrowId, 'visibility', newVis);
-          if (map.getLayer(colorReliefId)) map.setLayoutProperty(colorReliefId, 'visibility', newVis);
-          if (map.getLayer(clusterId)) map.setLayoutProperty(clusterId, 'visibility', newVis);
-          if (map.getLayer(clusterCountId)) map.setLayoutProperty(clusterCountId, 'visibility', newVis);
-        },
+        (map, updated) => applyLayerVisibilityToMap(map, updated, nextVisible),
       );
     },
     [applyLayerUpdate],
@@ -229,10 +312,26 @@ export function useLayerMapSync(
 
   const handleStyleConfigChange = useCallback(
     (layerId: string, config: StyleConfig | null, paint: Record<string, unknown>) => {
+      // P1-07: a data-driven SOLID color (categorical, or graduated with the
+      // color target) is incompatible with a line-gradient. Switching a line's
+      // color to data-driven must drop the stale `line-gradient` paint AND the
+      // `builder.lineGradient` intent stub — otherwise map-sync's
+      // lineGradientNeededFor() re-adds the gradient and the saved JSON keeps
+      // incompatible styling. This runs for BOTH the manual DataDrivenStyleEditor
+      // path and the AI `set_style_config` action, which both land here.
+      const isDataDrivenColor =
+        !!config &&
+        (config.mode === 'categorical' || config.mode === 'graduated') &&
+        (config.target === undefined || config.target === 'color');
+      let effectivePaint = paint;
+      if (isDataDrivenColor && 'line-gradient' in paint) {
+        const { 'line-gradient': _droppedGradient, ...rest } = paint;
+        effectivePaint = rest;
+      }
       applyLayerUpdate(
         layerId,
         (l) => {
-          const mergedConfig = config
+          let mergedConfig: StyleConfig | null = config
             ? {
                 ...config,
                 ...(config.builder === undefined && l.style_config?.builder
@@ -242,13 +341,34 @@ export function useLayerMapSync(
             : l.style_config?.builder
               ? ({ builder: l.style_config.builder } as StyleConfig)
               : null;
+          if (isDataDrivenColor && mergedConfig?.builder?.lineGradient) {
+            const { lineGradient: _droppedLineGradient, ...restBuilder } = mergedConfig.builder;
+            mergedConfig = {
+              ...mergedConfig,
+              builder: Object.keys(restBuilder).length > 0 ? restBuilder : undefined,
+            };
+          }
           return {
             ...l,
             style_config: normalizeDemStyleConfig(mergedConfig, l.is_dem),
-            paint,
+            paint: effectivePaint,
           };
         },
-        (map, layer) => syncStyleConfigToMap(map, layer, paint),
+        (map, layer) => {
+          // Imperatively clear any stale line-gradient on the live map before the
+          // adapter repaint; no-op for non-line layers (setPaintProperty throws).
+          if (isDataDrivenColor) {
+            const mapLayerId = `layer-${layer.id}`;
+            if (map.getLayer(mapLayerId)) {
+              try {
+                map.setPaintProperty(mapLayerId, 'line-gradient', undefined);
+              } catch {
+                /* not a line layer — line-gradient is not a valid property */
+              }
+            }
+          }
+          syncStyleConfigToMap(map, layer, effectivePaint);
+        },
       );
     },
     [applyLayerUpdate, syncStyleConfigToMap],
@@ -259,76 +379,7 @@ export function useLayerMapSync(
       applyLayerUpdate(
         layerId,
         (l) => ({ ...l, opacity: newOpacity }),
-        (map, layer) => {
-          const mapLayerId = `layer-${layerId}`;
-          const outlineId = `layer-${layerId}-outline`;
-          const paint = layer.paint ?? {};
-          const adapterType = resolveLayerAdapterType(layer, paint, layer.style_config);
-
-          if (isDemTerrainVisualSuppressed(layer)) {
-            return;
-          }
-
-          if (adapterType === 'hillshade') {
-            const input: AdapterLayerInput & { style_config?: StyleConfig | null } = {
-              id: layer.id,
-              dataset_table_name: layer.dataset_table_name,
-              dataset_geometry_type: layer.dataset_geometry_type,
-              opacity: newOpacity,
-              visible: layer.visible,
-              paint,
-              layout: layer.layout ?? {},
-              filter: layer.filter ?? null,
-              sourceId: getSourceIdForLayer(layer),
-              layerId: mapLayerId,
-              sourceLayer: `data.${layer.dataset_table_name}`,
-              tileUrl: '',
-              style_config: layer.style_config ?? null,
-              is_dem: layer.is_dem,
-            };
-            getAdapter('hillshade').syncPaint(map, input);
-          } else if (layer.layer_type === 'raster_geolens') {
-            if (map.getLayer(mapLayerId)) {
-              map.setPaintProperty(mapLayerId, 'raster-opacity', newOpacity);
-            }
-          } else if (adapterType === 'heatmap') {
-            if (map.getLayer(mapLayerId)) {
-              const storedHeatmapOpacity = (layer.paint?.['heatmap-opacity'] as number) ?? 0.8;
-              map.setPaintProperty(mapLayerId, 'heatmap-opacity', newOpacity * storedHeatmapOpacity);
-            }
-          } else if (adapterType === 'cluster') {
-            const input: AdapterLayerInput & { style_config?: StyleConfig | null } = {
-              id: layer.id,
-              dataset_table_name: layer.dataset_table_name,
-              dataset_geometry_type: layer.dataset_geometry_type,
-              opacity: newOpacity,
-              visible: layer.visible,
-              paint: layer.paint ?? {},
-              layout: layer.layout ?? {},
-              filter: layer.filter ?? null,
-              // SF-04: cluster layers keep their per-layer source id; the
-              // helper routes them through the cluster branch.
-              sourceId: getSourceIdForLayer(layer),
-              layerId: mapLayerId,
-              sourceLayer: `data.${layer.dataset_table_name}`,
-              tileUrl: '',
-              style_config: layer.style_config ?? null,
-              is_dem: layer.is_dem,
-            };
-            getAdapter('cluster').syncPaint(map, input);
-          } else if (adapterType === 'fill' || adapterType === 'line' || adapterType === 'circle') {
-            if (map.getLayer(mapLayerId)) {
-              map.setPaintProperty(
-                mapLayerId,
-                `${adapterType}-opacity`,
-                getCompoundOpacity(layer.paint ?? {}, adapterType, newOpacity),
-              );
-            }
-            if (adapterType === 'fill' && map.getLayer(outlineId)) {
-              map.setPaintProperty(outlineId, 'line-opacity', newOpacity);
-            }
-          }
-        },
+        (map, layer) => applyLayerOpacityToMap(map, layer, newOpacity),
       );
     },
     [applyLayerUpdate],
@@ -341,24 +392,22 @@ export function useLayerMapSync(
         layerId,
         (l) => ({ ...l, layout: newLayout }),
         (map) => {
-          const mapLayerId = `layer-${layerId}`;
+          const ids = getCompanionLayerIds(layerId);
+          const mapLayerId = ids.layer;
           if (!map.getLayer(mapLayerId)) return;
 
           // Apply layer zoom range from custom layout props (main + outline companion)
           const minzoom = (newLayout['_minzoom'] as number) ?? 0;
           const maxzoom = (newLayout['_maxzoom'] as number) ?? 22;
           map.setLayerZoomRange(mapLayerId, minzoom, maxzoom);
-          const outlineLayerId = `${mapLayerId}-outline`;
-          if (map.getLayer(outlineLayerId)) {
-            map.setLayerZoomRange(outlineLayerId, minzoom, maxzoom);
+          if (map.getLayer(ids.outline)) {
+            map.setLayerZoomRange(ids.outline, minzoom, maxzoom);
           }
-          const clusterLayerId = `${mapLayerId}-cluster`;
-          const clusterCountLayerId = `${mapLayerId}-cluster-count`;
-          if (map.getLayer(clusterLayerId)) {
-            map.setLayerZoomRange(clusterLayerId, minzoom, maxzoom);
+          if (map.getLayer(ids.cluster)) {
+            map.setLayerZoomRange(ids.cluster, minzoom, maxzoom);
           }
-          if (map.getLayer(clusterCountLayerId)) {
-            map.setLayerZoomRange(clusterCountLayerId, minzoom, maxzoom);
+          if (map.getLayer(ids.clusterCount)) {
+            map.setLayerZoomRange(ids.clusterCount, minzoom, maxzoom);
           }
 
           for (const [prop, value] of Object.entries(newLayout)) {
@@ -403,40 +452,34 @@ export function useLayerMapSync(
         layerId,
         (l) => ({ ...l, filter }),
         (map) => {
-          const mapLayerId = `layer-${layerId}`;
-          const clusterId = `${mapLayerId}-cluster`;
-          const clusterCountId = `${mapLayerId}-cluster-count`;
+          const ids = getCompanionLayerIds(layerId);
           const clusterFilter = filter ? ['all', ['has', 'point_count'], filter] as FilterSpecification : ['has', 'point_count'] as FilterSpecification;
           const unclusteredFilter = filter ? ['all', ['!', ['has', 'point_count']], filter] as FilterSpecification : ['!', ['has', 'point_count']] as FilterSpecification;
-          if (map.getLayer(mapLayerId)) {
-            map.setFilter(mapLayerId, map.getLayer(clusterId) ? unclusteredFilter : filter);
+          if (map.getLayer(ids.layer)) {
+            map.setFilter(ids.layer, map.getLayer(ids.cluster) ? unclusteredFilter : filter);
           }
-          if (map.getLayer(clusterId)) {
-            map.setFilter(clusterId, clusterFilter);
+          if (map.getLayer(ids.cluster)) {
+            map.setFilter(ids.cluster, clusterFilter);
           }
-          if (map.getLayer(clusterCountId)) {
-            map.setFilter(clusterCountId, clusterFilter);
+          if (map.getLayer(ids.clusterCount)) {
+            map.setFilter(ids.clusterCount, clusterFilter);
           }
           // Also filter outline layer for polygons
-          const outlineId = `layer-${layerId}-outline`;
-          if (map.getLayer(outlineId)) {
-            map.setFilter(outlineId, filter);
+          if (map.getLayer(ids.outline)) {
+            map.setFilter(ids.outline, filter);
           }
           // Also filter label layer
-          const labelId = `layer-${layerId}-label`;
-          if (map.getLayer(labelId)) {
-            map.setFilter(labelId, filter);
+          if (map.getLayer(ids.label)) {
+            map.setFilter(ids.label, filter);
           }
           // Also filter fill-extrusion companion layer
-          const extrusionId = `layer-${layerId}-extrusion`;
-          if (map.getLayer(extrusionId)) {
-            map.setFilter(extrusionId, filter);
+          if (map.getLayer(ids.extrusion)) {
+            map.setFilter(ids.extrusion, filter);
           }
           // Also filter the line-arrow companion (B-004) so arrow symbols hide
           // for features removed by the filter.
-          const arrowId = `layer-${layerId}-arrow`;
-          if (map.getLayer(arrowId)) {
-            map.setFilter(arrowId, filter);
+          if (map.getLayer(ids.arrow)) {
+            map.setFilter(ids.arrow, filter);
           }
         },
       );
@@ -458,7 +501,8 @@ export function useLayerMapSync(
         layerId,
         (l) => ({ ...l, label_config: config }),
         (map) => {
-          const labelLayerId = `layer-${layerId}-label`;
+          const ids = getCompanionLayerIds(layerId);
+          const labelLayerId = ids.label;
 
           // B-008/B-009: symbol-mode point layers carry their text in the
           // PRIMARY symbol layer (synced by syncLayersToMap on the state change
@@ -498,8 +542,8 @@ export function useLayerMapSync(
           if (!map.getSource(sourceId)) return;
 
           const sourceLayer = `data.${layer.dataset_table_name}`;
-          const parentVis = (map.getLayer(`layer-${layerId}`)
-            ? (map.getLayoutProperty(`layer-${layerId}`, 'visibility') ?? 'visible')
+          const parentVis = (map.getLayer(ids.layer)
+            ? (map.getLayoutProperty(ids.layer, 'visibility') ?? 'visible')
             : 'visible') as 'visible' | 'none';
           map.addLayer(buildLabelLayerSpec({ labelId: labelLayerId, sourceId, sourceLayer, lc: config, geomType, visibility: parentVis }));
 

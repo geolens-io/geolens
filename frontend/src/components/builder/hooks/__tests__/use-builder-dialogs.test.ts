@@ -4,7 +4,7 @@ import { useBuilderDialogs } from '@/components/builder/hooks/use-builder-dialog
 
 describe('useBuilderDialogs', () => {
   it('all dialogs start closed', () => {
-    const { result } = renderHook(() => useBuilderDialogs(true));
+    const { result } = renderHook(() => useBuilderDialogs());
 
     expect(result.current.showChat).toBe(false);
     expect(result.current.showAddData).toBe(false);
@@ -13,7 +13,7 @@ describe('useBuilderDialogs', () => {
   });
 
   it('setShowChat toggles chat visibility', () => {
-    const { result } = renderHook(() => useBuilderDialogs(true));
+    const { result } = renderHook(() => useBuilderDialogs());
 
     act(() => {
       result.current.setShowChat(true);
@@ -22,9 +22,8 @@ describe('useBuilderDialogs', () => {
     expect(result.current.showChat).toBe(true);
   });
 
-  it('keeps dock open when AI becomes unavailable (notes tab still useful)', () => {
-    let aiAvailable = true;
-    const { result, rerender } = renderHook(() => useBuilderDialogs(aiAvailable));
+  it('keeps dock open across rerenders (notes tab still useful)', () => {
+    const { result, rerender } = renderHook(() => useBuilderDialogs());
 
     // Open dock
     act(() => {
@@ -32,8 +31,7 @@ describe('useBuilderDialogs', () => {
     });
     expect(result.current.showChat).toBe(true);
 
-    // AI becomes unavailable — dock stays open (Notes tab still useful)
-    aiAvailable = false;
+    // A rerender (e.g. AI availability changing upstream) does not close the dock.
     rerender();
 
     expect(result.current.showChat).toBe(true);

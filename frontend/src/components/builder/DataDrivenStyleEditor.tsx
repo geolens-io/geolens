@@ -225,6 +225,20 @@ export function styleConfigAlreadyMatches(p: StyleGuardParams): boolean {
   );
 }
 
+// P1-07: when a line layer's color switches to a data-driven solid color
+// (categorical/graduated), a stale `line-gradient` paint entry is incompatible
+// and must be dropped from the candidate paint. No-op for non-line color props.
+// The `builder.lineGradient` intent stub is cleared centrally in
+// handleStyleConfigChange (use-layer-map-sync.ts).
+function stripStaleLineGradient(
+  paint: Record<string, unknown>,
+  colorProp: string,
+): Record<string, unknown> {
+  if (colorProp !== 'line-color' || !('line-gradient' in paint)) return paint;
+  const { 'line-gradient': _droppedGradient, ...rest } = paint;
+  return rest;
+}
+
 export function DataDrivenStyleEditor({
   layer,
   onStyleConfigChange,
@@ -379,7 +393,7 @@ export function DataDrivenStyleEditor({
 
     const categories = values.map((v, i) => ({ value: v, color: colors[i] }));
     const config: StyleConfig = { mode: 'categorical', column, ramp: effectiveRamp, reversed, categories };
-    const paint = { ...layer.paint, [colorProp]: expression };
+    const paint = stripStaleLineGradient({ ...layer.paint, [colorProp]: expression }, colorProp);
     onStyleConfigChange(layerId, config, paint);
   // eslint-disable-next-line react-hooks/exhaustive-deps -- layer.paint excluded: narrowed colorPaintProp covers the relevant slice
   }, [column, mode, ramp, reversed, valuesData, styleConfig, geomType, colorPaintProp, layerId, onStyleConfigChange]);
@@ -443,7 +457,7 @@ export function DataDrivenStyleEditor({
       colors,
       target: 'color',
     };
-    const paint = { ...layer.paint, [colorProp]: expression };
+    const paint = stripStaleLineGradient({ ...layer.paint, [colorProp]: expression }, colorProp);
     onStyleConfigChange(layerId, config, paint);
   // eslint-disable-next-line react-hooks/exhaustive-deps -- layer.paint excluded: narrowed colorPaintProp covers the relevant slice
   }, [column, mode, ramp, reversed, classCount, method, target, statsData, styleConfig, geomType, colorPaintProp, layerId, onStyleConfigChange, manualBreakValues]);

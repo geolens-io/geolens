@@ -231,6 +231,102 @@ describe('useBuilderLayers — handleBulkVisibility (POL-09)', () => {
 });
 
 // ---------------------------------------------------------------------------
+// STATE-01 (builder-audit 20260626) — bulk visibility must not drift from the
+// single-layer side-effect: it enumerates the colorrelief companion and honors
+// the strokeDisabled gate on the fill outline.
+// ---------------------------------------------------------------------------
+
+describe('useBuilderLayers — handleBulkVisibility STATE-01 parity', () => {
+  it('enumerates the colorrelief companion when toggling visibility', async () => {
+    const setLayoutProperty = vi.fn();
+    const getLayer = vi.fn().mockReturnValue({ id: 'mock-layer' });
+    const mapRef = makeMapRef({ isStyleLoaded: () => true, setLayoutProperty, getLayer });
+    const layers = [makeMockLayer({ id: 'a', visible: true, sort_order: 0 })];
+    const { result } = renderBuilderLayers(makeMapData(layers), mapRef);
+    await waitForInit();
+
+    act(() => {
+      result.current.handleBulkVisibility(new Set(['a']));
+    });
+
+    // The drifted inline array omitted layer-${id}-colorrelief; the shared
+    // helper includes it.
+    expect(setLayoutProperty).toHaveBeenCalledWith('layer-a-colorrelief', 'visibility', 'none');
+  });
+
+  it('keeps a stroke-disabled fill outline hidden when bulk-showing the layer', async () => {
+    const setLayoutProperty = vi.fn();
+    const getLayer = vi.fn().mockReturnValue({ id: 'mock-layer' });
+    const mapRef = makeMapRef({ isStyleLoaded: () => true, setLayoutProperty, getLayer });
+    // Hidden fill with stroke disabled — bulk toggle flips it to visible, but the
+    // outline must stay 'none' (the inline bulk path resurrected it).
+    const layer = makeMockLayer({
+      id: 'a',
+      visible: false,
+      dataset_geometry_type: 'Polygon',
+      sort_order: 0,
+      style_config: { builder: { strokeDisabled: true } } as MapLayerResponse['style_config'],
+    });
+    const { result } = renderBuilderLayers(makeMapData([layer]), mapRef);
+    await waitForInit();
+
+    act(() => {
+      result.current.handleBulkVisibility(new Set(['a']));
+    });
+
+    expect(setLayoutProperty).toHaveBeenCalledWith('layer-a', 'visibility', 'visible');
+    expect(setLayoutProperty).toHaveBeenCalledWith('layer-a-outline', 'visibility', 'none');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// P1-09 (builder-audit 20260626) — toggle_group_visibility flips every child +
+// the group row atomically and routes child map side effects through the shared
+// companion visibility helper.
+// ---------------------------------------------------------------------------
+
+describe('useBuilderLayers — toggle_group_visibility (P1-09)', () => {
+  it('hides every child and the group row in one pass', async () => {
+    const setLayoutProperty = vi.fn();
+    const getLayer = vi.fn().mockReturnValue({ id: 'mock-layer' });
+    const mapRef = makeMapRef({ isStyleLoaded: () => true, setLayoutProperty, getLayer });
+    const groupRow = makeMockLayer({ id: 'g1', sort_order: 0, layer_type: 'group:folder', visible: true });
+    const child1 = { ...makeMockLayer({ id: 'c1', sort_order: 1, visible: true }), parent_group_id: 'g1' } as GroupedLayer as MapLayerResponse;
+    const child2 = { ...makeMockLayer({ id: 'c2', sort_order: 2, visible: true }), parent_group_id: 'g1' } as GroupedLayer as MapLayerResponse;
+    const { result } = renderBuilderLayers(makeMapData([groupRow, child1, child2]), mapRef);
+    await waitForInit();
+
+    act(() => {
+      result.current.dispatchLayerAction({ type: 'toggle_group_visibility', source: 'manual', groupId: 'g1' });
+    });
+
+    const updated = result.current.localLayers;
+    expect(updated.find((l) => l.id === 'g1')!.visible).toBe(false);
+    expect(updated.find((l) => l.id === 'c1')!.visible).toBe(false);
+    expect(updated.find((l) => l.id === 'c2')!.visible).toBe(false);
+    // Child map side effects routed through the companion helper.
+    expect(setLayoutProperty).toHaveBeenCalledWith('layer-c1', 'visibility', 'none');
+    expect(setLayoutProperty).toHaveBeenCalledWith('layer-c2', 'visibility', 'none');
+    expect(result.current.hasUnsavedChanges).toBe(true);
+  });
+
+  it('shows every child when the group is currently hidden', async () => {
+    const groupRow = makeMockLayer({ id: 'g1', sort_order: 0, layer_type: 'group:folder', visible: false });
+    const child1 = { ...makeMockLayer({ id: 'c1', sort_order: 1, visible: false }), parent_group_id: 'g1' } as GroupedLayer as MapLayerResponse;
+    const { result } = renderBuilderLayers(makeMapData([groupRow, child1]));
+    await waitForInit();
+
+    act(() => {
+      result.current.dispatchLayerAction({ type: 'toggle_group_visibility', source: 'manual', groupId: 'g1' });
+    });
+
+    const updated = result.current.localLayers;
+    expect(updated.find((l) => l.id === 'g1')!.visible).toBe(true);
+    expect(updated.find((l) => l.id === 'c1')!.visible).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // handleBulkOpacity (POL-09)
 // ---------------------------------------------------------------------------
 
