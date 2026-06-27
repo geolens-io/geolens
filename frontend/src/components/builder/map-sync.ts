@@ -818,6 +818,11 @@ const VECTOR_SOURCE_MINZOOM = 0;
 // full-detail z14 tile renders identically while collapsing the high-zoom query
 // fanout.
 const VECTOR_SOURCE_MAXZOOM = 14;
+// Codex P2 (#338): server-cluster sources are the exception — the backend stops
+// clustering only for z > cluster_max_zoom (default 14), so the client MUST be
+// allowed to fetch z15+ unclustered tiles for clusters to expand into individual
+// points. Capping these at 14 would overzoom the clustered z14 tile forever.
+const VECTOR_SOURCE_CLUSTER_MAXZOOM = 22;
 
 /** Resolved per-layer source decisions — pure, no map side effects.
  *  builder-audit #338 SYNC-05: extracted from syncVectorLayer so the type/cluster
@@ -987,7 +992,9 @@ function ensureVectorSource(
       type: 'vector',
       tiles: [adapterInput.tileUrl],
       minzoom: VECTOR_SOURCE_MINZOOM,
-      maxzoom: VECTOR_SOURCE_MAXZOOM,
+      maxzoom: canUseServerCluster
+        ? VECTOR_SOURCE_CLUSTER_MAXZOOM
+        : VECTOR_SOURCE_MAXZOOM,
       ...(needsLineMetrics && { lineMetrics: true }),
       ...(bounds ? { bounds } : {}),
       ...(attribution ? { attribution } : {}),
