@@ -5,7 +5,12 @@ import type { MapBasemapConfig, MapLayerResponse, LabelConfig, StyleConfig, MapT
 import type { RasterTileToken, TileToken, VectorTileToken } from '@/api/tiles';
 import i18n from '@/i18n/i18n';
 import { buildClusterTileUrl, buildSignedTileUrl, getMvtSourceLayerName } from '@/lib/tile-utils';
-import { applyBasemapConfigToStyle, isLandLayer, isWaterLayer } from '@/lib/basemap-utils';
+import {
+  applyBasemapConfigToStyle,
+  isBasemapOwnedLayer,
+  isLandLayer,
+  isWaterLayer,
+} from '@/lib/basemap-utils';
 import { sanitizeNullableNumericFilter } from '@/lib/maplibre-filter-utils';
 import { isFolderGroupLayer } from '@/lib/layer-capabilities';
 import { effectiveDemRenderMode, normalizeDemStyleConfig } from '@/lib/dem-render-mode';
@@ -261,7 +266,8 @@ export function reorderBasemapLabels(map: MaplibreMap, show: boolean, sourcePref
   if (!style?.layers) return;
 
   const basemapSymbolLayers = style.layers.filter(
-    (l) => l.type === 'symbol' && (!('source' in l) || !String(l.source ?? '').startsWith(sourcePrefix)),
+    // builder-audit DUP-02: shared basemap-owned predicate.
+    (l) => l.type === 'symbol' && isBasemapOwnedLayer(l, sourcePrefix),
   );
 
   for (const layer of basemapSymbolLayers) {
@@ -276,8 +282,9 @@ export function reorderBasemapLabels(map: MaplibreMap, show: boolean, sourcePref
 }
 
 function basemapStyleLayers(style: StyleSpecification, sourcePrefix: string) {
-  return style.layers.filter(
-    (layer) => !('source' in layer) || !String(layer.source ?? '').startsWith(sourcePrefix),
+  // builder-audit DUP-02: shared basemap-owned predicate.
+  return style.layers.filter((layer) =>
+    isBasemapOwnedLayer(layer, sourcePrefix),
   ) as StyleSpecification['layers'];
 }
 
@@ -313,9 +320,8 @@ export function reorderBasemapAboveData(
   for (const layer of style.layers) {
     // basemap layers do NOT have a source matching the data sourcePrefix.
     // 'source' may be undefined for some background-style layers — those count
-    // as basemap layers too.
-    const src = ('source' in layer) ? String(layer.source ?? '') : '';
-    if (src.startsWith(sourcePrefix)) continue;
+    // as basemap layers too. builder-audit DUP-02: shared predicate.
+    if (!isBasemapOwnedLayer(layer, sourcePrefix)) continue;
     if (!map.getLayer(layer.id)) continue;
     // Never lift the opaque base fills (background / land / water) above the
     // data layers — doing so paints them over the data and makes a

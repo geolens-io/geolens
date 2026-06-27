@@ -51,11 +51,11 @@ export type StyleLayer = StyleSpecification['layers'][number] & {
 // background/style layers with no source and layers whose source is non-string.
 // Reused by basemap-style-mutation (override scoping) so the missing-source and
 // non-string-source edge cases are defined once.
-export function isBasemapOwnedLayer(
-  layer: { source?: unknown },
-  sourcePrefix: string,
-): boolean {
-  const source = layer.source;
+export function isBasemapOwnedLayer(layer: object, sourcePrefix: string): boolean {
+  // A layer is basemap-owned when its source does NOT start with the data
+  // sourcePrefix. background-style layers have no `source` at all (typeof
+  // 'undefined') and count as basemap-owned too.
+  const source = 'source' in layer ? (layer as { source?: unknown }).source : undefined;
   return typeof source !== 'string' || !source.startsWith(sourcePrefix);
 }
 

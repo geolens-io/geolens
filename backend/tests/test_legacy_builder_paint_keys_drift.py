@@ -33,8 +33,17 @@ from app.modules.catalog.maps.schemas import LEGACY_BUILDER_PAINT_KEYS
 from tests.repo_paths import repo_root
 
 REPO_ROOT = repo_root(__file__)
-NORMALIZE_STYLE_CONFIG_TS = (
-    REPO_ROOT / "frontend" / "src" / "lib" / "normalize-style-config.ts"
+# builder-audit SPEC-08 / DRY-01: the frontend paint-key allowlist is now
+# single-sourced as CUSTOM_PAINT_PROPS in layer-adapters/shared.ts;
+# normalize-style-config.ts aliases it (LEGACY_BUILDER_PAINT_KEYS = CUSTOM_PAINT_PROPS).
+SHARED_TS = (
+    REPO_ROOT
+    / "frontend"
+    / "src"
+    / "components"
+    / "builder"
+    / "layer-adapters"
+    / "shared.ts"
 )
 STYLE_JSON_PY = (
     REPO_ROOT / "backend" / "app" / "modules" / "catalog" / "maps" / "style_json.py"
@@ -42,29 +51,29 @@ STYLE_JSON_PY = (
 
 
 def _parse_frontend_paint_keys() -> set[str]:
-    """Parse the LEGACY_BUILDER_PAINT_KEYS Set literal from the TypeScript source.
+    """Parse the CUSTOM_PAINT_PROPS Set literal from the TypeScript source.
 
     Matches the body between ``new Set([`` and ``])`` on the declaration line
-    for ``const LEGACY_BUILDER_PAINT_KEYS``, then extracts every quoted string
-    literal (single or double quote) as a key.
+    for ``CUSTOM_PAINT_PROPS``, then extracts every quoted string literal
+    (single or double quote) as a key.
 
     Static analysis only — does not import or execute TypeScript.
     """
-    source = NORMALIZE_STYLE_CONFIG_TS.read_text(encoding="utf-8")
+    source = SHARED_TS.read_text(encoding="utf-8")
     match = re.search(
-        r"const\s+LEGACY_BUILDER_PAINT_KEYS\s*=\s*new\s+Set\(\[(.*?)\]\)",
+        r"CUSTOM_PAINT_PROPS\s*=\s*new\s+Set\(\[(.*?)\]\)",
         source,
         re.DOTALL,
     )
     assert match, (
-        f"Could not find `const LEGACY_BUILDER_PAINT_KEYS = new Set([...])` in "
-        f"{NORMALIZE_STYLE_CONFIG_TS}. The drift guard cannot run without it. "
+        f"Could not find `CUSTOM_PAINT_PROPS = new Set([...])` in "
+        f"{SHARED_TS}. The drift guard cannot run without it. "
         f"If the constant was renamed or moved, update this test accordingly."
     )
     body = match.group(1)
     keys = re.findall(r"""['"]([^'"]+)['"]""", body)
     assert keys, (
-        f"Regex matched the Set body in {NORMALIZE_STYLE_CONFIG_TS} but found "
+        f"Regex matched the Set body in {SHARED_TS} but found "
         f"no quoted string literals inside it. The parser may be broken."
     )
     return set(keys)
@@ -98,8 +107,8 @@ def test_paint_key_allowlist_parity():
         f"\n"
         f"Fix: add the missing keys to LEGACY_BUILDER_PAINT_KEYS in\n"
         f"  backend/app/modules/catalog/maps/schemas.py\n"
-        f"or remove them from the frontend Set in\n"
-        f"  frontend/src/lib/normalize-style-config.ts\n"
+        f"or remove them from the frontend CUSTOM_PAINT_PROPS Set in\n"
+        f"  frontend/src/components/builder/layer-adapters/shared.ts\n"
         f"Both files must stay in sync for the keys the frontend strips."
     )
 
