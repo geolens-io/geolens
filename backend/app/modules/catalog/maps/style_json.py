@@ -1089,6 +1089,14 @@ def _style_layer_for_map_layer(
     source_id: str,
 ) -> list[dict[str, Any]]:
     style_config = layer.style_config or {}
+    # Codex P2 (#338): a DEM saved in "terrain" render mode is mesh-only — the
+    # builder/viewer suppress its visual raster and use it solely as the 3D
+    # terrain source. Emitting a visible `raster` layer here would put a flat DEM
+    # image on top of the map alongside the `terrain` block, contradicting the
+    # suppression and changing the exported appearance. The dedicated raster-dem
+    # mesh source is still added by the terrain block in build_maplibre_style.
+    if bool(layer.is_dem) and style_config.get("render_mode") == "terrain":
+        return []
     layer_type = _geometry_layer_type(
         layer.dataset_geometry_type,
         style_config,
