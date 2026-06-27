@@ -120,7 +120,27 @@
     "mapError": "Map tile error — some layers may not display correctly.",
     "openMaps": "Open maps",
     "signIn": "Sign in",
-    "tokenError": "Failed to load map layer tokens — some layers may not display."
+    "tokenError": "Failed to load map layer tokens — some layers may not display.",
+    "ai": {
+      "launch": "Ask AI",
+      "title": "Ask AI",
+      "placeholder": "Ask about this map...",
+      "send": "Send",
+      "cancel": "Stop",
+      "cancelled": "Cancelled.",
+      "thinking": "Thinking...",
+      "emptyHint": "Ask a question about this map's data.",
+      "readOnlyNote": "Answers are read-only — explore the data without changing the map.",
+      "error": "Something went wrong. Please try again.",
+      "retry": "Retry",
+      "queryResult": {
+        "empty": "No matching results.",
+        "tableLabel": "Query result table",
+        "rowCount_one": "{{count}} row",
+        "rowCount_other": "{{count}} rows",
+        "truncated": "(showing a sample)"
+      }
+    }
   },
   "actions": {
     "editGeometry": "Edit Features"

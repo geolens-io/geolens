@@ -210,7 +210,27 @@
     "mapError": "Erreur de tuile — certains calques pourraient ne pas s'afficher correctement.",
     "openMaps": "Ouvrir les cartes",
     "signIn": "Se connecter",
-    "tokenError": "Impossible de charger les jetons de calque — certains calques pourraient ne pas s'afficher."
+    "tokenError": "Impossible de charger les jetons de calque — certains calques pourraient ne pas s'afficher.",
+    "ai": {
+      "launch": "Demander à l'IA",
+      "title": "Demander à l'IA",
+      "placeholder": "Posez une question sur cette carte...",
+      "send": "Envoyer",
+      "cancel": "Arrêter",
+      "cancelled": "Annulé.",
+      "thinking": "Réflexion...",
+      "emptyHint": "Posez une question sur les données de cette carte.",
+      "readOnlyNote": "Les réponses sont en lecture seule — explorez les données sans modifier la carte.",
+      "error": "Une erreur s'est produite. Veuillez réessayer.",
+      "retry": "Réessayer",
+      "queryResult": {
+        "empty": "Aucun résultat correspondant.",
+        "tableLabel": "Tableau des résultats de la requête",
+        "rowCount_one": "{{count}} ligne",
+        "rowCount_other": "{{count}} lignes",
+        "truncated": "(affichage d'un échantillon)"
+      }
+    }
   },
   "maps": {
     "title": "Cartes",

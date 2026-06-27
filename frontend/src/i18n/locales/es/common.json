@@ -210,7 +210,27 @@
     "mapError": "Error de tile — algunas capas podrían no mostrarse correctamente.",
     "openMaps": "Abrir mapas",
     "signIn": "Iniciar sesión",
-    "tokenError": "No se pudieron cargar los tokens de capa — algunas capas podrían no mostrarse."
+    "tokenError": "No se pudieron cargar los tokens de capa — algunas capas podrían no mostrarse.",
+    "ai": {
+      "launch": "Preguntar a la IA",
+      "title": "Preguntar a la IA",
+      "placeholder": "Pregunta sobre este mapa...",
+      "send": "Enviar",
+      "cancel": "Detener",
+      "cancelled": "Cancelado.",
+      "thinking": "Pensando...",
+      "emptyHint": "Haz una pregunta sobre los datos de este mapa.",
+      "readOnlyNote": "Las respuestas son de solo lectura: explora los datos sin modificar el mapa.",
+      "error": "Algo salió mal. Inténtalo de nuevo.",
+      "retry": "Reintentar",
+      "queryResult": {
+        "empty": "No hay resultados coincidentes.",
+        "tableLabel": "Tabla de resultados de la consulta",
+        "rowCount_one": "{{count}} fila",
+        "rowCount_other": "{{count}} filas",
+        "truncated": "(mostrando una muestra)"
+      }
+    }
   },
   "maps": {
     "title": "Mapas",
