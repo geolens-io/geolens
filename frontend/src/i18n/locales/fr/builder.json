@@ -198,6 +198,7 @@
     },
     "pattern": "Motif",
     "extrusionRange": "Plage : {{min}}–{{max}}, {{count}} entités",
+    "heightColumnRemoved": "La colonne de hauteur « {{column}} » a été supprimée lors du rechargement. Sélectionnez une nouvelle colonne ou effacez ce paramètre.",
     "lineEnds": "Extrémités de ligne",
     "lineCap": "Extrémité",
     "lineCapButt": "Plat",

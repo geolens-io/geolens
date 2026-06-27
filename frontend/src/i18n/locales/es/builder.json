@@ -198,6 +198,7 @@
     },
     "pattern": "Patrón",
     "extrusionRange": "Rango: {{min}}–{{max}}, {{count}} elementos",
+    "heightColumnRemoved": "La columna de altura «{{column}}» se eliminó durante la recarga. Seleccione una nueva columna o borre este ajuste.",
     "lineEnds": "Extremos de línea",
     "lineCap": "Extremo",
     "lineCapButt": "Plano",

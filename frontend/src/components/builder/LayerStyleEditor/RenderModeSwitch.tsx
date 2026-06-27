@@ -24,8 +24,13 @@ export type EditorDispatchKey =
   | 'raster';
 
 interface RenderModeSwitchProps extends BaseStyleEditorProps {
-  /** The resolved dispatch key. Computed by the orchestrator from geomType + renderMode. */
-  dispatchKey: EditorDispatchKey | string;
+  /**
+   * The resolved dispatch key. Computed by the orchestrator from geomType +
+   * renderMode. builder-audit TYPE-01: narrowed to EditorDispatchKey (no `| string`
+   * widening) so a typo or new render mode is a compile error, not a silent
+   * DEV-warn + null render. The orchestrator owns the exhaustive mapping.
+   */
+  dispatchKey: EditorDispatchKey;
 }
 
 /**
@@ -45,8 +50,10 @@ const editorComponents: Record<EditorDispatchKey, React.ComponentType<BaseStyleE
 };
 
 export function RenderModeSwitch({ dispatchKey, ...rest }: RenderModeSwitchProps): React.JSX.Element | null {
-  const Editor = editorComponents[dispatchKey as EditorDispatchKey];
+  const Editor = editorComponents[dispatchKey];
 
+  // Defensive runtime guard: the narrowed type makes this unreachable in normal
+  // use, but a bad upstream cast would still land here rather than crash.
   if (!Editor) {
     if (import.meta.env.DEV) {
       console.warn(`[RenderModeSwitch] Unrecognized dispatchKey: "${dispatchKey}". Returning null.`);

@@ -13,7 +13,9 @@ interface StyleColorPickerProps {
   onChange: (hex: string) => void;
 }
 
-const HEX_REGEX = /^#[0-9a-fA-F]{6}$/;
+// builder-audit DRY-02: single source for the 6-digit hex validation regex.
+// Previously copied inline in DataDrivenStyleEditor (two sites).
+export const HEX_REGEX = /^#[0-9a-fA-F]{6}$/;
 
 // Map symbol preset colors — not UI chrome; exempt from design token rule
 const PRESET_COLORS = [
@@ -34,6 +36,48 @@ const PRESET_COLORS = [
   '#64748b', // slate
   '#1e293b', // dark
 ];
+
+/**
+ * builder-audit DRY-02: compact swatch button + popover hex editor shared by the
+ * DataDrivenStyleEditor categorical and graduated color lists. Replaces two
+ * near-identical inline Popover+HexColorPicker+HexColorInput blocks (each with
+ * its own copy of the hex regex). Debouncing, if any, is owned by the caller's
+ * onChange (the data-driven editor debounces map repaints there).
+ */
+export function SwatchColorPopover({
+  color,
+  onChange,
+  label,
+}: {
+  color: string;
+  onChange: (hex: string) => void;
+  label?: string;
+}) {
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className="w-5 h-5 rounded-sm border border-border shrink-0 cursor-pointer hover:ring-2 hover:ring-primary/30 transition-shadow"
+          style={{ background: color }}
+          title={color}
+          aria-label={label ?? color}
+        />
+      </PopoverTrigger>
+      <PopoverContent className="w-auto p-3" align="start" side="right">
+        <HexColorPicker color={color} onChange={onChange} />
+        <HexColorInput
+          color={color}
+          onChange={(hex) => {
+            if (HEX_REGEX.test(hex)) onChange(hex);
+          }}
+          className="mt-2 w-full text-xs border rounded px-2 py-1 bg-background text-foreground"
+          prefixed
+        />
+      </PopoverContent>
+    </Popover>
+  );
+}
 
 export function StyleColorPicker({ label, color, onChange }: StyleColorPickerProps) {
   const [localColor, setLocalColor] = useState(color);

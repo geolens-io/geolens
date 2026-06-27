@@ -128,7 +128,10 @@ export function FillEditor({
         <div className="flex items-start gap-2 rounded bg-warning/15 p-2">
           <AlertTriangle className="h-4 w-4 shrink-0 text-warning-foreground mt-0.5" />
           <span className="text-xs text-warning-foreground">
-            Height column &ldquo;{currentHeightCol}&rdquo; was removed during re-upload. Select a new column or clear this setting.
+            {t('style.heightColumnRemoved', {
+              column: currentHeightCol,
+              defaultValue: 'Height column “{{column}}” was removed during re-upload. Select a new column or clear this setting.',
+            })}
           </span>
         </div>
       )}

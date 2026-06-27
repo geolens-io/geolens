@@ -6,6 +6,7 @@ import { SliderRow } from './HeatmapStyleControls';
 import { AdvancedJsonEditor } from './LayerStyleEditor/AdvancedJsonEditor';
 import { RenderModeSwitch } from './LayerStyleEditor/RenderModeSwitch';
 import type { EditorDispatchKey } from './LayerStyleEditor/RenderModeSwitch';
+import { buildBuilderControlPaint, routeBuilderPaintProp } from './LayerStyleEditor/builder-paint-map';
 import {
   FILL_DEFAULTS, LINE_DEFAULTS, CIRCLE_DEFAULTS, getPaintValue,
   withBuilderConfig, stylePreviewStyle, hasUnsupportedBuilderState,
@@ -214,30 +215,23 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [localOpacity, layer.id]);
 
-  const controlPaint = useMemo(() => ({
-    ...paint,
-    ...(builderConfig.outlineColor !== undefined ? { '_outline-color': builderConfig.outlineColor } : {}),
-    ...(builderConfig.outlineWidth !== undefined ? { '_outline-width': builderConfig.outlineWidth } : {}),
-    ...(builderConfig.fillDisabled !== undefined ? { '_fill-disabled': builderConfig.fillDisabled } : {}),
-    ...(builderConfig.strokeDisabled !== undefined ? { '_stroke-disabled': builderConfig.strokeDisabled } : {}),
-    ...(builderConfig.fillOpacitySaved !== undefined ? { '_fill-opacity-saved': builderConfig.fillOpacitySaved } : {}),
-    ...(builderConfig.outlineWidthSaved !== undefined ? { '_outline-width-saved': builderConfig.outlineWidthSaved } : {}),
-    ...(builderConfig.heightColumn !== undefined ? { '_height_column': builderConfig.heightColumn } : {}),
-    ...(builderConfig.heatmapRamp !== undefined ? { '_heatmap-ramp': builderConfig.heatmapRamp } : {}),
-    ...(builderConfig.heatmapWeightColumn !== undefined ? { '_heatmap-weight-column': builderConfig.heatmapWeightColumn } : {}),
-  }), [paint, builderConfig]);
+  // builder-audit DRY-01: forward map derived from the single BUILDER_PAINT_FIELDS
+  // table (builder-paint-map.ts), which also backs handlePaintProp's reverse router
+  // and the strip allowlist — so the three can no longer drift.
+  const controlPaint = useMemo(
+    () => buildBuilderControlPaint(paint, builderConfig),
+    [paint, builderConfig],
+  );
 
   const updateBuilderConfig = useCallback((patch: BuilderStyleConfig, nextPaint: Record<string, unknown> = paint) => {
     onStyleConfigChange(layer.id, withBuilderConfig(layer.style_config, patch), stripLegacyBuilderPaint(nextPaint));
   }, [layer.id, layer.style_config, paint, onStyleConfigChange]);
 
   const handlePaintProp = useCallback((key: string, value: unknown) => {
-    if (key === '_outline-color') {
-      updateBuilderConfig({ outlineColor: value as string });
-      return;
-    }
-    if (key === '_outline-width') {
-      updateBuilderConfig({ outlineWidth: value as number });
+    // builder-audit DRY-01: reverse router derived from BUILDER_PAINT_FIELDS.
+    const builderKey = routeBuilderPaintProp(key);
+    if (builderKey) {
+      updateBuilderConfig({ [builderKey]: value } as BuilderStyleConfig);
       return;
     }
     onPaintChange(layer.id, { ...paint, [key]: value });
@@ -353,7 +347,11 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
     [layer, savedLayer],
   );
 
-  // Shared props passed to every per-mode editor via RenderModeSwitch
+  // Shared props passed to every per-mode editor via RenderModeSwitch.
+  // builder-audit MAINT-01: this ~25-field mega-prop is a deliberate trade-off —
+  // a single uniform BaseStyleEditorProps keeps RenderModeSwitch's lookup-table
+  // dispatch trivial; most editors consume only a subset. Acceptable as-is; if it
+  // grows further, split into a common core + per-mode prop slices.
   const editorProps = useMemo(() => ({
     layer,
     paint: controlPaint,

@@ -198,6 +198,7 @@
     },
     "pattern": "Pattern",
     "extrusionRange": "Range: {{min}}–{{max}}, {{count}} features",
+    "heightColumnRemoved": "Height column “{{column}}” was removed during re-upload. Select a new column or clear this setting.",
     "lineEnds": "Line ends",
     "lineCap": "Cap",
     "lineCapButt": "Butt",
