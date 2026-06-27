@@ -375,7 +375,9 @@ async def test_execute_and_yield_tools_drops_disallowed_for_readonly(monkeypatch
 
     Covers the read-only enforcement backstop for the XML fallback path: a
     view-only caller (allowed_tools={"query_data"}) whose model emits a mutating
-    set_style call must not have it executed or collected into a ChatAction.
+    set_style call must not have it executed or collected into a ChatAction. A
+    dropped call still records a refusal in results_out so the OpenAI-native
+    tool_call_id zip stays aligned.
     """
     from app.processing.ai import streaming
 
@@ -394,6 +396,7 @@ async def test_execute_and_yield_tools_drops_disallowed_for_readonly(monkeypatch
     monkeypatch.setattr(streaming, "_collect_chat_action", fake_collect)
 
     collected_actions: list[dict] = []
+    results_out: list[dict] = []
     events = [
         evt
         async for evt in streaming._execute_and_yield_tools(
@@ -406,6 +409,7 @@ async def test_execute_and_yield_tools_drops_disallowed_for_readonly(monkeypatch
             set(),  # user_roles
             [],  # layers
             collected_actions,
+            results_out=results_out,
             port=None,
             map_id=None,
             allowed_tools={"query_data"},
@@ -416,7 +420,16 @@ async def test_execute_and_yield_tools_drops_disallowed_for_readonly(monkeypatch
     assert executed == ["query_data"]
     assert collected_names == ["query_data"]
     assert [a["type"] for a in collected_actions] == ["query_data"]
-    # Exactly one tool_result event (for query_data); none for the dropped tool.
+    # results_out stays 1:1 with the two input tool calls so the OpenAI-native
+    # tool_call_id zip cannot misalign: a refusal for the dropped call, then the
+    # real result.
+    assert results_out == [
+        {"error": "Tool not permitted for this map."},
+        {"ok": True},
+    ]
+    # A tool_result event for BOTH calls: failure for the dropped one, success
+    # for query_data.
     assert [e for e in events if e.get("type") == "tool_result"] == [
-        {"type": "tool_result", "tool": "query_data", "success": True}
+        {"type": "tool_result", "tool": "set_style", "success": False},
+        {"type": "tool_result", "tool": "query_data", "success": True},
     ]

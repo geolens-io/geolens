@@ -70,12 +70,15 @@ async def _execute_and_yield_tools(
     per-map (PERF-04 / Phase 274).
 
     allowed_tools, when provided, restricts which tool names may run: a call
-    whose name is outside the set is dropped before execution AND collection.
-    This enforces the read-only tool set for view-only callers even when a tool
-    call arrives via the XML fallback (parse_xml_tool_calls), which bypasses the
-    advertised tool schema. Native tool calls are always advertised-constrained
-    (allowed_tools == the advertised set), so they are never dropped here and the
-    caller's results_out↔tool_calls zip stays aligned.
+    whose name is outside the set is dropped before execution AND collection,
+    enforcing the read-only tool set for view-only callers even when a call
+    arrives via the XML fallback (parse_xml_tool_calls), which bypasses the
+    advertised tool schema. A dropped call still appends a refusal entry to
+    results_out (when provided) so the caller's results_out↔tool_calls zip stays
+    aligned — the OpenAI-native path zips the original calls/ids with results_out
+    to build the next round's tool messages, so a missing entry would misalign
+    tool_call ids or emit an unmatched call. The model receives an explicit
+    "not permitted" result instead.
     """
     for fn_name, fn_args in tool_calls:
         if allowed_tools is not None and fn_name not in allowed_tools:
@@ -84,6 +87,10 @@ async def _execute_and_yield_tools(
                 tool=fn_name,
                 allowed=sorted(allowed_tools),
             )
+            if results_out is not None:
+                results_out.append({"error": "Tool not permitted for this map."})
+            # Balance the tool_start the streaming loop already emitted for this call.
+            yield {"type": "tool_result", "tool": fn_name, "success": False}
             continue
         stage_events: list[dict] = []
         stage_cb = _make_stage_callback(fn_name, stage_events)
