@@ -10,6 +10,20 @@ export function resolveTileBaseUrl(
 }
 
 /**
+ * builder-audit P1-01: the single MVT `source-layer` name helper.
+ *
+ * The MapLibre vector source-layer name must match the layer name the tile
+ * server emits inside the MVT payload AND the URL path used to sign tiles. This
+ * helper centralizes the `data.<table>` convention so the runtime sync, tile
+ * signing, and (future) style export/import cannot drift — a mismatch loads the
+ * source but renders zero features. The signed tile URLs below build the same
+ * `data.<table>` segment, so both consume one definition.
+ */
+export function getMvtSourceLayerName(tableName: string): string {
+  return `data.${tableName}`;
+}
+
+/**
  * Build a signed tile URL with query-param auth.
  * When tileToken is provided, appends sig/exp/scope as query params.
  * When tileToken is null (public dataset), returns URL without params.
@@ -33,7 +47,7 @@ export function buildSignedTileUrl(
   const base = tileBaseUrl
     ? tileBaseUrl.replace(/\/$/, '')
     : `${window.location.origin}/api`;
-  const url = `${base}/tiles/data.${tableName}/{z}/{x}/{y}.pbf`;
+  const url = `${base}/tiles/${getMvtSourceLayerName(tableName)}/{z}/{x}/{y}.pbf`;
   const cols = normalizeExtraCols(extraCols);
   return appendTileParams(url, tileToken, tileVersion, cols ? { cols } : {});
 }
@@ -81,7 +95,7 @@ export function buildClusterTileUrl(
   const base = tileBaseUrl
     ? tileBaseUrl.replace(/\/$/, '')
     : `${window.location.origin}/api`;
-  const url = `${base}/tiles/clusters/data.${tableName}/{z}/{x}/{y}.pbf`;
+  const url = `${base}/tiles/clusters/${getMvtSourceLayerName(tableName)}/{z}/{x}/{y}.pbf`;
   return appendTileParams(url, tileToken, tileVersion, {
     cluster_radius: options.clusterRadius,
     cluster_max_zoom: options.clusterMaxZoom,

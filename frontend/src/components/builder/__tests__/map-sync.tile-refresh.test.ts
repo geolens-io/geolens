@@ -10,6 +10,7 @@ import type { TileToken, VectorTileToken } from '@/api/tiles';
 // when the projected column set changes — the signal the existing-source refresh
 // guard keys on.
 vi.mock('@/lib/tile-utils', () => ({
+  getMvtSourceLayerName: (table: string) => `data.${table}`,
   buildSignedTileUrl: vi.fn(
     (table: string, _t: unknown, _b: unknown, _u: unknown, cols?: string[] | null) =>
       `/tiles/${table}/{z}/{x}/{y}.pbf?cols=${(cols ?? []).slice().sort().join(',')}`,

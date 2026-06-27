@@ -123,6 +123,35 @@ describe('getDataDrivenColumnsForLayer', () => {
     });
     expect(cols).toEqual([]);
   });
+
+  // builder-audit P1-03: filter-only columns must survive the z<10 attribute
+  // budget, so the column collector now walks layer.filter for get/has refs.
+  it('extracts a filter-only column referenced via ["get", col] (P1-03)', () => {
+    const cols = getDataDrivenColumnsForLayer({
+      style_config: null,
+      paint: { 'fill-color': '#3b82f6' },
+      filter: ['==', ['get', 'status'], 'active'],
+    });
+    expect(cols).toEqual(['status']);
+  });
+
+  it('extracts a filter column referenced via ["has", col] (P1-03)', () => {
+    const cols = getDataDrivenColumnsForLayer({
+      style_config: null,
+      paint: {},
+      filter: ['all', ['has', 'zone'], ['>', ['get', 'pop'], 100]],
+    });
+    expect(cols.sort()).toEqual(['pop', 'zone']);
+  });
+
+  it('unions filter columns with paint/label columns and dedupes', () => {
+    const cols = getDataDrivenColumnsForLayer({
+      style_config: { mode: 'graduated', column: 'pop_est', ramp: 'YlOrRd', breaks: [] },
+      paint: {},
+      filter: ['all', ['==', ['get', 'pop_est'], 0], ['has', 'region']],
+    });
+    expect(cols.sort()).toEqual(['pop_est', 'region']);
+  });
 });
 
 describe('getDataDrivenColumnsForSource', () => {

@@ -23,6 +23,7 @@
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import { getRampColors } from '@/lib/color-ramps';
 import type { AdapterLayerInput } from './layer-adapters/types';
+import { COLOR_RELIEF_SUFFIX } from './companion-ids';
 
 // Default elevation range (metres) for the interpolation stops.
 // Assumption A1: 0–4000 m covers the majority of terrain use-cases for a builder tool.
@@ -67,7 +68,8 @@ export function syncColorReliefLayer(
   map: MaplibreMap,
   input: AdapterLayerInput,
 ): void {
-  const reliefLayerId = `${input.layerId}-colorrelief`;
+  // builder-audit SYNC-04: the -colorrelief suffix lives in companion-ids.ts.
+  const reliefLayerId = `${input.layerId}${COLOR_RELIEF_SUFFIX}`;
 
   const renderMode = (input.style_config as Record<string, unknown> | null | undefined)?.render_mode;
   const isHillshade = renderMode === 'hillshade';

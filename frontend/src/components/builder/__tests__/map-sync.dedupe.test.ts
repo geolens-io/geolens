@@ -7,6 +7,7 @@ import {
 import type { TileToken, VectorTileToken } from '@/api/tiles';
 
 vi.mock('@/lib/tile-utils', () => ({
+  getMvtSourceLayerName: (table: string) => `data.${table}`,
   buildSignedTileUrl: vi.fn(
     (table: string) => `/tiles/${table}/{z}/{x}/{y}.pbf`,
   ),
@@ -264,5 +265,49 @@ describe('syncLayersToMap dedupes addSource by dataset_table_name', () => {
     });
 
     expect(map.removeSource).toHaveBeenCalledWith('source-data-reefs');
+  });
+});
+
+describe('vector source spec (MVT-03 / MVT-06)', () => {
+  it('creates the vector source with minzoom 0, maxzoom 14, and dataset bounds', () => {
+    const map = createMockMap();
+    const managedSourcesRef = { current: new Set<string>() };
+    const layer = makeLayer({
+      id: 'l1',
+      dataset_id: 'ds-1',
+      dataset_table_name: 'parcels',
+      bounds: [-10, -5, 10, 5],
+    });
+    const tokenMap = new Map<string, TileToken>([['ds-1', makeVectorToken()]]);
+
+    syncLayersToMap(map, [layer], tokenMap, undefined, managedSourcesRef, { current: '' });
+
+    const call = (map.addSource as ReturnType<typeof vi.fn>).mock.calls.find(
+      ([id]) => id === 'source-data-parcels',
+    );
+    expect(call).toBeDefined();
+    const spec = call![1] as { type: string; minzoom: number; maxzoom: number; bounds?: number[] };
+    expect(spec.type).toBe('vector');
+    // MVT-03: z0 world data is requested (minzoom 0, not 1).
+    expect(spec.minzoom).toBe(0);
+    // MVT-04 over-fetch: overzoom above the data maxzoom instead of refetching to z22.
+    expect(spec.maxzoom).toBe(14);
+    // MVT-06: bounds threaded from the dataset spatial extent.
+    expect(spec.bounds).toEqual([-10, -5, 10, 5]);
+  });
+
+  it('omits bounds when the dataset has no usable extent', () => {
+    const map = createMockMap();
+    const managedSourcesRef = { current: new Set<string>() };
+    const layer = makeLayer({ id: 'l1', dataset_id: 'ds-1', dataset_table_name: 'nobounds', bounds: null });
+    const tokenMap = new Map<string, TileToken>([['ds-1', makeVectorToken()]]);
+
+    syncLayersToMap(map, [layer], tokenMap, undefined, managedSourcesRef, { current: '' });
+
+    const call = (map.addSource as ReturnType<typeof vi.fn>).mock.calls.find(
+      ([id]) => id === 'source-data-nobounds',
+    );
+    const spec = call![1] as { bounds?: number[] };
+    expect(spec.bounds).toBeUndefined();
   });
 });

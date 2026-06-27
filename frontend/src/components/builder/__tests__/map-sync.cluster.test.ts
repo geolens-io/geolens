@@ -5,6 +5,7 @@ import type { TileToken } from '@/api/tiles';
 import { buildClusterTileUrl } from '@/lib/tile-utils';
 
 vi.mock('@/lib/tile-utils', () => ({
+  getMvtSourceLayerName: (table: string) => `data.${table}`,
   buildSignedTileUrl: vi.fn(() => '/tiles/mock/{z}/{x}/{y}.pbf'),
   buildClusterTileUrl: vi.fn(() => '/tiles/clusters/mock/{z}/{x}/{y}.pbf?cluster_radius=64&cluster_max_zoom=12'),
 }));
