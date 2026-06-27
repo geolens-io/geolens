@@ -23,6 +23,49 @@ and releases use semantic versioning.
   `geolens-backup` image is now published to GHCR alongside the api, worker, and
   frontend images, so prebuilt installs run backups without a local build.
 
+### Security
+
+- **Embed tokens are now revoked when sharing is withdrawn.** Revoking a share,
+  switching a map from public to private, or removing the dataset an embed was
+  scoped to now immediately invalidates the corresponding embed tokens (and
+  their cached access), so copied iframe/tile URLs can no longer outlive the
+  map's sharing state.
+- **Per-token iframe domain enforcement on the embed shell.** Restricted embeds
+  now serve a token-specific `Content-Security-Policy: frame-ancestors` so the
+  embedded document itself is protected by the configured domain allowlist, not
+  only the underlying data/tile calls. Unrestricted (Community) embeds remain
+  openly frameable; normal app routes keep `SAMEORIGIN`.
+
+### Fixed
+
+- **Map Builder correctness fixes.** Bulk visibility/opacity on a multi-layer
+  selection now matches single-layer behavior (companion outlines, labels,
+  hypsometric relief, and clusters included); numeric-column filters now show a
+  removable chip; per-sublayer basemap opacity now composes with the master
+  opacity slider instead of overriding it; switching a line to data-driven color
+  clears stale gradient state; adding a dataset while you have unsaved edits now
+  appears immediately; a folder group's visibility toggle now hides/shows every
+  child layer; and drag-to-add from the catalog handle works reliably on touch.
+- **Exported MapLibre styles render correctly.** Style export now emits the
+  matching vector `source-layer`, the `cols=` columns needed for low-zoom
+  data-driven/label/filter styling, a valid `raster-dem` terrain source, and the
+  DEM color-relief layer — so a downloaded style loads with features, labels,
+  terrain, and hypsometric tint intact.
+- **AI chat undo no longer reverts an unrelated edit.** Clicking Undo on a chat
+  query answer can no longer roll back an earlier style change from a previous
+  turn.
+
+### Changed
+
+- **Custom share-link expiration is an advanced (Enterprise) sharing control.**
+  The backend now enforces the same edition gate the UI already applied; basic
+  Community share/revoke is unchanged.
+- **Vector tiles send an ETag.** Re-uploaded datasets now refresh in the map
+  without waiting for the cache TTL to expire.
+- **Editors with AI-chat permission can use builder chat.** Non-admin users
+  granted `use_ai_chat` can now open the Map Builder AI assistant when AI is
+  configured.
+
 ## [1.4.0] - 2026-06-20
 
 These changes cover two internal milestones (v1044 demo lead-gen front
