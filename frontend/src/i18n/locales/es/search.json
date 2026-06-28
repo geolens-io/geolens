@@ -1,7 +1,7 @@
 {
   "title": "Buscar datos geoespaciales",
   "subtitle": "Busque, previsualice y exporte datos geoespaciales del catálogo",
-  "placeholder": "Buscar conjuntos de datos por nombre, descripción, etiquetas...",
+  "placeholder": "Buscar en el catálogo...",
   "updating": "Actualizando resultados...",
   "loadingDatasets": "Cargando conjuntos de datos...",
   "resultCount_one": "{{count}} resultado",
