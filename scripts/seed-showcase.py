@@ -99,9 +99,21 @@ USDA_INCOME = (
     "&outFields=County,State,Median_HH_Inc_ACS,PerCapitaInc"
     "&returnGeometry=true&outSR=4326&f=geojson"
 )
+# swissALTI3D regional extent for the Matterhorn 3D-terrain showcase.
+# A larger DEM footprint moves the MapLibre 3D-terrain "pedestal" — the vertical
+# wall where the mesh drops to the -10000 m out-of-coverage void at the data edge
+# — well off-screen, so the camera can pan/zoom around the massif freely instead
+# of being pinned tight on the summit (the old ~3 km / 3x3-tile box). Tile count
+# scales with area; each ~1 km tile is a separate download + ingest job:
+#   8x8 km  -> ~62 tiles   (this default; ~2 STAC pages)
+#   12x10 km -> ~109 tiles (more roam, longer seed)
+#   19x17 km -> ~244 tiles
+# The structural, dataset-agnostic fix is still a global base DEM (terrain
+# pedestal plan); this just makes the flagship showcase roamable now.
+SWISSALTI_BBOX = "7.61,45.94,7.72,46.01"
 SWISSALTI_STAC = (
     "https://data.geo.admin.ch/api/stac/v1/collections/"
-    "ch.swisstopo.swissalti3d/items?bbox=7.645,45.968,7.675,45.987&limit=30"
+    f"ch.swisstopo.swissalti3d/items?bbox={SWISSALTI_BBOX}&limit=100"
 )
 # OurAirports (public domain) - 85k airports; filtered to <5000 for client clustering.
 OURAIRPORTS_CSV = "https://davidmegginson.github.io/ourairports-data/airports.csv"
@@ -649,28 +661,45 @@ def build_income(api: Api, force: bool = False) -> str:
     return map_id
 
 
+def fetch_swissalti_tiles() -> dict:
+    """Return {tag: href} for every swissALTI3D 2m (EPSG:2056, 2024) COG tile
+    intersecting SWISSALTI_BBOX, following STAC pagination.
+
+    The swisstopo STAC API caps a page at ~100 features, so a regional AOI spans
+    several pages — follow rel="next" until exhausted. Each 1 km tile exposes
+    both a 0.5 m and a 2 m asset; we keep the 2 m (`_2_2056_`) COG, keyed by its
+    EEEE-NNNN tag (e.g. 2617-1091) so re-runs dedupe to one dataset per tile.
+    """
+    tiles: dict[str, str] = {}
+    url = SWISSALTI_STAC
+    while url:
+        page = json.loads(fetch(url))
+        for f in page.get("features", []):
+            for a in f.get("assets", {}).values():
+                href = a.get("href", "")
+                if (
+                    href.endswith(".tif")
+                    and "_2_2056_" in href
+                    and "swissalti3d_2024_" in href
+                ):
+                    tag = os.path.basename(href).split("_")[2]  # e.g. 2617-1091
+                    tiles[tag] = href
+        url = next(
+            (l["href"] for l in page.get("links", []) if l.get("rel") == "next"),
+            None,
+        )
+    return tiles
+
+
 def build_matterhorn(api: Api, force: bool = False) -> str:
     if not force and _map_exists(api, "The Matterhorn"):
         print("  [skip] The Matterhorn already exists")
         return "(skipped)"
-    print("\n[3/3] The Matterhorn (3D terrain + hillshade via VRT mosaic)")
-    print("  querying swissALTI3D STAC...")
-    feats = json.loads(fetch(SWISSALTI_STAC))["features"]
-    tiles = {}
-    for f in feats:
-        for a in f.get("assets", {}).values():
-            href = a.get("href", "")
-            if (
-                href.endswith(".tif")
-                and "_2_2056_" in href
-                and "swissalti3d_2024_" in href
-            ):
-                tag = os.path.basename(href).split("_")[2]  # e.g. 2617-1091
-                e, nn = tag.split("-")
-                if e in ("2616", "2617", "2618") and nn in ("1090", "1091", "1092"):
-                    tiles[tag] = href
+    print("\n[3/3] The Matterhorn (3D terrain + hillshade via regional VRT mosaic)")
+    print("  querying swissALTI3D STAC (regional AOI)...")
+    tiles = fetch_swissalti_tiles()
     if not tiles:
-        raise RuntimeError("no swissALTI3D tiles matched the summit AOI")
+        raise RuntimeError("no swissALTI3D 2m tiles matched the regional AOI")
     print(f"  registering {len(tiles)} COG tiles via manifest (downloads each)...")
     manifest = {
         "manifest_version": "1",
@@ -838,12 +867,13 @@ def build_matterhorn(api: Api, force: bool = False) -> str:
             },
         )
         print(f"  + {len(peaks_fc['features'])} named peaks labeled")
-    # Camera tightened onto the summit so the DEM-footprint edge (and its -10000 m
-    # void) stays out of frame. Exaggeration is 1.0 (true vertical scale): the DEM
-    # has a small ~3 km footprint, so anything above 1.0 amplifies the "pedestal"
-    # (an isolated tower over the 0 m out-of-footprint plane) the moment the camera
-    # zooms out past this framing. The durable fix is a global base DEM (see the
-    # terrain pedestal plan); true scale is the correct interim default.
+    # Initial view frames the summit, but the regional DEM (~8x8 km, SWISSALTI_BBOX)
+    # now extends ~4 km past the Matterhorn in every direction, so the user can
+    # zoom out and pan around the massif before reaching the data edge / -10000 m
+    # void — no longer pinned tight on the peak. Exaggeration stays 1.0 (true
+    # vertical scale; the swissALTI3D relief is dramatic enough on its own, and
+    # true scale keeps any far-edge pedestal honest). The structural,
+    # dataset-agnostic fix remains a global base DEM (terrain pedestal plan).
     api.set_view(
         map_id,
         visibility="public",
@@ -854,7 +884,7 @@ def build_matterhorn(api: Api, force: bool = False) -> str:
         },
         center_lng=7.6586,
         center_lat=45.9750,
-        zoom=15.3,
+        zoom=14.0,
         pitch=66,
         bearing=-150,
         basemap_style="openfreemap-positron",
