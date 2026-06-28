@@ -225,6 +225,26 @@ export function isTerrainCapableDemLayer(layer: {
   return layer.is_dem === true && DEM_RECORD_TYPES.has(String(layer.dataset_record_type ?? ''));
 }
 
+/**
+ * Resolve the DEM layer that backs `terrain_config`, the SINGLE way both the map
+ * renderer (BuilderMap, FIX-3-RESOLVER D-06) and the settings status
+ * (MapBuilderPage `isTerrainActive`) must agree on: match the source dataset and
+ * be terrain-capable, regardless of render_mode (a hillshade-mode DEM drives the
+ * 3D mesh too). Sharing this prevents the two from drifting — which is exactly
+ * what made the settings report "No terrain layer is active" while the map was
+ * rendering terrain from a hillshade DEM.
+ */
+export function resolveTerrainSourceLayer<
+  T extends { dataset_id?: string | null; is_dem?: boolean | null; dataset_record_type?: string | null },
+>(
+  layers: readonly T[],
+  terrainConfig: { source_dataset_id?: string | null } | null | undefined,
+): T | undefined {
+  const src = terrainConfig?.source_dataset_id;
+  if (!src) return undefined;
+  return layers.find((l) => l.dataset_id === src && isTerrainCapableDemLayer(l));
+}
+
 function isTerrainRenderLayer(layer: MapLayerResponse) {
   return isTerrainCapableDemLayer(layer) && renderMode(layer.style_config) === 'terrain';
 }
