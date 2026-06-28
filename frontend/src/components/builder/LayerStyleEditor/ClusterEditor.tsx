@@ -10,11 +10,17 @@ import type { BaseStyleEditorProps } from './types';
 
 type ClusterColorStop = { count: number; color: string };
 
-// Default tiers seeded when "color by cluster size" is enabled — mirrors the
-// MapLibre "create and style clusters" example thresholds (100 / 750).
+// Default tiers seeded when "color by cluster size" is enabled. MapLibre's own
+// "create and style clusters" example uses 100/750, but those thresholds are
+// tuned to its dense earthquake dataset — for typical clustered layers the
+// rendered cluster point_count at usable zooms sits in the 1s–low-100s, so
+// 100/750 leaves every cluster in the base bucket and the toggle looks dead
+// (e.g. World Airports tops out at ~234 at min zoom, ~90 at the default view).
+// Seed reachable breaks so enabling the ramp produces a visible gradient out of
+// the box; the user can raise them for denser data.
 const DEFAULT_RAMP_TIERS: ClusterColorStop[] = [
-  { count: 100, color: '#f1f075' },
-  { count: 750, color: '#f28cb1' },
+  { count: 10, color: '#f1f075' },
+  { count: 50, color: '#f28cb1' },
 ];
 
 export function ClusterEditor({
