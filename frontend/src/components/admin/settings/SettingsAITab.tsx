@@ -347,7 +347,7 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset, isSaving, on
                     onClick={() => handleBackfill(false)}
                     disabled={backfill.isPending}
                   >
-                    {backfill.isPending ? (
+                    {backfill.isPending && backfill.variables === false ? (
                       <>
                         <Loader2 className="me-2 h-3 w-3 animate-spin" />
                         {t('ai.generating')}
@@ -365,7 +365,7 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset, isSaving, on
                     onClick={() => handleBackfill(true)}
                     disabled={backfill.isPending}
                   >
-                    {backfill.isPending ? (
+                    {backfill.isPending && backfill.variables === true ? (
                       <>
                         <Loader2 className="me-2 h-3 w-3 animate-spin" />
                         {t('ai.generating')}
