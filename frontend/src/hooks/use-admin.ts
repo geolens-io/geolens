@@ -107,6 +107,32 @@ export function useFailedJobCount() {
   });
 }
 
+// ADM-02: total counts for the Operations sidebar badges (Users, Published
+// Maps, Audit Log). Each reads `.total` off a 1-row list query.
+export function useUserCount() {
+  return useQuery({
+    queryKey: queryKeys.admin.userCount,
+    queryFn: async () => (await listUsers({ skip: 0, limit: 1 })).total,
+    staleTime: 60_000,
+  });
+}
+
+export function usePublishedMapCount() {
+  return useQuery({
+    queryKey: queryKeys.admin.publishedMapCount,
+    queryFn: async () => (await listShareTokens({ skip: 0, limit: 1 })).total,
+    staleTime: 60_000,
+  });
+}
+
+export function useAuditLogCount() {
+  return useQuery({
+    queryKey: queryKeys.admin.auditLogCount,
+    queryFn: async () => (await listAuditLogs({ skip: 0, limit: 1 })).total,
+    staleTime: 60_000,
+  });
+}
+
 export function useRetryAdminJob() {
   const qc = useQueryClient();
   return useMutation({

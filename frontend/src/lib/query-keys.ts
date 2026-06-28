@@ -123,6 +123,9 @@ export const queryKeys = {
     jobs: (params: Record<string, unknown>) => ['admin', 'jobs', params] as const,
     allJobs: ['admin', 'jobs'] as const,
     failedJobCount: ['admin', 'jobs', 'failed-count'] as const,
+    userCount: ['admin', 'users', 'count'] as const,
+    publishedMapCount: ['admin', 'share-tokens', 'count'] as const,
+    auditLogCount: ['admin', 'audit-logs', 'count'] as const,
     aiStatus: ['admin', 'ai-status'] as const,
     shareTokens: (skip: number, limit: number, search?: string, status?: string) =>
       ['admin', 'share-tokens', skip, limit, search, status] as const,

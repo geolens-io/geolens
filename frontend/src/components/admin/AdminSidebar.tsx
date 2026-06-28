@@ -32,7 +32,12 @@ import {
   ArrowLeft,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
-import { usePendingCount, useFailedJobCount } from '@/hooks/use-admin';
+import {
+  useFailedJobCount,
+  useUserCount,
+  usePublishedMapCount,
+  useAuditLogCount,
+} from '@/hooks/use-admin';
 import { useEdition } from '@/hooks/use-edition';
 import { useEnterpriseOnlyTabs } from '@/hooks/use-settings';
 
@@ -44,15 +49,15 @@ type OperationItem = {
   labelKey: string;
   to: string;
   icon: LucideIcon;
-  badgeKey?: 'pending' | 'failed';
+  badgeKey?: 'users' | 'failed' | 'audit' | 'sharedMaps';
   enterpriseOnly?: boolean;
 };
 
 const operationsItems: readonly OperationItem[] = [
-  { labelKey: 'adminNav.users', to: '/admin/users', icon: Users, badgeKey: 'pending' },
+  { labelKey: 'adminNav.users', to: '/admin/users', icon: Users, badgeKey: 'users' },
   { labelKey: 'adminNav.jobs', to: '/admin/jobs', icon: Briefcase, badgeKey: 'failed' },
-  { labelKey: 'adminNav.auditLog', to: '/admin/audit', icon: ScrollText },
-  { labelKey: 'adminNav.sharedMaps', to: '/admin/shared-maps', icon: Link2 },
+  { labelKey: 'adminNav.auditLog', to: '/admin/audit', icon: ScrollText, badgeKey: 'audit' },
+  { labelKey: 'adminNav.sharedMaps', to: '/admin/shared-maps', icon: Link2, badgeKey: 'sharedMaps' },
   { labelKey: 'adminNav.saml', to: '/admin/saml', icon: Lock, enterpriseOnly: true },
 ];
 
@@ -97,16 +102,18 @@ const settingsItemsBase: readonly SettingsNavBaseItem[] = [
  * Admin section navigation sidebar.
  *
  * Renders the admin navigation tree (Overview, Users, Jobs, Audit, Shared Maps,
- * Settings sub-tabs, Config Ops) with active-route highlighting, badge counts
- * for pending users and failed jobs (live via `usePendingCount` /
- * `useFailedJobCount`), and visibility filtering for `enterpriseOnly` items
+ * Settings sub-tabs, Config Ops) with active-route highlighting, total count
+ * badges for Users / Published Maps / Audit Log plus a failed-jobs badge
+ * (each capped at 999+), and visibility filtering for `enterpriseOnly` items
  * via the `useEdition` hook.
  */
 export function AdminSidebar() {
   const { pathname } = useLocation();
   const { t } = useTranslation();
-  const { data: pendingCount } = usePendingCount();
+  const { data: userCount } = useUserCount();
   const { data: failedJobCount } = useFailedJobCount();
+  const { data: auditLogCount } = useAuditLogCount();
+  const { data: publishedMapCount } = usePublishedMapCount();
   const { isEnterprise } = useEdition();
   const { data: enterpriseTabsData } = useEnterpriseOnlyTabs();
 
@@ -127,9 +134,14 @@ export function AdminSidebar() {
   const visibleOperationsItems = operationsItems.filter(item => !item.enterpriseOnly || isEnterprise);
 
   const badgeCounts: Record<string, number | undefined> = {
-    pending: pendingCount,
+    users: userCount,
     failed: failedJobCount,
+    audit: auditLogCount,
+    sharedMaps: publishedMapCount,
   };
+
+  // ADM-02: cap large counts at 999+ in the small sidebar badge.
+  const capBadge = (n: number) => (n > 999 ? '999+' : String(n));
 
   return (
     <Sidebar collapsible="icon" variant="sidebar" side="left">
@@ -179,7 +191,7 @@ export function AdminSidebar() {
                       </NavLink>
                     </SidebarMenuButton>
                     {count !== undefined && count > 0 && (
-                      <SidebarMenuBadge>{count}</SidebarMenuBadge>
+                      <SidebarMenuBadge>{capBadge(count)}</SidebarMenuBadge>
                     )}
                   </SidebarMenuItem>
                 );

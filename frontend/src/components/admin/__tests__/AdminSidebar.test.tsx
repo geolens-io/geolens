@@ -4,9 +4,13 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { SidebarProvider } from '@/components/ui/sidebar';
 import { AdminSidebar } from '../AdminSidebar';
 
+const counts = vi.hoisted(() => ({ users: 0, failed: 0, audit: 0, published: 0 }));
+
 vi.mock('@/hooks/use-admin', () => ({
-  usePendingCount: () => ({ data: 0 }),
-  useFailedJobCount: () => ({ data: 0 }),
+  useUserCount: () => ({ data: counts.users }),
+  useFailedJobCount: () => ({ data: counts.failed }),
+  useAuditLogCount: () => ({ data: counts.audit }),
+  usePublishedMapCount: () => ({ data: counts.published }),
 }));
 
 // Default: community edition. Individual tests can override per-call via
@@ -64,6 +68,13 @@ vi.mock('react-i18next', () => ({
     },
   }),
 }));
+
+beforeEach(() => {
+  counts.users = 0;
+  counts.failed = 0;
+  counts.audit = 0;
+  counts.published = 0;
+});
 
 // SidebarProvider uses useIsMobile which calls window.matchMedia
 beforeAll(() => {
@@ -147,6 +158,17 @@ describe('AdminSidebar', () => {
     renderSidebar();
     const link = screen.getByText('Back to App').closest('a');
     expect(link).toHaveAttribute('href', '/');
+  });
+
+  it('shows total count badges and caps large counts at 999+ (ADM-02)', () => {
+    counts.users = 62;
+    counts.audit = 1500;
+    counts.published = 10;
+    counts.failed = 0; // hidden when 0
+    renderSidebar();
+    expect(screen.getByText('62')).toBeInTheDocument();
+    expect(screen.getByText('999+')).toBeInTheDocument();
+    expect(screen.getByText('10')).toBeInTheDocument();
   });
 });
 
