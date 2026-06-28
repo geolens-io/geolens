@@ -1015,13 +1015,11 @@ export function MapBuilderPage() {
     handleSelectLayer('basemap-group');
   }, [handleSelectLayer]);
 
-  // Terrain is layer-owned: the map-level terrain source is active only while
-  // the bound DEM layer is in Terrain render mode.
-  // Resolve the bound terrain DEM the SAME way the map renderer does
-  // (BuilderMap FIX-3-RESOLVER D-06): by source_dataset_id + isTerrainCapableDemLayer,
-  // NOT by render_mode === 'terrain'. A hillshade-mode DEM drives the 3D mesh
-  // too, so requiring terrain mode here made the settings report "No terrain
-  // layer is active" while the map was actively rendering terrain from it.
+  // Resolve the bound terrain DEM the SAME way the map renderer (BuilderMap)
+  // does: by source_dataset_id + isTerrainCapableDemLayer, NOT by
+  // render_mode === 'terrain'. A hillshade-mode DEM drives the 3D mesh too, so
+  // requiring terrain mode here made the settings report "No terrain layer is
+  // active" while the map was actively rendering terrain from it.
   const boundTerrainLayer = useMemo(
     () => resolveTerrainSourceLayer(layers.localLayers, layers.localTerrainConfig),
     [layers.localLayers, layers.localTerrainConfig],

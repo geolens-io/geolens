@@ -227,7 +227,7 @@ export function isTerrainCapableDemLayer(layer: {
 
 /**
  * Resolve the DEM layer that backs `terrain_config`, the SINGLE way both the map
- * renderer (BuilderMap, FIX-3-RESOLVER D-06) and the settings status
+ * renderer (BuilderMap) and the settings status
  * (MapBuilderPage `isTerrainActive`) must agree on: match the source dataset and
  * be terrain-capable, regardless of render_mode (a hillshade-mode DEM drives the
  * 3D mesh too). Sharing this prevents the two from drifting — which is exactly
