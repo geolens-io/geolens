@@ -2,8 +2,10 @@ import { describe, it, expect } from 'vitest';
 import {
   getDataDrivenColumnsForLayer,
   getDataDrivenColumnsForSource,
+  toSyncInput,
   type SyncLayerInput,
 } from '@/components/builder/map-sync';
+import type { MapLayerResponse } from '@/types/api';
 
 describe('getDataDrivenColumnsForLayer', () => {
   it('extracts the categorical / graduated column from style_config', () => {
@@ -152,6 +154,54 @@ describe('getDataDrivenColumnsForLayer', () => {
     });
     expect(cols.sort()).toEqual(['pop_est', 'region']);
   });
+
+  // #350: popup custom visible_fields + title-template placeholders must be
+  // requested via cols= or they get stripped at z<10 and the popup shows
+  // "No attributes" despite being configured.
+  it('extracts popup_config.visible_fields (custom selection)', () => {
+    const cols = getDataDrivenColumnsForLayer({
+      style_config: null,
+      paint: {},
+      popup_config: { enabled: true, expression: null, visible_fields: ['pop2025', 'label'] },
+    });
+    expect(cols.sort()).toEqual(['label', 'pop2025']);
+  });
+
+  it('extracts {placeholder} columns from popup_config.expression', () => {
+    const cols = getDataDrivenColumnsForLayer({
+      style_config: null,
+      paint: {},
+      popup_config: { enabled: true, expression: '{city}, {state}', visible_fields: null },
+    });
+    expect(cols.sort()).toEqual(['city', 'state']);
+  });
+
+  it('unions popup columns with paint columns and dedupes', () => {
+    const cols = getDataDrivenColumnsForLayer({
+      style_config: { mode: 'graduated', column: 'pop2025', ramp: 'YlOrRd', breaks: [] },
+      paint: {},
+      popup_config: { enabled: true, expression: '{name}', visible_fields: ['pop2025'] },
+    });
+    expect(cols.sort()).toEqual(['name', 'pop2025']);
+  });
+
+  it('ignores popup columns when the popup is disabled', () => {
+    const cols = getDataDrivenColumnsForLayer({
+      style_config: null,
+      paint: {},
+      popup_config: { enabled: false, expression: '{city}', visible_fields: ['pop2025'] },
+    });
+    expect(cols).toEqual([]);
+  });
+
+  it('contributes nothing when visible_fields is null (show-all mode) and no expression', () => {
+    const cols = getDataDrivenColumnsForLayer({
+      style_config: null,
+      paint: {},
+      popup_config: { enabled: true, expression: null, visible_fields: null },
+    });
+    expect(cols).toEqual([]);
+  });
 });
 
 describe('getDataDrivenColumnsForSource', () => {
@@ -161,6 +211,7 @@ describe('getDataDrivenColumnsForSource', () => {
     style_config: SyncLayerInput['style_config'] = null,
     paint: SyncLayerInput['paint'] = {},
     label_config: SyncLayerInput['label_config'] = null,
+    popup_config: SyncLayerInput['popup_config'] = null,
   ): SyncLayerInput {
     return {
       id,
@@ -174,6 +225,7 @@ describe('getDataDrivenColumnsForSource', () => {
       filter: null,
       style_config,
       label_config,
+      popup_config,
     };
   }
 
@@ -210,6 +262,37 @@ describe('getDataDrivenColumnsForSource', () => {
     expect(cols).toEqual([]);
   });
 
+  // #350: popup columns must flow through the source-union path too — this
+  // is the BuilderMap path that produces the cols= set for the shared MVT source.
+  it('unions popup_config columns from layers sharing a deduped source', () => {
+    const layers: SyncLayerInput[] = [
+      makeLayer(
+        'l1',
+        'cities',
+        null,
+        {},
+        null,
+        { enabled: true, expression: '{city}, {state}', visible_fields: ['pop2025', 'label'] },
+      ),
+      makeLayer('l2', 'cities', null, {}, null, null),
+    ];
+    const cols = getDataDrivenColumnsForSource('source-data-cities', layers);
+    expect(cols.sort()).toEqual(['city', 'label', 'pop2025', 'state']);
+  });
+
+  it('dedupes a popup field that also drives styling on a sibling layer', () => {
+    const layers: SyncLayerInput[] = [
+      makeLayer('l1', 'cities', { mode: 'graduated', column: 'pop2025', ramp: 'YlOrRd', breaks: [] }),
+      makeLayer('l2', 'cities', null, {}, null, {
+        enabled: true,
+        expression: null,
+        visible_fields: ['pop2025', 'label'],
+      }),
+    ];
+    const cols = getDataDrivenColumnsForSource('source-data-cities', layers);
+    expect(cols.sort()).toEqual(['label', 'pop2025']);
+  });
+
   it('ignores layers using a different source even on the same table (cluster)', () => {
     // A cluster layer takes a per-layer source-id; even at the same table_name,
     // it does NOT share `source-data-{table}` with non-cluster layers.
@@ -223,5 +306,42 @@ describe('getDataDrivenColumnsForSource', () => {
     ];
     const cols = getDataDrivenColumnsForSource('source-data-countries', layers);
     expect(cols).toEqual(['economy']);
+  });
+});
+
+// #350: the builder→cols path relies on popup_config surviving the
+// MapLayerResponse → SyncLayerInput conversion. A silent drop here would
+// resurrect the "No attributes" bug, so pin the copy with a test.
+describe('toSyncInput popup_config preservation', () => {
+  it('carries popup_config through the conversion', () => {
+    const popup = { enabled: true, expression: '{city}', visible_fields: ['pop2025'] };
+    const layer = {
+      id: 'l1',
+      dataset_id: 'ds-1',
+      dataset_table_name: 'cities',
+      dataset_geometry_type: 'MultiPoint',
+      opacity: 1,
+      visible: true,
+      paint: {},
+      layout: {},
+      filter: null,
+      popup_config: popup,
+    } as unknown as MapLayerResponse;
+    expect(toSyncInput(layer).popup_config).toEqual(popup);
+  });
+
+  it('defaults popup_config to null when absent', () => {
+    const layer = {
+      id: 'l1',
+      dataset_id: 'ds-1',
+      dataset_table_name: 'cities',
+      dataset_geometry_type: 'MultiPoint',
+      opacity: 1,
+      visible: true,
+      paint: {},
+      layout: {},
+      filter: null,
+    } as unknown as MapLayerResponse;
+    expect(toSyncInput(layer).popup_config).toBeNull();
   });
 });

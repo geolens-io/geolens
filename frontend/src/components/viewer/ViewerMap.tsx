@@ -79,8 +79,9 @@ interface ViewerMapProps {
 /** ID prefix used for viewer map layers — keeps IDs distinct from builder. */
 const VIEWER_PREFIX = 'viewer-';
 
-/** Convert a SharedLayerResponse to the normalized SyncLayerInput. */
-function toViewerSyncInput(
+/** Convert a SharedLayerResponse to the normalized SyncLayerInput.
+ *  Exported for unit testing (popup_config preservation, #350). */
+export function toViewerSyncInput(
   layer: SharedLayerResponse,
   layerKey: string,
   visibleLayers: Set<string>,
@@ -96,6 +97,10 @@ function toViewerSyncInput(
     filter: layer.filter ?? null,
     label_config: layer.label_config,
     style_config: layer.style_config,
+    // Carry popup_config so the INITIAL source build (syncMapComposition) requests
+    // popup visible_fields / title-template cols=. Without this a viewer opened at
+    // z<10 strips those fields until a later token-refresh rebuilds the URL (#350).
+    popup_config: layer.popup_config,
     is_dem: layer.is_dem,
     dataset_id: layer.dataset_id,
     is_3d: layer.is_3d,
@@ -690,6 +695,7 @@ export const ViewerMap = memo(function ViewerMap({
               style_config: layer.style_config ?? null,
               paint: (layer.paint as Record<string, unknown> | undefined) ?? {},
               label_config: layer.label_config ?? null,
+              popup_config: layer.popup_config ?? null,
             });
         const newUrl = strategy.kind === 'server-tile'
           ? buildClusterTileUrl(layer.table_name, token, tileBaseUrl, undefined, {
