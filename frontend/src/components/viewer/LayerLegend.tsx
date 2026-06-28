@@ -19,6 +19,7 @@ import { createViewerLayerEntries } from '@/components/viewer/layer-identity';
 import {
   deriveTerrainLegendEntry,
   isDemTerrainVisualSuppressed,
+  terrainSourceIsShownAsLayer,
 } from '@/components/builder/terrain-legend';
 import { getClusterSourceStrategy, isClusterRenderMode } from '@/components/builder/cluster-source';
 
@@ -211,10 +212,21 @@ export function LayerLegend({
   // D-01: single synthetic "3D terrain" entry driven by terrain_config — only
   // when a backing terrain-capable DEM layer for the source dataset is present
   // (999.17 MD-01: no phantom entry for a dangling terrain_config).
-  const terrainEntry = useMemo(
-    () => deriveTerrainLegendEntry(terrainConfig, layers, { labelKey: 'viewer.legend.terrain3d' }),
-    [terrainConfig, layers],
-  );
+  const terrainEntry = useMemo(() => {
+    const entry = deriveTerrainLegendEntry(terrainConfig, layers, { labelKey: 'viewer.legend.terrain3d' });
+    // Dedup: drop the synthetic entry when the terrain source DEM is shown as a
+    // VISIBLE per-layer entry (e.g. a visible hillshade of the same dataset), so
+    // the legend doesn't list one DEM twice. The viewer keeps toggled-off layers
+    // in `sorted` (visibility lives in `visibleLayers`, not the list), but 3D
+    // terrain stays active from terrain_config regardless of that toggle — so we
+    // must dedup against currently-visible entries only, else toggling the
+    // hillshade off would hide BOTH it and the synthetic row, leaving active 3D
+    // terrain unrepresented. Kept for the pure-terrain / hidden-source case.
+    const visibleSourceLayers = sorted.filter((s) => visibleLayers.has(s.key)).map((s) => s.layer);
+    return entry && !terrainSourceIsShownAsLayer(terrainConfig, visibleSourceLayers)
+      ? entry
+      : null;
+  }, [terrainConfig, layers, sorted, visibleLayers]);
 
   // Dismiss on Escape
   useEffect(() => {

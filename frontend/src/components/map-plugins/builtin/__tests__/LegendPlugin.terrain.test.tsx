@@ -151,6 +151,45 @@ describe('LegendPlugin terrain consistency (Fix 1)', () => {
     expect(screen.getByText('Hillshade relief')).toBeInTheDocument();
   });
 
+  // Dedup: when the terrain SOURCE dataset is itself shown as a visible hillshade
+  // entry (same dataset_id as terrain_config.source_dataset_id, e.g. the
+  // Matterhorn swissALTI3D map), the synthetic "3D terrain" entry would list one
+  // DEM twice. Suppress it; the hillshade entry stands in.
+  it('drops the synthetic entry when the source DEM is shown as a visible hillshade layer', () => {
+    const ctx = createCtx({
+      layers: [
+        layer({
+          id: 'dem-hillshade',
+          display_name: 'swissALTI3D relief',
+          dataset_id: 'dem-1', // SAME dataset as activeTerrain.source_dataset_id
+          dataset_record_type: 'raster_dataset',
+          is_dem: true,
+          style_config: demHillshadeStyle,
+        }),
+      ],
+      terrainConfig: activeTerrain,
+    });
+    render(<LegendPlugin ctx={ctx} />);
+
+    expect(screen.getByText('swissALTI3D relief')).toBeInTheDocument();
+    expect(screen.queryByTestId('legend-terrain-synthetic')).not.toBeInTheDocument();
+    expect(screen.queryByText('3D terrain')).not.toBeInTheDocument();
+  });
+
+  // In the builder, BuilderMap clears terrain when the bound DEM is HIDDEN
+  // (effectiveTerrainEnabled = enabled && demLayerVisible). The synthetic entry
+  // must track that — no mesh rendered, no "3D terrain" row.
+  it('drops the synthetic entry when the bound terrain DEM is hidden (no mesh rendered)', () => {
+    const ctx = createCtx({
+      layers: [backingDemLayer({ visible: false })],
+      terrainConfig: activeTerrain,
+    });
+    render(<LegendPlugin ctx={ctx} />);
+
+    expect(screen.queryByTestId('legend-terrain-synthetic')).not.toBeInTheDocument();
+    expect(screen.queryByText('3D terrain')).not.toBeInTheDocument();
+  });
+
   it('leaves non-DEM layers unaffected when terrain is inactive (regression)', () => {
     const ctx = createCtx({
       layers: [

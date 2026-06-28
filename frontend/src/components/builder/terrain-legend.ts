@@ -68,3 +68,20 @@ export function deriveTerrainLegendEntry(
     labelKey: opts.labelKey,
   };
 }
+
+/**
+ * True when the terrain source dataset is already represented by one of the
+ * surface's per-layer legend entries — so the synthetic "3D terrain" entry would
+ * duplicate it. Callers pass THEIR OWN shown-entry list (each surface filters
+ * differently: LegendPlugin drops hidden layers, LayerLegend keeps them as
+ * toggles), so the dedup is correct per surface. When the source DEM has no
+ * shown entry (pure terrain render_mode → suppressed, or hidden), this returns
+ * false and the synthetic entry remains the only terrain indicator.
+ */
+export function terrainSourceIsShownAsLayer(
+  terrainConfig: MapTerrainConfig | null | undefined,
+  shownLayers: readonly { dataset_id?: string | null }[],
+): boolean {
+  const src = terrainConfig?.enabled === true ? terrainConfig.source_dataset_id : null;
+  return !!src && shownLayers.some((l) => l.dataset_id === src);
+}
