@@ -128,7 +128,7 @@ describe('cluster adapter — getLayerIds returns [clusterCircle, clusterCount, 
   });
 });
 
-describe('cluster adapter — BLDR-02 cluster color ramp (point_count step)', () => {
+describe('cluster adapter — #347 (BLDR-02) cluster color ramp (point_count step)', () => {
   it('clusterColorValue returns a flat color when ramp has fewer than 2 stops', () => {
     expect(clusterColorValue(undefined, '#abcdef')).toBe('#abcdef');
     expect(clusterColorValue([], '#abcdef')).toBe('#abcdef');

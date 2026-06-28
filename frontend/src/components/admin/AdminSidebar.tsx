@@ -140,7 +140,7 @@ export function AdminSidebar() {
     sharedMaps: publishedMapCount,
   };
 
-  // ADM-02: cap large counts at 999+ in the small sidebar badge.
+  // #347 (ADM-02): cap large counts at 999+ in the small sidebar badge.
   const capBadge = (n: number) => (n > 999 ? '999+' : String(n));
 
   return (

@@ -3407,7 +3407,7 @@ class TestAdminShareTokenListing:
     async def test_admin_published_map_without_share_token_appears(
         self, client: AsyncClient, admin_auth_header: dict
     ):
-        """ADM-01: a public map with no share link still appears in the admin
+        """#347 (ADM-01): a public map with no share link still appears in the admin
         Published Maps listing, with null token fields."""
         unique_name = f"NoLinkPublished_{uuid.uuid4().hex[:6]}"
         created = await _create_map(client, admin_auth_header, name=unique_name)

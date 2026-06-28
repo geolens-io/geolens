@@ -5,7 +5,7 @@
  * - The language select is queryable by its accessible name via the shared
  *   FieldLabel primitive. Removing the FieldLabel + id binding fails this test.
  *
- * UX-01 (v1049): the theme toggle was removed from Settings (it now lives only
+ * #347 (UX-01) (v1049): the theme toggle was removed from Settings (it now lives only
  * in the navbar user dropdown), so the former aria-pressed assertion is gone.
  */
 import { render, screen } from '@/test/test-utils';

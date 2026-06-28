@@ -79,7 +79,7 @@ export function SettingsPage() {
                 ) : usage ? (
                   <p className="text-xs text-muted-foreground">{t('settings.storage.unlimited')}</p>
                 ) : null}
-                {/* ADM-06: file storage only meters uploaded file bytes, so a
+                {/* #347 (ADM-06): file storage only meters uploaded file bytes, so a
                     vector-only account reads 0 B despite having datasets. */}
                 {usage && usage.bytes_used === 0 && usage.dataset_count > 0 && (
                   <p className="text-xs text-muted-foreground">{t('settings.storage.fileStorageNote')}</p>
@@ -106,7 +106,7 @@ export function SettingsPage() {
                 ) : usage ? (
                   <p className="text-xs text-muted-foreground">{t('settings.storage.unlimited')}</p>
                 ) : null}
-                {/* ADM-06: the dataset cap is enforced at upload only, so an
+                {/* #347 (ADM-06): the dataset cap is enforced at upload only, so an
                     account can sit above a later-lowered cap (e.g. 18 / 10).
                     Label it instead of letting it read as a broken counter. */}
                 {usage && usage.count_cap > 0 && usage.dataset_count > usage.count_cap && (

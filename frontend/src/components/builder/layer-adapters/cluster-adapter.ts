@@ -69,7 +69,7 @@ function numericBuilderValue(value: unknown, fallback: number, min: number, max:
     : fallback;
 }
 
-// BLDR-02: build the cluster circle-color value. With a 2+ stop ramp (sorted
+// #347 (BLDR-02): build the cluster circle-color value. With a 2+ stop ramp (sorted
 // ascending by point_count) emit a MapLibre `step` expression — parity with the
 // MapLibre "create and style clusters" example. Otherwise fall back to the flat
 // color so existing single-color clusters are unchanged. Step inputs must be

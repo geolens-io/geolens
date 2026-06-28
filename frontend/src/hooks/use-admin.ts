@@ -108,7 +108,7 @@ export function useFailedJobCount() {
   });
 }
 
-// ADM-02: total counts for the Operations sidebar badges (Users, Published
+// #347 (ADM-02): total counts for the Operations sidebar badges (Users, Published
 // Maps, Audit Log). Each reads `.total` off a 1-row list query.
 export function useUserCount() {
   return useQuery({
@@ -174,7 +174,7 @@ export function useDeactivateUser() {
   return useMutation({
     mutationFn: (userId: string) => deactivateUser(userId),
     onSuccess: () => { qc.invalidateQueries({ queryKey: queryKeys.admin.allUsers }); },
-    // ADM-04: surface the backend reason (e.g. "Cannot deactivate the last
+    // #347 (ADM-04): surface the backend reason (e.g. "Cannot deactivate the last
     // admin user" / "Cannot deactivate your own account") instead of a generic
     // "Failed to deactivate user". ApiError.message is the translated detail.
     onError: (err) => {

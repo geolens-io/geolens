@@ -1,7 +1,7 @@
 import { render } from '@/test/test-utils';
 import { SettingsAITab } from '../SettingsAITab';
 
-// ADM-05 regression: the Embedding Coverage box has two buttons ("Generate
+// #347 (ADM-05) regression: the Embedding Coverage box has two buttons ("Generate
 // Missing" + "Regenerate All") backed by one backfill mutation. Each spinner
 // must key off backfill.variables (false = missing, true = regenerate) so only
 // the clicked button spins — previously both keyed off backfill.isPending and
@@ -44,7 +44,7 @@ function renderTab() {
   );
 }
 
-describe('SettingsAITab — embedding coverage single spinner (ADM-05)', () => {
+describe('SettingsAITab — embedding coverage single spinner (#347 (ADM-05))', () => {
   it('shows exactly one spinner — only Regenerate All — while regenerating', () => {
     hoisted.backfill = { mutate: vi.fn(), isPending: true, variables: true };
     const { container } = renderTab();

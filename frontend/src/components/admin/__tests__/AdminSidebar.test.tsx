@@ -160,7 +160,7 @@ describe('AdminSidebar', () => {
     expect(link).toHaveAttribute('href', '/');
   });
 
-  it('shows total count badges and caps large counts at 999+ (ADM-02)', () => {
+  it('shows total count badges and caps large counts at 999+ (#347 (ADM-02))', () => {
     counts.users = 62;
     counts.audit = 1500;
     counts.published = 10;

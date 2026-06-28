@@ -47,7 +47,7 @@ const PAGE_SIZE = 50;
 type EmbedTokenStatus = 'active' | 'expiring_soon' | 'expired' | 'revoked';
 
 function getShareStatus(token: AdminShareTokenResponse): 'active' | 'revoked' | 'expired' | 'none' {
-  // ADM-01: a published map may have no share link at all.
+  // #347 (ADM-01): a published map may have no share link at all.
   if (!token.id) return 'none';
   if (!token.is_active) return 'revoked';
   if (token.expires_at && new Date(token.expires_at) < new Date()) return 'expired';
@@ -322,7 +322,7 @@ export function AdminSharedMapsPage() {
               ) : (
                 tokens.map((token) => {
                   const s = getShareStatus(token);
-                  // ADM-01: expansion is keyed on map_id (always present, one
+                  // #347 (ADM-01): expansion is keyed on map_id (always present, one
                   // row per map) — token.id is now nullable for unshared maps.
                   const isExpanded = expandedId === token.map_id;
                   return (

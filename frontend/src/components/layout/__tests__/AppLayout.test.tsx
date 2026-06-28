@@ -109,7 +109,7 @@ describe('AppLayout', () => {
     expect(screen.getByRole('contentinfo')).toBeInTheDocument();
   });
 
-  it('clips the shell to the viewport and gives main min-h-0 on authenticated map routes (BLDR-01)', () => {
+  it('clips the shell to the viewport and gives main min-h-0 on authenticated map routes (#347 (BLDR-01))', () => {
     useAuthStore.setState({
       token: 'token',
       refreshToken: null,

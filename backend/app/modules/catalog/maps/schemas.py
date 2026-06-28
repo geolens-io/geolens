@@ -1154,7 +1154,7 @@ class OgImageUploadRequest(BaseModel):
 
 
 class AdminShareTokenResponse(BaseModel):
-    # ADM-01: the admin "Published Maps" listing includes public maps that have
+    # #347 (ADM-01): the admin "Published Maps" listing includes public maps that have
     # no share link, so the token-specific fields are nullable. `created_at` is
     # the map's creation time (always present).
     id: uuid.UUID | None = None

@@ -429,7 +429,7 @@ async def list_share_tokens(
     """List published (``visibility='public'``) maps with their latest share-link
     status and active embed-token count for the admin "Published Maps" view.
 
-    ADM-01: every public map appears whether or not it has a share link — the
+    #347 (ADM-01): every public map appears whether or not it has a share link — the
     listing is keyed on ``Map`` (not ``MapShareToken``), LEFT JOINed to the most
     recent share token per map (preferring an active one). Maps without a link
     carry null ``id``/``token``/``is_active``. ``created_at``/``created_by`` are

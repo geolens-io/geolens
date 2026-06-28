@@ -150,7 +150,7 @@ async def test_last_admin_demote_is_rejected(client, test_db_session):
 
 
 # ---------------------------------------------------------------------------
-# ADM-04: deactivate guards return a SPECIFIC reason (surfaced in the admin
+# #347 (ADM-04): deactivate guards return a SPECIFIC reason (surfaced in the admin
 # toast). Locks the exact detail strings so the frontend keeps a meaningful
 # message instead of a generic "Failed to deactivate user".
 # ---------------------------------------------------------------------------
