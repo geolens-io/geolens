@@ -690,6 +690,7 @@ export const ViewerMap = memo(function ViewerMap({
               style_config: layer.style_config ?? null,
               paint: (layer.paint as Record<string, unknown> | undefined) ?? {},
               label_config: layer.label_config ?? null,
+              popup_config: layer.popup_config ?? null,
             });
         const newUrl = strategy.kind === 'server-tile'
           ? buildClusterTileUrl(layer.table_name, token, tileBaseUrl, undefined, {

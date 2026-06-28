@@ -152,6 +152,54 @@ describe('getDataDrivenColumnsForLayer', () => {
     });
     expect(cols.sort()).toEqual(['pop_est', 'region']);
   });
+
+  // 260628-jjg: popup custom visible_fields + title-template placeholders must be
+  // requested via cols= or they get stripped at z<10 and the popup shows
+  // "No attributes" despite being configured.
+  it('extracts popup_config.visible_fields (custom selection)', () => {
+    const cols = getDataDrivenColumnsForLayer({
+      style_config: null,
+      paint: {},
+      popup_config: { enabled: true, expression: null, visible_fields: ['pop2025', 'label'] },
+    });
+    expect(cols.sort()).toEqual(['label', 'pop2025']);
+  });
+
+  it('extracts {placeholder} columns from popup_config.expression', () => {
+    const cols = getDataDrivenColumnsForLayer({
+      style_config: null,
+      paint: {},
+      popup_config: { enabled: true, expression: '{city}, {state}', visible_fields: null },
+    });
+    expect(cols.sort()).toEqual(['city', 'state']);
+  });
+
+  it('unions popup columns with paint columns and dedupes', () => {
+    const cols = getDataDrivenColumnsForLayer({
+      style_config: { mode: 'graduated', column: 'pop2025', ramp: 'YlOrRd', breaks: [] },
+      paint: {},
+      popup_config: { enabled: true, expression: '{name}', visible_fields: ['pop2025'] },
+    });
+    expect(cols.sort()).toEqual(['name', 'pop2025']);
+  });
+
+  it('ignores popup columns when the popup is disabled', () => {
+    const cols = getDataDrivenColumnsForLayer({
+      style_config: null,
+      paint: {},
+      popup_config: { enabled: false, expression: '{city}', visible_fields: ['pop2025'] },
+    });
+    expect(cols).toEqual([]);
+  });
+
+  it('contributes nothing when visible_fields is null (show-all mode) and no expression', () => {
+    const cols = getDataDrivenColumnsForLayer({
+      style_config: null,
+      paint: {},
+      popup_config: { enabled: true, expression: null, visible_fields: null },
+    });
+    expect(cols).toEqual([]);
+  });
 });
 
 describe('getDataDrivenColumnsForSource', () => {

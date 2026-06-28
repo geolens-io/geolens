@@ -1,7 +1,8 @@
 import type { Map as MaplibreMap, GeoJSONSource, StyleSpecification, VectorSourceSpecification } from 'maplibre-gl';
 import type { FilterSpecification } from 'maplibre-gl';
 import { toast } from 'sonner';
-import type { MapBasemapConfig, MapLayerResponse, LabelConfig, StyleConfig, MapTerrainConfig } from '@/types/api';
+import type { MapBasemapConfig, MapLayerResponse, LabelConfig, StyleConfig, MapTerrainConfig, PopupConfig } from '@/types/api';
+import { extractPlaceholders } from '@/lib/popup-template';
 import type { RasterTileToken, TileToken, VectorTileToken } from '@/api/tiles';
 import i18n from '@/i18n/i18n';
 import { buildClusterTileUrl, buildSignedTileUrl, getMvtSourceLayerName } from '@/lib/tile-utils';
@@ -547,6 +548,9 @@ export interface SourceIdLayer {
  *  - `filter` expressions (builder-audit #338 P1-03) — a filter that references a
  *    column NOT also used by paint/label would otherwise evaluate against
  *    missing properties at z<10, producing empty/inconsistent rendering.
+ *  - `popup_config` (260628-jjg) — custom `visible_fields` and `{placeholder}`
+ *    title-template columns. Without these the popup filters to selected fields
+ *    that were stripped from the tile at z<10 and renders "No attributes".
  */
 export function getDataDrivenColumnsForLayer(
   layer: {
@@ -554,6 +558,7 @@ export function getDataDrivenColumnsForLayer(
     paint?: Record<string, unknown>;
     label_config?: LabelConfig | null;
     filter?: FilterSpecification | unknown[] | null;
+    popup_config?: PopupConfig | null;
   },
 ): string[] {
   const cols = new Set<string>();
@@ -582,6 +587,19 @@ export function getDataDrivenColumnsForLayer(
   }
   for (const val of Object.values(paint)) walk(val);
   if (layer.filter) walk(layer.filter);
+  // Popup columns: the title template's {placeholder} columns and the
+  // custom visible_fields list. Skipped when the popup is explicitly disabled.
+  const popup = layer.popup_config;
+  if (popup && popup.enabled !== false) {
+    if (popup.expression) {
+      for (const c of extractPlaceholders(popup.expression)) cols.add(c);
+    }
+    if (popup.visible_fields) {
+      for (const c of popup.visible_fields) {
+        if (typeof c === 'string' && c) cols.add(c);
+      }
+    }
+  }
   return Array.from(cols);
 }
 
@@ -599,6 +617,7 @@ export function getDataDrivenColumnsForSource(
       paint?: Record<string, unknown>;
       label_config?: LabelConfig | null;
       filter?: FilterSpecification | unknown[] | null;
+      popup_config?: PopupConfig | null;
     };
     for (const c of getDataDrivenColumnsForLayer(layerWithStyle)) cols.add(c);
   }
