@@ -173,6 +173,31 @@ describe('LineEditor', () => {
     expect(screen.queryByRole('group', { name: 'Width mode' })).not.toBeInTheDocument();
   });
 
+  // Bug-bash: a line whose data-driven target is the WIDTH keeps a static color,
+  // so the color controls must stay visible (mirrors CircleEditor + radius).
+  it('keeps line color controls when target=width (only width is data-driven)', () => {
+    const layer = makeLineLayer({
+      paint: { 'line-color': '#ff0000', 'line-width': ['step', ['get', 'traffic'], 1, 10, 4] },
+      style_config: { column: 'traffic', target: 'width', mode: 'graduated' } as MapLayerResponse['style_config'],
+    });
+    render(<LineEditor {...makeProps(layer, { isDataDriven: true, styleConfig: layer.style_config ?? null })} />);
+
+    // LineGradientControls (color) must still render for a width-driven line.
+    expect(screen.getByText('Solid color')).toBeInTheDocument();
+    expect(screen.getByText('Width by')).toBeInTheDocument();
+    expect(screen.queryByText('Styled by')).not.toBeInTheDocument();
+  });
+
+  it('hides line color controls when color itself is the data-driven target', () => {
+    const layer = makeLineLayer({
+      style_config: { column: 'cat', mode: 'categorical' } as MapLayerResponse['style_config'],
+    });
+    render(<LineEditor {...makeProps(layer, { isDataDriven: true, styleConfig: layer.style_config ?? null })} />);
+
+    expect(screen.getByText('Styled by')).toBeInTheDocument();
+    expect(screen.queryByText('Solid color')).not.toBeInTheDocument();
+  });
+
   it('is a named export and a default export from LineEditor.tsx', async () => {
     const { LineEditor: named } = await import('../LineEditor');
     const defaultExport = (await import('../LineEditor')).default;
