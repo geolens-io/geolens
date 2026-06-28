@@ -174,6 +174,9 @@ export interface SyncLayerInput {
   filter: FilterSpecification | null;
   label_config?: LabelConfig | null;
   style_config?: StyleConfig | null;
+  /** Popup config — its visible_fields / title-template columns must be opted
+   *  into the tile `cols=` set or they get stripped at z<10 (260628-jjg). */
+  popup_config?: PopupConfig | null;
   is_dem?: boolean | null;
   is_3d?: boolean | null;
   feature_count?: number | null;
@@ -226,6 +229,7 @@ export function toSyncInput(layer: MapLayerResponse): SyncLayerInput {
     filter: layer.filter,
     label_config: layer.label_config ?? null,
     style_config: layer.style_config ?? null,
+    popup_config: layer.popup_config ?? null,
     is_dem: layer.is_dem,
     is_3d: layer.is_3d,
     feature_count: layer.dataset_feature_count,
