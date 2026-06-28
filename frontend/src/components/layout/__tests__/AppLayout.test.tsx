@@ -109,6 +109,42 @@ describe('AppLayout', () => {
     expect(screen.getByRole('contentinfo')).toBeInTheDocument();
   });
 
+  it('clips the shell to the viewport and gives main min-h-0 on authenticated map routes (BLDR-01)', () => {
+    useAuthStore.setState({
+      token: 'token',
+      refreshToken: null,
+      expiresAt: null,
+      user: {
+        id: 'user-1',
+        username: 'editor',
+        email: 'editor@example.com',
+        is_active: true,
+        status: 'active',
+        last_login_at: null,
+        created_at: '2026-01-01T00:00:00Z',
+        roles: ['editor'],
+      },
+    });
+
+    const { container } = renderAppLayout(['/maps/map-1']);
+    const shell = container.firstElementChild as HTMLElement;
+    expect(shell).toHaveClass('h-dvh');
+    expect(shell).toHaveClass('overflow-hidden');
+    expect(shell).not.toHaveClass('min-h-screen');
+    // min-h-0 breaks the flexbox min-height:auto trap so the editor panel
+    // scrolls internally instead of the whole builder page.
+    expect(screen.getByRole('main')).toHaveClass('min-h-0');
+  });
+
+  it('lets non-map pages grow with min-h-screen (no viewport clip)', () => {
+    const { container } = renderAppLayout(['/']);
+    const shell = container.firstElementChild as HTMLElement;
+    expect(shell).toHaveClass('min-h-screen');
+    expect(shell).not.toHaveClass('h-dvh');
+    expect(shell).not.toHaveClass('overflow-hidden');
+    expect(screen.getByRole('main')).not.toHaveClass('min-h-0');
+  });
+
   it('renders footer links but hides Powered by GeoLens branding in enterprise mode when show_badge is false', () => {
     mockedUseEdition.mockReturnValue({
       edition: 'enterprise',
