@@ -150,6 +150,48 @@ async def test_last_admin_demote_is_rejected(client, test_db_session):
 
 
 # ---------------------------------------------------------------------------
+# ADM-04: deactivate guards return a SPECIFIC reason (surfaced in the admin
+# toast). Locks the exact detail strings so the frontend keeps a meaningful
+# message instead of a generic "Failed to deactivate user".
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_last_admin_deactivate_is_rejected(client, test_db_session):
+    """Deactivating the sole admin raises the specific last-admin guard string."""
+    from app.modules.auth.models import Role
+
+    result = await test_db_session.execute(
+        select(User)
+        .join(UserRole, User.id == UserRole.user_id)
+        .join(Role, UserRole.role_id == Role.id)
+        .where(Role.name == "admin")
+    )
+    admin_users = result.scalars().all()
+    assert admin_users, "No admin user in test DB"
+
+    if len(admin_users) == 1:
+        service = AdminService(test_db_session)
+        await test_db_session.refresh(admin_users[0], attribute_names=["roles"])
+        with pytest.raises(ValueError, match="Cannot deactivate the last admin user"):
+            await service.deactivate_user(admin_users[0].id)
+    else:
+        pytest.skip("Multiple admins in test DB — sole-admin guard not exercisable")
+
+
+@pytest.mark.anyio
+async def test_deactivate_self_is_rejected(client, test_db_session):
+    """Deactivating your own account raises the specific self-guard string."""
+    result = await test_db_session.execute(select(User).limit(1))
+    user = result.scalar_one_or_none()
+    assert user is not None, "No user in test DB"
+
+    service = AdminService(test_db_session)
+    with pytest.raises(ValueError, match="Cannot deactivate your own account"):
+        await service.deactivate_user(user.id, current_user_id=user.id)
+
+
+# ---------------------------------------------------------------------------
 # Invariant 3: OAuth client_secret redaction in audit details
 # ---------------------------------------------------------------------------
 

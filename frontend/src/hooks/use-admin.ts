@@ -28,6 +28,7 @@ import {
 import { toast } from 'sonner';
 import i18n from '@/i18n/i18n';
 import { retryJob } from '@/api/ingest';
+import { ApiError } from '@/api/client';
 import { logger } from '@/lib/logger';
 
 export function useCatalogStats() {
@@ -173,7 +174,12 @@ export function useDeactivateUser() {
   return useMutation({
     mutationFn: (userId: string) => deactivateUser(userId),
     onSuccess: () => { qc.invalidateQueries({ queryKey: queryKeys.admin.allUsers }); },
-    onError: () => { toast.error(i18n.t('admin:users.deactivateDialog.error')); },
+    // ADM-04: surface the backend reason (e.g. "Cannot deactivate the last
+    // admin user" / "Cannot deactivate your own account") instead of a generic
+    // "Failed to deactivate user". ApiError.message is the translated detail.
+    onError: (err) => {
+      toast.error(err instanceof ApiError ? err.message : i18n.t('admin:users.deactivateDialog.error'));
+    },
   });
 }
 
