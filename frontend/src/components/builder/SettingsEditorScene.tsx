@@ -13,7 +13,9 @@ import type { MapTerrainConfig } from '@/types/api';
 export interface SettingsEditorSceneProps {
   // Terrain
   terrainConfig: MapTerrainConfig | null;
-  /** True when at least one DEM layer has render_mode === 'terrain' */
+  /** True when terrain_config is enabled and bound to a visible terrain-capable
+   *  DEM (any render_mode — hillshade DEMs drive the mesh too), matching what the
+   *  map actually renders. */
   isTerrainActive: boolean;
   /** Name of the bound DEM layer (for the "Bound to:" hint) */
   boundLayerName?: string;

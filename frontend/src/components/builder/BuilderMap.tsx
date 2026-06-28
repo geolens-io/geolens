@@ -40,11 +40,11 @@ import {
   getLayerId,
   ensureRasterDemTerrainSource,
   clearTerrainForStyleSwap,
-  isTerrainCapableDemLayer,
   normalizeTerrainExaggeration,
   refreshVectorSourceTiles,
   TERRAIN_SOURCE_ID,
 } from './map-sync';
+import { resolveTerrainSourceLayer } from './map-stack';
 import { getClusterSourceOptions } from './layer-adapters/cluster-adapter';
 import type { AdapterLayerInput } from './layer-adapters/types';
 import { maybeWarnSmallDemCoverage, resetSmallDemWarning } from './terrain-coverage';
@@ -483,10 +483,9 @@ export const BuilderMap = memo(function BuilderMap({
     // This aligns the builder with the proven viewer resolver
     // (viewer/hooks/use-viewer-terrain.ts) so a DEM layer in hillshade mode can
     // still drive the 3D mesh, enabling mesh + visible hillshade on one DEM.
-    const demLayer = currentLayers.find(
-      (layer) => layer.dataset_id === currentTerrainConfig.source_dataset_id
-        && isTerrainCapableDemLayer(layer),
-    );
+    // Shared with MapBuilderPage's isTerrainActive so the rendered state and the
+    // settings status can't drift.
+    const demLayer = resolveTerrainSourceLayer(currentLayers, currentTerrainConfig);
     const token = demLayer ? currentTokenMap.get(demLayer.dataset_id) : null;
     // Honor the layer's visibility eye: treat undefined visible as visible (default-visible semantics).
     const demLayerVisible = demLayer?.visible !== false;

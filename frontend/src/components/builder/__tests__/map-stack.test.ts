@@ -4,6 +4,7 @@ import {
   buildMapStack,
   computeDisambiguationLabels,
   flattenMapStack,
+  resolveTerrainSourceLayer,
   type MapStackGroup,
   type MapStackMapInput,
 } from '../map-stack';
@@ -437,5 +438,27 @@ describe('computeDisambiguationLabels', () => {
     ]);
     expect(labels.get('route')).toBeNull();
     expect(labels.get('casing')).toBeNull();
+  });
+});
+
+describe('resolveTerrainSourceLayer', () => {
+  const dem = (overrides = {}) =>
+    makeLayer({ id: 'dem', dataset_id: 'dem-1', is_dem: true, dataset_record_type: 'raster_dataset', ...overrides });
+
+  it('resolves a hillshade-mode DEM as the terrain source (render_mode-agnostic)', () => {
+    const layer = dem({ style_config: { render_mode: 'hillshade' } as unknown as StyleConfig });
+    expect(resolveTerrainSourceLayer([layer], { source_dataset_id: 'dem-1' })?.id).toBe('dem');
+  });
+
+  it('resolves a terrain-mode DEM source too', () => {
+    const layer = dem({ style_config: { render_mode: 'terrain' } as unknown as StyleConfig });
+    expect(resolveTerrainSourceLayer([layer], { source_dataset_id: 'dem-1' })?.id).toBe('dem');
+  });
+
+  it('returns undefined when no terrain-capable DEM matches the source dataset', () => {
+    const vector = makeLayer({ id: 'roads', dataset_id: 'dem-1', is_dem: false });
+    expect(resolveTerrainSourceLayer([vector], { source_dataset_id: 'dem-1' })).toBeUndefined();
+    expect(resolveTerrainSourceLayer([dem()], { source_dataset_id: 'other' })).toBeUndefined();
+    expect(resolveTerrainSourceLayer([dem()], null)).toBeUndefined();
   });
 });

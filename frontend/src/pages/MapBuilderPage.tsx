@@ -79,6 +79,7 @@ import { useFilteredFeatureCount } from '@/components/builder/hooks/use-filtered
 import { useBuilderLayers } from '@/components/builder/hooks/use-builder-layers';
 import { useBuilderSave } from '@/components/builder/hooks/use-builder-save';
 import { TERRAIN_SOURCE_ID, normalizeTerrainExaggeration, isHillshadeTerrainBound, isDemTerrainVisualSuppressed } from '@/components/builder/map-sync';
+import { resolveTerrainSourceLayer } from '@/components/builder/map-stack';
 import {
   createBuilderBasemapState,
   removeBasemap as removeBasemapFromState,
@@ -1016,14 +1017,20 @@ export function MapBuilderPage() {
 
   // Terrain is layer-owned: the map-level terrain source is active only while
   // the bound DEM layer is in Terrain render mode.
-  const boundTerrainLayer = useMemo(() => {
-    if (!layers.localTerrainConfig?.source_dataset_id) return undefined;
-    return layers.localLayers.find(
-      (l) => l.dataset_id === layers.localTerrainConfig?.source_dataset_id
-        && (l.style_config as { render_mode?: unknown } | null | undefined)?.render_mode === 'terrain',
-    );
-  }, [layers.localLayers, layers.localTerrainConfig]);
-  const isTerrainActive = Boolean(layers.localTerrainConfig?.enabled && boundTerrainLayer);
+  // Resolve the bound terrain DEM the SAME way the map renderer does
+  // (BuilderMap FIX-3-RESOLVER D-06): by source_dataset_id + isTerrainCapableDemLayer,
+  // NOT by render_mode === 'terrain'. A hillshade-mode DEM drives the 3D mesh
+  // too, so requiring terrain mode here made the settings report "No terrain
+  // layer is active" while the map was actively rendering terrain from it.
+  const boundTerrainLayer = useMemo(
+    () => resolveTerrainSourceLayer(layers.localLayers, layers.localTerrainConfig),
+    [layers.localLayers, layers.localTerrainConfig],
+  );
+  // Match the map's effectiveTerrainEnabled: terrain only renders when the bound
+  // DEM is also visible (BuilderMap sets terrain to null for a hidden DEM).
+  const isTerrainActive = Boolean(
+    layers.localTerrainConfig?.enabled && boundTerrainLayer && boundTerrainLayer.visible !== false,
+  );
   const boundLayerName = boundTerrainLayer
     ? (boundTerrainLayer.display_name ?? boundTerrainLayer.dataset_name ?? undefined)
     : undefined;
