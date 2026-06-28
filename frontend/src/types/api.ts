@@ -870,6 +870,15 @@ export interface BuilderStyleConfig {
   clusterTextColor?: string;
   /** Cluster count label text size for point cluster render mode. */
   clusterTextSize?: number;
+  /**
+   * Optional cluster color ramp keyed on point_count (cluster render mode).
+   * With 2+ stops the cluster circle is colored by a MapLibre `step` expression
+   * on point_count (parity with the MapLibre "create and style clusters"
+   * example); an empty/absent ramp falls back to the flat clusterColor. Stops
+   * are sorted ascending by count — the lowest is the base color, subsequent
+   * counts are the step thresholds.
+   */
+  clusterColorRamp?: Array<{ count: number; color: string }>;
   symbol?: SymbolStyleConfig;
   /** Phase 256 — line-gradient builder intent. Stops authored in the UI; serialized
    *  to a canonical interpolate-linear-line-progress expression for paint['line-gradient'].

@@ -69,6 +69,35 @@ function numericBuilderValue(value: unknown, fallback: number, min: number, max:
     : fallback;
 }
 
+// BLDR-02: build the cluster circle-color value. With a 2+ stop ramp (sorted
+// ascending by point_count) emit a MapLibre `step` expression — parity with the
+// MapLibre "create and style clusters" example. Otherwise fall back to the flat
+// color so existing single-color clusters are unchanged. Step inputs must be
+// strictly ascending and > 0, so duplicate/out-of-order thresholds are dropped.
+export function clusterColorValue(ramp: unknown, flatColor: string): unknown {
+  if (!Array.isArray(ramp)) return flatColor;
+  const stops = ramp
+    .filter(
+      (s): s is { count: number; color: string } =>
+        !!s &&
+        typeof s.count === 'number' &&
+        Number.isFinite(s.count) &&
+        typeof s.color === 'string',
+    )
+    .sort((a, b) => a.count - b.count);
+  if (stops.length < 2) return flatColor;
+  const expr: unknown[] = ['step', ['get', 'point_count'], stops[0].color];
+  let lastCount = 0;
+  for (let i = 1; i < stops.length; i++) {
+    const count = stops[i].count;
+    if (count <= lastCount) continue; // step inputs must be strictly ascending & > 0
+    expr.push(count, stops[i].color);
+    lastCount = count;
+  }
+  // need a base plus at least one threshold (length > 3) to be a valid ramp
+  return expr.length > 3 ? expr : flatColor;
+}
+
 function sourceLayerSpec(input: AdapterLayerInput) {
   return input.sourceType === 'geojson' ? {} : { 'source-layer': input.sourceLayer };
 }
@@ -89,11 +118,12 @@ function clusterStyle(input: AdapterLayerInput) {
   const clusterColor = typeof builder.clusterColor === 'string'
     ? builder.clusterColor
     : pointColor;
+  const circleColor = clusterColorValue(builder.clusterColorRamp, clusterColor);
   const textColor = typeof builder.clusterTextColor === 'string'
     ? builder.clusterTextColor
     : '#ffffff';
   const textSize = numericBuilderValue(builder.clusterTextSize, 12, 8, 24);
-  return { clusterColor, textColor, textSize };
+  return { clusterColor, circleColor, textColor, textSize };
 }
 
 function unclusteredPointPaint(input: AdapterLayerInput) {
@@ -108,10 +138,10 @@ function unclusteredPointPaint(input: AdapterLayerInput) {
 // sync-time paths, so the step bucket thresholds (100/750) and stroke/text styling
 // can no longer drift between first render and a subsequent sync.
 function clusterCirclePaint(input: AdapterLayerInput): Record<string, unknown> {
-  const { clusterColor } = clusterStyle(input);
+  const { circleColor } = clusterStyle(input);
   const opacity = input.opacity ?? 1;
   return {
-    'circle-color': clusterColor,
+    'circle-color': circleColor,
     'circle-radius': ['step', ['get', 'point_count'], 16, 100, 21, 750, 27],
     'circle-opacity': opacity,
     'circle-stroke-color': '#ffffff',

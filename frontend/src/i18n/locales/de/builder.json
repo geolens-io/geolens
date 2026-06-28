@@ -261,7 +261,12 @@
       "maxZoom": "Max. Cluster-Zoom",
       "color": "Cluster-Farbe",
       "countColor": "Zählerfarbe",
-      "countSize": "Zählergröße"
+      "countSize": "Zählergröße",
+      "colorByCount": "Nach Clustergröße einfärben",
+      "baseColor": "Grundfarbe",
+      "atCount": "Ab Anzahl",
+      "addStop": "Farbstufe hinzufügen",
+      "removeStop": "Farbstufe entfernen"
     },
     "raster": {
       "title": "Raster",

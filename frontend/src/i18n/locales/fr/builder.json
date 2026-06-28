@@ -261,7 +261,12 @@
       "maxZoom": "Zoom max d'agrégat",
       "color": "Couleur d'agrégat",
       "countColor": "Couleur du nombre",
-      "countSize": "Taille du nombre"
+      "countSize": "Taille du nombre",
+      "colorByCount": "Colorer par taille de cluster",
+      "baseColor": "Couleur de base",
+      "atCount": "À partir du nombre",
+      "addStop": "Ajouter un palier de couleur",
+      "removeStop": "Supprimer le palier de couleur"
     },
     "raster": {
       "title": "Raster",

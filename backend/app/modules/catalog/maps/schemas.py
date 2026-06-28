@@ -88,6 +88,7 @@ _BUILDER_CAMEL_TO_SNAKE_KEYS = {
     "clusterColor": "cluster_color",
     "clusterTextColor": "cluster_text_color",
     "clusterTextSize": "cluster_text_size",
+    "clusterColorRamp": "cluster_color_ramp",
     "folderGroupId": "folder_group_id",
     "folderGroupName": "folder_group_name",
     "folderGroupExpanded": "folder_group_expanded",
