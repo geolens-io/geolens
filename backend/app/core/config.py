@@ -109,6 +109,11 @@ class Settings(BaseSettings):
 
     openai_api_key: SecretStr | None = None
     openai_model: str = "gpt-4o"
+    # Light model for SQL generation / metadata (cheaper, high-volume). When unset,
+    # the light model defaults to openai_model so it always points at a model the
+    # provider actually serves — important for Azure OpenAI / gateways where the
+    # model name must match a real deployment (a hardcoded default 404s there).
+    openai_model_light: str | None = None
     openai_base_url: str | None = None
 
     embedding_model: str = "text-embedding-3-small"
@@ -229,6 +234,7 @@ class Settings(BaseSettings):
     @field_validator(
         "anthropic_api_key",
         "openai_api_key",
+        "openai_model_light",
         "openai_base_url",
         "embedding_base_url",
         "redis_url",
