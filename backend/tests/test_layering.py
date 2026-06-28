@@ -782,7 +782,11 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # Phase 1176 SEC-024: +20 lines for _redact_terrain_config (strip the
         # private DEM source_dataset_id from shared/public map responses when the
         # DEM is not a visible layer). Cap raised 600 → 625 (~5 LOC headroom).
-        "backend/app/modules/catalog/maps/service_public.py": 625,
+        # #347 (ADM-01): +24 lines — the admin "Published Maps" listing re-keys
+        # on Map (visibility=public) LEFT JOINed to the latest share token per
+        # map (DISTINCT ON) so every published map appears, not just shared ones.
+        # Cap raised 625 → 660 (~11 LOC headroom).
+        "backend/app/modules/catalog/maps/service_public.py": 660,
         "backend/app/modules/catalog/search/service_records.py": 500,
         # Phase 269 H-05: dataset-domain modules over the 350 default at audit
         # time. Caps set ~20-30 LOC above current size to allow modest growth
