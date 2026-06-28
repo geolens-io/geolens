@@ -164,7 +164,9 @@
       "description": "Ihre Dateispeicher- und Datensatznutzung",
       "storageUsed": "Dateispeicher",
       "datasetsUsed": "Datensätze",
-      "unlimited": "Unbegrenzt"
+      "unlimited": "Unbegrenzt",
+      "overLimit": "Über dem Limit",
+      "fileStorageNote": "Zählt nur die Größe hochgeladener Dateien"
     }
   },
   "footer": {

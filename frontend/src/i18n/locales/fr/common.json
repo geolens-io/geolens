@@ -164,7 +164,9 @@
       "description": "Votre utilisation du stockage de fichiers et des jeux de données",
       "storageUsed": "Stockage de fichiers",
       "datasetsUsed": "Jeux de données",
-      "unlimited": "Illimité"
+      "unlimited": "Illimité",
+      "overLimit": "Au-dessus de la limite",
+      "fileStorageNote": "Compte uniquement la taille des fichiers téléversés"
     }
   },
   "footer": {
