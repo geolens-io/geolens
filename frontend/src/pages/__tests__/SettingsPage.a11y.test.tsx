@@ -1,12 +1,12 @@
 /**
- * GLUX-014 / GLUX-002 (Phase 1248): regression gate for the SettingsPage
- * control semantics.
+ * GLUX-002 (Phase 1248): regression gate for the SettingsPage control semantics.
  *
  * Asserts:
- * - The selected theme toggle button conveys state via aria-pressed, not color
- *   alone. Reverting the aria-pressed attribute fails this test.
  * - The language select is queryable by its accessible name via the shared
  *   FieldLabel primitive. Removing the FieldLabel + id binding fails this test.
+ *
+ * UX-01 (v1049): the theme toggle was removed from Settings (it now lives only
+ * in the navbar user dropdown), so the former aria-pressed assertion is gone.
  */
 import { render, screen } from '@/test/test-utils';
 import { vi } from 'vitest';
@@ -25,12 +25,6 @@ vi.mock('@/i18n', () => ({ changeAppLanguage: vi.fn() }));
 vi.mock('@/i18n/config', () => ({
   fallbackLng: 'en',
   languageOptions: [{ value: 'en', label: 'English' }],
-}));
-
-// ── mock useTheme — theme set to 'dark' for assertions ───────────────────────
-const mockSetTheme = vi.fn();
-vi.mock('@/components/theme-provider', () => ({
-  useTheme: () => ({ theme: 'dark', setTheme: mockSetTheme, resolvedTheme: 'dark' }),
 }));
 
 // ── mock auth ────────────────────────────────────────────────────────────────
@@ -57,21 +51,7 @@ vi.mock('@/components/settings/MyApiKeySection', () => ({
   MyApiKeySection: () => null,
 }));
 
-describe('GLUX-014 / GLUX-002: SettingsPage control semantics', () => {
-  it('selected theme button has aria-pressed=true; unselected buttons have aria-pressed=false', () => {
-    render(<SettingsPage />);
-
-    // useTheme is mocked to return theme='dark'; the dark button is selected
-    const darkButton = screen.getByRole('button', { name: 'theme.dark' });
-    expect(darkButton).toHaveAttribute('aria-pressed', 'true');
-
-    const lightButton = screen.getByRole('button', { name: 'theme.light' });
-    expect(lightButton).toHaveAttribute('aria-pressed', 'false');
-
-    const systemButton = screen.getByRole('button', { name: 'theme.system' });
-    expect(systemButton).toHaveAttribute('aria-pressed', 'false');
-  });
-
+describe('GLUX-002: SettingsPage control semantics', () => {
   it('language select is queryable by its accessible name via FieldLabel (GLUX-002)', () => {
     render(<SettingsPage />);
 

@@ -1,5 +1,4 @@
 import { useTranslation } from 'react-i18next';
-import { Sun, Moon, Monitor } from 'lucide-react';
 import { PageShell } from '@/components/layout/PageShell';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -9,21 +8,15 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { FieldLabel } from '@/components/ui/field-label';
 import { MyApiKeySection } from '@/components/settings/MyApiKeySection';
 import { useAuth } from '@/hooks/use-auth';
-import { useTheme } from '@/components/theme-provider';
 import { changeAppLanguage } from '@/i18n';
 import { fallbackLng, languageOptions } from '@/i18n/config';
-import { cn } from '@/lib/utils';
 import { useDocumentTitle } from '@/hooks/use-document-title';
 import { useMyUsage } from '@/hooks/use-quota';
 import { formatBytes, formatNumber } from '@/lib/format';
 
-const themes = ['light', 'dark', 'system'] as const;
-const themeIcons = { light: Sun, dark: Moon, system: Monitor } as const;
-
 export function SettingsPage() {
   const { t, i18n } = useTranslation();
   const { user } = useAuth();
-  const { theme, setTheme } = useTheme();
   const { data: usage } = useMyUsage();
   useDocumentTitle(t('common:pageTitle.settings'));
 
@@ -123,36 +116,6 @@ export function SettingsPage() {
             </CardContent>
           </Card>
 
-          {/* Appearance */}
-          <Card className="border border-border">
-            <CardHeader>
-              <CardTitle>{t('settings.appearance.title')}</CardTitle>
-              <CardDescription>{t('settings.appearance.description')}</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="flex gap-2">
-                {themes.map((themeOption) => {
-                  const Icon = themeIcons[themeOption];
-                  return (
-                    <button
-                      key={themeOption}
-                      onClick={() => setTheme(themeOption)}
-                      aria-pressed={theme === themeOption}
-                      className={cn(
-                        'flex items-center gap-2 rounded-md border px-4 py-2 text-sm font-medium transition-colors',
-                        theme === themeOption
-                          ? 'border-primary bg-primary/10 text-foreground'
-                          : 'border-border text-muted-foreground hover:bg-accent hover:text-accent-foreground',
-                      )}
-                    >
-                      <Icon className="h-4 w-4" />
-                      {t(`theme.${themeOption}`)}
-                    </button>
-                  );
-                })}
-              </div>
-            </CardContent>
-          </Card>
 
           {/* Language */}
           <Card className="border border-border">
