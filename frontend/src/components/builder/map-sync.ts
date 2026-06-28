@@ -175,7 +175,7 @@ export interface SyncLayerInput {
   label_config?: LabelConfig | null;
   style_config?: StyleConfig | null;
   /** Popup config — its visible_fields / title-template columns must be opted
-   *  into the tile `cols=` set or they get stripped at z<10 (260628-jjg). */
+   *  into the tile `cols=` set or they get stripped at z<10 (#350). */
   popup_config?: PopupConfig | null;
   is_dem?: boolean | null;
   is_3d?: boolean | null;
@@ -552,7 +552,7 @@ export interface SourceIdLayer {
  *  - `filter` expressions (builder-audit #338 P1-03) — a filter that references a
  *    column NOT also used by paint/label would otherwise evaluate against
  *    missing properties at z<10, producing empty/inconsistent rendering.
- *  - `popup_config` (260628-jjg) — custom `visible_fields` and `{placeholder}`
+ *  - `popup_config` (#350) — custom `visible_fields` and `{placeholder}`
  *    title-template columns. Without these the popup filters to selected fields
  *    that were stripped from the tile at z<10 and renders "No attributes".
  */

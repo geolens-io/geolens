@@ -155,7 +155,7 @@ describe('getDataDrivenColumnsForLayer', () => {
     expect(cols.sort()).toEqual(['pop_est', 'region']);
   });
 
-  // 260628-jjg: popup custom visible_fields + title-template placeholders must be
+  // #350: popup custom visible_fields + title-template placeholders must be
   // requested via cols= or they get stripped at z<10 and the popup shows
   // "No attributes" despite being configured.
   it('extracts popup_config.visible_fields (custom selection)', () => {
@@ -262,7 +262,7 @@ describe('getDataDrivenColumnsForSource', () => {
     expect(cols).toEqual([]);
   });
 
-  // 260628-jjg: popup columns must flow through the source-union path too — this
+  // #350: popup columns must flow through the source-union path too — this
   // is the BuilderMap path that produces the cols= set for the shared MVT source.
   it('unions popup_config columns from layers sharing a deduped source', () => {
     const layers: SyncLayerInput[] = [
@@ -309,7 +309,7 @@ describe('getDataDrivenColumnsForSource', () => {
   });
 });
 
-// 260628-jjg: the builder→cols path relies on popup_config surviving the
+// #350: the builder→cols path relies on popup_config surviving the
 // MapLayerResponse → SyncLayerInput conversion. A silent drop here would
 // resurrect the "No attributes" bug, so pin the copy with a test.
 describe('toSyncInput popup_config preservation', () => {
