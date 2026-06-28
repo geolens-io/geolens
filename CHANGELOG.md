@@ -7,6 +7,8 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+## [1.4.1] - 2026-06-28
+
 ### Changed
 
 - **Automated database backups now run by default.** The `backup` service
@@ -21,9 +23,22 @@ and releases use semantic versioning.
   a map's data (counts, statistics, spatial analysis). Using the AI to *edit* a
   map remains limited to the owner, and AI-suggested changes still only persist
   when the owner saves the map.
+- **Custom share-link expiration is an advanced (Enterprise) sharing control.**
+  The backend now enforces the same edition gate the UI already applied; basic
+  Community share/revoke is unchanged.
+- **Vector tiles send an ETag.** Re-uploaded datasets now refresh in the map
+  without waiting for the cache TTL to expire.
+- **Editors with AI-chat permission can use builder chat.** Non-admin users
+  granted `use_ai_chat` can now open the Map Builder AI assistant when AI is
+  configured.
 
 ### Added
 
+- **Color map clusters by size.** Clustered point layers in the Map Builder can
+  now be colored by cluster size (point count) via a configurable step ramp —
+  toggle "Color by cluster size" in the cluster style controls and tune the
+  per-tier breakpoints. Default breakpoints are tuned to be visible on typical
+  datasets.
 - **Standalone `geolens-backup` image.** A multi-arch (amd64 + arm64)
   `geolens-backup` image is now published to GHCR alongside the api, worker, and
   frontend images, so prebuilt installs run backups without a local build.
@@ -64,17 +79,13 @@ and releases use semantic versioning.
 - **AI chat undo no longer reverts an unrelated edit.** Clicking Undo on a chat
   query answer can no longer roll back an earlier style change from a previous
   turn.
-
-### Changed
-
-- **Custom share-link expiration is an advanced (Enterprise) sharing control.**
-  The backend now enforces the same edition gate the UI already applied; basic
-  Community share/revoke is unchanged.
-- **Vector tiles send an ETag.** Re-uploaded datasets now refresh in the map
-  without waiting for the cache TTL to expire.
-- **Editors with AI-chat permission can use builder chat.** Non-admin users
-  granted `use_ai_chat` can now open the Map Builder AI assistant when AI is
-  configured.
+- **Map builder, admin console, and search polish.** The builder's layer editor
+  panel no longer scrolls the whole page; the admin "Published Maps" page now
+  lists published maps (it previously always read as empty) and the admin sidebar
+  shows live counts; per-user storage usage is reported honestly against the
+  configured quota; deactivating a user now surfaces the specific server message;
+  the catalog search box reads "Search the catalog"; and the light/dark theme
+  toggle now lives only in the top-bar menu.
 
 ## [1.4.0] - 2026-06-20
 
