@@ -33,7 +33,7 @@ export function AppLayout() {
   const showFooterBranding = !isEnterprise || branding?.show_badge !== false;
 
   return (
-    <div className="flex min-h-screen flex-col">
+    <div className={cn('flex flex-col', isAuthenticatedMapRoute ? 'h-dvh overflow-hidden' : 'min-h-screen')}>
       <SkipToContent />
       <Navbar />
       <DemoBanner />
@@ -47,7 +47,14 @@ export function AppLayout() {
         // isMapRoute retained for any map-specific tweaks.
         // scroll-mt clears the now-sticky navbar when the skip-link scrolls
         // #main-content into view, so the heading isn't hidden under it (#305).
-        className={cn('flex flex-1 flex-col scroll-mt-16 animate-fade-in focus:outline-none', isMapRoute && 'flex-col')}
+        // min-h-0 on authenticated map routes fixes the flexbox min-height:auto
+        // trap so the builder's editor panel scrolls internally instead of the
+        // whole builder page scrolling when an editor bar expands (#347 (BLDR-01)).
+        className={cn(
+          'flex flex-1 flex-col scroll-mt-16 animate-fade-in focus:outline-none',
+          isMapRoute && 'flex-col',
+          isAuthenticatedMapRoute && 'min-h-0',
+        )}
       >
         <Outlet />
       </main>

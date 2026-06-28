@@ -88,6 +88,7 @@ _BUILDER_CAMEL_TO_SNAKE_KEYS = {
     "clusterColor": "cluster_color",
     "clusterTextColor": "cluster_text_color",
     "clusterTextSize": "cluster_text_size",
+    "clusterColorRamp": "cluster_color_ramp",
     "folderGroupId": "folder_group_id",
     "folderGroupName": "folder_group_name",
     "folderGroupExpanded": "folder_group_expanded",
@@ -1153,12 +1154,15 @@ class OgImageUploadRequest(BaseModel):
 
 
 class AdminShareTokenResponse(BaseModel):
-    id: uuid.UUID
+    # #347 (ADM-01): the admin "Published Maps" listing includes public maps that have
+    # no share link, so the token-specific fields are nullable. `created_at` is
+    # the map's creation time (always present).
+    id: uuid.UUID | None = None
     map_id: uuid.UUID
     map_name: str
-    token: str
-    is_active: bool
-    expires_at: datetime | None
+    token: str | None = None
+    is_active: bool | None = None
+    expires_at: datetime | None = None
     created_at: datetime
     created_by: str | None
     embed_token_count: int = 0

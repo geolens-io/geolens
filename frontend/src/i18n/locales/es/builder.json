@@ -261,7 +261,12 @@
       "maxZoom": "Zoom máximo de agrupación",
       "color": "Color de agrupación",
       "countColor": "Color del conteo",
-      "countSize": "Tamaño del conteo"
+      "countSize": "Tamaño del conteo",
+      "colorByCount": "Colorear por tamaño de clúster",
+      "baseColor": "Color base",
+      "atCount": "Desde recuento",
+      "addStop": "Añadir parada de color",
+      "removeStop": "Quitar parada de color"
     },
     "raster": {
       "title": "Ráster",

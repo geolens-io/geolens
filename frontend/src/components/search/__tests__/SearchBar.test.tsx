@@ -22,14 +22,14 @@ describe('SearchBar', () => {
   it('renders input with placeholder', () => {
     render(<SearchBar />);
 
-    expect(screen.getByPlaceholderText(/search geospatial/i)).toBeInTheDocument();
+    expect(screen.getByPlaceholderText(/search the catalog/i)).toBeInTheDocument();
   });
 
   it('accepts typed input', async () => {
     const user = userEvent.setup();
     render(<SearchBar />);
 
-    const input = screen.getByPlaceholderText(/search geospatial/i);
+    const input = screen.getByPlaceholderText(/search the catalog/i);
     await user.type(input, 'parks');
 
     expect(input).toHaveValue('parks');
@@ -39,7 +39,7 @@ describe('SearchBar', () => {
     const user = userEvent.setup();
     render(<SearchBar />);
 
-    const input = screen.getByPlaceholderText(/search geospatial/i);
+    const input = screen.getByPlaceholderText(/search the catalog/i);
     await user.type(input, 'test');
 
     expect(screen.getByRole('button', { name: /clear search/i })).toBeInTheDocument();
@@ -49,7 +49,7 @@ describe('SearchBar', () => {
     const user = userEvent.setup();
     render(<SearchBar />);
 
-    const input = screen.getByPlaceholderText(/search geospatial/i);
+    const input = screen.getByPlaceholderText(/search the catalog/i);
     await user.type(input, 'test');
 
     const clearButton = screen.getByRole('button', { name: /clear search/i });

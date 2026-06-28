@@ -164,7 +164,9 @@
       "description": "Su uso de almacenamiento de archivos y conjuntos de datos",
       "storageUsed": "Almacenamiento de archivos",
       "datasetsUsed": "Conjuntos de datos",
-      "unlimited": "Ilimitado"
+      "unlimited": "Ilimitado",
+      "overLimit": "Por encima del límite",
+      "fileStorageNote": "Solo cuenta el tamaño de los archivos subidos"
     }
   },
   "footer": {

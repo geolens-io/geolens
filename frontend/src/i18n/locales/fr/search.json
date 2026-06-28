@@ -1,7 +1,7 @@
 {
   "title": "Trouver des données géospatiales",
   "subtitle": "Recherchez, prévisualisez et exportez des données géospatiales du catalogue",
-  "placeholder": "Rechercher des jeux de données par nom, description, tags...",
+  "placeholder": "Rechercher dans le catalogue...",
   "updating": "Mise à jour des résultats...",
   "loadingDatasets": "Chargement des jeux de données...",
   "resultCount_one": "{{count}} résultat",

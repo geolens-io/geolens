@@ -128,9 +128,14 @@ class TestPasswordLoginEnabledGate:
                 f"Expected 403 for non-admin with password_login_enabled=false, "
                 f"got {resp.status_code}: {resp.text}"
             )
+            # #347 (SEC-01): pin the EXACT gate message. The reported "bypass" (clicking
+            # the login-page break-glass link) only reveals the form — the server
+            # still rejects a non-admin password login here. Asserting the exact
+            # 403 detail locks the gate so it cannot silently weaken to a vague
+            # message or a 200.
             assert (
-                "SSO provider" in resp.json()["detail"]
-                or "disabled" in resp.json()["detail"]
+                resp.json()["detail"]
+                == "Password login is disabled; sign in with your SSO provider"
             )
         finally:
             await _reset_password_login_enabled(client, admin_auth_header)

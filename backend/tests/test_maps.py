@@ -3404,6 +3404,35 @@ class TestAdminShareTokenListing:
         assert "total" in data
         assert data["total"] >= 1
 
+    async def test_admin_published_map_without_share_token_appears(
+        self, client: AsyncClient, admin_auth_header: dict
+    ):
+        """#347 (ADM-01): a public map with no share link still appears in the admin
+        Published Maps listing, with null token fields."""
+        unique_name = f"NoLinkPublished_{uuid.uuid4().hex[:6]}"
+        created = await _create_map(client, admin_auth_header, name=unique_name)
+        map_id = created["id"]
+        await client.put(
+            f"/maps/{map_id}",
+            json={"visibility": "public"},
+            headers=admin_auth_header,
+        )
+        # Deliberately do NOT create a share token.
+
+        resp = await client.get(
+            f"/admin/share-tokens/?search={unique_name}",
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        rows = [t for t in data["tokens"] if t["map_id"] == map_id]
+        assert len(rows) == 1, "published map without a share link should appear once"
+        row = rows[0]
+        assert row["id"] is None
+        assert row["token"] is None
+        assert row["is_active"] is None
+        assert row["embed_token_count"] == 0
+
     async def test_admin_search_share_tokens(
         self,
         client: AsyncClient,

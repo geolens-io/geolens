@@ -870,6 +870,15 @@ export interface BuilderStyleConfig {
   clusterTextColor?: string;
   /** Cluster count label text size for point cluster render mode. */
   clusterTextSize?: number;
+  /**
+   * Optional cluster color ramp keyed on point_count (cluster render mode).
+   * With 2+ stops the cluster circle is colored by a MapLibre `step` expression
+   * on point_count (parity with the MapLibre "create and style clusters"
+   * example); an empty/absent ramp falls back to the flat clusterColor. Stops
+   * are sorted ascending by count — the lowest is the base color, subsequent
+   * counts are the step thresholds.
+   */
+  clusterColorRamp?: Array<{ count: number; color: string }>;
   symbol?: SymbolStyleConfig;
   /** Phase 256 — line-gradient builder intent. Stops authored in the UI; serialized
    *  to a canonical interpolate-linear-line-progress expression for paint['line-gradient'].
@@ -1481,11 +1490,13 @@ export interface BulkRegisterResponse {
 
 // Admin share tokens
 export interface AdminShareTokenResponse {
-  id: string;
+  // #347 (ADM-01): the admin "Published Maps" listing includes public maps with no
+  // share link, so the token-specific fields are nullable.
+  id: string | null;
   map_id: string;
   map_name: string;
-  token: string;
-  is_active: boolean;
+  token: string | null;
+  is_active: boolean | null;
   expires_at: string | null;
   created_at: string;
   created_by: string | null;

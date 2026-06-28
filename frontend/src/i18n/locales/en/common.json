@@ -244,7 +244,9 @@
       "description": "Your file storage and dataset usage",
       "storageUsed": "File storage",
       "datasetsUsed": "Datasets",
-      "unlimited": "Unlimited"
+      "unlimited": "Unlimited",
+      "overLimit": "Over limit",
+      "fileStorageNote": "Counts uploaded file size only"
     }
   },
   "maps": {

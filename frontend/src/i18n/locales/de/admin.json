@@ -333,6 +333,7 @@
     "active": "Aktiv",
     "expired": "Abgelaufen",
     "revoked": "Widerrufen",
+    "noLink": "Kein Link",
     "never": "Nie",
     "revoke": "Widerrufen",
     "revokeSuccess": "Freigabe-Token widerrufen",

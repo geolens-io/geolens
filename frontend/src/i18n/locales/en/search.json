@@ -1,7 +1,7 @@
 {
   "title": "Find Geospatial Data",
   "subtitle": "Search, preview, and export geospatial data from the catalog",
-  "placeholder": "Search geospatial data...",
+  "placeholder": "Search the catalog...",
   "updating": "Updating results...",
   "loadingDatasets": "Loading datasets...",
   "resultCount_one": "{{count}} result",

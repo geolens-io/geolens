@@ -28,6 +28,7 @@ import {
 import { toast } from 'sonner';
 import i18n from '@/i18n/i18n';
 import { retryJob } from '@/api/ingest';
+import { ApiError } from '@/api/client';
 import { logger } from '@/lib/logger';
 
 export function useCatalogStats() {
@@ -107,6 +108,32 @@ export function useFailedJobCount() {
   });
 }
 
+// #347 (ADM-02): total counts for the Operations sidebar badges (Users, Published
+// Maps, Audit Log). Each reads `.total` off a 1-row list query.
+export function useUserCount() {
+  return useQuery({
+    queryKey: queryKeys.admin.userCount,
+    queryFn: async () => (await listUsers({ skip: 0, limit: 1 })).total,
+    staleTime: 60_000,
+  });
+}
+
+export function usePublishedMapCount() {
+  return useQuery({
+    queryKey: queryKeys.admin.publishedMapCount,
+    queryFn: async () => (await listShareTokens({ skip: 0, limit: 1 })).total,
+    staleTime: 60_000,
+  });
+}
+
+export function useAuditLogCount() {
+  return useQuery({
+    queryKey: queryKeys.admin.auditLogCount,
+    queryFn: async () => (await listAuditLogs({ skip: 0, limit: 1 })).total,
+    staleTime: 60_000,
+  });
+}
+
 export function useRetryAdminJob() {
   const qc = useQueryClient();
   return useMutation({
@@ -147,7 +174,12 @@ export function useDeactivateUser() {
   return useMutation({
     mutationFn: (userId: string) => deactivateUser(userId),
     onSuccess: () => { qc.invalidateQueries({ queryKey: queryKeys.admin.allUsers }); },
-    onError: () => { toast.error(i18n.t('admin:users.deactivateDialog.error')); },
+    // #347 (ADM-04): surface the backend reason (e.g. "Cannot deactivate the last
+    // admin user" / "Cannot deactivate your own account") instead of a generic
+    // "Failed to deactivate user". ApiError.message is the translated detail.
+    onError: (err) => {
+      toast.error(err instanceof ApiError ? err.message : i18n.t('admin:users.deactivateDialog.error'));
+    },
   });
 }
 

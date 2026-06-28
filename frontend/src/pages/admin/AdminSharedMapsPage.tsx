@@ -46,7 +46,9 @@ const PAGE_SIZE = 50;
 
 type EmbedTokenStatus = 'active' | 'expiring_soon' | 'expired' | 'revoked';
 
-function getShareStatus(token: AdminShareTokenResponse): 'active' | 'revoked' | 'expired' {
+function getShareStatus(token: AdminShareTokenResponse): 'active' | 'revoked' | 'expired' | 'none' {
+  // #347 (ADM-01): a published map may have no share link at all.
+  if (!token.id) return 'none';
   if (!token.is_active) return 'revoked';
   if (token.expires_at && new Date(token.expires_at) < new Date()) return 'expired';
   return 'active';
@@ -234,9 +236,10 @@ export function AdminSharedMapsPage() {
   const tokens = data?.tokens ?? [];
   const { totalPages, rangeStart, rangeEnd } = paginationRange(total, page, PAGE_SIZE);
 
-  function shareStatusBadge(s: 'active' | 'revoked' | 'expired') {
+  function shareStatusBadge(s: 'active' | 'revoked' | 'expired' | 'none') {
     if (s === 'active') return <Badge variant="outline" className={semanticBadgeColors.success}>{t('shareTokens.active')}</Badge>;
     if (s === 'expired') return <Badge variant="secondary">{t('shareTokens.expired')}</Badge>;
+    if (s === 'none') return <Badge variant="outline" className="text-muted-foreground">{t('shareTokens.noLink')}</Badge>;
     return <Badge variant="secondary">{t('shareTokens.revoked')}</Badge>;
   }
 
@@ -319,9 +322,11 @@ export function AdminSharedMapsPage() {
               ) : (
                 tokens.map((token) => {
                   const s = getShareStatus(token);
-                  const isExpanded = expandedId === token.id;
+                  // #347 (ADM-01): expansion is keyed on map_id (always present, one
+                  // row per map) — token.id is now nullable for unshared maps.
+                  const isExpanded = expandedId === token.map_id;
                   return (
-                    <Fragment key={token.id}>
+                    <Fragment key={token.map_id}>
                       <TableRow>
                         <TableCell className="w-10">
                           {token.embed_token_count > 0 ? (
@@ -330,11 +335,11 @@ export function AdminSharedMapsPage() {
                               className="text-muted-foreground hover:text-foreground"
                               tabIndex={0}
                               aria-expanded={isExpanded}
-                              onClick={() => setExpandedId(isExpanded ? null : token.id)}
+                              onClick={() => setExpandedId(isExpanded ? null : token.map_id)}
                               onKeyDown={(e) => {
                                 if (e.key === 'Enter' || e.key === ' ') {
                                   e.preventDefault();
-                                  setExpandedId(isExpanded ? null : token.id);
+                                  setExpandedId(isExpanded ? null : token.map_id);
                                 }
                               }}
                               aria-label={t('sharedMaps.embedTokensFor', { map: token.map_name })}
@@ -397,7 +402,7 @@ export function AdminSharedMapsPage() {
                                 </AlertDialogHeader>
                                 <AlertDialogFooter>
                                   <AlertDialogCancel>{t('shareTokens.revokeDialogCancel')}</AlertDialogCancel>
-                                  <AlertDialogAction onClick={() => handleRevoke(token.id)}>
+                                  <AlertDialogAction onClick={() => token.id && handleRevoke(token.id)}>
                                     {t('shareTokens.revokeDialogConfirm')}
                                   </AlertDialogAction>
                                 </AlertDialogFooter>

@@ -1,7 +1,7 @@
 {
   "title": "Geodaten finden",
   "subtitle": "Geodaten aus dem Katalog suchen, ansehen und exportieren",
-  "placeholder": "Datensätze nach Name, Beschreibung, Tags suchen...",
+  "placeholder": "Katalog durchsuchen...",
   "updating": "Ergebnisse werden aktualisiert...",
   "loadingDatasets": "Datensätze werden geladen...",
   "resultCount_one": "{{count}} Ergebnis",

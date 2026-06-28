@@ -8,7 +8,6 @@ import {
   XCircle,
   RefreshCw,
   Shield,
-  Users,
 } from 'lucide-react';
 import { useCatalogStats, useInfrastructure } from '@/hooks/use-admin';
 import { AIStatusCard } from '@/components/admin/AIStatusCard';
@@ -247,7 +246,7 @@ export function StatsOverview() {
       </div>
 
       {/* Breakdown Cards */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <Card>
           <CardHeader>
             <CardTitle className="text-sm font-medium">{t('stats.byGeometryType')}</CardTitle>
@@ -307,45 +306,6 @@ export function StatsOverview() {
                         variant="secondary"
                       >
                         {getVisibilityLabel(t, visibility)}
-                      </Badge>
-                      <span className="font-medium">{count}</span>
-                    </li>
-                  ))}
-              </ul>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-sm font-medium flex items-center gap-2">
-              <Users className="h-4 w-4" />
-              {t('stats.usersByStatus')}
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {Object.keys(data.users_by_status).length === 0 ? (
-              <p className="text-sm text-muted-foreground">{t('stats.noUsers')}</p>
-            ) : (
-              <ul className="space-y-2">
-                {Object.entries(data.users_by_status)
-                  .sort(([, a], [, b]) => b - a)
-                  .map(([userStatus, count]) => (
-                    <li
-                      key={userStatus}
-                      className="flex items-center justify-between text-sm"
-                    >
-                      <Badge
-                        variant="secondary"
-                        className={
-                          userStatus === 'active'
-                            ? semanticBadgeColors.success
-                            : userStatus === 'pending'
-                              ? semanticBadgeColors.warning
-                              : ''
-                        }
-                      >
-                        {userStatus}
                       </Badge>
                       <span className="font-medium">{count}</span>
                     </li>

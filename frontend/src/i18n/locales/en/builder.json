@@ -261,7 +261,12 @@
       "maxZoom": "Max cluster zoom",
       "color": "Cluster color",
       "countColor": "Count color",
-      "countSize": "Count size"
+      "countSize": "Count size",
+      "colorByCount": "Color by cluster size",
+      "baseColor": "Base color",
+      "atCount": "From count",
+      "addStop": "Add color stop",
+      "removeStop": "Remove color stop"
     },
     "raster": {
       "title": "Raster",

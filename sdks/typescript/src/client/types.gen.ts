@@ -367,15 +367,15 @@ export type AdminShareTokenResponse = {
     /**
      * Expires At
      */
-    expires_at: string | null;
+    expires_at?: string | null;
     /**
      * Id
      */
-    id: string;
+    id?: string | null;
     /**
      * Is Active
      */
-    is_active: boolean;
+    is_active?: boolean | null;
     /**
      * Map Id
      */
@@ -387,7 +387,7 @@ export type AdminShareTokenResponse = {
     /**
      * Token
      */
-    token: string;
+    token?: string | null;
 };
 
 /**

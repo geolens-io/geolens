@@ -1,7 +1,21 @@
-import { StyleColorPicker } from '../StyleColorPicker';
+import { Plus, Trash2 } from 'lucide-react';
+import { StyleColorPicker, SwatchColorPopover } from '../StyleColorPicker';
 import { SliderRow } from '../HeatmapStyleControls';
 import { CIRCLE_DEFAULTS } from './utils';
+import { Switch } from '@/components/ui/switch';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import type { BaseStyleEditorProps } from './types';
+
+type ClusterColorStop = { count: number; color: string };
+
+// Default tiers seeded when "color by cluster size" is enabled — mirrors the
+// MapLibre "create and style clusters" example thresholds (100 / 750).
+const DEFAULT_RAMP_TIERS: ClusterColorStop[] = [
+  { count: 100, color: '#f1f075' },
+  { count: 750, color: '#f28cb1' },
+];
 
 export function ClusterEditor({
   paint,
@@ -12,6 +26,35 @@ export function ClusterEditor({
   const clusterColor = builderConfig.clusterColor
     ?? (typeof paint['circle-color'] === 'string' ? paint['circle-color'] as string : CIRCLE_DEFAULTS['circle-color']);
   const clusterTextColor = builderConfig.clusterTextColor ?? '#ffffff';
+
+  const ramp: ClusterColorStop[] = Array.isArray(builderConfig.clusterColorRamp)
+    ? builderConfig.clusterColorRamp
+    : [];
+  // A ramp needs a base + at least one threshold (2+ stops) to color by count;
+  // anything less falls back to the flat clusterColor.
+  const rampActive = ramp.length >= 2;
+
+  // Empty array (not undefined) disables the ramp without relying on builder
+  // field-deletion semantics — the adapter reads length < 2 as "flat color".
+  const setRamp = (next: ClusterColorStop[]) => onBuilderChange({ clusterColorRamp: next });
+
+  const toggleRamp = (on: boolean) => {
+    setRamp(on ? [{ count: 0, color: clusterColor }, ...DEFAULT_RAMP_TIERS] : []);
+  };
+
+  const updateStop = (index: number, patch: Partial<ClusterColorStop>) =>
+    setRamp(ramp.map((stop, i) => (i === index ? { ...stop, ...patch } : stop)));
+
+  const addStop = () => {
+    const last = ramp[ramp.length - 1];
+    setRamp([...ramp, { count: (last?.count ?? 0) + 250, color: clusterColor }]);
+  };
+
+  const removeStop = (index: number) => {
+    const next = ramp.filter((_, i) => i !== index);
+    // Drop below 2 stops → revert to flat color.
+    setRamp(next.length >= 2 ? next : []);
+  };
 
   return (
     <div className="space-y-3">
@@ -33,11 +76,75 @@ export function ClusterEditor({
         format="zoom"
         onChange={(val) => onBuilderChange({ clusterMaxZoom: val })}
       />
-      <StyleColorPicker
-        label={t('style.cluster.color')}
-        color={clusterColor}
-        onChange={(hex) => onBuilderChange({ clusterColor: hex })}
-      />
+
+      <div className="flex items-center justify-between">
+        <Label htmlFor="cluster-color-by-count" className="text-sm font-normal">
+          {t('style.cluster.colorByCount')}
+        </Label>
+        <Switch
+          id="cluster-color-by-count"
+          checked={rampActive}
+          onCheckedChange={toggleRamp}
+        />
+      </div>
+
+      {rampActive ? (
+        <div className="space-y-2">
+          <StyleColorPicker
+            label={t('style.cluster.baseColor')}
+            color={ramp[0].color}
+            onChange={(hex) => updateStop(0, { color: hex })}
+          />
+          {ramp.slice(1).map((stop, i) => {
+            const index = i + 1;
+            return (
+              <div key={index} className="flex items-center gap-2">
+                <span className="text-xs text-muted-foreground w-20">{t('style.cluster.atCount')}</span>
+                <Input
+                  type="number"
+                  min={1}
+                  value={stop.count}
+                  onChange={(e) => updateStop(index, { count: Number(e.target.value) })}
+                  className="h-7 w-20"
+                  aria-label={`${t('style.cluster.atCount')} ${index}`}
+                />
+                <SwatchColorPopover
+                  color={stop.color}
+                  onChange={(hex) => updateStop(index, { color: hex })}
+                  label={`${t('style.cluster.colorByCount')} ${index}`}
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7 ml-auto"
+                  onClick={() => removeStop(index)}
+                  aria-label={t('style.cluster.removeStop')}
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              </div>
+            );
+          })}
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="w-full"
+            onClick={addStop}
+          >
+            <Plus className="mr-1 h-4 w-4" />
+            {t('style.cluster.addStop')}
+          </Button>
+        </div>
+      ) : (
+        <StyleColorPicker
+          label={t('style.cluster.color')}
+          color={clusterColor}
+          onChange={(hex) => onBuilderChange({ clusterColor: hex })}
+        />
+      )}
+
       <StyleColorPicker
         label={t('style.cluster.countColor')}
         color={clusterTextColor}
