@@ -179,6 +179,27 @@ export function useRenderModeLayers({
     }
   }, [mapInstanceRef, t]);
 
+  /** Cluster transitions are handed to the reactive syncMapComposition, but that
+   *  reconciler adds before it removes stale layers and SKIPS adding a layer id
+   *  that already exists (map-sync `if (!map.getLayer(id)) adapter.addLayers`).
+   *  The cluster⇄points transition reuses the layer's MapLibre ids on a DIFFERENT
+   *  source, so the old layer graph must be torn down first or the reconciler
+   *  skips the replacement and then deletes the stale layer → blank until the next
+   *  sync (Codex #351). Remove the layer + every companion id here; source
+   *  create/teardown stays with syncMapComposition's removeStaleSourcesAndLayers. */
+  const removeLayerGraphForReactiveSync = useCallback(function runRemove(layerId: string): void {
+    const map = mapInstanceRef.current;
+    if (!map) return;
+    if (!map.isStyleLoaded()) {
+      map.once('idle', () => runRemove(layerId));
+      return;
+    }
+    const ids = getCompanionLayerIds(layerId);
+    for (const id of [ids.colorRelief, ids.label, ids.arrow, ids.extrusion, ids.outline, ids.clusterCount, ids.cluster, ids.layer]) {
+      if (map.getLayer(id)) map.removeLayer(id);
+    }
+  }, [mapInstanceRef]);
+
   const handleRenderAsChange = useCallback((layerId: string, renderAs: RenderAsId) => {
     const layer = layersRef.current.find((l) => l.id === layerId);
     if (!layer) return;
@@ -208,11 +229,13 @@ export function useRenderModeLayers({
     // with the reactive reconcile ("source ... not found" / "layer ... already
     // exists"). Defer cluster transitions (entering OR leaving) to
     // syncMapComposition in BuilderMap, which rebuilds source + layers atomically.
-    if (!isClusterTransition(layer, updatedLayer)) {
+    if (isClusterTransition(layer, updatedLayer)) {
+      removeLayerGraphForReactiveSync(layerId);
+    } else {
       swapLayerOnMap(updatedLayer, mutation.adapterType, updatedLayer.paint ?? {});
     }
     setHasUnsavedChanges(true);
-  }, [layersRef, setLocalLayers, setHasUnsavedChanges, swapLayerOnMap]);
+  }, [layersRef, setLocalLayers, setHasUnsavedChanges, swapLayerOnMap, removeLayerGraphForReactiveSync]);
 
   const handleRenderModeChange = useCallback((layerId: string, mode: RenderAsId | 'points') => {
     const layer = layersRef.current.find((l) => l.id === layerId);
@@ -269,7 +292,8 @@ export function useRenderModeLayers({
         ),
       );
 
-      if (!leavingCluster) swapLayerOnMap(layer, 'heatmap', updatedPaint);
+      if (leavingCluster) removeLayerGraphForReactiveSync(layerId);
+      else swapLayerOnMap(layer, 'heatmap', updatedPaint);
     } else if (mode === 'symbol') {
       const savedCirclePaint = currentStyleConfig.savedCirclePaint ?? { ...updatedPaint };
       const nextStyleConfig = {
@@ -288,7 +312,8 @@ export function useRenderModeLayers({
         ),
       );
 
-      if (!leavingCluster) swapLayerOnMap({ ...layer, style_config: nextStyleConfig }, 'symbol', updatedPaint);
+      if (leavingCluster) removeLayerGraphForReactiveSync(layerId);
+      else swapLayerOnMap({ ...layer, style_config: nextStyleConfig }, 'symbol', updatedPaint);
     } else {
       const savedHeatmapPaint = { ...updatedPaint };
       const savedCirclePaint = currentStyleConfig.savedCirclePaint ?? {};
@@ -307,11 +332,12 @@ export function useRenderModeLayers({
         ),
       );
 
-      if (!leavingCluster) swapLayerOnMap(layer, 'circle', updatedPaint);
+      if (leavingCluster) removeLayerGraphForReactiveSync(layerId);
+      else swapLayerOnMap(layer, 'circle', updatedPaint);
     }
 
     setHasUnsavedChanges(true);
-  }, [layersRef, setLocalLayers, setHasUnsavedChanges, handleRenderAsChange, swapLayerOnMap]);
+  }, [layersRef, setLocalLayers, setHasUnsavedChanges, handleRenderAsChange, swapLayerOnMap, removeLayerGraphForReactiveSync]);
 
   return {
     swapLayerOnMap,

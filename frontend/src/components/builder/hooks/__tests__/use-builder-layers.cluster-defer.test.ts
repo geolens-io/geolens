@@ -95,8 +95,11 @@ describe('render-mode switch — cluster transitions defer to reactive sync', ()
     });
 
     // The crash was an imperative addLayer against a not-yet-created cluster
-    // source. The reactive sync owns cluster now → no imperative addLayer here.
+    // source. The reactive sync owns the ADD now → no imperative addLayer here…
     expect(mapStub.addLayer).not.toHaveBeenCalled();
+    // …but the old layer graph MUST be torn down first, or the reconciler skips
+    // re-adding the (now cluster) layer because its id still exists (Codex #351).
+    expect(mapStub.removeLayer).toHaveBeenCalledWith(`layer-${LAYER_ID}`);
   });
 
   it('leaving cluster (→ points) also defers — no imperative addLayer', () => {
@@ -114,6 +117,7 @@ describe('render-mode switch — cluster transitions defer to reactive sync', ()
     });
 
     expect(mapStub.addLayer).not.toHaveBeenCalled();
+    expect(mapStub.removeLayer).toHaveBeenCalledWith(`layer-${LAYER_ID}`);
   });
 
   it('control: a same-source swap (heatmap) STILL applies imperatively (addLayer called)', () => {
