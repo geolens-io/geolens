@@ -20,6 +20,7 @@ import {
   isDemTerrainVisualSuppressed,
   terrainSourceIsShownAsLayer,
 } from '@/components/builder/terrain-legend';
+import { resolveTerrainSourceLayer } from '@/components/builder/map-stack';
 import type { PluginContext } from '../types';
 
 /** Extract swatch style properties from layer paint based on geometry type. */
@@ -118,11 +119,23 @@ export function LegendPlugin({ ctx }: { ctx: PluginContext }) {
     () => deriveTerrainLegendEntry(ctx.terrainConfig, ctx.layers, { labelKey: 'plugins.legend.terrain3d' }),
     [ctx.terrainConfig, ctx.layers],
   );
-  // Dedup: drop the synthetic entry when the terrain source DEM is ALSO shown as
-  // a per-layer entry (e.g. a visible hillshade of the same dataset), so the
-  // legend doesn't list one DEM twice. Keeps it for the pure-terrain / hidden
-  // case where the synthetic is the only terrain indicator.
-  const terrainEntry = terrainEntryRaw && !terrainSourceIsShownAsLayer(ctx.terrainConfig, legendLayers)
+  // The synthetic entry must track what the map ACTUALLY renders. In the builder,
+  // BuilderMap clears terrain when the bound DEM is hidden (effectiveTerrainEnabled
+  // = enabled && demLayerVisible), so a hidden source = no mesh = no synthetic row.
+  // Resolve the bound DEM with the SAME shared resolver BuilderMap uses so the two
+  // can't drift. (The viewer differs — useViewerTerrain ignores the toggle — which
+  // is why LayerLegend gates on its own visible set, not this.)
+  const boundTerrainDem = useMemo(
+    () => resolveTerrainSourceLayer(ctx.layers, ctx.terrainConfig),
+    [ctx.layers, ctx.terrainConfig],
+  );
+  // Show the synthetic entry only when terrain is effectively rendering (bound DEM
+  // visible) AND the source DEM isn't ALSO shown as a per-layer entry (e.g. a
+  // visible hillshade of the same dataset would list one DEM twice). Kept for the
+  // pure-terrain case where the suppressed DEM has no per-layer row.
+  const terrainEntry = terrainEntryRaw
+    && boundTerrainDem?.visible !== false
+    && !terrainSourceIsShownAsLayer(ctx.terrainConfig, legendLayers)
     ? terrainEntryRaw
     : null;
 

@@ -176,6 +176,20 @@ describe('LegendPlugin terrain consistency (Fix 1)', () => {
     expect(screen.queryByText('3D terrain')).not.toBeInTheDocument();
   });
 
+  // In the builder, BuilderMap clears terrain when the bound DEM is HIDDEN
+  // (effectiveTerrainEnabled = enabled && demLayerVisible). The synthetic entry
+  // must track that — no mesh rendered, no "3D terrain" row.
+  it('drops the synthetic entry when the bound terrain DEM is hidden (no mesh rendered)', () => {
+    const ctx = createCtx({
+      layers: [backingDemLayer({ visible: false })],
+      terrainConfig: activeTerrain,
+    });
+    render(<LegendPlugin ctx={ctx} />);
+
+    expect(screen.queryByTestId('legend-terrain-synthetic')).not.toBeInTheDocument();
+    expect(screen.queryByText('3D terrain')).not.toBeInTheDocument();
+  });
+
   it('leaves non-DEM layers unaffected when terrain is inactive (regression)', () => {
     const ctx = createCtx({
       layers: [
