@@ -371,8 +371,8 @@ describe('LayerLegend terrain consistency (Fix 1)', () => {
     expect(screen.queryByText('3D terrain')).not.toBeInTheDocument();
   });
 
-  // Codex P2: the viewer keeps toggled-off layers in the list (visibility lives
-  // in visibleLayers, not the list), but 3D terrain stays active from
+  // Regression: the viewer keeps toggled-off layers in the list (visibility
+  // lives in visibleLayers, not the list), but 3D terrain stays active from
   // terrain_config regardless. If the source hillshade is toggled OFF, the
   // synthetic entry must STILL show — otherwise active 3D terrain has no legend
   // representation. So dedup against visible entries only.
