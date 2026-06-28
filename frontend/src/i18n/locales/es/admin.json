@@ -333,6 +333,7 @@
     "active": "Activo",
     "expired": "Caducado",
     "revoked": "Revocado",
+    "noLink": "Sin enlace",
     "never": "Nunca",
     "revoke": "Revocar",
     "revokeSuccess": "Token de compartir revocado",

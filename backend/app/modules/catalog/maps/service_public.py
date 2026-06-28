@@ -426,43 +426,35 @@ async def list_share_tokens(
     search: str | None = None,
     status_filter: str | None = None,
 ) -> tuple[list[dict], int]:
-    """List all share tokens with map names and embed token counts for admin view."""
-    from app.modules.embed_tokens.models import EmbedToken
+    """List published (``visibility='public'``) maps with their latest share-link
+    status and active embed-token count for the admin "Published Maps" view.
 
-    # Build base filter conditions.
-    # Typed as the SQLAlchemy `ColumnElement[bool]` supertype so both
-    # BinaryExpression (`col == val`) and combined OR expressions fit
-    # without per-append type ignores.
+    ADM-01: every public map appears whether or not it has a share link — the
+    listing is keyed on ``Map`` (not ``MapShareToken``), LEFT JOINed to the most
+    recent share token per map (preferring an active one). Maps without a link
+    carry null ``id``/``token``/``is_active``. ``created_at``/``created_by`` are
+    the map's, so the column is meaningful for unshared maps too. The optional
+    status filter narrows to maps whose latest link is active/expired/revoked.
+    """
+    from sqlalchemy.orm import aliased
     from sqlalchemy.sql import ColumnElement
 
-    conditions: list[ColumnElement[bool]] = []
-    if search:
-        # T-2: lower() column + pattern to hit ix_maps_name_trgm (on lower(name)).
-        conditions.append(
-            func.lower(Map.name).like(f"%{escape_ilike(search)}%".lower(), escape="\\")
-        )
-    if status_filter == "active":
-        conditions.append(MapShareToken.is_active.is_(True))
-        conditions.append(
-            or_(
-                MapShareToken.expires_at.is_(None),
-                MapShareToken.expires_at > func.now(),
-            )
-        )
-    elif status_filter == "expired":
-        conditions.append(MapShareToken.is_active.is_(True))
-        conditions.append(MapShareToken.expires_at <= func.now())
-    elif status_filter == "revoked":
-        conditions.append(MapShareToken.is_active.is_(False))
+    from app.modules.embed_tokens.models import EmbedToken
 
-    count_stmt = (
-        select(func.count())
-        .select_from(MapShareToken)
-        .join(Map, MapShareToken.map_id == Map.id)
+    # Most-recent share token per map (DISTINCT ON map_id, preferring an active
+    # token, then newest). map_id has no unique constraint, so a map may have
+    # several historical tokens — collapse to one row per map.
+    latest_token_sub = (
+        select(MapShareToken)
+        .order_by(
+            MapShareToken.map_id,
+            MapShareToken.is_active.desc(),
+            MapShareToken.created_at.desc(),
+        )
+        .distinct(MapShareToken.map_id)
+        .subquery()
     )
-    for cond in conditions:
-        count_stmt = count_stmt.where(cond)
-    total = (await session.execute(count_stmt)).scalar_one()
+    share = aliased(MapShareToken, latest_token_sub)
 
     embed_count_sub = (
         select(
@@ -474,17 +466,52 @@ async def list_share_tokens(
         .subquery()
     )
 
+    # Base conditions scope to published maps; the status filter (when given)
+    # narrows on the joined share-link state.
+    conditions: list[ColumnElement[bool]] = [Map.visibility == "public"]
+    if search:
+        # T-2: lower() column + pattern to hit ix_maps_name_trgm (on lower(name)).
+        conditions.append(
+            func.lower(Map.name).like(f"%{escape_ilike(search)}%".lower(), escape="\\")
+        )
+    if status_filter == "active":
+        conditions.append(share.is_active.is_(True))
+        conditions.append(
+            or_(
+                share.expires_at.is_(None),
+                share.expires_at > func.now(),
+            )
+        )
+    elif status_filter == "expired":
+        conditions.append(share.is_active.is_(True))
+        conditions.append(share.expires_at <= func.now())
+    elif status_filter == "revoked":
+        conditions.append(share.is_active.is_(False))
+
+    count_stmt = (
+        select(func.count()).select_from(Map).outerjoin(share, share.map_id == Map.id)
+    )
+    for cond in conditions:
+        count_stmt = count_stmt.where(cond)
+    total = (await session.execute(count_stmt)).scalar_one()
+
     stmt = (
         select(
-            MapShareToken,
+            share.id.label("token_id"),
+            share.token_hint.label("token_hint"),
+            share.is_active.label("is_active"),
+            share.expires_at.label("expires_at"),
+            Map.id.label("map_id"),
             Map.name.label("map_name"),
+            Map.created_at.label("map_created_at"),
             func.coalesce(embed_count_sub.c.embed_count, 0).label("embed_token_count"),
             User.username.label("creator_username"),
         )
-        .join(Map, MapShareToken.map_id == Map.id)
-        .outerjoin(User, MapShareToken.created_by == User.id)
-        .outerjoin(embed_count_sub, MapShareToken.map_id == embed_count_sub.c.map_id)
-        .order_by(MapShareToken.created_at.desc())
+        .select_from(Map)
+        .outerjoin(share, share.map_id == Map.id)
+        .outerjoin(User, Map.created_by == User.id)
+        .outerjoin(embed_count_sub, embed_count_sub.c.map_id == Map.id)
+        .order_by(Map.created_at.desc())
         .offset(skip)
         .limit(limit)
     )
@@ -494,18 +521,18 @@ async def list_share_tokens(
     rows = result.all()
 
     tokens = []
-    for token_obj, map_name, embed_token_count, creator_username in rows:
+    for row in rows:
         tokens.append(
             {
-                "id": token_obj.id,
-                "map_id": token_obj.map_id,
-                "map_name": map_name,
-                "token": token_obj.token_hint,
-                "is_active": token_obj.is_active,
-                "expires_at": token_obj.expires_at,
-                "created_at": token_obj.created_at,
-                "created_by": creator_username,
-                "embed_token_count": embed_token_count,
+                "id": row.token_id,
+                "map_id": row.map_id,
+                "map_name": row.map_name,
+                "token": row.token_hint,
+                "is_active": row.is_active,
+                "expires_at": row.expires_at,
+                "created_at": row.map_created_at,
+                "created_by": row.creator_username,
+                "embed_token_count": row.embed_token_count,
             }
         )
     return tokens, total

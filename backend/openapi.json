@@ -573,13 +573,27 @@
             "title": "Expires At"
           },
           "id": {
-            "format": "uuid",
-            "title": "Id",
-            "type": "string"
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id"
           },
           "is_active": {
-            "title": "Is Active",
-            "type": "boolean"
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Is Active"
           },
           "map_id": {
             "format": "uuid",
@@ -591,17 +605,20 @@
             "type": "string"
           },
           "token": {
-            "title": "Token",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Token"
           }
         },
         "required": [
-          "id",
           "map_id",
           "map_name",
-          "token",
-          "is_active",
-          "expires_at",
           "created_at",
           "created_by"
         ],

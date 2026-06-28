@@ -1490,11 +1490,13 @@ export interface BulkRegisterResponse {
 
 // Admin share tokens
 export interface AdminShareTokenResponse {
-  id: string;
+  // ADM-01: the admin "Published Maps" listing includes public maps with no
+  // share link, so the token-specific fields are nullable.
+  id: string | null;
   map_id: string;
   map_name: string;
-  token: string;
-  is_active: boolean;
+  token: string | null;
+  is_active: boolean | null;
   expires_at: string | null;
   created_at: string;
   created_by: string | null;

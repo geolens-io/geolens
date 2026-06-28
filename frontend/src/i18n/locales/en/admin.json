@@ -358,6 +358,7 @@
     "active": "Active",
     "expired": "Expired",
     "revoked": "Revoked",
+    "noLink": "No link",
     "never": "Never",
     "revoke": "Revoke",
     "revokeSuccess": "Share token revoked",

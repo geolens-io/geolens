@@ -333,6 +333,7 @@
     "active": "Actif",
     "expired": "Expire",
     "revoked": "Revoque",
+    "noLink": "Aucun lien",
     "never": "Jamais",
     "revoke": "Revoquer",
     "revokeSuccess": "Jeton de partage revoque",
