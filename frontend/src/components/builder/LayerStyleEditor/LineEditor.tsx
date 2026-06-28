@@ -28,20 +28,28 @@ export function LineEditor({
   return (
     <>
       <div className="text-xs font-medium">{t('style.line')}</div>
-      {isDataDriven ? (
+      {/* Line color stays user-settable unless color is the data-driven target.
+          When width is data-driven (target === 'width') the color is still a
+          solid value, so keep the color controls visible (mirrors CircleEditor). */}
+      {isDataDriven && !isWidthDataDriven ? (
         <div className="text-xs text-muted-foreground italic">
-          {layer.style_config?.target === 'width'
-            ? t('style.widthByColumn', { column: layer.style_config?.column })
-            : t('style.styledBy', { column: layer.style_config?.column })}
+          {t('style.styledBy', { column: layer.style_config?.column })}
         </div>
       ) : (
-        <LineGradientControls
-          paint={paint}
-          styleConfig={styleConfig}
-          onPaintProp={onPaintProp}
-          onBuilderChange={onBuilderChange}
-          t={t}
-        />
+        <>
+          {isWidthDataDriven && (
+            <div className="text-xs text-muted-foreground italic">
+              {t('style.widthByColumn', { column: layer.style_config?.column })}
+            </div>
+          )}
+          <LineGradientControls
+            paint={paint}
+            styleConfig={styleConfig}
+            onPaintProp={onPaintProp}
+            onBuilderChange={onBuilderChange}
+            t={t}
+          />
+        </>
       )}
       <ZoomExpressionEditor
         label={t('style.opacity')}

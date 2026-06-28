@@ -18,18 +18,29 @@ export function CircleEditor({
   return (
     <>
       <div className="text-xs font-medium">{t('style.point')}</div>
-      {isDataDriven ? (
+      {/* Fill color is static UNLESS color is the data-driven target. When the
+          graduated/categorical target is the radius (target === 'radius'), the
+          circle-color stays a solid color the user must still be able to set —
+          so only swap the picker for the "styled by" note when color itself is
+          data-driven (target color or, per the undefined===color convention,
+          categorical). */}
+      {isDataDriven && !isRadiusDataDriven ? (
         <div className="text-xs text-muted-foreground italic">
-          {layer.style_config?.target === 'radius'
-            ? t('style.radiusByColumn', { column: layer.style_config?.column })
-            : t('style.styledBy', { column: layer.style_config?.column })}
+          {t('style.styledBy', { column: layer.style_config?.column })}
         </div>
       ) : (
-        <StyleColorPicker
-          label={t('style.color')}
-          color={getPaintValue(paint, 'circle-color', CIRCLE_DEFAULTS['circle-color'])}
-          onChange={(hex) => onPaintProp('circle-color', hex)}
-        />
+        <>
+          {isRadiusDataDriven && (
+            <div className="text-xs text-muted-foreground italic">
+              {t('style.radiusByColumn', { column: layer.style_config?.column })}
+            </div>
+          )}
+          <StyleColorPicker
+            label={t('style.color')}
+            color={getPaintValue(paint, 'circle-color', CIRCLE_DEFAULTS['circle-color'])}
+            onChange={(hex) => onPaintProp('circle-color', hex)}
+          />
+        </>
       )}
       <ZoomExpressionEditor
         label={t('style.opacity')}

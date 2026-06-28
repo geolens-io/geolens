@@ -27,6 +27,20 @@ const DEFAULT_SYMBOL_CONFIG: SymbolStyleConfig = {
   iconOffset: [0, 0],
 };
 
+/** A render-mode change that enters OR leaves cluster mode crosses a source
+ *  boundary — cluster layers get a per-layer GeoJSON/server-tile source while
+ *  every other render mode shares the deduped vector source. The imperative
+ *  swapLayerOnMap assumes a stable source id, so these transitions must be
+ *  handed to the reactive syncMapComposition (BuilderMap) which rebuilds the
+ *  source + layers atomically instead. */
+function isClusterTransition(
+  prev: { style_config?: StyleConfig | null },
+  next: { style_config?: StyleConfig | null },
+): boolean {
+  return prev.style_config?.render_mode === 'cluster'
+    || next.style_config?.render_mode === 'cluster';
+}
+
 // STATE-02: render-mode / layer-swap cluster, relocated verbatim out of the
 // useBuilderLayers god-hook. PURE RELOCATION — handler bodies are unchanged; the
 // shared layers state (layersRef + setters) is threaded in as params.
@@ -165,6 +179,27 @@ export function useRenderModeLayers({
     }
   }, [mapInstanceRef, t]);
 
+  /** Cluster transitions are handed to the reactive syncMapComposition, but that
+   *  reconciler adds before it removes stale layers and SKIPS adding a layer id
+   *  that already exists (map-sync `if (!map.getLayer(id)) adapter.addLayers`).
+   *  The cluster⇄points transition reuses the layer's MapLibre ids on a DIFFERENT
+   *  source, so the old layer graph must be torn down first or the reconciler
+   *  skips the replacement and then deletes the stale layer → blank until the next
+   *  sync (Codex #351). Remove the layer + every companion id here; source
+   *  create/teardown stays with syncMapComposition's removeStaleSourcesAndLayers. */
+  const removeLayerGraphForReactiveSync = useCallback(function runRemove(layerId: string): void {
+    const map = mapInstanceRef.current;
+    if (!map) return;
+    if (!map.isStyleLoaded()) {
+      map.once('idle', () => runRemove(layerId));
+      return;
+    }
+    const ids = getCompanionLayerIds(layerId);
+    for (const id of [ids.colorRelief, ids.label, ids.arrow, ids.extrusion, ids.outline, ids.clusterCount, ids.cluster, ids.layer]) {
+      if (map.getLayer(id)) map.removeLayer(id);
+    }
+  }, [mapInstanceRef]);
+
   const handleRenderAsChange = useCallback((layerId: string, renderAs: RenderAsId) => {
     const layer = layersRef.current.find((l) => l.id === layerId);
     if (!layer) return;
@@ -187,9 +222,20 @@ export function useRenderModeLayers({
     setLocalLayers((prev) =>
       prev.map((candidate) => (candidate.id === layerId ? updatedLayer : candidate)),
     );
-    swapLayerOnMap(updatedLayer, mutation.adapterType, updatedLayer.paint ?? {});
+    // Cluster uses a per-layer GeoJSON/server-tile source whose id differs from
+    // the shared vector source and may not exist yet when switching in. The
+    // imperative same-source swapLayerOnMap cannot bridge that source change — it
+    // would add the cluster layer to a not-yet-created source and then collide
+    // with the reactive reconcile ("source ... not found" / "layer ... already
+    // exists"). Defer cluster transitions (entering OR leaving) to
+    // syncMapComposition in BuilderMap, which rebuilds source + layers atomically.
+    if (isClusterTransition(layer, updatedLayer)) {
+      removeLayerGraphForReactiveSync(layerId);
+    } else {
+      swapLayerOnMap(updatedLayer, mutation.adapterType, updatedLayer.paint ?? {});
+    }
     setHasUnsavedChanges(true);
-  }, [layersRef, setLocalLayers, setHasUnsavedChanges, swapLayerOnMap]);
+  }, [layersRef, setLocalLayers, setHasUnsavedChanges, swapLayerOnMap, removeLayerGraphForReactiveSync]);
 
   const handleRenderModeChange = useCallback((layerId: string, mode: RenderAsId | 'points') => {
     const layer = layersRef.current.find((l) => l.id === layerId);
@@ -218,6 +264,10 @@ export function useRenderModeLayers({
       return;
     }
 
+    // Leaving cluster crosses the per-layer→shared source boundary; defer the
+    // map mutation to the reactive syncMapComposition (see isClusterTransition).
+    const leavingCluster = layer.style_config?.render_mode === 'cluster';
+
     const currentStyleConfig: Partial<StyleConfig> = layer.style_config ?? {};
     let updatedPaint = { ...layer.paint };
 
@@ -242,7 +292,8 @@ export function useRenderModeLayers({
         ),
       );
 
-      swapLayerOnMap(layer, 'heatmap', updatedPaint);
+      if (leavingCluster) removeLayerGraphForReactiveSync(layerId);
+      else swapLayerOnMap(layer, 'heatmap', updatedPaint);
     } else if (mode === 'symbol') {
       const savedCirclePaint = currentStyleConfig.savedCirclePaint ?? { ...updatedPaint };
       const nextStyleConfig = {
@@ -261,7 +312,8 @@ export function useRenderModeLayers({
         ),
       );
 
-      swapLayerOnMap({ ...layer, style_config: nextStyleConfig }, 'symbol', updatedPaint);
+      if (leavingCluster) removeLayerGraphForReactiveSync(layerId);
+      else swapLayerOnMap({ ...layer, style_config: nextStyleConfig }, 'symbol', updatedPaint);
     } else {
       const savedHeatmapPaint = { ...updatedPaint };
       const savedCirclePaint = currentStyleConfig.savedCirclePaint ?? {};
@@ -280,11 +332,12 @@ export function useRenderModeLayers({
         ),
       );
 
-      swapLayerOnMap(layer, 'circle', updatedPaint);
+      if (leavingCluster) removeLayerGraphForReactiveSync(layerId);
+      else swapLayerOnMap(layer, 'circle', updatedPaint);
     }
 
     setHasUnsavedChanges(true);
-  }, [layersRef, setLocalLayers, setHasUnsavedChanges, handleRenderAsChange, swapLayerOnMap]);
+  }, [layersRef, setLocalLayers, setHasUnsavedChanges, handleRenderAsChange, swapLayerOnMap, removeLayerGraphForReactiveSync]);
 
   return {
     swapLayerOnMap,

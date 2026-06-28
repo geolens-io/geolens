@@ -154,6 +154,54 @@ describe('CircleEditor', () => {
     expect(screen.getByText('Radius by: pop')).toBeInTheDocument();
   });
 
+  // Bug-bash: a graduated/categorical layer whose data-driven TARGET is the
+  // radius keeps a static fill color — the picker must stay visible (only the
+  // radius slider is replaced). Regression: the fill picker was hidden for ANY
+  // data-driven layer, leaving radius-graduated points with stroke color only.
+  it('keeps the fill color picker when target=radius (only radius is data-driven)', () => {
+    const layer = makeCircleLayer({
+      style_config: { column: 'pop', target: 'radius', mode: 'graduated', ramp: 'Blues' } as MapLayerResponse['style_config'],
+    });
+    const t = (key: string, opts?: Record<string, unknown>) => {
+      if (key === 'style.radiusByColumn') return `Radius by: ${opts?.column}`;
+      if (key === 'style.styledBy') return `Styled by: ${opts?.column}`;
+      const labels: Record<string, string> = {
+        'style.point': 'Point', 'style.color': 'Color', 'style.opacity': 'Opacity',
+        'style.radius': 'Radius', 'style.stroke': 'Stroke',
+        'style.toggleStroke': 'Toggle stroke visibility', 'style.width': 'Width',
+      };
+      return labels[key] ?? key;
+    };
+    render(<CircleEditor {...makeProps(layer, { isDataDriven: true, strokeEnabled: true, t })} />);
+
+    // Fill picker (Color) + stroke color picker (Color) = 2; the fill one was
+    // the regression — before the fix only the stroke 'Color' rendered.
+    expect(screen.getAllByText('Color')).toHaveLength(2);
+    expect(screen.getByText('Radius by: pop')).toBeInTheDocument();
+    expect(screen.queryByText(/^Styled by:/)).not.toBeInTheDocument();
+    expect(screen.queryByRole('slider', { name: 'Radius' })).not.toBeInTheDocument();
+  });
+
+  it('hides the fill color picker when color itself is the data-driven target (undefined target = color)', () => {
+    const layer = makeCircleLayer({
+      style_config: { column: 'value', mode: 'graduated', ramp: 'Blues' } as MapLayerResponse['style_config'],
+    });
+    const t = (key: string, opts?: Record<string, unknown>) => {
+      if (key === 'style.styledBy') return `Styled by: ${opts?.column}`;
+      const labels: Record<string, string> = {
+        'style.point': 'Point', 'style.color': 'Color', 'style.opacity': 'Opacity',
+        'style.radius': 'Radius', 'style.stroke': 'Stroke',
+        'style.toggleStroke': 'Toggle stroke visibility', 'style.width': 'Width',
+      };
+      return labels[key] ?? key;
+    };
+    render(<CircleEditor {...makeProps(layer, { isDataDriven: true, strokeEnabled: true, t })} />);
+
+    // Only the stroke color picker remains (1) — the data-driven fill is a note.
+    expect(screen.getAllByText('Color')).toHaveLength(1);
+    expect(screen.getByText('Styled by: value')).toBeInTheDocument();
+  });
+
   it('is a named export and a default export from CircleEditor.tsx', async () => {
     const { CircleEditor: named } = await import('../CircleEditor');
     const defaultExport = (await import('../CircleEditor')).default;
