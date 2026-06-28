@@ -3,6 +3,7 @@ import { Upload } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useMapIcons, useUploadMapIcon } from '@/hooks/use-maps';
+import { API_BASE } from '@/lib/constants';
 import { cn } from '@/lib/utils';
 
 interface IconPickerProps {
@@ -77,7 +78,14 @@ export function IconPicker({ value, onChange, label, uploadAriaLabel }: IconPick
               title={icon.name}
               aria-label={icon.name}
             >
-              <img src={icon.url} alt="" className="h-5 w-5 object-contain" />
+              {/* icon.url is the API-relative asset path (e.g. /maps/icons/...);
+                  an <img> tag bypasses apiFetch, so prefix API_BASE or it resolves
+                  against the frontend origin and 404s to the SPA shell (#350-followup). */}
+              <img
+                src={icon.url.startsWith('http') ? icon.url : `${API_BASE}${icon.url}`}
+                alt=""
+                className="h-5 w-5 object-contain"
+              />
             </button>
           ))}
         </div>
