@@ -216,7 +216,11 @@ async def test_fetch_arcgis_pagination_info_requires_explicit_support():
         }
     )
 
-    max_record_count, supports_pagination = await fetch_arcgis_pagination_info(
+    (
+        max_record_count,
+        supports_pagination,
+        object_id_field,
+    ) = await fetch_arcgis_pagination_info(
         "https://services.arcgis.com/svc/FeatureServer",
         0,
         mock_client,
@@ -224,15 +228,21 @@ async def test_fetch_arcgis_pagination_info_requires_explicit_support():
 
     assert max_record_count == 1000
     assert supports_pagination is False
+    assert object_id_field is None
 
     mock_client.get.return_value = _make_mock_response(
         {
             "maxRecordCount": 1000,
             "advancedQueryCapabilities": {"supportsPagination": True},
+            "objectIdField": "FID",
         }
     )
 
-    max_record_count, supports_pagination = await fetch_arcgis_pagination_info(
+    (
+        max_record_count,
+        supports_pagination,
+        object_id_field,
+    ) = await fetch_arcgis_pagination_info(
         "https://services.arcgis.com/svc/FeatureServer",
         0,
         mock_client,
@@ -240,3 +250,34 @@ async def test_fetch_arcgis_pagination_info_requires_explicit_support():
 
     assert max_record_count == 1000
     assert supports_pagination is True
+    assert object_id_field == "FID"
+
+
+@pytest.mark.asyncio
+async def test_fetch_arcgis_pagination_info_uses_oid_field_fallback():
+    """Layer metadata can identify the stable order field via field type."""
+    mock_client = AsyncMock(spec=httpx.AsyncClient)
+    mock_client.get.return_value = _make_mock_response(
+        {
+            "maxRecordCount": 1000,
+            "advancedQueryCapabilities": {"supportsPagination": True},
+            "fields": [
+                {"name": "NAME", "type": "esriFieldTypeString"},
+                {"name": "OBJECTID_1", "type": "esriFieldTypeOID"},
+            ],
+        }
+    )
+
+    (
+        max_record_count,
+        supports_pagination,
+        object_id_field,
+    ) = await fetch_arcgis_pagination_info(
+        "https://services.arcgis.com/svc/FeatureServer",
+        0,
+        mock_client,
+    )
+
+    assert max_record_count == 1000
+    assert supports_pagination is True
+    assert object_id_field == "OBJECTID_1"

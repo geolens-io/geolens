@@ -62,6 +62,31 @@ def _normalize_esri_geom_type(esri_type: str | None) -> str | None:
     return _ESRI_GEOM_TYPE_MAP.get(esri_type, esri_type)
 
 
+def _extract_arcgis_object_id_field(data: dict) -> str | None:
+    value = data.get("objectIdField")
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+
+    fields = data.get("fields")
+    if isinstance(fields, list):
+        for field in fields:
+            if not isinstance(field, dict):
+                continue
+            if field.get("type") != "esriFieldTypeOID":
+                continue
+            name = field.get("name")
+            if isinstance(name, str) and name.strip():
+                return name.strip()
+
+    unique_id_field = data.get("uniqueIdField")
+    if isinstance(unique_id_field, dict):
+        name = unique_id_field.get("name")
+        if isinstance(name, str) and name.strip():
+            return name.strip()
+
+    return None
+
+
 def _looks_like_arcgis(url: str) -> bool:
     """Check if a URL looks like an ArcGIS service (FeatureServer or MapServer)."""
     lower = url.lower()
@@ -264,8 +289,8 @@ async def fetch_arcgis_pagination_info(
     layer_id: int | str,
     client: httpx.AsyncClient,
     token: str | None = None,
-) -> tuple[int | None, bool]:
-    """Fetch ArcGIS pagination support and the advertised maximum page size."""
+) -> tuple[int | None, bool, str | None]:
+    """Fetch ArcGIS pagination support, page size, and stable order field."""
     base = base_url.rstrip("/")
     safe_layer_id = str(layer_id).strip("/")
     params: dict[str, str] = {"f": "json"}
@@ -277,7 +302,7 @@ async def fetch_arcgis_pagination_info(
         resp.raise_for_status()
         data = resp.json()
     except (httpx.HTTPError, ValueError, TypeError):
-        return None, False
+        return None, False, None
 
     if "error" in data:
         error_info = data["error"]
@@ -285,7 +310,7 @@ async def fetch_arcgis_pagination_info(
         message = error_info.get("message", "Unknown ArcGIS error")
         if code in (498, 499):
             raise ArcGISTokenError(code, message)
-        return None, False
+        return None, False, None
 
     value = data.get("maxRecordCount")
     max_record_count = value if isinstance(value, int) and value > 0 else None
@@ -293,7 +318,7 @@ async def fetch_arcgis_pagination_info(
     supports_pagination = (
         isinstance(advanced, dict) and advanced.get("supportsPagination") is True
     )
-    return max_record_count, supports_pagination
+    return max_record_count, supports_pagination, _extract_arcgis_object_id_field(data)
 
 
 async def fetch_arcgis_layer_preview(

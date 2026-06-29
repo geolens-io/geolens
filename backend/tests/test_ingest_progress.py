@@ -341,7 +341,6 @@ async def test_service_worker_chunks_large_arcgis_imports(test_db_session, monke
             "service_type": "ArcGIS FeatureServer",
             "layer_id": "0",
             "geometry_type": "Point",
-            "object_id_field": "FID",
         },
     )
     test_db_session.add(job)
@@ -362,7 +361,7 @@ async def test_service_worker_chunks_large_arcgis_imports(test_db_session, monke
         return table_name, None
 
     async def _fake_page_info(*args, **kwargs):
-        return 4500, 1000, True
+        return 4500, 1000, True, "FID"
 
     async def _fake_run_ogr2ogr_service(
         gdal_source: str,
@@ -382,6 +381,7 @@ async def test_service_worker_chunks_large_arcgis_imports(test_db_session, monke
             {
                 "offset": offset,
                 "limit": limit,
+                "order_by": query.get("orderByFields", [None])[0],
                 "append": append,
                 "target_table": target_table,
                 "layer_name": layer_name,
@@ -455,6 +455,7 @@ async def test_service_worker_chunks_large_arcgis_imports(test_db_session, monke
         {
             "offset": 0,
             "limit": 1000,
+            "order_by": "FID ASC",
             "append": False,
             "target_table": table_name,
             "layer_name": "",
@@ -463,6 +464,7 @@ async def test_service_worker_chunks_large_arcgis_imports(test_db_session, monke
         {
             "offset": 1000,
             "limit": 1000,
+            "order_by": "FID ASC",
             "append": True,
             "target_table": table_name,
             "layer_name": "",
@@ -471,6 +473,7 @@ async def test_service_worker_chunks_large_arcgis_imports(test_db_session, monke
         {
             "offset": 2000,
             "limit": 1000,
+            "order_by": "FID ASC",
             "append": True,
             "target_table": table_name,
             "layer_name": "",
@@ -479,6 +482,7 @@ async def test_service_worker_chunks_large_arcgis_imports(test_db_session, monke
         {
             "offset": 3000,
             "limit": 1000,
+            "order_by": "FID ASC",
             "append": True,
             "target_table": table_name,
             "layer_name": "",
@@ -487,6 +491,7 @@ async def test_service_worker_chunks_large_arcgis_imports(test_db_session, monke
         {
             "offset": 4000,
             "limit": 1000,
+            "order_by": "FID ASC",
             "append": True,
             "target_table": table_name,
             "layer_name": "",
@@ -544,7 +549,7 @@ async def test_service_worker_skips_arcgis_chunking_without_pagination_support(
         return table_name, None
 
     async def _fake_page_info(*args, **kwargs):
-        return None, 1000, False
+        return None, 1000, False, "FID"
 
     async def _fake_run_ogr2ogr_service(
         gdal_source: str,
@@ -620,6 +625,135 @@ async def test_service_worker_skips_arcgis_chunking_without_pagination_support(
         {
             "has_limit": False,
             "has_offset": False,
+            "append": False,
+            "target_table": table_name,
+            "layer_name": "",
+            "service_type": "arcgis_featureserver",
+        }
+    ]
+
+
+@pytest.mark.anyio
+async def test_service_worker_skips_arcgis_chunking_without_order_field(
+    test_db_session, monkeypatch
+):
+    """Offset chunking requires a stable ArcGIS object-id order field."""
+    from app.modules.catalog.sources.preview import build_gdal_source
+    from app.processing.ingest import tasks_vector
+
+    admin_id = await _get_admin_id(test_db_session)
+    table_name = f"tbl_arcgis_no_oid_{_uuid.uuid4().hex[:8]}"
+
+    job = IngestJob(
+        source_filename="Unordered ArcGIS Layer",
+        source_url="https://example.test/arcgis/rest/services/Unordered/FeatureServer",
+        source_layer="0",
+        created_by=admin_id,
+        status="pending",
+        user_metadata={
+            "title": "Unordered ArcGIS Layer",
+            "visibility": "private",
+            "service_type": "ArcGIS FeatureServer",
+            "layer_id": "0",
+            "geometry_type": "Point",
+        },
+    )
+    test_db_session.add(job)
+    await test_db_session.flush()
+    await test_db_session.commit()
+    job_id = job.id
+
+    calls: list[dict[str, object]] = []
+
+    class _FakeProcessingPort:
+        def build_gdal_source(self, *args, **kwargs):
+            return build_gdal_source(*args, **kwargs)
+
+    async def _validate_url_noop(_url: str) -> None:
+        return None
+
+    async def _fake_generate_table_name(*args, **kwargs):
+        return table_name, None
+
+    async def _fake_page_info(*args, **kwargs):
+        return 4500, 1000, True, None
+
+    async def _fake_run_ogr2ogr_service(
+        gdal_source: str,
+        layer_name: str,
+        target_table: str,
+        db_conn_str: str,
+        service_type: str,
+        *,
+        append: bool = False,
+        **kwargs,
+    ) -> None:
+        query = parse_qs(urlsplit(gdal_source.removeprefix("ESRIJSON:")).query)
+        calls.append(
+            {
+                "has_limit": "resultRecordCount" in query,
+                "has_offset": "resultOffset" in query,
+                "has_order": "orderByFields" in query,
+                "append": append,
+                "target_table": target_table,
+                "layer_name": layer_name,
+                "service_type": service_type,
+            }
+        )
+
+    async def _fake_rename_reserved_columns(*args, **kwargs):
+        return []
+
+    async def _fake_finalize_ingest(context):
+        context.job.status = "complete"
+        context.job.current_step = "complete"
+        context.job.progress = 1.0
+        await context.session.commit()
+
+    async def _fake_emit_billing_event(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr(
+        "app.modules.catalog.sources.security.validate_url_for_ssrf",
+        _validate_url_noop,
+    )
+    monkeypatch.setattr(
+        "app.platform.extensions.get_processing_port",
+        lambda: _FakeProcessingPort(),
+    )
+    monkeypatch.setattr("app.processing.ingest.ogr.build_pg_conn_str", lambda: "PG:")
+    monkeypatch.setattr(
+        "app.processing.ingest.service.generate_table_name",
+        _fake_generate_table_name,
+    )
+    monkeypatch.setattr(
+        tasks_vector,
+        "_fetch_arcgis_import_page_info",
+        _fake_page_info,
+    )
+    monkeypatch.setattr(
+        "app.processing.ingest.ogr.run_ogr2ogr_service",
+        _fake_run_ogr2ogr_service,
+    )
+    monkeypatch.setattr(
+        "app.processing.ingest.metadata.rename_reserved_columns",
+        _fake_rename_reserved_columns,
+    )
+    monkeypatch.setattr(tasks_vector, "_finalize_ingest", _fake_finalize_ingest)
+    monkeypatch.setattr(tasks_vector, "_emit_billing_event", _fake_emit_billing_event)
+
+    await tasks_vector.ingest_service.func(
+        job_id=str(job_id),
+        source_url="https://example.test/arcgis/rest/services/Unordered/FeatureServer",
+        source_layer="0",
+        user_id=str(admin_id),
+    )
+
+    assert calls == [
+        {
+            "has_limit": False,
+            "has_offset": False,
+            "has_order": False,
             "append": False,
             "target_table": table_name,
             "layer_name": "",

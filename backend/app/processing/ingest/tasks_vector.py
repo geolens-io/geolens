@@ -120,9 +120,9 @@ async def _count_service_import_rows(table_name: str) -> int:
 
 async def _fetch_arcgis_import_page_info(
     source_url: str, layer_id: int | str | None, token: str | None
-) -> tuple[int | None, int | None, bool]:
+) -> tuple[int | None, int | None, bool, str | None]:
     if layer_id is None:
-        return None, None, False
+        return None, None, False, None
 
     from app.modules.catalog.sources.adapters.arcgis import (
         ArcGISTokenError,
@@ -134,15 +134,23 @@ async def _fetch_arcgis_import_page_info(
 
     try:
         async with make_safe_client(timeout=30.0) as client:
-            max_record_count, supports_pagination = await fetch_arcgis_pagination_info(
+            (
+                max_record_count,
+                supports_pagination,
+                order_field,
+            ) = await fetch_arcgis_pagination_info(
                 source_url, layer_id, client, token=token
             )
-            if not supports_pagination or max_record_count is None:
-                return None, max_record_count, supports_pagination
+            if (
+                not supports_pagination
+                or max_record_count is None
+                or order_field is None
+            ):
+                return None, max_record_count, supports_pagination, order_field
             feature_count = await fetch_arcgis_feature_count(
                 source_url, layer_id, client, token=token
             )
-            return feature_count, max_record_count, supports_pagination
+            return feature_count, max_record_count, supports_pagination, order_field
     except ArcGISTokenError as exc:
         raise IngestionError(str(exc)) from exc
     except Exception as exc:  # broad: count is an optimization; import can fall back
@@ -152,7 +160,7 @@ async def _fetch_arcgis_import_page_info(
             layer_id=str(layer_id),
             error=str(exc),
         )
-        return None, None, False
+        return None, None, False, None
 
 
 def _should_unlink_staging(
@@ -684,11 +692,13 @@ async def ingest_service(
             feature_count = None
             page_size = _ARCGIS_SERVICE_IMPORT_CHUNK_SIZE
             supports_pagination = False
+            pagination_order_field = None
             if service_type == "arcgis_featureserver":
                 (
                     feature_count,
                     max_record_count,
                     supports_pagination,
+                    pagination_order_field,
                 ) = await _fetch_arcgis_import_page_info(source_url, layer_id, token)
                 if max_record_count is not None:
                     page_size = max(1, min(page_size, max_record_count))
@@ -696,6 +706,7 @@ async def ingest_service(
             if (
                 service_type == "arcgis_featureserver"
                 and supports_pagination
+                and pagination_order_field is not None
                 and feature_count is not None
                 and feature_count > page_size
             ):
@@ -708,7 +719,7 @@ async def ingest_service(
                         layer_name,
                         layer_id,
                         token=token,
-                        order_field=object_id_field,
+                        order_field=pagination_order_field,
                         result_limit=page_size,
                         result_offset=offset,
                     )
