@@ -17,6 +17,7 @@ Pins the contract that the polling UI depends on:
    assertion against the writes the worker code actually does.
 """
 
+import asyncio
 import uuid as _uuid
 from pathlib import Path
 
@@ -195,7 +196,131 @@ async def test_vector_worker_writes_ogr2ogr_step_before_subprocess(
 
 
 # ---------------------------------------------------------------------------
-# 3. Progress is non-decreasing across the named steps
+# 3. Service ingest advances progress while remote import is still running
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_service_worker_advances_ogr2ogr_progress_while_remote_import_is_running(
+    test_db_session, monkeypatch
+):
+    """Service URL ingest must publish progress during the remote load window."""
+    from app.core import db as db_module
+    from app.processing.ingest import tasks_vector
+    from app.processing.ingest.ogr import IngestionError
+
+    admin_id = await _get_admin_id(test_db_session)
+
+    job = IngestJob(
+        source_filename="Add_addressPoint",
+        source_url="https://example.test/arcgis/rest/services/Address/FeatureServer",
+        source_layer="0",
+        created_by=admin_id,
+        status="pending",
+        user_metadata={
+            "title": "Add_addressPoint",
+            "visibility": "private",
+            "service_type": "ArcGIS FeatureServer",
+            "layer_id": "0",
+            "geometry_type": "Point",
+        },
+    )
+    test_db_session.add(job)
+    await test_db_session.flush()
+    await test_db_session.commit()
+    job_id = job.id
+
+    remote_import_started = asyncio.Event()
+    release_remote_import = asyncio.Event()
+    worker_error: Exception | None = None
+    last_progress: float | None = None
+
+    class _FakeProcessingPort:
+        def build_gdal_source(self, *args, **kwargs):
+            return "FAKE_GDAL_SOURCE", "0"
+
+    async def _validate_url_noop(_url: str) -> None:
+        return None
+
+    async def _fallback_calls_import_once(import_fn, source_layer, **kwargs) -> None:
+        await import_fn(source_layer)
+
+    async def _blocking_run_ogr2ogr_service(*args, **kwargs) -> None:
+        remote_import_started.set()
+        await release_remote_import.wait()
+        raise IngestionError("simulated remote service import stop")
+
+    monkeypatch.setattr(
+        "app.modules.catalog.sources.security.validate_url_for_ssrf",
+        _validate_url_noop,
+    )
+    monkeypatch.setattr(
+        "app.platform.extensions.get_processing_port",
+        lambda: _FakeProcessingPort(),
+    )
+    monkeypatch.setattr("app.processing.ingest.ogr.build_pg_conn_str", lambda: "PG:")
+    monkeypatch.setattr(
+        tasks_vector,
+        "_run_service_import_with_wfs_fallback",
+        _fallback_calls_import_once,
+    )
+    monkeypatch.setattr(
+        "app.processing.ingest.ogr.run_ogr2ogr_service",
+        _blocking_run_ogr2ogr_service,
+    )
+    monkeypatch.setattr(
+        tasks_vector,
+        "_SERVICE_IMPORT_HEARTBEAT_INTERVAL_SECONDS",
+        0.01,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        tasks_vector,
+        "_SERVICE_IMPORT_HEARTBEAT_INCREMENT",
+        0.2,
+        raising=False,
+    )
+
+    worker_task = asyncio.create_task(
+        tasks_vector.ingest_service.func(
+            job_id=str(job_id),
+            source_url="https://example.test/arcgis/rest/services/Address/FeatureServer",
+            source_layer="0",
+            user_id=str(admin_id),
+        )
+    )
+
+    try:
+        await asyncio.wait_for(remote_import_started.wait(), timeout=1)
+
+        deadline = asyncio.get_running_loop().time() + 1
+        while asyncio.get_running_loop().time() < deadline:
+            async with db_module.async_session() as poll_session:
+                result = await poll_session.execute(
+                    select(IngestJob).where(IngestJob.id == job_id)
+                )
+                current_job = result.scalar_one()
+                last_progress = current_job.progress
+                if last_progress is not None and last_progress > 0.1:
+                    break
+
+            assert not worker_task.done()
+            await asyncio.sleep(0.01)
+    finally:
+        release_remote_import.set()
+        try:
+            await asyncio.wait_for(worker_task, timeout=2)
+        except Exception as exc:
+            worker_error = exc
+
+    assert isinstance(worker_error, IngestionError)
+    assert last_progress is not None
+    assert last_progress > 0.1
+    assert last_progress < 0.7
+
+
+# ---------------------------------------------------------------------------
+# 4. Progress is non-decreasing across the named steps
 # ---------------------------------------------------------------------------
 
 
