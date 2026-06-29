@@ -11,7 +11,7 @@ test.describe('Search Flow', () => {
 
     // Search input should be present
     await expect(
-      page.getByRole('combobox', { name: 'Search geospatial data...' }),
+      page.getByRole('combobox', { name: 'Search the catalog...' }),
     ).toHaveCount(1);
 
     const filterRail = page.getByTestId('search-filter-rail');
@@ -37,7 +37,7 @@ test.describe('Search Flow', () => {
     await expect(page).toHaveURL('/?q=Zoning');
 
     // Search input should reflect the query
-    const searchInput = page.getByRole('combobox', { name: 'Search geospatial data...' });
+    const searchInput = page.getByRole('combobox', { name: 'Search the catalog...' });
     await expect(searchInput).toHaveCount(1);
     await expect(searchInput).toHaveValue('Zoning');
   });
@@ -48,13 +48,13 @@ test.describe('Search Flow', () => {
     // Verify search page loaded
     await page.goto('/');
     await expect(
-      page.getByRole('combobox', { name: 'Search geospatial data...' }),
+      page.getByRole('combobox', { name: 'Search the catalog...' }),
     ).toBeVisible();
 
     // Navigate with query param to bypass hero→sticky transition race condition.
     // This puts us directly in browse mode with a single SearchBar.
     await page.goto(`/?q=${encodeURIComponent(seed.query)}`);
-    const searchInput = page.getByRole('combobox', { name: 'Search geospatial data...' });
+    const searchInput = page.getByRole('combobox', { name: 'Search the catalog...' });
     await expect(searchInput).toHaveValue(seed.query);
 
     // Focus and re-fill to trigger typeahead (onFocus + onChange open the dropdown)

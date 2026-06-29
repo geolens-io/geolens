@@ -1,4 +1,12 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
+
+const GUEST_BROWSE_KEY = 'gl-guest-browse';
+
+async function allowGuestCatalog(page: Page) {
+  await page.addInitScript((key) => {
+    window.sessionStorage.setItem(key, 'true');
+  }, GUEST_BROWSE_KEY);
+}
 
 // REL-02: lightweight keyboard-nav smoke for the public front door.
 // Scoped to /login and / only — no MapLibre/builder routes which flake headless.
@@ -41,10 +49,13 @@ test.describe('Keyboard navigation — public routes', () => {
   test('/ home: search input is keyboard-reachable and stays interactive after Enter', async ({
     page,
   }) => {
+    // Matches the LoginPage "Browse the catalog" escape path when landing_first
+    // is enabled in demo/cloud configs.
+    await allowGuestCatalog(page);
     await page.goto('/');
     await page.waitForLoadState('networkidle');
 
-    const searchInput = page.getByRole('combobox', { name: 'Search geospatial data...' });
+    const searchInput = page.getByRole('combobox', { name: 'Search the catalog...' });
     await expect(searchInput).toBeVisible();
 
     // Tab through the page until the catalog search combobox receives focus.

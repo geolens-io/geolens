@@ -1,5 +1,21 @@
 import { test, expect } from '@playwright/test';
 
+const TENANT_ADMIN_CAPABILITIES = [
+  'upload',
+  'create_layers',
+  'export',
+  'edit_metadata',
+  'manage_collections',
+  'use_ai_chat',
+  'manage_users',
+  'manage_settings',
+] as const;
+
+const ALL_CAPABILITIES = [
+  ...TENANT_ADMIN_CAPABILITIES,
+  'manage_tenants',
+] as const;
+
 test.describe('Permissions', () => {
   test('settings: permissions tab loads with matrix', async ({ page }) => {
     await page.goto('/admin/settings/permissions');
@@ -80,13 +96,15 @@ test.describe('Permissions', () => {
     expect(permResp.ok()).toBeTruthy();
     const data = await permResp.json();
 
-    // Admin should have all 8 capabilities set to true
+    // Admin should have all tenant-scoped capabilities set to true. The
+    // fleet-level manage_tenants key is present but deployment-specific.
     expect(data.permissions).toBeDefined();
     const perms = data.permissions;
-    expect(Object.keys(perms)).toHaveLength(8);
-    for (const [, val] of Object.entries(perms)) {
-      expect(val).toBe(true);
+    expect(Object.keys(perms).sort()).toEqual([...ALL_CAPABILITIES].sort());
+    for (const key of TENANT_ADMIN_CAPABILITIES) {
+      expect(perms[key]).toBe(true);
     }
+    expect(typeof perms.manage_tenants).toBe('boolean');
   });
 
   test('navbar: admin sees Maps, Admin in the user menu, and Import in the Create menu', async ({
@@ -94,7 +112,7 @@ test.describe('Permissions', () => {
   }) => {
     await page.goto('/');
     await expect(
-      page.getByRole('combobox', { name: 'Search geospatial data...' }),
+      page.getByRole('combobox', { name: 'Search the catalog...' }),
     ).toBeVisible();
 
     // Admin should see all permission-gated nav links
