@@ -217,7 +217,7 @@ CMD ["sh", "-c", "uv run --no-dev python -m app.worker"]
 # app image (frontend), never this postgres-based backup tool. Every image is
 # built with an explicit `target:` (publish.yml + docker-compose*.yml), so stage
 # order only governs that unqualified-build default — keep `backup` non-final.
-FROM postgres:17 AS backup
+FROM postgres:18 AS backup
 
 LABEL org.opencontainers.image.title="geolens-backup"
 LABEL org.opencontainers.image.description="Automated pg_dump backup service with S3 offload"
