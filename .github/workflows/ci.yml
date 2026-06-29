@@ -23,10 +23,12 @@ concurrency:
 # suite passes against core before merging. Companion to the EXTENSION_API_VERSION
 # fail-loud loader check introduced in Plan 1206-01.
 env:
-  # geolens-enterprise origin/main as of 2026-06-14; core@1206 re-verified GREEN
-  # against this ref (load_extensions boots, EnterprisePermissionExtension resolves,
-  # legacy EXTENSION_API_VERSION tolerated, test_saml_overlay.py 21 passed).
-  ENTERPRISE_PINNED_REF: "af12809713a5a2f481d90c9d5c65a8e2bae888bc"
+  # geolens-enterprise origin/main: the 2026-06-14 ref (af128097) plus PR #22
+  # (be40d109), which fixes e002's chk_oauth_providers_type to include 'github'
+  # — the source of the recurring Pytest Parallel Isolation flake
+  # (test_oauth_github_provider) when the overlay applies. No EXTENSION_API_VERSION
+  # change; the migration fix is the only delta from the prior pinned tree.
+  ENTERPRISE_PINNED_REF: "be40d1095f9fdce39ef0b4f4ddf4a4984ae47b21"
 
 # Least-privilege default for every job. The `changes` job widens to add
 # pull-requests:read; no job needs write (publishing lives in publish*.yml).
