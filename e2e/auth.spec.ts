@@ -26,7 +26,7 @@ test.describe('Authentication Flow', () => {
 
     // Verify workspace loaded
     await expect(
-      page.getByRole('combobox', { name: 'Search geospatial data...' }),
+      page.getByRole('combobox', { name: 'Search the catalog...' }),
     ).toBeVisible();
 
     // Verify username displayed in navbar user menu button
