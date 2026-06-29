@@ -19,9 +19,9 @@ npm run e2e:smoke        # the smoke subset (core + builder + fixtures)
 
 ## Configs
 
-- `playwright.config.ts` — the default config (Chromium), used by every
+- `playwright.config.ts`: the default config (Chromium), used by every
   `e2e:smoke:*` script except builder-hardening.
-- `playwright.builder-hardening.config.ts` — a separate config that runs only
+- `playwright.builder-hardening.config.ts`: a separate config that runs only
   `builder-hardening.spec.ts` across Chromium, Firefox, and WebKit.
 
 ## Smoke groups

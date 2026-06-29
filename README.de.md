@@ -4,7 +4,7 @@
 
 **Die raumbezogenen Daten Ihres Teams, an einem Ort durchsuchbar.**
 
-Laden Sie Shapefiles, GeoTIFFs, GeoPackages oder CSVs hoch. GeoLens speichert alles in PostGIS, indexiert Metadaten mit pgvector + pg_trgm für semantische und unscharfe Suche und stellt OGC APIs bereit, die QGIS, ArcGIS und MapLibre Clients direkt nutzen können. Gebaut mit FastAPI und React, bereitgestellt mit einem einzigen Befehl.
+Laden Sie Shapefiles, GeoTIFFs, GeoPackages oder CSVs hoch. GeoLens speichert alles in PostGIS, indexiert Metadaten mit pgvector + pg_trgm für semantische und unscharfe Suche und stellt OGC APIs bereit, die QGIS, ArcGIS und MapLibre Clients direkt nutzen können. Es basiert auf FastAPI und React und lässt sich mit einem einzigen Befehl bereitstellen.
 
 > Dies ist eine gekürzte Übersetzung. Das englische [README](README.md) ist die kanonische Quelle; die vollständige, stets aktuelle deutschsprachige Dokumentation finden Sie unter **[docs.getgeolens.com/de](https://docs.getgeolens.com/de)**.
 
@@ -16,13 +16,13 @@ Laden Sie Shapefiles, GeoTIFFs, GeoPackages oder CSVs hoch. GeoLens speichert al
 
 ```bash
 curl -fsSL https://getgeolens.com/install.sh | sh
-# Öffnen Sie http://localhost:8080 — Login mit den von Ihnen gewählten Anmeldedaten
+# Öffnen Sie http://localhost:8080 und melden Sie sich mit den von Ihnen gewählten Anmeldedaten an
 ```
 
 <p align="center">
   <img src=".github/assets/geolens-manhattan-3d-hero.jpg" alt="GeoLens Map Builder: Gebäudegrundrisse von Manhattan zu einer 3D-Skyline extrudiert, nach Dachhöhe eingefärbt, mit geöffnetem Layer-Stil-Editor neben der Karte" width="900" />
   <br />
-  <em>Der Map Builder — Manhattans Gebäudegrundrisse, extrudiert nach Dachhöhe und durch einen datengesteuerten Stil eingefärbt, erstellt aus offenen Daten mit <code>scripts/seed-showcase.py</code></em>
+  <em>Der Map Builder: Manhattans Gebäudegrundrisse, extrudiert nach Dachhöhe und durch einen datengesteuerten Stil eingefärbt, erstellt aus offenen Daten mit <code>scripts/seed-showcase.py</code></em>
 </p>
 
 ## Dokumentation
@@ -55,4 +55,4 @@ Dieses README ist eine Kurzfassung. Den vollständigen Funktionsüberblick, die 
 
 ## Lizenz
 
-Apache-2.0 — siehe [LICENSE](LICENSE) und [NOTICE](NOTICE).
+Apache-2.0. Siehe [LICENSE](LICENSE) und [NOTICE](NOTICE).

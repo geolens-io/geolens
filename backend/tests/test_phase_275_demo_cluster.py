@@ -5,8 +5,8 @@ Static regression locks in:
   project owns getgeolens.com only per memory project_domain_ownership.md).
 - README.md §'See It in Action' has the JWT-mint one-liner so a first-time
   reader can actually execute the curl examples (M-76).
-- README.md em-dash conversion landed on the six body-prose lines flagged
-  by L-16 (line 90 + the five Why GeoLens bullets at 94-98).
+- README.md keeps the six body-prose lines flagged by L-16 in the
+  humanized separator style (line 90 + the five Why GeoLens bullets at 94-98).
 
 Pure static analysis — no docker daemon, database, or HTTP fixture needed.
 """
@@ -80,23 +80,23 @@ def test_readme_has_jwt_mint_oneliner() -> None:
     )
 
 
-def test_readme_em_dash_consistency_in_six_known_lines() -> None:
-    """API-14 / L-16: the six known '--' separator lines now use '—'.
+def test_readme_humanized_separator_style_in_six_known_lines() -> None:
+    """API-14 / L-16: the six known separator lines keep the humanized style.
 
-    This test does NOT enforce em-dash everywhere — only the six lines flagged
-    in the plan are checked. CLI flags (--username, --api-key) remain hyphens.
+    This test does NOT enforce punctuation everywhere, only the six lines
+    flagged in the plan. CLI flags (--username, --api-key) remain hyphens.
     """
     body = _read("README.md")
-    expected_em_dash_signals = [
-        "Spatial data ends up scattered — ",
-        "One catalog** — ",
-        "Works with your tools** — ",
-        "Semantic + spatial search** — ",
-        "Built-in map builder** — ",
-        "AI-assisted (optional)** — ",
+    expected_humanized_signals = [
+        "Spatial data ends up scattered: ",
+        "One catalog:** ",
+        "Works with your tools:** ",
+        "Semantic and spatial search:** ",
+        "Built-in map builder:** ",
+        "AI-assisted (optional):** ",
     ]
-    for signal in expected_em_dash_signals:
-        assert signal in body, f"README.md missing em-dash conversion for: {signal}"
+    for signal in expected_humanized_signals:
+        assert signal in body, f"README.md missing humanized separator for: {signal}"
 
 
 def test_cli_flags_preserved_in_readme() -> None:

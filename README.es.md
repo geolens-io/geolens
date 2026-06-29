@@ -16,13 +16,13 @@ Sube Shapefiles, GeoTIFFs, GeoPackages o CSVs. GeoLens guarda todo en PostGIS, i
 
 ```bash
 curl -fsSL https://getgeolens.com/install.sh | sh
-# Abre http://localhost:8080 — inicia sesión con las credenciales que elegiste
+# Abre http://localhost:8080 e inicia sesión con las credenciales que elegiste
 ```
 
 <p align="center">
   <img src=".github/assets/geolens-manhattan-3d-hero.jpg" alt="Constructor de mapas de GeoLens: huellas de edificios de Manhattan extruidas en un horizonte 3D, coloreadas según la altura del tejado, con el editor de estilo de capa abierto junto al mapa" width="900" />
   <br />
-  <em>El constructor de mapas — las huellas de edificios de Manhattan extruidas según la altura del tejado y coloreadas mediante un estilo basado en datos, creado a partir de datos abiertos con <code>scripts/seed-showcase.py</code></em>
+  <em>El constructor de mapas: las huellas de edificios de Manhattan extruidas según la altura del tejado y coloreadas mediante un estilo basado en datos, creado a partir de datos abiertos con <code>scripts/seed-showcase.py</code></em>
 </p>
 
 ## Documentación
@@ -55,4 +55,4 @@ Este README es una versión resumida. Encontrarás el resumen completo de funcio
 
 ## Licencia
 
-Apache-2.0 — consulta [LICENSE](LICENSE) y [NOTICE](NOTICE).
+Apache-2.0. Consulta [LICENSE](LICENSE) y [NOTICE](NOTICE).

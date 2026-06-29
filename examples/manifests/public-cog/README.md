@@ -1,4 +1,4 @@
-# Public COG Manifest Example
+# Public COG manifest example
 
 This example registers a public Sentinel-2 Cloud-Optimized GeoTIFF without requiring local sample data.
 

@@ -1,11 +1,11 @@
-# Load Tests
+# Load tests
 
-This directory holds the **Locust load-testing harness** (`load/`) — it is *not*
+This directory holds the **Locust load-testing harness** (`load/`). It is *not*
 the project's unit/integration test suite. The actual suites live elsewhere:
 
-- `backend/tests/` — backend pytest (unit + integration)
-- `frontend/src/**/__tests__/` — frontend Vitest component tests
-- `e2e/` — Playwright browser end-to-end tests
+- `backend/tests/`: backend pytest (unit + integration)
+- `frontend/src/**/__tests__/`: frontend Vitest component tests
+- `e2e/`: Playwright browser end-to-end tests
 
 ## Running the load tests
 
