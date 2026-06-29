@@ -7,6 +7,7 @@ import pytest
 
 from app.modules.catalog.sources.adapters.arcgis import (
     ArcGISTokenError,
+    fetch_arcgis_pagination_info,
     probe_arcgis_service,
 )
 from app.modules.catalog.sources.preview import build_gdal_source
@@ -184,3 +185,99 @@ def test_build_gdal_source_encodes_arcgis_service_paths_with_spaces():
     assert "resultRecordCount=5" in source
     assert "token=abc+123" in source
     assert " " not in source
+
+
+def test_build_gdal_source_arcgis_result_offset():
+    """ArcGIS import chunking should encode resultOffset for paged queries."""
+    source, layer_name = build_gdal_source(
+        "ArcGIS FeatureServer",
+        "https://services.arcgis.com/svc/FeatureServer",
+        "my_layer",
+        layer_id=0,
+        order_field="FID",
+        result_limit=2000,
+        result_offset=4000,
+    )
+
+    assert layer_name == ""
+    assert "orderByFields=FID+ASC" in source
+    assert "resultRecordCount=2000" in source
+    assert "resultOffset=4000" in source
+
+
+@pytest.mark.asyncio
+async def test_fetch_arcgis_pagination_info_requires_explicit_support():
+    """Chunking must require ArcGIS supportsPagination, not just maxRecordCount."""
+    mock_client = AsyncMock(spec=httpx.AsyncClient)
+    mock_client.get.return_value = _make_mock_response(
+        {
+            "maxRecordCount": 1000,
+            "advancedQueryCapabilities": {"supportsPagination": False},
+        }
+    )
+
+    (
+        max_record_count,
+        supports_pagination,
+        object_id_field,
+    ) = await fetch_arcgis_pagination_info(
+        "https://services.arcgis.com/svc/FeatureServer",
+        0,
+        mock_client,
+    )
+
+    assert max_record_count == 1000
+    assert supports_pagination is False
+    assert object_id_field is None
+
+    mock_client.get.return_value = _make_mock_response(
+        {
+            "maxRecordCount": 1000,
+            "advancedQueryCapabilities": {"supportsPagination": True},
+            "objectIdField": "FID",
+        }
+    )
+
+    (
+        max_record_count,
+        supports_pagination,
+        object_id_field,
+    ) = await fetch_arcgis_pagination_info(
+        "https://services.arcgis.com/svc/FeatureServer",
+        0,
+        mock_client,
+    )
+
+    assert max_record_count == 1000
+    assert supports_pagination is True
+    assert object_id_field == "FID"
+
+
+@pytest.mark.asyncio
+async def test_fetch_arcgis_pagination_info_uses_oid_field_fallback():
+    """Layer metadata can identify the stable order field via field type."""
+    mock_client = AsyncMock(spec=httpx.AsyncClient)
+    mock_client.get.return_value = _make_mock_response(
+        {
+            "maxRecordCount": 1000,
+            "advancedQueryCapabilities": {"supportsPagination": True},
+            "fields": [
+                {"name": "NAME", "type": "esriFieldTypeString"},
+                {"name": "OBJECTID_1", "type": "esriFieldTypeOID"},
+            ],
+        }
+    )
+
+    (
+        max_record_count,
+        supports_pagination,
+        object_id_field,
+    ) = await fetch_arcgis_pagination_info(
+        "https://services.arcgis.com/svc/FeatureServer",
+        0,
+        mock_client,
+    )
+
+    assert max_record_count == 1000
+    assert supports_pagination is True
+    assert object_id_field == "OBJECTID_1"

@@ -31,6 +31,7 @@ def build_gdal_source(
     token: str | None = None,
     order_field: str | None = "OBJECTID",
     result_limit: int | None = None,
+    result_offset: int | None = None,
 ) -> tuple[str, str]:
     """Construct a GDAL-prefixed source string for a remote service.
 
@@ -50,6 +51,8 @@ def build_gdal_source(
             params["orderByFields"] = f"{order_field} ASC"
         if result_limit is not None:
             params["resultRecordCount"] = result_limit
+        if result_offset is not None:
+            params["resultOffset"] = result_offset
         if token:
             params["token"] = token
         query_url = f"{safe_base_url}/{safe_layer_id}/query?{urlencode(params)}"

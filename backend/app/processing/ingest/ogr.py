@@ -600,6 +600,7 @@ async def run_ogr2ogr_service(
     timeout: float = 1800.0,
     token: str | None = None,
     is_non_spatial: bool = False,
+    append: bool = False,
 ) -> None:
     """Run ogr2ogr to load a remote service layer into PostGIS.
 
@@ -613,6 +614,8 @@ async def run_ogr2ogr_service(
         is_non_spatial: When True, omit geometry-specific flags (-nlt, -t_srs,
             GEOMETRY_NAME) to avoid dropping attribute columns for tables with
             no geometry (ArcGIS Table layers, non-spatial WFS, etc.)
+        append: When True, append to an existing target layer instead of
+            overwriting it. Used by chunked ArcGIS imports after the first page.
     """
     cmd = [
         "ogr2ogr",
@@ -620,7 +623,7 @@ async def run_ogr2ogr_service(
         "PostgreSQL",
         db_conn_str,
         gdal_source,
-        "-overwrite",
+        "-append" if append else "-overwrite",
         "-nln",
         f"data.{table_name}",
         "-lco",

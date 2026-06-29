@@ -1,12 +1,16 @@
 """Procrastinate task definitions for vector file and service ingestion."""
 
+import asyncio
 import uuid
+from contextlib import suppress
 from datetime import datetime, timezone
 from pathlib import Path
 
 import structlog
+from sqlalchemy import text
 
 from app.core.db.tenant_session import tenant_task
+from app.processing.ingest.metadata import _qtable
 from app.processing.ingest.tasks_common import (
     IngestContext,
     _append_job_warning,
@@ -23,6 +27,140 @@ from app.processing.ingest.tasks_common import (
     resolve_service_type,
     task_app,
 )
+
+
+_SERVICE_IMPORT_INITIAL_PROGRESS = 0.1
+_SERVICE_IMPORT_HEARTBEAT_INTERVAL_SECONDS = 5.0
+_SERVICE_IMPORT_HEARTBEAT_INCREMENT = 0.05
+_SERVICE_IMPORT_HEARTBEAT_MAX_PROGRESS = 0.65
+_ARCGIS_SERVICE_IMPORT_CHUNK_SIZE = 2000
+
+
+async def _heartbeat_service_import_progress(job_uuid: uuid.UUID) -> None:
+    """Advance service-ingest progress while GDAL loads remote features."""
+    while True:
+        await asyncio.sleep(_SERVICE_IMPORT_HEARTBEAT_INTERVAL_SECONDS)
+        try:
+            async with _job_phase_session(
+                job_uuid, phase="service_import_heartbeat"
+            ) as (session, job):
+                if job is None:
+                    return
+                if job.status != "running" or job.current_step != "ogr2ogr":
+                    return
+
+                existing_progress = (
+                    job.progress
+                    if job.progress is not None
+                    else _SERVICE_IMPORT_INITIAL_PROGRESS
+                )
+                next_progress = min(
+                    _SERVICE_IMPORT_HEARTBEAT_MAX_PROGRESS,
+                    existing_progress + _SERVICE_IMPORT_HEARTBEAT_INCREMENT,
+                )
+                if next_progress <= existing_progress:
+                    continue
+
+                job.progress = next_progress
+                await session.commit()
+        except Exception:  # broad: best-effort heartbeat must not fail ingest
+            # Heartbeat progress is best-effort and must not mask ingest work.
+            structlog.get_logger().warning(
+                "service_import_progress_heartbeat_failed",
+                job_id=str(job_uuid),
+                exc_info=True,
+            )
+
+
+async def _write_service_import_progress(
+    job_uuid: uuid.UUID, *, imported_rows: int, feature_count: int
+) -> None:
+    if feature_count <= 0:
+        return
+
+    completed_ratio = min(1.0, imported_rows / feature_count)
+    next_progress = min(
+        _SERVICE_IMPORT_HEARTBEAT_MAX_PROGRESS,
+        _SERVICE_IMPORT_INITIAL_PROGRESS
+        + (_SERVICE_IMPORT_HEARTBEAT_MAX_PROGRESS - _SERVICE_IMPORT_INITIAL_PROGRESS)
+        * completed_ratio,
+    )
+
+    async with _job_phase_session(job_uuid, phase="service_import_chunk_progress") as (
+        session,
+        job,
+    ):
+        if job is None:
+            return
+        if job.status != "running" or job.current_step != "ogr2ogr":
+            return
+        existing_progress = (
+            job.progress
+            if job.progress is not None
+            else _SERVICE_IMPORT_INITIAL_PROGRESS
+        )
+        if next_progress <= existing_progress:
+            return
+        job.progress = next_progress
+        await session.commit()
+
+
+async def _count_service_import_rows(table_name: str) -> int:
+    from app.core import db as db_module
+
+    async with db_module.async_session() as session:
+        result = await session.execute(
+            text(
+                f"SELECT COUNT(*) FROM "
+                f"{_qtable(table_name, schema=_current_tenant_schema())}"
+            )
+        )
+        return int(result.scalar_one())
+
+
+async def _fetch_arcgis_import_page_info(
+    source_url: str, layer_id: int | str | None, token: str | None
+) -> tuple[int | None, int | None, bool, str | None]:
+    if layer_id is None:
+        return None, None, False, None
+
+    from app.modules.catalog.sources.adapters.arcgis import (
+        ArcGISTokenError,
+        fetch_arcgis_feature_count,
+        fetch_arcgis_pagination_info,
+    )
+    from app.modules.catalog.sources.security import make_safe_client
+    from app.processing.ingest.ogr import IngestionError
+
+    try:
+        async with make_safe_client(timeout=30.0) as client:
+            (
+                max_record_count,
+                supports_pagination,
+                order_field,
+            ) = await fetch_arcgis_pagination_info(
+                source_url, layer_id, client, token=token
+            )
+            if (
+                not supports_pagination
+                or max_record_count is None
+                or order_field is None
+            ):
+                return None, max_record_count, supports_pagination, order_field
+            feature_count = await fetch_arcgis_feature_count(
+                source_url, layer_id, client, token=token
+            )
+            return feature_count, max_record_count, supports_pagination, order_field
+    except ArcGISTokenError as exc:
+        raise IngestionError(str(exc)) from exc
+    except Exception as exc:  # broad: count is an optimization; import can fall back
+        structlog.get_logger().warning(
+            "arcgis_import_page_info_fetch_failed",
+            source_url=source_url,
+            layer_id=str(layer_id),
+            error=str(exc),
+        )
+        return None, None, False, None
 
 
 def _should_unlink_staging(
@@ -546,11 +684,73 @@ async def ingest_service(
         ):
             if _progress_job is not None:
                 _progress_job.current_step = "ogr2ogr"
-                _progress_job.progress = 0.1
+                _progress_job.progress = _SERVICE_IMPORT_INITIAL_PROGRESS
                 await _progress_session.commit()
 
         # WFS namespace retry via shared helper (KISS-8).
         async def _do_import(layer_name: str) -> None:
+            feature_count = None
+            page_size = _ARCGIS_SERVICE_IMPORT_CHUNK_SIZE
+            supports_pagination = False
+            pagination_order_field = None
+            if service_type == "arcgis_featureserver":
+                (
+                    feature_count,
+                    max_record_count,
+                    supports_pagination,
+                    pagination_order_field,
+                ) = await _fetch_arcgis_import_page_info(source_url, layer_id, token)
+                if max_record_count is not None:
+                    page_size = max(1, min(page_size, max_record_count))
+
+            if (
+                service_type == "arcgis_featureserver"
+                and supports_pagination
+                and pagination_order_field is not None
+                and feature_count is not None
+                and feature_count > page_size
+            ):
+                imported_rows = 0
+                append = False
+                for offset in range(0, feature_count, page_size):
+                    _src, _layer = port.build_gdal_source(
+                        service_type_raw,
+                        source_url,
+                        layer_name,
+                        layer_id,
+                        token=token,
+                        order_field=pagination_order_field,
+                        result_limit=page_size,
+                        result_offset=offset,
+                    )
+                    await run_ogr2ogr_service(
+                        _src,
+                        _layer,
+                        table_name,
+                        db_conn_str,
+                        service_type,
+                        token=token,
+                        is_non_spatial=is_non_spatial,
+                        append=append,
+                    )
+                    next_imported_rows = await _count_service_import_rows(table_name)
+                    if next_imported_rows <= imported_rows:
+                        from app.processing.ingest.ogr import IngestionError
+
+                        raise IngestionError(
+                            "ArcGIS service import made no row-count progress "
+                            f"at offset {offset}; upstream pagination may be "
+                            "unsupported or returned an empty page."
+                        )
+                    imported_rows = next_imported_rows
+                    await _write_service_import_progress(
+                        job_uuid,
+                        imported_rows=imported_rows,
+                        feature_count=feature_count,
+                    )
+                    append = True
+                return
+
             _src, _layer = port.build_gdal_source(
                 service_type_raw,
                 source_url,
@@ -569,9 +769,17 @@ async def ingest_service(
                 is_non_spatial=is_non_spatial,
             )
 
-        await _run_service_import_with_wfs_fallback(
-            _do_import, source_layer, token=token
+        service_progress_task = asyncio.create_task(
+            _heartbeat_service_import_progress(job_uuid)
         )
+        try:
+            await _run_service_import_with_wfs_fallback(
+                _do_import, source_layer, token=token
+            )
+        finally:
+            service_progress_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await service_progress_task
 
         # ----------------------------------------------------------------- #
         # Phase 2 (short-lived session): post-ogr2ogr finalization.
