@@ -621,8 +621,16 @@ AI_SEND_SAMPLE_VALUES = PersistentConfig[bool](
 LLM_MODEL_LIGHT = PersistentConfig[str](
     key="llm_model_light",
     type_=str,
+    # For OpenAI-compatible providers, fall back to openai_model (the user's
+    # configured/working model) rather than a hardcoded "gpt-4o-mini" — that
+    # hardcoded name 404s on Azure OpenAI / gateways / Ollama where the model
+    # must match a real deployment, silently breaking query_data + metadata
+    # while chat (which uses LLM_MODEL) keeps working. Set OPENAI_MODEL_LIGHT
+    # to use a separate cheaper model.
     env_default_factory=lambda: (
-        "claude-haiku-4-5-20251001" if settings.anthropic_api_key else "gpt-4o-mini"
+        "claude-haiku-4-5-20251001"
+        if settings.anthropic_api_key
+        else (settings.openai_model_light or settings.openai_model)
     ),
     tab="ai",
     label="Light LLM Model (SQL/Metadata)",
