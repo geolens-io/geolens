@@ -317,6 +317,7 @@ class ProcessingPort(Protocol):
         token: str | None = None,
         order_field: str | None = None,
         result_limit: int | None = None,
+        result_offset: int | None = None,
     ) -> tuple[str, str]: ...
 
     # -------------------------------------------------------------------------

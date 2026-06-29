@@ -547,6 +547,7 @@ class DefaultProcessingPort:
         token=None,
         order_field=None,
         result_limit=None,
+        result_offset=None,
     ):  # type: ignore[no-untyped-def]
         from app.modules.catalog.sources.preview import build_gdal_source
 
@@ -558,6 +559,7 @@ class DefaultProcessingPort:
             token=token,
             order_field=order_field,
             result_limit=result_limit,
+            result_offset=result_offset,
         )
 
     # -------------------------------------------------------------------------

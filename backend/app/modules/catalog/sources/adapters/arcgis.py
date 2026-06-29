@@ -225,6 +225,74 @@ async def enrich_arcgis_feature_counts(
     return list(enriched)
 
 
+async def fetch_arcgis_feature_count(
+    base_url: str,
+    layer_id: int | str,
+    client: httpx.AsyncClient,
+    token: str | None = None,
+) -> int | None:
+    """Fetch a layer feature count from ArcGIS REST query metadata."""
+    base = base_url.rstrip("/")
+    safe_layer_id = str(layer_id).strip("/")
+    params: dict[str, str] = {
+        "where": "1=1",
+        "returnCountOnly": "true",
+        "f": "json",
+    }
+    if token:
+        params["token"] = token
+
+    resp = await client.get(f"{base}/{safe_layer_id}/query", params=params)
+    resp.raise_for_status()
+    data = resp.json()
+    if "error" in data:
+        error_info = data["error"]
+        code = error_info.get("code", 0)
+        message = error_info.get("message", "Unknown ArcGIS error")
+        if code in (498, 499):
+            raise ArcGISTokenError(code, message)
+        return None
+
+    count = data.get("count")
+    if isinstance(count, int) and count >= 0:
+        return count
+    return None
+
+
+async def fetch_arcgis_max_record_count(
+    base_url: str,
+    layer_id: int | str,
+    client: httpx.AsyncClient,
+    token: str | None = None,
+) -> int | None:
+    """Fetch an ArcGIS layer's advertised maximum page size."""
+    base = base_url.rstrip("/")
+    safe_layer_id = str(layer_id).strip("/")
+    params: dict[str, str] = {"f": "json"}
+    if token:
+        params["token"] = token
+
+    try:
+        resp = await client.get(f"{base}/{safe_layer_id}", params=params)
+        resp.raise_for_status()
+        data = resp.json()
+    except (httpx.HTTPError, ValueError, TypeError):
+        return None
+
+    if "error" in data:
+        error_info = data["error"]
+        code = error_info.get("code", 0)
+        message = error_info.get("message", "Unknown ArcGIS error")
+        if code in (498, 499):
+            raise ArcGISTokenError(code, message)
+        return None
+
+    value = data.get("maxRecordCount")
+    if isinstance(value, int) and value > 0:
+        return value
+    return None
+
+
 async def fetch_arcgis_layer_preview(
     base_url: str,
     layer_id: int | str,

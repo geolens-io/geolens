@@ -20,6 +20,7 @@ Pins the contract that the polling UI depends on:
 import asyncio
 import uuid as _uuid
 from pathlib import Path
+from urllib.parse import parse_qs, urlsplit
 
 import pytest
 from sqlalchemy import select, text
@@ -317,6 +318,186 @@ async def test_service_worker_advances_ogr2ogr_progress_while_remote_import_is_r
     assert last_progress is not None
     assert last_progress > 0.1
     assert last_progress < 0.7
+
+
+@pytest.mark.anyio
+async def test_service_worker_chunks_large_arcgis_imports(test_db_session, monkeypatch):
+    """Large ArcGIS imports should dispatch bounded paged ogr2ogr calls."""
+    from app.processing.ingest import tasks_vector
+    from app.modules.catalog.sources.preview import build_gdal_source
+
+    admin_id = await _get_admin_id(test_db_session)
+    table_name = f"tbl_arcgis_chunks_{_uuid.uuid4().hex[:8]}"
+
+    job = IngestJob(
+        source_filename="Big ArcGIS Layer",
+        source_url="https://example.test/arcgis/rest/services/Big/FeatureServer",
+        source_layer="0",
+        created_by=admin_id,
+        status="pending",
+        user_metadata={
+            "title": "Big ArcGIS Layer",
+            "visibility": "private",
+            "service_type": "ArcGIS FeatureServer",
+            "layer_id": "0",
+            "geometry_type": "Point",
+            "object_id_field": "FID",
+        },
+    )
+    test_db_session.add(job)
+    await test_db_session.flush()
+    await test_db_session.commit()
+    job_id = job.id
+
+    calls: list[dict[str, object]] = []
+
+    class _FakeProcessingPort:
+        def build_gdal_source(self, *args, **kwargs):
+            return build_gdal_source(*args, **kwargs)
+
+    async def _validate_url_noop(_url: str) -> None:
+        return None
+
+    async def _fake_generate_table_name(*args, **kwargs):
+        return table_name, None
+
+    async def _fake_page_info(*args, **kwargs):
+        return 4500, 1000
+
+    async def _fake_run_ogr2ogr_service(
+        gdal_source: str,
+        layer_name: str,
+        target_table: str,
+        db_conn_str: str,
+        service_type: str,
+        *,
+        append: bool = False,
+        **kwargs,
+    ) -> None:
+        query = parse_qs(urlsplit(gdal_source.removeprefix("ESRIJSON:")).query)
+        offset = int(query.get("resultOffset", ["0"])[0])
+        limit = int(query["resultRecordCount"][0])
+        rows_to_insert = max(0, min(limit, 4500 - offset))
+        calls.append(
+            {
+                "offset": offset,
+                "limit": limit,
+                "append": append,
+                "target_table": target_table,
+                "layer_name": layer_name,
+                "service_type": service_type,
+            }
+        )
+
+        if not append:
+            await test_db_session.execute(
+                text(f'DROP TABLE IF EXISTS data."{target_table}"')
+            )
+            await test_db_session.execute(
+                text(f'CREATE TABLE data."{target_table}" (gid serial PRIMARY KEY)')
+            )
+        for _ in range(rows_to_insert):
+            await test_db_session.execute(
+                text(f'INSERT INTO data."{target_table}" DEFAULT VALUES')
+            )
+        await test_db_session.commit()
+
+    async def _fake_rename_reserved_columns(*args, **kwargs):
+        return []
+
+    async def _fake_finalize_ingest(context):
+        context.job.status = "complete"
+        context.job.current_step = "complete"
+        context.job.progress = 1.0
+        context.job.rows_processed = 4500
+        await context.session.commit()
+
+    async def _fake_emit_billing_event(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr(
+        "app.modules.catalog.sources.security.validate_url_for_ssrf",
+        _validate_url_noop,
+    )
+    monkeypatch.setattr(
+        "app.platform.extensions.get_processing_port",
+        lambda: _FakeProcessingPort(),
+    )
+    monkeypatch.setattr("app.processing.ingest.ogr.build_pg_conn_str", lambda: "PG:")
+    monkeypatch.setattr(
+        "app.processing.ingest.service.generate_table_name",
+        _fake_generate_table_name,
+    )
+    monkeypatch.setattr(
+        tasks_vector,
+        "_fetch_arcgis_import_page_info",
+        _fake_page_info,
+    )
+    monkeypatch.setattr(
+        "app.processing.ingest.ogr.run_ogr2ogr_service",
+        _fake_run_ogr2ogr_service,
+    )
+    monkeypatch.setattr(
+        "app.processing.ingest.metadata.rename_reserved_columns",
+        _fake_rename_reserved_columns,
+    )
+    monkeypatch.setattr(tasks_vector, "_finalize_ingest", _fake_finalize_ingest)
+    monkeypatch.setattr(tasks_vector, "_emit_billing_event", _fake_emit_billing_event)
+
+    await tasks_vector.ingest_service.func(
+        job_id=str(job_id),
+        source_url="https://example.test/arcgis/rest/services/Big/FeatureServer",
+        source_layer="0",
+        user_id=str(admin_id),
+    )
+
+    assert calls == [
+        {
+            "offset": 0,
+            "limit": 1000,
+            "append": False,
+            "target_table": table_name,
+            "layer_name": "",
+            "service_type": "arcgis_featureserver",
+        },
+        {
+            "offset": 1000,
+            "limit": 1000,
+            "append": True,
+            "target_table": table_name,
+            "layer_name": "",
+            "service_type": "arcgis_featureserver",
+        },
+        {
+            "offset": 2000,
+            "limit": 1000,
+            "append": True,
+            "target_table": table_name,
+            "layer_name": "",
+            "service_type": "arcgis_featureserver",
+        },
+        {
+            "offset": 3000,
+            "limit": 1000,
+            "append": True,
+            "target_table": table_name,
+            "layer_name": "",
+            "service_type": "arcgis_featureserver",
+        },
+        {
+            "offset": 4000,
+            "limit": 1000,
+            "append": True,
+            "target_table": table_name,
+            "layer_name": "",
+            "service_type": "arcgis_featureserver",
+        },
+    ]
+
+    row_count = (
+        await test_db_session.execute(text(f'SELECT COUNT(*) FROM data."{table_name}"'))
+    ).scalar_one()
+    assert row_count == 4500
 
 
 # ---------------------------------------------------------------------------

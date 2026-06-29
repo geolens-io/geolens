@@ -7,8 +7,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import structlog
+from sqlalchemy import text
 
 from app.core.db.tenant_session import tenant_task
+from app.processing.ingest.metadata import _qtable
 from app.processing.ingest.tasks_common import (
     IngestContext,
     _append_job_warning,
@@ -31,6 +33,7 @@ _SERVICE_IMPORT_INITIAL_PROGRESS = 0.1
 _SERVICE_IMPORT_HEARTBEAT_INTERVAL_SECONDS = 5.0
 _SERVICE_IMPORT_HEARTBEAT_INCREMENT = 0.05
 _SERVICE_IMPORT_HEARTBEAT_MAX_PROGRESS = 0.65
+_ARCGIS_SERVICE_IMPORT_CHUNK_SIZE = 2000
 
 
 async def _heartbeat_service_import_progress(job_uuid: uuid.UUID) -> None:
@@ -67,6 +70,87 @@ async def _heartbeat_service_import_progress(job_uuid: uuid.UUID) -> None:
                 job_id=str(job_uuid),
                 exc_info=True,
             )
+
+
+async def _write_service_import_progress(
+    job_uuid: uuid.UUID, *, imported_rows: int, feature_count: int
+) -> None:
+    if feature_count <= 0:
+        return
+
+    completed_ratio = min(1.0, imported_rows / feature_count)
+    next_progress = min(
+        _SERVICE_IMPORT_HEARTBEAT_MAX_PROGRESS,
+        _SERVICE_IMPORT_INITIAL_PROGRESS
+        + (_SERVICE_IMPORT_HEARTBEAT_MAX_PROGRESS - _SERVICE_IMPORT_INITIAL_PROGRESS)
+        * completed_ratio,
+    )
+
+    async with _job_phase_session(job_uuid, phase="service_import_chunk_progress") as (
+        session,
+        job,
+    ):
+        if job is None:
+            return
+        if job.status != "running" or job.current_step != "ogr2ogr":
+            return
+        existing_progress = (
+            job.progress
+            if job.progress is not None
+            else _SERVICE_IMPORT_INITIAL_PROGRESS
+        )
+        if next_progress <= existing_progress:
+            return
+        job.progress = next_progress
+        await session.commit()
+
+
+async def _count_service_import_rows(table_name: str) -> int:
+    from app.core import db as db_module
+
+    async with db_module.async_session() as session:
+        result = await session.execute(
+            text(
+                f"SELECT COUNT(*) FROM "
+                f"{_qtable(table_name, schema=_current_tenant_schema())}"
+            )
+        )
+        return int(result.scalar_one())
+
+
+async def _fetch_arcgis_import_page_info(
+    source_url: str, layer_id: int | str | None, token: str | None
+) -> tuple[int | None, int | None]:
+    if layer_id is None:
+        return None, None
+
+    from app.modules.catalog.sources.adapters.arcgis import (
+        ArcGISTokenError,
+        fetch_arcgis_feature_count,
+        fetch_arcgis_max_record_count,
+    )
+    from app.modules.catalog.sources.security import make_safe_client
+    from app.processing.ingest.ogr import IngestionError
+
+    try:
+        async with make_safe_client(timeout=30.0) as client:
+            max_record_count = await fetch_arcgis_max_record_count(
+                source_url, layer_id, client, token=token
+            )
+            feature_count = await fetch_arcgis_feature_count(
+                source_url, layer_id, client, token=token
+            )
+            return feature_count, max_record_count
+    except ArcGISTokenError as exc:
+        raise IngestionError(str(exc)) from exc
+    except Exception as exc:  # broad: count is an optimization; import can fall back
+        structlog.get_logger().warning(
+            "arcgis_import_page_info_fetch_failed",
+            source_url=source_url,
+            layer_id=str(layer_id),
+            error=str(exc),
+        )
+        return None, None
 
 
 def _should_unlink_staging(
@@ -595,6 +679,61 @@ async def ingest_service(
 
         # WFS namespace retry via shared helper (KISS-8).
         async def _do_import(layer_name: str) -> None:
+            feature_count = None
+            page_size = _ARCGIS_SERVICE_IMPORT_CHUNK_SIZE
+            if service_type == "arcgis_featureserver":
+                feature_count, max_record_count = await _fetch_arcgis_import_page_info(
+                    source_url, layer_id, token
+                )
+                if max_record_count is not None:
+                    page_size = max(1, min(page_size, max_record_count))
+
+            if (
+                service_type == "arcgis_featureserver"
+                and feature_count is not None
+                and feature_count > page_size
+            ):
+                imported_rows = 0
+                append = False
+                for offset in range(0, feature_count, page_size):
+                    _src, _layer = port.build_gdal_source(
+                        service_type_raw,
+                        source_url,
+                        layer_name,
+                        layer_id,
+                        token=token,
+                        order_field=object_id_field,
+                        result_limit=page_size,
+                        result_offset=offset,
+                    )
+                    await run_ogr2ogr_service(
+                        _src,
+                        _layer,
+                        table_name,
+                        db_conn_str,
+                        service_type,
+                        token=token,
+                        is_non_spatial=is_non_spatial,
+                        append=append,
+                    )
+                    next_imported_rows = await _count_service_import_rows(table_name)
+                    if next_imported_rows <= imported_rows:
+                        from app.processing.ingest.ogr import IngestionError
+
+                        raise IngestionError(
+                            "ArcGIS service import made no row-count progress "
+                            f"at offset {offset}; upstream pagination may be "
+                            "unsupported or returned an empty page."
+                        )
+                    imported_rows = next_imported_rows
+                    await _write_service_import_progress(
+                        job_uuid,
+                        imported_rows=imported_rows,
+                        feature_count=feature_count,
+                    )
+                    append = True
+                return
+
             _src, _layer = port.build_gdal_source(
                 service_type_raw,
                 source_url,
