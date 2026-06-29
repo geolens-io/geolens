@@ -63,7 +63,7 @@ async def _heartbeat_service_import_progress(job_uuid: uuid.UUID) -> None:
 
                 job.progress = next_progress
                 await session.commit()
-        except Exception:
+        except Exception:  # broad: best-effort heartbeat must not fail ingest
             # Heartbeat progress is best-effort and must not mask ingest work.
             structlog.get_logger().warning(
                 "service_import_progress_heartbeat_failed",
