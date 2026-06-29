@@ -1,4 +1,4 @@
-# Ingest Test Fixtures
+# Ingest test fixtures
 
 Small, self-contained files used by `test_ingest_column_preservation.py` to
 exercise the column-preservation guarantees in the ingest pipeline.
@@ -8,8 +8,8 @@ exercise the column-preservation guarantees in the ingest pipeline.
 | File | Purpose |
 |------|---------|
 | `basic_attrs.geojson` | 3 Point features with mixed types (string, int, float, bool, date). Baseline round-trip fixture. |
-| `reserved_names.geojson` | 2 Point features with source properties named `gid`, `geom`, `geom_4326`, `fid` — exercises the reserved-name auto-rename helper. |
-| `unicode_attrs.geojson` | 2 Point features with non-ASCII property names (`Nom`, `Größe`, `Área`) — exercises SQL-quoted identifier handling in `get_sample_values`. |
+| `reserved_names.geojson` | 2 Point features with source properties named `gid`, `geom`, `geom_4326`, `fid`. Exercises the reserved-name auto-rename helper. |
+| `unicode_attrs.geojson` | 2 Point features with non-ASCII property names (`Nom`, `Größe`, `Área`). Exercises SQL-quoted identifier handling in `get_sample_values`. |
 | `mixed_types.csv` | 3 rows with bool/date/int/float columns plus `lat`/`lon` (consumed as geometry by ogr2ogr's X/Y_POSSIBLE_NAMES). |
 | `dbf_collision.zip` | Zipped shapefile whose DBF has two field names that share the same first-10-char prefix (`population_2020`, `population_2021` → both truncate to `population`). |
 

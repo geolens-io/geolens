@@ -4,10 +4,10 @@ GeoLens exposes a **W3C DCAT 3** JSON-LD serialization alongside the DCAT-US 3.0
 (`app.standards.dcat_us`) and GeoDCAT-AP 2.0.0 (`app.standards.geodcat_ap`)
 profiles. This is the baseline, vendor-neutral catalog serialization.
 
-## Version Source
+## Version source
 
 - Recommendation: <https://www.w3.org/TR/vocab-dcat-3/>
-- Pinned version: `3.0` (W3C Recommendation, 2024-08-22) — see
+- Pinned version: `3.0` (W3C Recommendation, 2024-08-22). See
   `schemas.py` (`DCAT3_SCHEMA_VERSION`, `DCAT3_SCHEMA_COMMIT`), pinned the way
   DCAT-US pins `DCAT_US_SCHEMA_VERSION` and GeoDCAT-AP pins
   `GEODCAT_AP_SCHEMA_VERSION`.
@@ -30,18 +30,18 @@ DCAT-US JSON Schema validator and the GeoDCAT-AP structural validator.
 | `GET /datasets/dcat/validation/` | Structural validation report for the visible catalog feed |
 | `GET /datasets/{dataset_id}/dcat/validation/` | Structural validation report for one accessible dataset |
 
-## Validation Behavior
+## Validation behavior
 
 Validation is a metadata-quality signal, not an authorization bypass. Catalog
 validation sees only datasets visible to the caller; per-dataset validation runs
 the same access checks as per-dataset export. Reports include `valid`,
 `error_count`, and `errors[]` with `path`, `schema_path`, `validator`, and
-`message` — identical in shape to the DCAT-US and GeoDCAT-AP validators.
+`message`, identical in shape to the DCAT-US and GeoDCAT-AP validators.
 
-## Conformance Posture: Filter the Feed
+## Conformance posture: filter the feed
 
 The DCAT 3 **catalog feed** (`GET /datasets/dcat/`) emits **only** records that
-pass DCAT 3 structural validation — records missing a mandatory property (title
+pass DCAT 3 structural validation. Records missing a mandatory property (title
 or description) are silently skipped so the feed stays conformant with zero
 onboarding friction. The **per-dataset** endpoint
 (`GET /datasets/{id}/dcat/`) is **not** filtered and always serializes the

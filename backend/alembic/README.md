@@ -16,7 +16,7 @@ behavior.
 `env.py` performs a `connection.rollback()` immediately after the raw `COMMIT`
 that persists its preamble DDL (schema + version table). That rollback clears
 SQLAlchemy's empty autobegun transaction so that `context.begin_transaction()`
-owns a real, committing transaction — **without it, `op.get_context().autocommit_block()`
+owns a real, committing transaction. **Without it, `op.get_context().autocommit_block()`
 raises `AssertionError`** (`context.begin_transaction()` would return a
 `nullcontext` and never set `ctx._transaction`). See finding CV-1.
 
@@ -45,7 +45,7 @@ tables a plain `CREATE INDEX` is fine.
 
 A bare `ALTER TABLE ... ADD CONSTRAINT ... CHECK (...)` takes `ACCESS EXCLUSIVE`
 and validates **every row** under that lock. On a large table, split it so the
-row-scan phase runs under the weaker `SHARE UPDATE EXCLUSIVE` lock — and run the
+row-scan phase runs under the weaker `SHARE UPDATE EXCLUSIVE` lock, and run the
 `VALIDATE` in its **own** transaction (via `autocommit_block`) so the lock is
 actually released between the two steps:
 
@@ -59,8 +59,8 @@ def upgrade() -> None:
 ```
 
 Important: inside `env.py`'s single transaction (i.e. **without** an
-`autocommit_block`), `NOT VALID` + `VALIDATE` gives **no** concurrency benefit —
-the `ACCESS EXCLUSIVE` from `ADD ... NOT VALID` is held until commit, so the
+`autocommit_block`), `NOT VALID` + `VALIDATE` gives **no** concurrency benefit.
+The `ACCESS EXCLUSIVE` from `ADD ... NOT VALID` is held until commit, so the
 split only helps when `VALIDATE` runs in a separate (autocommit) transaction.
 Migration `0018` (`chk_ingest_jobs_status`) is deliberately left as a single
 `ADD CONSTRAINT`: `ingest_jobs` is small/transient, so its full-scan validation
@@ -75,7 +75,7 @@ declared in the model's `__table_args__`. When you add an expression index in a
 migration (e.g. a trigram GIN or a functional `to_tsvector` index), **also**
 declare it on the model.
 
-The `text()` literal must byte-match the expression SQLAlchemy *reflects* — NOT
+The `text()` literal must byte-match the expression SQLAlchemy *reflects*, NOT
 the raw `pg_get_indexdef` output (they differ; e.g. the reflected form of the
 `to_tsvector` index in `Record.__table_args__` has one fewer outer paren than
 `pg_get_indexdef`). To regenerate the literal after a change: run `alembic check`

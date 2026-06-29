@@ -4,7 +4,7 @@ The GeoLens frontend is a React 19 + Vite + TypeScript application. It powers th
 
 For installation, environment configuration, and running the full stack with Docker Compose, see the repository root [README.md](../README.md). For contributing guidelines and development setup, see [.github/CONTRIBUTING.md](../.github/CONTRIBUTING.md).
 
-## Local Development
+## Local development
 
 Once the stack is running (`docker compose up -d` from the repo root), Vite dev mode is hot-reloaded inside the `frontend` container at http://localhost:8080. To run scripts directly on the host:
 
@@ -19,12 +19,12 @@ npm run build      # Production build (tsc -b && vite build)
 
 ## Layout
 
-- `src/components/` — feature-scoped UI components (catalog, dataset, builder, admin, shared).
-- `src/api/` — typed API client wrappers around the auto-generated `@geolens/sdk`.
-- `src/hooks/` — TanStack Query hooks and store subscriptions.
-- `src/stores/` — global Zustand stores (auth, theme, search, drawing).
-- `src/i18n/` — translation files (en/es/fr/de).
-- `src/lib/` — utilities (basemap helpers, formatting, validation).
+- `src/components/`: feature-scoped UI components (catalog, dataset, builder, admin, shared).
+- `src/api/`: typed API client wrappers around the auto-generated `@geolens/sdk`.
+- `src/hooks/`: TanStack Query hooks and store subscriptions.
+- `src/stores/`: global Zustand stores (auth, theme, search, drawing).
+- `src/i18n/`: translation files (en/es/fr/de).
+- `src/lib/`: utilities (basemap helpers, formatting, validation).
 
 ## Documentation
 

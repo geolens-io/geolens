@@ -2,7 +2,7 @@
 
 GeoLens keeps DCAT-US Schema v3.0 support separate from the existing W3C DCAT 3 serializer.
 
-## Schema Source
+## Schema source
 
 - Repository: <https://github.com/GSA/dcat-us>
 - Vendored commit: `98408dc000f0b71131a03920e2dec6247a84abff`
@@ -11,7 +11,7 @@ GeoLens keeps DCAT-US Schema v3.0 support separate from the existing W3C DCAT 3 
 
 The schema definitions are vendored so validation is deterministic and does not depend on network access at runtime.
 
-## Mapping Contract
+## Mapping contract
 
 | DCAT-US class | GeoLens source |
 |---------------|----------------|
@@ -25,7 +25,7 @@ The schema definitions are vendored so validation is deterministic and does not 
 | Location | `Record.spatial_extent` serialized as WKT bounding polygon |
 | Concept | `Record.theme_category` and keyword values where appropriate |
 
-## Known Gaps
+## Known gaps
 
 - DatasetSeries is not first-class in the current catalog model. Use future requirement `DCAT-FU-01` before adding authoring or persistence.
 - Structured `AccessRestriction`, `UseRestriction`, and `CUIRestriction` are not first-class in the current metadata model. Current free-text access/use constraints can be surfaced, but structured authoring is future requirement `DCAT-FU-02`.
@@ -45,7 +45,7 @@ The existing W3C DCAT 3 routes remain unchanged:
 - `GET /datasets/dcat/`
 - `GET /datasets/{dataset_id}/dcat/`
 
-## Validation Behavior
+## Validation behavior
 
 Validation uses the vendored JSON Schema 2020-12 definitions with local `$ref` resolution. Reports include:
 
@@ -58,20 +58,20 @@ Validation uses the vendored JSON Schema 2020-12 definitions with local `$ref` r
 
 Validation is a metadata-quality signal, not an authorization bypass. Catalog validation sees only datasets visible to the caller, and per-dataset validation runs the same access checks as per-dataset export.
 
-## Conformance Posture: Filter the Feed
+## Conformance posture: filter the feed
 
 GeoLens keeps its catalog **feeds** conformant by **filtering**, not by blocking authoring (issue #203).
 
-- **Catalog feeds** (`GET /datasets/dcat-us/3.0/`, and the equivalent W3C DCAT 3 `/datasets/dcat/` and GeoDCAT-AP `/datasets/geodcat-ap/` feeds) emit **only** records that pass that profile's validator. A record missing a property mandatory for the profile (for DCAT-US 3.0, most commonly a usable `contactPoint`) is **silently skipped** from the feed. The feed as a whole is therefore always conformant, with **zero onboarding friction** — incomplete drafts simply do not appear until their metadata is filled in.
+- **Catalog feeds** (`GET /datasets/dcat-us/3.0/`, and the equivalent W3C DCAT 3 `/datasets/dcat/` and GeoDCAT-AP `/datasets/geodcat-ap/` feeds) emit **only** records that pass that profile's validator. A record missing a property mandatory for the profile (for DCAT-US 3.0, most commonly a usable `contactPoint`) is **silently skipped** from the feed. The feed as a whole is therefore always conformant, with **zero onboarding friction**. Incomplete drafts simply do not appear until their metadata is filled in.
 - **Per-dataset endpoints** (`GET /datasets/{id}/dcat-us/3.0/`, and the DCAT 3 / GeoDCAT-AP equivalents) are **not** filtered: they always serialize the requested record as-is so operators can inspect and fix an incomplete record. The matching `.../validation/` endpoints report exactly which mandatory properties are missing.
 
 This is implemented in the `catalog_to_*` serializers (`app.standards.dcat_us.service.catalog_to_dcat_us3`, `app.standards.dcat.service.catalog_to_dcat`, `app.standards.geodcat_ap.service.catalog_to_geodcat_ap`): each candidate record is serialized and then validated with that profile's validator, and only valid entries are included.
 
 ### Optional stricter lever: `REQUIRE_METADATA_FOR_PUBLISH`
 
-Filtering keeps the feeds clean without forcing completeness on every author. Operators who instead want to **block publish** of incomplete records (so an incomplete record can never reach a feed in the first place) can enable the optional `REQUIRE_METADATA_FOR_PUBLISH` persistent-config lever (default **False**). The two mechanisms are complementary: filtering guarantees feed conformance regardless of the lever, while the lever additionally enforces completeness at authoring time.
+Filtering keeps the feeds clean without forcing completeness on every author. Operators who instead want to **block publish** of incomplete records (so an incomplete record can never reach a feed in the first place) can enable the optional `REQUIRE_METADATA_FOR_PUBLISH` persistent-config lever (default **False**). The two mechanisms are complementary: filtering guarantees feed conformance regardless of the lever, while the lever also enforces completeness at authoring time.
 
-## Migration Notes
+## Migration notes
 
 DCAT-US v3.0 differs from DCAT-US v1.1 in areas that matter for GeoLens operators:
 

@@ -3,13 +3,13 @@
 GeoLens exposes a **GeoDCAT-AP** serialization alongside the W3C DCAT 3
 (`app.standards.dcat`) and DCAT-US 3.0 (`app.standards.dcat_us`) profiles.
 
-GeoDCAT-AP is the geospatial profile of DCAT-AP — the European Union /
+GeoDCAT-AP is the geospatial profile of DCAT-AP, the European Union /
 INSPIRE Application Profile of DCAT. It extends DCAT with the geospatial and
 ISO 19115 / 19139 metadata that GeoLens already stores (lineage, constraints,
 responsible-party roles, maintenance frequency, reference system, spatial
 resolution, and spatial/temporal extents).
 
-## Version Source
+## Version source
 
 - Specification: <https://semiceu.github.io/GeoDCAT-AP/releases/2.0.0/>
 - Repository: <https://github.com/SEMICeu/GeoDCAT-AP>
@@ -24,7 +24,7 @@ required-field checks consistent with the mandatory-class cardinalities of the
 specification (see `validation.py`), in the same spirit and report shape as the
 DCAT-US validator.
 
-## Mapping Contract (ISO 19115 → GeoDCAT-AP)
+## Mapping contract (ISO 19115 → GeoDCAT-AP)
 
 | GeoLens / ISO source | GeoDCAT-AP term |
 |----------------------|-----------------|
@@ -80,19 +80,19 @@ organization is skipped entirely, matching the DCAT-US behavior.
 The W3C DCAT 3 (`/datasets/dcat/`) and DCAT-US 3.0 (`/datasets/dcat-us/3.0/`)
 routes are unchanged.
 
-## Validation Behavior
+## Validation behavior
 
 Validation is a metadata-quality signal, not an authorization bypass. Catalog
 validation sees only datasets visible to the caller; per-dataset validation
 runs the same access checks as per-dataset export. Reports include `valid`,
 `error_count`, and `errors[]` with `path`, `schema_path`, `validator`, and
-`message` — identical in shape to the DCAT-US validator.
+`message`, identical in shape to the DCAT-US validator.
 
-## Conformance Posture: Filter the Feed
+## Conformance posture: filter the feed
 
 Like the W3C DCAT 3 and DCAT-US 3.0 profiles, the GeoDCAT-AP **catalog feed**
 (`GET /datasets/geodcat-ap/`) emits **only** records that pass GeoDCAT-AP
-structural validation — records missing a mandatory property (title or
+structural validation. Records missing a mandatory property (title or
 description) are silently skipped so the feed stays conformant with zero
 onboarding friction. The **per-dataset** endpoint
 (`GET /datasets/{id}/geodcat-ap/`) is **not** filtered and always serializes
@@ -101,7 +101,7 @@ the requested record as-is. See
 for the full posture, including the optional stricter
 `REQUIRE_METADATA_FOR_PUBLISH` publish-time lever.
 
-## Known Gaps
+## Known gaps
 
 - Structured ISO constraint codes (`MD_RestrictionCode`, INSPIRE limitations)
   are surfaced as free-text `dcterms:RightsStatement` labels rather than

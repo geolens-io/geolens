@@ -16,13 +16,13 @@ Importez des Shapefiles, GeoTIFFs, GeoPackages ou CSVs. GeoLens stocke tout dans
 
 ```bash
 curl -fsSL https://getgeolens.com/install.sh | sh
-# Ouvrez http://localhost:8080 — connectez-vous avec les identifiants choisis
+# Ouvrez http://localhost:8080, puis connectez-vous avec les identifiants choisis
 ```
 
 <p align="center">
   <img src=".github/assets/geolens-manhattan-3d-hero.jpg" alt="Constructeur de cartes GeoLens : empreintes des bâtiments de Manhattan extrudées en une skyline 3D, colorées selon la hauteur du toit, avec l'éditeur de style de couche ouvert à côté de la carte" width="900" />
   <br />
-  <em>Le constructeur de cartes — les empreintes des bâtiments de Manhattan extrudées selon la hauteur du toit et colorées par un style fondé sur les données, créé à partir de données ouvertes avec <code>scripts/seed-showcase.py</code></em>
+  <em>Le constructeur de cartes : les empreintes des bâtiments de Manhattan extrudées selon la hauteur du toit et colorées par un style fondé sur les données, créé à partir de données ouvertes avec <code>scripts/seed-showcase.py</code></em>
 </p>
 
 ## Documentation
@@ -55,4 +55,4 @@ Ce README est une version abrégée. Vous trouverez l'aperçu complet des foncti
 
 ## Licence
 
-Apache-2.0 — voir [LICENSE](LICENSE) et [NOTICE](NOTICE).
+Apache-2.0. Voir [LICENSE](LICENSE) et [NOTICE](NOTICE).
