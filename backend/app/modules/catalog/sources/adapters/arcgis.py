@@ -259,13 +259,13 @@ async def fetch_arcgis_feature_count(
     return None
 
 
-async def fetch_arcgis_max_record_count(
+async def fetch_arcgis_pagination_info(
     base_url: str,
     layer_id: int | str,
     client: httpx.AsyncClient,
     token: str | None = None,
-) -> int | None:
-    """Fetch an ArcGIS layer's advertised maximum page size."""
+) -> tuple[int | None, bool]:
+    """Fetch ArcGIS pagination support and the advertised maximum page size."""
     base = base_url.rstrip("/")
     safe_layer_id = str(layer_id).strip("/")
     params: dict[str, str] = {"f": "json"}
@@ -277,7 +277,7 @@ async def fetch_arcgis_max_record_count(
         resp.raise_for_status()
         data = resp.json()
     except (httpx.HTTPError, ValueError, TypeError):
-        return None
+        return None, False
 
     if "error" in data:
         error_info = data["error"]
@@ -285,12 +285,15 @@ async def fetch_arcgis_max_record_count(
         message = error_info.get("message", "Unknown ArcGIS error")
         if code in (498, 499):
             raise ArcGISTokenError(code, message)
-        return None
+        return None, False
 
     value = data.get("maxRecordCount")
-    if isinstance(value, int) and value > 0:
-        return value
-    return None
+    max_record_count = value if isinstance(value, int) and value > 0 else None
+    advanced = data.get("advancedQueryCapabilities") or {}
+    supports_pagination = (
+        isinstance(advanced, dict) and advanced.get("supportsPagination") is True
+    )
+    return max_record_count, supports_pagination
 
 
 async def fetch_arcgis_layer_preview(

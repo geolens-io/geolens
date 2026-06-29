@@ -7,6 +7,7 @@ import pytest
 
 from app.modules.catalog.sources.adapters.arcgis import (
     ArcGISTokenError,
+    fetch_arcgis_pagination_info,
     probe_arcgis_service,
 )
 from app.modules.catalog.sources.preview import build_gdal_source
@@ -202,3 +203,40 @@ def test_build_gdal_source_arcgis_result_offset():
     assert "orderByFields=FID+ASC" in source
     assert "resultRecordCount=2000" in source
     assert "resultOffset=4000" in source
+
+
+@pytest.mark.asyncio
+async def test_fetch_arcgis_pagination_info_requires_explicit_support():
+    """Chunking must require ArcGIS supportsPagination, not just maxRecordCount."""
+    mock_client = AsyncMock(spec=httpx.AsyncClient)
+    mock_client.get.return_value = _make_mock_response(
+        {
+            "maxRecordCount": 1000,
+            "advancedQueryCapabilities": {"supportsPagination": False},
+        }
+    )
+
+    max_record_count, supports_pagination = await fetch_arcgis_pagination_info(
+        "https://services.arcgis.com/svc/FeatureServer",
+        0,
+        mock_client,
+    )
+
+    assert max_record_count == 1000
+    assert supports_pagination is False
+
+    mock_client.get.return_value = _make_mock_response(
+        {
+            "maxRecordCount": 1000,
+            "advancedQueryCapabilities": {"supportsPagination": True},
+        }
+    )
+
+    max_record_count, supports_pagination = await fetch_arcgis_pagination_info(
+        "https://services.arcgis.com/svc/FeatureServer",
+        0,
+        mock_client,
+    )
+
+    assert max_record_count == 1000
+    assert supports_pagination is True

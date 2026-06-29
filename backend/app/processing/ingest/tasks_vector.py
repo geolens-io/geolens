@@ -120,27 +120,29 @@ async def _count_service_import_rows(table_name: str) -> int:
 
 async def _fetch_arcgis_import_page_info(
     source_url: str, layer_id: int | str | None, token: str | None
-) -> tuple[int | None, int | None]:
+) -> tuple[int | None, int | None, bool]:
     if layer_id is None:
-        return None, None
+        return None, None, False
 
     from app.modules.catalog.sources.adapters.arcgis import (
         ArcGISTokenError,
         fetch_arcgis_feature_count,
-        fetch_arcgis_max_record_count,
+        fetch_arcgis_pagination_info,
     )
     from app.modules.catalog.sources.security import make_safe_client
     from app.processing.ingest.ogr import IngestionError
 
     try:
         async with make_safe_client(timeout=30.0) as client:
-            max_record_count = await fetch_arcgis_max_record_count(
+            max_record_count, supports_pagination = await fetch_arcgis_pagination_info(
                 source_url, layer_id, client, token=token
             )
+            if not supports_pagination or max_record_count is None:
+                return None, max_record_count, supports_pagination
             feature_count = await fetch_arcgis_feature_count(
                 source_url, layer_id, client, token=token
             )
-            return feature_count, max_record_count
+            return feature_count, max_record_count, supports_pagination
     except ArcGISTokenError as exc:
         raise IngestionError(str(exc)) from exc
     except Exception as exc:  # broad: count is an optimization; import can fall back
@@ -150,7 +152,7 @@ async def _fetch_arcgis_import_page_info(
             layer_id=str(layer_id),
             error=str(exc),
         )
-        return None, None
+        return None, None, False
 
 
 def _should_unlink_staging(
@@ -681,15 +683,19 @@ async def ingest_service(
         async def _do_import(layer_name: str) -> None:
             feature_count = None
             page_size = _ARCGIS_SERVICE_IMPORT_CHUNK_SIZE
+            supports_pagination = False
             if service_type == "arcgis_featureserver":
-                feature_count, max_record_count = await _fetch_arcgis_import_page_info(
-                    source_url, layer_id, token
-                )
+                (
+                    feature_count,
+                    max_record_count,
+                    supports_pagination,
+                ) = await _fetch_arcgis_import_page_info(source_url, layer_id, token)
                 if max_record_count is not None:
                     page_size = max(1, min(page_size, max_record_count))
 
             if (
                 service_type == "arcgis_featureserver"
+                and supports_pagination
                 and feature_count is not None
                 and feature_count > page_size
             ):
