@@ -24,10 +24,11 @@ concurrency:
 # fail-loud loader check introduced in Plan 1206-01.
 env:
   # geolens-enterprise origin/main: the 2026-06-14 ref (af128097) plus PR #22
-  # (be40d109), which fixes e002's chk_oauth_providers_type to include 'github'
-  # — the source of the recurring Pytest Parallel Isolation flake
-  # (test_oauth_github_provider) when the overlay applies. No EXTENSION_API_VERSION
-  # change; the migration fix is the only delta from the prior pinned tree.
+  # (be40d109), which aligns e002's chk_oauth_providers_type with the canonical
+  # declaration in core's oauth/models.py by adding 'github' to the union (so the
+  # overlay can never drop it whichever parallel branch sorts last). A
+  # correctness/consistency fix — NOT a flake fix. No EXTENSION_API_VERSION
+  # change; the migration alignment is the only delta from the prior pinned tree.
   ENTERPRISE_PINNED_REF: "be40d1095f9fdce39ef0b4f4ddf4a4984ae47b21"
 
 # Least-privilege default for every job. The `changes` job widens to add
