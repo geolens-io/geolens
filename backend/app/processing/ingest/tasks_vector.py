@@ -1,6 +1,8 @@
 """Procrastinate task definitions for vector file and service ingestion."""
 
+import asyncio
 import uuid
+from contextlib import suppress
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -23,6 +25,48 @@ from app.processing.ingest.tasks_common import (
     resolve_service_type,
     task_app,
 )
+
+
+_SERVICE_IMPORT_INITIAL_PROGRESS = 0.1
+_SERVICE_IMPORT_HEARTBEAT_INTERVAL_SECONDS = 5.0
+_SERVICE_IMPORT_HEARTBEAT_INCREMENT = 0.05
+_SERVICE_IMPORT_HEARTBEAT_MAX_PROGRESS = 0.65
+
+
+async def _heartbeat_service_import_progress(job_uuid: uuid.UUID) -> None:
+    """Advance service-ingest progress while GDAL loads remote features."""
+    while True:
+        await asyncio.sleep(_SERVICE_IMPORT_HEARTBEAT_INTERVAL_SECONDS)
+        try:
+            async with _job_phase_session(
+                job_uuid, phase="service_import_heartbeat"
+            ) as (session, job):
+                if job is None:
+                    return
+                if job.status != "running" or job.current_step != "ogr2ogr":
+                    return
+
+                existing_progress = (
+                    job.progress
+                    if job.progress is not None
+                    else _SERVICE_IMPORT_INITIAL_PROGRESS
+                )
+                next_progress = min(
+                    _SERVICE_IMPORT_HEARTBEAT_MAX_PROGRESS,
+                    existing_progress + _SERVICE_IMPORT_HEARTBEAT_INCREMENT,
+                )
+                if next_progress <= existing_progress:
+                    continue
+
+                job.progress = next_progress
+                await session.commit()
+        except Exception:
+            # Heartbeat progress is best-effort and must not mask ingest work.
+            structlog.get_logger().warning(
+                "service_import_progress_heartbeat_failed",
+                job_id=str(job_uuid),
+                exc_info=True,
+            )
 
 
 def _should_unlink_staging(
@@ -546,7 +590,7 @@ async def ingest_service(
         ):
             if _progress_job is not None:
                 _progress_job.current_step = "ogr2ogr"
-                _progress_job.progress = 0.1
+                _progress_job.progress = _SERVICE_IMPORT_INITIAL_PROGRESS
                 await _progress_session.commit()
 
         # WFS namespace retry via shared helper (KISS-8).
@@ -569,9 +613,17 @@ async def ingest_service(
                 is_non_spatial=is_non_spatial,
             )
 
-        await _run_service_import_with_wfs_fallback(
-            _do_import, source_layer, token=token
+        service_progress_task = asyncio.create_task(
+            _heartbeat_service_import_progress(job_uuid)
         )
+        try:
+            await _run_service_import_with_wfs_fallback(
+                _do_import, source_layer, token=token
+            )
+        finally:
+            service_progress_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await service_progress_task
 
         # ----------------------------------------------------------------- #
         # Phase 2 (short-lived session): post-ogr2ogr finalization.
