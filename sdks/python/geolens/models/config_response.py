@@ -21,8 +21,8 @@ class ConfigResponse:
         registration_enabled (bool): Whether self-service registration is open
         allow_signup (bool | Unset): Whether self-serve registration is open. Alias for registration_enabled; login UI
             uses this to show/hide the signup link. Default: False.
-        auth_methods (list[str] | Unset): Auth methods contributed by the active AuthExtension. Empty in community; e.g.
-            ['saml'] when the enterprise SAML overlay is installed. Login UI can render conditional sign-in options without
+        auth_methods (list[str] | Unset): Auth methods contributed by the active AuthExtension. Empty by default;
+            compatible deployments may add methods such as ['saml']. Login UI can render conditional sign-in options without
             needing admin OAuthProvider access.
         demo_mode (bool | Unset): When true, logged-in users see a persistent demo-account banner. Default false — self-
             hosters see no banner. Default: False.

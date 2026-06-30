@@ -47,7 +47,7 @@ SAML_PROVIDER_FIELDS = (
     "idp_certificate",
     "sp_entity_id",
 )
-SAML_PROVIDER_ERROR = "SAML SSO requires the enterprise overlay"
+SAML_PROVIDER_ERROR = "SAML SSO is not enabled for this deployment"
 
 
 class OAuthProviderCreate(BaseModel):
@@ -65,7 +65,7 @@ class OAuthProviderCreate(BaseModel):
         description="Human-readable label shown on the login page button.",
     )
     provider_type: Literal["google", "microsoft", "oidc", "saml", "github"] = Field(
-        description="OAuth or SAML provider type. 'google' and 'microsoft' auto-populate the discovery URL; 'oidc' is generic OAuth/OIDC; 'github' uses GitHub's fixed OAuth2 endpoints (no discovery URL); 'saml' enables SAML SSO (requires enterprise edition)."
+        description="OAuth or SAML provider type. 'google' and 'microsoft' auto-populate the discovery URL; 'oidc' is generic OAuth/OIDC; 'github' uses GitHub's fixed OAuth2 endpoints (no discovery URL); 'saml' is available only on SAML-enabled deployments."
     )
     client_id: str | None = Field(
         default=None,

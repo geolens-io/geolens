@@ -1,18 +1,18 @@
 /**
  * Admin SAML SSO configuration page.
  *
- * Page-level edition gating (Phase 217 D-14, updated Phase 1054-03 ROUTE-01):
- * - Community edition: renders an "Enterprise Feature" notice that keeps the URL
+ * Page-level capability gating (Phase 217 D-14, updated Phase 1054-03 ROUTE-01):
+ * - Default runtime: renders an unavailable notice that keeps the URL
  *   at /admin/saml so operators who arrive via bookmark or copied URL get a clear
  *   signal rather than a silent vanish. The notice does NOT fetch data from the
  *   gated /auth/saml/* endpoints (SamlProvidersSection is not rendered).
- * - Enterprise edition: renders the full SamlProvidersSection.
+ * - SAML-enabled runtime: renders the full SamlProvidersSection.
  *
  * Three-layer access-control still holds (T-217-04-EDITION):
- *   Layer 1 — backend: require_enterprise() returns 404 on /auth/saml/*.
- *   Layer 2 — sidebar nav: enterpriseOnly nav-item filter hides the link.
- *   Layer 3 — this page: community path renders a notice (previously: Navigate away).
- * The security stance is identical — community-edition browser never calls
+ *   Layer 1: backend gate returns 404 on /auth/saml/*.
+ *   Layer 2: sidebar nav filter hides the link.
+ *   Layer 3: this page renders a notice (previously: Navigate away).
+ * The security stance is identical: default-runtime browser never calls
  * /auth/saml/* regardless of whether layer 3 redirects or renders a notice.
  */
 
@@ -45,14 +45,6 @@ export function AdminSamlPage() {
           <p className="text-sm text-muted-foreground mb-4">
             {t('saml.enterpriseOnly.body')}
           </p>
-          <a
-            href="https://docs.getgeolens.com/guides/enterprise/saml/"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-primary underline hover:text-primary/80 text-sm"
-          >
-            {t('saml.enterpriseOnly.docsLink')}
-          </a>
         </div>
       </>
     );

@@ -2,7 +2,7 @@
 
 Apache-2.0 command-line interface for the [GeoLens](https://github.com/geolens-io/geolens) API.
 
-Login, scan local directories of spatial data, apply manifest-driven catalogs, publish vector or raster files, and export STAC metadata against any GeoLens instance, community or enterprise.
+Login, scan local directories of spatial data, apply manifest-driven catalogs, publish vector or raster files, and export STAC metadata against any GeoLens instance.
 
 See [docs.getgeolens.com](https://docs.getgeolens.com/) for the full command reference.
 

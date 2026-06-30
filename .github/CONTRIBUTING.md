@@ -146,8 +146,8 @@ If a PR template exists at `.github/PULL_REQUEST_TEMPLATE.md`, your PR descripti
 
 ## Project Structure
 
-For how these pieces fit together at runtime — the request and upload lifecycles, the
-open-core seam, and a "where do I change X?" map — see [ARCHITECTURE.md](ARCHITECTURE.md).
+For how these pieces fit together at runtime - the request and upload lifecycles,
+extension points, and a "where do I change X?" map - see [ARCHITECTURE.md](ARCHITECTURE.md).
 The tree below is the file layout.
 
 ```
@@ -156,7 +156,7 @@ geolens/
 │   ├── alembic/                # Database migrations
 │   ├── app/
 │   │   ├── api/                # FastAPI app factory, root router, lifespan
-│   │   ├── core/               # Edition flags, persistent config, permissions
+│   │   ├── core/               # Runtime flags, persistent config, permissions
 │   │   ├── modules/            # Domain areas
 │   │   │   ├── admin/          # Admin dashboard stats & user management
 │   │   │   ├── audit/          # Audit log (who changed what)
@@ -171,7 +171,7 @@ geolens/
 │   │   │   ├── audit.py        # AuditSink protocol + dispatcher
 │   │   │   ├── cache/          # Caching layer (memory, Redis, tile cache)
 │   │   │   ├── config_ops/     # Import/export of server configuration
-│   │   │   ├── extensions/     # Open-core extension protocol seams
+│   │   │   ├── extensions/     # Runtime extension protocol seams
 │   │   │   ├── jobs/           # Background job tracking
 │   │   │   ├── sandbox/        # Safe SQL execution sandbox
 │   │   │   └── storage/        # File storage abstraction (local, S3)

@@ -1548,7 +1548,7 @@
         "description": "Response for GET /settings/branding/.",
         "properties": {
           "show_badge": {
-            "description": "Whether to show the 'Powered by GeoLens' label in public and shared footers. Badge-removal writes are enterprise controls (enterprise only).",
+            "description": "Whether to show the 'Powered by GeoLens' label in public and shared footers. Badge-removal writes are restricted controls.",
             "title": "Show Badge",
             "type": "boolean"
           }
@@ -3342,7 +3342,7 @@
             "type": "boolean"
           },
           "auth_methods": {
-            "description": "Auth methods contributed by the active AuthExtension. Empty in community; e.g. ['saml'] when the enterprise SAML overlay is installed. Login UI can render conditional sign-in options without needing admin OAuthProvider access.",
+            "description": "Auth methods contributed by the active AuthExtension. Empty by default; compatible deployments may add methods such as ['saml']. Login UI can render conditional sign-in options without needing admin OAuthProvider access.",
             "items": {
               "type": "string"
             },
@@ -5728,36 +5728,6 @@
         "title": "DuplicateMapResponse",
         "type": "object"
       },
-      "EditionInfoResponse": {
-        "description": "Response for GET /settings/edition/.",
-        "properties": {
-          "edition": {
-            "description": "Active edition: 'community' or 'enterprise'.",
-            "title": "Edition",
-            "type": "string"
-          },
-          "features": {
-            "description": "List of feature flags enabled for this edition.",
-            "items": {
-              "type": "string"
-            },
-            "title": "Features",
-            "type": "array"
-          },
-          "tenancy_mode": {
-            "default": "single_tenant",
-            "description": "Tenancy mode: 'single_tenant' or 'multi_tenant'.",
-            "title": "Tenancy Mode",
-            "type": "string"
-          }
-        },
-        "required": [
-          "edition",
-          "features"
-        ],
-        "title": "EditionInfoResponse",
-        "type": "object"
-      },
       "EmbedTokenCreate": {
         "properties": {
           "allowed_origins": {
@@ -5773,7 +5743,7 @@
                 "type": "null"
               }
             ],
-            "description": "Restrict embedding to these origins. Omit or null allows any origin; non-empty origin restrictions require the enterprise edition.",
+            "description": "Restrict embedding to these origins. Omit or null allows any origin; non-empty origin restrictions require advanced sharing controls.",
             "example": [
               "https://dashboard.example.com"
             ],
@@ -5781,7 +5751,7 @@
           },
           "expires_in_days": {
             "default": 30,
-            "description": "Token lifetime in days (1-365). The default 30-day lifetime is available in Community; custom lifetimes require the enterprise edition.",
+            "description": "Token lifetime in days (1-365). The default 30-day lifetime is always available; custom lifetimes require advanced sharing controls.",
             "example": 90,
             "maximum": 365.0,
             "minimum": 1.0,
@@ -6032,7 +6002,7 @@
                 "type": "null"
               }
             ],
-            "description": "Updated list of allowed embedding origins. Null clears restrictions; non-empty origin restrictions require the enterprise edition.",
+            "description": "Updated list of allowed embedding origins. Null clears restrictions; non-empty origin restrictions require advanced sharing controls.",
             "title": "Allowed Origins"
           }
         },
@@ -6069,24 +6039,6 @@
           "coverage_percent"
         ],
         "title": "EmbeddingStatsResponse",
-        "type": "object"
-      },
-      "EnterpriseTabsResponse": {
-        "description": "Response for GET /settings/enterprise-tabs/.\n\nCanonical enterprise-only Settings tab keys (Phase 279 / ADMIN-03 / M-03).\nRead by the frontend AdminSidebar to decide which tabs to hide in\ncommunity editions. The backend ``_require_enterprise_for_key`` gate\nconsults the same source set, eliminating drift between the two\nsources of truth.",
-        "properties": {
-          "tabs": {
-            "description": "Tab keys (e.g. 'branding', 'appearance') restricted to enterprise editions. Sorted alphabetically for stable client-side comparison.",
-            "items": {
-              "type": "string"
-            },
-            "title": "Tabs",
-            "type": "array"
-          }
-        },
-        "required": [
-          "tabs"
-        ],
-        "title": "EnterpriseTabsResponse",
         "type": "object"
       },
       "ExportFormat": {
@@ -6536,16 +6488,16 @@
             "type": "integer"
           },
           "settings_skipped": {
-            "description": "Number of settings skipped (no change, unknown key, or enterprise-only key in community edition).",
+            "description": "Number of settings skipped (no change, unknown key, or restricted key not writable by the current runtime).",
             "title": "Settings Skipped",
             "type": "integer"
           },
-          "settings_skipped_enterprise": {
-            "description": "Names of enterprise-only setting keys that were skipped because the caller is on the community edition (BUG-011). Empty on enterprise edition.",
+          "settings_skipped_restricted": {
+            "description": "Names of restricted setting keys that were skipped by the current runtime.",
             "items": {
               "type": "string"
             },
-            "title": "Settings Skipped Enterprise",
+            "title": "Settings Skipped Restricted",
             "type": "array"
           }
         },
@@ -9626,7 +9578,7 @@
             "title": "Idp Sso Url"
           },
           "provider_type": {
-            "description": "OAuth or SAML provider type. 'google' and 'microsoft' auto-populate the discovery URL; 'oidc' is generic OAuth/OIDC; 'github' uses GitHub's fixed OAuth2 endpoints (no discovery URL); 'saml' enables SAML SSO (requires enterprise edition).",
+            "description": "OAuth or SAML provider type. 'google' and 'microsoft' auto-populate the discovery URL; 'oidc' is generic OAuth/OIDC; 'github' uses GitHub's fixed OAuth2 endpoints (no discovery URL); 'saml' is available only on SAML-enabled deployments.",
             "enum": [
               "google",
               "microsoft",
@@ -16724,7 +16676,7 @@
     },
     "/admin/audit-logs/export/{format}": {
       "get": {
-        "description": "Export audit logs as CSV or JSON.\n\nAvailable formats are defined by the active ``AuditExtension`` \u2014 community\nadvertises none (404 via ``require_enterprise``); enterprise overlays\nadvertise ``csv``/``json`` (or additional formats) by registering an\nextension whose ``get_export_formats()`` returns the format list. Unknown\nformats also 404 to prevent leaking which formats exist in other editions.",
+        "description": "Export audit logs as CSV or JSON.\n\nAvailable formats are defined by the active ``AuditExtension``. The default\nruntime advertises none. Compatible deployments can advertise ``csv``/``json``\nor additional formats by registering an extension whose\n``get_export_formats()`` returns the format list. Unknown formats also 404\nto avoid leaking unavailable formats.",
         "operationId": "export_audit_logs_admin_audit_logs_export__format__get",
         "parameters": [
           {
@@ -35671,7 +35623,7 @@
         ]
       },
       "post": {
-        "description": "Create an embed token scoped to a map's current layers.\n\nCommunity supports the default 30-day unrestricted token. Custom lifetimes\nand non-empty origin restrictions require the enterprise edition.",
+        "description": "Create an embed token scoped to a map's current layers.\n\nThe default 30-day unrestricted token is always available. Custom lifetimes\nand non-empty origin restrictions require advanced sharing controls.",
         "operationId": "create_embed_token_endpoint_maps__map_id__embed_tokens__post",
         "parameters": [
           {
@@ -35921,7 +35873,7 @@
         ]
       },
       "patch": {
-        "description": "Update embed token allowed_origins.\n\nNull clears restrictions. Non-empty origin restrictions require the enterprise edition.",
+        "description": "Update embed token allowed_origins.\n\nNull clears restrictions. Non-empty origin restrictions require advanced sharing controls.",
         "operationId": "update_embed_token_endpoint_maps__map_id__embed_tokens__token_id___patch",
         "parameters": [
           {
@@ -41050,7 +41002,7 @@
     },
     "/settings/basemaps/": {
       "get": {
-        "description": "Return the configured basemap list (public, no auth required).\n\nBasemaps with ``{api_key}`` in the URL are filtered out when no key is\nconfigured.  When a key IS set the placeholder is resolved server-side.\nThe response uses ``BasemapPublicResponse`` which excludes ``api_key``.\n\nSEC-S10 (2026-05-20 audit): the resolved ``url`` field intentionally\nincludes the substituted ``api_key`` value when configured. Client-side\ntile-provider keys (Mapbox, Stadia, MapTiler) are designed for browser\nexposure and the frontend MUST receive them to load tiles. Do NOT put a\nbackend-only commercial-tier key in this field \u2014 rotate the key in the\nprovider dashboard if it is misused. Rate-limited via\n``_basemap_proxy_rate_limit`` to cap replay-cost from anonymous clients.",
+        "description": "Return the configured basemap list (public, no auth required).\n\nBasemaps with ``{api_key}`` in the URL are filtered out when no key is\nconfigured.  When a key IS set the placeholder is resolved server-side.\nThe response uses ``BasemapPublicResponse`` which excludes ``api_key``.\n\nSEC-S10 (2026-05-20 audit): the resolved ``url`` field intentionally\nincludes the substituted ``api_key`` value when configured. Client-side\ntile-provider keys (Mapbox, Stadia, MapTiler) are designed for browser\nexposure and the frontend MUST receive them to load tiles. Do NOT put a\nbackend-only provider key in this field. Rotate the key in the\nprovider dashboard if it is misused. Rate-limited via\n``_basemap_proxy_rate_limit`` to cap replay-cost from anonymous clients.",
         "operationId": "get_basemaps_settings_basemaps__get",
         "responses": {
           "200": {
@@ -41142,7 +41094,7 @@
     },
     "/settings/branding/": {
       "get": {
-        "description": "Return branding configuration (public, no auth required).\n\nThe active ``BrandingExtension`` provides initial defaults for branding\nkeys. PersistentConfig overrides take precedence when set. Community\nadvertises read-only ``show_badge`` only; badge-removal writes and\nadditional branding keys are enterprise controls (enterprise only).",
+        "description": "Return branding configuration (public, no auth required).\n\nThe active ``BrandingExtension`` provides initial defaults for branding\nkeys. PersistentConfig overrides take precedence when set. Community\nadvertises read-only ``show_badge`` only; badge-removal writes and\nadditional branding keys are restricted controls.",
         "operationId": "get_branding_settings_branding__get",
         "responses": {
           "200": {
@@ -41409,94 +41361,6 @@
         ]
       }
     },
-    "/settings/edition/": {
-      "get": {
-        "description": "Return current edition and available features. Public, no auth required.",
-        "operationId": "edition_info_settings_edition__get",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/EditionInfoResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "400": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
-              "application/problem+json": {}
-            },
-            "description": "Bad request \u2014 invalid query parameters or payload"
-          },
-          "401": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
-              "application/problem+json": {}
-            },
-            "description": "Unauthorized \u2014 missing or invalid credentials"
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
-              "application/problem+json": {}
-            },
-            "description": "Forbidden \u2014 caller lacks access to this resource"
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
-              "application/problem+json": {}
-            },
-            "description": "Not found"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
-              "application/problem+json": {}
-            },
-            "description": "Validation error"
-          },
-          "500": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
-              "application/problem+json": {}
-            },
-            "description": "Internal server error"
-          }
-        },
-        "summary": "Edition Info",
-        "tags": [
-          "Admin"
-        ]
-      }
-    },
     "/settings/enabled-plugins/": {
       "get": {
         "description": "Return enabled plugin IDs. null = no restriction (all shown), [] = none, [...ids] = only those.",
@@ -41591,99 +41455,6 @@
           }
         },
         "summary": "Get Enabled Plugins",
-        "tags": [
-          "Admin"
-        ]
-      }
-    },
-    "/settings/enterprise-tabs/": {
-      "get": {
-        "description": "Return the canonical list of Settings tab keys that are enterprise-only.\n\nPhase 279 ADMIN-03 (M-03): single source of truth for enterprise-only\nSettings tabs. The frontend AdminSidebar uses this to conditionally render\nthe tabs in community vs enterprise editions. The backend\n``_require_enterprise_for_key`` gate uses the same set to 404 community\nattempts at writing enterprise-tab settings \u2014 keeping these aligned\nprevents silent UX drift.\n\nNote: not gated by ``require_enterprise``. Community callers must be able\nto read the list to render their own sidebar correctly (the response tells\nthem which tabs to HIDE).",
-        "operationId": "get_enterprise_only_tabs_settings_enterprise_tabs__get",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/EnterpriseTabsResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "400": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
-              "application/problem+json": {}
-            },
-            "description": "Bad request \u2014 invalid query parameters or payload"
-          },
-          "401": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
-              "application/problem+json": {}
-            },
-            "description": "Unauthorized \u2014 missing or invalid credentials"
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
-              "application/problem+json": {}
-            },
-            "description": "Forbidden \u2014 caller lacks access to this resource"
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
-              "application/problem+json": {}
-            },
-            "description": "Not found"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
-              "application/problem+json": {}
-            },
-            "description": "Validation error"
-          },
-          "500": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              },
-              "application/problem+json": {}
-            },
-            "description": "Internal server error"
-          }
-        },
-        "security": [
-          {
-            "OAuth2PasswordBearer": []
-          }
-        ],
-        "summary": "Get Enterprise Only Tabs",
         "tags": [
           "Admin"
         ]

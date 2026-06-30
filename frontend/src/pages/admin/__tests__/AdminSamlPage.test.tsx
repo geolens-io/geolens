@@ -17,7 +17,7 @@ import { useEdition } from '@/hooks/use-edition';
 const mockUseEdition = vi.mocked(useEdition);
 
 describe('AdminSamlPage', () => {
-  it('community edition: renders enterprise-only notice with docs link (not SamlProvidersSection)', () => {
+  it('default runtime: renders unavailable notice without loading SamlProvidersSection', () => {
     mockUseEdition.mockReturnValue({
       edition: 'community',
       features: [],
@@ -28,17 +28,15 @@ describe('AdminSamlPage', () => {
 
     render(<AdminSamlPage />, { route: '/admin/saml' });
 
-    // The notice heading should be present
+    // The notice heading should be present.
     const heading = screen.getByRole('heading', { level: 2 });
-    expect(heading.textContent).toMatch(/enterprise/i);
-    // The docs link must point to the SAML enterprise docs
-    const link = screen.getByRole('link', { name: /docs/i });
-    expect(link).toHaveAttribute('href', 'https://docs.getgeolens.com/guides/enterprise/saml/');
-    // SamlProvidersSection must NOT render (community must not hit gated API)
+    expect(heading.textContent).toMatch(/saml is not available/i);
+    expect(screen.getByText(/supports local accounts and OAuth providers/i)).toBeInTheDocument();
+    // SamlProvidersSection must NOT render (default runtime must not hit gated API).
     expect(screen.queryByTestId('saml-providers-section')).not.toBeInTheDocument();
   });
 
-  it('enterprise edition: renders SamlProvidersSection, not the enterprise-only notice', () => {
+  it('SAML-enabled runtime: renders SamlProvidersSection, not the unavailable notice', () => {
     mockUseEdition.mockReturnValue({
       edition: 'enterprise',
       features: [],
@@ -50,7 +48,7 @@ describe('AdminSamlPage', () => {
     render(<AdminSamlPage />, { route: '/admin/saml' });
 
     expect(screen.getByTestId('saml-providers-section')).toBeInTheDocument();
-    // The enterprise-only h2 notice must not appear
+    // The unavailable h2 notice must not appear.
     expect(screen.queryByRole('heading', { level: 2 })).not.toBeInTheDocument();
   });
 
@@ -65,12 +63,12 @@ describe('AdminSamlPage', () => {
 
     render(<AdminSamlPage />, { route: '/admin/saml' });
 
-    // Neither the providers section nor the enterprise-only notice should appear
+    // Neither the providers section nor the unavailable notice should appear.
     expect(screen.queryByTestId('saml-providers-section')).not.toBeInTheDocument();
     expect(screen.queryByRole('heading', { level: 2 })).not.toBeInTheDocument();
   });
 
-  it('no redirect regression: community edition stays at /admin/saml (no Navigate away)', () => {
+  it('no redirect regression: default runtime stays at /admin/saml (no Navigate away)', () => {
     mockUseEdition.mockReturnValue({
       edition: 'community',
       features: [],
@@ -81,12 +79,12 @@ describe('AdminSamlPage', () => {
 
     render(<AdminSamlPage />, { route: '/admin/saml' });
 
-    // The enterprise-only notice is visible — this proves no redirect fired.
+    // The unavailable notice is visible, which proves no redirect fired.
     // If Navigate to /admin had fired, the notice would not be in the document
     // (the component would have unmounted itself via navigation).
-    const link = screen.getByRole('link', { name: /docs/i });
-    expect(link).toBeInTheDocument();
-    // SamlProvidersSection must not appear
+    expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent(/saml is not available/i);
+    expect(screen.getByText(/supports local accounts and OAuth providers/i)).toBeInTheDocument();
+    // SamlProvidersSection must not appear.
     expect(screen.queryByTestId('saml-providers-section')).not.toBeInTheDocument();
   });
 });

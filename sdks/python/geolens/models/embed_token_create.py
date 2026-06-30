@@ -19,9 +19,9 @@ class EmbedTokenCreate:
     """
     Attributes:
         allowed_origins (list[str] | None | Unset): Restrict embedding to these origins. Omit or null allows any origin;
-            non-empty origin restrictions require the enterprise edition. Example: ['https://dashboard.example.com'].
-        expires_in_days (int | Unset): Token lifetime in days (1-365). The default 30-day lifetime is available in
-            Community; custom lifetimes require the enterprise edition. Default: 30. Example: 90.
+            non-empty origin restrictions require advanced sharing controls. Example: ['https://dashboard.example.com'].
+        expires_in_days (int | Unset): Token lifetime in days (1-365). The default 30-day lifetime is always available;
+            custom lifetimes require advanced sharing controls. Default: 30. Example: 90.
         name (None | str | Unset): Human-readable label for the token Example: Public dashboard embed.
     """
 

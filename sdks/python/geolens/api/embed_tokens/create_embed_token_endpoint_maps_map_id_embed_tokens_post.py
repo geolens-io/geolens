@@ -106,8 +106,8 @@ def sync_detailed(
 
      Create an embed token scoped to a map's current layers.
 
-    Community supports the default 30-day unrestricted token. Custom lifetimes
-    and non-empty origin restrictions require the enterprise edition.
+    The default 30-day unrestricted token is always available. Custom lifetimes
+    and non-empty origin restrictions require advanced sharing controls.
 
     Args:
         map_id (UUID):
@@ -143,8 +143,8 @@ def sync(
 
      Create an embed token scoped to a map's current layers.
 
-    Community supports the default 30-day unrestricted token. Custom lifetimes
-    and non-empty origin restrictions require the enterprise edition.
+    The default 30-day unrestricted token is always available. Custom lifetimes
+    and non-empty origin restrictions require advanced sharing controls.
 
     Args:
         map_id (UUID):
@@ -175,8 +175,8 @@ async def asyncio_detailed(
 
      Create an embed token scoped to a map's current layers.
 
-    Community supports the default 30-day unrestricted token. Custom lifetimes
-    and non-empty origin restrictions require the enterprise edition.
+    The default 30-day unrestricted token is always available. Custom lifetimes
+    and non-empty origin restrictions require advanced sharing controls.
 
     Args:
         map_id (UUID):
@@ -210,8 +210,8 @@ async def asyncio(
 
      Create an embed token scoped to a map's current layers.
 
-    Community supports the default 30-day unrestricted token. Custom lifetimes
-    and non-empty origin restrictions require the enterprise edition.
+    The default 30-day unrestricted token is always available. Custom lifetimes
+    and non-empty origin restrictions require advanced sharing controls.
 
     Args:
         map_id (UUID):

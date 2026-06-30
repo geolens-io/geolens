@@ -4,7 +4,7 @@
 
 **Your team's spatial data: searchable, mappable, and shareable in one place.**
 
-GeoLens is an open-source, self-hosted catalog and map builder for GIS and data teams: a single home for spatial data that you run on infrastructure you control, with no telemetry. GeoLens itself phones home to nothing. (Features you opt into can make outbound calls: AI assist to your chosen OpenAI-compatible endpoint, OAuth/OIDC sign-in, SMTP, basemap tiles, remote/S3 data sources, and off-site backups.) Upload Shapefiles, GeoTIFFs, GeoPackages, or CSVs (or register data you already have); GeoLens stores everything in PostGIS, indexes it with pgvector + pg_trgm for semantic and fuzzy search, and serves OGC/STAC APIs that QGIS, ArcGIS, and MapLibre clients connect to natively. Compose, style, and share multi-layer maps right in the browser. Built on FastAPI and React. Deployed with one command.
+GeoLens is an open-source, self-hosted catalog and map builder for GIS and data teams: a single home for spatial data that you run on infrastructure you control, with no telemetry. GeoLens itself phones home to nothing. (Features you opt into can make outbound calls: AI assist to your chosen OpenAI-compatible endpoint or Anthropic key, OAuth/OIDC sign-in, SMTP, basemap tiles, remote/S3 data sources, and off-site backups.) Upload Shapefiles, GeoTIFFs, GeoPackages, or CSVs (or register data you already have); GeoLens stores everything in PostGIS, indexes it with pgvector + pg_trgm for semantic and fuzzy search, and serves OGC/STAC APIs that QGIS, ArcGIS, and MapLibre clients connect to natively. Compose, style, and share multi-layer maps right in the browser. Built on FastAPI and React. Deployed with one command.
 
 <p align="center">
   <a href="https://demo.getgeolens.com"><img src="https://img.shields.io/badge/%E2%96%B6%20Try%20the%20live%20demo-demo.getgeolens.com-2563eb?style=for-the-badge" alt="Try the live demo" /></a>
@@ -68,7 +68,7 @@ GeoLens replaces that workflow:
 - **Works with your tools:** OGC API Features/Records, STAC API 1.0, direct tile URLs for QGIS, ArcGIS, and MapLibre
 - **Semantic and spatial search:** find datasets by meaning rather than exact keywords, powered by pgvector and pg_trgm full-text search
 - **Built-in map builder:** compose multi-layer maps, style them, and share via public link or embeddable iframe
-- **AI-assisted (optional):** chat with your maps, auto-generate descriptions, search by natural language. Bring any OpenAI-compatible API key or skip it entirely
+- **AI-assisted (optional):** chat with your maps, auto-generate descriptions, search by natural language. Bring an OpenAI-compatible endpoint or Anthropic key, or skip it entirely
 
 ## See it in action
 
@@ -129,6 +129,8 @@ Each example above has a full guide in the [docs](https://docs.getgeolens.com/gu
 - API key management per user
 - OAuth 2.0 / OIDC support (Google, Microsoft, generic providers)
 - Role-based access control (RBAC) with per-dataset permissions
+- Self-serve registration is off by default; when enabled with SMTP verification,
+  registration email delivery is uniform for new and colliding submissions
 - Audit logging for all administrative actions
 - Internationalization: English, Spanish, French, German
 
@@ -157,7 +159,7 @@ Each example above has a full guide in the [docs](https://docs.getgeolens.com/gu
 <p align="center">
   <img src=".github/assets/geolens-ai-labels.png" alt="GeoLens Ask AI panel adding county-name labels to a New York median-income choropleth from the natural-language request 'Add area labels'" width="900" />
   <br />
-  <em><strong>Ask AI:</strong> edit maps in natural language. "Add area labels" puts county names on a New York income choropleth (optional: bring your own OpenAI-compatible key)</em>
+  <em><strong>Ask AI:</strong> edit maps in natural language. "Add area labels" puts county names on a New York income choropleth (optional: bring an OpenAI-compatible endpoint or Anthropic key)</em>
 </p>
 
 ## Quick start
@@ -358,7 +360,7 @@ For day-2 operations, restore procedures, and incident response, see
 | [Upgrade Guide](https://docs.getgeolens.com/guides/quickstart/upgrade/) | Upgrading between versions with rollback procedures |
 | [Configuration Reference](https://docs.getgeolens.com/guides/quickstart/configuration/) | All environment variables and their defaults |
 | [Admin Guide](https://docs.getgeolens.com/guides/admin/) | User management, datasets, system health |
-| [Cloud Deployment](https://docs.getgeolens.com/guides/quickstart/cloud-deployment/) | AWS, GCP, and DigitalOcean deployment guides |
+| [Self-host on AWS, GCP, or DigitalOcean](https://docs.getgeolens.com/guides/quickstart/cloud-deployment/) | Managed database, object storage, and cache deployment guides |
 | [CLI & Manifests](https://docs.getgeolens.com/guides/cli/) | Publish files and manage catalogs with the `geolens` CLI |
 | [API Reference](https://docs.getgeolens.com/guides/api/) | Auto-generated reference at docs.getgeolens.com; interactive Swagger UI at `/api/docs` when running |
 | [Manifest examples](examples/manifests/) | Template `geolens.yaml` manifests to adapt: public-cog (remote COG), url-source, s3-source, publication-states |
@@ -371,7 +373,7 @@ For day-2 operations, restore procedures, and incident response, see
 ## Known limitations
 
 - Single PostgreSQL instance, with no built-in high availability or clustering.
-- Multi-tenant cloud mode is not included. GeoLens is single-organization and self-hosted.
+- GeoLens is designed for one organization per self-hosted deployment.
 - Terrain rendering assumes DEM units are in meters; datasets in other vertical units may render exaggerated.
 - The self-hosted distribution is young and some features and APIs may still change (see the Early release note above).
 
@@ -379,6 +381,4 @@ For day-2 operations, restore procedures, and incident response, see
 
 GeoLens is licensed under the [Apache License 2.0](LICENSE). The GeoLens name, logo, and brand assets are not covered by this license. See [TRADEMARKS.md](TRADEMARKS.md). Third-party sample-data attribution is in [THIRD_PARTY_DATA.md](THIRD_PARTY_DATA.md).
 
-GeoLens is **open core**: the full platform in this repository is Apache-2.0 and free to self-host for one organization with many users. A separately-licensed, commercial Enterprise overlay adds organization-scale identity, governance, compliance, and branding. It is never required to run GeoLens. See [EDITIONS.md](EDITIONS.md) for the exact free-vs-commercial boundary and the commitments we hold ourselves to.
-
-Project policies: [editions](EDITIONS.md) · [governance](GOVERNANCE.md) · [maintainers](MAINTAINERS.md) · [contributing](.github/CONTRIBUTING.md) · [security](.github/SECURITY.md) · [release process](RELEASE.md) · [egress &amp; air-gap](EGRESS.md).
+Project policies: [governance](GOVERNANCE.md) · [maintainers](MAINTAINERS.md) · [contributing](.github/CONTRIBUTING.md) · [security](.github/SECURITY.md) · [release process](RELEASE.md) · [egress &amp; air-gap](EGRESS.md).

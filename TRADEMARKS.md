@@ -39,4 +39,4 @@ official build.
 
 If you're unsure whether a use is permitted, open a
 [GitHub Discussion](https://github.com/geolens-io/geolens/discussions) or contact
-the maintainer. <!-- Founder: add a trademark contact email here if desired. -->
+the maintainers at hello@getgeolens.com.

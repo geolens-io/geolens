@@ -37,6 +37,7 @@ export interface DryRunResult {
 export interface ImportResult {
   settings_applied: number;
   settings_skipped: number;
+  settings_skipped_restricted?: string[];
   oauth_created: number;
   oauth_updated: number;
   oauth_deleted: number;

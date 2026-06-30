@@ -42,7 +42,7 @@ flowchart TD
 | **minio / azurite** | Dev object storage (S3 / Azure Blob). Prod points at real buckets via the storage abstraction. |
 | **backup** | Default-on `pg_dump` + object-store backup (cron-driven; pull-able `geolens-backup` image). See `RUNBOOK.md`. |
 
-The app version, edition flags, and DB session live in `backend/app/core/`. The FastAPI
+The app version, runtime flags, and DB session live in `backend/app/core/`. The FastAPI
 app factory, root router, middleware, and lifespan are in `backend/app/api/`.
 
 ---
@@ -54,11 +54,11 @@ app factory, root router, middleware, and lifespan are in `backend/app/api/`.
 | Package | Owns |
 |---|---|
 | `api/` | App factory (`main.py`), root router (`router.py`), middleware, lifespan startup/shutdown. |
-| `core/` | Edition flags (`edition.py`, `require_enterprise`), persistent config, permissions, DB engine/session (`core/db/`), runtime helpers. |
+| `core/` | Runtime flags (`edition.py`, availability guards), persistent config, permissions, DB engine/session (`core/db/`), runtime helpers. |
 | `modules/` | Domain areas: **`catalog`** (datasets, records, maps, layers, search, collections, sources, validation, features — the big one), `auth`, `admin`, `audit`, `settings`, `embed_tokens`, `quota`, `tenancy`. |
 | `standards/` | **OGC API** Features/Records (`ogc/`), `stac/`, `dcat/` + `dcat_us/` + `geodcat_ap/`. **Hard-free — never gate these.** |
 | `processing/` | Pipelines: `ingest/` (ogr2ogr), `raster/` (COG/VRT), `tiles/` (vector tiles + token signing), `vector/` (quicklooks), `export/`, `embeddings/` (pgvector), `ai/` (chat, metadata gen). |
-| `platform/` | Cross-cutting services: `extensions/` (open-core seams), `storage/`, `cache/`, `jobs/`, `sandbox/` (safe SQL), `config_ops/`, `notifications/`, `assets/`, `audit.py`. |
+| `platform/` | Cross-cutting services: `extensions/` (runtime extension seams), `storage/`, `cache/`, `jobs/`, `sandbox/` (safe SQL), `config_ops/`, `notifications/`, `assets/`, `audit.py`. |
 | `observability/` | Logging, metrics, health checks. |
 
 Each domain module follows a stable pattern — `router.py` → `service.py` → `schemas.py`
@@ -95,21 +95,16 @@ the per-user quota is checked at request time, not atomically in the worker — 
 
 ---
 
-## The open-core seam
+## Extension Points
 
-Core is **Apache-2.0 and fully self-hostable**. Paid capabilities live in a **separate
-private overlay** (`geolens-enterprise`), not behind inline gates in this repo.
+GeoLens is Apache-2.0 and fully self-hostable. Runtime extension points live in
+`backend/app/platform/extensions/` as `Protocol` interfaces, with default
+implementations in `extensions/defaults.py`.
 
-- Extension points are `Protocol` interfaces in `backend/app/platform/extensions/`.
-- Community defaults ship in `extensions/defaults.py`; the overlay registers real
-  implementations via `importlib.metadata` entry points at startup.
-- `core/edition.py` exposes `require_enterprise` (returns 404 in community, so gated
-  features don't even advertise themselves).
-
-**Rule for contributors:** never move an existing open feature behind a gate, and never
-gate the standards (`standards/`). New paid features extend a Protocol; they do not add
-`if enterprise:` branches to core. See [`EDITIONS.md`](../EDITIONS.md) for the
-open/commercial boundary.
+**Rule for contributors:** never move an existing open feature behind a runtime
+availability gate, and never gate the standards (`standards/`). New optional
+runtime behavior should extend a Protocol instead of adding scattered feature
+branches to core code.
 
 ---
 
@@ -141,7 +136,7 @@ v5, Tailwind, and shadcn/ui primitives in `components/ui/`.
 | Add a map plugin / toolbar widget | `frontend/src/components/map-plugins/` |
 | Touch the public map viewer | `frontend/src/components/viewer/` |
 | Add an admin setting | `backend/app/modules/settings/` + `frontend/src/components/admin/settings/` |
-| Add an enterprise-gated capability | Extend a Protocol in `backend/app/platform/extensions/`; implement in the `geolens-enterprise` overlay — don't inline-gate core |
+| Add optional runtime behavior | Extend a Protocol in `backend/app/platform/extensions/`; keep core behavior in default implementations |
 | Add a DB column or table | New migration in `backend/alembic/versions/` + the domain's `models.py`; apply with `alembic upgrade heads` |
 | Add UI text | The component + **all 4** `frontend/src/i18n/locales/` files |
 
