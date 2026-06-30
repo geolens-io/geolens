@@ -90,7 +90,9 @@ bash scripts/install.sh
 GEOLENS_INSTALL_DIR=geolens bash <(curl -fsSL https://raw.githubusercontent.com/geolens-io/geolens/main/scripts/install.sh)
 
 # Non-interactive: env vars override the prompts
-GEOLENS_ADMIN_USERNAME=admin GEOLENS_ADMIN_PASSWORD='change-me' bash scripts/install.sh
+GEOLENS_ADMIN_USERNAME=admin \
+GEOLENS_ADMIN_PASSWORD="$(openssl rand -base64 24)" \
+bash scripts/install.sh
 ```
 
 | Variable | Purpose |

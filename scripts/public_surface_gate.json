@@ -158,7 +158,7 @@
     },
     {
       "id": "weak_admin_default",
-      "pattern": "(?<![A-Za-z0-9_])`?admin`?(?:\\s*(?:/|:)\\s*|\\s+slash\\s+)`?admin`?(?![A-Za-z0-9_])|--password(?:\\s+|\\s*=\\s*)[\"'`]?admin[\"'`]?(?![A-Za-z0-9_])|`?--password`?\\s*\\|\\s*`?admin`?(?=\\s*\\|)|`?\\$?\\bGEOLENS_ADMIN_PASSWORD\\b`?\\s*(?:=|:)\\s*[\"'`]?admin[\"'`]?(?![A-Za-z0-9_])|`?\\$?\\bGEOLENS_ADMIN_PASSWORD\\b`?\\s*\\|\\s*[\"'`]?admin[\"'`]?\\s*(?=\\|)",
+      "pattern": "(?<![A-Za-z0-9_])`?admin`?(?:\\s*(?:/|:)\\s*|\\s+slash\\s+)`?(?:admin|change[-_]?me|please[-_]?change[-_]?me|password|demodemo)`?(?![A-Za-z0-9_-])|--password(?:\\s+|\\s*=\\s*)[\"'`]?(?:admin|change[-_]?me|please[-_]?change[-_]?me|password|demodemo)[\"'`]?(?![A-Za-z0-9_-])|`?--password`?\\s*\\|\\s*[\"'`]?(?:admin|change[-_]?me|please[-_]?change[-_]?me|password|demodemo)[\"'`]?\\s*(?=\\|)|`?\\$?\\bGEOLENS_ADMIN_PASSWORD\\b`?\\s*(?:=|:)\\s*[\"'`]?(?:admin|change[-_]?me|please[-_]?change[-_]?me|password|demodemo)[\"'`]?(?![A-Za-z0-9_-])|`?\\$?\\bGEOLENS_ADMIN_PASSWORD\\b`?\\s*\\|\\s*[\"'`]?(?:admin|change[-_]?me|please[-_]?change[-_]?me|password|demodemo)[\"'`]?\\s*(?=\\|)",
       "flags": "i",
       "reason": "Fresh installs generate a strong admin password and must not document admin/admin defaults."
     }
