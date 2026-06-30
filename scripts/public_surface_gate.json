@@ -1,0 +1,167 @@
+{
+  "include_globs": [
+    "*.md",
+    ".github/**/*.md",
+    ".github/**/*.yml",
+    ".github/**/*.yaml",
+    ".github/workflows/*.yml",
+    "docker-compose*.yml",
+    "package.json",
+    "frontend/package.json",
+    "scripts/README.md",
+    "frontend/README.md",
+    "frontend/docs/**/*.md",
+    "cli/README.md",
+    "sdks/**/*.md",
+    "backend/**/README.md",
+    "examples/**/*.md",
+    "tests/**/*.md",
+    "e2e/**/*.md",
+    "docs/**/*",
+    "site/**/*",
+    "website/**/*",
+    "apps/docs/**/*",
+    "apps/site/**/*"
+  ],
+  "exclude_globs": [
+    "AGENTS.md",
+    ".planning/**",
+    "docs-internal/**",
+    ".git/**",
+    "**/node_modules/**",
+    "**/dist/**",
+    "**/build/**",
+    "**/coverage/**",
+    "**/playwright-report/**",
+    "**/test-results/**",
+    "**/.pytest_cache/**",
+    "**/.mypy_cache/**",
+    "**/.ruff_cache/**",
+    "**/__pycache__/**",
+    "package-lock.json",
+    "frontend/package-lock.json",
+    "pnpm-lock.yaml",
+    "yarn.lock",
+    "uv.lock",
+    "poetry.lock",
+    "Pipfile.lock",
+    "**/*.png",
+    "**/*.jpg",
+    "**/*.jpeg",
+    "**/*.gif",
+    "**/*.webp",
+    "**/*.ico",
+    "**/*.pdf",
+    "**/*.zip",
+    "**/*.gz",
+    "**/*.tgz"
+  ],
+  "exclude_rationales": {
+    "AGENTS.md": "Assistant and local execution guidance, not public launch copy or product documentation.",
+    ".planning/**": "Ignored GSD planning state can contain deliberately quoted forbidden strings from plans, audits, and summaries.",
+    "docs-internal/**": "Private/internal notes are outside the public launch surface.",
+    ".git/**": "Git internals are not public source files.",
+    "**/node_modules/**": "Vendored dependency trees are not project-authored public launch copy.",
+    "**/dist/**": "Generated build output is not source-of-truth public copy.",
+    "**/build/**": "Generated build output is not source-of-truth public copy.",
+    "**/coverage/**": "Generated coverage output is not source-of-truth public copy.",
+    "**/playwright-report/**": "Generated Playwright reports are not source-of-truth public copy.",
+    "**/test-results/**": "Generated test output is not source-of-truth public copy.",
+    "**/.pytest_cache/**": "Generated pytest cache files are not public copy.",
+    "**/.mypy_cache/**": "Generated mypy cache files are not public copy.",
+    "**/.ruff_cache/**": "Generated Ruff cache files are not public copy.",
+    "**/__pycache__/**": "Generated Python bytecode caches are not public copy.",
+    "package-lock.json": "Lockfiles are machine-generated dependency state, not public launch copy.",
+    "frontend/package-lock.json": "Lockfiles are machine-generated dependency state, not public launch copy.",
+    "pnpm-lock.yaml": "Lockfiles are machine-generated dependency state, not public launch copy.",
+    "yarn.lock": "Lockfiles are machine-generated dependency state, not public launch copy.",
+    "uv.lock": "Lockfiles are machine-generated dependency state, not public launch copy.",
+    "poetry.lock": "Lockfiles are machine-generated dependency state, not public launch copy.",
+    "Pipfile.lock": "Lockfiles are machine-generated dependency state, not public launch copy.",
+    "**/*.png": "Binary assets are not text launch copy.",
+    "**/*.jpg": "Binary assets are not text launch copy.",
+    "**/*.jpeg": "Binary assets are not text launch copy.",
+    "**/*.gif": "Binary assets are not text launch copy.",
+    "**/*.webp": "Binary assets are not text launch copy.",
+    "**/*.ico": "Binary assets are not text launch copy.",
+    "**/*.pdf": "Binary assets are not source Markdown/YAML/package copy.",
+    "**/*.zip": "Archives are generated or packaged artifacts, not source copy.",
+    "**/*.gz": "Archives are generated or packaged artifacts, not source copy.",
+    "**/*.tgz": "Archives are generated or packaged artifacts, not source copy."
+  },
+  "forbidden": [
+    {
+      "id": "open_core_wording",
+      "pattern": "\\bopen[- ]core\\b",
+      "flags": "i",
+      "reason": "Launch copy should use OSS/self-hosted positioning, not open-core strategy language."
+    },
+    {
+      "id": "commercial_overlay_wording",
+      "pattern": "\\bcommercial[- ]overlay\\b",
+      "flags": "i",
+      "reason": "Commercial overlay strategy is not part of the public OSS launch surface."
+    },
+    {
+      "id": "enterprise_word",
+      "pattern": "(?<!geolens-)\\benterprise\\b",
+      "flags": "i",
+      "reason": "Enterprise positioning is not announced in public launch copy."
+    },
+    {
+      "id": "geolens_enterprise_repo",
+      "pattern": "\\bgeolens-enterprise\\b",
+      "flags": "i",
+      "reason": "Private extension repository names must not appear in public source surfaces."
+    },
+    {
+      "id": "enterprise_token",
+      "pattern": "\\bGEOLENS_ENTERPRISE_TOKEN\\b",
+      "flags": "",
+      "reason": "Private extension access tokens must not appear in public source surfaces."
+    },
+    {
+      "id": "multi_tenant_wording",
+      "pattern": "\\bmulti[- ]tenant\\b",
+      "flags": "i",
+      "reason": "Hosted or tenancy strategy language is out of scope for OSS launch copy."
+    },
+    {
+      "id": "saas_wording",
+      "pattern": "\\bsaas\\b",
+      "flags": "i",
+      "reason": "SaaS positioning is out of scope for OSS launch copy."
+    },
+    {
+      "id": "cloud_edition_wording",
+      "pattern": "\\bcloud\\s+edition\\b",
+      "flags": "i",
+      "reason": "Cloud edition positioning is out of scope for OSS launch copy."
+    },
+    {
+      "id": "ogc_compliant_claim",
+      "pattern": "\\bOGC[- ]API[- ]Compliant\\b|\\bOGC\\s+Compliant\\b",
+      "flags": "i",
+      "reason": "GeoLens should claim OGC API support, not public certification or compliance status."
+    },
+    {
+      "id": "raw_ogc_collections_url",
+      "pattern": "localhost:8001/collections",
+      "flags": "i",
+      "reason": "Public install copy should route OGC examples through http://localhost:8080/api/collections."
+    },
+    {
+      "id": "stale_geolens_yml",
+      "pattern": "\\bgeolens\\.yml\\b",
+      "flags": "i",
+      "reason": "GeoLens ships docker-compose.yml and docker-compose.prod.yml, not geolens.yml."
+    },
+    {
+      "id": "weak_admin_default",
+      "pattern": "(?<![A-Za-z0-9_])admin(?:\\s*/\\s*|\\s+slash\\s+)admin(?![A-Za-z0-9_])",
+      "flags": "i",
+      "reason": "Fresh installs generate a strong admin password and must not document admin/admin defaults."
+    }
+  ],
+  "allowlist": []
+}
