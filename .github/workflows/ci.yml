@@ -214,7 +214,7 @@ jobs:
           POSTGRES_DB: ci
           JWT_SECRET_KEY: ci-compose-validate-padding-32chars
           GEOLENS_ADMIN_USERNAME: admin
-          GEOLENS_ADMIN_PASSWORD: admin
+          GEOLENS_ADMIN_PASSWORD: geolens-ci-admin-password
           MINIO_ROOT_USER: ci
           MINIO_ROOT_PASSWORD: ci-padding
         run: |
@@ -464,7 +464,7 @@ jobs:
       JWT_SECRET_KEY: openapi-snapshot-padding-key-32chars
       POSTGRES_PASSWORD: ci-padding-no-db
       GEOLENS_ADMIN_USERNAME: admin
-      GEOLENS_ADMIN_PASSWORD: admin
+      GEOLENS_ADMIN_PASSWORD: geolens-ci-admin-password
       PYTHONPATH: .
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
@@ -495,7 +495,7 @@ jobs:
       JWT_SECRET_KEY: sdks-check-padding-key-32characters-here
       POSTGRES_PASSWORD: ci-padding-no-db
       GEOLENS_ADMIN_USERNAME: admin
-      GEOLENS_ADMIN_PASSWORD: admin
+      GEOLENS_ADMIN_PASSWORD: geolens-ci-admin-password
       PYTHONPATH: backend
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
@@ -589,7 +589,7 @@ jobs:
       POSTGRES_PORT: 5432
       POSTGRES_DB: postgres
       GEOLENS_ADMIN_USERNAME: admin
-      GEOLENS_ADMIN_PASSWORD: admin
+      GEOLENS_ADMIN_PASSWORD: geolens-ci-admin-password
       PYTHONPATH: backend
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
@@ -715,7 +715,7 @@ jobs:
       # Must be ≥ 32 chars to satisfy the Settings validator (backend/app/config.py).
       JWT_SECRET_KEY: test-secret-key-for-ci-padding-32chars
       GEOLENS_ADMIN_USERNAME: admin
-      GEOLENS_ADMIN_PASSWORD: admin
+      GEOLENS_ADMIN_PASSWORD: geolens-ci-admin-password
       PYTHONPATH: .
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
@@ -914,7 +914,7 @@ jobs:
       # Must be ≥ 32 chars to satisfy the Settings validator (backend/app/config.py).
       JWT_SECRET_KEY: test-secret-key-for-ci-padding-32chars
       GEOLENS_ADMIN_USERNAME: admin
-      GEOLENS_ADMIN_PASSWORD: admin
+      GEOLENS_ADMIN_PASSWORD: geolens-ci-admin-password
       PYTHONPATH: .
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
@@ -1226,13 +1226,13 @@ jobs:
           # be ≥ 32 chars to satisfy the Settings validator (backend/app/config.py).
           sed -i -E 's|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=geolens_dev|' .env
           sed -i -E 's|^JWT_SECRET_KEY=.*|JWT_SECRET_KEY=e2e-test-secret-key-padding-32chars-min|' .env
-          sed -i -E 's|^GEOLENS_ADMIN_PASSWORD=.*|GEOLENS_ADMIN_PASSWORD=admin|' .env
+          sed -i -E 's|^GEOLENS_ADMIN_PASSWORD=.*|GEOLENS_ADMIN_PASSWORD=geolens-ci-admin-password|' .env
           echo "DATABASE_SSL_MODE=disable" >> .env
 
       - name: Export admin credentials for E2E
         run: |
           echo "GEOLENS_ADMIN_USERNAME=admin" >> $GITHUB_ENV
-          echo "GEOLENS_ADMIN_PASSWORD=admin" >> $GITHUB_ENV
+          echo "GEOLENS_ADMIN_PASSWORD=geolens-ci-admin-password" >> $GITHUB_ENV
 
       - name: Start services
         run: docker compose up -d --wait --wait-timeout 120
@@ -1306,13 +1306,13 @@ jobs:
           cp .env.example .env
           sed -i -E 's|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=geolens_dev|' .env
           sed -i -E 's|^JWT_SECRET_KEY=.*|JWT_SECRET_KEY=e2e-test-secret-key-padding-32chars-min|' .env
-          sed -i -E 's|^GEOLENS_ADMIN_PASSWORD=.*|GEOLENS_ADMIN_PASSWORD=admin|' .env
+          sed -i -E 's|^GEOLENS_ADMIN_PASSWORD=.*|GEOLENS_ADMIN_PASSWORD=geolens-ci-admin-password|' .env
           echo "DATABASE_SSL_MODE=disable" >> .env
 
       - name: Export admin credentials for E2E
         run: |
           echo "GEOLENS_ADMIN_USERNAME=admin" >> $GITHUB_ENV
-          echo "GEOLENS_ADMIN_PASSWORD=admin" >> $GITHUB_ENV
+          echo "GEOLENS_ADMIN_PASSWORD=geolens-ci-admin-password" >> $GITHUB_ENV
 
       - name: Start services
         run: docker compose up -d --wait --wait-timeout 120
