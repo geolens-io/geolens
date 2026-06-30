@@ -31,7 +31,10 @@ python scripts/seed-showcase.py \
   --with-terrain
 
 # Build just one map
-python scripts/seed-showcase.py --only income
+python scripts/seed-showcase.py \
+  --username "${GEOLENS_ADMIN_USERNAME:-admin}" \
+  --password "$GEOLENS_ADMIN_PASSWORD" \
+  --only income
 ```
 
 | Flag | Default | Description |

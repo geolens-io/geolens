@@ -155,6 +155,15 @@ class PublicSurfaceGateTest(unittest.TestCase):
         self.assertEqual([], result.errors)
         self.assertEqual(["weak_admin_default"], [v.pattern_id for v in result.violations])
 
+    def test_seed_showcase_examples_require_explicit_password(self) -> None:
+        readme = (ROOT / "scripts" / "README.md").read_text(encoding="utf-8")
+        script = (ROOT / "scripts" / "seed-showcase.py").read_text(encoding="utf-8")
+
+        self.assertNotIn("python scripts/seed-showcase.py --only income", readme)
+        self.assertIn('--password "$GEOLENS_ADMIN_PASSWORD" \\\n  --only income', readme)
+        self.assertNotIn('os.environ.get("GEOLENS_ADMIN_PASSWORD", "admin")', script)
+        self.assertIn("--password or GEOLENS_ADMIN_PASSWORD is required", script)
+
     def test_commercial_overlay_and_ogc_compliant_variants_fail(self) -> None:
         result = self.scan(
             {
