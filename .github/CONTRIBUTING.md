@@ -69,7 +69,7 @@ docker compose exec frontend npm run test -- --watch  # Watch mode
 
 **End-to-end (Playwright):**
 
-E2E tests run **locally only** -- the `e2e-test` job in `.github/workflows/ci.yml` is gated `if: false` to conserve CI minutes (the dockerized stack + browser fixtures push the per-PR runtime well past the free-tier budget). Backend, frontend, and security checks remain on the per-PR critical path.
+E2E smoke tests run locally for user-flow changes, and CI keeps the lighter backend, frontend, security, docs-contract, and public-surface checks on the per-PR critical path.
 
 Reviewers and contributors are responsible for running the relevant smoke suite locally before requesting review on changes that touch user flows:
 

@@ -122,7 +122,7 @@
     },
     {
       "id": "multi_tenant_wording",
-      "pattern": "\\bmulti[- ]tenant\\b",
+      "pattern": "\\bmulti[- ]?tenant\\b",
       "flags": "i",
       "reason": "Hosted or tenancy strategy language is out of scope for OSS launch copy."
     },
@@ -134,7 +134,7 @@
     },
     {
       "id": "cloud_edition_wording",
-      "pattern": "\\bcloud\\s+edition\\b",
+      "pattern": "\\bcloud[- ]edition\\b",
       "flags": "i",
       "reason": "Cloud edition positioning is out of scope for OSS launch copy."
     },
@@ -158,7 +158,7 @@
     },
     {
       "id": "weak_admin_default",
-      "pattern": "(?<![A-Za-z0-9_])`?admin`?(?:\\s*(?:/|:)\\s*|\\s+slash\\s+)`?admin`?(?![A-Za-z0-9_])",
+      "pattern": "(?<![A-Za-z0-9_])`?admin`?(?:\\s*(?:/|:)\\s*|\\s+slash\\s+)`?admin`?(?![A-Za-z0-9_])|--username\\s+admin\\s+--password\\s+admin|--password\\s+admin\\s+--username\\s+admin|`--username`\\s*\\|\\s*`admin`[\\s\\S]{0,160}`--password`\\s*\\|\\s*`admin`",
       "flags": "i",
       "reason": "Fresh installs generate a strong admin password and must not document admin/admin defaults."
     }

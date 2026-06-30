@@ -87,6 +87,7 @@ class PublicSurfaceGateTest(unittest.TestCase):
                     "Do not tell users to use admin slash admin.\n"
                     "Do not document `admin` / `admin` credentials.\n"
                     "Do not document admin:admin credentials.\n"
+                    "Do not document --username admin --password admin commands.\n"
                 ),
                 "frontend/src/pages/admin/AdminSharedMapsPage.tsx": "export const path = true;\n",
             },
@@ -95,7 +96,12 @@ class PublicSurfaceGateTest(unittest.TestCase):
 
         self.assertEqual([], result.errors)
         self.assertEqual(
-            ["weak_admin_default", "weak_admin_default", "weak_admin_default"],
+            [
+                "weak_admin_default",
+                "weak_admin_default",
+                "weak_admin_default",
+                "weak_admin_default",
+            ],
             [v.pattern_id for v in result.violations],
         )
 
@@ -112,6 +118,22 @@ class PublicSurfaceGateTest(unittest.TestCase):
         self.assertEqual([], result.errors)
         self.assertEqual(
             ["commercial_overlay_wording", "ogc_compliant_claim"],
+            sorted(v.pattern_id for v in result.violations),
+        )
+
+    def test_tenancy_and_cloud_edition_variants_fail(self) -> None:
+        result = self.scan(
+            {
+                "README.md": (
+                    "Do not discuss multitenant launch copy.\n"
+                    "Do not discuss cloud-edition launch copy.\n"
+                )
+            }
+        )
+
+        self.assertEqual([], result.errors)
+        self.assertEqual(
+            ["cloud_edition_wording", "multi_tenant_wording"],
             sorted(v.pattern_id for v in result.violations),
         )
 

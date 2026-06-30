@@ -20,10 +20,15 @@ Builds three demo maps from public, openly licensed data against a running stack
 pip install httpx
 
 # Build the Manhattan + income maps
-python scripts/seed-showcase.py --username admin --password admin
+python scripts/seed-showcase.py \
+  --username "${GEOLENS_ADMIN_USERNAME:-admin}" \
+  --password "$GEOLENS_ADMIN_PASSWORD"
 
 # Also build the Matterhorn 3D-terrain hero (downloads ~9 swissALTI3D COG tiles)
-python scripts/seed-showcase.py --username admin --password admin --with-terrain
+python scripts/seed-showcase.py \
+  --username "${GEOLENS_ADMIN_USERNAME:-admin}" \
+  --password "$GEOLENS_ADMIN_PASSWORD" \
+  --with-terrain
 
 # Build just one map
 python scripts/seed-showcase.py --only income
@@ -33,7 +38,7 @@ python scripts/seed-showcase.py --only income
 |------|---------|-------------|
 | `--base-url` | `http://localhost:8080` (`$GEOLENS_BASE_URL`, fallback `$GEOLENS_URL`) | GeoLens base URL |
 | `--username` | `admin` (`$GEOLENS_ADMIN_USERNAME`) | Admin username |
-| `--password` | `admin` (`$GEOLENS_ADMIN_PASSWORD`) | Admin password |
+| `--password` | `$GEOLENS_ADMIN_PASSWORD` | Admin password |
 | `--with-terrain` | off | Also build the Matterhorn terrain hero |
 | `--only` | unset | Build only `manhattan`, `income`, or `matterhorn` |
 

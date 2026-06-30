@@ -25,7 +25,10 @@ Displayed at `width="900"`; sources are ~1200 px wide. Use PNG for UI shots
 Build (Matterhorn), and Ask AI (NY income) shots:
 
 ```bash
-python scripts/seed-showcase.py --username admin --password admin --with-terrain
+python scripts/seed-showcase.py \
+  --username "${GEOLENS_ADMIN_USERNAME:-admin}" \
+  --password "$GEOLENS_ADMIN_PASSWORD" \
+  --with-terrain
 ```
 
 The Find (search) and Inspect (dataset) shots use a Natural Earth vector
