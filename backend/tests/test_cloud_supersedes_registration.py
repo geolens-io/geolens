@@ -74,7 +74,7 @@ def _set_cloud_active(active: bool) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Tests: cloud overlay ACTIVE — /auth/register is CLOSED
+# Tests: runtime extension ACTIVE: /auth/register is CLOSED
 # ---------------------------------------------------------------------------
 
 
@@ -82,10 +82,7 @@ class TestCloudActiveRegistrationClosed:
     """When has_extension("cloud") is True, POST /auth/register returns 403."""
 
     async def test_register_closed_when_cloud_active(self, client: AsyncClient):
-        """POST /auth/register → 403 when the cloud overlay is active (T-1211-22).
-
-        The ONLY signup route is /cloud/signup/register.
-        """
+        """POST /auth/register returns 403 when the extension gate is active."""
         _set_cloud_active(True)
 
         resp = await client.post(
@@ -93,14 +90,12 @@ class TestCloudActiveRegistrationClosed:
             json={"username": "shouldbeblocked", "password": "SecurePass123!"},
         )
         assert resp.status_code == 403, (
-            f"Expected 403 (cloud gate closed), got {resp.status_code}: {resp.text}"
+            f"Expected 403 (extension gate closed), got {resp.status_code}: {resp.text}"
         )
-        # Response must point users to the tenant signup path
         body = resp.json()
         assert (
-            "cloud" in body.get("detail", "").lower()
-            or "tenant" in body.get("detail", "").lower()
-        ), f"403 detail should reference the tenant signup path; got: {body}"
+            body.get("detail") == "Self-registration is disabled for this deployment."
+        )
 
     async def test_register_no_trailing_slash_closed_when_cloud_active(
         self, client: AsyncClient

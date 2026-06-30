@@ -738,9 +738,7 @@ async def test_cloud_gate_preserved(
         f"Cloud gate must return 403 even when REGISTRATION_ENABLED=True; "
         f"got {resp.status_code}: {resp.text}"
     )
-    assert "cloud" in resp.json()["detail"].lower(), (
-        "403 detail should mention cloud mode"
-    )
+    assert resp.json()["detail"] == "Self-registration is disabled for this deployment."
 
     # send_email must NOT be called when the cloud gate fires
     assert captured_send_email == [], (
