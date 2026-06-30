@@ -6,7 +6,7 @@
 SHELL := /bin/bash
 .SHELLFLAGS := -o pipefail -c
 
-.PHONY: dev dev-init down reset-db migrate migration alembic-check test test-sequential test-cov e2e logs logs-db logs-api status doctor preflight openapi openapi-check sdks sdks-check sdks-test manifest-contract-check publish-sdks-py publish-sdks-ts cli-build cli-test cli-check publish-cli audit-sink-discipline billing-extraction-discipline catalog-domain-discipline bump version-check
+.PHONY: dev dev-init down reset-db migrate migration alembic-check test test-sequential test-cov e2e logs logs-db logs-api status doctor preflight openapi openapi-check sdks sdks-check sdks-test manifest-contract-check publish-sdks-py publish-sdks-ts cli-build cli-test cli-check publish-cli audit-sink-discipline billing-extraction-discipline catalog-domain-discipline bump version-check public-surface-check
 
 # Pre-flight: verify boot-required env vars are non-empty in .env before any
 # `docker compose` build (which takes 5-10 minutes on a cold cache only to crash
@@ -272,3 +272,8 @@ version-check: ## Assert all version sites agree (CI gate)
 # against what the installer actually writes. Plain python3 — no project deps.
 env-doc-check: ## Assert install.sh-written env keys are documented in .env.example
 	python3 scripts/check_env_doc_drift.py
+
+# `make public-surface-check` — public launch-surface wording gate. Plain
+# python3; no project dependencies or package install required.
+public-surface-check: ## Assert public source surfaces avoid launch-sensitive terms
+	python3 scripts/check_public_surface.py

@@ -64,6 +64,10 @@ Wired into the `Makefile` / `package.json`, not run by operators directly:
 | `flatten_openapi_defs.py` | Post-process `backend/openapi.json` for the SDK generators. Runs stdlib-only via `uv run --no-project` outside the backend venv (`make sdks`) |
 | `sync_sdk_versions.py` | Sync the generated SDK package versions (`make sdks`) |
 | `check-readme-locales.mjs` | Verify the README locale stubs stay in sync (`npm run check:readme-locales`) |
+| `check_public_surface.py` | Scan tracked public source surfaces for launch-sensitive wording (`make public-surface-check` / `npm run check:public-surface`) |
+| `public_surface_gate.json` | Configure scan boundaries, forbidden pattern IDs, and exact allowlist entries |
+
+Allowlist entries in `public_surface_gate.json` must name an exact path, pattern ID, match, and rationale. Wildcard allowlist paths and stale entries fail the gate.
 
 ### `install.sh`
 
