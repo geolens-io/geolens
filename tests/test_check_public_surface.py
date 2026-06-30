@@ -94,6 +94,8 @@ class PublicSurfaceGateTest(unittest.TestCase):
                     "Do not document GEOLENS_ADMIN_USERNAME=admin GEOLENS_ADMIN_PASSWORD=admin installs.\n"
                     "Do not document GEOLENS_ADMIN_PASSWORD=\"admin\" installs.\n"
                     "Do not document GEOLENS_ADMIN_PASSWORD='change-me' installs.\n"
+                    "Do not document GEOLENS_ADMIN_PASSWORD=${GEOLENS_ADMIN_PASSWORD:-admin} installs.\n"
+                    "Do not document GEOLENS_ADMIN_PASSWORD=\"${GEOLENS_ADMIN_PASSWORD:-change-me}\" installs.\n"
                     "| `--password` | `admin` | Admin password |\n"
                     "| `--password` | `change-me` | Admin password |\n"
                     "| GEOLENS_ADMIN_PASSWORD | admin |\n"
@@ -107,6 +109,8 @@ class PublicSurfaceGateTest(unittest.TestCase):
         self.assertEqual([], result.errors)
         self.assertEqual(
             [
+                "weak_admin_default",
+                "weak_admin_default",
                 "weak_admin_default",
                 "weak_admin_default",
                 "weak_admin_default",
@@ -146,6 +150,8 @@ class PublicSurfaceGateTest(unittest.TestCase):
             {
                 "README.md": (
                     "Do not discuss multitenant launch copy.\n"
+                    "Do not discuss multi-tenancy launch copy.\n"
+                    "Do not discuss multitenancy launch copy.\n"
                     "Do not discuss cloud-edition launch copy.\n"
                 )
             }
@@ -153,7 +159,12 @@ class PublicSurfaceGateTest(unittest.TestCase):
 
         self.assertEqual([], result.errors)
         self.assertEqual(
-            ["cloud_edition_wording", "multi_tenant_wording"],
+            [
+                "cloud_edition_wording",
+                "multi_tenant_wording",
+                "multi_tenant_wording",
+                "multi_tenant_wording",
+            ],
             sorted(v.pattern_id for v in result.violations),
         )
 

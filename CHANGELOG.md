@@ -148,10 +148,9 @@ terms.
 
 ## [1.3.0] - 2026-06-18
 
-This release bundles changes since 1.2.4. It summarizes four internal milestones
-(v1039 Tier-1 hardening, v1040 Tier-2 hardening, v1041 map-builder authoring
-enhancements, and the v1042 tenancy substrate) plus the v1043 self-hosted
-release/upgrade work, in operator-facing terms.
+This release bundles changes since 1.2.4, including hardening work,
+map-builder authoring improvements, and self-hosted release/upgrade updates in
+operator-facing terms.
 
 ### Added
 
