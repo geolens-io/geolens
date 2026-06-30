@@ -19,7 +19,8 @@ A release at version `X.Y.Z` is coherent when all of these agree:
    the matching `CHANGELOG.md` section.
 2. **GHCR images** — `geolens-api`, the worker (built from the same API image),
    and `geolens-frontend`, all tagged `X.Y.Z`.
-3. **PyPI packages** — `geolens` (`cli/pyproject.toml`) and `geolens-cli`.
+3. **PyPI packages** — `geolens` (`sdks/python/pyproject.toml`) and
+   `geolens-cli` (`cli/pyproject.toml`).
 4. **npm package** — `@geolens/sdk` (`sdks/typescript/package.json`).
 5. **OpenAPI + generated SDKs** — `backend/openapi.json` `info.version`, the
    generated Python SDK (`sdks/python/pyproject.toml`,
