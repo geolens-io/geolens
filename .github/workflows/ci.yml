@@ -75,7 +75,7 @@ jobs:
               - 'backend/scripts/test_alembic_upgrade_clean_db.sh'
               # OCG-02: backend/app/models/** was deleted in b63803c1; replaced
               # with the real model layout so model-only PRs still trigger alembic
-              # check (blocks Phase-1207 dormant-tenant_id migration drift gate).
+              # check (blocks model migration drift regressions).
               - 'backend/app/**/models.py'
               - 'backend/app/core/db/models.py'
               - 'backend/app/processing/**/models.py'

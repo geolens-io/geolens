@@ -6,6 +6,7 @@
     ".github/**/*.yaml",
     ".github/workflows/*.yml",
     "docker-compose*.yml",
+    "Makefile",
     "package.json",
     "frontend/package.json",
     "scripts/README.md",
@@ -140,7 +141,7 @@
     },
     {
       "id": "ogc_compliant_claim",
-      "pattern": "\\bOGC[- ]API[- ]Compliant\\b|\\bOGC[- ]Compliant\\b",
+      "pattern": "\\bOGC[- ]API[- ](?:Compliant|compliance)\\b|\\bOGC[- ](?:Compliant|compliance)\\b",
       "flags": "i",
       "reason": "GeoLens should claim OGC API support, not public certification or compliance status."
     },
@@ -158,7 +159,7 @@
     },
     {
       "id": "weak_admin_default",
-      "pattern": "(?<![A-Za-z0-9_])`?admin`?(?:\\s*(?:/|:)\\s*|\\s+slash\\s+)`?(?:admin|change[-_]?me|please[-_]?change[-_]?me|password|demodemo)`?(?![A-Za-z0-9_-])|--password(?:\\s+|\\s*=\\s*)[\"'`]?(?:admin|change[-_]?me|please[-_]?change[-_]?me|password|demodemo)[\"'`]?(?![A-Za-z0-9_-])|`?--password`?\\s*\\|\\s*[\"'`]?(?:admin|change[-_]?me|please[-_]?change[-_]?me|password|demodemo)[\"'`]?\\s*(?=\\|)|`?\\$?\\bGEOLENS_ADMIN_PASSWORD\\b`?\\s*(?:=|:)\\s*[\"'`]?\\$\\{[^}\\n]*:-(?:admin|change[-_]?me|please[-_]?change[-_]?me|password|demodemo)\\}|`?\\$?\\bGEOLENS_ADMIN_PASSWORD\\b`?\\s*(?:=|:)\\s*[\"'`]?(?:admin|change[-_]?me|please[-_]?change[-_]?me|password|demodemo)[\"'`]?(?![A-Za-z0-9_-])|`?\\$?\\bGEOLENS_ADMIN_PASSWORD\\b`?\\s*\\|\\s*[\"'`]?(?:admin|change[-_]?me|please[-_]?change[-_]?me|password|demodemo)[\"'`]?\\s*(?=\\|)",
+      "pattern": "(?<![A-Za-z0-9_])`?admin`?(?:\\s*(?:/|:)\\s*|\\s+slash\\s+)`?(?:admin|change[-_]?me|please[-_]?change[-_]?me|password|demodemo)`?(?![A-Za-z0-9_-])|--password(?:\\s+|\\s*=\\s*)[\"'`]?\\$\\{[^}\\n]*:-(?:admin|change[-_]?me|please[-_]?change[-_]?me|password|demodemo)\\}[\"'`]?|--password(?:\\s+|\\s*=\\s*)[\"'`]?(?:admin|change[-_]?me|please[-_]?change[-_]?me|password|demodemo)[\"'`]?(?![A-Za-z0-9_-])|`?--password`?\\s*\\|\\s*[\"'`]?(?:admin|change[-_]?me|please[-_]?change[-_]?me|password|demodemo)[\"'`]?\\s*(?=\\|)|`?\\$?\\bGEOLENS_ADMIN_PASSWORD\\b`?\\s*(?:=|:)\\s*[\"'`]?\\$\\{[^}\\n]*:-(?:admin|change[-_]?me|please[-_]?change[-_]?me|password|demodemo)\\}|`?\\$?\\bGEOLENS_ADMIN_PASSWORD\\b`?\\s*(?:=|:)\\s*[\"'`]?(?:admin|change[-_]?me|please[-_]?change[-_]?me|password|demodemo)[\"'`]?(?![A-Za-z0-9_-])|`?\\$?\\bGEOLENS_ADMIN_PASSWORD\\b`?\\s*\\|\\s*[\"'`]?(?:admin|change[-_]?me|please[-_]?change[-_]?me|password|demodemo)[\"'`]?\\s*(?=\\|)",
       "flags": "i",
       "reason": "Fresh installs generate a strong admin password and must not document admin/admin defaults."
     }

@@ -91,6 +91,8 @@ class PublicSurfaceGateTest(unittest.TestCase):
                     "Do not document --password=admin commands.\n"
                     "Do not document --password=\"admin\" commands.\n"
                     "Do not document --password change-me commands.\n"
+                    "Do not document --password \"${GEOLENS_ADMIN_PASSWORD:-admin}\" commands.\n"
+                    "Do not document --password=${GEOLENS_ADMIN_PASSWORD:-admin} commands.\n"
                     "Do not document GEOLENS_ADMIN_USERNAME=admin GEOLENS_ADMIN_PASSWORD=admin installs.\n"
                     "Do not document GEOLENS_ADMIN_PASSWORD=\"admin\" installs.\n"
                     "Do not document GEOLENS_ADMIN_PASSWORD='change-me' installs.\n"
@@ -125,6 +127,8 @@ class PublicSurfaceGateTest(unittest.TestCase):
                 "weak_admin_default",
                 "weak_admin_default",
                 "weak_admin_default",
+                "weak_admin_default",
+                "weak_admin_default",
             ],
             [v.pattern_id for v in result.violations],
         )
@@ -135,13 +139,14 @@ class PublicSurfaceGateTest(unittest.TestCase):
                 "README.md": (
                     "Do not discuss commercial overlays.\n"
                     "Do not claim this is OGC-compliant.\n"
+                    "Do not claim OGC API compliance.\n"
                 )
             }
         )
 
         self.assertEqual([], result.errors)
         self.assertEqual(
-            ["commercial_overlay_wording", "ogc_compliant_claim"],
+            ["commercial_overlay_wording", "ogc_compliant_claim", "ogc_compliant_claim"],
             sorted(v.pattern_id for v in result.violations),
         )
 
@@ -270,6 +275,7 @@ class PublicSurfaceGateTest(unittest.TestCase):
         files = self.scanner.collect_candidate_files(ROOT, config)
 
         self.assertIn("frontend/docs/i18n.md", files)
+        self.assertIn("Makefile", files)
         self.assertIn("backend/app/standards/dcat/README.md", files)
         self.assertIn("examples/manifests/first-catalog/README.md", files)
         self.assertNotIn("AGENTS.md", files)
