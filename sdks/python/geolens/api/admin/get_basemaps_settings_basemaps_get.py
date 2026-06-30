@@ -97,7 +97,7 @@ def sync_detailed(
     includes the substituted ``api_key`` value when configured. Client-side
     tile-provider keys (Mapbox, Stadia, MapTiler) are designed for browser
     exposure and the frontend MUST receive them to load tiles. Do NOT put a
-    backend-only commercial-tier key in this field — rotate the key in the
+    backend-only provider key in this field. Rotate the key in the
     provider dashboard if it is misused. Rate-limited via
     ``_basemap_proxy_rate_limit`` to cap replay-cost from anonymous clients.
 
@@ -134,7 +134,7 @@ def sync(
     includes the substituted ``api_key`` value when configured. Client-side
     tile-provider keys (Mapbox, Stadia, MapTiler) are designed for browser
     exposure and the frontend MUST receive them to load tiles. Do NOT put a
-    backend-only commercial-tier key in this field — rotate the key in the
+    backend-only provider key in this field. Rotate the key in the
     provider dashboard if it is misused. Rate-limited via
     ``_basemap_proxy_rate_limit`` to cap replay-cost from anonymous clients.
 
@@ -167,7 +167,7 @@ async def asyncio_detailed(
     includes the substituted ``api_key`` value when configured. Client-side
     tile-provider keys (Mapbox, Stadia, MapTiler) are designed for browser
     exposure and the frontend MUST receive them to load tiles. Do NOT put a
-    backend-only commercial-tier key in this field — rotate the key in the
+    backend-only provider key in this field. Rotate the key in the
     provider dashboard if it is misused. Rate-limited via
     ``_basemap_proxy_rate_limit`` to cap replay-cost from anonymous clients.
 
@@ -202,7 +202,7 @@ async def asyncio(
     includes the substituted ``api_key`` value when configured. Client-side
     tile-provider keys (Mapbox, Stadia, MapTiler) are designed for browser
     exposure and the frontend MUST receive them to load tiles. Do NOT put a
-    backend-only commercial-tier key in this field — rotate the key in the
+    backend-only provider key in this field. Rotate the key in the
     provider dashboard if it is misused. Rate-limited via
     ``_basemap_proxy_rate_limit`` to cap replay-cost from anonymous clients.
 

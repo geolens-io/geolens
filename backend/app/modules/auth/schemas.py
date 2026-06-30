@@ -126,7 +126,7 @@ class ConfigResponse(BaseModel):
         default_factory=list,
         description=(
             "Auth methods contributed by the active AuthExtension. "
-            "Empty in community; e.g. ['saml'] when the enterprise SAML overlay is installed. "
+            "Empty by default; compatible deployments may add methods such as ['saml']. "
             "Login UI can render conditional sign-in options without needing admin OAuthProvider access."
         ),
     )

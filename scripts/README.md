@@ -49,7 +49,7 @@ OpenStreetMap, swisstopo). The script is non-idempotent. Each run POSTs new maps
 | `check-env.sh` | Probe the running stack's env, DB connectivity, and GDAL via `make doctor` (requires the stack up) |
 | `init-db.sh` | Initialize the PostGIS database schema (mounted into the db container's init) |
 | `init-test-db.sh` | Initialize a host-accessible `geolens_test` database (extensions, schemas, roles) for local `psql` debugging. Not used by CI. CI and pytest each bootstrap their own test databases. |
-| `backup-entrypoint.sh` | Scheduled `pg_dump` backups with retention + optional S3 upload (the Docker Compose backup-profile service) |
+| `backup-entrypoint.sh` | Scheduled `pg_dump` backups with retention + optional S3 upload (the default Docker Compose backup service) |
 | `restore.sh` | Restore a database backup |
 | `run-baseline.sh` | Run performance baselines |
 | `analyze-query-plans.sh` | Analyze slow query plans |

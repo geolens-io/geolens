@@ -149,11 +149,11 @@ def sync_detailed(
 
      Export audit logs as CSV or JSON.
 
-    Available formats are defined by the active ``AuditExtension`` — community
-    advertises none (404 via ``require_enterprise``); enterprise overlays
-    advertise ``csv``/``json`` (or additional formats) by registering an
-    extension whose ``get_export_formats()`` returns the format list. Unknown
-    formats also 404 to prevent leaking which formats exist in other editions.
+    Available formats are defined by the active ``AuditExtension``. The default
+    runtime advertises none. Compatible deployments can advertise ``csv``/``json``
+    or additional formats by registering an extension whose
+    ``get_export_formats()`` returns the format list. Unknown formats also 404
+    to avoid leaking unavailable formats.
 
     Args:
         format_ (str):
@@ -204,11 +204,11 @@ def sync(
 
      Export audit logs as CSV or JSON.
 
-    Available formats are defined by the active ``AuditExtension`` — community
-    advertises none (404 via ``require_enterprise``); enterprise overlays
-    advertise ``csv``/``json`` (or additional formats) by registering an
-    extension whose ``get_export_formats()`` returns the format list. Unknown
-    formats also 404 to prevent leaking which formats exist in other editions.
+    Available formats are defined by the active ``AuditExtension``. The default
+    runtime advertises none. Compatible deployments can advertise ``csv``/``json``
+    or additional formats by registering an extension whose
+    ``get_export_formats()`` returns the format list. Unknown formats also 404
+    to avoid leaking unavailable formats.
 
     Args:
         format_ (str):
@@ -254,11 +254,11 @@ async def asyncio_detailed(
 
      Export audit logs as CSV or JSON.
 
-    Available formats are defined by the active ``AuditExtension`` — community
-    advertises none (404 via ``require_enterprise``); enterprise overlays
-    advertise ``csv``/``json`` (or additional formats) by registering an
-    extension whose ``get_export_formats()`` returns the format list. Unknown
-    formats also 404 to prevent leaking which formats exist in other editions.
+    Available formats are defined by the active ``AuditExtension``. The default
+    runtime advertises none. Compatible deployments can advertise ``csv``/``json``
+    or additional formats by registering an extension whose
+    ``get_export_formats()`` returns the format list. Unknown formats also 404
+    to avoid leaking unavailable formats.
 
     Args:
         format_ (str):
@@ -307,11 +307,11 @@ async def asyncio(
 
      Export audit logs as CSV or JSON.
 
-    Available formats are defined by the active ``AuditExtension`` — community
-    advertises none (404 via ``require_enterprise``); enterprise overlays
-    advertise ``csv``/``json`` (or additional formats) by registering an
-    extension whose ``get_export_formats()`` returns the format list. Unknown
-    formats also 404 to prevent leaking which formats exist in other editions.
+    Available formats are defined by the active ``AuditExtension``. The default
+    runtime advertises none. Compatible deployments can advertise ``csv``/``json``
+    or additional formats by registering an extension whose
+    ``get_export_formats()`` returns the format list. Unknown formats also 404
+    to avoid leaking unavailable formats.
 
     Args:
         format_ (str):

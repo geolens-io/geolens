@@ -23,10 +23,10 @@ class ImportResult:
         oauth_deleted (int): Number of OAuth providers deleted (overwrite mode only).
         oauth_updated (int): Number of existing OAuth providers updated.
         settings_applied (int): Number of settings successfully updated.
-        settings_skipped (int): Number of settings skipped (no change, unknown key, or enterprise-only key in community
-            edition).
-        settings_skipped_enterprise (list[str] | Unset): Names of enterprise-only setting keys that were skipped because
-            the caller is on the community edition (BUG-011). Empty on enterprise edition.
+        settings_skipped (int): Number of settings skipped (no change, unknown key, or restricted key not writable by
+            the current runtime).
+        settings_skipped_restricted (list[str] | Unset): Names of restricted setting keys that were skipped by the
+            current runtime.
     """
 
     oauth_created: int
@@ -34,7 +34,7 @@ class ImportResult:
     oauth_updated: int
     settings_applied: int
     settings_skipped: int
-    settings_skipped_enterprise: list[str] | Unset = UNSET
+    settings_skipped_restricted: list[str] | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -48,9 +48,9 @@ class ImportResult:
 
         settings_skipped = self.settings_skipped
 
-        settings_skipped_enterprise: list[str] | Unset = UNSET
-        if not isinstance(self.settings_skipped_enterprise, Unset):
-            settings_skipped_enterprise = self.settings_skipped_enterprise
+        settings_skipped_restricted: list[str] | Unset = UNSET
+        if not isinstance(self.settings_skipped_restricted, Unset):
+            settings_skipped_restricted = self.settings_skipped_restricted
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
@@ -63,8 +63,8 @@ class ImportResult:
                 "settings_skipped": settings_skipped,
             }
         )
-        if settings_skipped_enterprise is not UNSET:
-            field_dict["settings_skipped_enterprise"] = settings_skipped_enterprise
+        if settings_skipped_restricted is not UNSET:
+            field_dict["settings_skipped_restricted"] = settings_skipped_restricted
 
         return field_dict
 
@@ -81,8 +81,8 @@ class ImportResult:
 
         settings_skipped = d.pop("settings_skipped")
 
-        settings_skipped_enterprise = cast(
-            list[str], d.pop("settings_skipped_enterprise", UNSET)
+        settings_skipped_restricted = cast(
+            list[str], d.pop("settings_skipped_restricted", UNSET)
         )
 
         import_result = cls(
@@ -91,7 +91,7 @@ class ImportResult:
             oauth_updated=oauth_updated,
             settings_applied=settings_applied,
             settings_skipped=settings_skipped,
-            settings_skipped_enterprise=settings_skipped_enterprise,
+            settings_skipped_restricted=settings_skipped_restricted,
         )
 
         import_result.additional_properties = d

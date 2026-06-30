@@ -81,13 +81,12 @@ class ImportResult(BaseModel):
     )
     settings_skipped: int = Field(
         description="Number of settings skipped (no change, unknown key, or "
-        "enterprise-only key in community edition)."
+        "restricted key not writable by the current runtime)."
     )
-    settings_skipped_enterprise: list[str] = Field(
+    settings_skipped_restricted: list[str] = Field(
         default_factory=list,
-        description="Names of enterprise-only setting keys that were skipped "
-        "because the caller is on the community edition (BUG-011). Empty on "
-        "enterprise edition.",
+        description="Names of restricted setting keys that were skipped by the "
+        "current runtime.",
     )
     oauth_created: int = Field(description="Number of new OAuth providers created.")
     oauth_updated: int = Field(

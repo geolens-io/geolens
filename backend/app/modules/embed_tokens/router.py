@@ -75,8 +75,8 @@ async def create_embed_token_endpoint(
 ) -> EmbedTokenCreatedResponse:
     """Create an embed token scoped to a map's current layers.
 
-    Community supports the default 30-day unrestricted token. Custom lifetimes
-    and non-empty origin restrictions require the enterprise edition.
+    The default 30-day unrestricted token is always available. Custom lifetimes
+    and non-empty origin restrictions require advanced sharing controls.
     """
     map_obj = await get_map(db, map_id)
     if map_obj is None:
@@ -153,7 +153,7 @@ async def update_embed_token_endpoint(
 ) -> EmbedTokenResponse:
     """Update embed token allowed_origins.
 
-    Null clears restrictions. Non-empty origin restrictions require the enterprise edition.
+    Null clears restrictions. Non-empty origin restrictions require advanced sharing controls.
     """
     map_obj = await get_map(db, map_id)
     if map_obj is None:

@@ -1,9 +1,9 @@
 # Starter Issues
 
 A backlog of contribution-ready tickets to help new contributors get started.
-These are **drafts** — they are not yet filed as GitHub issues. A maintainer
-turns them into tracked issues as capacity allows. If you'd like to pick one up,
-open a Discussion or comment on the corresponding issue once it's filed.
+Maintainers turn these into tracked issues as capacity allows. If you'd like to
+pick one up, open a Discussion or comment on the corresponding issue once it's
+filed.
 
 New to the project? Start with the [Contributing guide](./CONTRIBUTING.md).
 
@@ -23,24 +23,21 @@ discuss the approach first.
 - **Test command:** n/a (docs) — proofread rendered Markdown.
 - **Design settled:** yes
 
-### 2. Surface the edition badge in the admin overview
-- **Area:** frontend
-- **Files likely involved:** `frontend/src/pages/admin/AdminOverviewPage.tsx`,
-  `frontend/src/api/edition.ts`
-- **Acceptance criteria:** The admin overview page shows a small badge
-  reflecting `EditionInfo.edition` ("Community" / "Enterprise") fetched via
-  `fetchEdition()`.
-- **Test command:** `docker compose exec frontend npm test`
+### 2. Add a README package-smoke snippet
+- **Area:** docs
+- **Files likely involved:** `README.md`, `.github/CONTRIBUTING.md`
+- **Acceptance criteria:** The docs show a short clean-environment smoke for
+  `pip install geolens geolens-cli` and `npm install @geolens/sdk`.
+- **Test command:** n/a (docs).
 - **Design settled:** yes
 
-### 3. Add a unit test for the absent-license community path
-- **Area:** backend
-- **Files likely involved:** `backend/app/core/license.py`,
-  `backend/tests/test_license.py`
-- **Acceptance criteria:** A test asserts that `load_license()` returns `None`
-  (the community fallback) when no `GEOLENS_LICENSE_KEY` / `GEOLENS_LICENSE_FILE`
-  is set.
-- **Test command:** `docker compose exec api pytest -k license`
+### 3. Add an SDK example for listing datasets
+- **Area:** SDK
+- **Files likely involved:** `sdks/python/README.md`,
+  `sdks/typescript/README.md`
+- **Acceptance criteria:** Each SDK README includes a minimal authenticated
+  example for listing datasets from a running GeoLens instance.
+- **Test command:** n/a (docs).
 - **Design settled:** yes
 
 ### 4. Document the `&cols=` opt-in for low-zoom vector tiles

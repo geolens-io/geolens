@@ -650,13 +650,13 @@
   },
   "saml": {
     "title": "SSO SAML",
-    "description": "Configure proveedores de identidad SAML 2.0 para inicio de sesión único empresarial. Disponible con la capa Enterprise.",
+    "description": "Configure proveedores de identidad SAML 2.0 cuando este despliegue habilite SAML.",
     "enterpriseOnly": {
       "title": "SSO SAML",
-      "description": "Disponible con la capa Enterprise.",
-      "heading": "Esta es una función Enterprise",
-      "body": "El inicio de sesión único SAML 2.0 forma parte de la edición Enterprise. La edición comunitaria admite cuentas locales y proveedores OAuth (Google, GitHub, OIDC genérico) de serie.",
-      "docsLink": "Leer más sobre SAML en la documentación Enterprise →"
+      "description": "No disponible en esta compilación.",
+      "heading": "SAML no está disponible",
+      "body": "Esta compilación de GeoLens admite cuentas locales y proveedores OAuth como Google, GitHub y OIDC genérico.",
+      "docsLink": "SAML no está disponible en esta compilación"
     },
     "addProvider": "Añadir proveedor SAML",
     "loading": "Cargando proveedores SAML...",

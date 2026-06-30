@@ -19,7 +19,7 @@ class EmbedTokenUpdate:
     """
     Attributes:
         allowed_origins (list[str] | None | Unset): Updated list of allowed embedding origins. Null clears restrictions;
-            non-empty origin restrictions require the enterprise edition.
+            non-empty origin restrictions require advanced sharing controls.
     """
 
     allowed_origins: list[str] | None | Unset = UNSET

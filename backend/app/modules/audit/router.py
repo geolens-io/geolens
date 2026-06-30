@@ -141,11 +141,11 @@ async def export_audit_logs(
 ) -> StreamingResponse:
     """Export audit logs as CSV or JSON.
 
-    Available formats are defined by the active ``AuditExtension`` — community
-    advertises none (404 via ``require_enterprise``); enterprise overlays
-    advertise ``csv``/``json`` (or additional formats) by registering an
-    extension whose ``get_export_formats()`` returns the format list. Unknown
-    formats also 404 to prevent leaking which formats exist in other editions.
+    Available formats are defined by the active ``AuditExtension``. The default
+    runtime advertises none. Compatible deployments can advertise ``csv``/``json``
+    or additional formats by registering an extension whose
+    ``get_export_formats()`` returns the format list. Unknown formats also 404
+    to avoid leaking unavailable formats.
     """
     allowed = set(get_audit_extension().get_export_formats())
     if format not in allowed:
@@ -165,7 +165,7 @@ async def export_audit_logs(
             detail=(
                 f"Format '{format}' is advertised by the active audit "
                 "extension but not implemented by the core audit router. "
-                "The enterprise overlay must register its own route to "
+                "The active extension must register its own route to "
                 "serve this format."
             ),
         )

@@ -650,13 +650,13 @@
   },
   "saml": {
     "title": "SAML SSO",
-    "description": "SAML 2.0 Identity Provider für Enterprise Single Sign-On konfigurieren. Verfügbar mit dem Enterprise Overlay.",
+    "description": "SAML 2.0 Identity Provider konfigurieren, wenn diese Bereitstellung SAML aktiviert.",
     "enterpriseOnly": {
       "title": "SAML SSO",
-      "description": "Verfügbar mit dem Enterprise Overlay.",
-      "heading": "Dies ist eine Enterprise-Funktion",
-      "body": "SAML 2.0 Single Sign-On ist Teil der Enterprise Edition. Die Community Edition unterstützt lokale Konten und OAuth-Anbieter (Google, GitHub, generisches OIDC) von Haus aus.",
-      "docsLink": "Mehr über SAML in der Enterprise-Dokumentation →"
+      "description": "In diesem Build nicht verfügbar.",
+      "heading": "SAML ist nicht verfügbar",
+      "body": "Dieser GeoLens Build unterstützt lokale Konten und OAuth-Anbieter wie Google, GitHub und generisches OIDC.",
+      "docsLink": "SAML ist in diesem Build nicht verfügbar"
     },
     "addProvider": "SAML-Provider hinzufügen",
     "loading": "SAML-Provider werden geladen...",

@@ -187,32 +187,23 @@ class SettingsResetRequest(BaseModel):
 
 
 class EditionInfoResponse(BaseModel):
-    """Response for GET /settings/edition/."""
+    """Response for runtime capability metadata."""
 
-    edition: str = Field(description="Active edition: 'community' or 'enterprise'.")
-    features: list[str] = Field(
-        description="List of feature flags enabled for this edition."
-    )
+    edition: str = Field(description="Runtime capability channel.")
+    features: list[str] = Field(description="List of enabled runtime feature flags.")
     tenancy_mode: str = Field(
         default="single_tenant",
-        description="Tenancy mode: 'single_tenant' or 'multi_tenant'.",
+        description="Deployment tenancy mode.",
     )
 
 
 class EnterpriseTabsResponse(BaseModel):
-    """Response for GET /settings/enterprise-tabs/.
-
-    Canonical enterprise-only Settings tab keys (Phase 279 / ADMIN-03 / M-03).
-    Read by the frontend AdminSidebar to decide which tabs to hide in
-    community editions. The backend ``_require_enterprise_for_key`` gate
-    consults the same source set, eliminating drift between the two
-    sources of truth.
-    """
+    """Response for restricted Settings tab keys."""
 
     tabs: list[str] = Field(
         description=(
-            "Tab keys (e.g. 'branding', 'appearance') restricted to enterprise "
-            "editions. Sorted alphabetically for stable client-side comparison."
+            "Tab keys (e.g. 'branding', 'appearance') restricted by the current "
+            "runtime. Sorted alphabetically for stable client-side comparison."
         )
     )
 
@@ -223,7 +214,7 @@ class BrandingResponse(BaseModel):
     show_badge: bool = Field(
         description=(
             "Whether to show the 'Powered by GeoLens' label in public and shared "
-            "footers. Badge-removal writes are enterprise controls (enterprise only)."
+            "footers. Badge-removal writes are restricted controls."
         )
     )
 

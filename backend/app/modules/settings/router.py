@@ -232,22 +232,20 @@ async def get_all_settings(
     response_model=EnterpriseTabsResponse,
     include_in_schema=False,
 )
-@router.get("/enterprise-tabs/", response_model=EnterpriseTabsResponse)
+@router.get(
+    "/enterprise-tabs/",
+    response_model=EnterpriseTabsResponse,
+    include_in_schema=False,
+)
 async def get_enterprise_only_tabs(
     _user: Identity = Depends(require_permission("manage_settings")),
 ) -> EnterpriseTabsResponse:
-    """Return the canonical list of Settings tab keys that are enterprise-only.
+    """Return the canonical list of restricted Settings tab keys.
 
-    Phase 279 ADMIN-03 (M-03): single source of truth for enterprise-only
-    Settings tabs. The frontend AdminSidebar uses this to conditionally render
-    the tabs in community vs enterprise editions. The backend
-    ``_require_enterprise_for_key`` gate uses the same set to 404 community
-    attempts at writing enterprise-tab settings — keeping these aligned
-    prevents silent UX drift.
-
-    Note: not gated by ``require_enterprise``. Community callers must be able
-    to read the list to render their own sidebar correctly (the response tells
-    them which tabs to HIDE).
+    The frontend AdminSidebar uses this to avoid rendering tabs that the
+    current runtime does not expose. The backend write gate uses the same set
+    to reject writes to restricted settings, keeping UI and API behavior
+    aligned.
     """
     # Sort for stable JSON output (downstream tests rely on deterministic order)
     return EnterpriseTabsResponse(tabs=sorted(_ENTERPRISE_ONLY_TABS))
@@ -931,9 +929,9 @@ async def delete_oauth_provider(
 
 # ROUTE-01 (Phase 1092): dual-shape decorator — see /all above.
 @router.get("/edition", response_model=EditionInfoResponse, include_in_schema=False)
-@router.get("/edition/", response_model=EditionInfoResponse)
+@router.get("/edition/", response_model=EditionInfoResponse, include_in_schema=False)
 async def edition_info() -> EditionInfoResponse:
-    """Return current edition and available features. Public, no auth required."""
+    """Return runtime capability metadata. Public, no auth required."""
     from app.core.tenancy import TENANCY_MODE_SINGLE, is_multi_tenant
 
     info = get_edition()
@@ -970,7 +968,7 @@ async def get_branding(
     The active ``BrandingExtension`` provides initial defaults for branding
     keys. PersistentConfig overrides take precedence when set. Community
     advertises read-only ``show_badge`` only; badge-removal writes and
-    additional branding keys are enterprise controls (enterprise only).
+    additional branding keys are restricted controls.
     """
     from app.platform.extensions import get_branding_extension
 
@@ -1004,7 +1002,7 @@ async def get_basemaps(
     includes the substituted ``api_key`` value when configured. Client-side
     tile-provider keys (Mapbox, Stadia, MapTiler) are designed for browser
     exposure and the frontend MUST receive them to load tiles. Do NOT put a
-    backend-only commercial-tier key in this field — rotate the key in the
+    backend-only provider key in this field. Rotate the key in the
     provider dashboard if it is misused. Rate-limited via
     ``_basemap_proxy_rate_limit`` to cap replay-cost from anonymous clients.
     """

@@ -1,5 +1,6 @@
 """Auth API endpoints: login, register, me, and self-service API keys."""
 
+import secrets
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
@@ -258,22 +259,17 @@ async def register(
     db: AsyncSession = Depends(get_db),
 ) -> RegisterResponse:
     """Register a new user. Account requires admin approval before login."""
-    # CLOUD-03 / T-1211-22: when the cloud overlay is active, the ONLY valid
-    # signup path is the tenant-scoped POST /cloud/signup/register.  A global,
-    # un-tenant-scoped self-signup would bypass tenant isolation and create a
-    # user without a tenant_id — a privilege-escalation hole in multi_tenant.
-    # This gate fires BEFORE REGISTRATION_ENABLED so that community/enterprise
-    # deployments (where cloud is ABSENT) remain byte-identical.
-    # Lazy import — matching the established LAZY pattern (preserved per D-17).
-    from app.platform.extensions import has_extension  # LAZY — preserved per D-17
+    # Runtime-extension gate: when a deployment supplies its own tenant-scoped
+    # signup path, the global self-signup endpoint must stay closed so users are
+    # not created outside the deployment's isolation boundary. This fires before
+    # REGISTRATION_ENABLED so the standard self-hosted path remains unchanged.
+    # Lazy import: matching the established LAZY pattern (preserved per D-17).
+    from app.platform.extensions import has_extension  # LAZY: preserved per D-17
 
     if has_extension("cloud"):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail=(
-                "Global self-registration is disabled in cloud mode. "
-                "Use POST /cloud/signup/register to create a tenant account."
-            ),
+            detail="Self-registration is disabled for this deployment.",
         )
 
     reg_enabled = await REGISTRATION_ENABLED.get(db)
@@ -284,9 +280,9 @@ async def register(
         )
 
     # DOMAIN-02: enforce allowed_email_domains on self-serve signup.
-    # No principal exists at signup → no break-glass; the email must satisfy
+    # No principal exists at signup, so no break-glass; the email must satisfy
     # the allowlist to create an account.  A null/absent email is permitted
-    # (no address to gate on — preserves no-email registration paths).
+    # (no address to gate on, preserving no-email registration paths).
     if body.email:
         # Cache-bypass: security enforcement reads committed state (see login gate).
         domains = await ALLOWED_EMAIL_DOMAINS.get_uncached(db)
@@ -319,7 +315,7 @@ async def register(
     # SEC-012: on a username/email collision the service raises ValueError and
     # does NOT create a duplicate row (register_user flushes only on success).
     # We silently swallow the collision and return the SAME pending-approval
-    # response a genuine new registration returns — this prevents username/email
+    # response a genuine new registration returns. This prevents username/email
     # enumeration via distinguishable error codes or messages.
     collision = False
     new_user_id: uuid.UUID | None = None
@@ -332,8 +328,8 @@ async def register(
     except ValueError:
         collision = True
 
-    # Determine the post-registration outcome from CONFIG + submitted email only —
-    # never from whether this was a genuine signup or a swallowed collision — so
+    # Determine the post-registration outcome from CONFIG + submitted email only,
+    # never from whether this was a genuine signup or a swallowed collision, so
     # both return a byte-identical response (SEC-012 enumeration-safety). The
     # verify-email path previously returned a different message than the collision
     # swallow, leaking account existence whenever email verification was enabled.
@@ -376,67 +372,7 @@ async def register(
             ),
         )
 
-        # SIGNUP-03 (Phase 1231): When email verification is required AND the
-        # registrant provided an email AND SMTP is configured, issue a
-        # verification token and email it.
-        # Fires only when ALL of:
-        #   1. This was a genuine non-collision registration (new_user_id is set), AND
-        #   2. EMAIL_VERIFICATION_REQUIRED is True, AND
-        #   3. body.email is provided (without an address we can't verify;
-        #      fall back to admin-approval so no-email registrations remain valid
-        #      for deployments that don't require email — SIGNUP-06 backward compat), AND
-        #   4. SMTP is configured (smtp_host is set); if not configured, fall back
-        #      to admin-approval rather than failing with 502 for non-SMTP setups.
-        # The signup-OFF path (REGISTRATION_ENABLED=False) never reaches here,
-        # so this block cannot affect the OFF-path byte-identical contract (SIGNUP-06).
-        # SIGNUP-03: only a GENUINE new user gets a token issued + email sent.
-        # (A swallowed collision creates no row, so there is nothing to verify —
-        # it still returns the same response below to stay indistinguishable.)
-        #
-        # KNOWN LIMITATION (accepted, GA): the HTTP response is enumeration-safe
-        # (identical for new-user vs collision), but a verification email is sent
-        # ONLY on the new-user path. A registrant supplying their own email can
-        # therefore still infer username existence out-of-band (email arrives =>
-        # username was free). Fully closing this needs a signup/identity redesign
-        # (always-send would leak via differing content and enable email spam);
-        # tracked as a follow-up (issue #267). Mitigated by /register rate
-        # limiting and requiring EMAIL_VERIFICATION_REQUIRED + SMTP both enabled.
-        if wants_email_verification:
-            # Issue the verification token; commit it to the DB so the subsequent
-            # send attempt can reference the persisted token row even if the SMTP
-            # call raises.
-            from app.modules.auth.verification import (
-                issue_verification_token,
-            )  # LAZY — per D-17
-
-            raw_token = await issue_verification_token(db, new_user_id)  # type: ignore[arg-type]
-            await db.commit()
-
-            # Send the verification email. If send_email raises a SMTP/OSError,
-            # map it to a clear HTTP 502 — never expose the exception repr (which
-            # may include the SMTP password), only the exception type name
-            # (mirrors env_sink's secret-free aggregation, T-1231-07).
-            import smtplib  # LAZY — per D-17
-
-            from app.modules.auth.verification_email import (
-                send_verification_email,
-            )  # LAZY — per D-17
-
-            try:
-                await send_verification_email(
-                    db, to_email=body.email, raw_token=raw_token
-                )
-            except (smtplib.SMTPException, OSError) as exc:
-                raise HTTPException(
-                    status_code=status.HTTP_502_BAD_GATEWAY,
-                    detail=(
-                        f"Could not send the verification email "
-                        f"({type(exc).__name__}); "
-                        "please check the mail server configuration and try again."
-                    ),
-                ) from None
-
-        elif verification_required and body.email and not smtp_configured:
+        if verification_required and body.email and not smtp_configured:
             # Verification is required but no SMTP channel is configured, so we
             # cannot send a verification email and fall back to admin-approval.
             # Surface the mismatch instead of degrading silently (WR-02) so an
@@ -453,7 +389,43 @@ async def register(
                 ),
             )
 
-    # Unified response — IDENTICAL for a genuine new user and a swallowed
+    if wants_email_verification:
+        # SIGNUP-03 / #267: send a verification email for both genuine new
+        # registrations and swallowed collisions. A collision has no user row to
+        # verify, so it receives a decoy token; the delivery side effect stays
+        # uniform and cannot reveal whether the submitted username/email existed.
+        if new_user_id is not None:
+            from app.modules.auth.verification import (
+                issue_verification_token,
+            )  # LAZY: per D-17
+
+            raw_token = await issue_verification_token(db, new_user_id)
+            await db.commit()
+        else:
+            raw_token = secrets.token_urlsafe(32)
+
+        # Send the verification email. If send_email raises a SMTP/OSError,
+        # map it to a clear HTTP 502. Never expose the exception repr, which may
+        # include an SMTP password; return only the exception type name.
+        import smtplib  # LAZY: per D-17
+
+        from app.modules.auth.verification_email import (
+            send_verification_email,
+        )  # LAZY: per D-17
+
+        try:
+            await send_verification_email(db, to_email=body.email, raw_token=raw_token)
+        except (smtplib.SMTPException, OSError) as exc:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=(
+                    f"Could not send the verification email "
+                    f"({type(exc).__name__}); "
+                    "please check the mail server configuration and try again."
+                ),
+            ) from None
+
+    # Unified response: IDENTICAL for a genuine new user and a swallowed
     # collision given the same (config, submitted email). Closes the SIGNUP-03
     # enumeration gap where the verify-email path returned a different message
     # (and now next_step) than the collision-swallow admin-approval path.

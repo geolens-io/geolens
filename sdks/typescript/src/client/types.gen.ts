@@ -955,7 +955,7 @@ export type BrandingResponse = {
     /**
      * Show Badge
      *
-     * Whether to show the 'Powered by GeoLens' label in public and shared footers. Badge-removal writes are enterprise controls (enterprise only).
+     * Whether to show the 'Powered by GeoLens' label in public and shared footers. Badge-removal writes are restricted controls.
      */
     show_badge: boolean;
 };
@@ -2006,7 +2006,7 @@ export type ConfigResponse = {
     /**
      * Auth Methods
      *
-     * Auth methods contributed by the active AuthExtension. Empty in community; e.g. ['saml'] when the enterprise SAML overlay is installed. Login UI can render conditional sign-in options without needing admin OAuthProvider access.
+     * Auth methods contributed by the active AuthExtension. Empty by default; compatible deployments may add methods such as ['saml']. Login UI can render conditional sign-in options without needing admin OAuthProvider access.
      */
     auth_methods?: Array<string>;
     /**
@@ -3272,45 +3272,19 @@ export type DuplicateMapResponse = {
 };
 
 /**
- * EditionInfoResponse
- *
- * Response for GET /settings/edition/.
- */
-export type EditionInfoResponse = {
-    /**
-     * Edition
-     *
-     * Active edition: 'community' or 'enterprise'.
-     */
-    edition: string;
-    /**
-     * Features
-     *
-     * List of feature flags enabled for this edition.
-     */
-    features: Array<string>;
-    /**
-     * Tenancy Mode
-     *
-     * Tenancy mode: 'single_tenant' or 'multi_tenant'.
-     */
-    tenancy_mode?: string;
-};
-
-/**
  * EmbedTokenCreate
  */
 export type EmbedTokenCreate = {
     /**
      * Allowed Origins
      *
-     * Restrict embedding to these origins. Omit or null allows any origin; non-empty origin restrictions require the enterprise edition.
+     * Restrict embedding to these origins. Omit or null allows any origin; non-empty origin restrictions require advanced sharing controls.
      */
     allowed_origins?: Array<string> | null;
     /**
      * Expires In Days
      *
-     * Token lifetime in days (1-365). The default 30-day lifetime is available in Community; custom lifetimes require the enterprise edition.
+     * Token lifetime in days (1-365). The default 30-day lifetime is always available; custom lifetimes require advanced sharing controls.
      */
     expires_in_days?: number;
     /**
@@ -3446,7 +3420,7 @@ export type EmbedTokenUpdate = {
     /**
      * Allowed Origins
      *
-     * Updated list of allowed embedding origins. Null clears restrictions; non-empty origin restrictions require the enterprise edition.
+     * Updated list of allowed embedding origins. Null clears restrictions; non-empty origin restrictions require advanced sharing controls.
      */
     allowed_origins?: Array<string> | null;
 };
@@ -3479,26 +3453,6 @@ export type EmbeddingStatsResponse = {
      * Total number of records in the catalog.
      */
     total_records: number;
-};
-
-/**
- * EnterpriseTabsResponse
- *
- * Response for GET /settings/enterprise-tabs/.
- *
- * Canonical enterprise-only Settings tab keys (Phase 279 / ADMIN-03 / M-03).
- * Read by the frontend AdminSidebar to decide which tabs to hide in
- * community editions. The backend ``_require_enterprise_for_key`` gate
- * consults the same source set, eliminating drift between the two
- * sources of truth.
- */
-export type EnterpriseTabsResponse = {
-    /**
-     * Tabs
-     *
-     * Tab keys (e.g. 'branding', 'appearance') restricted to enterprise editions. Sorted alphabetically for stable client-side comparison.
-     */
-    tabs: Array<string>;
 };
 
 /**
@@ -3835,15 +3789,15 @@ export type ImportResult = {
     /**
      * Settings Skipped
      *
-     * Number of settings skipped (no change, unknown key, or enterprise-only key in community edition).
+     * Number of settings skipped (no change, unknown key, or restricted key not writable by the current runtime).
      */
     settings_skipped: number;
     /**
-     * Settings Skipped Enterprise
+     * Settings Skipped Restricted
      *
-     * Names of enterprise-only setting keys that were skipped because the caller is on the community edition (BUG-011). Empty on enterprise edition.
+     * Names of restricted setting keys that were skipped by the current runtime.
      */
-    settings_skipped_enterprise?: Array<string>;
+    settings_skipped_restricted?: Array<string>;
 };
 
 /**
@@ -5566,7 +5520,7 @@ export type OAuthProviderCreate = {
     /**
      * Provider Type
      *
-     * OAuth or SAML provider type. 'google' and 'microsoft' auto-populate the discovery URL; 'oidc' is generic OAuth/OIDC; 'github' uses GitHub's fixed OAuth2 endpoints (no discovery URL); 'saml' enables SAML SSO (requires enterprise edition).
+     * OAuth or SAML provider type. 'google' and 'microsoft' auto-populate the discovery URL; 'oidc' is generic OAuth/OIDC; 'github' uses GitHub's fixed OAuth2 endpoints (no discovery URL); 'saml' is available only on SAML-enabled deployments.
      */
     provider_type: 'google' | 'microsoft' | 'oidc' | 'saml' | 'github';
     /**
@@ -20900,51 +20854,6 @@ export type DetectEmbeddingDimsSettingsDetectEmbeddingDimsPostResponses = {
 
 export type DetectEmbeddingDimsSettingsDetectEmbeddingDimsPostResponse = DetectEmbeddingDimsSettingsDetectEmbeddingDimsPostResponses[keyof DetectEmbeddingDimsSettingsDetectEmbeddingDimsPostResponses];
 
-export type EditionInfoSettingsEditionGetData = {
-    body?: never;
-    path?: never;
-    query?: never;
-    url: '/settings/edition/';
-};
-
-export type EditionInfoSettingsEditionGetErrors = {
-    /**
-     * Bad request — invalid query parameters or payload
-     */
-    400: ProblemDetail;
-    /**
-     * Unauthorized — missing or invalid credentials
-     */
-    401: ProblemDetail;
-    /**
-     * Forbidden — caller lacks access to this resource
-     */
-    403: ProblemDetail;
-    /**
-     * Not found
-     */
-    404: ProblemDetail;
-    /**
-     * Validation error
-     */
-    422: ProblemDetail;
-    /**
-     * Internal server error
-     */
-    500: ProblemDetail;
-};
-
-export type EditionInfoSettingsEditionGetError = EditionInfoSettingsEditionGetErrors[keyof EditionInfoSettingsEditionGetErrors];
-
-export type EditionInfoSettingsEditionGetResponses = {
-    /**
-     * Successful Response
-     */
-    200: EditionInfoResponse;
-};
-
-export type EditionInfoSettingsEditionGetResponse = EditionInfoSettingsEditionGetResponses[keyof EditionInfoSettingsEditionGetResponses];
-
 export type GetEnabledPluginsSettingsEnabledPluginsGetData = {
     body?: never;
     path?: never;
@@ -20991,51 +20900,6 @@ export type GetEnabledPluginsSettingsEnabledPluginsGetResponses = {
 };
 
 export type GetEnabledPluginsSettingsEnabledPluginsGetResponse = GetEnabledPluginsSettingsEnabledPluginsGetResponses[keyof GetEnabledPluginsSettingsEnabledPluginsGetResponses];
-
-export type GetEnterpriseOnlyTabsSettingsEnterpriseTabsGetData = {
-    body?: never;
-    path?: never;
-    query?: never;
-    url: '/settings/enterprise-tabs/';
-};
-
-export type GetEnterpriseOnlyTabsSettingsEnterpriseTabsGetErrors = {
-    /**
-     * Bad request — invalid query parameters or payload
-     */
-    400: ProblemDetail;
-    /**
-     * Unauthorized — missing or invalid credentials
-     */
-    401: ProblemDetail;
-    /**
-     * Forbidden — caller lacks access to this resource
-     */
-    403: ProblemDetail;
-    /**
-     * Not found
-     */
-    404: ProblemDetail;
-    /**
-     * Validation error
-     */
-    422: ProblemDetail;
-    /**
-     * Internal server error
-     */
-    500: ProblemDetail;
-};
-
-export type GetEnterpriseOnlyTabsSettingsEnterpriseTabsGetError = GetEnterpriseOnlyTabsSettingsEnterpriseTabsGetErrors[keyof GetEnterpriseOnlyTabsSettingsEnterpriseTabsGetErrors];
-
-export type GetEnterpriseOnlyTabsSettingsEnterpriseTabsGetResponses = {
-    /**
-     * Successful Response
-     */
-    200: EnterpriseTabsResponse;
-};
-
-export type GetEnterpriseOnlyTabsSettingsEnterpriseTabsGetResponse = GetEnterpriseOnlyTabsSettingsEnterpriseTabsGetResponses[keyof GetEnterpriseOnlyTabsSettingsEnterpriseTabsGetResponses];
 
 export type GetFeatureFlagsSettingsFeatureFlagsGetData = {
     body?: never;

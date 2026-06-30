@@ -10,6 +10,10 @@ Covers the eight-case behaviour matrix:
       body containing an absolute verify URL with the token; user row has
       email_verified=false + is_active=false.
 
+(2b) signup collision + verification required
+    → /register 201 with the same body and one verification-style email to the
+      submitted address, using a decoy token for the swallowed collision.
+
 (3) verify with the valid token (extracted from captured body)
     → POST /auth/verify-email 200; user now active + verified; subsequent
       POST /auth/login with new creds → 200.
@@ -28,9 +32,9 @@ Covers the eight-case behaviour matrix:
     → When send_email raises with a fake "smtp-password" string in the message,
       the HTTP error body does NOT contain the password or a raw stack trace.
 
-(8) cloud-gate regression
-    → With has_extension("cloud") → True, POST /auth/register returns 403 (cloud gate
-      preserved); smoke that /oauth-providers path is unaffected.
+(8) runtime-extension gate regression
+    → With has_extension("cloud") → True, POST /auth/register returns 403; smoke
+      that /oauth-providers path is unaffected.
 """
 
 from __future__ import annotations
@@ -258,6 +262,61 @@ async def test_signup_on_verification_required_emails_registrant(
     assert user.status == "pending", (
         f"New user status should be 'pending', got {user.status!r}"
     )
+
+
+@pytest.mark.anyio
+async def test_signup_collision_verification_sends_uniform_decoy_email(
+    client: AsyncClient,
+    captured_send_email: list,
+    test_db_session,
+    monkeypatch,
+) -> None:
+    """#267: a swallowed username collision must still trigger uniform delivery."""
+    from app.core.persistent_config import (
+        EMAIL_VERIFICATION_REQUIRED,
+        REGISTRATION_ENABLED,
+    )
+    from app.modules.auth.models import User
+
+    _patch_persistent_config(monkeypatch, REGISTRATION_ENABLED, True)
+    _patch_persistent_config(monkeypatch, EMAIL_VERIFICATION_REQUIRED, True)
+
+    username = _unique_username()
+    real_email = _unique_email()
+
+    first = await client.post(
+        "/auth/register/",
+        json={"username": username, "password": _STRONG_PASSWORD, "email": real_email},
+    )
+    assert first.status_code == 201, first.text
+    assert len(captured_send_email) == 1
+
+    collision_email = _unique_email()
+    second = await client.post(
+        "/auth/register/",
+        json={
+            "username": username,
+            "password": _STRONG_PASSWORD,
+            "email": collision_email,
+        },
+    )
+    assert second.status_code == 201, second.text
+    assert second.json() == first.json(), "collision response must stay byte-uniform"
+
+    assert len(captured_send_email) == 2, (
+        "collision path must send a verification-style email to avoid a delivery side channel"
+    )
+    notification = captured_send_email[1]
+    assert notification.data is not None
+    assert notification.data.get("to") == collision_email
+    assert "verify-email" in notification.body
+    assert "token=" in notification.body
+
+    result = await test_db_session.execute(
+        select(User).where(User.username == username)
+    )
+    rows = result.scalars().all()
+    assert len(rows) == 1, "collision must not create a second user row"
 
 
 # ---------------------------------------------------------------------------

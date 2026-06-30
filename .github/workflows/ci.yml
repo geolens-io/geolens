@@ -17,19 +17,18 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-# OCG-04: Single source-of-truth for the pinned geolens-enterprise ref.
+# OCG-04: single source of truth for the pinned private extension ref.
 # Update this SHA when either side bumps EXTENSION_API_VERSION (core constant:
-# backend/app/platform/extensions/version.py) and re-verify the enterprise
-# suite passes against core before merging. Companion to the EXTENSION_API_VERSION
-# fail-loud loader check introduced in Plan 1206-01.
+# backend/app/platform/extensions/version.py) and re-verify the extension suite
+# against core before merging. Companion to the EXTENSION_API_VERSION fail-loud
+# loader check introduced in Plan 1206-01.
 env:
-  # geolens-enterprise origin/main: the 2026-06-14 ref (af128097) plus PR #22
-  # (be40d109), which aligns e002's chk_oauth_providers_type with the canonical
-  # declaration in core's oauth/models.py by adding 'github' to the union (so the
-  # overlay can never drop it whichever parallel branch sorts last). A
-  # correctness/consistency fix — NOT a flake fix. No EXTENSION_API_VERSION
+  # Private extension origin/main: the 2026-06-14 ref (af128097) plus PR #22
+  # (be40d109), which aligns e002's chk_oauth_providers_type with core's
+  # oauth/models.py declaration by adding 'github' to the union. A
+  # correctness/consistency fix, not a flake fix. No EXTENSION_API_VERSION
   # change; the migration alignment is the only delta from the prior pinned tree.
-  ENTERPRISE_PINNED_REF: "be40d1095f9fdce39ef0b4f4ddf4a4984ae47b21"
+  PRIVATE_EXTENSION_PINNED_REF: "be40d1095f9fdce39ef0b4f4ddf4a4984ae47b21"
 
 # Least-privilege default for every job. The `changes` job widens to add
 # pull-requests:read; no job needs write (publishing lives in publish*.yml).
@@ -144,19 +143,18 @@ jobs:
       - name: Ruff format check
         run: uv run ruff format --check .
 
-      # TSEAM-03 (Phase 1207-02): no third "cloud" edition.
-      # Edition stays binary (community|enterprise); cloud IS enterprise in
-      # multi_tenant mode.  A literal 'cloud' token in edition.py or
-      # license.py would re-introduce a third-edition axis (KISS Rule 1).
+      # TSEAM-03 (Phase 1207-02): no third "cloud" runtime mode.
+      # A literal 'cloud' token in edition.py or license.py would re-introduce
+      # a separate hosted-product axis (KISS Rule 1).
       # `grep -nE` returns exit 0 on a match (which is a FAIL for us) and
       # exit 1 on no match (which is our SUCCESS) — flip semantics with `!`.
-      - name: TSEAM-03 — no literal 'cloud' edition token in core/edition.py or core/license.py
+      - name: TSEAM-03 - no literal 'cloud' runtime token in core/edition.py or core/license.py
         run: |
           if grep -nE "['\"]cloud['\"]" app/core/edition.py app/core/license.py; then
-            echo "FAIL: Found a literal 'cloud' edition token — edition must stay binary (community|enterprise). TSEAM-03"
+            echo "FAIL: Found a literal 'cloud' runtime token. TSEAM-03"
             exit 1
           fi
-          echo "OK: no 'cloud' edition literal in core/edition.py or core/license.py"
+          echo "OK: no 'cloud' runtime literal in core/edition.py or core/license.py"
 
   pre-commit:
     name: Pre-commit
@@ -563,9 +561,10 @@ jobs:
   # ---------- docs contract ----------
   # Enforce docs-contract.json: validates the contract against install.sh +
   # pyproject (so it can't drift from the binaries) and scans the READMEs for
-  # the forbidden drift patterns (geolens.yml, raw-port OGC endpoints, "OGC
-  # Compliant", admin/admin-on-fresh-install). getgeolens.com vendors a copy of
-  # this contract and runs the same forbidden list over its site/docs content.
+  # the forbidden drift patterns (stale compose filename, raw-port OGC endpoints,
+  # overbroad standards claims, admin/admin-on-fresh-install). getgeolens.com
+  # vendors a copy of this contract and runs the same forbidden list over its
+  # site/docs content.
   # Pure stdlib; runs on every push/PR.
   docs-contract:
     name: Docs Contract
@@ -731,28 +730,28 @@ jobs:
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
 
-      - name: Probe enterprise token availability
+      - name: Probe private extension token availability
         env:
-          ENTERPRISE_TOKEN: ${{ secrets.GEOLENS_ENTERPRISE_TOKEN }}
+          EXTENSION_TOKEN: ${{ secrets.GEOLENS_ENTERPRISE_TOKEN }}
         run: |
-          if [ -n "${ENTERPRISE_TOKEN}" ]; then
-            echo "HAS_ENTERPRISE_TOKEN=1" >> $GITHUB_ENV
+          if [ -n "${EXTENSION_TOKEN}" ]; then
+            echo "HAS_EXTENSION_TOKEN=1" >> $GITHUB_ENV
           else
-            echo "HAS_ENTERPRISE_TOKEN=0" >> $GITHUB_ENV
+            echo "HAS_EXTENSION_TOKEN=0" >> $GITHUB_ENV
           fi
 
-      - name: Checkout geolens-enterprise (skip on fork PRs without secret)
-        if: env.HAS_ENTERPRISE_TOKEN == '1'
+      - name: Checkout private extension (skip on fork PRs without secret)
+        if: env.HAS_EXTENSION_TOKEN == '1'
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
         with:
           repository: geolens-io/geolens-enterprise
           token: ${{ secrets.GEOLENS_ENTERPRISE_TOKEN }}
-          path: geolens-enterprise
-          # OCG-04: pinned to a tested ref so a moving enterprise main cannot
+          path: private-extension
+          # OCG-04: pinned to a tested ref so a moving extension main cannot
           # silently skew the tested combination. Re-pin + re-verify when either
-          # geolens-enterprise OR core bumps EXTENSION_API_VERSION.
-          # Ref value is declared once at the workflow env level (ENTERPRISE_PINNED_REF).
-          ref: ${{ env.ENTERPRISE_PINNED_REF }}
+          # side bumps EXTENSION_API_VERSION.
+          # Ref value is declared once at the workflow env level.
+          ref: ${{ env.PRIVATE_EXTENSION_PINNED_REF }}
           persist-credentials: false
 
       - name: Start PostgreSQL with PostGIS + pgvector
@@ -795,10 +794,10 @@ jobs:
       - name: Install Python dependencies
         run: uv sync --locked --dev
 
-      - name: Install enterprise overlay (if available)
+      - name: Install private extension (if available)
         run: |
-          if [ -d "../geolens-enterprise" ] && [ -f "../geolens-enterprise/pyproject.toml" ]; then
-            uv add --editable ../geolens-enterprise
+          if [ -d "../private-extension" ] && [ -f "../private-extension/pyproject.toml" ]; then
+            uv add --editable ../private-extension
             # pysaml2 7.5.4 can resolve pyOpenSSL 22.x, which breaks against
             # the backend's patched cryptography line in CI. Force a compatible
             # runtime wheel after installing the editable overlay and keep uv
@@ -806,10 +805,10 @@ jobs:
             uv pip install "pyOpenSSL>=25.3.0"
             echo "UV_NO_SYNC=1" >> $GITHUB_ENV
             echo "OVERLAY_INSTALLED=1" >> $GITHUB_ENV
-            echo "geolens-enterprise installed; lifecycle marker will be collected"
+            echo "private extension installed; lifecycle marker will be collected"
           else
             echo "OVERLAY_INSTALLED=0" >> $GITHUB_ENV
-            echo "geolens-enterprise not available (fork PR or missing GEOLENS_ENTERPRISE_TOKEN secret) -- lifecycle marker deselected"
+            echo "private extension not available; lifecycle marker deselected"
           fi
 
       - name: Set up database extensions, roles, and schemas
@@ -832,8 +831,8 @@ jobs:
           "
 
       - name: Run migrations
-        # `heads` (plural) applies every branch head — with the enterprise
-        # overlay present in CI the graph has two (core 0007 + enterprise e002),
+        # `heads` (plural) applies every branch head. With the private extension
+        # present in CI the graph has two (core 0007 + extension e002),
         # and bare `head` errors "Multiple head revisions present". OSS-only is
         # unaffected (heads == head). Mirrors the migrate service + MIG-04 job.
         run: uv run alembic upgrade heads
@@ -860,8 +859,8 @@ jobs:
       # MIG-03: autogenerate drift gate. With the DB now at head, `alembic check`
       # exits non-zero if the ORM models have drifted from the migration scripts
       # (e.g. a model column added without a matching migration). env.py's
-      # include_object filter hides the enterprise-overlay SAML columns when no
-      # overlay is discovered, so this gate is clean on OSS-only runs and only
+      # include_object filter hides extension-provided SAML columns when no
+      # extension is discovered, so this gate is clean on OSS-only runs and only
       # fires on REAL drift. Companion to the `make alembic-check` one-liner.
       - name: Alembic drift check (MIG-03)
         run: uv run alembic check
@@ -880,14 +879,14 @@ jobs:
         # --cov-fail-under=58.5 is the CI floor. backend/pyproject.toml declares
         # fail_under=60; the two are intentionally NOT yet aligned here — raising
         # the CI gate above measured coverage would RED main. Bump this to 60 only
-        # after a measured run confirms real coverage >= 60 (the overlay-installed
+        # after a measured run confirms real coverage >= 60 (the extension-installed
         # run on push is the one to read).
         run: |
           if [ "${OVERLAY_INSTALLED:-0}" = "1" ]; then
             echo "Running pytest with lifecycle marker INCLUDED (overlay installed)"
             uv run pytest -v --tb=short -m 'not perf' --cov=app --cov-report=term-missing --cov-report=html:htmlcov --cov-report=xml:coverage.xml --cov-fail-under=58.5
           else
-            echo "Running pytest with lifecycle marker DESELECTED (overlay unavailable on fork PR)"
+            echo "Running pytest with lifecycle marker DESELECTED (extension unavailable on fork PR)"
             uv run pytest -v --tb=short -m 'not perf and not lifecycle' --cov=app --cov-report=term-missing --cov-report=html:htmlcov --cov-report=xml:coverage.xml --cov-fail-under=58.5
           fi
 
@@ -953,22 +952,20 @@ jobs:
           ALEMBIC_TEST_DB_PORT: 54399
           ALEMBIC_TEST_TIMEOUT: 90
 
-  # ---------- MIG-04: enterprise heads-plural upgrade against a clean DB ----------
-  # With the enterprise overlay installed the migration graph forks into TWO
-  # heads (core 0007_tenant_data_schemas + enterprise e002_add_saml_columns).
+  # ---------- MIG-04: extension heads-plural upgrade against a clean DB ----------
+  # With the private extension installed the migration graph forks into TWO
+  # heads (core 0007_tenant_data_schemas + extension e002_add_saml_columns).
   # `alembic upgrade heads` (PLURAL) must apply BOTH chains; this job asserts
   # the production CLI command (exactly what the docker-compose `migrate`
-  # service runs) does so against a clean Postgres and that the enterprise SAML
+  # service runs) does so against a clean Postgres and that the extension SAML
   # column actually lands. It guards the MIG-04 env.py fix that propagates the
-  # overlay version dirs onto the live ScriptDirectory the CLI constructs —
-  # without it, `alembic upgrade heads` silently applies only the core head and
-  # skips the e-chain, breaking SAML login on enterprise deployments.
+  # extension version dirs onto the live ScriptDirectory the CLI constructs.
   #
-  # Mirrors the backend-test job's overlay-install pattern (token probe + pinned
-  # ref checkout + `uv add --editable`). Skips cleanly on fork PRs without the
-  # GEOLENS_ENTERPRISE_TOKEN secret (the overlay is private). References: MIG-04.
-  alembic-enterprise-heads:
-    name: Alembic Enterprise Heads (MIG-04)
+  # Mirrors the backend-test job's extension-install pattern (token probe +
+  # pinned ref checkout + `uv add --editable`). Skips cleanly on fork PRs without
+  # the private extension secret. References: MIG-04.
+  alembic-extension-heads:
+    name: Alembic Extension Heads (MIG-04)
     needs: changes
     if: needs.changes.outputs.alembic == 'true' || github.event_name == 'push'
     runs-on: ubuntu-latest
@@ -991,33 +988,33 @@ jobs:
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
 
-      - name: Probe enterprise token availability
+      - name: Probe private extension token availability
         env:
-          ENTERPRISE_TOKEN: ${{ secrets.GEOLENS_ENTERPRISE_TOKEN }}
+          EXTENSION_TOKEN: ${{ secrets.GEOLENS_ENTERPRISE_TOKEN }}
         run: |
-          if [ -n "${ENTERPRISE_TOKEN}" ]; then
-            echo "HAS_ENTERPRISE_TOKEN=1" >> $GITHUB_ENV
+          if [ -n "${EXTENSION_TOKEN}" ]; then
+            echo "HAS_EXTENSION_TOKEN=1" >> $GITHUB_ENV
           else
-            echo "HAS_ENTERPRISE_TOKEN=0" >> $GITHUB_ENV
+            echo "HAS_EXTENSION_TOKEN=0" >> $GITHUB_ENV
           fi
 
-      - name: Checkout geolens-enterprise (skip on fork PRs without secret)
-        if: env.HAS_ENTERPRISE_TOKEN == '1'
+      - name: Checkout private extension (skip on fork PRs without secret)
+        if: env.HAS_EXTENSION_TOKEN == '1'
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
         with:
           repository: geolens-io/geolens-enterprise
           token: ${{ secrets.GEOLENS_ENTERPRISE_TOKEN }}
-          path: geolens-enterprise
+          path: private-extension
           # OCG-04: pinned to the same tested ref as the backend-test job.
-          ref: ${{ env.ENTERPRISE_PINNED_REF }}
+          ref: ${{ env.PRIVATE_EXTENSION_PINNED_REF }}
           persist-credentials: false
 
-      - name: Skip notice (no enterprise overlay available)
-        if: env.HAS_ENTERPRISE_TOKEN != '1'
-        run: echo "geolens-enterprise unavailable (fork PR or missing GEOLENS_ENTERPRISE_TOKEN) — MIG-04 enterprise heads-plural job skipped."
+      - name: Skip notice (no private extension available)
+        if: env.HAS_EXTENSION_TOKEN != '1'
+        run: echo "private extension unavailable; MIG-04 extension heads-plural job skipped."
 
       - name: Start PostgreSQL with PostGIS + pgvector
-        if: env.HAS_ENTERPRISE_TOKEN == '1'
+        if: env.HAS_EXTENSION_TOKEN == '1'
         working-directory: .
         run: |
           docker build -t geolens-test-db -f - . <<'DOCKERFILE'
@@ -1042,32 +1039,32 @@ jobs:
           done
 
       - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39  # v8.2.0
-        if: env.HAS_ENTERPRISE_TOKEN == '1'
+        if: env.HAS_EXTENSION_TOKEN == '1'
         with:
           version: "0.10.2"
           enable-cache: true
           cache-dependency-glob: "backend/uv.lock"
 
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6
-        if: env.HAS_ENTERPRISE_TOKEN == '1'
+        if: env.HAS_EXTENSION_TOKEN == '1'
         with:
           python-version: "3.13"
 
       - name: Install system dependencies
-        if: env.HAS_ENTERPRISE_TOKEN == '1'
+        if: env.HAS_EXTENSION_TOKEN == '1'
         run: sudo apt-get update && sudo apt-get install -y gdal-bin xmlsec1 postgresql-client
 
-      - name: Install Python dependencies + enterprise overlay
-        if: env.HAS_ENTERPRISE_TOKEN == '1'
+      - name: Install Python dependencies + private extension
+        if: env.HAS_EXTENSION_TOKEN == '1'
         run: |
           uv sync --locked --dev
-          uv add --editable ../geolens-enterprise
-          # Match backend-test: keep a CI-compatible pyOpenSSL after the overlay
+          uv add --editable ../private-extension
+          # Match backend-test: keep a CI-compatible pyOpenSSL after the extension
           # pulls pysaml2's transitive choice.
           uv pip install "pyOpenSSL>=25.3.0"
 
       - name: Set up database extensions and schemas
-        if: env.HAS_ENTERPRISE_TOKEN == '1'
+        if: env.HAS_EXTENSION_TOKEN == '1'
         run: |
           PGPASSWORD=geolens_test psql -h localhost -U geolens -d postgres -c "
             CREATE EXTENSION IF NOT EXISTS postgis;
@@ -1078,36 +1075,36 @@ jobs:
             CREATE SCHEMA IF NOT EXISTS data;
           "
 
-      - name: Alembic upgrade heads (PLURAL) — apply core + enterprise chains
-        if: env.HAS_ENTERPRISE_TOKEN == '1'
+      - name: Alembic upgrade heads (PLURAL) - apply core + extension chains
+        if: env.HAS_EXTENSION_TOKEN == '1'
         run: uv run --no-dev alembic upgrade heads
 
       - name: Assert BOTH heads applied + SAML column present
-        if: env.HAS_ENTERPRISE_TOKEN == '1'
+        if: env.HAS_EXTENSION_TOKEN == '1'
         run: |
           set -euo pipefail
           echo "==> applied heads in catalog.alembic_version:"
           HEADS=$(PGPASSWORD=geolens_test psql -h localhost -U geolens -d postgres -tAc \
             "SELECT version_num FROM catalog.alembic_version ORDER BY 1;")
           echo "${HEADS}"
-          # Expect exactly two heads: the core head + enterprise e002. The core
-          # head revision is intentionally NOT hardcoded — it advances with every
+          # Expect exactly two heads: the core head + extension e002. The core
+          # head revision is intentionally NOT hardcoded; it advances with every
           # core migration (e.g. 0007 -> 0008_oauth_saml_columns), and hardcoding it
           # made this gate break on every unrelated core migration. Assert "a
           # non-e002 head exists" instead of pinning a specific revision.
           COUNT=$(printf '%s\n' "${HEADS}" | grep -c . || true)
           if [ "${COUNT}" -ne 2 ]; then
-            echo "FAIL: expected 2 applied heads (core + enterprise), got ${COUNT}." >&2
-            echo "      'alembic upgrade heads' did not apply the enterprise e-chain (MIG-04)." >&2
+            echo "FAIL: expected 2 applied heads (core + extension), got ${COUNT}." >&2
+            echo "      'alembic upgrade heads' did not apply the extension e-chain (MIG-04)." >&2
             exit 1
           fi
-          echo "${HEADS}" | grep -q "e002_add_saml_columns" || { echo "FAIL: enterprise head e002 missing" >&2; exit 1; }
+          echo "${HEADS}" | grep -q "e002_add_saml_columns" || { echo "FAIL: extension head e002 missing" >&2; exit 1; }
           CORE_HEAD=$(printf '%s\n' "${HEADS}" | grep -v "e002_add_saml_columns" || true)
           [ -n "${CORE_HEAD}" ] || { echo "FAIL: core head missing (only e002 applied)" >&2; exit 1; }
           echo "core head applied: ${CORE_HEAD}"
           # Affirmative schema assertion: the SAML column must exist. As of
           # 0008_oauth_saml_columns it is created by BOTH the core chain (for OSS)
-          # and enterprise e002 (idempotent ADD COLUMN IF NOT EXISTS), so this holds
+          # and extension e002 (idempotent ADD COLUMN IF NOT EXISTS), so this holds
           # regardless of which migration applied it first.
           SAML=$(PGPASSWORD=geolens_test psql -h localhost -U geolens -d postgres -tAc \
             "SELECT count(*) FROM information_schema.columns WHERE table_schema='catalog' AND table_name='oauth_providers' AND column_name='idp_entity_id';")
@@ -1206,8 +1203,8 @@ jobs:
           "
 
       - name: Run migrations
-        # `heads` (plural) applies every branch head — with the enterprise
-        # overlay present in CI the graph has two (core 0007 + enterprise e002),
+        # `heads` (plural) applies every branch head. With the private extension
+        # present in CI the graph has two (core 0007 + extension e002),
         # and bare `head` errors "Multiple head revisions present". OSS-only is
         # unaffected (heads == head). Mirrors the migrate service + MIG-04 job.
         run: uv run alembic upgrade heads
@@ -1216,7 +1213,7 @@ jobs:
         # Regression gate for the fixture-isolation work.
         # The `-n 4` value was chosen from local xdist performance benchmarking.
         # No coverage flags here — backend-test job already covers coverage; this job is a regression gate only.
-        # Skips the enterprise overlay (simpler is better; overlay-specific fixture races
+        # Skips the private extension (simpler is better; extension-specific fixture races
         # are tracked separately if they surface).
         run: uv run pytest -n 4 -v --tb=short -m 'not perf'
 
@@ -1372,7 +1369,7 @@ jobs:
   #
   # Proof: WORK-01/02/03 worker bootstrap fix holds across both runtime images
   # in a real container (not just in pytest). The dummy overlay is used so the
-  # probe runs without the enterprise secret (no GEOLENS_ENTERPRISE_TOKEN needed).
+  # probe runs without the private extension secret.
   #
   # Trigger scope: push to main + manual dispatch only (pin-sha-probe-push-only
   # decision). This conserves geolens-io free-tier Actions minutes — PRs do not
@@ -1411,7 +1408,7 @@ jobs:
           # --no-healthcheck: container exits after the probe, no need to wait.
           # Exits 0 on PROBE PASSED, 1 on PROBE FAILED (fails this step).
           #
-          # Note: the probe uses the OSS image (no enterprise secret needed).
+          # Note: the probe uses the OSS image (no private extension secret needed).
           # The dummy overlay is part of the backend source tree baked into the image.
           #
           # Invoke via `uv run --no-dev python` (the image's production launch

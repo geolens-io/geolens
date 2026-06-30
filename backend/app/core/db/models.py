@@ -1,6 +1,6 @@
 """Core-owned ORM models.
 
-Place here only models the open-core layer owns directly (e.g., DB-backed
+Place here only models the core runtime owns directly (e.g., DB-backed
 configuration). Domain-specific models stay in their domain package
 (`app.modules.<domain>.<...>`).
 
