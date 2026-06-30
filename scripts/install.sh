@@ -530,11 +530,18 @@ main() {
     [ -n "$_env_s3" ] && _backup_s3="$_env_s3"
   fi
   say ""
-  if [ "$_backup_s3" = "true" ]; then
-    say "Automated backups: ENABLED (daily pg_dump + S3 offload active)."
-  else
-    say "Automated backups: ENABLED (daily pg_dump, local retention)."
+  _backup_running=false
+  if compose ps --services 2>/dev/null | grep -qx 'backup'; then
+    _backup_running=true
+  fi
+  if [ "$_backup_running" = "true" ] && [ "$_backup_s3" = "true" ]; then
+    say "Automated backups: ENABLED (backup service running, S3 offload active)."
+  elif [ "$_backup_running" = "true" ]; then
+    say "Automated backups: ENABLED (backup service running, local retention)."
     say "  To also offload backups to S3/MinIO, set BACKUP_S3_ENABLED=true in .env."
+  else
+    warn "Automated backups: NOT RUNNING. Start the backup service with:"
+    warn "  docker compose up -d backup"
   fi
 }
 
