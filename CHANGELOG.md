@@ -23,7 +23,7 @@ and releases use semantic versioning.
   a map's data (counts, statistics, spatial analysis). Using the AI to *edit* a
   map remains limited to the owner, and AI-suggested changes still only persist
   when the owner saves the map.
-- **Custom share-link expiration is an advanced (Enterprise) sharing control.**
+- **Custom share-link expiration is an advanced sharing control.**
   The backend now enforces the same edition gate the UI already applied; basic
   Community share/revoke is unchanged.
 - **Vector tiles send an ETag.** Re-uploaded datasets now refresh in the map
@@ -136,7 +136,7 @@ terms.
 - OSS OAuth provider creation no longer fails with a 500 when SAML columns are
   absent from the baseline schema. Migration `0008` adds the necessary columns
   conditionally, resolving the error for fresh installs and existing deployments
-  that have not applied the enterprise SAML overlay.
+  that lack those optional SAML columns.
 
 ### Upgrade notes
 
@@ -243,7 +243,7 @@ all fixed with fail-before/pass-after regression coverage:
 
 - **Dormant single-tenant tenancy substrate (v1042).** This release lands the
   additive schema and runtime seams (reversible migrations `0005`–`0007`) for a
-  future multi-tenant deployment mode, gated entirely behind
+  future isolated deployment mode, gated entirely behind
   `GEOLENS_TENANCY_MODE`, which **defaults to `single_tenant`**. For
   self-hosted operators this is **inert and behavior-preserving** — the default
   path is byte-identical to prior releases, with no new required configuration
@@ -299,9 +299,9 @@ all fixed with fail-before/pass-after regression coverage:
 
 ### Fixed
 
-- Database migrations upgrade cleanly on enterprise deployments of the core
-  package; a migration-graph fork that caused `alembic upgrade head` to fail has
-  been resolved.
+- Database migrations upgrade cleanly on deployments of the core package; a
+  migration-graph fork that caused `alembic upgrade head` to fail has been
+  resolved.
 - The background job queue now works on managed/external PostgreSQL configured
   via `DATABASE_URL_OVERRIDE`; the connection's schema search path was dropped,
   which broke job processing and data ingestion on those deployments.
