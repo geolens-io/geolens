@@ -569,6 +569,9 @@ jobs:
       - name: Public surface gate (launch-sensitive terms)
         run: make public-surface-check
 
+      - name: Surface gate regression tests
+        run: python -m unittest tests.test_check_public_surface tests.test_check_deployed_surface
+
   # ---------- CLI ----------
   # Structural enforcement that the CLI never grows
   # a direct httpx/requests dependency. Runs on cli/** OR sdks/python/**
