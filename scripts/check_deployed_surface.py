@@ -26,6 +26,9 @@ ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_CONFIG = ROOT / "scripts" / "deployed_surface_gate.json"
 USER_AGENT = "GeoLens deployed-surface-check"
 ALLOWED_DEPLOYED_HOSTS = frozenset({"getgeolens.com", "docs.getgeolens.com"})
+TOP_LEVEL_FIELDS = frozenset({"timeout_seconds", "max_bytes", "pages"})
+PAGE_FIELDS = frozenset({"id", "url", "required", "forbidden"})
+ASSERTION_FIELDS = frozenset({"id", "pattern", "reason", "flags"})
 
 
 @dataclass(frozen=True)
@@ -143,6 +146,12 @@ def require_object(value: object, label: str) -> dict[str, object]:
     return value
 
 
+def reject_unknown_fields(value: dict[str, object], allowed: frozenset[str], label: str) -> None:
+    unknown = sorted(set(value) - allowed)
+    if unknown:
+        raise ValueError(f"{label} unknown field(s): {', '.join(unknown)}")
+
+
 def require_list(value: object, label: str) -> list[object]:
     if not isinstance(value, list):
         raise ValueError(f"{label} must be a list")
@@ -177,6 +186,7 @@ def require_positive_integer(value: object, label: str) -> int:
 
 def compile_assertion(page_id: str, kind: str, index: int, raw: object) -> TextAssertion:
     entry = require_object(raw, f"{page_id}.{kind}[{index}]")
+    reject_unknown_fields(entry, ASSERTION_FIELDS, f"{page_id}.{kind}[{index}]")
     for field in ("id", "pattern", "reason"):
         if field not in entry:
             raise ValueError(f"{page_id}.{kind}[{index}] missing required field: {field}")
@@ -211,6 +221,7 @@ def load_config(path: Path = DEFAULT_CONFIG) -> GateConfig:
         ),
         str(path),
     )
+    reject_unknown_fields(raw, TOP_LEVEL_FIELDS, str(path))
     for field in ("timeout_seconds", "max_bytes", "pages"):
         if field not in raw:
             raise ValueError(f"{path} missing required top-level key: {field}")
@@ -222,6 +233,7 @@ def load_config(path: Path = DEFAULT_CONFIG) -> GateConfig:
     seen_page_ids: set[str] = set()
     for page_index, raw_page in enumerate(require_list(raw["pages"], "pages")):
         page = require_object(raw_page, f"pages[{page_index}]")
+        reject_unknown_fields(page, PAGE_FIELDS, f"pages[{page_index}]")
         for field in ("id", "url"):
             if field not in page:
                 raise ValueError(f"pages[{page_index}] missing required field: {field}")

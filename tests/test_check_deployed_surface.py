@@ -209,8 +209,26 @@ class DeployedSurfaceGateTest(unittest.TestCase):
                 {"timeout_seconds": 3, "max_bytes": "4096", "pages": []},
                 "max_bytes must be a positive integer",
             ),
+            (
+                {"timeout_seconds": 3, "max_bytes": 4096, "pages": [], "unexpected": True},
+                "unknown field\\(s\\): unexpected",
+            ),
+            (self.minimal_config(forbiddem=[]), "unknown field\\(s\\): forbiddem"),
             (self.minimal_config(id=123), "pages\\[0\\].id must be a string"),
             (self.minimal_config(url=123), "fixture_page.url must be a string"),
+            (
+                self.minimal_config(
+                    required=[
+                        {
+                            "id": "required",
+                            "pattern": "required",
+                            "reason": "Required.",
+                            "extra": True,
+                        }
+                    ]
+                ),
+                "fixture_page.required\\[0\\] unknown field\\(s\\): extra",
+            ),
             (
                 self.minimal_config(required=[{"id": 123, "pattern": "required", "reason": "Required."}]),
                 "fixture_page.required\\[0\\].id must be a string",
