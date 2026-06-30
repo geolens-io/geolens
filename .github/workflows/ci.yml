@@ -1158,9 +1158,9 @@ jobs:
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
 
-      - name: Build ${{ matrix.target }} image with dummy overlay baked in
+      - name: Build ${{ matrix.target }} image with dummy runtime extension fixture baked in
         run: |
-          # Build the OSS image target. The dummy runtime extension lives at
+          # Build the OSS image target. The dummy runtime extension fixture lives at
           # backend/tests/fixtures/dummy_overlay/ (inside the backend/ build
           # context, copied to /app/tests/fixtures/dummy_overlay/ in the image).
           # The probe script imports it directly at /app/tests/fixtures/dummy_overlay/
