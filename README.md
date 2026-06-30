@@ -189,7 +189,7 @@ bash scripts/install.sh
 Either way, `scripts/install.sh` copies `.env.example` to `.env`, generates a JWT signing
 secret, sets up admin credentials, and runs `docker compose up -d`. The admin **username**
 defaults to `admin`; the admin **password** is auto-generated as a strong random value
-(written to `.env`, never printed to your terminal) unless you supply your own. It does not use a shared weak default password.
+(written to `.env`, never printed to your terminal) unless you supply your own.
 For unattended installs, set `GEOLENS_ADMIN_USERNAME` and `GEOLENS_ADMIN_PASSWORD` in the
 environment before running and the prompts are skipped. Re-running the script is idempotent:
 existing values in `.env` are preserved.
