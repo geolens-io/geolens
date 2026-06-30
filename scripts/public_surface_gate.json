@@ -5,6 +5,8 @@
     ".github/**/*.yml",
     ".github/**/*.yaml",
     ".github/workflows/*.yml",
+    ".env.example",
+    ".env.*.example",
     "docker-compose*.yml",
     "Makefile",
     "package.json",

@@ -149,6 +149,12 @@ class PublicSurfaceGateTest(unittest.TestCase):
             [v.pattern_id for v in result.violations],
         )
 
+    def test_env_templates_are_scanned_for_weak_admin_defaults(self) -> None:
+        result = self.scan({".env.test.example": "GEOLENS_ADMIN_PASSWORD=admin\n"})
+
+        self.assertEqual([], result.errors)
+        self.assertEqual(["weak_admin_default"], [v.pattern_id for v in result.violations])
+
     def test_commercial_overlay_and_ogc_compliant_variants_fail(self) -> None:
         result = self.scan(
             {
@@ -223,7 +229,8 @@ class PublicSurfaceGateTest(unittest.TestCase):
         self.assertEqual([], result.errors)
         self.assertEqual([], result.violations)
 
-    def test_allowlist_entry_suppresses_only_one_identical_hit(self) -> None:
+    def test_allowlist_entry_is_single_use_for_identical_hits(self) -> None:
+        """One allowlist entry authorizes one exact occurrence, not a broad pattern."""
         result = self.scan(
             {"README.md": "Enterprise appears here. Enterprise appears again.\n"},
             allowlist=[
@@ -290,6 +297,8 @@ class PublicSurfaceGateTest(unittest.TestCase):
         config = self.scanner.load_config(CONFIG)
         files = self.scanner.collect_candidate_files(ROOT, config)
 
+        self.assertIn(".env.example", files)
+        self.assertIn(".env.test.example", files)
         self.assertIn("frontend/docs/i18n.md", files)
         self.assertIn("Makefile", files)
         self.assertIn("backend/app/standards/dcat/README.md", files)
