@@ -17,19 +17,6 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-# OCG-04: single source of truth for the pinned private extension ref.
-# Update this SHA when either side bumps EXTENSION_API_VERSION (core constant:
-# backend/app/platform/extensions/version.py) and re-verify the extension suite
-# against core before merging. Companion to the EXTENSION_API_VERSION fail-loud
-# loader check introduced in Plan 1206-01.
-env:
-  # Private extension origin/main: the 2026-06-14 ref (af128097) plus PR #22
-  # (be40d109), which aligns e002's chk_oauth_providers_type with core's
-  # oauth/models.py declaration by adding 'github' to the union. A
-  # correctness/consistency fix, not a flake fix. No EXTENSION_API_VERSION
-  # change; the migration alignment is the only delta from the prior pinned tree.
-  PRIVATE_EXTENSION_PINNED_REF: "be40d1095f9fdce39ef0b4f4ddf4a4984ae47b21"
-
 # Least-privilege default for every job. The `changes` job widens to add
 # pull-requests:read; no job needs write (publishing lives in publish*.yml).
 permissions:
@@ -730,30 +717,6 @@ jobs:
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
 
-      - name: Probe private extension token availability
-        env:
-          EXTENSION_TOKEN: ${{ secrets.GEOLENS_ENTERPRISE_TOKEN }}
-        run: |
-          if [ -n "${EXTENSION_TOKEN}" ]; then
-            echo "HAS_EXTENSION_TOKEN=1" >> $GITHUB_ENV
-          else
-            echo "HAS_EXTENSION_TOKEN=0" >> $GITHUB_ENV
-          fi
-
-      - name: Checkout private extension (skip on fork PRs without secret)
-        if: env.HAS_EXTENSION_TOKEN == '1'
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
-        with:
-          repository: geolens-io/geolens-enterprise
-          token: ${{ secrets.GEOLENS_ENTERPRISE_TOKEN }}
-          path: private-extension
-          # OCG-04: pinned to a tested ref so a moving extension main cannot
-          # silently skew the tested combination. Re-pin + re-verify when either
-          # side bumps EXTENSION_API_VERSION.
-          # Ref value is declared once at the workflow env level.
-          ref: ${{ env.PRIVATE_EXTENSION_PINNED_REF }}
-          persist-credentials: false
-
       - name: Start PostgreSQL with PostGIS + pgvector
         working-directory: .
         run: |
@@ -794,23 +757,6 @@ jobs:
       - name: Install Python dependencies
         run: uv sync --locked --dev
 
-      - name: Install private extension (if available)
-        run: |
-          if [ -d "../private-extension" ] && [ -f "../private-extension/pyproject.toml" ]; then
-            uv add --editable ../private-extension
-            # pysaml2 7.5.4 can resolve pyOpenSSL 22.x, which breaks against
-            # the backend's patched cryptography line in CI. Force a compatible
-            # runtime wheel after installing the editable overlay and keep uv
-            # from syncing the resolver's stale transitive choice back in.
-            uv pip install "pyOpenSSL>=25.3.0"
-            echo "UV_NO_SYNC=1" >> $GITHUB_ENV
-            echo "OVERLAY_INSTALLED=1" >> $GITHUB_ENV
-            echo "private extension installed; lifecycle marker will be collected"
-          else
-            echo "OVERLAY_INSTALLED=0" >> $GITHUB_ENV
-            echo "private extension not available; lifecycle marker deselected"
-          fi
-
       - name: Set up database extensions, roles, and schemas
         run: |
           PGPASSWORD=geolens_test psql -h localhost -U geolens -d postgres -c "
@@ -831,10 +777,8 @@ jobs:
           "
 
       - name: Run migrations
-        # `heads` (plural) applies every branch head. With the private extension
-        # present in CI the graph has two (core 0007 + extension e002),
-        # and bare `head` errors "Multiple head revisions present". OSS-only is
-        # unaffected (heads == head). Mirrors the migrate service + MIG-04 job.
+        # `heads` (plural) applies every Alembic branch head and is also safe
+        # when the migration graph currently has a single head.
         run: uv run alembic upgrade heads
 
       - name: Normalize search_path for the drift check (MIG-03)
@@ -878,17 +822,9 @@ jobs:
       - name: Run tests with coverage
         # --cov-fail-under=58.5 is the CI floor. backend/pyproject.toml declares
         # fail_under=60; the two are intentionally NOT yet aligned here — raising
-        # the CI gate above measured coverage would RED main. Bump this to 60 only
-        # after a measured run confirms real coverage >= 60 (the extension-installed
-        # run on push is the one to read).
-        run: |
-          if [ "${OVERLAY_INSTALLED:-0}" = "1" ]; then
-            echo "Running pytest with lifecycle marker INCLUDED (overlay installed)"
-            uv run pytest -v --tb=short -m 'not perf' --cov=app --cov-report=term-missing --cov-report=html:htmlcov --cov-report=xml:coverage.xml --cov-fail-under=58.5
-          else
-            echo "Running pytest with lifecycle marker DESELECTED (extension unavailable on fork PR)"
-            uv run pytest -v --tb=short -m 'not perf and not lifecycle' --cov=app --cov-report=term-missing --cov-report=html:htmlcov --cov-report=xml:coverage.xml --cov-fail-under=58.5
-          fi
+        # the CI gate above measured coverage would RED main. Bump this to 60
+        # only after a measured run confirms real coverage >= 60.
+        run: uv run pytest -v --tb=short -m 'not perf and not lifecycle' --cov=app --cov-report=term-missing --cov-report=html:htmlcov --cov-report=xml:coverage.xml --cov-fail-under=58.5
 
       - name: Verify SAML fixtures unchanged after pytest
         run: |
