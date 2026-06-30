@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import re
 import sys
 from dataclasses import dataclass
@@ -161,8 +162,8 @@ def require_positive_number(value: object, label: str) -> float:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise ValueError(f"{label} must be a positive number")
     number = float(value)
-    if number <= 0:
-        raise ValueError(f"{label} must be greater than zero")
+    if not math.isfinite(number) or number <= 0:
+        raise ValueError(f"{label} must be a finite number greater than zero")
     return number
 
 
@@ -201,7 +202,15 @@ def compile_assertion(page_id: str, kind: str, index: int, raw: object) -> TextA
 
 
 def load_config(path: Path = DEFAULT_CONFIG) -> GateConfig:
-    raw = require_object(json.loads(path.read_text(encoding="utf-8")), str(path))
+    raw = require_object(
+        json.loads(
+            path.read_text(encoding="utf-8"),
+            parse_constant=lambda constant: (_ for _ in ()).throw(
+                ValueError(f"unsupported JSON constant: {constant}")
+            ),
+        ),
+        str(path),
+    )
     for field in ("timeout_seconds", "max_bytes", "pages"):
         if field not in raw:
             raise ValueError(f"{path} missing required top-level key: {field}")

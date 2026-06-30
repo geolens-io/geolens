@@ -35,6 +35,13 @@ class DeployedSurfaceGateTest(unittest.TestCase):
         path.write_text(json.dumps(config, indent=2), encoding="utf-8")
         return path, tempdir
 
+    def write_raw_config(self, text: str) -> Path:
+        tempdir = tempfile.TemporaryDirectory()
+        self.addCleanup(tempdir.cleanup)
+        path = Path(tempdir.name) / "deployed_surface_gate.json"
+        path.write_text(text, encoding="utf-8")
+        return path
+
     def minimal_config(self, **page_overrides: object) -> dict[str, object]:
         page = {
             "id": "fixture_page",
@@ -195,6 +202,10 @@ class DeployedSurfaceGateTest(unittest.TestCase):
                 "timeout_seconds must be a positive number",
             ),
             (
+                {"timeout_seconds": float("inf"), "max_bytes": 4096, "pages": []},
+                "unsupported JSON constant: Infinity",
+            ),
+            (
                 {"timeout_seconds": 3, "max_bytes": "4096", "pages": []},
                 "max_bytes must be a positive integer",
             ),
@@ -231,6 +242,12 @@ class DeployedSurfaceGateTest(unittest.TestCase):
             with self.subTest(message=message):
                 with self.assertRaisesRegex(ValueError, message):
                     self.load_config(config)
+
+    def test_nonstandard_json_constants_fail_cleanly(self) -> None:
+        path = self.write_raw_config('{"timeout_seconds": NaN, "max_bytes": 4096, "pages": []}')
+
+        with self.assertRaisesRegex(ValueError, "unsupported JSON constant: NaN"):
+            self.scanner.load_config(path)
 
     def test_invalid_config_rejects_duplicate_assertion_ids(self) -> None:
         with self.assertRaisesRegex(ValueError, "duplicate assertion id"):
