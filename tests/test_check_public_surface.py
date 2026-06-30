@@ -93,11 +93,15 @@ class PublicSurfaceGateTest(unittest.TestCase):
                     "Do not document --password change-me commands.\n"
                     "Do not document --password \"${GEOLENS_ADMIN_PASSWORD:-admin}\" commands.\n"
                     "Do not document --password=${GEOLENS_ADMIN_PASSWORD:-admin} commands.\n"
+                    "Do not document --password \"${GEOLENS_ADMIN_PASSWORD-admin}\" commands.\n"
+                    "Do not document --password=${GEOLENS_ADMIN_PASSWORD:=admin} commands.\n"
                     "Do not document GEOLENS_ADMIN_USERNAME=admin GEOLENS_ADMIN_PASSWORD=admin installs.\n"
                     "Do not document GEOLENS_ADMIN_PASSWORD=\"admin\" installs.\n"
                     "Do not document GEOLENS_ADMIN_PASSWORD='change-me' installs.\n"
                     "Do not document GEOLENS_ADMIN_PASSWORD=${GEOLENS_ADMIN_PASSWORD:-admin} installs.\n"
                     "Do not document GEOLENS_ADMIN_PASSWORD=\"${GEOLENS_ADMIN_PASSWORD:-change-me}\" installs.\n"
+                    "Do not document GEOLENS_ADMIN_PASSWORD=${GEOLENS_ADMIN_PASSWORD-admin} installs.\n"
+                    "Do not document GEOLENS_ADMIN_PASSWORD=${GEOLENS_ADMIN_PASSWORD:=admin} installs.\n"
                     "| `--password` | `admin` | Admin password |\n"
                     "| `--password` | `change-me` | Admin password |\n"
                     "| GEOLENS_ADMIN_PASSWORD | admin |\n"
@@ -111,6 +115,10 @@ class PublicSurfaceGateTest(unittest.TestCase):
         self.assertEqual([], result.errors)
         self.assertEqual(
             [
+                "weak_admin_default",
+                "weak_admin_default",
+                "weak_admin_default",
+                "weak_admin_default",
                 "weak_admin_default",
                 "weak_admin_default",
                 "weak_admin_default",

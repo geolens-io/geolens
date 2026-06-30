@@ -89,9 +89,8 @@ and releases use semantic versioning.
 
 ## [1.4.0] - 2026-06-20
 
-These changes cover two internal milestones (v1044 demo lead-gen front
-door and v1045 outbound notifications + email-verified signup) in operator-facing
-terms.
+This release adds the demo front door, outbound notifications, and
+email-verified signup in operator-facing terms.
 
 ### Added
 
