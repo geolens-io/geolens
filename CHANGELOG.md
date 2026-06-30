@@ -90,7 +90,7 @@ and releases use semantic versioning.
 ## [1.4.0] - 2026-06-20
 
 This release adds the demo front door, outbound notifications, and
-email-verified signup in operator-facing terms.
+email-verified signup.
 
 ### Added
 
@@ -147,9 +147,8 @@ email-verified signup in operator-facing terms.
 
 ## [1.3.0] - 2026-06-18
 
-This release bundles changes since 1.2.4, including hardening work,
-map-builder authoring improvements, and self-hosted release/upgrade updates in
-operator-facing terms.
+This release includes hardening work, map-builder authoring improvements, and
+self-hosted release/upgrade updates.
 
 ### Added
 
@@ -220,10 +219,9 @@ operator-facing terms.
 
 ### Security
 
-This line continues the hardening lineage of the 1.2.x security releases
-(advisories `GHSA-p23g-mvhj-jh3j` and `GHSA-p77j-g7h5-r2vw`). It folds in the
-remaining Tier-1 and Tier-2 findings from a whole-portfolio security review,
-all fixed with fail-before/pass-after regression coverage:
+This release continues the hardening work from the 1.2.x security advisories
+(`GHSA-p23g-mvhj-jh3j` and `GHSA-p77j-g7h5-r2vw`) with additional
+regression-covered fixes:
 
 - **Cross-resource re-authorization.** Endpoints that return sub-resources or
   follow references now re-authorize the backing dataset/map rather than
@@ -237,14 +235,12 @@ all fixed with fail-before/pass-after regression coverage:
   outbound-URL handling, and the AI subsystem to reduce the attack surface for
   malformed or hostile inputs.
 
-### Internal
+### Changed
 
-- **Default-preserving deployment groundwork.** This release lands additive
-  schema and runtime changes (reversible migrations `0005`–`0007`) for future
-  deployment isolation work. For self-hosted operators this is inert and
-  behavior-preserving: the default path is byte-identical to prior releases,
-  with no new required configuration and no change to how datasets, tiles, or
-  maps are served.
+- **Default-preserving migrations.** Added reversible migrations `0005`–`0007`
+  and supporting runtime paths. Self-hosted installs keep the same default
+  behavior, require no new configuration, and serve datasets, tiles, and maps
+  the same way as before.
 
 ### Upgrade notes
 
