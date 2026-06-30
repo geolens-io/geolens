@@ -38,3 +38,4 @@
 - [ ] TypeScript compiles without errors
 - [ ] Migration included (if DB schema changed)
 - [ ] No secrets or credentials in the diff
+- [ ] Release/docs deploys: ran `make deployed-surface-check` after the marketing/docs deploy and recorded the result in Testing

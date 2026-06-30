@@ -17,7 +17,8 @@
     "e2e:export": "npx playwright test e2e/export-runtime.spec.ts --project=api --workers=1 --retries=0",
     "e2e:ui": "npx playwright test --ui",
     "check:readme-locales": "node scripts/check-readme-locales.mjs",
-    "check:public-surface": "make public-surface-check"
+    "check:public-surface": "make public-surface-check",
+    "check:deployed-surface": "make deployed-surface-check"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.11.3",

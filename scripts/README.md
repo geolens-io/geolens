@@ -74,8 +74,15 @@ Wired into the `Makefile` / `package.json`, not run by operators directly:
 | `check-readme-locales.mjs` | Verify the README locale stubs stay in sync (`npm run check:readme-locales`) |
 | `check_public_surface.py` | Scan tracked public source surfaces for launch-sensitive wording (`make public-surface-check` / `npm run check:public-surface`) |
 | `public_surface_gate.json` | Configure scan boundaries, forbidden pattern IDs, and exact allowlist entries |
+| `check_deployed_surface.py` | Check live marketing/docs pages after deploy (`make deployed-surface-check` / `npm run check:deployed-surface`) |
+| `deployed_surface_gate.json` | Configure deployed page URLs plus required and forbidden assertion IDs |
 
 Allowlist entries in `public_surface_gate.json` must name an exact path, pattern ID, match, and rationale. Wildcard allowlist paths and stale entries fail the gate.
+
+Run `make deployed-surface-check` after a marketing or docs deploy that affects
+install, OGC, backup, or self-hosted provider copy. The command fetches
+`https://getgeolens.com/` and selected `https://docs.getgeolens.com/` pages,
+then reports any missing required copy or stale deployed copy.
 
 ### `install.sh`
 
