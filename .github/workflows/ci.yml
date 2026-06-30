@@ -566,6 +566,9 @@ jobs:
       - name: Check docs contract (install/ports/version + forbidden patterns)
         run: python scripts/check_docs_contract.py
 
+      - name: Public surface gate (launch-sensitive terms)
+        run: make public-surface-check
+
   # ---------- CLI ----------
   # Structural enforcement that the CLI never grows
   # a direct httpx/requests dependency. Runs on cli/** OR sdks/python/**
