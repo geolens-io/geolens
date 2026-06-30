@@ -165,10 +165,9 @@ services:
     # Empty entrypoint suppresses Dockerfile-inherited api-entrypoint.sh on this
     # one-shot service.
     entrypoint: []
-    # `upgrade heads` (plural) applies every branch head — with the enterprise
-    # overlay installed the graph has two heads (core 0007 + enterprise e002);
-    # bare `head` errors "Multiple head revisions present". Single-head OSS is
-    # unaffected (heads == head).
+    # `upgrade heads` (plural) applies all Alembic branch heads and avoids bare
+    # `head` failing when a revision graph has multiple heads. For a single-head
+    # graph, `heads` is equivalent to `head`.
     command: sh -c "uv run --no-dev alembic upgrade heads"
     # One-shot: alembic upgrade is idempotent (re-running is safe). Failure
     # should stop the dependency chain, not retry blindly.
