@@ -80,17 +80,57 @@ class PublicSurfaceGateTest(unittest.TestCase):
             sorted(v.pattern_id for v in result.violations),
         )
 
-    def test_weak_admin_default_matches_words_not_admin_paths(self) -> None:
+    def test_weak_admin_default_matches_variants_not_admin_paths(self) -> None:
         result = self.scan(
             {
-                "README.md": "Do not tell users to use admin slash admin.\n",
+                "README.md": (
+                    "Do not tell users to use admin slash admin.\n"
+                    "Do not document `admin` / `admin` credentials.\n"
+                    "Do not document admin:admin credentials.\n"
+                ),
                 "frontend/src/pages/admin/AdminSharedMapsPage.tsx": "export const path = true;\n",
             },
             include_globs=["*.md", "frontend/src/**/*.tsx"],
         )
 
         self.assertEqual([], result.errors)
-        self.assertEqual(["weak_admin_default"], [v.pattern_id for v in result.violations])
+        self.assertEqual(
+            ["weak_admin_default", "weak_admin_default", "weak_admin_default"],
+            [v.pattern_id for v in result.violations],
+        )
+
+    def test_commercial_overlay_and_ogc_compliant_variants_fail(self) -> None:
+        result = self.scan(
+            {
+                "README.md": (
+                    "Do not discuss commercial overlays.\n"
+                    "Do not claim this is OGC-compliant.\n"
+                )
+            }
+        )
+
+        self.assertEqual([], result.errors)
+        self.assertEqual(
+            ["commercial_overlay_wording", "ogc_compliant_claim"],
+            sorted(v.pattern_id for v in result.violations),
+        )
+
+    def test_recursive_double_star_globs_match_nested_public_docs(self) -> None:
+        result = self.scan(
+            {
+                "backend/app/standards/dcat/README.md": "Public Enterprise launch copy.\n",
+                "examples/manifests/first-catalog/README.md": "SaaS launch copy.\n",
+            }
+        )
+
+        self.assertEqual([], result.errors)
+        self.assertEqual(
+            [
+                ("backend/app/standards/dcat/README.md", "enterprise_word"),
+                ("examples/manifests/first-catalog/README.md", "saas_wording"),
+            ],
+            [(violation.path, violation.pattern_id) for violation in result.violations],
+        )
 
     def test_exact_allowlist_suppresses_observed_hit(self) -> None:
         result = self.scan(
@@ -108,6 +148,24 @@ class PublicSurfaceGateTest(unittest.TestCase):
 
         self.assertEqual([], result.errors)
         self.assertEqual([], result.violations)
+
+    def test_allowlist_entry_suppresses_only_one_identical_hit(self) -> None:
+        result = self.scan(
+            {"README.md": "Enterprise appears here. Enterprise appears again.\n"},
+            allowlist=[
+                {
+                    "id": "safe-fixture-enterprise",
+                    "path": "README.md",
+                    "pattern_id": "enterprise_word",
+                    "match": "Enterprise",
+                    "reason": "Test fixture demonstrates exact-match allowlisting.",
+                }
+            ],
+        )
+
+        self.assertEqual([], result.errors)
+        self.assertEqual(1, len(result.violations))
+        self.assertEqual("enterprise_word", result.violations[0].pattern_id)
 
     def test_stale_allowlist_entry_fails(self) -> None:
         result = self.scan(
@@ -159,6 +217,8 @@ class PublicSurfaceGateTest(unittest.TestCase):
         files = self.scanner.collect_candidate_files(ROOT, config)
 
         self.assertIn("frontend/docs/i18n.md", files)
+        self.assertIn("backend/app/standards/dcat/README.md", files)
+        self.assertIn("examples/manifests/first-catalog/README.md", files)
         self.assertNotIn("AGENTS.md", files)
         self.assertIn("AGENTS.md", config.exclude_rationales)
         self.assertIn("local execution guidance", config.exclude_rationales["AGENTS.md"])

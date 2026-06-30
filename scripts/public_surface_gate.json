@@ -98,7 +98,7 @@
     },
     {
       "id": "commercial_overlay_wording",
-      "pattern": "\\bcommercial[- ]overlay\\b",
+      "pattern": "\\bcommercial[- ]overlays?\\b",
       "flags": "i",
       "reason": "Commercial overlay strategy is not part of the public OSS launch surface."
     },
@@ -140,7 +140,7 @@
     },
     {
       "id": "ogc_compliant_claim",
-      "pattern": "\\bOGC[- ]API[- ]Compliant\\b|\\bOGC\\s+Compliant\\b",
+      "pattern": "\\bOGC[- ]API[- ]Compliant\\b|\\bOGC[- ]Compliant\\b",
       "flags": "i",
       "reason": "GeoLens should claim OGC API support, not public certification or compliance status."
     },
@@ -158,7 +158,7 @@
     },
     {
       "id": "weak_admin_default",
-      "pattern": "(?<![A-Za-z0-9_])admin(?:\\s*/\\s*|\\s+slash\\s+)admin(?![A-Za-z0-9_])",
+      "pattern": "(?<![A-Za-z0-9_])`?admin`?(?:\\s*(?:/|:)\\s*|\\s+slash\\s+)`?admin`?(?![A-Za-z0-9_])",
       "flags": "i",
       "reason": "Fresh installs generate a strong admin password and must not document admin/admin defaults."
     }

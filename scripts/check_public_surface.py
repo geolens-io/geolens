@@ -12,7 +12,9 @@ import re
 import subprocess
 import sys
 from dataclasses import dataclass
-from pathlib import Path, PurePath
+from fnmatch import fnmatchcase
+from functools import lru_cache
+from pathlib import Path
 from typing import Iterable, Sequence
 
 
@@ -115,15 +117,33 @@ def tracked_files(root: Path) -> list[str]:
 
 
 def path_matches(path: str, pattern: str) -> bool:
-    pure_path = PurePath(path)
-    normalized = pattern.replace("\\", "/")
-    if "/" not in normalized and not normalized.startswith("**"):
-        return "/" not in path and pure_path.match(normalized)
-    if pure_path.match(normalized):
-        return True
-    if "/**/" in normalized:
-        return pure_path.match(normalized.replace("/**/", "/"))
-    return False
+    normalized_path = path.replace("\\", "/").strip("/")
+    normalized_pattern = pattern.replace("\\", "/").strip("/")
+    path_parts = tuple(part for part in normalized_path.split("/") if part)
+    pattern_parts = tuple(part for part in normalized_pattern.split("/") if part)
+
+    if "/" not in normalized_pattern and not normalized_pattern.startswith("**"):
+        return len(path_parts) == 1 and fnmatchcase(path_parts[0], normalized_pattern)
+
+    @lru_cache(maxsize=None)
+    def match_from(pattern_index: int, path_index: int) -> bool:
+        if pattern_index == len(pattern_parts):
+            return path_index == len(path_parts)
+
+        pattern_part = pattern_parts[pattern_index]
+        if pattern_part == "**":
+            return any(
+                match_from(pattern_index + 1, next_path_index)
+                for next_path_index in range(path_index, len(path_parts) + 1)
+            )
+
+        if path_index >= len(path_parts):
+            return False
+        if not fnmatchcase(path_parts[path_index], pattern_part):
+            return False
+        return match_from(pattern_index + 1, path_index + 1)
+
+    return match_from(0, 0)
 
 
 def is_candidate(path: str, config: GateConfig) -> bool:
@@ -190,6 +210,8 @@ def is_allowlisted(
     match: str,
 ) -> bool:
     for entry in allowlist:
+        if entry["id"] in observed_allowlist_ids:
+            continue
         if entry["path"] == path and entry["pattern_id"] == pattern_id and entry["match"] == match:
             observed_allowlist_ids.add(entry["id"])
             return True

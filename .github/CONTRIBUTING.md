@@ -32,7 +32,7 @@ bash scripts/install.sh
 
 The installer copies `.env.example` to `.env`, generates a strong `JWT_SECRET_KEY`, sets up the admin credentials, and runs `docker compose up -d`. (A bare `docker compose up -d` requires a populated `.env` first -- run `make dev`, which runs the preflight check.)
 
-The app will be available at [http://localhost:8080](http://localhost:8080). The admin username defaults to `admin` and the installer auto-generates a strong admin password -- retrieve it with `grep "^GEOLENS_ADMIN_PASSWORD=" .env`. It is never `admin` / `admin`.
+The app will be available at [http://localhost:8080](http://localhost:8080). The admin username defaults to `admin` and the installer auto-generates a strong admin password -- retrieve it with `grep "^GEOLENS_ADMIN_PASSWORD=" .env`. It does not use a shared weak default password.
 
 ### 3. Verify services are running
 

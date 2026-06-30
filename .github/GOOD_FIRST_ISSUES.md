@@ -49,11 +49,11 @@ discuss the approach first.
 - **Test command:** n/a (docs).
 - **Design settled:** yes
 
-### 5. Add an `.env.example` comment for default admin credentials
+### 5. Add an `.env.example` comment for generated admin credentials
 - **Area:** docs
 - **Files likely involved:** `.env.example`
-- **Acceptance criteria:** The default `admin` / `admin` credentials are
-  documented inline with a reminder to change them before any non-local use.
+- **Acceptance criteria:** The generated admin password behavior is documented
+  inline with a reminder to use a strong explicit value before any non-local use.
 - **Test command:** n/a (docs).
 - **Design settled:** yes
 
