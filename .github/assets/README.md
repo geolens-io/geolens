@@ -25,7 +25,10 @@ Displayed at `width="900"`; sources are ~1200 px wide. Use PNG for UI shots
 Build (Matterhorn), and Ask AI (NY income) shots:
 
 ```bash
-python scripts/seed-showcase.py --username admin --password admin --with-terrain
+python scripts/seed-showcase.py \
+  --username "${GEOLENS_ADMIN_USERNAME:-admin}" \
+  --password "$GEOLENS_ADMIN_PASSWORD" \
+  --with-terrain
 ```
 
 The Find (search) and Inspect (dataset) shots use a Natural Earth vector
@@ -35,7 +38,8 @@ see the main README) before capturing.
 
 ## Capture notes
 
-- Capture from a live stack at `http://localhost:8080` (login `admin`/`admin`),
+- Capture from a live stack at `http://localhost:8080` (username `admin` and
+  the generated password from `.env`),
   viewport ~1280×800 / 1600×900, then crop/scale to ~1200 px wide and optimize
   (e.g. `magick in.png -strip out.png`; JPG at quality ~88 for terrain).
 - The Matterhorn camera was framed via the live MapLibre map

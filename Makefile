@@ -6,7 +6,7 @@
 SHELL := /bin/bash
 .SHELLFLAGS := -o pipefail -c
 
-.PHONY: dev dev-init down reset-db migrate migration alembic-check test test-sequential test-cov e2e logs logs-db logs-api status doctor preflight openapi openapi-check sdks sdks-check sdks-test manifest-contract-check publish-sdks-py publish-sdks-ts cli-build cli-test cli-check publish-cli audit-sink-discipline billing-extraction-discipline catalog-domain-discipline bump version-check
+.PHONY: dev dev-init down reset-db migrate migration alembic-check test test-sequential test-cov e2e logs logs-db logs-api status doctor preflight openapi openapi-check sdks sdks-check sdks-test manifest-contract-check publish-sdks-py publish-sdks-ts cli-build cli-test cli-check publish-cli audit-sink-discipline billing-extraction-discipline catalog-domain-discipline bump version-check public-surface-check deployed-surface-check
 
 # Pre-flight: verify boot-required env vars are non-empty in .env before any
 # `docker compose` build (which takes 5-10 minutes on a cold cache only to crash
@@ -190,7 +190,7 @@ sdks-test:
 
 manifest-contract-check:
 	cd cli && uv run --extra dev python -m pytest tests/test_manifest_schema.py tests/test_manifest_validate.py tests/test_manifest_apply.py tests/test_manifest_examples.py tests/test_manifest_cli_offline.py -q
-	cd backend && PYTHONPATH=. POSTGRES_HOST=localhost POSTGRES_PORT="$${DB_PORT:-5434}" JWT_SECRET_KEY=test-secret-key-for-ci-padding-32chars GEOLENS_ADMIN_USERNAME=admin GEOLENS_ADMIN_PASSWORD=admin uv run pytest tests/test_manifest_apply_api.py tests/test_manifest_apply_service.py tests/test_manifest_apply_vrt.py tests/test_manifest_apply_roundtrip.py tests/test_layering.py::test_manifest_apply_backend_has_no_cli_sdk_or_enterprise_imports tests/test_layering.py::test_manifest_apply_router_uses_upload_permission -q
+	cd backend && PYTHONPATH=. POSTGRES_HOST=localhost POSTGRES_PORT="$${DB_PORT:-5434}" JWT_SECRET_KEY=test-secret-key-for-ci-padding-32chars GEOLENS_ADMIN_USERNAME=admin GEOLENS_ADMIN_PASSWORD=geolens-ci-admin-password uv run pytest tests/test_manifest_apply_api.py tests/test_manifest_apply_service.py tests/test_manifest_apply_vrt.py tests/test_manifest_apply_roundtrip.py tests/test_layering.py::test_manifest_apply_backend_has_no_cli_sdk_or_enterprise_imports tests/test_layering.py::test_manifest_apply_router_uses_upload_permission -q
 	$(MAKE) openapi-check
 	$(MAKE) sdks-check
 
@@ -210,7 +210,7 @@ cli-build: ## Build the geolens CLI wheel + sdist
 # `make cli-test` runs CLI unit tests + the round-trip integration test.
 cli-test: ## Run CLI unit tests + round-trip integration test
 	cd cli && uv run --extra dev python -m pytest -v
-	cd backend && PYTHONPATH=. POSTGRES_HOST=localhost POSTGRES_PORT="$${DB_PORT:-5434}" POSTGRES_USER=geolens POSTGRES_PASSWORD=geolens POSTGRES_DB=geolens JWT_SECRET_KEY=test-secret-key-for-ci-padding-32chars GEOLENS_ADMIN_USERNAME=admin GEOLENS_ADMIN_PASSWORD=admin uv run pytest tests/test_cli_round_trip.py -v
+	cd backend && PYTHONPATH=. POSTGRES_HOST=localhost POSTGRES_PORT="$${DB_PORT:-5434}" POSTGRES_USER=geolens POSTGRES_PASSWORD=geolens POSTGRES_DB=geolens JWT_SECRET_KEY=test-secret-key-for-ci-padding-32chars GEOLENS_ADMIN_USERNAME=admin GEOLENS_ADMIN_PASSWORD=geolens-ci-admin-password uv run pytest tests/test_cli_round_trip.py -v
 
 # `make cli-check` — version drift in cli/pyproject.toml is caught by sdks-check.
 cli-check: sdks-check ## Alias — version drift in cli/pyproject.toml is caught by sdks-check
@@ -272,3 +272,13 @@ version-check: ## Assert all version sites agree (CI gate)
 # against what the installer actually writes. Plain python3 — no project deps.
 env-doc-check: ## Assert install.sh-written env keys are documented in .env.example
 	python3 scripts/check_env_doc_drift.py
+
+# `make public-surface-check` — public launch-surface wording gate. Plain
+# python3; no project dependencies or package install required.
+public-surface-check: ## Assert public source surfaces avoid launch-sensitive terms
+	python3 scripts/check_public_surface.py
+
+# `make deployed-surface-check` — live marketing/docs deploy drift gate. Plain
+# python3; no project dependencies or package install required.
+deployed-surface-check: ## Assert deployed marketing/docs pages match launch-surface expectations
+	python3 scripts/check_deployed_surface.py

@@ -83,7 +83,7 @@ jobs:
           # this the login deterministically 401s ("Incorrect username or
           # password") and waitForURL('/') times out — set BOTH creds, like ci.yml.
           sed -i -E 's|^GEOLENS_ADMIN_USERNAME=.*|GEOLENS_ADMIN_USERNAME=admin|' .env
-          sed -i -E 's|^GEOLENS_ADMIN_PASSWORD=.*|GEOLENS_ADMIN_PASSWORD=admin|' .env
+          sed -i -E 's|^GEOLENS_ADMIN_PASSWORD=.*|GEOLENS_ADMIN_PASSWORD=geolens-prod-smoke-admin-password|' .env
           # The prebuilt-image path: pin the version + select the prod compose so a
           # bare `docker compose` resolves to the published images.
           {
@@ -166,7 +166,7 @@ jobs:
         env:
           E2E_BASE_URL: http://127.0.0.1:8080
           GEOLENS_ADMIN_USERNAME: admin
-          GEOLENS_ADMIN_PASSWORD: admin
+          GEOLENS_ADMIN_PASSWORD: geolens-prod-smoke-admin-password
         run: npm run e2e:smoke:audit
 
       - name: Upload Playwright test results

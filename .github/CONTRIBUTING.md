@@ -32,7 +32,7 @@ bash scripts/install.sh
 
 The installer copies `.env.example` to `.env`, generates a strong `JWT_SECRET_KEY`, sets up the admin credentials, and runs `docker compose up -d`. (A bare `docker compose up -d` requires a populated `.env` first -- run `make dev`, which runs the preflight check.)
 
-The app will be available at [http://localhost:8080](http://localhost:8080). The admin username defaults to `admin` and the installer auto-generates a strong admin password -- retrieve it with `grep "^GEOLENS_ADMIN_PASSWORD=" .env`. It is never `admin` / `admin`.
+The app will be available at [http://localhost:8080](http://localhost:8080). The admin username defaults to `admin` and the installer auto-generates a strong admin password -- retrieve it with `grep "^GEOLENS_ADMIN_PASSWORD=" .env`.
 
 ### 3. Verify services are running
 
@@ -69,7 +69,7 @@ docker compose exec frontend npm run test -- --watch  # Watch mode
 
 **End-to-end (Playwright):**
 
-E2E tests run **locally only** -- the `e2e-test` job in `.github/workflows/ci.yml` is gated `if: false` to conserve CI minutes (the dockerized stack + browser fixtures push the per-PR runtime well past the free-tier budget). Backend, frontend, and security checks remain on the per-PR critical path.
+E2E smoke tests run locally for user-flow changes, and CI keeps the lighter backend, frontend, security, docs-contract, and public-surface checks on the per-PR critical path.
 
 Reviewers and contributors are responsible for running the relevant smoke suite locally before requesting review on changes that touch user flows:
 

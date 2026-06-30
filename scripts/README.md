@@ -20,20 +20,28 @@ Builds three demo maps from public, openly licensed data against a running stack
 pip install httpx
 
 # Build the Manhattan + income maps
-python scripts/seed-showcase.py --username admin --password admin
+python scripts/seed-showcase.py \
+  --username "${GEOLENS_ADMIN_USERNAME:-admin}" \
+  --password "$GEOLENS_ADMIN_PASSWORD"
 
 # Also build the Matterhorn 3D-terrain hero (downloads ~9 swissALTI3D COG tiles)
-python scripts/seed-showcase.py --username admin --password admin --with-terrain
+python scripts/seed-showcase.py \
+  --username "${GEOLENS_ADMIN_USERNAME:-admin}" \
+  --password "$GEOLENS_ADMIN_PASSWORD" \
+  --with-terrain
 
 # Build just one map
-python scripts/seed-showcase.py --only income
+python scripts/seed-showcase.py \
+  --username "${GEOLENS_ADMIN_USERNAME:-admin}" \
+  --password "$GEOLENS_ADMIN_PASSWORD" \
+  --only income
 ```
 
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--base-url` | `http://localhost:8080` (`$GEOLENS_BASE_URL`, fallback `$GEOLENS_URL`) | GeoLens base URL |
 | `--username` | `admin` (`$GEOLENS_ADMIN_USERNAME`) | Admin username |
-| `--password` | `admin` (`$GEOLENS_ADMIN_PASSWORD`) | Admin password |
+| `--password` | `$GEOLENS_ADMIN_PASSWORD` | Admin password |
 | `--with-terrain` | off | Also build the Matterhorn terrain hero |
 | `--only` | unset | Build only `manhattan`, `income`, or `matterhorn` |
 
@@ -64,6 +72,17 @@ Wired into the `Makefile` / `package.json`, not run by operators directly:
 | `flatten_openapi_defs.py` | Post-process `backend/openapi.json` for the SDK generators. Runs stdlib-only via `uv run --no-project` outside the backend venv (`make sdks`) |
 | `sync_sdk_versions.py` | Sync the generated SDK package versions (`make sdks`) |
 | `check-readme-locales.mjs` | Verify the README locale stubs stay in sync (`npm run check:readme-locales`) |
+| `check_public_surface.py` | Scan tracked public source surfaces for launch-sensitive wording (`make public-surface-check` / `npm run check:public-surface`) |
+| `public_surface_gate.json` | Configure scan boundaries, forbidden pattern IDs, and exact allowlist entries |
+| `check_deployed_surface.py` | Check live marketing/docs pages after deploy (`make deployed-surface-check` / `npm run check:deployed-surface`) |
+| `deployed_surface_gate.json` | Configure deployed page URLs plus required and forbidden assertion IDs |
+
+Allowlist entries in `public_surface_gate.json` must name an exact path, pattern ID, match, and rationale. Wildcard allowlist paths and stale entries fail the gate.
+
+Run `make deployed-surface-check` after a marketing or docs deploy that affects
+install, OGC, backup, or self-hosted provider copy. The command fetches
+`https://getgeolens.com/` and selected `https://docs.getgeolens.com/` pages,
+then reports any missing required copy or stale deployed copy.
 
 ### `install.sh`
 
@@ -81,7 +100,9 @@ bash scripts/install.sh
 GEOLENS_INSTALL_DIR=geolens bash <(curl -fsSL https://raw.githubusercontent.com/geolens-io/geolens/main/scripts/install.sh)
 
 # Non-interactive: env vars override the prompts
-GEOLENS_ADMIN_USERNAME=admin GEOLENS_ADMIN_PASSWORD='change-me' bash scripts/install.sh
+GEOLENS_ADMIN_USERNAME=admin \
+GEOLENS_ADMIN_PASSWORD="$(openssl rand -base64 24)" \
+bash scripts/install.sh
 ```
 
 | Variable | Purpose |

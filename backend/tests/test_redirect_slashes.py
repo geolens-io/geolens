@@ -32,6 +32,12 @@ from __future__ import annotations
 
 from httpx import AsyncClient
 
+from app.core.config import settings
+
+
+ADMIN_USER = settings.geolens_admin_username
+ADMIN_PASS = settings.geolens_admin_password.get_secret_value()
+
 
 class TestRedirectSlashesNoLeak:
     """ROUTE-01 (Phase 1092): both slash and no-slash variants of the two
@@ -102,10 +108,9 @@ class TestRedirectSlashesNoLeak:
         ``api:8000`` leak. The ``client`` fixture seeds the admin user via
         ``_ensure_roles_and_admin`` (``conftest.py:_ensure_roles_and_admin``)
         with ``settings.geolens_admin_username`` /
-        ``settings.geolens_admin_password.get_secret_value()`` — defaults
-        ``admin`` / ``admin`` in the test env (see ``.env.example``). The
-        test posts those same credentials, so the deterministic outcome is
-        200 with a JWT pair in the response body. Accepting 401/422 here
+        ``settings.geolens_admin_password.get_secret_value()``. The test
+        posts those same seeded settings values, so the deterministic outcome
+        is 200 with a JWT pair in the response body. Accepting 401/422 here
         would silently mask credential-seed or JWT-issuance regressions.
 
         SP-11 (v1009.1) originally pinned the no-trailing-slash-only
@@ -116,7 +121,7 @@ class TestRedirectSlashesNoLeak:
         """
         resp = await client.post(
             "/auth/login/",
-            data={"username": "admin", "password": "admin"},
+            data={"username": ADMIN_USER, "password": ADMIN_PASS},
             follow_redirects=False,
         )
 
@@ -125,13 +130,10 @@ class TestRedirectSlashesNoLeak:
             "redirect_slashes still enabled; "
             f"Location={resp.headers.get('location')!r}"
         )
-        # admin/admin is the seeded fixture credential pair
-        # (conftest.py:_ensure_roles_and_admin). Deterministic 200 against
-        # the seeded admin record; a non-200 here means the fixture is
-        # broken or the auth path regressed — both are failures we want to
-        # surface, not absorb.
+        # Deterministic 200 against the seeded admin record; a non-200 here
+        # means the fixture is broken or the auth path regressed.
         assert resp.status_code == 200, (
-            f"Expected 200 against seeded admin/admin credentials, got "
+            f"Expected 200 against seeded admin credentials, got "
             f"{resp.status_code}; body={resp.text[:200]}"
         )
         location = resp.headers.get("location", "")
@@ -145,17 +147,16 @@ class TestRedirectSlashesNoLeak:
     ) -> None:
         """Canonical no-slash surface preserved: ``POST /auth/login`` still
         resolves directly. The OpenAPI-published form. Same deterministic
-        200 contract as the slash variant (admin/admin against seeded
-        fixture).
+        200 contract as the slash variant against the seeded fixture.
         """
         resp = await client.post(
             "/auth/login",
-            data={"username": "admin", "password": "admin"},
+            data={"username": ADMIN_USER, "password": ADMIN_PASS},
             follow_redirects=False,
         )
 
         assert resp.status_code == 200, (
-            f"Expected 200 against seeded admin/admin credentials on "
+            f"Expected 200 against seeded admin credentials on "
             f"canonical no-slash form, got {resp.status_code}; "
             f"body={resp.text[:200]}"
         )

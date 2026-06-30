@@ -1,0 +1,232 @@
+{
+  "timeout_seconds": 20,
+  "max_bytes": 1048576,
+  "pages": [
+    {
+      "id": "marketing_home",
+      "url": "https://getgeolens.com/",
+      "required": [
+        {
+          "id": "curl_installer",
+          "pattern": "curl\\s+-fsSL\\s+https://getgeolens\\.com/install\\.sh\\s+\\|\\s+sh",
+          "flags": "i",
+          "reason": "Marketing home should show the public installer command."
+        },
+        {
+          "id": "ogc_api_collections_url",
+          "pattern": "http://localhost:8080/api/collections",
+          "flags": "i",
+          "reason": "Marketing home should route OGC examples through the frontend /api path."
+        }
+      ],
+      "forbidden": [
+        {
+          "id": "stale_geolens_yml",
+          "pattern": "\\bgeolens\\.yml\\b",
+          "flags": "i",
+          "reason": "GeoLens ships docker-compose.yml and docker-compose.prod.yml."
+        },
+        {
+          "id": "raw_ogc_collections_url",
+          "pattern": "localhost:8001/collections",
+          "flags": "i",
+          "reason": "Public OGC examples should use http://localhost:8080/api/collections."
+        },
+        {
+          "id": "ogc_compliant_claim",
+          "pattern": "\\bOGC[- ]API[- ](?:Compliant|compliance)\\b|\\bOGC[- ](?:Compliant|compliance)\\b",
+          "flags": "i",
+          "reason": "Public copy should claim OGC API support, not certification or compliance status."
+        }
+      ]
+    },
+    {
+      "id": "docs_install",
+      "url": "https://docs.getgeolens.com/guides/quickstart/install/",
+      "required": [
+        {
+          "id": "curl_installer",
+          "pattern": "curl\\s+-fsSL\\s+https://getgeolens\\.com/install\\.sh\\s+\\|\\s+sh",
+          "flags": "i",
+          "reason": "Install guide should lead with the public installer command."
+        },
+        {
+          "id": "reverse_proxy_ogc_api",
+          "pattern": "OGC\\s+API\\s+clients\\s+should\\s+connect\\s+through\\s+the\\s+reverse-proxy\\s+path\\s+at\\s+http://localhost:8080/api/",
+          "flags": "i",
+          "reason": "Install guide should direct OGC clients through the frontend /api path."
+        },
+        {
+          "id": "backup_guide_link",
+          "pattern": "Backups\\s+&\\s+Restore",
+          "flags": "i",
+          "reason": "Install guide should link operators to backup and restore docs."
+        },
+        {
+          "id": "provider_guide_link",
+          "pattern": "Self-host\\s+on\\s+AWS,\\s+GCP,\\s+or\\s+DigitalOcean",
+          "flags": "i",
+          "reason": "Install guide should expose self-hosted provider guidance."
+        },
+        {
+          "id": "provider_notes_link",
+          "pattern": "Self-hosted\\s+Provider\\s+Notes",
+          "flags": "i",
+          "reason": "Install guide should expose provider notes."
+        }
+      ],
+      "forbidden": [
+        {
+          "id": "stale_strategy_label",
+          "pattern": "Get\\s+Enterprise\\s+Only\\s+Tabs",
+          "flags": "i",
+          "reason": "Generated strategy endpoint labels should not appear in public docs."
+        },
+        {
+          "id": "stale_edition_label",
+          "pattern": "\\bEdition\\s+Info\\b",
+          "flags": "i",
+          "reason": "Generated edition endpoint labels should not appear in public docs."
+        },
+        {
+          "id": "stale_backup_profile",
+          "pattern": "\\bbackup[- ]profile\\b|--profile\\s+backup",
+          "flags": "i",
+          "reason": "Docs should not describe backups as an opt-in Compose profile."
+        },
+        {
+          "id": "hosted_cloud_wording",
+          "pattern": "\\bhosted[- ]Cloud\\b",
+          "flags": "i",
+          "reason": "Hosted Cloud wording is outside the OSS launch docs."
+        },
+        {
+          "id": "saas_wording",
+          "pattern": "\\bSaaS\\b",
+          "flags": "i",
+          "reason": "SaaS wording is outside the OSS launch docs."
+        }
+      ]
+    },
+    {
+      "id": "docs_backups",
+      "url": "https://docs.getgeolens.com/guides/admin/backups/",
+      "required": [
+        {
+          "id": "backups_title",
+          "pattern": "Backups\\s+&\\s+Restore",
+          "flags": "i",
+          "reason": "Backup guide should be deployed."
+        },
+        {
+          "id": "backups_default_on",
+          "pattern": "Automated\\s+backups\\s+are\\s+on\\s+by\\s+default",
+          "flags": "i",
+          "reason": "Backup guide should reflect that scheduled backups run by default."
+        },
+        {
+          "id": "backup_service",
+          "pattern": "\\bbackup\\s+service\\b",
+          "flags": "i",
+          "reason": "Backup guide should document the backup service."
+        },
+        {
+          "id": "backup_s3_enabled",
+          "pattern": "\\bBACKUP_S3_ENABLED\\b",
+          "flags": "",
+          "reason": "Backup guide should document off-site backup control."
+        }
+      ],
+      "forbidden": [
+        {
+          "id": "stale_backup_profile",
+          "pattern": "\\bbackup[- ]profile\\b|--profile\\s+backup",
+          "flags": "i",
+          "reason": "Backup guide should not describe backups as an opt-in Compose profile."
+        },
+        {
+          "id": "hosted_cloud_wording",
+          "pattern": "\\bhosted[- ]Cloud\\b",
+          "flags": "i",
+          "reason": "Hosted Cloud wording is outside the OSS launch docs."
+        },
+        {
+          "id": "saas_wording",
+          "pattern": "\\bSaaS\\b",
+          "flags": "i",
+          "reason": "SaaS wording is outside the OSS launch docs."
+        }
+      ]
+    },
+    {
+      "id": "docs_cloud_deployment",
+      "url": "https://docs.getgeolens.com/guides/quickstart/cloud-deployment/",
+      "required": [
+        {
+          "id": "provider_title",
+          "pattern": "Self-host\\s+on\\s+AWS,\\s+GCP,\\s+or\\s+DigitalOcean",
+          "flags": "i",
+          "reason": "Provider guide should be deployed."
+        },
+        {
+          "id": "managed_database",
+          "pattern": "\\bmanaged\\s+database\\b",
+          "flags": "i",
+          "reason": "Provider guide should mention managed database setup."
+        },
+        {
+          "id": "object_storage",
+          "pattern": "\\bobject\\s+storage\\b",
+          "flags": "i",
+          "reason": "Provider guide should mention object storage setup."
+        },
+        {
+          "id": "docker_compose_comparison",
+          "pattern": "\\bDocker\\s+Compose\\b",
+          "flags": "i",
+          "reason": "Provider guide should compare managed services with Docker Compose deployment."
+        }
+      ],
+      "forbidden": [
+        {
+          "id": "hosted_cloud_wording",
+          "pattern": "\\bhosted[- ]Cloud\\b",
+          "flags": "i",
+          "reason": "Provider guide should stay self-hosted, not hosted Cloud."
+        },
+        {
+          "id": "saas_wording",
+          "pattern": "\\bSaaS\\b",
+          "flags": "i",
+          "reason": "SaaS wording is outside the OSS launch docs."
+        }
+      ]
+    },
+    {
+      "id": "docs_provider_notes",
+      "url": "https://docs.getgeolens.com/guides/admin/cloud/",
+      "required": [
+        {
+          "id": "provider_notes_title",
+          "pattern": "Self-hosted\\s+Provider\\s+Notes",
+          "flags": "i",
+          "reason": "Provider notes guide should be deployed."
+        }
+      ],
+      "forbidden": [
+        {
+          "id": "hosted_cloud_wording",
+          "pattern": "\\bhosted[- ]Cloud\\b",
+          "flags": "i",
+          "reason": "Provider notes should stay self-hosted, not hosted Cloud."
+        },
+        {
+          "id": "saas_wording",
+          "pattern": "\\bSaaS\\b",
+          "flags": "i",
+          "reason": "SaaS wording is outside the OSS launch docs."
+        }
+      ]
+    }
+  ]
+}

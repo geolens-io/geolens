@@ -1612,7 +1612,7 @@ def main() -> int:
         "--username", default=os.environ.get("GEOLENS_ADMIN_USERNAME", "admin")
     )
     ap.add_argument(
-        "--password", default=os.environ.get("GEOLENS_ADMIN_PASSWORD", "admin")
+        "--password", default=os.environ.get("GEOLENS_ADMIN_PASSWORD")
     )
     ap.add_argument(
         "--with-terrain",
@@ -1645,6 +1645,8 @@ def main() -> int:
         help="re-create showcase maps/datasets even if they already exist",
     )
     args = ap.parse_args()
+    if not args.password:
+        ap.error("--password or GEOLENS_ADMIN_PASSWORD is required")
 
     print(f"Logging in to {args.base_url} as {args.username}...")
     api = Api.login(args.base_url, args.username, args.password)

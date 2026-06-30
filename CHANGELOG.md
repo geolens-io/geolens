@@ -23,7 +23,7 @@ and releases use semantic versioning.
   a map's data (counts, statistics, spatial analysis). Using the AI to *edit* a
   map remains limited to the owner, and AI-suggested changes still only persist
   when the owner saves the map.
-- **Custom share-link expiration is an advanced (Enterprise) sharing control.**
+- **Custom share-link expiration is an advanced sharing control.**
   The backend now enforces the same edition gate the UI already applied; basic
   Community share/revoke is unchanged.
 - **Vector tiles send an ETag.** Re-uploaded datasets now refresh in the map
@@ -89,9 +89,8 @@ and releases use semantic versioning.
 
 ## [1.4.0] - 2026-06-20
 
-These changes cover two internal milestones (v1044 demo lead-gen front
-door and v1045 outbound notifications + email-verified signup) in operator-facing
-terms.
+This release adds the demo front door, outbound notifications, and
+email-verified signup.
 
 ### Added
 
@@ -136,7 +135,7 @@ terms.
 - OSS OAuth provider creation no longer fails with a 500 when SAML columns are
   absent from the baseline schema. Migration `0008` adds the necessary columns
   conditionally, resolving the error for fresh installs and existing deployments
-  that have not applied the enterprise SAML overlay.
+  that lack those optional SAML columns.
 
 ### Upgrade notes
 
@@ -148,10 +147,8 @@ terms.
 
 ## [1.3.0] - 2026-06-18
 
-This release bundles changes since 1.2.4. It summarizes four internal milestones
-(v1039 Tier-1 hardening, v1040 Tier-2 hardening, v1041 map-builder authoring
-enhancements, and the v1042 tenancy substrate) plus the v1043 self-hosted
-release/upgrade work, in operator-facing terms.
+This release includes hardening work, map-builder authoring improvements, and
+self-hosted release/upgrade updates.
 
 ### Added
 
@@ -222,10 +219,9 @@ release/upgrade work, in operator-facing terms.
 
 ### Security
 
-This line continues the hardening lineage of the 1.2.x security releases
-(advisories `GHSA-p23g-mvhj-jh3j` and `GHSA-p77j-g7h5-r2vw`). It folds in the
-remaining Tier-1 and Tier-2 findings from a whole-portfolio security review,
-all fixed with fail-before/pass-after regression coverage:
+This release continues the hardening work from the 1.2.x security advisories
+(`GHSA-p23g-mvhj-jh3j` and `GHSA-p77j-g7h5-r2vw`) with additional
+regression-covered fixes:
 
 - **Cross-resource re-authorization.** Endpoints that return sub-resources or
   follow references now re-authorize the backing dataset/map rather than
@@ -239,15 +235,12 @@ all fixed with fail-before/pass-after regression coverage:
   outbound-URL handling, and the AI subsystem to reduce the attack surface for
   malformed or hostile inputs.
 
-### Internal
+### Changed
 
-- **Dormant single-tenant tenancy substrate (v1042).** This release lands the
-  additive schema and runtime seams (reversible migrations `0005`–`0007`) for a
-  future multi-tenant deployment mode, gated entirely behind
-  `GEOLENS_TENANCY_MODE`, which **defaults to `single_tenant`**. For
-  self-hosted operators this is **inert and behavior-preserving** — the default
-  path is byte-identical to prior releases, with no new required configuration
-  and no change to how datasets, tiles, or maps are served.
+- **Default-preserving migrations.** Added reversible migrations `0005`–`0007`
+  and supporting runtime paths. Self-hosted installs keep the same default
+  behavior, require no new configuration, and serve datasets, tiles, and maps
+  the same way as before.
 
 ### Upgrade notes
 
@@ -255,8 +248,8 @@ all fixed with fail-before/pass-after regression coverage:
   upgrade applies — pull the new images and run the usual upgrade path (see
   [UPGRADING.md](./UPGRADING.md)). All schema changes since 1.2.4 are additive,
   reversible migrations (`0004`–`0007`); no configuration is removed or made
-  mandatory. The v1042 tenancy substrate is dormant in the default
-  `single_tenant` mode, so no action is required to adopt it.
+  mandatory. The deployment groundwork is dormant in the default configuration,
+  so no action is required to adopt it.
 
 ## [1.2.4] - 2026-06-11
 
@@ -299,9 +292,9 @@ all fixed with fail-before/pass-after regression coverage:
 
 ### Fixed
 
-- Database migrations upgrade cleanly on enterprise deployments of the core
-  package; a migration-graph fork that caused `alembic upgrade head` to fail has
-  been resolved.
+- Database migrations upgrade cleanly on deployments of the core package; a
+  migration-graph fork that caused `alembic upgrade head` to fail has been
+  resolved.
 - The background job queue now works on managed/external PostgreSQL configured
   via `DATABASE_URL_OVERRIDE`; the connection's schema search path was dropped,
   which broke job processing and data ingestion on those deployments.
