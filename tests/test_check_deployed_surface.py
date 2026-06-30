@@ -59,7 +59,7 @@ class DeployedSurfaceGateTest(unittest.TestCase):
         page.update(page_overrides)
         return {"timeout_seconds": 3, "max_bytes": 4096, "pages": [page]}
 
-    def load_config(self, config: dict[str, object]):
+    def load_config(self, config: object):
         path, _tempdir = self.write_config(config)
         return self.scanner.load_config(path)
 
@@ -198,6 +198,33 @@ class DeployedSurfaceGateTest(unittest.TestCase):
                 {"timeout_seconds": 3, "max_bytes": "4096", "pages": []},
                 "max_bytes must be a positive integer",
             ),
+            (self.minimal_config(id=123), "pages\\[0\\].id must be a string"),
+            (self.minimal_config(url=123), "fixture_page.url must be a string"),
+            (
+                self.minimal_config(required=[{"id": 123, "pattern": "required", "reason": "Required."}]),
+                "fixture_page.required\\[0\\].id must be a string",
+            ),
+            (
+                self.minimal_config(required=[{"id": "required", "pattern": 123, "reason": "Required."}]),
+                "fixture_page.required\\[0\\].pattern must be a string",
+            ),
+            (
+                self.minimal_config(required=[{"id": "required", "pattern": "required", "reason": 123}]),
+                "fixture_page.required\\[0\\].reason must be a string",
+            ),
+            (
+                self.minimal_config(
+                    required=[
+                        {
+                            "id": "required",
+                            "pattern": "required",
+                            "reason": "Required.",
+                            "flags": 123,
+                        }
+                    ]
+                ),
+                "fixture_page.required\\[0\\].flags must be a string",
+            ),
         ]
 
         for config, message in malformed_configs:
@@ -259,25 +286,91 @@ class DeployedSurfaceGateTest(unittest.TestCase):
         config = self.scanner.load_config(CONFIG)
         pages = {page.id: page for page in config.pages}
 
-        self.assertEqual("https://getgeolens.com/", pages["marketing_home"].url)
-        self.assertEqual("https://docs.getgeolens.com/guides/quickstart/install/", pages["docs_install"].url)
-        self.assertEqual("https://docs.getgeolens.com/guides/admin/backups/", pages["docs_backups"].url)
-        self.assertEqual(
-            "https://docs.getgeolens.com/guides/quickstart/cloud-deployment/",
-            pages["docs_cloud_deployment"].url,
-        )
-        self.assertEqual("https://docs.getgeolens.com/guides/admin/cloud/", pages["docs_provider_notes"].url)
-        self.assertIn("curl_installer", {item.id for item in pages["marketing_home"].required})
-        self.assertIn("ogc_api_collections_url", {item.id for item in pages["marketing_home"].required})
-        self.assertIn("stale_geolens_yml", {item.id for item in pages["marketing_home"].forbidden})
-        self.assertIn("stale_backup_profile", {item.id for item in pages["docs_install"].forbidden})
-        self.assertIn("backups_default_on", {item.id for item in pages["docs_backups"].required})
-        self.assertIn("provider_title", {item.id for item in pages["docs_cloud_deployment"].required})
+        expected = {
+            "marketing_home": {
+                "url": "https://getgeolens.com/",
+                "required": [
+                    ("curl_installer", "curl\\s+-fsSL\\s+https://getgeolens\\.com/install\\.sh\\s+\\|\\s+sh", "i"),
+                    ("ogc_api_collections_url", "http://localhost:8080/api/collections", "i"),
+                ],
+                "forbidden": [
+                    ("stale_geolens_yml", "\\bgeolens\\.yml\\b", "i"),
+                    ("raw_ogc_collections_url", "localhost:8001/collections", "i"),
+                    (
+                        "ogc_compliant_claim",
+                        "\\bOGC[- ]API[- ](?:Compliant|compliance)\\b|\\bOGC[- ](?:Compliant|compliance)\\b",
+                        "i",
+                    ),
+                ],
+            },
+            "docs_install": {
+                "url": "https://docs.getgeolens.com/guides/quickstart/install/",
+                "required": [
+                    ("curl_installer", "curl\\s+-fsSL\\s+https://getgeolens\\.com/install\\.sh\\s+\\|\\s+sh", "i"),
+                    (
+                        "reverse_proxy_ogc_api",
+                        "OGC\\s+API\\s+clients\\s+should\\s+connect\\s+through\\s+the\\s+reverse-proxy\\s+path\\s+at\\s+http://localhost:8080/api/",
+                        "i",
+                    ),
+                    ("backup_guide_link", "Backups\\s+&\\s+Restore", "i"),
+                    ("provider_guide_link", "Self-host\\s+on\\s+AWS,\\s+GCP,\\s+or\\s+DigitalOcean", "i"),
+                    ("provider_notes_link", "Self-hosted\\s+Provider\\s+Notes", "i"),
+                ],
+                "forbidden": [
+                    ("stale_strategy_label", "Get\\s+Enterprise\\s+Only\\s+Tabs", "i"),
+                    ("stale_edition_label", "\\bEdition\\s+Info\\b", "i"),
+                    ("stale_backup_profile", "\\bbackup[- ]profile\\b|--profile\\s+backup", "i"),
+                    ("hosted_cloud_wording", "\\bhosted[- ]Cloud\\b", "i"),
+                    ("saas_wording", "\\bSaaS\\b", "i"),
+                ],
+            },
+            "docs_backups": {
+                "url": "https://docs.getgeolens.com/guides/admin/backups/",
+                "required": [
+                    ("backups_title", "Backups\\s+&\\s+Restore", "i"),
+                    ("backups_default_on", "Automated\\s+backups\\s+are\\s+on\\s+by\\s+default", "i"),
+                    ("backup_service", "\\bbackup\\s+service\\b", "i"),
+                    ("backup_s3_enabled", "\\bBACKUP_S3_ENABLED\\b", ""),
+                ],
+                "forbidden": [
+                    ("stale_backup_profile", "\\bbackup[- ]profile\\b|--profile\\s+backup", "i"),
+                    ("hosted_cloud_wording", "\\bhosted[- ]Cloud\\b", "i"),
+                    ("saas_wording", "\\bSaaS\\b", "i"),
+                ],
+            },
+            "docs_cloud_deployment": {
+                "url": "https://docs.getgeolens.com/guides/quickstart/cloud-deployment/",
+                "required": [
+                    ("provider_title", "Self-host\\s+on\\s+AWS,\\s+GCP,\\s+or\\s+DigitalOcean", "i"),
+                    ("managed_database", "\\bmanaged\\s+database\\b", "i"),
+                    ("object_storage", "\\bobject\\s+storage\\b", "i"),
+                    ("docker_compose_comparison", "\\bDocker\\s+Compose\\b", "i"),
+                ],
+                "forbidden": [
+                    ("hosted_cloud_wording", "\\bhosted[- ]Cloud\\b", "i"),
+                    ("saas_wording", "\\bSaaS\\b", "i"),
+                ],
+            },
+            "docs_provider_notes": {
+                "url": "https://docs.getgeolens.com/guides/admin/cloud/",
+                "required": [("provider_notes_title", "Self-hosted\\s+Provider\\s+Notes", "i")],
+                "forbidden": [
+                    ("hosted_cloud_wording", "\\bhosted[- ]Cloud\\b", "i"),
+                    ("saas_wording", "\\bSaaS\\b", "i"),
+                ],
+            },
+        }
 
-        marketing_required = {item.id: item.pattern for item in pages["marketing_home"].required}
-        marketing_forbidden = {item.id: item.pattern for item in pages["marketing_home"].forbidden}
-        self.assertEqual("http://localhost:8080/api/collections", marketing_required["ogc_api_collections_url"])
-        self.assertEqual("\\bgeolens\\.yml\\b", marketing_forbidden["stale_geolens_yml"])
+        self.assertEqual(set(expected), set(pages))
+        for page_id, page_expected in expected.items():
+            with self.subTest(page=page_id):
+                page = pages[page_id]
+                self.assertEqual(page_expected["url"], page.url)
+                self.assertEqual(page_expected["required"], [(item.id, item.pattern, item.flags) for item in page.required])
+                self.assertEqual(
+                    page_expected["forbidden"],
+                    [(item.id, item.pattern, item.flags) for item in page.forbidden],
+                )
 
     def test_default_config_fixture_pages_pass_offline(self) -> None:
         config = self.scanner.load_config(CONFIG)

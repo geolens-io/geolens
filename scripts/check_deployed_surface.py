@@ -148,6 +148,15 @@ def require_list(value: object, label: str) -> list[object]:
     return value
 
 
+def require_string(value: object, label: str) -> str:
+    if not isinstance(value, str):
+        raise ValueError(f"{label} must be a string")
+    text = value.strip()
+    if not text:
+        raise ValueError(f"{label} must not be empty")
+    return text
+
+
 def require_positive_number(value: object, label: str) -> float:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise ValueError(f"{label} must be a positive number")
@@ -168,12 +177,15 @@ def require_positive_integer(value: object, label: str) -> int:
 def compile_assertion(page_id: str, kind: str, index: int, raw: object) -> TextAssertion:
     entry = require_object(raw, f"{page_id}.{kind}[{index}]")
     for field in ("id", "pattern", "reason"):
-        if not str(entry.get(field, "")).strip():
+        if field not in entry:
             raise ValueError(f"{page_id}.{kind}[{index}] missing required field: {field}")
 
-    assertion_id = str(entry["id"])
-    pattern = str(entry["pattern"])
-    flags = str(entry.get("flags", ""))
+    assertion_id = require_string(entry["id"], f"{page_id}.{kind}[{index}].id")
+    pattern = require_string(entry["pattern"], f"{page_id}.{kind}[{index}].pattern")
+    reason = require_string(entry["reason"], f"{page_id}.{kind}[{index}].reason")
+    if "flags" in entry and not isinstance(entry["flags"], str):
+        raise ValueError(f"{page_id}.{kind}[{index}].flags must be a string")
+    flags = entry.get("flags", "")
     try:
         regex = re.compile(pattern, regex_flags(flags))
     except re.error as exc:
@@ -182,7 +194,7 @@ def compile_assertion(page_id: str, kind: str, index: int, raw: object) -> TextA
     return TextAssertion(
         id=assertion_id,
         pattern=pattern,
-        reason=str(entry["reason"]),
+        reason=reason,
         flags=flags,
         regex=regex,
     )
@@ -201,15 +213,14 @@ def load_config(path: Path = DEFAULT_CONFIG) -> GateConfig:
     seen_page_ids: set[str] = set()
     for page_index, raw_page in enumerate(require_list(raw["pages"], "pages")):
         page = require_object(raw_page, f"pages[{page_index}]")
-        page_id = str(page.get("id", "")).strip()
-        url = str(page.get("url", "")).strip()
-        if not page_id:
-            raise ValueError(f"pages[{page_index}] missing required field: id")
+        for field in ("id", "url"):
+            if field not in page:
+                raise ValueError(f"pages[{page_index}] missing required field: {field}")
+        page_id = require_string(page["id"], f"pages[{page_index}].id")
+        url = require_string(page["url"], f"{page_id}.url")
         if page_id in seen_page_ids:
             raise ValueError(f"duplicate page id: {page_id}")
         seen_page_ids.add(page_id)
-        if not url:
-            raise ValueError(f"{page_id} missing required field: url")
         validate_deployed_url(page_id, url)
 
         required = [
