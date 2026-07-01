@@ -16,11 +16,13 @@ export function AiAssistButton({ onClick, isPending, label }: AiAssistButtonProp
 
   return (
     <Button
-      variant="ghost"
+      variant="outline"
       size="xs"
       onClick={onClick}
       disabled={isPending}
-      className="text-muted-foreground hover:text-foreground"
+      // The assist buttons were muted ghost buttons users didn't notice; an
+      // outline + primary tint makes them read as a discoverable AI action.
+      className="border-primary/40 text-primary hover:bg-primary/10 hover:text-primary"
     >
       {isPending ? (
         <Loader2 className="h-3.5 w-3.5 animate-spin" />
