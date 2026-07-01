@@ -7232,26 +7232,6 @@ export type ReuploadServicePreviewRequest = {
 };
 
 /**
- * SamlToLocalConversion
- *
- * Request body for POST /admin/users/{user_id}/convert-saml-to-local/.
- *
- * Per Phase 221 D-01: a dedicated, single-purpose schema kept narrow on
- * purpose -- password is intentionally NOT on the generic UserUpdate schema
- * (which has no password field) so this conversion produces a single,
- * audit-distinct action ('user.convert_saml_to_local') instead of being
- * folded into 'user.update'.
- */
-export type SamlToLocalConversion = {
-    /**
-     * Password
-     *
-     * Local-password for the converted account (policy: min 12 chars, 3+ character classes). The user can change this after first login.
-     */
-    password: string;
-};
-
-/**
  * SavedSearchCreate
  *
  * Request body for creating a saved search.
@@ -9746,79 +9726,6 @@ export type ListAuditLogsAdminAuditLogsGetResponses = {
 
 export type ListAuditLogsAdminAuditLogsGetResponse = ListAuditLogsAdminAuditLogsGetResponses[keyof ListAuditLogsAdminAuditLogsGetResponses];
 
-export type ExportAuditLogsAdminAuditLogsExportFormatGetData = {
-    body?: never;
-    path: {
-        /**
-         * Format
-         */
-        format: string;
-    };
-    query?: {
-        /**
-         * Action
-         */
-        action?: string | null;
-        /**
-         * Resource Type
-         */
-        resource_type?: string | null;
-        /**
-         * Date From
-         */
-        date_from?: string | null;
-        /**
-         * Date To
-         */
-        date_to?: string | null;
-        /**
-         * Search
-         */
-        search?: string | null;
-        /**
-         * Max Rows
-         */
-        max_rows?: number;
-    };
-    url: '/admin/audit-logs/export/{format}';
-};
-
-export type ExportAuditLogsAdminAuditLogsExportFormatGetErrors = {
-    /**
-     * Bad request — invalid query parameters or payload
-     */
-    400: ProblemDetail;
-    /**
-     * Unauthorized — missing or invalid credentials
-     */
-    401: ProblemDetail;
-    /**
-     * Forbidden — caller lacks access to this resource
-     */
-    403: ProblemDetail;
-    /**
-     * Not found
-     */
-    404: ProblemDetail;
-    /**
-     * Validation error
-     */
-    422: ProblemDetail;
-    /**
-     * Internal server error
-     */
-    500: ProblemDetail;
-};
-
-export type ExportAuditLogsAdminAuditLogsExportFormatGetError = ExportAuditLogsAdminAuditLogsExportFormatGetErrors[keyof ExportAuditLogsAdminAuditLogsExportFormatGetErrors];
-
-export type ExportAuditLogsAdminAuditLogsExportFormatGetResponses = {
-    /**
-     * Successful Response
-     */
-    200: unknown;
-};
-
 export type TriggerBackfillAdminBackfillEmbeddingsPostData = {
     body?: never;
     path?: never;
@@ -10702,56 +10609,6 @@ export type ApproveUserAdminUsersUserIdApprovePostResponses = {
 };
 
 export type ApproveUserAdminUsersUserIdApprovePostResponse = ApproveUserAdminUsersUserIdApprovePostResponses[keyof ApproveUserAdminUsersUserIdApprovePostResponses];
-
-export type ConvertSamlToLocalAdminUsersUserIdConvertSamlToLocalPostData = {
-    body: SamlToLocalConversion;
-    path: {
-        /**
-         * User Id
-         */
-        user_id: string;
-    };
-    query?: never;
-    url: '/admin/users/{user_id}/convert-saml-to-local/';
-};
-
-export type ConvertSamlToLocalAdminUsersUserIdConvertSamlToLocalPostErrors = {
-    /**
-     * Bad request — invalid query parameters or payload
-     */
-    400: ProblemDetail;
-    /**
-     * Unauthorized — missing or invalid credentials
-     */
-    401: ProblemDetail;
-    /**
-     * Forbidden — caller lacks access to this resource
-     */
-    403: ProblemDetail;
-    /**
-     * Not found
-     */
-    404: ProblemDetail;
-    /**
-     * Validation error
-     */
-    422: ProblemDetail;
-    /**
-     * Internal server error
-     */
-    500: ProblemDetail;
-};
-
-export type ConvertSamlToLocalAdminUsersUserIdConvertSamlToLocalPostError = ConvertSamlToLocalAdminUsersUserIdConvertSamlToLocalPostErrors[keyof ConvertSamlToLocalAdminUsersUserIdConvertSamlToLocalPostErrors];
-
-export type ConvertSamlToLocalAdminUsersUserIdConvertSamlToLocalPostResponses = {
-    /**
-     * Successful Response
-     */
-    200: UserResponse;
-};
-
-export type ConvertSamlToLocalAdminUsersUserIdConvertSamlToLocalPostResponse = ConvertSamlToLocalAdminUsersUserIdConvertSamlToLocalPostResponses[keyof ConvertSamlToLocalAdminUsersUserIdConvertSamlToLocalPostResponses];
 
 export type DeactivateUserAdminUsersUserIdDeactivatePostData = {
     body?: never;

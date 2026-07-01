@@ -409,6 +409,7 @@ async def deactivate_user(
 @router.post(
     "/users/{user_id}/convert-saml-to-local/",
     response_model=UserResponse,
+    include_in_schema=False,
 )
 @limiter.limit("30/minute")
 async def convert_saml_to_local(

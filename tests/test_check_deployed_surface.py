@@ -394,6 +394,97 @@ class DeployedSurfaceGateTest(unittest.TestCase):
                     ("saas_wording", "\\bSaaS\\b", "i"),
                 ],
             },
+            "marketing_features": {
+                "url": "https://getgeolens.com/features/",
+                "required": [
+                    ("ogc_api_features_records", "OGC\\s+API\\s+Features\\s+and\\s+Records", "i"),
+                ],
+                "forbidden": [
+                    (
+                        "ogc_compliant_claim",
+                        "\\bOGC[- ]API[- ](?:Compliant|compliance)\\b|\\bOGC[- ](?:Compliant|compliance)\\b",
+                        "i",
+                    ),
+                    ("secure_token_embed", "with\\s+a\\s+secure\\s+token", "i"),
+                ],
+            },
+            "marketing_quickstart": {
+                "url": "https://getgeolens.com/quickstart/",
+                "required": [
+                    ("curl_installer", "curl\\s+-fsSL\\s+https://getgeolens\\.com/install\\.sh\\s+\\|\\s+sh", "i"),
+                ],
+                "forbidden": [
+                    ("stale_first_build_timing", "5\\s*[-–]\\s*10\\s+minutes", "i"),
+                    ("stale_git_clone_primary", "git\\s+clone\\s+to\\s+a\\s+fully\\s+operational", "i"),
+                    ("weak_admin_default", "\\badmin\\s*/\\s*admin\\b", "i"),
+                ],
+            },
+            "marketing_es": {
+                "url": "https://getgeolens.com/es/",
+                "required": [],
+                "forbidden": [
+                    ("stale_geolens_yml", "\\bgeolens\\.yml\\b", "i"),
+                    ("raw_ogc_collections_url", "localhost:8001/collections", "i"),
+                    (
+                        "ogc_compliant_claim",
+                        "\\bOGC[- ]API[- ](?:Compliant|compliance)\\b|\\bOGC[- ](?:Compliant|compliance)\\b",
+                        "i",
+                    ),
+                ],
+            },
+            "marketing_fr": {
+                "url": "https://getgeolens.com/fr/",
+                "required": [],
+                "forbidden": [
+                    ("stale_geolens_yml", "\\bgeolens\\.yml\\b", "i"),
+                    ("raw_ogc_collections_url", "localhost:8001/collections", "i"),
+                    (
+                        "ogc_compliant_claim",
+                        "\\bOGC[- ]API[- ](?:Compliant|compliance)\\b|\\bOGC[- ](?:Compliant|compliance)\\b",
+                        "i",
+                    ),
+                ],
+            },
+            "marketing_de": {
+                "url": "https://getgeolens.com/de/",
+                "required": [],
+                "forbidden": [
+                    ("stale_geolens_yml", "\\bgeolens\\.yml\\b", "i"),
+                    ("raw_ogc_collections_url", "localhost:8001/collections", "i"),
+                    (
+                        "ogc_compliant_claim",
+                        "\\bOGC[- ]API[- ](?:Compliant|compliance)\\b|\\bOGC[- ](?:Compliant|compliance)\\b",
+                        "i",
+                    ),
+                ],
+            },
+            "docs_api_reference": {
+                "url": "https://docs.getgeolens.com/guides/api/",
+                "required": [
+                    ("ogc_standards_endpoints", "OGC\\s+API\\s+&?\\s+Standards\\s+Endpoints", "i"),
+                ],
+                "forbidden": [
+                    ("edition_info_op", "\\bEdition\\s+Info\\b", "i"),
+                    ("enterprise_tabs_op", "Get\\s+Enterprise\\s+Only\\s+Tabs", "i"),
+                    ("convert_saml_op", "Convert\\s+Saml\\s+To\\s+Local", "i"),
+                    ("export_audit_op", "Export\\s+Audit\\s+Logs", "i"),
+                    ("cloud_deployment_notes", "Cloud\\s+Deployment\\s+Notes", "i"),
+                ],
+            },
+            "pypi_geolens_cli": {
+                "url": "https://pypi.org/project/geolens-cli/",
+                "required": [],
+                "forbidden": [
+                    ("community_or_enterprise", "community\\s+or\\s+enterprise", "i"),
+                ],
+            },
+            "pypi_geolens": {
+                "url": "https://pypi.org/project/geolens/",
+                "required": [],
+                "forbidden": [
+                    ("community_or_enterprise", "community\\s+or\\s+enterprise", "i"),
+                ],
+            },
         }
 
         self.assertEqual(set(expected), set(pages))
@@ -428,6 +519,17 @@ class DeployedSurfaceGateTest(unittest.TestCase):
                 "and Docker Compose comparison notes."
             ),
             "docs_provider_notes": "Self-hosted Provider Notes",
+            "marketing_features": (
+                "Standards support: OGC API Features and Records. "
+                "Embed maps in any webpage."
+            ),
+            "marketing_quickstart": "Quickstart: curl -fsSL https://getgeolens.com/install.sh | sh",
+            "marketing_es": "GeoLens: catálogo GIS autoalojado con docker-compose.yml.",
+            "marketing_fr": "GeoLens : catalogue SIG auto-hébergé avec docker-compose.yml.",
+            "marketing_de": "GeoLens: selbst gehosteter GIS-Katalog mit docker-compose.yml.",
+            "docs_api_reference": "OGC API & Standards Endpoints are documented here.",
+            "pypi_geolens_cli": "geolens-cli — command-line client for any GeoLens instance.",
+            "pypi_geolens": "geolens — generated Python SDK for any GeoLens instance.",
         }
 
         for page in config.pages:
@@ -458,6 +560,28 @@ class DeployedSurfaceGateTest(unittest.TestCase):
                 "Backups & Restore Automated backups are on by default. "
                 "The backup service uses BACKUP_S3_ENABLED. Run --profile backup.",
                 "stale_backup_profile",
+            ),
+            (
+                "marketing_features",
+                "Standards support: OGC API Features and Records. "
+                "Embed maps in any webpage with a secure token.",
+                "secure_token_embed",
+            ),
+            (
+                "marketing_quickstart",
+                "curl -fsSL https://getgeolens.com/install.sh | sh "
+                "First build downloads ~1 GB and takes 5-10 minutes.",
+                "stale_first_build_timing",
+            ),
+            (
+                "docs_api_reference",
+                "OGC API & Standards Endpoints. Convert Saml To Local. Export Audit Logs.",
+                "convert_saml_op",
+            ),
+            (
+                "pypi_geolens_cli",
+                "Run geolens-cli against any GeoLens instance - community or enterprise.",
+                "community_or_enterprise",
             ),
         ]
 

@@ -7,6 +7,16 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+## [1.4.2] - 2026-07-01
+
+### Changed
+
+- **Public API reference no longer lists the SAML-to-local conversion or
+  audit-log-export operations.** Both endpoints are excluded from the published
+  OpenAPI schema and the generated docs API reference. They still work at
+  runtime for administrators; only their listing in the public schema is
+  removed. The Python and TypeScript SDKs are regenerated to match.
+
 ## [1.4.1] - 2026-06-28
 
 ### Changed

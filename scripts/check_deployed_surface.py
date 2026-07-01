@@ -25,7 +25,14 @@ from urllib.request import HTTPRedirectHandler, Request, build_opener
 ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_CONFIG = ROOT / "scripts" / "deployed_surface_gate.json"
 USER_AGENT = "GeoLens deployed-surface-check"
-ALLOWED_DEPLOYED_HOSTS = frozenset({"getgeolens.com", "docs.getgeolens.com"})
+# getgeolens.com / docs.getgeolens.com are the marketing + docs surfaces.
+# pypi.org is allowed so the gate can assert the published package project pages
+# (geolens, geolens-cli) no longer carry stale enterprise-era long-description
+# wording (GATE-04, v1052). Keep this set narrow — it doubles as an SSRF guard
+# on the URLs the checker will fetch.
+ALLOWED_DEPLOYED_HOSTS = frozenset(
+    {"getgeolens.com", "docs.getgeolens.com", "pypi.org"}
+)
 TOP_LEVEL_FIELDS = frozenset({"timeout_seconds", "max_bytes", "pages"})
 PAGE_FIELDS = frozenset({"id", "url", "required", "forbidden"})
 ASSERTION_FIELDS = frozenset({"id", "pattern", "reason", "flags"})

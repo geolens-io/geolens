@@ -227,6 +227,209 @@
           "reason": "SaaS wording is outside the OSS launch docs."
         }
       ]
+    },
+    {
+      "id": "marketing_features",
+      "url": "https://getgeolens.com/features/",
+      "required": [
+        {
+          "id": "ogc_api_features_records",
+          "pattern": "OGC\\s+API\\s+Features\\s+and\\s+Records",
+          "flags": "i",
+          "reason": "Features page should describe OGC API support as Features and Records, not compliance."
+        }
+      ],
+      "forbidden": [
+        {
+          "id": "ogc_compliant_claim",
+          "pattern": "\\bOGC[- ]API[- ](?:Compliant|compliance)\\b|\\bOGC[- ](?:Compliant|compliance)\\b",
+          "flags": "i",
+          "reason": "Public copy should claim OGC API support, not certification or compliance status."
+        },
+        {
+          "id": "secure_token_embed",
+          "pattern": "with\\s+a\\s+secure\\s+token",
+          "flags": "i",
+          "reason": "Embed copy should read 'Embed maps in any webpage' without overstating a secure-token capability."
+        }
+      ]
+    },
+    {
+      "id": "marketing_quickstart",
+      "url": "https://getgeolens.com/quickstart/",
+      "required": [
+        {
+          "id": "curl_installer",
+          "pattern": "curl\\s+-fsSL\\s+https://getgeolens\\.com/install\\.sh\\s+\\|\\s+sh",
+          "flags": "i",
+          "reason": "Quickstart should lead with the public installer one-liner."
+        }
+      ],
+      "forbidden": [
+        {
+          "id": "stale_first_build_timing",
+          "pattern": "5\\s*[-–]\\s*10\\s+minutes",
+          "flags": "i",
+          "reason": "Quickstart should not carry the stale source-build first-run timing claim."
+        },
+        {
+          "id": "stale_git_clone_primary",
+          "pattern": "git\\s+clone\\s+to\\s+a\\s+fully\\s+operational",
+          "flags": "i",
+          "reason": "Quickstart's primary path should be the installer one-liner, not a git-clone source build."
+        },
+        {
+          "id": "weak_admin_default",
+          "pattern": "\\badmin\\s*/\\s*admin\\b",
+          "flags": "i",
+          "reason": "Quickstart must not reintroduce the admin/admin weak default."
+        }
+      ]
+    },
+    {
+      "id": "marketing_es",
+      "url": "https://getgeolens.com/es/",
+      "required": [],
+      "forbidden": [
+        {
+          "id": "stale_geolens_yml",
+          "pattern": "\\bgeolens\\.yml\\b",
+          "flags": "i",
+          "reason": "GeoLens ships docker-compose.yml and docker-compose.prod.yml."
+        },
+        {
+          "id": "raw_ogc_collections_url",
+          "pattern": "localhost:8001/collections",
+          "flags": "i",
+          "reason": "Public OGC examples should use http://localhost:8080/api/collections."
+        },
+        {
+          "id": "ogc_compliant_claim",
+          "pattern": "\\bOGC[- ]API[- ](?:Compliant|compliance)\\b|\\bOGC[- ](?:Compliant|compliance)\\b",
+          "flags": "i",
+          "reason": "Public copy should claim OGC API support, not certification or compliance status."
+        }
+      ]
+    },
+    {
+      "id": "marketing_fr",
+      "url": "https://getgeolens.com/fr/",
+      "required": [],
+      "forbidden": [
+        {
+          "id": "stale_geolens_yml",
+          "pattern": "\\bgeolens\\.yml\\b",
+          "flags": "i",
+          "reason": "GeoLens ships docker-compose.yml and docker-compose.prod.yml."
+        },
+        {
+          "id": "raw_ogc_collections_url",
+          "pattern": "localhost:8001/collections",
+          "flags": "i",
+          "reason": "Public OGC examples should use http://localhost:8080/api/collections."
+        },
+        {
+          "id": "ogc_compliant_claim",
+          "pattern": "\\bOGC[- ]API[- ](?:Compliant|compliance)\\b|\\bOGC[- ](?:Compliant|compliance)\\b",
+          "flags": "i",
+          "reason": "Public copy should claim OGC API support, not certification or compliance status."
+        }
+      ]
+    },
+    {
+      "id": "marketing_de",
+      "url": "https://getgeolens.com/de/",
+      "required": [],
+      "forbidden": [
+        {
+          "id": "stale_geolens_yml",
+          "pattern": "\\bgeolens\\.yml\\b",
+          "flags": "i",
+          "reason": "GeoLens ships docker-compose.yml and docker-compose.prod.yml."
+        },
+        {
+          "id": "raw_ogc_collections_url",
+          "pattern": "localhost:8001/collections",
+          "flags": "i",
+          "reason": "Public OGC examples should use http://localhost:8080/api/collections."
+        },
+        {
+          "id": "ogc_compliant_claim",
+          "pattern": "\\bOGC[- ]API[- ](?:Compliant|compliance)\\b|\\bOGC[- ](?:Compliant|compliance)\\b",
+          "flags": "i",
+          "reason": "Public copy should claim OGC API support, not certification or compliance status."
+        }
+      ]
+    },
+    {
+      "id": "docs_api_reference",
+      "url": "https://docs.getgeolens.com/guides/api/",
+      "required": [
+        {
+          "id": "ogc_standards_endpoints",
+          "pattern": "OGC\\s+API\\s+&?\\s+Standards\\s+Endpoints",
+          "flags": "i",
+          "reason": "API reference should document the OGC API & Standards endpoints."
+        }
+      ],
+      "forbidden": [
+        {
+          "id": "edition_info_op",
+          "pattern": "\\bEdition\\s+Info\\b",
+          "flags": "i",
+          "reason": "Edition-strategy operations must not appear in the public API reference."
+        },
+        {
+          "id": "enterprise_tabs_op",
+          "pattern": "Get\\s+Enterprise\\s+Only\\s+Tabs",
+          "flags": "i",
+          "reason": "Enterprise-only operations must not appear in the public API reference."
+        },
+        {
+          "id": "convert_saml_op",
+          "pattern": "Convert\\s+Saml\\s+To\\s+Local",
+          "flags": "i",
+          "reason": "SAML-conversion operation must not appear in the public API reference."
+        },
+        {
+          "id": "export_audit_op",
+          "pattern": "Export\\s+Audit\\s+Logs",
+          "flags": "i",
+          "reason": "Audit-log export operation must not appear in the public API reference."
+        },
+        {
+          "id": "cloud_deployment_notes",
+          "pattern": "Cloud\\s+Deployment\\s+Notes",
+          "flags": "i",
+          "reason": "Cloud-deployment strategy notes are outside the OSS API reference."
+        }
+      ]
+    },
+    {
+      "id": "pypi_geolens_cli",
+      "url": "https://pypi.org/project/geolens-cli/",
+      "required": [],
+      "forbidden": [
+        {
+          "id": "community_or_enterprise",
+          "pattern": "community\\s+or\\s+enterprise",
+          "flags": "i",
+          "reason": "The published geolens-cli long description must not carry the stale 'community or enterprise' wording."
+        }
+      ]
+    },
+    {
+      "id": "pypi_geolens",
+      "url": "https://pypi.org/project/geolens/",
+      "required": [],
+      "forbidden": [
+        {
+          "id": "community_or_enterprise",
+          "pattern": "community\\s+or\\s+enterprise",
+          "flags": "i",
+          "reason": "The published geolens long description must not carry the stale 'community or enterprise' wording."
+        }
+      ]
     }
   ]
 }
