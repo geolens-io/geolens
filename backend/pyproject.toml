@@ -91,7 +91,7 @@ dev = [
     "ruff",
     "pytest-cov",
     "bandit>=1.8",
-    "pip-audit>=2.7",
+    "pip-audit>=2.10.1",
     "moto[s3]>=5.2.2",
     "fakeredis>=2.21.0",
     "pystac>=1.14",
