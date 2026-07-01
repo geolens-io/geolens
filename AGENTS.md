@@ -9,7 +9,7 @@ The React/Vite frontend is in `frontend/src/`: `components/`, `pages/`, `hooks/`
 ## Build, Test, and Development Commands
 
 - `make dev` / `make down`: start or stop the Docker Compose development stack.
-- `make migrate`: run Alembic migrations in the API container.
+- `make migrate`: run Alembic migrations in the API container. `make alembic-check` fails if the ORM models have drifted from the migration scripts (run it for schema-adjacent changes).
 - `make test` / `make test-cov`: run backend pytest and coverage.
 - `npm run e2e` or `npm run e2e:smoke`: run Playwright suites.
 - `cd frontend && npm ci && npm run dev`: install frontend dependencies and start Vite.
@@ -55,6 +55,8 @@ Avoid bare, unscoped finding ids that only resolve in a private tracker.
 Backend tests use pytest with AnyIO; files follow `test_*.py`. Coverage in `backend/pyproject.toml` has a 60% minimum (`fail_under`). For DB-backed tests, start Postgres with `docker compose up -d --wait db`; follow `.env.test.example` and `.github/workflows/ci.yml` for CI-style variables.
 
 Frontend tests use Vitest and Testing Library as `*.test.ts(x)` files or under `__tests__/`. E2E tests use Playwright and follow `*.spec.ts` in `e2e/`.
+
+New `t()` translation keys must be added to all four locales (en/es/fr/de); a `defaultValue` alone fails the `npm run test:i18n` locale-parity CI gate.
 
 ## Commit & Pull Request Guidelines
 
