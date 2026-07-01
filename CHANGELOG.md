@@ -11,13 +11,13 @@ and releases use semantic versioning.
 
 ### Changed
 
-- **Public API reference no longer advertises edition-strategy, SAML, or
-  audit-log-export operations.** The SAML-to-local conversion and audit-log
-  export endpoints are now excluded from the published OpenAPI schema (and the
-  generated docs API reference), matching the already-hidden edition and
-  enterprise-tabs endpoints. The routes remain fully functional at runtime for
-  administrators; only their advertisement in the public schema is suppressed.
-  The generated Python and TypeScript SDKs are regenerated accordingly.
+- **Public API reference no longer lists edition, SAML, or audit-log-export
+  operations.** The SAML-to-local conversion and audit-log export endpoints are
+  excluded from the published OpenAPI schema and the generated docs API
+  reference, alongside the edition and enterprise-tabs endpoints that were
+  already hidden. The endpoints still work at runtime for administrators; only
+  their listing in the public schema is removed. The Python and TypeScript SDKs
+  are regenerated to match.
 
 ## [1.4.1] - 2026-06-28
 
