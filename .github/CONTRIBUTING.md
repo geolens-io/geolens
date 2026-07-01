@@ -239,7 +239,7 @@ direct imports of split internals from outside the domain.
 
 ## First Contribution
 
-New to the project? Look for issues labeled **good-first-issue** in the [issue tracker](https://github.com/geolens-io/geolens/issues). These are scoped, well-described tasks suitable for getting familiar with the codebase.
+New to the project? Look for issues labeled [**good first issue**](https://github.com/geolens-io/geolens/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22) in the issue tracker. These are scoped, well-described tasks suitable for getting familiar with the codebase.
 
 If you're unsure where to start, open an issue describing what you'd like to work on and we'll point you in the right direction.
 
