@@ -15,6 +15,24 @@ The React/Vite frontend is in `frontend/src/`: `components/`, `pages/`, `hooks/`
 - `cd frontend && npm ci && npm run dev`: install frontend dependencies and start Vite.
 - `cd frontend && npm run build && npm run lint && npm run test:coverage`: run frontend gates.
 - `make openapi-check`, `make sdks-check`, `make cli-test`: validate API snapshots and SDK/CLI drift.
+- `make bump VERSION=X.Y.Z`: rewrite every version site atomically. Never edit a version string by hand; `make version-check` is the CI gate.
+
+### Running a single test
+
+- Backend, in-container: mirror `make test`'s env (the container's default uv cache is read-only), e.g. `docker compose exec api env UV_CACHE_DIR=/app/staging/uv-cache UV_PROJECT_ENVIRONMENT=/app/staging/geolens-api-test-venv uv run pytest -o cache_dir=/app/staging/.pytest_cache tests/test_foo.py::test_bar -v`.
+- Backend, on the host (needs Postgres at localhost:5434): `cd backend && set -a && source ../.env.test && set +a && uv run pytest tests/test_foo.py -v`.
+- Frontend: `cd frontend && npx vitest run src/path/foo.test.ts`.
+- E2E: `npx playwright test e2e/foo.spec.ts --project=chromium` (stack must be running).
+
+## Architecture
+
+Services (`docker-compose.yml`): Nginx (prod proxy; Vite proxy in dev) fronts the FastAPI `api` (catalog, search, OGC/STAC, vector tiles) and Titiler (COG raster tiles). A `worker` runs GDAL/ogr2ogr ingestion, dispatched via the Procrastinate job queue that lives *inside* PostgreSQL (no separate broker). PostgreSQL 17 (PostGIS + pgvector + pg_trgm) is the single source of truth; object storage is MinIO/S3; Valkey is the tile/query cache.
+
+Backend `backend/app/`: `modules/` (domain areas — `catalog` is the core, with `datasets`/`collections`/`records`/`features`/`maps`/`layers`/`search`/`sources`), `platform/` (shared services), `processing/` (ingest/export/raster/tiles/embeddings/ai), `standards/` (OGC/STAC/DCAT), `core/` (config, DB, permissions, edition). Access control is in `catalog/authorization.py`. The `datasets` domain is split into `service_X` sub-modules behind a re-export façade in `service.py` — import via the façade, never the sub-modules (architecture-guard test enforces this).
+
+Frontend `frontend/src/` (React 19, `@vis.gl/react-maplibre` v8 / maplibre-gl v5, TanStack Query, zustand, Tailwind): the map builder is `builder/`; all API calls go through `apiFetch()` in `api/client.ts`; the auth token lives in `useAuthStore` (persisted `geolens-auth`, read outside React via `useAuthStore.getState().token`); reuse UI primitives from `components/ui/`.
+
+CLI (`cli/geolens_cli/`) and SDKs (`sdks/`) wrap the API. SDKs are generated from `backend/openapi.json` — regenerate with `make sdks`, never hand-edit generated files (only `auth.*`/`__init__`/`index` wrappers are hand-maintained).
 
 ## Coding Style & Naming Conventions
 
@@ -34,7 +52,7 @@ Avoid bare, unscoped finding ids that only resolve in a private tracker.
 
 ## Testing Guidelines
 
-Backend tests use pytest with AnyIO; files follow `test_*.py`. Coverage in `backend/pyproject.toml` has a 58.5% minimum. For DB-backed tests, start Postgres with `docker compose up -d --wait db`; follow `.env.test.example` and `.github/workflows/ci.yml` for CI-style variables.
+Backend tests use pytest with AnyIO; files follow `test_*.py`. Coverage in `backend/pyproject.toml` has a 60% minimum (`fail_under`). For DB-backed tests, start Postgres with `docker compose up -d --wait db`; follow `.env.test.example` and `.github/workflows/ci.yml` for CI-style variables.
 
 Frontend tests use Vitest and Testing Library as `*.test.ts(x)` files or under `__tests__/`. E2E tests use Playwright and follow `*.spec.ts` in `e2e/`.
 
