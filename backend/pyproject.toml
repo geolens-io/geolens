@@ -10,7 +10,7 @@ requires-python = ">=3.13"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
 dependencies = [
-    "fastapi[standard]>=0.115.0",
+    "fastapi[standard]>=0.138.2",
     "sqlalchemy[asyncio]>=2.0.50",
     "asyncpg>=0.29.0",
     "alembic>=1.13.0",
