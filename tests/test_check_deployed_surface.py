@@ -472,14 +472,14 @@ class DeployedSurfaceGateTest(unittest.TestCase):
                 ],
             },
             "pypi_geolens_cli": {
-                "url": "https://pypi.org/project/geolens-cli/",
+                "url": "https://pypi.org/pypi/geolens-cli/json",
                 "required": [],
                 "forbidden": [
                     ("community_or_enterprise", "community\\s+or\\s+enterprise", "i"),
                 ],
             },
             "pypi_geolens": {
-                "url": "https://pypi.org/project/geolens/",
+                "url": "https://pypi.org/pypi/geolens/json",
                 "required": [],
                 "forbidden": [
                     ("community_or_enterprise", "community\\s+or\\s+enterprise", "i"),

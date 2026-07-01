@@ -407,27 +407,27 @@
     },
     {
       "id": "pypi_geolens_cli",
-      "url": "https://pypi.org/project/geolens-cli/",
+      "url": "https://pypi.org/pypi/geolens-cli/json",
       "required": [],
       "forbidden": [
         {
           "id": "community_or_enterprise",
           "pattern": "community\\s+or\\s+enterprise",
           "flags": "i",
-          "reason": "The published geolens-cli long description must not carry the stale 'community or enterprise' wording."
+          "reason": "The published geolens-cli long description (latest release, via the PyPI JSON API) must not carry the stale 'community or enterprise' wording. The /project/ HTML page serves a minimal bot response without the description, so the JSON endpoint is the reliable source."
         }
       ]
     },
     {
       "id": "pypi_geolens",
-      "url": "https://pypi.org/project/geolens/",
+      "url": "https://pypi.org/pypi/geolens/json",
       "required": [],
       "forbidden": [
         {
           "id": "community_or_enterprise",
           "pattern": "community\\s+or\\s+enterprise",
           "flags": "i",
-          "reason": "The published geolens long description must not carry the stale 'community or enterprise' wording."
+          "reason": "The published geolens long description (latest release, via the PyPI JSON API) must not carry the stale 'community or enterprise' wording."
         }
       ]
     }
