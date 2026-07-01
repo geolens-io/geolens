@@ -1,6 +1,6 @@
 {
   "_comment": "Canonical cross-surface facts for the GeoLens README, marketing site (getgeolens.com/src), and docs site (getgeolens.com/docs). Validated against scripts/install.sh + backend/pyproject.toml by scripts/check_docs_contract.py (geolens CI). The getgeolens.com repo vendors a copy and enforces the same `forbidden` list in its own CI. See docs-internal/DOC-CONSISTENCY-STRATEGY for the full design. Edit a fact ONCE here (and in its canonical source) — the gates make every surface follow.",
-  "version": "1.4.1",
+  "version": "1.4.2",
   "install": {
     "oneLiner": "curl -fsSL https://getgeolens.com/install.sh | sh",
     "sourceBuild": "bash scripts/install.sh",
