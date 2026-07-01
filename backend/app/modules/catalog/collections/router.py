@@ -104,6 +104,10 @@ async def create_collection_endpoint(
         )
         await db.commit()
         await db.refresh(collection)
+        # Without this, an admin's newly created collection stays hidden behind
+        # the 60s catalog:collections:admin cache until it expires. Matches the
+        # invalidate call in the update/delete/dataset-membership handlers.
+        await invalidate_catalog_cache()
     except IntegrityError:
         await db.rollback()
         raise HTTPException(

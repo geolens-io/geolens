@@ -96,6 +96,38 @@ class TestCreateCollection:
         assert data["extent_bbox"] is None
         assert "id" in data
 
+    async def test_create_collection_invalidates_admin_list_cache(
+        self, client: AsyncClient, admin_auth_header: dict
+    ):
+        """Regression: create must bust the 60s admin list cache.
+
+        The list endpoint caches admin views under
+        ``catalog:collections:admin:{skip}:{limit}``. Before the fix, create
+        (unlike update/delete) did not call invalidate_catalog_cache(), so a
+        freshly created collection stayed hidden behind the stale cache — the
+        201 + success toast were real, but it never appeared in the list.
+        """
+        # Populate the admin list cache (default skip=0, limit=50).
+        first = await client.get("/catalog/collections/", headers=admin_auth_header)
+        assert first.status_code == 200
+        assert "Cache Bust Collection" not in {
+            c["name"] for c in first.json()["collections"]
+        }
+
+        created = await client.post(
+            "/catalog/collections/",
+            json={"name": "Cache Bust Collection"},
+            headers=admin_auth_header,
+        )
+        assert created.status_code == 201
+
+        # The very next list must reflect it — proving the cache was busted.
+        second = await client.get("/catalog/collections/", headers=admin_auth_header)
+        assert second.status_code == 200
+        assert "Cache Bust Collection" in {
+            c["name"] for c in second.json()["collections"]
+        }
+
     async def test_create_collection_as_editor(
         self, client: AsyncClient, editor_auth_header: dict
     ):
