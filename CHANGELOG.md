@@ -16,6 +16,20 @@ and releases use semantic versioning.
   OpenAPI schema and the generated docs API reference. They still work at
   runtime for administrators; only their listing in the public schema is
   removed. The Python and TypeScript SDKs are regenerated to match.
+- **The OpenAPI description drops the compliance-status wording for the OGC
+  endpoints.** The published API summary now says the API implements the OGC
+  API building blocks; formal conformance is reported by the `/conformance`
+  endpoint itself.
+
+### Fixed
+
+- **New collections appear in the catalog immediately.** The collection
+  create endpoint now invalidates the catalog list cache like every other
+  collection mutation, so a just-created collection no longer looks like it
+  silently failed until the cache expired.
+- **The dataset page's AI metadata assist is easier to spot.** The Generate
+  summary, keyword assist, lineage, and quality-statement buttons no longer
+  use the lowest-emphasis styling that made them read as decorative.
 
 ## [1.4.1] - 2026-06-28
 

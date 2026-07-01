@@ -4,7 +4,7 @@
 
 **Die raumbezogenen Daten Ihres Teams, an einem Ort durchsuchbar.**
 
-Laden Sie Shapefiles, GeoTIFFs, GeoPackages oder CSVs hoch. GeoLens speichert alles in PostGIS, indexiert Metadaten mit pgvector + pg_trgm für semantische und unscharfe Suche und stellt OGC APIs bereit, die QGIS, ArcGIS und MapLibre Clients direkt nutzen können. Es basiert auf FastAPI und React und lässt sich mit einem einzigen Befehl bereitstellen.
+Laden Sie Shapefiles, GeoTIFFs, GeoPackages oder CSVs hoch. GeoLens speichert alles in PostGIS, indexiert Metadaten mit pg_trgm für unscharfe Suche (pgvector ergänzt semantische Suche, sobald ein Embedding-Anbieter konfiguriert und die Option in den Einstellungen aktiviert ist) und stellt OGC APIs bereit, die QGIS, ArcGIS und MapLibre Clients direkt nutzen können. Es basiert auf FastAPI und React und lässt sich mit einem einzigen Befehl bereitstellen.
 
 > Dies ist eine gekürzte Übersetzung. Das englische [README](README.md) ist die kanonische Quelle; die vollständige, stets aktuelle deutschsprachige Dokumentation finden Sie unter **[docs.getgeolens.com/de](https://docs.getgeolens.com/de)**.
 
