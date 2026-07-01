@@ -6,7 +6,7 @@ No CLA required -- the Apache 2.0 license covers all contributions. We do ask th
 
 ## Documentation
 
-Full user, admin, and API documentation lives at **[docs.getgeolens.com](https://docs.getgeolens.com)**. Source MDX files for the documentation site live in the [getgeolens-com repo](https://github.com/geolens-io/getgeolens.com/tree/main/docs/) under `docs/src/content/docs/guides/`. Submit product-doc fixes via PRs against that repo, not this one.
+Full user, admin, and API documentation lives at **[docs.getgeolens.com](https://docs.getgeolens.com)**. The docs site's source isn't public yet, so report doc problems as [issues in this repo](https://github.com/geolens-io/geolens/issues/new?labels=documentation) with the `documentation` label and we'll port the fixes over.
 
 Full narrative product docs live in the sibling `getgeolens.com` repo and are
 served at `docs.getgeolens.com`. Keep README images under `.github/assets/`,
@@ -263,7 +263,7 @@ For non-security bugs, feature requests, and questions, open an issue in the [Ge
 - Expected vs. actual behavior
 - Logs (`docker compose logs api worker | tail -200`)
 
-Search existing issues before opening a new one. For documentation bugs, file the issue in the [getgeolens.com repo](https://github.com/geolens-io/getgeolens.com/issues) instead.
+Search existing issues before opening a new one. For documentation bugs, open an issue here with the `documentation` label.
 
 ## Questions?
 

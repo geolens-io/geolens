@@ -9,7 +9,7 @@ GeoLens is an open-source, self-hosted catalog and map builder for GIS and data 
 <p align="center">
   <a href="https://demo.getgeolens.com"><img src="https://img.shields.io/badge/%E2%96%B6%20Try%20the%20live%20demo-demo.getgeolens.com-2563eb?style=for-the-badge" alt="Try the live demo" /></a>
   <br />
-  <sub>No install required. Explore the map builder with sample maps. Sign in as <code>guest</code> / <code>GeoLensDemo1!</code></sub>
+  <sub>No install required. Browse the sample catalog and maps without an account, or sign in with Google, GitHub, or Microsoft to try the map builder. Demo data may be wiped at any time.</sub>
 </p>
 
 [![CI](https://github.com/geolens-io/geolens/actions/workflows/ci.yml/badge.svg)](https://github.com/geolens-io/geolens/actions/workflows/ci.yml)
