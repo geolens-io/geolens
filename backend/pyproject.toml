@@ -23,7 +23,7 @@ dependencies = [
     # JWKS fetch, HMAC key-confusion, detached-JWS DoS). Do not lower this floor.
     "pyjwt>=2.13.0",
     "pwdlib[bcrypt]>=0.3.0",
-    "procrastinate>=3.0.0",
+    "procrastinate>=3.9.0",
     "psycopg>=3.3.4",
     "shapely>=2.0",
     "pygeofilter[backend-sqlalchemy]>=0.3.3",
