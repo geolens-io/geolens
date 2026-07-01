@@ -34,7 +34,7 @@
         },
         {
           "id": "ogc_compliant_claim",
-          "pattern": "\\bOGC[- ]API[- ](?:Compliant|compliance)\\b|\\bOGC[- ](?:Compliant|compliance)\\b",
+          "pattern": "\\bOGC[- ]API\\b[^.\\n]*?\\b(?:Compliant|compliance)\\b|\\bOGC[- ](?:Compliant|compliance)\\b",
           "flags": "i",
           "reason": "Public copy should claim OGC API support, not certification or compliance status."
         }
@@ -242,7 +242,7 @@
       "forbidden": [
         {
           "id": "ogc_compliant_claim",
-          "pattern": "\\bOGC[- ]API[- ](?:Compliant|compliance)\\b|\\bOGC[- ](?:Compliant|compliance)\\b",
+          "pattern": "\\bOGC[- ]API\\b[^.\\n]*?\\b(?:Compliant|compliance)\\b|\\bOGC[- ](?:Compliant|compliance)\\b",
           "flags": "i",
           "reason": "Public copy should claim OGC API support, not certification or compliance status."
         },
@@ -305,7 +305,7 @@
         },
         {
           "id": "ogc_compliant_claim",
-          "pattern": "\\bOGC[- ]API[- ](?:Compliant|compliance)\\b|\\bOGC[- ](?:Compliant|compliance)\\b",
+          "pattern": "\\bOGC[- ]API\\b[^.\\n]*?\\b(?:Compliant|compliance)\\b|\\bOGC[- ](?:Compliant|compliance)\\b",
           "flags": "i",
           "reason": "Public copy should claim OGC API support, not certification or compliance status."
         }
@@ -330,7 +330,7 @@
         },
         {
           "id": "ogc_compliant_claim",
-          "pattern": "\\bOGC[- ]API[- ](?:Compliant|compliance)\\b|\\bOGC[- ](?:Compliant|compliance)\\b",
+          "pattern": "\\bOGC[- ]API\\b[^.\\n]*?\\b(?:Compliant|compliance)\\b|\\bOGC[- ](?:Compliant|compliance)\\b",
           "flags": "i",
           "reason": "Public copy should claim OGC API support, not certification or compliance status."
         }
@@ -355,7 +355,7 @@
         },
         {
           "id": "ogc_compliant_claim",
-          "pattern": "\\bOGC[- ]API[- ](?:Compliant|compliance)\\b|\\bOGC[- ](?:Compliant|compliance)\\b",
+          "pattern": "\\bOGC[- ]API\\b[^.\\n]*?\\b(?:Compliant|compliance)\\b|\\bOGC[- ](?:Compliant|compliance)\\b",
           "flags": "i",
           "reason": "Public copy should claim OGC API support, not certification or compliance status."
         }

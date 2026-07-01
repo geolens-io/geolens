@@ -435,7 +435,7 @@ def _resolve_app_version() -> str:
 app = FastAPI(
     title="GeoLens API",
     version=_resolve_app_version(),
-    summary="PostGIS-native geospatial data catalog with OGC API Features compliance",
+    summary="PostGIS-native geospatial data catalog with OGC API Features and Records support",
     description=_DESCRIPTION,
     root_path="/api",
     docs_url=None if _is_production else "/docs",

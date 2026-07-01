@@ -15816,7 +15816,7 @@
       "name": "Apache 2.0",
       "url": "https://www.apache.org/licenses/LICENSE-2.0"
     },
-    "summary": "PostGIS-native geospatial data catalog with OGC API Features compliance",
+    "summary": "PostGIS-native geospatial data catalog with OGC API Features and Records support",
     "termsOfService": "https://github.com/geolens-io/geolens/blob/main/LICENSE",
     "title": "GeoLens API",
     "version": "1.4.2"
