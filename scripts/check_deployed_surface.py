@@ -16,7 +16,7 @@ import sys
 from dataclasses import dataclass
 from html.parser import HTMLParser
 from pathlib import Path
-from typing import Callable, Sequence
+from typing import Callable, Iterator, Sequence
 from urllib.parse import urljoin, urlparse
 from urllib.error import HTTPError, URLError
 from urllib.request import HTTPRedirectHandler, Request, build_opener
@@ -275,6 +275,37 @@ def load_config(path: Path = DEFAULT_CONFIG) -> GateConfig:
     return GateConfig(timeout_seconds=timeout_seconds, max_bytes=max_bytes, pages=pages)
 
 
+def _iter_json_strings(value: object) -> "Iterator[str]":
+    if isinstance(value, str):
+        yield value
+    elif isinstance(value, dict):
+        for item in value.values():
+            yield from _iter_json_strings(item)
+    elif isinstance(value, list):
+        for item in value:
+            yield from _iter_json_strings(item)
+
+
+def decode_scannable_text(data: bytes, content_type: str) -> str:
+    """Decode a fetched response body to scannable text.
+
+    For JSON responses (e.g. the PyPI ``/pypi/<name>/json`` endpoint) the raw
+    bytes leave JSON escapes (``\\n``, ``\\uXXXX``) intact, so a forbidden
+    phrase wrapped across an escape (``community\\nor enterprise``) would evade
+    the assertions. Parse the JSON and join its decoded string values so escapes
+    are resolved before scanning. Falls back to the raw decoded text on any
+    parse failure or non-JSON content type.
+    """
+    text = data.decode("utf-8", errors="replace")
+    if "json" in content_type.lower():
+        try:
+            parsed = json.loads(text)
+        except ValueError:
+            return text
+        return "\n".join(_iter_json_strings(parsed))
+    return text
+
+
 def fetch_url(url: str, timeout_seconds: float, max_bytes: int) -> PageFetch:
     validate_deployed_url("configured page", url)
     request = Request(url, headers={"User-Agent": USER_AGENT})
@@ -283,6 +314,7 @@ def fetch_url(url: str, timeout_seconds: float, max_bytes: int) -> PageFetch:
         with opener.open(request, timeout=timeout_seconds) as response:
             data = response.read(max_bytes + 1)
             final_url = response.geturl()
+            content_type = response.headers.get_content_type()
             validate_deployed_url("final response", final_url)
     except HTTPError as exc:
         raise OSError(f"{url} returned HTTP {exc.code}") from exc
@@ -291,7 +323,7 @@ def fetch_url(url: str, timeout_seconds: float, max_bytes: int) -> PageFetch:
 
     if len(data) > max_bytes:
         raise OSError(f"{url} response exceeded max_bytes={max_bytes}")
-    return PageFetch(url=final_url, text=data.decode("utf-8", errors="replace"))
+    return PageFetch(url=final_url, text=decode_scannable_text(data, content_type))
 
 
 def normalize_text(text: str) -> str:

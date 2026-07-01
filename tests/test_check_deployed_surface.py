@@ -317,6 +317,23 @@ class DeployedSurfaceGateTest(unittest.TestCase):
                 )
             )
 
+    def test_json_response_is_decoded_before_scanning(self) -> None:
+        # PyPI /pypi/<name>/json returns the long description as a JSON string.
+        # A forbidden phrase wrapped across a newline arrives JSON-escaped as
+        # literal \n; decoding must resolve it so the assertion still matches.
+        raw = json.dumps({"info": {"description": "any GeoLens instance community\nor enterprise."}})
+        decoded = self.scanner.decode_scannable_text(raw.encode("utf-8"), "application/json")
+        self.assertIn("community\nor enterprise", decoded)
+        self.assertNotIn("\\n", decoded)
+        normalized = self.scanner.normalize_text(decoded)
+        self.assertRegex(normalized, r"community\s+or\s+enterprise")
+
+    def test_non_json_response_is_passed_through_unchanged(self) -> None:
+        html = b"<main>community or enterprise</main>"
+        self.assertEqual(html.decode(), self.scanner.decode_scannable_text(html, "text/html"))
+        # Malformed JSON falls back to the raw decoded text rather than raising.
+        self.assertEqual("{bad", self.scanner.decode_scannable_text(b"{bad", "application/json"))
+
     def test_default_config_covers_marketing_and_docs_requirements(self) -> None:
         config = self.scanner.load_config(CONFIG)
         pages = {page.id: page for page in config.pages}
@@ -472,14 +489,14 @@ class DeployedSurfaceGateTest(unittest.TestCase):
                 ],
             },
             "pypi_geolens_cli": {
-                "url": "https://pypi.org/project/geolens-cli/",
+                "url": "https://pypi.org/pypi/geolens-cli/json",
                 "required": [],
                 "forbidden": [
                     ("community_or_enterprise", "community\\s+or\\s+enterprise", "i"),
                 ],
             },
             "pypi_geolens": {
-                "url": "https://pypi.org/project/geolens/",
+                "url": "https://pypi.org/pypi/geolens/json",
                 "required": [],
                 "forbidden": [
                     ("community_or_enterprise", "community\\s+or\\s+enterprise", "i"),
