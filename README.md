@@ -4,7 +4,7 @@
 
 **Your team's spatial data: searchable, mappable, and shareable in one place.**
 
-GeoLens is an open-source, self-hosted catalog and map builder for GIS and data teams: a single home for spatial data that you run on infrastructure you control, with no telemetry. GeoLens itself phones home to nothing. (Features you opt into can make outbound calls: AI assist to your chosen OpenAI-compatible endpoint or Anthropic key, OAuth/OIDC sign-in, SMTP, basemap tiles, remote/S3 data sources, and off-site backups.) Upload Shapefiles, GeoTIFFs, GeoPackages, or CSVs (or register data you already have); GeoLens stores everything in PostGIS, indexes it with pgvector + pg_trgm for semantic and fuzzy search, and serves OGC/STAC APIs that QGIS, ArcGIS, and MapLibre clients connect to natively. Compose, style, and share multi-layer maps right in the browser. Built on FastAPI and React. Deployed with one command.
+GeoLens is an open-source, self-hosted catalog and map builder for GIS and data teams: a single home for spatial data that you run on infrastructure you control, with no telemetry. GeoLens itself phones home to nothing. (Features you opt into can make outbound calls: AI assist to your chosen OpenAI-compatible endpoint or Anthropic key, OAuth/OIDC sign-in, SMTP, basemap tiles, remote/S3 data sources, and off-site backups.) Upload Shapefiles, GeoTIFFs, GeoPackages, or CSVs (or register data you already have); GeoLens stores everything in PostGIS, indexes it with pg_trgm for fuzzy search out of the box (pgvector adds semantic ranking once you configure an embedding provider and enable semantic search), and serves OGC/STAC APIs that QGIS, ArcGIS, and MapLibre clients connect to natively. Compose, style, and share multi-layer maps right in the browser. Built on FastAPI and React. Deployed with one command.
 
 <p align="center">
   <a href="https://demo.getgeolens.com"><img src="https://img.shields.io/badge/%E2%96%B6%20Try%20the%20live%20demo-demo.getgeolens.com-2563eb?style=for-the-badge" alt="Try the live demo" /></a>
@@ -66,7 +66,7 @@ GeoLens replaces that workflow:
 
 - **One catalog:** upload Shapefiles, GeoPackages, GeoTIFFs, or CSVs and they become searchable, previewable, and exportable in minutes
 - **Works with your tools:** OGC API Features/Records, STAC API 1.0, direct tile URLs for QGIS, ArcGIS, and MapLibre
-- **Semantic and spatial search:** find datasets by meaning rather than exact keywords, powered by pgvector and pg_trgm full-text search
+- **Semantic and spatial search:** pg_trgm fuzzy matching out of the box; add an embedding provider and enable semantic search to rank datasets by meaning (pgvector)
 - **Built-in map builder:** compose multi-layer maps, style them, and share via public link or embeddable iframe
 - **AI-assisted (optional):** chat with your maps, auto-generate descriptions, search by natural language. Bring an OpenAI-compatible endpoint or Anthropic key, or skip it entirely
 
@@ -79,7 +79,7 @@ TOKEN=$(curl -s -X POST http://localhost:8080/api/auth/login/ \
   -d 'username=admin&password=<your-admin-password>' | jq -r '.access_token')
 ```
 
-Search datasets by meaning instead of exact keyword matches:
+Semantic search takes a one-time admin setup: an embedding provider and the AI + Semantic Search toggles in the admin AI settings, plus an embedding backfill for data ingested before setup (the [search guide](https://docs.getgeolens.com/guides/user/search/) walks through it). Once that's on, search datasets by meaning instead of exact keyword matches:
 
 ```bash
 # Semantic search ranks by meaning: "hydrology" surfaces subwatersheds, lakes,
@@ -100,7 +100,7 @@ CID=$(curl -s "http://localhost:8080/api/search/datasets/?q=countries&limit=1" \
 curl "http://localhost:8080/api/collections/$CID/items?bbox=-10,35,30,60&limit=5"
 ```
 
-PostGIS and pgvector share one database, so you can rank datasets by meaning *inside* a spatial window in a single query. See the [search guide](https://docs.getgeolens.com/guides/user/search/) for how semantic and spatial search work together.
+PostGIS and pgvector share one database, so with semantic search enabled you can rank datasets by meaning *inside* a spatial window in a single query. See the [search guide](https://docs.getgeolens.com/guides/user/search/) for how semantic and spatial search work together.
 
 Connect directly from QGIS: **Layer > Add WFS / OGC API Features** and point at `http://localhost:8080/api/`.
 

@@ -4,7 +4,7 @@
 
 **Los datos espaciales de tu equipo, buscables en un solo lugar.**
 
-Sube Shapefiles, GeoTIFFs, GeoPackages o CSVs. GeoLens guarda todo en PostGIS, indexa los metadatos con pgvector + pg_trgm para búsqueda semántica y difusa, y sirve APIs OGC que QGIS, ArcGIS y clientes MapLibre pueden usar de forma nativa. Está construido con FastAPI y React, y se despliega con un solo comando.
+Sube Shapefiles, GeoTIFFs, GeoPackages o CSVs. GeoLens guarda todo en PostGIS, indexa los metadatos con pg_trgm para búsqueda difusa (pgvector añade búsqueda semántica al configurar un proveedor de embeddings y activar la opción en los ajustes), y sirve APIs OGC que QGIS, ArcGIS y clientes MapLibre pueden usar de forma nativa. Está construido con FastAPI y React, y se despliega con un solo comando.
 
 > Esta es una traducción resumida. El [README en inglés](README.md) es la fuente canónica; la documentación completa y actualizada en español está en **[docs.getgeolens.com/es](https://docs.getgeolens.com/es)**.
 
