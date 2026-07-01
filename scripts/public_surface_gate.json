@@ -143,7 +143,7 @@
     },
     {
       "id": "ogc_compliant_claim",
-      "pattern": "\\bOGC[- ]API[- ](?:Compliant|compliance)\\b|\\bOGC[- ](?:Compliant|compliance)\\b",
+      "pattern": "\\bOGC[- ]API\\b[^.\\n]*?\\b(?:Compliant|compliance)\\b|\\bOGC[- ](?:Compliant|compliance)\\b",
       "flags": "i",
       "reason": "GeoLens should claim OGC API support, not public certification or compliance status."
     },

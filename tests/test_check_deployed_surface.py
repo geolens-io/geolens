@@ -350,7 +350,7 @@ class DeployedSurfaceGateTest(unittest.TestCase):
                     ("raw_ogc_collections_url", "localhost:8001/collections", "i"),
                     (
                         "ogc_compliant_claim",
-                        "\\bOGC[- ]API[- ](?:Compliant|compliance)\\b|\\bOGC[- ](?:Compliant|compliance)\\b",
+                        "\\bOGC[- ]API\\b[^.\\n]*?\\b(?:Compliant|compliance)\\b|\\bOGC[- ](?:Compliant|compliance)\\b",
                         "i",
                     ),
                 ],
@@ -419,7 +419,7 @@ class DeployedSurfaceGateTest(unittest.TestCase):
                 "forbidden": [
                     (
                         "ogc_compliant_claim",
-                        "\\bOGC[- ]API[- ](?:Compliant|compliance)\\b|\\bOGC[- ](?:Compliant|compliance)\\b",
+                        "\\bOGC[- ]API\\b[^.\\n]*?\\b(?:Compliant|compliance)\\b|\\bOGC[- ](?:Compliant|compliance)\\b",
                         "i",
                     ),
                     ("secure_token_embed", "with\\s+a\\s+secure\\s+token", "i"),
@@ -444,7 +444,7 @@ class DeployedSurfaceGateTest(unittest.TestCase):
                     ("raw_ogc_collections_url", "localhost:8001/collections", "i"),
                     (
                         "ogc_compliant_claim",
-                        "\\bOGC[- ]API[- ](?:Compliant|compliance)\\b|\\bOGC[- ](?:Compliant|compliance)\\b",
+                        "\\bOGC[- ]API\\b[^.\\n]*?\\b(?:Compliant|compliance)\\b|\\bOGC[- ](?:Compliant|compliance)\\b",
                         "i",
                     ),
                 ],
@@ -457,7 +457,7 @@ class DeployedSurfaceGateTest(unittest.TestCase):
                     ("raw_ogc_collections_url", "localhost:8001/collections", "i"),
                     (
                         "ogc_compliant_claim",
-                        "\\bOGC[- ]API[- ](?:Compliant|compliance)\\b|\\bOGC[- ](?:Compliant|compliance)\\b",
+                        "\\bOGC[- ]API\\b[^.\\n]*?\\b(?:Compliant|compliance)\\b|\\bOGC[- ](?:Compliant|compliance)\\b",
                         "i",
                     ),
                 ],
@@ -470,7 +470,7 @@ class DeployedSurfaceGateTest(unittest.TestCase):
                     ("raw_ogc_collections_url", "localhost:8001/collections", "i"),
                     (
                         "ogc_compliant_claim",
-                        "\\bOGC[- ]API[- ](?:Compliant|compliance)\\b|\\bOGC[- ](?:Compliant|compliance)\\b",
+                        "\\bOGC[- ]API\\b[^.\\n]*?\\b(?:Compliant|compliance)\\b|\\bOGC[- ](?:Compliant|compliance)\\b",
                         "i",
                     ),
                 ],
