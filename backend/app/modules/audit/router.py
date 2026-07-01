@@ -126,7 +126,11 @@ async def list_audit_logs(
     )
 
 
-@router.get("/audit-logs/export/{format}", response_class=StreamingResponse)
+@router.get(
+    "/audit-logs/export/{format}",
+    response_class=StreamingResponse,
+    include_in_schema=False,
+)
 async def export_audit_logs(
     format: str,
     action: str | None = Query(None),
