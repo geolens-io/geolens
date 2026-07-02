@@ -1114,7 +1114,9 @@ class DefaultAnthropicProvider:
                             {
                                 "type": "tool_result",
                                 "tool_use_id": block.id,
-                                "content": json.dumps(result),
+                                # default=str: query_data rows can carry Decimal /
+                                # datetime values straight from PostGIS.
+                                "content": json.dumps(result, default=str),
                             }
                         )
 
@@ -1394,7 +1396,8 @@ class DefaultOpenAICompatibleProvider:
                         {
                             "role": "tool",
                             "tool_call_id": tool_call.id,
-                            "content": json.dumps(result),
+                            # default=str: see the Anthropic tool_result path above.
+                            "content": json.dumps(result, default=str),
                         }
                     )
                 continue
