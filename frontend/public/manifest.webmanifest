@@ -1,7 +1,7 @@
 {
   "name": "GeoLens",
   "short_name": "GeoLens",
-  "description": "Open-source spatial data catalog with search, map builder, and OGC standards compliance. Upload, discover, visualize, and share geospatial data.",
+  "description": "Open-source spatial data catalog with search, map builder, and OGC API support. Upload, discover, visualize, and share geospatial data.",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#ffffff",
