@@ -16,7 +16,9 @@
   "overview": {
     "title": "Vue d'ensemble",
     "healthy": "Opérationnel",
-    "degraded": "Dégradé"
+    "degraded": "Dégradé",
+    "editionCommunity": "Community",
+    "editionEnterprise": "Enterprise"
   },
   "stats": {
     "loading": "Chargement des statistiques du catalogue...",
