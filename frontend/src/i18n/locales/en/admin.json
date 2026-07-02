@@ -16,7 +16,9 @@
   "overview": {
     "title": "Overview",
     "healthy": "Healthy",
-    "degraded": "Degraded"
+    "degraded": "Degraded",
+    "editionCommunity": "Community",
+    "editionEnterprise": "Enterprise"
   },
   "stats": {
     "loading": "Loading catalog statistics...",

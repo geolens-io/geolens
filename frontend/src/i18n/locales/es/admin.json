@@ -16,7 +16,9 @@
   "overview": {
     "title": "Resumen",
     "healthy": "Saludable",
-    "degraded": "Degradado"
+    "degraded": "Degradado",
+    "editionCommunity": "Community",
+    "editionEnterprise": "Enterprise"
   },
   "stats": {
     "loading": "Cargando estadísticas del catálogo...",
