@@ -120,7 +120,7 @@ Each example above has a full guide in the [docs](https://docs.getgeolens.com/gu
 
 - OGC API - Features and OGC API - Records; STAC API 1.0 catalog endpoint
 - Direct tile URLs and per-user API keys for QGIS, ArcGIS, MapLibre, and any OGC client
-- Vector tiles omit attribute columns below zoom 10 to keep low-zoom tiles small; append `?cols=<column>,<column>` to a tile URL to opt specific columns in at every zoom (names are validated against the dataset's columns, unknown names are dropped)
+- Vector tiles omit attribute columns below zoom 10 to keep low-zoom tiles small; add the `cols=<column>,<column>` query parameter to a tile URL to opt specific columns in at every zoom (names are validated against the dataset's columns, unknown names are dropped)
 - JWT + OAuth 2.0/OIDC, RBAC with per-dataset permissions
 
 <details>
