@@ -1,4 +1,4 @@
-Brand assets synced from geolens-io/branding v0.1.0
-Sync date: 2026-05-08
-Source: geolens-io/branding @ tag v0.1.0
-Unmanaged assets: frontend/public/og-image.png (predates v0.1.0; refresh on next branding bump that ships an OG image)
+Brand assets synced from geolens-io/branding v0.2.0
+Sync date: 2026-07-01
+Source: geolens-io/branding @ tag v0.2.0
+Managed mapping: frontend/public/og-image.png = social/geolens-og-card.png (unmanaged before v0.2.0)
