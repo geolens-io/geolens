@@ -42,6 +42,16 @@ docker compose ps
 
 All services (db, migrate, api, worker, frontend, titiler) should show as healthy or exited (migrate exits after completing).
 
+#### The `migrate` container exits -- that's expected
+
+`migrate` is a one-shot container: it runs `alembic upgrade heads` and exits, and the `api` and `worker` services wait on its successful completion before starting. An `Exited (0)` status in `docker compose ps` is the normal, healthy state, not a crash. If `api` or `worker` never become healthy, check whether the migration step actually succeeded:
+
+```bash
+docker compose logs migrate
+```
+
+A non-zero exit there (a failed migration, schema drift) is what blocks the rest of the stack from starting.
+
 ### Making changes
 
 - **Backend (FastAPI):** Edit files under `backend/`. The API container mounts the source directory and reloads on changes.
