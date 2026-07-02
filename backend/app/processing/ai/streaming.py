@@ -183,10 +183,11 @@ async def _stream_anthropic_chat(
         buffered_tokens: list[str] = []
         has_tool_use = False
 
+        # Claude 4.6+ models reject a non-default `temperature` with a 400;
+        # omit it on the Anthropic path (steering is prompt-based there).
         async with client.messages.stream(
             model=model,
             max_tokens=4096,
-            temperature=0.3,
             system=cached_system,
             tools=cached_tools,
             messages=messages,
@@ -259,8 +260,11 @@ async def _stream_anthropic_chat(
                         {
                             "type": "tool_result",
                             "tool_use_id": block.id,
+                            # default=str: query_data rows can carry Decimal /
+                            # datetime values straight from PostGIS.
                             "content": json.dumps(
-                                raw_results[0] if raw_results else {}
+                                raw_results[0] if raw_results else {},
+                                default=str,
                             ),
                         }
                     )
@@ -524,7 +528,8 @@ async def _stream_openai_chat(
                     {
                         "role": "tool",
                         "tool_call_id": call_id,
-                        "content": json.dumps(result),
+                        # default=str: see the Anthropic tool_result path above.
+                        "content": json.dumps(result, default=str),
                     }
                 )
             continue

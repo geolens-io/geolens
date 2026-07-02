@@ -325,7 +325,10 @@ async def generate_map_stream_endpoint(
             ):
                 if await request.is_disconnected():
                     break
-                yield ServerSentEvent(data=json.dumps(event), event=event["type"])
+                # default=str: events can carry Decimal/datetime from query_data rows
+                yield ServerSentEvent(
+                    data=json.dumps(event, default=str), event=event["type"]
+                )
         except Exception:  # broad: SSE stream generator — any unhandled error must yield a graceful error event
             logger.exception("Map generation stream error")
             yield ServerSentEvent(
@@ -447,7 +450,10 @@ async def chat_stream_endpoint(
             ):
                 if await request.is_disconnected():
                     break
-                yield ServerSentEvent(data=json.dumps(event), event=event["type"])
+                # default=str: events can carry Decimal/datetime from query_data rows
+                yield ServerSentEvent(
+                    data=json.dumps(event, default=str), event=event["type"]
+                )
         except Exception:  # broad: SSE stream generator — any unhandled error must yield a graceful error event
             logger.exception("Chat stream error")
             yield ServerSentEvent(

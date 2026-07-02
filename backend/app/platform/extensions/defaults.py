@@ -1004,6 +1004,7 @@ class DefaultAnthropicProvider:
         base_url=None,
         temperature=0.5,
     ):
+        del temperature  # rejected by Claude 4.6+; kept in signature for callers
         # Deferred imports (Phase 214 discipline)
         import json
 
@@ -1059,10 +1060,11 @@ class DefaultAnthropicProvider:
             # ("tools: must have at least 1 item"). Omit the kwarg entirely
             # for no-tools paths (sql_generator.generate_sql,
             # _retry_parse_map_spec). REVIEW.md CR-01.
+            # Claude 4.6+ models reject a non-default `temperature` with a
+            # 400; omit it on the Anthropic path (steering is prompt-based).
             create_kwargs: dict[str, object] = {
                 "model": model,
                 "max_tokens": max_tokens,
-                "temperature": temperature,
                 "system": cached_system,
                 "messages": messages,
             }
@@ -1183,10 +1185,12 @@ class DefaultAnthropicProvider:
             response_model=response_model.__name__,
         )
 
+        # Claude 4.6+ models reject a non-default `temperature` with a 400;
+        # omit it on the Anthropic path (steering is prompt-based).
+        del temperature
         response = await client.messages.create(
             model=model,
             max_tokens=max_tokens,
-            temperature=temperature,
             system=system_prompt,
             messages=[{"role": "user", "content": user_message}],
             tools=[tool],
