@@ -1522,7 +1522,10 @@ def build_restless_earth(api: Api, force: bool = False) -> str:
 
     # --- own dataset 1: PB2002 plate-boundary steps (idempotent by title) ----
     plates_title = "Tectonic Plate Boundaries (PB2002)"
-    if plates_title in by_title:
+    # fix(#389): honor --force for the builder-owned datasets too — forced runs
+    # re-ingest fresh copies (recovery path for bad/stale transforms); the
+    # newest-first datasets_by_title() then resolves duplicates to the new ones.
+    if not force and plates_title in by_title:
         ds["plates"] = by_title[plates_title]
         print("  [reuse] plate boundaries dataset")
     else:
@@ -1560,7 +1563,7 @@ def build_restless_earth(api: Api, force: bool = False) -> str:
 
     # --- own dataset 2: slim major-cities subset (idempotent by title) -------
     cities_title = "World Major Cities (500k+)"
-    if cities_title in by_title:
+    if not force and cities_title in by_title:
         ds["cities"] = by_title[cities_title]
         print("  [reuse] major cities dataset")
     else:
