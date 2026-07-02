@@ -18,7 +18,16 @@ Builds capability-showcase maps from public, openly-licensed data:
                            (swisstopo swissALTI3D 2m lidar, OGD)   [--with-terrain]
   8. Sentinel-2 NYC      - true-color COGs imported BY REFERENCE from a STAC API
                            (Element84 Earth Search)                [--with-sentinel2]
-  9. Discover the World  - a collection of the above + a private-dataset embed-token demo
+  9. Restless Earth      - composite story hero: magnitude-graded quakes + heatmap over
+                           PB2002 tectonic plate boundaries (categorical by class), major
+                           cities and GDP context; popups everywhere; Ask-AI-ready columns
+                           (depth_km, tsunami, felt, sig, plate velocity). Reuses the
+                           earthquakes/countries datasets, ingests plates + major cities.
+ 10. Discover the World  - a collection of the above + a private-dataset embed-token demo
+
+Maintenance: --refresh-quakes re-downloads the USGS feed and swaps it into the two
+earthquake datasets in place (map styles/IDs untouched), then exits. Run it on the
+demo every week or two or "last 30 days" quietly goes stale.
 
 Everything here is reproducible against a fresh stack. The flows and the
 non-obvious gotchas they encode were verified live against the running API.
@@ -75,6 +84,7 @@ import json
 import os
 import sys
 import time
+from datetime import datetime, timezone
 
 try:
     import httpx
@@ -129,6 +139,12 @@ NE_COUNTRIES = NE_BASE + "ne_50m_admin_0_countries.geojson"
 NE_PLACES = NE_BASE + "ne_50m_populated_places.geojson"
 NE_RIVERS = NE_BASE + "ne_10m_rivers_lake_centerlines.geojson"
 NE_ADMIN1 = NE_BASE + "ne_50m_admin_1_states_provinces.geojson"
+# PB2002 plate-boundary steps (Peter Bird 2003, via Hugo Ahlenius/Nordpil; open data).
+# The *steps* file (not boundaries) carries per-segment STEPCLASS + relative velocity.
+PB2002_STEPS = (
+    "https://raw.githubusercontent.com/fraxen/tectonicplates/master/GeoJSON/"
+    "PB2002_steps.json"
+)
 # Element84 Earth Search STAC (sentinel-2-l2a true-color COGs, by reference).
 SENTINEL_STAC = "https://earth-search.aws.element84.com/v1"
 SENTINEL_BBOX = [-74.30, 40.55, -73.65, 41.00]  # NYC metro (W, S, E, N)
@@ -217,6 +233,31 @@ class Api:
         self.commit(job, title, summary, visibility=visibility)
         return self.poll(job)["dataset_id"]
 
+    def reupload_geojson(self, dataset_id: str, name: str, data: bytes) -> None:
+        """Swap a dataset's data in place (upload -> preview -> commit -> poll).
+
+        NOTE: on instances with a max_datasets_per_user override (the demo),
+        reupload is quota-gated like upload — raise the quota first.
+        """
+        files = {"file": (name, io.BytesIO(data), "application/geo+json")}
+        r = self.client.post(
+            f"{self.base}/api/datasets/{dataset_id}/reupload",
+            headers=self.h,
+            files=files,
+        )
+        r.raise_for_status()
+        job = r.json()["job_id"]
+        self.client.post(
+            f"{self.base}/api/datasets/{dataset_id}/reupload/{job}/preview",
+            headers=self.h,
+        ).raise_for_status()
+        self.client.post(
+            f"{self.base}/api/datasets/{dataset_id}/reupload/{job}/commit",
+            headers=self.h,
+            json={},
+        ).raise_for_status()
+        self.poll(job)
+
     def create_map(self, name: str, description: str) -> str:
         r = self.client.post(
             f"{self.base}/api/maps",
@@ -286,11 +327,26 @@ class Api:
         return r.json()["job_id"]
 
     def datasets_by_title(self) -> dict[str, str]:
-        """Map dataset title -> id (list_datasets returns only titles)."""
+        """Map dataset title -> id (list_datasets returns only titles).
+
+        fix(#389): /api/datasets orders newest-first (Record.created_at desc) and
+        titles are NOT unique — a --force reseed creates fresh datasets alongside
+        same-titled predecessors. Keep the FIRST (newest) match so lookups resolve
+        to the freshly created dataset, not a stale duplicate.
+        """
         r = self.client.get(f"{self.base}/api/datasets?limit=200", headers=self.h)
         r.raise_for_status()
         d = r.json()
-        return {x["title"]: x["id"] for x in d.get("datasets", d.get("items", []))}
+        out: dict[str, str] = {}
+        for x in d.get("datasets", d.get("items", [])):
+            out.setdefault(x["title"], x["id"])
+        return out
+
+    def dataset_columns(self, dataset_id: str) -> set:
+        """Column names of a dataset (from the detail endpoint's column_info)."""
+        r = self.client.get(f"{self.base}/api/datasets/{dataset_id}", headers=self.h)
+        r.raise_for_status()
+        return {c["name"] for c in (r.json().get("column_info") or [])}
 
     def collections_by_name(self) -> dict[str, str]:
         """Map collection name -> id (name is UNIQUE in the catalog model)."""
@@ -353,6 +409,47 @@ def step_expr(column: str, breaks: list, colors: list) -> list:
     for b, c in zip(breaks, colors[1:]):
         expr += [b, c]
     return expr
+
+
+def quake_feed() -> tuple[bytes, int]:
+    """USGS M4.5+ 30-day feed, slimmed + enriched for styling, popups and Ask AI.
+
+    Beyond mag/place, keeps the fields that make the dataset interrogable:
+    depth_km (geometry Z; USGS depth is already km), time_utc (human-readable,
+    lexicographically sortable in SQL), felt (DYFI report count), tsunami (0/1)
+    and sig (USGS significance 0-1000).
+    """
+    fc = json.loads(fetch(USGS_QUAKES))
+    for feat in fc["features"]:
+        p = feat["properties"]
+        try:
+            mag = float(p["mag"]) if p.get("mag") is not None else None
+        except (TypeError, ValueError):
+            mag = None
+        coords = (feat.get("geometry") or {}).get("coordinates") or []
+        depth = (
+            round(float(coords[2]), 1)
+            if len(coords) > 2 and coords[2] is not None
+            else None
+        )
+        ms = p.get("time")
+        time_utc = (
+            datetime.fromtimestamp(ms / 1000, tz=timezone.utc).strftime(
+                "%Y-%m-%d %H:%M UTC"
+            )
+            if isinstance(ms, (int, float))
+            else None
+        )
+        feat["properties"] = {
+            "mag": mag,
+            "place": p.get("place"),
+            "time_utc": time_utc,
+            "depth_km": depth,
+            "felt": p.get("felt"),
+            "tsunami": p.get("tsunami"),
+            "sig": p.get("sig"),
+        }
+    return json.dumps(fc).encode(), len(fc["features"])
 
 
 OVERPASS_URL = "https://overpass-api.de/api/interpreter"
@@ -1027,20 +1124,7 @@ def build_earthquakes(api: Api, force: bool = False) -> str:
         return "(skipped)"
     print("\n[earthquakes] Recent Earthquakes (graduated circles + heatmap)")
     print("  downloading USGS M4.5+ feed...")
-    fc = json.loads(fetch(USGS_QUAKES))
-    for feat in fc["features"]:
-        p = feat["properties"]
-        try:
-            mag = float(p.get("mag")) if p.get("mag") is not None else None
-        except (TypeError, ValueError):
-            mag = None
-        feat["properties"] = {
-            "mag": mag,
-            "place": p.get("place"),
-            "time": p.get("time"),
-        }
-    data = json.dumps(fc).encode()
-    n = len(fc["features"])
+    data, n = quake_feed()
     # GeoLens renders ONE MapLibre layer per dataset, so the graduated-circle layer and
     # the heatmap layer come from the SAME geometry ingested as TWO datasets (the proven
     # casing pattern from build_matterhorn) rather than two layers off one dataset.
@@ -1383,6 +1467,389 @@ def build_rivers(api: Api, force: bool = False) -> str:
     return map_id
 
 
+def build_restless_earth(api: Api, force: bool = False) -> str:
+    """The composite storytelling hero: quakes over the plate boundaries that
+    spawn them, with exposed cities and GDP context.
+
+    Reuses the earthquake + countries datasets by title (run those builders
+    first; the default sequence does) and ingests two of its own:
+
+      * Tectonic Plate Boundaries (PB2002 steps) - per-segment boundary class
+        (subduction/convergent/divergent/transform) + relative velocity, so the
+        layer is both categorically styled AND Ask-AI-queryable.
+      * World Major Cities (500k+) - a slim, purpose-built subset of Natural
+        Earth populated places (name/country/pop_max/is_capital/timezone).
+        The full 1251-place / 130-column NE dataset reads as visual noise at
+        world zoom and drowns the AI SQL generator in irrelevant columns.
+
+    Style-spec notes (all verified live):
+      * zoom+data composite expressions (interpolate-by-zoom whose outputs are
+        step-by-property) scale circles/lines smoothly from world view to city
+        view without losing the data encoding.
+      * M7+ quakes get a white highlight ring via a step on circle-stroke-*.
+      * The heatmap radius/intensity interpolate by zoom so regional views
+        don't fragment into per-point blobs (fixed 28px only worked at z1.6).
+      * Heatmap + GDP stay OUT of the legend (context layers); the legend
+        budget goes to the three story layers.
+    """
+    name = "Restless Earth - 30 Days of Quakes and the Cities Nearby"
+    if not force and _map_exists(api, name):
+        print(f"  [skip] {name} already exists")
+        return "(skipped)"
+    print("\n[restless] Restless Earth (quakes + plates + cities + GDP)")
+    by_title = api.datasets_by_title()
+    needed = {
+        "quakes": "Recent Earthquakes (M4.5+, last 30 days)",
+        "heat": "Recent Earthquakes - Heatmap source",
+        "countries": "World Countries (Natural Earth 1:50m)",
+    }
+    missing = [t for t in needed.values() if t not in by_title]
+    if missing:
+        print(f"  [skip] missing datasets (run earthquakes + countries first): {missing}")
+        return "(skipped)"
+    ds = {k: by_title[t] for k, t in needed.items()}
+
+    # fix(#389): instances seeded before the feed enrichment carry quake datasets
+    # with only mag/place/time, but the popups and Ask-AI fields below need
+    # depth_km/time_utc/felt/tsunami/sig — detect the old schema and swap a
+    # fresh enriched feed in place before wiring layers to it.
+    if "depth_km" not in api.dataset_columns(ds["quakes"]):
+        print("  quake datasets predate the enriched feed - refreshing in place...")
+        data, n = quake_feed()
+        api.reupload_geojson(ds["quakes"], "recent_quakes.geojson", data)
+        api.reupload_geojson(ds["heat"], "recent_quakes_heat.geojson", data)
+        print(f"  refreshed {n} quakes into both datasets")
+
+    # --- own dataset 1: PB2002 plate-boundary steps (idempotent by title) ----
+    plates_title = "Tectonic Plate Boundaries (PB2002)"
+    # fix(#389): honor --force for the builder-owned datasets too — forced runs
+    # re-ingest fresh copies (recovery path for bad/stale transforms); the
+    # newest-first datasets_by_title() then resolves duplicates to the new ones.
+    if not force and plates_title in by_title:
+        ds["plates"] = by_title[plates_title]
+        print("  [reuse] plate boundaries dataset")
+    else:
+        print("  downloading PB2002 plate-boundary steps...")
+        fc = json.loads(fetch(PB2002_STEPS))
+        # Collapse the 7 Bird (2003) step classes into 4 story-level types;
+        # subduction zones stay their own class (that is where megaquakes live).
+        type_of = {
+            "SUB": "subduction zone",
+            "OCB": "convergent",
+            "CCB": "convergent",
+            "OSR": "divergent",
+            "CRB": "divergent",
+            "OTF": "transform",
+            "CTF": "transform",
+        }
+        for feat in fc["features"]:
+            p = feat["properties"]
+            cls = p.get("STEPCLASS")
+            feat["properties"] = {
+                "boundary": p.get("PLATEBOUND"),
+                "boundary_type": type_of.get(cls, "other"),
+                "class_code": cls,
+                "velocity_mm_yr": p.get("VELOCITYLE"),
+            }
+        print(f"  ingesting {len(fc['features'])} boundary segments...")
+        ds["plates"] = api.ingest_geojson(
+            "plate_boundaries.geojson",
+            json.dumps(fc).encode(),
+            plates_title,
+            "Tectonic plate boundary segments classified as subduction zone, "
+            "convergent, divergent or transform, with relative plate velocity "
+            "(mm/yr). Source: Peter Bird (2003) PB2002 via Nordpil (open data).",
+        )
+
+    # --- own dataset 2: slim major-cities subset (idempotent by title) -------
+    cities_title = "World Major Cities (500k+)"
+    if not force and cities_title in by_title:
+        ds["cities"] = by_title[cities_title]
+        print("  [reuse] major cities dataset")
+    else:
+        print("  downloading Natural Earth populated places...")
+        fc = json.loads(fetch(NE_PLACES))
+        feats = []
+        for feat in fc["features"]:
+            p = feat["properties"]
+            pop = p.get("POP_MAX") or p.get("pop_max") or 0
+            if not isinstance(pop, (int, float)) or pop < 500000:
+                continue
+            fcla = (p.get("FEATURECLA") or p.get("featurecla") or "")
+            feats.append(
+                {
+                    "type": "Feature",
+                    "properties": {
+                        "name": p.get("NAME") or p.get("name"),
+                        "country": p.get("ADM0NAME") or p.get("adm0name"),
+                        "pop_max": pop,
+                        "is_capital": fcla.startswith("Admin-0 capital"),
+                        "timezone": p.get("TIMEZONE") or p.get("timezone"),
+                    },
+                    "geometry": feat["geometry"],
+                }
+            )
+        print(f"  ingesting {len(feats)} major cities...")
+        ds["cities"] = api.ingest_geojson(
+            "world_major_cities.geojson",
+            json.dumps({"type": "FeatureCollection", "features": feats}).encode(),
+            cities_title,
+            "Cities with 500k+ inhabitants: name, country, population, capital "
+            "flag and timezone. Slimmed from Natural Earth populated places "
+            "1:50m (public domain) for the Restless Earth showcase.",
+        )
+
+    map_id = api.create_map(
+        name,
+        "Thirty days of M4.5+ earthquakes over the tectonic plate boundaries "
+        "that spawn them - sized and colored by magnitude, with white rings on "
+        "the M7+ giants. Major cities show the exposure; the dim choropleth is "
+        "national GDP. Click anything, or open Ask AI: which quakes triggered "
+        "tsunami warnings? Which boundary type produced the strongest shocks? "
+        "Sources: USGS, PB2002 (Bird 2003), Natural Earth.",
+    )
+
+    def mag_step(v0, v1, v2, v3):
+        return ["step", ["to-number", ["get", "mag"], 0], v0, 5.0, v1, 6.0, v2, 7.0, v3]
+
+    # Magnitude double-encoded: size AND color (same class breaks, and the color
+    # ramp deliberately matches the heatmap stops so the two quake layers read
+    # as one visual system). Viewer draws LOWER sort_order ON TOP.
+    quake_colors = ["#fecc5c", "#fd8d3c", "#f03b20", "#bd0026"]
+    api.add_layer(
+        map_id,
+        {
+            "dataset_id": ds["quakes"],
+            "sort_order": 0,
+            "opacity": 1.0,
+            "display_name": "Earthquakes (by magnitude)",
+            "paint": {
+                "circle-radius": [
+                    "interpolate", ["linear"], ["zoom"],
+                    1.2, mag_step(2.5, 4.5, 7, 11),
+                    6, mag_step(5, 9, 14, 22),
+                ],
+                "circle-color": mag_step(*quake_colors),
+                "circle-opacity": 0.9,
+                "circle-stroke-color": mag_step(
+                    "#7f1d1d", "#7f1d1d", "#7f1d1d", "#ffffff"
+                ),
+                "circle-stroke-width": mag_step(0.4, 0.4, 0.6, 1.5),
+            },
+            "style_config": {
+                "mode": "graduated",
+                "column": "mag",
+                "ramp": "YlOrRd",
+                "target": "radius",
+                "method": "manual",
+                "breaks": [5.0, 6.0, 7.0],
+                "sizes": [3, 5, 8, 12],
+                "colors": quake_colors,
+                "sizeLabel": "Magnitude",
+            },
+            "popup_config": {
+                "enabled": True,
+                "expression": "M{mag} - {place}",
+                "visible_fields": ["depth_km", "time_utc", "felt", "tsunami"],
+            },
+        },
+    )
+
+    def pop_step(v0, v1, v2, v3):
+        return [
+            "step", ["to-number", ["get", "pop_max"], 0],
+            v0, 1000000, v1, 5000000, v2, 10000000, v3,
+        ]
+
+    api.add_layer(
+        map_id,
+        {
+            "dataset_id": ds["cities"],
+            "sort_order": 1,
+            "opacity": 1.0,
+            "display_name": "Major cities (by population)",
+            "paint": {
+                "circle-radius": [
+                    "interpolate", ["linear"], ["zoom"],
+                    1.5, pop_step(1.6, 2.8, 4.5, 6.5),
+                    6, pop_step(3.5, 6, 9, 13),
+                ],
+                # Silver "city lights" on the dark basemap; below-5M cities fade
+                # back at world zoom so the quake story stays on top.
+                "circle-color": "#e2e8f0",
+                "circle-opacity": [
+                    "interpolate", ["linear"], ["zoom"],
+                    1.5,
+                    ["case",
+                     [">=", ["to-number", ["get", "pop_max"], 0], 5000000],
+                     0.95, 0.55],
+                    4, 0.95,
+                ],
+                "circle-stroke-color": "#0b0f14",
+                "circle-stroke-width": 0.6,
+            },
+            "style_config": {
+                "mode": "graduated",
+                "column": "pop_max",
+                "ramp": "YlOrRd",
+                "target": "radius",
+                "method": "manual",
+                "breaks": [1000000, 5000000, 10000000],
+                "sizes": [1.6, 2.8, 4.5, 6.5],
+                "sizeLabel": "Population",
+            },
+            "popup_config": {
+                "enabled": True,
+                "expression": "{name}",
+                "visible_fields": ["country", "pop_max", "is_capital"],
+            },
+        },
+    )
+
+    # Categorical line color, mirroring the frontend buildCategoricalExpression
+    # (null guard + match + fallback) like the airports layer does.
+    btype_color = [
+        "case",
+        ["==", ["get", "boundary_type"], None],
+        "#94a3b8",
+        [
+            "match", ["get", "boundary_type"],
+            "subduction zone", "#e879f9",
+            "convergent", "#c084fc",
+            "divergent", "#4ade80",
+            "transform", "#22d3ee",
+            "#94a3b8",
+        ],
+    ]
+    def btype_width(sub, rest):
+        return ["match", ["get", "boundary_type"], "subduction zone", sub, rest]
+
+    api.add_layer(
+        map_id,
+        {
+            "dataset_id": ds["plates"],
+            "sort_order": 2,
+            "opacity": 1.0,
+            "display_name": "Plate boundaries",
+            "paint": {
+                "line-color": btype_color,
+                "line-width": [
+                    "interpolate", ["linear"], ["zoom"],
+                    1, btype_width(1.6, 0.9),
+                    6, btype_width(3.2, 1.8),
+                ],
+                "line-opacity": 0.85,
+                "line-blur": 0.4,
+            },
+            "layout": {"line-cap": "round", "line-join": "round"},
+            "style_config": {
+                "mode": "categorical",
+                "column": "boundary_type",
+                "ramp": "Dark2",
+                "categories": [
+                    {"value": "subduction zone", "color": "#e879f9",
+                     "label": "Subduction zone"},
+                    {"value": "convergent", "color": "#c084fc",
+                     "label": "Convergent"},
+                    {"value": "divergent", "color": "#4ade80",
+                     "label": "Divergent (ridge/rift)"},
+                    {"value": "transform", "color": "#22d3ee",
+                     "label": "Transform fault"},
+                ],
+            },
+            "popup_config": {
+                "enabled": True,
+                "expression": "{boundary} plate boundary",
+                "visible_fields": ["boundary_type", "velocity_mm_yr"],
+            },
+        },
+    )
+    api.add_layer(
+        map_id,
+        {
+            "dataset_id": ds["heat"],
+            "sort_order": 3,
+            "opacity": 1.0,
+            "display_name": "Quake intensity (heatmap)",
+            "show_in_legend": False,
+            "paint": {
+                "heatmap-radius": [
+                    "interpolate", ["linear"], ["zoom"], 0, 15, 3, 30, 6, 50,
+                ],
+                "heatmap-weight": [
+                    "interpolate", ["linear"], ["to-number", ["get", "mag"], 0],
+                    4, 0.1, 8, 1,
+                ],
+                "heatmap-intensity": [
+                    "interpolate", ["linear"], ["zoom"], 0, 0.9, 6, 2,
+                ],
+                "heatmap-opacity": 0.7,
+                "heatmap-color": [
+                    "interpolate", ["linear"], ["heatmap-density"],
+                    0, "rgba(0,0,0,0)",
+                    0.2, "#ffffb2",
+                    0.4, "#fecc5c",
+                    0.6, "#fd8d3c",
+                    0.8, "#f03b20",
+                    1.0, "#bd0026",
+                ],
+            },
+            "style_config": {
+                "mode": "graduated",
+                "column": "",
+                "ramp": "YlOrRd",
+                "render_mode": "heatmap",
+                "builder": {"heatmap_ramp": "YlOrRd"},
+            },
+        },
+    )
+    gdp_breaks = [3000, 25000, 100000, 500000, 2000000]
+    gdp_colors = ["#440154", "#414487", "#2a788e", "#22a884", "#7ad151", "#fde725"]
+    api.add_layer(
+        map_id,
+        {
+            "dataset_id": ds["countries"],
+            "sort_order": 4,
+            "opacity": 0.35,
+            "display_name": "GDP (USD millions)",
+            "show_in_legend": False,
+            "paint": {
+                "fill-color": step_expr("gdp_md", gdp_breaks, gdp_colors),
+                "fill-opacity": 0.85,
+            },
+            "style_config": {
+                "mode": "graduated",
+                "column": "gdp_md",
+                "ramp": "Viridis",
+                "target": "color",
+                "method": "manual",
+                "breaks": gdp_breaks,
+                "colors": gdp_colors,
+                "colorLabel": "GDP (USD millions)",
+                "builder": {"outline_color": "#0b0f14", "outline_width": 0.4},
+            },
+            "popup_config": {
+                "enabled": True,
+                "expression": "{name}",
+                "visible_fields": ["gdp_md", "pop_est"],
+            },
+        },
+    )
+    api.set_view(
+        map_id,
+        visibility="public",
+        center_lng=150,
+        center_lat=5,
+        zoom=1.6,
+        pitch=0,
+        bearing=0,
+        basemap_style="openfreemap-dark",
+        show_basemap_labels=True,
+    )
+    print(f"  -> map {map_id}")
+    return map_id
+
+
 def build_sentinel2(api: Api, force: bool = False) -> str:
     if not force and _map_exists(api, "Sentinel-2 True Color - NYC"):
         print("  [skip] Sentinel-2 True Color - NYC already exists")
@@ -1521,19 +1988,20 @@ def build_collection(api: Api, force: bool = False) -> str:
     # --force reseed (no down -v) reuse the existing collection instead of recreating;
     # add_to_collection is idempotent, so re-adding members is a no-op.
     existing = api.collections_by_name()
-    if "Discover the World" in existing:
-        if not force:
-            print("  [skip] Discover the World collection already exists")
-            return "(skipped)"
-        coll_id = existing["Discover the World"]
-        print("\n[collection] reusing existing 'Discover the World' (--force)")
-    else:
+    fresh = "Discover the World" not in existing
+    if fresh:
         print("\n[collection] Discover the World + private-dataset embed-token demo")
         coll_id = api.create_collection(
             "Discover the World",
             "A guided tour of the GeoLens showcase - the NYC skyline, New York income, "
             "world countries, rivers and airports - grouped into one browsable collection.",
         )
+    else:
+        coll_id = existing["Discover the World"]
+        print("\n[collection] reusing existing 'Discover the World'")
+    # fix(#389): membership top-up runs even when the collection already exists
+    # (add_to_collection is idempotent), so upgrades that add new showcase
+    # datasets reach existing instances; only the embed demo stays force-gated.
     titles = api.datasets_by_title()
     wanted = [
         "Manhattan Building Heights",
@@ -1542,12 +2010,18 @@ def build_collection(api: Api, force: bool = False) -> str:
         "World Airports (large + medium, scheduled)",
         "World Rivers & Lake Centerlines (Natural Earth 10m)",
         "Recent Earthquakes (M4.5+, last 30 days)",
+        # restless-earth datasets:
+        "Tectonic Plate Boundaries (PB2002)",
+        "World Major Cities (500k+)",
         # present only with --with-terrain:
         "swissALTI3D Matterhorn DEM (2m mosaic)",
     ]
     member_ids = [titles[t] for t in wanted if t in titles]
     added = api.add_to_collection(coll_id, member_ids) if member_ids else 0
     print(f"  + {added} datasets added to the collection")
+    if not fresh and not force:
+        print("  [skip] collection already exists - membership topped up, embed demo unchanged")
+        return "(skipped)"
 
     # Private-dataset embed-token demo. A PUBLIC share URL is impossible with a private
     # dataset (publishing the map 400s), so keep the map PRIVATE and demonstrate the
@@ -1634,6 +2108,7 @@ def main() -> int:
             "earthquakes",
             "countries",
             "rivers",
+            "restless",
             "sentinel2",
             "collection",
         ],
@@ -1644,12 +2119,32 @@ def main() -> int:
         action="store_true",
         help="re-create showcase maps/datasets even if they already exist",
     )
+    ap.add_argument(
+        "--refresh-quakes",
+        action="store_true",
+        help="swap a fresh USGS 30-day feed into the earthquake datasets, then exit",
+    )
     args = ap.parse_args()
     if not args.password:
         ap.error("--password or GEOLENS_ADMIN_PASSWORD is required")
 
     print(f"Logging in to {args.base_url} as {args.username}...")
     api = Api.login(args.base_url, args.username, args.password)
+
+    if args.refresh_quakes:
+        by_title = api.datasets_by_title()
+        data, n = quake_feed()
+        print(f"Refreshing {n} quakes into the earthquake datasets...")
+        for title in (
+            "Recent Earthquakes (M4.5+, last 30 days)",
+            "Recent Earthquakes - Heatmap source",
+        ):
+            if title not in by_title:
+                print(f"  [skip] no dataset titled {title!r}")
+                continue
+            api.reupload_geojson(by_title[title], "recent_quakes.geojson", data)
+            print(f"  refreshed: {title}")
+        return 0
 
     fns = {
         "manhattan": build_manhattan,
@@ -1659,6 +2154,7 @@ def main() -> int:
         "earthquakes": build_earthquakes,
         "countries": build_countries,
         "rivers": build_rivers,
+        "restless": build_restless_earth,
         "sentinel2": build_sentinel2,
         "collection": build_collection,
     }
@@ -1675,6 +2171,8 @@ def main() -> int:
                 ("earthquakes", build_earthquakes),
                 ("countries", build_countries),
                 ("rivers", build_rivers),
+                # restless AFTER earthquakes + countries: it reuses their datasets.
+                ("restless", build_restless_earth),
             ]
             if args.with_terrain:
                 builders.append(("matterhorn", build_matterhorn))
