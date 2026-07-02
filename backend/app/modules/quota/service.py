@@ -118,3 +118,45 @@ async def check_upload_quota(
     # QUOTA-03: EntitlementPort cloud extension seam (OSS/Enterprise = no-op)
     await enforce_limit(request, "storage_bytes", usage.bytes_used + incoming_bytes)
     await enforce_limit(request, "dataset_count", usage.dataset_count + 1)
+
+
+class DatasetQuotaExceededError(Exception):
+    """Dataset-count cap exceeded at Record-creation time (fix #302).
+
+    Plain exception rather than HTTPException because the authoritative
+    check runs inside the ingest worker, where there is no HTTP response
+    to shape; API-side callers get a 422 via the handler registered in
+    ``app.api.main``.
+    """
+
+
+async def reserve_dataset_slot(db: AsyncSession, user_id: uuid.UUID) -> None:
+    """Atomically reserve a dataset-count slot for ``user_id`` (fix #302).
+
+    ``check_upload_quota`` runs at upload time, but the ``Record`` rows the
+    count aggregates over are created later by the ingest worker, so N
+    concurrent uploads could all pass the pre-check and overshoot the cap.
+    This is the authoritative check: call it inside the SAME transaction
+    that inserts the new ``Record`` row. It takes a per-user
+    transaction-scoped advisory lock and recounts, so concurrent creations
+    for one user serialize and cannot overshoot ``max_datasets_per_user``.
+    The lock is released automatically at commit/rollback.
+
+    No-op when the cap is 0 (the default unlimited config).
+    """
+    cap = await MAX_DATASETS_PER_USER.get(db)
+    if cap <= 0:
+        return
+
+    await db.execute(
+        text(
+            "SELECT pg_advisory_xact_lock("
+            "hashtextextended('geolens:dataset_quota:' || :uid, 0))"
+        ),
+        {"uid": str(user_id)},
+    )
+    usage = await get_user_quota_usage(db, user_id)
+    if usage.dataset_count >= cap:
+        raise DatasetQuotaExceededError(
+            f"Dataset quota exceeded: {usage.dataset_count} of {cap} datasets used"
+        )

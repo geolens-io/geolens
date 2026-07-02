@@ -99,6 +99,12 @@ async def create_raster_dataset(
     Dataset = _port.get_dataset_orm_class()
     Record = _port.get_record_orm_class()
 
+    # fix(#302): authoritative count-cap check in the same transaction that
+    # inserts the Record (the upload-time pre-check is not atomic).
+    from app.modules.quota.service import reserve_dataset_slot
+
+    await reserve_dataset_slot(session, created_by)
+
     # Mirror the vector ingest path (datasets/service.py
     # `create_dataset_record`) which commits directly to `published`.
     # Without this the raster stayed in `draft` and the anonymous public
@@ -112,6 +118,9 @@ async def create_raster_dataset(
         record_type="raster_dataset",
         visibility=visibility,
         record_status=record_status,
+        # fix(#302): created_by was never set on raster records, leaving them
+        # NULL and invisible to the per-user quota count and owner checks.
+        created_by=created_by,
         updated_by=created_by,
     )
     if meta.get("bbox_wkt"):
