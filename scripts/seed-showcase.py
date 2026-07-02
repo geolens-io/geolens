@@ -1976,19 +1976,20 @@ def build_collection(api: Api, force: bool = False) -> str:
     # --force reseed (no down -v) reuse the existing collection instead of recreating;
     # add_to_collection is idempotent, so re-adding members is a no-op.
     existing = api.collections_by_name()
-    if "Discover the World" in existing:
-        if not force:
-            print("  [skip] Discover the World collection already exists")
-            return "(skipped)"
-        coll_id = existing["Discover the World"]
-        print("\n[collection] reusing existing 'Discover the World' (--force)")
-    else:
+    fresh = "Discover the World" not in existing
+    if fresh:
         print("\n[collection] Discover the World + private-dataset embed-token demo")
         coll_id = api.create_collection(
             "Discover the World",
             "A guided tour of the GeoLens showcase - the NYC skyline, New York income, "
             "world countries, rivers and airports - grouped into one browsable collection.",
         )
+    else:
+        coll_id = existing["Discover the World"]
+        print("\n[collection] reusing existing 'Discover the World'")
+    # fix(#389): membership top-up runs even when the collection already exists
+    # (add_to_collection is idempotent), so upgrades that add new showcase
+    # datasets reach existing instances; only the embed demo stays force-gated.
     titles = api.datasets_by_title()
     wanted = [
         "Manhattan Building Heights",
@@ -2006,6 +2007,9 @@ def build_collection(api: Api, force: bool = False) -> str:
     member_ids = [titles[t] for t in wanted if t in titles]
     added = api.add_to_collection(coll_id, member_ids) if member_ids else 0
     print(f"  + {added} datasets added to the collection")
+    if not fresh and not force:
+        print("  [skip] collection already exists - membership topped up, embed demo unchanged")
+        return "(skipped)"
 
     # Private-dataset embed-token demo. A PUBLIC share URL is impossible with a private
     # dataset (publishing the map 400s), so keep the map PRIVATE and demonstrate the
