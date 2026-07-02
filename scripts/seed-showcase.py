@@ -333,6 +333,12 @@ class Api:
         d = r.json()
         return {x["title"]: x["id"] for x in d.get("datasets", d.get("items", []))}
 
+    def dataset_columns(self, dataset_id: str) -> set:
+        """Column names of a dataset (from the detail endpoint's column_info)."""
+        r = self.client.get(f"{self.base}/api/datasets/{dataset_id}", headers=self.h)
+        r.raise_for_status()
+        return {c["name"] for c in (r.json().get("column_info") or [])}
+
     def collections_by_name(self) -> dict[str, str]:
         """Map collection name -> id (name is UNIQUE in the catalog model)."""
         # Trailing slash required (redirect_slashes=False).
@@ -1493,6 +1499,17 @@ def build_restless_earth(api: Api, force: bool = False) -> str:
         print(f"  [skip] missing datasets (run earthquakes + countries first): {missing}")
         return "(skipped)"
     ds = {k: by_title[t] for k, t in needed.items()}
+
+    # fix(#389): instances seeded before the feed enrichment carry quake datasets
+    # with only mag/place/time, but the popups and Ask-AI fields below need
+    # depth_km/time_utc/felt/tsunami/sig — detect the old schema and swap a
+    # fresh enriched feed in place before wiring layers to it.
+    if "depth_km" not in api.dataset_columns(ds["quakes"]):
+        print("  quake datasets predate the enriched feed - refreshing in place...")
+        data, n = quake_feed()
+        api.reupload_geojson(ds["quakes"], "recent_quakes.geojson", data)
+        api.reupload_geojson(ds["heat"], "recent_quakes_heat.geojson", data)
+        print(f"  refreshed {n} quakes into both datasets")
 
     # --- own dataset 1: PB2002 plate-boundary steps (idempotent by title) ----
     plates_title = "Tectonic Plate Boundaries (PB2002)"
