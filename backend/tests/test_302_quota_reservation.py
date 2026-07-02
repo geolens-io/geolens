@@ -167,3 +167,57 @@ class TestFacadeEnforcement:
 
         assert "Dataset quota exceeded: 1 of 1" in str(exc_info.value)
         await test_db_session.rollback()
+
+
+class TestStacImportEnforcement:
+    async def test_stac_import_rejects_items_past_cap(
+        self,
+        client: AsyncClient,
+        editor_auth_header: dict,
+    ) -> None:
+        """A multi-item STAC batch cannot overshoot the cap.
+
+        STAC import inserts Record rows directly (the 4th creation site), so
+        it reserves a slot per item: with cap=1 and a fresh editor, a 2-item
+        batch creates the first and records a per-item quota error for the
+        second instead of overshooting.
+        """
+        p_count, p_storage = _patch_caps(1)
+        with (
+            p_count,
+            p_storage,
+            patch("app.modules.catalog.sources.stac_router.validate_url_for_ssrf"),
+        ):
+            resp = await client.post(
+                "/services/stac/import",
+                json={
+                    "url": "https://stac.example.com/v1",
+                    "items": [
+                        {
+                            "id": f"quota302-a-{uuid.uuid4().hex[:8]}",
+                            "title": "quota-302 STAC item 1",
+                            "data_asset_href": (
+                                f"https://example.com/data/{uuid.uuid4().hex[:8]}.tif"
+                            ),
+                            "keywords": [],
+                        },
+                        {
+                            "id": f"quota302-b-{uuid.uuid4().hex[:8]}",
+                            "title": "quota-302 STAC item 2",
+                            "data_asset_href": (
+                                f"https://example.com/data/{uuid.uuid4().hex[:8]}.tif"
+                            ),
+                            "keywords": [],
+                        },
+                    ],
+                    "visibility": "private",
+                },
+                headers=editor_auth_header,
+            )
+
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert data["created"] == 1
+        assert data["errors"] == 1
+        error_results = [r for r in data["results"] if r["status"] == "error"]
+        assert "Dataset quota exceeded" in error_results[0]["error"]

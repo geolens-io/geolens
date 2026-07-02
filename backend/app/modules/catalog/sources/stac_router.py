@@ -509,10 +509,16 @@ async def stac_import(
         )
         cog_info_map = dict(cog_results)
 
+    # fix(#302): STAC import inserts Record rows directly (the 4th creation
+    # site besides the datasets façade / raster / VRT creators), so it must
+    # participate in the atomic count-cap reservation too.
+    from app.modules.quota.service import reserve_dataset_slot
+
     for item in importable:
         try:
             # Savepoint per item so a failure doesn't corrupt the session
             async with db.begin_nested():
+                await reserve_dataset_slot(db, user.id)
                 spatial_extent = None
                 if item.bbox and len(item.bbox) >= 4:
                     w, s, e, n = item.bbox[:4]
