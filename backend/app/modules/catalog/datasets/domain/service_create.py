@@ -195,6 +195,13 @@ async def create_dataset(
     # Determine record_type: non-spatial datasets are 'table'
     record_type = "table" if ing.geometry_type is None else "vector_dataset"
 
+    # fix(#302): authoritative count-cap check at the point the Record row is
+    # created — the upload-time check_upload_quota cannot be atomic because
+    # this row only comes to exist here, after the pre-check passed.
+    from app.modules.quota.service import reserve_dataset_slot
+
+    await reserve_dataset_slot(session, created_by)
+
     record = Record(
         title=title,
         summary=summary,

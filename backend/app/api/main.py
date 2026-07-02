@@ -507,6 +507,29 @@ async def _rate_limit_handler(request: Request, exc: RateLimitExceeded) -> JSONR
 
 app.add_exception_handler(RateLimitExceeded, _rate_limit_handler)
 
+
+from app.modules.quota.service import DatasetQuotaExceededError  # noqa: E402
+
+
+async def _dataset_quota_handler(
+    request: Request, exc: DatasetQuotaExceededError
+) -> JSONResponse:
+    # fix(#302): reserve_dataset_slot raises a plain exception so the worker
+    # can use it too; API-side callers (e.g. empty-layer creation) get a 422
+    # matching the check_upload_quota contract.
+    return JSONResponse(
+        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+        content=ProblemDetail(
+            title="Dataset quota exceeded",
+            status=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=str(exc),
+        ).model_dump(),
+        media_type="application/problem+json",
+    )
+
+
+app.add_exception_handler(DatasetQuotaExceededError, _dataset_quota_handler)
+
 # SEC-02 / M-64 / SEC-005: gate https_only on the production indicator. Local-dev
 # and test runs use the development posture (no TLS terminator), so
 # https_only=True would cause SessionMiddleware to silently strip the cookie.

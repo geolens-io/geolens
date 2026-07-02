@@ -69,6 +69,12 @@ async def create_vrt_dataset(
     Dataset = port.get_dataset_orm_class()
     Record = port.get_record_orm_class()
 
+    # fix(#302): authoritative count-cap check in the same transaction that
+    # inserts the Record (the upload-time pre-check is not atomic).
+    from app.modules.quota.service import reserve_dataset_slot
+
+    await reserve_dataset_slot(session, created_by)
+
     record = Record(
         title=title,
         summary=summary,
@@ -81,6 +87,9 @@ async def create_vrt_dataset(
         # raster tile-access check at tiles/router.py `_resolve_raster_access`
         # returned 404 for every public VRT tile request.
         record_status=record_status,
+        # fix(#302): created_by was never set on VRT records, leaving them
+        # NULL and invisible to the per-user quota count and owner checks.
+        created_by=created_by,
         updated_by=created_by,
     )
     if meta.get("bbox_wkt"):
