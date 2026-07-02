@@ -327,11 +327,20 @@ class Api:
         return r.json()["job_id"]
 
     def datasets_by_title(self) -> dict[str, str]:
-        """Map dataset title -> id (list_datasets returns only titles)."""
+        """Map dataset title -> id (list_datasets returns only titles).
+
+        fix(#389): /api/datasets orders newest-first (Record.created_at desc) and
+        titles are NOT unique — a --force reseed creates fresh datasets alongside
+        same-titled predecessors. Keep the FIRST (newest) match so lookups resolve
+        to the freshly created dataset, not a stale duplicate.
+        """
         r = self.client.get(f"{self.base}/api/datasets?limit=200", headers=self.h)
         r.raise_for_status()
         d = r.json()
-        return {x["title"]: x["id"] for x in d.get("datasets", d.get("items", []))}
+        out: dict[str, str] = {}
+        for x in d.get("datasets", d.get("items", [])):
+            out.setdefault(x["title"], x["id"])
+        return out
 
     def dataset_columns(self, dataset_id: str) -> set:
         """Column names of a dataset (from the detail endpoint's column_info)."""
