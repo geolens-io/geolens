@@ -21,6 +21,7 @@ from app.processing.ingest.tasks_common import (
     _run_service_import_with_wfs_fallback,
     _run_staging_pipeline,
     _validate_upload_file_safety,
+    invalidate_tile_cache_for_table,
     resolve_service_type,
     task_app,
 )
@@ -255,6 +256,8 @@ async def reupload_file(
                 original_srid=srid,
                 file_hash=file_hash,
             )
+            # Captured pre-commit: the ORM attribute may be expired after commit.
+            live_table_name = dataset.table_name
 
             # Persist 3D fields on dataset record
             dataset.is_3d = three_d.get("is_3d")
@@ -283,6 +286,10 @@ async def reupload_file(
 
         final_status = "complete"
         await invalidate_catalog_cache()
+        # fix(#394) B-019/VT-01: the swap replaced the table's contents under the
+        # same name — purge cached MVT tiles or they 304-serve stale data for up
+        # to tile_cache_ttl. Post-commit, mirroring the feature-edit path.
+        await invalidate_tile_cache_for_table(live_table_name)
 
         # Generate embedding (non-fatal). Use a fresh session to load the
         # dataset since both phase 1 and phase 2 sessions are now closed.
@@ -549,12 +556,17 @@ async def reupload_service(
                 original_srid=metadata.get("srid"),
                 source_url=reupload_source_url,
             )
+            # Captured pre-commit: the ORM attribute may be expired after commit.
+            live_table_name = dataset.table_name
 
             job.status = "complete"
             job.completed_at = datetime.now(timezone.utc)
             await session.commit()
 
         await invalidate_catalog_cache()
+        # fix(#394) B-019/VT-01: purge cached MVT tiles after the swap (see the
+        # file-reupload path above).
+        await invalidate_tile_cache_for_table(live_table_name)
 
         # Generate embedding (non-fatal). Fresh session — both phase 1 and
         # phase 2 sessions are closed by now.

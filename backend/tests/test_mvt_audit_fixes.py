@@ -154,3 +154,76 @@ def test_tile_response_returns_304_on_matching_if_none_match():
     # 304 carries no entity body, so Content-Encoding must be dropped.
     assert "content-encoding" not in resp.headers
     assert resp.body == b""
+
+
+# ---------------------------------------------------------------------------
+# fix(#394) VT-05 / VT-06 / VT-07: 2026-07-03 builder-audit query-shape fixes
+# ---------------------------------------------------------------------------
+
+
+def test_tile_query_makevalid_guards_simplify_only():
+    """VT-05: ST_MakeValid wraps the simplify input; the z>=cutoff branch is untouched."""
+    query = _build_tile_query("places", [])
+    assert "ST_MakeValid(t.geom_4326)" in query
+    # The unsimplified branch must still serve the original geometry.
+    assert "ELSE t.geom_4326" in query
+
+
+def test_tile_query_drops_null_geometry_features():
+    """VT-06: the vector query filters NULL post-clip geometries like the cluster query."""
+    query = _build_tile_query("places", [])
+    assert "WHERE mvtgeom.geom IS NOT NULL" in query
+
+
+def test_cluster_query_emits_positive_offset_gid():
+    """VT-07: cluster feature ids are positive (ST_AsMVT drops non-positive ids)
+    and offset out of the realistic serial-gid range."""
+    query = _build_cluster_tile_query("places")
+    assert "-row_number()" not in query
+    assert f"{service._CLUSTER_FEATURE_ID_OFFSET}::bigint + row_number()" in query
+    # Offset must stay exactly representable as a JS double.
+    assert service._CLUSTER_FEATURE_ID_OFFSET < 2**53
+
+
+# ---------------------------------------------------------------------------
+# fix(#394) B-019/VT-01: reupload purges the MVT tile cache post-commit
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_invalidate_tile_cache_for_table_calls_provider(monkeypatch):
+    from app.platform.cache import provider as cache_provider
+    from app.processing.ingest.tasks_common import invalidate_tile_cache_for_table
+
+    fake_cache = MagicMock()
+    fake_cache.invalidate_table = AsyncMock()
+    monkeypatch.setattr(cache_provider, "get_tile_cache", lambda: fake_cache)
+
+    await invalidate_tile_cache_for_table("reuploaded_table")
+
+    fake_cache.invalidate_table.assert_awaited_once_with("reuploaded_table")
+
+
+@pytest.mark.asyncio
+async def test_invalidate_tile_cache_for_table_noop_without_provider(monkeypatch):
+    from app.platform.cache import provider as cache_provider
+    from app.processing.ingest.tasks_common import invalidate_tile_cache_for_table
+
+    monkeypatch.setattr(cache_provider, "get_tile_cache", lambda: None)
+
+    # Must not raise — the purge is best-effort.
+    await invalidate_tile_cache_for_table("reuploaded_table")
+
+
+def test_reupload_tasks_invalidate_tile_cache_after_commit():
+    """Both reupload task bodies call the tile-cache purge after their commit.
+
+    Guards the fix(#394) B-019 call sites the way the audit found them missing:
+    the swap replaces table contents, so each task must purge post-commit.
+    """
+    import inspect
+
+    from app.processing.ingest import tasks_reupload
+
+    source = inspect.getsource(tasks_reupload)
+    assert source.count("await invalidate_tile_cache_for_table(live_table_name)") == 2

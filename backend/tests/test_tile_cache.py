@@ -312,3 +312,45 @@ async def test_init_tile_pool_passes_setup_callback(monkeypatch):
         pool_module._tile_pool = None
 
     assert captured_kwargs.get("setup") is pool_module._setup_tile_connection
+
+
+@pytest.mark.asyncio
+async def test_invalidate_table_purges_tenant_prefixed_keys(tile_cache):
+    """fix(#394) VT-08: multi_tenant keys are `tile:{tid}:{table}:...` — the
+    invalidation must purge those alongside the bare single-tenant keys."""
+    data = gzip.compress(b"tile")
+    await tile_cache.set("target", 1, 0, 0, data, ttl=60)
+    await tile_cache.set(
+        "11111111-2222-3333-4444-555555555555:target", 1, 0, 0, data, ttl=60
+    )
+    await tile_cache.set("other", 1, 0, 0, data, ttl=60)
+
+    await tile_cache.invalidate_table("target")
+
+    assert await tile_cache.get("target", 1, 0, 0) is None
+    assert (
+        await tile_cache.get("11111111-2222-3333-4444-555555555555:target", 1, 0, 0)
+        is None
+    )
+    assert await tile_cache.get("other", 1, 0, 0) == data
+
+
+@pytest.mark.asyncio
+async def test_in_memory_invalidate_table_purges_tenant_prefixed_keys():
+    """fix(#394) VT-08: same contract for the InMemory fallback provider."""
+    from app.platform.cache.tile_cache import InMemoryTileCacheProvider
+
+    cache = InMemoryTileCacheProvider(max_entries=10)
+    await cache.set("target", 1, 0, 0, b"a", ttl=60)
+    await cache.set(
+        "11111111-2222-3333-4444-555555555555:target", 1, 0, 0, b"b", ttl=60
+    )
+    await cache.set("other", 1, 0, 0, b"c", ttl=60)
+
+    await cache.invalidate_table("target")
+
+    assert await cache.get("target", 1, 0, 0) is None
+    assert (
+        await cache.get("11111111-2222-3333-4444-555555555555:target", 1, 0, 0) is None
+    )
+    assert await cache.get("other", 1, 0, 0) == b"c"
