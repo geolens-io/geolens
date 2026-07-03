@@ -781,7 +781,9 @@
     "bulkStyleApplied": "Estilo aplicado a {{count}} capas",
     "bulkStyleSkipped": "{{count}} capas omitidas (geometría incompatible)",
     "bulkGroupNeedTwo": "Selecciona al menos 2 capas sueltas para agrupar",
-    "bulkGroupSkipped": "Algunas capas seleccionadas ya están agrupadas y no se pueden agrupar de nuevo"
+    "bulkGroupSkipped": "Algunas capas seleccionadas ya están agrupadas y no se pueden agrupar de nuevo",
+    "bulkGroupSkippedType": "Las capas ráster y DEM no se pueden agrupar; quítalas de tu selección e inténtalo de nuevo",
+    "bulkGroupSkippedGroupRow": "Los grupos no se pueden agrupar; quita las filas de grupo de tu selección e inténtalo de nuevo"
   },
   "builderMap": {
     "loading": "Cargando mapa...",

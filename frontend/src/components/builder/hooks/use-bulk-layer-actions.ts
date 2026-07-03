@@ -200,7 +200,25 @@ export function useBulkLayerActions({
     // fix(#1280): B-004d / LM-04 — surface WHY the group action no-op'd instead
     // of returning silently while the caller clears the selection anyway.
     if (groupableLayers.length !== selectedLayers.length) {
-      toast.info(t('toasts.bulkGroupSkipped'));
+      // fix(#1280 WR-01): the toast previously always said "already grouped,"
+      // which is wrong when the real disqualifier is a raster/DEM layer or a
+      // group row in the selection. Pick the message that matches the actual
+      // reason. Priority: a group row in the selection is the most distinct
+      // mistake, then an ineligible (non-vector) layer type, and only then
+      // fall back to the "already grouped" message.
+      const hasGroupRow = selectedLayers.some(
+        (l) => (l as GroupedLayer).layer_type === 'group:folder',
+      );
+      const hasIneligibleType = selectedLayers.some(
+        (l) => l.dataset_record_type !== 'vector_dataset',
+      );
+      if (hasGroupRow) {
+        toast.info(t('toasts.bulkGroupSkippedGroupRow'));
+      } else if (hasIneligibleType) {
+        toast.info(t('toasts.bulkGroupSkippedType'));
+      } else {
+        toast.info(t('toasts.bulkGroupSkipped'));
+      }
       return false;
     }
     if (groupableLayers.length < 2) {

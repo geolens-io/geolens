@@ -781,7 +781,9 @@
     "bulkStyleApplied": "Style appliqué à {{count}} couches",
     "bulkStyleSkipped": "{{count}} couches ignorées (géométrie incompatible)",
     "bulkGroupNeedTwo": "Sélectionnez au moins 2 couches libres pour les regrouper",
-    "bulkGroupSkipped": "Certaines couches sélectionnées sont déjà groupées et ne peuvent pas être regroupées à nouveau"
+    "bulkGroupSkipped": "Certaines couches sélectionnées sont déjà groupées et ne peuvent pas être regroupées à nouveau",
+    "bulkGroupSkippedType": "Les couches raster et MNT ne peuvent pas être regroupées ; retirez-les de votre sélection et réessayez",
+    "bulkGroupSkippedGroupRow": "Les groupes ne peuvent pas être regroupés ; retirez les lignes de groupe de votre sélection et réessayez"
   },
   "builderMap": {
     "loading": "Chargement de la carte...",

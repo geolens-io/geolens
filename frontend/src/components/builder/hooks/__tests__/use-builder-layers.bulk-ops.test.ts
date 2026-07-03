@@ -497,7 +497,10 @@ describe('useBuilderLayers — handleBulkGroup (POL-09)', () => {
     expect(result.current.localLayers.length).toBe(before);
   });
 
-  it('Test 11: mixed selection including a raster layer returns false, toasts bulkGroupSkipped, does not mutate localLayers', async () => {
+  // fix(#1280 WR-01): mixed selection with a raster layer must toast the
+  // TYPE-specific reason, not the generic (and factually wrong, for this
+  // case) "already grouped" message.
+  it('Test 11: mixed selection including a raster layer returns false, toasts bulkGroupSkippedType, does not mutate localLayers', async () => {
     const infoSpy = vi.spyOn(toast, 'info');
     const layerA = makeMockLayer({ id: 'a', sort_order: 0, dataset_record_type: 'vector_dataset' });
     const layerR = makeMockLayer({ id: 'r', sort_order: 1, dataset_record_type: 'raster_dataset', layer_type: 'raster_geolens' });
@@ -512,11 +515,13 @@ describe('useBuilderLayers — handleBulkGroup (POL-09)', () => {
     });
 
     expect(created).toBe(false);
-    expect(infoSpy).toHaveBeenCalledWith("Some selected layers are already grouped and can't be grouped again");
+    expect(infoSpy).toHaveBeenCalledWith("Raster and DEM layers can't be grouped — remove them from your selection and try again");
     expect(result.current.localLayers.length).toBe(before);
   });
 
-  it('Test B (ineligible — group:folder row in selection): returns false, toasts bulkGroupSkipped', async () => {
+  // fix(#1280 WR-01): a group row in the selection must toast the
+  // GROUP-ROW-specific reason, not the generic "already grouped" message.
+  it('Test B (ineligible — group:folder row in selection): returns false, toasts bulkGroupSkippedGroupRow', async () => {
     const infoSpy = vi.spyOn(toast, 'info');
     const groupRow = makeMockLayer({ id: 'g1', sort_order: 0, layer_type: 'group:folder' });
     const layerA = makeMockLayer({ id: 'a', sort_order: 1, dataset_record_type: 'vector_dataset' });
@@ -532,7 +537,7 @@ describe('useBuilderLayers — handleBulkGroup (POL-09)', () => {
     });
 
     expect(created).toBe(false);
-    expect(infoSpy).toHaveBeenCalledWith("Some selected layers are already grouped and can't be grouped again");
+    expect(infoSpy).toHaveBeenCalledWith("Groups can't be grouped — remove any group rows from your selection and try again");
     expect(result.current.localLayers.length).toBe(before);
   });
 });
