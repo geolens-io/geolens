@@ -673,8 +673,10 @@ export function MapBuilderPage() {
   }, [applyBulkOpacity]);
 
   const handleBulkGroup = useCallback((ids: Set<string>) => {
-    applyBulkGroup(ids);
-    setSelectedIds(new Set());
+    // fix(#1280): B-004d / LM-04 — only clear the selection when a group was
+    // actually created; an ineligible selection must stay intact so the user
+    // can see it, read the toast, and adjust instead of losing it silently.
+    if (applyBulkGroup(ids)) setSelectedIds(new Set());
   }, [applyBulkGroup]);
 
   const handleBulkUngroup = useCallback((ids: Set<string>) => {
