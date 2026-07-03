@@ -667,11 +667,14 @@ export function useBuilderLayers(
             ...savedLayerBaselineRef.current.filter((candidate) => candidate.id !== createdLayer.id),
             createdLayer,
           ];
-          if (sourceParentGroupId) {
-            // Group membership is unsaved frontend state — mark dirty so the
-            // save path persists it and the refetch sync does not wipe it.
-            setHasUnsavedChanges(true);
-          }
+          // fix(#1280 CR-01): the splice above always renumbers the FULL local
+          // array (adjacent-insert, not append) — this is a real, unpersisted
+          // diff for grouped AND non-grouped duplicates alike. Mark dirty
+          // unconditionally so the `!hasUnsavedChanges`-gated apiLayers resync
+          // effect (triggered by addLayerMutation's own query invalidation)
+          // cannot silently overwrite the adjacent placement with server order
+          // before Save runs.
+          setHasUnsavedChanges(true);
           if (createdLayer?.id) {
             setExpandedLayerId(createdLayer.id);
             setActiveEditorTab('style');

@@ -114,6 +114,35 @@ describe('handleDuplicateRendering — grouped-duplicate positioning (B-004b / L
     expect(dupIdx).toBe(srcIdx + 1);
   });
 
+  // Test 3b (CR-01): a NON-grouped duplicate must also mark the map dirty.
+  // The splice in handleDuplicateRendering's onSuccess renumbers sort_order
+  // for the FULL local array unconditionally (adjacent-insert, not append) —
+  // this is a real, unpersisted diff regardless of grouping. Before the fix,
+  // setHasUnsavedChanges(true) was only called when sourceParentGroupId was
+  // truthy, so this non-grouped case left hasUnsavedChanges false. That let
+  // addLayerMutation's own query-invalidation-triggered refetch run the
+  // `!hasUnsavedChanges`-gated apiLayers resync effect and silently overwrite
+  // the just-spliced adjacent placement with server order before Save —
+  // reproducing the race the unit test's bare `vi.fn()` mutation mock can't
+  // otherwise observe. This test fails on pre-fix code (hasUnsavedChanges
+  // would be false here).
+  it('Test 3b: duplicating a loose (ungrouped) layer marks hasUnsavedChanges true so the query-invalidation resync cannot revert the adjacent splice (CR-01)', () => {
+    const source = makeMockLayer({ id: 'src', sort_order: 0 });
+    const other = makeMockLayer({ id: 'other', sort_order: 1 });
+
+    const { result, mutate } = renderBuilderLayers(makeMapData([source, other]));
+    expect(result.current.hasUnsavedChanges).toBe(false);
+
+    act(() => {
+      result.current.handleDuplicateRendering('src');
+    });
+
+    const [, { onSuccess }] = mutate.mock.calls[0];
+    act(() => { onSuccess({ id: 'dup-2b', dataset_id: 'ds-1' }); });
+
+    expect(result.current.hasUnsavedChanges).toBe(true);
+  });
+
   it('Test 4: savedLayerBaselineRef receives the pure server createdLayer without parent_group_id', () => {
     const source = {
       ...makeMockLayer({ id: 'src', sort_order: 0 }),
@@ -131,5 +160,41 @@ describe('handleDuplicateRendering — grouped-duplicate positioning (B-004b / L
 
     const baselineEntry = result.current.savedLayerBaseline.find((l) => l.id === 'dup-3');
     expect(baselineEntry).toEqual({ id: 'dup-3', dataset_id: 'ds-1' });
+  });
+
+  // Test 5 (CR-01, second facet): a layer moved out of a group locally, then
+  // duplicated BEFORE Save, must not carry the stale style_config.builder.
+  // folderGroupId to the backend. buildDuplicateRenderingInput copies
+  // style_config verbatim from the current in-memory layer, so if
+  // handleMoveLayerOutOfGroup only cleared the frontend-only parent_group_id
+  // (leaving style_config.builder.folderGroupId intact), the duplicate would
+  // be persisted with the stale pointer — and the next server resync would
+  // silently re-group it via hydrateFolderGroupLayers, which reads
+  // style_config, not parent_group_id. This test fails on pre-fix code.
+  it('Test 5: duplicating a layer just moved out of a group does not resurrect the stale folderGroupId in the outgoing style_config', () => {
+    const groupLayer = { ...makeMockLayer({ id: 'group-1' }), layer_type: 'group:folder' } as unknown as MapLayerResponse;
+    const childLayer = {
+      ...makeMockLayer({
+        id: 'src',
+        sort_order: 1,
+        style_config: { builder: { folderGroupId: 'group-1', folderGroupName: 'Group 1' } },
+      }),
+      parent_group_id: 'group-1',
+    } as unknown as MapLayerResponse;
+
+    const { result, mutate } = renderBuilderLayers(makeMapData([groupLayer, childLayer]));
+
+    act(() => {
+      result.current.handleMoveLayerOutOfGroup('src');
+    });
+
+    act(() => {
+      result.current.handleDuplicateRendering('src');
+    });
+
+    expect(mutate).toHaveBeenCalledOnce();
+    const [{ data }] = mutate.mock.calls[0];
+    const outgoingBuilder = (data.style_config as { builder?: Record<string, unknown> } | null)?.builder;
+    expect(outgoingBuilder?.folderGroupId).toBeUndefined();
   });
 });

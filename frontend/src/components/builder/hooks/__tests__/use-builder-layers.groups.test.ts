@@ -242,6 +242,34 @@ describe('useBuilderLayers — folder group handlers', () => {
     expect(result.current.hasUnsavedChanges).toBe(true);
   });
 
+  // Test 8b (CR-01): handleUngroup must clear the PERSISTED
+  // style_config.builder.folderGroupId on the child, not just the
+  // frontend-only parent_group_id — otherwise re-duplicating the child
+  // before Save copies the stale group pointer to the backend and the next
+  // server resync silently re-groups it (hydrateFolderGroupLayers reads
+  // style_config, not parent_group_id).
+  it('handleUngroup clears style_config.builder.folderGroupId on promoted children (CR-01)', () => {
+    const groupLayer = { ...makeMockLayer({ id: 'group-1' }), layer_type: 'group:folder' } as unknown as MapLayerResponse;
+    const childLayer = {
+      ...makeMockLayer({
+        id: 'child-1',
+        sort_order: 1,
+        style_config: { builder: { folderGroupId: 'group-1', folderGroupName: 'Group 1' } },
+      }),
+      parent_group_id: 'group-1',
+    } as unknown as MapLayerResponse;
+    const { result } = renderBuilderLayers(makeMapData([groupLayer, childLayer]));
+
+    act(() => {
+      result.current.handleUngroup('group-1');
+    });
+
+    const child = result.current.localLayers.find((l) => l.id === 'child-1');
+    expect(child).toBeDefined();
+    const builder = (child?.style_config as { builder?: Record<string, unknown> } | null)?.builder;
+    expect(builder?.folderGroupId).toBeUndefined();
+  });
+
   // Test 9: handleDeleteGroup removes the group and all children
   it('handleDeleteGroup removes group container and all children with matching parent_group_id', () => {
     const groupLayer = { ...makeMockLayer({ id: 'group-1' }), layer_type: 'group:folder' } as unknown as MapLayerResponse;
@@ -300,5 +328,28 @@ describe('useBuilderLayers — folder group handlers', () => {
     expect(moved).toBeDefined();
     expect(moved?.parent_group_id == null).toBe(true);
     expect(result.current.hasUnsavedChanges).toBe(true);
+  });
+
+  // Test 10b (CR-01): handleMoveLayerOutOfGroup must clear the PERSISTED
+  // style_config.builder.folderGroupId too — same rationale as Test 8b above.
+  it('handleMoveLayerOutOfGroup clears style_config.builder.folderGroupId from the target layer (CR-01)', () => {
+    const groupLayer = { ...makeMockLayer({ id: 'group-1' }), layer_type: 'group:folder' } as unknown as MapLayerResponse;
+    const childLayer = {
+      ...makeMockLayer({
+        id: 'child-1',
+        style_config: { builder: { folderGroupId: 'group-1', folderGroupName: 'Group 1' } },
+      }),
+      parent_group_id: 'group-1',
+    } as unknown as MapLayerResponse;
+    const { result } = renderBuilderLayers(makeMapData([groupLayer, childLayer]));
+
+    act(() => {
+      result.current.handleMoveLayerOutOfGroup('child-1');
+    });
+
+    const moved = result.current.localLayers.find((l) => l.id === 'child-1');
+    expect(moved).toBeDefined();
+    const builder = (moved?.style_config as { builder?: Record<string, unknown> } | null)?.builder;
+    expect(builder?.folderGroupId).toBeUndefined();
   });
 });
