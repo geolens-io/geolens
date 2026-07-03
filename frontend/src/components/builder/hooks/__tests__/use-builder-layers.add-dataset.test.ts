@@ -412,4 +412,30 @@ describe('handleAddDataset — group-drop adjacency (B-004c / LM-03)', () => {
     const ids = result.current.localLayers.map((l) => l.id);
     expect(ids[0]).toBe('new-loose');
   });
+
+  // WR-02: a loose (non-group) add renumbers every existing layer's sort_order
+  // locally, but the backend does not renumber sibling rows on this path
+  // (maps/service_layers.py:106-120) — so that renumber is an unpersisted diff
+  // the apiLayers resync effect could silently clobber before Save unless the
+  // map is marked dirty. Fails on pre-fix code (hasUnsavedChanges stayed false).
+  it('Test 4 (WR-02): non-grouped add-dataset that renumbers sibling sort_order marks the map dirty', () => {
+    const existingA = makeMockLayer({ id: 'existing-a', sort_order: 0 });
+    const existingB = makeMockLayer({ id: 'existing-b', sort_order: 1 });
+    const { result, mutate } = renderBuilderLayers(makeMapData([existingA, existingB]));
+
+    expect(result.current.hasUnsavedChanges).toBe(false);
+
+    act(() => {
+      result.current.handleAddDataset('ds-42');
+    });
+
+    const [, { onSuccess }] = mutate.mock.calls[0];
+    act(() => { onSuccess({ id: 'new-loose', dataset_id: 'ds-42' }); });
+
+    // Sanity: the sibling rows were in fact renumbered by array index.
+    const bySortOrder = [...result.current.localLayers].sort((a, b) => a.sort_order - b.sort_order);
+    expect(bySortOrder.map((l) => l.id)).toEqual(['new-loose', 'existing-a', 'existing-b']);
+
+    expect(result.current.hasUnsavedChanges).toBe(true);
+  });
 });

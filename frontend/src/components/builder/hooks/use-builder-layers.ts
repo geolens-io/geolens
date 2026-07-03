@@ -540,6 +540,14 @@ export function useBuilderLayers(
               if (!savedLayerBaselineRef.current.some((l) => l.id === createdLayer.id)) {
                 savedLayerBaselineRef.current = [createdLayer, ...savedLayerBaselineRef.current];
               }
+              // fix(WR-02): mark dirty unconditionally, not just for the grouped
+              // branch — the non-grouped branch above renumbers every existing
+              // layer's sort_order locally, but the backend does not renumber
+              // sibling rows (maps/service_layers.py:106-120), so that renumber is
+              // an unpersisted diff the apiLayers resync effect could otherwise
+              // silently clobber before Save. Same defect class as CR-01
+              // (handleDuplicateRendering).
+              setHasUnsavedChanges(true);
               if (parentGroupId) {
                 // Group membership is unsaved frontend state — mark dirty so the
                 // save path persists it (and the refetch sync does not wipe it),
@@ -547,7 +555,6 @@ export function useBuilderLayers(
                 setGroupMeta((prev) =>
                   prev[parentGroupId]?.expanded ? prev : { ...prev, [parentGroupId]: { expanded: true } },
                 );
-                setHasUnsavedChanges(true);
               }
             }
             // Phase 1040 POL-05: named toast when datasetName is provided; generic
