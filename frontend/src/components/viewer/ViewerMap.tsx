@@ -198,6 +198,11 @@ export const ViewerMap = memo(function ViewerMap({
 
   const { data: basemaps } = useBasemaps();
   const { data: tileConfig } = useTileConfig();
+  // Ref so the `map.on('error', ...)` handler registered once in handleLoad
+  // (see below) always reads the current tile config without needing to
+  // re-register the handler on every tileConfig change.
+  const tileConfigRef = useRef(tileConfig);
+  tileConfigRef.current = tileConfig;
   const resolvedId = resolveBasemapId(basemapStyle);
   const isBlank = resolvedId === BLANK_BASEMAP_ID;
   const effectiveBasemap = isBlank
@@ -337,13 +342,33 @@ export const ViewerMap = memo(function ViewerMap({
         // map makes, including third-party basemap style/sprite/glyph fetches
         // (e.g. OpenFreeMap, CartoDB). A 401/403 from one of those CDNs is not
         // an embed-token problem, so only treat the failure as an embed-auth
-        // issue when the failing request was same-origin (our own API/tile
-        // endpoints). When maplibre doesn't report a url, default to treating
-        // it as first-party to preserve prior behavior.
+        // issue when the failing request is first-party: our own origin, or
+        // the configured tile CDN origin (`cdn_base_url` / `TILE_BASE_URL`,
+        // resolved via the same `resolveTileBaseUrl()` helper used to build
+        // tile URLs) — self-hosted deployments commonly serve tiles from a
+        // separate CDN origin, so same-origin alone would misclassify a real
+        // embed-token failure there as third-party and swallow it. When
+        // maplibre doesn't report a url, default to treating it as
+        // first-party to preserve prior behavior. A relative path (single
+        // leading slash) is always first-party; a protocol-relative URL
+        // (`//host/path`) is normalized with the current protocol before the
+        // origin check so it isn't misread as a relative path.
         const isThirdPartyUrl = (url?: string): boolean => {
-          if (!url || url.startsWith('/')) return false;
+          if (!url) return false;
+          if (url.startsWith('/') && !url.startsWith('//')) return false;
           try {
-            return new URL(url, window.location.origin).origin !== window.location.origin;
+            const normalized = url.startsWith('//') ? `${window.location.protocol}${url}` : url;
+            const requestOrigin = new URL(normalized, window.location.origin).origin;
+            if (requestOrigin === window.location.origin) return false;
+            const tileBaseUrl = resolveTileBaseUrl(tileConfigRef.current);
+            if (tileBaseUrl) {
+              try {
+                if (requestOrigin === new URL(tileBaseUrl, window.location.origin).origin) return false;
+              } catch {
+                // Malformed configured tile base URL — fall through to third-party classification.
+              }
+            }
+            return true;
           } catch {
             return false;
           }

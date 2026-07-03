@@ -1,4 +1,4 @@
-// B-006 (audit SH-01): the viewer's global map.on('error') handler swallowed
+// B-006: the viewer's global map.on('error') handler swallowed
 // every 4xx, so an expired/invalid embed token (X-Embed-Token) rendered blank
 // layers with no user feedback. This spec proves an embed-token 401/403
 // surfaces a deduped "access expired" toast, while a genuine no-data 404
@@ -122,9 +122,13 @@ vi.mock('@vis.gl/react-maplibre', async () => {
   };
 });
 
+// Mutable so WR-01b can simulate a deployment with a configured tile CDN
+// (`cdn_base_url`) without re-declaring the whole mock per test.
+const tileConfigState = vi.hoisted(() => ({ cdn_base_url: null as string | null }));
+
 vi.mock('@/hooks/use-settings', () => ({
   useBasemaps: () => ({ data: [] }),
-  useTileConfig: () => ({ data: { cdn_base_url: null } }),
+  useTileConfig: () => ({ data: tileConfigState }),
   useBranding: () => ({ data: undefined }),
 }));
 vi.mock('@/hooks/use-webgl-recovery', () => ({
@@ -182,6 +186,7 @@ function renderEmbedViewer() {
 describe('ViewerMap embed-token auth error (B-006)', () => {
   beforeEach(() => {
     mapState.reset();
+    tileConfigState.cdn_base_url = null;
     vi.mocked(toast.error).mockClear();
     vi.mocked(toast.success).mockClear();
   });
@@ -251,6 +256,43 @@ describe('ViewerMap embed-token auth error (B-006)', () => {
 
     mapState.fakeMap.emit('error', {
       error: { status: 401, url: `${window.location.origin}/api/tiles/collection.mvt` },
+    });
+
+    expect(toast.error).toHaveBeenCalledTimes(1);
+    expect(toast.error).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ id: expect.any(String) }),
+    );
+  });
+
+  // WR-01a: a protocol-relative URL (`//host/path`) starts with `/` but is
+  // NOT a same-origin relative path — it must still be origin-checked rather
+  // than short-circuited to first-party.
+  it('stays quiet on a 401 from a protocol-relative third-party CDN URL', async () => {
+    renderEmbedViewer();
+    await waitFor(() => {
+      expect(mapState.fakeMap.on).toHaveBeenCalledWith('error', expect.any(Function));
+    });
+
+    mapState.fakeMap.emit('error', {
+      error: { status: 401, url: '//tiles.openfreemap.org/styles/positron/sprite.json' },
+    });
+
+    expect(toast.error).not.toHaveBeenCalled();
+  });
+
+  // WR-01b: when the deployment configures a tile CDN (`cdn_base_url`), that
+  // origin is first-party too — a genuine embed-token failure there must
+  // still surface the toast, not be swallowed as "third-party".
+  it('surfaces the toast on a 401 from the configured tile CDN origin', async () => {
+    tileConfigState.cdn_base_url = 'https://cdn.example.com';
+    renderEmbedViewer();
+    await waitFor(() => {
+      expect(mapState.fakeMap.on).toHaveBeenCalledWith('error', expect.any(Function));
+    });
+
+    mapState.fakeMap.emit('error', {
+      error: { status: 401, url: 'https://cdn.example.com/api/tiles/collection.mvt' },
     });
 
     expect(toast.error).toHaveBeenCalledTimes(1);
