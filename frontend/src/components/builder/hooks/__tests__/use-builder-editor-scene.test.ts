@@ -124,4 +124,40 @@ describe('builder editor scene controller', () => {
     });
     expect(result.current.isEditorOpen).toBe(true);
   });
+
+  // fix(#1280): B-004a / LM-01 — folder-group rows must not resolve to a real editor.
+  it('derives a group scene for a folder-group editingLayer instead of falling through to default editing', () => {
+    const groupLayer = makeLayer({ id: 'group-1', layer_type: 'group:folder' });
+    expect(deriveBuilderEditorScene('group-1', groupLayer)).toBe('group');
+  });
+
+  it('returns no editor for a folder-group expandedLayerId (B-004a / LM-01)', () => {
+    const groupLayer = makeLayer({ id: 'group-1', layer_type: 'group:folder' });
+    const child = makeLayer({ id: 'child-1' });
+
+    const { result } = renderHook(() => useBuilderEditorScene({
+      expandedLayerId: 'group-1',
+      localLayers: [groupLayer, child],
+      savedLayerBaseline: [groupLayer, child],
+      basemapGroup: BASEMAP_GROUP,
+    }));
+
+    expect(result.current.editorLayer).toBeNull();
+    expect(result.current.editingLayer).toBeNull();
+    expect(result.current.isEditorOpen).toBe(false);
+  });
+
+  it('still opens a real editor for a normal vector layer (regression pin)', () => {
+    const draft = makeLayer({ id: 'trail-layer' });
+
+    const { result } = renderHook(() => useBuilderEditorScene({
+      expandedLayerId: 'trail-layer',
+      localLayers: [draft],
+      savedLayerBaseline: [draft],
+      basemapGroup: BASEMAP_GROUP,
+    }));
+
+    expect(result.current.editorLayer).toBe(draft);
+    expect(result.current.isEditorOpen).toBe(true);
+  });
 });
