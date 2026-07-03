@@ -284,6 +284,19 @@ def _collect_chat_action(tool_name: str, tool_input: dict, result: dict) -> dict
     if tool_name == "set_label":
         return _build_label_action(tool_input)
 
+    # CH-02: set_style must emit the backend-validated/clamped paint computed in
+    # _execute_chat_tool (it lives on `result` because `tool_input` was
+    # reassigned to `next_input` and returned there), not the raw fn_args. When
+    # validation was skipped (no paint/clear_paint on the call), `result`
+    # equals the raw tool_input, so behavior is unchanged.
+    if tool_name == "set_style":
+        action = {"type": "set_style", **tool_input}
+        if "paint" in result:
+            action["paint"] = result["paint"]
+        if "clear_paint" in result:
+            action["clear_paint"] = result["clear_paint"]
+        return action
+
     # add_layer: carry the server-resolved dataset_name (builder-audit #338 B-002) so
     # the staging chip shows a human name instead of the raw UUID. The name is
     # resolved during _execute_chat_tool and arrives on `result`, not tool_input.

@@ -124,3 +124,68 @@ def test_chat_action_round_trip_preserves_add_layer_dataset_name() -> None:
     action = {"type": "add_layer", "dataset_id": "ds-1", "dataset_name": "Parks"}
     dumped = ChatAction(**action).model_dump(exclude_none=True)
     assert dumped["dataset_name"] == "Parks"
+
+
+def test_set_style_emits_backend_validated_paint_not_raw_tool_input() -> None:
+    """Regression (B-002/CH-02): _execute_chat_tool computes validated/clamped
+    paint into `result` (it lives there because `tool_input` was reassigned to
+    `next_input` and returned), but _collect_chat_action previously re-emitted
+    the raw `tool_input['paint']` fn_args unchanged. The emitted action's paint
+    must reflect the validated `result` value, not the raw invalid/unclamped
+    one the model produced."""
+    raw_tool_input = {
+        "layer_id": "layer-1",
+        # Raw AI output: circle-radius is invalid for a fill layer and would be
+        # dropped by validation; fill-opacity is out-of-bounds and would be clamped.
+        "paint": {"circle-radius": 40, "fill-opacity": 5.0},
+    }
+    # `result` as _execute_chat_tool actually returns it: validated/clamped paint,
+    # with the invalid prop dropped and the out-of-bounds prop clamped to 1.0.
+    result = {"status": "ok", "layer_id": "layer-1", "paint": {"fill-opacity": 1.0}}
+
+    action = _collect_chat_action("set_style", raw_tool_input, result)
+
+    assert action is not None
+    assert action["type"] == "set_style"
+    assert action["paint"] == {"fill-opacity": 1.0}, (
+        "emitted paint must be the validated result value, not the raw tool_input"
+    )
+
+
+def test_set_style_emits_backend_validated_clear_paint_not_raw_tool_input() -> None:
+    """Companion to the paint pin above: clear_paint must also prefer the
+    validated `result` list over the raw `tool_input` clear_paint."""
+    raw_tool_input = {
+        "layer_id": "layer-1",
+        # Raw AI output includes a clear-paint entry invalid for the layer's
+        # geometry — validation would drop it.
+        "clear_paint": ["circle-radius", "fill-color"],
+    }
+    result = {
+        "status": "ok",
+        "layer_id": "layer-1",
+        "clear_paint": ["fill-color"],
+    }
+
+    action = _collect_chat_action("set_style", raw_tool_input, result)
+
+    assert action is not None
+    assert action["clear_paint"] == ["fill-color"], (
+        "emitted clear_paint must be the validated result value, not raw tool_input"
+    )
+
+
+def test_set_style_without_validation_falls_back_to_tool_input_unchanged() -> None:
+    """When set_style had no paint/clear_paint (the _execute_chat_tool validation
+    branch is skipped entirely), `result` carries no paint/clear_paint keys, so
+    behavior is unchanged — the action is built from tool_input as before."""
+    raw_tool_input = {"layer_id": "layer-1"}
+    result = {"status": "ok", "layer_id": "layer-1"}
+
+    action = _collect_chat_action("set_style", raw_tool_input, result)
+
+    assert action is not None
+    assert action["type"] == "set_style"
+    assert action["layer_id"] == "layer-1"
+    assert "paint" not in action
+    assert "clear_paint" not in action
