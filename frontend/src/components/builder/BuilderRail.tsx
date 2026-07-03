@@ -186,11 +186,21 @@ export function BuilderRail({
 
       {/* Expanded panel */}
       {activePanel && (
+        // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- container-level Escape shortcut for keystrokes bubbling from the panel's own interactive children; the aside itself stays non-interactive
         <aside
           className={cn(
             'bg-background border-s flex h-full min-h-0 flex-col shrink-0 overflow-hidden',
             showRail ? 'w-80' : 'w-full border-s-0',
           )}
+          onKeyDown={(e) => {
+            // fix(#394) UX-07: Escape closes the expanded rail panel — parity
+            // with the editor flyout's Escape (non-modal, fires only when
+            // focus is inside the panel).
+            if (e.key === 'Escape' && !e.defaultPrevented) {
+              e.stopPropagation();
+              onPanelChange(null);
+            }
+          }}
         >
           {/* Panel header */}
           <div className="flex items-center justify-between px-3.5 py-2.5 border-b shrink-0">

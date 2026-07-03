@@ -430,7 +430,9 @@
     "lazyTitle": "Laden fehlgeschlagen",
     "lazyMessage": "Ein Teil der Anwendung konnte nicht geladen werden. Dies ist normalerweise ein Netzwerkproblem.",
     "lazyRetry": "Erneut versuchen",
-    "lazyRetrying": "Wird erneut versucht..."
+    "lazyRetrying": "Wird erneut versucht...",
+    "panelTitle": "Panel konnte nicht geladen werden",
+    "panelMessage": "In diesem Panel ist ein Fehler aufgetreten. Der Rest des Editors ist nicht betroffen."
   },
   "export": {
     "poweredBy": "Powered by GeoLens",

@@ -453,7 +453,9 @@
     "lazyTitle": "Failed to load",
     "lazyMessage": "A part of the application failed to load. This is usually a network issue.",
     "lazyRetry": "Try again",
-    "lazyRetrying": "Retrying..."
+    "lazyRetrying": "Retrying...",
+    "panelTitle": "Panel failed to load",
+    "panelMessage": "This panel encountered an error. The rest of the builder is unaffected."
   },
   "export": {
     "poweredBy": "Powered by GeoLens",

@@ -92,7 +92,7 @@ describe('BasemapGroupEditorScene', () => {
 
     // The active card (Positron) should have border-primary
     // Find all preset card buttons
-    const cards = screen.getAllByRole('button').filter((b) => b.querySelector('img'));
+    const cards = screen.getAllByRole('radio');
     const positronCard = cards.find((c) => c.textContent?.includes('Positron'));
     const darkCard = cards.find((c) => c.textContent?.includes('Dark Matter'));
 
@@ -106,7 +106,7 @@ describe('BasemapGroupEditorScene', () => {
     const onSwapBasemap = vi.fn();
     render(<BasemapGroupEditorScene {...defaultSceneProps({ onSwapBasemap, activePresetId: 'openfreemap-positron' })} />);
 
-    const cards = screen.getAllByRole('button').filter((b) => b.querySelector('img'));
+    const cards = screen.getAllByRole('radio');
     const darkCard = cards.find((c) => c.textContent?.includes('Dark Matter'));
     expect(darkCard).toBeTruthy();
     fireEvent.click(darkCard!);
@@ -253,7 +253,7 @@ describe('BasemapGroupEditorScene', () => {
 
   it('Test 13: renders "No basemap" card as the FIRST entry in the preset grid', () => {
     render(<BasemapGroupEditorScene {...defaultSceneProps()} />);
-    const cards = screen.getAllByRole('button').filter((b) => b.querySelector('img'));
+    const cards = screen.getAllByRole('radio');
     // 4 existing + 1 new = 5 image-containing buttons
     expect(cards.length).toBe(5);
     expect(cards[0].textContent).toContain('No basemap');
@@ -262,27 +262,27 @@ describe('BasemapGroupEditorScene', () => {
   it('Test 14: clicking "No basemap" card dispatches onSwapBasemap("blank")', () => {
     const onSwapBasemap = vi.fn();
     render(<BasemapGroupEditorScene {...defaultSceneProps({ onSwapBasemap })} />);
-    const noBasemapCard = screen.getByRole('button', { name: /No basemap/ });
+    const noBasemapCard = screen.getByRole('radio', { name: /No basemap/ });
     fireEvent.click(noBasemapCard);
     expect(onSwapBasemap).toHaveBeenCalledWith('blank');
   });
 
   it('Test 15: "No basemap" card has active ring class when activePresetId="blank"', () => {
     render(<BasemapGroupEditorScene {...defaultSceneProps({ activePresetId: 'blank' })} />);
-    const noBasemapCard = screen.getByRole('button', { name: /No basemap/ });
+    const noBasemapCard = screen.getByRole('radio', { name: /No basemap/ });
     expect(noBasemapCard.className).toContain('border-primary');
   });
 
   it('Test 16: "No basemap" card does NOT have active class when a real preset is active', () => {
     render(<BasemapGroupEditorScene {...defaultSceneProps({ activePresetId: 'openfreemap-positron' })} />);
-    const noBasemapCard = screen.getByRole('button', { name: /No basemap/ });
+    const noBasemapCard = screen.getByRole('radio', { name: /No basemap/ });
     expect(noBasemapCard.className).toContain('border-[var(--border)]');
     expect(noBasemapCard.className).not.toContain('border-primary');
   });
 
   it('Test 17: "No basemap" card uses basemapThumbnail("blank") as the img src', () => {
     render(<BasemapGroupEditorScene {...defaultSceneProps()} />);
-    const noBasemapCard = screen.getByRole('button', { name: /No basemap/ });
+    const noBasemapCard = screen.getByRole('radio', { name: /No basemap/ });
     const img = noBasemapCard.querySelector('img');
     expect(img?.getAttribute('src')).toBe('https://thumb.test/blank.png');
   });

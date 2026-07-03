@@ -84,10 +84,20 @@ export function BasemapGroupEditorScene({
           <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground mb-2">
             {t('basemapGroup.presetSectionLabel', { defaultValue: 'PRESET' })}
           </p>
-          <div className="grid grid-cols-2 gap-2">
+          {/* fix(#394) UX-03/B-017: expose selected-state to assistive tech —
+              radiogroup + aria-checked, same pattern as the Projection pills
+              in SettingsEditorScene. The border highlight alone was invisible
+              to screen readers. */}
+          <div
+            role="radiogroup"
+            aria-label={t('basemapGroup.presetSectionAria', { defaultValue: 'Basemap preset' })}
+            className="grid grid-cols-2 gap-2"
+          >
             {/* "No basemap" preset card — always first, before all provider presets */}
             <button
               type="button"
+              role="radio"
+              aria-checked={activePresetId === BLANK_BASEMAP_ID}
               onClick={() => onSwapBasemap(BLANK_BASEMAP_ID)}
               className={cn(
                 'flex flex-col rounded-[var(--radius-md)] border p-2 text-left transition-colors',
@@ -113,6 +123,8 @@ export function BasemapGroupEditorScene({
                 <button
                   key={preset.id}
                   type="button"
+                  role="radio"
+                  aria-checked={isActive}
                   onClick={() => onSwapBasemap(preset.id)}
                   className={cn(
                     'flex flex-col rounded-[var(--radius-md)] border p-2 text-left transition-colors',

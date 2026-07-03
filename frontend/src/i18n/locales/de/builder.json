@@ -336,7 +336,8 @@
       "cancelExpression": "Abbrechen",
       "parseError": "Ungültiges JSON",
       "structureError": "Ausdruck muss ein Array sein, das mit einem bekannten Operator beginnt"
-    }
+    },
+    "validatorUnavailable": "Dieses JSON konnte nicht validiert werden – vereinfachen Sie den Wert und versuchen Sie es erneut."
   },
   "filters": {
     "title": "Filter",
@@ -927,8 +928,16 @@
       "save": "Karte speichern",
       "pan": "Verschieben-Werkzeug",
       "measure": "Mess-Werkzeug",
-      "legend": "Legende ein-/ausblenden"
-    }
+      "legend": "Legende ein-/ausblenden",
+      "showSheet": "Diesen Dialog anzeigen",
+      "reorderToggle": "Sortiermodus umschalten (fokussierte Ebenenzeile)",
+      "reorderMove": "Ebene nach oben / unten verschieben (Sortiermodus)",
+      "escape": "Panel schließen / Auswahl aufheben / Sortiermodus beenden",
+      "multiSelect": "Ebene zur Auswahl hinzufügen/entfernen",
+      "rangeSelect": "Einen Bereich von Ebenen auswählen",
+      "extendSelect": "Auswahl erweitern (Stapel fokussiert)"
+    },
+    "loadingPanel": "Panel wird geladen"
   },
   "styleJson": {
     "title": "Stil-JSON",
@@ -1061,7 +1070,8 @@
     "swapBasemap": "Basiskarte tauschen",
     "toggleExpand": "Basiskarten-Gruppe ein-/ausklappen",
     "typeIconLabel": "Basiskarten-Gruppe",
-    "visibilityLocked": "Basiskarte ist immer sichtbar — verwenden Sie „Basiskarte entfernen“, um sie auszublenden."
+    "visibilityLocked": "Basiskarte ist immer sichtbar — verwenden Sie „Basiskarte entfernen“, um sie auszublenden.",
+    "presetSectionAria": "Basemap-Vorlage"
   },
   "basemapSublayer": {
     "breadcrumbLabel": "Zurück zur Basiskarten-Gruppe",
@@ -1159,8 +1169,8 @@
       "columns": "Spalten"
     },
     "emptyResult": {
-      "title": "0 Objekte — überprüfen Sie Ihren Filter",
-      "help": "Der aktuelle Filter hat alle Objekte in dieser Ebene ausgeschlossen. Passen Sie eine Bedingung an oder löschen Sie den Filter, um Objekte wieder anzuzeigen.",
+      "title": "0 Features im Sichtbereich – Filter prüfen",
+      "help": "Der aktuelle Filter trifft im sichtbaren Kartenbereich auf nichts zu. Treffer können außerhalb des Bildschirms liegen – verschieben oder herauszoomen, eine Bedingung anpassen oder den Filter löschen.",
       "clear": "Filter löschen"
     },
     "deleteLayer": "Ebene löschen",
