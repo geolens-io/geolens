@@ -193,4 +193,11 @@ describe('builder action contract', () => {
 
     expect(handlers.setOpacity).not.toHaveBeenCalled();
   });
+
+  it('throws via the assertNever default guard for an unknown action type', () => {
+    const handlers = makeHandlers();
+    const forged = { type: 'not_a_real_action', layerId: 'layer-1' } as unknown as BuilderLayerAction;
+
+    expect(() => dispatchBuilderLayerAction(forged, handlers)).toThrow(/Unhandled builder action variant/);
+  });
 });

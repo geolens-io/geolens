@@ -61,6 +61,16 @@ export function normalizeLayerOpacity(value: unknown): number | null {
   return Math.min(1, Math.max(0, value));
 }
 
+/**
+ * Exhaustiveness guard: `value` is typed `never` once every union member has
+ * a matching switch case. Adding a new member without a case makes the call
+ * site fail to type-check, so an incomplete contract edit is caught at
+ * compile time instead of silently no-oping at runtime.
+ */
+export function assertNever(value: never): never {
+  throw new Error(`Unhandled builder action variant: ${String(value)}`);
+}
+
 export function dispatchBuilderLayerAction(
   action: BuilderLayerAction,
   handlers: BuilderLayerActionHandlers,
@@ -120,5 +130,7 @@ export function dispatchBuilderLayerAction(
     case 'set_dem_terrain_exaggeration':
       handlers.setDemTerrainExaggeration(action.layerId, action.exaggeration);
       break;
+    default:
+      assertNever(action);
   }
 }
