@@ -28,11 +28,11 @@ python scripts/seed-showcase.py \
   --password "$GEOLENS_ADMIN_PASSWORD" \
   --with-terrain
 
-# Build just one map
+# Build just one map (restless additionally needs earthquakes + countries seeded first)
 python scripts/seed-showcase.py \
   --username "${GEOLENS_ADMIN_USERNAME:-admin}" \
   --password "$GEOLENS_ADMIN_PASSWORD" \
-  --only restless
+  --only income
 
 # Swap a fresh USGS 30-day feed into the earthquake datasets (in place), then exit.
 # Run every week or two so "last 30 days" stays honest on a long-lived instance.
