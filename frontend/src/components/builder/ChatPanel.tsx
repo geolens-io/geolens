@@ -1034,9 +1034,14 @@ export function ChatPanel({
                   );
                 })()}
                 {/* builder-audit #338 Applied-N nit: a pure query-result turn mutates nothing, so it
-                    must not render "Applied N changes". Count only non-query actions. */}
+                    must not render "Applied N changes". Count only non-query actions.
+                    WR-02 (1278 review): add_layer/remove_layer are staged, not yet applied, until
+                    the user accepts them in the tray — exclude them too so "Applied N changes"
+                    doesn't double-count intent alongside the staging tray's own pending count. */}
                 {(() => {
-                  const appliedActions = msg.actions?.filter((a) => a.type !== 'show_query_result') ?? [];
+                  const appliedActions = msg.actions?.filter(
+                    (a) => a.type !== 'show_query_result' && !isDestructiveAction(a),
+                  ) ?? [];
                   if (appliedActions.length === 0) return null;
                   return (
                   <div className="flex items-center gap-2 mt-1">

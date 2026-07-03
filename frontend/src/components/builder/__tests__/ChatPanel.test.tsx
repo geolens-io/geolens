@@ -1153,6 +1153,31 @@ describe('ChatPanel — confirm-before-apply staging (Phase 1135 AI-01 / AI-09)'
     expect(screen.queryByRole('button', { name: /accept all/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /reject all/i })).not.toBeInTheDocument();
   });
+
+  it('WR-02 (1278 review): staged add_layer/remove_layer do not render "Applied N changes" before acceptance', async () => {
+    mockStreamChat.mockImplementation(async function* () {
+      yield {
+        event: 'actions',
+        data: {
+          actions: [
+            { type: 'add_layer', dataset_id: 'ds-2', dataset_name: 'NYC Subway' },
+            { type: 'remove_layer', layer_id: 'layer-1' },
+          ],
+        },
+      };
+      yield { event: 'done', data: { explanation: 'Two staged' } };
+    });
+    const user = userEvent.setup();
+    renderPanel({
+      layers: [makeLayer({ id: 'layer-1', display_name: 'Counties', dataset_feature_count: 5 })],
+    });
+    await typeAndSend(user, 'change some layers');
+    // Staging tray is visible — the changes are staged, not yet applied.
+    expect(await screen.findByRole('button', { name: /accept all/i })).toBeInTheDocument();
+    // "Applied N changes" must not render while add_layer/remove_layer sit unconfirmed
+    // in the tray — they were only staged (intent), not yet dispatched (effect).
+    expect(screen.queryByText(/applied/i)).not.toBeInTheDocument();
+  });
 });
 
 describe('ChatPanel — inline data-analysis card (Phase 1135 AI-08)', () => {
