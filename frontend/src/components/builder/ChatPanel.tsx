@@ -8,6 +8,7 @@ import { ApiError } from '@/api/client';
 import { cn } from '@/lib/utils';
 import { assertNever, normalizeLayerOpacity } from '@/components/builder/builder-action-contract';
 import { validateRawFilter, FilterValidationError } from '@/lib/maplibre-filter-utils';
+import { getLayerType, filterPaintForLayerType, clampPaintBounds } from '@/components/builder/layer-adapters/shared';
 import { useChatActionStaging, isDestructiveAction } from '@/builder/ai/chat-action-staging';
 import type { FilterSpecification } from 'maplibre-gl';
 import type { MapLayerResponse, ChatAction, ChatHistoryMessage, LabelConfig, StyleConfig } from '@/types/api';
@@ -152,27 +153,79 @@ export function buildChatActionPaint(
   currentPaint: Record<string, unknown> | null | undefined,
   action: Pick<ChatAction, 'paint' | 'clear_paint' | 'replace_paint'>,
 ): Record<string, unknown> {
+  const paint = getActionPaint(action);
+  const clearKeys = getActionClearPaint(action);
+  // B-005/CH-09: a replace_paint:true with no effective paint keys and no
+  // clear_paint must never wipe existing styling — preserve current paint.
+  // Defense-in-depth: handleChatAction's set_style case already gates on
+  // hasPaintMutation before reaching here, but this guard holds even if
+  // buildChatActionPaint is ever called directly with such an action.
+  if (action.replace_paint && (!paint || Object.keys(paint).length === 0) && clearKeys.length === 0) {
+    return { ...(currentPaint ?? {}) };
+  }
   const nextPaint: Record<string, unknown> = action.replace_paint ? {} : { ...(currentPaint ?? {}) };
-  for (const [key, value] of Object.entries(getActionPaint(action) ?? {})) {
+  for (const [key, value] of Object.entries(paint ?? {})) {
     if (value == null) {
       delete nextPaint[key];
     } else {
       nextPaint[key] = value;
     }
   }
-  for (const key of getActionClearPaint(action)) {
+  for (const key of clearKeys) {
     delete nextPaint[key];
   }
   return nextPaint;
 }
 
+// B-005/CH-09: a standalone `replace_paint:true` is no longer treated as a
+// mutation on its own — an empty (or empty-after-validation) replace with no
+// clear_paint is a no-op, not a wipe. Callers must evaluate this against the
+// VALIDATED action (post validateChatPaint) so a replace reduced to empty by
+// geometry/bounds validation is also caught.
 function hasPaintMutation(action: ChatAction): boolean {
   const paint = getActionPaint(action);
   return Boolean(
     (paint && Object.keys(paint).length > 0) ||
-    getActionClearPaint(action).length > 0 ||
-    (action.replace_paint === true),
+    getActionClearPaint(action).length > 0,
   );
+}
+
+/**
+ * B-002/CH-01: bridge validator for AI-produced set_style / set_data_driven_style
+ * paint before it reaches MapLibre or the save payload. Drops paint properties
+ * invalid for the layer's geometry type and clamps numeric properties to their
+ * Style-Spec bounds — mirroring backend `validate_paint_with_feedback`
+ * (backend/app/processing/ai/schemas.py). Render-mode aware: when `renderMode`
+ * is 'heatmap' the geometry-type filter is skipped so heatmap-* properties
+ * (valid regardless of the layer's point/line/polygon geometry_type) are kept
+ * instead of dropped as invalid-for-circle/line/fill.
+ */
+function validateChatPaint(
+  rawPaint: Record<string, unknown> | null,
+  layer: MapLayerResponse,
+  renderMode?: string,
+): Record<string, unknown> {
+  if (!rawPaint) return {};
+  if (renderMode === 'heatmap') return clampPaintBounds(rawPaint);
+  const layerType = getLayerType(layer.dataset_geometry_type);
+  return clampPaintBounds(filterPaintForLayerType(rawPaint, layerType));
+}
+
+// B-002/CH-01: clamp bounds for AI-produced set_label numeric fields, matching
+// the sliders' own bounds in LabelEditor.tsx (fontSize 8-24px, haloWidth 0-4px)
+// so an AI label config can't push text off-scale before it reaches the map.
+const LABEL_FONT_SIZE_BOUNDS: [number, number] = [8, 24];
+const LABEL_HALO_WIDTH_BOUNDS: [number, number] = [0, 4];
+
+function clampLabelConfig(config: LabelConfig): LabelConfig {
+  const next = { ...config };
+  if (typeof next.fontSize === 'number') {
+    next.fontSize = Math.min(LABEL_FONT_SIZE_BOUNDS[1], Math.max(LABEL_FONT_SIZE_BOUNDS[0], next.fontSize));
+  }
+  if (typeof next.haloWidth === 'number') {
+    next.haloWidth = Math.min(LABEL_HALO_WIDTH_BOUNDS[1], Math.max(LABEL_HALO_WIDTH_BOUNDS[0], next.haloWidth));
+  }
+  return next;
 }
 
 function isUndoSafeAction(action: ChatAction): boolean {
@@ -416,30 +469,43 @@ export function ChatPanel({
         }
         return false;
       case 'set_style':
-        if (layerId && hasPaintMutation(action)) {
+        if (layerId) {
           const layer = layersRef.current.find((candidate) => candidate.id === layerId);
           if (layer) {
-            onPaintChange(layerId, buildChatActionPaint(layer.paint, action));
-            return true;
+            // B-002/CH-01: validate/clamp before checking for a mutation — an
+            // action whose paint is reduced to empty by validation must not
+            // apply, and (B-005/CH-09) must not be treated as a mutation via
+            // a bare replace_paint:true either.
+            const validatedPaint = validateChatPaint(getActionPaint(action), layer);
+            const validatedAction: ChatAction = { ...action, paint: validatedPaint };
+            if (hasPaintMutation(validatedAction)) {
+              onPaintChange(layerId, buildChatActionPaint(layer.paint, validatedAction));
+              return true;
+            }
           }
         }
         return false;
-      case 'set_data_driven_style':
-        if (layerId && getActionPaint(action)) {
+      case 'set_data_driven_style': {
+        const rawPaint = getActionPaint(action);
+        if (layerId && rawPaint) {
           const layer = layersRef.current.find((candidate) => candidate.id === layerId);
-          const nextPaint = buildChatActionPaint(layer?.paint, action);
-          onStyleConfigChange(
-            layerId,
-            isRecord(action.style_config) ? action.style_config as StyleConfig : null,
-            nextPaint,
-          );
+          const styleConfig = isRecord(action.style_config) ? (action.style_config as StyleConfig) : null;
+          // B-002/CH-01: render-mode aware — heatmap data-driven paint keeps its
+          // heatmap-* properties instead of being dropped as invalid-for-circle.
+          const validatedPaint = layer
+            ? validateChatPaint(rawPaint, layer, styleConfig?.render_mode)
+            : rawPaint;
+          const validatedAction: ChatAction = { ...action, paint: validatedPaint };
+          const nextPaint = buildChatActionPaint(layer?.paint, validatedAction);
+          onStyleConfigChange(layerId, styleConfig, nextPaint);
           return true;
         }
         return false;
+      }
       case 'set_label':
         if (layerId) {
           if (isRecord(action.label_config)) {
-            onLabelChange(layerId, action.label_config as LabelConfig);
+            onLabelChange(layerId, clampLabelConfig(action.label_config as LabelConfig));
           } else {
             onLabelChange(layerId, null);
           }

@@ -462,6 +462,156 @@ describe('ChatPanel', () => {
     });
   });
 
+  it('B-002/CH-01: drops a geometry-invalid AI paint prop and applies only the valid clamped props', async () => {
+    mockStreamChat.mockImplementation(async function* () {
+      yield {
+        event: 'actions',
+        data: {
+          actions: [
+            {
+              type: 'set_style',
+              layer_id: 'layer-1',
+              // fill-color is valid for a Polygon/fill layer; circle-radius is not
+              // (geometry-invalid) and must be dropped before it reaches onPaintChange.
+              paint: { 'fill-color': '#ff0000', 'circle-radius': 40 },
+            },
+          ],
+        },
+      };
+      yield { event: 'done', data: { explanation: 'Styled' } };
+    });
+
+    const user = userEvent.setup();
+    const props = renderPanel({
+      layers: [makeLayer({ dataset_geometry_type: 'Polygon', paint: {} })],
+    });
+    await typeAndSend(user, 'make it red');
+
+    await waitFor(() => {
+      expect(props.onPaintChange).toHaveBeenCalledWith('layer-1', {
+        'fill-color': '#ff0000',
+      });
+    });
+  });
+
+  it('B-002/CH-01: clamps an out-of-bounds AI paint numeric to its Style-Spec bound', async () => {
+    mockStreamChat.mockImplementation(async function* () {
+      yield {
+        event: 'actions',
+        data: {
+          actions: [
+            { type: 'set_style', layer_id: 'layer-1', paint: { 'line-width': 99999 } },
+          ],
+        },
+      };
+      yield { event: 'done', data: { explanation: 'Widened' } };
+    });
+
+    const user = userEvent.setup();
+    const props = renderPanel({
+      layers: [makeLayer({ dataset_geometry_type: 'LineString', paint: {} })],
+    });
+    await typeAndSend(user, 'make the line very wide');
+
+    await waitFor(() => {
+      // line-width bound is [0, 50] — 99999 clamps to 50.
+      expect(props.onPaintChange).toHaveBeenCalledWith('layer-1', { 'line-width': 50 });
+    });
+  });
+
+  it('B-002/CH-01: set_data_driven_style heatmap render_mode preserves heatmap-* paint', async () => {
+    const weightExpr = ['interpolate', ['linear'], ['get', 'magnitude'], 0, 0, 10, 1];
+    const styleConfig = { mode: 'graduated', column: 'magnitude', render_mode: 'heatmap' };
+
+    mockStreamChat.mockImplementation(async function* () {
+      yield {
+        event: 'actions',
+        data: {
+          actions: [
+            {
+              type: 'set_data_driven_style',
+              layer_id: 'layer-1',
+              paint: { 'heatmap-weight': weightExpr, 'heatmap-radius': 30 },
+              style_config: styleConfig,
+            },
+          ],
+        },
+      };
+      yield { event: 'done', data: { explanation: 'Styled as heatmap' } };
+    });
+
+    const user = userEvent.setup();
+    const props = renderPanel({
+      // Point geometry -> getLayerType 'circle'; without render-mode awareness
+      // filterPaintForLayerType would drop every heatmap-* key as invalid-for-circle.
+      layers: [makeLayer({ dataset_geometry_type: 'Point', paint: {} })],
+    });
+    await typeAndSend(user, 'show a heatmap by magnitude');
+
+    await waitFor(() => {
+      expect(props.onStyleConfigChange).toHaveBeenCalledWith(
+        'layer-1',
+        styleConfig,
+        { 'heatmap-weight': weightExpr, 'heatmap-radius': 30 },
+      );
+    });
+  });
+
+  it('B-005/CH-09: set_style replace_paint:true with empty paint leaves existing layer paint unchanged', async () => {
+    mockStreamChat.mockImplementation(async function* () {
+      yield {
+        event: 'actions',
+        data: {
+          actions: [
+            { type: 'set_style', layer_id: 'layer-1', paint: {}, replace_paint: true },
+          ],
+        },
+      };
+      yield { event: 'done', data: { explanation: 'Nothing to replace' } };
+    });
+
+    const user = userEvent.setup();
+    const props = renderPanel({
+      layers: [makeLayer({ paint: { 'fill-color': '#111827', 'fill-opacity': 0.4 } })],
+    });
+    await typeAndSend(user, 'replace with nothing');
+
+    expect(await screen.findByText('Nothing to replace')).toBeInTheDocument();
+    // Empty replace_paint is a no-op — the layer's existing paint must not be wiped.
+    expect(props.onPaintChange).not.toHaveBeenCalled();
+    expect(screen.queryByText(/applied/i)).not.toBeInTheDocument();
+  });
+
+  it('B-002/CH-01: set_label clamps an absurd AI fontSize to the label bounds', async () => {
+    mockStreamChat.mockImplementation(async function* () {
+      yield {
+        event: 'actions',
+        data: {
+          actions: [
+            {
+              type: 'set_label',
+              layer_id: 'layer-1',
+              label_config: { column: 'name', fontSize: 500, haloWidth: 1.5 },
+            },
+          ],
+        },
+      };
+      yield { event: 'done', data: { explanation: 'Labeled' } };
+    });
+
+    const user = userEvent.setup();
+    const props = renderPanel();
+    await typeAndSend(user, 'label by name huge');
+
+    await waitFor(() => {
+      expect(props.onLabelChange).toHaveBeenCalledWith('layer-1', {
+        column: 'name',
+        fontSize: 24,
+        haloWidth: 1.5,
+      });
+    });
+  });
+
   it('undo restores the last AI mutation snapshot for existing layers', async () => {
     mockStreamChat.mockImplementation(async function* () {
       yield {
