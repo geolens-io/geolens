@@ -250,3 +250,15 @@ def test_set_label_valid_text_colors_pass_through() -> None:
             {"layer_id": "l1", "column": "name", "text_color": color}
         )
         assert action["label_config"]["textColor"] == color
+
+
+def test_set_label_junk_named_and_functional_colors_fall_back() -> None:
+    """fix(#394) codex round 2: 'notacolor' / 'rgb(foo)' must not pass the
+    shape check — junk still reached MapLibre paint validation before."""
+    from app.processing.ai.chat_actions import _build_label_action
+
+    for junk in ("notacolor", "rgb(foo)", "hsl(bad, values)", "#12345"):
+        action = _build_label_action(
+            {"layer_id": "l1", "column": "name", "text_color": junk}
+        )
+        assert action["label_config"]["textColor"] == "#333333", junk

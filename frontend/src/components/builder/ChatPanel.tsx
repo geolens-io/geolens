@@ -235,14 +235,40 @@ function validateChatPaint(
   return clampPaintBounds(filtered);
 }
 
-// fix(#394) CH-02: permissive color-shape check for AI-produced label colors —
-// hex, named (`red`), or functional (`rgb(...)`/`hsla(...)`) forms MapLibre can
-// parse. Mirrors the backend chat_actions._CSS_COLORISH_RE so both sides drop
-// the same junk.
-const CSS_COLORISH_RE = /^(#[0-9a-fA-F]{3,8}|[a-zA-Z]{3,30}|(rgb|rgba|hsl|hsla)\([^)]{1,60}\))$/;
+// fix(#394) CH-02 (codex round 2): hex (3/4/6/8 digits), real CSS named
+// colors, or numeric-arg functional forms only — the first-pass shape regex
+// let "notacolor"/"rgb(foo)" through to MapLibre paint validation, which is
+// exactly what this sanitizer exists to prevent. Byte-parity mirror of
+// backend app/processing/ai/colors.py; MapLibre stays the final validator.
+const CSS_HEX_RE = /^#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/;
+const CSS_FUNCTIONAL_RE = /^(?:rgb|rgba|hsl|hsla)\(\s*[0-9deg.,%\s/+-]{1,60}\s*\)$/;
+const CSS_NAMED_COLORS = new Set((
+  'aliceblue antiquewhite aqua aquamarine azure beige bisque black blanchedalmond blue '
+  + 'blueviolet brown burlywood cadetblue chartreuse chocolate coral cornflowerblue cornsilk '
+  + 'crimson cyan darkblue darkcyan darkgoldenrod darkgray darkgreen darkgrey darkkhaki '
+  + 'darkmagenta darkolivegreen darkorange darkorchid darkred darksalmon darkseagreen '
+  + 'darkslateblue darkslategray darkslategrey darkturquoise darkviolet deeppink deepskyblue '
+  + 'dimgray dimgrey dodgerblue firebrick floralwhite forestgreen fuchsia gainsboro ghostwhite '
+  + 'gold goldenrod gray green greenyellow grey honeydew hotpink indianred indigo ivory khaki '
+  + 'lavender lavenderblush lawngreen lemonchiffon lightblue lightcoral lightcyan '
+  + 'lightgoldenrodyellow lightgray lightgreen lightgrey lightpink lightsalmon lightseagreen '
+  + 'lightskyblue lightslategray lightslategrey lightsteelblue lightyellow lime limegreen linen '
+  + 'magenta maroon mediumaquamarine mediumblue mediumorchid mediumpurple mediumseagreen '
+  + 'mediumslateblue mediumspringgreen mediumturquoise mediumvioletred midnightblue mintcream '
+  + 'mistyrose moccasin navajowhite navy oldlace olive olivedrab orange orangered orchid '
+  + 'palegoldenrod palegreen paleturquoise palevioletred papayawhip peachpuff peru pink plum '
+  + 'powderblue purple rebeccapurple red rosybrown royalblue saddlebrown salmon sandybrown '
+  + 'seagreen seashell sienna silver skyblue slateblue slategray slategrey snow springgreen '
+  + 'steelblue tan teal thistle tomato turquoise violet wheat white whitesmoke yellow '
+  + 'yellowgreen transparent'
+).split(' '));
 
 function isCssColorish(value: unknown): value is string {
-  return typeof value === 'string' && CSS_COLORISH_RE.test(value.trim());
+  if (typeof value !== 'string') return false;
+  const candidate = value.trim();
+  return CSS_HEX_RE.test(candidate)
+    || CSS_FUNCTIONAL_RE.test(candidate)
+    || CSS_NAMED_COLORS.has(candidate.toLowerCase());
 }
 
 // fix(#392): clamp bounds for AI-produced set_label numeric fields, matching

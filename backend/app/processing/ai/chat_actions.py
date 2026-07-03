@@ -11,7 +11,6 @@ keep working unchanged when the patch replaces the attribute on the facade.
 """
 
 import json
-import re
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 from uuid import UUID
@@ -23,6 +22,7 @@ from app.core.identity import Identity
 from app.platform.sandbox import SandboxError
 from app.processing.ai.chat_constants import _EDIT_TOOLS, ERROR_MESSAGES
 from app.processing.ai.chat_geojson import _extract_geojson
+from app.processing.ai.colors import is_css_colorish
 from app.processing.ai.chat_styles import _build_data_driven_style
 from app.processing.ai.schemas import (
     ChatMapLayer,
@@ -38,19 +38,14 @@ if TYPE_CHECKING:
 logger = structlog.stdlib.get_logger(__name__)
 
 
-# fix(#394) CH-02: permissive color shape check for AI-produced label colors —
-# hex, named (`red`), or functional (`rgb(...)`/`hsla(...)`) forms MapLibre can
-# parse. Anything else (objects, numbers, expressions, junk) falls back to the
-# default so an unparseable value never reaches map.setPaintProperty.
-_CSS_COLORISH_RE = re.compile(
-    r"^(#[0-9a-fA-F]{3,8}|[a-zA-Z]{3,30}|(rgb|rgba|hsl|hsla)\([^)]{1,60}\))$"
-)
-
 _DEFAULT_LABEL_TEXT_COLOR = "#333333"
 
 
 def _safe_label_text_color(value: object) -> str:
-    if isinstance(value, str) and _CSS_COLORISH_RE.match(value.strip()):
+    # fix(#394) CH-02: hex / real CSS named color / numeric-arg functional form
+    # only (see colors.py) — anything else falls back to the default so an
+    # unparseable value never reaches map.setPaintProperty.
+    if isinstance(value, str) and is_css_colorish(value):
         return value.strip()
     return _DEFAULT_LABEL_TEXT_COLOR
 
