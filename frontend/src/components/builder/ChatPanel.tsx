@@ -200,6 +200,13 @@ function hasPaintMutation(action: ChatAction): boolean {
  * (valid regardless of the layer's point/line/polygon geometry_type) are kept
  * instead of dropped as invalid-for-circle/line/fill. (audit B-002/CH-01)
  */
+// fix(#392): builder custom fill-outline keys the backend allowlist accepts
+// (schemas.py `_VALID_PAINT_PROPS['fill']`). filterPaintForLayerType drops ALL
+// CUSTOM_PAINT_PROPS, so without re-adding these an AI outline-only set_style on a
+// polygon would validate to {}, hasPaintMutation returns false, and the turn silently
+// applies nothing — even though the backend accepts the outline change.
+const CHAT_PRESERVED_FILL_OUTLINE_KEYS = ['_outline-color', '_outline-width'] as const;
+
 function validateChatPaint(
   rawPaint: Record<string, unknown> | null,
   layer: MapLayerResponse,
@@ -208,7 +215,13 @@ function validateChatPaint(
   if (!rawPaint) return {};
   if (renderMode === 'heatmap') return clampPaintBounds(rawPaint);
   const layerType = getLayerType(layer.dataset_geometry_type);
-  return clampPaintBounds(filterPaintForLayerType(rawPaint, layerType));
+  const filtered = filterPaintForLayerType(rawPaint, layerType);
+  if (layerType === 'fill') {
+    for (const key of CHAT_PRESERVED_FILL_OUTLINE_KEYS) {
+      if (rawPaint[key] != null) filtered[key] = rawPaint[key];
+    }
+  }
+  return clampPaintBounds(filtered);
 }
 
 // fix(#392): clamp bounds for AI-produced set_label numeric fields, matching

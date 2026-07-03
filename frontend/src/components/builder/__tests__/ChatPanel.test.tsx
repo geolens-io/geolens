@@ -658,6 +658,37 @@ describe('ChatPanel', () => {
     expect(screen.queryByRole('button', { name: /undo/i })).not.toBeInTheDocument();
   });
 
+  it('fix(#392): set_style preserves builder _outline-* keys on a polygon (backend allowlist accepts them)', async () => {
+    mockStreamChat.mockImplementation(async function* () {
+      yield {
+        event: 'actions',
+        data: {
+          actions: [
+            { type: 'set_style', layer_id: 'layer-1', paint: { '_outline-color': '#ff0000', '_outline-width': 2 } },
+          ],
+        },
+      };
+      yield { event: 'done', data: { explanation: 'Outlined' } };
+    });
+
+    const user = userEvent.setup();
+    const props = renderPanel({
+      // Polygon -> getLayerType 'fill'; _outline-color/_outline-width are builder
+      // CUSTOM_PAINT_PROPS that filterPaintForLayerType drops, but the backend allowlist
+      // (schemas.py _VALID_PAINT_PROPS['fill']) accepts them — so an outline-only style
+      // change must not be validated down to an empty no-op.
+      layers: [makeLayer({ dataset_geometry_type: 'Polygon', paint: {} })],
+    });
+    await typeAndSend(user, 'add a red outline');
+
+    await waitFor(() => {
+      expect(props.onPaintChange).toHaveBeenCalledWith('layer-1', {
+        '_outline-color': '#ff0000',
+        '_outline-width': 2,
+      });
+    });
+  });
+
   it('B-005/CH-09: set_style replace_paint:true with empty paint leaves existing layer paint unchanged', async () => {
     mockStreamChat.mockImplementation(async function* () {
       yield {
