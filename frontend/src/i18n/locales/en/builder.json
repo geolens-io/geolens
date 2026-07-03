@@ -782,7 +782,7 @@
     "bulkStyleSkipped": "{{count}} layers skipped (incompatible geometry)",
     "bulkGroupNeedTwo": "Select at least 2 loose layers to group",
     "bulkGroupSkipped": "Some selected layers are already grouped and can't be grouped again",
-    "bulkGroupSkippedType": "Raster and DEM layers can't be grouped — remove them from your selection and try again",
+    "bulkGroupSkippedType": "Non-vector layers can't be grouped — remove them from your selection and try again",
     "bulkGroupSkippedGroupRow": "Groups can't be grouped — remove any group rows from your selection and try again"
   },
   "builderMap": {

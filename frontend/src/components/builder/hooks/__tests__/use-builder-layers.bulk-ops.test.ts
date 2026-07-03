@@ -515,7 +515,7 @@ describe('useBuilderLayers — handleBulkGroup (POL-09)', () => {
     });
 
     expect(created).toBe(false);
-    expect(infoSpy).toHaveBeenCalledWith("Raster and DEM layers can't be grouped — remove them from your selection and try again");
+    expect(infoSpy).toHaveBeenCalledWith("Non-vector layers can't be grouped — remove them from your selection and try again");
     expect(result.current.localLayers.length).toBe(before);
   });
 

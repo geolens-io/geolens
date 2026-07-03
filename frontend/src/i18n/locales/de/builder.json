@@ -782,7 +782,7 @@
     "bulkStyleSkipped": "{{count}} Ebenen übersprungen (inkompatible Geometrie)",
     "bulkGroupNeedTwo": "Wähle mindestens 2 lose Ebenen aus, um sie zu gruppieren",
     "bulkGroupSkipped": "Einige ausgewählte Ebenen sind bereits gruppiert und können nicht erneut gruppiert werden",
-    "bulkGroupSkippedType": "Raster- und DEM-Ebenen können nicht gruppiert werden – entferne sie aus deiner Auswahl und versuche es erneut",
+    "bulkGroupSkippedType": "Nicht-Vektor-Ebenen können nicht gruppiert werden – entferne sie aus deiner Auswahl und versuche es erneut",
     "bulkGroupSkippedGroupRow": "Gruppen können nicht gruppiert werden – entferne Gruppenzeilen aus deiner Auswahl und versuche es erneut"
   },
   "builderMap": {
