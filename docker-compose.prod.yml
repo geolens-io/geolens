@@ -341,6 +341,9 @@ services:
       # base works for any host the stack is reached on. Override for a CDN.
       API_BASE_URL: "${FRONTEND_API_BASE_URL:-/api}"
       TILE_BASE_URL: "${FRONTEND_TILE_BASE_URL:-/api}"
+      # Empty default on purpose: the api service's localhost fallback must not
+      # leak into og:image; unset keeps the built relative URL.
+      PUBLIC_APP_URL: "${PUBLIC_APP_URL:-}"
     healthcheck:
       test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://127.0.0.1:8080/ || exit 1"]
       interval: 30s
