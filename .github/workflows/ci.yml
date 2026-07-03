@@ -1027,7 +1027,10 @@ jobs:
         run: npm run lint
 
       - name: TypeScript check
-        run: npx tsc --noEmit
+        # `npx tsc --noEmit` is a no-op here: the solution-style root tsconfig has an
+        # empty `files`/`include`, so it compiles nothing and always exits 0. The real
+        # type gate is `tsc -b --noEmit`, which walks the project references.
+        run: npm run typecheck
 
   frontend-test:
     name: Frontend Tests
