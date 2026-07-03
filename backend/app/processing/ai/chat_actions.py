@@ -11,6 +11,7 @@ keep working unchanged when the patch replaces the attribute on the facade.
 """
 
 import json
+import re
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 from uuid import UUID
@@ -37,6 +38,23 @@ if TYPE_CHECKING:
 logger = structlog.stdlib.get_logger(__name__)
 
 
+# fix(#394) CH-02: permissive color shape check for AI-produced label colors —
+# hex, named (`red`), or functional (`rgb(...)`/`hsla(...)`) forms MapLibre can
+# parse. Anything else (objects, numbers, expressions, junk) falls back to the
+# default so an unparseable value never reaches map.setPaintProperty.
+_CSS_COLORISH_RE = re.compile(
+    r"^(#[0-9a-fA-F]{3,8}|[a-zA-Z]{3,30}|(rgb|rgba|hsl|hsla)\([^)]{1,60}\))$"
+)
+
+_DEFAULT_LABEL_TEXT_COLOR = "#333333"
+
+
+def _safe_label_text_color(value: object) -> str:
+    if isinstance(value, str) and _CSS_COLORISH_RE.match(value.strip()):
+        return value.strip()
+    return _DEFAULT_LABEL_TEXT_COLOR
+
+
 def _build_label_action(tool_input: dict) -> dict:
     """Restructure set_label tool output into the ChatAction label_config shape."""
     column = tool_input.get("column")
@@ -47,7 +65,10 @@ def _build_label_action(tool_input: dict) -> dict:
             "label_config": {
                 "column": column,
                 "fontSize": tool_input.get("font_size", 12),
-                "textColor": tool_input.get("text_color", "#333333"),
+                # fix(#394) CH-02: sanitized — see _safe_label_text_color.
+                "textColor": _safe_label_text_color(
+                    tool_input.get("text_color", _DEFAULT_LABEL_TEXT_COLOR)
+                ),
                 "haloColor": "#ffffff",
                 "haloWidth": 1.5,
             },
@@ -237,6 +258,29 @@ async def _execute_chat_tool(
             if warnings:
                 return {"status": "ok", "warnings": warnings, **tool_input}
 
+    # fix(#394) CH-02: validate the set_label column against the target layer's
+    # schema before the action reaches the client — a hallucinated column
+    # previously flowed straight through to a text-field ["get", col] that
+    # renders empty labels. Returning an error lets the model retry with a real
+    # column (mirrors the set_style validation feedback pattern above).
+    if tool_name == "set_label" and tool_input.get("column"):
+        target = next(
+            (lyr for lyr in layers if lyr.id == tool_input.get("layer_id")), None
+        )
+        if target is not None and target.column_info:
+            valid_columns = {
+                col.get("name")
+                for col in target.column_info
+                if isinstance(col, dict) and col.get("name")
+            }
+            if valid_columns and tool_input["column"] not in valid_columns:
+                return {
+                    "error": (
+                        f"Column '{tool_input['column']}' does not exist on "
+                        "this layer — pick one of the layer's real columns."
+                    )
+                }
+
     # add_layer: resolve the dataset's display title server-side so the staging
     # chip can show a human name instead of the raw UUID (builder-audit #338 B-002).
     # Name resolution is best-effort — a lookup miss/error must not block the
@@ -296,6 +340,10 @@ def _collect_chat_action(tool_name: str, tool_input: dict, result: dict) -> dict
         return None
 
     if tool_name == "set_label":
+        # fix(#394) CH-02: a validation error from _execute_chat_tool (unknown
+        # column) must not still emit a label action built from the raw input.
+        if "error" in result:
+            return None
         return _build_label_action(tool_input)
 
     # fix(#392): set_style must emit the backend-validated/clamped paint computed in
