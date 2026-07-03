@@ -1,7 +1,8 @@
 import { useMemo } from 'react';
 import type { MapLayerResponse } from '@/types/api';
+import { isFolderGroupLayer } from '@/lib/layer-capabilities';
 
-export type BuilderEditorScene = 'default' | 'dem' | 'basemap-group' | 'basemap-sublayer' | 'settings';
+export type BuilderEditorScene = 'default' | 'dem' | 'basemap-group' | 'basemap-sublayer' | 'settings' | 'group';
 
 export interface BuilderEditorBasemapGroup {
   id: string;
@@ -11,12 +12,15 @@ export interface BuilderEditorBasemapGroup {
 
 export function deriveBuilderEditorScene(
   expandedLayerId: string | null,
-  editingLayer: Pick<MapLayerResponse, 'is_dem'> | null,
+  editingLayer: Pick<MapLayerResponse, 'is_dem' | 'layer_type'> | null,
 ): BuilderEditorScene {
   if (!expandedLayerId) return 'default';
   if (expandedLayerId === 'settings') return 'settings';
   if (expandedLayerId === 'basemap-group') return 'basemap-group';
   if (expandedLayerId.startsWith('basemap:')) return 'basemap-sublayer';
+  // fix(#392): folder groups are structural containers, not
+  // stylable layers; never fall through to a real editing scene for them. (audit B-004a/LM-01)
+  if (editingLayer && isFolderGroupLayer(editingLayer)) return 'group';
   if (editingLayer?.is_dem === true) return 'dem';
   return 'default';
 }
@@ -106,21 +110,26 @@ export function useBuilderEditorScene({
   savedLayerBaseline: MapLayerResponse[];
   basemapGroup: BuilderEditorBasemapGroup | null;
 }) {
-  const editingLayer = useMemo(
+  const matchedLayer = useMemo(
     () => expandedLayerId ? localLayers.find((layer) => layer.id === expandedLayerId) ?? null : null,
     [expandedLayerId, localLayers],
   );
 
+  // fix(#392): a group:folder row IS a member of localLayers,
+  // so without this guard editingLayer would resolve to the group row and bind
+  // the editor to its inherited (phantom) geometry. Treat it as non-editable. (audit B-004a/LM-01)
+  const editingLayer = matchedLayer && isFolderGroupLayer(matchedLayer) ? null : matchedLayer;
+
   const editingSavedLayer = useMemo(
-    () => expandedLayerId
+    () => expandedLayerId && !(matchedLayer && isFolderGroupLayer(matchedLayer))
       ? savedLayerBaseline.find((layer) => layer.id === expandedLayerId)
       : undefined,
-    [expandedLayerId, savedLayerBaseline],
+    [expandedLayerId, matchedLayer, savedLayerBaseline],
   );
 
   const editorScene = useMemo(
-    () => deriveBuilderEditorScene(expandedLayerId, editingLayer),
-    [expandedLayerId, editingLayer],
+    () => deriveBuilderEditorScene(expandedLayerId, matchedLayer),
+    [expandedLayerId, matchedLayer],
   );
 
   const syntheticEditorLayer = useMemo(
@@ -128,7 +137,7 @@ export function useBuilderEditorScene({
     [basemapGroup, editorScene, expandedLayerId],
   );
 
-  const editorLayer = editingLayer ?? syntheticEditorLayer;
+  const editorLayer = editorScene === 'group' ? null : (editingLayer ?? syntheticEditorLayer);
   const isEditorOpen = editorLayer !== null;
 
   return {

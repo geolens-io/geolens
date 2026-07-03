@@ -66,6 +66,27 @@ def test_spatial_query_emits_show_query_result_with_geojson_and_rows() -> None:
     assert action["row_count"] == 1
 
 
+def test_spatial_query_missing_bbox_does_not_raise_key_error() -> None:
+    """fix(#392): if a future caller emits `geojson` without a paired
+    `bbox` (the pairing is an unenforced invariant on this plain dict, not
+    encoded in any type), _collect_chat_action must degrade gracefully — omit
+    both fields from the action — rather than raise an uncaught KeyError
+    inside the action-collector callback. (audit WR-03)"""
+    result = {
+        "columns": ["geom", "name"],
+        "rows": [[{"type": "Point", "coordinates": [-73.9, 40.7]}, "NYC"]],
+        "row_count": 1,
+        "truncated": False,
+        "geojson": {"type": "FeatureCollection", "features": []},
+        # bbox deliberately absent
+    }
+    action = _collect_chat_action("query_data", {"question": "find NYC"}, result)
+    assert action is not None
+    assert action["type"] == "show_query_result"
+    assert "geojson" not in action
+    assert "bbox" not in action
+
+
 def test_query_error_emits_no_action() -> None:
     """Errored query_data results MUST NOT emit show_query_result."""
     result = {"error": "syntax error in SQL", "category": "llm_cannot_answer"}
@@ -124,3 +145,68 @@ def test_chat_action_round_trip_preserves_add_layer_dataset_name() -> None:
     action = {"type": "add_layer", "dataset_id": "ds-1", "dataset_name": "Parks"}
     dumped = ChatAction(**action).model_dump(exclude_none=True)
     assert dumped["dataset_name"] == "Parks"
+
+
+def test_set_style_emits_backend_validated_paint_not_raw_tool_input() -> None:
+    """fix(#392): _execute_chat_tool computes validated/clamped
+    paint into `result` (it lives there because `tool_input` was reassigned to
+    `next_input` and returned), but _collect_chat_action previously re-emitted
+    the raw `tool_input['paint']` fn_args unchanged. The emitted action's paint
+    must reflect the validated `result` value, not the raw invalid/unclamped
+    one the model produced. (audit B-002/CH-02)"""
+    raw_tool_input = {
+        "layer_id": "layer-1",
+        # Raw AI output: circle-radius is invalid for a fill layer and would be
+        # dropped by validation; fill-opacity is out-of-bounds and would be clamped.
+        "paint": {"circle-radius": 40, "fill-opacity": 5.0},
+    }
+    # `result` as _execute_chat_tool actually returns it: validated/clamped paint,
+    # with the invalid prop dropped and the out-of-bounds prop clamped to 1.0.
+    result = {"status": "ok", "layer_id": "layer-1", "paint": {"fill-opacity": 1.0}}
+
+    action = _collect_chat_action("set_style", raw_tool_input, result)
+
+    assert action is not None
+    assert action["type"] == "set_style"
+    assert action["paint"] == {"fill-opacity": 1.0}, (
+        "emitted paint must be the validated result value, not the raw tool_input"
+    )
+
+
+def test_set_style_emits_backend_validated_clear_paint_not_raw_tool_input() -> None:
+    """Companion to the paint pin above: clear_paint must also prefer the
+    validated `result` list over the raw `tool_input` clear_paint."""
+    raw_tool_input = {
+        "layer_id": "layer-1",
+        # Raw AI output includes a clear-paint entry invalid for the layer's
+        # geometry — validation would drop it.
+        "clear_paint": ["circle-radius", "fill-color"],
+    }
+    result = {
+        "status": "ok",
+        "layer_id": "layer-1",
+        "clear_paint": ["fill-color"],
+    }
+
+    action = _collect_chat_action("set_style", raw_tool_input, result)
+
+    assert action is not None
+    assert action["clear_paint"] == ["fill-color"], (
+        "emitted clear_paint must be the validated result value, not raw tool_input"
+    )
+
+
+def test_set_style_without_validation_falls_back_to_tool_input_unchanged() -> None:
+    """When set_style had no paint/clear_paint (the _execute_chat_tool validation
+    branch is skipped entirely), `result` carries no paint/clear_paint keys, so
+    behavior is unchanged — the action is built from tool_input as before."""
+    raw_tool_input = {"layer_id": "layer-1"}
+    result = {"status": "ok", "layer_id": "layer-1"}
+
+    action = _collect_chat_action("set_style", raw_tool_input, result)
+
+    assert action is not None
+    assert action["type"] == "set_style"
+    assert action["layer_id"] == "layer-1"
+    assert "paint" not in action
+    assert "clear_paint" not in action

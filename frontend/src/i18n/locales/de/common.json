@@ -207,6 +207,7 @@
     "accessDenied": "Zugriff verweigert",
     "authMapRecovery": "Öffnen Sie Ihre Kartenliste, um den Zugriff zu bestätigen, oder kehren Sie zum Katalog zurück.",
     "browseCatalog": "Katalog durchsuchen",
+    "embedAuthError": "Der Zugriff auf diese eingebettete Karte ist abgelaufen oder nicht mehr gültig.",
     "geoJsonLoadError": "Ebenendaten konnten nicht geladen werden",
     "linkRecovery": "Bitten Sie den Kartenbesitzer um einen neuen Freigabelink, wenn Sie noch Zugriff benötigen.",
     "mapError": "Kachelfehler — einige Ebenen werden möglicherweise nicht korrekt angezeigt.",

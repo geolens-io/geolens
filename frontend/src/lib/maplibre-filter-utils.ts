@@ -338,5 +338,8 @@ export function sanitizeNullableNumericFilter(
   // throws ("filter property expected at least 1 element"). Treat it as "no filter"
   // so it can never be persisted nor reach setFilter via any caller.
   if (Array.isArray(filter) && filter.length === 0) return null;
-  return sanitizeFilterNode(filter) as FilterSpecification;
+  const sanitized = sanitizeFilterNode(filter);
+  // fix(#392): preserve input reference when structurally unchanged so the filter editor re-emit guard holds (audit FL-01)
+  if (JSON.stringify(sanitized) === JSON.stringify(filter)) return filter;
+  return sanitized as FilterSpecification;
 }

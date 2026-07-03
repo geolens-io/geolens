@@ -23,6 +23,8 @@ function renderBuilderLayers(
   const removeLayerMutate = vi.fn();
   const addLayerMutation = { mutate: addLayerMutate } as unknown as Parameters<typeof useBuilderLayers>[3];
   const removeLayerMutation = { mutate: removeLayerMutate } as unknown as Parameters<typeof useBuilderLayers>[4];
+  // fix(#392): 6th positional param bridging into useBuilderSave's Save-diff baseline.
+  const saveBaselineSyncRef = { current: () => {} } as unknown as Parameters<typeof useBuilderLayers>[5];
 
   const hook = renderHook(() =>
     useBuilderLayers(
@@ -31,6 +33,7 @@ function renderBuilderLayers(
       'map-1',
       addLayerMutation,
       removeLayerMutation,
+      saveBaselineSyncRef,
     ),
   );
 
@@ -73,8 +76,10 @@ describe('useBuilderLayers', () => {
     const mapRef = { current: null } as React.RefObject<MaplibreMap | null>;
     const addLayerMutation = { mutate: vi.fn() } as unknown as Parameters<typeof useBuilderLayers>[3];
     const removeLayerMutation = { mutate: vi.fn() } as unknown as Parameters<typeof useBuilderLayers>[4];
+    // fix(#392): 6th positional param bridging into useBuilderSave's Save-diff baseline.
+    const saveBaselineSyncRef = { current: () => {} } as unknown as Parameters<typeof useBuilderLayers>[5];
     const { result, rerender } = renderHook(() =>
-      useBuilderLayers(mapData, mapRef, 'map-1', addLayerMutation, removeLayerMutation),
+      useBuilderLayers(mapData, mapRef, 'map-1', addLayerMutation, removeLayerMutation, saveBaselineSyncRef),
     );
 
     mapData = makeMapData([makeMockLayer({ id: 'layer-2', dataset_id: 'ds-2' })]);

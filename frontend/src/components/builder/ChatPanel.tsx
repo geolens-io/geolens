@@ -6,8 +6,9 @@ import { Button } from '@/components/ui/button';
 import { sendChatMessage, streamChatMessage } from '@/api/maps';
 import { ApiError } from '@/api/client';
 import { cn } from '@/lib/utils';
-import { normalizeLayerOpacity } from '@/components/builder/builder-action-contract';
+import { assertNever, normalizeLayerOpacity } from '@/components/builder/builder-action-contract';
 import { validateRawFilter, FilterValidationError } from '@/lib/maplibre-filter-utils';
+import { getLayerType, filterPaintForLayerType, clampPaintBounds } from '@/components/builder/layer-adapters/shared';
 import { useChatActionStaging, isDestructiveAction } from '@/builder/ai/chat-action-staging';
 import type { FilterSpecification } from 'maplibre-gl';
 import type { MapLayerResponse, ChatAction, ChatHistoryMessage, LabelConfig, StyleConfig } from '@/types/api';
@@ -121,36 +122,123 @@ function getActionClearPaint(action: Pick<ChatAction, 'clear_paint'>): string[] 
     : [];
 }
 
+// fix(#392): allowlist of the 9 known ChatAction wire types. getChatActions drops
+// any item whose `type` is not in this set (rather than letting an unrecognized
+// type string reach handleChatAction's switch), and logs the drop in dev. (audit CH-08)
+const KNOWN_CHAT_ACTION_TYPES: ReadonlySet<ChatAction['type']> = new Set([
+  'set_filter',
+  'set_style',
+  'set_data_driven_style',
+  'set_label',
+  'toggle_visibility',
+  'add_layer',
+  'remove_layer',
+  'show_query_result',
+  'set_opacity',
+]);
+
 function getChatActions(value: unknown): ChatAction[] {
   if (!Array.isArray(value)) return [];
-  return value.filter((item): item is ChatAction => isRecord(item) && typeof item.type === 'string');
+  return value.filter((item): item is ChatAction => {
+    if (!isRecord(item) || typeof item.type !== 'string') return false;
+    if (!KNOWN_CHAT_ACTION_TYPES.has(item.type as ChatAction['type'])) {
+      if (import.meta.env.DEV) console.warn('[ChatPanel] dropped unknown action type:', item.type);
+      return false;
+    }
+    return true;
+  });
 }
 
 export function buildChatActionPaint(
   currentPaint: Record<string, unknown> | null | undefined,
   action: Pick<ChatAction, 'paint' | 'clear_paint' | 'replace_paint'>,
 ): Record<string, unknown> {
+  const paint = getActionPaint(action);
+  const clearKeys = getActionClearPaint(action);
+  // fix(#392): a replace_paint:true with no effective paint keys and no
+  // clear_paint must never wipe existing styling — preserve current paint.
+  // Defense-in-depth: handleChatAction's set_style case already gates on
+  // hasPaintMutation before reaching here, but this guard holds even if
+  // buildChatActionPaint is ever called directly with such an action. (audit B-005/CH-09)
+  if (action.replace_paint && (!paint || Object.keys(paint).length === 0) && clearKeys.length === 0) {
+    return { ...(currentPaint ?? {}) };
+  }
   const nextPaint: Record<string, unknown> = action.replace_paint ? {} : { ...(currentPaint ?? {}) };
-  for (const [key, value] of Object.entries(getActionPaint(action) ?? {})) {
+  for (const [key, value] of Object.entries(paint ?? {})) {
     if (value == null) {
       delete nextPaint[key];
     } else {
       nextPaint[key] = value;
     }
   }
-  for (const key of getActionClearPaint(action)) {
+  for (const key of clearKeys) {
     delete nextPaint[key];
   }
   return nextPaint;
 }
 
+// fix(#392): a standalone `replace_paint:true` is no longer treated as a
+// mutation on its own — an empty (or empty-after-validation) replace with no
+// clear_paint is a no-op, not a wipe. Callers must evaluate this against the
+// VALIDATED action (post validateChatPaint) so a replace reduced to empty by
+// geometry/bounds validation is also caught. (audit B-005/CH-09)
 function hasPaintMutation(action: ChatAction): boolean {
   const paint = getActionPaint(action);
   return Boolean(
     (paint && Object.keys(paint).length > 0) ||
-    getActionClearPaint(action).length > 0 ||
-    (action.replace_paint === true),
+    getActionClearPaint(action).length > 0,
   );
+}
+
+/**
+ * fix(#392): bridge validator for AI-produced set_style / set_data_driven_style
+ * paint before it reaches MapLibre or the save payload. Drops paint properties
+ * invalid for the layer's geometry type and clamps numeric properties to their
+ * Style-Spec bounds — mirroring backend `validate_paint_with_feedback`
+ * (backend/app/processing/ai/schemas.py). Render-mode aware: when `renderMode`
+ * is 'heatmap' the geometry-type filter is skipped so heatmap-* properties
+ * (valid regardless of the layer's point/line/polygon geometry_type) are kept
+ * instead of dropped as invalid-for-circle/line/fill. (audit B-002/CH-01)
+ */
+// fix(#392): builder custom fill-outline keys the backend allowlist accepts
+// (schemas.py `_VALID_PAINT_PROPS['fill']`). filterPaintForLayerType drops ALL
+// CUSTOM_PAINT_PROPS, so without re-adding these an AI outline-only set_style on a
+// polygon would validate to {}, hasPaintMutation returns false, and the turn silently
+// applies nothing — even though the backend accepts the outline change.
+const CHAT_PRESERVED_FILL_OUTLINE_KEYS = ['_outline-color', '_outline-width'] as const;
+
+function validateChatPaint(
+  rawPaint: Record<string, unknown> | null,
+  layer: MapLayerResponse,
+  renderMode?: string,
+): Record<string, unknown> {
+  if (!rawPaint) return {};
+  if (renderMode === 'heatmap') return clampPaintBounds(rawPaint);
+  const layerType = getLayerType(layer.dataset_geometry_type);
+  const filtered = filterPaintForLayerType(rawPaint, layerType);
+  if (layerType === 'fill') {
+    for (const key of CHAT_PRESERVED_FILL_OUTLINE_KEYS) {
+      if (rawPaint[key] != null) filtered[key] = rawPaint[key];
+    }
+  }
+  return clampPaintBounds(filtered);
+}
+
+// fix(#392): clamp bounds for AI-produced set_label numeric fields, matching
+// the sliders' own bounds in LabelEditor.tsx (fontSize 8-24px, haloWidth 0-4px)
+// so an AI label config can't push text off-scale before it reaches the map. (audit B-002/CH-01)
+const LABEL_FONT_SIZE_BOUNDS: [number, number] = [8, 24];
+const LABEL_HALO_WIDTH_BOUNDS: [number, number] = [0, 4];
+
+function clampLabelConfig(config: LabelConfig): LabelConfig {
+  const next = { ...config };
+  if (typeof next.fontSize === 'number') {
+    next.fontSize = Math.min(LABEL_FONT_SIZE_BOUNDS[1], Math.max(LABEL_FONT_SIZE_BOUNDS[0], next.fontSize));
+  }
+  if (typeof next.haloWidth === 'number') {
+    next.haloWidth = Math.min(LABEL_HALO_WIDTH_BOUNDS[1], Math.max(LABEL_HALO_WIDTH_BOUNDS[0], next.haloWidth));
+  }
+  return next;
 }
 
 function isUndoSafeAction(action: ChatAction): boolean {
@@ -363,7 +451,13 @@ export function ChatPanel({
     toast.success(t('chat.undoApplied'));
   }, [onRestoreLayers, onRemove, onAddDataset, t]);
 
-  function handleChatAction(action: ChatAction) {
+  /**
+   * Dispatches a single ChatAction and returns whether it produced a real layer
+   * mutation. fix(#392): "Applied N changes" must count effect, not intent —
+   * a no-op set_style or a rejected set_filter returns false so applyActions
+   * never records it in pendingActions (the array the render counts). (audit B-009/CH-07)
+   */
+  function handleChatAction(action: ChatAction): boolean {
     const layerId = getActionLayerId(action);
     switch (action.type) {
       case 'set_filter':
@@ -376,47 +470,85 @@ export function ChatPanel({
           try {
             const validated = action.expression == null ? null : validateRawFilter(action.expression);
             onFilterChange(layerId, validated);
+            return true;
           } catch (err) {
             if (err instanceof FilterValidationError) {
               if (import.meta.env.DEV) console.warn('[ChatPanel] rejected invalid AI filter:', err.message);
+              return false;
             } else {
               throw err;
             }
           }
         }
-        break;
+        return false;
       case 'set_style':
-        if (layerId && hasPaintMutation(action)) {
+        if (layerId) {
           const layer = layersRef.current.find((candidate) => candidate.id === layerId);
-          if (layer) onPaintChange(layerId, buildChatActionPaint(layer.paint, action));
+          if (layer) {
+            // fix(#392): validate/clamp before checking for a mutation — an
+            // action whose paint is reduced to empty by validation must not
+            // apply, and must not be treated as a mutation via a bare
+            // replace_paint:true either. (audit B-002/CH-01, B-005/CH-09)
+            // fix(#392): pass the layer's own render_mode through, same as
+            // set_data_driven_style below — set_style is the only AI tool that can tune
+            // heatmap-radius/heatmap-opacity/heatmap-intensity, and without render-mode
+            // awareness those keys are silently stripped by geometry-type filtering. (audit WR-01)
+            const validatedPaint = validateChatPaint(getActionPaint(action), layer, layer.style_config?.render_mode);
+            const validatedAction: ChatAction = { ...action, paint: validatedPaint };
+            if (hasPaintMutation(validatedAction)) {
+              onPaintChange(layerId, buildChatActionPaint(layer.paint, validatedAction));
+              return true;
+            }
+          }
         }
-        break;
-      case 'set_data_driven_style':
-        if (layerId && getActionPaint(action)) {
+        return false;
+      case 'set_data_driven_style': {
+        const rawPaint = getActionPaint(action);
+        if (layerId && rawPaint) {
           const layer = layersRef.current.find((candidate) => candidate.id === layerId);
-          const nextPaint = buildChatActionPaint(layer?.paint, action);
-          onStyleConfigChange(
-            layerId,
-            isRecord(action.style_config) ? action.style_config as StyleConfig : null,
-            nextPaint,
-          );
+          const styleConfig = isRecord(action.style_config) ? (action.style_config as StyleConfig) : null;
+          // fix(#392): render-mode aware — heatmap data-driven paint keeps its heatmap-*
+          // properties instead of being dropped as invalid-for-circle. Fall back to the
+          // layer's own render_mode when the action omits it (style_config.render_mode is
+          // optional), so a data-driven heatmap update on a heatmap layer keeps its
+          // heatmap-* paint instead of validating to a no-op. (audit B-002/CH-01)
+          const effectiveRenderMode = styleConfig?.render_mode ?? layer?.style_config?.render_mode;
+          const validatedPaint = layer
+            ? validateChatPaint(rawPaint, layer, effectiveRenderMode)
+            : rawPaint;
+          const validatedAction: ChatAction = { ...action, paint: validatedPaint };
+          const nextPaint = buildChatActionPaint(layer?.paint, validatedAction);
+          // fix(#392): carry the fallback render_mode into the persisted style_config too —
+          // onStyleConfigChange REPLACES style_config, so a heatmap layer whose action
+          // omitted render_mode would otherwise lose heatmap mode and (adapter resolution
+          // prefers geometry) revert to a circle on save/reload.
+          const nextConfig = styleConfig && effectiveRenderMode && !styleConfig.render_mode
+            ? ({ ...styleConfig, render_mode: effectiveRenderMode } as StyleConfig)
+            : styleConfig;
+          onStyleConfigChange(layerId, nextConfig, nextPaint);
+          return true;
         }
-        break;
+        return false;
+      }
       case 'set_label':
         if (layerId) {
           if (isRecord(action.label_config)) {
-            onLabelChange(layerId, action.label_config as LabelConfig);
+            onLabelChange(layerId, clampLabelConfig(action.label_config as LabelConfig));
           } else {
             onLabelChange(layerId, null);
           }
+          return true;
         }
-        break;
+        return false;
       case 'toggle_visibility':
-        if (layerId) onToggleVisibility(layerId, typeof action.visible === 'boolean' ? action.visible : undefined);
-        break;
+        if (layerId) {
+          onToggleVisibility(layerId, typeof action.visible === 'boolean' ? action.visible : undefined);
+          return true;
+        }
+        return false;
       case 'show_query_result':
         dispatchQueryResult(action);
-        break;
+        return false;
       case 'add_layer': {
         const datasetId = getActionDatasetId(action);
         if (datasetId) onAddDataset(datasetId);
@@ -427,7 +559,7 @@ export function ChatPanel({
         // replay-safe style/filter edits" design intent). This also covers the
         // staging-accept path, which dispatches through handleChatAction.
         if (lastSnapshotRef.current) lastSnapshotRef.current.supportsUndo = false;
-        break;
+        return true;
       }
       case 'remove_layer':
         if (layerId) {
@@ -436,15 +568,19 @@ export function ChatPanel({
           // B-012: see add_layer above — re-adding a removed layer on undo mints
           // a new id, so the keyed restores no-op. Suppress undo for the turn.
           if (lastSnapshotRef.current) lastSnapshotRef.current.supportsUndo = false;
+          return true;
         }
-        break;
+        return false;
       case 'set_opacity': {
         const opacity = normalizeLayerOpacity(action.opacity);
         if (layerId && opacity !== null) {
           onOpacityChange?.(layerId, opacity);
+          return true;
         }
-        break;
+        return false;
       }
+      default:
+        assertNever(action.type);
     }
   }
 
@@ -502,10 +638,14 @@ export function ChatPanel({
         if (lastSnapshotRef.current) lastSnapshotRef.current.supportsUndo = false;
         continue;
       }
-      handleChatAction(action);
-      pendingActions.push(action);
-      if (!isUndoSafeAction(action) && lastSnapshotRef.current) {
-        lastSnapshotRef.current.supportsUndo = false;
+      // fix(#392): "Applied N changes" counts effect, not intent — only record the
+      // action in pendingActions when handleChatAction reports a real mutation. (audit CH-07)
+      const applied = handleChatAction(action);
+      if (applied) {
+        pendingActions.push(action);
+        if (!isUndoSafeAction(action) && lastSnapshotRef.current) {
+          lastSnapshotRef.current.supportsUndo = false;
+        }
       }
     }
   }
@@ -615,7 +755,10 @@ export function ChatPanel({
           id: crypto.randomUUID(),
           role: 'assistant',
           content: response.explanation,
-          actions: responseActions.length > 0 ? responseActions : undefined,
+          // fix(#392): attach the filtered pendingActions (what actually applied), not the
+          // raw responseActions, so a rejected/empty fallback action can't render
+          // "Applied N changes"/Undo — mirrors the streaming `done` path.
+          actions: pendingActions.length > 0 ? pendingActions : undefined,
         },
       ]);
     } catch (fallbackErr) {
@@ -918,9 +1061,14 @@ export function ChatPanel({
                   );
                 })()}
                 {/* builder-audit #338 Applied-N nit: a pure query-result turn mutates nothing, so it
-                    must not render "Applied N changes". Count only non-query actions. */}
+                    must not render "Applied N changes". Count only non-query actions.
+                    fix(#392): add_layer/remove_layer are staged, not yet applied, until
+                    the user accepts them in the tray — exclude them too so "Applied N changes"
+                    doesn't double-count intent alongside the staging tray's own pending count. (audit WR-02) */}
                 {(() => {
-                  const appliedActions = msg.actions?.filter((a) => a.type !== 'show_query_result') ?? [];
+                  const appliedActions = msg.actions?.filter(
+                    (a) => a.type !== 'show_query_result' && !isDestructiveAction(a),
+                  ) ?? [];
                   if (appliedActions.length === 0) return null;
                   return (
                   <div className="flex items-center gap-2 mt-1">

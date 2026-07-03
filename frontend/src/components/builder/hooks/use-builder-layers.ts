@@ -39,6 +39,12 @@ export function useBuilderLayers(
   mapId: string | undefined,
   addLayerMutation: ReturnType<typeof useAddLayer>,
   removeLayerMutation: ReturnType<typeof useRemoveLayer>,
+  // fix(#392): populated by useBuilderSave (MapBuilderPage renders
+  // useBuilderLayers before useBuilderSave, so a callback ref bridges the two).
+  // Invoked by handleAddDataset/handleDuplicateRendering so the Save-diff
+  // baseline learns about server-created layers immediately, instead of only
+  // on a clean-state resync — see use-builder-save.ts for the full rationale.
+  saveBaselineSyncRef: React.MutableRefObject<(layer: MapLayerResponse) => void>,
 ) {
   const [searchParams, setSearchParams] = useSearchParams();
   const { t } = useTranslation('builder');
@@ -504,9 +510,34 @@ export function useBuilderLayers(
                   next[existingIdx] = { ...existing, parent_group_id: parentGroupId } as MapLayerResponse;
                   return next;
                 }
-                // Prepend at top of the user stack (sort_order 0) then renumber,
-                // matching the sort_order:0 add request above.
-                return [insertedLayer as MapLayerResponse, ...prev].map((l, i) => ({ ...l, sort_order: i }));
+
+                if (!parentGroupId) {
+                  // Prepend at top of the user stack (sort_order 0) then renumber,
+                  // matching the sort_order:0 add request above.
+                  return [insertedLayer as MapLayerResponse, ...prev].map((l, i) => ({ ...l, sort_order: i }));
+                }
+
+                // fix(#392): insert adjacent to the group's
+                // existing block instead of at array index 0. hydrateFolderGroupLayers
+                // anchors the group row at the position of its FIRST child, so
+                // prepending here would drag the whole group to the stack top after a
+                // save/reload round-trip. Insert immediately after the group's LAST
+                // existing child (or immediately after the group row itself when it
+                // has no children yet) so the first child's position never moves. (audit B-004c/LM-03)
+                const groupIdx = prev.findIndex((l) => l.id === parentGroupId);
+                let lastChildIdx = -1;
+                for (let i = prev.length - 1; i >= 0; i--) {
+                  if ((prev[i] as GroupedLayer).parent_group_id === parentGroupId) {
+                    lastChildIdx = i;
+                    break;
+                  }
+                }
+                const insertIdx = lastChildIdx >= 0
+                  ? lastChildIdx + 1
+                  : (groupIdx >= 0 ? groupIdx + 1 : prev.length);
+                const next = [...prev];
+                next.splice(insertIdx, 0, insertedLayer as MapLayerResponse);
+                return next.map((l, i) => ({ ...l, sort_order: i }));
               });
               // Keep the saved baseline in sync (mirrors handleDuplicateRendering)
               // so a later clean refetch is not blocked by a stale baseline. The
@@ -515,6 +546,17 @@ export function useBuilderLayers(
               if (!savedLayerBaselineRef.current.some((l) => l.id === createdLayer.id)) {
                 savedLayerBaselineRef.current = [createdLayer, ...savedLayerBaselineRef.current];
               }
+              // fix(#392): also register the pure server layer into the Save-diff baseline so
+              // Save doesn't treat this just-created layer as diff.added and PATCH a duplicate.
+              saveBaselineSyncRef.current?.(createdLayer);
+              // fix(#392): mark dirty unconditionally, not just for the grouped
+              // branch — the non-grouped branch above renumbers every existing
+              // layer's sort_order locally, but the backend does not renumber
+              // sibling rows (maps/service_layers.py:106-120), so that renumber is
+              // an unpersisted diff the apiLayers resync effect could otherwise
+              // silently clobber before Save. Same defect class as CR-01
+              // (handleDuplicateRendering). (audit WR-02)
+              setHasUnsavedChanges(true);
               if (parentGroupId) {
                 // Group membership is unsaved frontend state — mark dirty so the
                 // save path persists it (and the refetch sync does not wipe it),
@@ -522,7 +564,6 @@ export function useBuilderLayers(
                 setGroupMeta((prev) =>
                   prev[parentGroupId]?.expanded ? prev : { ...prev, [parentGroupId]: { expanded: true } },
                 );
-                setHasUnsavedChanges(true);
               }
             }
             // Phase 1040 POL-05: named toast when datasetName is provided; generic
@@ -555,7 +596,7 @@ export function useBuilderLayers(
         },
       );
     },
-    [mapId, addLayerMutation, t],
+    [mapId, addLayerMutation, t, saveBaselineSyncRef],
   );
 
   // AI-specific remove: removes locally (persisted on Save).
@@ -606,7 +647,11 @@ export function useBuilderLayers(
 
     const currentLayers = layersRef.current;
     const data = buildDuplicateRenderingInput(layer, currentLayers);
-    const nextSortOrder = data.sort_order ?? currentLayers.length;
+    // fix(#392): carry the source's frontend-only
+    // parent_group_id so a duplicate of a grouped layer stays in the group
+    // instead of escaping to the stack bottom. MapLayerInput/the API cannot
+    // carry this field; it is stamped onto the LOCAL duplicate only. (audit B-004b/LM-02)
+    const sourceParentGroupId = (layer as GroupedLayer).parent_group_id ?? null;
 
     addLayerMutation.mutate(
       { mapId, data },
@@ -618,15 +663,37 @@ export function useBuilderLayers(
           // single, StrictMode-safe place this hook updates the ref.
           setLocalLayers((prev) => {
             if (prev.some((candidate) => candidate.id === createdLayer.id)) return prev;
-            return [...prev, createdLayer].map((candidate, index) => ({
-              ...candidate,
-              sort_order: candidate.id === createdLayer.id ? nextSortOrder : candidate.sort_order ?? index,
-            }));
+            const duplicate: GroupedLayer = sourceParentGroupId
+              ? { ...createdLayer, parent_group_id: sourceParentGroupId }
+              : { ...createdLayer };
+            const sourceIdx = prev.findIndex((candidate) => candidate.id === layerId);
+            const next = [...prev];
+            if (sourceIdx >= 0) {
+              // Splice adjacent to the source (inside the group block when
+              // grouped) instead of appending at the array end.
+              next.splice(sourceIdx + 1, 0, duplicate as MapLayerResponse);
+            } else {
+              next.push(duplicate as MapLayerResponse);
+            }
+            return next.map((candidate, index) => ({ ...candidate, sort_order: index }));
           });
+          // Baseline carries the PURE server layer (no parent_group_id, which
+          // is unsaved frontend state) — mirrors the handleAddDataset drop path.
           savedLayerBaselineRef.current = [
             ...savedLayerBaselineRef.current.filter((candidate) => candidate.id !== createdLayer.id),
             createdLayer,
           ];
+          // fix(#392): also register the pure server layer into the Save-diff baseline so
+          // Save doesn't treat this just-created layer as diff.added and PATCH a duplicate.
+          saveBaselineSyncRef.current?.(createdLayer);
+          // fix(#392): the splice above always renumbers the FULL local
+          // array (adjacent-insert, not append) — this is a real, unpersisted
+          // diff for grouped AND non-grouped duplicates alike. Mark dirty
+          // unconditionally so the `!hasUnsavedChanges`-gated apiLayers resync
+          // effect (triggered by addLayerMutation's own query invalidation)
+          // cannot silently overwrite the adjacent placement with server order
+          // before Save runs. (audit CR-01)
+          setHasUnsavedChanges(true);
           if (createdLayer?.id) {
             setExpandedLayerId(createdLayer.id);
             setActiveEditorTab('style');
@@ -644,7 +711,7 @@ export function useBuilderLayers(
         },
       },
     );
-  }, [addLayerMutation, mapId, t]);
+  }, [addLayerMutation, mapId, t, saveBaselineSyncRef]);
 
   const markDirty = useCallback(() => setHasUnsavedChanges(true), []);
 

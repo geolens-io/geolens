@@ -179,6 +179,50 @@ export function filterPaintForLayerType(
   );
 }
 
+/** fix(#392): Style-Spec numeric bounds for paint properties, mirroring backend
+ *  `_PAINT_BOUNDS` (backend/app/processing/ai/schemas.py) so AI-produced paint is
+ *  clamped identically on both sides of the wire. (audit B-002/CH-01) */
+const PAINT_BOUNDS: Record<string, [number, number]> = {
+  'fill-opacity': [0, 1],
+  'line-opacity': [0, 1],
+  'line-width': [0, 50],
+  'line-gap-width': [0, 50],
+  'line-blur': [0, 50],
+  'line-offset': [-50, 50],
+  'circle-opacity': [0, 1],
+  'circle-radius': [0, 200],
+  'circle-blur': [0, 50],
+  'circle-stroke-opacity': [0, 1],
+  'circle-stroke-width': [0, 20],
+  'heatmap-radius': [1, 200],
+  'heatmap-weight': [0, 10],
+  'heatmap-intensity': [0, 10],
+  'heatmap-opacity': [0, 1],
+  'fill-extrusion-opacity': [0, 1],
+  'fill-extrusion-height': [0, 10000],
+  'fill-extrusion-base': [0, 10000],
+};
+
+/**
+ * Clamp numeric paint values to their Style-Spec bounds (e.g. AI-produced
+ * `circle-radius: 99999` -> 200). Expression (array) values and non-numeric
+ * values pass through untouched — only flat numerics whose key has a bound
+ * are clamped.
+ */
+export function clampPaintBounds(paint: Record<string, unknown>): Record<string, unknown> {
+  const result: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(paint)) {
+    const bounds = PAINT_BOUNDS[key];
+    if (bounds && typeof value === 'number') {
+      const [lo, hi] = bounds;
+      result[key] = Math.min(hi, Math.max(lo, value));
+    } else {
+      result[key] = value;
+    }
+  }
+  return result;
+}
+
 /** Replay expression-based paint properties via setPaintProperty (avoids addLayer failures). */
 function replayExpressions(
   map: MaplibreMap,

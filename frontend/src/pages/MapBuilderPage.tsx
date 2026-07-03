@@ -46,7 +46,7 @@ import {
   basemapThumbnail,
   BLANK_BASEMAP_ID,
 } from '@/lib/basemap-utils';
-import type { MapSublayerOverride } from '@/types/api';
+import type { MapLayerResponse, MapSublayerOverride } from '@/types/api';
 import { isFolderGroupLayer } from '@/lib/layer-capabilities';
 import { SidebarRail } from '@/components/builder/SidebarRail';
 import { LayerEditorPanel, type LayerEditorHandlers } from '@/components/builder/LayerEditorPanel';
@@ -74,7 +74,7 @@ import { useDocumentTitle } from '@/hooks/use-document-title';
 import { useEnabledPlugins } from '@/hooks/use-settings';
 import { useBuilderLayout } from '@/components/builder/hooks/use-builder-layout';
 import { useBuilderDialogs } from '@/components/builder/hooks/use-builder-dialogs';
-import { useBuilderEditorScene } from '@/components/builder/hooks/use-builder-editor-scene';
+import { useBuilderEditorScene, type BuilderEditorScene } from '@/components/builder/hooks/use-builder-editor-scene';
 import { useFilteredFeatureCount } from '@/components/builder/hooks/use-filtered-feature-count';
 import { useBuilderLayers } from '@/components/builder/hooks/use-builder-layers';
 import { useBuilderSave } from '@/components/builder/hooks/use-builder-save';
@@ -201,12 +201,21 @@ export function MapBuilderPage() {
 
   // Composed hooks
   const dialogs = useBuilderDialogs();
+  // fix(#392): callback ref bridging useBuilderLayers (rendered first, below)
+  // to useBuilderSave (rendered after it, at ~line 281+7). useBuilderSave
+  // populates this with a function that registers a server-created layer into
+  // the Save-diff baseline; useBuilderLayers' handleAddDataset /
+  // handleDuplicateRendering invoke it right after a layer-create mutation
+  // succeeds, so Save never re-diffs that layer as `added` and PATCHes a
+  // duplicate. See use-builder-save.ts for the full rationale.
+  const saveBaselineSyncRef = useRef<(layer: MapLayerResponse) => void>(() => {});
   const layers = useBuilderLayers(
     mapData,
     mapInstanceRef,
     id,
     addLayer,
     removeLayer,
+    saveBaselineSyncRef,
   );
   const {
     setHasUnsavedChanges,
@@ -295,6 +304,7 @@ export function MapBuilderPage() {
     hasUnsavedChanges: layers.hasUnsavedChanges,
     hasThumbnail: !!mapData?.thumbnail_url,
     pendingLayerAdd,
+    saveBaselineSyncRef,
   });
 
   const handleMapRef = useCallback((map: MaplibreMap | null) => {
@@ -566,6 +576,13 @@ export function MapBuilderPage() {
     basemapGroup,
   });
 
+  // fix(#392): 'group' means the editor is closed (LayerEditorPanel never
+  // renders for it — see isEditorOpen above), so LayerEditorPanel's narrower
+  // editorScene prop type intentionally excludes it. Derive a panel-safe
+  // scene once rather than widening the panel's contract.
+  const panelEditorScene: Exclude<BuilderEditorScene, 'group'> =
+    editorScene === 'group' ? 'default' : editorScene;
+
   // EASY-18 (Phase 1138-03): rendered-feature count for the active editing layer.
   // Returns null when no layer is being edited, when no filter is set, or when
   // the layer isn't yet on the map. Used to drive the empty-state hint inside
@@ -673,8 +690,10 @@ export function MapBuilderPage() {
   }, [applyBulkOpacity]);
 
   const handleBulkGroup = useCallback((ids: Set<string>) => {
-    applyBulkGroup(ids);
-    setSelectedIds(new Set());
+    // fix(#392): only clear the selection when a group was
+    // actually created; an ineligible selection must stay intact so the user
+    // can see it, read the toast, and adjust instead of losing it silently. (audit B-004d/LM-04)
+    if (applyBulkGroup(ids)) setSelectedIds(new Set());
   }, [applyBulkGroup]);
 
   const handleBulkUngroup = useCallback((ids: Set<string>) => {
@@ -1492,7 +1511,7 @@ export function MapBuilderPage() {
                 isDrillDown={false}
                 handlers={layerEditorHandlers}
                 activeTab={layers.activeEditorTab}
-                editorScene={editorScene}
+                editorScene={panelEditorScene}
                 sceneContent={sceneContent ?? undefined}
                 sceneFooter={sceneFooter ?? undefined}
                 breadcrumbPresetName={breadcrumbPresetName}
@@ -1543,7 +1562,7 @@ export function MapBuilderPage() {
                   isDrillDown={true}
                   handlers={layerEditorHandlers}
                   activeTab={layers.activeEditorTab}
-                  editorScene={editorScene}
+                  editorScene={panelEditorScene}
                   sceneContent={sceneContent ?? undefined}
                   sceneFooter={sceneFooter ?? undefined}
                   breadcrumbPresetName={breadcrumbPresetName}

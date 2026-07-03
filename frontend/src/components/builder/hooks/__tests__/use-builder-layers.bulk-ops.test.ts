@@ -119,6 +119,10 @@ function renderBuilderLayers(
   // Double-cast the mock mapRef to satisfy the MaplibreMap RefObject type
   const typedRef = mapRef as unknown as React.RefObject<import('maplibre-gl').Map | null>;
 
+  // fix(#392): 6th positional param bridging into useBuilderSave's Save-diff
+  // baseline — a plain no-op ref is sufficient for tests that don't assert on it.
+  const saveBaselineSyncRef = { current: () => {} } as unknown as Parameters<typeof useBuilderLayers>[5];
+
   const out = renderHook(() =>
     useBuilderLayers(
       mapData,
@@ -126,6 +130,7 @@ function renderBuilderLayers(
       MAP_ID,
       addLayerMutation,
       removeLayerMutation,
+      saveBaselineSyncRef,
     ),
   );
   return out;
@@ -432,9 +437,13 @@ describe('useBuilderLayers — handleBulkGroup (POL-09)', () => {
     const { result } = renderBuilderLayers(makeMapData([layerA, layerB, layerC]));
     await waitForInit();
 
+    let created: boolean | undefined;
     act(() => {
-      result.current.handleBulkGroup(new Set(['a', 'b', 'c']));
+      created = result.current.handleBulkGroup(new Set(['a', 'b', 'c']));
     });
+
+    // Test C (eligible): returns true when a group is actually created.
+    expect(created).toBe(true);
 
     const updated = result.current.localLayers as GroupedLayer[];
 
@@ -452,7 +461,29 @@ describe('useBuilderLayers — handleBulkGroup (POL-09)', () => {
     expect(updatedC?.parent_group_id).toBe(groupId);
   });
 
-  it('Test 10: Defense-in-depth: returns early if any selected layer has parent_group_id', async () => {
+  // fix(#392): a single loose layer selection
+  // returns false, toasts the "need two" reason, and does not mutate localLayers. (audit B-004d/LM-04)
+  it('Test A: single loose layer returns false, toasts bulkGroupNeedTwo, and does not mutate localLayers', async () => {
+    const infoSpy = vi.spyOn(toast, 'info');
+    const layerA = makeMockLayer({ id: 'a', sort_order: 0, dataset_record_type: 'vector_dataset' });
+    const { result } = renderBuilderLayers(makeMapData([layerA]));
+    await waitForInit();
+
+    const before = result.current.localLayers;
+
+    let created: boolean | undefined;
+    act(() => {
+      created = result.current.handleBulkGroup(new Set(['a']));
+    });
+
+    expect(created).toBe(false);
+    expect(infoSpy).toHaveBeenCalledWith('Select at least 2 loose layers to group');
+    expect(result.current.localLayers).toBe(before);
+    expect(result.current.localLayers.some((l) => (l as GroupedLayer).layer_type === 'group:folder')).toBe(false);
+  });
+
+  it('Test 10 / Test B (ineligible — mixed/already-grouped): returns false, toasts bulkGroupSkipped, does not mutate localLayers', async () => {
+    const infoSpy = vi.spyOn(toast, 'info');
     const layerA = makeMockLayer({ id: 'a', sort_order: 0, dataset_record_type: 'vector_dataset', parent_group_id: 'existing-group' });
     const layerB = makeMockLayer({ id: 'b', sort_order: 1, dataset_record_type: 'vector_dataset' });
     const { result } = renderBuilderLayers(makeMapData([layerA, layerB]));
@@ -460,15 +491,22 @@ describe('useBuilderLayers — handleBulkGroup (POL-09)', () => {
 
     const before = result.current.localLayers.length;
 
+    let created: boolean | undefined;
     act(() => {
-      result.current.handleBulkGroup(new Set(['a', 'b']));
+      created = result.current.handleBulkGroup(new Set(['a', 'b']));
     });
 
+    expect(created).toBe(false);
+    expect(infoSpy).toHaveBeenCalledWith("Some selected layers are already grouped and can't be grouped again");
     // No group row inserted — localLayers length unchanged
     expect(result.current.localLayers.length).toBe(before);
   });
 
-  it('Test 11: Defense-in-depth: returns early if any selected is raster', async () => {
+  // fix(#392): mixed selection with a raster layer must toast the
+  // TYPE-specific reason, not the generic (and factually wrong, for this
+  // case) "already grouped" message. (audit WR-01)
+  it('Test 11: mixed selection including a raster layer returns false, toasts bulkGroupSkippedType, does not mutate localLayers', async () => {
+    const infoSpy = vi.spyOn(toast, 'info');
     const layerA = makeMockLayer({ id: 'a', sort_order: 0, dataset_record_type: 'vector_dataset' });
     const layerR = makeMockLayer({ id: 'r', sort_order: 1, dataset_record_type: 'raster_dataset', layer_type: 'raster_geolens' });
     const { result } = renderBuilderLayers(makeMapData([layerA, layerR]));
@@ -476,10 +514,35 @@ describe('useBuilderLayers — handleBulkGroup (POL-09)', () => {
 
     const before = result.current.localLayers.length;
 
+    let created: boolean | undefined;
     act(() => {
-      result.current.handleBulkGroup(new Set(['a', 'r']));
+      created = result.current.handleBulkGroup(new Set(['a', 'r']));
     });
 
+    expect(created).toBe(false);
+    expect(infoSpy).toHaveBeenCalledWith("Non-vector layers can't be grouped — remove them from your selection and try again");
+    expect(result.current.localLayers.length).toBe(before);
+  });
+
+  // fix(#392): a group row in the selection must toast the
+  // GROUP-ROW-specific reason, not the generic "already grouped" message. (audit WR-01)
+  it('Test B (ineligible — group:folder row in selection): returns false, toasts bulkGroupSkippedGroupRow', async () => {
+    const infoSpy = vi.spyOn(toast, 'info');
+    const groupRow = makeMockLayer({ id: 'g1', sort_order: 0, layer_type: 'group:folder' });
+    const layerA = makeMockLayer({ id: 'a', sort_order: 1, dataset_record_type: 'vector_dataset' });
+    const layerB = makeMockLayer({ id: 'b', sort_order: 2, dataset_record_type: 'vector_dataset' });
+    const { result } = renderBuilderLayers(makeMapData([groupRow, layerA, layerB]));
+    await waitForInit();
+
+    const before = result.current.localLayers.length;
+
+    let created: boolean | undefined;
+    act(() => {
+      created = result.current.handleBulkGroup(new Set(['g1', 'a', 'b']));
+    });
+
+    expect(created).toBe(false);
+    expect(infoSpy).toHaveBeenCalledWith("Groups can't be grouped — remove any group rows from your selection and try again");
     expect(result.current.localLayers.length).toBe(before);
   });
 });

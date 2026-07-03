@@ -1,7 +1,8 @@
-import { createElement } from 'react';
+import { createElement, useState } from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act, fireEvent, render, screen, within } from '@/test/test-utils';
 import { LayerFilterEditor, parseFilterExpression, buildFilterExpression } from '../LayerFilterEditor';
+import { sanitizeNullableNumericFilter } from '@/lib/maplibre-filter-utils';
 import type { FilterSpecification } from 'maplibre-gl';
 
 // Column info used for buildFilterExpression tests
@@ -507,5 +508,78 @@ describe('LayerFilterEditor - EASY-18 empty-state hint', () => {
     fireEvent.click(clearBtn);
 
     expect(onFilterChange).toHaveBeenCalledWith(null);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// fix(#392): multi-condition round-trip through the real emit -> sanitize
+// -> feed-back loop (mirrors handleFilterChange in use-layer-map-sync.ts). (audit B-001/FL-01)
+// ---------------------------------------------------------------------------
+// A controlled wrapper that holds `filter` state and — exactly like the real
+// parent — routes every emitted value through the real sanitizeNullableNumericFilter
+// before feeding it back down as the `filter` prop.
+function ControlledFilterHarness({
+  columnInfo,
+}: {
+  columnInfo: { name: string; type: string }[];
+}) {
+  const [filter, setFilter] = useState<FilterSpecification | null>(null);
+  return createElement(LayerFilterEditor, {
+    columnInfo,
+    filter,
+    onFilterChange: (f: FilterSpecification | null) => {
+      setFilter(sanitizeNullableNumericFilter(f));
+    },
+  });
+}
+
+describe('LayerFilterEditor - B-001 / FL-01: multi-condition round-trip', () => {
+  // Numeric column first so addCondition() defaults the new row's field to it.
+  const numericFirstColumns = [
+    { name: 'population', type: 'integer' },
+    { name: 'name', type: 'text' },
+  ];
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('a second condition row survives the emit -> sanitize -> feed-back -> debounce cycle', () => {
+    render(createElement(ControlledFilterHarness, { columnInfo: numericFirstColumns }));
+
+    // Add the first condition (defaults to the numeric "population" field).
+    fireEvent.click(screen.getByRole('button', { name: /add filter/i }));
+
+    let rows = screen.getAllByTestId('filter-condition-row');
+    expect(rows).toHaveLength(1);
+
+    // Give it a valid numeric value so it emits (debounced value-input path).
+    const firstValueInput = within(rows[0]).getByRole('textbox', { name: 'Value' });
+    act(() => {
+      fireEvent.change(firstValueInput, { target: { value: '100' } });
+    });
+    act(() => {
+      vi.advanceTimersByTime(200);
+    });
+
+    rows = screen.getAllByTestId('filter-condition-row');
+    expect(rows).toHaveLength(1);
+    expect((within(rows[0]).getByRole('textbox', { name: 'Value' }) as HTMLInputElement).value).toBe('100');
+
+    // Add a second (empty) condition — this is the row that used to get wiped
+    // by the spurious prop-driven re-parse once the emitted filter round-tripped
+    // through sanitizeNullableNumericFilter.
+    fireEvent.click(screen.getByRole('button', { name: /add filter/i }));
+
+    rows = screen.getAllByTestId('filter-condition-row');
+    expect(rows).toHaveLength(2);
+
+    // The first condition's value must not have been reset/reminted by the
+    // feed-back re-parse.
+    expect((within(rows[0]).getByRole('textbox', { name: 'Value' }) as HTMLInputElement).value).toBe('100');
   });
 });

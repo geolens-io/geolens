@@ -14,7 +14,7 @@ import {
   makeBuilderLayer,
   makeBuilderMap,
 } from '@/components/builder/__tests__/fixtures/map-builder-fixtures';
-import type { MapLayerResponse, MapResponse } from '@/types/api';
+import type { MapLayerResponse, MapResponse, StyleConfig } from '@/types/api';
 
 type MaplibreMap = import('maplibre-gl').Map;
 
@@ -27,6 +27,8 @@ function renderBuilderLayers(
 ) {
   const addLayerMutation = { mutate: vi.fn() } as unknown as Parameters<typeof useBuilderLayers>[3];
   const removeLayerMutation = { mutate: vi.fn() } as unknown as Parameters<typeof useBuilderLayers>[4];
+  // fix(#392): 6th positional param bridging into useBuilderSave's Save-diff baseline.
+  const saveBaselineSyncRef = { current: () => {} } as unknown as Parameters<typeof useBuilderLayers>[5];
 
   return renderHook(() =>
     useBuilderLayers(
@@ -35,6 +37,7 @@ function renderBuilderLayers(
       'map-1',
       addLayerMutation,
       removeLayerMutation,
+      saveBaselineSyncRef,
     ),
   );
 }
@@ -242,6 +245,35 @@ describe('useBuilderLayers — folder group handlers', () => {
     expect(result.current.hasUnsavedChanges).toBe(true);
   });
 
+  // fix(#392): handleUngroup must clear the PERSISTED
+  // style_config.builder.folderGroupId on the child, not just the
+  // frontend-only parent_group_id — otherwise re-duplicating the child
+  // before Save copies the stale group pointer to the backend and the next
+  // server resync silently re-groups it (hydrateFolderGroupLayers reads
+  // style_config, not parent_group_id). (audit CR-01)
+  it('handleUngroup clears style_config.builder.folderGroupId on promoted children (CR-01)', () => {
+    const groupLayer = { ...makeMockLayer({ id: 'group-1' }), layer_type: 'group:folder' } as unknown as MapLayerResponse;
+    const childLayer = {
+      ...makeMockLayer({
+        id: 'child-1',
+        sort_order: 1,
+        // fix(#392): partial StyleConfig fixture (builder-only) — real runtime shape, cast only.
+        style_config: { builder: { folderGroupId: 'group-1', folderGroupName: 'Group 1' } } as unknown as StyleConfig,
+      }),
+      parent_group_id: 'group-1',
+    } as unknown as MapLayerResponse;
+    const { result } = renderBuilderLayers(makeMapData([groupLayer, childLayer]));
+
+    act(() => {
+      result.current.handleUngroup('group-1');
+    });
+
+    const child = result.current.localLayers.find((l) => l.id === 'child-1');
+    expect(child).toBeDefined();
+    const builder = (child?.style_config as { builder?: Record<string, unknown> } | null)?.builder;
+    expect(builder?.folderGroupId).toBeUndefined();
+  });
+
   // Test 9: handleDeleteGroup removes the group and all children
   it('handleDeleteGroup removes group container and all children with matching parent_group_id', () => {
     const groupLayer = { ...makeMockLayer({ id: 'group-1' }), layer_type: 'group:folder' } as unknown as MapLayerResponse;
@@ -300,5 +332,29 @@ describe('useBuilderLayers — folder group handlers', () => {
     expect(moved).toBeDefined();
     expect(moved?.parent_group_id == null).toBe(true);
     expect(result.current.hasUnsavedChanges).toBe(true);
+  });
+
+  // fix(#392): handleMoveLayerOutOfGroup must clear the PERSISTED
+  // style_config.builder.folderGroupId too — same rationale as Test 8b above. (audit CR-01)
+  it('handleMoveLayerOutOfGroup clears style_config.builder.folderGroupId from the target layer (CR-01)', () => {
+    const groupLayer = { ...makeMockLayer({ id: 'group-1' }), layer_type: 'group:folder' } as unknown as MapLayerResponse;
+    const childLayer = {
+      ...makeMockLayer({
+        id: 'child-1',
+        // fix(#392): partial StyleConfig fixture (builder-only) — real runtime shape, cast only.
+        style_config: { builder: { folderGroupId: 'group-1', folderGroupName: 'Group 1' } } as unknown as StyleConfig,
+      }),
+      parent_group_id: 'group-1',
+    } as unknown as MapLayerResponse;
+    const { result } = renderBuilderLayers(makeMapData([groupLayer, childLayer]));
+
+    act(() => {
+      result.current.handleMoveLayerOutOfGroup('child-1');
+    });
+
+    const moved = result.current.localLayers.find((l) => l.id === 'child-1');
+    expect(moved).toBeDefined();
+    const builder = (moved?.style_config as { builder?: Record<string, unknown> } | null)?.builder;
+    expect(builder?.folderGroupId).toBeUndefined();
   });
 });

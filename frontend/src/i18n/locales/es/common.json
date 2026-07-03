@@ -207,6 +207,7 @@
     "accessDenied": "Acceso denegado",
     "authMapRecovery": "Abre tu lista de mapas para confirmar el acceso, o vuelve al catálogo para seguir trabajando.",
     "browseCatalog": "Explorar catálogo",
+    "embedAuthError": "El acceso de este mapa incrustado ha expirado o ya no es válido.",
     "geoJsonLoadError": "No se pudieron cargar los datos de la capa",
     "linkRecovery": "Pide al propietario del mapa un nuevo enlace de compartición si aún necesitas acceso.",
     "mapError": "Error de tile — algunas capas podrían no mostrarse correctamente.",

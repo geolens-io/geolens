@@ -3,7 +3,7 @@ import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { MapLayerResponse } from '@/types/api';
 import { applyLayerVisibilityToMap } from '@/components/builder/hooks/use-layer-map-sync';
 import { removePerLayerCompanions } from '@/components/builder/hooks/builder-layer-mutations';
-import { type GroupedLayer } from '@/components/builder/folder-groups';
+import { type GroupedLayer, clearPersistedFolderGroup } from '@/components/builder/folder-groups';
 
 // STATE-02: folder-group handlers, relocated verbatim out of the useBuilderLayers
 // god-hook. PURE RELOCATION — handler bodies are unchanged; the shared layers
@@ -79,13 +79,20 @@ export function useFolderGroupLayers({
 
   const handleUngroup = useCallback((groupId: string) => {
     setLocalLayers((prev) => {
-      // Remove the group container, keep children (clear their parent_group_id)
+      // Remove the group container, keep children (clear their parent_group_id
+      // AND any persisted style_config.builder.folderGroupId — otherwise a
+      // child duplicated before Save carries the stale group pointer and gets
+      // silently re-grouped on the next server resync; see fix #392, audit CR-01).
       const next = prev
         .filter((l) => l.id !== groupId)
         .map((l) => {
           const gl = l as GroupedLayer;
           if (gl.parent_group_id === groupId) {
-            return { ...gl, parent_group_id: null } as MapLayerResponse;
+            return {
+              ...gl,
+              parent_group_id: null,
+              style_config: clearPersistedFolderGroup(gl.style_config),
+            } as MapLayerResponse;
           }
           return l;
         });
@@ -176,7 +183,13 @@ export function useFolderGroupLayers({
 
       // Find the position of the group container to place the layer just after it
       const groupIdx = prev.findIndex((l) => l.id === parentGroupId);
-      const updatedLayer: GroupedLayer = { ...gl, parent_group_id: null };
+      // fix(#392): clear the persisted folderGroupId alongside the
+      // frontend-only parent_group_id — see handleUngroup comment above. (audit CR-01)
+      const updatedLayer: GroupedLayer = {
+        ...gl,
+        parent_group_id: null,
+        style_config: clearPersistedFolderGroup(gl.style_config),
+      };
 
       const next = prev.filter((l) => l.id !== layerId) as MapLayerResponse[];
       const insertAt = groupIdx >= 0 ? groupIdx + 1 : next.length;

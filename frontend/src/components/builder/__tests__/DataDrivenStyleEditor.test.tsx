@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@/test/test-utils';
+import { render, screen, waitFor, within } from '@/test/test-utils';
 import userEvent from '@testing-library/user-event';
 import { useColumnValues, useColumnStats } from '@/hooks/use-maps';
 import { getRampColors, nextRotatingRamp } from '@/lib/color-ramps';
@@ -545,6 +545,193 @@ describe('DataDrivenStyleEditor', () => {
       );
     });
 
+  });
+
+  describe('B-003 / UX-L1: no phantom dirty on open', () => {
+    it('does not emit onStyleConfigChange opening on a seeded graduated-size config missing classCount/sizeRange', async () => {
+      // Restless Earth showcase quake layer shape (scripts/seed-showcase.py) —
+      // no classCount, no sizeRange; both are fully implied by sizes/breaks.
+      const seededConfig: StyleConfig = {
+        mode: 'graduated',
+        column: 'mag',
+        ramp: 'YlOrRd',
+        target: 'radius',
+        method: 'manual',
+        breaks: [5, 6, 7],
+        sizes: [3, 5, 8, 12],
+        colors: ['#ffffb2', '#fecc5c', '#fd8d3c', '#e31a1c'],
+      };
+
+      mockUseColumnStats.mockReturnValue(
+        hookData({
+          min: 1.2,
+          max: 8,
+          count: 500,
+          mean: 4,
+          quantiles: [],
+        }) as unknown as ReturnType<typeof useColumnStats>,
+      );
+
+      const onStyleConfigChange = vi.fn();
+      render(
+        <DataDrivenStyleEditor
+          layer={makeLayer({
+            dataset_geometry_type: 'Point',
+            dataset_column_info: [{ name: 'mag', type: 'double precision' }],
+            paint: { 'circle-color': '#3b82f6' },
+            style_config: seededConfig,
+          })}
+          onStyleConfigChange={onStyleConfigChange}
+        />,
+      );
+
+      await waitFor(() => {
+        expect(onStyleConfigChange).not.toHaveBeenCalled();
+      });
+    });
+
+    it('does not emit onStyleConfigChange opening on a seeded graduated-color config missing classCount', async () => {
+      // 3D-buildings showcase layer shape (scripts/seed-showcase.py) — colors
+      // (7) + breaks (6) but no classCount; classCount is implied by colors.length.
+      const seededConfig: StyleConfig = {
+        mode: 'graduated',
+        column: 'height_roof',
+        ramp: 'Plasma',
+        target: 'color',
+        method: 'quantile',
+        breaks: [60, 120, 250, 450, 750, 1200],
+        colors: [
+          '#0d0887',
+          '#5601a4',
+          '#900da3',
+          '#cb4679',
+          '#ed7953',
+          '#fdb42f',
+          '#f0f921',
+        ],
+      };
+
+      mockUseColumnStats.mockReturnValue(
+        hookData({
+          min: 0,
+          max: 1500,
+          count: 1000,
+          mean: 300,
+          quantiles: [60, 120, 250, 450, 750, 1200],
+        }) as unknown as ReturnType<typeof useColumnStats>,
+      );
+
+      const onStyleConfigChange = vi.fn();
+      render(
+        <DataDrivenStyleEditor
+          layer={makeLayer({
+            dataset_geometry_type: 'Polygon',
+            dataset_column_info: [{ name: 'height_roof', type: 'double precision' }],
+            paint: { 'fill-color': '#3b82f6' },
+            style_config: seededConfig,
+          })}
+          onStyleConfigChange={onStyleConfigChange}
+        />,
+      );
+
+      await waitFor(() => {
+        expect(onStyleConfigChange).not.toHaveBeenCalled();
+      });
+    });
+  });
+
+  describe('WR-01: target/mode-aware classCount derivation', () => {
+    it('derives classCount from sizes.length (not colors.length) for a double-encoded radius-target config with divergent lengths', async () => {
+      // A "double-encoded" graduated-radius layer that also carries a color
+      // ramp (as the Restless Earth quake layer does) with colors/sizes
+      // deliberately diverging in length. sizes.length (4) is the
+      // semantically correct basis for the size-target classCount, not
+      // colors.length (6).
+      const seededConfig: StyleConfig = {
+        mode: 'graduated',
+        column: 'mag',
+        ramp: 'YlOrRd',
+        target: 'radius',
+        method: 'equal_interval',
+        sizes: [3, 5, 8, 12],
+        colors: ['#ffffb2', '#fed976', '#feb24c', '#fd8d3c', '#f03b20', '#bd0026'],
+        sizeRange: [3, 12],
+      };
+
+      const onStyleConfigChange = vi.fn();
+      render(
+        <DataDrivenStyleEditor
+          layer={makeLayer({
+            dataset_geometry_type: 'Point',
+            dataset_column_info: [{ name: 'mag', type: 'double precision' }],
+            paint: { 'circle-color': '#3b82f6', 'circle-radius': 5 },
+            style_config: seededConfig,
+          })}
+          onStyleConfigChange={onStyleConfigChange}
+        />,
+      );
+
+      const classesRow = screen.getByText('Classes').closest('div');
+      expect(classesRow).not.toBeNull();
+      expect(within(classesRow as HTMLElement).getByText('4')).toBeInTheDocument();
+
+      // No spurious write on mount either — same guard the B-003 tests pin.
+      await waitFor(() => {
+        expect(onStyleConfigChange).not.toHaveBeenCalled();
+      });
+    });
+
+    it('does not carry a stale classCount/sizeRange from a categorical config into a later graduated switch', async () => {
+      // A categorical config with stray graduated-shaped fields left over
+      // from a prior graduated session (plausible via AI edits, since
+      // StyleConfig is an open bag). classCount/sizeRange must NOT be
+      // derived from these stray fields on mount, and must still be at
+      // their defaults after switching to graduated mode.
+      const staleConfig: StyleConfig = {
+        mode: 'categorical',
+        column: 'typeA',
+        ramp: 'Set2',
+        categories: [{ value: 'cat1', color: '#111111' }],
+        // Stray graduated leftovers — should be inert in categorical mode.
+        classCount: 8,
+        colors: ['#a', '#b', '#c', '#d', '#e', '#f', '#g', '#h'],
+        sizeRange: [9, 25],
+      };
+
+      mockUseColumnStats.mockReturnValue(
+        hookData({
+          min: 0,
+          max: 100,
+          count: 100,
+          mean: 50,
+          quantiles: [],
+        }) as unknown as ReturnType<typeof useColumnStats>,
+      );
+
+      const user = userEvent.setup();
+      render(
+        <DataDrivenStyleEditor
+          layer={makeLayer({ style_config: staleConfig })}
+          onStyleConfigChange={vi.fn()}
+        />,
+      );
+
+      // Switch categorical -> graduated
+      await user.click(screen.getAllByRole('combobox')[0]);
+      await user.click(await screen.findByRole('option', { name: 'Graduated' }));
+
+      // handleModeChange clears `column` on any mode switch — pick a numeric
+      // column so the (mode === 'graduated' && column) gated Classes slider
+      // renders.
+      await user.click(screen.getAllByRole('combobox')[1]);
+      await user.click(await screen.findByRole('option', { name: 'population' }));
+
+      const classesRow = await screen.findByText('Classes');
+      const classesContainer = classesRow.closest('div');
+      expect(classesContainer).not.toBeNull();
+      // Must be the default (5), not the stale derived value (8).
+      expect(within(classesContainer as HTMLElement).getByText('5')).toBeInTheDocument();
+    });
   });
 
   describe('classification methods (ENH-04)', () => {

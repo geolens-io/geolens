@@ -206,11 +206,20 @@ async def _execute_chat_tool(
             (lyr for lyr in layers if lyr.id == tool_input.get("layer_id")), None
         )
         if target:
+            # fix(#392): thread the layer's own render_mode through so
+            # heatmap-radius/heatmap-opacity/heatmap-intensity survive validation on
+            # an already-heatmap-rendered layer — set_style is the only AI tool that
+            # can tune those. Mirrors ChatPanel.tsx's validateChatPaint. (audit WR-01)
+            render_mode = (
+                (target.style_config or {}).get("render_mode")
+                if target.style_config
+                else None
+            )
             warnings: list[str] = []
             next_input = {**tool_input}
             if tool_input.get("paint"):
                 validated_paint, paint_warnings = validate_paint_with_feedback(
-                    tool_input["paint"], target.geometry_type
+                    tool_input["paint"], target.geometry_type, render_mode
                 )
                 next_input["paint"] = validated_paint or {}
                 warnings.extend(paint_warnings)
@@ -219,6 +228,7 @@ async def _execute_chat_tool(
                     validate_paint_property_names_with_feedback(
                         tool_input.get("clear_paint"),
                         target.geometry_type,
+                        render_mode,
                     )
                 )
                 next_input["clear_paint"] = validated_clear
@@ -270,7 +280,11 @@ def _collect_chat_action(tool_name: str, tool_input: dict, result: dict) -> dict
                 "row_count": result.get("row_count", 0),
                 "truncated": result.get("truncated", False),
             }
-            if "geojson" in result:
+            # fix(#392): guard both keys — geojson and bbox are set together
+            # by _extract_geojson's tuple unpack today, but that pairing is an unenforced
+            # invariant on this plain dict; a future caller emitting geojson without bbox
+            # must not raise an uncaught KeyError inside the action-collector callback. (audit WR-03)
+            if "geojson" in result and "bbox" in result:
                 action["geojson"] = result["geojson"]
                 action["bbox"] = result["bbox"]
             return action
@@ -283,6 +297,19 @@ def _collect_chat_action(tool_name: str, tool_input: dict, result: dict) -> dict
 
     if tool_name == "set_label":
         return _build_label_action(tool_input)
+
+    # fix(#392): set_style must emit the backend-validated/clamped paint computed in
+    # _execute_chat_tool (it lives on `result` because `tool_input` was
+    # reassigned to `next_input` and returned there), not the raw fn_args. When
+    # validation was skipped (no paint/clear_paint on the call), `result`
+    # equals the raw tool_input, so behavior is unchanged. (audit CH-02)
+    if tool_name == "set_style":
+        action = {"type": "set_style", **tool_input}
+        if "paint" in result:
+            action["paint"] = result["paint"]
+        if "clear_paint" in result:
+            action["clear_paint"] = result["clear_paint"]
+        return action
 
     # add_layer: carry the server-resolved dataset_name (builder-audit #338 B-002) so
     # the staging chip shows a human name instead of the raw UUID. The name is

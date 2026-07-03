@@ -472,6 +472,11 @@ interface SaveState {
   setHasUnsavedChanges: (v: boolean) => void;
   hasUnsavedChanges: boolean;
   hasThumbnail?: boolean;
+  /** fix(#392): callback ref populated by useBuilderSave and invoked by
+   *  useBuilderLayers' layer-create paths (handleAddDataset / handleDuplicateRendering)
+   *  so the server-created layer is registered into the Save-diff baseline
+   *  the moment it is inserted — see the effect below for the full rationale. */
+  saveBaselineSyncRef: React.MutableRefObject<(layer: MapLayerResponse) => void>;
   /** POLISH-01 (Phase 1233-01): set to true when the builder was opened with a
    *  ?add_dataset URL param so the first auto-capture is deferred until the
    *  layer-add effect has synced localLayers. Omit (or set false) for normal
@@ -500,6 +505,20 @@ export function useBuilderSave(state: SaveState) {
       baselineLayersRef.current = state.localLayers.map((layer) => ({ ...layer }));
     }
   }, [state.hasUnsavedChanges, state.localLayers]);
+
+  useEffect(() => {
+    // fix(#392): let layer-create paths register the server-created layer into the
+    // Save-diff baseline. Marking the map dirty in the same update that inserts a
+    // POST-created layer (the WR-02/CR-01 sort_order fix) otherwise leaves this
+    // baseline unaware of the new server id, so buildLayerDiff reports it as
+    // diff.added and the PATCH endpoint creates a duplicate. Register the PURE
+    // server layer (no local grouping/reorder) so grouping/order still diff normally.
+    state.saveBaselineSyncRef.current = (layer: MapLayerResponse) => {
+      if (!baselineLayersRef.current.some((l) => l.id === layer.id)) {
+        baselineLayersRef.current = [...baselineLayersRef.current, { ...layer }];
+      }
+    };
+  });
 
   async function handleSave() {
     const {

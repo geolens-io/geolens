@@ -100,6 +100,10 @@ function renderBuilderLayers(
 
   const typedRef = mapRef as unknown as React.RefObject<import('maplibre-gl').Map | null>;
 
+  // fix(#392): 6th positional param bridging into useBuilderSave's Save-diff
+  // baseline — a plain no-op ref is sufficient for tests that don't assert on it.
+  const saveBaselineSyncRef = { current: () => {} } as unknown as Parameters<typeof useBuilderLayers>[5];
+
   const out = renderHook(() =>
     useBuilderLayers(
       mapData,
@@ -107,6 +111,7 @@ function renderBuilderLayers(
       MAP_ID,
       addLayerMutation,
       removeLayerMutation,
+      saveBaselineSyncRef,
     ),
   );
   return { ...out, removeLayerMutation };

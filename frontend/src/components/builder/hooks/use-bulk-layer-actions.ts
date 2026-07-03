@@ -13,7 +13,7 @@ import {
   removePerLayerCompanions,
   shouldClearTerrainOnDelete,
 } from '@/components/builder/hooks/builder-layer-mutations';
-import { type GroupedLayer } from '@/components/builder/folder-groups';
+import { type GroupedLayer, clearPersistedFolderGroup } from '@/components/builder/folder-groups';
 import { bulkDeleteLayersApi } from '@/api/maps';
 import {
   extractCopyableStyle,
@@ -183,16 +183,48 @@ export function useBulkLayerActions({
     }
   }, [layersRef, setLocalLayers, setHasUnsavedChanges, mapInstanceRef]);
 
-  const handleBulkGroup = useCallback((selectedIds: Set<string>) => {
+  // fix(#392): returns true only when a group was actually created, so the
+  // caller (MapBuilderPage) can clear the multi-selection ONLY on success — a
+  // no-op must never silently eat the user's selection. (audit B-004d/LM-04)
+  const handleBulkGroup = useCallback((selectedIds: Set<string>): boolean => {
     const current = layersRef.current;
-    // Defense-in-depth: all selected must be loose vector layers
-    const selectedLayers = current.filter((l) =>
-      selectedIds.has(l.id) &&
+    const selectedLayers = current.filter((l) => selectedIds.has(l.id));
+    // Defense-in-depth: all selected must be loose vector layers (not already
+    // grouped, not group rows themselves, not raster/DEM/basemap).
+    const groupableLayers = selectedLayers.filter((l) =>
       l.dataset_record_type === 'vector_dataset' &&
       !(l as GroupedLayer).parent_group_id &&
       (l as GroupedLayer).layer_type !== 'group:folder',
     );
-    if (selectedLayers.length !== selectedIds.size || selectedLayers.length < 2) return;
+
+    // fix(#392): surface WHY the group action no-op'd instead
+    // of returning silently while the caller clears the selection anyway. (audit B-004d/LM-04)
+    if (groupableLayers.length !== selectedLayers.length) {
+      // fix(#392): the toast previously always said "already grouped,"
+      // which is wrong when the real disqualifier is a raster/DEM layer or a
+      // group row in the selection. Pick the message that matches the actual
+      // reason. Priority: a group row in the selection is the most distinct
+      // mistake, then an ineligible (non-vector) layer type, and only then
+      // fall back to the "already grouped" message. (audit WR-01)
+      const hasGroupRow = selectedLayers.some(
+        (l) => (l as GroupedLayer).layer_type === 'group:folder',
+      );
+      const hasIneligibleType = selectedLayers.some(
+        (l) => l.dataset_record_type !== 'vector_dataset',
+      );
+      if (hasGroupRow) {
+        toast.info(t('toasts.bulkGroupSkippedGroupRow'));
+      } else if (hasIneligibleType) {
+        toast.info(t('toasts.bulkGroupSkippedType'));
+      } else {
+        toast.info(t('toasts.bulkGroupSkipped'));
+      }
+      return false;
+    }
+    if (groupableLayers.length < 2) {
+      toast.info(t('toasts.bulkGroupNeedTwo'));
+      return false;
+    }
 
     // Phase 1051 WR-01: crypto.randomUUID is collision-safe — see
     // handleCreateGroupWithLayer for the bulk + single race rationale.
@@ -201,10 +233,10 @@ export function useBulkLayerActions({
       (l) => (l as GroupedLayer).layer_type === 'group:folder',
     ).length;
     const groupName = `Group ${existingGroupCount + 1}`;
-    const minSortOrder = Math.min(...selectedLayers.map((l) => l.sort_order));
+    const minSortOrder = Math.min(...groupableLayers.map((l) => l.sort_order));
 
     const groupRow: GroupedLayer = {
-      ...(selectedLayers[0] as GroupedLayer),
+      ...(groupableLayers[0] as GroupedLayer),
       id: groupId,
       display_name: groupName,
       layer_type: 'group:folder',
@@ -229,7 +261,8 @@ export function useBulkLayerActions({
     });
     setGroupMeta((prev) => ({ ...prev, [groupId]: { expanded: true } }));
     setHasUnsavedChanges(true);
-  }, [layersRef, setLocalLayers, setGroupMeta, setHasUnsavedChanges]);
+    return true;
+  }, [layersRef, setLocalLayers, setGroupMeta, setHasUnsavedChanges, t]);
 
   const handleBulkUngroup = useCallback((selectedIds: Set<string>) => {
     const current = layersRef.current;
@@ -245,7 +278,16 @@ export function useBulkLayerActions({
         .map((l) => {
           const gl = l as GroupedLayer;
           if (gl.parent_group_id && selectedIds.has(gl.parent_group_id)) {
-            return { ...gl, parent_group_id: null } as MapLayerResponse;
+            // fix(#392): clear the persisted folderGroupId alongside the
+            // frontend-only parent_group_id — mirrors handleUngroup /
+            // handleMoveLayerOutOfGroup (use-folder-group-layers.ts), otherwise a
+            // child duplicated before Save carries the stale group pointer and
+            // gets silently re-grouped on the next server resync. (audit CR-01)
+            return {
+              ...gl,
+              parent_group_id: null,
+              style_config: clearPersistedFolderGroup(gl.style_config),
+            } as MapLayerResponse;
           }
           return l;
         });

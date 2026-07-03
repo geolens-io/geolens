@@ -108,9 +108,18 @@ export function removePerLayerCompanions(
 
 export function buildDuplicateRenderingInput(
   layer: MapLayerResponse,
-  currentLayers: MapLayerResponse[],
+  // fix(#392): no longer used for the sort_order hint (kept
+  // for call-site/type stability); the duplicate now anchors on the source
+  // layer's own sort_order instead of scanning the full stack for its max. (audit B-004b/LM-02)
+  _currentLayers: MapLayerResponse[],
 ): MapLayerInput {
-  const nextSortOrder = currentLayers.reduce((max, candidate) => Math.max(max, candidate.sort_order), -1) + 1;
+  // Place the duplicate adjacent to its source (source.sort_order + 1) instead
+  // of at the stack bottom (max(sort_order)+1) — a grouped source's copy must
+  // land next to it, not escape past every other group/layer. This is a
+  // backend hint only — handleDuplicateRendering's caller renumbers sort_order
+  // by final local array index at splice time, and prepareLayersForPersistence
+  // renumbers again by array index at save time.
+  const nextSortOrder = layer.sort_order + 1;
   const baseName = layer.display_name || layer.dataset_name || layer.dataset_table_name || 'Layer';
   return {
     dataset_id: layer.dataset_id,

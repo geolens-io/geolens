@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { sendChatMessage, streamChatMessage } from '@/api/maps';
 import { ApiError } from '@/api/client';
 import { ChatPanel, type LayerActions } from '../ChatPanel';
-import type { MapLayerResponse } from '@/types/api';
+import type { MapLayerResponse, StyleConfig } from '@/types/api';
 
 // scrollIntoView is not available in jsdom
 Element.prototype.scrollIntoView = vi.fn();
@@ -263,6 +263,31 @@ describe('ChatPanel', () => {
     expect(mockSendChat).not.toHaveBeenCalled();
   });
 
+  it('CH-08: drops a streamed action with an unknown type while a sibling valid action still applies', async () => {
+    mockStreamChat.mockImplementation(async function* () {
+      yield {
+        event: 'actions',
+        data: {
+          actions: [
+            { type: 'toggle_visibility', layer_id: 'layer-1', visible: true },
+            { type: 'not_a_real_action_type', layer_id: 'layer-1' },
+          ],
+        },
+      };
+      yield { event: 'done', data: { explanation: 'Mixed actions' } };
+    });
+
+    const user = userEvent.setup();
+    const props = renderPanel();
+    await typeAndSend(user, 'send a mixed actions payload');
+
+    await waitFor(() => {
+      expect(props.onToggleVisibility).toHaveBeenCalledWith('layer-1', true);
+    });
+    expect(props.onPaintChange).not.toHaveBeenCalled();
+    expect(props.onFilterChange).not.toHaveBeenCalled();
+  });
+
   it('B-014: a streamed error event shows an inline error and does NOT retry via non-streaming', async () => {
     // Model emitted an SSE error event mid-stream (e.g. tool-loop exhausted).
     // The non-streaming sendChatMessage fallback must NOT fire — that would
@@ -317,6 +342,29 @@ describe('ChatPanel', () => {
 
     expect(await screen.findByText('Ignored malformed paint')).toBeInTheDocument();
     expect(props.onPaintChange).not.toHaveBeenCalled();
+  });
+
+  it('CH-07: a no-op set_style (empty paint) records zero applied actions and renders no Applied N changes / Undo', async () => {
+    mockStreamChat.mockImplementation(async function* () {
+      yield {
+        event: 'actions',
+        data: {
+          actions: [
+            { type: 'set_style', layer_id: 'layer-1', paint: {} },
+          ],
+        },
+      };
+      yield { event: 'done', data: { explanation: 'No changes to apply' } };
+    });
+
+    const user = userEvent.setup();
+    const props = renderPanel();
+    await typeAndSend(user, 'style nothing');
+
+    expect(await screen.findByText('No changes to apply')).toBeInTheDocument();
+    expect(props.onPaintChange).not.toHaveBeenCalled();
+    expect(screen.queryByText(/applied/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /undo/i })).not.toBeInTheDocument();
   });
 
   it('patches set_style paint into the current layer paint', async () => {
@@ -410,6 +458,291 @@ describe('ChatPanel', () => {
     await waitFor(() => {
       expect(props.onPaintChange).toHaveBeenCalledWith('layer-1', {
         'fill-color': '#22c55e',
+      });
+    });
+  });
+
+  it('B-002/CH-01: drops a geometry-invalid AI paint prop and applies only the valid clamped props', async () => {
+    mockStreamChat.mockImplementation(async function* () {
+      yield {
+        event: 'actions',
+        data: {
+          actions: [
+            {
+              type: 'set_style',
+              layer_id: 'layer-1',
+              // fill-color is valid for a Polygon/fill layer; circle-radius is not
+              // (geometry-invalid) and must be dropped before it reaches onPaintChange.
+              paint: { 'fill-color': '#ff0000', 'circle-radius': 40 },
+            },
+          ],
+        },
+      };
+      yield { event: 'done', data: { explanation: 'Styled' } };
+    });
+
+    const user = userEvent.setup();
+    const props = renderPanel({
+      layers: [makeLayer({ dataset_geometry_type: 'Polygon', paint: {} })],
+    });
+    await typeAndSend(user, 'make it red');
+
+    await waitFor(() => {
+      expect(props.onPaintChange).toHaveBeenCalledWith('layer-1', {
+        'fill-color': '#ff0000',
+      });
+    });
+  });
+
+  it('B-002/CH-01: clamps an out-of-bounds AI paint numeric to its Style-Spec bound', async () => {
+    mockStreamChat.mockImplementation(async function* () {
+      yield {
+        event: 'actions',
+        data: {
+          actions: [
+            { type: 'set_style', layer_id: 'layer-1', paint: { 'line-width': 99999 } },
+          ],
+        },
+      };
+      yield { event: 'done', data: { explanation: 'Widened' } };
+    });
+
+    const user = userEvent.setup();
+    const props = renderPanel({
+      layers: [makeLayer({ dataset_geometry_type: 'LineString', paint: {} })],
+    });
+    await typeAndSend(user, 'make the line very wide');
+
+    await waitFor(() => {
+      // line-width bound is [0, 50] — 99999 clamps to 50.
+      expect(props.onPaintChange).toHaveBeenCalledWith('layer-1', { 'line-width': 50 });
+    });
+  });
+
+  it('B-002/CH-01: set_data_driven_style heatmap render_mode preserves heatmap-* paint', async () => {
+    const weightExpr = ['interpolate', ['linear'], ['get', 'magnitude'], 0, 0, 10, 1];
+    const styleConfig = { mode: 'graduated', column: 'magnitude', render_mode: 'heatmap' };
+
+    mockStreamChat.mockImplementation(async function* () {
+      yield {
+        event: 'actions',
+        data: {
+          actions: [
+            {
+              type: 'set_data_driven_style',
+              layer_id: 'layer-1',
+              paint: { 'heatmap-weight': weightExpr, 'heatmap-radius': 30 },
+              style_config: styleConfig,
+            },
+          ],
+        },
+      };
+      yield { event: 'done', data: { explanation: 'Styled as heatmap' } };
+    });
+
+    const user = userEvent.setup();
+    const props = renderPanel({
+      // Point geometry -> getLayerType 'circle'; without render-mode awareness
+      // filterPaintForLayerType would drop every heatmap-* key as invalid-for-circle.
+      layers: [makeLayer({ dataset_geometry_type: 'Point', paint: {} })],
+    });
+    await typeAndSend(user, 'show a heatmap by magnitude');
+
+    await waitFor(() => {
+      expect(props.onStyleConfigChange).toHaveBeenCalledWith(
+        'layer-1',
+        styleConfig,
+        { 'heatmap-weight': weightExpr, 'heatmap-radius': 30 },
+      );
+    });
+  });
+
+  it('WR-01 (1278 review): set_style heatmap-radius tweak survives render-mode-aware validation', async () => {
+    mockStreamChat.mockImplementation(async function* () {
+      yield {
+        event: 'actions',
+        data: {
+          actions: [
+            { type: 'set_style', layer_id: 'layer-1', paint: { 'heatmap-radius': 40 } },
+          ],
+        },
+      };
+      yield { event: 'done', data: { explanation: 'Widened the heatmap' } };
+    });
+
+    const user = userEvent.setup();
+    const props = renderPanel({
+      // Point geometry -> getLayerType 'circle'; without render-mode awareness
+      // set_style (the only AI tool that can tune heatmap-radius) would have
+      // its paint stripped as invalid-for-circle, same as the
+      // set_data_driven_style bug above.
+      layers: [makeLayer({
+        dataset_geometry_type: 'Point',
+        paint: {},
+        // fix(#392): partial StyleConfig fixture — real runtime shape, cast only.
+        style_config: { render_mode: 'heatmap' } as unknown as StyleConfig,
+      })],
+    });
+    await typeAndSend(user, 'widen the heatmap radius');
+
+    await waitFor(() => {
+      expect(props.onPaintChange).toHaveBeenCalledWith('layer-1', { 'heatmap-radius': 40 });
+    });
+  });
+
+  it('fix(#392): set_data_driven_style falls back to the layer render_mode when the action omits it, keeping heatmap-* paint', async () => {
+    const weightExpr = ['interpolate', ['linear'], ['get', 'magnitude'], 0, 0, 10, 1];
+    // Action OMITS render_mode; the layer is already in heatmap mode. Without the
+    // layer-render_mode fallback the heatmap-* keys are stripped as invalid-for-circle
+    // and the data-driven update becomes an empty no-op paint change.
+    const styleConfig = { mode: 'graduated', column: 'magnitude' };
+
+    mockStreamChat.mockImplementation(async function* () {
+      yield {
+        event: 'actions',
+        data: {
+          actions: [
+            {
+              type: 'set_data_driven_style',
+              layer_id: 'layer-1',
+              paint: { 'heatmap-weight': weightExpr, 'heatmap-radius': 30 },
+              style_config: styleConfig,
+            },
+          ],
+        },
+      };
+      yield { event: 'done', data: { explanation: 'Restyled the heatmap' } };
+    });
+
+    const user = userEvent.setup();
+    const props = renderPanel({
+      layers: [makeLayer({
+        dataset_geometry_type: 'Point',
+        paint: {},
+        // fix(#392): partial StyleConfig fixture — real runtime shape, cast only.
+        style_config: { render_mode: 'heatmap' } as unknown as StyleConfig,
+      })],
+    });
+    await typeAndSend(user, 'restyle the heatmap by magnitude');
+
+    await waitFor(() => {
+      // fix(#392): heatmap-* paint survives validation AND the fallback render_mode is
+      // carried into the persisted style_config (onStyleConfigChange replaces it), so the
+      // layer stays a heatmap on save/reload instead of reverting to a circle.
+      expect(props.onStyleConfigChange).toHaveBeenCalledWith(
+        'layer-1',
+        { ...styleConfig, render_mode: 'heatmap' },
+        { 'heatmap-weight': weightExpr, 'heatmap-radius': 30 },
+      );
+    });
+  });
+
+  it('fix(#392): non-streaming fallback records only applied actions — a rejected action shows no "Applied"/Undo', async () => {
+    // Stream throws generically (no actions applied) -> non-streaming fallback fires.
+    // eslint-disable-next-line require-yield
+    mockStreamChat.mockImplementation(async function* () {
+      throw new Error('stream failed');
+    });
+    // Fallback returns a no-op empty set_style: handleChatAction returns false, so it must
+    // NOT land in pendingActions and the message must not claim "Applied 1 changes".
+    mockSendChat.mockResolvedValue({
+      explanation: 'Nothing to change',
+      actions: [{ type: 'set_style', layer_id: 'layer-1', paint: {} }],
+    });
+
+    const user = userEvent.setup();
+    const props = renderPanel();
+    await typeAndSend(user, 'style it');
+
+    expect(await screen.findByText('Nothing to change')).toBeInTheDocument();
+    expect(mockSendChat).toHaveBeenCalled();
+    expect(props.onPaintChange).not.toHaveBeenCalled();
+    expect(screen.queryByText(/applied/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /undo/i })).not.toBeInTheDocument();
+  });
+
+  it('fix(#392): set_style preserves builder _outline-* keys on a polygon (backend allowlist accepts them)', async () => {
+    mockStreamChat.mockImplementation(async function* () {
+      yield {
+        event: 'actions',
+        data: {
+          actions: [
+            { type: 'set_style', layer_id: 'layer-1', paint: { '_outline-color': '#ff0000', '_outline-width': 2 } },
+          ],
+        },
+      };
+      yield { event: 'done', data: { explanation: 'Outlined' } };
+    });
+
+    const user = userEvent.setup();
+    const props = renderPanel({
+      // Polygon -> getLayerType 'fill'; _outline-color/_outline-width are builder
+      // CUSTOM_PAINT_PROPS that filterPaintForLayerType drops, but the backend allowlist
+      // (schemas.py _VALID_PAINT_PROPS['fill']) accepts them — so an outline-only style
+      // change must not be validated down to an empty no-op.
+      layers: [makeLayer({ dataset_geometry_type: 'Polygon', paint: {} })],
+    });
+    await typeAndSend(user, 'add a red outline');
+
+    await waitFor(() => {
+      expect(props.onPaintChange).toHaveBeenCalledWith('layer-1', {
+        '_outline-color': '#ff0000',
+        '_outline-width': 2,
+      });
+    });
+  });
+
+  it('B-005/CH-09: set_style replace_paint:true with empty paint leaves existing layer paint unchanged', async () => {
+    mockStreamChat.mockImplementation(async function* () {
+      yield {
+        event: 'actions',
+        data: {
+          actions: [
+            { type: 'set_style', layer_id: 'layer-1', paint: {}, replace_paint: true },
+          ],
+        },
+      };
+      yield { event: 'done', data: { explanation: 'Nothing to replace' } };
+    });
+
+    const user = userEvent.setup();
+    const props = renderPanel({
+      layers: [makeLayer({ paint: { 'fill-color': '#111827', 'fill-opacity': 0.4 } })],
+    });
+    await typeAndSend(user, 'replace with nothing');
+
+    expect(await screen.findByText('Nothing to replace')).toBeInTheDocument();
+    // Empty replace_paint is a no-op — the layer's existing paint must not be wiped.
+    expect(props.onPaintChange).not.toHaveBeenCalled();
+    expect(screen.queryByText(/applied/i)).not.toBeInTheDocument();
+  });
+
+  it('B-002/CH-01: set_label clamps an absurd AI fontSize to the label bounds', async () => {
+    mockStreamChat.mockImplementation(async function* () {
+      yield {
+        event: 'actions',
+        data: {
+          actions: [
+            {
+              type: 'set_label',
+              layer_id: 'layer-1',
+              label_config: { column: 'name', fontSize: 500, haloWidth: 1.5 },
+            },
+          ],
+        },
+      };
+      yield { event: 'done', data: { explanation: 'Labeled' } };
+    });
+
+    const user = userEvent.setup();
+    const props = renderPanel();
+    await typeAndSend(user, 'label by name huge');
+
+    await waitFor(() => {
+      expect(props.onLabelChange).toHaveBeenCalledWith('layer-1', {
+        column: 'name',
+        fontSize: 24,
+        haloWidth: 1.5,
       });
     });
   });
@@ -539,6 +872,9 @@ describe('ChatPanel', () => {
     await typeAndSend(user, 'filter');
     expect(await screen.findByText('Tried to filter')).toBeInTheDocument();
     expect(props.onFilterChange).not.toHaveBeenCalled();
+    // fix(#392): a rejected filter is intent, not effect — it must not inflate the applied count. (audit CH-07)
+    expect(screen.queryByText(/applied/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /undo/i })).not.toBeInTheDocument();
   });
 
   it('P1-13: a valid compound AI set_filter expression is applied', async () => {
@@ -919,6 +1255,31 @@ describe('ChatPanel — confirm-before-apply staging (Phase 1135 AI-01 / AI-09)'
     // Negative control: no staging tray for non-destructive actions
     expect(screen.queryByRole('button', { name: /accept all/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /reject all/i })).not.toBeInTheDocument();
+  });
+
+  it('WR-02 (1278 review): staged add_layer/remove_layer do not render "Applied N changes" before acceptance', async () => {
+    mockStreamChat.mockImplementation(async function* () {
+      yield {
+        event: 'actions',
+        data: {
+          actions: [
+            { type: 'add_layer', dataset_id: 'ds-2', dataset_name: 'NYC Subway' },
+            { type: 'remove_layer', layer_id: 'layer-1' },
+          ],
+        },
+      };
+      yield { event: 'done', data: { explanation: 'Two staged' } };
+    });
+    const user = userEvent.setup();
+    renderPanel({
+      layers: [makeLayer({ id: 'layer-1', display_name: 'Counties', dataset_feature_count: 5 })],
+    });
+    await typeAndSend(user, 'change some layers');
+    // Staging tray is visible — the changes are staged, not yet applied.
+    expect(await screen.findByRole('button', { name: /accept all/i })).toBeInTheDocument();
+    // "Applied N changes" must not render while add_layer/remove_layer sit unconfirmed
+    // in the tray — they were only staged (intent), not yet dispatched (effect).
+    expect(screen.queryByText(/applied/i)).not.toBeInTheDocument();
   });
 });
 

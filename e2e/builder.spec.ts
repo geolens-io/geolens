@@ -274,7 +274,11 @@ test.describe.serial('Map Builder', () => {
     }
   });
 
-  test('Add Dataset dialog exposes responsive v1 tabs and basemap states', async ({ page }) => {
+  // fix(#392): the Add-Dataset dialog no longer exposes a "Basemap" radio or
+  // in-dialog "in use"/"swap" controls — basemap swapping moved to the
+  // #stack-row-basemap-group row / BasemapGroupEditorScene (Phase 1035). This
+  // test now asserts only the shipped All/Vector/Raster tab set. (audit B-008)
+  test('Add Dataset dialog exposes responsive v1 tabs', async ({ page }) => {
     for (const viewport of [
       { width: 1440, height: 900, label: 'desktop' },
       { width: 834, height: 1112, label: 'tablet' },
@@ -291,13 +295,10 @@ test.describe.serial('Map Builder', () => {
       await expect(dialog, `${viewport.label} Add Dataset dialog`).toBeVisible();
       await expect(dialog.getByLabel(/search datasets/i)).toBeVisible();
 
-      for (const tab of ['All', 'Vector', 'Raster', 'Basemap']) {
+      for (const tab of ['All', 'Vector', 'Raster']) {
         await expect(dialog.getByRole('radio', { name: tab })).toBeVisible();
       }
 
-      await dialog.getByRole('radio', { name: 'Basemap' }).click();
-      await expect(dialog.getByRole('button', { name: 'in use' })).toBeVisible();
-      await expect(dialog.getByRole('button', { name: 'swap' }).first()).toBeVisible();
       await expect(dialog.getByRole('link', { name: /import data/i })).toBeVisible();
 
       await page.keyboard.press('Escape');
@@ -313,7 +314,8 @@ test.describe.serial('Map Builder', () => {
     const dialog = page.getByRole('dialog', { name: /add dataset/i });
     await expect(dialog).toBeVisible();
 
-    for (const tab of ['All', 'Vector', 'Raster', 'Basemap']) {
+    // fix(#392): no "Basemap" radio in the Add-Dataset dialog (Phase 1035, audit B-008).
+    for (const tab of ['All', 'Vector', 'Raster']) {
       await expect(dialog.getByRole('radio', { name: tab })).toBeVisible();
     }
     await expect(dialog.getByRole('radio', { name: 'DEM' })).toHaveCount(0);
@@ -402,7 +404,13 @@ test.describe.serial('Map Builder', () => {
     await expect(page.locator('[data-sonner-toast][data-type="error"]')).toHaveCount(0);
   });
 
-  test('swaps basemap from Add Dataset modal and persists after save', async ({ page }) => {
+  // fix(#392): basemap swapping moved OUT of the Add Dataset modal (Phase
+  // 1035) into the #stack-row-basemap-group row / BasemapGroupEditorScene
+  // flyout — re-pointed here (mirrors the already-green "switches basemap
+  // without losing overlay layers" test) while preserving the original
+  // intent: swap -> save -> assert PUT persists basemap_style -> reload ->
+  // overlays intact. (audit B-008)
+  test('swaps basemap via the basemap-group editor and persists after save', async ({ page }) => {
     const token = getAuthToken();
     const headers = { Authorization: `Bearer ${token}` };
     const before = await getMapDetails(mapId, headers);
@@ -411,27 +419,21 @@ test.describe.serial('Map Builder', () => {
     await page.goto(`/maps/${mapId}`);
     await waitForBuilder(page);
 
-    await page.getByRole('button', { name: /add data/i }).first().click();
-    const dialog = page.getByRole('dialog', { name: /add dataset/i });
-    await expect(dialog).toBeVisible();
-    await dialog.getByRole('radio', { name: 'Basemap' }).click();
+    const basemapRow = page.locator('#stack-row-basemap-group');
+    await basemapRow.click();
 
-    const darkExpand = dialog.getByRole('button', { name: 'Expand OpenFreeMap Dark' });
-    await expect(darkExpand).toBeVisible();
-    const darkRow = darkExpand.locator('xpath=ancestor::div[contains(@class,"rounded-md")][1]');
+    const editor = page.getByTestId('builder-layer-editor');
+    await expect(editor).toBeVisible({ timeout: 5_000 });
+    const presetSection = editor.locator('section').filter({ hasText: /^PRESET/i }).first();
+    await expect(presetSection).toBeVisible({ timeout: 5_000 });
 
-    await darkRow.getByRole('button', { name: 'swap' }).click();
-    await expect(darkRow.getByRole('button', { name: 'in use' })).toBeVisible();
-
-    await page.keyboard.press('Escape');
-    await expect(dialog).not.toBeVisible();
+    await presetSection.getByRole('button', { name: /OpenFreeMap Dark/i }).click();
 
     // Phase 1035 replaced the dedicated "Basemap" section heading with a
     // basemap-group row at the top of the unified stack (id=stack-row-basemap-group);
-    // overlay layers are now flat stack-row-{layerId} entries.
-    const basemapRow = page.locator('#stack-row-basemap-group');
-    // Phase 1035 renders the basemap row as `Basemap · {derivedPresetName}`,
-    // where the derived name strips the provider prefix (openfreemap-dark → "Dark").
+    // overlay layers are now flat stack-row-{layerId} entries. The row renders
+    // `Basemap · {derivedPresetName}`, where the derived name strips the
+    // provider prefix (openfreemap-dark → "Dark").
     await expect(basemapRow).toContainText(/Basemap · Dark\b/);
     await expect(page.locator('[id^="stack-row-"]:not([id="stack-row-basemap-group"])'))
       .toHaveCount(beforeLayerIdentity.length);

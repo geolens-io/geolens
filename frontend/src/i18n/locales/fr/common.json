@@ -207,6 +207,7 @@
     "accessDenied": "Accès refusé",
     "authMapRecovery": "Ouvrez votre liste de cartes pour confirmer l'accès, ou revenez au catalogue pour continuer à travailler.",
     "browseCatalog": "Parcourir le catalogue",
+    "embedAuthError": "L'accès à cette carte intégrée a expiré ou n'est plus valide.",
     "geoJsonLoadError": "Impossible de charger les données du calque",
     "linkRecovery": "Demandez au propriétaire de la carte un nouveau lien de partage si vous avez encore besoin d'accès.",
     "mapError": "Erreur de tuile — certains calques pourraient ne pas s'afficher correctement.",

@@ -68,8 +68,11 @@ import {
 } from '@/components/builder/__tests__/fixtures/map-builder-fixtures';
 import type { MapLayerResponse, MapResponse } from '@/types/api';
 import { toast } from 'sonner';
+import { prepareLayersForPersistence, hydrateFolderGroupLayers } from '@/components/builder/folder-groups';
+import { isFolderGroupLayer } from '@/lib/layer-capabilities';
 
 type MaplibreMap = import('maplibre-gl').Map;
+type GroupedLayer = MapLayerResponse & { parent_group_id?: string | null };
 
 const makeMockLayer = makeBuilderLayer;
 
@@ -84,6 +87,9 @@ function renderBuilderLayers(
   const mutate = vi.fn();
   const addLayerMutation = { mutate } as unknown as Parameters<typeof useBuilderLayers>[3];
   const removeLayerMutation = { mutate: vi.fn() } as unknown as Parameters<typeof useBuilderLayers>[4];
+  // fix(#392): 6th positional param bridging into useBuilderSave's Save-diff baseline.
+  const saveBaselineSync = vi.fn();
+  const saveBaselineSyncRef = { current: saveBaselineSync } as unknown as Parameters<typeof useBuilderLayers>[5];
 
   const out = renderHook(() =>
     useBuilderLayers(
@@ -92,9 +98,10 @@ function renderBuilderLayers(
       'map-1',
       addLayerMutation,
       removeLayerMutation,
+      saveBaselineSyncRef,
     ),
   );
-  return { ...out, mutate };
+  return { ...out, mutate, saveBaselineSync };
 }
 
 describe('handleAddDataset (BSR-18)', () => {
@@ -319,5 +326,122 @@ describe('freshLayerId lifecycle (Phase 1042 POL-15)', () => {
 
     consoleSpy.mockRestore();
     vi.useRealTimers();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// fix(#392): dropping a dataset onto a folder group must insert
+// adjacent to the group's existing block, not at array index 0 — otherwise
+// hydrateFolderGroupLayers (which anchors the group at its FIRST child) drags
+// the whole group to the stack top after a save/reload round-trip. (audit B-004c/LM-03)
+// ---------------------------------------------------------------------------
+describe('handleAddDataset — group-drop adjacency (B-004c / LM-03)', () => {
+  it('Test 1: inserts the new child adjacent to the group block, not at index 0', () => {
+    const before = makeMockLayer({ id: 'before', sort_order: 0 });
+    // fix(#392): 'group:folder' is a frontend-only synthetic layer_type (GroupedLayer); cast only.
+    const groupRow = { ...makeMockLayer({ id: 'group-1', sort_order: 1 }), layer_type: 'group:folder' } as unknown as MapLayerResponse;
+    const child1 = {
+      ...makeMockLayer({ id: 'child1', sort_order: 2 }),
+      parent_group_id: 'group-1',
+    } as GroupedLayer as MapLayerResponse;
+    const afterOutside = makeMockLayer({ id: 'after-outside', sort_order: 3 });
+
+    const { result, mutate } = renderBuilderLayers(makeMapData([before, groupRow, child1, afterOutside]));
+
+    act(() => {
+      result.current.handleAddDataset('ds-99', undefined, 'group-1');
+    });
+
+    const [, { onSuccess }] = mutate.mock.calls[0];
+    act(() => { onSuccess({ id: 'new-child', dataset_id: 'ds-99' }); });
+
+    const updated = result.current.localLayers as GroupedLayer[];
+    const newChildIdx = updated.findIndex((l) => l.id === 'new-child');
+    const child1Idx = updated.findIndex((l) => l.id === 'child1');
+
+    // Adjacent to the group's existing last child, NOT array index 0.
+    expect(newChildIdx).toBe(child1Idx + 1);
+    expect(newChildIdx).not.toBe(0);
+    expect(updated.find((l) => l.id === 'new-child')?.parent_group_id).toBe('group-1');
+    // sort_order renumbered by array index (not the raw sort_order:0 request hint)
+    expect(updated.find((l) => l.id === 'new-child')?.sort_order).not.toBe(0);
+  });
+
+  it('Test 2: the group anchor survives a prepareLayersForPersistence -> hydrateFolderGroupLayers round-trip', () => {
+    const before = makeMockLayer({ id: 'before', sort_order: 0 });
+    // fix(#392): 'group:folder' is a frontend-only synthetic layer_type (GroupedLayer); cast only.
+    const groupRow = { ...makeMockLayer({ id: 'group-1', sort_order: 1 }), layer_type: 'group:folder' } as unknown as MapLayerResponse;
+    const child1 = {
+      ...makeMockLayer({ id: 'child1', sort_order: 2 }),
+      parent_group_id: 'group-1',
+    } as GroupedLayer as MapLayerResponse;
+    const afterOutside = makeMockLayer({ id: 'after-outside', sort_order: 3 });
+
+    const { result, mutate } = renderBuilderLayers(makeMapData([before, groupRow, child1, afterOutside]));
+
+    // Capture the group's position BEFORE the drop.
+    const groupIdxBeforeDrop = result.current.localLayers.findIndex((l) => l.id === 'group-1');
+
+    act(() => {
+      result.current.handleAddDataset('ds-99', undefined, 'group-1');
+    });
+    const [, { onSuccess }] = mutate.mock.calls[0];
+    act(() => { onSuccess({ id: 'new-child', dataset_id: 'ds-99' }); });
+
+    const persisted = prepareLayersForPersistence(result.current.localLayers, result.current.groupMeta);
+    const rehydrated = hydrateFolderGroupLayers(persisted);
+
+    const groupIdxAfterRoundTrip = rehydrated.layers.findIndex((l) => isFolderGroupLayer(l));
+
+    // The group must NOT be re-anchored to the stack top (index 0) — it stays
+    // at the same relative position it held before the drop.
+    expect(groupIdxAfterRoundTrip).not.toBe(0);
+    expect(groupIdxAfterRoundTrip).toBe(groupIdxBeforeDrop);
+  });
+
+  // Test 3 (loose add unchanged, no regression to the P1-08 top-of-stack UX)
+  // is already covered by 'Test A: posts with sort_order: 0' and the P1-08
+  // optimistic-merge test above — both exercise handleAddDataset with
+  // parentGroupId omitted/undefined and assert the created layer prepends at
+  // array index 0. No new test needed; re-asserted here for traceability.
+  it('Test 3: loose (non-group) add still prepends at the top of the user stack', () => {
+    const existing = makeMockLayer({ id: 'existing', sort_order: 0 });
+    const { result, mutate } = renderBuilderLayers(makeMapData([existing]));
+
+    act(() => {
+      result.current.handleAddDataset('ds-42');
+    });
+
+    const [, { onSuccess }] = mutate.mock.calls[0];
+    act(() => { onSuccess({ id: 'new-loose', dataset_id: 'ds-42' }); });
+
+    const ids = result.current.localLayers.map((l) => l.id);
+    expect(ids[0]).toBe('new-loose');
+  });
+
+  // fix(#392): a loose (non-group) add renumbers every existing layer's sort_order
+  // locally, but the backend does not renumber sibling rows on this path
+  // (maps/service_layers.py:106-120) — so that renumber is an unpersisted diff
+  // the apiLayers resync effect could silently clobber before Save unless the
+  // map is marked dirty. Fails on pre-fix code (hasUnsavedChanges stayed false). (audit WR-02)
+  it('Test 4 (WR-02): non-grouped add-dataset that renumbers sibling sort_order marks the map dirty', () => {
+    const existingA = makeMockLayer({ id: 'existing-a', sort_order: 0 });
+    const existingB = makeMockLayer({ id: 'existing-b', sort_order: 1 });
+    const { result, mutate } = renderBuilderLayers(makeMapData([existingA, existingB]));
+
+    expect(result.current.hasUnsavedChanges).toBe(false);
+
+    act(() => {
+      result.current.handleAddDataset('ds-42');
+    });
+
+    const [, { onSuccess }] = mutate.mock.calls[0];
+    act(() => { onSuccess({ id: 'new-loose', dataset_id: 'ds-42' }); });
+
+    // Sanity: the sibling rows were in fact renumbered by array index.
+    const bySortOrder = [...result.current.localLayers].sort((a, b) => a.sort_order - b.sort_order);
+    expect(bySortOrder.map((l) => l.id)).toEqual(['new-loose', 'existing-a', 'existing-b']);
+
+    expect(result.current.hasUnsavedChanges).toBe(true);
   });
 });

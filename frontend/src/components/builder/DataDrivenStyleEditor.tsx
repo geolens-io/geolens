@@ -143,6 +143,38 @@ function defaultSizeRange(tgt: 'color' | 'radius' | 'width'): [number, number] {
   return [2, 20]; // radius default
 }
 
+// fix(#392): API/AI-authored (seeded) graduated configs often omit classCount
+// and sizeRange since they're fully implied by colors/sizes/breaks — derive
+// them so styleConfigAlreadyMatches (and the local state seeded from the same
+// config) recognize a complete seeded config as already-matching instead of
+// treating the omission as drift and silently regenerating on mount. (audit UX-L1)
+//
+// fix(#392): a config can carry BOTH colors and sizes (e.g. a double-encoded
+// graduated-radius layer that also stores its color ramp), and the two arrays
+// can diverge in length. `preferSizes` lets a size-target caller derive from
+// `sizes.length` instead of unconditionally preferring `colors.length`. (audit WR-01)
+function effectiveClassCountOf(
+  cfg: StyleConfig | null | undefined,
+  preferSizes = false,
+): number | undefined {
+  if (!cfg) return undefined;
+  if (cfg.classCount != null) return cfg.classCount;
+  const bySizes = cfg.sizes?.length;
+  const byColors = cfg.colors?.length;
+  if (preferSizes && bySizes) return bySizes;
+  if (byColors) return byColors;
+  if (bySizes) return bySizes;
+  if (cfg.breaks) return cfg.breaks.length + 1;
+  return undefined;
+}
+
+function effectiveSizeRangeOf(cfg: StyleConfig | null | undefined): [number, number] | undefined {
+  if (!cfg) return undefined;
+  if (cfg.sizeRange) return cfg.sizeRange;
+  if (cfg.sizes?.length) return [cfg.sizes[0], cfg.sizes[cfg.sizes.length - 1]];
+  return undefined;
+}
+
 /**
  * builder-audit #338 COMPLEXITY-01: the three styling effects (categorical color,
  * graduated color, graduated size) each wrote back canonical style via
@@ -199,7 +231,7 @@ export function styleConfigAlreadyMatches(p: StyleGuardParams): boolean {
       ec.ramp === p.ramp &&
       (ec.reversed ?? false) === p.reversed &&
       ec.method === p.method &&
-      ec.classCount === p.classCount &&
+      effectiveClassCountOf(ec) === p.classCount &&
       ec.colors &&
       ec.breaks &&
       (p.method !== 'manual' ||
@@ -210,19 +242,24 @@ export function styleConfigAlreadyMatches(p: StyleGuardParams): boolean {
   }
 
   // Graduated size (radius or width)
-  return Boolean(
-    ec.target === p.target &&
-    ec.column === p.column &&
-    ec.method === p.method &&
-    ec.classCount === p.classCount &&
-    ec.sizes &&
-    ec.sizeRange &&
-    ec.sizeRange[0] === p.sizeRange[0] &&
-    ec.sizeRange[1] === p.sizeRange[1] &&
-    (p.method !== 'manual' ||
-      (ec.breaks?.length === p.breaks.length &&
-        (ec.breaks ?? []).every((b, i) => b === p.breaks[i]))),
-  );
+  {
+    const ecSizeRange = effectiveSizeRangeOf(ec);
+    return Boolean(
+      ec.target === p.target &&
+      ec.column === p.column &&
+      ec.method === p.method &&
+      // fix(#392): this is the size-target branch — derive classCount from
+      // sizes.length, not colors.length, for a config that carries both. (audit WR-01)
+      effectiveClassCountOf(ec, true) === p.classCount &&
+      ec.sizes &&
+      ecSizeRange &&
+      ecSizeRange[0] === p.sizeRange[0] &&
+      ecSizeRange[1] === p.sizeRange[1] &&
+      (p.method !== 'manual' ||
+        (ec.breaks?.length === p.breaks.length &&
+          (ec.breaks ?? []).every((b, i) => b === p.breaks[i]))),
+    );
+  }
 }
 
 // P1-07: when a line layer's color switches to a data-driven solid color
@@ -257,8 +294,17 @@ export function DataDrivenStyleEditor({
   const [ramp, setRamp] = useState<string>(
     existingConfig?.ramp ?? nextRotatingRamp(existingConfig?.mode ?? 'categorical', rampRotationIndex),
   );
+  // fix(#392): only derive classCount/sizeRange from a persisted config when
+  // that config is actually in graduated mode — a `mode: 'categorical'`
+  // config can still carry stray graduated-shaped fields (StyleConfig is an
+  // open `[key: string]: unknown` bag), and deriving from them here would
+  // silently poison a later switch back to graduated mode. (audit WR-01)
   const [classCount, setClassCount] = useState<number>(
-    existingConfig?.classCount ?? 5,
+    existingConfig?.mode === 'graduated'
+      ? existingConfig?.classCount ??
+          effectiveClassCountOf(existingConfig, existingConfig?.target !== 'color') ??
+          5
+      : 5,
   );
   const [method, setMethod] = useState<ClassificationMethod>(
     existingConfig?.method ?? 'equal_interval',
@@ -274,7 +320,11 @@ export function DataDrivenStyleEditor({
     existingConfig?.target ?? 'color',
   );
   const [sizeRange, setSizeRange] = useState<[number, number]>(
-    existingConfig?.sizeRange ?? defaultSizeRange(existingConfig?.target ?? 'color'),
+    existingConfig?.mode === 'graduated'
+      ? existingConfig?.sizeRange ??
+          effectiveSizeRangeOf(existingConfig) ??
+          defaultSizeRange(existingConfig?.target ?? 'color')
+      : defaultSizeRange(existingConfig?.target ?? 'color'),
   );
   const [reversed, setReversed] = useState<boolean>(
     existingConfig?.reversed ?? false,
@@ -577,6 +627,13 @@ export function DataDrivenStyleEditor({
       const widthProp = getSizeProperty(layer.dataset_geometry_type, 'width');
       if (radiusProp) nextPaint[radiusProp] = 5;
       if (widthProp) nextPaint[widthProp] = 2;
+    } else {
+      // fix(#392): entering graduated mode must never carry forward a
+      // classCount/sizeRange that could have been derived from stray
+      // graduated-shaped fields on a categorical config at mount — reset to
+      // defaults so a later graduated session always starts clean. (audit WR-01)
+      setClassCount(5);
+      setSizeRange(defaultSizeRange('color'));
     }
     onStyleConfigChange(layer.id, null, nextPaint);
   }
