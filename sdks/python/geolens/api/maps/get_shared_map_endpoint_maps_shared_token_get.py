@@ -109,14 +109,13 @@ def sync_detailed(
     empty, defaults to ``frame-ancestors 'self'``. The SecurityHeadersMiddleware
     respects this route-level CSP and skips emitting X-Frame-Options: DENY.
 
-    fix(#394) SH-01/B-023: also accepts ``X-Embed-Token`` so embed viewers get
-    the layers the token's scope authorizes (the tile path already honored the
-    token — SEC-022 capability posture; the metadata payload now matches).
+    fix(#394) SH-01/B-023: accepts ``X-Embed-Token`` so embed viewers get the
+    layers the token's scope authorizes (SEC-022 capability posture).
 
     Args:
         token (str):
-        x_embed_token (None | str | Unset): Optional embed token. When valid for this map, layers
-            backed by the token's scoped (possibly non-public) datasets are included.
+        x_embed_token (None | str | Unset): Optional embed token — includes its scoped dataset
+            layers when valid for this map.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -154,14 +153,13 @@ def sync(
     empty, defaults to ``frame-ancestors 'self'``. The SecurityHeadersMiddleware
     respects this route-level CSP and skips emitting X-Frame-Options: DENY.
 
-    fix(#394) SH-01/B-023: also accepts ``X-Embed-Token`` so embed viewers get
-    the layers the token's scope authorizes (the tile path already honored the
-    token — SEC-022 capability posture; the metadata payload now matches).
+    fix(#394) SH-01/B-023: accepts ``X-Embed-Token`` so embed viewers get the
+    layers the token's scope authorizes (SEC-022 capability posture).
 
     Args:
         token (str):
-        x_embed_token (None | str | Unset): Optional embed token. When valid for this map, layers
-            backed by the token's scoped (possibly non-public) datasets are included.
+        x_embed_token (None | str | Unset): Optional embed token — includes its scoped dataset
+            layers when valid for this map.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -194,14 +192,13 @@ async def asyncio_detailed(
     empty, defaults to ``frame-ancestors 'self'``. The SecurityHeadersMiddleware
     respects this route-level CSP and skips emitting X-Frame-Options: DENY.
 
-    fix(#394) SH-01/B-023: also accepts ``X-Embed-Token`` so embed viewers get
-    the layers the token's scope authorizes (the tile path already honored the
-    token — SEC-022 capability posture; the metadata payload now matches).
+    fix(#394) SH-01/B-023: accepts ``X-Embed-Token`` so embed viewers get the
+    layers the token's scope authorizes (SEC-022 capability posture).
 
     Args:
         token (str):
-        x_embed_token (None | str | Unset): Optional embed token. When valid for this map, layers
-            backed by the token's scoped (possibly non-public) datasets are included.
+        x_embed_token (None | str | Unset): Optional embed token — includes its scoped dataset
+            layers when valid for this map.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -237,14 +234,13 @@ async def asyncio(
     empty, defaults to ``frame-ancestors 'self'``. The SecurityHeadersMiddleware
     respects this route-level CSP and skips emitting X-Frame-Options: DENY.
 
-    fix(#394) SH-01/B-023: also accepts ``X-Embed-Token`` so embed viewers get
-    the layers the token's scope authorizes (the tile path already honored the
-    token — SEC-022 capability posture; the metadata payload now matches).
+    fix(#394) SH-01/B-023: accepts ``X-Embed-Token`` so embed viewers get the
+    layers the token's scope authorizes (SEC-022 capability posture).
 
     Args:
         token (str):
-        x_embed_token (None | str | Unset): Optional embed token. When valid for this map, layers
-            backed by the token's scoped (possibly non-public) datasets are included.
+        x_embed_token (None | str | Unset): Optional embed token — includes its scoped dataset
+            layers when valid for this map.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.

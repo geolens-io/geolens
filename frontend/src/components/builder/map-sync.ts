@@ -235,6 +235,9 @@ export function toSyncInput(layer: MapLayerResponse): SyncLayerInput {
     feature_count: layer.dataset_feature_count,
     layer_type: layer.layer_type,
     dataset_record_type: layer.dataset_record_type ?? null,
+    // fix(#394) VT-02 (codex P2): without this the builder's `_v=` read below
+    // always saw undefined — the cache-buster only flowed on the viewer path.
+    tile_version: layer.tile_version,
     // MVT-06: surface the dataset spatial extent so the vector source can bound
     // tile fetching to the data footprint (the raster path already passes bounds).
     bounds: layer.dataset_extent_bbox ?? null,

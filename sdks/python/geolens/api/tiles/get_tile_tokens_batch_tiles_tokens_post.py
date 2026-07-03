@@ -99,17 +99,12 @@ def sync_detailed(
     response maps the offending dataset_id to ``{\"error\": \"...\"}``. Clients
     should check each entry for the ``error`` key.
 
-    fix(#394) SH-04: embed viewers carry no login, so this endpoint accepts
-    ``X-Embed-Token`` as a per-dataset fallback authorization — the same
-    ``validate_embed_token_access`` capability check the tile-serving path
-    uses (origin allowlist + live layer-membership + tenant equality). This
-    lets embed-mode terrain build its raster-dem source from the SAME
-    descriptor (bounds / resolution-derived maxzoom) as builder and viewer
-    instead of empty defaults.
+    fix(#394) SH-04: ``X-Embed-Token`` is accepted as per-dataset fallback
+    authorization (same capability check as tile serving), so embed terrain
+    builds its raster-dem source from the real bounds/maxzoom descriptor.
 
     Args:
-        x_embed_token (None | str | Unset): Optional embed token. Datasets in the token's scope
-            are authorized even without user credentials (embed viewers).
+        x_embed_token (None | str | Unset):
         body (TileTokenBatchRequest): Batch request for tile tokens — accepts up to 50 dataset
             IDs.
 
@@ -152,17 +147,12 @@ def sync(
     response maps the offending dataset_id to ``{\"error\": \"...\"}``. Clients
     should check each entry for the ``error`` key.
 
-    fix(#394) SH-04: embed viewers carry no login, so this endpoint accepts
-    ``X-Embed-Token`` as a per-dataset fallback authorization — the same
-    ``validate_embed_token_access`` capability check the tile-serving path
-    uses (origin allowlist + live layer-membership + tenant equality). This
-    lets embed-mode terrain build its raster-dem source from the SAME
-    descriptor (bounds / resolution-derived maxzoom) as builder and viewer
-    instead of empty defaults.
+    fix(#394) SH-04: ``X-Embed-Token`` is accepted as per-dataset fallback
+    authorization (same capability check as tile serving), so embed terrain
+    builds its raster-dem source from the real bounds/maxzoom descriptor.
 
     Args:
-        x_embed_token (None | str | Unset): Optional embed token. Datasets in the token's scope
-            are authorized even without user credentials (embed viewers).
+        x_embed_token (None | str | Unset):
         body (TileTokenBatchRequest): Batch request for tile tokens — accepts up to 50 dataset
             IDs.
 
@@ -200,17 +190,12 @@ async def asyncio_detailed(
     response maps the offending dataset_id to ``{\"error\": \"...\"}``. Clients
     should check each entry for the ``error`` key.
 
-    fix(#394) SH-04: embed viewers carry no login, so this endpoint accepts
-    ``X-Embed-Token`` as a per-dataset fallback authorization — the same
-    ``validate_embed_token_access`` capability check the tile-serving path
-    uses (origin allowlist + live layer-membership + tenant equality). This
-    lets embed-mode terrain build its raster-dem source from the SAME
-    descriptor (bounds / resolution-derived maxzoom) as builder and viewer
-    instead of empty defaults.
+    fix(#394) SH-04: ``X-Embed-Token`` is accepted as per-dataset fallback
+    authorization (same capability check as tile serving), so embed terrain
+    builds its raster-dem source from the real bounds/maxzoom descriptor.
 
     Args:
-        x_embed_token (None | str | Unset): Optional embed token. Datasets in the token's scope
-            are authorized even without user credentials (embed viewers).
+        x_embed_token (None | str | Unset):
         body (TileTokenBatchRequest): Batch request for tile tokens — accepts up to 50 dataset
             IDs.
 
@@ -251,17 +236,12 @@ async def asyncio(
     response maps the offending dataset_id to ``{\"error\": \"...\"}``. Clients
     should check each entry for the ``error`` key.
 
-    fix(#394) SH-04: embed viewers carry no login, so this endpoint accepts
-    ``X-Embed-Token`` as a per-dataset fallback authorization — the same
-    ``validate_embed_token_access`` capability check the tile-serving path
-    uses (origin allowlist + live layer-membership + tenant equality). This
-    lets embed-mode terrain build its raster-dem source from the SAME
-    descriptor (bounds / resolution-derived maxzoom) as builder and viewer
-    instead of empty defaults.
+    fix(#394) SH-04: ``X-Embed-Token`` is accepted as per-dataset fallback
+    authorization (same capability check as tile serving), so embed terrain
+    builds its raster-dem source from the real bounds/maxzoom descriptor.
 
     Args:
-        x_embed_token (None | str | Unset): Optional embed token. Datasets in the token's scope
-            are authorized even without user credentials (embed viewers).
+        x_embed_token (None | str | Unset):
         body (TileTokenBatchRequest): Batch request for tile tokens — accepts up to 50 dataset
             IDs.
 

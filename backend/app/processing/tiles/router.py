@@ -1309,14 +1309,7 @@ async def get_tile_tokens_batch(
     body: TileTokenBatchRequest,
     request: Request,
     user: Identity | None = Depends(get_optional_user),
-    embed_token: str | None = Header(
-        default=None,
-        alias="X-Embed-Token",
-        description=(
-            "Optional embed token. Datasets in the token's scope are "
-            "authorized even without user credentials (embed viewers)."
-        ),
-    ),
+    embed_token: str | None = Header(default=None, alias="X-Embed-Token"),
     db: AsyncSession = Depends(get_db),
 ) -> TileTokenBatchResponse:
     """Batch-generate tile tokens for up to 50 datasets in one request.
@@ -1330,13 +1323,9 @@ async def get_tile_tokens_batch(
     response maps the offending dataset_id to ``{"error": "..."}``. Clients
     should check each entry for the ``error`` key.
 
-    fix(#394) SH-04: embed viewers carry no login, so this endpoint accepts
-    ``X-Embed-Token`` as a per-dataset fallback authorization — the same
-    ``validate_embed_token_access`` capability check the tile-serving path
-    uses (origin allowlist + live layer-membership + tenant equality). This
-    lets embed-mode terrain build its raster-dem source from the SAME
-    descriptor (bounds / resolution-derived maxzoom) as builder and viewer
-    instead of empty defaults.
+    fix(#394) SH-04: ``X-Embed-Token`` is accepted as per-dataset fallback
+    authorization (same capability check as tile serving), so embed terrain
+    builds its raster-dem source from the real bounds/maxzoom descriptor.
     """
     from app.modules.catalog.datasets.domain.models import Dataset as DatasetORM
 
@@ -1377,13 +1366,9 @@ async def get_tile_tokens_batch(
         try:
             await _enforce_tile_token_access(db, dataset, dataset_id, user, port)
         except HTTPException as exc:
-            # fix(#394) SH-04: fall back to embed-token capability before
-            # reporting the per-dataset error (fail-closed on any mismatch).
+            # fix(#394) SH-04: embed-token capability fallback (fail-closed).
             embed_ok = bool(embed_token) and await validate_embed_token_access(
-                embed_token,  # type: ignore[arg-type]  # bool() guard above
-                dataset_id,
-                db,
-                request,
+                embed_token, dataset_id, db, request
             )
             if not embed_ok:
                 tokens[key] = {"error": exc.detail}

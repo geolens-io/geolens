@@ -758,12 +758,14 @@ export const ViewerMap = memo(function ViewerMap({
               label_config: layer.label_config ?? null,
               popup_config: layer.popup_config ?? null,
             });
+        // fix(#394) VT-02 (codex P2): keep the `_v=` cache-buster on
+        // token-refresh rebuilds (parity with the initial source build).
         const newUrl = strategy.kind === 'server-tile'
-          ? buildClusterTileUrl(layer.table_name, token, tileBaseUrl, undefined, {
+          ? buildClusterTileUrl(layer.table_name, token, tileBaseUrl, layer.tile_version ?? undefined, {
               clusterRadius: typeof builder?.clusterRadius === 'number' ? builder.clusterRadius : 48,
               clusterMaxZoom: typeof builder?.clusterMaxZoom === 'number' ? builder.clusterMaxZoom : 14,
             })
-          : buildSignedTileUrl(layer.table_name, token, tileBaseUrl, undefined, cols);
+          : buildSignedTileUrl(layer.table_name, token, tileBaseUrl, layer.tile_version ?? undefined, cols);
         (source as VectorTileSource).setTiles([newUrl]);
       }
     }

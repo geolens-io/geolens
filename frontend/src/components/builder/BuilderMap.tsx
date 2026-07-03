@@ -166,10 +166,12 @@ export function buildVectorSourceTileUrl(
     const { clusterRadius, clusterMaxZoom } = getClusterSourceOptions(
       { style_config: layer.style_config } as AdapterLayerInput,
     );
-    return buildClusterTileUrl(layer.dataset_table_name, token, tileBaseUrl, undefined, { clusterRadius, clusterMaxZoom });
+    // fix(#394) VT-02 (codex P2): keep the `_v=` cache-buster on token-refresh
+    // rebuilds — dropping it here rebuilt URLs on the pre-reupload cache key.
+    return buildClusterTileUrl(layer.dataset_table_name, token, tileBaseUrl, layer.tile_version ?? undefined, { clusterRadius, clusterMaxZoom });
   }
   const sharedSourceCols = getDataDrivenColumnsForSource(sourceId, allLayers);
-  return buildSignedTileUrl(layer.dataset_table_name, token, tileBaseUrl, undefined, sharedSourceCols);
+  return buildSignedTileUrl(layer.dataset_table_name, token, tileBaseUrl, layer.tile_version ?? undefined, sharedSourceCols);
 }
 
 export function resignVectorSourceForRetry(

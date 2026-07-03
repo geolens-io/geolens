@@ -5,16 +5,22 @@ from urllib.parse import quote
 import httpx
 
 from ...client import AuthenticatedClient, Client
-from ...types import Response
+from ...types import Response, UNSET
 from ... import errors
 
 from ...models.problem_detail import ProblemDetail
+from ...types import Unset
 from uuid import UUID
 
 
 def _get_kwargs(
     dataset_id: UUID,
+    *,
+    x_embed_token: None | str | Unset = UNSET,
 ) -> dict[str, Any]:
+    headers: dict[str, Any] = {}
+    if not isinstance(x_embed_token, Unset):
+        headers["X-Embed-Token"] = x_embed_token
 
     _kwargs: dict[str, Any] = {
         "method": "get",
@@ -23,6 +29,7 @@ def _get_kwargs(
         ),
     }
 
+    _kwargs["headers"] = headers
     return _kwargs
 
 
@@ -84,13 +91,24 @@ def sync_detailed(
     dataset_id: UUID,
     *,
     client: AuthenticatedClient,
+    x_embed_token: None | str | Unset = UNSET,
 ) -> Response[Any | ProblemDetail]:
     """Get Features Geojson Z Endpoint
 
      Return up to 5,000 features as RFC 7946 GeoJSON with Z coordinates.
 
+    fix(#394) codex P2: the viewer's bounded-GeoJSON path (small 3D layers,
+    eligible cluster layers) already sends ``X-Embed-Token``, and the B-023
+    shared-map union now exposes embed-scoped private layers to embeds — so
+    this endpoint accepts the token as fallback authorization via the SAME
+    ``validate_embed_token_access`` capability check as tile serving.
+    Credentialed callers (JWT / API key) keep the exact prior RBAC path;
+    anonymous callers without a valid scoped token still get 401.
+
     Args:
         dataset_id (UUID):
+        x_embed_token (None | str | Unset): Optional embed token. Datasets in the token's scope
+            are authorized even without user credentials (embed viewers).
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -102,6 +120,7 @@ def sync_detailed(
 
     kwargs = _get_kwargs(
         dataset_id=dataset_id,
+        x_embed_token=x_embed_token,
     )
 
     response = client.get_httpx_client().request(
@@ -115,13 +134,24 @@ def sync(
     dataset_id: UUID,
     *,
     client: AuthenticatedClient,
+    x_embed_token: None | str | Unset = UNSET,
 ) -> Any | ProblemDetail | None:
     """Get Features Geojson Z Endpoint
 
      Return up to 5,000 features as RFC 7946 GeoJSON with Z coordinates.
 
+    fix(#394) codex P2: the viewer's bounded-GeoJSON path (small 3D layers,
+    eligible cluster layers) already sends ``X-Embed-Token``, and the B-023
+    shared-map union now exposes embed-scoped private layers to embeds — so
+    this endpoint accepts the token as fallback authorization via the SAME
+    ``validate_embed_token_access`` capability check as tile serving.
+    Credentialed callers (JWT / API key) keep the exact prior RBAC path;
+    anonymous callers without a valid scoped token still get 401.
+
     Args:
         dataset_id (UUID):
+        x_embed_token (None | str | Unset): Optional embed token. Datasets in the token's scope
+            are authorized even without user credentials (embed viewers).
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -134,6 +164,7 @@ def sync(
     return sync_detailed(
         dataset_id=dataset_id,
         client=client,
+        x_embed_token=x_embed_token,
     ).parsed
 
 
@@ -141,13 +172,24 @@ async def asyncio_detailed(
     dataset_id: UUID,
     *,
     client: AuthenticatedClient,
+    x_embed_token: None | str | Unset = UNSET,
 ) -> Response[Any | ProblemDetail]:
     """Get Features Geojson Z Endpoint
 
      Return up to 5,000 features as RFC 7946 GeoJSON with Z coordinates.
 
+    fix(#394) codex P2: the viewer's bounded-GeoJSON path (small 3D layers,
+    eligible cluster layers) already sends ``X-Embed-Token``, and the B-023
+    shared-map union now exposes embed-scoped private layers to embeds — so
+    this endpoint accepts the token as fallback authorization via the SAME
+    ``validate_embed_token_access`` capability check as tile serving.
+    Credentialed callers (JWT / API key) keep the exact prior RBAC path;
+    anonymous callers without a valid scoped token still get 401.
+
     Args:
         dataset_id (UUID):
+        x_embed_token (None | str | Unset): Optional embed token. Datasets in the token's scope
+            are authorized even without user credentials (embed viewers).
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -159,6 +201,7 @@ async def asyncio_detailed(
 
     kwargs = _get_kwargs(
         dataset_id=dataset_id,
+        x_embed_token=x_embed_token,
     )
 
     response = await client.get_async_httpx_client().request(**kwargs)
@@ -170,13 +213,24 @@ async def asyncio(
     dataset_id: UUID,
     *,
     client: AuthenticatedClient,
+    x_embed_token: None | str | Unset = UNSET,
 ) -> Any | ProblemDetail | None:
     """Get Features Geojson Z Endpoint
 
      Return up to 5,000 features as RFC 7946 GeoJSON with Z coordinates.
 
+    fix(#394) codex P2: the viewer's bounded-GeoJSON path (small 3D layers,
+    eligible cluster layers) already sends ``X-Embed-Token``, and the B-023
+    shared-map union now exposes embed-scoped private layers to embeds — so
+    this endpoint accepts the token as fallback authorization via the SAME
+    ``validate_embed_token_access`` capability check as tile serving.
+    Credentialed callers (JWT / API key) keep the exact prior RBAC path;
+    anonymous callers without a valid scoped token still get 401.
+
     Args:
         dataset_id (UUID):
+        x_embed_token (None | str | Unset): Optional embed token. Datasets in the token's scope
+            are authorized even without user credentials (embed viewers).
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -190,5 +244,6 @@ async def asyncio(
         await asyncio_detailed(
             dataset_id=dataset_id,
             client=client,
+            x_embed_token=x_embed_token,
         )
     ).parsed

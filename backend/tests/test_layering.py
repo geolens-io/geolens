@@ -786,7 +786,11 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # on Map (visibility=public) LEFT JOINed to the latest share token per
         # map (DISTINCT ON) so every published map appears, not just shared ones.
         # Cap raised 625 → 660 (~11 LOC headroom).
-        "backend/app/modules/catalog/maps/service_public.py": 660,
+        # fix(#394) SH-01/B-023: +31 lines — get_shared_map unions embed-token
+        # scoped layers into the visibility-filtered set (SEC-022 capability
+        # parity with the tile path) + tile_version threading. Cap raised
+        # 660 → 720 (~29 LOC headroom).
+        "backend/app/modules/catalog/maps/service_public.py": 720,
         "backend/app/modules/catalog/search/service_records.py": 500,
         # Phase 269 H-05: dataset-domain modules over the 350 default at audit
         # time. Caps set ~20-30 LOC above current size to allow modest growth
@@ -809,6 +813,10 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # Phase 276 CODE-02: chat_*.py sub-modules are all under the 350
         # default (largest is chat_actions.py at ~245 LOC). No explicit
         # per-file overrides needed; default applies.
+        # fix(#394) CH-02: +~35 lines — set_label column validation against the
+        # target layer schema (error feedback to the model), the CSS-colorish
+        # sanitizer, and the collector error gate. Cap 350 → 400 (~19 headroom).
+        "backend/app/processing/ai/chat_actions.py": 400,
     }
 
     files_to_check = list(facade_line_budgets)

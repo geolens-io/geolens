@@ -245,3 +245,38 @@ class TestTileVersionField:
         shared_resp = await client.get(f"/maps/shared/{share_token}")
         assert shared_resp.status_code == 200
         assert shared_resp.json()["layers"][0]["tile_version"] == 1
+
+
+class TestGeojsonZEmbedFallback:
+    async def test_geojson_z_accepts_embed_token_for_scoped_dataset(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        """fix(#394) codex P2: the viewer's bounded-GeoJSON path sends
+        X-Embed-Token, and the B-023 union exposes embed-scoped private layers
+        to embeds — the endpoint must honor the token or those layers 401.
+
+        Asserts the AUTH contract only: anonymous → 401; valid scoped token →
+        past the auth gate (200 with a backing data table, 503 without one —
+        never 401/403/404).
+        """
+        admin_id = await get_user_id(test_db_session, "admin")
+        private_ds = await create_dataset(
+            test_db_session, created_by=admin_id, visibility="public"
+        )
+        map_id, _share_token, _ = await _make_public_shared_map(
+            client, admin_auth_header, [str(private_ds.id)]
+        )
+        _token_obj, raw_token = await create_embed_token(
+            test_db_session, uuid.UUID(map_id), admin_id
+        )
+        await test_db_session.commit()
+        await _downgrade_to_private(test_db_session, private_ds)
+
+        anon = await client.get(f"/datasets/{private_ds.id}/features.geojson")
+        assert anon.status_code == 401
+
+        with_token = await client.get(
+            f"/datasets/{private_ds.id}/features.geojson",
+            headers={"X-Embed-Token": raw_token},
+        )
+        assert with_token.status_code not in (401, 403, 404), with_token.text

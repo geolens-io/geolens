@@ -121,7 +121,7 @@ export function useRenderModeLayers({
 
     // Get tile URL from existing source
     const source = map.getSource(sourceId) as { tiles?: string[] } | undefined;
-    const tileUrl = source?.tiles?.[0] ?? buildSignedTileUrl(layer.dataset_table_name, null, undefined);
+    const tileUrl = source?.tiles?.[0] ?? buildSignedTileUrl(layer.dataset_table_name, null, undefined, layer.tile_version ?? undefined);
     const sourceLayer = getMvtSourceLayerName(layer.dataset_table_name);
 
     const adapterInput: AdapterLayerInput & { style_config?: StyleConfig | null } = {

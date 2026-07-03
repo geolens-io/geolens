@@ -14377,6 +14377,14 @@ export type ExportDatasetEndpointDatasetsDatasetIdExportGetResponses = {
 
 export type GetFeaturesGeojsonZEndpointDatasetsDatasetIdFeaturesGeojsonGetData = {
     body?: never;
+    headers?: {
+        /**
+         * X-Embed-Token
+         *
+         * Optional embed token. Datasets in the token's scope are authorized even without user credentials (embed viewers).
+         */
+        'X-Embed-Token'?: string | null;
+    };
     path: {
         /**
          * Dataset Id
@@ -17677,7 +17685,7 @@ export type GetSharedMapEndpointMapsSharedTokenGetData = {
         /**
          * X-Embed-Token
          *
-         * Optional embed token. When valid for this map, layers backed by the token's scoped (possibly non-public) datasets are included.
+         * Optional embed token — includes its scoped dataset layers when valid for this map.
          */
         'X-Embed-Token'?: string | null;
     };
@@ -21797,8 +21805,6 @@ export type GetTileTokensBatchTilesTokensPostData = {
     headers?: {
         /**
          * X-Embed-Token
-         *
-         * Optional embed token. Datasets in the token's scope are authorized even without user credentials (embed viewers).
          */
         'X-Embed-Token'?: string | null;
     };
