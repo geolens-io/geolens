@@ -264,9 +264,11 @@ describe('symbolAdapter', () => {
     symbolAdapter.addLayers(map, input);
 
     const call = (map.addLayer as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    // fix(#394) ST-04: input is to-string-wrapped so numeric MVT values match
+    // the editor's stringified sample values.
     expect(call.layout['icon-image']).toEqual([
       'match',
-      ['get', 'kind'],
+      ['to-string', ['get', 'kind']],
       'bus',
       'geolens:bus',
       'rail',
@@ -390,7 +392,12 @@ describe('circleAdapter', () => {
     const opacityCalls = (map.setPaintProperty as ReturnType<typeof vi.fn>).mock.calls
       .filter(([, prop]) => prop === 'circle-opacity');
     expect(opacityCalls.length).toBeGreaterThan(0);
-    expect(opacityCalls.every(([, , value]) => JSON.stringify(value) === JSON.stringify(opacityExpression))).toBe(true);
+    // fix(#394) ST-03: the LAST write wins — the master slider (0.4)
+    // multiplies the expression (shape preserved, never flattened to a
+    // number). Earlier writes replay the raw expression before the compound
+    // set, same as before the fix.
+    const lastOpacityValue = opacityCalls[opacityCalls.length - 1][2];
+    expect(JSON.stringify(lastOpacityValue)).toBe(JSON.stringify(['*', opacityExpression, 0.4]));
   });
 
   it('getLayerIds returns [layerId] (single layer)', () => {
@@ -453,7 +460,12 @@ describe('circleAdapter', () => {
     const opacityCalls = (map.setPaintProperty as ReturnType<typeof vi.fn>).mock.calls
       .filter(([, prop]) => prop === 'circle-opacity');
     expect(opacityCalls.length).toBeGreaterThan(0);
-    expect(opacityCalls.every(([, , value]) => JSON.stringify(value) === JSON.stringify(opacityExpression))).toBe(true);
+    // fix(#394) ST-03: the LAST write wins — the master slider (0.4)
+    // multiplies the expression (shape preserved, never flattened to a
+    // number). Earlier writes replay the raw expression before the compound
+    // set, same as before the fix.
+    const lastOpacityValue = opacityCalls[opacityCalls.length - 1][2];
+    expect(JSON.stringify(lastOpacityValue)).toBe(JSON.stringify(['*', opacityExpression, 0.4]));
   });
 
   it('syncVisibility sets visibility layout property', () => {
@@ -501,7 +513,9 @@ describe('clusterAdapter', () => {
       id: 'layer-cluster-1-cluster',
       type: 'circle',
       source: 'source-cluster-1',
-      filter: ['all', ['has', 'point_count'], ['==', 'status', 'open']],
+      // fix(#394) FL-01: cluster layers never AND the data filter in — cluster
+      // features carry no data properties, so it hid every bubble.
+      filter: ['has', 'point_count'],
     }));
     expect(clusterCircle).not.toHaveProperty('source-layer');
     expect(clusterCircle.paint).toEqual(expect.objectContaining({
@@ -512,7 +526,7 @@ describe('clusterAdapter', () => {
       id: 'layer-cluster-1-cluster-count',
       type: 'symbol',
       source: 'source-cluster-1',
-      filter: ['all', ['has', 'point_count'], ['==', 'status', 'open']],
+      filter: ['has', 'point_count'],
     }));
     expect(clusterCount.paint).toEqual(expect.objectContaining({
       'text-color': '#111827',
@@ -583,8 +597,9 @@ describe('clusterAdapter', () => {
     expect(map.setPaintProperty).toHaveBeenCalledWith('layer-cluster-sync-cluster-count', 'text-color', '#0f172a');
     expect(map.setPaintProperty).toHaveBeenCalledWith('layer-cluster-sync-cluster-count', 'text-opacity', 0.4);
     expect(map.setPaintProperty).toHaveBeenCalledWith('layer-cluster-sync', 'circle-radius', 6);
-    expect(map.setFilter).toHaveBeenCalledWith('layer-cluster-sync-cluster', ['all', ['has', 'point_count'], ['==', 'status', 'planned']]);
-    expect(map.setFilter).toHaveBeenCalledWith('layer-cluster-sync-cluster-count', ['all', ['has', 'point_count'], ['==', 'status', 'planned']]);
+    // fix(#394) FL-01: cluster companions keep the bare point_count predicate.
+    expect(map.setFilter).toHaveBeenCalledWith('layer-cluster-sync-cluster', ['has', 'point_count']);
+    expect(map.setFilter).toHaveBeenCalledWith('layer-cluster-sync-cluster-count', ['has', 'point_count']);
     expect(map.setFilter).toHaveBeenCalledWith('layer-cluster-sync', ['all', ['!', ['has', 'point_count']], ['==', 'status', 'planned']]);
   });
 
@@ -778,7 +793,12 @@ describe('lineAdapter', () => {
     const opacityCalls = (map.setPaintProperty as ReturnType<typeof vi.fn>).mock.calls
       .filter(([, prop]) => prop === 'line-opacity');
     expect(opacityCalls.length).toBeGreaterThan(0);
-    expect(opacityCalls.every(([, , value]) => JSON.stringify(value) === JSON.stringify(opacityExpression))).toBe(true);
+    // fix(#394) ST-03: the LAST write wins — the master slider (0.4)
+    // multiplies the expression (shape preserved, never flattened to a
+    // number). Earlier writes replay the raw expression before the compound
+    // set, same as before the fix.
+    const lastOpacityValue = opacityCalls[opacityCalls.length - 1][2];
+    expect(JSON.stringify(lastOpacityValue)).toBe(JSON.stringify(['*', opacityExpression, 0.4]));
   });
 
   it('syncPaint preserves line gap, blur, offset, and line-gradient paint', () => {
@@ -863,7 +883,12 @@ describe('lineAdapter', () => {
     const opacityCalls = (map.setPaintProperty as ReturnType<typeof vi.fn>).mock.calls
       .filter(([, prop]) => prop === 'line-opacity');
     expect(opacityCalls.length).toBeGreaterThan(0);
-    expect(opacityCalls.every(([, , value]) => JSON.stringify(value) === JSON.stringify(opacityExpression))).toBe(true);
+    // fix(#394) ST-03: the LAST write wins — the master slider (0.4)
+    // multiplies the expression (shape preserved, never flattened to a
+    // number). Earlier writes replay the raw expression before the compound
+    // set, same as before the fix.
+    const lastOpacityValue = opacityCalls[opacityCalls.length - 1][2];
+    expect(JSON.stringify(lastOpacityValue)).toBe(JSON.stringify(['*', opacityExpression, 0.4]));
   });
 
   it('addLayers does not pass flattened line-gradient string to MapLibre addLayer when expressions present', () => {

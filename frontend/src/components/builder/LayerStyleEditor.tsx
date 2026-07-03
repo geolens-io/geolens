@@ -13,7 +13,7 @@ import {
   hasUnsavedStyleChanges as hasUnsavedStyleChangesImpl,
 } from './LayerStyleEditor/utils';
 import { LazyLoadErrorBoundary } from '@/components/error';
-import { getLayerType } from '@/components/builder/map-sync';
+import { getLayerType, resolveAdapterType } from '@/components/builder/map-sync';
 import { isNumericColumn } from '@/lib/column-utils';
 import { stripLegacyBuilderPaint } from '@/lib/normalize-style-config';
 import { GeometrySwatch } from '@/components/map/LegendEntries';
@@ -139,6 +139,14 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
   );
   const editorPaint = useMemo(() => stripBuilderPrivate(paint), [paint, stripBuilderPrivate]);
   const editorLayout = useMemo(() => stripBuilderPrivate(layoutObj), [layoutObj, stripBuilderPrivate]);
+  // fix(#394) ST-02/B-031: the Advanced JSON editor must validate against the
+  // RENDERED layer type, not the geometry-derived one — a heatmap-rendered
+  // point layer rejected valid heatmap-* paint and accepted dead circle-*
+  // paint. Cluster renders as circles for validation purposes.
+  const advancedJsonLayerType = useMemo(() => {
+    const resolved = resolveAdapterType(layer.dataset_geometry_type, layer.style_config, editorPaint);
+    return resolved === 'cluster' ? 'circle' : resolved;
+  }, [layer.dataset_geometry_type, layer.style_config, editorPaint]);
   const isDataDriven = !!layer.style_config?.column;
   const renderMode: 'points' | 'heatmap' | 'symbol' | 'cluster' = layer.style_config?.render_mode === 'heatmap'
     ? 'heatmap'
@@ -487,7 +495,7 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
           layout={editorLayout}
           onPaintChange={(p) => onPaintChange(layer.id, p)}
           onLayoutChange={(l) => onLayoutChange(layer.id, l)}
-          layerType={geomType}
+          layerType={advancedJsonLayerType}
         />
       </StyleControlSection>
     </div>

@@ -6,7 +6,7 @@ import { getLayerType, getSourceIdForLayer } from '@/components/builder/map-sync
 import { getAdapter } from '@/components/builder/layer-adapters/registry';
 import type { AdapterLayerInput } from '@/components/builder/layer-adapters/types';
 import { DEFAULT_HEATMAP_PAINT } from '@/components/builder/layer-adapters/heatmap-adapter';
-import { buildSignedTileUrl } from '@/lib/tile-utils';
+import { buildSignedTileUrl, getMvtSourceLayerName } from '@/lib/tile-utils';
 import { buildLabelLayerSpec } from '@/components/builder/label-layer-utils';
 import { sanitizeNullableNumericFilter } from '@/lib/maplibre-filter-utils';
 import { normalizeDemStyleConfig } from '@/lib/dem-render-mode';
@@ -122,7 +122,7 @@ export function useRenderModeLayers({
     // Get tile URL from existing source
     const source = map.getSource(sourceId) as { tiles?: string[] } | undefined;
     const tileUrl = source?.tiles?.[0] ?? buildSignedTileUrl(layer.dataset_table_name, null, undefined);
-    const sourceLayer = `data.${layer.dataset_table_name}`;
+    const sourceLayer = getMvtSourceLayerName(layer.dataset_table_name);
 
     const adapterInput: AdapterLayerInput & { style_config?: StyleConfig | null } = {
       id: layer.id,
@@ -177,6 +177,11 @@ export function useRenderModeLayers({
         map.setFilter(labelId, sanitizeNullableNumericFilter(layer.filter));
         map.setLayoutProperty(labelId, 'visibility', vis);
       } else if (map.getLayer(labelId)) {
+        // fix(#394) LB-10: mirror the fresh-add branch's setFilter — restoring
+        // an EXISTING hidden companion label re-asserted visibility but not
+        // the filter, so filtered-out features flashed labels until the next
+        // reactive sync self-corrected.
+        map.setFilter(labelId, sanitizeNullableNumericFilter(layer.filter));
         map.setLayoutProperty(labelId, 'visibility', vis);
       }
     }

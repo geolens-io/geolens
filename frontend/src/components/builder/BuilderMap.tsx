@@ -1114,7 +1114,13 @@ export const BuilderMap = memo(function BuilderMap({
   const hasSavedView = !!(initialViewState?.center_lng != null && initialViewState?.center_lat != null);
   const initialFitDoneRef = useRef(false);
   const prevLayerCountRef = useRef(layers.length);
-  const prevVisibleBoundsKeyRef = useRef(visibleLayerBoundsKey(getVisibleLayerBounds(layers)));
+  // fix(#394) PF-05: lazy-seed — a useRef initializer ARGUMENT evaluates on
+  // every render, so the full bounds walk ran per render and was discarded
+  // after mount. Seed once on first render instead.
+  const prevVisibleBoundsKeyRef = useRef<string | undefined>(undefined);
+  if (prevVisibleBoundsKeyRef.current === undefined) {
+    prevVisibleBoundsKeyRef.current = visibleLayerBoundsKey(getVisibleLayerBounds(layers));
+  }
 
   // Auto-fit to visible layers (skip on initial load if saved view exists)
   useEffect(() => {

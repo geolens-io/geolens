@@ -143,7 +143,10 @@ export function getExpressionSafeOpacity(
   const propKey = `${geomType}-opacity`;
   const propOpacity = paint[propKey];
   if (Array.isArray(propOpacity)) {
-    return propOpacity;
+    // fix(#394) ST-03: multiply expression-valued opacity by the master
+    // slider — returning the expression untouched made the layer opacity
+    // slider a silent no-op whenever *-opacity is a zoom/data expression.
+    return masterOpacity === 1 ? propOpacity : ['*', propOpacity, masterOpacity];
   }
   if (typeof propOpacity === 'number') {
     return propOpacity * masterOpacity;

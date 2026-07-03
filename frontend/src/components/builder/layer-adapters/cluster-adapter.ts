@@ -55,8 +55,14 @@ function combineFilter(base: FilterSpecification, filter: FilterSpecification | 
   return hasFilter(filter) ? ['all', base, filter] as FilterSpecification : base;
 }
 
-function clusterFilter(input: AdapterLayerInput) {
-  return combineFilter(['has', 'point_count'], input.filter);
+function clusterFilter(_input: AdapterLayerInput): FilterSpecification {
+  // fix(#394) FL-01/B-020: never AND the layer's data filter into the cluster
+  // bubble/count layers — cluster features only carry point_count/cluster_id,
+  // so any feature-property predicate fails for every cluster and blanks the
+  // whole low-zoom map. Ceiling: cluster counts include filtered-out points
+  // (clusters don't re-aggregate); filtering at the source would fix that at
+  // the cost of a per-filter tile refetch.
+  return ['has', 'point_count'];
 }
 
 function unclusteredFilter(input: AdapterLayerInput) {

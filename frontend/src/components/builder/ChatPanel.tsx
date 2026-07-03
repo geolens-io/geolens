@@ -220,8 +220,29 @@ function validateChatPaint(
     for (const key of CHAT_PRESERVED_FILL_OUTLINE_KEYS) {
       if (rawPaint[key] != null) filtered[key] = rawPaint[key];
     }
+    // fix(#394) CH-01: preserve fill-extrusion-* on the fill branch — the
+    // extrusion COMPANION layer consumes them from layer.paint, and the
+    // backend keeps them for polygons (_VALID_PAINT_PROPS fill ∪
+    // fill-extrusion). Dropping them made an extrusion-only set_style a
+    // silent no-op. filterPaintForLayerType still excludes them from the
+    // actual MapLibre fill layer at apply time.
+    for (const [key, value] of Object.entries(rawPaint)) {
+      if (key.startsWith('fill-extrusion-') && value != null) {
+        filtered[key] = value;
+      }
+    }
   }
   return clampPaintBounds(filtered);
+}
+
+// fix(#394) CH-02: permissive color-shape check for AI-produced label colors —
+// hex, named (`red`), or functional (`rgb(...)`/`hsla(...)`) forms MapLibre can
+// parse. Mirrors the backend chat_actions._CSS_COLORISH_RE so both sides drop
+// the same junk.
+const CSS_COLORISH_RE = /^(#[0-9a-fA-F]{3,8}|[a-zA-Z]{3,30}|(rgb|rgba|hsl|hsla)\([^)]{1,60}\))$/;
+
+function isCssColorish(value: unknown): value is string {
+  return typeof value === 'string' && CSS_COLORISH_RE.test(value.trim());
 }
 
 // fix(#392): clamp bounds for AI-produced set_label numeric fields, matching
@@ -506,18 +527,20 @@ export function ChatPanel({
         const rawPaint = getActionPaint(action);
         if (layerId && rawPaint) {
           const layer = layersRef.current.find((candidate) => candidate.id === layerId);
+          // fix(#394) CH-03: require the target layer — when it isn't found
+          // client-side the RAW paint used to be applied unvalidated AND the
+          // turn still reported "applied". Mirrors set_style's layer gate.
+          if (!layer) return false;
           const styleConfig = isRecord(action.style_config) ? (action.style_config as StyleConfig) : null;
           // fix(#392): render-mode aware — heatmap data-driven paint keeps its heatmap-*
           // properties instead of being dropped as invalid-for-circle. Fall back to the
           // layer's own render_mode when the action omits it (style_config.render_mode is
           // optional), so a data-driven heatmap update on a heatmap layer keeps its
           // heatmap-* paint instead of validating to a no-op. (audit B-002/CH-01)
-          const effectiveRenderMode = styleConfig?.render_mode ?? layer?.style_config?.render_mode;
-          const validatedPaint = layer
-            ? validateChatPaint(rawPaint, layer, effectiveRenderMode)
-            : rawPaint;
+          const effectiveRenderMode = styleConfig?.render_mode ?? layer.style_config?.render_mode;
+          const validatedPaint = validateChatPaint(rawPaint, layer, effectiveRenderMode);
           const validatedAction: ChatAction = { ...action, paint: validatedPaint };
-          const nextPaint = buildChatActionPaint(layer?.paint, validatedAction);
+          const nextPaint = buildChatActionPaint(layer.paint, validatedAction);
           // fix(#392): carry the fallback render_mode into the persisted style_config too —
           // onStyleConfigChange REPLACES style_config, so a heatmap layer whose action
           // omitted render_mode would otherwise lose heatmap mode and (adapter resolution
@@ -525,6 +548,10 @@ export function ChatPanel({
           const nextConfig = styleConfig && effectiveRenderMode && !styleConfig.render_mode
             ? ({ ...styleConfig, render_mode: effectiveRenderMode } as StyleConfig)
             : styleConfig;
+          // fix(#394) CH-03: mutation gate (match set_style) — a paint that
+          // validated to empty with no style_config change is a no-op, not an
+          // "applied" change.
+          if (!hasPaintMutation(validatedAction) && !nextConfig) return false;
           onStyleConfigChange(layerId, nextConfig, nextPaint);
           return true;
         }
@@ -533,7 +560,28 @@ export function ChatPanel({
       case 'set_label':
         if (layerId) {
           if (isRecord(action.label_config)) {
-            onLabelChange(layerId, clampLabelConfig(action.label_config as LabelConfig));
+            const lc = action.label_config as LabelConfig;
+            // fix(#394) CH-02: validate the column against the layer schema —
+            // a hallucinated column produced a label layer whose text-field
+            // renders empty everywhere. Backend chat_actions mirrors this and
+            // feeds the model an error, so this is the client-side backstop.
+            const layer = layersRef.current.find((candidate) => candidate.id === layerId);
+            if (
+              lc.column &&
+              layer?.dataset_column_info &&
+              layer.dataset_column_info.length > 0 &&
+              !layer.dataset_column_info.some((col) => col.name === lc.column)
+            ) {
+              return false;
+            }
+            // fix(#394) CH-02: drop an unparseable textColor (objects, junk
+            // strings) instead of handing it to map.setPaintProperty — the
+            // adapter then falls back to its default label color.
+            const safeConfig = { ...lc };
+            if (safeConfig.textColor != null && !isCssColorish(safeConfig.textColor)) {
+              delete safeConfig.textColor;
+            }
+            onLabelChange(layerId, clampLabelConfig(safeConfig));
           } else {
             onLabelChange(layerId, null);
           }
@@ -633,9 +681,11 @@ export function ChatPanel({
         staging.push(action);
         // Record in pendingActions so the message's actions[] captures the intent.
         pendingActions.push(action);
-        // B-013: a destructive action is never undo-safe. Downgrade the turn's
-        // snapshot so undo stays suppressed even after the user accepts.
-        if (lastSnapshotRef.current) lastSnapshotRef.current.supportsUndo = false;
+        // fix(#394) CH-11: do NOT downgrade undo here — a merely-STAGED action
+        // hasn't touched the map, so a mixed turn's style edits stay undoable
+        // and a rejected staging leaves undo intact. The downgrade happens in
+        // handleChatAction's add_layer/remove_layer cases, which is exactly
+        // the staging-ACCEPT dispatch path.
         continue;
       }
       // fix(#392): "Applied N changes" counts effect, not intent — only record the
