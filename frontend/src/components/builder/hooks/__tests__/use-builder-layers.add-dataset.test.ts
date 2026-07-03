@@ -68,8 +68,11 @@ import {
 } from '@/components/builder/__tests__/fixtures/map-builder-fixtures';
 import type { MapLayerResponse, MapResponse } from '@/types/api';
 import { toast } from 'sonner';
+import { prepareLayersForPersistence, hydrateFolderGroupLayers } from '@/components/builder/folder-groups';
+import { isFolderGroupLayer } from '@/lib/layer-capabilities';
 
 type MaplibreMap = import('maplibre-gl').Map;
+type GroupedLayer = MapLayerResponse & { parent_group_id?: string | null };
 
 const makeMockLayer = makeBuilderLayer;
 
@@ -319,5 +322,94 @@ describe('freshLayerId lifecycle (Phase 1042 POL-15)', () => {
 
     consoleSpy.mockRestore();
     vi.useRealTimers();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// B-004c / audit LM-03: dropping a dataset onto a folder group must insert
+// adjacent to the group's existing block, not at array index 0 — otherwise
+// hydrateFolderGroupLayers (which anchors the group at its FIRST child) drags
+// the whole group to the stack top after a save/reload round-trip.
+// ---------------------------------------------------------------------------
+describe('handleAddDataset — group-drop adjacency (B-004c / LM-03)', () => {
+  it('Test 1: inserts the new child adjacent to the group block, not at index 0', () => {
+    const before = makeMockLayer({ id: 'before', sort_order: 0 });
+    const groupRow = makeMockLayer({ id: 'group-1', sort_order: 1, layer_type: 'group:folder' });
+    const child1 = {
+      ...makeMockLayer({ id: 'child1', sort_order: 2 }),
+      parent_group_id: 'group-1',
+    } as GroupedLayer as MapLayerResponse;
+    const afterOutside = makeMockLayer({ id: 'after-outside', sort_order: 3 });
+
+    const { result, mutate } = renderBuilderLayers(makeMapData([before, groupRow, child1, afterOutside]));
+
+    act(() => {
+      result.current.handleAddDataset('ds-99', undefined, 'group-1');
+    });
+
+    const [, { onSuccess }] = mutate.mock.calls[0];
+    act(() => { onSuccess({ id: 'new-child', dataset_id: 'ds-99' }); });
+
+    const updated = result.current.localLayers as GroupedLayer[];
+    const newChildIdx = updated.findIndex((l) => l.id === 'new-child');
+    const child1Idx = updated.findIndex((l) => l.id === 'child1');
+
+    // Adjacent to the group's existing last child, NOT array index 0.
+    expect(newChildIdx).toBe(child1Idx + 1);
+    expect(newChildIdx).not.toBe(0);
+    expect(updated.find((l) => l.id === 'new-child')?.parent_group_id).toBe('group-1');
+    // sort_order renumbered by array index (not the raw sort_order:0 request hint)
+    expect(updated.find((l) => l.id === 'new-child')?.sort_order).not.toBe(0);
+  });
+
+  it('Test 2: the group anchor survives a prepareLayersForPersistence -> hydrateFolderGroupLayers round-trip', () => {
+    const before = makeMockLayer({ id: 'before', sort_order: 0 });
+    const groupRow = makeMockLayer({ id: 'group-1', sort_order: 1, layer_type: 'group:folder' });
+    const child1 = {
+      ...makeMockLayer({ id: 'child1', sort_order: 2 }),
+      parent_group_id: 'group-1',
+    } as GroupedLayer as MapLayerResponse;
+    const afterOutside = makeMockLayer({ id: 'after-outside', sort_order: 3 });
+
+    const { result, mutate } = renderBuilderLayers(makeMapData([before, groupRow, child1, afterOutside]));
+
+    // Capture the group's position BEFORE the drop.
+    const groupIdxBeforeDrop = result.current.localLayers.findIndex((l) => l.id === 'group-1');
+
+    act(() => {
+      result.current.handleAddDataset('ds-99', undefined, 'group-1');
+    });
+    const [, { onSuccess }] = mutate.mock.calls[0];
+    act(() => { onSuccess({ id: 'new-child', dataset_id: 'ds-99' }); });
+
+    const persisted = prepareLayersForPersistence(result.current.localLayers, result.current.groupMeta);
+    const rehydrated = hydrateFolderGroupLayers(persisted);
+
+    const groupIdxAfterRoundTrip = rehydrated.layers.findIndex((l) => isFolderGroupLayer(l));
+
+    // The group must NOT be re-anchored to the stack top (index 0) — it stays
+    // at the same relative position it held before the drop.
+    expect(groupIdxAfterRoundTrip).not.toBe(0);
+    expect(groupIdxAfterRoundTrip).toBe(groupIdxBeforeDrop);
+  });
+
+  // Test 3 (loose add unchanged, no regression to the P1-08 top-of-stack UX)
+  // is already covered by 'Test A: posts with sort_order: 0' and the P1-08
+  // optimistic-merge test above — both exercise handleAddDataset with
+  // parentGroupId omitted/undefined and assert the created layer prepends at
+  // array index 0. No new test needed; re-asserted here for traceability.
+  it('Test 3: loose (non-group) add still prepends at the top of the user stack', () => {
+    const existing = makeMockLayer({ id: 'existing', sort_order: 0 });
+    const { result, mutate } = renderBuilderLayers(makeMapData([existing]));
+
+    act(() => {
+      result.current.handleAddDataset('ds-42');
+    });
+
+    const [, { onSuccess }] = mutate.mock.calls[0];
+    act(() => { onSuccess({ id: 'new-loose', dataset_id: 'ds-42' }); });
+
+    const ids = result.current.localLayers.map((l) => l.id);
+    expect(ids[0]).toBe('new-loose');
   });
 });
