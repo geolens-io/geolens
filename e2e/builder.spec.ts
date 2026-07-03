@@ -427,7 +427,8 @@ test.describe.serial('Map Builder', () => {
     const presetSection = editor.locator('section').filter({ hasText: /^PRESET/i }).first();
     await expect(presetSection).toBeVisible({ timeout: 5_000 });
 
-    await presetSection.getByRole('button', { name: /OpenFreeMap Dark/i }).click();
+    // fix(#394) UX-03: preset cards are role="radio" inside a radiogroup now.
+    await presetSection.getByRole('radio', { name: /OpenFreeMap Dark/i }).click();
 
     // Phase 1035 replaced the dedicated "Basemap" section heading with a
     // basemap-group row at the top of the unified stack (id=stack-row-basemap-group);
