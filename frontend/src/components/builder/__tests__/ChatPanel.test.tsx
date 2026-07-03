@@ -626,9 +626,12 @@ describe('ChatPanel', () => {
     await typeAndSend(user, 'restyle the heatmap by magnitude');
 
     await waitFor(() => {
+      // fix(#392): heatmap-* paint survives validation AND the fallback render_mode is
+      // carried into the persisted style_config (onStyleConfigChange replaces it), so the
+      // layer stays a heatmap on save/reload instead of reverting to a circle.
       expect(props.onStyleConfigChange).toHaveBeenCalledWith(
         'layer-1',
-        styleConfig,
+        { ...styleConfig, render_mode: 'heatmap' },
         { 'heatmap-weight': weightExpr, 'heatmap-radius': 30 },
       );
     });
