@@ -242,12 +242,12 @@ describe('useBuilderLayers — folder group handlers', () => {
     expect(result.current.hasUnsavedChanges).toBe(true);
   });
 
-  // Test 8b (CR-01): handleUngroup must clear the PERSISTED
+  // fix(#392): handleUngroup must clear the PERSISTED
   // style_config.builder.folderGroupId on the child, not just the
   // frontend-only parent_group_id — otherwise re-duplicating the child
   // before Save copies the stale group pointer to the backend and the next
   // server resync silently re-groups it (hydrateFolderGroupLayers reads
-  // style_config, not parent_group_id).
+  // style_config, not parent_group_id). (audit CR-01)
   it('handleUngroup clears style_config.builder.folderGroupId on promoted children (CR-01)', () => {
     const groupLayer = { ...makeMockLayer({ id: 'group-1' }), layer_type: 'group:folder' } as unknown as MapLayerResponse;
     const childLayer = {
@@ -330,8 +330,8 @@ describe('useBuilderLayers — folder group handlers', () => {
     expect(result.current.hasUnsavedChanges).toBe(true);
   });
 
-  // Test 10b (CR-01): handleMoveLayerOutOfGroup must clear the PERSISTED
-  // style_config.builder.folderGroupId too — same rationale as Test 8b above.
+  // fix(#392): handleMoveLayerOutOfGroup must clear the PERSISTED
+  // style_config.builder.folderGroupId too — same rationale as Test 8b above. (audit CR-01)
   it('handleMoveLayerOutOfGroup clears style_config.builder.folderGroupId from the target layer (CR-01)', () => {
     const groupLayer = { ...makeMockLayer({ id: 'group-1' }), layer_type: 'group:folder' } as unknown as MapLayerResponse;
     const childLayer = {

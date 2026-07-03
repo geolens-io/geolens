@@ -274,10 +274,10 @@ test.describe.serial('Map Builder', () => {
     }
   });
 
-  // fix(#B-008): the Add-Dataset dialog no longer exposes a "Basemap" radio or
+  // fix(#392): the Add-Dataset dialog no longer exposes a "Basemap" radio or
   // in-dialog "in use"/"swap" controls — basemap swapping moved to the
   // #stack-row-basemap-group row / BasemapGroupEditorScene (Phase 1035). This
-  // test now asserts only the shipped All/Vector/Raster tab set.
+  // test now asserts only the shipped All/Vector/Raster tab set. (audit B-008)
   test('Add Dataset dialog exposes responsive v1 tabs', async ({ page }) => {
     for (const viewport of [
       { width: 1440, height: 900, label: 'desktop' },
@@ -314,7 +314,7 @@ test.describe.serial('Map Builder', () => {
     const dialog = page.getByRole('dialog', { name: /add dataset/i });
     await expect(dialog).toBeVisible();
 
-    // fix(#B-008): no "Basemap" radio in the Add-Dataset dialog (Phase 1035).
+    // fix(#392): no "Basemap" radio in the Add-Dataset dialog (Phase 1035, audit B-008).
     for (const tab of ['All', 'Vector', 'Raster']) {
       await expect(dialog.getByRole('radio', { name: tab })).toBeVisible();
     }
@@ -404,12 +404,12 @@ test.describe.serial('Map Builder', () => {
     await expect(page.locator('[data-sonner-toast][data-type="error"]')).toHaveCount(0);
   });
 
-  // fix(#B-008): basemap swapping moved OUT of the Add Dataset modal (Phase
+  // fix(#392): basemap swapping moved OUT of the Add Dataset modal (Phase
   // 1035) into the #stack-row-basemap-group row / BasemapGroupEditorScene
   // flyout — re-pointed here (mirrors the already-green "switches basemap
   // without losing overlay layers" test) while preserving the original
   // intent: swap -> save -> assert PUT persists basemap_style -> reload ->
-  // overlays intact.
+  // overlays intact. (audit B-008)
   test('swaps basemap via the basemap-group editor and persists after save', async ({ page }) => {
     const token = getAuthToken();
     const headers = { Authorization: `Bearer ${token}` };

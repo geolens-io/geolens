@@ -66,13 +66,13 @@ export function getParentGroupId(layer: MapLayerResponse): string | null {
   return (layer as GroupedLayer).parent_group_id ?? null;
 }
 
-// fix(#1280 CR-01): handleUngroup / handleMoveLayerOutOfGroup previously only
+// fix(#392): handleUngroup / handleMoveLayerOutOfGroup previously only
 // cleared the frontend-only `parent_group_id` field, leaving any PERSISTED
 // `style_config.builder.folderGroupId` on the underlying layer object intact.
 // buildDuplicateRenderingInput copies style_config verbatim, so duplicating a
 // just-ungrouped layer before Save carried the stale pointer to the backend —
 // and the next query-invalidation resync would silently re-group it via
-// hydrateFolderGroupLayers. Callers must clear this alongside parent_group_id.
+// hydrateFolderGroupLayers. Callers must clear this alongside parent_group_id. (audit CR-01)
 export function clearPersistedFolderGroup(
   styleConfig: StyleConfig | null | undefined,
 ): StyleConfig | null {

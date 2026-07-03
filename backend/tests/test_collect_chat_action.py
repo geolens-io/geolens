@@ -67,11 +67,11 @@ def test_spatial_query_emits_show_query_result_with_geojson_and_rows() -> None:
 
 
 def test_spatial_query_missing_bbox_does_not_raise_key_error() -> None:
-    """WR-03 (1278 review): if a future caller emits `geojson` without a paired
+    """fix(#392): if a future caller emits `geojson` without a paired
     `bbox` (the pairing is an unenforced invariant on this plain dict, not
     encoded in any type), _collect_chat_action must degrade gracefully — omit
     both fields from the action — rather than raise an uncaught KeyError
-    inside the action-collector callback."""
+    inside the action-collector callback. (audit WR-03)"""
     result = {
         "columns": ["geom", "name"],
         "rows": [[{"type": "Point", "coordinates": [-73.9, 40.7]}, "NYC"]],
@@ -148,12 +148,12 @@ def test_chat_action_round_trip_preserves_add_layer_dataset_name() -> None:
 
 
 def test_set_style_emits_backend_validated_paint_not_raw_tool_input() -> None:
-    """Regression (B-002/CH-02): _execute_chat_tool computes validated/clamped
+    """fix(#392): _execute_chat_tool computes validated/clamped
     paint into `result` (it lives there because `tool_input` was reassigned to
     `next_input` and returned), but _collect_chat_action previously re-emitted
     the raw `tool_input['paint']` fn_args unchanged. The emitted action's paint
     must reflect the validated `result` value, not the raw invalid/unclamped
-    one the model produced."""
+    one the model produced. (audit B-002/CH-02)"""
     raw_tool_input = {
         "layer_id": "layer-1",
         # Raw AI output: circle-radius is invalid for a fill layer and would be

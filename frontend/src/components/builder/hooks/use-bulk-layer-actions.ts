@@ -183,9 +183,9 @@ export function useBulkLayerActions({
     }
   }, [layersRef, setLocalLayers, setHasUnsavedChanges, mapInstanceRef]);
 
-  // B-004d / LM-04: returns true only when a group was actually created, so the
+  // fix(#392): returns true only when a group was actually created, so the
   // caller (MapBuilderPage) can clear the multi-selection ONLY on success — a
-  // no-op must never silently eat the user's selection.
+  // no-op must never silently eat the user's selection. (audit B-004d/LM-04)
   const handleBulkGroup = useCallback((selectedIds: Set<string>): boolean => {
     const current = layersRef.current;
     const selectedLayers = current.filter((l) => selectedIds.has(l.id));
@@ -197,15 +197,15 @@ export function useBulkLayerActions({
       (l as GroupedLayer).layer_type !== 'group:folder',
     );
 
-    // fix(#1280): B-004d / LM-04 — surface WHY the group action no-op'd instead
-    // of returning silently while the caller clears the selection anyway.
+    // fix(#392): surface WHY the group action no-op'd instead
+    // of returning silently while the caller clears the selection anyway. (audit B-004d/LM-04)
     if (groupableLayers.length !== selectedLayers.length) {
-      // fix(#1280 WR-01): the toast previously always said "already grouped,"
+      // fix(#392): the toast previously always said "already grouped,"
       // which is wrong when the real disqualifier is a raster/DEM layer or a
       // group row in the selection. Pick the message that matches the actual
       // reason. Priority: a group row in the selection is the most distinct
       // mistake, then an ineligible (non-vector) layer type, and only then
-      // fall back to the "already grouped" message.
+      // fall back to the "already grouped" message. (audit WR-01)
       const hasGroupRow = selectedLayers.some(
         (l) => (l as GroupedLayer).layer_type === 'group:folder',
       );
@@ -278,11 +278,11 @@ export function useBulkLayerActions({
         .map((l) => {
           const gl = l as GroupedLayer;
           if (gl.parent_group_id && selectedIds.has(gl.parent_group_id)) {
-            // fix(#1280 CR-01): clear the persisted folderGroupId alongside the
+            // fix(#392): clear the persisted folderGroupId alongside the
             // frontend-only parent_group_id — mirrors handleUngroup /
             // handleMoveLayerOutOfGroup (use-folder-group-layers.ts), otherwise a
             // child duplicated before Save carries the stale group pointer and
-            // gets silently re-grouped on the next server resync.
+            // gets silently re-grouped on the next server resync. (audit CR-01)
             return {
               ...gl,
               parent_group_id: null,

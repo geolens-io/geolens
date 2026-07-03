@@ -122,9 +122,9 @@ function getActionClearPaint(action: Pick<ChatAction, 'clear_paint'>): string[] 
     : [];
 }
 
-// CH-08: allowlist of the 9 known ChatAction wire types. getChatActions drops
+// fix(#392): allowlist of the 9 known ChatAction wire types. getChatActions drops
 // any item whose `type` is not in this set (rather than letting an unrecognized
-// type string reach handleChatAction's switch), and logs the drop in dev.
+// type string reach handleChatAction's switch), and logs the drop in dev. (audit CH-08)
 const KNOWN_CHAT_ACTION_TYPES: ReadonlySet<ChatAction['type']> = new Set([
   'set_filter',
   'set_style',
@@ -155,11 +155,11 @@ export function buildChatActionPaint(
 ): Record<string, unknown> {
   const paint = getActionPaint(action);
   const clearKeys = getActionClearPaint(action);
-  // B-005/CH-09: a replace_paint:true with no effective paint keys and no
+  // fix(#392): a replace_paint:true with no effective paint keys and no
   // clear_paint must never wipe existing styling — preserve current paint.
   // Defense-in-depth: handleChatAction's set_style case already gates on
   // hasPaintMutation before reaching here, but this guard holds even if
-  // buildChatActionPaint is ever called directly with such an action.
+  // buildChatActionPaint is ever called directly with such an action. (audit B-005/CH-09)
   if (action.replace_paint && (!paint || Object.keys(paint).length === 0) && clearKeys.length === 0) {
     return { ...(currentPaint ?? {}) };
   }
@@ -177,11 +177,11 @@ export function buildChatActionPaint(
   return nextPaint;
 }
 
-// B-005/CH-09: a standalone `replace_paint:true` is no longer treated as a
+// fix(#392): a standalone `replace_paint:true` is no longer treated as a
 // mutation on its own — an empty (or empty-after-validation) replace with no
 // clear_paint is a no-op, not a wipe. Callers must evaluate this against the
 // VALIDATED action (post validateChatPaint) so a replace reduced to empty by
-// geometry/bounds validation is also caught.
+// geometry/bounds validation is also caught. (audit B-005/CH-09)
 function hasPaintMutation(action: ChatAction): boolean {
   const paint = getActionPaint(action);
   return Boolean(
@@ -191,14 +191,14 @@ function hasPaintMutation(action: ChatAction): boolean {
 }
 
 /**
- * B-002/CH-01: bridge validator for AI-produced set_style / set_data_driven_style
+ * fix(#392): bridge validator for AI-produced set_style / set_data_driven_style
  * paint before it reaches MapLibre or the save payload. Drops paint properties
  * invalid for the layer's geometry type and clamps numeric properties to their
  * Style-Spec bounds — mirroring backend `validate_paint_with_feedback`
  * (backend/app/processing/ai/schemas.py). Render-mode aware: when `renderMode`
  * is 'heatmap' the geometry-type filter is skipped so heatmap-* properties
  * (valid regardless of the layer's point/line/polygon geometry_type) are kept
- * instead of dropped as invalid-for-circle/line/fill.
+ * instead of dropped as invalid-for-circle/line/fill. (audit B-002/CH-01)
  */
 function validateChatPaint(
   rawPaint: Record<string, unknown> | null,
@@ -211,9 +211,9 @@ function validateChatPaint(
   return clampPaintBounds(filterPaintForLayerType(rawPaint, layerType));
 }
 
-// B-002/CH-01: clamp bounds for AI-produced set_label numeric fields, matching
+// fix(#392): clamp bounds for AI-produced set_label numeric fields, matching
 // the sliders' own bounds in LabelEditor.tsx (fontSize 8-24px, haloWidth 0-4px)
-// so an AI label config can't push text off-scale before it reaches the map.
+// so an AI label config can't push text off-scale before it reaches the map. (audit B-002/CH-01)
 const LABEL_FONT_SIZE_BOUNDS: [number, number] = [8, 24];
 const LABEL_HALO_WIDTH_BOUNDS: [number, number] = [0, 4];
 
@@ -440,9 +440,9 @@ export function ChatPanel({
 
   /**
    * Dispatches a single ChatAction and returns whether it produced a real layer
-   * mutation. B-009 CH-07: "Applied N changes" must count effect, not intent —
+   * mutation. fix(#392): "Applied N changes" must count effect, not intent —
    * a no-op set_style or a rejected set_filter returns false so applyActions
-   * never records it in pendingActions (the array the render counts).
+   * never records it in pendingActions (the array the render counts). (audit B-009/CH-07)
    */
   function handleChatAction(action: ChatAction): boolean {
     const layerId = getActionLayerId(action);
@@ -472,14 +472,14 @@ export function ChatPanel({
         if (layerId) {
           const layer = layersRef.current.find((candidate) => candidate.id === layerId);
           if (layer) {
-            // B-002/CH-01: validate/clamp before checking for a mutation — an
+            // fix(#392): validate/clamp before checking for a mutation — an
             // action whose paint is reduced to empty by validation must not
-            // apply, and (B-005/CH-09) must not be treated as a mutation via
-            // a bare replace_paint:true either.
-            // WR-01 (1278 review): pass the layer's own render_mode through, same as
+            // apply, and must not be treated as a mutation via a bare
+            // replace_paint:true either. (audit B-002/CH-01, B-005/CH-09)
+            // fix(#392): pass the layer's own render_mode through, same as
             // set_data_driven_style below — set_style is the only AI tool that can tune
             // heatmap-radius/heatmap-opacity/heatmap-intensity, and without render-mode
-            // awareness those keys are silently stripped by geometry-type filtering.
+            // awareness those keys are silently stripped by geometry-type filtering. (audit WR-01)
             const validatedPaint = validateChatPaint(getActionPaint(action), layer, layer.style_config?.render_mode);
             const validatedAction: ChatAction = { ...action, paint: validatedPaint };
             if (hasPaintMutation(validatedAction)) {
@@ -494,8 +494,8 @@ export function ChatPanel({
         if (layerId && rawPaint) {
           const layer = layersRef.current.find((candidate) => candidate.id === layerId);
           const styleConfig = isRecord(action.style_config) ? (action.style_config as StyleConfig) : null;
-          // B-002/CH-01: render-mode aware — heatmap data-driven paint keeps its
-          // heatmap-* properties instead of being dropped as invalid-for-circle.
+          // fix(#392): render-mode aware — heatmap data-driven paint keeps its
+          // heatmap-* properties instead of being dropped as invalid-for-circle. (audit B-002/CH-01)
           // fix(#392): fall back to the layer's own render_mode when the action omits it
           // (style_config.render_mode is optional), so a data-driven heatmap update on a
           // heatmap layer keeps its heatmap-* paint instead of being validated as a circle
@@ -618,8 +618,8 @@ export function ChatPanel({
         if (lastSnapshotRef.current) lastSnapshotRef.current.supportsUndo = false;
         continue;
       }
-      // CH-07: "Applied N changes" counts effect, not intent — only record the
-      // action in pendingActions when handleChatAction reports a real mutation.
+      // fix(#392): "Applied N changes" counts effect, not intent — only record the
+      // action in pendingActions when handleChatAction reports a real mutation. (audit CH-07)
       const applied = handleChatAction(action);
       if (applied) {
         pendingActions.push(action);
@@ -1042,9 +1042,9 @@ export function ChatPanel({
                 })()}
                 {/* builder-audit #338 Applied-N nit: a pure query-result turn mutates nothing, so it
                     must not render "Applied N changes". Count only non-query actions.
-                    WR-02 (1278 review): add_layer/remove_layer are staged, not yet applied, until
+                    fix(#392): add_layer/remove_layer are staged, not yet applied, until
                     the user accepts them in the tray — exclude them too so "Applied N changes"
-                    doesn't double-count intent alongside the staging tray's own pending count. */}
+                    doesn't double-count intent alongside the staging tray's own pending count. (audit WR-02) */}
                 {(() => {
                   const appliedActions = msg.actions?.filter(
                     (a) => a.type !== 'show_query_result' && !isDestructiveAction(a),

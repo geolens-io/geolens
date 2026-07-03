@@ -125,7 +125,7 @@ describe('builder editor scene controller', () => {
     expect(result.current.isEditorOpen).toBe(true);
   });
 
-  // fix(#1280): B-004a / LM-01 — folder-group rows must not resolve to a real editor.
+  // fix(#392): folder-group rows must not resolve to a real editor. (audit B-004a/LM-01)
   it('derives a group scene for a folder-group editingLayer instead of falling through to default editing', () => {
     const groupLayer = makeLayer({ id: 'group-1', layer_type: 'group:folder' });
     expect(deriveBuilderEditorScene('group-1', groupLayer)).toBe('group');

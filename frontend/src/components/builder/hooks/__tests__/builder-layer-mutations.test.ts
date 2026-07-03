@@ -198,7 +198,7 @@ describe('removePerLayerCompanions — per-render-mode regression (MAP-17)', () 
 });
 
 // ---------------------------------------------------------------------------
-// buildDuplicateRenderingInput — adjacent positioning (B-004b / LM-02)
+// fix(#392): buildDuplicateRenderingInput — adjacent positioning (audit B-004b/LM-02)
 // ---------------------------------------------------------------------------
 
 describe('buildDuplicateRenderingInput — adjacent sort_order (B-004b / LM-02)', () => {

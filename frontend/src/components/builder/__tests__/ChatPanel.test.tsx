@@ -836,7 +836,7 @@ describe('ChatPanel', () => {
     await typeAndSend(user, 'filter');
     expect(await screen.findByText('Tried to filter')).toBeInTheDocument();
     expect(props.onFilterChange).not.toHaveBeenCalled();
-    // CH-07: a rejected filter is intent, not effect — it must not inflate the applied count.
+    // fix(#392): a rejected filter is intent, not effect — it must not inflate the applied count. (audit CH-07)
     expect(screen.queryByText(/applied/i)).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /undo/i })).not.toBeInTheDocument();
   });

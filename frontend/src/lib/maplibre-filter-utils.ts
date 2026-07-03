@@ -339,7 +339,7 @@ export function sanitizeNullableNumericFilter(
   // so it can never be persisted nor reach setFilter via any caller.
   if (Array.isArray(filter) && filter.length === 0) return null;
   const sanitized = sanitizeFilterNode(filter);
-  // fix(FL-01): preserve input reference when structurally unchanged so the filter editor re-emit guard holds
+  // fix(#392): preserve input reference when structurally unchanged so the filter editor re-emit guard holds (audit FL-01)
   if (JSON.stringify(sanitized) === JSON.stringify(filter)) return filter;
   return sanitized as FilterSpecification;
 }

@@ -1,10 +1,10 @@
 /**
- * B-007 / LB-02 regression: switching render modes back to point/circle
+ * fix(#392): switching render modes back to point/circle
  * re-adds a layer's companion label layer. That re-add must immediately carry
  * the parent layer's active filter (via the shared `sanitizeNullableNumericFilter`),
  * mirroring the canonical pattern in `use-layer-map-sync.ts`'s label-add path —
  * otherwise filtered-out features briefly render via their labels until the
- * next full sync overwrites them.
+ * next full sync overwrites them. (audit B-007/LB-02)
  *
  * Mirrors the mock harness in `use-layer-map-sync.test.ts` (vi.mock for
  * layer-adapters/registry, map-sync, maplibre-filter-utils, label-layer-utils,

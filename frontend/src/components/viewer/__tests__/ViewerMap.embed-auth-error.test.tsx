@@ -1,8 +1,8 @@
-// B-006: the viewer's global map.on('error') handler swallowed
+// fix(#392): the viewer's global map.on('error') handler swallowed
 // every 4xx, so an expired/invalid embed token (X-Embed-Token) rendered blank
 // layers with no user feedback. This spec proves an embed-token 401/403
 // surfaces a deduped "access expired" toast, while a genuine no-data 404
-// stays silent (regression guard).
+// stays silent (regression guard). (audit B-006)
 import type { ReactNode } from 'react';
 import { render, waitFor } from '@/test/test-utils';
 import { ViewerMap } from '../ViewerMap';
@@ -122,8 +122,8 @@ vi.mock('@vis.gl/react-maplibre', async () => {
   };
 });
 
-// Mutable so WR-01b can simulate a deployment with a configured tile CDN
-// (`cdn_base_url`) without re-declaring the whole mock per test.
+// Mutable so the WR-01b case below can simulate a deployment with a configured
+// tile CDN (`cdn_base_url`) without re-declaring the whole mock per test. (fix #392, audit WR-01b)
 const tileConfigState = vi.hoisted(() => ({ cdn_base_url: null as string | null }));
 
 vi.mock('@/hooks/use-settings', () => ({
@@ -232,9 +232,9 @@ describe('ViewerMap embed-token auth error (B-006)', () => {
     expect(toast.error).not.toHaveBeenCalled();
   });
 
-  // WR-01: transformRequest attaches X-Embed-Token to every request the map
+  // fix(#392): transformRequest attaches X-Embed-Token to every request the map
   // makes, including third-party basemap CDN fetches — a 401/403 from one of
-  // those hosts is not an embed-token problem and must not misfire the toast.
+  // those hosts is not an embed-token problem and must not misfire the toast. (audit WR-01)
   it('stays quiet on a 401 from a third-party basemap CDN host', async () => {
     renderEmbedViewer();
     await waitFor(() => {
@@ -265,9 +265,9 @@ describe('ViewerMap embed-token auth error (B-006)', () => {
     );
   });
 
-  // WR-01a: a protocol-relative URL (`//host/path`) starts with `/` but is
+  // fix(#392): a protocol-relative URL (`//host/path`) starts with `/` but is
   // NOT a same-origin relative path — it must still be origin-checked rather
-  // than short-circuited to first-party.
+  // than short-circuited to first-party. (audit WR-01a)
   it('stays quiet on a 401 from a protocol-relative third-party CDN URL', async () => {
     renderEmbedViewer();
     await waitFor(() => {
@@ -281,9 +281,9 @@ describe('ViewerMap embed-token auth error (B-006)', () => {
     expect(toast.error).not.toHaveBeenCalled();
   });
 
-  // WR-01b: when the deployment configures a tile CDN (`cdn_base_url`), that
+  // fix(#392): when the deployment configures a tile CDN (`cdn_base_url`), that
   // origin is first-party too — a genuine embed-token failure there must
-  // still surface the toast, not be swallowed as "third-party".
+  // still surface the toast, not be swallowed as "third-party". (audit WR-01b)
   it('surfaces the toast on a 401 from the configured tile CDN origin', async () => {
     tileConfigState.cdn_base_url = 'https://cdn.example.com';
     renderEmbedViewer();

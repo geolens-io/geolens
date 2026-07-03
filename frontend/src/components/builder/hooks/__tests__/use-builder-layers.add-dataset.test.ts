@@ -326,10 +326,10 @@ describe('freshLayerId lifecycle (Phase 1042 POL-15)', () => {
 });
 
 // ---------------------------------------------------------------------------
-// B-004c / audit LM-03: dropping a dataset onto a folder group must insert
+// fix(#392): dropping a dataset onto a folder group must insert
 // adjacent to the group's existing block, not at array index 0 — otherwise
 // hydrateFolderGroupLayers (which anchors the group at its FIRST child) drags
-// the whole group to the stack top after a save/reload round-trip.
+// the whole group to the stack top after a save/reload round-trip. (audit B-004c/LM-03)
 // ---------------------------------------------------------------------------
 describe('handleAddDataset — group-drop adjacency (B-004c / LM-03)', () => {
   it('Test 1: inserts the new child adjacent to the group block, not at index 0', () => {
@@ -413,11 +413,11 @@ describe('handleAddDataset — group-drop adjacency (B-004c / LM-03)', () => {
     expect(ids[0]).toBe('new-loose');
   });
 
-  // WR-02: a loose (non-group) add renumbers every existing layer's sort_order
+  // fix(#392): a loose (non-group) add renumbers every existing layer's sort_order
   // locally, but the backend does not renumber sibling rows on this path
   // (maps/service_layers.py:106-120) — so that renumber is an unpersisted diff
   // the apiLayers resync effect could silently clobber before Save unless the
-  // map is marked dirty. Fails on pre-fix code (hasUnsavedChanges stayed false).
+  // map is marked dirty. Fails on pre-fix code (hasUnsavedChanges stayed false). (audit WR-02)
   it('Test 4 (WR-02): non-grouped add-dataset that renumbers sibling sort_order marks the map dirty', () => {
     const existingA = makeMockLayer({ id: 'existing-a', sort_order: 0 });
     const existingB = makeMockLayer({ id: 'existing-b', sort_order: 1 });

@@ -183,9 +183,9 @@ def _valid_paint_props_for_geometry(
     geometry_type: str | None,
     render_mode: str | None = None,
 ) -> tuple[str | None, set[str]]:
-    # WR-01 (1278 review): render-mode aware, mirroring frontend validateChatPaint —
+    # fix(#392): render-mode aware, mirroring frontend validateChatPaint —
     # a heatmap-rendered layer's dataset_geometry_type is virtually always Point, so
-    # without this the geometry-type filter would strip every heatmap-* property.
+    # without this the geometry-type filter would strip every heatmap-* property. (audit WR-01)
     if render_mode == "heatmap":
         return "heatmap", _VALID_PAINT_PROPS["heatmap"]
     layer_type = _paint_layer_type_for_geometry(geometry_type)
@@ -221,7 +221,7 @@ def validate_paint_with_feedback(
     Used by the chat service to feed validation feedback back to the LLM.
 
     render_mode: when 'heatmap', geometry-type filtering is skipped so
-    heatmap-* properties are kept instead of dropped (WR-01, 1278 review) —
+    heatmap-* properties are kept instead of dropped (fix #392, audit WR-01) —
     mirrors the frontend's validateChatPaint render-mode awareness.
     """
     if not paint or (not geometry_type and render_mode != "heatmap"):
@@ -259,7 +259,7 @@ def validate_paint_property_names_with_feedback(
 ) -> tuple[list[str], list[str]]:
     """Validate paint property names for explicit style-clear actions.
 
-    render_mode: see validate_paint_with_feedback (WR-01, 1278 review).
+    render_mode: see validate_paint_with_feedback (fix #392, audit WR-01).
     """
     if not properties or (not geometry_type and render_mode != "heatmap"):
         return [], []

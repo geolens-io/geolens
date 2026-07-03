@@ -82,7 +82,7 @@ export function useFolderGroupLayers({
       // Remove the group container, keep children (clear their parent_group_id
       // AND any persisted style_config.builder.folderGroupId — otherwise a
       // child duplicated before Save carries the stale group pointer and gets
-      // silently re-grouped on the next server resync; see CR-01).
+      // silently re-grouped on the next server resync; see fix #392, audit CR-01).
       const next = prev
         .filter((l) => l.id !== groupId)
         .map((l) => {
@@ -183,8 +183,8 @@ export function useFolderGroupLayers({
 
       // Find the position of the group container to place the layer just after it
       const groupIdx = prev.findIndex((l) => l.id === parentGroupId);
-      // fix(#1280 CR-01): clear the persisted folderGroupId alongside the
-      // frontend-only parent_group_id — see handleUngroup comment above.
+      // fix(#392): clear the persisted folderGroupId alongside the
+      // frontend-only parent_group_id — see handleUngroup comment above. (audit CR-01)
       const updatedLayer: GroupedLayer = {
         ...gl,
         parent_group_id: null,

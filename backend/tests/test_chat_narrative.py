@@ -240,7 +240,7 @@ async def test_add_layer_resolves_dataset_name_end_to_end():
     )
 
 
-# --- WR-01 (1278 review): set_style heatmap-radius tweak survives validation ---
+# --- fix(#392): set_style heatmap-radius tweak survives validation (audit WR-01) ---
 
 
 @pytest.mark.anyio

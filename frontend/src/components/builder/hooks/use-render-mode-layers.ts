@@ -173,7 +173,7 @@ export function useRenderModeLayers({
       if (!map.getLayer(labelId) && map.getSource(sourceId)) {
         const geomType = getLayerType(layer.dataset_geometry_type);
         map.addLayer(buildLabelLayerSpec({ labelId, sourceId, sourceLayer, lc: layer.label_config, geomType }));
-        // fix(LB-02): carry the parent layer's filter onto the re-added label so filtered-out features stay excluded
+        // fix(#392): carry the parent layer's filter onto the re-added label so filtered-out features stay excluded (audit LB-02)
         map.setFilter(labelId, sanitizeNullableNumericFilter(layer.filter));
         map.setLayoutProperty(labelId, 'visibility', vis);
       } else if (map.getLayer(labelId)) {

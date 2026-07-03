@@ -143,16 +143,16 @@ function defaultSizeRange(tgt: 'color' | 'radius' | 'width'): [number, number] {
   return [2, 20]; // radius default
 }
 
-// fix(UX-L1): API/AI-authored (seeded) graduated configs often omit classCount
+// fix(#392): API/AI-authored (seeded) graduated configs often omit classCount
 // and sizeRange since they're fully implied by colors/sizes/breaks — derive
 // them so styleConfigAlreadyMatches (and the local state seeded from the same
 // config) recognize a complete seeded config as already-matching instead of
-// treating the omission as drift and silently regenerating on mount.
+// treating the omission as drift and silently regenerating on mount. (audit UX-L1)
 //
-// fix(WR-01): a config can carry BOTH colors and sizes (e.g. a double-encoded
+// fix(#392): a config can carry BOTH colors and sizes (e.g. a double-encoded
 // graduated-radius layer that also stores its color ramp), and the two arrays
 // can diverge in length. `preferSizes` lets a size-target caller derive from
-// `sizes.length` instead of unconditionally preferring `colors.length`.
+// `sizes.length` instead of unconditionally preferring `colors.length`. (audit WR-01)
 function effectiveClassCountOf(
   cfg: StyleConfig | null | undefined,
   preferSizes = false,
@@ -248,8 +248,8 @@ export function styleConfigAlreadyMatches(p: StyleGuardParams): boolean {
       ec.target === p.target &&
       ec.column === p.column &&
       ec.method === p.method &&
-      // fix(WR-01): this is the size-target branch — derive classCount from
-      // sizes.length, not colors.length, for a config that carries both.
+      // fix(#392): this is the size-target branch — derive classCount from
+      // sizes.length, not colors.length, for a config that carries both. (audit WR-01)
       effectiveClassCountOf(ec, true) === p.classCount &&
       ec.sizes &&
       ecSizeRange &&
@@ -294,11 +294,11 @@ export function DataDrivenStyleEditor({
   const [ramp, setRamp] = useState<string>(
     existingConfig?.ramp ?? nextRotatingRamp(existingConfig?.mode ?? 'categorical', rampRotationIndex),
   );
-  // fix(WR-01): only derive classCount/sizeRange from a persisted config when
+  // fix(#392): only derive classCount/sizeRange from a persisted config when
   // that config is actually in graduated mode — a `mode: 'categorical'`
   // config can still carry stray graduated-shaped fields (StyleConfig is an
   // open `[key: string]: unknown` bag), and deriving from them here would
-  // silently poison a later switch back to graduated mode.
+  // silently poison a later switch back to graduated mode. (audit WR-01)
   const [classCount, setClassCount] = useState<number>(
     existingConfig?.mode === 'graduated'
       ? existingConfig?.classCount ??
@@ -628,10 +628,10 @@ export function DataDrivenStyleEditor({
       if (radiusProp) nextPaint[radiusProp] = 5;
       if (widthProp) nextPaint[widthProp] = 2;
     } else {
-      // fix(WR-01): entering graduated mode must never carry forward a
+      // fix(#392): entering graduated mode must never carry forward a
       // classCount/sizeRange that could have been derived from stray
       // graduated-shaped fields on a categorical config at mount — reset to
-      // defaults so a later graduated session always starts clean.
+      // defaults so a later graduated session always starts clean. (audit WR-01)
       setClassCount(5);
       setSizeRange(defaultSizeRange('color'));
     }

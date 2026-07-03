@@ -456,8 +456,8 @@ describe('useBuilderLayers — handleBulkGroup (POL-09)', () => {
     expect(updatedC?.parent_group_id).toBe(groupId);
   });
 
-  // Test A (ineligible — count, B-004d / LM-04): a single loose layer selection
-  // returns false, toasts the "need two" reason, and does not mutate localLayers.
+  // fix(#392): a single loose layer selection
+  // returns false, toasts the "need two" reason, and does not mutate localLayers. (audit B-004d/LM-04)
   it('Test A: single loose layer returns false, toasts bulkGroupNeedTwo, and does not mutate localLayers', async () => {
     const infoSpy = vi.spyOn(toast, 'info');
     const layerA = makeMockLayer({ id: 'a', sort_order: 0, dataset_record_type: 'vector_dataset' });
@@ -497,9 +497,9 @@ describe('useBuilderLayers — handleBulkGroup (POL-09)', () => {
     expect(result.current.localLayers.length).toBe(before);
   });
 
-  // fix(#1280 WR-01): mixed selection with a raster layer must toast the
+  // fix(#392): mixed selection with a raster layer must toast the
   // TYPE-specific reason, not the generic (and factually wrong, for this
-  // case) "already grouped" message.
+  // case) "already grouped" message. (audit WR-01)
   it('Test 11: mixed selection including a raster layer returns false, toasts bulkGroupSkippedType, does not mutate localLayers', async () => {
     const infoSpy = vi.spyOn(toast, 'info');
     const layerA = makeMockLayer({ id: 'a', sort_order: 0, dataset_record_type: 'vector_dataset' });
@@ -519,8 +519,8 @@ describe('useBuilderLayers — handleBulkGroup (POL-09)', () => {
     expect(result.current.localLayers.length).toBe(before);
   });
 
-  // fix(#1280 WR-01): a group row in the selection must toast the
-  // GROUP-ROW-specific reason, not the generic "already grouped" message.
+  // fix(#392): a group row in the selection must toast the
+  // GROUP-ROW-specific reason, not the generic "already grouped" message. (audit WR-01)
   it('Test B (ineligible — group:folder row in selection): returns false, toasts bulkGroupSkippedGroupRow', async () => {
     const infoSpy = vi.spyOn(toast, 'info');
     const groupRow = makeMockLayer({ id: 'g1', sort_order: 0, layer_type: 'group:folder' });

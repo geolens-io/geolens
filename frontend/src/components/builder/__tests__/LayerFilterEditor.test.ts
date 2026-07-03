@@ -512,8 +512,8 @@ describe('LayerFilterEditor - EASY-18 empty-state hint', () => {
 });
 
 // ---------------------------------------------------------------------------
-// B-001 / FL-01: multi-condition round-trip through the real emit -> sanitize
-// -> feed-back loop (mirrors handleFilterChange in use-layer-map-sync.ts).
+// fix(#392): multi-condition round-trip through the real emit -> sanitize
+// -> feed-back loop (mirrors handleFilterChange in use-layer-map-sync.ts). (audit B-001/FL-01)
 // ---------------------------------------------------------------------------
 // A controlled wrapper that holds `filter` state and — exactly like the real
 // parent — routes every emitted value through the real sanitizeNullableNumericFilter

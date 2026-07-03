@@ -179,9 +179,9 @@ export function filterPaintForLayerType(
   );
 }
 
-/** B-002/CH-01: Style-Spec numeric bounds for paint properties, mirroring backend
+/** fix(#392): Style-Spec numeric bounds for paint properties, mirroring backend
  *  `_PAINT_BOUNDS` (backend/app/processing/ai/schemas.py) so AI-produced paint is
- *  clamped identically on both sides of the wire. */
+ *  clamped identically on both sides of the wire. (audit B-002/CH-01) */
 const PAINT_BOUNDS: Record<string, [number, number]> = {
   'fill-opacity': [0, 1],
   'line-opacity': [0, 1],

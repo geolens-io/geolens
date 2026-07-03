@@ -511,13 +511,13 @@ export function useBuilderLayers(
                   return [insertedLayer as MapLayerResponse, ...prev].map((l, i) => ({ ...l, sort_order: i }));
                 }
 
-                // fix(#1280): B-004c / LM-03 — insert adjacent to the group's
+                // fix(#392): insert adjacent to the group's
                 // existing block instead of at array index 0. hydrateFolderGroupLayers
                 // anchors the group row at the position of its FIRST child, so
                 // prepending here would drag the whole group to the stack top after a
                 // save/reload round-trip. Insert immediately after the group's LAST
                 // existing child (or immediately after the group row itself when it
-                // has no children yet) so the first child's position never moves.
+                // has no children yet) so the first child's position never moves. (audit B-004c/LM-03)
                 const groupIdx = prev.findIndex((l) => l.id === parentGroupId);
                 let lastChildIdx = -1;
                 for (let i = prev.length - 1; i >= 0; i--) {
@@ -540,13 +540,13 @@ export function useBuilderLayers(
               if (!savedLayerBaselineRef.current.some((l) => l.id === createdLayer.id)) {
                 savedLayerBaselineRef.current = [createdLayer, ...savedLayerBaselineRef.current];
               }
-              // fix(WR-02): mark dirty unconditionally, not just for the grouped
+              // fix(#392): mark dirty unconditionally, not just for the grouped
               // branch — the non-grouped branch above renumbers every existing
               // layer's sort_order locally, but the backend does not renumber
               // sibling rows (maps/service_layers.py:106-120), so that renumber is
               // an unpersisted diff the apiLayers resync effect could otherwise
               // silently clobber before Save. Same defect class as CR-01
-              // (handleDuplicateRendering).
+              // (handleDuplicateRendering). (audit WR-02)
               setHasUnsavedChanges(true);
               if (parentGroupId) {
                 // Group membership is unsaved frontend state — mark dirty so the
@@ -638,10 +638,10 @@ export function useBuilderLayers(
 
     const currentLayers = layersRef.current;
     const data = buildDuplicateRenderingInput(layer, currentLayers);
-    // fix(#1280): B-004b / LM-02 — carry the source's frontend-only
+    // fix(#392): carry the source's frontend-only
     // parent_group_id so a duplicate of a grouped layer stays in the group
     // instead of escaping to the stack bottom. MapLayerInput/the API cannot
-    // carry this field; it is stamped onto the LOCAL duplicate only.
+    // carry this field; it is stamped onto the LOCAL duplicate only. (audit B-004b/LM-02)
     const sourceParentGroupId = (layer as GroupedLayer).parent_group_id ?? null;
 
     addLayerMutation.mutate(
@@ -674,13 +674,13 @@ export function useBuilderLayers(
             ...savedLayerBaselineRef.current.filter((candidate) => candidate.id !== createdLayer.id),
             createdLayer,
           ];
-          // fix(#1280 CR-01): the splice above always renumbers the FULL local
+          // fix(#392): the splice above always renumbers the FULL local
           // array (adjacent-insert, not append) — this is a real, unpersisted
           // diff for grouped AND non-grouped duplicates alike. Mark dirty
           // unconditionally so the `!hasUnsavedChanges`-gated apiLayers resync
           // effect (triggered by addLayerMutation's own query invalidation)
           // cannot silently overwrite the adjacent placement with server order
-          // before Save runs.
+          // before Save runs. (audit CR-01)
           setHasUnsavedChanges(true);
           if (createdLayer?.id) {
             setExpandedLayerId(createdLayer.id);
