@@ -19,7 +19,7 @@ import {
   makeBuilderLayer,
   makeBuilderMap,
 } from '@/components/builder/__tests__/fixtures/map-builder-fixtures';
-import type { MapLayerResponse, MapResponse } from '@/types/api';
+import type { MapLayerResponse, MapResponse, StyleConfig } from '@/types/api';
 import { vi } from 'vitest';
 
 type MaplibreMap = import('maplibre-gl').Map;
@@ -55,7 +55,8 @@ function renderBuilderLayers(
 describe('handleDuplicateRendering — grouped-duplicate positioning (B-004b / LM-02)', () => {
   it('Test 2: duplicating a grouped layer keeps parent_group_id and splices adjacent to the source', () => {
     const before = makeMockLayer({ id: 'before', sort_order: 0 });
-    const groupRow = makeMockLayer({ id: 'group-1', sort_order: 1, layer_type: 'group:folder' });
+    // fix(#392): 'group:folder' is a frontend-only synthetic layer_type (GroupedLayer); cast only.
+    const groupRow = { ...makeMockLayer({ id: 'group-1', sort_order: 1 }), layer_type: 'group:folder' } as unknown as MapLayerResponse;
     const source = {
       ...makeMockLayer({ id: 'src', sort_order: 2 }),
       parent_group_id: 'group-1',
@@ -177,7 +178,8 @@ describe('handleDuplicateRendering — grouped-duplicate positioning (B-004b / L
       ...makeMockLayer({
         id: 'src',
         sort_order: 1,
-        style_config: { builder: { folderGroupId: 'group-1', folderGroupName: 'Group 1' } },
+        // fix(#392): partial StyleConfig fixture (builder-only) — real runtime shape, cast only.
+        style_config: { builder: { folderGroupId: 'group-1', folderGroupName: 'Group 1' } } as unknown as StyleConfig,
       }),
       parent_group_id: 'group-1',
     } as unknown as MapLayerResponse;
@@ -218,7 +220,8 @@ describe('handleDuplicateRendering — grouped-duplicate positioning (B-004b / L
       ...makeMockLayer({
         id: 'src',
         sort_order: 1,
-        style_config: { builder: { folderGroupId: 'group-1', folderGroupName: 'Group 1' } },
+        // fix(#392): partial StyleConfig fixture (builder-only) — real runtime shape, cast only.
+        style_config: { builder: { folderGroupId: 'group-1', folderGroupName: 'Group 1' } } as unknown as StyleConfig,
       }),
       parent_group_id: 'group-1',
     } as unknown as MapLayerResponse;

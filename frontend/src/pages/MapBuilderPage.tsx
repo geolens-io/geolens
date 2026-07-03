@@ -74,7 +74,7 @@ import { useDocumentTitle } from '@/hooks/use-document-title';
 import { useEnabledPlugins } from '@/hooks/use-settings';
 import { useBuilderLayout } from '@/components/builder/hooks/use-builder-layout';
 import { useBuilderDialogs } from '@/components/builder/hooks/use-builder-dialogs';
-import { useBuilderEditorScene } from '@/components/builder/hooks/use-builder-editor-scene';
+import { useBuilderEditorScene, type BuilderEditorScene } from '@/components/builder/hooks/use-builder-editor-scene';
 import { useFilteredFeatureCount } from '@/components/builder/hooks/use-filtered-feature-count';
 import { useBuilderLayers } from '@/components/builder/hooks/use-builder-layers';
 import { useBuilderSave } from '@/components/builder/hooks/use-builder-save';
@@ -565,6 +565,13 @@ export function MapBuilderPage() {
     savedLayerBaseline: layers.savedLayerBaseline,
     basemapGroup,
   });
+
+  // fix(#392): 'group' means the editor is closed (LayerEditorPanel never
+  // renders for it — see isEditorOpen above), so LayerEditorPanel's narrower
+  // editorScene prop type intentionally excludes it. Derive a panel-safe
+  // scene once rather than widening the panel's contract.
+  const panelEditorScene: Exclude<BuilderEditorScene, 'group'> =
+    editorScene === 'group' ? 'default' : editorScene;
 
   // EASY-18 (Phase 1138-03): rendered-feature count for the active editing layer.
   // Returns null when no layer is being edited, when no filter is set, or when
@@ -1494,7 +1501,7 @@ export function MapBuilderPage() {
                 isDrillDown={false}
                 handlers={layerEditorHandlers}
                 activeTab={layers.activeEditorTab}
-                editorScene={editorScene}
+                editorScene={panelEditorScene}
                 sceneContent={sceneContent ?? undefined}
                 sceneFooter={sceneFooter ?? undefined}
                 breadcrumbPresetName={breadcrumbPresetName}
@@ -1545,7 +1552,7 @@ export function MapBuilderPage() {
                   isDrillDown={true}
                   handlers={layerEditorHandlers}
                   activeTab={layers.activeEditorTab}
-                  editorScene={editorScene}
+                  editorScene={panelEditorScene}
                   sceneContent={sceneContent ?? undefined}
                   sceneFooter={sceneFooter ?? undefined}
                   breadcrumbPresetName={breadcrumbPresetName}

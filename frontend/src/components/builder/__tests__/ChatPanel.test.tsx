@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { sendChatMessage, streamChatMessage } from '@/api/maps';
 import { ApiError } from '@/api/client';
 import { ChatPanel, type LayerActions } from '../ChatPanel';
-import type { MapLayerResponse } from '@/types/api';
+import type { MapLayerResponse, StyleConfig } from '@/types/api';
 
 // scrollIntoView is not available in jsdom
 Element.prototype.scrollIntoView = vi.fn();
@@ -579,7 +579,8 @@ describe('ChatPanel', () => {
       layers: [makeLayer({
         dataset_geometry_type: 'Point',
         paint: {},
-        style_config: { render_mode: 'heatmap' },
+        // fix(#392): partial StyleConfig fixture — real runtime shape, cast only.
+        style_config: { render_mode: 'heatmap' } as unknown as StyleConfig,
       })],
     });
     await typeAndSend(user, 'widen the heatmap radius');
@@ -618,7 +619,8 @@ describe('ChatPanel', () => {
       layers: [makeLayer({
         dataset_geometry_type: 'Point',
         paint: {},
-        style_config: { render_mode: 'heatmap' },
+        // fix(#392): partial StyleConfig fixture — real runtime shape, cast only.
+        style_config: { render_mode: 'heatmap' } as unknown as StyleConfig,
       })],
     });
     await typeAndSend(user, 'restyle the heatmap by magnitude');

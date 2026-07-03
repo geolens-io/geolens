@@ -14,7 +14,7 @@ import {
   makeBuilderLayer,
   makeBuilderMap,
 } from '@/components/builder/__tests__/fixtures/map-builder-fixtures';
-import type { MapLayerResponse, MapResponse } from '@/types/api';
+import type { MapLayerResponse, MapResponse, StyleConfig } from '@/types/api';
 
 type MaplibreMap = import('maplibre-gl').Map;
 
@@ -254,7 +254,8 @@ describe('useBuilderLayers — folder group handlers', () => {
       ...makeMockLayer({
         id: 'child-1',
         sort_order: 1,
-        style_config: { builder: { folderGroupId: 'group-1', folderGroupName: 'Group 1' } },
+        // fix(#392): partial StyleConfig fixture (builder-only) — real runtime shape, cast only.
+        style_config: { builder: { folderGroupId: 'group-1', folderGroupName: 'Group 1' } } as unknown as StyleConfig,
       }),
       parent_group_id: 'group-1',
     } as unknown as MapLayerResponse;
@@ -337,7 +338,8 @@ describe('useBuilderLayers — folder group handlers', () => {
     const childLayer = {
       ...makeMockLayer({
         id: 'child-1',
-        style_config: { builder: { folderGroupId: 'group-1', folderGroupName: 'Group 1' } },
+        // fix(#392): partial StyleConfig fixture (builder-only) — real runtime shape, cast only.
+        style_config: { builder: { folderGroupId: 'group-1', folderGroupName: 'Group 1' } } as unknown as StyleConfig,
       }),
       parent_group_id: 'group-1',
     } as unknown as MapLayerResponse;

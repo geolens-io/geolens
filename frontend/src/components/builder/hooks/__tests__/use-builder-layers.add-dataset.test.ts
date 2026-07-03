@@ -334,7 +334,8 @@ describe('freshLayerId lifecycle (Phase 1042 POL-15)', () => {
 describe('handleAddDataset — group-drop adjacency (B-004c / LM-03)', () => {
   it('Test 1: inserts the new child adjacent to the group block, not at index 0', () => {
     const before = makeMockLayer({ id: 'before', sort_order: 0 });
-    const groupRow = makeMockLayer({ id: 'group-1', sort_order: 1, layer_type: 'group:folder' });
+    // fix(#392): 'group:folder' is a frontend-only synthetic layer_type (GroupedLayer); cast only.
+    const groupRow = { ...makeMockLayer({ id: 'group-1', sort_order: 1 }), layer_type: 'group:folder' } as unknown as MapLayerResponse;
     const child1 = {
       ...makeMockLayer({ id: 'child1', sort_order: 2 }),
       parent_group_id: 'group-1',
@@ -364,7 +365,8 @@ describe('handleAddDataset — group-drop adjacency (B-004c / LM-03)', () => {
 
   it('Test 2: the group anchor survives a prepareLayersForPersistence -> hydrateFolderGroupLayers round-trip', () => {
     const before = makeMockLayer({ id: 'before', sort_order: 0 });
-    const groupRow = makeMockLayer({ id: 'group-1', sort_order: 1, layer_type: 'group:folder' });
+    // fix(#392): 'group:folder' is a frontend-only synthetic layer_type (GroupedLayer); cast only.
+    const groupRow = { ...makeMockLayer({ id: 'group-1', sort_order: 1 }), layer_type: 'group:folder' } as unknown as MapLayerResponse;
     const child1 = {
       ...makeMockLayer({ id: 'child1', sort_order: 2 }),
       parent_group_id: 'group-1',
