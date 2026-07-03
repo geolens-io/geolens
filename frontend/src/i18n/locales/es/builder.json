@@ -779,7 +779,9 @@
     "styleCopied": "Estilo copiado",
     "stylePasted": "Estilo pegado",
     "bulkStyleApplied": "Estilo aplicado a {{count}} capas",
-    "bulkStyleSkipped": "{{count}} capas omitidas (geometría incompatible)"
+    "bulkStyleSkipped": "{{count}} capas omitidas (geometría incompatible)",
+    "bulkGroupNeedTwo": "Selecciona al menos 2 capas sueltas para agrupar",
+    "bulkGroupSkipped": "Algunas capas seleccionadas ya están agrupadas y no se pueden agrupar de nuevo"
   },
   "builderMap": {
     "loading": "Cargando mapa...",

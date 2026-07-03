@@ -779,7 +779,9 @@
     "styleCopied": "Style copié",
     "stylePasted": "Style collé",
     "bulkStyleApplied": "Style appliqué à {{count}} couches",
-    "bulkStyleSkipped": "{{count}} couches ignorées (géométrie incompatible)"
+    "bulkStyleSkipped": "{{count}} couches ignorées (géométrie incompatible)",
+    "bulkGroupNeedTwo": "Sélectionnez au moins 2 couches libres pour les regrouper",
+    "bulkGroupSkipped": "Certaines couches sélectionnées sont déjà groupées et ne peuvent pas être regroupées à nouveau"
   },
   "builderMap": {
     "loading": "Chargement de la carte...",
