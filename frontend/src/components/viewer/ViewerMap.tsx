@@ -331,14 +331,28 @@ export const ViewerMap = memo(function ViewerMap({
       // Filter expected tile errors (no-data tiles outside extent) and
       // surface anything else as a deduped toast so users know the map
       // has a real problem (RES-3). Previously suppressed entirely in prod.
-      map.on('error', (e: { error: { message?: string; status?: number } }) => {
+      map.on('error', (e: { error: { message?: string; status?: number; url?: string } }) => {
         const status = e.error?.status;
-        // Embed-token auth failures (expired/invalid X-Embed-Token) get their
-        // own deduped "access expired" toast instead of being swallowed by
-        // the generic 4xx suppression below (B-006 / audit SH-01). The copy
-        // is intentionally generic — it must never echo the token, dataset
-        // id, or raw error detail (see threat_model T-1281-01).
-        if (embedToken && (status === 401 || status === 403)) {
+        // `transformRequest` above attaches X-Embed-Token to every request the
+        // map makes, including third-party basemap style/sprite/glyph fetches
+        // (e.g. OpenFreeMap, CartoDB). A 401/403 from one of those CDNs is not
+        // an embed-token problem, so only treat the failure as an embed-auth
+        // issue when the failing request was same-origin (our own API/tile
+        // endpoints). When maplibre doesn't report a url, default to treating
+        // it as first-party to preserve prior behavior.
+        const isThirdPartyUrl = (url?: string): boolean => {
+          if (!url || url.startsWith('/')) return false;
+          try {
+            return new URL(url, window.location.origin).origin !== window.location.origin;
+          } catch {
+            return false;
+          }
+        };
+        // Embed-token auth failures (expired/invalid X-Embed-Token) get their own
+        // deduped "access expired" toast instead of being swallowed by the generic
+        // 4xx suppression below. Copy is intentionally generic — must never echo
+        // the token, dataset id, or raw error detail.
+        if (embedToken && (status === 401 || status === 403) && !isThirdPartyUrl(e.error?.url)) {
           toast.error(t('viewer.embedAuthError', { defaultValue: 'This embedded map\'s access has expired or is no longer valid.' }), {
             id: 'viewer-embed-auth-error',
           });

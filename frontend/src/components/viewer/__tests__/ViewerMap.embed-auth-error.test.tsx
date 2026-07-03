@@ -226,4 +226,37 @@ describe('ViewerMap embed-token auth error (B-006)', () => {
 
     expect(toast.error).not.toHaveBeenCalled();
   });
+
+  // WR-01: transformRequest attaches X-Embed-Token to every request the map
+  // makes, including third-party basemap CDN fetches — a 401/403 from one of
+  // those hosts is not an embed-token problem and must not misfire the toast.
+  it('stays quiet on a 401 from a third-party basemap CDN host', async () => {
+    renderEmbedViewer();
+    await waitFor(() => {
+      expect(mapState.fakeMap.on).toHaveBeenCalledWith('error', expect.any(Function));
+    });
+
+    mapState.fakeMap.emit('error', {
+      error: { status: 401, url: 'https://tiles.openfreemap.org/styles/positron/sprite.json' },
+    });
+
+    expect(toast.error).not.toHaveBeenCalled();
+  });
+
+  it('surfaces the toast on a 401 from the first-party tile/api URL', async () => {
+    renderEmbedViewer();
+    await waitFor(() => {
+      expect(mapState.fakeMap.on).toHaveBeenCalledWith('error', expect.any(Function));
+    });
+
+    mapState.fakeMap.emit('error', {
+      error: { status: 401, url: `${window.location.origin}/api/tiles/collection.mvt` },
+    });
+
+    expect(toast.error).toHaveBeenCalledTimes(1);
+    expect(toast.error).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ id: expect.any(String) }),
+    );
+  });
 });
