@@ -13,7 +13,7 @@ import {
   removePerLayerCompanions,
   shouldClearTerrainOnDelete,
 } from '@/components/builder/hooks/builder-layer-mutations';
-import { type GroupedLayer } from '@/components/builder/folder-groups';
+import { type GroupedLayer, clearPersistedFolderGroup } from '@/components/builder/folder-groups';
 import { bulkDeleteLayersApi } from '@/api/maps';
 import {
   extractCopyableStyle,
@@ -278,7 +278,16 @@ export function useBulkLayerActions({
         .map((l) => {
           const gl = l as GroupedLayer;
           if (gl.parent_group_id && selectedIds.has(gl.parent_group_id)) {
-            return { ...gl, parent_group_id: null } as MapLayerResponse;
+            // fix(#1280 CR-01): clear the persisted folderGroupId alongside the
+            // frontend-only parent_group_id — mirrors handleUngroup /
+            // handleMoveLayerOutOfGroup (use-folder-group-layers.ts), otherwise a
+            // child duplicated before Save carries the stale group pointer and
+            // gets silently re-grouped on the next server resync.
+            return {
+              ...gl,
+              parent_group_id: null,
+              style_config: clearPersistedFolderGroup(gl.style_config),
+            } as MapLayerResponse;
           }
           return l;
         });

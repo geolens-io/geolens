@@ -197,4 +197,49 @@ describe('handleDuplicateRendering — grouped-duplicate positioning (B-004b / L
     const outgoingBuilder = (data.style_config as { builder?: Record<string, unknown> } | null)?.builder;
     expect(outgoingBuilder?.folderGroupId).toBeUndefined();
   });
+
+  // Test 6 (CR-01, third facet — iteration 2 re-review): the multi-select
+  // "Ungroup" bulk action (handleBulkUngroup, use-bulk-layer-actions.ts) is a
+  // separate code path from handleMoveLayerOutOfGroup/handleUngroup and was
+  // NOT touched by the fix that landed for Test 5. It only cleared the
+  // frontend-only parent_group_id, leaving style_config.builder.folderGroupId
+  // intact — so a layer bulk-ungrouped then duplicated before Save still
+  // carries the stale group pointer to the backend. This test fails on
+  // pre-fix code (outgoingBuilder?.folderGroupId would be 'group-1').
+  it('Test 6: duplicating a layer just bulk-ungrouped does not resurrect the stale folderGroupId in the outgoing style_config', () => {
+    // Only the child is supplied — mounting apiLayers with a persisted
+    // style_config.builder.folderGroupId auto-synthesizes the "group-1"
+    // group:folder container row via hydrateFolderGroupLayers (mirrors how a
+    // real map loads). Manually adding a second group:folder row with the
+    // same id here would create a duplicate-id fixture bug, since the
+    // hydration effect already produces one from the child's persisted
+    // style_config.
+    const childLayer = {
+      ...makeMockLayer({
+        id: 'src',
+        sort_order: 1,
+        style_config: { builder: { folderGroupId: 'group-1', folderGroupName: 'Group 1' } },
+      }),
+      parent_group_id: 'group-1',
+    } as unknown as MapLayerResponse;
+
+    const { result, mutate } = renderBuilderLayers(makeMapData([childLayer]));
+
+    // Confirm the hydrated group row exists exactly once before ungrouping.
+    const hydrated = result.current.localLayers as GroupedLayer[];
+    expect(hydrated.filter((l) => l.id === 'group-1')).toHaveLength(1);
+
+    act(() => {
+      result.current.handleBulkUngroup(new Set(['group-1']));
+    });
+
+    act(() => {
+      result.current.handleDuplicateRendering('src');
+    });
+
+    expect(mutate).toHaveBeenCalledOnce();
+    const [{ data }] = mutate.mock.calls[0];
+    const outgoingBuilder = (data.style_config as { builder?: Record<string, unknown> } | null)?.builder;
+    expect(outgoingBuilder?.folderGroupId).toBeUndefined();
+  });
 });
