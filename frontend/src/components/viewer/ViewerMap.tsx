@@ -333,6 +333,17 @@ export const ViewerMap = memo(function ViewerMap({
       // has a real problem (RES-3). Previously suppressed entirely in prod.
       map.on('error', (e: { error: { message?: string; status?: number } }) => {
         const status = e.error?.status;
+        // Embed-token auth failures (expired/invalid X-Embed-Token) get their
+        // own deduped "access expired" toast instead of being swallowed by
+        // the generic 4xx suppression below (B-006 / audit SH-01). The copy
+        // is intentionally generic — it must never echo the token, dataset
+        // id, or raw error detail (see threat_model T-1281-01).
+        if (embedToken && (status === 401 || status === 403)) {
+          toast.error(t('viewer.embedAuthError', { defaultValue: 'This embedded map\'s access has expired or is no longer valid.' }), {
+            id: 'viewer-embed-auth-error',
+          });
+          return;
+        }
         // Suppress expected no-data tiles (404) and other client errors
         if (status && status >= 400 && status < 500) {
           return;

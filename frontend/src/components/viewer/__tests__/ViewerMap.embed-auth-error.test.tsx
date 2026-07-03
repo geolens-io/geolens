@@ -180,7 +180,11 @@ function renderEmbedViewer() {
 }
 
 describe('ViewerMap embed-token auth error (B-006)', () => {
-  beforeEach(() => { mapState.reset(); });
+  beforeEach(() => {
+    mapState.reset();
+    vi.mocked(toast.error).mockClear();
+    vi.mocked(toast.success).mockClear();
+  });
 
   it('surfaces a deduped toast when an embed tile request returns 401', async () => {
     renderEmbedViewer();

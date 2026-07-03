@@ -115,6 +115,7 @@
     "accessDenied": "Access denied",
     "authMapRecovery": "Open your maps list to confirm access, or head back to the catalog to keep working.",
     "browseCatalog": "Browse catalog",
+    "embedAuthError": "This embedded map's access has expired or is no longer valid.",
     "geoJsonLoadError": "Failed to load layer data",
     "linkRecovery": "Ask the map owner for a fresh share link if you still need access.",
     "mapError": "Map tile error — some layers may not display correctly.",
