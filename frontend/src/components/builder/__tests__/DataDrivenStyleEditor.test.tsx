@@ -547,6 +547,99 @@ describe('DataDrivenStyleEditor', () => {
 
   });
 
+  describe('B-003 / UX-L1: no phantom dirty on open', () => {
+    it('does not emit onStyleConfigChange opening on a seeded graduated-size config missing classCount/sizeRange', async () => {
+      // Restless Earth showcase quake layer shape (scripts/seed-showcase.py) —
+      // no classCount, no sizeRange; both are fully implied by sizes/breaks.
+      const seededConfig: StyleConfig = {
+        mode: 'graduated',
+        column: 'mag',
+        ramp: 'YlOrRd',
+        target: 'radius',
+        method: 'manual',
+        breaks: [5, 6, 7],
+        sizes: [3, 5, 8, 12],
+        colors: ['#ffffb2', '#fecc5c', '#fd8d3c', '#e31a1c'],
+      };
+
+      mockUseColumnStats.mockReturnValue(
+        hookData({
+          min: 1.2,
+          max: 8,
+          count: 500,
+          mean: 4,
+          quantiles: [],
+        }) as unknown as ReturnType<typeof useColumnStats>,
+      );
+
+      const onStyleConfigChange = vi.fn();
+      render(
+        <DataDrivenStyleEditor
+          layer={makeLayer({
+            dataset_geometry_type: 'Point',
+            dataset_column_info: [{ name: 'mag', type: 'double precision' }],
+            paint: { 'circle-color': '#3b82f6' },
+            style_config: seededConfig,
+          })}
+          onStyleConfigChange={onStyleConfigChange}
+        />,
+      );
+
+      await waitFor(() => {
+        expect(onStyleConfigChange).not.toHaveBeenCalled();
+      });
+    });
+
+    it('does not emit onStyleConfigChange opening on a seeded graduated-color config missing classCount', async () => {
+      // 3D-buildings showcase layer shape (scripts/seed-showcase.py) — colors
+      // (7) + breaks (6) but no classCount; classCount is implied by colors.length.
+      const seededConfig: StyleConfig = {
+        mode: 'graduated',
+        column: 'height_roof',
+        ramp: 'Plasma',
+        target: 'color',
+        method: 'quantile',
+        breaks: [60, 120, 250, 450, 750, 1200],
+        colors: [
+          '#0d0887',
+          '#5601a4',
+          '#900da3',
+          '#cb4679',
+          '#ed7953',
+          '#fdb42f',
+          '#f0f921',
+        ],
+      };
+
+      mockUseColumnStats.mockReturnValue(
+        hookData({
+          min: 0,
+          max: 1500,
+          count: 1000,
+          mean: 300,
+          quantiles: [60, 120, 250, 450, 750, 1200],
+        }) as unknown as ReturnType<typeof useColumnStats>,
+      );
+
+      const onStyleConfigChange = vi.fn();
+      render(
+        <DataDrivenStyleEditor
+          layer={makeLayer({
+            dataset_geometry_type: 'Polygon',
+            dataset_column_info: [{ name: 'height_roof', type: 'double precision' }],
+            paint: { 'fill-color': '#3b82f6' },
+            style_config: seededConfig,
+          })}
+          onStyleConfigChange={onStyleConfigChange}
+        />,
+      );
+
+      await waitFor(() => {
+        expect(onStyleConfigChange).not.toHaveBeenCalled();
+      });
+    });
+  });
+
   describe('classification methods (ENH-04)', () => {
     function graduatedConfig(method: StyleConfig['method'] = 'equal_interval'): StyleConfig {
       return {

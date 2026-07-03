@@ -143,6 +143,27 @@ function defaultSizeRange(tgt: 'color' | 'radius' | 'width'): [number, number] {
   return [2, 20]; // radius default
 }
 
+// fix(UX-L1): API/AI-authored (seeded) graduated configs often omit classCount
+// and sizeRange since they're fully implied by colors/sizes/breaks — derive
+// them so styleConfigAlreadyMatches (and the local state seeded from the same
+// config) recognize a complete seeded config as already-matching instead of
+// treating the omission as drift and silently regenerating on mount.
+function effectiveClassCountOf(cfg: StyleConfig | null | undefined): number | undefined {
+  if (!cfg) return undefined;
+  if (cfg.classCount != null) return cfg.classCount;
+  if (cfg.colors?.length) return cfg.colors.length;
+  if (cfg.sizes?.length) return cfg.sizes.length;
+  if (cfg.breaks) return cfg.breaks.length + 1;
+  return undefined;
+}
+
+function effectiveSizeRangeOf(cfg: StyleConfig | null | undefined): [number, number] | undefined {
+  if (!cfg) return undefined;
+  if (cfg.sizeRange) return cfg.sizeRange;
+  if (cfg.sizes?.length) return [cfg.sizes[0], cfg.sizes[cfg.sizes.length - 1]];
+  return undefined;
+}
+
 /**
  * builder-audit #338 COMPLEXITY-01: the three styling effects (categorical color,
  * graduated color, graduated size) each wrote back canonical style via
@@ -199,7 +220,7 @@ export function styleConfigAlreadyMatches(p: StyleGuardParams): boolean {
       ec.ramp === p.ramp &&
       (ec.reversed ?? false) === p.reversed &&
       ec.method === p.method &&
-      ec.classCount === p.classCount &&
+      effectiveClassCountOf(ec) === p.classCount &&
       ec.colors &&
       ec.breaks &&
       (p.method !== 'manual' ||
@@ -210,19 +231,22 @@ export function styleConfigAlreadyMatches(p: StyleGuardParams): boolean {
   }
 
   // Graduated size (radius or width)
-  return Boolean(
-    ec.target === p.target &&
-    ec.column === p.column &&
-    ec.method === p.method &&
-    ec.classCount === p.classCount &&
-    ec.sizes &&
-    ec.sizeRange &&
-    ec.sizeRange[0] === p.sizeRange[0] &&
-    ec.sizeRange[1] === p.sizeRange[1] &&
-    (p.method !== 'manual' ||
-      (ec.breaks?.length === p.breaks.length &&
-        (ec.breaks ?? []).every((b, i) => b === p.breaks[i]))),
-  );
+  {
+    const ecSizeRange = effectiveSizeRangeOf(ec);
+    return Boolean(
+      ec.target === p.target &&
+      ec.column === p.column &&
+      ec.method === p.method &&
+      effectiveClassCountOf(ec) === p.classCount &&
+      ec.sizes &&
+      ecSizeRange &&
+      ecSizeRange[0] === p.sizeRange[0] &&
+      ecSizeRange[1] === p.sizeRange[1] &&
+      (p.method !== 'manual' ||
+        (ec.breaks?.length === p.breaks.length &&
+          (ec.breaks ?? []).every((b, i) => b === p.breaks[i]))),
+    );
+  }
 }
 
 // P1-07: when a line layer's color switches to a data-driven solid color
@@ -258,7 +282,7 @@ export function DataDrivenStyleEditor({
     existingConfig?.ramp ?? nextRotatingRamp(existingConfig?.mode ?? 'categorical', rampRotationIndex),
   );
   const [classCount, setClassCount] = useState<number>(
-    existingConfig?.classCount ?? 5,
+    existingConfig?.classCount ?? effectiveClassCountOf(existingConfig) ?? 5,
   );
   const [method, setMethod] = useState<ClassificationMethod>(
     existingConfig?.method ?? 'equal_interval',
@@ -274,7 +298,9 @@ export function DataDrivenStyleEditor({
     existingConfig?.target ?? 'color',
   );
   const [sizeRange, setSizeRange] = useState<[number, number]>(
-    existingConfig?.sizeRange ?? defaultSizeRange(existingConfig?.target ?? 'color'),
+    existingConfig?.sizeRange ??
+      effectiveSizeRangeOf(existingConfig) ??
+      defaultSizeRange(existingConfig?.target ?? 'color'),
   );
   const [reversed, setReversed] = useState<boolean>(
     existingConfig?.reversed ?? false,
