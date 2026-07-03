@@ -114,9 +114,13 @@ export function useFolderGroupLayers({
     const children = current.filter(
       (l) => (l as GroupedLayer).parent_group_id === groupId && l.id !== groupId,
     );
-    // Flip relative to the group row's current visibility so the eye affordance
-    // toggles predictably; the row + every child follow in one pass.
-    const nextVisible = !(group.visible !== false);
+    // fix(#394) LM-04: flip relative to the children AGGREGATE — the same
+    // signal the stack renders as the group eye (UnifiedStackPanel derives
+    // `children.some(visible)`), so the click always does what the eye shows.
+    // The synthetic row's own `visible` can lag per-child toggles.
+    const nextVisible = children.length > 0
+      ? !children.some((c) => c.visible !== false)
+      : !(group.visible !== false);
     const affectedIds = new Set<string>([groupId, ...children.map((c) => c.id)]);
 
     setLocalLayers((prev) =>
@@ -162,9 +166,27 @@ export function useFolderGroupLayers({
       const targetIdx = prev.findIndex((l) => l.id === layerId);
       if (targetIdx < 0) return prev;
       const updatedLayer: GroupedLayer = { ...(prev[targetIdx] as GroupedLayer), parent_group_id: groupId };
-      const next = [...prev];
-      next[targetIdx] = updatedLayer as MapLayerResponse;
-      return next;
+      // fix(#394) LM-01/B-021: splice the row adjacent to the group's block and
+      // renumber sort_order — the exact fix the drag path got in #392
+      // (handleAddDataset's group insert). Stamping parent_group_id in place
+      // left the row at its old position, so hydrateFolderGroupLayers
+      // re-anchored the whole group there after save+reload and the stack
+      // order shifted.
+      const without = prev.filter((l) => l.id !== layerId) as MapLayerResponse[];
+      const groupIdx = without.findIndex((l) => l.id === groupId);
+      let lastChildIdx = -1;
+      for (let i = without.length - 1; i >= 0; i--) {
+        if ((without[i] as GroupedLayer).parent_group_id === groupId) {
+          lastChildIdx = i;
+          break;
+        }
+      }
+      const insertIdx = lastChildIdx >= 0
+        ? lastChildIdx + 1
+        : (groupIdx >= 0 ? groupIdx + 1 : without.length);
+      const next = [...without];
+      next.splice(insertIdx, 0, updatedLayer as MapLayerResponse);
+      return next.map((l, i) => ({ ...l, sort_order: i }));
     });
     setGroupMeta((prev) => {
       if (prev[groupId]?.expanded) return prev;

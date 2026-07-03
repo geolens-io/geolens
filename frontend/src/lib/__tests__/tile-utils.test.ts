@@ -1,4 +1,4 @@
-import { buildClusterTileUrl, buildSignedTileUrl } from '@/lib/tile-utils';
+import { buildClusterTileUrl, buildSignedTileUrl, getMvtSourceLayerName } from '@/lib/tile-utils';
 
 describe('buildSignedTileUrl', () => {
   const mockToken = { sig: 'abc123', exp: 1700000000, scope: 'ds_test' };
@@ -134,5 +134,24 @@ describe('buildClusterTileUrl', () => {
     expect(url).toBe(
       'https://tiles.example.com/tiles/clusters/data.my_table/{z}/{x}/{y}.pbf?cluster_radius=48&cluster_max_zoom=14&_v=v1',
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// fix(#394) VT-04: MVT source-layer ↔ tile-layer-name parity pin.
+// The SAME literal is produced by three derivation sites that must never
+// drift, or the layer silently renders empty:
+//   1. backend `app/processing/tiles/service.py` (`layer_name = f"{schema}.{table}"`,
+//      single_tenant schema == "data") — pinned by
+//      `backend/tests/test_mvt_audit_fixes.py::test_get_tile_layer_name_is_schema_qualified`;
+//   2. this helper (the ONLY frontend derivation — builder map-sync, viewer
+//      ViewerMap, and use-map-layers all import it as of fix(#394) VT-03);
+//   3. the exported style.json `_mvt_source_layer` (backend style_json.py).
+// If this assertion ever needs to change, all three sites change together.
+// ---------------------------------------------------------------------------
+
+describe('getMvtSourceLayerName (VT-04 parity pin)', () => {
+  it('produces the canonical data.{table} literal the tile server emits', () => {
+    expect(getMvtSourceLayerName('recent_earthquakes')).toBe('data.recent_earthquakes');
   });
 });

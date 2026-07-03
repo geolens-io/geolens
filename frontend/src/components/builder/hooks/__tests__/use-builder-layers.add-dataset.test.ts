@@ -204,6 +204,30 @@ describe('handleAddDataset extended signature (Phase 1040 POL-03/05)', () => {
     const updated = result.current.localLayers.find((l) => l.id === 'child-layer-id');
     expect(updated).toBeDefined();
     expect((updated as { parent_group_id?: string } | undefined)?.parent_group_id).toBe('group-1');
+    // fix(#394) LM-01/B-021: assert POSITION too — the row must sit inside the
+    // group's block (immediately after the group row here), not merely carry
+    // parent_group_id from wherever it happened to be.
+    const ids = result.current.localLayers.map((l) => l.id);
+    expect(ids.indexOf('child-layer-id')).toBe(ids.indexOf('group-1') + 1);
+  });
+
+  it('Test E2: fix(#394) LM-01/B-021 — kebab Add-to-group splices into the group block and renumbers', () => {
+    // The loose row starts ABOVE the group: before the fix it kept its array
+    // position and only gained parent_group_id, so hydrateFolderGroupLayers
+    // re-anchored the whole group at the old position after save+reload.
+    const loose = makeMockLayer({ id: 'loose-1', dataset_id: 'ds-1', sort_order: 0 });
+    const group = makeMockLayer({ id: 'group-1', layer_type: 'folder_group' as MapLayerResponse['layer_type'], sort_order: 1 });
+    const below = makeMockLayer({ id: 'below-1', dataset_id: 'ds-3', sort_order: 2 });
+    const { result } = renderBuilderLayers(makeMapData([loose, group, below]));
+
+    act(() => {
+      result.current.handleAddLayerToExistingGroup('loose-1', 'group-1');
+    });
+
+    const ids = result.current.localLayers.map((l) => l.id);
+    expect(ids).toEqual(['group-1', 'loose-1', 'below-1']);
+    expect((result.current.localLayers[1] as GroupedLayer).parent_group_id).toBe('group-1');
+    expect(result.current.localLayers.map((l) => l.sort_order)).toEqual([0, 1, 2]);
   });
 
   it('Test F: parentGroupId=null does not attempt group wiring', () => {

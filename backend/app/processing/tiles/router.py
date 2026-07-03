@@ -13,7 +13,16 @@ from urllib.parse import parse_qs
 import httpx
 import structlog
 from cachetools import LRUCache
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    Header,
+    HTTPException,
+    Query,
+    Request,
+    Response,
+    status,
+)
 from geoalchemy2.shape import to_shape
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -1298,7 +1307,9 @@ async def get_tile_token(
 @limiter.exempt
 async def get_tile_tokens_batch(
     body: TileTokenBatchRequest,
+    request: Request,
     user: Identity | None = Depends(get_optional_user),
+    embed_token: str | None = Header(default=None, alias="X-Embed-Token"),
     db: AsyncSession = Depends(get_db),
 ) -> TileTokenBatchResponse:
     """Batch-generate tile tokens for up to 50 datasets in one request.
@@ -1311,6 +1322,10 @@ async def get_tile_tokens_batch(
     Per-dataset errors (404, 403) do not fail the batch — instead the
     response maps the offending dataset_id to ``{"error": "..."}``. Clients
     should check each entry for the ``error`` key.
+
+    fix(#394) SH-04: ``X-Embed-Token`` is accepted as per-dataset fallback
+    authorization (same capability check as tile serving), so embed terrain
+    builds its raster-dem source from the real bounds/maxzoom descriptor.
     """
     from app.modules.catalog.datasets.domain.models import Dataset as DatasetORM
 
@@ -1351,8 +1366,13 @@ async def get_tile_tokens_batch(
         try:
             await _enforce_tile_token_access(db, dataset, dataset_id, user, port)
         except HTTPException as exc:
-            tokens[key] = {"error": exc.detail}
-            continue
+            # fix(#394) SH-04: embed-token capability fallback (fail-closed).
+            embed_ok = bool(embed_token) and await validate_embed_token_access(
+                embed_token, dataset_id, db, request
+            )
+            if not embed_ok:
+                tokens[key] = {"error": exc.detail}
+                continue
 
         tokens[key] = _build_tile_token_for_dataset(
             dataset,

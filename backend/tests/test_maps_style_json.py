@@ -1866,3 +1866,62 @@ def test_builder_alias_table_is_single_source_inverse_style_01():
     assert style_json._BUILDER_KEY_ALIASES is BUILDER_SNAKE_TO_CAMEL_KEYS
     # The previously-drifting folder_group_* keys are now present on export.
     assert style_json._BUILDER_KEY_ALIASES["folder_group_id"] == "folderGroupId"
+
+
+# ---------------------------------------------------------------------------
+# fix(#394) ST-01 / ST-04: symbol icon-image expression hardening
+# ---------------------------------------------------------------------------
+
+
+def test_symbol_icon_expression_zero_pairs_falls_back_flat_st01():
+    """ST-01: when every category icon is empty, emit the flat fallback id —
+    a zero-pair ["match", input, fallback] (length 3) makes addLayer throw."""
+    expr = style_json._symbol_icon_expression(
+        {
+            "iconImage": "marker",
+            "categoryColumn": "kind",
+            "categories": [
+                {"value": "a", "icon": None},
+                {"value": "b"},  # no icon key
+            ],
+        }
+    )
+    assert expr == "geolens:marker"
+
+
+def test_symbol_icon_expression_to_string_input_and_labels_st04():
+    """ST-04: match input is to-string-wrapped and labels are stringified so
+    numeric MVT values match the editor's stringified sample values."""
+    expr = style_json._symbol_icon_expression(
+        {
+            "iconImage": "marker",
+            "categoryColumn": "mag",
+            "categories": [
+                {"value": 4.0, "icon": "star"},
+                {"value": "5", "icon": "circle"},
+                {"value": None, "icon": "square"},  # null value skipped
+            ],
+        }
+    )
+    assert expr[0] == "match"
+    assert expr[1] == ["to-string", ["get", "mag"]]
+    # 4.0 stringifies like JS String(4) — no trailing ".0".
+    assert expr[2] == "4"
+    assert expr[4] == "5"
+    # The null-valued pair was skipped: match has exactly 2 pairs + fallback.
+    assert len(expr) == 7
+
+
+def test_vector_source_maxzoom_mirrors_live_builder_394():
+    """fix(#394): plain vector sources export maxzoom 14 (overzoom beyond, like
+    the live builder); server-cluster sources keep 22 so clusters can expand."""
+    plain = _layer(style_config=None)
+    source = style_json._source_for_layer(plain)
+    assert source["maxzoom"] == 14
+
+    cluster = _layer(
+        style_config={"render_mode": "cluster"},
+        dataset_feature_count=10,
+    )
+    cluster_source = style_json._source_for_layer(cluster)
+    assert cluster_source["maxzoom"] == 22

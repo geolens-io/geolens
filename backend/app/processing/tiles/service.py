@@ -209,9 +209,15 @@ mvtgeom AS (
             -- z<{_NO_SIMPLIFY_AT_OR_ABOVE_ZOOM}. tolerance = factor*360/(extent*2^z)
             -- degrees (mirrors _simplify_tolerance_degrees) so it halves smoothly
             -- each zoom instead of dropping ~360x across the old z5->z6 boundary.
+            -- fix(#394) VT-05: ST_MakeValid guards the simplify input — ingest does
+            -- not guarantee validity, and one invalid geometry raising a GEOS
+            -- TopologyException inside the simplify call 503s the whole tile.
+            -- Valid geometries pass through ST_MakeValid unchanged; the
+            -- z>={_NO_SIMPLIFY_AT_OR_ABOVE_ZOOM} branch stays untouched because
+            -- ST_AsMVTGeom's clipper tolerates invalid input.
             CASE
                 WHEN $1::integer < {_NO_SIMPLIFY_AT_OR_ABOVE_ZOOM} THEN ST_SimplifyPreserveTopology(
-                    t.geom_4326,
+                    ST_MakeValid(t.geom_4326),
                     {_SIMPLIFY_SUBPIXEL_FACTOR} * 360.0 / ({_MVT_EXTENT} * power(2, $1::integer))
                 )
                 ELSE t.geom_4326
@@ -230,7 +236,21 @@ mvtgeom AS (
 )
 SELECT ST_AsMVT(mvtgeom.*, $4::text, 4096, 'geom', 'gid')
 FROM mvtgeom
+-- fix(#394) VT-06: ST_AsMVTGeom returns NULL for features clipped away or
+-- degenerate at this zoom; without this WHERE those rows are encoded as
+-- geometry-less attribute-only MVT features (dead bytes). Matches the
+-- cluster query's existing `WHERE geom IS NOT NULL`.
+WHERE mvtgeom.geom IS NOT NULL
 """
+
+
+# fix(#394) VT-07: MVT feature id for CLUSTER features. ST_AsMVT silently drops
+# non-positive ids, so the previous `-row_number()` left clusters with no id at
+# all (breaks any future promoteId/feature-state on cluster layers). Clusters
+# share the layer with unclustered features whose ids are real `gid`s, so the
+# per-tile row number is offset by 2^40 to stay disjoint from realistic serial
+# gids while remaining exactly representable as a JS double (< 2^53).
+_CLUSTER_FEATURE_ID_OFFSET = 1 << 40
 
 
 def _build_cluster_tile_query(table_name: str, schema: str = "data") -> str:
@@ -311,7 +331,7 @@ features AS (
     SELECT
         CASE
             WHEN raw_point_count > 1 AND $1::integer <= $5::integer
-                THEN -row_number() OVER (ORDER BY bucket_x, bucket_y)::bigint
+                THEN {_CLUSTER_FEATURE_ID_OFFSET}::bigint + row_number() OVER (ORDER BY bucket_x, bucket_y)::bigint
             ELSE source_gid
         END AS gid,
         CASE

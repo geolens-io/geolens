@@ -276,12 +276,21 @@ export function useBuilderLayers(
 
   const handleMove = useCallback((layerId: string, direction: 'up' | 'down') => {
     const currentLayers = layersRef.current;
+    // fix(#394) LM-05: pick the neighbor from the RENDERED stack — the UI
+    // filters out terrain-suppressed DEM rows (UnifiedStackPanel
+    // visibleStackLayers), so a full-array swap could exchange with an
+    // invisible row and the arrow-move would look like a no-op.
+    const rendered = currentLayers.filter((l) => !isDemTerrainVisualSuppressed(l));
+    const renderedIdx = rendered.findIndex((l) => l.id === layerId);
+    if (direction === 'up' && renderedIdx <= 0) return;
+    if (direction === 'down' && (renderedIdx < 0 || renderedIdx >= rendered.length - 1)) return;
+    const neighborId = rendered[direction === 'up' ? renderedIdx - 1 : renderedIdx + 1].id;
+
     const idx = currentLayers.findIndex((l) => l.id === layerId);
-    if (direction === 'up' && idx <= 0) return;
-    if (direction === 'down' && (idx < 0 || idx >= currentLayers.length - 1)) return;
+    const swapIdx = currentLayers.findIndex((l) => l.id === neighborId);
+    if (idx < 0 || swapIdx < 0) return;
 
     const next = [...currentLayers];
-    const swapIdx = direction === 'up' ? idx - 1 : idx + 1;
     [next[idx], next[swapIdx]] = [next[swapIdx], next[idx]];
     const reordered = next.map((l, i) => ({ ...l, sort_order: i }));
 

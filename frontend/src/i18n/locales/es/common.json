@@ -430,7 +430,9 @@
     "lazyTitle": "Error al cargar",
     "lazyMessage": "Una parte de la aplicación no se pudo cargar. Generalmente es un problema de red.",
     "lazyRetry": "Intentar de nuevo",
-    "lazyRetrying": "Reintentando..."
+    "lazyRetrying": "Reintentando...",
+    "panelTitle": "El panel no se pudo cargar",
+    "panelMessage": "Este panel encontró un error. El resto del editor no se ve afectado."
   },
   "export": {
     "poweredBy": "Powered by GeoLens",

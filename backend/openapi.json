@@ -8501,6 +8501,17 @@
             ],
             "title": "Style Config"
           },
+          "tile_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tile Version"
+          },
           "visible": {
             "title": "Visible",
             "type": "boolean"
@@ -13259,6 +13270,17 @@
           "tile_url": {
             "title": "Tile Url",
             "type": "string"
+          },
+          "tile_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tile Version"
           },
           "visible": {
             "title": "Visible",
@@ -26847,7 +26869,7 @@
     },
     "/datasets/{dataset_id}/features.geojson": {
       "get": {
-        "description": "Return up to 5,000 features as RFC 7946 GeoJSON with Z coordinates.",
+        "description": "Return up to 5,000 features as RFC 7946 GeoJSON with Z coordinates.\n\nfix(#394) codex P2: the viewer's bounded-GeoJSON path (small 3D layers,\neligible cluster layers) already sends ``X-Embed-Token``, and the B-023\nshared-map union now exposes embed-scoped private layers to embeds \u2014 so\nthis endpoint accepts the token as fallback authorization via the SAME\n``validate_embed_token_access`` capability check as tile serving.\nCredentialed callers (JWT / API key) keep the exact prior RBAC path;\nanonymous callers without a valid scoped token still get 401.",
         "operationId": "get_features_geojson_z_endpoint_datasets__dataset_id__features_geojson_get",
         "parameters": [
           {
@@ -26858,6 +26880,24 @@
               "format": "uuid",
               "title": "Dataset Id",
               "type": "string"
+            }
+          },
+          {
+            "description": "Optional embed token. Datasets in the token's scope are authorized even without user credentials (embed viewers).",
+            "in": "header",
+            "name": "X-Embed-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional embed token. Datasets in the token's scope are authorized even without user credentials (embed viewers).",
+              "title": "X-Embed-Token"
             }
           }
         ],
@@ -34282,7 +34322,7 @@
     },
     "/maps/shared/{token}": {
       "get": {
-        "description": "Get a shared map by token. Optionally authenticated for non-public layers.\n\nSEC-S08 (Phase 1062-05): emits ``Content-Security-Policy: frame-ancestors\n'self' [<allowed_origins>...]`` on the response, derived from the active\nEmbedToken for this map. When no EmbedToken exists or allowed_origins is\nempty, defaults to ``frame-ancestors 'self'``. The SecurityHeadersMiddleware\nrespects this route-level CSP and skips emitting X-Frame-Options: DENY.",
+        "description": "Get a shared map by token. Optionally authenticated for non-public layers.\n\nSEC-S08 (Phase 1062-05): emits ``Content-Security-Policy: frame-ancestors\n'self' [<allowed_origins>...]`` on the response, derived from the active\nEmbedToken for this map. When no EmbedToken exists or allowed_origins is\nempty, defaults to ``frame-ancestors 'self'``. The SecurityHeadersMiddleware\nrespects this route-level CSP and skips emitting X-Frame-Options: DENY.\n\nfix(#394) SH-01/B-023: accepts ``X-Embed-Token`` so embed viewers get the\nlayers the token's scope authorizes (SEC-022 capability posture).",
         "operationId": "get_shared_map_endpoint_maps_shared__token__get",
         "parameters": [
           {
@@ -34292,6 +34332,24 @@
             "schema": {
               "title": "Token",
               "type": "string"
+            }
+          },
+          {
+            "description": "Optional embed token \u2014 includes its scoped dataset layers when valid for this map.",
+            "in": "header",
+            "name": "X-Embed-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional embed token \u2014 includes its scoped dataset layers when valid for this map.",
+              "title": "X-Embed-Token"
             }
           }
         ],
@@ -43287,8 +43345,26 @@
     },
     "/tiles/tokens/": {
       "post": {
-        "description": "Batch-generate tile tokens for up to 50 datasets in one request.\n\nOptimization for multi-layer maps: a 20-layer builder map previously\nfired 20 parallel GET /token/{id}/ requests (20 HTTP + 20 RBAC + 20 HMAC\nsignatures). This endpoint does the same work in a single round trip\nwith one DB query for dataset metadata (PERF-N5).\n\nPer-dataset errors (404, 403) do not fail the batch \u2014 instead the\nresponse maps the offending dataset_id to ``{\"error\": \"...\"}``. Clients\nshould check each entry for the ``error`` key.",
+        "description": "Batch-generate tile tokens for up to 50 datasets in one request.\n\nOptimization for multi-layer maps: a 20-layer builder map previously\nfired 20 parallel GET /token/{id}/ requests (20 HTTP + 20 RBAC + 20 HMAC\nsignatures). This endpoint does the same work in a single round trip\nwith one DB query for dataset metadata (PERF-N5).\n\nPer-dataset errors (404, 403) do not fail the batch \u2014 instead the\nresponse maps the offending dataset_id to ``{\"error\": \"...\"}``. Clients\nshould check each entry for the ``error`` key.\n\nfix(#394) SH-04: ``X-Embed-Token`` is accepted as per-dataset fallback\nauthorization (same capability check as tile serving), so embed terrain\nbuilds its raster-dem source from the real bounds/maxzoom descriptor.",
         "operationId": "get_tile_tokens_batch_tiles_tokens__post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Embed-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Embed-Token"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {

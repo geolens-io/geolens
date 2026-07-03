@@ -336,7 +336,8 @@
       "cancelExpression": "Cancelar",
       "parseError": "JSON no válido",
       "structureError": "La expresión debe ser un arreglo que comience con un operador conocido"
-    }
+    },
+    "validatorUnavailable": "No se pudo validar este JSON: simplifica el valor e inténtalo de nuevo."
   },
   "filters": {
     "title": "Filtros",
@@ -927,8 +928,16 @@
       "save": "Guardar mapa",
       "pan": "Herramienta de desplazamiento",
       "measure": "Herramienta de medición",
-      "legend": "Mostrar/ocultar leyenda"
-    }
+      "legend": "Mostrar/ocultar leyenda",
+      "showSheet": "Mostrar este diálogo",
+      "reorderToggle": "Alternar modo de reordenación (fila de capa enfocada)",
+      "reorderMove": "Mover capa arriba / abajo (modo de reordenación)",
+      "escape": "Cerrar panel / borrar selección / salir de reordenación",
+      "multiSelect": "Alternar capa en la selección",
+      "rangeSelect": "Seleccionar un rango de capas",
+      "extendSelect": "Ampliar selección (pila enfocada)"
+    },
+    "loadingPanel": "Cargando panel"
   },
   "styleJson": {
     "title": "JSON de estilo",
@@ -1061,7 +1070,8 @@
     "swapBasemap": "Cambiar mapa base",
     "toggleExpand": "Contraer/expandir grupo de mapa base",
     "typeIconLabel": "Grupo de mapa base",
-    "visibilityLocked": "El mapa base siempre está visible — use Eliminar mapa base para ocultarlo."
+    "visibilityLocked": "El mapa base siempre está visible — use Eliminar mapa base para ocultarlo.",
+    "presetSectionAria": "Mapa base predefinido"
   },
   "basemapSublayer": {
     "breadcrumbLabel": "Volver al grupo de mapa base",
@@ -1159,8 +1169,8 @@
       "columns": "Columnas"
     },
     "emptyResult": {
-      "title": "0 elementos — revisa tu filtro",
-      "help": "El filtro actual eliminó todos los elementos de esta capa. Ajusta una condición o limpia el filtro para volver a ver elementos.",
+      "title": "0 entidades a la vista: revisa tu filtro",
+      "help": "El filtro actual no coincide con nada en el área visible del mapa. Puede haber coincidencias fuera de pantalla: desplázate o aleja el zoom, ajusta una condición o borra el filtro.",
       "clear": "Limpiar filtro"
     },
     "deleteLayer": "Eliminar capa",

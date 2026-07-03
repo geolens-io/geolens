@@ -336,7 +336,8 @@
       "cancelExpression": "Cancel",
       "parseError": "Invalid JSON",
       "structureError": "Expression must be an array starting with a known operator"
-    }
+    },
+    "validatorUnavailable": "This JSON could not be validated — simplify the value and try again."
   },
   "filters": {
     "title": "Filters",
@@ -931,8 +932,16 @@
       "save": "Save map",
       "pan": "Pan tool",
       "measure": "Measure tool",
-      "legend": "Toggle legend"
-    }
+      "legend": "Toggle legend",
+      "showSheet": "Show this dialog",
+      "reorderToggle": "Toggle reorder mode (focused layer row)",
+      "reorderMove": "Move layer up / down (reorder mode)",
+      "escape": "Close panel / clear selection / exit reorder",
+      "multiSelect": "Toggle layer in selection",
+      "rangeSelect": "Select a range of layers",
+      "extendSelect": "Extend selection (stack focused)"
+    },
+    "loadingPanel": "Loading panel"
   },
   "styleJson": {
     "title": "Style JSON",
@@ -1065,7 +1074,8 @@
     "swapBasemap": "Swap basemap",
     "toggleExpand": "Toggle basemap group",
     "typeIconLabel": "Basemap group",
-    "visibilityLocked": "Basemap is always visible — use Remove basemap to hide."
+    "visibilityLocked": "Basemap is always visible — use Remove basemap to hide.",
+    "presetSectionAria": "Basemap preset"
   },
   "basemapSublayer": {
     "breadcrumbLabel": "Back to basemap group",
@@ -1167,8 +1177,8 @@
       "columns": "Columns"
     },
     "emptyResult": {
-      "title": "0 features — check your filter",
-      "help": "The current filter eliminated every feature in this layer. Adjust a condition or clear the filter to see features again.",
+      "title": "0 features in view — check your filter",
+      "help": "The current filter matches nothing in the visible map area. Matches may exist off-screen — pan or zoom out, adjust a condition, or clear the filter.",
       "clear": "Clear filter"
     }
   },

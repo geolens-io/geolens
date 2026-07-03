@@ -56,7 +56,7 @@ export function PublicViewerPage() {
   const centerParam = searchParams.get('center');
   const legendParam = searchParams.get('legend');
 
-  const { data, isLoading, isError, error } = useSharedMap(token, apiKey);
+  const { data, isLoading, isError, error } = useSharedMap(token, apiKey, embedToken);
 
   const effectiveShowLegend = legendParam !== null ? legendParam === 'true' : !isEmbed;
 

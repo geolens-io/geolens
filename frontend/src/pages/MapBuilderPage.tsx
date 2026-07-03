@@ -66,7 +66,7 @@ import { cn } from '@/lib/utils';
 import { SceneSpinnerFallback } from '@/components/builder/SceneSpinnerFallback';
 import { LoadingState } from '@/components/layout/LoadingState';
 import { ErrorState } from '@/components/layout/ErrorState';
-import { MapErrorBoundary } from '@/components/error';
+import { MapErrorBoundary, PanelErrorBoundary } from '@/components/error';
 import { LazyLoadErrorBoundary } from '@/components/error/LazyLoadErrorBoundary';
 import { useMap, useAddLayer, useRemoveLayer } from '@/hooks/use-maps';
 import { useAIAvailability } from '@/hooks/use-ai-availability';
@@ -897,14 +897,29 @@ export function MapBuilderPage() {
       // When target is a folder group, parentGroupId is set so the new layer joins the group.
       const targetLayer = layers.localLayers.find((l) => l.id === overId);
       const parentGroupId = (targetLayer && isFolderGroupLayer(targetLayer)) ? overId : null;
-      const dropPosition = layers.localLayers.findIndex((l) => l.id === overId) + 1;
-      const safePosition = dropPosition > 0 ? dropPosition : 1;
+      // fix(#394) LM-03: announce the REAL landing position — loose catalog
+      // drops always PREPEND at top (position 1, BSR-18), and group drops land
+      // after the group's last existing child; the drop-target index the SR
+      // heard before was a lie for every drop below row 1.
+      let announcePosition = 1;
+      if (parentGroupId) {
+        const stack = layers.localLayers;
+        const groupIdx = stack.findIndex((l) => l.id === parentGroupId);
+        let lastChildIdx = -1;
+        for (let i = stack.length - 1; i >= 0; i--) {
+          if ((stack[i] as { parent_group_id?: string | null }).parent_group_id === parentGroupId) {
+            lastChildIdx = i;
+            break;
+          }
+        }
+        announcePosition = (lastChildIdx >= 0 ? lastChildIdx + 1 : groupIdx + 1) + 1;
+      }
       // Phase 20260526-builder-audit #338 BLD-20260526-11: announce fires inside onSuccessCb — only after the async mutation resolves
       // successfully. If the mutation errors, the hook fires toast.error and the announce
       // is never called, avoiding contradictory screen-reader output.
       // Modal stays open per POL-05 — onSuccessCb is not used to auto-select the layer.
       layers.handleAddDataset(datasetId, () => {
-        announce(t('a11y.dragDropped', { name: datasetName, n: safePosition }));
+        announce(t('a11y.dragDropped', { name: datasetName, n: announcePosition }));
       }, parentGroupId, datasetName);
       return;
     }
@@ -1295,6 +1310,12 @@ export function MapBuilderPage() {
   // Column 1: sidebar (340px full or 64px rail at <1100px)
   // Column 2: LayerEditorPanel flyout (380px, only when layer selected AND viewport >= 800px)
   // Column 3 (or 2 when no editor): map canvas (1fr)
+  //
+  // fix(#394) UX-05 (decision record): sidebar/editor widths are fixed and
+  // breakpoint-driven BY DESIGN — no user drag-resize, no persisted width.
+  // The three-column budget is tuned per breakpoint (340/380px columns keep
+  // the map ≥50% at 1280px) and a resizable panel would invalidate the
+  // responsive contract the e2e suite pins. Revisit only with a product ask.
   const builderBodyGridClass = cn(
     'flex-1 min-h-0 grid',
     // Base: no editor open
@@ -1371,6 +1392,9 @@ export function MapBuilderPage() {
           data-testid="builder-sidebar"
           className="border-e bg-background flex flex-col overflow-hidden"
         >
+          {/* fix(#394) UX-01/B-027: recoverable boundary — a stack-panel render
+              error must not take down the whole builder (map + chat stay up). */}
+          <PanelErrorBoundary panelId="builder-sidebar">
           {isRail ? (
             <SidebarRail
               layers={layers.localLayers}
@@ -1493,13 +1517,25 @@ export function MapBuilderPage() {
               this is inert — but it keeps the declared sidebar placement mode
               actually reachable for third-party plugins (plugin-audit finding). */}
           {!isRail && <PluginSidebar plugins={sidebarPlugins} ctx={pluginCtx} />}
+          </PanelErrorBoundary>
         </aside>
 
         {/* Column 2: LayerEditorPanel flyout (380px) — when layer selected or basemap/settings scene active; viewport >= 800px */}
         {isEditorOpen && !isEditorHidden && (
+          // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- container-level Escape shortcut for keystrokes bubbling from the panel's own interactive children; the aside itself stays non-interactive
           <aside
             data-testid="builder-layer-editor"
             className="border-e bg-background flex flex-col overflow-hidden"
+            onKeyDown={(e) => {
+              // fix(#394) UX-02/B-015: Escape closes the desktop editor flyout —
+              // the <800px Sheet gets this from Radix for free. Only fires when
+              // focus is inside the flyout; nested Radix popovers/selects portal
+              // to <body>, so an open picker's Escape never reaches this aside.
+              if (e.key === 'Escape' && !e.defaultPrevented) {
+                e.stopPropagation();
+                handleCloseEditor();
+              }
+            }}
           >
             <LazyLoadErrorBoundary>
               <Suspense fallback={<SceneSpinnerFallback />}>

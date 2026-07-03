@@ -15,6 +15,13 @@ import {
 /**
  * Floating toolbar centered at the top of the map canvas.
  * Grouped into semantic sections: navigation | plugins.
+ *
+ * fix(#394) UX-08 (decision record): there is deliberately NO global terrain
+ * toggle here. Terrain is layer-owned — it activates through a DEM layer's
+ * editor scene (render mode + exaggeration live with the layer that supplies
+ * the elevation data), so a map without a DEM layer has nothing for a global
+ * toggle to enable. Revisit only alongside the global-base-DEM plan
+ * (terrain-pedestal Phase 1), which would give every map a default source.
  */
 interface MapToolbarProps {
   onStyleJsonClick?: () => void;

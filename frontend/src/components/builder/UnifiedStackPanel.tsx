@@ -694,10 +694,18 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
                   const anyChildMatches = children.some((c) => matchesSearch(c));
                   if (isSearchActive && !groupNameMatches && !anyChildMatches) return null;
 
+                  // fix(#394) LM-04: the group eye reflects the children
+                  // AGGREGATE (on while ANY child is visible) — the synthetic
+                  // row's own `visible` merely mirrors whichever child was
+                  // first at hydration and goes stale on per-child toggles.
+                  const groupEyeLayer = children.length > 0
+                    ? { ...layer, visible: children.some((c) => c.visible !== false) }
+                    : layer;
+
                   return (
                     <div key={layer.id}>
                       <FolderGroupRowWrapper
-                        layer={layer}
+                        layer={groupEyeLayer}
                         selected={layer.id === selectedLayerId}
                         isExpanded={expanded}
                         onSelectGroup={onSelectLayer}

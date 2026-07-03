@@ -837,6 +837,7 @@ class DatasetMetaKwargs(TypedDict, total=False):
     is_dem: bool | None
     dem_vertical_units: str | None
     band_count: int | None
+    tile_version: int | None
 
 
 class MapLayerResponse(BaseModel):
@@ -866,6 +867,10 @@ class MapLayerResponse(BaseModel):
     is_dem: bool | None = None
     dem_vertical_units: str | None = None
     band_count: int | None = None
+    # fix(#394) VT-02: dataset content version (Dataset.current_version). Feeds
+    # the client `_v=` tile-URL cache-buster (map-sync.ts) so a reupload busts
+    # browser/CDN caches; the server-side Valkey purge is B-019.
+    tile_version: int | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -1063,6 +1068,9 @@ class SharedLayerResponse(BaseModel):
     dem_vertical_units: str | None = None
     is_3d: bool | None = None
     feature_count: int | None = None
+    # fix(#394) VT-02: dataset content version for the `_v=` tile cache-buster
+    # (viewer parity with MapLayerResponse.tile_version).
+    tile_version: int | None = None
 
 
 class SharedMapResponse(BaseModel):

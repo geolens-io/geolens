@@ -115,18 +115,26 @@ class TileCacheProvider:
             logger.warning("tile_cache_set_failed", key=key, exc_info=True)
 
     async def invalidate_table(self, table: str) -> None:
-        """Delete all cached tiles for a table. Silent on failure."""
-        pattern = f"tile:{table}:*"
+        """Delete all cached tiles for a table. Silent on failure.
+
+        fix(#394) VT-08: in multi_tenant the tile router prefixes the cache
+        key's table segment with the tenant id (``tile:{tid}:{table}:...``,
+        DP-02 Phase 1209-CR-01), so the bare ``tile:{table}:*`` pattern missed
+        those entries. Scan both shapes; over-matching a same-named suffix
+        segment only deletes cache entries, which is harmless.
+        """
+        patterns = (f"tile:{table}:*", f"tile:*:{table}:*")
         try:
-            cursor = 0
-            while True:
-                cursor, keys = await self._client.scan(
-                    cursor=cursor, match=pattern, count=500
-                )
-                if keys:
-                    await self._client.delete(*keys)
-                if cursor == 0:
-                    break
+            for pattern in patterns:
+                cursor = 0
+                while True:
+                    cursor, keys = await self._client.scan(
+                        cursor=cursor, match=pattern, count=500
+                    )
+                    if keys:
+                        await self._client.delete(*keys)
+                    if cursor == 0:
+                        break
             logger.info("tile_cache_invalidated", table=table)
         except Exception:  # broad: redis SCAN/DELETE can throw varied pool/timeout errors; invalidation is non-fatal
             logger.warning("tile_cache_invalidate_failed", table=table, exc_info=True)
@@ -191,9 +199,14 @@ class InMemoryTileCacheProvider:
         self._cache[key] = (data, time.monotonic() + ttl)
 
     async def invalidate_table(self, table: str) -> None:
-        """Delete all cached tiles for a table."""
-        prefix = f"tile:{table}:"
-        keys = [k for k in self._cache if k.startswith(prefix)]
+        """Delete all cached tiles for a table.
+
+        fix(#394) VT-08: a single ``:{table}:`` containment check covers both
+        the single-tenant key (``tile:{table}:...`` — the ``tile:`` prefix ends
+        in a colon) and the tenant-prefixed key (``tile:{tid}:{table}:...``).
+        """
+        segment = f":{table}:"
+        keys = [k for k in self._cache if segment in k]
         for k in keys:
             self._cache.pop(k, None)
         logger.info("tile_cache_invalidated", table=table)

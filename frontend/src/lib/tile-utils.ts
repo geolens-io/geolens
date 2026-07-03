@@ -41,7 +41,7 @@ export function buildSignedTileUrl(
   tableName: string,
   tileToken: { sig: string; exp: number; scope: string } | null,
   tileBaseUrl?: string | null,
-  tileVersion?: string | null,
+  tileVersion?: string | number | null,
   extraCols?: string[] | null,
 ): string {
   const base = tileBaseUrl
@@ -68,7 +68,7 @@ function normalizeExtraCols(extraCols?: string[] | null): string | null {
 function appendTileParams(
   url: string,
   tileToken: { sig: string; exp: number; scope: string } | null,
-  tileVersion?: string | null,
+  tileVersion?: string | number | null,
   extraParams: Record<string, string | number | null | undefined> = {},
 ) {
   const params: string[] = [];
@@ -89,7 +89,7 @@ export function buildClusterTileUrl(
   tableName: string,
   tileToken: { sig: string; exp: number; scope: string } | null,
   tileBaseUrl?: string | null,
-  tileVersion?: string | null,
+  tileVersion?: string | number | null,
   options: { clusterRadius?: number; clusterMaxZoom?: number } = {},
 ): string {
   const base = tileBaseUrl

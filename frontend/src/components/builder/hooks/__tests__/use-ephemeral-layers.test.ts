@@ -15,7 +15,10 @@ interface MockMap {
   removeSource: (id: string) => void;
   isStyleLoaded: () => boolean;
   once: (event: string, cb: () => void) => void;
+  on: (event: string, cb: () => void) => void;
   off: (event: string, cb: () => void) => void;
+  /** fix(#394) LM-02/B-028: registered style.load handlers — call to simulate a basemap/style reload. */
+  styleLoadHandlers: Array<() => void>;
   fitBounds: (bounds: unknown, options: unknown) => void;
 }
 
@@ -23,8 +26,10 @@ function createMockMap(): MockMap {
   const layers = new Set<string>();
   const sources = new Set<string>();
   const fitBoundsCalls: MockMap['fitBoundsCalls'] = [];
+  const styleLoadHandlers: Array<() => void> = [];
 
   return {
+    styleLoadHandlers,
     layers,
     sources,
     styleLoaded: true,
@@ -45,7 +50,15 @@ function createMockMap(): MockMap {
     },
     isStyleLoaded: () => true,
     once: (_event, cb) => cb(),
-    off: () => {},
+    on: (event, cb) => {
+      if (event === 'style.load') styleLoadHandlers.push(cb);
+    },
+    off: (event, cb) => {
+      if (event === 'style.load') {
+        const idx = styleLoadHandlers.indexOf(cb);
+        if (idx >= 0) styleLoadHandlers.splice(idx, 1);
+      }
+    },
     fitBounds: (bounds, options) => {
       fitBoundsCalls.push({ bounds, options });
     },
@@ -152,5 +165,50 @@ describe('useEphemeralLayers', () => {
     expect(map.layers.has('ephemeral-result-fill')).toBe(true);
     // Second fitBounds call
     expect(map.fitBoundsCalls.length).toBeGreaterThanOrEqual(2);
+  });
+});
+
+describe('fix(#394) LM-02/B-028: overlay survives style reloads', () => {
+  it('re-adds the overlay on style.load without re-zooming', () => {
+    const map = createMockMap();
+    const ref = { current: map as unknown as maplibregl.Map };
+    const { result } = renderHook(() => useEphemeralLayers(ref));
+
+    act(() => {
+      result.current.handleQueryResult(sampleGeoJSON(), [-1, -1, 1, 1]);
+    });
+    expect(map.layers.has('ephemeral-result-fill')).toBe(true);
+    expect(map.fitBoundsCalls).toHaveLength(1);
+    expect(map.styleLoadHandlers.length).toBeGreaterThan(0);
+
+    // Simulate a basemap switch wiping the style: MapLibre drops all layers
+    // and sources, then fires style.load.
+    map.layers.clear();
+    map.sources.clear();
+    act(() => {
+      map.styleLoadHandlers.forEach((cb) => cb());
+    });
+
+    expect(map.sources.has('ephemeral-result')).toBe(true);
+    expect(map.layers.has('ephemeral-result-fill')).toBe(true);
+    expect(map.layers.has('ephemeral-result-circle')).toBe(true);
+    // No second auto-zoom — the viewport belongs to the user after first show.
+    expect(map.fitBoundsCalls).toHaveLength(1);
+  });
+
+  it('unsubscribes the style.load handler on dismiss', () => {
+    const map = createMockMap();
+    const ref = { current: map as unknown as maplibregl.Map };
+    const { result } = renderHook(() => useEphemeralLayers(ref));
+
+    act(() => {
+      result.current.handleQueryResult(sampleGeoJSON(), [0, 0, 1, 1]);
+    });
+    expect(map.styleLoadHandlers.length).toBeGreaterThan(0);
+
+    act(() => {
+      result.current.handleDismissEphemeral();
+    });
+    expect(map.styleLoadHandlers).toHaveLength(0);
   });
 });

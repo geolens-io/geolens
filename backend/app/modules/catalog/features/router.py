@@ -4,19 +4,33 @@ import uuid
 from urllib.parse import urlencode
 
 import structlog
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    Header,
+    HTTPException,
+    Query,
+    Request,
+    Response,
+    status,
+)
 from fastapi.responses import JSONResponse
 from sqlalchemy.exc import OperationalError, ProgrammingError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.audit.service import AuditEvent, audit_emit
 from app.core.identity import Identity
-from app.modules.auth.dependencies import get_current_active_user, require_permission
+from app.modules.auth.dependencies import (
+    get_current_active_user,
+    get_optional_user,
+    require_permission,
+)
 from app.modules.catalog.authorization import (
     check_dataset_access,
     check_dataset_write_access,
 )
 from app.modules.catalog.datasets.domain.service import get_dataset
+from app.modules.embed_tokens.service import validate_embed_token_access
 from app.core.dependencies import get_db
 from app.modules.catalog.features.schemas import (
     FeatureCreate,
@@ -58,10 +72,28 @@ features_router = APIRouter(prefix="/datasets", tags=["Features"])
 )
 async def get_features_geojson_z_endpoint(
     dataset_id: uuid.UUID,
-    user: Identity = Depends(get_current_active_user),
+    request: Request,
+    user: Identity | None = Depends(get_optional_user),
+    embed_token: str | None = Header(
+        default=None,
+        alias="X-Embed-Token",
+        description=(
+            "Optional embed token. Datasets in the token's scope are "
+            "authorized even without user credentials (embed viewers)."
+        ),
+    ),
     db: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
-    """Return up to 5,000 features as RFC 7946 GeoJSON with Z coordinates."""
+    """Return up to 5,000 features as RFC 7946 GeoJSON with Z coordinates.
+
+    fix(#394) codex P2: the viewer's bounded-GeoJSON path (small 3D layers,
+    eligible cluster layers) already sends ``X-Embed-Token``, and the B-023
+    shared-map union now exposes embed-scoped private layers to embeds — so
+    this endpoint accepts the token as fallback authorization via the SAME
+    ``validate_embed_token_access`` capability check as tile serving.
+    Credentialed callers (JWT / API key) keep the exact prior RBAC path;
+    anonymous callers without a valid scoped token still get 401.
+    """
     dataset = await get_dataset(db, dataset_id)
     if dataset is None:
         raise HTTPException(
@@ -69,7 +101,20 @@ async def get_features_geojson_z_endpoint(
             detail="Dataset not found",
         )
 
-    await check_dataset_access(db, dataset, dataset_id, user)
+    embed_ok = bool(embed_token) and await validate_embed_token_access(
+        embed_token,  # type: ignore[arg-type]  # bool() guard above
+        dataset_id,
+        db,
+        request,
+    )
+    if not embed_ok:
+        if user is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Not authenticated",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        await check_dataset_access(db, dataset, dataset_id, user)
 
     # fix(#315): raster/VRT datasets have no backing PostGIS feature table, so a feature
     # query would raise UndefinedTableError -> 500 (and hold a DB connection).

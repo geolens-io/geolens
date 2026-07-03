@@ -4,6 +4,8 @@ import { getLayerType, getSourceIdForLayer, resolveAdapterType, getCompoundOpaci
 import { getAdapter } from '@/components/builder/layer-adapters/registry';
 import { getBuilderStyleConfig } from '@/components/builder/layer-adapters/shared';
 import { coalesceFrame } from '@/lib/builder/raf-coalesce';
+// fix(#394) VT-03/VT-04: single source of truth for the MVT source-layer name.
+import { getMvtSourceLayerName } from '@/lib/tile-utils';
 import { effectiveDemRenderMode, normalizeDemStyleConfig } from '@/lib/dem-render-mode';
 import type { AdapterLayerInput } from '@/components/builder/layer-adapters/types';
 import { buildLabelLayerSpec, syncLabelLayer } from '@/components/builder/label-layer-utils';
@@ -88,7 +90,7 @@ export function applyLayerOpacityToMap(
       filter: layer.filter ?? null,
       sourceId: getSourceIdForLayer(layer),
       layerId: mapLayerId,
-      sourceLayer: `data.${layer.dataset_table_name}`,
+      sourceLayer: getMvtSourceLayerName(layer.dataset_table_name),
       tileUrl: '',
       style_config: layer.style_config ?? null,
       is_dem: layer.is_dem,
@@ -117,7 +119,7 @@ export function applyLayerOpacityToMap(
       // them through the cluster branch.
       sourceId: getSourceIdForLayer(layer),
       layerId: mapLayerId,
-      sourceLayer: `data.${layer.dataset_table_name}`,
+      sourceLayer: getMvtSourceLayerName(layer.dataset_table_name),
       tileUrl: '',
       style_config: layer.style_config ?? null,
       is_dem: layer.is_dem,
@@ -229,7 +231,7 @@ export function useLayerMapSync(
             // layers, per-layer for cluster/raster/hillshade.
             sourceId: getSourceIdForLayer(layer),
             layerId: mapLayerId,
-            sourceLayer: `data.${layer.dataset_table_name}`,
+            sourceLayer: getMvtSourceLayerName(layer.dataset_table_name),
             tileUrl: '',
             is_dem: layer.is_dem,
           };
@@ -285,7 +287,7 @@ export function useLayerMapSync(
         filter: layer.filter ?? null,
         sourceId,
         layerId: mapLayerId,
-        sourceLayer: `data.${layer.dataset_table_name}`,
+        sourceLayer: getMvtSourceLayerName(layer.dataset_table_name),
         tileUrl,
         is_dem: layer.is_dem,
       };
@@ -453,7 +455,11 @@ export function useLayerMapSync(
         (l) => ({ ...l, filter }),
         (map) => {
           const ids = getCompanionLayerIds(layerId);
-          const clusterFilter = filter ? ['all', ['has', 'point_count'], filter] as FilterSpecification : ['has', 'point_count'] as FilterSpecification;
+          // fix(#394) FL-01/B-020: cluster layers keep the bare point_count
+          // predicate — cluster features carry no data properties, so ANDing
+          // the data filter in hid every cluster bubble (mirrors the same fix
+          // in cluster-adapter's clusterFilter).
+          const clusterFilter = ['has', 'point_count'] as FilterSpecification;
           const unclusteredFilter = filter ? ['all', ['!', ['has', 'point_count']], filter] as FilterSpecification : ['!', ['has', 'point_count']] as FilterSpecification;
           if (map.getLayer(ids.layer)) {
             map.setFilter(ids.layer, map.getLayer(ids.cluster) ? unclusteredFilter : filter);
@@ -541,7 +547,7 @@ export function useLayerMapSync(
           const sourceId = getSourceIdForLayer(layer);
           if (!map.getSource(sourceId)) return;
 
-          const sourceLayer = `data.${layer.dataset_table_name}`;
+          const sourceLayer = getMvtSourceLayerName(layer.dataset_table_name);
           const parentVis = (map.getLayer(ids.layer)
             ? (map.getLayoutProperty(ids.layer, 'visibility') ?? 'visible')
             : 'visible') as 'visible' | 'none';

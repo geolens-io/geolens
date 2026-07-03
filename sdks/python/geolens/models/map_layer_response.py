@@ -62,6 +62,7 @@ class MapLayerResponse:
         popup_config (None | PopupConfig | Unset):
         show_in_legend (bool | Unset):  Default: True.
         style_config (MapLayerResponseStyleConfigType0 | None | Unset):
+        tile_version (int | None | Unset):
     """
 
     dataset_extent_bbox: list[float] | None
@@ -94,6 +95,7 @@ class MapLayerResponse:
     popup_config: None | PopupConfig | Unset = UNSET
     show_in_legend: bool | Unset = True
     style_config: MapLayerResponseStyleConfigType0 | None | Unset = UNSET
+    tile_version: int | None | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -239,6 +241,12 @@ class MapLayerResponse:
         else:
             style_config = self.style_config
 
+        tile_version: int | None | Unset
+        if isinstance(self.tile_version, Unset):
+            tile_version = UNSET
+        else:
+            tile_version = self.tile_version
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -286,6 +294,8 @@ class MapLayerResponse:
             field_dict["show_in_legend"] = show_in_legend
         if style_config is not UNSET:
             field_dict["style_config"] = style_config
+        if tile_version is not UNSET:
+            field_dict["tile_version"] = tile_version
 
         return field_dict
 
@@ -551,6 +561,15 @@ class MapLayerResponse:
 
         style_config = _parse_style_config(d.pop("style_config", UNSET))
 
+        def _parse_tile_version(data: object) -> int | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(int | None | Unset, data)
+
+        tile_version = _parse_tile_version(d.pop("tile_version", UNSET))
+
         map_layer_response = cls(
             dataset_extent_bbox=dataset_extent_bbox,
             dataset_geometry_type=dataset_geometry_type,
@@ -578,6 +597,7 @@ class MapLayerResponse:
             popup_config=popup_config,
             show_in_legend=show_in_legend,
             style_config=style_config,
+            tile_version=tile_version,
         )
 
         map_layer_response.additional_properties = d

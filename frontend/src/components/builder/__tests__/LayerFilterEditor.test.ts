@@ -455,7 +455,7 @@ describe('LayerFilterEditor - EASY-18 empty-state hint', () => {
       featureCount: 0,
     }));
 
-    expect(screen.getByText('0 features — check your filter')).toBeInTheDocument();
+    expect(screen.getByText('0 features in view — check your filter')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /clear filter/i })).toBeInTheDocument();
   });
 
@@ -468,7 +468,7 @@ describe('LayerFilterEditor - EASY-18 empty-state hint', () => {
       featureCount: 0,
     }));
 
-    expect(screen.queryByText('0 features — check your filter')).not.toBeInTheDocument();
+    expect(screen.queryByText('0 features in view — check your filter')).not.toBeInTheDocument();
   });
 
   it('EASY-18 — does NOT render hint when featureCount > 0', () => {
@@ -480,7 +480,7 @@ describe('LayerFilterEditor - EASY-18 empty-state hint', () => {
       featureCount: 5,
     }));
 
-    expect(screen.queryByText('0 features — check your filter')).not.toBeInTheDocument();
+    expect(screen.queryByText('0 features in view — check your filter')).not.toBeInTheDocument();
   });
 
   it('EASY-18 — does NOT render hint when featureCount is undefined / null', () => {
@@ -492,7 +492,7 @@ describe('LayerFilterEditor - EASY-18 empty-state hint', () => {
       // featureCount deliberately omitted
     }));
 
-    expect(screen.queryByText('0 features — check your filter')).not.toBeInTheDocument();
+    expect(screen.queryByText('0 features in view — check your filter')).not.toBeInTheDocument();
   });
 
   it('EASY-18 — Clear button invokes onFilterChange(null) (dispatcher boundary regression pin)', () => {
@@ -581,5 +581,33 @@ describe('LayerFilterEditor - B-001 / FL-01: multi-condition round-trip', () => 
     // The first condition's value must not have been reset/reminted by the
     // feed-back re-parse.
     expect((within(rows[0]).getByRole('textbox', { name: 'Value' }) as HTMLInputElement).value).toBe('100');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// fix(#394) FL-03: numeric in_list per-entry NaN guard
+// ---------------------------------------------------------------------------
+describe('numeric in_list per-entry validation (fix(#394) FL-03)', () => {
+  it('drops non-numeric entries instead of emitting a mixed-type literal', () => {
+    const conditions = [{ id: '1', field: 'population', operator: 'in_list', value: '1,abc,3' }];
+    const result = buildFilterExpression(conditions, columns, 'all');
+    expect(result).toEqual(['all', ['in', ['get', 'population'], ['literal', [1, 3]]]]);
+  });
+
+  it('keeps a fully-numeric list valid (the whole-string NaN check rejected it)', () => {
+    const conditions = [{ id: '1', field: 'population', operator: 'in_list', value: '10, 20' }];
+    const result = buildFilterExpression(conditions, columns, 'all');
+    expect(result).toEqual(['all', ['in', ['get', 'population'], ['literal', [10, 20]]]]);
+  });
+
+  it('drops the whole condition when no entry is numeric', () => {
+    const conditions = [{ id: '1', field: 'population', operator: 'in_list', value: 'abc,def' }];
+    expect(buildFilterExpression(conditions, columns, 'all')).toBeNull();
+  });
+
+  it('not_in_list applies the same per-entry guard', () => {
+    const conditions = [{ id: '1', field: 'population', operator: 'not_in_list', value: '5,junk' }];
+    const result = buildFilterExpression(conditions, columns, 'all');
+    expect(result).toEqual(['all', ['!', ['in', ['get', 'population'], ['literal', [5]]]]]);
   });
 });

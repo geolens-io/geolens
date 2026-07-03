@@ -73,13 +73,23 @@ function ensureGeolensSprite(map: MaplibreMap): void {
 function iconImageExpression(symbol: SymbolStyleConfig): string | unknown[] {
   const fallback = symbol.iconImage || DEFAULT_ICON;
   if (!symbol.categoryColumn || !symbol.categories?.length) return spriteIconId(fallback);
-  const expression: unknown[] = ['match', ['get', symbol.categoryColumn]];
+  const pairs: unknown[] = [];
   for (const entry of symbol.categories) {
-    if (entry.value === undefined || !entry.icon) continue;
-    expression.push(entry.value, spriteIconId(entry.icon));
+    // fix(#394) ST-04: skip null values too — the to-string input below
+    // renders null as "", so a null-valued pair could never match.
+    if (entry.value === undefined || entry.value === null || !entry.icon) continue;
+    pairs.push(String(entry.value), spriteIconId(entry.icon));
   }
-  expression.push(spriteIconId(fallback));
-  return expression;
+  if (pairs.length === 0) {
+    // fix(#394) ST-01: zero pairs would emit ['match', input, fallback]
+    // (length 3 < the spec minimum 5) — addLayer throws (swallowed) and the
+    // symbol layer silently never renders. Backend export mirrors this guard.
+    return spriteIconId(fallback);
+  }
+  // fix(#394) ST-04: to-string the input and stringify labels so numeric MVT
+  // values match the stringified sample values the editor stores (numeric
+  // category columns always fell through to the fallback icon before).
+  return ['match', ['to-string', ['get', symbol.categoryColumn]], ...pairs, spriteIconId(fallback)];
 }
 
 function symbolLayout(input: AdapterLayerInput): Record<string, unknown> {

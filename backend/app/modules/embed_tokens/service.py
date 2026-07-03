@@ -367,6 +367,64 @@ async def update_embed_token(
     return token
 
 
+async def resolve_embed_scope_for_map(
+    db: AsyncSession,
+    raw_token: str,
+    map_id: uuid.UUID,
+    request: Request | None = None,
+) -> set[uuid.UUID]:
+    """Resolve the dataset ids an embed token authorizes for ``map_id``.
+
+    fix(#394) SH-01/B-023: embed tokens are a private-dataset capability
+    (SEC-022 posture) — the tile path has always honored them, but the
+    shared-map metadata endpoint dropped non-visible datasets, so an embed
+    with a valid scoped token could never even construct those layers.
+    This helper lets ``get_shared_map`` widen its visibility filter to the
+    token's snapshot scope.
+
+    Fail-closed: returns an empty set (never raises) when the token is
+    unknown, inactive, expired, bound to a different map, or fails the
+    origin allowlist — the same rules as ``validate_embed_token_access``.
+    The ``map_id`` equality also pins the tenant implicitly (map ids are
+    globally unique; callers resolved ``map_id`` from their own share
+    token), so no separate tenant-equality re-check is needed here.
+    Unlike the per-tile validator there is no caching or usage tracking:
+    the metadata endpoint is low-QPS and called once per viewer load.
+    """
+    token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
+    result = await db.execute(
+        select(EmbedToken).where(
+            EmbedToken.token_hash == token_hash,
+            EmbedToken.map_id == map_id,
+            EmbedToken.is_active.is_(True),
+            EmbedToken.expires_at > datetime.now(timezone.utc),
+        )
+    )
+    token = result.scalar_one_or_none()
+    if token is None:
+        return set()
+
+    # Domain-locking check — mirrors validate_embed_token_access (H-31 rules).
+    if token.allowed_origins:
+        if request is None:
+            return set()
+        origin = extract_request_origin(request)
+        if origin is None:
+            return set()
+        if _is_localhost_origin(origin) and _client_is_loopback(request):
+            pass
+        elif origin not in token.allowed_origins:
+            return set()
+
+    scoped: set[uuid.UUID] = set()
+    for raw_id in token.scoped_dataset_ids or []:
+        try:
+            scoped.add(uuid.UUID(str(raw_id)))
+        except ValueError:
+            continue
+    return scoped
+
+
 async def validate_embed_token_access(
     raw_token: str,
     dataset_id: uuid.UUID,

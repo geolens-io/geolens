@@ -116,7 +116,19 @@ export function buildFilterExpression(
     if (c.value === '' || c.value === undefined || c.value === null) return false;
     // Reject non-numeric values for numeric columns
     const col = columnInfo.find((ci) => ci.name === c.field);
-    if (col && classifyColumnType(col.type) === 'number' && isNaN(Number(c.value))) return false;
+    const isNumeric = !!col && classifyColumnType(col.type) === 'number';
+    // fix(#394) FL-03: list operators validate PER ENTRY — the whole-string
+    // NaN check below would reject every numeric list ("1,2" → Number NaN);
+    // the condition stays valid while at least one entry is numeric, and the
+    // emit branch drops the non-numeric entries.
+    if (isNumeric && (c.operator === 'in_list' || c.operator === 'not_in_list')) {
+      return String(c.value)
+        .split(',')
+        .map((v) => v.trim())
+        .filter(Boolean)
+        .some((v) => !isNaN(Number(v)));
+    }
+    if (isNumeric && isNaN(Number(c.value))) return false;
     return true;
   });
   if (valid.length === 0) return null;
@@ -131,14 +143,17 @@ export function buildFilterExpression(
       expressions.push(['any', ['!', ['has', cond.field]], ['==', ['get', cond.field], null]]);
     } else if (cond.operator === 'has') {
       expressions.push(['has', cond.field]);
-    } else if (cond.operator === 'in_list') {
+    } else if (cond.operator === 'in_list' || cond.operator === 'not_in_list') {
       const values = String(cond.value).split(',').map(v => v.trim()).filter(Boolean);
-      const coerced = values.map(v => coerceValue(v, pgType));
-      expressions.push(['in', ['get', cond.field], ['literal', coerced]]);
-    } else if (cond.operator === 'not_in_list') {
-      const values = String(cond.value).split(',').map(v => v.trim()).filter(Boolean);
-      const coerced = values.map(v => coerceValue(v, pgType));
-      expressions.push(['!', ['in', ['get', cond.field], ['literal', coerced]]]);
+      // fix(#394) FL-03: per-entry NaN guard for numeric columns — coerceValue
+      // leaves non-numeric entries as strings, so "1,abc,3" silently emitted a
+      // mixed-type literal. Drop the entries that don't coerce instead.
+      const numericColumn = classifyColumnType(pgType) === 'number';
+      const coerced = values
+        .map(v => coerceValue(v, pgType))
+        .filter(v => !numericColumn || typeof v === 'number');
+      const inExpr = ['in', ['get', cond.field], ['literal', coerced]];
+      expressions.push(cond.operator === 'in_list' ? inExpr : ['!', inExpr]);
     } else if (cond.operator === 'contains') {
       expressions.push(['in', cond.value.trim(), ['get', cond.field]]);
     } else {
@@ -375,7 +390,10 @@ export function LayerFilterEditor({
 
   return (
     <div className="space-y-3 rounded-md border bg-muted/30 p-3">
-      {/* EASY-18: empty-state hint — shown when filter is active but 0 features rendered */}
+      {/* EASY-18: empty-state hint — shown when filter is active but 0 features rendered.
+          fix(#394) FL-02: the count is VIEWPORT-scoped (queryRenderedFeatures), so
+          the copy says "in view" — matches may exist off-screen and "eliminated
+          every feature" was a false alarm in that case. */}
       {showEmptyState && (
         <div
           role="status"
@@ -383,12 +401,12 @@ export function LayerFilterEditor({
           className="mb-3 rounded-md border border-destructive/30 bg-destructive/5 p-3"
         >
           <p className="text-xs font-semibold text-foreground">
-            {t('layerEditor.emptyResult.title', { defaultValue: '0 features — check your filter' })}
+            {t('layerEditor.emptyResult.title', { defaultValue: '0 features in view — check your filter' })}
           </p>
           <p className="mt-1 text-[11px] text-muted-foreground">
             {t('layerEditor.emptyResult.help', {
               defaultValue:
-                'The current filter eliminated every feature in this layer. Adjust a condition or clear the filter to see features again.',
+                'The current filter matches nothing in the visible map area. Matches may exist off-screen — pan or zoom out, adjust a condition, or clear the filter.',
             })}
           </p>
           <Button

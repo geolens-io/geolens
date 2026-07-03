@@ -210,3 +210,55 @@ def test_set_style_without_validation_falls_back_to_tool_input_unchanged() -> No
     assert action["layer_id"] == "layer-1"
     assert "paint" not in action
     assert "clear_paint" not in action
+
+
+# ---------------------------------------------------------------------------
+# fix(#394) CH-02: set_label validation
+# ---------------------------------------------------------------------------
+
+
+def test_set_label_error_result_emits_no_action() -> None:
+    """A column-validation error from _execute_chat_tool must not still emit
+    a label action built from the raw tool input."""
+    action = _collect_chat_action(
+        "set_label",
+        {"layer_id": "l1", "column": "nope"},
+        {"error": "Column 'nope' does not exist on this layer."},
+    )
+    assert action is None
+
+
+def test_set_label_invalid_text_color_falls_back_to_default() -> None:
+    from app.processing.ai.chat_actions import _build_label_action
+
+    action = _build_label_action(
+        {"layer_id": "l1", "column": "name", "text_color": {"r": 1}}
+    )
+    assert action["label_config"]["textColor"] == "#333333"
+
+    action = _build_label_action(
+        {"layer_id": "l1", "column": "name", "text_color": "#zzzzzz;"}
+    )
+    assert action["label_config"]["textColor"] == "#333333"
+
+
+def test_set_label_valid_text_colors_pass_through() -> None:
+    from app.processing.ai.chat_actions import _build_label_action
+
+    for color in ("#ff0000", "rebeccapurple", "rgb(1, 2, 3)", "hsla(10, 5%, 5%, 0.4)"):
+        action = _build_label_action(
+            {"layer_id": "l1", "column": "name", "text_color": color}
+        )
+        assert action["label_config"]["textColor"] == color
+
+
+def test_set_label_junk_named_and_functional_colors_fall_back() -> None:
+    """fix(#394) codex round 2: 'notacolor' / 'rgb(foo)' must not pass the
+    shape check — junk still reached MapLibre paint validation before."""
+    from app.processing.ai.chat_actions import _build_label_action
+
+    for junk in ("notacolor", "rgb(foo)", "hsl(bad, values)", "#12345"):
+        action = _build_label_action(
+            {"layer_id": "l1", "column": "name", "text_color": junk}
+        )
+        assert action["label_config"]["textColor"] == "#333333", junk

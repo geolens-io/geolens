@@ -1227,6 +1227,25 @@ async def _run_service_import_with_wfs_fallback(
             raise
 
 
+async def invalidate_tile_cache_for_table(table_name: str) -> None:
+    """Best-effort MVT tile-cache purge after a table's contents change.
+
+    fix(#394) B-019/VT-01: reupload swaps the entire table under the same
+    ``table_name`` but was the one write path that never purged the Valkey
+    tile cache — the cache key has no content-version dimension and the ETag
+    is computed over the cached bytes, so stale geometry/attributes kept
+    being 304-served for up to ``tile_cache_ttl`` after every reupload.
+    Mirrors the feature-edit path (``features/router.py``): called AFTER the
+    owning transaction commits so a concurrent tile request cannot re-cache
+    pre-swap rows, and never raises (the provider swallows backend errors).
+    """
+    from app.platform.cache.provider import get_tile_cache
+
+    tile_cache = get_tile_cache()
+    if tile_cache is not None:
+        await tile_cache.invalidate_table(table_name)
+
+
 async def _apply_reupload_swap(
     session,
     *,

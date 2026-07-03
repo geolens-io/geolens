@@ -41,11 +41,14 @@ export type TileTokenBatchResponse = {
  * Errors for individual datasets are returned as ``{ error: string }``
  * values in the ``tokens`` map; the overall call still resolves.
  */
-export function getTileTokensBatch(datasetIds: string[], apiKey?: string): Promise<TileTokenBatchResponse> {
+// fix(#394) SH-04: embed viewers pass their X-Embed-Token so scoped datasets
+// mint the same tile/DEM descriptors an authenticated viewer would get.
+export function getTileTokensBatch(datasetIds: string[], apiKey?: string, embedToken?: string): Promise<TileTokenBatchResponse> {
+  const embedHeader: Record<string, string> = embedToken ? { 'X-Embed-Token': embedToken } : {};
   if (apiKey) {
     return fetch(`${API_BASE}/tiles/tokens/`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Api-Key': apiKey },
+      headers: { 'Content-Type': 'application/json', 'X-Api-Key': apiKey, ...embedHeader },
       body: JSON.stringify({ dataset_ids: datasetIds }),
     }).then((res) => {
       if (!res.ok) throw new Error(`Batch token request failed: ${res.status}`);
@@ -54,6 +57,7 @@ export function getTileTokensBatch(datasetIds: string[], apiKey?: string): Promi
   }
   return apiFetch<TileTokenBatchResponse>('/tiles/tokens/', {
     method: 'POST',
+    headers: embedHeader,
     body: JSON.stringify({ dataset_ids: datasetIds }),
   });
 }

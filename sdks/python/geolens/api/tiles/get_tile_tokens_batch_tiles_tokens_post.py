@@ -4,19 +4,23 @@ from typing import Any
 import httpx
 
 from ...client import AuthenticatedClient, Client
-from ...types import Response
+from ...types import Response, UNSET
 from ... import errors
 
 from ...models.problem_detail import ProblemDetail
 from ...models.tile_token_batch_request import TileTokenBatchRequest
 from ...models.tile_token_batch_response import TileTokenBatchResponse
+from ...types import Unset
 
 
 def _get_kwargs(
     *,
     body: TileTokenBatchRequest,
+    x_embed_token: None | str | Unset = UNSET,
 ) -> dict[str, Any]:
     headers: dict[str, Any] = {}
+    if not isinstance(x_embed_token, Unset):
+        headers["X-Embed-Token"] = x_embed_token
 
     _kwargs: dict[str, Any] = {
         "method": "post",
@@ -80,6 +84,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient,
     body: TileTokenBatchRequest,
+    x_embed_token: None | str | Unset = UNSET,
 ) -> Response[ProblemDetail | TileTokenBatchResponse]:
     r"""Get Tile Tokens Batch
 
@@ -94,7 +99,12 @@ def sync_detailed(
     response maps the offending dataset_id to ``{\"error\": \"...\"}``. Clients
     should check each entry for the ``error`` key.
 
+    fix(#394) SH-04: ``X-Embed-Token`` is accepted as per-dataset fallback
+    authorization (same capability check as tile serving), so embed terrain
+    builds its raster-dem source from the real bounds/maxzoom descriptor.
+
     Args:
+        x_embed_token (None | str | Unset):
         body (TileTokenBatchRequest): Batch request for tile tokens — accepts up to 50 dataset
             IDs.
 
@@ -108,6 +118,7 @@ def sync_detailed(
 
     kwargs = _get_kwargs(
         body=body,
+        x_embed_token=x_embed_token,
     )
 
     response = client.get_httpx_client().request(
@@ -121,6 +132,7 @@ def sync(
     *,
     client: AuthenticatedClient,
     body: TileTokenBatchRequest,
+    x_embed_token: None | str | Unset = UNSET,
 ) -> ProblemDetail | TileTokenBatchResponse | None:
     r"""Get Tile Tokens Batch
 
@@ -135,7 +147,12 @@ def sync(
     response maps the offending dataset_id to ``{\"error\": \"...\"}``. Clients
     should check each entry for the ``error`` key.
 
+    fix(#394) SH-04: ``X-Embed-Token`` is accepted as per-dataset fallback
+    authorization (same capability check as tile serving), so embed terrain
+    builds its raster-dem source from the real bounds/maxzoom descriptor.
+
     Args:
+        x_embed_token (None | str | Unset):
         body (TileTokenBatchRequest): Batch request for tile tokens — accepts up to 50 dataset
             IDs.
 
@@ -150,6 +167,7 @@ def sync(
     return sync_detailed(
         client=client,
         body=body,
+        x_embed_token=x_embed_token,
     ).parsed
 
 
@@ -157,6 +175,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
     body: TileTokenBatchRequest,
+    x_embed_token: None | str | Unset = UNSET,
 ) -> Response[ProblemDetail | TileTokenBatchResponse]:
     r"""Get Tile Tokens Batch
 
@@ -171,7 +190,12 @@ async def asyncio_detailed(
     response maps the offending dataset_id to ``{\"error\": \"...\"}``. Clients
     should check each entry for the ``error`` key.
 
+    fix(#394) SH-04: ``X-Embed-Token`` is accepted as per-dataset fallback
+    authorization (same capability check as tile serving), so embed terrain
+    builds its raster-dem source from the real bounds/maxzoom descriptor.
+
     Args:
+        x_embed_token (None | str | Unset):
         body (TileTokenBatchRequest): Batch request for tile tokens — accepts up to 50 dataset
             IDs.
 
@@ -185,6 +209,7 @@ async def asyncio_detailed(
 
     kwargs = _get_kwargs(
         body=body,
+        x_embed_token=x_embed_token,
     )
 
     response = await client.get_async_httpx_client().request(**kwargs)
@@ -196,6 +221,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient,
     body: TileTokenBatchRequest,
+    x_embed_token: None | str | Unset = UNSET,
 ) -> ProblemDetail | TileTokenBatchResponse | None:
     r"""Get Tile Tokens Batch
 
@@ -210,7 +236,12 @@ async def asyncio(
     response maps the offending dataset_id to ``{\"error\": \"...\"}``. Clients
     should check each entry for the ``error`` key.
 
+    fix(#394) SH-04: ``X-Embed-Token`` is accepted as per-dataset fallback
+    authorization (same capability check as tile serving), so embed terrain
+    builds its raster-dem source from the real bounds/maxzoom descriptor.
+
     Args:
+        x_embed_token (None | str | Unset):
         body (TileTokenBatchRequest): Batch request for tile tokens — accepts up to 50 dataset
             IDs.
 
@@ -226,5 +257,6 @@ async def asyncio(
         await asyncio_detailed(
             client=client,
             body=body,
+            x_embed_token=x_embed_token,
         )
     ).parsed

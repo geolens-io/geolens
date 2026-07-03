@@ -11,7 +11,7 @@ import {
   resolveBasemapId,
   BLANK_BASEMAP_ID,
 } from '@/lib/basemap-utils';
-import { buildClusterTileUrl, buildSignedTileUrl, resolveTileBaseUrl } from '@/lib/tile-utils';
+import { buildClusterTileUrl, buildSignedTileUrl, getMvtSourceLayerName, resolveTileBaseUrl } from '@/lib/tile-utils';
 import { useWebGLRecovery } from '@/hooks/use-webgl-recovery';
 import { useViewerTokens } from '@/components/viewer/hooks/use-viewer-tokens';
 import { useViewerTerrain } from '@/components/viewer/hooks/use-viewer-terrain';
@@ -108,6 +108,9 @@ export function toViewerSyncInput(
     layer_type: layer.layer_type,
     dataset_record_type: layer.dataset_record_type,
     tile_url: layer.tile_url,
+    // fix(#394) VT-02: thread the dataset content version through so the
+    // viewer's tile URLs carry the same `_v=` cache-buster as the builder.
+    tile_version: layer.tile_version,
   };
 }
 
@@ -131,7 +134,10 @@ function toAdapterInput(
     is_dem: layer.is_dem,
     sourceId: prefixed('source', layerKey, VIEWER_PREFIX),
     layerId: prefixed('layer', layerKey, VIEWER_PREFIX),
-    sourceLayer: `data.${layer.table_name}`,
+    // fix(#394) VT-03: derive via the shared helper instead of a hand-rolled
+    // template — the URL path and source-layer name must come from one place
+    // or a drift is a silent empty layer (see tile-utils parity test, VT-04).
+    sourceLayer: getMvtSourceLayerName(layer.table_name),
     tileUrl: '',
   };
 }
@@ -323,11 +329,49 @@ export const ViewerMap = memo(function ViewerMap({
       const map = e.target;
       mapRef.current = map;
 
-      // Absolutify URLs and attach embed token header when present
+      // First-party vs third-party request classification. Used to gate BOTH
+      // the X-Embed-Token header (fix(#394) SH-02/B-022) and the embed-auth
+      // error toast below. First-party means: our own origin, or the
+      // configured tile CDN origin (`cdn_base_url` / `TILE_BASE_URL`,
+      // resolved via the same `resolveTileBaseUrl()` helper used to build
+      // tile URLs) — self-hosted deployments commonly serve tiles from a
+      // separate CDN origin, so same-origin alone would misclassify them.
+      // When no url is available, default to first-party to preserve prior
+      // behavior. A relative path (single leading slash) is always
+      // first-party; a protocol-relative URL (`//host/path`) is normalized
+      // with the current protocol before the origin check so it isn't
+      // misread as a relative path.
+      const isThirdPartyUrl = (url?: string): boolean => {
+        if (!url) return false;
+        if (url.startsWith('/') && !url.startsWith('//')) return false;
+        try {
+          const normalized = url.startsWith('//') ? `${window.location.protocol}${url}` : url;
+          const requestOrigin = new URL(normalized, window.location.origin).origin;
+          if (requestOrigin === window.location.origin) return false;
+          const tileBaseUrl = resolveTileBaseUrl(tileConfigRef.current);
+          if (tileBaseUrl) {
+            try {
+              if (requestOrigin === new URL(tileBaseUrl, window.location.origin).origin) return false;
+            } catch {
+              // Malformed configured tile base URL — fall through to third-party classification.
+            }
+          }
+          return true;
+        } catch {
+          return false;
+        }
+      };
+
+      // Absolutify URLs and attach embed token header when present.
+      // fix(#394) SH-02/B-022: the header is a credential — send it only to
+      // first-party origins. Attaching it to third-party basemap
+      // sprite/glyph/tile CDNs (OpenFreeMap, CartoDB, …) over-shares the
+      // token and risks CORS-preflight breakage on hosts that don't allow
+      // the custom header.
       map.setTransformRequest((url: string) => {
         const absUrl = url.startsWith('http') ? url : `${window.location.origin}${url}`;
         const headers: Record<string, string> = {};
-        if (embedToken) {
+        if (embedToken && !isThirdPartyUrl(url)) {
           headers['X-Embed-Token'] = embedToken;
         }
         return { url: absUrl, headers };
@@ -338,41 +382,8 @@ export const ViewerMap = memo(function ViewerMap({
       // has a real problem (RES-3). Previously suppressed entirely in prod.
       map.on('error', (e: { error: { message?: string; status?: number; url?: string } }) => {
         const status = e.error?.status;
-        // `transformRequest` above attaches X-Embed-Token to every request the
-        // map makes, including third-party basemap style/sprite/glyph fetches
-        // (e.g. OpenFreeMap, CartoDB). A 401/403 from one of those CDNs is not
-        // an embed-token problem, so only treat the failure as an embed-auth
-        // issue when the failing request is first-party: our own origin, or
-        // the configured tile CDN origin (`cdn_base_url` / `TILE_BASE_URL`,
-        // resolved via the same `resolveTileBaseUrl()` helper used to build
-        // tile URLs) — self-hosted deployments commonly serve tiles from a
-        // separate CDN origin, so same-origin alone would misclassify a real
-        // embed-token failure there as third-party and swallow it. When
-        // maplibre doesn't report a url, default to treating it as
-        // first-party to preserve prior behavior. A relative path (single
-        // leading slash) is always first-party; a protocol-relative URL
-        // (`//host/path`) is normalized with the current protocol before the
-        // origin check so it isn't misread as a relative path.
-        const isThirdPartyUrl = (url?: string): boolean => {
-          if (!url) return false;
-          if (url.startsWith('/') && !url.startsWith('//')) return false;
-          try {
-            const normalized = url.startsWith('//') ? `${window.location.protocol}${url}` : url;
-            const requestOrigin = new URL(normalized, window.location.origin).origin;
-            if (requestOrigin === window.location.origin) return false;
-            const tileBaseUrl = resolveTileBaseUrl(tileConfigRef.current);
-            if (tileBaseUrl) {
-              try {
-                if (requestOrigin === new URL(tileBaseUrl, window.location.origin).origin) return false;
-              } catch {
-                // Malformed configured tile base URL — fall through to third-party classification.
-              }
-            }
-            return true;
-          } catch {
-            return false;
-          }
-        };
+        // A 401/403 from a third-party CDN is not an embed-token problem —
+        // see isThirdPartyUrl above.
         // Embed-token auth failures (expired/invalid X-Embed-Token) get their own
         // deduped "access expired" toast instead of being swallowed by the generic
         // 4xx suppression below. Copy is intentionally generic — must never echo
@@ -747,12 +758,14 @@ export const ViewerMap = memo(function ViewerMap({
               label_config: layer.label_config ?? null,
               popup_config: layer.popup_config ?? null,
             });
+        // fix(#394) VT-02 (codex P2): keep the `_v=` cache-buster on
+        // token-refresh rebuilds (parity with the initial source build).
         const newUrl = strategy.kind === 'server-tile'
-          ? buildClusterTileUrl(layer.table_name, token, tileBaseUrl, undefined, {
+          ? buildClusterTileUrl(layer.table_name, token, tileBaseUrl, layer.tile_version ?? undefined, {
               clusterRadius: typeof builder?.clusterRadius === 'number' ? builder.clusterRadius : 48,
               clusterMaxZoom: typeof builder?.clusterMaxZoom === 'number' ? builder.clusterMaxZoom : 14,
             })
-          : buildSignedTileUrl(layer.table_name, token, tileBaseUrl, undefined, cols);
+          : buildSignedTileUrl(layer.table_name, token, tileBaseUrl, layer.tile_version ?? undefined, cols);
         (source as VectorTileSource).setTiles([newUrl]);
       }
     }

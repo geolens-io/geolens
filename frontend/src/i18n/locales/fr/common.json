@@ -430,7 +430,9 @@
     "lazyTitle": "Échec du chargement",
     "lazyMessage": "Une partie de l'application n'a pas pu se charger. C'est généralement un problème de réseau.",
     "lazyRetry": "Réessayer",
-    "lazyRetrying": "Nouvelle tentative..."
+    "lazyRetrying": "Nouvelle tentative...",
+    "panelTitle": "Échec du chargement du panneau",
+    "panelMessage": "Ce panneau a rencontré une erreur. Le reste de l'éditeur n'est pas affecté."
   },
   "export": {
     "poweredBy": "Powered by GeoLens",

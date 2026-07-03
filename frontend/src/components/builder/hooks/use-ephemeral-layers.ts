@@ -88,19 +88,33 @@ export function useEphemeralLayers(
         },
       });
 
-      // Auto-zoom to bounds
-      const [west, south, east, north] = ephemeralResult.bbox;
-      map.fitBounds([[west, south], [east, north]], { padding: 40, maxZoom: 18 });
+    }
+
+    // fix(#394) LM-02/B-028: zoom only on the FIRST add for this result — the
+    // persistent style.load re-adds below must not re-fit the viewport on
+    // every basemap switch.
+    let zoomed = false;
+    function addLayersAndMaybeZoom() {
+      if (!map || !ephemeralResult) return;
+      addLayers();
+      if (!zoomed) {
+        zoomed = true;
+        const [west, south, east, north] = ephemeralResult.bbox;
+        map.fitBounds([[west, south], [east, north]], { padding: 40, maxZoom: 18 });
+      }
     }
 
     if (map.isStyleLoaded()) {
-      addLayers();
-    } else {
-      map.once('style.load', addLayers);
+      addLayersAndMaybeZoom();
     }
+    // fix(#394) LM-02/B-028: subscribe for the LIFETIME of the result — a
+    // basemap/style reload wipes the overlay from the map while the result
+    // badge stays, with no re-show path. The previous `once` only covered the
+    // initial not-yet-loaded case.
+    map.on('style.load', addLayersAndMaybeZoom);
 
     return () => {
-      map.off('style.load', addLayers);
+      map.off('style.load', addLayersAndMaybeZoom);
     };
   }, [ephemeralResult, mapInstanceRef]);
 

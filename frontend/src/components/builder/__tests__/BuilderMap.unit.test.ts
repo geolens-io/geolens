@@ -76,10 +76,13 @@ describe('getExpressionSafeOpacity', () => {
     expect(getExpressionSafeOpacity({ 'line-opacity': 0.5 }, 'line', 0.4)).toBe(0.2);
   });
 
-  it('returns expression-valued paint opacity without multiplying it', () => {
+  it('fix(#394) ST-03: multiplies expression-valued opacity by the master slider', () => {
     const opacityExpression = ['step', ['zoom'], 0.25, 10, 0.75];
 
-    expect(getExpressionSafeOpacity({ 'circle-opacity': opacityExpression }, 'circle', 0.4)).toEqual(opacityExpression);
+    expect(getExpressionSafeOpacity({ 'circle-opacity': opacityExpression }, 'circle', 0.4))
+      .toEqual(['*', opacityExpression, 0.4]);
+    // Master at 1 keeps the expression identity (no pointless wrapper churn).
+    expect(getExpressionSafeOpacity({ 'circle-opacity': opacityExpression }, 'circle', 1)).toEqual(opacityExpression);
   });
 
   it('uses geometry defaults when paint opacity is missing', () => {

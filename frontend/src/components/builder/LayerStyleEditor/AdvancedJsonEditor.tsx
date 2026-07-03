@@ -14,7 +14,7 @@ function validatePropertyBlock(
   value: Record<string, unknown>,
   layerType: string | undefined,
   block: 'paint' | 'layout',
-): string[] {
+): string[] | null {
   if (!layerType) return [];
   // Construct a layer object with the right shape for the requested type.
   // Use a GeoJSON source stub (no source-layer needed) with lineMetrics
@@ -44,10 +44,11 @@ function validatePropertyBlock(
     // any object shape; cast to satisfy the compiler.
     errors = validateStyleMin(testStyle as unknown as Parameters<typeof validateStyleMin>[0]) ?? [];
   } catch {
-    // If the validator itself throws, fall back to no errors rather than
-    // blocking the user — better to let MapLibre runtime catch real bugs
-    // than to falsely reject a paste that the validator can't parse.
-    return [];
+    // fix(#394) ST-05: a validator crash must BLOCK the apply (null sentinel),
+    // not wave the paste through — returning [] here applied unvalidated JSON
+    // straight to MapLibre, exactly the failure class this editor exists to
+    // prevent.
+    return null;
   }
   return errors
     .map((e) => e?.message ?? '')
@@ -96,6 +97,13 @@ function JsonBlock({ label, value, onApply, layerType, block }: JsonBlockProps) 
       // names, color values, numeric bounds, expression syntax, types.
       if (layerType) {
         const validationErrors = validatePropertyBlock(parsed, layerType, block);
+        if (validationErrors === null) {
+          // fix(#394) ST-05: validator crashed — block the apply.
+          setError(t('style.validatorUnavailable', {
+            defaultValue: 'This JSON could not be validated — simplify the value and try again.',
+          }));
+          return;
+        }
         if (validationErrors.length > 0) {
           setError(validationErrors.join('; '));
           return;

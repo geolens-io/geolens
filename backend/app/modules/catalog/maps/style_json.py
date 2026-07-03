@@ -441,6 +441,18 @@ def _append_cluster_source_metadata(
     cleanup confirms no consumer ever materializes, this whole block can be dropped
     to shrink the cluster path. Kept here, documented, to avoid silently changing
     the exported contract.
+
+    fix(#394) ST-06 (documented limitation, the audit's "or document" option):
+    cluster rendering does NOT round-trip through style.json export. The
+    exported layer is a plain circle layer over the vector source — no
+    ``cluster: true`` source flags and no cluster-circle/cluster-count
+    companion layers are emitted, because GeoLens clustering is server-side
+    (authenticated cluster tile URLs + per-layer radius/max-zoom the plain
+    MapLibre style format cannot express). External consumers of an exported
+    style see every point unclustered; this metadata block is the only
+    cluster trace. Full fidelity would require emitting the cluster
+    companions + a GeoJSON source per layer — revisit only if an external
+    consumer materializes.
     """
     if (layer.style_config or {}).get("render_mode") != "cluster":
         return
@@ -642,11 +654,17 @@ def _source_for_layer(layer: MapLayerResponse) -> dict[str, Any]:
             "tileSize": 256,
         }
     else:
+        # fix(#394): source maxzoom mirrors the live builder (map-sync.ts) —
+        # 14 for plain vector sources so exported styles OVERZOOM z15+ instead
+        # of hammering the backend at deep zooms, and 22 for server-cluster
+        # sources because the backend only unclusters for z > cluster_max_zoom
+        # (default 14), so cluster clients must be able to fetch z15+ tiles.
+        is_cluster = (layer.style_config or {}).get("render_mode") == "cluster"
         source = {
             "type": "vector",
             "tiles": [_tile_url_for_layer(layer)],
             "minzoom": 1,
-            "maxzoom": 22,
+            "maxzoom": 22 if is_cluster else 14,
         }
     source["metadata"] = {
         "geolens": {
@@ -709,18 +727,53 @@ def _symbol_layout_from_style(
     return next_layout
 
 
+def _symbol_match_label(value: Any) -> str:
+    """Stringify a category value the way JS ``String()`` does.
+
+    fix(#394) ST-04: match labels are compared against a
+    ``["to-string", ["get", col]]`` input (below), so every label must be a
+    string and integral floats must drop their ``.0`` (MapLibre's to-string
+    renders 4.0 as "4") to stay byte-parity with the frontend adapter.
+    """
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value))
+    return str(value)
+
+
 def _symbol_icon_expression(symbol: dict[str, Any]) -> Any:
     fallback = symbol.get("iconImage") or symbol.get("icon_image") or "marker"
     category_column = symbol.get("categoryColumn") or symbol.get("category_column")
     categories = symbol.get("categories")
     if category_column and isinstance(categories, list):
-        expression: list[Any] = ["match", ["get", category_column]]
+        pairs: list[Any] = []
         for entry in categories:
-            if not isinstance(entry, dict) or entry.get("icon") is None:
+            # fix(#394) ST-04: skip null category values too — the to-string
+            # input renders null as "" so a "None"/null label could never match.
+            if (
+                not isinstance(entry, dict)
+                or entry.get("icon") is None
+                or entry.get("value") is None
+            ):
                 continue
-            expression.append(entry.get("value"))
-            expression.append(_sprite_icon_id(entry["icon"]))
-        expression.append(_sprite_icon_id(fallback))
+            pairs.append(_symbol_match_label(entry.get("value")))
+            pairs.append(_sprite_icon_id(entry["icon"]))
+        if not pairs:
+            # fix(#394) ST-01: zero surviving pairs would emit
+            # ["match", input, fallback] (length 3 < the spec minimum 5) —
+            # MapLibre addLayer throws and the symbol layer silently never
+            # renders. Mirror of the frontend symbol-adapter guard.
+            return _sprite_icon_id(fallback)
+        # fix(#394) ST-04: to-string the input so numeric MVT values match the
+        # stringified sample values the editor stores (numeric columns always
+        # fell through to the fallback icon before).
+        expression: list[Any] = [
+            "match",
+            ["to-string", ["get", category_column]],
+            *pairs,
+            _sprite_icon_id(fallback),
+        ]
         return expression
     return _sprite_icon_id(fallback)
 

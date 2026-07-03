@@ -1335,6 +1335,14 @@ export const exportDatasetEndpointDatasetsDatasetIdExportGet = <ThrowOnError ext
  * Get Features Geojson Z Endpoint
  *
  * Return up to 5,000 features as RFC 7946 GeoJSON with Z coordinates.
+ *
+ * fix(#394) codex P2: the viewer's bounded-GeoJSON path (small 3D layers,
+ * eligible cluster layers) already sends ``X-Embed-Token``, and the B-023
+ * shared-map union now exposes embed-scoped private layers to embeds — so
+ * this endpoint accepts the token as fallback authorization via the SAME
+ * ``validate_embed_token_access`` capability check as tile serving.
+ * Credentialed callers (JWT / API key) keep the exact prior RBAC path;
+ * anonymous callers without a valid scoped token still get 401.
  */
 export const getFeaturesGeojsonZEndpointDatasetsDatasetIdFeaturesGeojsonGet = <ThrowOnError extends boolean = false>(options: Options<GetFeaturesGeojsonZEndpointDatasetsDatasetIdFeaturesGeojsonGetData, ThrowOnError>) => (options.client ?? client).get<GetFeaturesGeojsonZEndpointDatasetsDatasetIdFeaturesGeojsonGetResponses, GetFeaturesGeojsonZEndpointDatasetsDatasetIdFeaturesGeojsonGetErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }],
@@ -2251,6 +2259,9 @@ export const importMapStyleEndpointMapsImportPost = <ThrowOnError extends boolea
  * EmbedToken for this map. When no EmbedToken exists or allowed_origins is
  * empty, defaults to ``frame-ancestors 'self'``. The SecurityHeadersMiddleware
  * respects this route-level CSP and skips emitting X-Frame-Options: DENY.
+ *
+ * fix(#394) SH-01/B-023: accepts ``X-Embed-Token`` so embed viewers get the
+ * layers the token's scope authorizes (SEC-022 capability posture).
  */
 export const getSharedMapEndpointMapsSharedTokenGet = <ThrowOnError extends boolean = false>(options: Options<GetSharedMapEndpointMapsSharedTokenGetData, ThrowOnError>) => (options.client ?? client).get<GetSharedMapEndpointMapsSharedTokenGetResponses, GetSharedMapEndpointMapsSharedTokenGetErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }],
@@ -3361,6 +3372,10 @@ export const getTileTokenTilesTokenDatasetIdGet = <ThrowOnError extends boolean 
  * Per-dataset errors (404, 403) do not fail the batch — instead the
  * response maps the offending dataset_id to ``{"error": "..."}``. Clients
  * should check each entry for the ``error`` key.
+ *
+ * fix(#394) SH-04: ``X-Embed-Token`` is accepted as per-dataset fallback
+ * authorization (same capability check as tile serving), so embed terrain
+ * builds its raster-dem source from the real bounds/maxzoom descriptor.
  */
 export const getTileTokensBatchTilesTokensPost = <ThrowOnError extends boolean = false>(options: Options<GetTileTokensBatchTilesTokensPostData, ThrowOnError>) => (options.client ?? client).post<GetTileTokensBatchTilesTokensPostResponses, GetTileTokensBatchTilesTokensPostErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }],

@@ -336,7 +336,8 @@
       "cancelExpression": "Annuler",
       "parseError": "JSON invalide",
       "structureError": "L'expression doit être un tableau commençant par un opérateur connu"
-    }
+    },
+    "validatorUnavailable": "Ce JSON n'a pas pu être validé — simplifiez la valeur et réessayez."
   },
   "filters": {
     "title": "Filtres",
@@ -927,8 +928,16 @@
       "save": "Enregistrer la carte",
       "pan": "Outil panoramique",
       "measure": "Outil de mesure",
-      "legend": "Afficher/masquer la légende"
-    }
+      "legend": "Afficher/masquer la légende",
+      "showSheet": "Afficher cette boîte de dialogue",
+      "reorderToggle": "Basculer le mode de réorganisation (ligne de couche active)",
+      "reorderMove": "Déplacer la couche vers le haut / bas (mode réorganisation)",
+      "escape": "Fermer le panneau / effacer la sélection / quitter la réorganisation",
+      "multiSelect": "Basculer la couche dans la sélection",
+      "rangeSelect": "Sélectionner une plage de couches",
+      "extendSelect": "Étendre la sélection (pile active)"
+    },
+    "loadingPanel": "Chargement du panneau"
   },
   "styleJson": {
     "title": "JSON de style",
@@ -1061,7 +1070,8 @@
     "swapBasemap": "Remplacer le fond de carte",
     "toggleExpand": "Réduire/développer le groupe de fond de carte",
     "typeIconLabel": "Groupe de fond de carte",
-    "visibilityLocked": "Le fond de carte est toujours visible — utilisez « Supprimer le fond de carte » pour le masquer."
+    "visibilityLocked": "Le fond de carte est toujours visible — utilisez « Supprimer le fond de carte » pour le masquer.",
+    "presetSectionAria": "Fond de carte prédéfini"
   },
   "basemapSublayer": {
     "breadcrumbLabel": "Retour au groupe de fond de carte",
@@ -1159,8 +1169,8 @@
       "columns": "Colonnes"
     },
     "emptyResult": {
-      "title": "0 entité — vérifiez votre filtre",
-      "help": "Le filtre actuel a éliminé toutes les entités de cette couche. Ajustez une condition ou effacez le filtre pour revoir les entités.",
+      "title": "0 entités visibles — vérifiez votre filtre",
+      "help": "Le filtre actuel ne correspond à rien dans la zone visible de la carte. Des correspondances peuvent exister hors écran — déplacez la carte ou dézoomez, ajustez une condition ou effacez le filtre.",
       "clear": "Effacer le filtre"
     },
     "deleteLayer": "Supprimer le calque",

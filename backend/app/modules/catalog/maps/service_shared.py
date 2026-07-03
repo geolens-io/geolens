@@ -38,6 +38,7 @@ class DatasetMeta(NamedTuple):
     is_dem: bool | None
     dem_vertical_units: str | None
     band_count: int | None
+    tile_version: int | None
 
 
 class LayerRow(NamedTuple):
@@ -61,6 +62,7 @@ class LayerRow(NamedTuple):
     is_dem: bool | None
     dem_vertical_units: str | None
     band_count: int | None
+    tile_version: int | None
 
 
 def _extract_dem_vertical_units(band_info: object) -> str | None:
@@ -96,6 +98,7 @@ async def get_dataset_meta(
             RasterAsset.is_dem,
             RasterAsset.band_info,
             RasterAsset.band_count,
+            Dataset.current_version,
         )
         .join(Record, Dataset.record_id == Record.id)
         .outerjoin(RasterAsset, RasterAsset.dataset_id == Dataset.id)
@@ -117,6 +120,7 @@ async def get_dataset_meta(
         is_dem=bool(row[9]) if row[9] is not None else None,
         dem_vertical_units=_extract_dem_vertical_units(row[10]),
         band_count=row[11],
+        tile_version=row[12],
     )
 
 
@@ -219,6 +223,7 @@ async def _fetch_layer_rows_ordered(
             RasterAsset.is_dem,
             RasterAsset.band_info,
             RasterAsset.band_count,
+            Dataset.current_version,
         )
         .join(Dataset, MapLayer.dataset_id == Dataset.id)
         .join(Record, Dataset.record_id == Record.id)
@@ -242,6 +247,7 @@ async def _fetch_layer_rows_ordered(
             is_dem=bool(row[10]) if row[10] is not None else None,
             dem_vertical_units=_extract_dem_vertical_units(row[11]),
             band_count=row[12],
+            tile_version=row[13],
         )
         for row in result.all()
     ]
