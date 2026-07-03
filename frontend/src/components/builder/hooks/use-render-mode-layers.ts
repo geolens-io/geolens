@@ -8,6 +8,7 @@ import type { AdapterLayerInput } from '@/components/builder/layer-adapters/type
 import { DEFAULT_HEATMAP_PAINT } from '@/components/builder/layer-adapters/heatmap-adapter';
 import { buildSignedTileUrl } from '@/lib/tile-utils';
 import { buildLabelLayerSpec } from '@/components/builder/label-layer-utils';
+import { sanitizeNullableNumericFilter } from '@/lib/maplibre-filter-utils';
 import { normalizeDemStyleConfig } from '@/lib/dem-render-mode';
 import type { MapLayerResponse, StyleConfig, SymbolStyleConfig } from '@/types/api';
 import { getCompanionLayerIds } from '@/components/builder/companion-ids';
@@ -172,6 +173,8 @@ export function useRenderModeLayers({
       if (!map.getLayer(labelId) && map.getSource(sourceId)) {
         const geomType = getLayerType(layer.dataset_geometry_type);
         map.addLayer(buildLabelLayerSpec({ labelId, sourceId, sourceLayer, lc: layer.label_config, geomType }));
+        // fix(LB-02): carry the parent layer's filter onto the re-added label so filtered-out features stay excluded
+        map.setFilter(labelId, sanitizeNullableNumericFilter(layer.filter));
         map.setLayoutProperty(labelId, 'visibility', vis);
       } else if (map.getLayer(labelId)) {
         map.setLayoutProperty(labelId, 'visibility', vis);
