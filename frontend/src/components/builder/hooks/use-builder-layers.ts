@@ -606,7 +606,11 @@ export function useBuilderLayers(
 
     const currentLayers = layersRef.current;
     const data = buildDuplicateRenderingInput(layer, currentLayers);
-    const nextSortOrder = data.sort_order ?? currentLayers.length;
+    // fix(#1280): B-004b / LM-02 — carry the source's frontend-only
+    // parent_group_id so a duplicate of a grouped layer stays in the group
+    // instead of escaping to the stack bottom. MapLayerInput/the API cannot
+    // carry this field; it is stamped onto the LOCAL duplicate only.
+    const sourceParentGroupId = (layer as GroupedLayer).parent_group_id ?? null;
 
     addLayerMutation.mutate(
       { mapId, data },
@@ -618,15 +622,31 @@ export function useBuilderLayers(
           // single, StrictMode-safe place this hook updates the ref.
           setLocalLayers((prev) => {
             if (prev.some((candidate) => candidate.id === createdLayer.id)) return prev;
-            return [...prev, createdLayer].map((candidate, index) => ({
-              ...candidate,
-              sort_order: candidate.id === createdLayer.id ? nextSortOrder : candidate.sort_order ?? index,
-            }));
+            const duplicate: GroupedLayer = sourceParentGroupId
+              ? { ...createdLayer, parent_group_id: sourceParentGroupId }
+              : { ...createdLayer };
+            const sourceIdx = prev.findIndex((candidate) => candidate.id === layerId);
+            const next = [...prev];
+            if (sourceIdx >= 0) {
+              // Splice adjacent to the source (inside the group block when
+              // grouped) instead of appending at the array end.
+              next.splice(sourceIdx + 1, 0, duplicate as MapLayerResponse);
+            } else {
+              next.push(duplicate as MapLayerResponse);
+            }
+            return next.map((candidate, index) => ({ ...candidate, sort_order: index }));
           });
+          // Baseline carries the PURE server layer (no parent_group_id, which
+          // is unsaved frontend state) — mirrors the handleAddDataset drop path.
           savedLayerBaselineRef.current = [
             ...savedLayerBaselineRef.current.filter((candidate) => candidate.id !== createdLayer.id),
             createdLayer,
           ];
+          if (sourceParentGroupId) {
+            // Group membership is unsaved frontend state — mark dirty so the
+            // save path persists it and the refetch sync does not wipe it.
+            setHasUnsavedChanges(true);
+          }
           if (createdLayer?.id) {
             setExpandedLayerId(createdLayer.id);
             setActiveEditorTab('style');
