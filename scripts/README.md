@@ -6,25 +6,23 @@ Utility scripts for GeoLens administration and data seeding.
 
 ### `seed-showcase.py`
 
-Builds three demo maps from public, openly licensed data against a running stack:
-
-- **Manhattan Skyline**: every Lower + Midtown building footprint extruded to its real
-  surveyed roof height and color-graded by height (NYC Open Data).
-- **New York Income**: a data-driven quantile choropleth of median household income by
-  county (USDA ERS Atlas of Rural & Small-Town America).
-- **The Matterhorn** (`--with-terrain`): a 3D terrain mesh + hillshade from a swisstopo
-  swissALTI3D VRT mosaic, with OpenStreetMap climbing routes (white-cased) and named peaks
-  draped on the terrain.
+Builds the marketing showcase maps from public, openly licensed data against a running
+stack — the Manhattan skyline (3D extrusion), New York income choropleth, world airports
+(clustered), recent earthquakes, world countries/rivers, the Restless Earth composite
+story map (quakes + tectonic plate boundaries + major cities), a "Discover the World"
+collection, and — behind flags — the Matterhorn 3D-terrain and Sentinel-2 true-color
+heroes. The authoritative map list, data sources, and the API gotchas each builder
+encodes live in the script's module docstring.
 
 ```bash
 pip install httpx
 
-# Build the Manhattan + income maps
+# Build the default showcase set
 python scripts/seed-showcase.py \
   --username "${GEOLENS_ADMIN_USERNAME:-admin}" \
   --password "$GEOLENS_ADMIN_PASSWORD"
 
-# Also build the Matterhorn 3D-terrain hero (downloads ~9 swissALTI3D COG tiles)
+# Also build the Matterhorn 3D-terrain hero (downloads ~62 swissALTI3D COG tiles)
 python scripts/seed-showcase.py \
   --username "${GEOLENS_ADMIN_USERNAME:-admin}" \
   --password "$GEOLENS_ADMIN_PASSWORD" \
@@ -34,7 +32,14 @@ python scripts/seed-showcase.py \
 python scripts/seed-showcase.py \
   --username "${GEOLENS_ADMIN_USERNAME:-admin}" \
   --password "$GEOLENS_ADMIN_PASSWORD" \
-  --only income
+  --only restless
+
+# Swap a fresh USGS 30-day feed into the earthquake datasets (in place), then exit.
+# Run every week or two so "last 30 days" stays honest on a long-lived instance.
+python scripts/seed-showcase.py \
+  --username "${GEOLENS_ADMIN_USERNAME:-admin}" \
+  --password "$GEOLENS_ADMIN_PASSWORD" \
+  --refresh-quakes
 ```
 
 | Flag | Default | Description |
@@ -43,10 +48,15 @@ python scripts/seed-showcase.py \
 | `--username` | `admin` (`$GEOLENS_ADMIN_USERNAME`) | Admin username |
 | `--password` | `$GEOLENS_ADMIN_PASSWORD` | Admin password |
 | `--with-terrain` | off | Also build the Matterhorn terrain hero |
-| `--only` | unset | Build only `manhattan`, `income`, or `matterhorn` |
+| `--with-sentinel2` | off | Also build the Sentinel-2 true-color hero |
+| `--only` | unset | Build one showcase (`manhattan`, `income`, `matterhorn`, `airports`, `earthquakes`, `countries`, `rivers`, `restless`, `sentinel2`, `collection`) |
+| `--force` | off | Re-create showcase maps/datasets even if they already exist |
+| `--refresh-quakes` | off | Refresh the earthquake datasets from the USGS feed, then exit |
 
 Requires internet access to the upstream open-data sources (NYC Open Data, USDA ERS,
-OpenStreetMap, swisstopo). The script is non-idempotent. Each run POSTs new maps.
+OurAirports, USGS, Natural Earth, OpenStreetMap, swisstopo, Element84 Earth Search).
+Maps are skipped if they already exist (`--force` recreates them); each forced run
+POSTs new maps/datasets rather than updating in place.
 
 ## Shell scripts
 
