@@ -87,6 +87,9 @@ function renderBuilderLayers(
   const mutate = vi.fn();
   const addLayerMutation = { mutate } as unknown as Parameters<typeof useBuilderLayers>[3];
   const removeLayerMutation = { mutate: vi.fn() } as unknown as Parameters<typeof useBuilderLayers>[4];
+  // fix(#392): 6th positional param bridging into useBuilderSave's Save-diff baseline.
+  const saveBaselineSync = vi.fn();
+  const saveBaselineSyncRef = { current: saveBaselineSync } as unknown as Parameters<typeof useBuilderLayers>[5];
 
   const out = renderHook(() =>
     useBuilderLayers(
@@ -95,9 +98,10 @@ function renderBuilderLayers(
       'map-1',
       addLayerMutation,
       removeLayerMutation,
+      saveBaselineSyncRef,
     ),
   );
-  return { ...out, mutate };
+  return { ...out, mutate, saveBaselineSync };
 }
 
 describe('handleAddDataset (BSR-18)', () => {

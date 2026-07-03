@@ -54,8 +54,10 @@ const MAP_ID = 'map-1';
 function renderBuilderLayers(mapData: MapResponse | undefined) {
   const addLayerMutation = { mutate: vi.fn(), mutateAsync: vi.fn() } as unknown as Parameters<typeof useBuilderLayers>[3];
   const removeLayerMutation = { mutate: vi.fn(), mutateAsync: vi.fn() } as unknown as Parameters<typeof useBuilderLayers>[4];
+  // fix(#392): 6th positional param bridging into useBuilderSave's Save-diff baseline.
+  const saveBaselineSyncRef = { current: () => {} } as unknown as Parameters<typeof useBuilderLayers>[5];
   return renderHook(() =>
-    useBuilderLayers(mapData, makeMapRef(), MAP_ID, addLayerMutation, removeLayerMutation),
+    useBuilderLayers(mapData, makeMapRef(), MAP_ID, addLayerMutation, removeLayerMutation, saveBaselineSyncRef),
   );
 }
 

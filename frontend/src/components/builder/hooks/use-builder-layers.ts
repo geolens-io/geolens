@@ -39,6 +39,12 @@ export function useBuilderLayers(
   mapId: string | undefined,
   addLayerMutation: ReturnType<typeof useAddLayer>,
   removeLayerMutation: ReturnType<typeof useRemoveLayer>,
+  // fix(#392): populated by useBuilderSave (MapBuilderPage renders
+  // useBuilderLayers before useBuilderSave, so a callback ref bridges the two).
+  // Invoked by handleAddDataset/handleDuplicateRendering so the Save-diff
+  // baseline learns about server-created layers immediately, instead of only
+  // on a clean-state resync — see use-builder-save.ts for the full rationale.
+  saveBaselineSyncRef: React.MutableRefObject<(layer: MapLayerResponse) => void>,
 ) {
   const [searchParams, setSearchParams] = useSearchParams();
   const { t } = useTranslation('builder');
@@ -540,6 +546,9 @@ export function useBuilderLayers(
               if (!savedLayerBaselineRef.current.some((l) => l.id === createdLayer.id)) {
                 savedLayerBaselineRef.current = [createdLayer, ...savedLayerBaselineRef.current];
               }
+              // fix(#392): also register the pure server layer into the Save-diff baseline so
+              // Save doesn't treat this just-created layer as diff.added and PATCH a duplicate.
+              saveBaselineSyncRef.current?.(createdLayer);
               // fix(#392): mark dirty unconditionally, not just for the grouped
               // branch — the non-grouped branch above renumbers every existing
               // layer's sort_order locally, but the backend does not renumber
@@ -587,7 +596,7 @@ export function useBuilderLayers(
         },
       );
     },
-    [mapId, addLayerMutation, t],
+    [mapId, addLayerMutation, t, saveBaselineSyncRef],
   );
 
   // AI-specific remove: removes locally (persisted on Save).
@@ -674,6 +683,9 @@ export function useBuilderLayers(
             ...savedLayerBaselineRef.current.filter((candidate) => candidate.id !== createdLayer.id),
             createdLayer,
           ];
+          // fix(#392): also register the pure server layer into the Save-diff baseline so
+          // Save doesn't treat this just-created layer as diff.added and PATCH a duplicate.
+          saveBaselineSyncRef.current?.(createdLayer);
           // fix(#392): the splice above always renumbers the FULL local
           // array (adjacent-insert, not append) — this is a real, unpersisted
           // diff for grouped AND non-grouped duplicates alike. Mark dirty
@@ -699,7 +711,7 @@ export function useBuilderLayers(
         },
       },
     );
-  }, [addLayerMutation, mapId, t]);
+  }, [addLayerMutation, mapId, t, saveBaselineSyncRef]);
 
   const markDirty = useCallback(() => setHasUnsavedChanges(true), []);
 

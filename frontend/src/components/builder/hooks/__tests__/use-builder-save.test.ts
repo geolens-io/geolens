@@ -146,6 +146,9 @@ function makeSaveState(overrides: Partial<SaveState> = {}): SaveState {
     setHasUnsavedChanges: vi.fn(),
     hasUnsavedChanges: false,
     hasThumbnail: true,
+    // fix(#392): the real MapBuilderPage owns this ref; tests that don't
+    // exercise the layer-create → save-baseline bridge get a plain no-op ref.
+    saveBaselineSyncRef: { current: () => {} },
     ...overrides,
   };
 }

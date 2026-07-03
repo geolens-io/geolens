@@ -39,6 +39,9 @@ function renderBuilderLayers(
   const mutate = vi.fn();
   const addLayerMutation = { mutate } as unknown as Parameters<typeof useBuilderLayers>[3];
   const removeLayerMutation = { mutate: vi.fn() } as unknown as Parameters<typeof useBuilderLayers>[4];
+  // fix(#392): 6th positional param bridging into useBuilderSave's Save-diff baseline.
+  const saveBaselineSync = vi.fn();
+  const saveBaselineSyncRef = { current: saveBaselineSync } as unknown as Parameters<typeof useBuilderLayers>[5];
 
   const out = renderHook(() =>
     useBuilderLayers(
@@ -47,9 +50,10 @@ function renderBuilderLayers(
       'map-1',
       addLayerMutation,
       removeLayerMutation,
+      saveBaselineSyncRef,
     ),
   );
-  return { ...out, mutate };
+  return { ...out, mutate, saveBaselineSync };
 }
 
 describe('handleDuplicateRendering — grouped-duplicate positioning (B-004b / LM-02)', () => {
@@ -161,6 +165,28 @@ describe('handleDuplicateRendering — grouped-duplicate positioning (B-004b / L
 
     const baselineEntry = result.current.savedLayerBaseline.find((l) => l.id === 'dup-3');
     expect(baselineEntry).toEqual({ id: 'dup-3', dataset_id: 'ds-1' });
+  });
+
+  // fix(#392): handleDuplicateRendering must also register the pure
+  // createdLayer into the Save-diff baseline (via saveBaselineSyncRef), not just
+  // the refetch-resync baseline (savedLayerBaselineRef) — otherwise Save's
+  // buildLayerDiff still sees the duplicate as unknown and PATCHes a second copy.
+  it('Test 4b: saveBaselineSyncRef is invoked with the pure server createdLayer (no parent_group_id)', () => {
+    const source = {
+      ...makeMockLayer({ id: 'src', sort_order: 0 }),
+      parent_group_id: 'group-1',
+    } as GroupedLayer as MapLayerResponse;
+
+    const { result, mutate, saveBaselineSync } = renderBuilderLayers(makeMapData([source]));
+
+    act(() => {
+      result.current.handleDuplicateRendering('src');
+    });
+
+    const [, { onSuccess }] = mutate.mock.calls[0];
+    act(() => { onSuccess({ id: 'dup-4', dataset_id: 'ds-1' }); });
+
+    expect(saveBaselineSync).toHaveBeenCalledWith({ id: 'dup-4', dataset_id: 'ds-1' });
   });
 
   // fix(#392): a layer moved out of a group locally, then

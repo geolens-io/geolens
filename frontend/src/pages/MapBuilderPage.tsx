@@ -46,7 +46,7 @@ import {
   basemapThumbnail,
   BLANK_BASEMAP_ID,
 } from '@/lib/basemap-utils';
-import type { MapSublayerOverride } from '@/types/api';
+import type { MapLayerResponse, MapSublayerOverride } from '@/types/api';
 import { isFolderGroupLayer } from '@/lib/layer-capabilities';
 import { SidebarRail } from '@/components/builder/SidebarRail';
 import { LayerEditorPanel, type LayerEditorHandlers } from '@/components/builder/LayerEditorPanel';
@@ -201,12 +201,21 @@ export function MapBuilderPage() {
 
   // Composed hooks
   const dialogs = useBuilderDialogs();
+  // fix(#392): callback ref bridging useBuilderLayers (rendered first, below)
+  // to useBuilderSave (rendered after it, at ~line 281+7). useBuilderSave
+  // populates this with a function that registers a server-created layer into
+  // the Save-diff baseline; useBuilderLayers' handleAddDataset /
+  // handleDuplicateRendering invoke it right after a layer-create mutation
+  // succeeds, so Save never re-diffs that layer as `added` and PATCHes a
+  // duplicate. See use-builder-save.ts for the full rationale.
+  const saveBaselineSyncRef = useRef<(layer: MapLayerResponse) => void>(() => {});
   const layers = useBuilderLayers(
     mapData,
     mapInstanceRef,
     id,
     addLayer,
     removeLayer,
+    saveBaselineSyncRef,
   );
   const {
     setHasUnsavedChanges,
@@ -295,6 +304,7 @@ export function MapBuilderPage() {
     hasUnsavedChanges: layers.hasUnsavedChanges,
     hasThumbnail: !!mapData?.thumbnail_url,
     pendingLayerAdd,
+    saveBaselineSyncRef,
   });
 
   const handleMapRef = useCallback((map: MaplibreMap | null) => {

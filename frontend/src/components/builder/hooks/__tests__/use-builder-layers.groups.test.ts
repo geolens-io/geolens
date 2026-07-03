@@ -27,6 +27,8 @@ function renderBuilderLayers(
 ) {
   const addLayerMutation = { mutate: vi.fn() } as unknown as Parameters<typeof useBuilderLayers>[3];
   const removeLayerMutation = { mutate: vi.fn() } as unknown as Parameters<typeof useBuilderLayers>[4];
+  // fix(#392): 6th positional param bridging into useBuilderSave's Save-diff baseline.
+  const saveBaselineSyncRef = { current: () => {} } as unknown as Parameters<typeof useBuilderLayers>[5];
 
   return renderHook(() =>
     useBuilderLayers(
@@ -35,6 +37,7 @@ function renderBuilderLayers(
       'map-1',
       addLayerMutation,
       removeLayerMutation,
+      saveBaselineSyncRef,
     ),
   );
 }

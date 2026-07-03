@@ -45,8 +45,10 @@ function createMockMap(initial?: { sources?: string[]; layers?: string[] }) {
 function renderBuilder(mapData: MapResponse, mapRef: React.RefObject<MaplibreMap | null>) {
   const addLayerMutation = { mutate: vi.fn() } as unknown as Parameters<typeof useBuilderLayers>[3];
   const removeLayerMutation = { mutate: vi.fn() } as unknown as Parameters<typeof useBuilderLayers>[4];
+  // fix(#392): 6th positional param bridging into useBuilderSave's Save-diff baseline.
+  const saveBaselineSyncRef = { current: () => {} } as unknown as Parameters<typeof useBuilderLayers>[5];
   return renderHook(() =>
-    useBuilderLayers(mapData, mapRef, 'map-1', addLayerMutation, removeLayerMutation),
+    useBuilderLayers(mapData, mapRef, 'map-1', addLayerMutation, removeLayerMutation, saveBaselineSyncRef),
   );
 }
 
