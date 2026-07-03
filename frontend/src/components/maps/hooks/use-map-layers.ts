@@ -4,13 +4,14 @@ import { buildSignedTileUrl } from '@/lib/tile-utils';
 import { MAP_COLORS } from '@/lib/map-colors';
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import maplibregl from 'maplibre-gl';
+import { getMvtSourceLayerName } from '@/lib/tile-utils';
 
 /** Empty GeoJSON FeatureCollection */
 const EMPTY_FC: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features: [] };
 
-function getSourceLayerName(tableName: string): string {
-  return `data.${tableName}`;
-}
+// fix(#394) VT-04: use the shared helper — a local duplicate is exactly the
+// silent-drift class the source-layer parity test pins down.
+const getSourceLayerName = getMvtSourceLayerName;
 
 interface UseMapLayersOptions {
   tableName: string | null;

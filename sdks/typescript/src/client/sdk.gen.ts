@@ -2251,6 +2251,10 @@ export const importMapStyleEndpointMapsImportPost = <ThrowOnError extends boolea
  * EmbedToken for this map. When no EmbedToken exists or allowed_origins is
  * empty, defaults to ``frame-ancestors 'self'``. The SecurityHeadersMiddleware
  * respects this route-level CSP and skips emitting X-Frame-Options: DENY.
+ *
+ * fix(#394) SH-01/B-023: also accepts ``X-Embed-Token`` so embed viewers get
+ * the layers the token's scope authorizes (the tile path already honored the
+ * token — SEC-022 capability posture; the metadata payload now matches).
  */
 export const getSharedMapEndpointMapsSharedTokenGet = <ThrowOnError extends boolean = false>(options: Options<GetSharedMapEndpointMapsSharedTokenGetData, ThrowOnError>) => (options.client ?? client).get<GetSharedMapEndpointMapsSharedTokenGetResponses, GetSharedMapEndpointMapsSharedTokenGetErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }],
@@ -3361,6 +3365,14 @@ export const getTileTokenTilesTokenDatasetIdGet = <ThrowOnError extends boolean 
  * Per-dataset errors (404, 403) do not fail the batch — instead the
  * response maps the offending dataset_id to ``{"error": "..."}``. Clients
  * should check each entry for the ``error`` key.
+ *
+ * fix(#394) SH-04: embed viewers carry no login, so this endpoint accepts
+ * ``X-Embed-Token`` as a per-dataset fallback authorization — the same
+ * ``validate_embed_token_access`` capability check the tile-serving path
+ * uses (origin allowlist + live layer-membership + tenant equality). This
+ * lets embed-mode terrain build its raster-dem source from the SAME
+ * descriptor (bounds / resolution-derived maxzoom) as builder and viewer
+ * instead of empty defaults.
  */
 export const getTileTokensBatchTilesTokensPost = <ThrowOnError extends boolean = false>(options: Options<GetTileTokensBatchTilesTokensPostData, ThrowOnError>) => (options.client ?? client).post<GetTileTokensBatchTilesTokensPostResponses, GetTileTokensBatchTilesTokensPostErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }],

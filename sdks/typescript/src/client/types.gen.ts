@@ -4935,6 +4935,10 @@ export type MapLayerResponse = {
         [key: string]: unknown;
     } | null;
     /**
+     * Tile Version
+     */
+    tile_version?: number | null;
+    /**
      * Visible
      */
     visible: boolean;
@@ -7716,6 +7720,10 @@ export type SharedLayerResponse = {
      * Tile Url
      */
     tile_url: string;
+    /**
+     * Tile Version
+     */
+    tile_version?: number | null;
     /**
      * Visible
      */
@@ -17665,6 +17673,14 @@ export type ImportMapStyleEndpointMapsImportPostResponse = ImportMapStyleEndpoin
 
 export type GetSharedMapEndpointMapsSharedTokenGetData = {
     body?: never;
+    headers?: {
+        /**
+         * X-Embed-Token
+         *
+         * Optional embed token. When valid for this map, layers backed by the token's scoped (possibly non-public) datasets are included.
+         */
+        'X-Embed-Token'?: string | null;
+    };
     path: {
         /**
          * Token
@@ -21778,6 +21794,14 @@ export type GetTileTokenTilesTokenDatasetIdGetResponse = GetTileTokenTilesTokenD
 
 export type GetTileTokensBatchTilesTokensPostData = {
     body: TileTokenBatchRequest;
+    headers?: {
+        /**
+         * X-Embed-Token
+         *
+         * Optional embed token. Datasets in the token's scope are authorized even without user credentials (embed viewers).
+         */
+        'X-Embed-Token'?: string | null;
+    };
     path?: never;
     query?: never;
     url: '/tiles/tokens/';

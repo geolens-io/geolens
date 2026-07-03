@@ -192,10 +192,16 @@ export async function bulkDeleteLayersApi(
  * Other error statuses (403, 410 expired, 500) still throw ApiError normally so
  * that they surface correctly (e.g. the "Link expired" view for 410).
  */
-export async function getSharedMap(token: string, apiKey?: string): Promise<SharedMapResponse | null> {
+export async function getSharedMap(token: string, apiKey?: string, embedToken?: string): Promise<SharedMapResponse | null> {
   const extraHeaders: Record<string, string> = {};
   if (apiKey) {
     extraHeaders['X-Api-Key'] = apiKey;
+  }
+  // fix(#394) SH-01/B-023: embed viewers present their embed token so the
+  // metadata payload includes the token's scoped (possibly non-public)
+  // dataset layers — the tile path already honored the same capability.
+  if (embedToken) {
+    extraHeaders['X-Embed-Token'] = embedToken;
   }
   const resp = await apiFetch<SharedMapResponse | null>(`/maps/shared/${token}`, {
     headers: extraHeaders,

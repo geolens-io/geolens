@@ -66,8 +66,8 @@ export const queryKeys = {
     aiAvailability: ['ai-availability'] as const,
     shareToken: (mapId: string | undefined) => ['map-share-token', mapId] as const,
     embedTokens: (mapId: string | undefined) => ['map-embed-tokens', mapId] as const,
-    sharedMap: (token: string | undefined, apiKey?: string) =>
-      ['shared-map', token, apiKey] as const,
+    sharedMap: (token: string | undefined, apiKey?: string, embedToken?: string) =>
+      ['shared-map', token, apiKey, embedToken] as const,
     columnValues: (datasetId: string | undefined, col: string | undefined) =>
       ['column-values', datasetId, col] as const,
     columnValuesPrefix: (datasetId: string) => ['column-values', datasetId] as const,

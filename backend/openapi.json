@@ -8501,6 +8501,17 @@
             ],
             "title": "Style Config"
           },
+          "tile_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tile Version"
+          },
           "visible": {
             "title": "Visible",
             "type": "boolean"
@@ -13259,6 +13270,17 @@
           "tile_url": {
             "title": "Tile Url",
             "type": "string"
+          },
+          "tile_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tile Version"
           },
           "visible": {
             "title": "Visible",
@@ -34282,7 +34304,7 @@
     },
     "/maps/shared/{token}": {
       "get": {
-        "description": "Get a shared map by token. Optionally authenticated for non-public layers.\n\nSEC-S08 (Phase 1062-05): emits ``Content-Security-Policy: frame-ancestors\n'self' [<allowed_origins>...]`` on the response, derived from the active\nEmbedToken for this map. When no EmbedToken exists or allowed_origins is\nempty, defaults to ``frame-ancestors 'self'``. The SecurityHeadersMiddleware\nrespects this route-level CSP and skips emitting X-Frame-Options: DENY.",
+        "description": "Get a shared map by token. Optionally authenticated for non-public layers.\n\nSEC-S08 (Phase 1062-05): emits ``Content-Security-Policy: frame-ancestors\n'self' [<allowed_origins>...]`` on the response, derived from the active\nEmbedToken for this map. When no EmbedToken exists or allowed_origins is\nempty, defaults to ``frame-ancestors 'self'``. The SecurityHeadersMiddleware\nrespects this route-level CSP and skips emitting X-Frame-Options: DENY.\n\nfix(#394) SH-01/B-023: also accepts ``X-Embed-Token`` so embed viewers get\nthe layers the token's scope authorizes (the tile path already honored the\ntoken \u2014 SEC-022 capability posture; the metadata payload now matches).",
         "operationId": "get_shared_map_endpoint_maps_shared__token__get",
         "parameters": [
           {
@@ -34292,6 +34314,24 @@
             "schema": {
               "title": "Token",
               "type": "string"
+            }
+          },
+          {
+            "description": "Optional embed token. When valid for this map, layers backed by the token's scoped (possibly non-public) datasets are included.",
+            "in": "header",
+            "name": "X-Embed-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional embed token. When valid for this map, layers backed by the token's scoped (possibly non-public) datasets are included.",
+              "title": "X-Embed-Token"
             }
           }
         ],
@@ -43287,8 +43327,28 @@
     },
     "/tiles/tokens/": {
       "post": {
-        "description": "Batch-generate tile tokens for up to 50 datasets in one request.\n\nOptimization for multi-layer maps: a 20-layer builder map previously\nfired 20 parallel GET /token/{id}/ requests (20 HTTP + 20 RBAC + 20 HMAC\nsignatures). This endpoint does the same work in a single round trip\nwith one DB query for dataset metadata (PERF-N5).\n\nPer-dataset errors (404, 403) do not fail the batch \u2014 instead the\nresponse maps the offending dataset_id to ``{\"error\": \"...\"}``. Clients\nshould check each entry for the ``error`` key.",
+        "description": "Batch-generate tile tokens for up to 50 datasets in one request.\n\nOptimization for multi-layer maps: a 20-layer builder map previously\nfired 20 parallel GET /token/{id}/ requests (20 HTTP + 20 RBAC + 20 HMAC\nsignatures). This endpoint does the same work in a single round trip\nwith one DB query for dataset metadata (PERF-N5).\n\nPer-dataset errors (404, 403) do not fail the batch \u2014 instead the\nresponse maps the offending dataset_id to ``{\"error\": \"...\"}``. Clients\nshould check each entry for the ``error`` key.\n\nfix(#394) SH-04: embed viewers carry no login, so this endpoint accepts\n``X-Embed-Token`` as a per-dataset fallback authorization \u2014 the same\n``validate_embed_token_access`` capability check the tile-serving path\nuses (origin allowlist + live layer-membership + tenant equality). This\nlets embed-mode terrain build its raster-dem source from the SAME\ndescriptor (bounds / resolution-derived maxzoom) as builder and viewer\ninstead of empty defaults.",
         "operationId": "get_tile_tokens_batch_tiles_tokens__post",
+        "parameters": [
+          {
+            "description": "Optional embed token. Datasets in the token's scope are authorized even without user credentials (embed viewers).",
+            "in": "header",
+            "name": "X-Embed-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional embed token. Datasets in the token's scope are authorized even without user credentials (embed viewers).",
+              "title": "X-Embed-Token"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {

@@ -9,8 +9,9 @@ import type { SharedLayerResponse } from '@/types/api';
 async function fetchTokensWithApiKey(
   datasetIds: string[],
   apiKey: string,
+  embedToken?: string,
 ): Promise<Map<string, TileToken>> {
-  const response = await getTileTokensBatch(datasetIds, apiKey);
+  const response = await getTileTokensBatch(datasetIds, apiKey, embedToken);
   const map = new Map<string, TileToken>();
   for (const [datasetId, entry] of Object.entries(response.tokens)) {
     if ('kind' in entry) {
@@ -20,11 +21,12 @@ async function fetchTokensWithApiKey(
   return map;
 }
 
-/** Fetch tile tokens in a single batch (anonymous / JWT auth). */
+/** Fetch tile tokens in a single batch (anonymous / JWT / embed-token auth). */
 async function fetchTokensBatch(
   datasetIds: string[],
+  embedToken?: string,
 ): Promise<Map<string, TileToken>> {
-  const response = await getTileTokensBatch(datasetIds);
+  const response = await getTileTokensBatch(datasetIds, undefined, embedToken);
   const map = new Map<string, TileToken>();
   for (const [datasetId, entry] of Object.entries(response.tokens)) {
     if ('kind' in entry) {
@@ -58,7 +60,11 @@ export function useViewerTokens({
   );
 
   useEffect(() => {
-    if (embedToken || layerDatasetIds.length === 0) return;
+    // fix(#394) SH-04: embed mode no longer skips token fetching — the batch
+    // endpoint accepts X-Embed-Token, so embeds get the same raster/DEM tile
+    // descriptors (bounds, resolution-derived maxzoom) as normal viewers
+    // instead of building the terrain source from empty defaults.
+    if (layerDatasetIds.length === 0) return;
 
     let cancelled = false;
     let retryAttempt = 0;
@@ -66,8 +72,8 @@ export function useViewerTokens({
     async function fetchTokens() {
       try {
         const newMap = apiKey
-          ? await fetchTokensWithApiKey(layerDatasetIds, apiKey)
-          : await fetchTokensBatch(layerDatasetIds);
+          ? await fetchTokensWithApiKey(layerDatasetIds, apiKey, embedToken)
+          : await fetchTokensBatch(layerDatasetIds, embedToken);
 
         if (cancelled) return;
         setTokenMap(newMap);

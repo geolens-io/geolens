@@ -197,7 +197,7 @@ export interface SyncLayerInput {
   /** MVT-04: dataset content/version stamp threaded into the tile URL's
    *  `_v=` cache-buster so a reupload/geometry edit busts client/CDN caches.
    *  Optional — only emitted when a content version is available. */
-  tile_version?: string | null;
+  tile_version?: string | number | null;
 }
 
 /** Options that vary between Builder and Viewer contexts. */

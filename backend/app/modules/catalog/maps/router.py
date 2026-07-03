@@ -15,6 +15,7 @@ from fastapi import (
     Body,
     Depends,
     File,
+    Header,
     HTTPException,
     Query,
     Request,
@@ -337,7 +338,16 @@ async def shared_map_card_endpoint(
 async def get_shared_map_endpoint(
     token: str,
     response: Response,
+    request: Request,
     user: Identity | None = Depends(get_optional_user),
+    embed_token: str | None = Header(
+        default=None,
+        alias="X-Embed-Token",
+        description=(
+            "Optional embed token. When valid for this map, layers backed by "
+            "the token's scoped (possibly non-public) datasets are included."
+        ),
+    ),
     db: AsyncSession = Depends(get_db),
 ) -> SharedMapResponse:
     """Get a shared map by token. Optionally authenticated for non-public layers.
@@ -347,11 +357,22 @@ async def get_shared_map_endpoint(
     EmbedToken for this map. When no EmbedToken exists or allowed_origins is
     empty, defaults to ``frame-ancestors 'self'``. The SecurityHeadersMiddleware
     respects this route-level CSP and skips emitting X-Frame-Options: DENY.
+
+    fix(#394) SH-01/B-023: also accepts ``X-Embed-Token`` so embed viewers get
+    the layers the token's scope authorizes (the tile path already honored the
+    token — SEC-022 capability posture; the metadata payload now matches).
     """
     user_roles: set[str] = set()
     if user is not None:
         user_roles = await get_user_roles(db, user)
-    result = await get_shared_map(db, token, user=user, user_roles=user_roles)
+    result = await get_shared_map(
+        db,
+        token,
+        user=user,
+        user_roles=user_roles,
+        embed_token=embed_token,
+        request=request,
+    )
     if result is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

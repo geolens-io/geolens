@@ -4,6 +4,7 @@ import hashlib
 import secrets
 import uuid
 from datetime import datetime, timezone
+from typing import TYPE_CHECKING
 
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -20,7 +21,11 @@ from app.modules.catalog.maps.service_shared import (
     _extract_dem_vertical_units,
 )
 from app.modules.embed_tokens.models import EmbedToken
+from app.modules.embed_tokens.service import resolve_embed_scope_for_map
 from app.platform.extensions import get_catalog_port
+
+if TYPE_CHECKING:
+    from fastapi import Request
 
 
 def _redact_terrain_config(
@@ -192,6 +197,7 @@ def _build_shared_layer_dict(
     ds_feature_count: int | None,
     ds_is_dem: bool | None,
     ds_dem_vertical_units: str | None,
+    ds_tile_version: int | None,
 ) -> tuple[dict, bool]:
     """Build a shared-layer response dict from a joined layer row.
 
@@ -236,6 +242,8 @@ def _build_shared_layer_dict(
         "dem_vertical_units": ds_dem_vertical_units,
         "is_3d": bool(ds_is_3d) if ds_is_3d else None,
         "feature_count": ds_feature_count,
+        # fix(#394) VT-02: `_v=` cache-buster input (viewer parity).
+        "tile_version": ds_tile_version,
     }, not is_public
 
 
@@ -244,6 +252,8 @@ async def get_shared_map(
     token: str,
     user: Identity | None = None,
     user_roles: set[str] | None = None,
+    embed_token: str | None = None,
+    request: "Request | None" = None,
 ) -> tuple[dict, list[dict], list[str] | None] | str | None:
     """Fetch a shared map by token.
 
@@ -260,6 +270,12 @@ async def get_shared_map(
     Applies visibility filtering based on the optional user/roles:
     - Anonymous: only public datasets
     - Authenticated: datasets visible per apply_visibility_filter()
+    - fix(#394) SH-01/B-023: a valid ``embed_token`` for this map ADDITIONALLY
+      includes layers whose dataset is in the token's scoped snapshot — embed
+      tokens are a private-dataset capability (SEC-022) and the tile path has
+      always honored them; without this the embed metadata payload dropped
+      those layers so a scoped private dataset could never render in an embed
+      despite the SharePanel promising exactly that.
     Tile URLs: vector datasets use /tiles/data.{table_name}/... — the tile
     endpoint internally distinguishes public (anonymous-allowed) vs
     private (HMAC-signature-required) at request time. Raster datasets
@@ -274,6 +290,12 @@ async def get_shared_map(
         return None
     if isinstance(token_obj, str):
         return token_obj  # "expired"
+
+    embed_scope: set[uuid.UUID] = set()
+    if embed_token:
+        embed_scope = await resolve_embed_scope_for_map(
+            session, embed_token, token_obj.map_id, request
+        )
 
     # SEC-S08 (Phase 1062-05): query the active EmbedToken for this map to
     # surface allowed_origins. The router uses this to emit a per-token
@@ -306,7 +328,7 @@ async def get_shared_map(
     RasterAsset = get_catalog_port().raster_asset_orm_class()
 
     # Single query: Map metadata + visible layers in one round trip.
-    stmt = (
+    base_stmt = (
         select(
             Map,
             MapLayer,
@@ -320,6 +342,7 @@ async def get_shared_map(
             Dataset.feature_count,
             RasterAsset.is_dem,
             RasterAsset.band_info,
+            Dataset.current_version,
         )
         .join(Map, Map.id == MapLayer.map_id)
         .join(Dataset, MapLayer.dataset_id == Dataset.id)
@@ -328,9 +351,24 @@ async def get_shared_map(
         .where(MapLayer.map_id == token_obj.map_id, Map.visibility == "public")
         .order_by(MapLayer.sort_order)
     )
-    stmt = apply_visibility_filter(stmt, user, user_roles, Record, DatasetGrant)
+    stmt = apply_visibility_filter(base_stmt, user, user_roles, Record, DatasetGrant)
     layer_result = await session.execute(stmt)
-    layer_rows = layer_result.all()
+    layer_rows = list(layer_result.all())
+
+    if embed_scope:
+        # fix(#394) SH-01/B-023: union in the embed-token-scoped layers the
+        # visibility filter excluded. The join above still requires CURRENT
+        # map membership and map publicity, so a dataset dropped from the map
+        # (or a de-published map) stays excluded even with a valid token —
+        # same fail-closed posture as the tile path's live-membership re-check.
+        seen_layer_ids = {row[1].id for row in layer_rows}
+        embed_stmt = base_stmt.where(Dataset.id.in_(embed_scope))
+        embed_rows = (await session.execute(embed_stmt)).all()
+        extra_rows = [row for row in embed_rows if row[1].id not in seen_layer_ids]
+        if extra_rows:
+            layer_rows = sorted(
+                [*layer_rows, *extra_rows], key=lambda row: row[1].sort_order
+            )
 
     if not layer_rows:
         # Map doesn't exist, is not public, or has no visible layers.
@@ -374,6 +412,7 @@ async def get_shared_map(
         ds_feature_count,
         ds_is_dem,
         ds_band_info,
+        ds_tile_version,
     ) in layer_rows:
         layer_dict, is_non_public = _build_shared_layer_dict(
             layer,
@@ -387,13 +426,16 @@ async def get_shared_map(
             ds_feature_count,
             ds_is_dem,
             _extract_dem_vertical_units(ds_band_info),
+            ds_tile_version,
         )
         if is_non_public:
             has_non_public = True
-        # SEC-024: all layer_rows passed apply_visibility_filter, so all are
-        # authorized to the caller regardless of public/non-public status.
-        # Track their dataset ids so terrain_config is only stripped when the
-        # DEM is genuinely absent from the caller's authorized layer set.
+        # SEC-024: every layer_row passed apply_visibility_filter OR the
+        # embed-token scope union (fix(#394) B-023) — both are authorization,
+        # so all rows here are authorized to the caller regardless of
+        # public/non-public status. Track their dataset ids so terrain_config
+        # is only stripped when the DEM is genuinely absent from the caller's
+        # authorized layer set.
         visible_dataset_ids.add(str(layer.dataset_id))
         layers.append(layer_dict)
 

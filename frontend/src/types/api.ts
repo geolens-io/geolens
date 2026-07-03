@@ -1020,6 +1020,8 @@ export interface MapLayerResponse {
   is_dem?: boolean | null;
   dem_vertical_units?: string | null;
   band_count?: number | null;
+  /** fix(#394) VT-02: dataset content version — `_v=` tile-URL cache-buster. */
+  tile_version?: number | null;
 }
 
 export interface MapResponse {
@@ -1038,6 +1040,8 @@ export interface MapResponse {
   terrain_config: MapTerrainConfig | null;
   visibility: MapVisibility;
   thumbnail_url: string | null;
+  /** fix(#394) CV-01: social-card image URL — was missing from this hand-typed mirror. */
+  og_image_url?: string | null;
   created_by: string | null;
   created_by_username: string | null;
   created_at: string;
@@ -1234,6 +1238,8 @@ export interface SharedLayerResponse {
   is_3d?: boolean | null;
   tile_url: string;
   feature_count?: number | null;
+  /** fix(#394) VT-02: dataset content version — `_v=` tile-URL cache-buster. */
+  tile_version?: number | null;
 }
 
 export interface SharedMapResponse {

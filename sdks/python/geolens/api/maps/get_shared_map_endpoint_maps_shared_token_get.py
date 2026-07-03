@@ -5,16 +5,22 @@ from urllib.parse import quote
 import httpx
 
 from ...client import AuthenticatedClient, Client
-from ...types import Response
+from ...types import Response, UNSET
 from ... import errors
 
 from ...models.problem_detail import ProblemDetail
 from ...models.shared_map_response import SharedMapResponse
+from ...types import Unset
 
 
 def _get_kwargs(
     token: str,
+    *,
+    x_embed_token: None | str | Unset = UNSET,
 ) -> dict[str, Any]:
+    headers: dict[str, Any] = {}
+    if not isinstance(x_embed_token, Unset):
+        headers["X-Embed-Token"] = x_embed_token
 
     _kwargs: dict[str, Any] = {
         "method": "get",
@@ -23,6 +29,7 @@ def _get_kwargs(
         ),
     }
 
+    _kwargs["headers"] = headers
     return _kwargs
 
 
@@ -90,6 +97,7 @@ def sync_detailed(
     token: str,
     *,
     client: AuthenticatedClient,
+    x_embed_token: None | str | Unset = UNSET,
 ) -> Response[ProblemDetail | SharedMapResponse]:
     """Get Shared Map Endpoint
 
@@ -101,8 +109,14 @@ def sync_detailed(
     empty, defaults to ``frame-ancestors 'self'``. The SecurityHeadersMiddleware
     respects this route-level CSP and skips emitting X-Frame-Options: DENY.
 
+    fix(#394) SH-01/B-023: also accepts ``X-Embed-Token`` so embed viewers get
+    the layers the token's scope authorizes (the tile path already honored the
+    token — SEC-022 capability posture; the metadata payload now matches).
+
     Args:
         token (str):
+        x_embed_token (None | str | Unset): Optional embed token. When valid for this map, layers
+            backed by the token's scoped (possibly non-public) datasets are included.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -114,6 +128,7 @@ def sync_detailed(
 
     kwargs = _get_kwargs(
         token=token,
+        x_embed_token=x_embed_token,
     )
 
     response = client.get_httpx_client().request(
@@ -127,6 +142,7 @@ def sync(
     token: str,
     *,
     client: AuthenticatedClient,
+    x_embed_token: None | str | Unset = UNSET,
 ) -> ProblemDetail | SharedMapResponse | None:
     """Get Shared Map Endpoint
 
@@ -138,8 +154,14 @@ def sync(
     empty, defaults to ``frame-ancestors 'self'``. The SecurityHeadersMiddleware
     respects this route-level CSP and skips emitting X-Frame-Options: DENY.
 
+    fix(#394) SH-01/B-023: also accepts ``X-Embed-Token`` so embed viewers get
+    the layers the token's scope authorizes (the tile path already honored the
+    token — SEC-022 capability posture; the metadata payload now matches).
+
     Args:
         token (str):
+        x_embed_token (None | str | Unset): Optional embed token. When valid for this map, layers
+            backed by the token's scoped (possibly non-public) datasets are included.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -152,6 +174,7 @@ def sync(
     return sync_detailed(
         token=token,
         client=client,
+        x_embed_token=x_embed_token,
     ).parsed
 
 
@@ -159,6 +182,7 @@ async def asyncio_detailed(
     token: str,
     *,
     client: AuthenticatedClient,
+    x_embed_token: None | str | Unset = UNSET,
 ) -> Response[ProblemDetail | SharedMapResponse]:
     """Get Shared Map Endpoint
 
@@ -170,8 +194,14 @@ async def asyncio_detailed(
     empty, defaults to ``frame-ancestors 'self'``. The SecurityHeadersMiddleware
     respects this route-level CSP and skips emitting X-Frame-Options: DENY.
 
+    fix(#394) SH-01/B-023: also accepts ``X-Embed-Token`` so embed viewers get
+    the layers the token's scope authorizes (the tile path already honored the
+    token — SEC-022 capability posture; the metadata payload now matches).
+
     Args:
         token (str):
+        x_embed_token (None | str | Unset): Optional embed token. When valid for this map, layers
+            backed by the token's scoped (possibly non-public) datasets are included.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -183,6 +213,7 @@ async def asyncio_detailed(
 
     kwargs = _get_kwargs(
         token=token,
+        x_embed_token=x_embed_token,
     )
 
     response = await client.get_async_httpx_client().request(**kwargs)
@@ -194,6 +225,7 @@ async def asyncio(
     token: str,
     *,
     client: AuthenticatedClient,
+    x_embed_token: None | str | Unset = UNSET,
 ) -> ProblemDetail | SharedMapResponse | None:
     """Get Shared Map Endpoint
 
@@ -205,8 +237,14 @@ async def asyncio(
     empty, defaults to ``frame-ancestors 'self'``. The SecurityHeadersMiddleware
     respects this route-level CSP and skips emitting X-Frame-Options: DENY.
 
+    fix(#394) SH-01/B-023: also accepts ``X-Embed-Token`` so embed viewers get
+    the layers the token's scope authorizes (the tile path already honored the
+    token — SEC-022 capability posture; the metadata payload now matches).
+
     Args:
         token (str):
+        x_embed_token (None | str | Unset): Optional embed token. When valid for this map, layers
+            backed by the token's scoped (possibly non-public) datasets are included.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -220,5 +258,6 @@ async def asyncio(
         await asyncio_detailed(
             token=token,
             client=client,
+            x_embed_token=x_embed_token,
         )
     ).parsed
