@@ -589,6 +589,73 @@ describe('ChatPanel', () => {
     });
   });
 
+  it('fix(#392): set_data_driven_style falls back to the layer render_mode when the action omits it, keeping heatmap-* paint', async () => {
+    const weightExpr = ['interpolate', ['linear'], ['get', 'magnitude'], 0, 0, 10, 1];
+    // Action OMITS render_mode; the layer is already in heatmap mode. Without the
+    // layer-render_mode fallback the heatmap-* keys are stripped as invalid-for-circle
+    // and the data-driven update becomes an empty no-op paint change.
+    const styleConfig = { mode: 'graduated', column: 'magnitude' };
+
+    mockStreamChat.mockImplementation(async function* () {
+      yield {
+        event: 'actions',
+        data: {
+          actions: [
+            {
+              type: 'set_data_driven_style',
+              layer_id: 'layer-1',
+              paint: { 'heatmap-weight': weightExpr, 'heatmap-radius': 30 },
+              style_config: styleConfig,
+            },
+          ],
+        },
+      };
+      yield { event: 'done', data: { explanation: 'Restyled the heatmap' } };
+    });
+
+    const user = userEvent.setup();
+    const props = renderPanel({
+      layers: [makeLayer({
+        dataset_geometry_type: 'Point',
+        paint: {},
+        style_config: { render_mode: 'heatmap' },
+      })],
+    });
+    await typeAndSend(user, 'restyle the heatmap by magnitude');
+
+    await waitFor(() => {
+      expect(props.onStyleConfigChange).toHaveBeenCalledWith(
+        'layer-1',
+        styleConfig,
+        { 'heatmap-weight': weightExpr, 'heatmap-radius': 30 },
+      );
+    });
+  });
+
+  it('fix(#392): non-streaming fallback records only applied actions — a rejected action shows no "Applied"/Undo', async () => {
+    // Stream throws generically (no actions applied) -> non-streaming fallback fires.
+    // eslint-disable-next-line require-yield
+    mockStreamChat.mockImplementation(async function* () {
+      throw new Error('stream failed');
+    });
+    // Fallback returns a no-op empty set_style: handleChatAction returns false, so it must
+    // NOT land in pendingActions and the message must not claim "Applied 1 changes".
+    mockSendChat.mockResolvedValue({
+      explanation: 'Nothing to change',
+      actions: [{ type: 'set_style', layer_id: 'layer-1', paint: {} }],
+    });
+
+    const user = userEvent.setup();
+    const props = renderPanel();
+    await typeAndSend(user, 'style it');
+
+    expect(await screen.findByText('Nothing to change')).toBeInTheDocument();
+    expect(mockSendChat).toHaveBeenCalled();
+    expect(props.onPaintChange).not.toHaveBeenCalled();
+    expect(screen.queryByText(/applied/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /undo/i })).not.toBeInTheDocument();
+  });
+
   it('B-005/CH-09: set_style replace_paint:true with empty paint leaves existing layer paint unchanged', async () => {
     mockStreamChat.mockImplementation(async function* () {
       yield {

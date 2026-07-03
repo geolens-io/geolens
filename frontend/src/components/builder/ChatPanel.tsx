@@ -496,8 +496,12 @@ export function ChatPanel({
           const styleConfig = isRecord(action.style_config) ? (action.style_config as StyleConfig) : null;
           // B-002/CH-01: render-mode aware — heatmap data-driven paint keeps its
           // heatmap-* properties instead of being dropped as invalid-for-circle.
+          // fix(#392): fall back to the layer's own render_mode when the action omits it
+          // (style_config.render_mode is optional), so a data-driven heatmap update on a
+          // heatmap layer keeps its heatmap-* paint instead of being validated as a circle
+          // and stripped to a no-op — matching the set_style path above.
           const validatedPaint = layer
-            ? validateChatPaint(rawPaint, layer, styleConfig?.render_mode)
+            ? validateChatPaint(rawPaint, layer, styleConfig?.render_mode ?? layer.style_config?.render_mode)
             : rawPaint;
           const validatedAction: ChatAction = { ...action, paint: validatedPaint };
           const nextPaint = buildChatActionPaint(layer?.paint, validatedAction);
@@ -731,7 +735,10 @@ export function ChatPanel({
           id: crypto.randomUUID(),
           role: 'assistant',
           content: response.explanation,
-          actions: responseActions.length > 0 ? responseActions : undefined,
+          // fix(#392): attach the filtered pendingActions (what actually applied), not the
+          // raw responseActions, so a rejected/empty fallback action can't render
+          // "Applied N changes"/Undo — mirrors the streaming `done` path.
+          actions: pendingActions.length > 0 ? pendingActions : undefined,
         },
       ]);
     } catch (fallbackErr) {
