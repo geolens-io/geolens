@@ -385,7 +385,13 @@ export function ChatPanel({
     toast.success(t('chat.undoApplied'));
   }, [onRestoreLayers, onRemove, onAddDataset, t]);
 
-  function handleChatAction(action: ChatAction) {
+  /**
+   * Dispatches a single ChatAction and returns whether it produced a real layer
+   * mutation. B-009 CH-07: "Applied N changes" must count effect, not intent —
+   * a no-op set_style or a rejected set_filter returns false so applyActions
+   * never records it in pendingActions (the array the render counts).
+   */
+  function handleChatAction(action: ChatAction): boolean {
     const layerId = getActionLayerId(action);
     switch (action.type) {
       case 'set_filter':
@@ -398,21 +404,26 @@ export function ChatPanel({
           try {
             const validated = action.expression == null ? null : validateRawFilter(action.expression);
             onFilterChange(layerId, validated);
+            return true;
           } catch (err) {
             if (err instanceof FilterValidationError) {
               if (import.meta.env.DEV) console.warn('[ChatPanel] rejected invalid AI filter:', err.message);
+              return false;
             } else {
               throw err;
             }
           }
         }
-        break;
+        return false;
       case 'set_style':
         if (layerId && hasPaintMutation(action)) {
           const layer = layersRef.current.find((candidate) => candidate.id === layerId);
-          if (layer) onPaintChange(layerId, buildChatActionPaint(layer.paint, action));
+          if (layer) {
+            onPaintChange(layerId, buildChatActionPaint(layer.paint, action));
+            return true;
+          }
         }
-        break;
+        return false;
       case 'set_data_driven_style':
         if (layerId && getActionPaint(action)) {
           const layer = layersRef.current.find((candidate) => candidate.id === layerId);
@@ -422,8 +433,9 @@ export function ChatPanel({
             isRecord(action.style_config) ? action.style_config as StyleConfig : null,
             nextPaint,
           );
+          return true;
         }
-        break;
+        return false;
       case 'set_label':
         if (layerId) {
           if (isRecord(action.label_config)) {
@@ -431,14 +443,18 @@ export function ChatPanel({
           } else {
             onLabelChange(layerId, null);
           }
+          return true;
         }
-        break;
+        return false;
       case 'toggle_visibility':
-        if (layerId) onToggleVisibility(layerId, typeof action.visible === 'boolean' ? action.visible : undefined);
-        break;
+        if (layerId) {
+          onToggleVisibility(layerId, typeof action.visible === 'boolean' ? action.visible : undefined);
+          return true;
+        }
+        return false;
       case 'show_query_result':
         dispatchQueryResult(action);
-        break;
+        return false;
       case 'add_layer': {
         const datasetId = getActionDatasetId(action);
         if (datasetId) onAddDataset(datasetId);
@@ -449,7 +465,7 @@ export function ChatPanel({
         // replay-safe style/filter edits" design intent). This also covers the
         // staging-accept path, which dispatches through handleChatAction.
         if (lastSnapshotRef.current) lastSnapshotRef.current.supportsUndo = false;
-        break;
+        return true;
       }
       case 'remove_layer':
         if (layerId) {
@@ -458,14 +474,16 @@ export function ChatPanel({
           // B-012: see add_layer above — re-adding a removed layer on undo mints
           // a new id, so the keyed restores no-op. Suppress undo for the turn.
           if (lastSnapshotRef.current) lastSnapshotRef.current.supportsUndo = false;
+          return true;
         }
-        break;
+        return false;
       case 'set_opacity': {
         const opacity = normalizeLayerOpacity(action.opacity);
         if (layerId && opacity !== null) {
           onOpacityChange?.(layerId, opacity);
+          return true;
         }
-        break;
+        return false;
       }
       default:
         assertNever(action.type);
@@ -526,10 +544,14 @@ export function ChatPanel({
         if (lastSnapshotRef.current) lastSnapshotRef.current.supportsUndo = false;
         continue;
       }
-      handleChatAction(action);
-      pendingActions.push(action);
-      if (!isUndoSafeAction(action) && lastSnapshotRef.current) {
-        lastSnapshotRef.current.supportsUndo = false;
+      // CH-07: "Applied N changes" counts effect, not intent — only record the
+      // action in pendingActions when handleChatAction reports a real mutation.
+      const applied = handleChatAction(action);
+      if (applied) {
+        pendingActions.push(action);
+        if (!isUndoSafeAction(action) && lastSnapshotRef.current) {
+          lastSnapshotRef.current.supportsUndo = false;
+        }
       }
     }
   }

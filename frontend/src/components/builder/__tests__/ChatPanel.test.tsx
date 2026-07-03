@@ -344,6 +344,29 @@ describe('ChatPanel', () => {
     expect(props.onPaintChange).not.toHaveBeenCalled();
   });
 
+  it('CH-07: a no-op set_style (empty paint) records zero applied actions and renders no Applied N changes / Undo', async () => {
+    mockStreamChat.mockImplementation(async function* () {
+      yield {
+        event: 'actions',
+        data: {
+          actions: [
+            { type: 'set_style', layer_id: 'layer-1', paint: {} },
+          ],
+        },
+      };
+      yield { event: 'done', data: { explanation: 'No changes to apply' } };
+    });
+
+    const user = userEvent.setup();
+    const props = renderPanel();
+    await typeAndSend(user, 'style nothing');
+
+    expect(await screen.findByText('No changes to apply')).toBeInTheDocument();
+    expect(props.onPaintChange).not.toHaveBeenCalled();
+    expect(screen.queryByText(/applied/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /undo/i })).not.toBeInTheDocument();
+  });
+
   it('patches set_style paint into the current layer paint', async () => {
     mockStreamChat.mockImplementation(async function* () {
       yield {
@@ -564,6 +587,9 @@ describe('ChatPanel', () => {
     await typeAndSend(user, 'filter');
     expect(await screen.findByText('Tried to filter')).toBeInTheDocument();
     expect(props.onFilterChange).not.toHaveBeenCalled();
+    // CH-07: a rejected filter is intent, not effect — it must not inflate the applied count.
+    expect(screen.queryByText(/applied/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /undo/i })).not.toBeInTheDocument();
   });
 
   it('P1-13: a valid compound AI set_filter expression is applied', async () => {
