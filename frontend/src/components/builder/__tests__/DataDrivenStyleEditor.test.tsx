@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@/test/test-utils';
+import { render, screen, waitFor, within } from '@/test/test-utils';
 import userEvent from '@testing-library/user-event';
 import { useColumnValues, useColumnStats } from '@/hooks/use-maps';
 import { getRampColors, nextRotatingRamp } from '@/lib/color-ramps';
@@ -637,6 +637,100 @@ describe('DataDrivenStyleEditor', () => {
       await waitFor(() => {
         expect(onStyleConfigChange).not.toHaveBeenCalled();
       });
+    });
+  });
+
+  describe('WR-01: target/mode-aware classCount derivation', () => {
+    it('derives classCount from sizes.length (not colors.length) for a double-encoded radius-target config with divergent lengths', async () => {
+      // A "double-encoded" graduated-radius layer that also carries a color
+      // ramp (as the Restless Earth quake layer does) with colors/sizes
+      // deliberately diverging in length. sizes.length (4) is the
+      // semantically correct basis for the size-target classCount, not
+      // colors.length (6).
+      const seededConfig: StyleConfig = {
+        mode: 'graduated',
+        column: 'mag',
+        ramp: 'YlOrRd',
+        target: 'radius',
+        method: 'equal_interval',
+        sizes: [3, 5, 8, 12],
+        colors: ['#ffffb2', '#fed976', '#feb24c', '#fd8d3c', '#f03b20', '#bd0026'],
+        sizeRange: [3, 12],
+      };
+
+      const onStyleConfigChange = vi.fn();
+      render(
+        <DataDrivenStyleEditor
+          layer={makeLayer({
+            dataset_geometry_type: 'Point',
+            dataset_column_info: [{ name: 'mag', type: 'double precision' }],
+            paint: { 'circle-color': '#3b82f6', 'circle-radius': 5 },
+            style_config: seededConfig,
+          })}
+          onStyleConfigChange={onStyleConfigChange}
+        />,
+      );
+
+      const classesRow = screen.getByText('Classes').closest('div');
+      expect(classesRow).not.toBeNull();
+      expect(within(classesRow as HTMLElement).getByText('4')).toBeInTheDocument();
+
+      // No spurious write on mount either — same guard the B-003 tests pin.
+      await waitFor(() => {
+        expect(onStyleConfigChange).not.toHaveBeenCalled();
+      });
+    });
+
+    it('does not carry a stale classCount/sizeRange from a categorical config into a later graduated switch', async () => {
+      // A categorical config with stray graduated-shaped fields left over
+      // from a prior graduated session (plausible via AI edits, since
+      // StyleConfig is an open bag). classCount/sizeRange must NOT be
+      // derived from these stray fields on mount, and must still be at
+      // their defaults after switching to graduated mode.
+      const staleConfig: StyleConfig = {
+        mode: 'categorical',
+        column: 'typeA',
+        ramp: 'Set2',
+        categories: [{ value: 'cat1', color: '#111111' }],
+        // Stray graduated leftovers — should be inert in categorical mode.
+        classCount: 8,
+        colors: ['#a', '#b', '#c', '#d', '#e', '#f', '#g', '#h'],
+        sizeRange: [9, 25],
+      };
+
+      mockUseColumnStats.mockReturnValue(
+        hookData({
+          min: 0,
+          max: 100,
+          count: 100,
+          mean: 50,
+          quantiles: [],
+        }) as unknown as ReturnType<typeof useColumnStats>,
+      );
+
+      const user = userEvent.setup();
+      render(
+        <DataDrivenStyleEditor
+          layer={makeLayer({ style_config: staleConfig })}
+          onStyleConfigChange={vi.fn()}
+        />,
+      );
+
+      // Switch categorical -> graduated
+      await user.click(screen.getAllByRole('combobox')[0]);
+      await user.click(await screen.findByRole('option', { name: 'Graduated' }));
+
+      // handleModeChange clears `column` on any mode switch — pick a numeric
+      // column so the (mode === 'graduated' && column) gated Classes slider
+      // renders.
+      await user.click(screen.getAllByRole('combobox')[1]);
+      await user.click(await screen.findByRole('option', { name: 'population' }));
+
+      const classesRow = await screen.findByText('Classes');
+      const classesContainer = classesRow.closest('div');
+      expect(classesContainer).not.toBeNull();
+      // Must be the default (5), not the stale derived value (8).
+      expect(within(classesContainer as HTMLElement).getByText('5')).toBeInTheDocument();
     });
   });
 

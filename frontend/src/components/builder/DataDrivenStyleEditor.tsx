@@ -148,11 +148,22 @@ function defaultSizeRange(tgt: 'color' | 'radius' | 'width'): [number, number] {
 // them so styleConfigAlreadyMatches (and the local state seeded from the same
 // config) recognize a complete seeded config as already-matching instead of
 // treating the omission as drift and silently regenerating on mount.
-function effectiveClassCountOf(cfg: StyleConfig | null | undefined): number | undefined {
+//
+// fix(WR-01): a config can carry BOTH colors and sizes (e.g. a double-encoded
+// graduated-radius layer that also stores its color ramp), and the two arrays
+// can diverge in length. `preferSizes` lets a size-target caller derive from
+// `sizes.length` instead of unconditionally preferring `colors.length`.
+function effectiveClassCountOf(
+  cfg: StyleConfig | null | undefined,
+  preferSizes = false,
+): number | undefined {
   if (!cfg) return undefined;
   if (cfg.classCount != null) return cfg.classCount;
-  if (cfg.colors?.length) return cfg.colors.length;
-  if (cfg.sizes?.length) return cfg.sizes.length;
+  const bySizes = cfg.sizes?.length;
+  const byColors = cfg.colors?.length;
+  if (preferSizes && bySizes) return bySizes;
+  if (byColors) return byColors;
+  if (bySizes) return bySizes;
   if (cfg.breaks) return cfg.breaks.length + 1;
   return undefined;
 }
@@ -237,7 +248,9 @@ export function styleConfigAlreadyMatches(p: StyleGuardParams): boolean {
       ec.target === p.target &&
       ec.column === p.column &&
       ec.method === p.method &&
-      effectiveClassCountOf(ec) === p.classCount &&
+      // fix(WR-01): this is the size-target branch — derive classCount from
+      // sizes.length, not colors.length, for a config that carries both.
+      effectiveClassCountOf(ec, true) === p.classCount &&
       ec.sizes &&
       ecSizeRange &&
       ecSizeRange[0] === p.sizeRange[0] &&
@@ -281,8 +294,17 @@ export function DataDrivenStyleEditor({
   const [ramp, setRamp] = useState<string>(
     existingConfig?.ramp ?? nextRotatingRamp(existingConfig?.mode ?? 'categorical', rampRotationIndex),
   );
+  // fix(WR-01): only derive classCount/sizeRange from a persisted config when
+  // that config is actually in graduated mode — a `mode: 'categorical'`
+  // config can still carry stray graduated-shaped fields (StyleConfig is an
+  // open `[key: string]: unknown` bag), and deriving from them here would
+  // silently poison a later switch back to graduated mode.
   const [classCount, setClassCount] = useState<number>(
-    existingConfig?.classCount ?? effectiveClassCountOf(existingConfig) ?? 5,
+    existingConfig?.mode === 'graduated'
+      ? existingConfig?.classCount ??
+          effectiveClassCountOf(existingConfig, existingConfig?.target !== 'color') ??
+          5
+      : 5,
   );
   const [method, setMethod] = useState<ClassificationMethod>(
     existingConfig?.method ?? 'equal_interval',
@@ -298,9 +320,11 @@ export function DataDrivenStyleEditor({
     existingConfig?.target ?? 'color',
   );
   const [sizeRange, setSizeRange] = useState<[number, number]>(
-    existingConfig?.sizeRange ??
-      effectiveSizeRangeOf(existingConfig) ??
-      defaultSizeRange(existingConfig?.target ?? 'color'),
+    existingConfig?.mode === 'graduated'
+      ? existingConfig?.sizeRange ??
+          effectiveSizeRangeOf(existingConfig) ??
+          defaultSizeRange(existingConfig?.target ?? 'color')
+      : defaultSizeRange(existingConfig?.target ?? 'color'),
   );
   const [reversed, setReversed] = useState<boolean>(
     existingConfig?.reversed ?? false,
@@ -603,6 +627,13 @@ export function DataDrivenStyleEditor({
       const widthProp = getSizeProperty(layer.dataset_geometry_type, 'width');
       if (radiusProp) nextPaint[radiusProp] = 5;
       if (widthProp) nextPaint[widthProp] = 2;
+    } else {
+      // fix(WR-01): entering graduated mode must never carry forward a
+      // classCount/sizeRange that could have been derived from stray
+      // graduated-shaped fields on a categorical config at mount — reset to
+      // defaults so a later graduated session always starts clean.
+      setClassCount(5);
+      setSizeRange(defaultSizeRange('color'));
     }
     onStyleConfigChange(layer.id, null, nextPaint);
   }
