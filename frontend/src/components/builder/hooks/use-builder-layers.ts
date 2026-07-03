@@ -504,9 +504,34 @@ export function useBuilderLayers(
                   next[existingIdx] = { ...existing, parent_group_id: parentGroupId } as MapLayerResponse;
                   return next;
                 }
-                // Prepend at top of the user stack (sort_order 0) then renumber,
-                // matching the sort_order:0 add request above.
-                return [insertedLayer as MapLayerResponse, ...prev].map((l, i) => ({ ...l, sort_order: i }));
+
+                if (!parentGroupId) {
+                  // Prepend at top of the user stack (sort_order 0) then renumber,
+                  // matching the sort_order:0 add request above.
+                  return [insertedLayer as MapLayerResponse, ...prev].map((l, i) => ({ ...l, sort_order: i }));
+                }
+
+                // fix(#1280): B-004c / LM-03 — insert adjacent to the group's
+                // existing block instead of at array index 0. hydrateFolderGroupLayers
+                // anchors the group row at the position of its FIRST child, so
+                // prepending here would drag the whole group to the stack top after a
+                // save/reload round-trip. Insert immediately after the group's LAST
+                // existing child (or immediately after the group row itself when it
+                // has no children yet) so the first child's position never moves.
+                const groupIdx = prev.findIndex((l) => l.id === parentGroupId);
+                let lastChildIdx = -1;
+                for (let i = prev.length - 1; i >= 0; i--) {
+                  if ((prev[i] as GroupedLayer).parent_group_id === parentGroupId) {
+                    lastChildIdx = i;
+                    break;
+                  }
+                }
+                const insertIdx = lastChildIdx >= 0
+                  ? lastChildIdx + 1
+                  : (groupIdx >= 0 ? groupIdx + 1 : prev.length);
+                const next = [...prev];
+                next.splice(insertIdx, 0, insertedLayer as MapLayerResponse);
+                return next.map((l, i) => ({ ...l, sort_order: i }));
               });
               // Keep the saved baseline in sync (mirrors handleDuplicateRendering)
               // so a later clean refetch is not blocked by a stale baseline. The
