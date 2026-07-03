@@ -30,6 +30,27 @@ describe('sanitizeNullableNumericFilter', () => {
       5,
     ]);
   });
+
+  it('FL-01: returns the SAME reference for an already-sanitized filter (structurally unchanged)', () => {
+    const filter = [
+      'all',
+      ['==', ['to-number', ['get', 'pop'], -1_000_000_000_000], 5],
+      ['>', ['to-number', ['get', 'area'], -1_000_000_000_000], 10],
+    ] as unknown as FilterSpecification;
+    const result = sanitizeNullableNumericFilter(filter);
+    expect(result).toBe(filter);
+  });
+
+  it('FL-01: still transforms a genuinely-unsanitized bare-get numeric comparison, returning a new array', () => {
+    const filter = ['==', ['get', 'pop'], 5] as unknown as FilterSpecification;
+    const result = sanitizeNullableNumericFilter(filter);
+    expect(result).not.toBe(filter);
+    expect(result).toEqual([
+      '==',
+      ['to-number', ['get', 'pop'], -1_000_000_000_000],
+      5,
+    ]);
+  });
 });
 
 // ---------------------------------------------------------------------------
