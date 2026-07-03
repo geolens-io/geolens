@@ -263,6 +263,31 @@ describe('ChatPanel', () => {
     expect(mockSendChat).not.toHaveBeenCalled();
   });
 
+  it('CH-08: drops a streamed action with an unknown type while a sibling valid action still applies', async () => {
+    mockStreamChat.mockImplementation(async function* () {
+      yield {
+        event: 'actions',
+        data: {
+          actions: [
+            { type: 'toggle_visibility', layer_id: 'layer-1', visible: true },
+            { type: 'not_a_real_action_type', layer_id: 'layer-1' },
+          ],
+        },
+      };
+      yield { event: 'done', data: { explanation: 'Mixed actions' } };
+    });
+
+    const user = userEvent.setup();
+    const props = renderPanel();
+    await typeAndSend(user, 'send a mixed actions payload');
+
+    await waitFor(() => {
+      expect(props.onToggleVisibility).toHaveBeenCalledWith('layer-1', true);
+    });
+    expect(props.onPaintChange).not.toHaveBeenCalled();
+    expect(props.onFilterChange).not.toHaveBeenCalled();
+  });
+
   it('B-014: a streamed error event shows an inline error and does NOT retry via non-streaming', async () => {
     // Model emitted an SSE error event mid-stream (e.g. tool-loop exhausted).
     // The non-streaming sendChatMessage fallback must NOT fire — that would

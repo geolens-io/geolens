@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { sendChatMessage, streamChatMessage } from '@/api/maps';
 import { ApiError } from '@/api/client';
 import { cn } from '@/lib/utils';
-import { normalizeLayerOpacity } from '@/components/builder/builder-action-contract';
+import { assertNever, normalizeLayerOpacity } from '@/components/builder/builder-action-contract';
 import { validateRawFilter, FilterValidationError } from '@/lib/maplibre-filter-utils';
 import { useChatActionStaging, isDestructiveAction } from '@/builder/ai/chat-action-staging';
 import type { FilterSpecification } from 'maplibre-gl';
@@ -121,9 +121,31 @@ function getActionClearPaint(action: Pick<ChatAction, 'clear_paint'>): string[] 
     : [];
 }
 
+// CH-08: allowlist of the 9 known ChatAction wire types. getChatActions drops
+// any item whose `type` is not in this set (rather than letting an unrecognized
+// type string reach handleChatAction's switch), and logs the drop in dev.
+const KNOWN_CHAT_ACTION_TYPES: ReadonlySet<ChatAction['type']> = new Set([
+  'set_filter',
+  'set_style',
+  'set_data_driven_style',
+  'set_label',
+  'toggle_visibility',
+  'add_layer',
+  'remove_layer',
+  'show_query_result',
+  'set_opacity',
+]);
+
 function getChatActions(value: unknown): ChatAction[] {
   if (!Array.isArray(value)) return [];
-  return value.filter((item): item is ChatAction => isRecord(item) && typeof item.type === 'string');
+  return value.filter((item): item is ChatAction => {
+    if (!isRecord(item) || typeof item.type !== 'string') return false;
+    if (!KNOWN_CHAT_ACTION_TYPES.has(item.type as ChatAction['type'])) {
+      if (import.meta.env.DEV) console.warn('[ChatPanel] dropped unknown action type:', item.type);
+      return false;
+    }
+    return true;
+  });
 }
 
 export function buildChatActionPaint(
@@ -445,6 +467,8 @@ export function ChatPanel({
         }
         break;
       }
+      default:
+        assertNever(action.type);
     }
   }
 
