@@ -476,7 +476,11 @@ export function ChatPanel({
             // action whose paint is reduced to empty by validation must not
             // apply, and (B-005/CH-09) must not be treated as a mutation via
             // a bare replace_paint:true either.
-            const validatedPaint = validateChatPaint(getActionPaint(action), layer);
+            // WR-01 (1278 review): pass the layer's own render_mode through, same as
+            // set_data_driven_style below — set_style is the only AI tool that can tune
+            // heatmap-radius/heatmap-opacity/heatmap-intensity, and without render-mode
+            // awareness those keys are silently stripped by geometry-type filtering.
+            const validatedPaint = validateChatPaint(getActionPaint(action), layer, layer.style_config?.render_mode);
             const validatedAction: ChatAction = { ...action, paint: validatedPaint };
             if (hasPaintMutation(validatedAction)) {
               onPaintChange(layerId, buildChatActionPaint(layer.paint, validatedAction));

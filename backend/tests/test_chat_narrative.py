@@ -240,6 +240,48 @@ async def test_add_layer_resolves_dataset_name_end_to_end():
     )
 
 
+# --- WR-01 (1278 review): set_style heatmap-radius tweak survives validation ---
+
+
+@pytest.mark.anyio
+async def test_set_style_heatmap_radius_survives_execute_chat_tool_end_to_end():
+    """A set_style call tuning heatmap-radius on an already-heatmap-rendered
+    layer must not be silently stripped by geometry-type-only validation.
+
+    The layer's dataset_geometry_type is Point (as it virtually always is for
+    heatmap layers) — before the render_mode fix, validate_paint_with_feedback
+    would filter heatmap-radius out as invalid-for-circle. set_style is the
+    only AI tool capable of tuning heatmap-radius/opacity/intensity, so this
+    silently defeated "make the heatmap wider" requests.
+    """
+    from app.processing.ai.chat_actions import _collect_chat_action
+
+    heatmap_layer = _make_layer(
+        geometry_type="Point",
+        style_config={"render_mode": "heatmap"},
+    )
+    tool_input = {"layer_id": "layer-1", "paint": {"heatmap-radius": 40}}
+
+    result = await _execute_chat_tool(
+        "set_style",
+        tool_input,
+        AsyncMock(),  # session
+        SimpleNamespace(id=uuid.uuid4(), username="test_user"),
+        set(),
+        [heatmap_layer],
+        port=DefaultProcessingPort(),
+    )
+
+    assert result.get("paint") == {"heatmap-radius": 40}, (
+        "heatmap-radius must survive render-mode-aware validation, not be "
+        "stripped as invalid-for-circle"
+    )
+
+    action = _collect_chat_action("set_style", tool_input, result)
+    assert action is not None
+    assert action["paint"] == {"heatmap-radius": 40}
+
+
 @pytest.mark.anyio
 async def test_add_layer_name_lookup_failure_is_non_fatal():
     """B-002 hardening: a dataset-name lookup failure must NOT block the add —

@@ -206,11 +206,20 @@ async def _execute_chat_tool(
             (lyr for lyr in layers if lyr.id == tool_input.get("layer_id")), None
         )
         if target:
+            # WR-01 (1278 review): thread the layer's own render_mode through so
+            # heatmap-radius/heatmap-opacity/heatmap-intensity survive validation on
+            # an already-heatmap-rendered layer — set_style is the only AI tool that
+            # can tune those. Mirrors ChatPanel.tsx's validateChatPaint.
+            render_mode = (
+                (target.style_config or {}).get("render_mode")
+                if target.style_config
+                else None
+            )
             warnings: list[str] = []
             next_input = {**tool_input}
             if tool_input.get("paint"):
                 validated_paint, paint_warnings = validate_paint_with_feedback(
-                    tool_input["paint"], target.geometry_type
+                    tool_input["paint"], target.geometry_type, render_mode
                 )
                 next_input["paint"] = validated_paint or {}
                 warnings.extend(paint_warnings)
@@ -219,6 +228,7 @@ async def _execute_chat_tool(
                     validate_paint_property_names_with_feedback(
                         tool_input.get("clear_paint"),
                         target.geometry_type,
+                        render_mode,
                     )
                 )
                 next_input["clear_paint"] = validated_clear

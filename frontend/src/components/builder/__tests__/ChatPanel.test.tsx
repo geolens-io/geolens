@@ -557,6 +557,38 @@ describe('ChatPanel', () => {
     });
   });
 
+  it('WR-01 (1278 review): set_style heatmap-radius tweak survives render-mode-aware validation', async () => {
+    mockStreamChat.mockImplementation(async function* () {
+      yield {
+        event: 'actions',
+        data: {
+          actions: [
+            { type: 'set_style', layer_id: 'layer-1', paint: { 'heatmap-radius': 40 } },
+          ],
+        },
+      };
+      yield { event: 'done', data: { explanation: 'Widened the heatmap' } };
+    });
+
+    const user = userEvent.setup();
+    const props = renderPanel({
+      // Point geometry -> getLayerType 'circle'; without render-mode awareness
+      // set_style (the only AI tool that can tune heatmap-radius) would have
+      // its paint stripped as invalid-for-circle, same as the
+      // set_data_driven_style bug above.
+      layers: [makeLayer({
+        dataset_geometry_type: 'Point',
+        paint: {},
+        style_config: { render_mode: 'heatmap' },
+      })],
+    });
+    await typeAndSend(user, 'widen the heatmap radius');
+
+    await waitFor(() => {
+      expect(props.onPaintChange).toHaveBeenCalledWith('layer-1', { 'heatmap-radius': 40 });
+    });
+  });
+
   it('B-005/CH-09: set_style replace_paint:true with empty paint leaves existing layer paint unchanged', async () => {
     mockStreamChat.mockImplementation(async function* () {
       yield {

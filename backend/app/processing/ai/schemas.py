@@ -181,7 +181,13 @@ def _paint_layer_type_for_geometry(geometry_type: str | None) -> str | None:
 
 def _valid_paint_props_for_geometry(
     geometry_type: str | None,
+    render_mode: str | None = None,
 ) -> tuple[str | None, set[str]]:
+    # WR-01 (1278 review): render-mode aware, mirroring frontend validateChatPaint —
+    # a heatmap-rendered layer's dataset_geometry_type is virtually always Point, so
+    # without this the geometry-type filter would strip every heatmap-* property.
+    if render_mode == "heatmap":
+        return "heatmap", _VALID_PAINT_PROPS["heatmap"]
     layer_type = _paint_layer_type_for_geometry(geometry_type)
     if not layer_type:
         return None, set()
@@ -206,16 +212,24 @@ def validate_paint_for_geometry(
 
 
 def validate_paint_with_feedback(
-    paint: dict | None, geometry_type: str | None
+    paint: dict | None,
+    geometry_type: str | None,
+    render_mode: str | None = None,
 ) -> tuple[dict | None, list[str]]:
     """Like validate_paint_for_geometry but also returns a list of warning strings.
 
     Used by the chat service to feed validation feedback back to the LLM.
+
+    render_mode: when 'heatmap', geometry-type filtering is skipped so
+    heatmap-* properties are kept instead of dropped (WR-01, 1278 review) —
+    mirrors the frontend's validateChatPaint render-mode awareness.
     """
-    if not paint or not geometry_type:
+    if not paint or (not geometry_type and render_mode != "heatmap"):
         return paint, []
 
-    layer_type, valid_props = _valid_paint_props_for_geometry(geometry_type)
+    layer_type, valid_props = _valid_paint_props_for_geometry(
+        geometry_type, render_mode
+    )
     if not layer_type:
         return paint, []
     cleaned = {}
@@ -239,13 +253,20 @@ def validate_paint_with_feedback(
 
 
 def validate_paint_property_names_with_feedback(
-    properties: list | None, geometry_type: str | None
+    properties: list | None,
+    geometry_type: str | None,
+    render_mode: str | None = None,
 ) -> tuple[list[str], list[str]]:
-    """Validate paint property names for explicit style-clear actions."""
-    if not properties or not geometry_type:
+    """Validate paint property names for explicit style-clear actions.
+
+    render_mode: see validate_paint_with_feedback (WR-01, 1278 review).
+    """
+    if not properties or (not geometry_type and render_mode != "heatmap"):
         return [], []
 
-    layer_type, valid_props = _valid_paint_props_for_geometry(geometry_type)
+    layer_type, valid_props = _valid_paint_props_for_geometry(
+        geometry_type, render_mode
+    )
     if not layer_type:
         return [], []
 
