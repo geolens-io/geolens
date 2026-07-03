@@ -66,6 +66,27 @@ def test_spatial_query_emits_show_query_result_with_geojson_and_rows() -> None:
     assert action["row_count"] == 1
 
 
+def test_spatial_query_missing_bbox_does_not_raise_key_error() -> None:
+    """WR-03 (1278 review): if a future caller emits `geojson` without a paired
+    `bbox` (the pairing is an unenforced invariant on this plain dict, not
+    encoded in any type), _collect_chat_action must degrade gracefully — omit
+    both fields from the action — rather than raise an uncaught KeyError
+    inside the action-collector callback."""
+    result = {
+        "columns": ["geom", "name"],
+        "rows": [[{"type": "Point", "coordinates": [-73.9, 40.7]}, "NYC"]],
+        "row_count": 1,
+        "truncated": False,
+        "geojson": {"type": "FeatureCollection", "features": []},
+        # bbox deliberately absent
+    }
+    action = _collect_chat_action("query_data", {"question": "find NYC"}, result)
+    assert action is not None
+    assert action["type"] == "show_query_result"
+    assert "geojson" not in action
+    assert "bbox" not in action
+
+
 def test_query_error_emits_no_action() -> None:
     """Errored query_data results MUST NOT emit show_query_result."""
     result = {"error": "syntax error in SQL", "category": "llm_cannot_answer"}

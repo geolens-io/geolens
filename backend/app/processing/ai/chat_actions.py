@@ -280,7 +280,11 @@ def _collect_chat_action(tool_name: str, tool_input: dict, result: dict) -> dict
                 "row_count": result.get("row_count", 0),
                 "truncated": result.get("truncated", False),
             }
-            if "geojson" in result:
+            # WR-03 (1278 review): guard both keys — geojson and bbox are set together
+            # by _extract_geojson's tuple unpack today, but that pairing is an unenforced
+            # invariant on this plain dict; a future caller emitting geojson without bbox
+            # must not raise an uncaught KeyError inside the action-collector callback.
+            if "geojson" in result and "bbox" in result:
                 action["geojson"] = result["geojson"]
                 action["bbox"] = result["bbox"]
             return action
