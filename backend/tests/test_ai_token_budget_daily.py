@@ -21,9 +21,10 @@ import pytest
 from fastapi import HTTPException
 from sqlalchemy import delete
 
+
 from app.core.persistent_config import MAX_AI_TOKENS_PER_USER_PER_DAY
 from app.processing.ai.router import _check_ai_budget
-from app.processing.ai.token_usage import AITokenUsage
+from app.processing.ai.token_usage import AITokenUsage, record_token_usage
 from tests.factories import get_user_id
 
 
@@ -98,3 +99,46 @@ async def test_budget_window_excludes_old_usage(test_db_session, monkeypatch):
     assert exc.value.status_code == 429
 
     await _reset_usage(test_db_session, uid)
+
+
+async def test_record_token_usage_commits_own_session(monkeypatch):
+    """codex P1 #402: accounting must commit in its OWN session, not rely on the
+    caller committing.
+
+    The streaming/chat AI paths never commit their request session (``get_db()``
+    doesn't commit on success), so the prior savepoint-only write was dropped and
+    the cap was bypassable. This asserts ``record_token_usage`` opens a session
+    and commits it — the passed caller session is ignored. Revert to the
+    savepoint-no-commit version and this fails (commit never called).
+    """
+    events = {"added": 0, "committed": 0}
+
+    class _FakeSession:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+        def add(self, _obj):
+            events["added"] += 1
+
+        async def commit(self):
+            events["committed"] += 1
+
+    monkeypatch.setattr(
+        "app.processing.ai.token_usage.async_session", lambda: _FakeSession()
+    )
+
+    # First arg (caller session) is intentionally ignored — pass a sentinel that
+    # would blow up if used, proving independence.
+    await record_token_usage(
+        object(),
+        user_id=uuid.uuid4(),
+        subsystem="chat",
+        model="test",
+        input_tokens=1,
+        output_tokens=2,
+    )
+    assert events["added"] == 1
+    assert events["committed"] == 1, "usage must be committed in its own session"

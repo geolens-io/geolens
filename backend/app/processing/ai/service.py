@@ -776,6 +776,18 @@ async def stream_generate_map(
             output_tokens=result.output_tokens,
         )
 
+        # fix(#402) codex P1: the streaming map path (the primary map-create UI
+        # entrypoint) previously recorded no usage, so it was invisible to the
+        # per-user token budget. Record it like generate_map_from_prompt does.
+        await record_token_usage(
+            session,
+            user_id=user.id,
+            subsystem="map_generation",
+            model=model,
+            input_tokens=result.input_tokens,
+            output_tokens=result.output_tokens,
+        )
+
         # Build the map
         yield {"type": "tool_start", "tool": "create_map", "label": "Building map..."}
 
