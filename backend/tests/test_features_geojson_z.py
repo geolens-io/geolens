@@ -367,6 +367,19 @@ class TestGetFeaturesGeoJSONZEndpoint:
         )
         assert resp.status_code == 404
 
+    async def test_supplied_invalid_credentials_returns_401(
+        self, client, private_dataset
+    ):
+        """fix(#390) codex P2: a request that supplied credentials which failed
+        to resolve (expired/revoked JWT) gets 401 — not the anonymous 404 — so
+        the client's refresh-on-401 retry fires instead of a private layer
+        permanently 404ing."""
+        resp = await client.get(
+            f"/datasets/{private_dataset.id}/features.geojson?include_z=true",
+            headers={"Authorization": "Bearer not-a-valid-token"},
+        )
+        assert resp.status_code == 401
+
     async def test_returns_feature_collection(
         self, client, z_dataset, admin_auth_header
     ):

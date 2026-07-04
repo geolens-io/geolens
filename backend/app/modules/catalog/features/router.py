@@ -23,6 +23,7 @@ from app.core.identity import Identity
 from app.modules.auth.dependencies import (
     get_current_active_user,
     get_optional_user,
+    request_carries_credentials,
     require_permission,
 )
 from app.modules.catalog.authorization import (
@@ -98,6 +99,12 @@ async def get_features_geojson_z_endpoint(
     tiles and the dataset-detail read path); private/restricted datasets still
     404 for anon and follow full RBAC for credentialed callers. This unblocks
     client clustering for anonymous public-map viewers.
+
+    fix(#390) codex P2: a request that *supplied* credentials which failed to
+    resolve (expired / revoked JWT -> ``get_optional_user`` is ``None``) still
+    gets 401, not the anonymous 404, so the frontend's refresh-on-401 retry
+    fires instead of a private layer permanently failing as "not found".
+    Truly credentialless requests keep the anonymous public path.
     """
     dataset = await get_dataset(db, dataset_id)
     if dataset is None:
@@ -113,6 +120,15 @@ async def get_features_geojson_z_endpoint(
         request,
     )
     if not embed_ok:
+        if user is None and request_carries_credentials(request):
+            # Credentials were supplied but did not resolve (expired/revoked
+            # token). Return 401 so the client refreshes and retries rather
+            # than the anonymous path's 404. fix(#390) codex P2.
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Not authenticated",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
         await check_dataset_access_or_anonymous(db, dataset, dataset_id, user)
 
     # fix(#315): raster/VRT datasets have no backing PostGIS feature table, so a feature
