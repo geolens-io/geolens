@@ -22,11 +22,11 @@
   "origin": {
     "upload": {
       "label": "Subido",
-      "title": "Archivo subido — GeoLens almacena su propia copia de estos datos"
+      "title": "Archivo subido. GeoLens almacena su propia copia de estos datos"
     },
     "postgis": {
       "label": "PostGIS",
-      "title": "Registrado desde una tabla PostGIS existente — los datos permanecen en tu base de datos"
+      "title": "Registrado desde una tabla PostGIS existente. Los datos permanecen en tu base de datos"
     },
     "service": {
       "label": "Servicio",

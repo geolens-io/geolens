@@ -22,11 +22,11 @@
   "origin": {
     "upload": {
       "label": "Téléversé",
-      "title": "Fichier téléversé — GeoLens conserve sa propre copie de ces données"
+      "title": "Fichier téléversé. GeoLens conserve sa propre copie de ces données"
     },
     "postgis": {
       "label": "PostGIS",
-      "title": "Enregistré depuis une table PostGIS existante — les données restent dans votre base"
+      "title": "Enregistré depuis une table PostGIS existante. Les données restent dans votre base"
     },
     "service": {
       "label": "Service",
