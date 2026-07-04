@@ -155,3 +155,47 @@ def test_max_ai_tokens_validator_rejects_negative():
     assert validate(50_000) == 50_000
     with pytest.raises(ValueError):
         validate(-1)
+
+
+async def test_metadata_path_records_usage(monkeypatch):
+    """codex P1 #402 (round 2): metadata-assist must count toward the cap.
+
+    The 4 /ai/metadata/* endpoints are budget-gated but previously recorded no
+    usage, so the cap was bypassable through them. _generate_structured now
+    surfaces provider token counts and records them as subsystem 'metadata'.
+    """
+    from pydantic import BaseModel
+
+    from app.processing.ai import metadata_service as ms
+
+    class _M(BaseModel):
+        pass
+
+    class _FakeProvider:
+        async def structured_complete(self, **_kw):
+            return _M(), 111, 222
+
+    monkeypatch.setattr(ms, "get_ai_provider", lambda _name: _FakeProvider())
+
+    captured: dict = {}
+
+    async def _fake_record(
+        _db, *, user_id, subsystem, model, input_tokens, output_tokens
+    ):
+        captured.update(
+            user_id=user_id,
+            subsystem=subsystem,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+        )
+
+    monkeypatch.setattr(ms, "record_token_usage", _fake_record)
+
+    uid = uuid.uuid4()
+    result = await ms._generate_structured("sys", "prompt", _M, db=None, user_id=uid)
+
+    assert isinstance(result, _M)
+    assert captured["subsystem"] == "metadata"
+    assert captured["user_id"] == uid
+    assert captured["input_tokens"] == 111
+    assert captured["output_tokens"] == 222

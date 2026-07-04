@@ -238,7 +238,13 @@ class AIProviderExtension(Protocol):
         base_url: str | None = None,
         max_tokens: int = 1024,
         temperature: float = 0.3,
-    ) -> Any: ...
+    ) -> tuple[Any, int, int]:
+        """Return ``(parsed_response_model, input_tokens, output_tokens)``.
+
+        The token counts feed per-user AI budget accounting (#402), so
+        metadata-assist calls count toward the cap like map/chat do.
+        """
+        ...
 
     async def resolve_runtime_config(self, db: AsyncSession) -> dict[str, object]: ...
 

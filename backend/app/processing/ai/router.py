@@ -638,7 +638,7 @@ async def generate_metadata_summary(
     await _check_ai_available(db)
     await _authorize_metadata_dataset(db, body.dataset_id, user)  # SEC-D
     return await _call_metadata_ai(
-        generate_summary_draft(db, body.dataset_id, port=port),
+        generate_summary_draft(db, body.dataset_id, port=port, user_id=user.id),
         "AI metadata summary generation",
     )
 
@@ -656,7 +656,7 @@ async def generate_metadata_keywords(
     await _check_ai_available(db)
     await _authorize_metadata_dataset(db, body.dataset_id, user)  # SEC-D
     return await _call_metadata_ai(
-        generate_keyword_suggestions(db, body.dataset_id, port=port),
+        generate_keyword_suggestions(db, body.dataset_id, port=port, user_id=user.id),
         "AI metadata keyword generation",
     )
 
@@ -674,7 +674,7 @@ async def generate_metadata_lineage(
     await _check_ai_available(db)
     await _authorize_metadata_dataset(db, body.dataset_id, user)  # SEC-D
     return await _call_metadata_ai(
-        generate_lineage_draft(db, body.dataset_id, port=port),
+        generate_lineage_draft(db, body.dataset_id, port=port, user_id=user.id),
         "AI metadata lineage generation",
     )
 
@@ -694,6 +694,8 @@ async def generate_metadata_quality_statement(
     await _check_ai_available(db)
     await _authorize_metadata_dataset(db, body.dataset_id, user)  # SEC-D
     return await _call_metadata_ai(
-        generate_quality_statement_draft(db, body.dataset_id, port=port),
+        generate_quality_statement_draft(
+            db, body.dataset_id, port=port, user_id=user.id
+        ),
         "AI metadata quality statement generation",
     )

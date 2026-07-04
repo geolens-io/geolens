@@ -1201,7 +1201,11 @@ class DefaultAnthropicProvider:
 
         for block in response.content:
             if block.type == "tool_use":
-                return response_model.model_validate(block.input)
+                return (
+                    response_model.model_validate(block.input),
+                    response.usage.input_tokens,
+                    response.usage.output_tokens,
+                )
 
         raise ValueError("No tool_use block in Anthropic response")
 
@@ -1474,7 +1478,12 @@ class DefaultOpenAICompatibleProvider:
         parsed = response.choices[0].message.parsed
         if parsed is None:
             raise ValueError("OpenAI returned no parsed response")
-        return parsed
+        usage = response.usage
+        return (
+            parsed,
+            usage.prompt_tokens if usage else 0,
+            usage.completion_tokens if usage else 0,
+        )
 
     async def resolve_runtime_config(self, db) -> dict[str, object]:  # type: ignore[no-untyped-def]
         from app.core.persistent_config import LLM_MODEL, OPENAI_BASE_URL
