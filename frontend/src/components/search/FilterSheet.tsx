@@ -203,7 +203,7 @@ export function FilterSheet({ totalResults }: FilterSheetProps) {
               type="button"
               variant={activeFilterCount > 0 ? 'default' : 'outline'}
               size="sm"
-              className="rounded-full border-border/60 shadow-sm"
+              className="rounded-md border-border/60 shadow-sm"
               onClick={() => {
                 syncLocalDates();
                 setMobileFiltersOpen(true);
@@ -212,7 +212,7 @@ export function FilterSheet({ totalResults }: FilterSheetProps) {
               <SlidersHorizontal className="size-4" />
               {t('filters.filtersButton', { defaultValue: 'Filters' })}
               {activeFilterCount > 0 && (
-                <span className="rounded-full bg-background/20 px-1.5 py-0 text-[11px] font-semibold">
+                <span className="rounded-sm bg-background/20 px-1.5 py-0 text-[11px] font-semibold">
                   {activeFilterCount}
                 </span>
               )}
