@@ -191,3 +191,49 @@ async def test_anthropic_loop_does_not_stop_below_budget(monkeypatch):
 
     # Ended on end_turn after exactly one round — budget never involved.
     assert len(client.rounds_seen) == 1
+
+
+@pytest.mark.anyio
+async def test_chat_stream_records_usage_per_round(monkeypatch):
+    """fix(#402) codex P1 (round 4): streaming chat records usage PER ROUND, not
+    once at the end.
+
+    A mid-stream client disconnect raises GeneratorExit at a yield and skips any
+    end-of-function accounting, so a single end-of-stream record would let an
+    aborted stream bypass the daily cap. Per-round recording (before each round's
+    downstream yields) makes completed rounds always count. ``_FakeMessages``
+    returns ``tool_use`` every round, so a correct impl records once per round;
+    revert to the end-only record and this asserts 1 instead of MAX_TOOL_ROUNDS.
+    """
+    client = _FakeAnthropicClient(per_round_input=100, per_round_output=50)
+    monkeypatch.setattr(streaming, "_execute_and_yield_tools", _noop_tools)
+
+    recorded: list = []
+
+    async def _capture(
+        _session, *, user_id, subsystem, model, input_tokens, output_tokens
+    ):
+        recorded.append((subsystem, input_tokens, output_tokens))
+
+    monkeypatch.setattr(streaming, "record_token_usage", _capture)
+
+    gen = streaming._stream_anthropic_chat(
+        message="hello",
+        system_prompt="sys",
+        session=SimpleNamespace(),
+        user=SimpleNamespace(id=_uuid.uuid4()),
+        user_roles=set(),
+        layers=[],
+        model="claude-test",
+        history=None,
+        client=client,
+        port=SimpleNamespace(),
+        map_id=None,
+    )
+    async for _evt in gen:
+        pass
+
+    # One record per round (tool_use loops the full MAX_TOOL_ROUNDS), each
+    # carrying that round's tokens — proving usage lands incrementally.
+    assert len(recorded) == MAX_TOOL_ROUNDS
+    assert all(r == ("chat_stream", 100, 50) for r in recorded)
