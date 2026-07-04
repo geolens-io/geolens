@@ -331,6 +331,10 @@ def dataset_to_ogc_record(
             "column_count": len(dataset.column_info) if dataset.column_info else None,
             "license": record.license,
             "source_organization": record.source_organization,
+            # Dataset origin for catalog cards: file format for uploads,
+            # service/stac identifiers for remote registrations, 'created'
+            # for empty layers, null for registered PostGIS tables and VRTs.
+            "source_format": dataset.source_format,
             "quality_detail": dataset.quality_detail,
             "quality_statement": dataset.quality_statement,
             "record_status": record.record_status,

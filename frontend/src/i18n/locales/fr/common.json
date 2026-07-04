@@ -19,6 +19,28 @@
   "notAvailable": "N/D",
   "none": "Aucun",
   "yesterday": "Hier, {{time}}",
+  "origin": {
+    "upload": {
+      "label": "Téléversé",
+      "title": "Fichier téléversé — GeoLens conserve sa propre copie de ces données"
+    },
+    "postgis": {
+      "label": "PostGIS",
+      "title": "Enregistré depuis une table PostGIS existante — les données restent dans votre base"
+    },
+    "service": {
+      "label": "Service",
+      "title": "Enregistré depuis l'URL d'un service distant"
+    },
+    "stac": {
+      "label": "STAC",
+      "title": "Importé depuis un catalogue STAC"
+    },
+    "created": {
+      "label": "Créé",
+      "title": "Créé dans GeoLens comme couche modifiable"
+    }
+  },
   "nav": {
     "search": "Recherche",
     "collections": "Collections",

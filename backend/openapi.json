@@ -10743,6 +10743,18 @@
             ],
             "title": "Source Count"
           },
+          "source_format": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Ingest source format ('geojson', 'shapefile', 'geotiff', 'wfs', 'stac', 'created', ...). Null for datasets registered from existing PostGIS tables and for composed VRT datasets.",
+            "title": "Source Format"
+          },
           "source_organization": {
             "anyOf": [
               {

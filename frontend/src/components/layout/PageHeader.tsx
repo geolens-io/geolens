@@ -58,7 +58,7 @@ export function PageHeader({ title, description, backLink, breadcrumbs, actions,
         <div className="min-w-0">
           <h1 className="text-2xl font-semibold tracking-tight break-words">{title}</h1>
           {description && (
-            <p className="text-sm text-muted-foreground mt-1">{description}</p>
+            <p className="text-sm text-muted-foreground mt-1 max-w-2xl">{description}</p>
           )}
         </div>
         {actions && (
@@ -67,6 +67,8 @@ export function PageHeader({ title, description, backLink, breadcrumbs, actions,
           </div>
         )}
       </div>
+      {/* Neatline — the map-sheet tick rule that closes every page header. */}
+      <div className="tick-rule" aria-hidden="true" />
     </div>
   );
 }

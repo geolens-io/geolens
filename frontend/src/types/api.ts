@@ -407,6 +407,9 @@ export interface OGCRecordProperties {
   contacts?: Array<{ name?: string; organization?: string; roles?: string[]; email?: string; phone?: string }> | null;
   license: string | null;
   source_organization: string | null;
+  /** Ingest source format ('geojson', 'wfs', 'stac', 'created', ...).
+   * Null for registered PostGIS tables and composed VRTs. */
+  source_format?: string | null;
   quality_detail?: {
     overall: number;
     metadata_completeness: number;

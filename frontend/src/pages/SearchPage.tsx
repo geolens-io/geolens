@@ -96,14 +96,14 @@ export function SearchPage() {
           </aside>
 
           <div className="min-w-0 space-y-5">
-            <section className="rounded-[22px] border border-border/50 bg-background/95 px-4 py-4 shadow-sm sm:px-5">
+            <section className="rounded-lg border bg-card px-4 py-4 shadow-sm sm:px-5">
               <SearchControls totalResults={totalMatched > 0 ? totalMatched : undefined}>
                 {token ? <SavedSearches className="justify-center md:justify-start" /> : null}
               </SearchControls>
             </section>
 
             {isFetching && data && (
-              <div role="status" aria-live="polite" className="inline-flex items-center gap-2 rounded-full border border-border/60 bg-background/85 px-3 py-1.5 text-sm text-muted-foreground shadow-sm">
+              <div role="status" aria-live="polite" className="inline-flex items-center gap-2 rounded-md border bg-card px-3 py-1.5 text-sm text-muted-foreground shadow-sm">
                 <Loader2 className="size-4 animate-spin" aria-hidden="true" />
                 {t('updating')}
               </div>

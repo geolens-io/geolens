@@ -26,13 +26,17 @@ import { CollectionCreateDialog } from '@/components/collections/CollectionCreat
 import { MapCreateDialog } from '@/components/maps/MapCreateDialog';
 import { VrtCreateDialog } from '@/components/import/VrtCreateDialog';
 
+// Full-height topbar tabs with a 2px baseline marker on the active route —
+// the same underline vocabulary as the Import page's mode tabs. ring-inset
+// keeps the focus ring visible at the header's clipped top edge.
 const navLinkClass = ({ isActive }: { isActive: boolean }) =>
   cn(
-    'inline-flex items-center justify-center rounded-md px-3 py-1.5 text-sm font-medium transition-colors',
-    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
+    'relative inline-flex h-14 items-center px-3 text-sm font-medium transition-colors',
+    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset',
+    'after:pointer-events-none after:absolute after:inset-x-3 after:bottom-0 after:h-0.5 after:bg-primary after:opacity-0 after:transition-opacity',
     isActive
-      ? 'bg-accent text-accent-foreground'
-      : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground',
+      ? 'text-foreground after:opacity-100'
+      : 'text-muted-foreground hover:text-foreground',
   );
 
 const mobileNavLinkClass = ({ isActive }: { isActive: boolean }) =>
@@ -285,6 +289,11 @@ function MobileNav() {
             <NavLink to="/maps" className={mobileNavLinkClass}>
               {t('nav.maps')}
             </NavLink>
+            {can('manage_users') && (
+              <NavLink to="/admin" className={mobileNavLinkClass}>
+                {t('nav.admin')}
+              </NavLink>
+            )}
             {user && (() => {
               const canCreateDataset = featureFlags?.enable_dataset_editing ?? false;
               const canImport = can('upload');
@@ -373,17 +382,20 @@ function MobileNav() {
 
 export function Navbar() {
   const { t } = useTranslation();
+  const { can } = usePermissions();
 
   return (
     <header className="sticky top-0 z-40 border-b bg-background pt-[env(safe-area-inset-top)]">
-      <div className="mx-auto flex h-14 max-w-7xl items-center justify-between px-6">
-        <div className="flex items-center gap-4">
+      {/* Full-bleed control bar — page content keeps its own max-width;
+          the frame spans the viewport like the rest of the chrome. */}
+      <div className="flex h-14 w-full items-center justify-between gap-4 px-4 sm:px-6">
+        <div className="flex min-w-0 items-center gap-4">
           <MobileNav />
           <Link to="/" aria-label={t('appName')} className="rounded-md hover:text-primary transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background">
             <GeoLensLogo size="sm" />
           </Link>
           <Separator orientation="vertical" className="hidden md:block h-6" />
-          <nav aria-label={t('nav.mainNavigation')} className="hidden md:flex items-center gap-2">
+          <nav aria-label={t('nav.mainNavigation')} className="hidden h-14 md:flex items-center gap-1">
             <NavLink to="/" end className={navLinkClass}>
               {t('nav.search')}
             </NavLink>
@@ -393,6 +405,13 @@ export function Navbar() {
             <NavLink to="/maps" className={navLinkClass}>
               {t('nav.maps')}
             </NavLink>
+            {/* Operators get a first-class entry — previously buried in the
+                user dropdown only. */}
+            {can('manage_users') && (
+              <NavLink to="/admin" className={navLinkClass}>
+                {t('nav.admin')}
+              </NavLink>
+            )}
           </nav>
         </div>
         <div className="flex items-center gap-2">
