@@ -142,3 +142,16 @@ async def test_record_token_usage_commits_own_session(monkeypatch):
     )
     assert events["added"] == 1
     assert events["committed"] == 1, "usage must be committed in its own session"
+
+
+def test_max_ai_tokens_validator_rejects_negative():
+    """codex P3 #402: the settings API must reject a negative cap (which would
+    persist as 'overridden' yet behave as unlimited via the cap>0 guard)."""
+    from app.modules.settings.schemas import (
+        validate_max_ai_tokens_per_user_per_day as validate,
+    )
+
+    assert validate(0) == 0  # unlimited sentinel
+    assert validate(50_000) == 50_000
+    with pytest.raises(ValueError):
+        validate(-1)
