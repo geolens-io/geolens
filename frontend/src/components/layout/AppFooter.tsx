@@ -54,7 +54,7 @@ export function AppFooter({
         ))}
         {/* Instance version readout — self-hosters see at a glance what they run. */}
         <span aria-hidden="true">·</span>
-        <span className="readout text-muted-foreground/80">v{__APP_VERSION__}</span>
+        <span className="readout text-muted-foreground">v{__APP_VERSION__}</span>
       </nav>
     </footer>
   );
