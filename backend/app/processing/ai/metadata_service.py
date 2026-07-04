@@ -6,6 +6,7 @@ for summaries, keywords, and lineage using LLM providers.
 
 import json
 import time
+import uuid
 from typing import TYPE_CHECKING
 
 import structlog
@@ -23,6 +24,7 @@ from app.core.config import settings
 from app.platform.extensions import get_ai_provider
 from app.processing.embeddings.helpers import get_nearest_record_ids
 from app.core.persistent_config import LLM_MODEL_LIGHT, LLM_PROVIDER
+from app.processing.ai.token_usage import record_token_usage
 
 if TYPE_CHECKING:
     from app.core.processing_port import ProcessingPort
@@ -278,8 +280,14 @@ async def _generate_structured(
     prompt: str,
     response_model: type[BaseModel],
     db: AsyncSession | None = None,
+    user_id: uuid.UUID | None = None,
 ) -> BaseModel:
-    """Generate structured output through the configured AI provider."""
+    """Generate structured output through the configured AI provider.
+
+    Records token usage (subsystem ``metadata``) so metadata-assist calls count
+    toward the per-user daily budget — otherwise the cap is bypassable through
+    the four ``/ai/metadata/*`` endpoints (codex P1 on #402).
+    """
 
     # Resolve provider and model from PersistentConfig
     provider = (
@@ -298,7 +306,7 @@ async def _generate_structured(
     runtime_config = (
         await provider_ext.resolve_runtime_config(db) if db is not None else {}
     )
-    return await provider_ext.structured_complete(
+    result, input_tokens, output_tokens = await provider_ext.structured_complete(
         model=model,
         system_prompt=system,
         user_message=prompt,
@@ -307,6 +315,15 @@ async def _generate_structured(
         max_tokens=1024,
         temperature=0.3,
     )
+    await record_token_usage(
+        db,
+        user_id=user_id,
+        subsystem="metadata",
+        model=model,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+    )
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -403,6 +420,7 @@ async def generate_summary_draft(
     *,
     language: str | None = None,
     port: "ProcessingPort",
+    user_id: uuid.UUID | None = None,
 ) -> SummaryDraftResponse:
     """Generate an AI-drafted summary for a dataset."""
     from app.processing.ai.chat_service import lang_name
@@ -416,7 +434,9 @@ async def generate_summary_draft(
     system = SUMMARY_SYSTEM
     if language:
         system += f"\n\nRespond in {lang_name(language)}."
-    return await _generate_structured(system, context, SummaryDraftResponse, db=session)
+    return await _generate_structured(
+        system, context, SummaryDraftResponse, db=session, user_id=user_id
+    )
 
 
 async def generate_keyword_suggestions(
@@ -425,6 +445,7 @@ async def generate_keyword_suggestions(
     *,
     language: str | None = None,
     port: "ProcessingPort",
+    user_id: uuid.UUID | None = None,
 ) -> KeywordSuggestionsResponse:
     """Generate AI-suggested keywords for a dataset."""
     from app.processing.ai.chat_service import lang_name
@@ -448,7 +469,7 @@ async def generate_keyword_suggestions(
     if language:
         system += f"\n\nRespond in {lang_name(language)}."
     return await _generate_structured(
-        system, prompt, KeywordSuggestionsResponse, db=session
+        system, prompt, KeywordSuggestionsResponse, db=session, user_id=user_id
     )
 
 
@@ -458,6 +479,7 @@ async def generate_lineage_draft(
     *,
     language: str | None = None,
     port: "ProcessingPort",
+    user_id: uuid.UUID | None = None,
 ) -> LineageDraftResponse:
     """Generate an AI-drafted lineage summary for a dataset."""
     from app.processing.ai.chat_service import lang_name
@@ -471,7 +493,9 @@ async def generate_lineage_draft(
     system = LINEAGE_SYSTEM
     if language:
         system += f"\n\nRespond in {lang_name(language)}."
-    return await _generate_structured(system, context, LineageDraftResponse, db=session)
+    return await _generate_structured(
+        system, context, LineageDraftResponse, db=session, user_id=user_id
+    )
 
 
 async def generate_quality_statement_draft(
@@ -480,6 +504,7 @@ async def generate_quality_statement_draft(
     *,
     language: str | None = None,
     port: "ProcessingPort",
+    user_id: uuid.UUID | None = None,
 ) -> QualityStatementDraftResponse:
     """Generate an AI-drafted quality statement for a dataset."""
     from app.processing.ai.chat_service import lang_name
@@ -496,5 +521,5 @@ async def generate_quality_statement_draft(
     if language:
         system += f"\n\nRespond in {lang_name(language)}."
     return await _generate_structured(
-        system, context, QualityStatementDraftResponse, db=session
+        system, context, QualityStatementDraftResponse, db=session, user_id=user_id
     )

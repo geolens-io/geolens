@@ -766,15 +766,30 @@ async def stream_generate_map(
             timeout=300.0,  # 5-minute hard cap on LLM tool loop
         )
 
-        # Yield all collected tool events
-        for evt in tool_events:
-            yield evt
-
         logger.info(
             "Map generation complete (streaming)",
             input_tokens=result.input_tokens,
             output_tokens=result.output_tokens,
         )
+
+        # fix(#402) codex P1: the streaming map path (the primary map-create UI
+        # entrypoint) previously recorded no usage, so it was invisible to the
+        # per-user token budget. Record it like generate_map_from_prompt does —
+        # and BEFORE any post-LLM yield, so a client disconnect during the
+        # tool-event replay below can't skip accounting (the tokens are already
+        # spent once provider_ext.complete returns).
+        await record_token_usage(
+            session,
+            user_id=user.id,
+            subsystem="map_generation",
+            model=model,
+            input_tokens=result.input_tokens,
+            output_tokens=result.output_tokens,
+        )
+
+        # Yield all collected tool events
+        for evt in tool_events:
+            yield evt
 
         # Build the map
         yield {"type": "tool_start", "tool": "create_map", "label": "Building map..."}

@@ -460,6 +460,15 @@ def validate_max_datasets_per_user(v: Any) -> int:
     return _validate_bounded_int(v, "max_datasets_per_user", 0, 10_000_000)
 
 
+def validate_max_ai_tokens_per_user_per_day(v: Any) -> int:
+    # 0 = unlimited; reject negatives, which would otherwise persist as
+    # "overridden" yet behave as unlimited via the cap>0 guard in
+    # _check_ai_budget — silently disabling the cost cap (codex P3 on #402).
+    return _validate_bounded_int(
+        v, "max_ai_tokens_per_user_per_day", 0, 9007199254740991
+    )
+
+
 _VALID_LOG_LEVELS = frozenset({"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"})
 
 
@@ -533,5 +542,6 @@ SETTING_VALIDATORS: dict[str, Any] = {
     "tile_cache_ttl": validate_tile_cache_ttl,
     "max_storage_bytes_per_user": validate_max_storage_bytes_per_user,
     "max_datasets_per_user": validate_max_datasets_per_user,
+    "max_ai_tokens_per_user_per_day": validate_max_ai_tokens_per_user_per_day,
     "allowed_email_domains": validate_allowed_email_domains,
 }

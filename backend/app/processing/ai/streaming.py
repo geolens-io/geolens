@@ -182,6 +182,14 @@ async def _stream_anthropic_chat(
 
         buffered_tokens: list[str] = []
         has_tool_use = False
+        # fix(#402) codex P1 (round 5): tool_start is buffered, not yielded
+        # mid-stream. Usage is only retrievable from get_final_message() below,
+        # so a yield before that point would let a disconnect skip this round's
+        # accounting. Flushed AFTER record_token_usage so the record precedes
+        # every yield in the round. (Residual: a disconnect DURING the provider
+        # stream, before get_final_message returns, is inherently unaccountable —
+        # the token count does not exist client-side yet.)
+        pending_tool_starts: list[dict] = []
 
         # Claude 4.6+ models reject a non-default `temperature` with a 400;
         # omit it on the Anthropic path (steering is prompt-based there).
@@ -199,11 +207,13 @@ async def _stream_anthropic_chat(
                         and event.content_block.type == "tool_use"
                     ):
                         has_tool_use = True
-                        yield {
-                            "type": "tool_start",
-                            "tool": event.content_block.name,
-                            "label": tool_label(event.content_block.name),
-                        }
+                        pending_tool_starts.append(
+                            {
+                                "type": "tool_start",
+                                "tool": event.content_block.name,
+                                "label": tool_label(event.content_block.name),
+                            }
+                        )
                 elif event.type == "content_block_delta":
                     if (
                         hasattr(event.delta, "type")
@@ -217,6 +227,26 @@ async def _stream_anthropic_chat(
         if hasattr(final_message, "usage") and final_message.usage:
             total_input += final_message.usage.input_tokens
             total_output += final_message.usage.output_tokens
+            # fix(#402) codex P1: record THIS round's usage now, before the
+            # token/tool-event yields below. A client disconnect mid-stream
+            # raises GeneratorExit at a yield and skips any end-of-function
+            # accounting, so usage must land per-round as it is learned — else
+            # the daily cap is bypassable by aborting streaming chats. Each row
+            # is durable (record_token_usage self-commits), so completed rounds
+            # always count.
+            await record_token_usage(
+                session,
+                user_id=user.id,
+                subsystem="chat_stream",
+                model=model,
+                input_tokens=final_message.usage.input_tokens,
+                output_tokens=final_message.usage.output_tokens,
+            )
+
+        # Flush buffered tool_start events now — after accounting, so the
+        # per-round record precedes every yield in the round (disconnect-safe).
+        for _tool_start in pending_tool_starts:
+            yield _tool_start
 
         # Only emit buffered text tokens if the round did NOT end with tool use.
         if not has_tool_use:
@@ -282,15 +312,8 @@ async def _stream_anthropic_chat(
         total_input_tokens=total_input,
         total_output_tokens=total_output,
     )
-
-    await record_token_usage(
-        session,
-        user_id=user.id,
-        subsystem="chat_stream",
-        model=model,
-        input_tokens=total_input,
-        output_tokens=total_output,
-    )
+    # Usage is recorded per-round above (disconnect-safe); no end-of-stream
+    # record here — that would double-count and would be skipped on disconnect.
 
     if final_message is None:
         yield {"type": "error", "message": "No response generated. Please try again."}
@@ -402,13 +425,32 @@ async def _stream_openai_chat(
         seen_tool_indices: set[int] = set()
         has_tool_use = False
         buffered_tokens: list[str] = []
+        # fix(#402) codex P1 (round 5): buffer tool_start (flushed after the
+        # per-round record below), so a disconnect can't skip this round's
+        # accounting via a mid-stream tool_start yield.
+        pending_tool_starts: list[dict] = []
 
         async for chunk in response_stream:
             # Usage-only chunks arrive after the last content chunk with
             # empty choices[]; accumulate token counts and continue.
             if getattr(chunk, "usage", None) is not None:
-                total_input += getattr(chunk.usage, "prompt_tokens", 0) or 0
-                total_output += getattr(chunk.usage, "completion_tokens", 0) or 0
+                _round_in = getattr(chunk.usage, "prompt_tokens", 0) or 0
+                _round_out = getattr(chunk.usage, "completion_tokens", 0) or 0
+                total_input += _round_in
+                total_output += _round_out
+                # fix(#402) codex P1: record usage as it is learned, before the
+                # post-round token/tool yields. A client disconnect raises
+                # GeneratorExit at a yield and skips any end-of-function
+                # accounting, so recording here (durable, self-committing) keeps
+                # aborted streaming chats from bypassing the daily cap.
+                await record_token_usage(
+                    session,
+                    user_id=user.id,
+                    subsystem="chat_stream",
+                    model=model,
+                    input_tokens=_round_in,
+                    output_tokens=_round_out,
+                )
             choice = chunk.choices[0] if chunk.choices else None
             if not choice:
                 continue
@@ -438,17 +480,24 @@ async def _stream_openai_chat(
                     if tc.function and tc.function.arguments:
                         entry["arguments"] += tc.function.arguments
 
-                    # Emit tool_start on first appearance
+                    # Buffer tool_start on first appearance (flushed post-record)
                     if idx not in seen_tool_indices and entry["name"]:
                         seen_tool_indices.add(idx)
-                        yield {
-                            "type": "tool_start",
-                            "tool": entry["name"],
-                            "label": tool_label(entry["name"]),
-                        }
+                        pending_tool_starts.append(
+                            {
+                                "type": "tool_start",
+                                "tool": entry["name"],
+                                "label": tool_label(entry["name"]),
+                            }
+                        )
 
             if choice.finish_reason:
                 finish_reason = choice.finish_reason
+
+        # Flush buffered tool_start events — after the per-round record above, so
+        # the record precedes every yield in the round (disconnect-safe).
+        for _tool_start in pending_tool_starts:
+            yield _tool_start
 
         logger.info(
             "Chat stream round",
@@ -572,14 +621,9 @@ async def _stream_openai_chat(
                 yield {"type": "token", "text": token}
         break
 
-    await record_token_usage(
-        session,
-        user_id=user.id,
-        subsystem="chat_stream",
-        model=model,
-        input_tokens=total_input,
-        output_tokens=total_output,
-    )
+    # Usage is recorded per usage-chunk above (disconnect-safe); no
+    # end-of-stream record here — that would double-count and be skipped on
+    # disconnect.
 
     # Validate actions before yielding (mirrors non-streaming path)
     actions = [ChatAction(**a) for a in collected_actions]
