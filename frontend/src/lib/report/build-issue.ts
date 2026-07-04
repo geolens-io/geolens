@@ -179,6 +179,17 @@ export function buildIssueUrl(params: BuildIssueParams): { url: string; truncate
   return { url: base, truncated: true };
 }
 
+/**
+ * Markdown block of just the environment + captured signals, for the step-1
+ * "Copy technical details" action — usable without typing a single field.
+ */
+export function buildTechnicalClipboard(params: { version: string; context: string }): string {
+  const parts: string[] = ['## GeoLens technical details'];
+  if (params.version) parts.push(`**GeoLens version:** ${params.version}`);
+  if (params.context) parts.push(params.context);
+  return parts.join('\n\n');
+}
+
 export interface ClipboardReportParams {
   title: string;
   description: string;
