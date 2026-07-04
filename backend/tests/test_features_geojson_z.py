@@ -349,10 +349,34 @@ class TestGetFeaturesGeoJSONZEndpoint:
         headers, user_id = await _create_test_user(client, admin_auth_header, "viewer")
         return headers, user_id
 
-    async def test_requires_auth(self, client, z_dataset):
-        """Unauthenticated request returns 401."""
+    async def test_anonymous_public_returns_200(self, client, z_dataset):
+        """fix(#390): anonymous access to a public+published dataset returns
+        200 with a FeatureCollection (was 401), so client clustering works for
+        anonymous public-map viewers."""
         resp = await client.get(
             f"/datasets/{z_dataset.id}/features.geojson?include_z=true"
+        )
+        assert resp.status_code == 200
+        assert resp.json()["type"] == "FeatureCollection"
+
+    async def test_anonymous_private_returns_404(self, client, private_dataset):
+        """fix(#390): the anon read path must not leak private datasets — an
+        anonymous caller gets 404, not the feature data."""
+        resp = await client.get(
+            f"/datasets/{private_dataset.id}/features.geojson?include_z=true"
+        )
+        assert resp.status_code == 404
+
+    async def test_supplied_invalid_credentials_returns_401(
+        self, client, private_dataset
+    ):
+        """fix(#390) codex P2: a request that supplied credentials which failed
+        to resolve (expired/revoked JWT) gets 401 — not the anonymous 404 — so
+        the client's refresh-on-401 retry fires instead of a private layer
+        permanently 404ing."""
+        resp = await client.get(
+            f"/datasets/{private_dataset.id}/features.geojson?include_z=true",
+            headers={"Authorization": "Bearer not-a-valid-token"},
         )
         assert resp.status_code == 401
 

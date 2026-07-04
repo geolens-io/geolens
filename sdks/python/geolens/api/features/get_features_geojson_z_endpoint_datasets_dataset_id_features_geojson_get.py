@@ -93,7 +93,7 @@ def sync_detailed(
     client: AuthenticatedClient,
     x_embed_token: None | str | Unset = UNSET,
 ) -> Response[Any | ProblemDetail]:
-    """Get Features Geojson Z Endpoint
+    r"""Get Features Geojson Z Endpoint
 
      Return up to 5,000 features as RFC 7946 GeoJSON with Z coordinates.
 
@@ -102,8 +102,18 @@ def sync_detailed(
     shared-map union now exposes embed-scoped private layers to embeds — so
     this endpoint accepts the token as fallback authorization via the SAME
     ``validate_embed_token_access`` capability check as tile serving.
-    Credentialed callers (JWT / API key) keep the exact prior RBAC path;
-    anonymous callers without a valid scoped token still get 401.
+
+    fix(#390): the non-embed path uses ``check_dataset_access_or_anonymous``
+    so public+published datasets serve to anonymous callers (matching vector
+    tiles and the dataset-detail read path); private/restricted datasets still
+    404 for anon and follow full RBAC for credentialed callers. This unblocks
+    client clustering for anonymous public-map viewers.
+
+    fix(#390) codex P2: a request that *supplied* credentials which failed to
+    resolve (expired / revoked JWT -> ``get_optional_user`` is ``None``) still
+    gets 401, not the anonymous 404, so the frontend's refresh-on-401 retry
+    fires instead of a private layer permanently failing as \"not found\".
+    Truly credentialless requests keep the anonymous public path.
 
     Args:
         dataset_id (UUID):
@@ -136,7 +146,7 @@ def sync(
     client: AuthenticatedClient,
     x_embed_token: None | str | Unset = UNSET,
 ) -> Any | ProblemDetail | None:
-    """Get Features Geojson Z Endpoint
+    r"""Get Features Geojson Z Endpoint
 
      Return up to 5,000 features as RFC 7946 GeoJSON with Z coordinates.
 
@@ -145,8 +155,18 @@ def sync(
     shared-map union now exposes embed-scoped private layers to embeds — so
     this endpoint accepts the token as fallback authorization via the SAME
     ``validate_embed_token_access`` capability check as tile serving.
-    Credentialed callers (JWT / API key) keep the exact prior RBAC path;
-    anonymous callers without a valid scoped token still get 401.
+
+    fix(#390): the non-embed path uses ``check_dataset_access_or_anonymous``
+    so public+published datasets serve to anonymous callers (matching vector
+    tiles and the dataset-detail read path); private/restricted datasets still
+    404 for anon and follow full RBAC for credentialed callers. This unblocks
+    client clustering for anonymous public-map viewers.
+
+    fix(#390) codex P2: a request that *supplied* credentials which failed to
+    resolve (expired / revoked JWT -> ``get_optional_user`` is ``None``) still
+    gets 401, not the anonymous 404, so the frontend's refresh-on-401 retry
+    fires instead of a private layer permanently failing as \"not found\".
+    Truly credentialless requests keep the anonymous public path.
 
     Args:
         dataset_id (UUID):
@@ -174,7 +194,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     x_embed_token: None | str | Unset = UNSET,
 ) -> Response[Any | ProblemDetail]:
-    """Get Features Geojson Z Endpoint
+    r"""Get Features Geojson Z Endpoint
 
      Return up to 5,000 features as RFC 7946 GeoJSON with Z coordinates.
 
@@ -183,8 +203,18 @@ async def asyncio_detailed(
     shared-map union now exposes embed-scoped private layers to embeds — so
     this endpoint accepts the token as fallback authorization via the SAME
     ``validate_embed_token_access`` capability check as tile serving.
-    Credentialed callers (JWT / API key) keep the exact prior RBAC path;
-    anonymous callers without a valid scoped token still get 401.
+
+    fix(#390): the non-embed path uses ``check_dataset_access_or_anonymous``
+    so public+published datasets serve to anonymous callers (matching vector
+    tiles and the dataset-detail read path); private/restricted datasets still
+    404 for anon and follow full RBAC for credentialed callers. This unblocks
+    client clustering for anonymous public-map viewers.
+
+    fix(#390) codex P2: a request that *supplied* credentials which failed to
+    resolve (expired / revoked JWT -> ``get_optional_user`` is ``None``) still
+    gets 401, not the anonymous 404, so the frontend's refresh-on-401 retry
+    fires instead of a private layer permanently failing as \"not found\".
+    Truly credentialless requests keep the anonymous public path.
 
     Args:
         dataset_id (UUID):
@@ -215,7 +245,7 @@ async def asyncio(
     client: AuthenticatedClient,
     x_embed_token: None | str | Unset = UNSET,
 ) -> Any | ProblemDetail | None:
-    """Get Features Geojson Z Endpoint
+    r"""Get Features Geojson Z Endpoint
 
      Return up to 5,000 features as RFC 7946 GeoJSON with Z coordinates.
 
@@ -224,8 +254,18 @@ async def asyncio(
     shared-map union now exposes embed-scoped private layers to embeds — so
     this endpoint accepts the token as fallback authorization via the SAME
     ``validate_embed_token_access`` capability check as tile serving.
-    Credentialed callers (JWT / API key) keep the exact prior RBAC path;
-    anonymous callers without a valid scoped token still get 401.
+
+    fix(#390): the non-embed path uses ``check_dataset_access_or_anonymous``
+    so public+published datasets serve to anonymous callers (matching vector
+    tiles and the dataset-detail read path); private/restricted datasets still
+    404 for anon and follow full RBAC for credentialed callers. This unblocks
+    client clustering for anonymous public-map viewers.
+
+    fix(#390) codex P2: a request that *supplied* credentials which failed to
+    resolve (expired / revoked JWT -> ``get_optional_user`` is ``None``) still
+    gets 401, not the anonymous 404, so the frontend's refresh-on-401 retry
+    fires instead of a private layer permanently failing as \"not found\".
+    Truly credentialless requests keep the anonymous public path.
 
     Args:
         dataset_id (UUID):

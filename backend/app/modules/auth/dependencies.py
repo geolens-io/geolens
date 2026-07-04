@@ -123,6 +123,23 @@ async def get_optional_user(
     return user
 
 
+def request_carries_credentials(request: Request) -> bool:
+    """True if the request supplied any user credential (Bearer / API key).
+
+    Lets anonymous-capable endpoints tell a truly anonymous caller (serve
+    public, 404 private) apart from one whose supplied credentials failed to
+    resolve — e.g. an expired or revoked JWT that ``get_optional_user`` maps to
+    ``None``. The latter should get 401, not 404, so the client's
+    refresh-and-retry path fires instead of a misleading "not found". Mirrors
+    the credential sources ``_resolve_api_key`` + the bearer scheme accept.
+    """
+    return bool(
+        request.headers.get("Authorization")
+        or request.headers.get("X-Api-Key")
+        or request.query_params.get("api_key")
+    )
+
+
 async def get_current_user(
     request: Request,
     token: Annotated[str | None, Depends(oauth2_scheme_optional)],
