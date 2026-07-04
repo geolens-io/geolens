@@ -11,6 +11,10 @@
   "noticedNone": "No se detectó nada automáticamente: lo que más importa es tu descripción.",
   "technicalDetails": "Detalles técnicos ({{count}})",
   "technicalEmpty": "Todavía no se ha capturado nada.",
+  "technicalCopy": "Copiar detalles técnicos",
+  "technicalCopied": "Detalles técnicos copiados al portapapeles",
+  "technicalClear": "Borrar",
+  "technicalClearAria": "Borrar las señales capturadas",
   "step1": {
     "heading": "¿Qué ha ocurrido?",
     "areaLabel": "¿Dónde ha ocurrido?",

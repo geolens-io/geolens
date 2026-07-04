@@ -11,6 +11,10 @@
   "noticedNone": "Nothing was detected automatically — your description is what matters most.",
   "technicalDetails": "Technical details ({{count}})",
   "technicalEmpty": "Nothing has been captured yet.",
+  "technicalCopy": "Copy technical details",
+  "technicalCopied": "Technical details copied to clipboard",
+  "technicalClear": "Clear",
+  "technicalClearAria": "Clear captured signals",
   "step1": {
     "heading": "What happened?",
     "areaLabel": "Where did this happen?",

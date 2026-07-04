@@ -202,6 +202,8 @@ function SystemHealthCard() {
   );
 }
 
+// Survey-grid stat cell — same bordered-frame pattern as DatasetStatsBar,
+// so the operator overview reads like the rest of the instrument.
 function StatCard({
   label,
   value,
@@ -210,12 +212,12 @@ function StatCard({
   value: string;
 }) {
   return (
-    <Card>
-      <CardContent>
-        <p className="text-sm text-muted-foreground">{label}</p>
-        <p className="text-3xl font-bold mt-1">{value}</p>
-      </CardContent>
-    </Card>
+    <div className="min-w-0 border-t border-l border-border bg-card px-4 py-3">
+      <p className="eyebrow mb-1">{label}</p>
+      <p className="readout text-2xl font-semibold" title={value}>
+        {value}
+      </p>
+    </div>
   );
 }
 
@@ -238,8 +240,8 @@ export function StatsOverview() {
       {/* System Health — prominent at top */}
       <SystemHealthCard />
 
-      {/* Summary Stats */}
-      <div className="grid gap-4 sm:grid-cols-3">
+      {/* Summary Stats — one bordered frame, cells complete it */}
+      <div className="grid grid-cols-1 border-r border-b border-border sm:grid-cols-3">
         <StatCard label={t('stats.totalDatasets')} value={formatNumber(data.total_datasets)} />
         <StatCard label={t('stats.recentAdditions')} value={formatNumber(data.recent_additions)} />
         <StatCard label={t('stats.storageUsed')} value={formatBytes(data.total_storage_bytes)} />

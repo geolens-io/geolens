@@ -23,7 +23,10 @@
  */
 
 :root {
-  --radius: 0.625rem;
+  /* Redesign: 10px → 8px base radius. Cards land at 8px, buttons/inputs at
+     6px — crisper, closer to the instrument-panel look the dataset stats
+     grid established, without going full square. */
+  --radius: 0.5rem;
 
   /* ─ Primary scale (blue, hue ~250) ─ */
   --primary-50:  oklch(0.97 0.02 250);
@@ -390,6 +393,45 @@
 @keyframes shimmer {
   0% { background-position: -200% 0; }
   100% { background-position: 200% 0; }
+}
+
+/* ── Instrument Utilities ──────────────────────────────
+   The app-wide "survey instrument" label system. `.eyebrow` is the canonical
+   mono-caps section marker (same treatment as SECTION_EYEBROW on the dataset
+   page — kept in sync so the two tiers stay one system). `.readout` is for
+   measured values: counts, EPSG codes, coordinates, timestamps. */
+.eyebrow {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: color-mix(in oklab, var(--foreground) 70%, transparent);
+}
+.readout {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+}
+
+/* Neatline tick rule — a map sheet's neatline: 1px baseline with survey
+   ticks rising from it every 16px. Used under page headers and panel
+   headers as the redesign's signature divider. Theme-aware via --border. */
+.tick-rule {
+  height: 5px;
+  background-image:
+    repeating-linear-gradient(
+      to right,
+      var(--border) 0,
+      var(--border) 1px,
+      transparent 1px,
+      transparent 16px
+    ),
+    linear-gradient(var(--border), var(--border));
+  background-size: 100% 5px, 100% 1px;
+  background-position: left bottom, left bottom;
+  background-repeat: no-repeat;
 }
 
 /* ── Cartographic Textures ─────────────────────────── */

@@ -67,6 +67,8 @@ class OGCRecordProperties:
         row_count (int | None | Unset): Row count for tabular records (alias for feature_count when
             record_type='table').
         source_count (int | None | Unset):
+        source_format (None | str | Unset): Ingest source format ('geojson', 'shapefile', 'geotiff', 'wfs', 'stac',
+            'created', ...). Null for datasets registered from existing PostGIS tables and for composed VRT datasets.
         source_organization (None | str | Unset):
         themes (list[OGCRecordPropertiesThemesType0Item] | None | Unset):
         time (None | OGCRecordPropertiesTimeType0 | Unset):
@@ -106,6 +108,7 @@ class OGCRecordProperties:
     rights: None | str | Unset = UNSET
     row_count: int | None | Unset = UNSET
     source_count: int | None | Unset = UNSET
+    source_format: None | str | Unset = UNSET
     source_organization: None | str | Unset = UNSET
     themes: list[OGCRecordPropertiesThemesType0Item] | None | Unset = UNSET
     time: None | OGCRecordPropertiesTimeType0 | Unset = UNSET
@@ -297,6 +300,12 @@ class OGCRecordProperties:
         else:
             source_count = self.source_count
 
+        source_format: None | str | Unset
+        if isinstance(self.source_format, Unset):
+            source_format = UNSET
+        else:
+            source_format = self.source_format
+
         source_organization: None | str | Unset
         if isinstance(self.source_organization, Unset):
             source_organization = UNSET
@@ -410,6 +419,8 @@ class OGCRecordProperties:
             field_dict["row_count"] = row_count
         if source_count is not UNSET:
             field_dict["source_count"] = source_count
+        if source_format is not UNSET:
+            field_dict["source_format"] = source_format
         if source_organization is not UNSET:
             field_dict["source_organization"] = source_organization
         if themes is not UNSET:
@@ -752,6 +763,15 @@ class OGCRecordProperties:
 
         source_count = _parse_source_count(d.pop("source_count", UNSET))
 
+        def _parse_source_format(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        source_format = _parse_source_format(d.pop("source_format", UNSET))
+
         def _parse_source_organization(data: object) -> None | str | Unset:
             if data is None:
                 return data
@@ -882,6 +902,7 @@ class OGCRecordProperties:
             rights=rights,
             row_count=row_count,
             source_count=source_count,
+            source_format=source_format,
             source_organization=source_organization,
             themes=themes,
             time=time,

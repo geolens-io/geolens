@@ -146,7 +146,7 @@ export function AdminSidebar() {
   return (
     <Sidebar collapsible="icon" variant="sidebar" side="left">
       <SidebarHeader className="px-4 py-3 group-data-[collapsible=icon]:hidden">
-        <span className="text-sm font-semibold text-sidebar-foreground">{t('adminNav.admin')}</span>
+        <span className="eyebrow">{t('adminNav.admin')}</span>
       </SidebarHeader>
       <SidebarContent>
         {/* Overview */}
@@ -173,7 +173,7 @@ export function AdminSidebar() {
 
         {/* Operations */}
         <SidebarGroup>
-          <SidebarGroupLabel>{t('adminNav.operations')}</SidebarGroupLabel>
+          <SidebarGroupLabel className="eyebrow">{t('adminNav.operations')}</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
               {visibleOperationsItems.map(({ labelKey, to, icon: Icon, badgeKey }) => {
@@ -202,7 +202,7 @@ export function AdminSidebar() {
 
         {/* Settings */}
         <SidebarGroup>
-          <SidebarGroupLabel>{t('adminNav.settings')}</SidebarGroupLabel>
+          <SidebarGroupLabel className="eyebrow">{t('adminNav.settings')}</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
               {visibleSettingsItems.map(({ labelKey, to, icon: Icon }) => (

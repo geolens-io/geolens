@@ -11,6 +11,10 @@
   "noticedNone": "Rien n'a été détecté automatiquement — c'est votre description qui compte le plus.",
   "technicalDetails": "Détails techniques ({{count}})",
   "technicalEmpty": "Rien n'a encore été capturé.",
+  "technicalCopy": "Copier les détails techniques",
+  "technicalCopied": "Détails techniques copiés dans le presse-papiers",
+  "technicalClear": "Effacer",
+  "technicalClearAria": "Effacer les signaux capturés",
   "step1": {
     "heading": "Que s'est-il passé ?",
     "areaLabel": "Où cela s'est-il produit ?",

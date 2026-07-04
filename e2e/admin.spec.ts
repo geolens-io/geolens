@@ -18,10 +18,12 @@ test.describe('Admin Panel', () => {
     await expect(
       page.getByRole('heading', { name: 'Users' }),
     ).toBeVisible();
-    await expect(page.getByText('Username')).toBeVisible({ timeout: 10_000 });
-    await expect(page.getByText('Email')).toBeVisible();
-    await expect(page.getByText('Roles')).toBeVisible();
-    await expect(page.getByText('Status')).toBeVisible();
+    // Column headers asserted by role: plain getByText('Email') strict-collides
+    // with the "Export emails (CSV)" toolbar button (substring match).
+    await expect(page.getByRole('columnheader', { name: 'Username' })).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByRole('columnheader', { name: 'Email' })).toBeVisible();
+    await expect(page.getByRole('columnheader', { name: 'Roles' })).toBeVisible();
+    await expect(page.getByRole('columnheader', { name: 'Status' })).toBeVisible();
     await expect(
       page.getByRole('cell', { name: 'admin', exact: true }).first(),
     ).toBeVisible();

@@ -19,6 +19,28 @@
   "notAvailable": "k. A.",
   "none": "Keine",
   "yesterday": "Gestern, {{time}}",
+  "origin": {
+    "upload": {
+      "label": "Hochgeladen",
+      "title": "Hochgeladene Datei. GeoLens speichert eine eigene Kopie dieser Daten"
+    },
+    "postgis": {
+      "label": "PostGIS",
+      "title": "Aus einer bestehenden PostGIS-Tabelle registriert. Die Daten bleiben in Ihrer Datenbank"
+    },
+    "service": {
+      "label": "Dienst",
+      "title": "Über die URL eines entfernten Dienstes registriert"
+    },
+    "stac": {
+      "label": "STAC",
+      "title": "Aus einem STAC-Katalog importiert"
+    },
+    "created": {
+      "label": "Erstellt",
+      "title": "In GeoLens als bearbeitbare Ebene erstellt"
+    }
+  },
   "nav": {
     "search": "Suche",
     "collections": "Sammlungen",

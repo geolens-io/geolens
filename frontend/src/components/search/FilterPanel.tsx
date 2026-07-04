@@ -555,7 +555,7 @@ export function FilterPanel({
 
   const renderDesktopRail = () => (
     <div
-      className="space-y-4 rounded-[22px] border border-border/50 bg-background/95 p-4 shadow-sm"
+      className="space-y-4 rounded-lg border bg-card p-4 shadow-sm"
       data-testid="search-filter-rail"
     >
       <div className="flex items-start justify-between gap-3">
@@ -586,7 +586,7 @@ export function FilterPanel({
       ) : null}
 
       <div className="space-y-2">
-        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+        <p className="eyebrow">
           {t('filters.type', { defaultValue: 'Type' })}
         </p>
         <ToggleGroup
@@ -599,31 +599,31 @@ export function FilterPanel({
         >
           <ToggleGroupItem value="all" className="h-8 justify-between px-3 text-xs">
             {t('filters.allTypes', { defaultValue: 'All' })}
-            {Object.keys(counts).length > 0 && <span className="text-muted-foreground">{allTypeCount}</span>}
+            {Object.keys(counts).length > 0 && <span className="readout text-muted-foreground">{allTypeCount}</span>}
           </ToggleGroupItem>
           <ToggleGroupItem value="vector_dataset" className="h-8 justify-between px-3 text-xs" disabled={counts.vector_dataset === 0}>
             {t('filters.vector', { defaultValue: 'Vector' })}
-            {counts.vector_dataset !== undefined && <span className="text-muted-foreground">{counts.vector_dataset}</span>}
+            {counts.vector_dataset !== undefined && <span className="readout text-muted-foreground">{counts.vector_dataset}</span>}
           </ToggleGroupItem>
           <ToggleGroupItem value="raster_dataset" className="h-8 justify-between px-3 text-xs" disabled={counts.raster_dataset === 0}>
             {t('filters.raster', { defaultValue: 'Raster' })}
-            {counts.raster_dataset !== undefined && <span className="text-muted-foreground">{counts.raster_dataset}</span>}
+            {counts.raster_dataset !== undefined && <span className="readout text-muted-foreground">{counts.raster_dataset}</span>}
           </ToggleGroupItem>
           <ToggleGroupItem value="vrt_dataset" className="h-8 justify-between px-3 text-xs" disabled={counts.vrt_dataset === 0}>
             {t('filters.vrt', { defaultValue: 'Virtual Raster' })}
-            {counts.vrt_dataset !== undefined && <span className="text-muted-foreground">{counts.vrt_dataset}</span>}
+            {counts.vrt_dataset !== undefined && <span className="readout text-muted-foreground">{counts.vrt_dataset}</span>}
           </ToggleGroupItem>
           {showsTableToggle && (
             <ToggleGroupItem value="table" className="h-8 justify-between px-3 text-xs" disabled={counts.table === 0}>
               {t('card.table', { defaultValue: 'Table' })}
-              {counts.table !== undefined && <span className="text-muted-foreground">{counts.table}</span>}
+              {counts.table !== undefined && <span className="readout text-muted-foreground">{counts.table}</span>}
             </ToggleGroupItem>
           )}
         </ToggleGroup>
       </div>
 
       <div className="space-y-2">
-        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+        <p className="eyebrow">
           {t('filters.keywords', { defaultValue: 'Keywords' })}
         </p>
         <KeywordFacetPicker facets={facets?.keywords} isLoading={!facets} />
@@ -645,7 +645,7 @@ export function FilterPanel({
 
       {facets?.collections && facets.collections.length > 0 && (
         <div className="space-y-2">
-          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          <p className="eyebrow">
             {t('filters.collection', { defaultValue: 'Collection' })}
           </p>
           {renderCollectionControl()}
@@ -653,21 +653,21 @@ export function FilterPanel({
       )}
 
       <div className="space-y-2">
-        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+        <p className="eyebrow">
           {t('filters.location')}
         </p>
         {renderDesktopLocationFilter(true)}
       </div>
 
       <div className="space-y-2">
-        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+        <p className="eyebrow">
           {t('filters.dateRange')}
         </p>
         {renderDesktopDateFilter(true)}
       </div>
 
       <div className="space-y-2">
-        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+        <p className="eyebrow">
           {t('filters.temporalExtent', { defaultValue: 'Temporal Extent' })}
         </p>
         {renderTemporalExtentControl(true)}
@@ -675,7 +675,7 @@ export function FilterPanel({
 
       {recordType === 'vector_dataset' && (
         <div className="space-y-2">
-          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          <p className="eyebrow">
             {t('filters.geometry')}
           </p>
           {renderGeometryControl()}
@@ -684,7 +684,7 @@ export function FilterPanel({
 
       {organizations.length > 0 && (
         <div className="space-y-2">
-          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          <p className="eyebrow">
             {t('filters.organization')}
           </p>
           {renderOrganizationControl()}
@@ -693,7 +693,7 @@ export function FilterPanel({
 
       {showSridFilter && (
         <div className="space-y-2">
-          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          <p className="eyebrow">
             {t('filters.crs')}
           </p>
           {renderSridControl()}
@@ -701,7 +701,7 @@ export function FilterPanel({
       )}
 
       <div className="space-y-2">
-        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+        <p className="eyebrow">
           {t('filters.sort')}
         </p>
         {renderSortControl(true, false)}
@@ -809,7 +809,7 @@ export function FilterPanel({
               </Button>
             )}
 
-            <div className="ms-auto flex items-center gap-3 rounded-full border border-border/40 bg-muted/15 px-3 py-1 text-sm text-muted-foreground">
+            <div className="ms-auto flex items-center gap-3 rounded-md border border-border/40 bg-muted/15 px-3 py-1 text-sm text-muted-foreground">
               {totalResultsLabel && <span>{totalResultsLabel}</span>}
               {token && hasSearchState && <SaveSearchButton />}
             </div>
@@ -817,7 +817,7 @@ export function FilterPanel({
 
           {showSecondaryFilterRow && (
             <div
-              className="hidden flex-wrap items-center gap-2.5 rounded-[18px] border border-border/40 bg-muted/15 px-3 py-1.5 md:flex"
+              className="hidden flex-wrap items-center gap-2.5 rounded-md border border-border/40 bg-muted/15 px-3 py-1.5 md:flex"
               data-testid="secondary-filter-row"
             >
               <span className="text-xs font-medium text-muted-foreground whitespace-nowrap">

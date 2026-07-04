@@ -34,7 +34,7 @@ export function ImportPage() {
         <p className="mb-2.5 font-mono text-[11px] uppercase tracking-[0.12em] text-muted-foreground">
           {t('eyebrow', { defaultValue: 'Import' })}
         </p>
-        <h1 className="text-3xl font-medium tracking-tight">
+        <h1 className="text-2xl font-semibold tracking-tight">
           {t('title', { defaultValue: 'Bring data into the atlas' })}
         </h1>
         <p className="mt-2.5 max-w-2xl text-[15px] text-muted-foreground">
@@ -49,9 +49,12 @@ export function ImportPage() {
           {MODE_TABS.map(({ value, icon: Icon, labelKey }) => (
             <button
               key={value}
+              type="button"
               onClick={() => setActiveTab(value)}
+              aria-current={activeTab === value ? 'page' : undefined}
               className={cn(
                 'inline-flex items-center gap-2 border-b-2 px-4 pb-3 pt-3 text-[13.5px] font-medium transition-colors',
+                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset',
                 activeTab === value
                   ? 'border-primary text-foreground'
                   : 'border-transparent text-muted-foreground hover:text-foreground',

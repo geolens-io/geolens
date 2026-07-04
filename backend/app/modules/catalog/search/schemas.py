@@ -91,6 +91,14 @@ class OGCRecordProperties(BaseModel):
     )
     license: str | None = None
     source_organization: str | None = None
+    source_format: str | None = Field(
+        default=None,
+        description=(
+            "Ingest source format ('geojson', 'shapefile', 'geotiff', 'wfs', "
+            "'stac', 'created', ...). Null for datasets registered from "
+            "existing PostGIS tables and for composed VRT datasets."
+        ),
+    )
     quality_detail: dict | None = None
     quality_statement: str | None = None
     formats: list[str] | None = None

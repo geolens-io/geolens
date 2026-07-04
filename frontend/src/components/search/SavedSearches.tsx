@@ -50,7 +50,7 @@ export function SaveSearchButton() {
         <Button
           variant="outline"
           size="sm"
-          className="shrink-0 rounded-full border-border/50 bg-background/70 text-muted-foreground shadow-none hover:bg-accent/50 hover:text-foreground"
+          className="shrink-0 rounded-md border-border/50 bg-background/70 text-muted-foreground shadow-none hover:bg-accent/50 hover:text-foreground"
         >
           <Bookmark className="size-4" />
           <span className="hidden sm:inline">{t('savedSearches.saveButton')}</span>
@@ -137,7 +137,7 @@ export function SavedSearches({ className }: { className?: string }) {
       {searches.map((search) => (
         <div
           key={search.id}
-          className="group inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-full border border-border/50 bg-background/70 py-1.5 ps-3 pe-1.5 text-xs font-medium text-muted-foreground"
+          className="group inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-md border border-border/50 bg-background/70 py-1.5 ps-3 pe-1.5 text-xs font-medium text-muted-foreground"
         >
           <button
             type="button"

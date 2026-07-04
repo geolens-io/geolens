@@ -6190,6 +6190,12 @@ export type OgcRecordProperties = {
      */
     source_count?: number | null;
     /**
+     * Source Format
+     *
+     * Ingest source format ('geojson', 'shapefile', 'geotiff', 'wfs', 'stac', 'created', ...). Null for datasets registered from existing PostGIS tables and for composed VRT datasets.
+     */
+    source_format?: string | null;
+    /**
      * Source Organization
      */
     source_organization?: string | null;

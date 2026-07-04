@@ -21,6 +21,7 @@ export {
   buildContext,
   buildIssueUrl,
   buildClipboardReport,
+  buildTechnicalClipboard,
 } from './build-issue';
 export type {
   IssueArea,

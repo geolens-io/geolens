@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
-import { AlertTriangle, ChevronDown, ShieldCheck } from 'lucide-react';
+import { AlertTriangle, ChevronDown, Copy, ShieldCheck, Trash2 } from 'lucide-react';
 import {
   Sheet,
   SheetContent,
@@ -31,6 +31,8 @@ import {
   buildClipboardReport,
   buildContext,
   buildIssueUrl,
+  buildTechnicalClipboard,
+  clearReportEntries,
   mapAreaFromPath,
 } from '@/lib/report';
 import { ReportEntryList } from './ReportEntryList';
@@ -87,10 +89,17 @@ export function ReportProblemWizard({ open, onOpenChange, entries }: ReportProbl
 
   const problemCount = useMemo(() => entries.filter((e) => e.severity !== 'info').length, [entries]);
 
-  // Start each session from a clean wizard; default the Area from the route.
+  // Tracks whether the previous session ended in a send/copy. A draft that was
+  // dismissed accidentally (Esc, outside click) survives the next open; only a
+  // completed report starts the wizard clean again.
+  const submittedRef = useRef(true);
+
   useEffect(() => {
     if (!open) return;
     setStep(1);
+    setDetailsOpen(false);
+    if (!submittedRef.current) return; // preserve the unsent draft
+    submittedRef.current = false;
     setArea(mapAreaFromPath(window.location.pathname));
     setTitle('');
     setDescription('');
@@ -100,7 +109,6 @@ export function ReportProblemWizard({ open, onOpenChange, entries }: ReportProbl
     setIncludePage(true);
     setIncludeEnv(true);
     setIncludeVersion(true);
-    setDetailsOpen(false);
   }, [open]);
 
   function assembleContext(): string {
@@ -117,6 +125,7 @@ export function ReportProblemWizard({ open, onOpenChange, entries }: ReportProbl
   }
 
   function handleOpenIssue() {
+    submittedRef.current = true;
     const context = assembleContext();
     const version = includeVersion ? APP_VERSION : '';
     const { url, truncated } = buildIssueUrl({ title, description, steps, expected, area, version, context });
@@ -135,10 +144,20 @@ export function ReportProblemWizard({ open, onOpenChange, entries }: ReportProbl
   }
 
   async function handleCopy() {
+    submittedRef.current = true;
     const context = assembleContext();
     const version = includeVersion ? APP_VERSION : '';
     await copyToClipboard(buildClipboardReport({ title, description, steps, expected, area, version, context }));
     toast.success(t('step3.copied'));
+  }
+
+  // Step-1 shortcut: grab just the environment + captured signals without
+  // filling in anything. Does not count as sending, so the draft survives.
+  async function handleCopyTechnical() {
+    const context = assembleContext();
+    const version = includeVersion ? APP_VERSION : '';
+    await copyToClipboard(buildTechnicalClipboard({ version, context }));
+    toast.success(t('technicalCopied'));
   }
 
   return (
@@ -147,7 +166,7 @@ export function ReportProblemWizard({ open, onOpenChange, entries }: ReportProbl
         <SheetHeader className="border-b">
           <SheetTitle>{t('title')}</SheetTitle>
           <SheetDescription>{t('description')}</SheetDescription>
-          <p className="text-xs font-medium text-muted-foreground">
+          <p aria-live="polite" className="text-xs font-medium text-muted-foreground">
             {t('stepIndicator', { current: step, total: TOTAL_STEPS })}
           </p>
         </SheetHeader>
@@ -229,10 +248,31 @@ export function ReportProblemWizard({ open, onOpenChange, entries }: ReportProbl
               </div>
 
               <Collapsible open={detailsOpen} onOpenChange={setDetailsOpen}>
-                <CollapsibleTrigger className="flex w-full items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground">
-                  <ChevronDown className={cn('size-3.5 transition-transform', detailsOpen && 'rotate-180')} aria-hidden />
-                  {t('technicalDetails', { count: entries.length })}
-                </CollapsibleTrigger>
+                <div className="flex items-center justify-between gap-2">
+                  <CollapsibleTrigger className="flex min-w-0 items-center gap-1 rounded text-xs font-medium text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                    <ChevronDown className={cn('size-3.5 shrink-0 transition-transform', detailsOpen && 'rotate-180')} aria-hidden />
+                    {t('technicalDetails', { count: entries.length })}
+                  </CollapsibleTrigger>
+                  <div className="flex shrink-0 items-center gap-1">
+                    <Button type="button" variant="ghost" size="xs" onClick={handleCopyTechnical}>
+                      <Copy aria-hidden />
+                      {t('technicalCopy')}
+                    </Button>
+                    {entries.length > 0 && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="xs"
+                        onClick={() => clearReportEntries()}
+                        aria-label={t('technicalClearAria')}
+                        title={t('technicalClearAria')}
+                      >
+                        <Trash2 aria-hidden />
+                        {t('technicalClear')}
+                      </Button>
+                    )}
+                  </div>
+                </div>
                 <CollapsibleContent className="pt-2">
                   <ReportEntryList entries={entries} />
                 </CollapsibleContent>

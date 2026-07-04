@@ -52,6 +52,8 @@ const VrtCreateDialog = lazy(() =>
   import('@/components/import/VrtCreateDialog').then((m) => ({ default: m.VrtCreateDialog }))
 );
 import { RecordTypeBadge } from '@/components/search/RecordTypeBadge';
+import { OriginBadge, datasetOrigin } from '@/components/dataset/OriginBadge';
+import { CopyButton } from '@/components/ui/copy-button';
 import { DatasetStatsBar } from '@/components/dataset/DatasetStatsBar';
 import { MapErrorBoundary } from '@/components/error';
 import { getValidationNavigationAction } from '@/lib/dataset-validation-navigation';
@@ -385,10 +387,18 @@ export function DatasetPage() {
   // is the steady state and carries no information here — show a status badge
   // ONLY when it's the exception that needs action (draft). Mirrors the pattern
   // SearchResultCard already uses (showStatusBadge = record_status !== 'published').
+  const origin = datasetOrigin(dataset);
+  // Every spatial dataset lives in a PostGIS table — surfacing the table name
+  // in the header is the "works with your existing GIS tools" affordance
+  // (psql, QGIS, ogr2ogr can hit it directly). Raster/VRT data lives in
+  // object storage, not a queryable table, so those skip the readout.
+  const showTableReadout = !isRaster && !isVrt && Boolean(dataset.table_name);
+
   const statsLine = (
     <>
       <RecordTypeBadge recordType={dataset.record_type} />
       <div className="flex items-center gap-1.5">
+        {origin && <OriginBadge origin={origin} />}
         {dataset.record_status !== 'published' && (
           <Badge variant="outline" className={cn('text-xs', ingestionStatusColors[dataset.record_status] ?? '')}>
             {getRecordStatusLabel(t, dataset.record_status)}
@@ -399,6 +409,16 @@ export function DatasetPage() {
           {getVisibilityLabel(t, dataset.visibility)}
         </Badge>
       </div>
+      {showTableReadout && (
+        <span
+          className="inline-flex items-center gap-0.5 readout text-xs text-muted-foreground"
+          title={t('header.tableReadout', { defaultValue: 'PostGIS table' })}
+          data-testid="dataset-table-readout"
+        >
+          {dataset.table_name}
+          <CopyButton value={dataset.table_name} className="inline-flex size-5 items-center justify-center rounded hover:bg-muted transition-colors" />
+        </span>
+      )}
     </>
   );
 

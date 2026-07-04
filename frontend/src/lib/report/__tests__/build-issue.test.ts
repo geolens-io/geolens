@@ -3,6 +3,7 @@ import {
   buildClipboardReport,
   buildContext,
   buildIssueUrl,
+  buildTechnicalClipboard,
   mapAreaFromPath,
   summarizeEntries,
 } from '../build-issue';
@@ -153,6 +154,20 @@ describe('summarizeEntries', () => {
     const summary = summarizeEntries([entry({ message: 'tile 404', suppressed: true, count: 3 })]);
     expect(summary).toContain('(suppressed)');
     expect(summary).toContain('×3');
+  });
+});
+
+describe('buildTechnicalClipboard', () => {
+  it('includes the heading, version, and context', () => {
+    const md = buildTechnicalClipboard({ version: '1.4.2', context: '- **Page:** /maps' });
+    expect(md).toContain('## GeoLens technical details');
+    expect(md).toContain('**GeoLens version:** 1.4.2');
+    expect(md).toContain('- **Page:** /maps');
+  });
+
+  it('omits empty version and context blocks', () => {
+    const md = buildTechnicalClipboard({ version: '', context: '' });
+    expect(md).toBe('## GeoLens technical details');
   });
 });
 

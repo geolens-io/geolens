@@ -6,6 +6,7 @@ import { Combine, FolderOpen, Globe, Hash, Layers, Ruler, Shapes, Table2, type L
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { BBoxPreview } from '@/components/layout/BBoxPreview';
+import { OriginBadge, datasetOrigin } from '@/components/dataset/OriginBadge';
 import { RecordTypeBadge } from './RecordTypeBadge';
 import { formatProvenanceTime } from '@/lib/provenance-attribution';
 import { extractBbox, geometryIcon } from '@/lib/geo-utils';
@@ -145,6 +146,7 @@ export const SearchResultCard = memo(function SearchResultCard({ feature }: { fe
   const recordType = properties.record_type ?? 'vector_dataset';
   const isCollection = recordType === 'collection';
   const isTable = recordType === 'table';
+  const origin = datasetOrigin(properties);
   const linkPath = isCollection ? `/collections/${feature.id}` : `/datasets/${feature.id}`;
   const bbox = extractBbox(feature);
 
@@ -225,6 +227,7 @@ export const SearchResultCard = memo(function SearchResultCard({ feature }: { fe
                 <div className="min-w-0 flex flex-col gap-1.5">
                   <div className="flex flex-wrap items-center gap-2">
                     <RecordTypeBadge recordType={recordType} />
+                    {origin && <OriginBadge origin={origin} />}
                     {properties.keywords?.includes('synthetic') && (
                       <Badge variant="outline" className={`text-xs ${syntheticBadgeColor}`}>
                         {t('card.testData', { defaultValue: 'Test Data' })}
@@ -271,7 +274,7 @@ export const SearchResultCard = memo(function SearchResultCard({ feature }: { fe
                       {displayKeywords.slice(0, 3).map((tag, index) => (
                         <span
                           key={`${tag}-${index}`}
-                          className="inline-flex items-center rounded-full border border-border/30 bg-muted/15 px-2.5 py-0.5 text-[11px] text-muted-foreground"
+                          className="inline-flex items-center rounded-md border border-border/30 bg-muted/15 px-2.5 py-0.5 text-[11px] text-muted-foreground"
                         >
                           {tag}
                         </span>
