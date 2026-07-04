@@ -46,7 +46,7 @@ export function WorkflowRail({ mode, phase }: WorkflowRailProps) {
   return (
     <aside className="sticky top-28 flex flex-col gap-4">
       {/* Workflow steps */}
-      <div className="rounded-xl border border-border bg-card p-4">
+      <div className="rounded-lg border border-border bg-card p-4">
         <p className="mb-3 font-mono text-[10.5px] uppercase tracking-widest text-muted-foreground">
           {t('rail.workflow', { defaultValue: 'Workflow' })}
         </p>
@@ -83,7 +83,7 @@ export function WorkflowRail({ mode, phase }: WorkflowRailProps) {
       </div>
 
       {/* What gets imported */}
-      <div className="rounded-xl border border-border bg-card p-4">
+      <div className="rounded-lg border border-border bg-card p-4">
         <p className="mb-3 font-mono text-[10.5px] uppercase tracking-widest text-muted-foreground">
           {t('rail.whatImported', { defaultValue: 'What gets imported' })}
         </p>
@@ -102,7 +102,7 @@ export function WorkflowRail({ mode, phase }: WorkflowRailProps) {
       </div>
 
       {/* Tip */}
-      <div className="rounded-xl border border-border bg-surface-0 p-4">
+      <div className="rounded-lg border border-border bg-surface-0 p-4">
         <p className="mb-2 font-mono text-[10.5px] uppercase tracking-widest text-muted-foreground">
           {t('rail.tip', { defaultValue: 'Tip' })}
         </p>
@@ -123,7 +123,7 @@ function NonUploadRail({ mode }: { mode: 'register' | 'service' | 'stac' }) {
 
   return (
     <aside className="sticky top-28 flex flex-col gap-4">
-      <div className="rounded-xl border border-border bg-card p-4">
+      <div className="rounded-lg border border-border bg-card p-4">
         <p className="mb-2 font-mono text-[10.5px] uppercase tracking-widest text-muted-foreground">
           {isRegister
             ? t('rail.registerHint', { defaultValue: 'Registering existing infrastructure' })
@@ -147,7 +147,7 @@ function NonUploadRail({ mode }: { mode: 'register' | 'service' | 'stac' }) {
         </p>
       </div>
 
-      <div className="rounded-xl border border-border bg-card p-4">
+      <div className="rounded-lg border border-border bg-card p-4">
         <p className="mb-2 font-mono text-[10.5px] uppercase tracking-widest text-muted-foreground">
           {t('rail.comparedToUpload', { defaultValue: 'Compared to Upload' })}
         </p>

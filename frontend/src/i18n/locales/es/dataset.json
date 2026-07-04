@@ -112,7 +112,8 @@
       "owner": "Propietario no disponible",
       "updated": "Fecha de actualización desconocida",
       "type": "Tipo desconocido"
-    }
+    },
+    "tableReadout": "Tabla PostGIS"
   },
   "breadcrumbs": {
     "datasets": "Conjuntos de datos"

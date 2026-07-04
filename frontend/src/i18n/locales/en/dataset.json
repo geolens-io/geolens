@@ -112,7 +112,8 @@
       "owner": "Owner unavailable",
       "updated": "Unknown update time",
       "type": "Unknown type"
-    }
+    },
+    "tableReadout": "PostGIS table"
   },
   "breadcrumbs": {
     "datasets": "Datasets"

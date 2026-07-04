@@ -116,7 +116,7 @@ export function MapsPage() {
         title={t('maps.title')}
         actions={
           <div className="flex items-center gap-2">
-            {data && <Badge variant="secondary">{data.total}</Badge>}
+            {data && <Badge variant="secondary" className="readout">{data.total}</Badge>}
             {/* Hide the header create button when the empty state is showing its
                 own primary CTA (no maps, no active search/filter). */}
             {isEditor && !(data && data.total === 0 && !debouncedSearch && visibility === 'all') && (

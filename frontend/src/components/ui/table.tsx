@@ -80,8 +80,10 @@ function TableHead({ className, ...props }: React.ComponentProps<"th">) {
   return (
     <th
       data-slot="table-head"
+      // Redesign: mono-caps column headers — tables read as instrument
+      // readouts, matching the stats-grid and eyebrow label system.
       className={cn(
-        "text-muted-foreground h-10 px-4 py-3 text-start align-middle font-medium text-xs uppercase tracking-wide whitespace-nowrap [&:has([role=checkbox])]:pe-0 [&>[role=checkbox]]:translate-y-[2px]",
+        "text-muted-foreground h-10 px-4 py-3 text-start align-middle font-mono font-medium text-[11px] uppercase tracking-[0.08em] whitespace-nowrap [&:has([role=checkbox])]:pe-0 [&>[role=checkbox]]:translate-y-[2px]",
         className
       )}
       {...props}

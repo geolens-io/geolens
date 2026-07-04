@@ -112,7 +112,8 @@
       "owner": "Propriétaire indisponible",
       "updated": "Date de mise à jour inconnue",
       "type": "Type inconnu"
-    }
+    },
+    "tableReadout": "Table PostGIS"
   },
   "breadcrumbs": {
     "datasets": "Jeux de données"
