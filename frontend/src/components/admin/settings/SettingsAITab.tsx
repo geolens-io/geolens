@@ -31,6 +31,7 @@ interface TabProps {
 const AI_FIELDS = [
   { key: 'ai_enabled', defaultValue: true },
   { key: 'ai_send_sample_values', defaultValue: true },
+  { key: 'max_ai_tokens_per_user_per_day', defaultValue: 0 },
   { key: 'llm_provider', defaultValue: 'anthropic' },
   { key: 'llm_model', defaultValue: '' },
   { key: 'openai_base_url', defaultValue: '' },
@@ -62,6 +63,7 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset, isSaving, on
   // Alias for readability in JSX
   const aiEnabled = values.ai_enabled as boolean;
   const sendSampleValues = values.ai_send_sample_values as boolean;
+  const maxAiTokensPerDay = values.max_ai_tokens_per_user_per_day as number;
   const llmProvider = values.llm_provider as string;
   const llmModel = values.llm_model as string;
   const openaiBaseUrl = values.openai_base_url as string;
@@ -150,6 +152,29 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset, isSaving, on
             id="sample-values-toggle"
             checked={sendSampleValues}
             onCheckedChange={setters.ai_send_sample_values}
+            disabled={envOnly}
+          />
+        </div>
+
+        <div className="space-y-2 max-w-md">
+          <div className="flex items-center gap-2">
+            <Label htmlFor="max-ai-tokens-per-day">
+              {findSetting(settings, 'max_ai_tokens_per_user_per_day')?.label ??
+                'Max AI Tokens per User per Day (0=unlimited)'}
+            </Label>
+            <SettingSourceBadge
+              source={findSetting(settings, 'max_ai_tokens_per_user_per_day')?.source ?? 'default'}
+              settingKey="max_ai_tokens_per_user_per_day"
+              onReset={onReset}
+            />
+          </div>
+          <Input
+            id="max-ai-tokens-per-day"
+            type="number"
+            min={0}
+            className="w-56"
+            value={maxAiTokensPerDay}
+            onChange={(e) => setters.max_ai_tokens_per_user_per_day(Number(e.target.value))}
             disabled={envOnly}
           />
         </div>

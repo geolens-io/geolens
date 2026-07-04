@@ -3,12 +3,13 @@
 import json
 import uuid as uuid_mod
 from collections.abc import Awaitable
+from datetime import datetime, timedelta, timezone
 from typing import TypeVar
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sse_starlette.sse import EventSourceResponse, ServerSentEvent
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -47,7 +48,12 @@ from app.platform.extensions import get_processing_port
 from app.modules.auth.dependencies import require_permission
 from app.core.config import settings
 from app.core.dependencies import get_db
-from app.core.persistent_config import AI_ENABLED, LLM_PROVIDER
+from app.core.persistent_config import (
+    AI_ENABLED,
+    LLM_PROVIDER,
+    MAX_AI_TOKENS_PER_USER_PER_DAY,
+)
+from app.processing.ai.token_usage import AITokenUsage
 from app.modules.auth.router import limiter
 from app.platform.sandbox.validator import build_table_allowlist
 from app.standards.ogc.errors import ERROR_RESPONSES_AUTH
@@ -66,6 +72,10 @@ router = APIRouter(prefix="/ai", tags=["Maps"], responses=ERROR_RESPONSES_AUTH)
 # Metadata assist: 20/min (lighter, single LLM call)
 _AI_GENERATE_LIMIT = "10/minute"
 _AI_METADATA_LIMIT = "20/minute"
+
+# Shared permission handle so the availability probe and the budget gate below
+# resolve the same `use_ai_chat` check exactly once.
+_require_ai_chat = require_permission("use_ai_chat")
 
 
 class AIAvailabilityResponse(BaseModel):
@@ -122,9 +132,52 @@ async def _check_ai_available(db: AsyncSession) -> None:
         )
 
 
+async def _check_ai_budget(db: AsyncSession, user: Identity) -> None:
+    """Enforce the per-user rolling 24h AI token budget. No-op when unset.
+
+    The slowapi per-IP rate limits cap request *frequency* but not cumulative
+    token spend, so an editor can sustain heavy multi-round tool loops
+    indefinitely (demo cost audit 2026-07-04, §3). This reads back the
+    already-recorded ``catalog.ai_token_usage`` (index ``ix_ai_token_usage_user_created``
+    backs the SUM) and 429s once the user's input+output tokens over the last
+    24h reach the operator-set cap. ``MAX_AI_TOKENS_PER_USER_PER_DAY`` defaults
+    to 0 (unlimited), so this is a pure no-op until an operator opts in — no
+    behaviour change for existing installs.
+    """
+    cap = await MAX_AI_TOKENS_PER_USER_PER_DAY.get(db)
+    if cap <= 0:
+        return
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
+    used = await db.scalar(
+        select(
+            func.coalesce(
+                func.sum(AITokenUsage.input_tokens + AITokenUsage.output_tokens), 0
+            )
+        ).where(AITokenUsage.user_id == user.id, AITokenUsage.created_at >= cutoff)
+    )
+    if used is not None and used >= cap:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Daily AI token budget exceeded. Try again later.",
+        )
+
+
+async def enforce_ai_token_budget(
+    user: Identity = Depends(_require_ai_chat),
+    db: AsyncSession = Depends(get_db),
+) -> Identity:
+    """AI-endpoint gate: ``use_ai_chat`` permission + the per-user token budget.
+
+    Runs before the handler body (and before any SSE stream opens), so an
+    over-budget caller gets a clean 429 rather than a mid-stream failure.
+    """
+    await _check_ai_budget(db, user)
+    return user
+
+
 @router.get("/availability/", response_model=AIAvailabilityResponse)
 async def ai_availability_endpoint(
-    user: Identity = Depends(require_permission("use_ai_chat")),
+    user: Identity = Depends(_require_ai_chat),
     db: AsyncSession = Depends(get_db),
 ) -> AIAvailabilityResponse:
     """Report whether builder AI chat is usable (builder-audit #338 P1-11).
@@ -253,7 +306,7 @@ async def _validate_chat_layers(
 async def generate_map_endpoint(
     request: Request,
     body: MapGenerateRequest,
-    user: Identity = Depends(require_permission("use_ai_chat")),
+    user: Identity = Depends(enforce_ai_token_budget),
     db: AsyncSession = Depends(get_db),
     port: "ProcessingPort" = Depends(get_processing_port),
 ) -> MapGenerateResponse:
@@ -288,7 +341,7 @@ async def generate_map_endpoint(
 async def generate_map_stream_endpoint(
     request: Request,
     body: MapGenerateRequest,
-    user: Identity = Depends(require_permission("use_ai_chat")),
+    user: Identity = Depends(enforce_ai_token_budget),
     db: AsyncSession = Depends(get_db),
     port: "ProcessingPort" = Depends(get_processing_port),
 ) -> EventSourceResponse:
@@ -346,7 +399,7 @@ async def generate_map_stream_endpoint(
 async def chat_endpoint(
     request: Request,
     body: ChatRequest,
-    user: Identity = Depends(require_permission("use_ai_chat")),
+    user: Identity = Depends(enforce_ai_token_budget),
     db: AsyncSession = Depends(get_db),
     port: "ProcessingPort" = Depends(get_processing_port),
 ) -> ChatResponse:
@@ -391,7 +444,7 @@ async def chat_endpoint(
 async def chat_stream_endpoint(
     request: Request,
     body: ChatRequest,
-    user: Identity = Depends(require_permission("use_ai_chat")),
+    user: Identity = Depends(enforce_ai_token_budget),
     db: AsyncSession = Depends(get_db),
     port: "ProcessingPort" = Depends(get_processing_port),
 ) -> EventSourceResponse:
@@ -577,7 +630,7 @@ async def _authorize_metadata_dataset(
 async def generate_metadata_summary(
     request: Request,
     body: MetadataAssistRequest,
-    user: Identity = Depends(require_permission("use_ai_chat")),
+    user: Identity = Depends(enforce_ai_token_budget),
     db: AsyncSession = Depends(get_db),
     port: "ProcessingPort" = Depends(get_processing_port),
 ) -> SummaryDraftResponse:
@@ -595,7 +648,7 @@ async def generate_metadata_summary(
 async def generate_metadata_keywords(
     request: Request,
     body: MetadataAssistRequest,
-    user: Identity = Depends(require_permission("use_ai_chat")),
+    user: Identity = Depends(enforce_ai_token_budget),
     db: AsyncSession = Depends(get_db),
     port: "ProcessingPort" = Depends(get_processing_port),
 ) -> KeywordSuggestionsResponse:
@@ -613,7 +666,7 @@ async def generate_metadata_keywords(
 async def generate_metadata_lineage(
     request: Request,
     body: MetadataAssistRequest,
-    user: Identity = Depends(require_permission("use_ai_chat")),
+    user: Identity = Depends(enforce_ai_token_budget),
     db: AsyncSession = Depends(get_db),
     port: "ProcessingPort" = Depends(get_processing_port),
 ) -> LineageDraftResponse:
@@ -633,7 +686,7 @@ async def generate_metadata_lineage(
 async def generate_metadata_quality_statement(
     request: Request,
     body: MetadataAssistRequest,
-    user: Identity = Depends(require_permission("use_ai_chat")),
+    user: Identity = Depends(enforce_ai_token_budget),
     db: AsyncSession = Depends(get_db),
     port: "ProcessingPort" = Depends(get_processing_port),
 ) -> QualityStatementDraftResponse:

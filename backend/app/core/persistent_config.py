@@ -636,6 +636,14 @@ LLM_MODEL_LIGHT = PersistentConfig[str](
     label="Light LLM Model (SQL/Metadata)",
 )
 
+MAX_AI_TOKENS_PER_USER_PER_DAY = PersistentConfig[int](
+    key="max_ai_tokens_per_user_per_day",
+    type_=int,
+    env_default=0,
+    tab="ai",
+    label="Max AI Tokens per User per Day (0=unlimited)",
+)
+
 # -- Network tab --
 GLOBAL_RATE_LIMIT = PersistentConfig[int](
     key="global_rate_limit",
