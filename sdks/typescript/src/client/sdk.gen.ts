@@ -1341,8 +1341,12 @@ export const exportDatasetEndpointDatasetsDatasetIdExportGet = <ThrowOnError ext
  * shared-map union now exposes embed-scoped private layers to embeds — so
  * this endpoint accepts the token as fallback authorization via the SAME
  * ``validate_embed_token_access`` capability check as tile serving.
- * Credentialed callers (JWT / API key) keep the exact prior RBAC path;
- * anonymous callers without a valid scoped token still get 401.
+ *
+ * fix(#390): the non-embed path uses ``check_dataset_access_or_anonymous``
+ * so public+published datasets serve to anonymous callers (matching vector
+ * tiles and the dataset-detail read path); private/restricted datasets still
+ * 404 for anon and follow full RBAC for credentialed callers. This unblocks
+ * client clustering for anonymous public-map viewers.
  */
 export const getFeaturesGeojsonZEndpointDatasetsDatasetIdFeaturesGeojsonGet = <ThrowOnError extends boolean = false>(options: Options<GetFeaturesGeojsonZEndpointDatasetsDatasetIdFeaturesGeojsonGetData, ThrowOnError>) => (options.client ?? client).get<GetFeaturesGeojsonZEndpointDatasetsDatasetIdFeaturesGeojsonGetResponses, GetFeaturesGeojsonZEndpointDatasetsDatasetIdFeaturesGeojsonGetErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }],
