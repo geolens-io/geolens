@@ -273,7 +273,9 @@ class TestGeojsonZEmbedFallback:
         await _downgrade_to_private(test_db_session, private_ds)
 
         anon = await client.get(f"/datasets/{private_ds.id}/features.geojson")
-        assert anon.status_code == 401
+        # fix(#390): anon on a private dataset now 404s (non-leaking) rather
+        # than 401; the embed token remains the only anon authorization path.
+        assert anon.status_code == 404
 
         with_token = await client.get(
             f"/datasets/{private_ds.id}/features.geojson",

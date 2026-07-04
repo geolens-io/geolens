@@ -27,6 +27,7 @@ from app.modules.auth.dependencies import (
 )
 from app.modules.catalog.authorization import (
     check_dataset_access,
+    check_dataset_access_or_anonymous,
     check_dataset_write_access,
 )
 from app.modules.catalog.datasets.domain.service import get_dataset
@@ -91,8 +92,12 @@ async def get_features_geojson_z_endpoint(
     shared-map union now exposes embed-scoped private layers to embeds — so
     this endpoint accepts the token as fallback authorization via the SAME
     ``validate_embed_token_access`` capability check as tile serving.
-    Credentialed callers (JWT / API key) keep the exact prior RBAC path;
-    anonymous callers without a valid scoped token still get 401.
+
+    fix(#390): the non-embed path uses ``check_dataset_access_or_anonymous``
+    so public+published datasets serve to anonymous callers (matching vector
+    tiles and the dataset-detail read path); private/restricted datasets still
+    404 for anon and follow full RBAC for credentialed callers. This unblocks
+    client clustering for anonymous public-map viewers.
     """
     dataset = await get_dataset(db, dataset_id)
     if dataset is None:
@@ -108,13 +113,7 @@ async def get_features_geojson_z_endpoint(
         request,
     )
     if not embed_ok:
-        if user is None:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Not authenticated",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-        await check_dataset_access(db, dataset, dataset_id, user)
+        await check_dataset_access_or_anonymous(db, dataset, dataset_id, user)
 
     # fix(#315): raster/VRT datasets have no backing PostGIS feature table, so a feature
     # query would raise UndefinedTableError -> 500 (and hold a DB connection).
