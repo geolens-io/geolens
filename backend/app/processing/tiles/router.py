@@ -49,6 +49,7 @@ from app.processing.tiles.service import (
     _TABLE_NAME_RE,
     get_cluster_tile,
     get_tile,
+    parse_cols_param,
 )
 from app.modules.auth.router import limiter
 from app.processing.tiles.schemas import (
@@ -1787,10 +1788,9 @@ async def cluster_tile_endpoint(
     public datasets are readable directly, non-public datasets require either
     valid HMAC tile params or a valid embed token scoped to the dataset.
 
-    fix(#403): `cols` mirrors the vector endpoint's runtime column opt-in.
-    The requested columns are projected onto UNCLUSTERED features (past
-    cluster max zoom / single-point buckets) so data-driven styling and
-    popups keep working on the server-cluster path.
+    fix(#403): `cols` mirrors the vector endpoint's runtime column opt-in;
+    the columns are projected onto UNCLUSTERED features so data-driven
+    styling and popups keep working on the server-cluster path.
     """
     table_name = _parse_vector_tile_table(table_path)
     _validate_tile_coordinates(z, x, y)
@@ -1806,16 +1806,7 @@ async def cluster_tile_endpoint(
         user=user,
     )
 
-    # Normalize `cols` exactly like the vector endpoint (sorted + deduped so
-    # the cache key is deterministic across param permutations); validation
-    # against column_info happens inside _select_tile_columns.
-    additional_columns: list[str] | None = None
-    cols_cache_key = ""
-    if cols:
-        raw = [c.strip() for c in cols.split(",") if c.strip()]
-        if raw:
-            additional_columns = sorted(set(raw))
-            cols_cache_key = ",".join(additional_columns)
+    additional_columns, cols_cache_key = parse_cols_param(cols)
 
     cache_ttl = meta.tile_cache_ttl or settings.tile_cache_ttl
 
@@ -1945,18 +1936,7 @@ async def tile_endpoint(
         user=user,
     )
 
-    # Parse `cols` query param into a validated, deduped, sorted list.
-    # Validation against the dataset's column_info happens inside
-    # _select_tile_columns; here we just normalize so the cache key is
-    # deterministic across permutations (`cols=a,b` and `cols=b,a` hit
-    # the same cache entry).
-    additional_columns: list[str] | None = None
-    cols_cache_key = ""
-    if cols:
-        raw = [c.strip() for c in cols.split(",") if c.strip()]
-        if raw:
-            additional_columns = sorted(set(raw))
-            cols_cache_key = ",".join(additional_columns)
+    additional_columns, cols_cache_key = parse_cols_param(cols)
 
     # Get column info for attribute selection
     columns = meta.column_info

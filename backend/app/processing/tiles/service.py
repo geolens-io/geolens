@@ -103,6 +103,23 @@ def _simplify_tolerance_degrees(z: int) -> float | None:
     return _SIMPLIFY_SUBPIXEL_FACTOR * 360.0 / (_MVT_EXTENT * (2**z))
 
 
+def parse_cols_param(cols: str | None) -> tuple[list[str] | None, str]:
+    """Normalize a `cols=` query param into (additional_columns, cache_key).
+
+    Sorted + deduped so the tile cache key is deterministic across param
+    permutations (`cols=a,b` and `cols=b,a` hit the same entry). Validation
+    against the dataset's column_info happens in ``_select_tile_columns``;
+    shared by the vector and cluster endpoints (fix(#403)).
+    """
+    if not cols:
+        return None, ""
+    raw = [c.strip() for c in cols.split(",") if c.strip()]
+    if not raw:
+        return None, ""
+    additional = sorted(set(raw))
+    return additional, ",".join(additional)
+
+
 def _select_tile_columns(
     columns: list[dict],
     z: int,
