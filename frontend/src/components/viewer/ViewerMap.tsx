@@ -756,6 +756,11 @@ export const ViewerMap = memo(function ViewerMap({
           style_config: layer.style_config ?? null,
           paint: (layer.paint as Record<string, unknown> | undefined) ?? {},
           label_config: layer.label_config ?? null,
+          // codex P2 on fix(#403): include filter-only columns, or a layer
+          // whose filter references a column unused by paint/labels/popups
+          // loses it from cols= on the first token refresh (parity with the
+          // initial getDataDrivenColumnsForSource build).
+          filter: layer.filter ?? null,
           popup_config: layer.popup_config ?? null,
         });
         // fix(#394) VT-02 (codex P2): keep the `_v=` cache-buster on

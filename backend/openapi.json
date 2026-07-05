@@ -42794,7 +42794,7 @@
     },
     "/tiles/clusters/{table_path}/{z}/{x}/{y}.pbf": {
       "get": {
-        "description": "Serve a server-side clustered vector tile for point datasets.\n\nURL pattern: /tiles/clusters/data.{table_name}/{z}/{x}/{y}.pbf\n\nThis route deliberately reuses the normal vector tile auth model:\npublic datasets are readable directly, non-public datasets require either\nvalid HMAC tile params or a valid embed token scoped to the dataset.\n\nfix(#403): `cols` mirrors the vector endpoint's runtime column opt-in.\nThe requested columns are projected onto UNCLUSTERED features (past\ncluster max zoom / single-point buckets) so data-driven styling and\npopups keep working on the server-cluster path.",
+        "description": "Serve a server-side clustered vector tile for point datasets.\n\nURL pattern: /tiles/clusters/data.{table_name}/{z}/{x}/{y}.pbf\n\nThis route deliberately reuses the normal vector tile auth model:\npublic datasets are readable directly, non-public datasets require either\nvalid HMAC tile params or a valid embed token scoped to the dataset.\n\nfix(#403): `cols` mirrors the vector endpoint's runtime column opt-in;\nthe columns are projected onto UNCLUSTERED features so data-driven\nstyling and popups keep working on the server-cluster path.",
         "operationId": "cluster_tile_endpoint_tiles_clusters__table_path___z___x___y__pbf_get",
         "parameters": [
           {

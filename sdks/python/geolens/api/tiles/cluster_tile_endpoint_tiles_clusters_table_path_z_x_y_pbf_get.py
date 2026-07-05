@@ -144,10 +144,9 @@ def sync_detailed(
     public datasets are readable directly, non-public datasets require either
     valid HMAC tile params or a valid embed token scoped to the dataset.
 
-    fix(#403): `cols` mirrors the vector endpoint's runtime column opt-in.
-    The requested columns are projected onto UNCLUSTERED features (past
-    cluster max zoom / single-point buckets) so data-driven styling and
-    popups keep working on the server-cluster path.
+    fix(#403): `cols` mirrors the vector endpoint's runtime column opt-in;
+    the columns are projected onto UNCLUSTERED features so data-driven
+    styling and popups keep working on the server-cluster path.
 
     Args:
         table_path (str):
@@ -213,10 +212,9 @@ def sync(
     public datasets are readable directly, non-public datasets require either
     valid HMAC tile params or a valid embed token scoped to the dataset.
 
-    fix(#403): `cols` mirrors the vector endpoint's runtime column opt-in.
-    The requested columns are projected onto UNCLUSTERED features (past
-    cluster max zoom / single-point buckets) so data-driven styling and
-    popups keep working on the server-cluster path.
+    fix(#403): `cols` mirrors the vector endpoint's runtime column opt-in;
+    the columns are projected onto UNCLUSTERED features so data-driven
+    styling and popups keep working on the server-cluster path.
 
     Args:
         table_path (str):
@@ -277,10 +275,9 @@ async def asyncio_detailed(
     public datasets are readable directly, non-public datasets require either
     valid HMAC tile params or a valid embed token scoped to the dataset.
 
-    fix(#403): `cols` mirrors the vector endpoint's runtime column opt-in.
-    The requested columns are projected onto UNCLUSTERED features (past
-    cluster max zoom / single-point buckets) so data-driven styling and
-    popups keep working on the server-cluster path.
+    fix(#403): `cols` mirrors the vector endpoint's runtime column opt-in;
+    the columns are projected onto UNCLUSTERED features so data-driven
+    styling and popups keep working on the server-cluster path.
 
     Args:
         table_path (str):
@@ -344,10 +341,9 @@ async def asyncio(
     public datasets are readable directly, non-public datasets require either
     valid HMAC tile params or a valid embed token scoped to the dataset.
 
-    fix(#403): `cols` mirrors the vector endpoint's runtime column opt-in.
-    The requested columns are projected onto UNCLUSTERED features (past
-    cluster max zoom / single-point buckets) so data-driven styling and
-    popups keep working on the server-cluster path.
+    fix(#403): `cols` mirrors the vector endpoint's runtime column opt-in;
+    the columns are projected onto UNCLUSTERED features so data-driven
+    styling and popups keep working on the server-cluster path.
 
     Args:
         table_path (str):
