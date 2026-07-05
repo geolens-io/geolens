@@ -423,6 +423,16 @@ function syncLayerZoomRange(map: MaplibreMap, layerIds: string[], minzoom: numbe
   }
 }
 
+/** fix(#403): drop builder-private (underscore-prefixed) keys from a stored
+ *  layout dict before it reaches MapLibre. `_minzoom`/`_maxzoom` are read by
+ *  syncLayerZoomRange and applied via setLayerZoomRange; MapLibre's addLayer
+ *  validation rejects unknown layout properties outright, so passing them
+ *  through used to abort the add and drop the whole layer on reload. */
+export function stripPrivateLayoutKeys(layout: Record<string, unknown>): Record<string, unknown> {
+  if (!Object.keys(layout).some((k) => k.startsWith('_'))) return layout;
+  return Object.fromEntries(Object.entries(layout).filter(([k]) => !k.startsWith('_')));
+}
+
 // builder-audit #338 SYNC-05: the cluster signature and the tile-url signature are
 // kept in SEPARATE per-map WeakMaps. They were previously crammed into one Map
 // (cluster key = sourceId, tile-url key = `${sourceId}::tileurl`), where a
@@ -892,15 +902,16 @@ function resolveVectorSourceMode(
   // server's z<10 attribute budget would otherwise strip them, breaking
   // categorical / graduated / heatmap / 3D-extrusion / filter-only paint at low
   // zooms (filter columns are folded in by getDataDrivenColumnsForLayer, P1-03).
-  const sharedSourceCols = canUseServerCluster
-    ? null
-    : getDataDrivenColumnsForSource(adapterInput.sourceId, allLayers, prefix);
+  // fix(#403): server-cluster sources need the cols= opt-in too — their
+  // unclustered features (past cluster_max_zoom / single-point buckets) are
+  // styled and popup-inspected exactly like plain vector features.
+  const sharedSourceCols = getDataDrivenColumnsForSource(adapterInput.sourceId, allLayers, prefix);
   // MVT-04: thread the dataset content/version stamp into the `_v=` cache-buster
   // so a reupload/geometry edit busts client/CDN caches (undefined when the
   // dataset exposes no version).
   const tileVersion = layer.tile_version ?? undefined;
   adapterInput.tileUrl = canUseServerCluster
-    ? buildClusterTileUrl(layer.dataset_table_name, token, tileBaseUrl, tileVersion, clusterOptions)
+    ? buildClusterTileUrl(layer.dataset_table_name, token, tileBaseUrl, tileVersion, clusterOptions, sharedSourceCols)
     : buildSignedTileUrl(layer.dataset_table_name, token, tileBaseUrl, tileVersion, sharedSourceCols);
 
   // GeoJSON branch: 3D small datasets and eligible Cluster layers use GeoJSON
@@ -1220,7 +1231,11 @@ export function syncLayersToMap(
         opacity: layer.opacity ?? 1,
         visible: layer.visible,
         paint: layer.paint ?? {},
-        layout: layer.layout ?? {},
+        // fix(#403): builder-private underscore layout keys (_minzoom/_maxzoom)
+        // are consumed by syncLayerZoomRange from the SyncLayerInput, never by
+        // MapLibre — passing them through addLayer fails style validation and
+        // silently kills the whole layer on reload.
+        layout: stripPrivateLayoutKeys(layer.layout ?? {}),
         filter: sanitizeNullableNumericFilter(layer.filter),
         label_config: layer.label_config,
         is_dem: layer.is_dem,

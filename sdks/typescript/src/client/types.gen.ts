@@ -21596,6 +21596,10 @@ export type ClusterTileEndpointTilesClustersTablePathZxyPbfGetData = {
          */
         scope?: string | null;
         /**
+         * Cols
+         */
+        cols?: string | null;
+        /**
          * Cluster Radius
          */
         cluster_radius?: number;

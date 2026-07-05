@@ -13,22 +13,22 @@ Displayed at `width="900"`; sources are ~1200 px wide. Use PNG for UI shots
 
 | File | Beat | Shows | How to reproduce (live seeded stack) |
 | --- | --- | --- | --- |
-| `geolens-manhattan-3d-hero.jpg` | Hero | Manhattan footprints extruded to roof height in the builder | Open the **Manhattan Skyline - Real Roof Heights** map in the builder |
+| `geolens-manhattan-3d-hero.jpg` | Hero | Manhattan footprints extruded to roof height in the builder | Open the **Manhattan - A Century of Skyline** map in the builder |
 | `geolens-search.png` | Find | Semantic search ranking hydrology datasets | Catalog at `/?q=hydrology` (dismiss the autocomplete before the shot) |
 | `geolens-dataset.png` | Inspect | Dataset map preview + typed attribute table | Rivers Lake Centerlines (10m) dataset, Data tab |
-| `geolens-matterhorn-terrain.jpg` | Build | Matterhorn 3D terrain mesh + layer stack | Open The Matterhorn - swissALTI3D 3D Terrain map in the builder |
-| `geolens-ai-labels.png` | Ask AI | AI adding county labels to a choropleth | New York Income by County map, Ask AI, "Add area labels" |
+| `geolens-matterhorn-terrain.jpg` | Build | Matterhorn 3D terrain mesh + layer stack | Open the **The Matterhorn in 3D** map in the builder |
+| `geolens-ai-labels.png` | Ask AI | AI mapping + labeling a choropleth | New York Income dataset (catalog), Ask AI: "Map this as a choropleth and label each county" |
 
 ## Seeding the data
 
-`scripts/seed-showcase.py` builds the demo maps behind the hero,
-Build (Matterhorn), and Ask AI (NY income) shots:
+`scripts/seed-showcase.py` builds the demo maps behind the hero
+(Manhattan), Build (Matterhorn), and the New York Income catalog dataset
+behind the Ask AI shot (terrain is built by default now):
 
 ```bash
 python scripts/seed-showcase.py \
   --username "${GEOLENS_ADMIN_USERNAME:-admin}" \
-  --password "$GEOLENS_ADMIN_PASSWORD" \
-  --with-terrain
+  --password "$GEOLENS_ADMIN_PASSWORD"
 ```
 
 The Find (search) and Inspect (dataset) shots use a Natural Earth vector

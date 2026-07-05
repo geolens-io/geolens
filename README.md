@@ -24,9 +24,9 @@ curl -fsSL https://getgeolens.com/install.sh | sh
 ```
 
 <p align="center">
-  <img src=".github/assets/geolens-manhattan-3d-hero.jpg" alt="GeoLens map builder with Manhattan building footprints extruded into a 3D skyline, color-graded by roof height, the layer style editor open beside the map" width="900" />
+  <img src=".github/assets/geolens-manhattan-3d-hero.jpg" alt="GeoLens map builder with Manhattan building footprints extruded into a 3D skyline, colored by construction era, with the subway and the drag-orderable layer stack beside the map" width="900" />
   <br />
-  <em>The map builder: Manhattan's building footprints extruded to roof height and color-graded by a data-driven style, built from open data with <code>scripts/seed-showcase.py</code></em>
+  <em>The map builder: every Manhattan building extruded to its true roof height and colored by the era it was built, the subway threading beneath — built from open data with <code>scripts/seed-showcase.py</code></em>
 </p>
 
 > [!NOTE]
@@ -265,14 +265,19 @@ See the [CLI guide](https://docs.getgeolens.com/guides/cli/) for the full manife
 
 ### Seed data
 
-`scripts/seed-showcase.py` builds three demo maps from public open data: a Manhattan 3D skyline (the hero above), a New York income choropleth, and an optional Matterhorn 3D-terrain hero:
+`scripts/seed-showcase.py` builds six showcase maps from public open data — a global
+tectonics story over real ocean-floor relief, the Manhattan 3D skyline colored by
+construction era (the hero above), 75 years of Atlantic hurricane tracks, clustered
+meteorite falls, the Matterhorn in 2 m lidar 3D terrain, and by-reference Sentinel-2
+imagery of New York:
 
 ```bash
 pip install httpx
-python scripts/seed-showcase.py --username admin --password "$(grep '^GEOLENS_ADMIN_PASSWORD=' .env | cut -d= -f2-)" [--with-terrain] [--only manhattan|income|matterhorn]
+python scripts/seed-showcase.py --username admin --password "$(grep '^GEOLENS_ADMIN_PASSWORD=' .env | cut -d= -f2-)"
 ```
 
-Requires internet access to the upstream open-data sources.
+Requires internet access to the upstream open-data sources. See
+[`scripts/README.md`](scripts/README.md) for flags (`--no-terrain`, `--prune`, …).
 
 ## Architecture
 

@@ -3291,6 +3291,10 @@ export const searchPostStacSearchPost = <ThrowOnError extends boolean = false>(o
  * This route deliberately reuses the normal vector tile auth model:
  * public datasets are readable directly, non-public datasets require either
  * valid HMAC tile params or a valid embed token scoped to the dataset.
+ *
+ * fix(#403): `cols` mirrors the vector endpoint's runtime column opt-in;
+ * the columns are projected onto UNCLUSTERED features so data-driven
+ * styling and popups keep working on the server-cluster path.
  */
 export const clusterTileEndpointTilesClustersTablePathZXYPbfGet = <ThrowOnError extends boolean = false>(options: Options<ClusterTileEndpointTilesClustersTablePathZxyPbfGetData, ThrowOnError>) => (options.client ?? client).get<ClusterTileEndpointTilesClustersTablePathZxyPbfGetResponses, ClusterTileEndpointTilesClustersTablePathZxyPbfGetErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }],

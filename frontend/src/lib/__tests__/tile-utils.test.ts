@@ -135,6 +135,29 @@ describe('buildClusterTileUrl', () => {
       'https://tiles.example.com/tiles/clusters/data.my_table/{z}/{x}/{y}.pbf?cluster_radius=48&cluster_max_zoom=14&_v=v1',
     );
   });
+
+  // fix(#403): unclustered features on the server-cluster path are styled and
+  // popup-inspected like plain vector features, so the cols= opt-in must ride
+  // the cluster tile URL too (sorted + deduped for cache-key stability).
+  it('appends normalized cols= so unclustered features carry attributes', () => {
+    const url = buildClusterTileUrl(
+      'my_table',
+      null,
+      'https://tiles.example.com',
+      null,
+      { clusterRadius: 48, clusterMaxZoom: 14 },
+      ['mass_kg', 'fall', 'mass_kg', ' '],
+    );
+
+    expect(url).toBe(
+      'https://tiles.example.com/tiles/clusters/data.my_table/{z}/{x}/{y}.pbf?cluster_radius=48&cluster_max_zoom=14&cols=fall%2Cmass_kg',
+    );
+  });
+
+  it('omits cols= when extraCols is empty', () => {
+    const url = buildClusterTileUrl('my_table', null, 'https://tiles.example.com', null, {}, []);
+    expect(url).toBe('https://tiles.example.com/tiles/clusters/data.my_table/{z}/{x}/{y}.pbf');
+  });
 });
 
 // ---------------------------------------------------------------------------

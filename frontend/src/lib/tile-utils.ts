@@ -91,13 +91,20 @@ export function buildClusterTileUrl(
   tileBaseUrl?: string | null,
   tileVersion?: string | number | null,
   options: { clusterRadius?: number; clusterMaxZoom?: number } = {},
+  extraCols?: string[] | null,
 ): string {
   const base = tileBaseUrl
     ? tileBaseUrl.replace(/\/$/, '')
     : `${window.location.origin}/api`;
   const url = `${base}/tiles/clusters/${getMvtSourceLayerName(tableName)}/{z}/{x}/{y}.pbf`;
+  // fix(#403): unclustered features (past cluster_max_zoom / single-point
+  // buckets) need the data-driven styling + popup columns projected, exactly
+  // like the plain vector path — without cols= the server used to emit
+  // attribute-less features and categorical paint/popups silently broke.
+  const cols = normalizeExtraCols(extraCols);
   return appendTileParams(url, tileToken, tileVersion, {
     cluster_radius: options.clusterRadius,
     cluster_max_zoom: options.clusterMaxZoom,
+    ...(cols ? { cols } : {}),
   });
 }

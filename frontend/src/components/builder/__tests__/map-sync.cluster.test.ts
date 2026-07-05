@@ -164,7 +164,7 @@ describe('syncLayersToMap cluster rendering', () => {
     expect(buildClusterTileUrl).toHaveBeenCalledWith('points', VECTOR_TOKEN, undefined, undefined, {
       clusterRadius: 64,
       clusterMaxZoom: 12,
-    });
+    }, []);
     expect(map.addSource).toHaveBeenCalledWith('source-cluster-1', expect.objectContaining({
       type: 'vector',
       tiles: ['/tiles/clusters/mock/{z}/{x}/{y}.pbf?cluster_radius=64&cluster_max_zoom=12'],
@@ -176,6 +176,36 @@ describe('syncLayersToMap cluster rendering', () => {
       'layer-cluster-1',
     ]);
     expect(layerSpecs.every((spec) => spec['source-layer'] === 'data.points')).toBe(true);
+  });
+
+  // fix(#403): server-cluster sources forward the data-driven / popup columns
+  // as cols= so UNCLUSTERED features (past cluster max zoom) keep the
+  // attributes their categorical paint and popups reference.
+  it('forwards data-driven columns to the server-cluster tile URL', () => {
+    const map = makeMockMap();
+    const layer = makeLayer({
+      feature_count: 20_000,
+      paint: {
+        'circle-color': ['match', ['get', 'fall'], 'Fell', '#f59e0b', '#94a3b8'],
+        'circle-radius': ['step', ['to-number', ['get', 'mass_kg'], 0], 3, 1, 5],
+      },
+      style_config: {
+        render_mode: 'cluster',
+        mode: 'categorical',
+        column: 'fall',
+      } as SyncLayerInput['style_config'],
+    });
+
+    syncLayersToMap(map, [layer], tokenMap(layer), undefined, { current: new Set() }, { current: '' });
+
+    expect(buildClusterTileUrl).toHaveBeenCalledWith(
+      'points',
+      VECTOR_TOKEN,
+      undefined,
+      undefined,
+      expect.any(Object),
+      expect.arrayContaining(['fall', 'mass_kg']),
+    );
   });
 
   it('replaces an existing vector source when bounded cluster data arrives', () => {

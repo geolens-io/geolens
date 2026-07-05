@@ -159,8 +159,11 @@ class PublicSurfaceGateTest(unittest.TestCase):
         readme = (ROOT / "scripts" / "README.md").read_text(encoding="utf-8")
         script = (ROOT / "scripts" / "seed-showcase.py").read_text(encoding="utf-8")
 
-        self.assertNotIn("python scripts/seed-showcase.py --only income", readme)
-        self.assertIn('--password "$GEOLENS_ADMIN_PASSWORD" \\\n  --only income', readme)
+        # Showcase v2 renamed the single-item example from `income` to
+        # `hurricanes`; the invariant is unchanged — every documented
+        # invocation must pass the password explicitly.
+        self.assertNotIn("python scripts/seed-showcase.py --only hurricanes", readme)
+        self.assertIn('--password "$GEOLENS_ADMIN_PASSWORD" \\\n  --only hurricanes', readme)
         self.assertNotIn('os.environ.get("GEOLENS_ADMIN_PASSWORD", "admin")', script)
         self.assertIn("--password or GEOLENS_ADMIN_PASSWORD is required", script)
 

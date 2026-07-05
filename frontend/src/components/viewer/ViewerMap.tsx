@@ -749,22 +749,27 @@ export const ViewerMap = memo(function ViewerMap({
         const strategy = getClusterSourceStrategy(layer);
         const builder = layer.style_config?.builder;
         // Per-layer source in viewer context (no dedupe by table_name), so
-        // the column set comes from THIS layer only.
-        const cols = strategy.kind === 'server-tile'
-          ? null
-          : getDataDrivenColumnsForLayer({
-              style_config: layer.style_config ?? null,
-              paint: (layer.paint as Record<string, unknown> | undefined) ?? {},
-              label_config: layer.label_config ?? null,
-              popup_config: layer.popup_config ?? null,
-            });
+        // the column set comes from THIS layer only. fix(#403): the
+        // server-cluster path needs the cols= opt-in too — its unclustered
+        // features are styled/popup-inspected like plain vector features.
+        const cols = getDataDrivenColumnsForLayer({
+          style_config: layer.style_config ?? null,
+          paint: (layer.paint as Record<string, unknown> | undefined) ?? {},
+          label_config: layer.label_config ?? null,
+          // codex P2 on fix(#403): include filter-only columns, or a layer
+          // whose filter references a column unused by paint/labels/popups
+          // loses it from cols= on the first token refresh (parity with the
+          // initial getDataDrivenColumnsForSource build).
+          filter: layer.filter ?? null,
+          popup_config: layer.popup_config ?? null,
+        });
         // fix(#394) VT-02 (codex P2): keep the `_v=` cache-buster on
         // token-refresh rebuilds (parity with the initial source build).
         const newUrl = strategy.kind === 'server-tile'
           ? buildClusterTileUrl(layer.table_name, token, tileBaseUrl, layer.tile_version ?? undefined, {
               clusterRadius: typeof builder?.clusterRadius === 'number' ? builder.clusterRadius : 48,
               clusterMaxZoom: typeof builder?.clusterMaxZoom === 'number' ? builder.clusterMaxZoom : 14,
-            })
+            }, cols)
           : buildSignedTileUrl(layer.table_name, token, tileBaseUrl, layer.tile_version ?? undefined, cols);
         (source as VectorTileSource).setTiles([newUrl]);
       }

@@ -15,7 +15,8 @@ type ClusterColorStop = { count: number; color: string };
 // tuned to its dense earthquake dataset — for typical clustered layers the
 // rendered cluster point_count at usable zooms sits in the 1s–low-100s, so
 // 100/750 leaves every cluster in the base bucket and the toggle looks dead
-// (e.g. World Airports tops out at ~234 at min zoom, ~90 at the default view).
+// (a few-thousand-point layer tops out around a couple hundred per cluster at
+// min zoom, dropping into the low tens by the default view).
 // Seed reachable breaks so enabling the ramp produces a visible gradient out of
 // the box; the user can raise them for denser data.
 const DEFAULT_RAMP_TIERS: ClusterColorStop[] = [

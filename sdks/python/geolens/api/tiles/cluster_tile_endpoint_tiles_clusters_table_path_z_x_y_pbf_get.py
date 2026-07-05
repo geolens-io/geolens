@@ -21,6 +21,7 @@ def _get_kwargs(
     sig: None | str | Unset = UNSET,
     exp: int | None | Unset = UNSET,
     scope: None | str | Unset = UNSET,
+    cols: None | str | Unset = UNSET,
     cluster_radius: int | Unset = 48,
     cluster_max_zoom: int | Unset = 14,
 ) -> dict[str, Any]:
@@ -47,6 +48,13 @@ def _get_kwargs(
     else:
         json_scope = scope
     params["scope"] = json_scope
+
+    json_cols: None | str | Unset
+    if isinstance(cols, Unset):
+        json_cols = UNSET
+    else:
+        json_cols = cols
+    params["cols"] = json_cols
 
     params["cluster_radius"] = cluster_radius
 
@@ -122,6 +130,7 @@ def sync_detailed(
     sig: None | str | Unset = UNSET,
     exp: int | None | Unset = UNSET,
     scope: None | str | Unset = UNSET,
+    cols: None | str | Unset = UNSET,
     cluster_radius: int | Unset = 48,
     cluster_max_zoom: int | Unset = 14,
 ) -> Response[Any | ProblemDetail]:
@@ -135,6 +144,10 @@ def sync_detailed(
     public datasets are readable directly, non-public datasets require either
     valid HMAC tile params or a valid embed token scoped to the dataset.
 
+    fix(#403): `cols` mirrors the vector endpoint's runtime column opt-in;
+    the columns are projected onto UNCLUSTERED features so data-driven
+    styling and popups keep working on the server-cluster path.
+
     Args:
         table_path (str):
         z (int):
@@ -143,6 +156,7 @@ def sync_detailed(
         sig (None | str | Unset):
         exp (int | None | Unset):
         scope (None | str | Unset):
+        cols (None | str | Unset):
         cluster_radius (int | Unset):  Default: 48.
         cluster_max_zoom (int | Unset):  Default: 14.
 
@@ -162,6 +176,7 @@ def sync_detailed(
         sig=sig,
         exp=exp,
         scope=scope,
+        cols=cols,
         cluster_radius=cluster_radius,
         cluster_max_zoom=cluster_max_zoom,
     )
@@ -183,6 +198,7 @@ def sync(
     sig: None | str | Unset = UNSET,
     exp: int | None | Unset = UNSET,
     scope: None | str | Unset = UNSET,
+    cols: None | str | Unset = UNSET,
     cluster_radius: int | Unset = 48,
     cluster_max_zoom: int | Unset = 14,
 ) -> Any | ProblemDetail | None:
@@ -196,6 +212,10 @@ def sync(
     public datasets are readable directly, non-public datasets require either
     valid HMAC tile params or a valid embed token scoped to the dataset.
 
+    fix(#403): `cols` mirrors the vector endpoint's runtime column opt-in;
+    the columns are projected onto UNCLUSTERED features so data-driven
+    styling and popups keep working on the server-cluster path.
+
     Args:
         table_path (str):
         z (int):
@@ -204,6 +224,7 @@ def sync(
         sig (None | str | Unset):
         exp (int | None | Unset):
         scope (None | str | Unset):
+        cols (None | str | Unset):
         cluster_radius (int | Unset):  Default: 48.
         cluster_max_zoom (int | Unset):  Default: 14.
 
@@ -224,6 +245,7 @@ def sync(
         sig=sig,
         exp=exp,
         scope=scope,
+        cols=cols,
         cluster_radius=cluster_radius,
         cluster_max_zoom=cluster_max_zoom,
     ).parsed
@@ -239,6 +261,7 @@ async def asyncio_detailed(
     sig: None | str | Unset = UNSET,
     exp: int | None | Unset = UNSET,
     scope: None | str | Unset = UNSET,
+    cols: None | str | Unset = UNSET,
     cluster_radius: int | Unset = 48,
     cluster_max_zoom: int | Unset = 14,
 ) -> Response[Any | ProblemDetail]:
@@ -252,6 +275,10 @@ async def asyncio_detailed(
     public datasets are readable directly, non-public datasets require either
     valid HMAC tile params or a valid embed token scoped to the dataset.
 
+    fix(#403): `cols` mirrors the vector endpoint's runtime column opt-in;
+    the columns are projected onto UNCLUSTERED features so data-driven
+    styling and popups keep working on the server-cluster path.
+
     Args:
         table_path (str):
         z (int):
@@ -260,6 +287,7 @@ async def asyncio_detailed(
         sig (None | str | Unset):
         exp (int | None | Unset):
         scope (None | str | Unset):
+        cols (None | str | Unset):
         cluster_radius (int | Unset):  Default: 48.
         cluster_max_zoom (int | Unset):  Default: 14.
 
@@ -279,6 +307,7 @@ async def asyncio_detailed(
         sig=sig,
         exp=exp,
         scope=scope,
+        cols=cols,
         cluster_radius=cluster_radius,
         cluster_max_zoom=cluster_max_zoom,
     )
@@ -298,6 +327,7 @@ async def asyncio(
     sig: None | str | Unset = UNSET,
     exp: int | None | Unset = UNSET,
     scope: None | str | Unset = UNSET,
+    cols: None | str | Unset = UNSET,
     cluster_radius: int | Unset = 48,
     cluster_max_zoom: int | Unset = 14,
 ) -> Any | ProblemDetail | None:
@@ -311,6 +341,10 @@ async def asyncio(
     public datasets are readable directly, non-public datasets require either
     valid HMAC tile params or a valid embed token scoped to the dataset.
 
+    fix(#403): `cols` mirrors the vector endpoint's runtime column opt-in;
+    the columns are projected onto UNCLUSTERED features so data-driven
+    styling and popups keep working on the server-cluster path.
+
     Args:
         table_path (str):
         z (int):
@@ -319,6 +353,7 @@ async def asyncio(
         sig (None | str | Unset):
         exp (int | None | Unset):
         scope (None | str | Unset):
+        cols (None | str | Unset):
         cluster_radius (int | Unset):  Default: 48.
         cluster_max_zoom (int | Unset):  Default: 14.
 
@@ -340,6 +375,7 @@ async def asyncio(
             sig=sig,
             exp=exp,
             scope=scope,
+            cols=cols,
             cluster_radius=cluster_radius,
             cluster_max_zoom=cluster_max_zoom,
         )
