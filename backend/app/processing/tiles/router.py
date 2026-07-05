@@ -1773,6 +1773,7 @@ async def cluster_tile_endpoint(
     sig: str | None = None,
     exp: int | None = None,
     scope: str | None = None,
+    cols: str | None = None,
     cluster_radius: int = Query(48, ge=1, le=256),
     cluster_max_zoom: int = Query(14, ge=0, le=22),
     db: AsyncSession = Depends(get_db),
@@ -1785,6 +1786,11 @@ async def cluster_tile_endpoint(
     This route deliberately reuses the normal vector tile auth model:
     public datasets are readable directly, non-public datasets require either
     valid HMAC tile params or a valid embed token scoped to the dataset.
+
+    fix(#403): `cols` mirrors the vector endpoint's runtime column opt-in.
+    The requested columns are projected onto UNCLUSTERED features (past
+    cluster max zoom / single-point buckets) so data-driven styling and
+    popups keep working on the server-cluster path.
     """
     table_name = _parse_vector_tile_table(table_path)
     _validate_tile_coordinates(z, x, y)
@@ -1799,6 +1805,17 @@ async def cluster_tile_endpoint(
         scope=scope,
         user=user,
     )
+
+    # Normalize `cols` exactly like the vector endpoint (sorted + deduped so
+    # the cache key is deterministic across param permutations); validation
+    # against column_info happens inside _select_tile_columns.
+    additional_columns: list[str] | None = None
+    cols_cache_key = ""
+    if cols:
+        raw = [c.strip() for c in cols.split(",") if c.strip()]
+        if raw:
+            additional_columns = sorted(set(raw))
+            cols_cache_key = ",".join(additional_columns)
 
     cache_ttl = meta.tile_cache_ttl or settings.tile_cache_ttl
 
@@ -1816,7 +1833,9 @@ async def cluster_tile_endpoint(
 
     tile_cache = get_tile_cache()
     if tile_cache is not None:
-        cached = await tile_cache.get(cluster_cache_key, z, x, y)
+        cached = await tile_cache.get(
+            cluster_cache_key, z, x, y, cols_key=cols_cache_key
+        )
         if cached is not None:
             if len(cached) == 0:
                 return Response(status_code=status.HTTP_204_NO_CONTENT)
@@ -1847,6 +1866,9 @@ async def cluster_tile_endpoint(
             z,
             x,
             y,
+            meta.column_info,
+            tile_columns=meta.tile_columns,
+            additional_columns=additional_columns,
             cluster_radius=cluster_radius,
             cluster_max_zoom=cluster_max_zoom,
             conn=conn,
@@ -1875,6 +1897,7 @@ async def cluster_tile_endpoint(
             "cluster_max_zoom": cluster_max_zoom,
             "scope": scope or cache_scope,
         },
+        cols_cache_key=cols_cache_key,
     )
 
 

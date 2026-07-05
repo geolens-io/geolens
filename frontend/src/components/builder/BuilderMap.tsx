@@ -162,15 +162,17 @@ export function buildVectorSourceTileUrl(
   allLayers: MapLayerResponse[],
   sourceId: string,
 ): string {
+  const sharedSourceCols = getDataDrivenColumnsForSource(sourceId, allLayers);
   if (getClusterSourceStrategy(layer).kind === 'server-tile') {
     const { clusterRadius, clusterMaxZoom } = getClusterSourceOptions(
       { style_config: layer.style_config } as AdapterLayerInput,
     );
     // fix(#394) VT-02 (codex P2): keep the `_v=` cache-buster on token-refresh
     // rebuilds — dropping it here rebuilt URLs on the pre-reupload cache key.
-    return buildClusterTileUrl(layer.dataset_table_name, token, tileBaseUrl, layer.tile_version ?? undefined, { clusterRadius, clusterMaxZoom });
+    // fix(#403): forward cols= too, so unclustered features keep the columns
+    // their data-driven paint and popups reference (parity with map-sync).
+    return buildClusterTileUrl(layer.dataset_table_name, token, tileBaseUrl, layer.tile_version ?? undefined, { clusterRadius, clusterMaxZoom }, sharedSourceCols);
   }
-  const sharedSourceCols = getDataDrivenColumnsForSource(sourceId, allLayers);
   return buildSignedTileUrl(layer.dataset_table_name, token, tileBaseUrl, layer.tile_version ?? undefined, sharedSourceCols);
 }
 

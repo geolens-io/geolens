@@ -25,6 +25,7 @@ from app.processing.tiles.service import (
     _build_cluster_tile_query,
     _build_tile_query,
     _simplify_tolerance_degrees,
+    get_cluster_tile,
     get_tile,
 )
 
@@ -227,3 +228,67 @@ def test_reupload_tasks_invalidate_tile_cache_after_commit():
 
     source = inspect.getsource(tasks_reupload)
     assert source.count("await invalidate_tile_cache_for_table(live_table_name)") == 2
+
+
+# ---------------------------------------------------------------------------
+# fix(#403): cluster tiles project attribute columns onto UNCLUSTERED features
+# ---------------------------------------------------------------------------
+
+
+def test_cluster_query_projects_attr_columns_on_unclustered():
+    """Validated attribute columns join back to the source row for unclustered
+    features (single-point buckets / past cluster max zoom); excluded,
+    reserved, and regex-invalid names never reach the projection."""
+    cols = [
+        {"name": "mag"},
+        {"name": "place"},
+        {"name": "geom"},  # _EXCLUDED_COLUMNS
+        {"name": "point_count"},  # _CLUSTER_RESERVED_COLUMNS
+        {"name": "bad-name"},  # fails _COLUMN_NAME_RE
+    ]
+    query = _build_cluster_tile_query("places", attr_columns=cols)
+    assert "src.mag AS mag" in query
+    assert "src.place AS place" in query
+    assert 'LEFT JOIN "data"."places" src' in query
+    # Join only binds a source row for unclustered features.
+    assert "grouped.raw_point_count = 1 OR $1::integer > $5::integer" in query
+    assert "src.geom" not in query
+    assert "src.point_count" not in query
+    assert "bad-name" not in query
+
+
+def test_cluster_query_without_attr_columns_has_no_join():
+    """No attr columns -> the query keeps its original single-table shape."""
+    query = _build_cluster_tile_query("places")
+    assert "LEFT JOIN" not in query
+    assert "src." not in query
+
+
+async def test_get_cluster_tile_resolves_columns_like_get_tile():
+    """get_cluster_tile runs the columns through _select_tile_columns: the
+    cols= opt-in projects at ANY zoom, and the low-zoom default projects
+    nothing without an opt-in."""
+    conn = AsyncMock()
+    conn.fetchval.return_value = b"\x1a"
+    columns = [{"name": "mag"}, {"name": "place"}]
+
+    # z=3 (< z10 default) with an explicit cols= opt-in for one column.
+    await get_cluster_tile(
+        None,
+        "places",
+        3,
+        1,
+        1,
+        columns,
+        additional_columns=["mag"],
+        conn=conn,
+        schema="data",
+    )
+    query = conn.fetchval.call_args.args[0]
+    assert "src.mag AS mag" in query
+    assert "src.place" not in query
+
+    # Same zoom, no opt-in -> no projection at all.
+    await get_cluster_tile(None, "places", 3, 1, 1, columns, conn=conn, schema="data")
+    query = conn.fetchval.call_args.args[0]
+    assert "src." not in query

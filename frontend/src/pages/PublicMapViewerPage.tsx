@@ -50,6 +50,10 @@ function toSharedLayer(layer: MapLayerResponse): SharedLayerResponse {
     dem_vertical_units: layer.dem_vertical_units ?? null,
     is_3d: layer.is_3d ?? null,
     feature_count: layer.dataset_feature_count ?? null,
+    // fix(#403): without the version stamp the anonymous viewer builds tile
+    // URLs with no _v= cache-buster, so in-place dataset refreshes (e.g.
+    // seed-showcase.py --refresh-quakes) keep serving stale tiles from cache.
+    tile_version: layer.tile_version ?? null,
     tile_url: '',
   };
 }

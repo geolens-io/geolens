@@ -17,6 +17,18 @@ _TABLE_NAME_RE = re.compile(r"^[a-z0-9_]+$")
 # Columns to exclude from MVT attribute selection
 _EXCLUDED_COLUMNS = {"geom", "geom_4326", "gid"}
 
+# fix(#403): output property names the cluster tile query itself emits.
+# A user column with one of these names must not be projected onto
+# unclustered features or it would duplicate an output column name.
+_CLUSTER_RESERVED_COLUMNS = {
+    "cluster",
+    "point_count",
+    "point_count_abbreviated",
+    "cluster_id",
+    "expansion_zoom",
+    "source_gid",
+}
+
 # Strict column-name validation. Datasets are loaded by ogr2ogr which
 # normalizes column names to [a-zA-Z0-9_], but we re-validate before
 # substituting into SQL to defend against any future allowlist that
@@ -253,7 +265,11 @@ WHERE mvtgeom.geom IS NOT NULL
 _CLUSTER_FEATURE_ID_OFFSET = 1 << 40
 
 
-def _build_cluster_tile_query(table_name: str, schema: str = "data") -> str:
+def _build_cluster_tile_query(
+    table_name: str,
+    schema: str = "data",
+    attr_columns: list[dict] | None = None,
+) -> str:
     """Build a bounded server-side cluster MVT query for point datasets.
 
     Parameters at execution time:
@@ -264,6 +280,14 @@ def _build_cluster_tile_query(table_name: str, schema: str = "data") -> str:
     clustered features carry ``point_count`` and ``point_count_abbreviated``;
     unclustered features omit those properties and carry ``source_gid``.
 
+    fix(#403): ``attr_columns`` (pre-filtered via ``_select_tile_columns``,
+    same rules as the plain vector path) are projected onto UNCLUSTERED
+    features — single-point buckets and everything past cluster max zoom —
+    via a join back to the source row. Cluster features keep NULLs for these
+    columns, which ST_AsMVT omits per feature, so cluster properties stay
+    exactly MapLibre-shaped. Without this, data-driven styling and popups
+    silently broke for any dataset on the server-cluster path.
+
     DP-02 (Phase 1209-03): ``schema`` defaults to ``"data"`` (single_tenant
     unchanged).  In multi_tenant callers pass ``tenant_data_schema(tid)`` so
     the FROM clause is ALWAYS explicitly schema-qualified (T-1209-11).
@@ -271,6 +295,25 @@ def _build_cluster_tile_query(table_name: str, schema: str = "data") -> str:
     _validate_tile_table_name(table_name)
     # Schema name derives from validated-UUID tenant_data_schema() — safe to quote.
     qualified_table = f'"{schema}"."{table_name}"'
+
+    # Mirror _build_attr_columns' exclusion + revalidation rules, but project
+    # from the joined source row and only for unclustered features.
+    unclustered_attr_select = "".join(
+        f",\n        src.{col['name']} AS {col['name']}"
+        for col in (attr_columns or [])
+        if col.get("name")
+        and col["name"] not in _EXCLUDED_COLUMNS
+        and col["name"] not in _CLUSTER_RESERVED_COLUMNS
+        and _COLUMN_NAME_RE.match(col["name"])
+    )
+    unclustered_attr_join = (
+        f"""
+    LEFT JOIN {qualified_table} src
+        ON src.gid = grouped.source_gid
+        AND (grouped.raw_point_count = 1 OR $1::integer > $5::integer)"""
+        if unclustered_attr_select
+        else ""
+    )
 
     return f"""
 WITH
@@ -330,48 +373,48 @@ grouped AS (
 features AS (
     SELECT
         CASE
-            WHEN raw_point_count > 1 AND $1::integer <= $5::integer
-                THEN {_CLUSTER_FEATURE_ID_OFFSET}::bigint + row_number() OVER (ORDER BY bucket_x, bucket_y)::bigint
-            ELSE source_gid
+            WHEN grouped.raw_point_count > 1 AND $1::integer <= $5::integer
+                THEN {_CLUSTER_FEATURE_ID_OFFSET}::bigint + row_number() OVER (ORDER BY grouped.bucket_x, grouped.bucket_y)::bigint
+            ELSE grouped.source_gid
         END AS gid,
         CASE
-            WHEN raw_point_count > 1 AND $1::integer <= $5::integer
+            WHEN grouped.raw_point_count > 1 AND $1::integer <= $5::integer
                 THEN true
             ELSE NULL
         END AS cluster,
         CASE
-            WHEN raw_point_count > 1 AND $1::integer <= $5::integer
-                THEN raw_point_count
+            WHEN grouped.raw_point_count > 1 AND $1::integer <= $5::integer
+                THEN grouped.raw_point_count
             ELSE NULL
         END AS point_count,
         CASE
-            WHEN raw_point_count > 1 AND $1::integer <= $5::integer THEN
+            WHEN grouped.raw_point_count > 1 AND $1::integer <= $5::integer THEN
                 CASE
-                    WHEN raw_point_count >= 1000000 THEN floor(raw_point_count / 1000000)::text || 'M'
-                    WHEN raw_point_count >= 1000 THEN floor(raw_point_count / 1000)::text || 'k'
-                    ELSE raw_point_count::text
+                    WHEN grouped.raw_point_count >= 1000000 THEN floor(grouped.raw_point_count / 1000000)::text || 'M'
+                    WHEN grouped.raw_point_count >= 1000 THEN floor(grouped.raw_point_count / 1000)::text || 'k'
+                    ELSE grouped.raw_point_count::text
                 END
             ELSE NULL
         END AS point_count_abbreviated,
         CASE
-            WHEN raw_point_count > 1 AND $1::integer <= $5::integer
-                THEN md5($1::text || ':' || $2::text || ':' || $3::text || ':' || bucket_x::text || ':' || bucket_y::text)
+            WHEN grouped.raw_point_count > 1 AND $1::integer <= $5::integer
+                THEN md5($1::text || ':' || $2::text || ':' || $3::text || ':' || grouped.bucket_x::text || ':' || grouped.bucket_y::text)
             ELSE NULL
         END AS cluster_id,
         CASE
-            WHEN raw_point_count > 1 AND $1::integer <= $5::integer
+            WHEN grouped.raw_point_count > 1 AND $1::integer <= $5::integer
                 THEN LEAST($5::integer + 1, 22)
             ELSE NULL
         END AS expansion_zoom,
-        source_gid,
+        grouped.source_gid{unclustered_attr_select},
         ST_AsMVTGeom(
-            geom_3857,
+            grouped.geom_3857,
             bounds.geom::box2d,
             4096,
             256,
             true
         ) AS geom
-    FROM grouped, bounds
+    FROM grouped{unclustered_attr_join}, bounds
 )
 SELECT ST_AsMVT(features.*, $4::text, 4096, 'geom', 'gid')
 FROM features
@@ -452,7 +495,10 @@ async def get_cluster_tile(
     z: int,
     x: int,
     y: int,
+    columns: list[dict] | None = None,
     *,
+    tile_columns: list[str] | None = None,
+    additional_columns: list[str] | None = None,
     cluster_radius: int = 48,
     cluster_max_zoom: int = 14,
     conn: asyncpg.Connection | None = None,
@@ -468,6 +514,13 @@ async def get_cluster_tile(
         pool: asyncpg connection pool (used only when ``conn`` is None).
         table_name: PostGIS table name (without schema prefix).
         z, x, y: Tile coordinates.
+        columns: Column info list from the dataset. fix(#403): resolved
+            through ``_select_tile_columns`` (identical rules to ``get_tile``:
+            per-zoom defaults, ``tile_columns`` allowlist, ``cols=`` opt-in)
+            and projected onto UNCLUSTERED features so data-driven styling
+            and popups work past cluster max zoom.
+        tile_columns: Phase 269 H-23 allowlist override (None / [] / list).
+        additional_columns: Runtime opt-in columns (the ``cols=`` param).
         cluster_radius: Cluster radius in tile pixels.
         cluster_max_zoom: Maximum zoom level at which clustering is active.
         conn: Optional already-acquired asyncpg connection (see ``get_tile``
@@ -476,7 +529,15 @@ async def get_cluster_tile(
     """
     _validate_tile_table_name(table_name)
 
-    query = _build_cluster_tile_query(table_name, schema=schema)
+    attr_columns = _select_tile_columns(
+        columns or [],
+        z,
+        tile_columns=tile_columns,
+        additional_columns=additional_columns,
+    )
+    query = _build_cluster_tile_query(
+        table_name, schema=schema, attr_columns=attr_columns
+    )
     # Schema-qualified (single_tenant => "data.{table}"); see MVT-01 note above.
     layer_name = f"{schema}.{table_name}"
 
