@@ -339,8 +339,10 @@ class TestTileEndpoint:
             )
 
         assert resp.status_code == 200
+        # fix(#403): the cluster endpoint now supports the cols= opt-in, so
+        # its cache lookups carry a cols_key segment (empty without cols=).
         mock_cache.get.assert_awaited_once_with(
-            f"{table_name}:cluster:r64:z12", 0, 0, 0
+            f"{table_name}:cluster:r64:z12", 0, 0, 0, cols_key=""
         )
 
     async def test_empty_tile_returns_204(
