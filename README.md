@@ -24,9 +24,9 @@ curl -fsSL https://getgeolens.com/install.sh | sh
 ```
 
 <p align="center">
-  <img src=".github/assets/geolens-manhattan-3d-hero.jpg" alt="GeoLens map builder with Manhattan building footprints extruded into a 3D skyline, color-graded by roof height, the layer style editor open beside the map" width="900" />
+  <img src=".github/assets/geolens-manhattan-3d-hero.jpg" alt="GeoLens map builder with Manhattan building footprints extruded into a 3D skyline, colored by construction era, with the subway and the drag-orderable layer stack beside the map" width="900" />
   <br />
-  <em>The map builder: Manhattan's building footprints extruded to roof height and color-graded by a data-driven style, built from open data with <code>scripts/seed-showcase.py</code></em>
+  <em>The map builder: every Manhattan building extruded to its true roof height and colored by the era it was built, the subway threading beneath — built from open data with <code>scripts/seed-showcase.py</code></em>
 </p>
 
 > [!NOTE]
