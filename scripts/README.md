@@ -6,33 +6,38 @@ Utility scripts for GeoLens administration and data seeding.
 
 ### `seed-showcase.py`
 
-Builds the marketing showcase maps from public, openly licensed data against a running
-stack — the Manhattan skyline (3D extrusion), New York income choropleth, world airports
-(clustered), recent earthquakes, world countries/rivers, the Restless Earth composite
-story map (quakes + tectonic plate boundaries + major cities), a "Discover the World"
-collection, and — behind flags — the Matterhorn 3D-terrain and Sentinel-2 true-color
-heroes. The authoritative map list, data sources, and the API gotchas each builder
-encodes live in the script's module docstring.
+Builds the six showcase hero maps from public, openly licensed data against a
+running stack — Restless Earth (quakes + volcanic eruptions + plate boundaries
+over ETOPO global relief), Manhattan (3D skyline by construction era + the MTA
+subway), The Matterhorn (3D lidar terrain), Hurricane Alley (75 years of major
+Atlantic storms from HURDAT2), Everything That Fell From the Sky (clustered
+meteorite falls), and New York From Orbit (Sentinel-2 COGs by reference) —
+plus catalog-only AI-demo datasets, the "Restless Planet" / "Human World"
+collections, and a private embed-token demo. The authoritative map list, data
+sources, and the API gotchas each builder encodes live in the script's module
+docstring.
 
 ```bash
 pip install httpx
 
-# Build the default showcase set
+# Build the full showcase (terrain, Sentinel-2 and the ETOPO relief download
+# are all ON by default; use the --no-* flags to trim seed time)
 python scripts/seed-showcase.py \
   --username "${GEOLENS_ADMIN_USERNAME:-admin}" \
   --password "$GEOLENS_ADMIN_PASSWORD"
 
-# Also build the Matterhorn 3D-terrain hero (downloads ~62 swissALTI3D COG tiles)
+# Upgrade an instance seeded with the first-generation showcase: delete the
+# retired maps/datasets first, then build the new set
 python scripts/seed-showcase.py \
   --username "${GEOLENS_ADMIN_USERNAME:-admin}" \
   --password "$GEOLENS_ADMIN_PASSWORD" \
-  --with-terrain
+  --prune
 
-# Build just one map (restless additionally needs earthquakes + countries seeded first)
+# Build just one showcase item
 python scripts/seed-showcase.py \
   --username "${GEOLENS_ADMIN_USERNAME:-admin}" \
   --password "$GEOLENS_ADMIN_PASSWORD" \
-  --only income
+  --only hurricanes
 
 # Swap a fresh USGS 30-day feed into the earthquake datasets (in place), then exit.
 # Run every week or two so "last 30 days" stays honest on a long-lived instance.
@@ -47,16 +52,20 @@ python scripts/seed-showcase.py \
 | `--base-url` | `http://localhost:8080` (`$GEOLENS_BASE_URL`, fallback `$GEOLENS_URL`) | GeoLens base URL |
 | `--username` | `admin` (`$GEOLENS_ADMIN_USERNAME`) | Admin username |
 | `--password` | `$GEOLENS_ADMIN_PASSWORD` | Admin password |
-| `--with-terrain` | off | Also build the Matterhorn terrain hero |
-| `--with-sentinel2` | off | Also build the Sentinel-2 true-color hero |
-| `--only` | unset | Build one showcase (`manhattan`, `income`, `matterhorn`, `airports`, `earthquakes`, `countries`, `rivers`, `restless`, `sentinel2`, `collection`) |
+| `--no-terrain` | off | Skip the Matterhorn terrain hero (~62 swissALTI3D COG downloads) |
+| `--no-sentinel2` | off | Skip the Sentinel-2 by-reference map (needs Titiler→S3 egress at view time) |
+| `--no-oceans` | off | Skip the ETOPO relief layer (saves a ~466 MB server-side download) |
+| `--only` | unset | Build one item (`catalog`, `restless`, `manhattan`, `hurricanes`, `meteorites`, `matterhorn`, `sentinel2`, `collections`, `embed`) |
 | `--force` | off | Re-create showcase maps/datasets even if they already exist |
+| `--prune` | off | First delete the retired first-generation showcase maps/datasets |
 | `--refresh-quakes` | off | Refresh the earthquake datasets from the USGS feed, then exit |
 
-Requires internet access to the upstream open-data sources (NYC Open Data, USDA ERS,
-OurAirports, USGS, Natural Earth, OpenStreetMap, swisstopo, Element84 Earth Search).
-Maps are skipped if they already exist (`--force` recreates them); each forced run
-POSTs new maps/datasets rather than updating in place.
+Requires internet access to the upstream open-data sources (NYC Open Data, MTA
+via data.ny.gov, USDA ERS, USGS, NOAA NHC/NCEI, NASA, Natural Earth,
+OpenStreetMap, swisstopo, Element84 Earth Search). Maps are skipped if they
+already exist (`--force` recreates them); builders are isolated, so one
+unreachable upstream fails only its own map. Map thumbnails/OG images are a
+separate post-step (headless browser capture + `PUT /maps/{id}/thumbnail/`).
 
 ## Shell scripts
 

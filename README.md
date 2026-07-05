@@ -265,14 +265,19 @@ See the [CLI guide](https://docs.getgeolens.com/guides/cli/) for the full manife
 
 ### Seed data
 
-`scripts/seed-showcase.py` builds three demo maps from public open data: a Manhattan 3D skyline (the hero above), a New York income choropleth, and an optional Matterhorn 3D-terrain hero:
+`scripts/seed-showcase.py` builds six showcase maps from public open data — a global
+tectonics story over real ocean-floor relief, the Manhattan 3D skyline colored by
+construction era (the hero above), 75 years of Atlantic hurricane tracks, clustered
+meteorite falls, the Matterhorn in 2 m lidar 3D terrain, and by-reference Sentinel-2
+imagery of New York:
 
 ```bash
 pip install httpx
-python scripts/seed-showcase.py --username admin --password "$(grep '^GEOLENS_ADMIN_PASSWORD=' .env | cut -d= -f2-)" [--with-terrain] [--only manhattan|income|matterhorn]
+python scripts/seed-showcase.py --username admin --password "$(grep '^GEOLENS_ADMIN_PASSWORD=' .env | cut -d= -f2-)"
 ```
 
-Requires internet access to the upstream open-data sources.
+Requires internet access to the upstream open-data sources. See
+[`scripts/README.md`](scripts/README.md) for flags (`--no-terrain`, `--prune`, …).
 
 ## Architecture
 
