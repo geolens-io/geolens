@@ -127,21 +127,29 @@ class TestInf14NginxMime:
 
 class TestInf15PythonPinReconciliation:
     def test_dockerfile_pins_python_consistently(self):
-        """INF-15: both stages pin the same concrete python:x.y.z-slim base.
+        """INF-15: backend-builder and backend-base pin the same concrete
+        python:x.y.z-slim base.
 
-        Asserts the invariant (a concrete patch pin, identical across the builder
-        and runtime stages) rather than a hard-coded literal. Dependabot bumps the
+        Asserts the invariant (a concrete patch pin, identical across both named
+        backend stages) rather than a hard-coded literal. Dependabot bumps the
         patch; the stale `python:3.14.3-slim` literal this test used to assert is
         exactly the drift fix(#423) removed from the Dockerfile prose.
         """
         text = DOCKERFILE.read_text()
-        pins = re.findall(r"^FROM\s+(python:\d+\.\d+\.\d+-slim)\b", text, re.M)
-        assert pins, (
-            "Dockerfile must pin a concrete python:x.y.z-slim base in its FROM lines"
+        # Base image keyed by backend stage alias, e.g. "python:3.14.6-slim".
+        bases = dict(
+            (alias, base)
+            for base, alias in re.findall(
+                r"^FROM\s+(\S+)\s+AS\s+(backend-builder|backend-base)\s*$", text, re.M
+            )
         )
-        assert len(set(pins)) == 1, (
-            f"backend-builder and backend-base must pin the same python base; "
-            f"got {sorted(set(pins))}"
+        for alias in ("backend-builder", "backend-base"):
+            assert re.fullmatch(r"python:\d+\.\d+\.\d+-slim", bases.get(alias, "")), (
+                f"{alias} stage must pin a concrete python:x.y.z-slim base, "
+                f"got {bases.get(alias)!r}"
+            )
+        assert bases["backend-builder"] == bases["backend-base"], (
+            f"backend-builder and backend-base must pin the same python base; got {bases}"
         )
 
     def test_pyproject_requires_python_at_least_3_13(self):
