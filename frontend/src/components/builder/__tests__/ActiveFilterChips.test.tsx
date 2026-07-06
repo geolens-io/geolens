@@ -1,17 +1,22 @@
 /**
- * MAP-20 — ActiveFilterChips regression tests
+ * ActiveFilterChips — collapsible summary pill
+ *
+ * The active-filter chips collapse to a "Filters (N)" pill by default so they no
+ * longer render over the top-left NavigationControl / MapCoordReadout (the
+ * reported overlap). Expanding reveals the removable chip list + Clear all.
  *
  * Verifies:
- * 1. The chip container has max-h-[40vh] + overflow-y-auto so at ≤800px (600px
- *    viewport height) the filter column cannot grow past 240px and collide with
- *    the bottom-left MeasurementPlugin.
- * 2. Zero chips renders null (return null preserved).
- * 3. One chip renders the label and layer name.
- * 4. Clicking X calls onClearFilter with the correct layer id.
- * 5. Source-text negative-control: max-h-[40vh] + overflow-y-auto appear in the
- *    source file (guards against future "CSS cleanup" PRs removing either class).
+ * 1. Collapsed by default — pill + count show, filter detail is hidden.
+ * 2. Expanding reveals the chip label + layer name.
+ * 3. Layout: outer wrapper pointer-events-none + ml-12 (clears the zoom
+ *    control); inner scroll container pointer-events-auto + max-h-[40vh] +
+ *    overflow-y-auto (WR-01).
+ * 4. Zero chips renders null.
+ * 5. Per-chip X and Clear all call onClearFilter correctly.
+ * 6. The filter summarizer (FILT-01 / FILT-02) is unchanged.
+ * 7. Source-text negative-control keeps the max-h-[40vh] + overflow-y-auto cap.
  *
- * Uses Vite ?raw import for source-text test — same pattern as
+ * Uses Vite ?raw import for the source-text test — same pattern as
  * preserve-drawing-buffer.test.ts (no node:fs / @types/node dependency).
  */
 
@@ -65,23 +70,49 @@ function makeLayer(overrides: Partial<MapLayerResponse> = {}): MapLayerResponse 
 
 const HIGHWAY_FILTER: FilterSpecification = ['==', ['get', 'class'], 'highway'];
 
+/** Click the summary pill to reveal the chip list. */
+function expandFilters() {
+  fireEvent.click(
+    screen.getByRole('button', { name: /show or hide active filters/i }),
+  );
+}
+
 // ===========================================================================
-// Tests
+// Collapsible pill behaviour
 // ===========================================================================
 
-describe('ActiveFilterChips — MAP-20 layout constraints', () => {
-  it('MAP-20: outer wrapper has pointer-events-none; inner scroll container has max-h-[40vh] + overflow-y-auto + pointer-events-auto (WR-01 fix)', () => {
+describe('ActiveFilterChips — collapsible summary pill', () => {
+  it('collapses by default: shows the pill + count, hides the filter detail', () => {
+    const layer = makeLayer({ filter: HIGHWAY_FILTER });
+    render(<ActiveFilterChips layers={[layer]} onClearFilter={vi.fn()} />);
+
+    expect(
+      screen.getByRole('button', { name: /show or hide active filters/i }),
+    ).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.getByText('1')).toBeInTheDocument();
+    // Filter detail is not rendered until expanded.
+    expect(screen.queryByText('class == "highway"')).not.toBeInTheDocument();
+  });
+
+  it('expands to reveal the chip label and layer name', () => {
+    const layer = makeLayer({ dataset_name: 'Roads', filter: HIGHWAY_FILTER });
+    render(<ActiveFilterChips layers={[layer]} onClearFilter={vi.fn()} />);
+
+    expandFilters();
+    expect(screen.getByText('class == "highway"')).toBeInTheDocument();
+    expect(screen.getByText(/roads/i)).toBeInTheDocument();
+  });
+
+  it('layout: outer pointer-events-none + ml-12 (clears zoom control); inner has the scroll cap (WR-01)', () => {
     const layer = makeLayer({ filter: HIGHWAY_FILTER });
     const { container } = render(
       <ActiveFilterChips layers={[layer]} onClearFilter={vi.fn()} />,
     );
 
-    // WR-01 structure: outer passthrough wrapper (pointer-events-none) wraps an inner
-    // scroll container (pointer-events-auto + overflow classes) so wheel/touch-scroll
-    // events reach the inner div while map drag events pass through outer gaps.
     const outerWrapper = container.firstChild as HTMLElement;
     expect(outerWrapper).toHaveClass('pointer-events-none');
-    // outer wrapper should NOT carry the scroll classes — those live on the inner div
+    // ml-12 offsets the pill clear of the top-left NavigationControl.
+    expect(outerWrapper).toHaveClass('ml-12');
     expect(outerWrapper).not.toHaveClass('max-h-[40vh]');
     expect(outerWrapper).not.toHaveClass('overflow-y-auto');
 
@@ -91,56 +122,78 @@ describe('ActiveFilterChips — MAP-20 layout constraints', () => {
     expect(innerScroll).toHaveClass('overflow-y-auto');
   });
 
-  it('zero chips renders null (preserves current behavior)', () => {
+  it('zero chips renders null', () => {
     const { container } = render(
       <ActiveFilterChips layers={[]} onClearFilter={vi.fn()} />,
     );
-    // return null → container is empty
     expect(container.firstChild).toBeNull();
   });
 
-  it('1 chip renders the chip label and the layer name', () => {
-    const layer = makeLayer({ dataset_name: 'Roads', filter: HIGHWAY_FILTER });
-    render(<ActiveFilterChips layers={[layer]} onClearFilter={vi.fn()} />);
-
-    // Filter label: '== "highway"' → summarized as 'class == "highway"'
-    expect(screen.getByText('class == "highway"')).toBeInTheDocument();
-    // Layer name rendered uppercase via font-mono tracking-wider class
-    expect(screen.getByText(/roads/i)).toBeInTheDocument();
-  });
-
-  it('chip X button calls onClearFilter with the layer id', () => {
+  it('chip X calls onClearFilter with the layer id (after expand)', () => {
     const onClearFilter = vi.fn();
     const layer = makeLayer({ id: 'layer-abc', filter: HIGHWAY_FILTER });
     render(<ActiveFilterChips layers={[layer]} onClearFilter={onClearFilter} />);
 
-    const clearBtn = screen.getByRole('button', { name: /clear filter/i });
-    fireEvent.click(clearBtn);
+    expandFilters();
+    fireEvent.click(screen.getByRole('button', { name: /clear filter/i }));
     expect(onClearFilter).toHaveBeenCalledTimes(1);
     expect(onClearFilter).toHaveBeenCalledWith('layer-abc');
   });
 
-  it('MAP-20 negative control — max-h-[40vh] and overflow-y-auto appear in source (CSS-cleanup guard)', () => {
-    // If a future PR removes one of these classes from ActiveFilterChips.tsx,
-    // this test fails — preventing silent regression of the collision avoidance.
+  it('Clear all clears every active filter (shown only for 2+)', () => {
+    const onClearFilter = vi.fn();
+    const layers = [
+      makeLayer({ id: 'a', dataset_name: 'Roads', filter: HIGHWAY_FILTER }),
+      makeLayer({
+        id: 'b',
+        dataset_name: 'Rails',
+        filter: ['==', ['get', 'kind'], 'rail'] as FilterSpecification,
+      }),
+    ];
+    render(<ActiveFilterChips layers={layers} onClearFilter={onClearFilter} />);
+
+    expandFilters();
+    fireEvent.click(screen.getByRole('button', { name: /clear all/i }));
+    expect(onClearFilter).toHaveBeenCalledTimes(2);
+    expect(onClearFilter).toHaveBeenCalledWith('a');
+    expect(onClearFilter).toHaveBeenCalledWith('b');
+  });
+
+  it('Clear all is not shown for a single filter', () => {
+    const layer = makeLayer({ filter: HIGHWAY_FILTER });
+    render(<ActiveFilterChips layers={[layer]} onClearFilter={vi.fn()} />);
+
+    expandFilters();
+    expect(
+      screen.queryByRole('button', { name: /clear all/i }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('negative control — max-h-[40vh] and overflow-y-auto remain in source (scroll-cap guard)', () => {
     expect(activeFilterChipsSrc).toContain('max-h-[40vh]');
     expect(activeFilterChipsSrc).toContain('overflow-y-auto');
   });
 });
 
 // ===========================================================================
-// builder-audit #338 FILT-01 / FILT-02 — chip summarizer / canonical-parser fixes
+// builder-audit #338 FILT-01 / FILT-02 — chip summarizer / canonical-parser
 // ===========================================================================
 
 describe('ActiveFilterChips — filter summary (FILT-01 / FILT-02)', () => {
+  function renderExpanded(layer: MapLayerResponse) {
+    const utils = render(
+      <ActiveFilterChips layers={[layer]} onClearFilter={vi.fn()} />,
+    );
+    expandFilters();
+    return utils;
+  }
+
   // FILT-01: every numeric-column comparison the editor builds is wrapped in the
   // nullable-safe ["to-number", ["get", f], fallback] accessor. The chip
   // summarizer previously could not unwrap that and dropped the chip entirely.
   it('FILT-01: renders a chip for a to-number-wrapped numeric comparison (bare)', () => {
     const filter = ['>', ['to-number', ['get', 'population'], -1_000_000_000_000], 5000] as FilterSpecification;
-    const layer = makeLayer({ filter });
-    render(<ActiveFilterChips layers={[layer]} onClearFilter={vi.fn()} />);
-    // Numeric RHS rendered without quotes; field unwrapped from the to-number node.
+    renderExpanded(makeLayer({ filter }));
     expect(screen.getByText('population > 5000')).toBeInTheDocument();
   });
 
@@ -149,32 +202,29 @@ describe('ActiveFilterChips — filter summary (FILT-01 / FILT-02)', () => {
       'all',
       ['<=', ['to-number', ['get', 'pop'], 1_000_000_000_000], 100],
     ] as FilterSpecification;
-    const layer = makeLayer({ filter });
-    render(<ActiveFilterChips layers={[layer]} onClearFilter={vi.fn()} />);
+    renderExpanded(makeLayer({ filter }));
     expect(screen.getByText('pop <= 100')).toBeInTheDocument();
   });
 
   // FILT-02: ["in", value, ["get", f]] is a substring/contains filter. It must be
-  // labelled `<field> contains "<value>"`, NOT `<value> in (…)` (the prior dead
-  // branch produced the wrong label because the literal-list branch ran first).
+  // labelled `<field> contains "<value>"`, NOT `<value> in (…)`.
   it('FILT-02: labels a substring/contains filter as `<field> contains "<value>"`', () => {
     const filter = ['in', 'Main', ['get', 'name']] as unknown as FilterSpecification;
-    const layer = makeLayer({ filter });
-    render(<ActiveFilterChips layers={[layer]} onClearFilter={vi.fn()} />);
+    renderExpanded(makeLayer({ filter }));
     expect(screen.getByText('name contains "Main"')).toBeInTheDocument();
   });
 
   it('renders an in_list chip with a value preview', () => {
     const filter = ['in', ['get', 'kind'], ['literal', ['a', 'b', 'c']]] as unknown as FilterSpecification;
-    const layer = makeLayer({ filter });
-    render(<ActiveFilterChips layers={[layer]} onClearFilter={vi.fn()} />);
+    renderExpanded(makeLayer({ filter }));
     expect(screen.getByText('kind in (a, b, …)')).toBeInTheDocument();
   });
 
-  it('renders no chip for an opaque/advanced filter', () => {
+  it('renders no chip (pill absent) for an opaque/advanced filter', () => {
     const filter = ['case', ['==', ['get', 'x'], 1], true, false] as unknown as FilterSpecification;
-    const layer = makeLayer({ filter });
-    const { container } = render(<ActiveFilterChips layers={[layer]} onClearFilter={vi.fn()} />);
+    const { container } = render(
+      <ActiveFilterChips layers={[makeLayer({ filter })]} onClearFilter={vi.fn()} />,
+    );
     expect(container.firstChild).toBeNull();
   });
 });

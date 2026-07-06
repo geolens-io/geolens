@@ -22,7 +22,7 @@ from app.core.identity import Identity
 from app.platform.sandbox import SandboxError
 from app.processing.ai.chat_constants import _EDIT_TOOLS, ERROR_MESSAGES
 from app.processing.ai.chat_geojson import _extract_geojson
-from app.processing.ai.colors import is_css_colorish
+from app.processing.ai.colors import is_css_colorish, label_halo_color
 from app.processing.ai.chat_styles import _build_data_driven_style
 from app.processing.ai.schemas import (
     ChatMapLayer,
@@ -54,17 +54,19 @@ def _build_label_action(tool_input: dict) -> dict:
     """Restructure set_label tool output into the ChatAction label_config shape."""
     column = tool_input.get("column")
     if column:
+        # fix(#394) CH-02: sanitized — see _safe_label_text_color.
+        text_color = _safe_label_text_color(
+            tool_input.get("text_color", _DEFAULT_LABEL_TEXT_COLOR)
+        )
         return {
             "type": "set_label",
             "layer_id": tool_input.get("layer_id"),
             "label_config": {
                 "column": column,
                 "fontSize": tool_input.get("font_size", 12),
-                # fix(#394) CH-02: sanitized — see _safe_label_text_color.
-                "textColor": _safe_label_text_color(
-                    tool_input.get("text_color", _DEFAULT_LABEL_TEXT_COLOR)
-                ),
-                "haloColor": "#ffffff",
+                "textColor": text_color,
+                # Halo contrasts the text so the label reads on any basemap.
+                "haloColor": label_halo_color(text_color),
                 "haloWidth": 1.5,
             },
         }

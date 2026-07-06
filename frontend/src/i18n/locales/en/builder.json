@@ -342,6 +342,8 @@
   "filters": {
     "title": "Filters",
     "layerTitle": "Layer filter",
+    "clearAll": "Clear all",
+    "toggle": "Show or hide active filters",
     "clear": "Clear filter",
     "combinator": "Match condition",
     "thisLayer": "this layer",

@@ -342,6 +342,8 @@
   "filters": {
     "title": "Filtres",
     "layerTitle": "Filtre de couche",
+    "clearAll": "Tout effacer",
+    "toggle": "Afficher ou masquer les filtres actifs",
     "thisLayer": "cette couche",
     "scopeHelp": "S'applique uniquement à {{layer}}. Les couches dupliquées du même jeu de données conservent des filtres séparés et la sortie publique suit le filtre de couche enregistré.",
     "noColumns": "Cette couche n'a pas de colonnes filtrables.",
