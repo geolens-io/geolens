@@ -1711,6 +1711,10 @@ describe('useBuilderSave', () => {
 describe('SHARE-09 export PNG composition', () => {
   let fillTextSpy: ReturnType<typeof vi.fn>;
   let fillRectSpy: ReturnType<typeof vi.fn>;
+  let strokeStyleAtStroke: string[];
+  let createGradientSpy: ReturnType<typeof vi.fn>;
+  let addColorStopSpy: ReturnType<typeof vi.fn>;
+  let toBlobSpy: ReturnType<typeof vi.fn>;
   let createElementSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
@@ -1720,16 +1724,25 @@ describe('SHARE-09 export PNG composition', () => {
 
     fillTextSpy = vi.fn();
     fillRectSpy = vi.fn();
+    strokeStyleAtStroke = [];
+    // Mimic the browser: CanvasGradient.addColorStop throws on an unparseable color.
+    addColorStopSpy = vi.fn((_offset: number, color: unknown) => {
+      if (typeof color !== 'string' || color === '') throw new SyntaxError('unparseable color');
+    });
+    createGradientSpy = vi.fn(() => ({ addColorStop: addColorStopSpy }));
+    toBlobSpy = vi.fn((cb: (b: Blob | null) => void) => cb(new Blob(['png'], { type: 'image/png' })));
 
     const ctx2d = {
-      fillStyle: '',
+      fillStyle: '' as string | CanvasGradient,
       strokeStyle: '',
       font: '',
       textBaseline: '',
       lineWidth: 1,
       fillText: fillTextSpy,
       fillRect: fillRectSpy,
-      strokeRect: vi.fn(),
+      // Record the border color used for each swatch (stroke-color border).
+      strokeRect: vi.fn(() => { strokeStyleAtStroke.push(ctx2d.strokeStyle); }),
+      createLinearGradient: createGradientSpy,
       drawImage: vi.fn(),
       measureText: vi.fn(() => ({ width: 120 })),
     };
@@ -1738,7 +1751,7 @@ describe('SHARE-09 export PNG composition', () => {
       width: 800,
       height: 600,
       getContext: vi.fn(() => ctx2d),
-      toBlob: vi.fn((cb: (b: Blob | null) => void) => cb(new Blob(['png'], { type: 'image/png' }))),
+      toBlob: toBlobSpy,
     };
 
     const origCreateElement = document.createElement.bind(document);
@@ -1815,6 +1828,119 @@ describe('SHARE-09 export PNG composition', () => {
     expect(calls.some((text) => text === 'Streets')).toBe(true);
     // Color swatch fill rect for the qualifying layer
     expect(fillRectSpy).toHaveBeenCalled();
+  });
+
+  it('swatch border uses the layer stroke color for hollow-circle styles', () => {
+    const mockMap = makeExportMap();
+    // Light fill + colored stroke (hollow circle). The old export drew the near-white
+    // fill with a faint 0.15 border, so the swatch was effectively invisible.
+    const hollow = makeLayer({
+      id: 'layer-eruptions',
+      display_name: 'Eruptions',
+      dataset_geometry_type: 'MULTIPOINT',
+      paint: { 'circle-color': '#fff7ed', 'circle-stroke-color': '#ea580c' },
+      visible: true,
+      show_in_legend: true,
+    });
+    const state = makeSaveState({
+      localName: '',
+      localDescription: '',
+      localLayers: [hollow],
+      mapInstanceRef: { current: mockMap } as unknown as SaveState['mapInstanceRef'],
+    });
+    const { result } = renderHook(() => useBuilderSave(state));
+
+    act(() => { result.current.handleExportPNG(); });
+    act(() => { fireRenderCallback(mockMap); });
+
+    // The swatch border is the visible stroke color, not the transparent fallback.
+    expect(strokeStyleAtStroke).toContain('#ea580c');
+  });
+
+  it('does not draw the stroke-color border when the stroke is disabled', () => {
+    const mockMap = makeExportMap();
+    // Stroke turned off in the builder leaves a stale circle-stroke-color in paint;
+    // the export must not reintroduce it as a border (mirrors the map, which hides it).
+    const disabled = makeLayer({
+      id: 'layer-eruptions-off',
+      display_name: 'Eruptions (no ring)',
+      dataset_geometry_type: 'MULTIPOINT',
+      paint: { 'circle-color': '#fff7ed', 'circle-stroke-color': '#ea580c', 'circle-stroke-width': 0 },
+      style_config: { builder: { strokeDisabled: true } } as MapLayerResponse['style_config'],
+      visible: true,
+      show_in_legend: true,
+    });
+    const state = makeSaveState({
+      localName: '',
+      localDescription: '',
+      localLayers: [disabled],
+      mapInstanceRef: { current: mockMap } as unknown as SaveState['mapInstanceRef'],
+    });
+    const { result } = renderHook(() => useBuilderSave(state));
+
+    act(() => { result.current.handleExportPNG(); });
+    act(() => { fireRenderCallback(mockMap); });
+
+    expect(strokeStyleAtStroke).not.toContain('#ea580c');
+    expect(strokeStyleAtStroke).toContain('rgba(0,0,0,0.35)');
+  });
+
+  it('draws a gradient swatch for a multi-stop ramp layer', () => {
+    const mockMap = makeExportMap();
+    // Empty paint + style_config.colors makes getLayerColors return the ramp array.
+    const graduated = makeLayer({
+      id: 'layer-graduated',
+      display_name: 'Graduated',
+      paint: {},
+      style_config: { colors: ['#111111', '#999999'] } as MapLayerResponse['style_config'],
+      visible: true,
+      show_in_legend: true,
+    });
+    const state = makeSaveState({
+      localName: '',
+      localDescription: '',
+      localLayers: [graduated],
+      mapInstanceRef: { current: mockMap } as unknown as SaveState['mapInstanceRef'],
+    });
+    const { result } = renderHook(() => useBuilderSave(state));
+
+    act(() => { result.current.handleExportPNG(); });
+    act(() => { fireRenderCallback(mockMap); });
+
+    expect(createGradientSpy).toHaveBeenCalled();
+    const stops = addColorStopSpy.mock.calls.map((c: unknown[]) => c[1]);
+    expect(stops).toEqual(['#111111', '#999999']);
+  });
+
+  it('an unparseable ramp color falls back to solid instead of aborting the export', () => {
+    const mockMap = makeExportMap();
+    // The empty-string second stop makes the mocked addColorStop throw (as the browser
+    // would). The export must still complete rather than failing entirely.
+    const badRamp = makeLayer({
+      id: 'layer-bad-ramp',
+      display_name: 'Bad ramp',
+      paint: {},
+      style_config: { colors: ['#111111', ''] } as MapLayerResponse['style_config'],
+      visible: true,
+      show_in_legend: true,
+    });
+    const state = makeSaveState({
+      localName: '',
+      localDescription: '',
+      localLayers: [badRamp],
+      mapInstanceRef: { current: mockMap } as unknown as SaveState['mapInstanceRef'],
+    });
+    const { result } = renderHook(() => useBuilderSave(state));
+
+    act(() => { result.current.handleExportPNG(); });
+    act(() => { fireRenderCallback(mockMap); });
+
+    // Gradient was attempted (and threw) ...
+    expect(createGradientSpy).toHaveBeenCalled();
+    // ... but the export ran to completion: the footer drew and the canvas serialized.
+    const texts = fillTextSpy.mock.calls.map((c: unknown[]) => String(c[0]));
+    expect(texts.some((t) => /poweredBy|Powered by GeoLens/.test(t))).toBe(true);
+    expect(toBlobSpy).toHaveBeenCalled();
   });
 
   it('renders Powered by GeoLens footer when isEnterprise is false', () => {
