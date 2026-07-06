@@ -140,15 +140,15 @@ Each example above has a full guide in the [docs](https://docs.getgeolens.com/gu
 ## Screenshots
 
 <p align="center">
-  <img src=".github/assets/geolens-search.png" alt="GeoLens catalog search for 'hydrology' returning ranked hydrology datasets (subwatersheds, lakes, and river networks) with type and spatial filters" width="900" />
+  <img src=".github/assets/geolens-search.png" alt="GeoLens catalog search for 'natural disasters' semantically ranking a recent-earthquakes dataset and a significant-volcanic-eruptions dataset, with type, location, and temporal filters" width="900" />
   <br />
-  <em><strong>Find:</strong> search by meaning. A query for "hydrology" ranks subwatersheds, lakes, and river networks, with type, spatial, and temporal filters</em>
+  <em><strong>Find:</strong> search by meaning. A query for "natural disasters" surfaces earthquakes and volcanic eruptions with no keyword match, alongside type, location, and temporal filters</em>
 </p>
 
 <p align="center">
-  <img src=".github/assets/geolens-dataset.png" alt="GeoLens dataset detail for Natural Earth river centerlines: a global map preview above a typed attribute table with per-column filters" width="900" />
+  <img src=".github/assets/geolens-dataset.png" alt="GeoLens dataset detail for Meteorite Landings: a global map preview of 32,186 recovery points above schema stats and typed metadata" width="900" />
   <br />
-  <em><strong>Inspect:</strong> every dataset gets a map preview, schema stats, and a typed, filterable attribute table (here: 1,473 river centerlines, 38 columns)</em>
+  <em><strong>Inspect:</strong> every dataset gets a map preview, schema stats, and typed metadata — here, 32,186 meteorite landings across the globe</em>
 </p>
 
 <p align="center">
@@ -158,9 +158,9 @@ Each example above has a full guide in the [docs](https://docs.getgeolens.com/gu
 </p>
 
 <p align="center">
-  <img src=".github/assets/geolens-ai-labels.png" alt="GeoLens Ask AI panel adding county-name labels to a New York median-income choropleth from the natural-language request 'Add area labels'" width="900" />
+  <img src=".github/assets/geolens-ai-labels.png" alt="GeoLens Ask AI panel adding volcano-name labels to the Restless Earth map from the natural-language request 'Label the volcanoes with their names'" width="900" />
   <br />
-  <em><strong>Ask AI:</strong> edit maps in natural language. "Add area labels" puts county names on a New York income choropleth (optional: bring an OpenAI-compatible endpoint or Anthropic key)</em>
+  <em><strong>Ask AI:</strong> edit maps in natural language. "Label the volcanoes with their names" adds readable labels to the Restless Earth map (optional: bring an OpenAI-compatible endpoint or Anthropic key)</em>
 </p>
 
 ## Quick start
