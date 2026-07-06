@@ -342,6 +342,8 @@
   "filters": {
     "title": "Filter",
     "layerTitle": "Layer-Filter",
+    "clearAll": "Alle löschen",
+    "toggle": "Aktive Filter ein- oder ausblenden",
     "thisLayer": "dieser Layer",
     "scopeHelp": "Gilt nur für {{layer}}. Duplizierte Layer desselben Datasets behalten eigene Filter und die öffentliche Ausgabe folgt dem gespeicherten Layer-Filter.",
     "noColumns": "Dieser Layer hat keine filterbaren Spalten.",

@@ -342,6 +342,8 @@
   "filters": {
     "title": "Filtros",
     "layerTitle": "Filtro de capa",
+    "clearAll": "Borrar todo",
+    "toggle": "Mostrar u ocultar filtros activos",
     "thisLayer": "esta capa",
     "scopeHelp": "Se aplica solo a {{layer}}. Las capas duplicadas del mismo dataset conservan filtros separados y la salida pública sigue el filtro de capa guardado.",
     "noColumns": "Esta capa no tiene columnas filtrables.",

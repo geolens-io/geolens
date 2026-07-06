@@ -1,6 +1,6 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { X } from 'lucide-react';
+import { Filter, X } from 'lucide-react';
 import type { FilterSpecification } from 'maplibre-gl';
 import type { MapLayerResponse } from '@/types/api';
 import {
@@ -80,6 +80,7 @@ function formatValue(val: unknown): string {
  */
 export function ActiveFilterChips({ layers, onClearFilter }: ActiveFilterChipsProps) {
   const { t } = useTranslation('builder');
+  const [open, setOpen] = useState(false);
 
   const chips = useMemo<FilterChip[]>(() => {
     const result: FilterChip[] = [];
@@ -99,35 +100,63 @@ export function ActiveFilterChips({ layers, onClearFilter }: ActiveFilterChipsPr
   if (chips.length === 0) return null;
 
   return (
-    // MAP-20: chips render in PluginHost's top-left anchor (below any top-left
-    // plugin, e.g. MeasurementPlugin) and grow downward. max-h-[40vh] +
-    // overflow-y-auto caps the column so it does not extend down the left edge
-    // into the bottom-left LegendPlugin at ≤800px. See UI-SPEC §Filter-Pill vs
-    // floating-plugin Collision Avoidance.
-    // WR-01: outer wrapper keeps pointer-events-none for map drag passthrough; inner scroll
-    // container restores pointer-events-auto so wheel/touch-scroll events reach the element
-    // when the chip list overflows (the case where the cap is actually needed).
-    <div className="pointer-events-none">
-      <div className="pointer-events-auto flex flex-wrap gap-1.5 max-h-[40vh] overflow-y-auto">
-        {chips.map((chip) => (
-          <span
-            key={chip.layerId}
-            className="inline-flex items-center gap-1.5 bg-background/90 backdrop-blur-sm border rounded-full px-2.5 py-1 shadow-sm text-xs"
-            title={`${chip.layerName}: ${chip.label}`}
-          >
-            <span className="font-mono text-2xs uppercase tracking-wider text-muted-foreground">
-              {chip.layerName}
-            </span>
-            <span className="text-foreground">{chip.label}</span>
-            <button
-              onClick={() => onClearFilter(chip.layerId)}
-              className="flex cursor-pointer items-center justify-center h-3.5 w-3.5 rounded-full bg-muted hover:bg-destructive/20 hover:text-destructive text-muted-foreground transition-colors"
-              aria-label={t('filters.clear', { defaultValue: 'Clear filter' })}
-            >
-              <X className="h-2.5 w-2.5" />
-            </button>
+    // The chips share PluginHost's top-left anchor with the MapLibre
+    // NavigationControl (index.css pins it at margin-top 32px / left 10px,
+    // ~29px wide) and the MapCoordReadout pill. Collapsing to a summary pill +
+    // `ml-12` (clears the zoom control) keeps both usable — the old always-open
+    // chip stack rendered straight over them. max-h-[40vh] + overflow-y-auto
+    // caps the expanded column so it cannot run down into the bottom-left
+    // LegendPlugin. WR-01: outer wrapper stays pointer-events-none for map-drag
+    // passthrough; the inner column restores pointer-events-auto for scroll.
+    <div className="pointer-events-none ml-12">
+      <div className="pointer-events-auto flex max-h-[40vh] flex-col items-start gap-1.5 overflow-y-auto">
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          aria-expanded={open}
+          aria-label={t('filters.toggle', { defaultValue: 'Show or hide active filters' })}
+          className="inline-flex items-center gap-1.5 rounded-full border bg-background/90 px-2.5 py-1 text-xs shadow-sm backdrop-blur-sm transition-colors hover:bg-accent"
+        >
+          <Filter className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />
+          <span className="font-medium text-foreground">
+            {t('filters.title', { defaultValue: 'Filters' })}
           </span>
-        ))}
+          <span className="flex min-w-4 items-center justify-center rounded-full bg-primary/15 px-1 font-mono text-2xs font-semibold text-primary">
+            {chips.length}
+          </span>
+        </button>
+
+        {open &&
+          chips.map((chip) => (
+            <span
+              key={chip.layerId}
+              className="inline-flex items-center gap-1.5 rounded-full border bg-background/90 px-2.5 py-1 text-xs shadow-sm backdrop-blur-sm"
+              title={`${chip.layerName}: ${chip.label}`}
+            >
+              <span className="font-mono text-2xs uppercase tracking-wider text-muted-foreground">
+                {chip.layerName}
+              </span>
+              <span className="text-foreground">{chip.label}</span>
+              <button
+                type="button"
+                onClick={() => onClearFilter(chip.layerId)}
+                className="flex h-3.5 w-3.5 cursor-pointer items-center justify-center rounded-full bg-muted text-muted-foreground transition-colors hover:bg-destructive/20 hover:text-destructive"
+                aria-label={t('filters.clear', { defaultValue: 'Clear filter' })}
+              >
+                <X className="h-2.5 w-2.5" />
+              </button>
+            </span>
+          ))}
+
+        {open && chips.length > 1 && (
+          <button
+            type="button"
+            onClick={() => chips.forEach((chip) => onClearFilter(chip.layerId))}
+            className="rounded-full border bg-background/90 px-2.5 py-1 text-2xs font-medium uppercase tracking-wider text-muted-foreground shadow-sm backdrop-blur-sm transition-colors hover:text-destructive"
+          >
+            {t('filters.clearAll', { defaultValue: 'Clear all' })}
+          </button>
+        )}
       </div>
     </div>
   );
