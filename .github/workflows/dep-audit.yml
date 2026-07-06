@@ -87,7 +87,9 @@ jobs:
         # `enforce: "1"` fails the job on a fixable CRITICAL CVE; `enforce: "0"`
         # is report-only. The slim/alpine images we pin (node/python/nginx) are
         # controllable — a CRITICAL there is actionable (bump the tag), so they
-        # ENFORCE. postgis/postgis:17-3.5 is an uncontrollable third-party fat
+        # ENFORCE — keep these three pins matched to the Dockerfile `FROM` tags
+        # they mirror (bump together). postgis/postgis:17-3.5 is an
+        # uncontrollable third-party fat
         # Debian-11 image whose CRITICAL set is dominated by CVEs in baked-in Go
         # binaries that only the upstream maintainer can rebuild — and that set
         # shifts with every Trivy DB update. Gating on it would make CI red on
@@ -97,7 +99,7 @@ jobs:
         include:
           - image: "node:26.3.0-alpine"
             enforce: "1"
-          - image: "python:3.14.5-slim"
+          - image: "python:3.14.6-slim"
             enforce: "1"
           - image: "nginxinc/nginx-unprivileged:1.31.1-alpine"
             enforce: "1"
