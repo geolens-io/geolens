@@ -747,13 +747,20 @@ export function useBuilderSave(state: SaveState) {
                 layer.paint?.['circle-stroke-width'] === 0 ||
                 layer.paint?.['_outline-width'] === 0;
               const rowY = cursorY + (legendRowH - swatchSize) / 2;
+              const solidFill = colors.find((c) => !!c) || '#6366f1';
+              let filled = false;
               if (colors.length > 1) {
-                const grad = ctx.createLinearGradient(pad, 0, pad + swatchSize, 0);
-                colors.forEach((c, i) => grad.addColorStop(i / (colors.length - 1), c));
-                ctx.fillStyle = grad;
-              } else {
-                ctx.fillStyle = colors[0] || '#6366f1';
+                try {
+                  const grad = ctx.createLinearGradient(pad, 0, pad + swatchSize, 0);
+                  colors.forEach((c, i) => grad.addColorStop(i / (colors.length - 1), c));
+                  ctx.fillStyle = grad;
+                  filled = true;
+                } catch {
+                  // An unparseable ramp color makes addColorStop throw; fall back to a
+                  // solid swatch rather than aborting the whole export.
+                }
               }
+              if (!filled) ctx.fillStyle = solidFill;
               ctx.fillRect(pad, rowY, swatchSize, swatchSize);
               ctx.strokeStyle = (!strokeHidden && hints.strokeColor) || 'rgba(0,0,0,0.35)';
               ctx.lineWidth = Math.max(1, dpr);
