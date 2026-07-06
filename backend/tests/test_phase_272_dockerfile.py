@@ -126,9 +126,23 @@ class TestInf14NginxMime:
 
 
 class TestInf15PythonPinReconciliation:
-    def test_dockerfile_pins_python_3_14_3(self):
+    def test_dockerfile_pins_python_consistently(self):
+        """INF-15: both stages pin the same concrete python:x.y.z-slim base.
+
+        Asserts the invariant (a concrete patch pin, identical across the builder
+        and runtime stages) rather than a hard-coded literal. Dependabot bumps the
+        patch; the stale `python:3.14.3-slim` literal this test used to assert is
+        exactly the drift fix(#423) removed from the Dockerfile prose.
+        """
         text = DOCKERFILE.read_text()
-        assert "python:3.14.3-slim" in text, "Dockerfile must pin python:3.14.3-slim"
+        pins = re.findall(r"^FROM\s+(python:\d+\.\d+\.\d+-slim)\b", text, re.M)
+        assert pins, (
+            "Dockerfile must pin a concrete python:x.y.z-slim base in its FROM lines"
+        )
+        assert len(set(pins)) == 1, (
+            f"backend-builder and backend-base must pin the same python base; "
+            f"got {sorted(set(pins))}"
+        )
 
     def test_pyproject_requires_python_at_least_3_13(self):
         text = PYPROJECT.read_text()
@@ -143,10 +157,10 @@ class TestInf15PythonPinReconciliation:
         lines = text.splitlines()
         for i, line in enumerate(lines):
             if "requires-python" in line and "=" in line:
-                # Look at preceding 5 lines for a comment about Dockerfile / 3.14.3 / INF-15
+                # Look at preceding 5 lines for a comment about Dockerfile / 3.14-slim / INF-15
                 preceding = "\n".join(lines[max(0, i - 5) : i])
                 assert any(
-                    kw in preceding for kw in ("3.14.3-slim", "Dockerfile", "INF-15")
+                    kw in preceding for kw in ("3.14-slim", "Dockerfile", "INF-15")
                 ), (
                     f"backend/pyproject.toml requires-python at line {i + 1} "
                     f"missing cross-comment about Docker pin (3.14.3-slim or INF-15)"
