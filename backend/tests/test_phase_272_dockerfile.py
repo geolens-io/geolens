@@ -126,9 +126,31 @@ class TestInf14NginxMime:
 
 
 class TestInf15PythonPinReconciliation:
-    def test_dockerfile_pins_python_3_14_3(self):
+    def test_dockerfile_pins_python_consistently(self):
+        """INF-15: backend-builder and backend-base pin the same concrete
+        python:x.y.z-slim base.
+
+        Asserts the invariant (a concrete patch pin, identical across both named
+        backend stages) rather than a hard-coded literal. Dependabot bumps the
+        patch; the stale `python:3.14.3-slim` literal this test used to assert is
+        exactly the drift fix(#423) removed from the Dockerfile prose.
+        """
         text = DOCKERFILE.read_text()
-        assert "python:3.14.3-slim" in text, "Dockerfile must pin python:3.14.3-slim"
+        # Base image keyed by backend stage alias, e.g. "python:3.14.6-slim".
+        bases = dict(
+            (alias, base)
+            for base, alias in re.findall(
+                r"^FROM\s+(\S+)\s+AS\s+(backend-builder|backend-base)\s*$", text, re.M
+            )
+        )
+        for alias in ("backend-builder", "backend-base"):
+            assert re.fullmatch(r"python:\d+\.\d+\.\d+-slim", bases.get(alias, "")), (
+                f"{alias} stage must pin a concrete python:x.y.z-slim base, "
+                f"got {bases.get(alias)!r}"
+            )
+        assert bases["backend-builder"] == bases["backend-base"], (
+            f"backend-builder and backend-base must pin the same python base; got {bases}"
+        )
 
     def test_pyproject_requires_python_at_least_3_13(self):
         text = PYPROJECT.read_text()
@@ -143,10 +165,10 @@ class TestInf15PythonPinReconciliation:
         lines = text.splitlines()
         for i, line in enumerate(lines):
             if "requires-python" in line and "=" in line:
-                # Look at preceding 5 lines for a comment about Dockerfile / 3.14.3 / INF-15
+                # Look at preceding 5 lines for a comment about Dockerfile / 3.14-slim / INF-15
                 preceding = "\n".join(lines[max(0, i - 5) : i])
                 assert any(
-                    kw in preceding for kw in ("3.14.3-slim", "Dockerfile", "INF-15")
+                    kw in preceding for kw in ("3.14-slim", "Dockerfile", "INF-15")
                 ), (
                     f"backend/pyproject.toml requires-python at line {i + 1} "
                     f"missing cross-comment about Docker pin (3.14.3-slim or INF-15)"

@@ -4,7 +4,7 @@
 # Stage 1: backend-builder — uv sync, all build-time prep
 # ==============================================================================
 # Build-time deps (apt cache, intermediate uv-sync state) are confined to this
-# stage. The runtime layer rebuilds from a clean python:3.14.3-slim base and
+# stage. The runtime layer rebuilds from a clean python:3.14-slim base and
 # only copies the resolved /app venv from this builder.
 FROM python:3.14.6-slim AS backend-builder
 
@@ -127,10 +127,10 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     done
 
 # ==============================================================================
-# Stage 2: backend-base — clean python:3.14.3-slim runtime; venv from builder
+# Stage 2: backend-base — clean python:3.14-slim runtime; venv from builder
 # ==============================================================================
 # True multi-stage split: runtime starts from a fresh
-# python:3.14.3-slim base (no apt-cache layer from builder, no intermediate
+# python:3.14-slim base (no apt-cache layer from builder, no intermediate
 # uv-sync state). Only the resolved /app/.venv + code arrive via COPY --from.
 #
 # Note: uv is kept in the runtime layer because the entrypoints and CMD use
@@ -140,8 +140,10 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # INSTALL_ENTERPRISE_OVERLAY) to pre-bake the overlay into an enterprise image.
 # gcc/dev libs are still excluded from the runtime layer.
 #
-# Pin: python:3.14.3-slim. backend/pyproject.toml requires-python>=3.13 for
-# adopter flexibility; this image ships 3.14.3 as the project's tested runtime.
+# Pin: see the `FROM python:3.14-slim` line below (Dependabot bumps the exact
+# patch, so this prose names only the minor). backend/pyproject.toml
+# requires-python>=3.13 for adopter flexibility; this image ships the pinned
+# 3.14-slim as the project's tested runtime.
 # See backend/pyproject.toml comment at requires-python for the matching note.
 FROM python:3.14.6-slim AS backend-base
 
