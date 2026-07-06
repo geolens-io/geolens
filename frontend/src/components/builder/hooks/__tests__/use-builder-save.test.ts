@@ -1711,6 +1711,7 @@ describe('useBuilderSave', () => {
 describe('SHARE-09 export PNG composition', () => {
   let fillTextSpy: ReturnType<typeof vi.fn>;
   let fillRectSpy: ReturnType<typeof vi.fn>;
+  let strokeStyleAtStroke: string[];
   let createElementSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
@@ -1720,16 +1721,19 @@ describe('SHARE-09 export PNG composition', () => {
 
     fillTextSpy = vi.fn();
     fillRectSpy = vi.fn();
+    strokeStyleAtStroke = [];
 
     const ctx2d = {
-      fillStyle: '',
+      fillStyle: '' as string | CanvasGradient,
       strokeStyle: '',
       font: '',
       textBaseline: '',
       lineWidth: 1,
       fillText: fillTextSpy,
       fillRect: fillRectSpy,
-      strokeRect: vi.fn(),
+      // Record the border color used for each swatch (stroke-color border).
+      strokeRect: vi.fn(() => { strokeStyleAtStroke.push(ctx2d.strokeStyle); }),
+      createLinearGradient: vi.fn(() => ({ addColorStop: vi.fn() })),
       drawImage: vi.fn(),
       measureText: vi.fn(() => ({ width: 120 })),
     };
@@ -1815,6 +1819,33 @@ describe('SHARE-09 export PNG composition', () => {
     expect(calls.some((text) => text === 'Streets')).toBe(true);
     // Color swatch fill rect for the qualifying layer
     expect(fillRectSpy).toHaveBeenCalled();
+  });
+
+  it('swatch border uses the layer stroke color for hollow-circle styles', () => {
+    const mockMap = makeExportMap();
+    // Light fill + colored stroke (hollow circle). The old export drew the near-white
+    // fill with a faint 0.15 border, so the swatch was effectively invisible.
+    const hollow = makeLayer({
+      id: 'layer-eruptions',
+      display_name: 'Eruptions',
+      dataset_geometry_type: 'MULTIPOINT',
+      paint: { 'circle-color': '#fff7ed', 'circle-stroke-color': '#ea580c' },
+      visible: true,
+      show_in_legend: true,
+    });
+    const state = makeSaveState({
+      localName: '',
+      localDescription: '',
+      localLayers: [hollow],
+      mapInstanceRef: { current: mockMap } as unknown as SaveState['mapInstanceRef'],
+    });
+    const { result } = renderHook(() => useBuilderSave(state));
+
+    act(() => { result.current.handleExportPNG(); });
+    act(() => { fireRenderCallback(mockMap); });
+
+    // The swatch border is the visible stroke color, not the transparent fallback.
+    expect(strokeStyleAtStroke).toContain('#ea580c');
   });
 
   it('renders Powered by GeoLens footer when isEnterprise is false', () => {

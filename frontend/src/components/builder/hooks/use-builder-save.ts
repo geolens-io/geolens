@@ -11,7 +11,7 @@ import { ApiError } from '@/api/client';
 import { useUpdateMap, useDuplicateMap, usePatchMapLayers } from '@/hooks/use-maps';
 import { useEnabledPlugins } from '@/hooks/use-settings';
 import { useEdition } from '@/hooks/use-edition';
-import { getLayerColors } from '@/components/map/layer-icons';
+import { getLayerColors, extractStyleHints } from '@/components/map/layer-icons';
 import { uploadThumbnail, uploadOgImage } from '@/api/maps';
 import { extractPlaceholders, validatePlaceholders } from '@/lib/popup-template';
 import type { MapBasemapConfig, MapLayerDiffRequest, MapLayerInput, MapLayerPatch, MapLayerResponse, MapResponse, MapTerrainConfig, MapUpdateRequest } from '@/types/api';
@@ -725,12 +725,28 @@ export function useBuilderSave(state: SaveState) {
             ctx.font = `400 ${13 * dpr}px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif`;
             const swatchSize = 14 * dpr;
             for (const layer of legendLayers) {
+              // fix(#424): mirror the on-screen legend swatch — draw a gradient for
+              // multi-stop ramps (graduated/categorical/heatmap) and use the real
+              // stroke color as the border so hollow-circle styles (light fill +
+              // colored ring, e.g. #fff7ed fill / #ea580c stroke) don't export blank.
               const colors = getLayerColors(layer);
-              const colorVal = (typeof colors[0] === 'string' && colors[0]) || '#6366f1';
+              const hints = extractStyleHints(
+                layer.paint ?? {},
+                layer.layout ?? {},
+                layer.dataset_geometry_type,
+                undefined,
+                layer.style_config,
+              );
               const rowY = cursorY + (legendRowH - swatchSize) / 2;
-              ctx.fillStyle = colorVal;
+              if (colors.length > 1) {
+                const grad = ctx.createLinearGradient(pad, 0, pad + swatchSize, 0);
+                colors.forEach((c, i) => grad.addColorStop(i / (colors.length - 1), c));
+                ctx.fillStyle = grad;
+              } else {
+                ctx.fillStyle = colors[0] || '#6366f1';
+              }
               ctx.fillRect(pad, rowY, swatchSize, swatchSize);
-              ctx.strokeStyle = 'rgba(0,0,0,0.15)';
+              ctx.strokeStyle = hints.strokeColor || 'rgba(0,0,0,0.35)';
               ctx.lineWidth = Math.max(1, dpr);
               ctx.strokeRect(pad, rowY, swatchSize, swatchSize);
               ctx.fillStyle = '#0a0a0a';
