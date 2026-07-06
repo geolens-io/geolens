@@ -22,7 +22,7 @@ from app.core.identity import Identity
 from app.platform.sandbox import SandboxError
 from app.processing.ai.chat_constants import _EDIT_TOOLS, ERROR_MESSAGES
 from app.processing.ai.chat_geojson import _extract_geojson
-from app.processing.ai.colors import is_css_colorish
+from app.processing.ai.colors import is_css_colorish, label_halo_color
 from app.processing.ai.chat_styles import _build_data_driven_style
 from app.processing.ai.schemas import (
     ChatMapLayer,
@@ -50,50 +50,6 @@ def _safe_label_text_color(value: object) -> str:
     return _DEFAULT_LABEL_TEXT_COLOR
 
 
-# #394 shipped a fixed "#ffffff" halo. When the model picks a light text color
-# (it does whenever it assumes a "dark" basemap), light-text + white-halo washes
-# out on relief / imagery / any pale area. Derive the halo from the text
-# luminance instead so AI labels stay legible on any basemap.
-_DARK_HALO = "#1a1a1a"
-_LIGHT_HALO = "#ffffff"
-_LIGHT_NAMED_COLORS = frozenset(
-    """white whitesmoke ivory snow floralwhite ghostwhite azure mintcream
-    honeydew aliceblue lightyellow lightgoldenrodyellow lemonchiffon cornsilk
-    beige oldlace linen seashell lavenderblush mistyrose lightcyan lightgray
-    lightgrey gainsboro antiquewhite blanchedalmond papayawhip moccasin
-    navajowhite bisque wheat peachpuff""".split()
-)
-
-
-def _hex_luminance(value: str) -> float | None:
-    """Perceived luminance (0-1, Rec.601) of a ``#hex`` color, else ``None``."""
-    if not value.startswith("#"):
-        return None
-    digits = value[1:]
-    if len(digits) in (3, 4):
-        digits = "".join(ch * 2 for ch in digits[:3])
-    elif len(digits) in (6, 8):
-        digits = digits[:6]
-    else:
-        return None
-    try:
-        r, g, b = (int(digits[i : i + 2], 16) for i in (0, 2, 4))
-    except ValueError:
-        return None
-    return (0.299 * r + 0.587 * g + 0.114 * b) / 255
-
-
-def _label_halo_color(text_color: str) -> str:
-    """A halo that contrasts the label text so it reads on any basemap."""
-    candidate = text_color.strip().lower()
-    luminance = _hex_luminance(candidate)
-    if luminance is not None:
-        return _DARK_HALO if luminance > 0.6 else _LIGHT_HALO
-    if candidate in _LIGHT_NAMED_COLORS:
-        return _DARK_HALO
-    return _LIGHT_HALO
-
-
 def _build_label_action(tool_input: dict) -> dict:
     """Restructure set_label tool output into the ChatAction label_config shape."""
     column = tool_input.get("column")
@@ -110,7 +66,7 @@ def _build_label_action(tool_input: dict) -> dict:
                 "fontSize": tool_input.get("font_size", 12),
                 "textColor": text_color,
                 # Halo contrasts the text so the label reads on any basemap.
-                "haloColor": _label_halo_color(text_color),
+                "haloColor": label_halo_color(text_color),
                 "haloWidth": 1.5,
             },
         }
