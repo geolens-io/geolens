@@ -1848,6 +1848,34 @@ describe('SHARE-09 export PNG composition', () => {
     expect(strokeStyleAtStroke).toContain('#ea580c');
   });
 
+  it('does not draw the stroke-color border when the stroke is disabled', () => {
+    const mockMap = makeExportMap();
+    // Stroke turned off in the builder leaves a stale circle-stroke-color in paint;
+    // the export must not reintroduce it as a border (mirrors the map, which hides it).
+    const disabled = makeLayer({
+      id: 'layer-eruptions-off',
+      display_name: 'Eruptions (no ring)',
+      dataset_geometry_type: 'MULTIPOINT',
+      paint: { 'circle-color': '#fff7ed', 'circle-stroke-color': '#ea580c', 'circle-stroke-width': 0 },
+      style_config: { builder: { strokeDisabled: true } } as MapLayerResponse['style_config'],
+      visible: true,
+      show_in_legend: true,
+    });
+    const state = makeSaveState({
+      localName: '',
+      localDescription: '',
+      localLayers: [disabled],
+      mapInstanceRef: { current: mockMap } as unknown as SaveState['mapInstanceRef'],
+    });
+    const { result } = renderHook(() => useBuilderSave(state));
+
+    act(() => { result.current.handleExportPNG(); });
+    act(() => { fireRenderCallback(mockMap); });
+
+    expect(strokeStyleAtStroke).not.toContain('#ea580c');
+    expect(strokeStyleAtStroke).toContain('rgba(0,0,0,0.35)');
+  });
+
   it('renders Powered by GeoLens footer when isEnterprise is false', () => {
     mockEdition.isEnterprise = false;
     const mockMap = makeExportMap();
