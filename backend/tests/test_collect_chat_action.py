@@ -262,3 +262,23 @@ def test_set_label_junk_named_and_functional_colors_fall_back() -> None:
             {"layer_id": "l1", "column": "name", "text_color": junk}
         )
         assert action["label_config"]["textColor"] == "#333333", junk
+
+
+def test_set_label_halo_contrasts_text_color() -> None:
+    """Halo contrasts the label text so it reads on any basemap — a fixed white
+    halo (#394) washed out under the light text the model picks for a "dark"
+    basemap, which is exactly where the labels landed on the relief hero map."""
+    from app.processing.ai.chat_actions import _build_label_action
+
+    def halo(text_color: str | None) -> str:
+        tool_input = {"layer_id": "l1", "column": "name"}
+        if text_color is not None:
+            tool_input["text_color"] = text_color
+        return _build_label_action(tool_input)["label_config"]["haloColor"]
+
+    # Light text -> dark halo.
+    for light in ("#ffffff", "#f5f5f5", "#fff", "white", "lightyellow"):
+        assert halo(light) == "#1a1a1a", light
+    # Dark text (incl. the #333333 default) -> light halo, preserving prior contrast.
+    for dark in (None, "#333333", "#000000", "#102040", "navy"):
+        assert halo(dark) == "#ffffff", dark
