@@ -954,7 +954,7 @@ requires-dist = [
     { name = "pwdlib", extras = ["bcrypt"], specifier = ">=0.3.0" },
     { name = "pydantic", extras = ["email"], specifier = ">=2.13.4" },
     { name = "pydantic-settings", specifier = ">=2.14.2" },
-    { name = "pygeofilter", extras = ["backend-sqlalchemy"], specifier = ">=0.3.3" },
+    { name = "pygeofilter", extras = ["backend-sqlalchemy"], specifier = ">=0.4.0" },
     { name = "pyjwt", specifier = ">=2.13.0" },
     { name = "python-multipart", specifier = ">=0.0.27" },
     { name = "python-slugify", specifier = ">=8.0.4" },
@@ -1892,7 +1892,7 @@ wheels = [
 
 [[package]]
 name = "pygeofilter"
-version = "0.3.3"
+version = "0.4.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "click" },
@@ -1900,9 +1900,9 @@ dependencies = [
     { name = "lark" },
     { name = "pygeoif" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/40/f0/30b916dc05ff1242eb9cc391e1bac367d34c9f403c0bd634923b87024c23/pygeofilter-0.3.3.tar.gz", hash = "sha256:8b9fec05ba144943a1e415b6ac3752ad6011f44aad7d1bb27e7ef48b073460bd", size = 63419, upload-time = "2025-12-20T08:47:59.619Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/91/f3/fe27f21223e23bc7aebed2a92e5e1b94e72d096d2c32bc469b3e02541bb7/pygeofilter-0.4.0.tar.gz", hash = "sha256:cbb4a5f14af0b87e4f0c0c81c659ff64e44351c98e9f61d36af515d896fa8a05", size = 65762, upload-time = "2026-06-08T11:13:36.554Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/f6/e3/c777c08e9519c1d49fcfad726c84d7b0e7934e9f414430eaa3d1ab41ecf7/pygeofilter-0.3.3-py2.py3-none-any.whl", hash = "sha256:e719fcb929c6b60bca99de0cfde5f95bc3245cab50516c103dae1d4f12c4c7b6", size = 96568, upload-time = "2025-12-20T08:47:58.178Z" },
+    { url = "https://files.pythonhosted.org/packages/24/37/ae2cf701dcc81e7b515be1ee405d3f3a9a5e3a2d3050b698d457f904220c/pygeofilter-0.4.0-py2.py3-none-any.whl", hash = "sha256:ddb74c8233f4fd1b62b80a0ecf4e4f9aff178b8c61334754288d1622c8db71ec", size = 98625, upload-time = "2026-06-08T11:13:35.438Z" },
 ]
 
 [package.optional-dependencies]
