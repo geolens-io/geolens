@@ -183,7 +183,9 @@
     "layersAvailable": "{{count}} Ebenen verfügbar",
     "noLayers": "In diesem Service wurden keine Ebenen gefunden.",
     "probe": "Prüfen →",
-    "supported": "Unterstützt:"
+    "supported": "Unterstützt:",
+    "unknownDataset": "Unbekannter Datensatz",
+    "alreadyRegistered": "Bereits registriert: \"{{title}}\""
   },
   "register": {
     "helpText": "Katalogisieren Sie vorhandene PostGIS-Tabellen aus Ihrer Datenbank als Datensätze in GeoLens. Verwenden Sie diese Option, wenn Sie bereits geografische Daten in der Datenbank haben, die nicht über GeoLens importiert wurden. Ausgewählte Tabellen werden mit automatischer Metadatenerkennung zum Katalog hinzugefügt.",
@@ -217,7 +219,15 @@
     "unknownError": "Unbekannter Fehler",
     "searchPlaceholder": "Tabellen suchen…",
     "selectHint": "Eine Tabelle aus der Liste auswählen, um ihr Schema zu sehen und sie zu registrieren.",
-    "detailDesc": "Als GeoLens-Datensatz registrieren — direkt aus Tabellen gekachelt, keine Kopie."
+    "detailDesc": "Als GeoLens-Datensatz registrieren — direkt aus Tabellen gekachelt, keine Kopie.",
+    "stats": {
+      "rows": "Zeilen",
+      "geometry": "Geometrie",
+      "none": "Keine",
+      "type": "Typ",
+      "spatial": "Räumlich",
+      "nonSpatial": "Nicht räumlich"
+    }
   },
   "layerPicker": {
     "title": "Layer auswählen",
@@ -324,7 +334,9 @@
       "cog_convert": "Konvertierung zu COG",
       "quicklook": "Vorschau wird erstellt",
       "complete": "Abgeschlossen"
-    }
+    },
+    "downloadCog": "COG herunterladen",
+    "addToMap": "Zur Karte hinzufügen"
   },
   "review": {
     "headerStatus": "Erkennung abgeschlossen",
@@ -452,5 +464,13 @@
     "compareRegister": "Upload nimmt aus einer Datei auf. Registrieren zeigt auf eine vorhandene Tabelle — keine Duplizierung, aber die Tabelle muss in Ihrer Datenbank bleiben.",
     "compareStac": "Upload nimmt lokale Dateien auf. STAC-Import erkennt zuerst Remote-Assets und stellt ausgewählte Elemente dann für den Katalog bereit.",
     "compareService": "Upload nimmt aus einer Datei auf. Service-URL ruft von einer Remote-API ab und importiert die Daten in GeoLens zur lokalen Kachelung und Abfrage."
+  },
+  "status": {
+    "uploading": "Hochladen",
+    "detecting": "Erkennung",
+    "detected": "Erkannt",
+    "importing": "Import",
+    "ready": "Bereit",
+    "failed": "Fehlgeschlagen"
   }
 }

@@ -183,7 +183,9 @@
     "layersAvailable": "{{count}} capas disponibles",
     "noLayers": "No se encontraron capas en este servicio.",
     "probe": "Comprobar →",
-    "supported": "Compatible:"
+    "supported": "Compatible:",
+    "unknownDataset": "Conjunto de datos desconocido",
+    "alreadyRegistered": "Ya registrado: \"{{title}}\""
   },
   "register": {
     "helpText": "Catalogue tablas PostGIS existentes de su base de datos como conjuntos de datos en GeoLens. Use esta opción cuando tenga datos geográficos ya en la base de datos que no fueron importados a través de GeoLens. Las tablas seleccionadas se añadirán al catálogo con detección automática de metadatos.",
@@ -217,7 +219,15 @@
     "unknownError": "Error desconocido",
     "searchPlaceholder": "Buscar tablas…",
     "selectHint": "Selecciona una tabla de la lista para ver su esquema y registrarla.",
-    "detailDesc": "Registrar como conjunto de datos de GeoLens — teselado al vuelo, sin copia."
+    "detailDesc": "Registrar como conjunto de datos de GeoLens — teselado al vuelo, sin copia.",
+    "stats": {
+      "rows": "Filas",
+      "geometry": "Geometría",
+      "none": "Ninguna",
+      "type": "Tipo",
+      "spatial": "Espacial",
+      "nonSpatial": "No espacial"
+    }
   },
   "layerPicker": {
     "title": "Seleccionar capa",
@@ -324,7 +334,9 @@
       "cog_convert": "Convirtiendo a COG",
       "quicklook": "Generando vista previa",
       "complete": "Completado"
-    }
+    },
+    "downloadCog": "Descargar COG",
+    "addToMap": "Añadir al mapa"
   },
   "review": {
     "headerStatus": "Detección completa",
@@ -452,5 +464,13 @@
     "compareRegister": "La carga ingesta desde un archivo. Registrar apunta a una tabla existente — sin duplicación, pero la tabla debe permanecer en tu base de datos.",
     "compareStac": "La carga ingesta archivos locales. Las importaciones STAC descubren activos remotos primero, luego preparan los elementos seleccionados para el catálogo.",
     "compareService": "La carga ingesta desde un archivo. La URL de servicio obtiene de una API remota e importa los datos a GeoLens para teselado y consultas locales."
+  },
+  "status": {
+    "uploading": "Subiendo",
+    "detecting": "Detectando",
+    "detected": "Detectado",
+    "importing": "Importando",
+    "ready": "Listo",
+    "failed": "Error"
   }
 }

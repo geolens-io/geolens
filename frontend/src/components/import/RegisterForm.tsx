@@ -270,10 +270,10 @@ function TableDetail({
       {/* Stats grid */}
       <div className="mb-5 grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-border bg-border sm:grid-cols-4">
         {[
-          { label: 'Rows', value: table.estimated_rows != null ? formatNumber(table.estimated_rows) : '—' },
-          { label: 'Geometry', value: table.geometry_type ? getGeometryTypeLabel(t, table.geometry_type) : 'None' },
+          { label: t('register.stats.rows'), value: table.estimated_rows != null ? formatNumber(table.estimated_rows) : '—' },
+          { label: t('register.stats.geometry'), value: table.geometry_type ? getGeometryTypeLabel(t, table.geometry_type) : t('register.stats.none') },
           { label: 'SRID', value: table.srid != null ? `EPSG:${table.srid}` : '—' },
-          { label: 'Type', value: table.geometry_type ? 'Spatial' : 'Non-spatial' },
+          { label: t('register.stats.type'), value: table.geometry_type ? t('register.stats.spatial') : t('register.stats.nonSpatial') },
         ].map((stat) => (
           <div key={stat.label} className="bg-card px-3.5 py-2.5">
             <dt className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground mb-1">{stat.label}</dt>

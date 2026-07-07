@@ -194,7 +194,9 @@
     "importStarted": "Import started",
     "connectFailed": "Failed to connect to service",
     "previewFailed": "Failed to preview layer",
-    "commitFailed": "Failed to start import"
+    "commitFailed": "Failed to start import",
+    "unknownDataset": "Unknown dataset",
+    "alreadyRegistered": "Already registered: \"{{title}}\""
   },
   "rail": {
     "stageTitle": "Stage files",
@@ -259,7 +261,15 @@
     "unknownError": "Unknown error",
     "searchPlaceholder": "Search tables…",
     "selectHint": "Select a table from the list to see its schema and register it.",
-    "detailDesc": "Register to expose as a GeoLens dataset — tiled on the fly, no copy."
+    "detailDesc": "Register to expose as a GeoLens dataset — tiled on the fly, no copy.",
+    "stats": {
+      "rows": "Rows",
+      "geometry": "Geometry",
+      "none": "None",
+      "type": "Type",
+      "spatial": "Spatial",
+      "nonSpatial": "Non-spatial"
+    }
   },
   "layerPicker": {
     "title": "Select Layer",
@@ -366,7 +376,9 @@
       "cog_convert": "Converting to COG",
       "quicklook": "Generating preview",
       "complete": "Complete"
-    }
+    },
+    "downloadCog": "Download COG",
+    "addToMap": "Add to Map"
   },
   "review": {
     "headerStatus": "Detection complete",
@@ -452,5 +464,13 @@
     "createVrtMosaic": "Create VRT Mosaic",
     "importAsVrt": "Import as VRT Mosaic",
     "ingestAllLayers": "Ingest all {{count}} layers as separate datasets"
+  },
+  "status": {
+    "uploading": "Uploading",
+    "detecting": "Detecting",
+    "detected": "Detected",
+    "importing": "Importing",
+    "ready": "Ready",
+    "failed": "Failed"
   }
 }

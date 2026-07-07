@@ -183,7 +183,9 @@
     "layersAvailable": "{{count}} calques disponibles",
     "noLayers": "Aucun calque trouvé dans ce service.",
     "probe": "Vérifier →",
-    "supported": "Supporté :"
+    "supported": "Supporté :",
+    "unknownDataset": "Jeu de données inconnu",
+    "alreadyRegistered": "Déjà enregistré : \"{{title}}\""
   },
   "register": {
     "helpText": "Cataloguez des tables PostGIS existantes de votre base de données en tant que jeux de données dans GeoLens. Utilisez cette option lorsque vous avez des données géographiques déjà dans la base de données qui n'ont pas été importées via GeoLens. Les tables sélectionnées seront ajoutées au catalogue avec détection automatique des métadonnées.",
@@ -217,7 +219,15 @@
     "unknownError": "Erreur inconnue",
     "searchPlaceholder": "Rechercher des tables…",
     "selectHint": "Sélectionnez une table dans la liste pour voir son schéma et l'enregistrer.",
-    "detailDesc": "Enregistrer comme jeu de données GeoLens — tuilé à la volée, aucune copie."
+    "detailDesc": "Enregistrer comme jeu de données GeoLens — tuilé à la volée, aucune copie.",
+    "stats": {
+      "rows": "Lignes",
+      "geometry": "Géométrie",
+      "none": "Aucune",
+      "type": "Type",
+      "spatial": "Spatial",
+      "nonSpatial": "Non spatial"
+    }
   },
   "layerPicker": {
     "title": "Sélectionner une couche",
@@ -324,7 +334,9 @@
       "cog_convert": "Conversion en COG",
       "quicklook": "Génération de l'aperçu",
       "complete": "Terminé"
-    }
+    },
+    "downloadCog": "Télécharger le COG",
+    "addToMap": "Ajouter à la carte"
   },
   "review": {
     "headerStatus": "Détection terminée",
@@ -452,5 +464,13 @@
     "compareRegister": "Le chargement ingère depuis un fichier. L'enregistrement pointe vers une table existante — pas de duplication, mais la table doit rester dans votre base de données.",
     "compareStac": "Le chargement ingère des fichiers locaux. Les importations STAC découvrent d'abord les ressources distantes, puis préparent les éléments sélectionnés pour le catalogue.",
     "compareService": "Le chargement ingère depuis un fichier. L'URL de service récupère depuis une API distante et importe les données dans GeoLens pour le tuilage et les requêtes locaux."
+  },
+  "status": {
+    "uploading": "Téléversement",
+    "detecting": "Détection",
+    "detected": "Détecté",
+    "importing": "Import",
+    "ready": "Prêt",
+    "failed": "Échec"
   }
 }

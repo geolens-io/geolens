@@ -93,8 +93,8 @@ export function ServiceUrlForm() {
       if (err instanceof ApiError && err.status === 409) {
         const body = err.body as { code?: string; existing_dataset_id?: string; existing_title?: string } | undefined;
         if (body?.code === 'duplicate_source' && body.existing_dataset_id) {
-          const title = body.existing_title ?? 'Unknown dataset';
-          const msg = `Already registered: "${title}"`;
+          const title = body.existing_title ?? t('serviceUrl.unknownDataset');
+          const msg = t('serviceUrl.alreadyRegistered', { title });
           setError(msg);
           setStep('layer-select');
           toast.error(msg, {

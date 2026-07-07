@@ -192,12 +192,12 @@ export function JobProgress({ jobId, onReset, isRasterEntry = false }: JobProgre
                   try { await downloadCog(job.dataset_id!); } catch { toast.error(t('jobProgress.cogDownloadFailed')); }
                 }}>
                   <Download className="me-1 size-3" />
-                  Download COG
+                  {t('jobProgress.downloadCog')}
                 </Button>
                 <Button variant="outline" size="sm" asChild>
                   <Link to={`/datasets/${job.dataset_id}`}>
                     <Map className="me-1 size-3" />
-                    Add to Map
+                    {t('jobProgress.addToMap')}
                   </Link>
                 </Button>
                 <ConnectDropdownInline datasetId={job.dataset_id} />
