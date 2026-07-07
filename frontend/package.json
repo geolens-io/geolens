@@ -34,7 +34,7 @@
     "@fontsource/ibm-plex-mono": "^5.2.7",
     "@maplibre/maplibre-gl-style-spec": "^19.3.3",
     "@radix-ui/react-collapsible": "^1.1.12",
-    "@tailwindcss/vite": "^4.3.0",
+    "@tailwindcss/vite": "^4.3.2",
     "@tanstack/react-query": "^5.101.0",
     "@tanstack/react-table": "^8.21.3",
     "@tanstack/react-virtual": "^3.14.2",
