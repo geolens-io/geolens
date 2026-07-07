@@ -309,8 +309,16 @@ async def test_service_worker_advances_ogr2ogr_progress_while_remote_import_is_r
             await asyncio.sleep(0.01)
     finally:
         release_remote_import.set()
+        # fix(#422): join the worker directly instead of wait_for(timeout=2).
+        # Under CI load the timeout fires and cancels worker_task mid-teardown,
+        # where the product code's suppress(CancelledError) swallows the
+        # injected cancel — wait_for then sets a cancelled result on a task that
+        # completes normally, raising asyncio InvalidStateError. Releasing the
+        # blocked import makes the worker raise and finish deterministically, so
+        # a plain await never races (a genuine hang surfaces via the CI job
+        # timeout instead of a corrupted future).
         try:
-            await asyncio.wait_for(worker_task, timeout=2)
+            await worker_task
         except Exception as exc:
             worker_error = exc
 
