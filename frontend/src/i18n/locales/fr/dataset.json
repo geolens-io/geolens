@@ -204,7 +204,7 @@
   },
   "changeHistory": {
     "title": "Historique des modifications ({{count}})",
-    "loadFailed": "Failed to load.",
+    "loadFailed": "Échec du chargement.",
     "noChanges": "Aucune modification enregistrée.",
     "system": "Système",
     "changed": "Modifié :",
@@ -216,7 +216,7 @@
   },
   "versionHistory": {
     "title": "Historique des versions",
-    "loadFailed": "Failed to load.",
+    "loadFailed": "Échec du chargement.",
     "noVersions": "Aucun historique de versions.",
     "version": "Version {{number}}",
     "current": "Actuelle",
@@ -449,7 +449,7 @@
       "title": "Santé du jeu de données",
       "required": "Requis {{count}}",
       "recommended": "Recommandé {{count}}",
-      "ready": "On track",
+      "ready": "En bonne voie",
       "description": "{{requiredCount}} élément(s) requis et {{recommendedCount}} élément(s) recommandé(s) nécessitent encore une vérification.",
       "descriptionReady": "Aucun problème de validation actif détecté."
     },

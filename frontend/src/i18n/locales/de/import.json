@@ -183,7 +183,9 @@
     "layersAvailable": "{{count}} Ebenen verfügbar",
     "noLayers": "In diesem Service wurden keine Ebenen gefunden.",
     "probe": "Prüfen →",
-    "supported": "Unterstützt:"
+    "supported": "Unterstützt:",
+    "unknownDataset": "Unbekannter Datensatz",
+    "alreadyRegistered": "Bereits registriert: \"{{title}}\""
   },
   "register": {
     "helpText": "Katalogisieren Sie vorhandene PostGIS-Tabellen aus Ihrer Datenbank als Datensätze in GeoLens. Verwenden Sie diese Option, wenn Sie bereits geografische Daten in der Datenbank haben, die nicht über GeoLens importiert wurden. Ausgewählte Tabellen werden mit automatischer Metadatenerkennung zum Katalog hinzugefügt.",
@@ -217,7 +219,15 @@
     "unknownError": "Unbekannter Fehler",
     "searchPlaceholder": "Tabellen suchen…",
     "selectHint": "Eine Tabelle aus der Liste auswählen, um ihr Schema zu sehen und sie zu registrieren.",
-    "detailDesc": "Als GeoLens-Datensatz registrieren — direkt aus Tabellen gekachelt, keine Kopie."
+    "detailDesc": "Als GeoLens-Datensatz registrieren — direkt aus Tabellen gekachelt, keine Kopie.",
+    "stats": {
+      "rows": "Zeilen",
+      "geometry": "Geometrie",
+      "none": "Keine",
+      "type": "Typ",
+      "spatial": "Räumlich",
+      "nonSpatial": "Nicht räumlich"
+    }
   },
   "layerPicker": {
     "title": "Layer auswählen",
@@ -324,41 +334,43 @@
       "cog_convert": "Konvertierung zu COG",
       "quicklook": "Vorschau wird erstellt",
       "complete": "Abgeschlossen"
-    }
+    },
+    "downloadCog": "COG herunterladen",
+    "addToMap": "Zur Karte hinzufügen"
   },
   "review": {
-    "headerStatus": "Detection complete",
-    "readyCount_one": "{{value}} ready",
-    "readyCount_other": "{{value}} ready",
-    "headerHint": "Review each before committing",
-    "bandCount_one": "{{value}} band",
-    "bandCount_other": "{{value}} bands",
-    "featureCount_one": "{{value}} feature",
-    "featureCount_other": "{{value}} features",
+    "headerStatus": "Erkennung abgeschlossen",
+    "readyCount_one": "{{value}} bereit",
+    "readyCount_other": "{{value}} bereit",
+    "headerHint": "Prüfen Sie jeden vor dem Übernehmen",
+    "bandCount_one": "{{value}} Band",
+    "bandCount_other": "{{value}} Bänder",
+    "featureCount_one": "{{value}} Feature",
+    "featureCount_other": "{{value}} Features",
     "rasterSummary": "{{bands}} · {{width}}×{{height}} · {{crs}}",
     "vectorSummary": "{{geometryType}} · {{features}} · {{crs}}",
-    "noCrs": "no CRS",
+    "noCrs": "kein CRS",
     "actionSummary": "{{files}} · {{vectors}} · {{rasters}} · {{tables}}",
-    "actionHint": "Default import: each file → new dataset in the Catalog.",
-    "fileCount_one": "{{value}} file",
-    "fileCount_other": "{{value}} files",
-    "vectorCount_one": "{{value}} vector",
-    "vectorCount_other": "{{value}} vectors",
-    "rasterCount_one": "{{value}} raster",
-    "rasterCount_other": "{{value}} rasters",
-    "tableCount_one": "{{value}} tabular dataset",
-    "tableCount_other": "{{value}} tabular datasets"
+    "actionHint": "Standardimport: jede Datei → neuer Datensatz im Katalog.",
+    "fileCount_one": "{{value}} Datei",
+    "fileCount_other": "{{value}} Dateien",
+    "vectorCount_one": "{{value}} Vektor",
+    "vectorCount_other": "{{value}} Vektoren",
+    "rasterCount_one": "{{value}} Raster",
+    "rasterCount_other": "{{value}} Raster",
+    "tableCount_one": "{{value}} tabellarischer Datensatz",
+    "tableCount_other": "{{value}} tabellarische Datensätze"
   },
   "detect": {
-    "rasterInfo": "Raster info",
-    "geometry": "Geometry & projection",
+    "rasterInfo": "Raster-Info",
+    "geometry": "Geometrie & Projektion",
     "schema": "Schema",
-    "columnCount_one": "{{value}} column",
-    "columnCount_other": "{{value}} columns",
-    "validCog": "Valid",
-    "willConvert": "Will convert",
-    "nonSpatial": "Non-spatial",
-    "willReproject": "will reproject on read",
+    "columnCount_one": "{{value}} Spalte",
+    "columnCount_other": "{{value}} Spalten",
+    "validCog": "Gültig",
+    "willConvert": "Wird konvertiert",
+    "nonSpatial": "Nicht-räumlich",
+    "willReproject": "wird beim Lesen umprojiziert",
     "labels": {
       "bands": "bands",
       "size": "size",
@@ -370,8 +382,8 @@
       "layer": "layer"
     },
     "table": {
-      "column": "Column",
-      "type": "Type"
+      "column": "Spalte",
+      "type": "Typ"
     }
   },
   "bulk": {
@@ -385,11 +397,11 @@
     "importAllDefaults": "Alle mit Standardwerten importieren",
     "committed": "Übernommen",
     "removeFile": "Datei entfernen",
-    "sheetLabel": "Sheet",
-    "rowCount_one": "{{value}} row",
-    "rowCount_other": "{{value}} rows",
-    "columnCount_one": "{{value}} column",
-    "columnCount_other": "{{value}} columns",
+    "sheetLabel": "Blatt",
+    "rowCount_one": "{{value}} Zeile",
+    "rowCount_other": "{{value}} Zeilen",
+    "columnCount_one": "{{value}} Spalte",
+    "columnCount_other": "{{value}} Spalten",
     "sheetOption": "{{name}} ({{rows}}, {{columns}})",
     "importProgress": "Importfortschritt",
     "readyTitle_one": "1 Datensatz bereit",
@@ -452,5 +464,13 @@
     "compareRegister": "Upload nimmt aus einer Datei auf. Registrieren zeigt auf eine vorhandene Tabelle — keine Duplizierung, aber die Tabelle muss in Ihrer Datenbank bleiben.",
     "compareStac": "Upload nimmt lokale Dateien auf. STAC-Import erkennt zuerst Remote-Assets und stellt ausgewählte Elemente dann für den Katalog bereit.",
     "compareService": "Upload nimmt aus einer Datei auf. Service-URL ruft von einer Remote-API ab und importiert die Daten in GeoLens zur lokalen Kachelung und Abfrage."
+  },
+  "status": {
+    "uploading": "Hochladen",
+    "detecting": "Erkennung",
+    "detected": "Erkannt",
+    "importing": "Import",
+    "ready": "Bereit",
+    "failed": "Fehlgeschlagen"
   }
 }

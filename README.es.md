@@ -20,9 +20,9 @@ curl -fsSL https://getgeolens.com/install.sh | sh
 ```
 
 <p align="center">
-  <img src=".github/assets/geolens-manhattan-3d-hero.jpg" alt="Constructor de mapas de GeoLens: huellas de edificios de Manhattan extruidas en un horizonte 3D, coloreadas según la altura del tejado, con el editor de estilo de capa abierto junto al mapa" width="900" />
+  <img src=".github/assets/geolens-manhattan-3d-hero.jpg" alt="Constructor de mapas de GeoLens: huellas de edificios de Manhattan extruidas en un horizonte 3D, coloreadas según la época de construcción, con el metro y la pila de capas reordenable junto al mapa" width="900" />
   <br />
-  <em>El constructor de mapas: las huellas de edificios de Manhattan extruidas según la altura del tejado y coloreadas mediante un estilo basado en datos, creado a partir de datos abiertos con <code>scripts/seed-showcase.py</code></em>
+  <em>El constructor de mapas: cada edificio de Manhattan extruido a su altura real de tejado y coloreado según la época en que se construyó, con el metro discurriendo por debajo, creado a partir de datos abiertos con <code>scripts/seed-showcase.py</code></em>
 </p>
 
 ## Documentación

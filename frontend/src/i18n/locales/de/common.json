@@ -422,13 +422,13 @@
     "adminSaml": "SAML-SSO-Konfiguration"
   },
   "sidebar": {
-    "title": "Sidebar",
-    "mobileDescription": "Displays the mobile sidebar.",
+    "title": "Seitenleiste",
+    "mobileDescription": "Zeigt die mobile Seitenleiste an.",
     "toggle": "Seitenleiste umschalten"
   },
   "breadcrumb": {
-    "label": "breadcrumb",
-    "more": "More"
+    "label": "Brotkrümelnavigation",
+    "more": "Mehr"
   },
   "inlineEdit": {
     "hint": "Strg+Eingabe zum Speichern, Escape zum Abbrechen"

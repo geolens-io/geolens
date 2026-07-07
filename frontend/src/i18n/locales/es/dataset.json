@@ -204,7 +204,7 @@
   },
   "changeHistory": {
     "title": "Historial de cambios ({{count}})",
-    "loadFailed": "Failed to load.",
+    "loadFailed": "No se pudo cargar.",
     "noChanges": "Aún no se han registrado cambios.",
     "system": "Sistema",
     "changed": "Cambiado:",
@@ -216,7 +216,7 @@
   },
   "versionHistory": {
     "title": "Historial de versiones",
-    "loadFailed": "Failed to load.",
+    "loadFailed": "No se pudo cargar.",
     "noVersions": "Sin historial de versiones.",
     "version": "Versión {{number}}",
     "current": "Actual",
@@ -449,7 +449,7 @@
       "title": "Estado del conjunto de datos",
       "required": "Obligatorio {{count}}",
       "recommended": "Recomendado {{count}}",
-      "ready": "On track",
+      "ready": "En buen camino",
       "description": "{{requiredCount}} elemento(s) obligatorio(s) y {{recommendedCount}} elemento(s) recomendado(s) aún necesitan revisión.",
       "descriptionReady": "No se detectaron problemas de validación activos."
     },

@@ -20,9 +20,9 @@ curl -fsSL https://getgeolens.com/install.sh | sh
 ```
 
 <p align="center">
-  <img src=".github/assets/geolens-manhattan-3d-hero.jpg" alt="Constructeur de cartes GeoLens : empreintes des bâtiments de Manhattan extrudées en une skyline 3D, colorées selon la hauteur du toit, avec l'éditeur de style de couche ouvert à côté de la carte" width="900" />
+  <img src=".github/assets/geolens-manhattan-3d-hero.jpg" alt="Constructeur de cartes GeoLens : empreintes des bâtiments de Manhattan extrudées en une skyline 3D, colorées selon l'époque de construction, avec le métro et la pile de couches réordonnable à côté de la carte" width="900" />
   <br />
-  <em>Le constructeur de cartes : les empreintes des bâtiments de Manhattan extrudées selon la hauteur du toit et colorées par un style fondé sur les données, créé à partir de données ouvertes avec <code>scripts/seed-showcase.py</code></em>
+  <em>Le constructeur de cartes : chaque bâtiment de Manhattan extrudé à sa hauteur de toit réelle et coloré selon l'époque de sa construction, le métro serpentant en dessous, créé à partir de données ouvertes avec <code>scripts/seed-showcase.py</code></em>
 </p>
 
 ## Documentation

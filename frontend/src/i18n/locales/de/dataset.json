@@ -204,7 +204,7 @@
   },
   "changeHistory": {
     "title": "Änderungsverlauf ({{count}})",
-    "loadFailed": "Failed to load.",
+    "loadFailed": "Laden fehlgeschlagen.",
     "noChanges": "Noch keine Änderungen erfasst.",
     "system": "System",
     "changed": "Geändert:",
@@ -216,7 +216,7 @@
   },
   "versionHistory": {
     "title": "Versionsverlauf",
-    "loadFailed": "Failed to load.",
+    "loadFailed": "Laden fehlgeschlagen.",
     "noVersions": "Kein Versionsverlauf.",
     "version": "Version {{number}}",
     "current": "Aktuell",
@@ -449,7 +449,7 @@
       "title": "Datensatz-Zustand",
       "required": "Erforderlich {{count}}",
       "recommended": "Empfohlen {{count}}",
-      "ready": "On track",
+      "ready": "Auf Kurs",
       "description": "{{requiredCount}} erforderliche(s) und {{recommendedCount}} empfohlene(s) Element(e) müssen noch überprüft werden.",
       "descriptionReady": "Keine aktiven Validierungsprobleme erkannt."
     },

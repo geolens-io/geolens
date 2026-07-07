@@ -422,13 +422,13 @@
     "adminSaml": "Configuration SSO SAML"
   },
   "sidebar": {
-    "title": "Sidebar",
-    "mobileDescription": "Displays the mobile sidebar.",
+    "title": "Barre latérale",
+    "mobileDescription": "Affiche la barre latérale mobile.",
     "toggle": "Basculer la barre latérale"
   },
   "breadcrumb": {
-    "label": "breadcrumb",
-    "more": "More"
+    "label": "fil d'Ariane",
+    "more": "Plus"
   },
   "inlineEdit": {
     "hint": "Ctrl+Entrée pour enregistrer, Échap pour annuler"
@@ -457,7 +457,7 @@
     "panelMessage": "Ce panneau a rencontré une erreur. Le reste de l'éditeur n'est pas affecté."
   },
   "export": {
-    "poweredBy": "Powered by GeoLens",
+    "poweredBy": "Propulsé par GeoLens",
     "legendHeader": "Légende"
   },
   "actions": {
