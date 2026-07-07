@@ -4,7 +4,7 @@
 
 **Die raumbezogenen Daten Ihres Teams, an einem Ort durchsuchbar.**
 
-Laden Sie Shapefiles, GeoTIFFs, GeoPackages oder CSVs hoch. GeoLens speichert alles in PostGIS, indexiert Metadaten mit pg_trgm für unscharfe Suche (pgvector ergänzt semantische Suche, sobald ein Embedding-Anbieter konfiguriert und die Option in den Einstellungen aktiviert ist) und stellt OGC APIs bereit, die QGIS, ArcGIS und MapLibre Clients direkt nutzen können. Es basiert auf FastAPI und React und lässt sich mit einem einzigen Befehl bereitstellen.
+Laden Sie Shapefiles, GeoTIFFs, GeoPackages oder CSVs hoch. GeoLens speichert alles in PostGIS, indexiert Metadaten mit pg_trgm für unscharfe Suche (pgvector ergänzt semantische Suche, sobald ein Embedding-Anbieter konfiguriert und die Option in den Einstellungen aktiviert ist) und stellt OGC APIs bereit, die QGIS, ArcGIS und MapLibre-Clients direkt nutzen können. Es basiert auf FastAPI und React und lässt sich mit einem einzigen Befehl bereitstellen.
 
 > Dies ist eine gekürzte Übersetzung. Das englische [README](README.md) ist die kanonische Quelle; die vollständige, stets aktuelle deutschsprachige Dokumentation finden Sie unter **[docs.getgeolens.com/de](https://docs.getgeolens.com/de)**.
 
@@ -20,9 +20,9 @@ curl -fsSL https://getgeolens.com/install.sh | sh
 ```
 
 <p align="center">
-  <img src=".github/assets/geolens-manhattan-3d-hero.jpg" alt="GeoLens Map Builder: Gebäudegrundrisse von Manhattan zu einer 3D-Skyline extrudiert, nach Dachhöhe eingefärbt, mit geöffnetem Layer-Stil-Editor neben der Karte" width="900" />
+  <img src=".github/assets/geolens-manhattan-3d-hero.jpg" alt="GeoLens Map Builder: Gebäudegrundrisse von Manhattan zu einer 3D-Skyline extrudiert, nach Baujahr eingefärbt, mit der U-Bahn und dem per Drag-and-drop sortierbaren Layer-Stack neben der Karte" width="900" />
   <br />
-  <em>Der Map Builder: Manhattans Gebäudegrundrisse, extrudiert nach Dachhöhe und durch einen datengesteuerten Stil eingefärbt, erstellt aus offenen Daten mit <code>scripts/seed-showcase.py</code></em>
+  <em>Der Map Builder: jedes Gebäude Manhattans auf seine tatsächliche Dachhöhe extrudiert und nach seinem Baujahr eingefärbt, die U-Bahn verläuft darunter, erstellt aus offenen Daten mit <code>scripts/seed-showcase.py</code></em>
 </p>
 
 ## Dokumentation

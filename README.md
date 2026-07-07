@@ -26,7 +26,7 @@ curl -fsSL https://getgeolens.com/install.sh | sh
 <p align="center">
   <img src=".github/assets/geolens-manhattan-3d-hero.jpg" alt="GeoLens map builder with Manhattan building footprints extruded into a 3D skyline, colored by construction era, with the subway and the drag-orderable layer stack beside the map" width="900" />
   <br />
-  <em>The map builder: every Manhattan building extruded to its true roof height and colored by the era it was built, the subway threading beneath — built from open data with <code>scripts/seed-showcase.py</code></em>
+  <em>The map builder: every Manhattan building extruded to its true roof height and colored by the era it was built, the subway threading beneath, built from open data with <code>scripts/seed-showcase.py</code></em>
 </p>
 
 > [!NOTE]
@@ -148,7 +148,7 @@ Each example above has a full guide in the [docs](https://docs.getgeolens.com/gu
 <p align="center">
   <img src=".github/assets/geolens-dataset.png" alt="GeoLens dataset detail for Meteorite Landings: a global map preview of 32,186 recovery points above schema stats and typed metadata" width="900" />
   <br />
-  <em><strong>Inspect:</strong> every dataset gets a map preview, schema stats, and typed metadata — here, 32,186 meteorite landings across the globe</em>
+  <em><strong>Inspect:</strong> every dataset gets a map preview, schema stats, and typed metadata. Here, 32,186 meteorite landings across the globe</em>
 </p>
 
 <p align="center">
@@ -265,7 +265,7 @@ See the [CLI guide](https://docs.getgeolens.com/guides/cli/) for the full manife
 
 ### Seed data
 
-`scripts/seed-showcase.py` builds six showcase maps from public open data — a global
+`scripts/seed-showcase.py` builds six showcase maps from public open data: a global
 tectonics story over real ocean-floor relief, the Manhattan 3D skyline colored by
 construction era (the hero above), 75 years of Atlantic hurricane tracks, clustered
 meteorite falls, the Matterhorn in 2 m lidar 3D terrain, and by-reference Sentinel-2
