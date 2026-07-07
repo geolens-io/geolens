@@ -253,7 +253,8 @@
         "tableLabel": "Tabla de resultados de la consulta",
         "rowCount_one": "{{count}} fila",
         "rowCount_other": "{{count}} filas",
-        "truncated": "(mostrando una muestra)"
+        "truncated": "(mostrando una muestra)",
+        "moreColumns": "más columnas"
       }
     }
   },
@@ -483,5 +484,9 @@
     "noSpatialExtent": "No hay extensión espacial disponible"
   },
   "unknown": "Desconocido",
-  "demoBanner": "Esta es una cuenta de demostración — sus datos pueden eliminarse en cualquier momento."
+  "demoBanner": "Esta es una cuenta de demostración — sus datos pueden eliminarse en cualquier momento.",
+  "yes": "Sí",
+  "no": "No",
+  "copy": "Copiar",
+  "copied": "Copiado"
 }

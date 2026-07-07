@@ -26,22 +26,24 @@ const FIELDS = [
 ] as const;
 
 function NotificationChannelBadge({ ok, label }: { ok: boolean; label: string }) {
+  const { t } = useTranslation('admin');
   return (
     <span className="inline-flex items-center gap-1">
       <span className="text-sm text-muted-foreground">{label}:</span>
-      <Badge variant={ok ? 'default' : 'secondary'}>{ok ? 'Yes' : 'No'}</Badge>
+      <Badge variant={ok ? 'default' : 'secondary'}>{ok ? t('common:yes') : t('common:no')}</Badge>
     </span>
   );
 }
 
 function ChannelResult({ result }: { result: NotificationTestChannelResult }) {
+  const { t } = useTranslation('admin');
   return (
     <div className="flex items-center gap-2 text-sm">
       <Badge variant={result.ok ? 'default' : 'destructive'}>{result.channel}</Badge>
       {result.ok ? (
-        <span className="text-muted-foreground">Delivered</span>
+        <span className="text-muted-foreground">{t('settings.notifications.delivered')}</span>
       ) : (
-        <span className="text-destructive">{result.error ?? 'Failed'}</span>
+        <span className="text-destructive">{result.error ?? t('settings.notifications.failed')}</span>
       )}
     </div>
   );
@@ -115,7 +117,7 @@ export function SettingsNetworkTab({ settings, envOnly, onSave, onReset, isSavin
         </div>
 
         {notifLoading ? (
-          <p className="text-sm text-muted-foreground">Loading...</p>
+          <p className="text-sm text-muted-foreground">{t('common:loading')}</p>
         ) : notifStatus ? (
           <div className="flex flex-wrap gap-4">
             <NotificationChannelBadge ok={notifStatus.notifications_enabled} label={t('settings.notifications.statusEnabled')} />
@@ -131,7 +133,7 @@ export function SettingsNetworkTab({ settings, envOnly, onSave, onReset, isSavin
             onClick={handleSendTest}
             disabled={testSend.isPending}
           >
-            {testSend.isPending ? 'Sending...' : t('settings.notifications.sendTest')}
+            {testSend.isPending ? t('settings.notifications.sending') : t('settings.notifications.sendTest')}
           </Button>
         </div>
 

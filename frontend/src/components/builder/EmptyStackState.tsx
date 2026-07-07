@@ -186,7 +186,7 @@ export function EmptyStackState({ onOpenAddData, onAddDataset }: EmptyStackState
   return (
     <div
       role="region"
-      aria-label="No layers — get started"
+      aria-label={t('unifiedStack.emptyRegionLabel', { defaultValue: 'No layers — get started' })}
       className="flex flex-col gap-4 p-4 pb-2"
     >
       {/* Prompt */}
@@ -211,7 +211,7 @@ export function EmptyStackState({ onOpenAddData, onAddDataset }: EmptyStackState
       >
         <button
           type="button"
-          aria-label="Search and open Add Data modal"
+          aria-label={t('unifiedStack.emptySearchButton', { defaultValue: 'Search and open Add Data modal' })}
           onClick={() => {
             if (inlineQuery.trim()) {
               onOpenAddData(inlineQuery.trim());
@@ -223,7 +223,7 @@ export function EmptyStackState({ onOpenAddData, onAddDataset }: EmptyStackState
         </button>
         <input
           role="searchbox"
-          aria-label="Search datasets to add"
+          aria-label={t('unifiedStack.emptySearchInput', { defaultValue: 'Search datasets to add' })}
           placeholder={t('unifiedStack.emptySearchPlaceholder', { defaultValue: 'Search datasets, URLs, or files…' })}
           value={inlineQuery}
           onChange={(e) => setInlineQuery(e.target.value)}
@@ -241,7 +241,7 @@ export function EmptyStackState({ onOpenAddData, onAddDataset }: EmptyStackState
           >
             {t('unifiedStack.suggestedLabel', { defaultValue: 'SUGGESTED' })}
           </span>
-          <ul aria-label="Suggested datasets" className="flex flex-col gap-2">
+          <ul aria-label={t('unifiedStack.suggestedListLabel', { defaultValue: 'Suggested datasets' })} className="flex flex-col gap-2">
             {SUGGESTED_DATASETS.map((suggestion) => (
               <SuggestCard
                 key={suggestion.id}
@@ -266,7 +266,7 @@ export function EmptyStackState({ onOpenAddData, onAddDataset }: EmptyStackState
       {/* Browse all */}
       <button
         type="button"
-        aria-label="Browse all datasets in the Add Data modal"
+        aria-label={t('unifiedStack.browseAllLabel', { defaultValue: 'Browse all datasets in the Add Data modal' })}
         onClick={() => onOpenAddData()}
         className="text-xs text-primary self-start hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded"
       >

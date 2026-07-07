@@ -693,7 +693,8 @@
     "prev": "Entité précédente",
     "next": "Entité suivante",
     "close": "Fermer la popup",
-    "dialogLabel": "Détails de l'entité"
+    "dialogLabel": "Détails de l'entité",
+    "youtubeTitle": "Vidéo YouTube"
   },
   "descriptionPlaceholder": "Ajouter une description...",
   "titleBar": {
@@ -1018,7 +1019,13 @@
     "emptyHelpBody": "Recherchez dans le catalogue pour trouver des jeux de données, ou utilisez le bouton Importer pour ajouter les vôtres.",
     "listboxLabel": "Couches de la carte",
     "searchPlaceholder": "Filtrer les couches…",
-    "searchAriaLabel": "Filtrer les couches par nom"
+    "searchAriaLabel": "Filtrer les couches par nom",
+    "emptyRegionLabel": "Aucune couche — commencer",
+    "emptySearchButton": "Rechercher et ouvrir la fenêtre Ajouter des données",
+    "emptySearchInput": "Rechercher des jeux de données à ajouter",
+    "suggestedListLabel": "Jeux de données suggérés",
+    "browseAllLabel": "Parcourir tous les jeux de données dans la fenêtre Ajouter des données",
+    "basemapSublayers": "Sous-couches du fond de carte"
   },
   "rail": {
     "aiDisabled": "IA désactivée par l'administrateur",

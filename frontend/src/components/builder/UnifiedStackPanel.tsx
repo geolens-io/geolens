@@ -540,7 +540,7 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
             data-testid={`basemap-group-children-${basemapGroup.id}`}
             style={{ marginLeft: '28px', paddingLeft: '12px', borderLeft: '1px dashed var(--border)' }}
             role="list"
-            aria-label="Basemap sublayers"
+            aria-label={t('unifiedStack.basemapSublayers')}
           >
             {basemapGroup.sublayers.map((sub) => (
               <SublayerRow

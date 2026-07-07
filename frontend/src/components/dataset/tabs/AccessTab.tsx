@@ -200,7 +200,7 @@ function ApiSnippet({
             className="px-2 py-0.5 rounded text-[11px] font-mono bg-(--code-chrome-border) text-(--code-text)/80 hover:text-(--code-text) cursor-pointer border-0"
           >
             {copied ? <Check className="inline size-3 me-1" /> : <Copy className="inline size-3 me-1" />}
-            {copied ? 'Copied' : 'Copy'}
+            {copied ? t('common:copied') : t('common:copy')}
           </button>
         </div>
         <pre className="px-5 py-4 font-mono text-[12.5px] leading-7 overflow-x-auto whitespace-pre-wrap m-0">

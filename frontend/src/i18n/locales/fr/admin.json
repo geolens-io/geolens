@@ -610,7 +610,8 @@
       "copyCallbackUrl": "Copier l'URL de rappel",
       "callbackUrlCopied": "URL de rappel copiée dans le presse-papiers",
       "callbackUrlHint": "Enregistrez cette URL auprès de votre fournisseur (Google, Microsoft ou GitHub) comme URL de redirection / de rappel autorisée. Elle doit correspondre à l’URL publique de l’API configurée pour le déploiement (définissez PUBLIC_API_URL ou l’URL publique de l’API dans les paramètres généraux), sinon la connexion OAuth échouera avec une redirection non concordante.",
-      "callbackUrlCopyFailed": "Impossible de copier — copiez l’URL manuellement."
+      "callbackUrlCopyFailed": "Impossible de copier — copiez l’URL manuellement.",
+      "tenantIdPlaceholder": "p. ex. votre-id-de-locataire"
     },
     "notifications": {
       "title": "Notifications sortantes",
@@ -622,7 +623,10 @@
       "testSuccess": "Notification de test envoyée",
       "testNoChannel": "Aucun canal configuré",
       "testError": "Échec de l’envoi du test",
-      "testFailed": "Échec de la notification de test"
+      "testFailed": "Échec de la notification de test",
+      "delivered": "Livré",
+      "failed": "Échoué",
+      "sending": "Envoi..."
     }
   },
   "infrastructure": {

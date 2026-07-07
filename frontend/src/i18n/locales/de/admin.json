@@ -610,7 +610,8 @@
       "copyCallbackUrl": "Callback-URL kopieren",
       "callbackUrlCopied": "Callback-URL in die Zwischenablage kopiert",
       "callbackUrlHint": "Registrieren Sie diese URL bei Ihrem Anbieter (Google, Microsoft oder GitHub) als autorisierte Weiterleitungs-/Callback-URL. Sie muss der konfigurierten öffentlichen API-URL der Installation entsprechen (PUBLIC_API_URL bzw. die öffentliche API-URL in den allgemeinen Einstellungen setzen), sonst schlägt die OAuth-Anmeldung mit einem Redirect-Fehler fehl.",
-      "callbackUrlCopyFailed": "Konnte nicht kopiert werden — kopieren Sie die URL manuell."
+      "callbackUrlCopyFailed": "Konnte nicht kopiert werden — kopieren Sie die URL manuell.",
+      "tenantIdPlaceholder": "z. B. ihre-mandanten-id"
     },
     "notifications": {
       "title": "Ausgehende Benachrichtigungen",
@@ -622,7 +623,10 @@
       "testSuccess": "Testbenachrichtigung gesendet",
       "testNoChannel": "Kein Kanal konfiguriert",
       "testError": "Testversand fehlgeschlagen",
-      "testFailed": "Testbenachrichtigung fehlgeschlagen"
+      "testFailed": "Testbenachrichtigung fehlgeschlagen",
+      "delivered": "Zugestellt",
+      "failed": "Fehlgeschlagen",
+      "sending": "Senden..."
     }
   },
   "infrastructure": {

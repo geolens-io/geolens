@@ -440,7 +440,7 @@ function OAuthProvidersSection({ envOnly }: { envOnly: boolean }) {
                   id="tenant-id"
                   value={form.microsoft_tenant_id}
                   onChange={(e) => handleTenantIdChange(e.target.value)}
-                  placeholder="e.g. your-tenant-id"
+                  placeholder={t('settings.oauth.tenantIdPlaceholder')}
                   disabled={envOnly}
                 />
                 <p className="text-xs text-muted-foreground">
