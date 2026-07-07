@@ -36,15 +36,15 @@
     "includeVersion": "Version de l'application ({{version}})",
     "privacyNote": "Nous supprimons automatiquement votre jeton de connexion et vos informations personnelles avant que quoi que ce soit ne quitte votre navigateur.",
     "privacyMore": "Qu'est-ce qui est supprimé ?",
-    "privacyDetail": "Les jetons de connexion, les clés d'API et les adresses e-mail sont retirés du rapport avant son envoi."
+    "privacyDetail": "Les jetons de connexion, les clés d'API et les adresses e-mail sont retirés du signalement avant son envoi."
   },
   "step3": {
     "heading": "Envoyez votre signalement",
     "subtitle": "Nous ouvrirons un ticket GitHub pré-rempli. Vérifiez-le, puis envoyez-le.",
     "openIssue": "Ouvrir un ticket GitHub",
-    "copyReport": "Copier le rapport",
-    "copied": "Rapport copié dans le presse-papiers",
-    "truncatedToast": "Les journaux étaient trop longs pour le lien — le rapport complet a été copié dans votre presse-papiers. Collez-le dans le ticket."
+    "copyReport": "Copier le signalement",
+    "copied": "Signalement copié dans le presse-papiers",
+    "truncatedToast": "Les journaux étaient trop longs pour le lien — le signalement complet a été copié dans votre presse-papiers. Collez-le dans le ticket."
   },
   "nav": {
     "back": "Retour",

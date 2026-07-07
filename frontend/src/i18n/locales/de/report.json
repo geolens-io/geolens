@@ -42,9 +42,9 @@
     "heading": "Senden Sie Ihre Meldung",
     "subtitle": "Wir öffnen ein vorausgefülltes GitHub-Issue. Prüfen Sie es und senden Sie es ab.",
     "openIssue": "GitHub-Issue öffnen",
-    "copyReport": "Bericht kopieren",
-    "copied": "Bericht in die Zwischenablage kopiert",
-    "truncatedToast": "Die Protokolle waren zu lang für den Link — der vollständige Bericht wurde in Ihre Zwischenablage kopiert. Fügen Sie ihn in das Issue ein."
+    "copyReport": "Meldung kopieren",
+    "copied": "Meldung in die Zwischenablage kopiert",
+    "truncatedToast": "Die Protokolle waren zu lang für den Link — die vollständige Meldung wurde in Ihre Zwischenablage kopiert. Fügen Sie sie in das Issue ein."
   },
   "nav": {
     "back": "Zurück",
