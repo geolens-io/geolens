@@ -1103,7 +1103,7 @@ export function ChatPanel({
                                   {col}
                                 </th>
                               ))}
-                              {hasMore && <th scope="col" aria-label="more columns" className="px-2 py-1 text-xs font-medium text-muted-foreground">…</th>}
+                              {hasMore && <th scope="col" aria-label={t('common:viewer.ai.queryResult.moreColumns')} className="px-2 py-1 text-xs font-medium text-muted-foreground">…</th>}
                             </tr>
                           </thead>
                           <tbody>

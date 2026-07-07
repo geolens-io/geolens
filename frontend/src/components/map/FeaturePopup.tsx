@@ -352,7 +352,7 @@ function ValueDisplay({
         <span className="block">
           <iframe
             src={srcUrl}
-            title="YouTube video"
+            title={t('featurePopup.youtubeTitle')}
             sandbox="allow-scripts allow-same-origin allow-presentation"
             referrerPolicy="no-referrer-when-downgrade"
             loading="lazy"

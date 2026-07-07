@@ -693,7 +693,8 @@
     "prev": "Vorheriges Objekt",
     "next": "Nächstes Objekt",
     "close": "Popup schließen",
-    "dialogLabel": "Objektdetails"
+    "dialogLabel": "Objektdetails",
+    "youtubeTitle": "YouTube-Video"
   },
   "descriptionPlaceholder": "Beschreibung hinzufügen...",
   "titleBar": {
@@ -1018,7 +1019,13 @@
     "emptyHelpBody": "Den Katalog durchsuchen, um Datensätze zu finden, oder die Schaltfläche \"Hochladen\" verwenden, um eigene hinzuzufügen.",
     "listboxLabel": "Karten-Layer",
     "searchPlaceholder": "Layer filtern…",
-    "searchAriaLabel": "Layer nach Name filtern"
+    "searchAriaLabel": "Layer nach Name filtern",
+    "emptyRegionLabel": "Keine Layer — loslegen",
+    "emptySearchButton": "Suchen und Dialog „Daten hinzufügen“ öffnen",
+    "emptySearchInput": "Datensätze zum Hinzufügen suchen",
+    "suggestedListLabel": "Vorgeschlagene Datensätze",
+    "browseAllLabel": "Alle Datensätze im Dialog „Daten hinzufügen“ durchsuchen",
+    "basemapSublayers": "Basiskarten-Sublayer"
   },
   "rail": {
     "aiDisabled": "KI durch Administrator deaktiviert",

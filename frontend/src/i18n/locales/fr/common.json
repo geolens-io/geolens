@@ -253,7 +253,8 @@
         "tableLabel": "Tableau des résultats de la requête",
         "rowCount_one": "{{count}} ligne",
         "rowCount_other": "{{count}} lignes",
-        "truncated": "(affichage d'un échantillon)"
+        "truncated": "(affichage d'un échantillon)",
+        "moreColumns": "plus de colonnes"
       }
     }
   },
@@ -483,5 +484,9 @@
     "noSpatialExtent": "Aucune étendue spatiale disponible"
   },
   "unknown": "Inconnu",
-  "demoBanner": "Ceci est un compte de démonstration — vos données peuvent être supprimées à tout moment."
+  "demoBanner": "Ceci est un compte de démonstration — vos données peuvent être supprimées à tout moment.",
+  "yes": "Oui",
+  "no": "Non",
+  "copy": "Copier",
+  "copied": "Copié"
 }

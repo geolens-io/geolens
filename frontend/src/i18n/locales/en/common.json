@@ -161,7 +161,8 @@
         "tableLabel": "Query result table",
         "rowCount_one": "{{count}} row",
         "rowCount_other": "{{count}} rows",
-        "truncated": "(showing a sample)"
+        "truncated": "(showing a sample)",
+        "moreColumns": "more columns"
       }
     }
   },
@@ -483,5 +484,9 @@
     "poweredBy": "Powered by GeoLens",
     "legendHeader": "Legend"
   },
-  "demoBanner": "This is a demo account — your data may be wiped at any time."
+  "demoBanner": "This is a demo account — your data may be wiped at any time.",
+  "yes": "Yes",
+  "no": "No",
+  "copy": "Copy",
+  "copied": "Copied"
 }

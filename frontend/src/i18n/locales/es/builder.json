@@ -693,7 +693,8 @@
     "prev": "Elemento anterior",
     "next": "Elemento siguiente",
     "close": "Cerrar popup",
-    "dialogLabel": "Detalles del elemento"
+    "dialogLabel": "Detalles del elemento",
+    "youtubeTitle": "Vídeo de YouTube"
   },
   "descriptionPlaceholder": "Agregar una descripción...",
   "titleBar": {
@@ -1018,7 +1019,13 @@
     "emptyHelpBody": "Busque en el catálogo para encontrar conjuntos de datos, o use el botón Cargar para agregar los suyos.",
     "listboxLabel": "Capas del mapa",
     "searchPlaceholder": "Filtrar capas…",
-    "searchAriaLabel": "Filtrar capas por nombre"
+    "searchAriaLabel": "Filtrar capas por nombre",
+    "emptyRegionLabel": "Sin capas — empezar",
+    "emptySearchButton": "Buscar y abrir el cuadro Agregar datos",
+    "emptySearchInput": "Buscar conjuntos de datos para agregar",
+    "suggestedListLabel": "Conjuntos de datos sugeridos",
+    "browseAllLabel": "Explorar todos los conjuntos de datos en el cuadro Agregar datos",
+    "basemapSublayers": "Subcapas del mapa base"
   },
   "rail": {
     "aiDisabled": "IA desactivada por el administrador",

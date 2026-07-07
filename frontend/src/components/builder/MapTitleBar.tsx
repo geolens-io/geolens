@@ -82,7 +82,7 @@ export function MapTitleBar({
   return (
     <div className="h-10 border-b bg-background flex items-center gap-3 px-3 shrink-0">
       {/* Breadcrumb: Maps > editable name */}
-      <nav aria-label="breadcrumb" className="flex items-center gap-1.5 min-w-0 flex-1">
+      <nav aria-label={t('common:breadcrumb.label')} className="flex items-center gap-1.5 min-w-0 flex-1">
         <Link
           to="/maps"
           className="text-sm text-muted-foreground hover:text-foreground transition-colors shrink-0"

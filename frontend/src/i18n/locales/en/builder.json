@@ -693,7 +693,8 @@
     "prev": "Previous feature",
     "next": "Next feature",
     "close": "Close popup",
-    "dialogLabel": "Feature details"
+    "dialogLabel": "Feature details",
+    "youtubeTitle": "YouTube video"
   },
   "descriptionPlaceholder": "Add a description...",
   "titleBar": {
@@ -1022,7 +1023,13 @@
     "emptyHelpBody": "Search the catalog to find datasets, or use the Upload button to add your own.",
     "listboxLabel": "Map layers",
     "searchPlaceholder": "Filter layers…",
-    "searchAriaLabel": "Filter layers by name"
+    "searchAriaLabel": "Filter layers by name",
+    "emptyRegionLabel": "No layers — get started",
+    "emptySearchButton": "Search and open Add Data modal",
+    "emptySearchInput": "Search datasets to add",
+    "suggestedListLabel": "Suggested datasets",
+    "browseAllLabel": "Browse all datasets in the Add Data modal",
+    "basemapSublayers": "Basemap sublayers"
   },
   "rail": {
     "aiDisabled": "AI disabled by admin",

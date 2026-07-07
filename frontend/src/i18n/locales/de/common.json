@@ -253,7 +253,8 @@
         "tableLabel": "Tabelle der Abfrageergebnisse",
         "rowCount_one": "{{count}} Zeile",
         "rowCount_other": "{{count}} Zeilen",
-        "truncated": "(Stichprobe wird angezeigt)"
+        "truncated": "(Stichprobe wird angezeigt)",
+        "moreColumns": "weitere Spalten"
       }
     }
   },
@@ -483,5 +484,9 @@
     "noSpatialExtent": "Keine räumliche Ausdehnung verfügbar"
   },
   "unknown": "Unbekannt",
-  "demoBanner": "Dies ist ein Demo-Konto — Ihre Daten können jederzeit gelöscht werden."
+  "demoBanner": "Dies ist ein Demo-Konto — Ihre Daten können jederzeit gelöscht werden.",
+  "yes": "Ja",
+  "no": "Nein",
+  "copy": "Kopieren",
+  "copied": "Kopiert"
 }

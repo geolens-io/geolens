@@ -610,7 +610,8 @@
       "copyCallbackUrl": "Copiar URL de devolución de llamada",
       "callbackUrlCopied": "URL de devolución de llamada copiada al portapapeles",
       "callbackUrlHint": "Registra esta URL en tu proveedor (Google, Microsoft o GitHub) como la URL de redirección / devolución autorizada. Debe coincidir con la URL pública de la API configurada en el despliegue (define PUBLIC_API_URL o la URL pública de la API en Configuración general); de lo contrario, el inicio de sesión OAuth fallará por una redirección no coincidente.",
-      "callbackUrlCopyFailed": "No se pudo copiar; copia la URL manualmente."
+      "callbackUrlCopyFailed": "No se pudo copiar; copia la URL manualmente.",
+      "tenantIdPlaceholder": "p. ej. su-id-de-inquilino"
     },
     "notifications": {
       "title": "Notificaciones salientes",
@@ -622,7 +623,10 @@
       "testSuccess": "Notificación de prueba enviada",
       "testNoChannel": "Ningún canal configurado",
       "testError": "Error al enviar la prueba",
-      "testFailed": "Notificación de prueba fallida"
+      "testFailed": "Notificación de prueba fallida",
+      "delivered": "Entregado",
+      "failed": "Fallido",
+      "sending": "Enviando..."
     }
   },
   "infrastructure": {
