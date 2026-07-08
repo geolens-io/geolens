@@ -7,6 +7,7 @@ from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
 
 import structlog
 
+from app.core.url_redaction import redact_url_credentials
 from app.platform.extensions import get_catalog_port
 
 logger = structlog.stdlib.get_logger(__name__)
@@ -106,13 +107,13 @@ async def run_service_preview(
 
     logger.info(
         "running ogrinfo for service preview",
-        gdal_source=gdal_source,
+        gdal_source=redact_url_credentials(gdal_source),
         layer_name=layer_name,
     )
 
     header_file_path: str | None = None
     try:
-        env = {**os.environ}
+        env = {**os.environ, "GDAL_HTTP_FOLLOWLOCATION": "NO"}
         if token and (
             gdal_source.startswith("WFS:") or gdal_source.startswith("OAPIF:")
         ):
@@ -154,7 +155,7 @@ async def run_service_preview(
             await proc.wait()
             logger.warning(
                 "ogrinfo timed out for service preview",
-                gdal_source=gdal_source,
+                gdal_source=redact_url_credentials(gdal_source),
                 layer_name=layer_name,
                 timeout=timeout,
             )
@@ -176,20 +177,21 @@ async def run_service_preview(
 
     if proc.returncode != 0:
         error_msg = stderr.decode().strip() if stderr else "unknown error"
+        safe_error_msg = redact_url_credentials(error_msg)
         logger.error(
             "ogrinfo failed for service preview",
-            gdal_source=gdal_source,
+            gdal_source=redact_url_credentials(gdal_source),
             returncode=proc.returncode,
-            stderr=error_msg,
+            stderr=safe_error_msg,
         )
-        raise IngestionError(f"ogrinfo failed: {error_msg}")
+        raise IngestionError(f"ogrinfo failed: {safe_error_msg}")
 
     data = json.loads(stdout.decode())
     layers = data.get("layers", [])
     if not layers:
         logger.warning(
             "ogrinfo returned no layers",
-            gdal_source=gdal_source,
+            gdal_source=redact_url_credentials(gdal_source),
         )
         return empty_fallback
 
@@ -220,7 +222,7 @@ async def run_service_preview(
 
     logger.info(
         "service preview complete",
-        gdal_source=gdal_source,
+        gdal_source=redact_url_credentials(gdal_source),
         layer_name=result["layer_name"],
         feature_count=result["feature_count"],
         column_count=len(columns),

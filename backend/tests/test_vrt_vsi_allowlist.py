@@ -3,7 +3,7 @@
 Pins:
 - VRT_VSI_ALLOWED_PREFIXES exports from raster/vrt.py with the expected
   7 alphabetically-sorted prefixes.
-- validate_vrt_body consumes the shared constant (not a local copy).
+- validate_vrt_body intentionally rejects VSI paths for user-uploaded VRTs.
 """
 
 from __future__ import annotations
@@ -39,30 +39,28 @@ class TestVrtVsiAllowedPrefixes:
 
         assert isinstance(VRT_VSI_ALLOWED_PREFIXES, tuple)
 
-    def test_validate_vrt_body_consumes_shared_constant(self):
-        """validate_vrt_body uses VRT_VSI_ALLOWED_PREFIXES from raster/vrt.py
-        — not a private copy. Proves this via object identity.
+    def test_user_uploaded_vrt_rejects_vsi_even_when_internal_constant_allows_it(
+        self, tmp_path
+    ):
+        """The allow-list is for internal managed VRT generation, not uploads."""
+        from app.processing.ingest.validation import validate_vrt_body
 
-        WR-05 (Phase 1071 review): the previous test monkey-patched both
-        vrt_module and validation_module, but the vrt_module patch was inert
-        because `from app.processing.raster.vrt import VRT_VSI_ALLOWED_PREFIXES`
-        binds the name in validation's namespace at import time (value copy,
-        not live reference). The inert patch created a false impression that the
-        test proved read-through from vrt.py's namespace at call time.
-
-        This assertion is the correct structural proof: if validation.py ever
-        re-inlines the constant (a private copy), the two objects will no
-        longer be identical and this test fails.
-        """
-        from app.processing.ingest.validation import (
-            VRT_VSI_ALLOWED_PREFIXES as v_const,
+        vrt_file = tmp_path / "managed_path.vrt"
+        vrt_file.write_bytes(
+            b'<?xml version="1.0"?>\n'
+            b'<VRTDataset rasterXSize="1" rasterYSize="1">\n'
+            b'  <VRTRasterBand dataType="Byte" band="1">\n'
+            b"    <SimpleSource>\n"
+            b"      <SourceFilename>/vsis3/bucket/key.tif</SourceFilename>\n"
+            b"      <SourceBand>1</SourceBand>\n"
+            b"    </SimpleSource>\n"
+            b"  </VRTRasterBand>\n"
+            b"</VRTDataset>\n"
         )
-        from app.processing.raster.vrt import VRT_VSI_ALLOWED_PREFIXES as vrt_const
 
-        assert v_const is vrt_const, (
-            "validation.py has re-inlined VRT_VSI_ALLOWED_PREFIXES (private copy detected). "
-            "It must import the constant from app.processing.raster.vrt."
-        )
+        with pytest.raises(ValueError) as exc:
+            validate_vrt_body(str(vrt_file))
+        assert "absolute path" in str(exc.value).lower()
 
     def test_validate_vrt_body_rejects_unknown_vsi_scheme(self, tmp_path):
         """Sanity check: an unknown VSI scheme is rejected when NOT in

@@ -11,12 +11,13 @@ from typing import Literal
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, HttpUrl, field_validator
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.standards.ogc.errors import ERROR_RESPONSES_WRITE
 
+from app.core.url_redaction import has_url_credentials, redact_url_credentials
 from app.modules.audit.service import AuditEvent, audit_emit
 from app.core.identity import Identity
 from app.modules.auth.dependencies import require_permission
@@ -39,6 +40,15 @@ import httpx
 
 logger = structlog.stdlib.get_logger(__name__)
 Visibility = Literal["private", "restricted", "internal", "public"]
+
+
+def _validate_stac_http_url(v: str) -> str:
+    HttpUrl(v)
+    if has_url_credentials(v):
+        raise ValueError(
+            "url must not include credential query parameters; use a non-secret URL"
+        )
+    return v
 
 
 async def _fetch_cog_info(url: str) -> dict | None:
@@ -127,6 +137,7 @@ class StacConnectRequest(BaseModel):
         max_length=2048,
         description="STAC API root URL to connect to.",
     )
+    _validate_url = field_validator("url")(_validate_stac_http_url)
 
 
 class StacConnectResponse(BaseModel):
@@ -170,6 +181,7 @@ class StacSearchRequest(BaseModel):
         max_length=2048,
         description="STAC API root URL.",
     )
+    _validate_url = field_validator("url")(_validate_stac_http_url)
     collections: list[str] | None = Field(
         default=None, description="Filter by collection IDs."
     )
@@ -247,6 +259,9 @@ class StacImportItem(BaseModel):
     data_asset_href: str = Field(
         max_length=4096, description="URL of the COG asset to reference."
     )
+    _validate_data_asset_href = field_validator("data_asset_href")(
+        _validate_stac_http_url
+    )
     bbox: list[float] | None = Field(default=None, description="Item bounding box.")
     epsg: int | None = Field(default=None, description="EPSG code.")
     datetime_start: str | None = Field(
@@ -266,6 +281,7 @@ class StacImportRequest(BaseModel):
         max_length=2048,
         description="STAC API URL for provenance.",
     )
+    _validate_url = field_validator("url")(_validate_stac_http_url)
     items: list[StacImportItem] = Field(
         min_length=1,
         max_length=50,
@@ -307,6 +323,7 @@ async def stac_connect(
     db: AsyncSession = Depends(get_db),
 ) -> StacConnectResponse:
     """Connect to a STAC API and validate the endpoint."""
+    safe_url = redact_url_credentials(request.url)
     try:
         await validate_url_for_ssrf(request.url)
     except SSRFError as exc:
@@ -320,7 +337,7 @@ async def stac_connect(
                 user_id=user.id,
                 action="stac_connect",
                 resource_type="stac_api",
-                details={"url": request.url, "result": "not_stac"},
+                details={"url": safe_url, "result": "not_stac"},
             ),
         )
         await db.commit()
@@ -336,7 +353,7 @@ async def stac_connect(
             action="stac_connect",
             resource_type="stac_api",
             details={
-                "url": request.url,
+                "url": safe_url,
                 "result": "success",
                 "stac_version": result["stac_version"],
             },
@@ -359,6 +376,7 @@ async def stac_collections(
     user: Identity = Depends(require_permission("create_layers")),
 ) -> StacCollectionsResponse:
     """List collections from a connected STAC API."""
+    safe_url = redact_url_credentials(request.url)
     try:
         await validate_url_for_ssrf(request.url)
     except SSRFError as exc:
@@ -367,7 +385,7 @@ async def stac_collections(
     try:
         collections = await list_stac_collections(request.url)
     except Exception as exc:  # broad: STAC client/HTTP/parse can throw varied errors; map to 502 for the user
-        logger.warning("STAC collections fetch failed", url=request.url, error=str(exc))
+        logger.warning("STAC collections fetch failed", url=safe_url, error=str(exc))
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="Failed to fetch collections from STAC API.",
@@ -385,6 +403,7 @@ async def stac_search(
     user: Identity = Depends(require_permission("create_layers")),
 ) -> StacSearchResponse:
     """Search items in a STAC API with spatial/temporal filters."""
+    safe_url = redact_url_credentials(request.url)
     try:
         await validate_url_for_ssrf(request.url)
     except SSRFError as exc:
@@ -399,7 +418,7 @@ async def stac_search(
             limit=request.limit,
         )
     except Exception as exc:  # broad: STAC /search client/HTTP/parse can throw varied errors; map to 502 for the user
-        logger.warning("STAC search failed", url=request.url, error=str(exc))
+        logger.warning("STAC search failed", url=safe_url, error=str(exc))
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="Failed to search STAC API. The endpoint may be unavailable or does not support /search.",
@@ -435,6 +454,7 @@ async def stac_import(
     remote source — no file download required.
     """
     results: list[StacImportResult] = []
+    safe_url = redact_url_credentials(request.url)
     created = 0
     skipped = 0
     errors = 0
@@ -474,18 +494,10 @@ async def stac_import(
             # which fails every item with no server-side trace. Redact the href
             # (drop query string + any userinfo) so a presigned URL's
             # credentials are never written to application logs.
-            from urllib.parse import urlsplit
-
-            _p = urlsplit(item.data_asset_href or "")
-            _redacted_href = (
-                f"{_p.scheme}://{_p.hostname or ''}{_p.path}"
-                if _p.scheme
-                else (item.data_asset_href or "").split("?", 1)[0]
-            )
             logger.warning(
                 "STAC item SSRF-rejected",
                 item_id=item.id,
-                href=_redacted_href,
+                href=redact_url_credentials(item.data_asset_href),
                 error=str(exc),
             )
             results.append(
@@ -603,7 +615,7 @@ async def stac_import(
             action="stac_import",
             resource_type="stac_api",
             details={
-                "url": request.url,
+                "url": safe_url,
                 "requested": len(request.items),
                 "created": created,
                 "skipped": skipped,

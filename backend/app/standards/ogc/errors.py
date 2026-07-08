@@ -8,6 +8,8 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
+from app.core.url_redaction import redact_query_credentials
+
 logger = structlog.stdlib.get_logger(__name__)
 
 
@@ -176,7 +178,9 @@ def register_error_handlers(app: FastAPI) -> None:
             "Unhandled error",
             path=request.url.path,
             method=request.method,
-            query=str(request.url.query) if request.url.query else None,
+            query=redact_query_credentials(str(request.url.query))
+            if request.url.query
+            else None,
             user_id=user_id,
             request_id=request_id,
             client_ip=client_ip,

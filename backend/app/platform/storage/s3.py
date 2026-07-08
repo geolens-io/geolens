@@ -136,6 +136,15 @@ class S3StorageProvider:
 
         return await asyncio.to_thread(_exists)
 
+    async def size(self, key: str) -> int:
+        """Return object size in bytes via head_object."""
+
+        def _size() -> int:
+            response = self.client.head_object(Bucket=self.bucket, Key=key)
+            return int(response["ContentLength"])
+
+        return await asyncio.to_thread(_size)
+
     async def list(self, prefix: str) -> list[str]:
         """List keys matching a prefix."""
 

@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.url_redaction import redact_url_credentials
 from app.modules.audit.service import AuditEvent, audit_emit
 from app.core.crs_uri import parse_crs_uri
 from app.core.identity import Identity
@@ -57,13 +58,14 @@ async def _probe_audit_fail(
     **extra,
 ) -> None:
     """Audit-log a probe failure and raise HTTPException."""
+    safe_url = redact_url_credentials(url)
     await audit_emit(
         db,
         AuditEvent(
             user_id=user_id,
             action="probe_service",
             resource_type="service_url",
-            details={"url": url, "result": result, **extra},
+            details={"url": safe_url, "result": result, **extra},
         ),
     )
     await db.commit()
@@ -136,13 +138,14 @@ async def _fail_preview(
     db: AsyncSession, user_id: uuid.UUID, url: str, layer: str
 ) -> NoReturn:
     """Log audit and raise 502 for a failed service preview."""
+    safe_url = redact_url_credentials(url)
     await audit_emit(
         db,
         AuditEvent(
             user_id=user_id,
             action="preview_service_layer",
             resource_type="service_url",
-            details={"url": url, "layer": layer, "result": "ogrinfo_failed"},
+            details={"url": safe_url, "layer": layer, "result": "ogrinfo_failed"},
         ),
     )
     await db.commit()
@@ -176,6 +179,7 @@ async def _create_preview_job(
     """
     effective_url = source_url if source_url is not None else request.url
     effective_layer_id = layer_id if layer_id is not None else request.layer_id
+    safe_request_url = redact_url_credentials(request.url)
     job = IngestJob(
         source_filename=request.layer_title or request.layer_name,
         source_url=effective_url,
@@ -195,7 +199,7 @@ async def _create_preview_job(
 
     logger.info(
         "Service preview success",
-        url=request.url,
+        url=safe_request_url,
         layer=request.layer_name,
         job_id=str(job.id),
     )
@@ -206,7 +210,7 @@ async def _create_preview_job(
             action="preview_service_layer",
             resource_type="service_url",
             details={
-                "url": request.url,
+                "url": safe_request_url,
                 "layer": request.layer_name,
                 "job_id": str(job.id),
                 "result": "success",
@@ -251,11 +255,12 @@ async def probe_service_url(
     Validates the URL against SSRF, detects whether it is a WFS or ArcGIS
     service, and returns a unified layer list. All attempts are audit-logged.
     """
+    safe_url = redact_url_credentials(request.url)
     # Step 1: SSRF validation
     try:
         await validate_url_for_ssrf(request.url)
     except SSRFError as exc:
-        logger.warning("SSRF blocked", url=request.url, reason=str(exc))
+        logger.warning("SSRF blocked", url=safe_url, reason=str(exc))
         await _probe_audit_fail(
             db,
             user.id,
@@ -277,7 +282,7 @@ async def probe_service_url(
             )
 
     except httpx.TimeoutException:
-        logger.warning("Probe timeout", url=request.url)
+        logger.warning("Probe timeout", url=safe_url)
         await _probe_audit_fail(
             db,
             user.id,
@@ -288,7 +293,7 @@ async def probe_service_url(
         )
 
     except ArcGISTokenError as exc:
-        logger.warning("ArcGIS token error", url=request.url, error=str(exc))
+        logger.warning("ArcGIS token error", url=safe_url, error=str(exc))
         await _probe_audit_fail(
             db,
             user.id,
@@ -302,7 +307,7 @@ async def probe_service_url(
     except httpx.HTTPStatusError as exc:
         resp_status = exc.response.status_code
         if resp_status in (401, 403):
-            logger.warning("Probe auth required", url=request.url, status=resp_status)
+            logger.warning("Probe auth required", url=safe_url, status=resp_status)
             await _probe_audit_fail(
                 db,
                 user.id,
@@ -313,7 +318,7 @@ async def probe_service_url(
                 status=resp_status,
             )
         else:
-            logger.warning("Probe remote error", url=request.url, status=resp_status)
+            logger.warning("Probe remote error", url=safe_url, status=resp_status)
             await _probe_audit_fail(
                 db,
                 user.id,
@@ -325,7 +330,7 @@ async def probe_service_url(
             )
 
     except httpx.TransportError:
-        logger.warning("Probe unreachable", url=request.url)
+        logger.warning("Probe unreachable", url=safe_url)
         await _probe_audit_fail(
             db,
             user.id,
@@ -336,7 +341,7 @@ async def probe_service_url(
         )
 
     except ServiceNotRecognized as exc:
-        logger.info("Probe unrecognized", url=request.url)
+        logger.info("Probe unrecognized", url=safe_url)
         await _probe_audit_fail(
             db,
             user.id,
@@ -349,7 +354,7 @@ async def probe_service_url(
     # Step 3: Audit log on success
     logger.info(
         "Probe success",
-        url=request.url,
+        url=safe_url,
         service_type=response.service_type,
         layer_count=len(response.layers),
     )
@@ -360,7 +365,7 @@ async def probe_service_url(
             action="probe_service",
             resource_type="service_url",
             details={
-                "url": request.url,
+                "url": safe_url,
                 "result": "success",
                 "service_type": response.service_type,
                 "layer_count": len(response.layers),
@@ -386,11 +391,12 @@ async def preview_service_layer(
     runs ogrinfo to extract metadata and sample rows, then creates an IngestJob
     ready for the existing commit flow.
     """
+    safe_url = redact_url_credentials(request.url)
     # Step 1: SSRF validation
     try:
         await validate_url_for_ssrf(request.url)
     except SSRFError as exc:
-        logger.warning("SSRF blocked for preview", url=request.url, reason=str(exc))
+        logger.warning("SSRF blocked for preview", url=safe_url, reason=str(exc))
         await audit_emit(
             db,
             AuditEvent(
@@ -398,7 +404,7 @@ async def preview_service_layer(
                 action="preview_service_layer",
                 resource_type="service_url",
                 details={
-                    "url": request.url,
+                    "url": safe_url,
                     "layer": request.layer_name,
                     "result": "ssrf_blocked",
                     "reason": str(exc),
@@ -488,9 +494,7 @@ async def preview_service_layer(
                     token=request.token,
                 )
         except ArcGISTokenError as exc:
-            logger.warning(
-                "ArcGIS preview token error", url=request.url, error=str(exc)
-            )
+            logger.warning("ArcGIS preview token error", url=safe_url, error=str(exc))
             await audit_emit(
                 db,
                 AuditEvent(
@@ -498,7 +502,7 @@ async def preview_service_layer(
                     action="preview_service_layer",
                     resource_type="service_url",
                     details={
-                        "url": request.url,
+                        "url": safe_url,
                         "layer": request.layer_name,
                         "result": "auth_required",
                         "arcgis_code": exc.code,
@@ -516,7 +520,7 @@ async def preview_service_layer(
         except (httpx.HTTPError, ValueError) as exc:
             logger.warning(
                 "ArcGIS preview failed",
-                url=request.url,
+                url=safe_url,
                 layer=request.layer_name,
                 error=str(exc),
             )
@@ -548,7 +552,7 @@ async def preview_service_layer(
     except ValueError as exc:
         logger.warning(
             "Invalid preview request",
-            url=request.url,
+            url=safe_url,
             service_type=request.service_type,
             error=str(exc),
         )
@@ -559,7 +563,7 @@ async def preview_service_layer(
                 action="preview_service_layer",
                 resource_type="service_url",
                 details={
-                    "url": request.url,
+                    "url": safe_url,
                     "layer": request.layer_name,
                     "result": "invalid_request",
                     "reason": str(exc),
@@ -599,21 +603,21 @@ async def preview_service_layer(
             except (IngestionError, ValueError):
                 logger.warning(
                     "Preview failed after namespace retry",
-                    url=request.url,
+                    url=safe_url,
                     layer=request.layer_name,
                 )
                 await _fail_preview(db, user.id, request.url, request.layer_name)
         else:
             logger.warning(
                 "Preview ogrinfo failed",
-                url=request.url,
+                url=safe_url,
                 layer=request.layer_name,
             )
             await _fail_preview(db, user.id, request.url, request.layer_name)
     except Exception:  # broad: preview pipeline involves GDAL/OGR/HTTP probes; record failure without aborting the request
         logger.exception(
             "Unexpected error during service preview",
-            url=request.url,
+            url=safe_url,
             layer=request.layer_name,
         )
         await audit_emit(
@@ -623,7 +627,7 @@ async def preview_service_layer(
                 action="preview_service_layer",
                 resource_type="service_url",
                 details={
-                    "url": request.url,
+                    "url": safe_url,
                     "layer": request.layer_name,
                     "result": "unexpected_error",
                 },
@@ -648,7 +652,7 @@ async def preview_service_layer(
             preview_data["srid"] = fallback_srid
             logger.info(
                 "OGC API preview CRS resolved via collection metadata",
-                url=request.url,
+                url=safe_url,
                 layer=request.layer_name,
                 srid=fallback_srid,
             )

@@ -118,6 +118,11 @@ class LocalStorageProvider:
         path = self._resolve_contained(key)
         return await asyncio.to_thread(path.exists)
 
+    async def size(self, key: str) -> int:
+        """Return file size in bytes."""
+        path = self._resolve_contained(key)
+        return await asyncio.to_thread(lambda: path.stat().st_size)
+
     async def list(self, prefix: str) -> list[str]:
         """List keys matching a prefix, relative to base_dir."""
         base_dir = self.base_dir

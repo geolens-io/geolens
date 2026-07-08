@@ -685,6 +685,16 @@ class DefaultCatalogPort:
 
         return UploadResponse
 
+    async def abort_presigned_multipart_upload(self, storage, **kwargs):  # type: ignore[no-untyped-def]
+        from app.processing.ingest.presigned import abort_presigned_multipart_upload
+
+        return await abort_presigned_multipart_upload(storage, **kwargs)
+
+    async def verify_completed_presigned_upload(self, **kwargs):  # type: ignore[no-untyped-def]
+        from app.processing.ingest.presigned import verify_completed_presigned_upload
+
+        return await verify_completed_presigned_upload(**kwargs)
+
     def visibility_default(self) -> str:
         return "private"
 

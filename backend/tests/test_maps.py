@@ -1255,6 +1255,21 @@ class TestDuplicateMap:
         assert data["visibility"] == "private"
         assert "excluded_layer_count" in data
 
+    async def test_duplicate_private_map_non_owner_returns_404(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        viewer_auth_header: dict,
+    ):
+        """POST /maps/{id}/duplicate must enforce map read visibility."""
+        created = await _create_map(client, admin_auth_header, "Private Source Map")
+        map_id = created["id"]
+
+        resp = await client.post(
+            f"/maps/{map_id}/duplicate/", headers=viewer_auth_header
+        )
+        assert resp.status_code == 404
+
     async def test_duplicate_map_preserves_layers(
         self,
         client: AsyncClient,
@@ -1404,6 +1419,46 @@ class TestDuplicateMap:
         assert resp.status_code == 201
         data = resp.json()
         assert data["layer_count"] == 1
+        assert data["excluded_layer_count"] == 1
+
+    async def test_duplicate_excludes_public_unpublished_dataset_for_non_owner(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        viewer_auth_header: dict,
+        test_db_session,
+    ):
+        """Viewer fork must mirror dataset read policy for public draft layers."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        draft_ds = await create_dataset(
+            test_db_session,
+            created_by=admin_id,
+            name="Public Draft DS",
+            visibility="public",
+            record_status="draft",
+        )
+
+        created = await _create_map(client, admin_auth_header, "Draft Layer Map")
+        map_id = created["id"]
+        await client.put(
+            f"/maps/{map_id}",
+            json={"visibility": "public"},
+            headers=admin_auth_header,
+        )
+        add_resp = await client.post(
+            f"/maps/{map_id}/layers",
+            json={"dataset_id": str(draft_ds.id)},
+            headers=admin_auth_header,
+        )
+        assert add_resp.status_code == 201, add_resp.text
+
+        resp = await client.post(
+            f"/maps/{map_id}/duplicate/", headers=viewer_auth_header
+        )
+
+        assert resp.status_code == 201
+        data = resp.json()
+        assert data["layer_count"] == 0
         assert data["excluded_layer_count"] == 1
 
     async def test_duplicate_all_layers_excluded(

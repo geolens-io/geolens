@@ -10,7 +10,7 @@ from app.modules.audit.service import AuditEvent, audit_emit
 from app.core.identity import Identity
 from app.modules.auth.dependencies import require_permission
 from app.core.dependencies import get_db
-from app.modules.catalog.authorization import check_dataset_access
+from app.modules.catalog.authorization import check_dataset_write_access
 from app.modules.catalog.datasets.domain.service import get_dataset
 from app.modules.catalog.layers.schemas import (
     AddColumnRequest,
@@ -105,8 +105,7 @@ async def add_column_endpoint(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Dataset not found",
         )
-    # Phase 1061 SEC-S03: resource-level access check (create_layers permission gates role only).
-    await check_dataset_access(db, dataset, dataset_id, user)
+    await check_dataset_write_access(db, dataset, dataset_id, user)
 
     try:
         columns = await add_column(db, dataset, body.column.name, body.column.type)
@@ -161,8 +160,7 @@ async def rename_column_endpoint(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Dataset not found",
         )
-    # Phase 1061 SEC-S03: resource-level access check (create_layers permission gates role only).
-    await check_dataset_access(db, dataset, dataset_id, user)
+    await check_dataset_write_access(db, dataset, dataset_id, user)
 
     try:
         columns = await rename_column(db, dataset, column_name, body.new_name)
@@ -217,8 +215,7 @@ async def alter_column_type_endpoint(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Dataset not found",
         )
-    # Phase 1061 SEC-S03: resource-level access check (create_layers permission gates role only).
-    await check_dataset_access(db, dataset, dataset_id, user)
+    await check_dataset_write_access(db, dataset, dataset_id, user)
 
     try:
         columns = await alter_column_type(db, dataset, column_name, body.new_type)
@@ -276,8 +273,7 @@ async def drop_column_endpoint(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Dataset not found",
         )
-    # Phase 1061 SEC-S03: resource-level access check (create_layers permission gates role only).
-    await check_dataset_access(db, dataset, dataset_id, user)
+    await check_dataset_write_access(db, dataset, dataset_id, user)
 
     try:
         columns = await drop_column(db, dataset, column_name)

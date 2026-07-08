@@ -38,6 +38,10 @@ class StorageProvider(Protocol):
         """Check if a key exists."""
         ...
 
+    async def size(self, key: str) -> int:
+        """Return the stored object size in bytes. Raises if key does not exist."""
+        ...
+
     async def list(self, prefix: str) -> list[str]:
         """List keys matching a prefix."""
         ...

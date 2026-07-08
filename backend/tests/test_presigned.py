@@ -93,6 +93,19 @@ def test_complete_multipart_upload(s3_provider):
     assert s3_provider.client.head_object(Bucket="test-bucket", Key=key)
 
 
+@pytest.mark.asyncio
+async def test_s3_storage_size_returns_content_length(s3_provider):
+    await s3_provider.put("staging/size-test.geojson", b"12345")
+    assert await s3_provider.size("staging/size-test.geojson") == 5
+
+
+@pytest.mark.asyncio
+async def test_local_storage_size_returns_file_size(tmp_path):
+    provider = LocalStorageProvider(base_dir=str(tmp_path))
+    await provider.put("staging/size-test.geojson", b"12345")
+    assert await provider.size("staging/size-test.geojson") == 5
+
+
 def test_abort_multipart_upload(s3_provider):
     upload_id = s3_provider.initiate_multipart_upload("staging/abort-test.zip")
     s3_provider.abort_multipart_upload("staging/abort-test.zip", upload_id)

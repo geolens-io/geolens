@@ -5,6 +5,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, HttpUrl, field_validator
 
+from app.core.url_redaction import has_url_credentials
+
 
 def _validate_http_url(v: str) -> str:
     """Validate HTTP/HTTPS URL format at the schema boundary.
@@ -13,6 +15,15 @@ def _validate_http_url(v: str) -> str:
     SSRF guard runs separately after this format check.
     """
     HttpUrl(v)
+    return v
+
+
+def _validate_service_url(v: str) -> str:
+    _validate_http_url(v)
+    if has_url_credentials(v):
+        raise ValueError(
+            "url must not include credential query parameters; use the token field instead"
+        )
     return v
 
 
@@ -42,7 +53,7 @@ class ProbeRequest(BaseModel):
         max_length=2048,
         description="Service URL to probe. May be a WFS GetCapabilities URL or an ArcGIS service endpoint.",
     )
-    _validate_url = field_validator("url")(_validate_http_url)
+    _validate_url = field_validator("url")(_validate_service_url)
     token: str | None = Field(
         default=None,
         max_length=1000,
@@ -113,7 +124,7 @@ class ServicePreviewRequest(BaseModel):
         max_length=2048,
         description="Normalized service URL from a previous probe response.",
     )
-    _validate_url = field_validator("url")(_validate_http_url)
+    _validate_url = field_validator("url")(_validate_service_url)
     service_type: str = Field(
         min_length=1,
         max_length=100,

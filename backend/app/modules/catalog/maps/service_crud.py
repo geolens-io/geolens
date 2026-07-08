@@ -384,6 +384,18 @@ async def duplicate_map(
         raise ValueError(f"Map {map_id} not found")
 
     user_roles = await get_user_roles(session, user)
+    is_admin = "admin" in user_roles
+    if not (
+        source.visibility == "public"
+        or source.visibility == "internal"
+        or source.created_by == user.id
+        or is_admin
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Map not found",
+        )
+
     fork_name = await _generate_fork_name(session, source.name, user.id)
 
     # Create new map - always private, no thumbnail, track lineage

@@ -76,6 +76,10 @@ from app.processing.ingest.service import (
     save_upload_file,
     validate_file_extension,
 )
+from app.processing.ingest.presigned import (
+    abort_presigned_multipart_upload,
+    verify_completed_presigned_upload,
+)
 from app.processing.ingest.tasks import regenerate_vrt
 from app.processing.ingest.validation import validate_file_content
 from app.platform.jobs.defer_guard import defer_with_orphan_guard
@@ -226,6 +230,7 @@ async def request_presigned_upload(
             "s3_key": s3_key,
             "upload_id": upload_id,
             "multipart": True,
+            "expected_size": request.file_size,
         }
         await db.commit()
         return PresignedUploadResponse(
@@ -250,7 +255,12 @@ async def request_presigned_upload(
                 status_code=status.HTTP_502_BAD_GATEWAY,
                 detail="Storage service unavailable",
             )
-        job.user_metadata = {"presigned": True, "s3_key": s3_key, "multipart": False}
+        job.user_metadata = {
+            "presigned": True,
+            "s3_key": s3_key,
+            "multipart": False,
+            "expected_size": request.file_size,
+        }
         await db.commit()
         return PresignedUploadResponse(
             job_id=job.id,
@@ -263,6 +273,7 @@ async def request_presigned_upload(
 async def complete_presigned_upload(
     job_id: uuid.UUID,
     request: PresignedCompleteRequest,
+    http_request: Request,
     user: Identity = Depends(require_permission("upload")),
     db: AsyncSession = Depends(get_db),
 ) -> UploadResponse:
@@ -279,7 +290,18 @@ async def complete_presigned_upload(
     storage = get_storage()
     s3_key = um["s3_key"]
 
-    if um.get("multipart") and request.parts:
+    if um.get("multipart"):
+        if not request.parts:
+            await abort_presigned_multipart_upload(
+                storage,
+                key=s3_key,
+                upload_id=um.get("upload_id"),
+                job_id=job.id,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Multipart upload completion requires at least one uploaded part",
+            )
         try:
             await asyncio.to_thread(
                 storage.complete_multipart_upload,
@@ -287,9 +309,13 @@ async def complete_presigned_upload(
                 um["upload_id"],
                 [{"ETag": p.etag, "PartNumber": p.part_number} for p in request.parts],
             )
-        except (
-            Exception
-        ):  # broad: S3/MinIO multipart-complete can throw varied SDK errors; map to 502
+        except Exception as exc:  # broad: S3/MinIO multipart-complete can throw varied SDK errors; map to 502
+            await abort_presigned_multipart_upload(
+                storage,
+                key=s3_key,
+                upload_id=um.get("upload_id"),
+                job_id=job.id,
+            )
             logger.exception(
                 "multipart_upload_completion_failed",
                 job_id=str(job.id),
@@ -299,13 +325,22 @@ async def complete_presigned_upload(
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
                 detail="Upload completion failed — the upload session may have expired. Please try again.",
-            )
+            ) from exc
 
     if not await storage.exists(s3_key):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="File not found in S3 after upload",
         )
+    await verify_completed_presigned_upload(
+        db=db,
+        storage=storage,
+        key=s3_key,
+        expected_size=um.get("expected_size"),
+        user_id=user.id,
+        request=http_request,
+        job_id=job.id,
+    )
 
     job.file_path = s3_key
     await db.commit()
