@@ -28,6 +28,23 @@ def test_redact_url_credentials_masks_sensitive_query_values() -> None:
     assert "X-Amz-Signature=%3Credacted%3E" in redacted
 
 
+@pytest.mark.parametrize(
+    "value",
+    [
+        "https://?token=secret",
+        "https:///path?token=secret",
+        "ESRIJSON:https://?token=secret",
+        "ogrinfo failed for https://?token=secret and bailed",
+    ],
+)
+def test_redact_url_credentials_empty_host_terminates_and_masks(value: str) -> None:
+    # fix(#429 review): an http(s) URL with an empty host previously matched the
+    # whole string in the regex fallback and recursed forever (RecursionError).
+    # It must terminate and still mask the secret.
+    redacted = redact_url_credentials(value)
+    assert "secret" not in redacted
+
+
 def test_redact_query_credentials_preserves_non_sensitive_query() -> None:
     assert redact_query_credentials("f=json&where=1%3D1") == "f=json&where=1%3D1"
 

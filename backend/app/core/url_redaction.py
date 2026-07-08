@@ -105,7 +105,12 @@ def redact_url_credentials(url: str) -> str:
         return prefix + redact_url_credentials(nested_url)
 
     parts = urlsplit(url)
-    if not (parts.scheme.lower() in {"http", "https"} and parts.netloc):
+    # Only a scheme-less string (free text, GDAL stderr) goes to the regex
+    # fallback. An http(s) URL with an EMPTY host (e.g. "https://?token=x") must
+    # still be reconstructed below — routing it to the fallback would match the
+    # whole string and recurse forever. fix(#429 review): guard empty-host URLs
+    # against unbounded recursion; the reconstruct path terminates and redacts.
+    if parts.scheme.lower() not in {"http", "https"}:
         return URL_LIKE_RE.sub(
             lambda match: redact_url_credentials(match.group(0)),
             url,
