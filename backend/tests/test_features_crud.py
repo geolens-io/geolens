@@ -1017,3 +1017,54 @@ class TestRasterDatasetFeatureGuard:
         )
         assert resp.status_code == 404, resp.text
         assert "raster collection" in resp.json()["detail"].lower()
+
+
+class TestCreateEmptyDatasetGenericGeometry:
+    """fix(#430 codex r5, P1): create_empty_dataset stores geometry_type='GEOMETRY'
+    (fix #430 BA-32), which the chk_datasets_geometry_type allow-list rejected —
+    every empty-dataset create 500'd at flush with ZERO endpoint coverage.
+    Migration 0011 admits the generic sentinel; this pins the whole flow."""
+
+    async def test_create_empty_dataset_then_insert_mixed_geometries(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+    ):
+        resp = await client.post(
+            "/datasets/create/",
+            json={
+                "title": "Mixed Sketch Layer",
+                "columns": [{"name": "name", "type": "text"}],
+            },
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 201, resp.text
+        dataset_id = resp.json()["id"]
+
+        # fix(#430 BA-32): the generic-typed dataset accepts ANY concrete
+        # geometry subtype — previously the stored 'POINT' rejected polygons.
+        geometries = [
+            {"type": "Point", "coordinates": [-73.9857, 40.7484]},
+            {
+                "type": "Polygon",
+                "coordinates": [
+                    [
+                        [-74.0, 40.7],
+                        [-73.9, 40.7],
+                        [-73.9, 40.8],
+                        [-74.0, 40.8],
+                        [-74.0, 40.7],
+                    ]
+                ],
+            },
+            {"type": "LineString", "coordinates": [[-74.0, 40.7], [-73.9, 40.8]]},
+        ]
+        for geometry in geometries:
+            feature_resp = await client.post(
+                f"/datasets/{dataset_id}/features/",
+                json={"geometry": geometry, "properties": {"name": geometry["type"]}},
+                headers=admin_auth_header,
+            )
+            assert feature_resp.status_code == 201, (
+                f"{geometry['type']}: {feature_resp.text}"
+            )

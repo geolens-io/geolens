@@ -256,10 +256,13 @@ class Dataset(Base):
             name="chk_quality_score_range",
         ),
         CheckConstraint(
+            # fix(#430 codex r5): 'GEOMETRY' = generic mixed-geometry sentinel
+            # stored by create_empty_dataset (fix #430 BA-32). Migration
+            # 0011_allow_generic_geometry_type is the source of truth.
             "geometry_type IS NULL OR UPPER(geometry_type) IN ("
             "'POINT', 'LINESTRING', 'POLYGON', "
             "'MULTIPOINT', 'MULTILINESTRING', 'MULTIPOLYGON', "
-            "'GEOMETRYCOLLECTION')",
+            "'GEOMETRYCOLLECTION', 'GEOMETRY')",
             name="chk_datasets_geometry_type",
         ),
         CheckConstraint(
