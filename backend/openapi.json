@@ -39515,6 +39515,7 @@
             "schema": {
               "anyOf": [
                 {
+                  "maxLength": 10000,
                   "type": "string"
                 },
                 {
