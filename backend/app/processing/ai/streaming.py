@@ -228,7 +228,10 @@ async def _stream_anthropic_chat(
                 "type": "error",
                 "message": "Daily AI token budget exceeded. Try again later.",
             }
-            break
+            # fix(#430 codex): return, not break — falling through emitted a
+            # second "No response generated" error after the budget error.
+            # Usage is recorded per-round, so nothing post-loop is skipped.
+            return
 
         buffered_tokens: list[str] = []
         has_tool_use = False
@@ -457,7 +460,10 @@ async def _stream_openai_chat(
                 "type": "error",
                 "message": "Daily AI token budget exceeded. Try again later.",
             }
-            break
+            # fix(#430 codex): return, not break — falling through yielded empty
+            # actions/done, letting clients treat the capped request as success.
+            # Usage is recorded per-round, so nothing post-loop is skipped.
+            return
 
         # Phase 226 D-08: CHAT_TOOLS_OPENAI removed; convert from canonical Anthropic shape.
         _tools_openai = [

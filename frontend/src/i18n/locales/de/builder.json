@@ -1069,7 +1069,7 @@
     "kebabCopyStyle": "Stil kopieren",
     "kebabPasteStyle": "Stil einfügen",
     "disambiguation": "{{label}}",
-    "audienceHidden": "Für öffentliche Betrachter ausgeblendet"
+    "audienceHidden": "Für die Betrachter dieser Karte ausgeblendet"
   },
   "basemapGroup": {
     "addCustomBasemap": "＋ Benutzerdefinierte Basiskarte hinzufügen…",

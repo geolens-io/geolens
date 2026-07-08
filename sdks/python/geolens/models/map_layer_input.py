@@ -33,6 +33,7 @@ class MapLayerInput:
         dataset_id (UUID):
         display_name (None | str | Unset): Label shown in the layer list
         filter_ (list[Any] | None | Unset): MapLibre filter expression
+        id (None | Unset | UUID): Existing layer id to update in place (full-save reconcile)
         label_config (MapLayerInputLabelConfigType0 | None | Unset): Text label configuration
         layer_type (None | str | Unset): Auto-detected from record_type if omitted
         layout (MapLayerInputLayoutType0 | None | Unset): MapLibre layout properties override
@@ -50,6 +51,7 @@ class MapLayerInput:
     dataset_id: UUID
     display_name: None | str | Unset = UNSET
     filter_: list[Any] | None | Unset = UNSET
+    id: None | Unset | UUID = UNSET
     label_config: MapLayerInputLabelConfigType0 | None | Unset = UNSET
     layer_type: None | str | Unset = UNSET
     layout: MapLayerInputLayoutType0 | None | Unset = UNSET
@@ -89,6 +91,14 @@ class MapLayerInput:
 
         else:
             filter_ = self.filter_
+
+        id: None | str | Unset
+        if isinstance(self.id, Unset):
+            id = UNSET
+        elif isinstance(self.id, UUID):
+            id = str(self.id)
+        else:
+            id = self.id
 
         label_config: dict[str, Any] | None | Unset
         if isinstance(self.label_config, Unset):
@@ -155,6 +165,8 @@ class MapLayerInput:
             field_dict["display_name"] = display_name
         if filter_ is not UNSET:
             field_dict["filter"] = filter_
+        if id is not UNSET:
+            field_dict["id"] = id
         if label_config is not UNSET:
             field_dict["label_config"] = label_config
         if layer_type is not UNSET:
@@ -218,6 +230,23 @@ class MapLayerInput:
             return cast(list[Any] | None | Unset, data)
 
         filter_ = _parse_filter_(d.pop("filter", UNSET))
+
+        def _parse_id(data: object) -> None | Unset | UUID:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, str):
+                    raise TypeError()
+                id_type_0 = UUID(data)
+
+                return id_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(None | Unset | UUID, data)
+
+        id = _parse_id(d.pop("id", UNSET))
 
         def _parse_label_config(
             data: object,
@@ -329,6 +358,7 @@ class MapLayerInput:
             dataset_id=dataset_id,
             display_name=display_name,
             filter_=filter_,
+            id=id,
             label_config=label_config,
             layer_type=layer_type,
             layout=layout,

@@ -545,7 +545,12 @@ async def ingest_file(job_id: str, file_path: str, user_id: str, **kwargs) -> No
         # child — no sibling shares it — so it is always safe to unlink even
         # for fan-out children. Previously the is_fan_out_child guard skipped
         # cleanup unconditionally, leaking every child's S3 download on disk.
-        is_fan_out_child = False
+        # fix(#430 review): default TRUE (treat unknown as fan-out child) so a
+        # failed/absent lookup SKIPS destructive cleanup — deleting the shared
+        # S3 staging original on a misdetected child would break every sibling
+        # (retry=0). Cost of the fail-safe: an orphaned staging object the
+        # retention policy reaps later.
+        is_fan_out_child = True
         try:
             # REMED-03 / P2-05: route through _job_phase_session. The helper
             # yields the IngestJob row directly, so we just check user_metadata.
@@ -553,12 +558,12 @@ async def ingest_file(job_id: str, file_path: str, user_id: str, **kwargs) -> No
                 _check_session,
                 _check_job,
             ):
-                if _check_job is not None and (_check_job.user_metadata or {}).get(
-                    "fan_out_parent_id"
-                ):
-                    is_fan_out_child = True
+                if _check_job is not None:
+                    is_fan_out_child = bool(
+                        (_check_job.user_metadata or {}).get("fan_out_parent_id")
+                    )
         except Exception:  # broad: cleanup decision is best-effort, never block completion on this query
-            is_fan_out_child = False
+            is_fan_out_child = True
 
         if _should_unlink_staging(
             file_path=file_path,

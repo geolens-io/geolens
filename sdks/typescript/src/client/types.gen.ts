@@ -4685,6 +4685,12 @@ export type MapLayerInput = {
      */
     filter?: Array<unknown> | null;
     /**
+     * Id
+     *
+     * Existing layer id to update in place (full-save reconcile)
+     */
+    id?: string | null;
+    /**
      * Label Config
      *
      * Text label configuration

@@ -23,10 +23,12 @@ export interface OverflowActions {
   onFork: () => void;
   isForkPending: boolean;
   /**
-   * fix(V-15): opens the exact anonymous/read-only rendering of this map
-   * (`?preview=viewer`, handled by MapViewerGate) in a new tab, so an editor
-   * can check what a viewer sees without losing their in-progress builder
-   * session. Undefined (e.g. an unsaved new map with no id yet) hides the
+   * fix(V-15): opens the read-only viewer UI of this map (`?preview=viewer`,
+   * handled by MapViewerGate) in a new tab, so an editor can check the viewer
+   * layout without losing their in-progress builder session. NOT an
+   * anonymous-data preview — requests still carry the editor's session, so
+   * private layers they can access still render (see MapViewerGate docs).
+   * Undefined (e.g. an unsaved new map with no id yet) hides the
    * menu item — mirrors the `onShare` optional-prop pattern above.
    */
   onViewAsViewer?: () => void;

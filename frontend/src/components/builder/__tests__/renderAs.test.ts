@@ -9,6 +9,7 @@ import {
   getRendererCapabilities,
   getRendererCapability,
   getRenderAsSource,
+  hasCustomizedRenderAsStyle,
   isSupportedRenderAsId,
 } from '../renderAs';
 import type { MapLayerResponse, StyleConfig } from '@/types/api';
@@ -375,5 +376,45 @@ describe('renderAs view model', () => {
   it('rejects unsupported renderAs mutations for a source', () => {
     expect(buildRenderAsPatch(layer({ dataset_geometry_type: 'LINESTRING' }), 'heatmap')).toBeNull();
     expect(buildRenderAsPatch(layer({ dataset_geometry_type: null, dataset_record_type: 'table' }), 'fill')).toBeNull();
+  });
+});
+
+// fix(#430 codex): a user-chosen heightColumn is destructible extrusion state —
+// diverging from the auto-pick default must trigger the render-as confirm.
+describe('hasCustomizedRenderAsStyle — extrusion heightColumn', () => {
+  const columns = [
+    { name: 'name', type: 'text' },
+    { name: 'stories', type: 'integer' },
+    { name: 'height_m', type: 'double precision' },
+  ] as MapLayerResponse['dataset_column_info'];
+
+  function extrusionLayer(builder: Record<string, unknown>) {
+    return layer({
+      dataset_geometry_type: 'POLYGON',
+      dataset_column_info: columns,
+      style_config: {
+        render_mode: 'extrusion-3d',
+        builder,
+      } as unknown as StyleConfig,
+    });
+  }
+
+  it('auto-picked heightColumn (the default numeric column) is NOT customized', () => {
+    // 'stories' is the first numeric column — what entry auto-pick chooses.
+    expect(hasCustomizedRenderAsStyle(extrusionLayer({ heightColumn: 'stories' }))).toBe(false);
+  });
+
+  it('a user-chosen non-default heightColumn IS customized', () => {
+    expect(hasCustomizedRenderAsStyle(extrusionLayer({ heightColumn: 'height_m' }))).toBe(true);
+  });
+
+  it('paint._height_column divergence is detected too', () => {
+    const withPaintColumn = layer({
+      dataset_geometry_type: 'POLYGON',
+      dataset_column_info: columns,
+      paint: { _height_column: 'height_m' },
+      style_config: { render_mode: 'extrusion-3d', builder: {} } as unknown as StyleConfig,
+    });
+    expect(hasCustomizedRenderAsStyle(withPaintColumn)).toBe(true);
   });
 });

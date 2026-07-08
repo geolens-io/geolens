@@ -574,6 +574,14 @@ def _validate_label_config_dict(v: dict | None) -> dict | None:
 
 
 class MapLayerInput(BaseModel):
+    # fix(#430 codex): without an id here, _replace_layers' by-id reconcile (V-14)
+    # never matched on real PUTs — every full save still regenerated layer UUIDs.
+    # Optional: absent/unknown ids create fresh rows; ids are only matched against
+    # THIS map's existing layers, so a foreign id cannot hijack another map's row.
+    id: uuid.UUID | None = Field(
+        default=None,
+        description="Existing layer id to update in place (full-save reconcile)",
+    )
     dataset_id: uuid.UUID
     sort_order: int = Field(
         default=0,

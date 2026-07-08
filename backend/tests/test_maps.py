@@ -2623,6 +2623,54 @@ class TestMapLayers:
             },
         }
 
+    async def test_put_map_layers_with_ids_preserves_layer_uuids(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+    ):
+        """fix(V-14 / #430 codex): a full PUT carrying layer ids updates rows in
+        place — the layer UUID survives instead of being regenerated. A layer
+        sent WITHOUT an id still creates a fresh row."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds_a = await create_dataset(
+            test_db_session, created_by=admin_id, name="Keep My UUID"
+        )
+        ds_b = await create_dataset(
+            test_db_session, created_by=admin_id, name="Fresh Row"
+        )
+        created = await _create_map(client, admin_auth_header)
+
+        post_resp = await client.post(
+            f"/maps/{created['id']}/layers",
+            json={"dataset_id": str(ds_a.id), "opacity": 1.0},
+            headers=admin_auth_header,
+        )
+        assert post_resp.status_code == 201
+        original_id = post_resp.json()["id"]
+
+        put_resp = await client.put(
+            f"/maps/{created['id']}",
+            json={
+                "layers": [
+                    {
+                        "id": original_id,
+                        "dataset_id": str(ds_a.id),
+                        "opacity": 0.4,
+                        "sort_order": 0,
+                    },
+                    {"dataset_id": str(ds_b.id), "sort_order": 1},
+                ]
+            },
+            headers=admin_auth_header,
+        )
+        assert put_resp.status_code == 200
+        layers = sorted(put_resp.json()["layers"], key=lambda lyr: lyr["sort_order"])
+        assert len(layers) == 2
+        assert layers[0]["id"] == original_id  # updated in place, UUID preserved
+        assert layers[0]["opacity"] == 0.4
+        assert layers[1]["id"] != original_id  # id-less entry -> fresh row
+
     async def test_patch_map_layers_applies_diff_and_preserves_stable_ids(
         self,
         client: AsyncClient,

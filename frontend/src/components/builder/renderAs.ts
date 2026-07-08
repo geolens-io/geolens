@@ -187,7 +187,12 @@ function styleWithoutRenderModeAndBuilderKeys(layer: RenderAsLayer, builderKeys:
 function numericHeightColumn(layer: RenderAsLayer) {
   const existing = builderHeightColumn(layer);
   if (existing) return existing;
+  return defaultHeightColumn(layer);
+}
 
+/** The column auto-pick would choose on extrusion entry — the "uncustomized"
+ *  heightColumn baseline for hasCustomizedRenderAsStyle (fix #430 codex). */
+function defaultHeightColumn(layer: RenderAsLayer): string {
   const numericColumn = layer.dataset_column_info?.find((column) => {
     const type = column.type.toLowerCase();
     return /(int|float|double|decimal|numeric|real|number)/.test(type);
@@ -338,10 +343,15 @@ export function hasCustomizedRenderAsStyle(layer: RenderAsLayer): boolean {
     }
 
     case 'extrusion-3d': {
+      // fix(#430 codex): a user-chosen heightColumn is destructible state too —
+      // leaving extrusion deletes it. Entry auto-picks a column, so presence
+      // alone isn't customization; diverging from the auto-pick default is.
+      const heightColumn = builderHeightColumn(layer);
       return (
         (typeof builder.heightScale === 'number' && builder.heightScale !== 1)
         || (typeof builder.extrusionMinZoom === 'number' && builder.extrusionMinZoom !== DEFAULT_EXTRUSION_MIN_ZOOM)
         || (typeof builder.extrusionOpacity === 'number' && builder.extrusionOpacity !== DEFAULT_EXTRUSION_OPACITY_CAP)
+        || (heightColumn !== null && heightColumn !== defaultHeightColumn(layer))
       );
     }
 

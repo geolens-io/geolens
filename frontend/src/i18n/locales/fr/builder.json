@@ -1069,7 +1069,7 @@
     "kebabCopyStyle": "Copier le style",
     "kebabPasteStyle": "Coller le style",
     "disambiguation": "{{label}}",
-    "audienceHidden": "Masqué pour les visiteurs publics"
+    "audienceHidden": "Masqué pour les visiteurs de cette carte"
   },
   "basemapGroup": {
     "addCustomBasemap": "＋ Ajouter un fond de carte personnalisé…",

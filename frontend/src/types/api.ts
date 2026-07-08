@@ -1141,6 +1141,8 @@ export interface MapUpdateRequest {
 }
 
 export interface MapLayerInput {
+  /** fix(#430 codex): existing layer id — lets a full PUT update rows in place (V-14). */
+  id?: string;
   dataset_id: string;
   sort_order?: number;
   visible?: boolean;

@@ -380,6 +380,10 @@ function unmanagedNullableFields(
 
 function toLayerInput(layer: MapLayerResponse): MapLayerInput {
   return {
+    // fix(#430 codex): carry the layer id so a full PUT reconciles rows in
+    // place (V-14) instead of regenerating every layer UUID. Builder layer ids
+    // are always server-issued UUIDs (instant-add POSTs before local state).
+    id: layer.id,
     dataset_id: layer.dataset_id,
     sort_order: layer.sort_order,
     visible: layer.visible,

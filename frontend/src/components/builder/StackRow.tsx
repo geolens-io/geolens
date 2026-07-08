@@ -364,11 +364,11 @@ export const StackRow = memo(function StackRow({
                 audience (e.g. a private dataset added to a public map). */}
             {audienceHidden && (
               <span
-                title={t('stackRow.audienceHidden', { defaultValue: 'Hidden from public viewers' })}
+                title={t('stackRow.audienceHidden', { defaultValue: "Hidden from this map's viewers" })}
                 data-testid="stack-row-audience-hidden"
                 className="shrink-0 inline-flex items-center rounded-sm px-1 text-[10px] font-medium leading-tight bg-[var(--warning-50,oklch(0.97_0.04_85))] text-[var(--warning-700,oklch(0.45_0.12_85))]"
               >
-                {t('stackRow.audienceHidden', { defaultValue: 'Hidden from public viewers' })}
+                {t('stackRow.audienceHidden', { defaultValue: "Hidden from this map's viewers" })}
               </span>
             )}
           </div>

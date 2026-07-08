@@ -1073,7 +1073,7 @@
     "kebabCopyStyle": "Copy style",
     "kebabPasteStyle": "Paste style",
     "disambiguation": "{{label}}",
-    "audienceHidden": "Hidden from public viewers"
+    "audienceHidden": "Hidden from this map's viewers"
   },
   "basemapGroup": {
     "addCustomBasemap": "＋ Add custom basemap…",

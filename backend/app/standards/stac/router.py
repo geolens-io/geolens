@@ -1309,27 +1309,36 @@ def _apply_datetime_filter(stmt, datetime_str: str):
     start, end = parse_ogc_datetime(datetime_str.strip())
 
     # fix(BA-13): admit null-temporal records — dataset_to_ogc_record advertises
-    # datetime=created_at for them, so the OGC Records path includes NULL bounds;
-    # match that here instead of silently dropping them.
+    # datetime=created_at for them, so filter them by that SAME fallback instant.
+    # fix(#430 codex): unconditional NULL inclusion returned every null-temporal
+    # record for any datetime filter (e.g. datetime=1900-01-01 matched a record
+    # created in 2026); compare created_at against the requested bounds instead.
+    null_temporal = Record.temporal_start.is_(None) & Record.temporal_end.is_(None)
     if "/" in datetime_str:
         if start is not None:
             stmt = stmt.where(
                 (Record.temporal_end >= start)
                 | (Record.temporal_start >= start)
-                | (Record.temporal_start.is_(None) & Record.temporal_end.is_(None))
+                | (null_temporal & (Record.created_at >= start))
             )
         if end is not None:
             stmt = stmt.where(
-                (Record.temporal_start <= end) | (Record.temporal_start.is_(None))
+                (Record.temporal_start <= end)
+                # temporal_start NULL with temporal_end set = open start (-inf);
+                # always within any end bound. Null-null uses created_at.
+                | (Record.temporal_start.is_(None) & Record.temporal_end.isnot(None))
+                | (null_temporal & (Record.created_at <= end))
             )
     else:
-        # Single instant — match records whose temporal range contains it,
-        # plus null-temporal records.
+        # Single instant — match records whose temporal range contains it.
+        # Null-temporal records advertise datetime=created_at (an instant), so
+        # they match only when created_at equals the requested instant.
         if start is not None:
-            stmt = stmt.where(
+            range_contains = (
                 (Record.temporal_start <= start) | (Record.temporal_start.is_(None))
-            )
+            ) & ((Record.temporal_end >= start) | (Record.temporal_end.is_(None)))
             stmt = stmt.where(
-                (Record.temporal_end >= start) | (Record.temporal_end.is_(None))
+                (range_contains & ~null_temporal)
+                | (null_temporal & (Record.created_at == start))
             )
     return stmt

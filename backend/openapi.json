@@ -8008,6 +8008,19 @@
             "description": "MapLibre filter expression",
             "title": "Filter"
           },
+          "id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Existing layer id to update in place (full-save reconcile)",
+            "title": "Id"
+          },
           "label_config": {
             "anyOf": [
               {
