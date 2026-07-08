@@ -15,6 +15,7 @@ import { initializeI18n } from '@/i18n';
 import { AppErrorBoundary } from '@/components/error';
 import { ApiError } from '@/api/client';
 import { initReportCapture, pushReportEntry, redact, reportNetworkError } from '@/lib/report';
+import { wireAuthCacheReset } from '@/lib/auth-cache-reset';
 import { ReportProblemHost } from '@/components/report/ReportProblemHost';
 import { appRoutes } from './App';
 import './index.css';
@@ -59,6 +60,10 @@ const queryClient = new QueryClient({
     onError: (error, _vars, _ctx, mutation) => captureQueryError(error, mutation.options.mutationKey),
   }),
 });
+
+// fix(#430 codex r6): evict every cached query when the signed-in identity
+// changes so one user's cached rows never render for the next (see module doc).
+wireAuthCacheReset(queryClient);
 
 function ThemedToaster() {
   const { resolvedTheme } = useTheme();
