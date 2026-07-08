@@ -66,7 +66,7 @@ def gdal_safe_env(*, extras: dict[str, str] | None = None) -> dict[str, str]:
     return env
 
 
-# fix(BA-29): raster GDAL CLIs run synchronously inside asyncio.to_thread, and
+# fix(#430 BA-29): raster GDAL CLIs run synchronously inside asyncio.to_thread, and
 # Python threads aren't killable — a hung child (malformed TIFF, stalled /vsi
 # read) would pin a ThreadPoolExecutor thread forever and eventually starve every
 # other to_thread across the worker. A wall-clock timeout with kill-on-hang bounds

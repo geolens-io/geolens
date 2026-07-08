@@ -43,7 +43,7 @@ def _assert_clamps(env: dict) -> None:
 def _capture_subprocess_runs(monkeypatch):
     """Patch ``vrt.subprocess.run`` to capture each (cmd, env) tuple.
 
-    fix(BA-29 / #430): cog.py no longer calls subprocess directly — its GDAL
+    fix(#430 BA-29 / #430): cog.py no longer calls subprocess directly — its GDAL
     CLIs route through ``run_gdal`` in vrt.py (which adds the kill-on-hang
     timeout), so the patch target moved there.
 

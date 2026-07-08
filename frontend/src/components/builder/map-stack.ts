@@ -396,7 +396,7 @@ export function computeDisambiguationLabels(
 }
 
 /**
- * fix(V-17): whether a layer would be silently filtered out for the map's
+ * fix(#430 V-17): whether a layer would be silently filtered out for the map's
  * audience. Adding a private dataset to a public/shared map used to succeed
  * with no indication that anonymous/other-audience viewers would never see
  * the layer (the backend's `filter_layer_rows_by_dataset_visibility` drops it

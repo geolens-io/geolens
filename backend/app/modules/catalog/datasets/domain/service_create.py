@@ -117,7 +117,7 @@ async def create_empty_dataset(
         column_info=column_info,
         source_format="created",
         srid=4326,
-        # fix(BA-32): the table column is generic geometry(Geometry, 4326); storing
+        # fix(#430 BA-32): the table column is generic geometry(Geometry, 4326); storing
         # POINT here rejected Polygon/LineString inserts the column accepts.
         geometry_type="GEOMETRY",
         feature_count=0,

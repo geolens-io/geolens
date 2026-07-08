@@ -236,7 +236,7 @@ describe('MapTitleBar', () => {
     expect(onFork).toHaveBeenCalledTimes(1);
   });
 
-  // fix(V-15): "View as viewer" overflow item.
+  // fix(#430 V-15): "View as viewer" overflow item.
   it('overflow dropdown omits "View as viewer" when onViewAsViewer is not provided', async () => {
     const user = userEvent.setup();
     render(<MapTitleBar {...defaultProps({ overflow: makeOverflow() })} />);

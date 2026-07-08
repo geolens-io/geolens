@@ -66,7 +66,7 @@ interface StackRowProps {
   // per-layer by UnifiedStackPanel from map-stack's shared helper. Null = not a
   // duplicate; render nothing.
   disambiguationLabel?: string | null;
-  // fix(V-17): true when this layer's dataset would be silently filtered out
+  // fix(#430 V-17): true when this layer's dataset would be silently filtered out
   // for the map's audience (private/unpublished dataset on a public/shared
   // map) — computed per-layer by UnifiedStackPanel via
   // isLayerHiddenFromMapAudience.
@@ -359,7 +359,7 @@ export const StackRow = memo(function StackRow({
                 <span className="sr-only">{t('stackRow.disambiguation', { label: disambiguationLabel, defaultValue: '{{label}}' })}</span>
               </span>
             )}
-            {/* fix(V-17): audience-visibility mismatch — this layer's dataset
+            {/* fix(#430 V-17): audience-visibility mismatch — this layer's dataset
                 would be silently filtered out for the map's public/shared
                 audience (e.g. a private dataset added to a public map). */}
             {audienceHidden && (

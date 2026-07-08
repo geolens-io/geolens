@@ -126,7 +126,7 @@ export const DatasetMap = memo(function DatasetMap({
   const mapRef = useRef<MaplibreMap | null>(null);
   const [mapInstance, setMapInstance] = useState<MaplibreMap | null>(null);
   const { contextLost, reload } = useWebGLRecovery(mapRef, !!mapInstance);
-  // fix(V-13): dataset-detail preview map had no data-tiles-loaded signal at
+  // fix(#430 V-13): dataset-detail preview map had no data-tiles-loaded signal at
   // all. Mirror the re-arming ViewerMap/BuilderMap behavior: false while a
   // camera move is in flight, true once idle (no tiles loading / no
   // transitions / no animations running).
@@ -265,7 +265,7 @@ export const DatasetMap = memo(function DatasetMap({
         if (rasterListenersRef.current.sourcedata) {
           map.off('sourcedata', rasterListenersRef.current.sourcedata);
         }
-        // fix(V-13): detach the re-arming data-tiles-loaded handlers symmetrically.
+        // fix(#430 V-13): detach the re-arming data-tiles-loaded handlers symmetrically.
         if (tilesIdleMovestartHandlerRef.current) {
           map.off('movestart', tilesIdleMovestartHandlerRef.current);
         }
@@ -541,7 +541,7 @@ export const DatasetMap = memo(function DatasetMap({
         }
       });
 
-      // fix(V-13): data-tiles-loaded signal, re-armed on every camera move
+      // fix(#430 V-13): data-tiles-loaded signal, re-armed on every camera move
       // (see ViewerMap.tsx / BuilderMap.tsx for the mirrored viewer/builder fix).
       tilesIdleMovestartHandlerRef.current = () => setTilesIdle(false);
       tilesIdleIdleHandlerRef.current = () => setTilesIdle(true);
@@ -750,7 +750,7 @@ export const DatasetMap = memo(function DatasetMap({
       aria-label={t('map.ariaLabel', { defaultValue: 'Dataset map' })}
       data-map-interactive={isDrawing ? 'true' : 'false'}
       data-testid="dataset-map-shell"
-      // fix(V-13): "map fully rendered" signal — false during tile loads
+      // fix(#430 V-13): "map fully rendered" signal — false during tile loads
       // after a camera move, true at idle. Was previously absent entirely.
       data-tiles-loaded={tilesIdle ? 'true' : 'false'}
     >

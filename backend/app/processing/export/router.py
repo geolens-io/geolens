@@ -22,7 +22,7 @@ from app.processing.export.service import export_dataset
 
 router = APIRouter(prefix="/datasets", tags=["Datasets"])
 
-# fix(BA-08): ceiling for UNFILTERED full-table exports (by feature count). An
+# fix(#430 BA-08): ceiling for UNFILTERED full-table exports (by feature count). An
 # unbounded ogr2ogr over the whole table writes an arbitrarily large temp file and
 # holds a worker for the full duration; require callers to narrow very large
 # datasets with bbox/where. A filtered export is the caller already narrowing, and
@@ -158,7 +158,7 @@ async def export_dataset_endpoint(
             detail=f"Cannot export non-spatial dataset as {format}. Use csv format.",
         )
 
-    # 6b. fix(BA-08): bound unfiltered full-table exports; filtered exports pass.
+    # 6b. fix(#430 BA-08): bound unfiltered full-table exports; filtered exports pass.
     if (
         bbox_parsed is None
         and where is None

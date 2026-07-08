@@ -144,7 +144,7 @@ async def list_keywords(
     result = await session.execute(
         select(RecordKeyword)
         .where(RecordKeyword.record_id == record_id)
-        # fix(BA-34): deterministic order so paginated reads don't repeat/skip.
+        # fix(#430 BA-34): deterministic order so paginated reads don't repeat/skip.
         .order_by(RecordKeyword.id)
         .offset(skip)
         .limit(limit)
@@ -225,7 +225,7 @@ async def list_distributions(
     result = await session.execute(
         select(RecordDistribution)
         .where(RecordDistribution.record_id == record_id)
-        # fix(BA-34): deterministic order so paginated reads don't repeat/skip.
+        # fix(#430 BA-34): deterministic order so paginated reads don't repeat/skip.
         .order_by(RecordDistribution.id)
         .offset(skip)
         .limit(limit)

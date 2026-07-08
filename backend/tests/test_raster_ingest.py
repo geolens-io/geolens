@@ -483,7 +483,7 @@ class TestRasterDeleteCascadeRemovesStorage:
     async def test_vector_delete_still_drops_table(self):
         """Vector datasets execute DROP TABLE AND clean managed storage.
 
-        fix(BA-17): the vector branch now also reaps originals/{id}/ (archived
+        fix(#430 BA-17): the vector branch now also reaps originals/{id}/ (archived
         source) and vectors/{id}/ (quicklook) — previously orphaned forever.
         """
         import unittest.mock as mock
@@ -527,7 +527,7 @@ class TestRasterDeleteCascadeRemovesStorage:
         assert len(drop_calls) == 1, f"Expected exactly 1 DROP TABLE, got: {drop_calls}"
         assert "test_table" in drop_calls[0]
 
-        # fix(BA-17): both managed-storage prefixes reaped
+        # fix(#430 BA-17): both managed-storage prefixes reaped
         assert set(storage.deleted_keys) == set(original_keys + vector_keys)
 
         session.delete.assert_called_once_with(mock_dataset.record)

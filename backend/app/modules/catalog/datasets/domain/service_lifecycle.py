@@ -108,7 +108,7 @@ async def delete_dataset(
                 await asyncio.gather(*(storage.delete(key) for key in keys))
     else:
         # Vector datasets: drop the PostGIS data table AND clean managed storage.
-        # fix(BA-17): vector ingest persists originals/{id}/ (archived source) and
+        # fix(#430 BA-17): vector ingest persists originals/{id}/ (archived source) and
         # vectors/{id}/quicklook_256.png; the old vector branch only dropped the
         # table, orphaning both objects forever (no reaper).
         from app.platform.storage.provider import get_storage

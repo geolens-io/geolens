@@ -94,7 +94,7 @@ class S3StorageProvider:
                 response = self.client.get_object(Bucket=self.bucket, Key=key)
                 return response["Body"].read()
             except ClientError as e:
-                # fix(BA-24): normalize missing-object to FileNotFoundError across providers.
+                # fix(#430 BA-24): normalize missing-object to FileNotFoundError across providers.
                 if e.response.get("Error", {}).get("Code") in ("404", "NoSuchKey"):
                     raise FileNotFoundError(key) from e
                 raise
@@ -150,7 +150,7 @@ class S3StorageProvider:
                 response = self.client.head_object(Bucket=self.bucket, Key=key)
                 return int(response["ContentLength"])
             except ClientError as e:
-                # fix(BA-24): normalize missing-object to FileNotFoundError across providers.
+                # fix(#430 BA-24): normalize missing-object to FileNotFoundError across providers.
                 if e.response.get("Error", {}).get("Code") in ("404", "NoSuchKey"):
                     raise FileNotFoundError(key) from e
                 raise

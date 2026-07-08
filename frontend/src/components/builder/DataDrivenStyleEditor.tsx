@@ -797,7 +797,7 @@ export function DataDrivenStyleEditor({
         </p>
       )}
 
-      {/* fix(V-10): Mode defaults to Categorical, whose Column dropdown only lists
+      {/* fix(#430 V-10): Mode defaults to Categorical, whose Column dropdown only lists
           text columns — numeric columns (e.g. `mag`) were invisible with no hint
           unless the current mode had ZERO compatible columns. Surface a persistent,
           actionable pointer whenever numeric columns exist but are hidden by

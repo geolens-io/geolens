@@ -53,7 +53,7 @@ const NOOP = () => {};
 interface UnifiedStackPanelProps {
   layers: MapLayerResponse[];
   /**
-   * fix(V-17): the map's own visibility, used to compute per-layer
+   * fix(#430 V-17): the map's own visibility, used to compute per-layer
    * audience-hidden badges (a private dataset added to a public/shared map is
    * silently filtered out for anonymous/other-audience viewers). Optional so
    * existing call sites (and tests) that don't care about this warning keep
@@ -440,7 +440,7 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
     return computeDisambiguationLabels(ordered);
   }, [layers]);
 
-  // fix(V-17): per-layer audience-visibility mismatch — a private/unpublished
+  // fix(#430 V-17): per-layer audience-visibility mismatch — a private/unpublished
   // dataset added to a public/shared map is silently filtered out for
   // anonymous/other-audience viewers server-side. Flag it on the stack row.
   const audienceHiddenLayerIds = useMemo(() => {

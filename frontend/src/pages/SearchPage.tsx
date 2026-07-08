@@ -47,7 +47,7 @@ export function SearchPage() {
   const { t } = useTranslation('search');
   useDocumentTitle(t('common:pageTitle.search'));
   const { data, isLoading, error, isFetching } = useSearchResults();
-  // fix(V-08): maps aren't indexed in catalog search — issue a parallel,
+  // fix(#430 V-08): maps aren't indexed in catalog search — issue a parallel,
   // visibility-scoped lookup against the maps list endpoint so a search for a
   // map's name (e.g. "matterhorn") surfaces it from the home/catalog search.
   const { data: mapResults } = useMapSearchResults();
@@ -127,7 +127,7 @@ export function SearchPage() {
               <ErrorState message={t('error.message', { message: error.message })} />
             )}
 
-            {/* fix(V-08): rendered independent of the dataset result state above —
+            {/* fix(#430 V-08): rendered independent of the dataset result state above —
                 a query can match a map with zero matching datasets. */}
             {mapResults && mapResults.maps.length > 0 && (
               <section className="space-y-3" aria-label={t('mapsSectionTitle', { defaultValue: 'Maps' })}>
@@ -142,7 +142,10 @@ export function SearchPage() {
               </section>
             )}
 
-            {data && data.features.length === 0 && (
+            {/* fix(#430 codex r4): a map-only match (maps section above, zero
+                datasets) must not ALSO render the contradictory "No results
+                found" empty state — totalMatched only counts datasets. */}
+            {data && data.features.length === 0 && !(mapResults && mapResults.maps.length > 0) && (
               // #305: only the true empty-catalog case (no matches at all, no
               // query) gets onboarding. A positive totalMatched with an empty
               // page means an out-of-range offset (e.g. stale /?offset=1000) —

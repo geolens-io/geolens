@@ -17,7 +17,7 @@ export function useSearchResults() {
 }
 
 /**
- * fix(V-08): catalog search (`searchDatasets` above) only queries
+ * fix(#430 V-08): catalog search (`searchDatasets` above) only queries
  * Dataset/DatasetGrant/Record — maps are never indexed into it, so a home
  * search for a map's name (e.g. "matterhorn") surfaced zero results even
  * though a public map by that name exists. Cheaper than teaching catalog

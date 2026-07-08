@@ -71,7 +71,7 @@ def _dcat_relationship_options():
     )
 
 
-# fix(BA-28): these anonymous feeds materialize every visible dataset (+ keywords/
+# fix(#430 BA-28): these anonymous feeds materialize every visible dataset (+ keywords/
 # contacts/distributions) into one in-memory JSON-LD doc with no pagination or
 # cache — a cheap repeatable memory/CPU amplifier on a large catalog. Bound the
 # row count (OGC/STAC cap at ≤200) and log when the bound truncates the feed.

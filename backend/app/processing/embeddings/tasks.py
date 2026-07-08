@@ -65,7 +65,7 @@ async def embed_record(record_id: str) -> None:
                         if ra.size_bytes
                         else "unknown size"
                     )
-                    # fix(BA-11): res_x may be NULL; formatting None with :.6f raised
+                    # fix(#430 BA-11): res_x may be NULL; formatting None with :.6f raised
                     # TypeError and left the raster with no embedding.
                     res_str = (
                         f"{ra.res_x:.6f} resolution, " if ra.res_x is not None else ""

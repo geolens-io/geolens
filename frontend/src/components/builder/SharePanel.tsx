@@ -27,7 +27,7 @@ import { usePublishMap, useCreateShareToken, useRevokeShareToken, useMapShareTok
 import { checkMapVisibility } from '@/api/maps';
 import { useCreateEmbedToken, useMapEmbedTokens, useUpdateEmbedToken, useRevokeEmbedToken } from '@/components/builder/hooks/use-embed-tokens';
 import { normalizeOrigin, WildcardOriginError } from '@/lib/builder/url-normalize';
-// fix(V-17): reuse the same audience-visibility check as the layer-stack badge.
+// fix(#430 V-17): reuse the same audience-visibility check as the layer-stack badge.
 import { isLayerHiddenFromMapAudience } from '@/components/builder/map-stack';
 import type { MapLayerResponse, MapVisibility } from '@/types/api';
 
@@ -635,7 +635,7 @@ interface ShareDialogProps {
   hasUnsavedChanges?: boolean;
   saveStatus?: 'saved' | 'unsaved' | 'saving' | 'failed';
   /**
-   * fix(V-17): the map's current layers, used to warn about layers whose
+   * fix(#430 V-17): the map's current layers, used to warn about layers whose
    * dataset would be silently filtered out for this map's audience (a
    * private/unpublished dataset on a public/shared map). Optional so
    * existing tests that don't exercise this warning keep compiling.
@@ -845,7 +845,7 @@ export function ShareDialog({
   const { isEnterprise } = useEdition();
   const publishMap = usePublishMap();
 
-  // fix(V-17): names of layers that would be silently hidden from this map's
+  // fix(#430 V-17): names of layers that would be silently hidden from this map's
   // audience — e.g. a private/unpublished dataset added to a public/shared
   // map. Empty for a private map (no audience beyond the owner/grantees).
   const audienceHiddenLayers = useMemo(
@@ -1001,7 +1001,7 @@ export function ShareDialog({
             </div>
           )}
 
-          {/* fix(V-17): warn about layers whose dataset is private/unpublished
+          {/* fix(#430 V-17): warn about layers whose dataset is private/unpublished
               on a public/shared map — those viewers silently never see them
               (filtered server-side by filter_layer_rows_by_dataset_visibility). */}
           {audienceHiddenLayers.length > 0 && (

@@ -199,7 +199,7 @@ async def list_maps(
         )
         .outerjoin(layer_count_sq, Map.id == layer_count_sq.c.map_id)
         .outerjoin(User, Map.created_by == User.id)
-        # fix(BA-19): batch-seeded rows share a server-default timestamp; add a
+        # fix(#430 BA-19): batch-seeded rows share a server-default timestamp; add a
         # unique tiebreaker so pagination is stable.
         .order_by(order_clause, Map.id)
         .offset(skip)
@@ -430,7 +430,7 @@ async def duplicate_map(
         .where(MapLayer.map_id == map_id)
         .order_by(
             MapLayer.sort_order, MapLayer.id
-        )  # fix(BA-21): deterministic tie-break
+        )  # fix(#430 BA-21): deterministic tie-break
     )
     layers = layers_result.scalars().all()
 

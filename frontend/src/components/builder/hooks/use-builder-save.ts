@@ -20,7 +20,7 @@ import { useAuthStore } from '@/stores/auth-store';
 import { getDefaultPluginIds, resolveAvailablePluginIds, samePluginIds } from '@/components/map-plugins';
 import { prepareLayersForPersistence, type FolderGroupMeta } from '@/components/builder/folder-groups';
 import { normalizeDemStyleConfig } from '@/lib/dem-render-mode';
-// fix(V-01): capability gate used to detect fields the builder has no editor
+// fix(#430 V-01): capability gate used to detect fields the builder has no editor
 // for on a given layer type (see unmanagedNullableFields below).
 import { getLayerCapabilities } from '@/lib/layer-capabilities';
 
@@ -344,7 +344,7 @@ function stableJson(value: unknown): string {
 }
 
 /**
- * fix(V-01): the subset of PATCHABLE_LAYER_FIELDS that (a) the backend treats
+ * fix(#430 V-01): the subset of PATCHABLE_LAYER_FIELDS that (a) the backend treats
  * as explicitly-nullable on a PATCH (`_NULLABLE_PATCH_FIELDS` — an explicit
  * `null` NULLs the column, an omitted key leaves it untouched, per
  * `service_diff.py`) AND (b) this specific layer's TYPE has no builder editor
@@ -472,7 +472,7 @@ export function buildLayerDiff(
       const baselineValue = baseline[field];
       if (stableJson(currentValue) === stableJson(baselineValue)) continue;
 
-      // fix(V-01): never emit an explicit null-out for a nullable field this
+      // fix(#430 V-01): never emit an explicit null-out for a nullable field this
       // layer's type has no editor for — omit the key entirely (server keeps
       // whatever it already has) instead of nulling real data. Only applies
       // in the null/erasure direction; a genuinely new non-null value for an
@@ -651,7 +651,7 @@ export function useBuilderSave(state: SaveState) {
             await patchMapLayers.mutateAsync({ id, diff });
           } catch (error) {
             if (!isUnsupportedLayerPatchError(error)) throw error;
-            // fix(V-01): this fallback converts a rejected partial PATCH into a
+            // fix(#430 V-01): this fallback converts a rejected partial PATCH into a
             // full PUT replacement (every layer re-serialized via toLayerInput,
             // including a lossy style_config/paint round-trip and — per V-14 —
             // fresh layer-row UUIDs). It used to report the same plain

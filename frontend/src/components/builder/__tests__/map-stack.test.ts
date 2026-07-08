@@ -442,7 +442,7 @@ describe('computeDisambiguationLabels', () => {
   });
 });
 
-// fix(V-17): audience-visibility mismatch detection.
+// fix(#430 V-17): audience-visibility mismatch detection.
 describe('isLayerHiddenFromMapAudience', () => {
   it('never flags a private map — it has no audience beyond the owner/grantees', () => {
     expect(

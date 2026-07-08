@@ -253,7 +253,7 @@ def dataset_to_ogc_record(
             from geoalchemy2.shape import to_shape
             from shapely.geometry import mapping
 
-            # fix(BA-16): mapping() emits valid GeoJSON for any geometry type;
+            # fix(#430 BA-16): mapping() emits valid GeoJSON for any geometry type;
             # the old .exterior path built {"coordinates": []} for Point extents.
             geometry = mapping(to_shape(record.spatial_extent))
         except Exception:  # broad: WKB deserialize — geoalchemy/shapely errors fall back to None geometry

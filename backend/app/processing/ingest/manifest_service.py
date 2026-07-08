@@ -322,7 +322,7 @@ async def _run_entry(
         )
 
     if classification == "update" and existing_dataset is not None:
-        # fix(BA-02): manifest_key is globally namespaced and taken from the request
+        # fix(#430 BA-02): manifest_key is globally namespaced and taken from the request
         # body, so an editor could otherwise overwrite (or, via dry_run, enumerate
         # the UUID of) another user's manifest-managed dataset. Gate before the
         # dry-run response too — it otherwise leaks existing_dataset.id.

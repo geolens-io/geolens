@@ -413,7 +413,7 @@ describe('DatasetPage header status badge', () => {
     setUser(null);
   });
 
-  // fix(V-07): "Private" badge alone next to the "Unpublish" action read as a
+  // fix(#430 V-07): "Private" badge alone next to the "Unpublish" action read as a
   // contradiction (no visible cue explaining why "Unpublish" was offered).
   // Catalog publish-state and access visibility are orthogonal — both axes
   // are now always labeled explicitly ("Catalog: <status>" / "Access:

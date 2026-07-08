@@ -129,7 +129,7 @@ export function maybeWarnSmallDemCoverage(args: {
   dedupeKey: string;
   threshold?: number;
   /**
-   * fix(V-06): the warning's copy ("zoom in", "drape it over a coarse global
+   * fix(#430 V-06): the warning's copy ("zoom in", "drape it over a coarse global
    * DEM") is builder-actionable advice; anonymous/read-only viewers can't act
    * on it. Pass `'viewer'` to suppress the toast entirely for that audience.
    * Defaults to `'builder'` so existing call sites keep their behavior.
@@ -139,7 +139,7 @@ export function maybeWarnSmallDemCoverage(args: {
   const { map, demBounds, dedupeKey, audience = 'builder' } = args;
   const threshold = args.threshold ?? SMALL_DEM_COVERAGE_THRESHOLD;
 
-  // fix(V-06): viewer sessions never see this builder-oriented advice toast.
+  // fix(#430 V-06): viewer sessions never see this builder-oriented advice toast.
   if (audience === 'viewer') return false;
 
   let viewport: number[] | null = null;

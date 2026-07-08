@@ -96,7 +96,7 @@ async def run_ogr2ogr_export(
     if format_key == "csv":
         cmd.extend(["-lco", "GEOMETRY=AS_WKT"])
 
-    # fix(BA-06): bound the export subprocess wall-clock with a kill-on-timeout
+    # fix(#430 BA-06): bound the export subprocess wall-clock with a kill-on-timeout
     # (mirrors the ingest path) so a slow/large table can't hold an API worker or
     # orphan the ogr2ogr child on client disconnect; also cap the server-side query
     # via libpq statement_timeout so the DB stops working when the child is killed.

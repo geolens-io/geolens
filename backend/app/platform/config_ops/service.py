@@ -387,7 +387,7 @@ async def import_config(
             # as skipped.
             if not caller_is_enterprise and cfg.tab in _ENTERPRISE_ONLY_TABS:
                 continue
-            # fix(BA-31): defer to the single terminal commit so the whole import
+            # fix(#430 BA-31): defer to the single terminal commit so the whole import
             # is one transaction — a later failure (e.g. missing OAuth secret)
             # rolls the resets back instead of persisting settings-wiped-to-defaults.
             await cfg.reset(db, user_id=user_id, ip_address=ip_address, commit=False)

@@ -288,7 +288,7 @@ describe('LayerEditorPanel', () => {
       expect(activePill).not.toBeNull();
     });
 
-    // fix(V-09): a fresh/default layer (no mode-specific customization) has
+    // fix(#430 V-09): a fresh/default layer (no mode-specific customization) has
     // nothing to lose switching render-as modes, so the confirm is skipped.
     it('clicking a non-active render-as pill on a FRESH layer switches immediately — no confirm', () => {
       // Point layer has multiple options (point/symbol/heatmap/cluster).
@@ -312,7 +312,7 @@ describe('LayerEditorPanel', () => {
       expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
     });
 
-    // fix(V-09): a layer whose current mode HAS diverged from its defaults
+    // fix(#430 V-09): a layer whose current mode HAS diverged from its defaults
     // (here: heatmap with a non-default ramp) still confirms before applying.
     function makeCustomizedHeatmapLayer() {
       return makeLayer({

@@ -1018,9 +1018,9 @@ export interface MapLayerResponse {
   style_config?: StyleConfig | null;
   layer_type?: MapLayerType | null;
   dataset_record_type?: RecordType | null;
-  /** fix(V-17): dataset's own visibility, for computing audience-hidden layers. */
+  /** fix(#430 V-17): dataset's own visibility, for computing audience-hidden layers. */
   dataset_visibility?: string | null;
-  /** fix(V-17): dataset's own publish status, for computing audience-hidden layers. */
+  /** fix(#430 V-17): dataset's own publish status, for computing audience-hidden layers. */
   dataset_status?: string | null;
   show_in_legend?: boolean;
   is_3d?: boolean | null;

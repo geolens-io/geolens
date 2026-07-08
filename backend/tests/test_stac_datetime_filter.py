@@ -1,6 +1,6 @@
 """STAC datetime filter — null-temporal records use the created_at fallback.
 
-fix(BA-13 / #430 codex): records with no temporal_start/temporal_end advertise
+fix(#430 BA-13 / #430 codex): records with no temporal_start/temporal_end advertise
 ``properties.datetime = created_at`` (see test_stac_record_output.py), so the
 search filter must compare that same fallback instant — NOT admit every
 null-temporal record unconditionally (pre-fix, ``datetime=1900-01-01/...``

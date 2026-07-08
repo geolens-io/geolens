@@ -39,7 +39,7 @@ class DatasetMeta(NamedTuple):
     dem_vertical_units: str | None
     band_count: int | None
     tile_version: int | None
-    # fix(V-17): dataset visibility/status so the builder can flag layers hidden
+    # fix(#430 V-17): dataset visibility/status so the builder can flag layers hidden
     # from a public map's anonymous audience.
     visibility: str | None
     record_status: str | None
@@ -67,7 +67,9 @@ class LayerRow(NamedTuple):
     dem_vertical_units: str | None
     band_count: int | None
     tile_version: int | None
-    visibility: str | None = None  # fix(V-17): dataset visibility for audience-badge
+    visibility: str | None = (
+        None  # fix(#430 V-17): dataset visibility for audience-badge
+    )
     record_status: str | None = None
 
 
@@ -241,7 +243,7 @@ async def _fetch_layer_rows_ordered(
         .join(Record, Dataset.record_id == Record.id)
         .outerjoin(RasterAsset, RasterAsset.dataset_id == Dataset.id)
         .where(MapLayer.map_id == map_id)
-        # fix(BA-21): concurrent adds can collide on sort_order (non-atomic RMW);
+        # fix(#430 BA-21): concurrent adds can collide on sort_order (non-atomic RMW);
         # break ties by id so stacking order is at least deterministic.
         .order_by(MapLayer.sort_order, MapLayer.id)
     )

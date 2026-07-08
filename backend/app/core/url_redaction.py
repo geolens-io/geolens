@@ -50,7 +50,7 @@ def query_has_credentials(query: str) -> bool:
 
 def has_url_credentials(url: str) -> bool:
     """Return True if a URL carries credential-like userinfo or query params."""
-    # fix(BA-04): strip GDAL-style prefixes (ESRIJSON:, WFS:, ...) before
+    # fix(#430 BA-04): strip GDAL-style prefixes (ESRIJSON:, WFS:, ...) before
     # inspecting userinfo — otherwise urlsplit sees no netloc and misses
     # `user:pass@` behind the prefix, mirroring redact_url_credentials.
     prefixed = _split_prefixed_url(url)

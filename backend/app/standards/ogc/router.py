@@ -258,7 +258,7 @@ async def conformance(f: str | None = Query(None)) -> ConformanceResponse:
             "http://www.opengis.net/spec/ogcapi-features-1/1.0/conf/geojson",
             "http://www.opengis.net/spec/ogcapi-features-1/1.0/conf/oas30",
             # CQL2 query language (advertised for the Records collection, which
-            # supports filtering + /queryables). fix(BA-14): the Features Part 3
+            # supports filtering + /queryables). fix(#430 BA-14): the Features Part 3
             # `conf/filter` / `conf/features-filter` classes were dropped because
             # per-dataset feature collections reject `filter` with 400 — advertising
             # them told spec-driven clients to send filters that always 400.
@@ -563,7 +563,7 @@ async def get_collection_items(
     # list_features handler and return 503 rather than an unhandled 500 that
     # holds a DB connection.
     try:
-        # fix(BA-15): over-fetch one row so a full page can be distinguished from
+        # fix(#430 BA-15): over-fetch one row so a full page can be distinguished from
         # a full *final* page; otherwise a feature count that is an exact multiple
         # of `limit` emits a phantom keyset `next` to an empty page.
         rows, total = await get_features(

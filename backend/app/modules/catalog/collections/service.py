@@ -179,7 +179,7 @@ async def add_datasets_to_collection(
     )
     existing_ids = {row[0] for row in existing_result.all()}
 
-    # fix(BA-33): dedupe request ids or a repeated pair violates the composite PK -> 500.
+    # fix(#430 BA-33): dedupe request ids or a repeated pair violates the composite PK -> 500.
     new_ids = [did for did in dict.fromkeys(dataset_ids) if did not in existing_ids]
     for dataset_id in new_ids:
         session.add(
@@ -331,7 +331,7 @@ async def batch_collection_extents(
         extent_bbox = None
         if row.bbox_geojson is not None:
             geojson = json.loads(row.bbox_geojson)
-            # fix(BA-20): ST_Envelope of a single point/line is a Point/LineString,
+            # fix(#430 BA-20): ST_Envelope of a single point/line is a Point/LineString,
             # not a Polygon ring -- flatten coordinates generically.
             pairs = list(_iter_coord_pairs(geojson["coordinates"]))
             if pairs:

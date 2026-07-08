@@ -182,7 +182,7 @@ export const ViewerMap = memo(function ViewerMap({
     tokenMap,
   });
 
-  // fix(V-05): opening a terrain map showed the wide flat DEM slab for
+  // fix(#430 V-05): opening a terrain map showed the wide flat DEM slab for
   // several seconds before terrain activation re-anchored the camera to the
   // saved 3D view (no entry animation exists — the jump is `setTerrain`
   // recomputing the camera once the DEM source is ready). Treat that
@@ -442,7 +442,7 @@ export const ViewerMap = memo(function ViewerMap({
       // data-tiles-loaded attribute to true on idle so Playwright (and V-13's
       // loading-affordance consumers) can rely on a deterministic signal
       // instead of an arbitrary wait.
-      // fix(V-13): re-arm on every camera move instead of firing once — the
+      // fix(#430 V-13): re-arm on every camera move instead of firing once — the
       // attribute previously never toggled back to "false" after the initial
       // idle, so it couldn't distinguish "settled" from "tiles loading after
       // a pan/zoom" (a false "map fully rendered" signal mid-move).
@@ -935,7 +935,7 @@ export const ViewerMap = memo(function ViewerMap({
         )}
       </MapGL>
       <MapCoordReadout map={mapRef.current} />
-      {/* fix(V-05): loading veil over the pre-terrain flat-DEM frame — fades
+      {/* fix(#430 V-05): loading veil over the pre-terrain flat-DEM frame — fades
           out once the saved-camera 3D view is ready to show (or immediately
           for non-terrain maps). */}
       <div

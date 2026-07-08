@@ -290,7 +290,7 @@ export function isSupportedRenderAsId(value: string): value is RenderAsId {
 }
 
 /**
- * fix(V-09): whether the layer's CURRENT render mode carries mode-specific
+ * fix(#430 V-09): whether the layer's CURRENT render mode carries mode-specific
  * style settings that diverge from that mode's fresh/default state. Used to
  * decide whether the render-as confirm dialog is warranted — a layer that has
  * never been customized beyond the mode's defaults has nothing to lose by

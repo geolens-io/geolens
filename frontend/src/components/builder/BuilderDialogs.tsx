@@ -99,7 +99,7 @@ export function BuilderDialogs({
           onOpenChange={onShowShareChange}
           hasUnsavedChanges={hasUnsavedChanges}
           saveStatus={saveStatus}
-          // fix(V-17): drives the "hidden from viewers" warning listing
+          // fix(#430 V-17): drives the "hidden from viewers" warning listing
           // layers whose dataset is private/unpublished on this public/shared map.
           layers={layers}
         />

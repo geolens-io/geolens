@@ -123,7 +123,7 @@ async def apply_layer_diff(
         .where(MapLayer.map_id == map_id)
         .order_by(
             MapLayer.sort_order, MapLayer.id
-        )  # fix(BA-21): deterministic tie-break
+        )  # fix(#430 BA-21): deterministic tie-break
     )
     existing_layers = list(layers_result.scalars().all())
     existing_by_id = {layer.id: layer for layer in existing_layers}
@@ -272,7 +272,7 @@ async def _replace_layers(
 ) -> None:
     """Reconcile a map's layers against ``layers`` by id.
 
-    fix(V-14): match incoming layers to existing rows by ``id`` and update them
+    fix(#430 V-14): match incoming layers to existing rows by ``id`` and update them
     in place, creating only for unknown/absent ids and deleting rows no longer
     present. The old implementation deleted every row and inserted fresh ones,
     regenerating every layer UUID (breaking embed configs, bookmarks, in-flight

@@ -226,7 +226,7 @@ class TestManifestApplyEndpointRoundTrip:
         test_db_session,
         clean_tables,
     ):
-        # fix(BA-02): the caller must OWN the manifest-managed datasets, else the
+        # fix(#430 BA-02): the caller must OWN the manifest-managed datasets, else the
         # write-access gate now (correctly) denies the update. This test exercises
         # dry-run side-effect-freeness, not cross-user authz — so run it as the
         # owner (admin). The cross-user denial has its own test below.
@@ -327,7 +327,7 @@ class TestManifestApplyEndpointRoundTrip:
         test_db_session,
         clean_tables,
     ):
-        """fix(BA-02): an editor cannot overwrite another user's manifest-managed
+        """fix(#430 BA-02): an editor cannot overwrite another user's manifest-managed
         dataset, and dry_run must not leak that dataset's UUID (a pre-write oracle)."""
         owner = await _admin_user(test_db_session)
         original_payload = _dataset_payload(

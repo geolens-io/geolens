@@ -296,7 +296,7 @@ def _validate_geometry_type(geojson_type: str, dataset_geometry_type: str) -> No
     # Normalize dataset type (stored UPPERCASE in DB) to GeoJSON mixed case.
     # str.title() fails for compound words: "LINESTRING" -> "Linestring" not "LineString".
     # Use a direct mapping instead.
-    # fix(BA-32): a generic-typed dataset (GEOMETRY column) accepts any subtype;
+    # fix(#430 BA-32): a generic-typed dataset (GEOMETRY column) accepts any subtype;
     # only reject genuinely non-geometry GeoJSON.
     if dataset_geometry_type.strip().upper() == "GEOMETRY":
         if GEOJSON_TYPE_MAP.get(geojson_type.strip()) is None:
@@ -494,7 +494,7 @@ async def _refresh_count_and_extent(
     Returns (feature_count, extent_wkt) in a single query instead of the
     5 queries that extract_metadata() runs.
     """
-    # fix(BA-18): records.spatial_extent is a POLYGON column, but ST_Extent of a
+    # fix(#430 BA-18): records.spatial_extent is a POLYGON column, but ST_Extent of a
     # single point / axis-collinear points casts to POINT / LINESTRING, which the
     # column rejects (previously the caller silently skipped storing it, leaving a
     # stale/NULL extent). ST_Expand always returns the bounding-box POLYGON, so we
@@ -528,7 +528,7 @@ async def refresh_dataset_metadata(session: AsyncSession, dataset: Dataset) -> N
     )
     dataset.feature_count = feature_count
 
-    # fix(BA-18): ST_Extent of a single point is a POINT and of axis-collinear
+    # fix(#430 BA-18): ST_Extent of a single point is a POINT and of axis-collinear
     # points a LINESTRING, not always a POLYGON -- store any non-null extent.
     if extent_wkt:
         dataset.record.spatial_extent = func.ST_GeomFromText(extent_wkt, 4326)

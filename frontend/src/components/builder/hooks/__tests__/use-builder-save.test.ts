@@ -333,7 +333,7 @@ describe('buildLayerDiff', () => {
     expect(result.diff).toEqual({});
   });
 
-  // fix(V-01): P0 data-loss regression test. A raster layer's style_config is
+  // fix(#430 V-01): P0 data-loss regression test. A raster layer's style_config is
   // managed by RasterLayerControls, which never writes style_config at all —
   // so a raster layer's local `style_config` can be `null`/undefined even
   // when the server-side baseline has real data from an earlier session.

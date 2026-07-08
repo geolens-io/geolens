@@ -230,7 +230,7 @@ class Record(Base):
 
 
 def _stamp_published_at(mapper, connection, target: "Record") -> None:
-    """fix(V-07): stamp published_at when a record is INSERTED as published.
+    """fix(#430 V-07): stamp published_at when a record is INSERTED as published.
 
     Ingest auto-publishes (record_status defaults to 'published') but no ingest
     path ever wrote published_at, so a freshly-uploaded dataset showed

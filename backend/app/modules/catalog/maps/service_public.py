@@ -351,7 +351,7 @@ async def get_shared_map(
         .where(MapLayer.map_id == token_obj.map_id, Map.visibility == "public")
         .order_by(
             MapLayer.sort_order, MapLayer.id
-        )  # fix(BA-21): deterministic tie-break
+        )  # fix(#430 BA-21): deterministic tie-break
     )
     stmt = apply_visibility_filter(base_stmt, user, user_roles, Record, DatasetGrant)
     layer_result = await session.execute(stmt)

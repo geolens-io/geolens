@@ -1590,7 +1590,7 @@ def _tile_headers(cache_scope: str, cache_ttl: int) -> dict[str, str]:
 def _empty_tile_headers(cache_scope: str, cache_ttl: int) -> dict[str, str]:
     """Cache-Control + CORS for an empty (204) MVT tile.
 
-    fix(V-03): the empty-tile 204 path returned no Cache-Control, so sparse
+    fix(#430 V-03): the empty-tile 204 path returned no Cache-Control, so sparse
     datasets (where most tiles are empty) re-fetched every empty tile on every
     pan/zoom despite stable signed URLs. No Content-Encoding/ETag — 204 has no body.
     """
@@ -1753,7 +1753,7 @@ async def _acquire_and_serve_tile(
             await tile_cache.set(
                 cache_key, z, x, y, b"", ttl=cache_ttl, cols_key=cols_cache_key
             )
-        # fix(V-03): empty tiles were uncacheable — reuse the tile's Cache-Control
+        # fix(#430 V-03): empty tiles were uncacheable — reuse the tile's Cache-Control
         # from base_headers (drop Content-Encoding; a 204 has no body).
         return Response(
             status_code=status.HTTP_204_NO_CONTENT,
@@ -1849,7 +1849,9 @@ async def cluster_tile_endpoint(
             if len(cached) == 0:
                 return Response(
                     status_code=status.HTTP_204_NO_CONTENT,
-                    headers=_empty_tile_headers(cache_scope, cache_ttl),  # fix(V-03)
+                    headers=_empty_tile_headers(
+                        cache_scope, cache_ttl
+                    ),  # fix(#430 V-03)
                 )
             # MVT-04: cache hits also carry an ETag / honor If-None-Match.
             return _tile_response(
@@ -1983,7 +1985,9 @@ async def tile_endpoint(
                 # Empty sentinel — tile was previously confirmed empty
                 return Response(
                     status_code=status.HTTP_204_NO_CONTENT,
-                    headers=_empty_tile_headers(cache_scope, cache_ttl),  # fix(V-03)
+                    headers=_empty_tile_headers(
+                        cache_scope, cache_ttl
+                    ),  # fix(#430 V-03)
                 )
             # MVT-04: cache hits also carry an ETag / honor If-None-Match.
             return _tile_response(

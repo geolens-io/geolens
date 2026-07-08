@@ -3,7 +3,7 @@ import time
 from collections import OrderedDict
 from typing import Any
 
-# fix(BA-35): bound the store so a no-Redis deployment can't be OOM'd by an
+# fix(#430 BA-35): bound the store so a no-Redis deployment can't be OOM'd by an
 # attacker issuing many distinct search queries — each writes a unique key that is
 # never re-requested (so never lazily evicted). An LRU cap evicts the coldest
 # entry once full; the Redis backend is unaffected (server-side TTL).

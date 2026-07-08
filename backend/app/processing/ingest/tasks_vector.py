@@ -573,7 +573,7 @@ async def ingest_file(job_id: str, file_path: str, user_id: str, **kwargs) -> No
         ):
             Path(file_path).unlink(missing_ok=True)
 
-        # fix(BA-09): the ORIGINAL S3 staging object is otherwise never reaped —
+        # fix(#430 BA-09): the ORIGINAL S3 staging object is otherwise never reaped —
         # the task downloads it to a private local copy (unlinked above) but the
         # staging/{job_id}/ key lives forever, and failed S3 ingests leak it with
         # no dataset ever created. resolve_file_path only rewrites the path when it

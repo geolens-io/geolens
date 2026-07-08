@@ -240,7 +240,7 @@ async def _dataset_to_stac_item(
 def _require_finite_bbox(values: list[float]) -> None:
     """Reject NaN/Inf bbox coordinates before ST_MakeEnvelope.
 
-    fix(BA-12): mirrors the OGC ``parse_bbox`` SEC-FU-06 guard, which STAC's
+    fix(#430 BA-12): mirrors the OGC ``parse_bbox`` SEC-FU-06 guard, which STAC's
     inline bbox parsing was missing.
     """
     for i, v in enumerate(values):
@@ -355,7 +355,7 @@ async def get_collections(
 ) -> StacCollectionListResponse:
     """List all STAC Collections."""
     stac_api_url, _ = await _resolve_urls(db, request)
-    # fix(BA-05): aggregate extent/keyword/EPSG summaries must exclude
+    # fix(#430 BA-05): aggregate extent/keyword/EPSG summaries must exclude
     # private-but-published rasters, matching the item-body visibility gate.
     user_roles = await _resolve_roles(db, user)
 
@@ -487,7 +487,7 @@ async def get_collection(
 ) -> StacCollection:
     """Get a single STAC Collection."""
     stac_api_url, _ = await _resolve_urls(db, request)
-    # fix(BA-05): scope aggregate summaries to visible rasters.
+    # fix(#430 BA-05): scope aggregate summaries to visible rasters.
     user_roles = await _resolve_roles(db, user)
 
     coll_result = await db.execute(
@@ -1316,7 +1316,7 @@ def _apply_datetime_filter(stmt, datetime_str: str):
 
     start, end = parse_ogc_datetime(datetime_str.strip())
 
-    # fix(BA-13): admit null-temporal records — dataset_to_ogc_record advertises
+    # fix(#430 BA-13): admit null-temporal records — dataset_to_ogc_record advertises
     # datetime=created_at for them, so filter them by that SAME fallback instant.
     # fix(#430 codex): unconditional NULL inclusion returned every null-temporal
     # record for any datetime filter (e.g. datetime=1900-01-01 matched a record

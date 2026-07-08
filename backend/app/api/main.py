@@ -250,7 +250,7 @@ async def lifespan(app: FastAPI):
     stale_jobs_task = asyncio.create_task(_stale_jobs_sweeper())
 
     async def _rate_limit_warmer() -> None:
-        """fix(BA-03): the slowapi sync accessors only read a per-process cache that
+        """fix(#430 BA-03): the slowapi sync accessors only read a per-process cache that
         set()/reset() seed for 30s on the ONE worker that handled the write. No
         request path re-resolves them, so the four runtime-tunable limits revert to
         their hardcoded defaults after the TTL and admin changes never propagate
@@ -579,7 +579,7 @@ async def _dataset_quota_handler(
 async def _storage_quota_handler(
     request: Request, exc: StorageQuotaExceededError
 ) -> JSONResponse:
-    # fix(BA-23): reserve_storage_bytes raises a plain exception in the worker;
+    # fix(#430 BA-23): reserve_storage_bytes raises a plain exception in the worker;
     # API-side callers get a 413 matching the check_upload_quota byte-cap contract.
     return JSONResponse(
         status_code=status.HTTP_413_CONTENT_TOO_LARGE,

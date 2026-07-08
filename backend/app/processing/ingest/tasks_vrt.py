@@ -212,7 +212,7 @@ async def ingest_vrt(
 
     job_uuid = uuid.UUID(job_id)
     tmp_dir: str | None = None
-    # fix(BA-30): track storage puts so a failure after put (terminal commit /
+    # fix(#430 BA-30): track storage puts so a failure after put (terminal commit /
     # later phase-2 step) reaps the VRT + quicklook bytes instead of orphaning
     # them forever — the GAP-017 guard ingest_raster already has.
     written_storage_keys: list[str] = []
@@ -443,7 +443,7 @@ async def ingest_vrt(
     finally:
         if tmp_dir:
             shutil.rmtree(tmp_dir, ignore_errors=True)
-        # fix(BA-30): reap storage bytes written before a non-complete terminal
+        # fix(#430 BA-30): reap storage bytes written before a non-complete terminal
         # status (mirrors ingest_raster's GAP-017 guard).
         if final_status != "complete" and written_storage_keys:
             from app.processing.ingest.tasks_raster import (

@@ -383,7 +383,7 @@ export function DatasetPage() {
     }
   };
 
-  // fix(V-07): record_status (catalog publish state) and visibility (access
+  // fix(#430 V-07): record_status (catalog publish state) and visibility (access
   // control) are orthogonal fields — a dataset can be "published" (catalog-
   // listed) yet "private" (access-restricted) at the same time, e.g. right
   // after upload (auto-published, defaults to private access). Previously the
@@ -404,7 +404,7 @@ export function DatasetPage() {
       <RecordTypeBadge recordType={dataset.record_type} />
       <div className="flex items-center gap-1.5">
         {origin && <OriginBadge origin={origin} />}
-        {/* fix(V-07): "Catalog: <status>" always shown (was hidden when
+        {/* fix(#430 V-07): "Catalog: <status>" always shown (was hidden when
             published), paired with "Access: <visibility>" below, so the two
             orthogonal states never read as contradictory. */}
         <Badge variant="outline" className={cn('text-xs', ingestionStatusColors[dataset.record_status] ?? '')}>

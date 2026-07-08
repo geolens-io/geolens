@@ -83,7 +83,7 @@ async def test_record_schema_endpoint(client: AsyncClient):
 async def test_conformance_includes_cql2(client: AsyncClient):
     """GET /conformance advertises the CQL2 language classes for the Records collection.
 
-    fix(BA-14): the Features Part 3 `conf/filter` / `conf/features-filter` classes
+    fix(#430 BA-14): the Features Part 3 `conf/filter` / `conf/features-filter` classes
     are NOT declared, because per-dataset feature collections reject `filter` with
     400 — only the Records collection filters.
     """

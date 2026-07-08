@@ -290,7 +290,7 @@ class PersistentConfig(Generic[T]):
     ) -> None:
         """Delete DB override, reverting to env_default. Audit and invalidate cache.
 
-        fix(BA-31): pass ``commit=False`` to defer the DB commit to a caller's
+        fix(#430 BA-31): pass ``commit=False`` to defer the DB commit to a caller's
         terminal commit (config-import overwrite mode), so a mid-import failure
         rolls the resets back instead of leaving settings wiped to defaults.
         """

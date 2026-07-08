@@ -18,7 +18,7 @@ const PublicMapViewerPage = lazy(() =>
  * Anonymous and signed-in viewer users see a read-only PublicMapViewerPage.
  * Each branch is lazy-loaded so public viewers never download editor code.
  *
- * fix(V-15): editors had no way to preview the read-only viewer UI short of
+ * fix(#430 V-15): editors had no way to preview the read-only viewer UI short of
  * opening an incognito window / share link. `?preview=viewer` lets a user
  * WITH edit rights render PublicMapViewerPage instead — the "View as viewer"
  * item in MapTitleBar's overflow menu sets this param. Only takes effect for

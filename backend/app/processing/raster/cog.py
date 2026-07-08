@@ -226,7 +226,7 @@ def prepare_with_overviews(
         "16",
         "32",
     ]
-    result = run_gdal(cmd, env=env, tool="gdaladdo")  # fix(BA-29)
+    result = run_gdal(cmd, env=env, tool="gdaladdo")  # fix(#430 BA-29)
     if result.returncode != 0:
         Path(tmp_path).unlink(missing_ok=True)
         raise RuntimeError(f"gdaladdo failed: {result.stderr}")
@@ -281,7 +281,7 @@ def convert_to_cog(
         # (was env=None before — inherited unclamped os.environ).
         warp_result = run_gdal(
             warp_cmd, env=gdal_safe_env(), tool="gdalwarp"
-        )  # fix(BA-29)
+        )  # fix(#430 BA-29)
         if warp_result.returncode != 0:
             Path(warp_tmp).unlink(missing_ok=True)
             raise RuntimeError(f"gdalwarp failed: {warp_result.stderr}")
@@ -319,7 +319,7 @@ def convert_to_cog(
         if nodata is not None:
             cmd.extend(["-a_nodata", str(nodata)])
         cmd.extend([tmp_path, output_path])
-        result = run_gdal(cmd, env=env, tool="gdal_translate")  # fix(BA-29)
+        result = run_gdal(cmd, env=env, tool="gdal_translate")  # fix(#430 BA-29)
         if result.returncode != 0:
             raise RuntimeError(f"gdal_translate failed: {result.stderr}")
     finally:

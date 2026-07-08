@@ -96,7 +96,7 @@ export const queryKeys = {
     results: (params: Record<string, string>) => ['search', params] as const,
     facets: (params: Record<string, string>) => ['facets', params] as const,
     summary: ['catalog-summary'] as const,
-    // fix(V-08): parallel maps lookup driven by the same `q` as the dataset
+    // fix(#430 V-08): parallel maps lookup driven by the same `q` as the dataset
     // catalog search — see useMapSearchResults in components/search/hooks/use-search.ts.
     maps: (q: string) => ['search', 'maps', q] as const,
   },

@@ -243,7 +243,7 @@ async def get_feature_count(session: AsyncSession, table_name: str) -> int:
 async def get_extent(session: AsyncSession, table_name: str) -> str | None:
     """Get the 4326 bbox extent as POLYGON WKT (or None for empty tables).
 
-    fix(BA-18): records.spatial_extent is a POLYGON column. ST_Extent of a single
+    fix(#430 BA-18): records.spatial_extent is a POLYGON column. ST_Extent of a single
     point / axis-collinear points casts to POINT / LINESTRING, which the column
     rejects (crashing the reupload swap that stores this verbatim). Pad ONLY the
     degenerate cases into a valid sub-mm polygon; genuine polygon extents are
@@ -771,7 +771,7 @@ async def extract_metadata(
                             WHERE geom IS NOT NULL
                             LIMIT 1
                         ) AS geometry_type,
-                        -- fix(BA-18): pad only degenerate (point/line) extents
+                        -- fix(#430 BA-18): pad only degenerate (point/line) extents
                         -- into a valid POLYGON the spatial_extent column accepts.
                         CASE
                             WHEN ST_Extent(geom_4326) IS NULL THEN NULL

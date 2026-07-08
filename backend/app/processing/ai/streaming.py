@@ -46,7 +46,7 @@ logger = structlog.stdlib.get_logger(__name__)
 async def _daily_token_budget(session: AsyncSession, user: Identity) -> tuple[int, int]:
     """Snapshot the per-user daily AI token cap and 24h usage.
 
-    fix(BA-10): the cap is enforced once at request entry (enforce_ai_token_budget),
+    fix(#430 BA-10): the cap is enforced once at request entry (enforce_ai_token_budget),
     so a caller near the cap could still run a full multi-round tool loop over it.
     Returns ``(cap, used_in_last_24h)``; ``cap <= 0`` means unlimited. Callers add
     this request's in-memory token accumulator and stop the loop before crossing —
@@ -190,7 +190,7 @@ async def _stream_anthropic_chat(
     total_output = 0
     deadline = time.monotonic() + MAX_STREAMING_WALL_CLOCK_SECONDS
     final_message = None
-    daily_cap, daily_used = await _daily_token_budget(session, user)  # fix(BA-10)
+    daily_cap, daily_used = await _daily_token_budget(session, user)  # fix(#430 BA-10)
 
     for round_num in range(MAX_TOOL_ROUNDS):
         if time.monotonic() > deadline:
@@ -215,7 +215,7 @@ async def _stream_anthropic_chat(
             )
             break
 
-        # fix(BA-10): stop before the next round would push the user over their
+        # fix(#430 BA-10): stop before the next round would push the user over their
         # daily token cap (snapshot + this request's accumulator; no per-round query).
         if daily_cap > 0 and daily_used + total_input + total_output >= daily_cap:
             logger.info(
@@ -415,7 +415,7 @@ async def _stream_openai_chat(
     deadline = time.monotonic() + MAX_STREAMING_WALL_CLOCK_SECONDS
     total_input = 0
     total_output = 0
-    daily_cap, daily_used = await _daily_token_budget(session, user)  # fix(BA-10)
+    daily_cap, daily_used = await _daily_token_budget(session, user)  # fix(#430 BA-10)
     # Read-only enforcement backstop: the XML fallback (parse_xml_tool_calls)
     # below extracts tool calls from model text, bypassing the advertised schema.
     # Restrict execution/collection to the selected tool set so a view-only caller
@@ -447,7 +447,7 @@ async def _stream_openai_chat(
             )
             break
 
-        # fix(BA-10): stop before the next round would push the user over their
+        # fix(#430 BA-10): stop before the next round would push the user over their
         # daily token cap (snapshot + this request's accumulator; no per-round query).
         if daily_cap > 0 and daily_used + total_input + total_output >= daily_cap:
             logger.info(

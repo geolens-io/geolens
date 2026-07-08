@@ -3,7 +3,7 @@
  *
  * Verifies that:
  * 1. Dataset rows render a grip handle with aria-label "Drag into map"
- *    (fix(V-11): reworded from "Drag to add to map" so it no longer
+ *    (fix(#430 V-11): reworded from "Drag to add to map" so it no longer
  *    substring-matches the row/details "Add to map" action buttons).
  * 2. useDraggable is called with ids namespaced as `catalog:{datasetId}` for dataset rows.
  *

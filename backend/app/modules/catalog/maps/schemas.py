@@ -881,7 +881,7 @@ class MapLayerResponse(BaseModel):
     # the client `_v=` tile-URL cache-buster (map-sync.ts) so a reupload busts
     # browser/CDN caches; the server-side Valkey purge is B-019.
     tile_version: int | None = None
-    # fix(V-17): dataset visibility/status so the builder can badge a layer whose
+    # fix(#430 V-17): dataset visibility/status so the builder can badge a layer whose
     # dataset is hidden from a public/shared map's anonymous audience.
     dataset_visibility: str | None = None
     dataset_status: str | None = None

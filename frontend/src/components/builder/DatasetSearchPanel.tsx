@@ -200,7 +200,7 @@ const DraggableDatasetRow = memo(function DraggableDatasetRow({
           type="button"
           {...attributes}
           {...listeners}
-          // fix(V-11): reworded so it no longer substring-matches "Add to map"
+          // fix(#430 V-11): reworded so it no longer substring-matches "Add to map"
           // (the row/details action labels), keeping accessible names distinct.
           aria-label={t('search.dragHandle', { defaultValue: 'Drag into map' })}
           // Phase 1199 STACK-05: reveal the catalog drag grip on coarse-pointer/touch.
@@ -372,7 +372,7 @@ export function DatasetSearchPanel({
         onClick={() => onAddDataset(record.id)}
         disabled={isAdding}
         title={t('search.addToMap', { defaultValue: 'Add to map' })}
-        // fix(V-11): the row action and the expanded-details action both render
+        // fix(#430 V-11): the row action and the expanded-details action both render
         // this button; give the details-panel instance a distinct accessible
         // name so screen readers/role+name queries don't see two identical
         // "Add to map <name>" buttons in one result row.

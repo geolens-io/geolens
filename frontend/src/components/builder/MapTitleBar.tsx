@@ -23,7 +23,7 @@ export interface OverflowActions {
   onFork: () => void;
   isForkPending: boolean;
   /**
-   * fix(V-15): opens the read-only viewer UI of this map (`?preview=viewer`,
+   * fix(#430 V-15): opens the read-only viewer UI of this map (`?preview=viewer`,
    * handled by MapViewerGate) in a new tab, so an editor can check the viewer
    * layout without losing their in-progress builder session. NOT an
    * anonymous-data preview — requests still carry the editor's session, so

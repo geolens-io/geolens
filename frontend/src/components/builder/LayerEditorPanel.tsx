@@ -253,7 +253,7 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
 
   function handleRenderAsClick(target: RenderAsId) {
     if (target === currentRenderAs) return;
-    // fix(V-09): only confirm when the CURRENT mode actually carries
+    // fix(#430 V-09): only confirm when the CURRENT mode actually carries
     // mode-specific style settings that diverge from that mode's defaults
     // (see hasCustomizedRenderAsStyle). A fresh/default layer has nothing
     // mode-specific to lose, so switch immediately — a clean layer clicking

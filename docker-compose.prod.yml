@@ -176,7 +176,7 @@ services:
     # nginx frontend. Without this flag, rate-limit buckets collapse to nginx's
     # container IP and audit logs record the proxy address instead of the real
     # client IP.
-    # fix(BA-01): --forwarded-allow-ips='*' is safe ONLY because nginx OVERWRITES
+    # fix(#430 BA-01): --forwarded-allow-ips='*' is safe ONLY because nginx OVERWRITES
     # X-Forwarded-For with $remote_addr at the internet-facing edge (see
     # frontend/nginx.conf). The header is injected at that public edge, so a
     # client could otherwise forge the leftmost value uvicorn trusts.
