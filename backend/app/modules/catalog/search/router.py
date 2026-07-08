@@ -626,7 +626,7 @@ async def search_facets_endpoint(
         "intersects", description="Spatial predicate: intersects or within"
     ),
     geometry: str | None = Query(
-        None, description="GeoJSON geometry for spatial filter"
+        None, max_length=10000, description="GeoJSON geometry for spatial filter"
     ),
     collection_id: uuid.UUID | None = Query(
         None, description="Filter by collection membership"

@@ -3,8 +3,9 @@ import uuid
 from datetime import date, datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator
 
+from app.core.url_redaction import has_url_credentials
 from app.core.text import normalize_nfc as _nfc
 
 
@@ -35,6 +36,25 @@ DOMAIN_TYPES = Literal[
     "geometry",
     "range",
 ]
+
+
+def _validate_http_url_without_credentials(v: str) -> str:
+    HttpUrl(v)
+    if has_url_credentials(v):
+        raise ValueError(
+            "url must not include credential query parameters; use the token field instead"
+        )
+    return v
+
+
+def _validate_safe_service_token(v: str | None) -> str | None:
+    if v is None:
+        return v
+    if not v.isprintable():
+        raise ValueError("token contains control characters")
+    if any(c.isspace() for c in v):
+        raise ValueError("token contains whitespace")
+    return v
 
 
 class ColumnInfo(BaseModel):
@@ -405,6 +425,13 @@ class DatasetMeta(BaseModel):
             raise ValueError(f"Invalid tile column names: {invalid}")
         return v
 
+    @field_validator("source_url")
+    @classmethod
+    def validate_source_url(cls, v: str | None) -> str | None:
+        if v is None:
+            return v
+        return _validate_http_url_without_credentials(v)
+
     @field_validator(
         "title",
         "summary",
@@ -472,11 +499,13 @@ class ReuploadPreviewResponse(BaseModel):
 
 class ReuploadServicePreviewRequest(BaseModel):
     url: str = Field(max_length=2048)
+    _validate_url = field_validator("url")(_validate_http_url_without_credentials)
     service_type: str = Field(max_length=50)
     layer_name: str = Field(max_length=500)
     layer_title: str | None = Field(default=None, max_length=500)
     layer_id: int | str | None = None
     token: str | None = Field(default=None, max_length=1000)
+    _validate_token = field_validator("token")(_validate_safe_service_token)
     object_id_field: str | None = Field(default=None, max_length=200)
 
 

@@ -44,6 +44,27 @@ class CatalogPort(Protocol):
 
     def upload_response_model(self) -> Any: ...
 
+    async def abort_presigned_multipart_upload(
+        self,
+        storage: Any,
+        *,
+        key: str,
+        upload_id: Any,
+        job_id: uuid.UUID,
+    ) -> None: ...
+
+    async def verify_completed_presigned_upload(
+        self,
+        *,
+        db: AsyncSession,
+        storage: Any,
+        key: str,
+        expected_size: Any,
+        user_id: uuid.UUID,
+        request: Any,
+        job_id: uuid.UUID,
+    ) -> int: ...
+
     def visibility_default(self) -> str: ...
 
     async def compute_quality_score(

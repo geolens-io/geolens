@@ -49,3 +49,13 @@ async def test_facets_q_accepts_short_query(client: AsyncClient):
         f"Expected 200 for short q='test', got {resp.status_code}. "
         f"Body: {resp.text[:200]}"
     )
+
+
+@pytest.mark.anyio
+async def test_facets_geometry_rejects_oversized_geojson(client: AsyncClient):
+    """GET /search/facets/?geometry=<10001 chars> must return HTTP 422."""
+    resp = await client.get("/search/facets/", params={"geometry": "a" * 10001})
+    assert resp.status_code == 422, (
+        f"Expected 422 for oversized geometry, got {resp.status_code}. "
+        f"Body: {resp.text[:200]}"
+    )

@@ -108,6 +108,7 @@ async def test_preview_passes_bearer_via_header_file_not_env(monkeypatch, client
     assert "GDAL_HTTP_HEADERS" not in env, (
         "SEC-021: bearer token must not be passed via the GDAL_HTTP_HEADERS env var"
     )
+    assert env.get("GDAL_HTTP_FOLLOWLOCATION") == "NO"
     assert "GDAL_HTTP_HEADER_FILE" in env, "expected the 0600 header-file pattern"
     assert captured.get("mode") == 0o600
     assert f"Authorization: Bearer {token}" in captured.get("content", "")

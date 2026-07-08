@@ -3,8 +3,8 @@ GDAL VSI surface clamp.
 
 Pins the 3-layer defense added in Phase 1068:
 - validate_file_content routes .vrt through validate_vrt_body
-- validate_vrt_body rejects non-VRT XML, '..' segments, and unsanctioned
-  absolute paths in <SourceFilename>
+- validate_vrt_body rejects non-VRT XML, '..' segments, absolute paths, raw
+  URLs, and GDAL VSI paths in user-uploaded <SourceFilename> values
 - _build_vrt subprocess env applies CPL_VSIL_CURL_ALLOWED_EXTENSIONS +
   VRT_VIRTUAL_OVERVIEWS=NO + GDAL_HTTP_FOLLOWLOCATION=NO
 
@@ -127,7 +127,7 @@ class TestVrtPathTraversalGuard:
             validate_vrt_body(str(f))
         assert "absolute" in str(exc.value).lower()
 
-    def test_vsis3_prefix_accepted(self, tmp_path):
+    def test_vsis3_prefix_rejected_for_uploads(self, tmp_path):
         f = tmp_path / "vsis3.vrt"
         f.write_bytes(
             b'<VRTDataset rasterXSize="100" rasterYSize="100">'
@@ -138,9 +138,11 @@ class TestVrtPathTraversalGuard:
             b"</VRTRasterBand>"
             b"</VRTDataset>"
         )
-        validate_vrt_body(str(f))  # no raise
+        with pytest.raises(ValueError) as exc:
+            validate_vrt_body(str(f))
+        assert "vsi" in str(exc.value).lower() or "absolute" in str(exc.value).lower()
 
-    def test_vsicurl_prefix_accepted(self, tmp_path):
+    def test_vsicurl_prefix_rejected_for_uploads(self, tmp_path):
         f = tmp_path / "vsicurl.vrt"
         f.write_bytes(
             b'<VRTDataset rasterXSize="100" rasterYSize="100">'
@@ -151,7 +153,24 @@ class TestVrtPathTraversalGuard:
             b"</VRTRasterBand>"
             b"</VRTDataset>"
         )
-        validate_vrt_body(str(f))  # no raise
+        with pytest.raises(ValueError) as exc:
+            validate_vrt_body(str(f))
+        assert "vsi" in str(exc.value).lower() or "absolute" in str(exc.value).lower()
+
+    def test_raw_url_rejected(self, tmp_path):
+        f = tmp_path / "url.vrt"
+        f.write_bytes(
+            b'<VRTDataset rasterXSize="100" rasterYSize="100">'
+            b"<VRTRasterBand>"
+            b"<SimpleSource>"
+            b"<SourceFilename>https://example.com/tile.tif</SourceFilename>"
+            b"</SimpleSource>"
+            b"</VRTRasterBand>"
+            b"</VRTDataset>"
+        )
+        with pytest.raises(ValueError) as exc:
+            validate_vrt_body(str(f))
+        assert "remote" in str(exc.value).lower()
 
     def test_multiple_sources_one_bad_rejected(self, tmp_path):
         f = tmp_path / "mixed.vrt"
@@ -166,6 +185,24 @@ class TestVrtPathTraversalGuard:
         with pytest.raises(ValueError) as exc:
             validate_vrt_body(str(f))
         assert ".." in str(exc.value)
+
+    def test_bad_source_after_legacy_scan_window_rejected(self, tmp_path):
+        f = tmp_path / "late_bad.vrt"
+        padding = b"<!--" + (b"x" * (300 * 1024)) + b"-->"
+        f.write_bytes(
+            b'<VRTDataset rasterXSize="100" rasterYSize="100">'
+            + padding
+            + b"<VRTRasterBand>"
+            + b"<SimpleSource>"
+            + b"<SourceFilename>../late_bad.tif</SourceFilename>"
+            + b"</SimpleSource>"
+            + b"</VRTRasterBand>"
+            + b"</VRTDataset>"
+        )
+
+        with pytest.raises(ValueError) as exc:
+            validate_vrt_body(str(f))
+        assert ".." in str(exc.value) or "traversal" in str(exc.value).lower()
 
 
 # ---------------------------------------------------------------------------

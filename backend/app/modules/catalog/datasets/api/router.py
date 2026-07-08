@@ -499,8 +499,12 @@ async def get_dataset_history(
             detail="Dataset not found",
         )
 
-    # Visibility check
-    await check_dataset_access_or_anonymous(db, dataset, dataset_id, user)
+    # Visibility check. Full actor/detail history is owner/admin-only; public
+    # readers keep the event timeline without PII or internal metadata.
+    user_roles = await check_dataset_access_or_anonymous(db, dataset, dataset_id, user)
+    can_view_full_history = bool(
+        user and (dataset.record.created_by == user.id or "admin" in user_roles)
+    )
 
     logs, total = await query_audit_logs(
         db,
@@ -514,13 +518,15 @@ async def get_dataset_history(
         logs=[
             AuditLogResponse(
                 id=log.id,
-                user_id=log.user_id,
-                username=log.user.username if log.user else None,
+                user_id=log.user_id if can_view_full_history else None,
+                username=log.user.username
+                if can_view_full_history and log.user
+                else None,
                 action=log.action,
                 resource_type=log.resource_type,
                 resource_id=log.resource_id,
-                details=log.details,
-                ip_address=log.ip_address,
+                details=log.details if can_view_full_history else None,
+                ip_address=log.ip_address if can_view_full_history else None,
                 created_at=log.created_at,
             )
             for log in logs

@@ -66,10 +66,11 @@ def gdal_safe_env(*, extras: dict[str, str] | None = None) -> dict[str, str]:
     return env
 
 
-# KNOWN-04 (Phase 1071): VSI prefix allow-list for VRT <SourceFilename>
-# body content. Single source of truth — any module that needs to know
-# which GDAL virtual-filesystem handlers VRT processing accepts must
-# import this constant, not re-declare its own copy.
+# KNOWN-04 (Phase 1071): VSI prefix allow-list for internally generated
+# managed-storage VRT <SourceFilename> body content. User-uploaded VRTs are
+# validated by ingest/validation.py and intentionally reject all VSI paths.
+# Any internal module that needs to know which GDAL virtual-filesystem handlers
+# managed VRT processing accepts must import this constant, not re-declare it.
 #
 # The seven prefixes here cover the GDAL VSI handlers that the COG
 # ingest path legitimately uses for managed-storage VRTs:
@@ -82,10 +83,9 @@ def gdal_safe_env(*, extras: dict[str, str] | None = None) -> dict[str, str]:
 #   /vsitar/  — tar archive members
 #   /vsizip/  — zip archive members
 #
-# When adding a new VSI scheme: add it HERE only. validate_vrt_body in
-# ingest/validation.py already consumes this constant; future consumers
-# (env-overlay extensions, source classifiers, OpenAPI examples) must
-# import from the same constant rather than copy-pasting.
+# When adding a new managed-storage VSI scheme: add it HERE only. Future
+# internal consumers (env-overlay extensions, source classifiers, OpenAPI
+# examples) must import from the same constant rather than copy-pasting.
 VRT_VSI_ALLOWED_PREFIXES: tuple[str, ...] = (
     "/vsiaz/",
     "/vsicurl/",

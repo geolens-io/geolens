@@ -131,6 +131,22 @@ class AzureBlobStorageProvider:
 
         return await asyncio.to_thread(_exists)
 
+    async def size(self, key: str) -> int:
+        """Return blob size in bytes via get_blob_properties."""
+
+        def _size() -> int:
+            blob = self._client.get_blob_client(container=self.container, blob=key)
+            props = blob.get_blob_properties()
+            size = getattr(props, "size", None)
+            if size is None:
+                try:
+                    size = props["size"]
+                except (KeyError, TypeError):
+                    size = getattr(props, "content_length", None)
+            return int(size)
+
+        return await asyncio.to_thread(_size)
+
     async def list(self, prefix: str) -> list[str]:
         """List blob names under a prefix."""
 

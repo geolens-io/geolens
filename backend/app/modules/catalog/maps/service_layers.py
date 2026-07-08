@@ -31,9 +31,11 @@ async def bulk_check_dataset_access(
     if "admin" in user_roles:
         return set(dataset_ids)
 
-    # Fetch visibility info for all datasets at once
+    # Fetch visibility info for all datasets at once. Keep this in sync with
+    # DefaultPermissionExtension.can_access_dataset(): non-owners must not get
+    # draft/ready/internal records just because the visibility is public.
     result = await session.execute(
-        select(Dataset.id, Record.visibility, Record.created_by)
+        select(Dataset.id, Record.visibility, Record.created_by, Record.record_status)
         .join(Record, Dataset.record_id == Record.id)
         .where(Dataset.id.in_(dataset_ids))
     )
@@ -41,7 +43,9 @@ async def bulk_check_dataset_access(
 
     accessible = set()
     restricted_ids = []
-    for ds_id, visibility, created_by in rows:
+    for ds_id, visibility, created_by, record_status in rows:
+        if record_status != "published" and created_by != user.id:
+            continue
         if visibility == "public":
             accessible.add(ds_id)
         elif visibility == "private" and created_by == user.id:
