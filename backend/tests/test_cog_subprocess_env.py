@@ -41,7 +41,11 @@ def _assert_clamps(env: dict) -> None:
 
 @contextmanager
 def _capture_subprocess_runs(monkeypatch):
-    """Patch ``cog.subprocess.run`` to capture each (cmd, env) tuple.
+    """Patch ``vrt.subprocess.run`` to capture each (cmd, env) tuple.
+
+    fix(BA-29 / #430): cog.py no longer calls subprocess directly — its GDAL
+    CLIs route through ``run_gdal`` in vrt.py (which adds the kill-on-hang
+    timeout), so the patch target moved there.
 
     Returns a list that callers can inspect after the patched code path runs.
     Each entry is ``(cmd, env_dict_or_None)``.
@@ -55,9 +59,9 @@ def _capture_subprocess_runs(monkeypatch):
         captured.append((list(cmd), dict(env) if env is not None else None))
         return mock.Mock(returncode=0, stderr="", stdout="")
 
-    from app.processing.raster import cog as cog_module
+    from app.processing.raster import vrt as vrt_module
 
-    monkeypatch.setattr(cog_module.subprocess, "run", _fake_run)
+    monkeypatch.setattr(vrt_module.subprocess, "run", _fake_run)
     yield captured
 
 

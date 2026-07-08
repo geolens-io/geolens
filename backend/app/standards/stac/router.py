@@ -11,6 +11,7 @@ import asyncio
 import json
 import math
 import uuid
+from datetime import timedelta
 
 from urllib.parse import urlencode
 
@@ -26,7 +27,10 @@ from app.modules.catalog.collections.models import Collection, CollectionDataset
 from app.core.config import settings
 from app.core.identity import Identity
 import app.core.db as _db_module
-from app.modules.auth.dependencies import get_optional_user
+from app.modules.auth.dependencies import (
+    get_optional_user,
+    get_optional_user_no_security_schema,
+)
 from app.modules.catalog.authorization import apply_visibility_filter, get_user_roles
 from app.modules.catalog.datasets.domain.models import (
     Dataset,
@@ -344,7 +348,10 @@ async def conformance() -> StacConformance:
 async def get_collections(
     request: Request,
     db: AsyncSession = Depends(get_db),
-    user: Identity | None = Depends(get_optional_user),
+    # fix(#430 codex): no-schema variant keeps this public endpoint anonymous in
+    # the OpenAPI surface — the plain optional dep stamped bearer security here,
+    # narrowing the generated SDK clients to AuthenticatedClient.
+    user: Identity | None = Depends(get_optional_user_no_security_schema),
 ) -> StacCollectionListResponse:
     """List all STAC Collections."""
     stac_api_url, _ = await _resolve_urls(db, request)
@@ -475,7 +482,8 @@ async def get_collection(
     collection_id: uuid.UUID,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    user: Identity | None = Depends(get_optional_user),
+    # fix(#430 codex): no-schema variant — see get_collections above.
+    user: Identity | None = Depends(get_optional_user_no_security_schema),
 ) -> StacCollection:
     """Get a single STAC Collection."""
     stac_api_url, _ = await _resolve_urls(db, request)
@@ -1313,6 +1321,9 @@ def _apply_datetime_filter(stmt, datetime_str: str):
     # fix(#430 codex): unconditional NULL inclusion returned every null-temporal
     # record for any datetime filter (e.g. datetime=1900-01-01 matched a record
     # created in 2026); compare created_at against the requested bounds instead.
+    # parse_ogc_datetime truncates to whole DAYS, so created_at comparisons are
+    # day-granular: a bound day includes any created_at within that day
+    # (fix #430 codex round 2 — `created_at == start` only matched exact midnight).
     null_temporal = Record.temporal_start.is_(None) & Record.temporal_end.is_(None)
     if "/" in datetime_str:
         if start is not None:
@@ -1325,20 +1336,25 @@ def _apply_datetime_filter(stmt, datetime_str: str):
             stmt = stmt.where(
                 (Record.temporal_start <= end)
                 # temporal_start NULL with temporal_end set = open start (-inf);
-                # always within any end bound. Null-null uses created_at.
+                # always within any end bound. Null-null uses created_at,
+                # day-inclusive on the end bound.
                 | (Record.temporal_start.is_(None) & Record.temporal_end.isnot(None))
-                | (null_temporal & (Record.created_at <= end))
+                | (null_temporal & (Record.created_at < end + timedelta(days=1)))
             )
     else:
-        # Single instant — match records whose temporal range contains it.
-        # Null-temporal records advertise datetime=created_at (an instant), so
-        # they match only when created_at equals the requested instant.
+        # Single instant (day-granular) — match records whose temporal range
+        # contains it. Null-temporal records advertise datetime=created_at, so
+        # they match when created_at falls anywhere on the requested day.
         if start is not None:
             range_contains = (
                 (Record.temporal_start <= start) | (Record.temporal_start.is_(None))
             ) & ((Record.temporal_end >= start) | (Record.temporal_end.is_(None)))
             stmt = stmt.where(
                 (range_contains & ~null_temporal)
-                | (null_temporal & (Record.created_at == start))
+                | (
+                    null_temporal
+                    & (Record.created_at >= start)
+                    & (Record.created_at < start + timedelta(days=1))
+                )
             )
     return stmt

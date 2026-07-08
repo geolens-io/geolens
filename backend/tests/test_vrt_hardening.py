@@ -235,7 +235,8 @@ class TestGdalBuildVrtSafeEnv:
         """`_build_vrt` invokes gdalbuildvrt with the safety-clamp env vars."""
         captured_env: dict | None = None
 
-        def _fake_run(cmd, capture_output, text, env):
+        # fix(BA-29 / #430): run_gdal now passes timeout= to subprocess.run.
+        def _fake_run(cmd, capture_output, text, env, timeout=None):
             nonlocal captured_env
             captured_env = env
 

@@ -481,10 +481,24 @@ class TestRasterDeleteCascadeRemovesStorage:
 
     @pytest.mark.asyncio
     async def test_vector_delete_still_drops_table(self):
-        """Vector datasets still execute DROP TABLE; no storage calls made."""
+        """Vector datasets execute DROP TABLE AND clean managed storage.
+
+        fix(BA-17): the vector branch now also reaps originals/{id}/ (archived
+        source) and vectors/{id}/ (quicklook) — previously orphaned forever.
+        """
         import unittest.mock as mock
 
         dataset_id = uuid.uuid4()
+        originals_prefix = f"originals/{dataset_id}/"
+        vectors_prefix = f"vectors/{dataset_id}/"
+        original_keys = [f"originals/{dataset_id}/source.gpkg"]
+        vector_keys = [f"vectors/{dataset_id}/quicklook_256.png"]
+        storage = _MockStorage(
+            keys_by_prefix={
+                originals_prefix: original_keys,
+                vectors_prefix: vector_keys,
+            }
+        )
         mock_dataset = _MockDataset(dataset_id, "My Vector", "vector_dataset")
         session = mock.AsyncMock()
         executed_sqls: list[str] = []
@@ -494,9 +508,14 @@ class TestRasterDeleteCascadeRemovesStorage:
 
         session.execute.side_effect = _capture_execute
 
-        with mock.patch(
-            "app.modules.catalog.datasets.domain.service.get_dataset",
-            return_value=mock_dataset,
+        with (
+            mock.patch(
+                "app.modules.catalog.datasets.domain.service.get_dataset",
+                return_value=mock_dataset,
+            ),
+            mock.patch(
+                "app.platform.storage.provider.get_storage", return_value=storage
+            ),
         ):
             from app.modules.catalog.datasets.domain.service import delete_dataset
 
@@ -507,6 +526,9 @@ class TestRasterDeleteCascadeRemovesStorage:
         drop_calls = [s for s in executed_sqls if "DROP TABLE" in s.upper()]
         assert len(drop_calls) == 1, f"Expected exactly 1 DROP TABLE, got: {drop_calls}"
         assert "test_table" in drop_calls[0]
+
+        # fix(BA-17): both managed-storage prefixes reaped
+        assert set(storage.deleted_keys) == set(original_keys + vector_keys)
 
         session.delete.assert_called_once_with(mock_dataset.record)
 

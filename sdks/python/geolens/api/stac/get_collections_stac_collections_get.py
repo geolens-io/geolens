@@ -47,7 +47,7 @@ def _build_response(
 
 def sync_detailed(
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
 ) -> Response[StacCollectionListResponse]:
     """Get Collections
 
@@ -72,7 +72,7 @@ def sync_detailed(
 
 def sync(
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
 ) -> StacCollectionListResponse | None:
     """Get Collections
 
@@ -93,7 +93,7 @@ def sync(
 
 async def asyncio_detailed(
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
 ) -> Response[StacCollectionListResponse]:
     """Get Collections
 
@@ -116,7 +116,7 @@ async def asyncio_detailed(
 
 async def asyncio(
     *,
-    client: AuthenticatedClient,
+    client: AuthenticatedClient | Client,
 ) -> StacCollectionListResponse | None:
     """Get Collections
 

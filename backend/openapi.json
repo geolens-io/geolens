@@ -42243,11 +42243,6 @@
             "description": "Successful Response"
           }
         },
-        "security": [
-          {
-            "OAuth2PasswordBearer": []
-          }
-        ],
         "summary": "Get Collections",
         "tags": [
           "STAC"
@@ -42292,11 +42287,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "OAuth2PasswordBearer": []
-          }
-        ],
         "summary": "Get Collection",
         "tags": [
           "STAC"

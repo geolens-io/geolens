@@ -88,3 +88,20 @@ async def test_past_instant_excludes_null_temporal_record(
     )
     ids = await _search_ids(client, "1900-06-01T00:00:00Z")
     assert str(ds.id) not in ids
+
+
+@pytest.mark.anyio
+async def test_advertised_fallback_instant_matches_null_temporal_record(
+    client: AsyncClient, test_db_session: AsyncSession
+):
+    """fix(#430 codex r2): searching by the record's OWN advertised datetime
+    (created_at) must match. parse_ogc_datetime is day-granular, so any
+    created_at within the requested day counts — not just exact midnight."""
+    admin_id = await get_user_id(test_db_session, "admin")
+    ds = await _create_null_temporal_raster(
+        test_db_session, created_by=admin_id, name="Null Temporal Own Day"
+    )
+    record = await test_db_session.get(Record, ds.record_id)
+    own_day = record.created_at.date().isoformat()
+    ids = await _search_ids(client, f"{own_day}T00:00:00Z")
+    assert str(ds.id) in ids
