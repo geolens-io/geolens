@@ -244,7 +244,19 @@ class PersistentConfig(Generic[T]):
 
         if commit:
             await db.commit()
+            await self.apply_side_effects(value)
+        # fix(#430 codex r3): with commit=False, side effects are DEFERRED — the
+        # batching caller MUST invoke apply_side_effects(value) after its
+        # terminal commit. Running them pre-commit flipped process-local runtime
+        # state (log level, rate limits, caches) that a rollback won't restore.
 
+    async def apply_side_effects(self, value: T) -> None:
+        """Post-commit cache invalidation + runtime hooks for a value change.
+
+        Called automatically by set()/reset() when they own the commit; callers
+        batching with ``commit=False`` invoke this per key AFTER their terminal
+        commit (fix #430 codex r3 — never before, see set() above).
+        """
         # Invalidate cache
         cache = _get_cache_safe()
         if cache is not None:
@@ -313,20 +325,9 @@ class PersistentConfig(Generic[T]):
 
             if commit:
                 await db.commit()
-
-            cache = _get_cache_safe()
-            if cache is not None:
-                await cache.delete(f"{_CACHE_PREFIX}{self.key}")
-
-            # BUG-025: clear the public_urls module cache on reset too.
-            if self.key in PUBLIC_URL_KEYS:
-                invalidate_public_url_cache()
-
-            self._on_change(self.env_default)
-
-            # BUG-008: warm the sync cache with the reverted env_default so
-            # slowapi picks it up immediately (same rationale as set()).
-            self._update_sync_cache(self.env_default)
+                await self.apply_side_effects(self.env_default)
+            # fix(#430 codex r3): with commit=False the caller applies side
+            # effects (with env_default) after its terminal commit — see set().
 
     def _on_change(self, value: T) -> None:
         """Override in subclasses for side effects on set()."""

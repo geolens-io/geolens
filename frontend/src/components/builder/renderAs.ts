@@ -316,6 +316,12 @@ export function hasCustomizedRenderAsStyle(layer: RenderAsLayer): boolean {
         || (symbol.iconSize !== undefined && symbol.iconSize !== 1)
         || (symbol.iconRotation !== undefined && symbol.iconRotation !== 0)
         || (symbol.iconAnchor !== undefined && symbol.iconAnchor !== 'center')
+        // fix(#430 codex r3): the Symbol editor also persists iconOffset and a
+        // per-category icon mapping — all dropped when leaving symbol mode.
+        || (symbol.iconOffset !== undefined
+          && (symbol.iconOffset[0] !== 0 || symbol.iconOffset[1] !== 0))
+        || (typeof symbol.categoryColumn === 'string' && symbol.categoryColumn !== '')
+        || (Array.isArray(symbol.categories) && symbol.categories.length > 0)
       );
     }
 

@@ -367,6 +367,13 @@ async def import_config(
     oauth_updated = 0
     oauth_deleted = 0
 
+    # fix(#430 codex r3): with commit=False, set()/reset() DEFER their side
+    # effects (cache invalidation, _on_change runtime hooks, sync rate-limit
+    # warm) — running them pre-commit flipped process-local runtime state that
+    # a rollback wouldn't restore. Collect (cfg, committed_value) pairs and
+    # apply side effects only after the terminal commit succeeds.
+    deferred_side_effects: list = []
+
     if mode == "overwrite":
         # Reset all known settings first (commit=False — part of the atomic batch)
         for cfg in _registry:
@@ -383,15 +390,13 @@ async def import_config(
             # fix(BA-31): defer to the single terminal commit so the whole import
             # is one transaction — a later failure (e.g. missing OAuth secret)
             # rolls the resets back instead of persisting settings-wiped-to-defaults.
-            # Known micro-race: reset() invalidates the config cache BEFORE the
-            # terminal commit, so a concurrent reader can briefly re-cache the old
-            # value; it self-heals within the 30s cache TTL (and the BA-03 warmer's
-            # 15s re-resolve for rate-limit keys).
             await cfg.reset(db, user_id=user_id, ip_address=ip_address, commit=False)
+            deferred_side_effects.append((cfg, cfg.env_default))
 
     for key, value in validated.items():
         cfg = registry_map[key]
         await cfg.set(db, value, user_id=user_id, ip_address=ip_address, commit=False)
+        deferred_side_effects.append((cfg, value))
         settings_applied += 1
 
     # --- OAuth providers (also part of the same atomic batch) ---
@@ -402,6 +407,11 @@ async def import_config(
 
     # Single commit for ALL setting + OAuth changes (BUG-010 atomicity)
     await db.commit()
+
+    # fix(#430 codex r3): now that the batch is durable, run each key's
+    # deferred side effects (cache invalidation + runtime hooks).
+    for cfg, committed_value in deferred_side_effects:
+        await cfg.apply_side_effects(committed_value)
 
     # Audit log (separate commit so audit survives even if the caller rolls back)
     await audit_emit(

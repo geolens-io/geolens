@@ -347,6 +347,13 @@ async def update_settings(
     # Single commit for all setting writes
     await db.commit()
 
+    # fix(#430 codex r3): set(commit=False) defers its side effects (cache
+    # invalidation, _on_change runtime hooks, sync rate-limit warm) so a
+    # rollback can't leave process-local state diverged from the DB. Apply
+    # them now that the batch is durable.
+    for key, value in validated_settings.items():
+        await registry_map[key].apply_side_effects(value)
+
     # Auto-detect embedding dimensions when embedding_model changes
     if (
         "embedding_model" in validated_settings

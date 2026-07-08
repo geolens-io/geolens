@@ -418,3 +418,22 @@ describe('hasCustomizedRenderAsStyle — extrusion heightColumn', () => {
     expect(hasCustomizedRenderAsStyle(withPaintColumn)).toBe(true);
   });
 });
+
+// fix(#430 codex r3): symbol-only settings (iconOffset, category mapping) are
+// destructible too — leaving symbol mode drops style_config.symbol wholesale.
+describe('hasCustomizedRenderAsStyle — symbol-only settings', () => {
+  const symbolLayer = (symbol: Record<string, unknown>) => layer({
+    style_config: { render_mode: 'symbol', symbol } as unknown as StyleConfig,
+  });
+
+  it('defaults are not customization', () => {
+    expect(hasCustomizedRenderAsStyle(symbolLayer({}))).toBe(false);
+    expect(hasCustomizedRenderAsStyle(symbolLayer({ iconOffset: [0, 0] }))).toBe(false);
+  });
+
+  it('non-zero iconOffset, categoryColumn, and categories each count', () => {
+    expect(hasCustomizedRenderAsStyle(symbolLayer({ iconOffset: [0, 4] }))).toBe(true);
+    expect(hasCustomizedRenderAsStyle(symbolLayer({ categoryColumn: 'type' }))).toBe(true);
+    expect(hasCustomizedRenderAsStyle(symbolLayer({ categories: [{ value: 'a', icon: 'marker' }] }))).toBe(true);
+  });
+});

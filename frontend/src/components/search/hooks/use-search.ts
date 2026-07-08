@@ -34,7 +34,11 @@ export function useMapSearchResults() {
     queryFn: () => listMaps({ search: q, limit: 6 }),
     enabled: q.length > 0,
     staleTime: 30_000,
-    placeholderData: keepPreviousData,
+    // fix(#430 codex r3): only carry previous results between NON-empty
+    // queries (typing). On a blank query the hook is disabled, and
+    // keepPreviousData would otherwise keep serving the last results —
+    // stale map cards lingering after the user clears the search box.
+    placeholderData: q.length > 0 ? keepPreviousData : undefined,
   });
 }
 
