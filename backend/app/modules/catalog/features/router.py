@@ -43,6 +43,7 @@ from app.modules.catalog.features.schemas import (
 )
 from app.modules.catalog.features.service import (
     delete_feature,
+    effective_geometry_type,
     get_feature_by_id,
     get_features,
     get_features_geojson_z,
@@ -449,7 +450,8 @@ async def create_feature(
             body.geometry.model_dump(),
             body.properties,
             dataset.column_info or [],
-            dataset.geometry_type,
+            # fix(#430 codex r7): generic for created datasets — see effective_geometry_type
+            await effective_geometry_type(db, dataset),
         )
     except ValueError as e:
         raise HTTPException(
@@ -535,7 +537,8 @@ async def replace_single_feature(
             body.geometry.model_dump(),
             body.properties,
             dataset.column_info or [],
-            dataset.geometry_type,
+            # fix(#430 codex r7): generic for created datasets — see effective_geometry_type
+            await effective_geometry_type(db, dataset),
         )
     except ValueError as e:
         if "not found" in str(e).lower():
@@ -618,7 +621,8 @@ async def patch_single_feature(
             body.geometry.model_dump() if body.geometry else None,
             body.properties,
             dataset.column_info or [],
-            dataset.geometry_type,
+            # fix(#430 codex r7): generic for created datasets — see effective_geometry_type
+            await effective_geometry_type(db, dataset),
         )
     except ValueError as e:
         if "not found" in str(e).lower():

@@ -68,6 +68,11 @@ async def _create_test_table_and_dataset(
             {"name": "name", "type": "text"},
             {"name": "status", "type": "text"},
         ],
+        # fix(#430 codex r7): deliberately 'created' WITH a concretely typed
+        # geom column (see pg_geom_type above) — this mirrors the layers-module
+        # creation path (layers/service.py), whose typed tables must KEEP typed
+        # validation + ST_Multi promotion. effective_geometry_type() only goes
+        # generic when the geometry_columns probe reports a generic column.
         source_format="created",
     )
     session.add(dataset)
@@ -1025,10 +1030,19 @@ class TestCreateEmptyDatasetGenericGeometry:
     every empty-dataset create 500'd at flush with ZERO endpoint coverage.
     Migration 0011 admits the generic sentinel; this pins the whole flow."""
 
+    async def _stored_geometry_type(self, session, dataset_id: str) -> str | None:
+        result = await session.execute(
+            text(
+                "SELECT geometry_type FROM catalog.datasets WHERE id = :id"
+            ).bindparams(id=uuid.UUID(str(dataset_id)))
+        )
+        return result.scalar_one()
+
     async def test_create_empty_dataset_then_insert_mixed_geometries(
         self,
         client: AsyncClient,
         admin_auth_header: dict,
+        test_db_session,
     ):
         resp = await client.post(
             "/datasets/create/",
@@ -1068,3 +1082,78 @@ class TestCreateEmptyDatasetGenericGeometry:
             assert feature_resp.status_code == 201, (
                 f"{geometry['type']}: {feature_resp.text}"
             )
+
+        # fix(#430 codex r7): a cross-family mix stays generic (renders as fill,
+        # the honest fallback — same as GEOMETRYCOLLECTION datasets).
+        assert await self._stored_geometry_type(test_db_session, dataset_id) == (
+            "GEOMETRY"
+        )
+
+    async def test_homogeneous_created_layer_derives_renderable_type(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+    ):
+        """fix(#430 codex r7): a point-only sketch layer must expose a concrete
+        geometry_type ('POINT') so the builder renders circles — the 'GEOMETRY'
+        sentinel classified as an invisible fill layer. Later inserting another
+        family must still be ACCEPTED (validation stays generic for created
+        datasets) and flips the display type back to 'GEOMETRY'."""
+        resp = await client.post(
+            "/datasets/create/",
+            json={
+                "title": "Point Sketch Layer",
+                "columns": [{"name": "name", "type": "text"}],
+            },
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 201, resp.text
+        dataset_id = resp.json()["id"]
+
+        point_resp = await client.post(
+            f"/datasets/{dataset_id}/features/",
+            json={
+                "geometry": {"type": "Point", "coordinates": [-73.99, 40.75]},
+                "properties": {"name": "p1"},
+            },
+            headers=admin_auth_header,
+        )
+        assert point_resp.status_code == 201, point_resp.text
+        assert await self._stored_geometry_type(test_db_session, dataset_id) == "POINT"
+
+        # Single-family mix (Point + MultiPoint) -> the MULTI variant.
+        multipoint_resp = await client.post(
+            f"/datasets/{dataset_id}/features/",
+            json={
+                "geometry": {
+                    "type": "MultiPoint",
+                    "coordinates": [[-73.98, 40.74], [-73.97, 40.73]],
+                },
+                "properties": {"name": "p2"},
+            },
+            headers=admin_auth_header,
+        )
+        assert multipoint_resp.status_code == 201, multipoint_resp.text
+        assert await self._stored_geometry_type(test_db_session, dataset_id) == (
+            "MULTIPOINT"
+        )
+
+        # A different family is STILL accepted (derived type must not
+        # re-restrict inserts — that would reintroduce the BA-32 bug)...
+        line_resp = await client.post(
+            f"/datasets/{dataset_id}/features/",
+            json={
+                "geometry": {
+                    "type": "LineString",
+                    "coordinates": [[-74.0, 40.7], [-73.9, 40.8]],
+                },
+                "properties": {"name": "l1"},
+            },
+            headers=admin_auth_header,
+        )
+        assert line_resp.status_code == 201, line_resp.text
+        # ...and the display type honestly degrades to generic.
+        assert await self._stored_geometry_type(test_db_session, dataset_id) == (
+            "GEOMETRY"
+        )

@@ -284,6 +284,43 @@ async def get_feature_by_id(
 # ---------------------------------------------------------------------------
 
 
+async def _geom_column_is_generic(session: AsyncSession, table_name: str) -> bool:
+    """True when the table's geom column is generic geometry (no typmod).
+
+    Authoritative signal from the PostGIS geometry_columns catalog view.
+    source_format='created' alone is NOT sufficient: create_empty_dataset
+    builds generic geometry(Geometry, 4326) columns, but the layers module
+    (layers/service.py) also labels its datasets 'created' while building
+    CONCRETELY typed columns that need typed validation + ST_Multi promotion.
+    """
+    result = await session.execute(
+        text(
+            "SELECT type FROM geometry_columns "
+            "WHERE f_table_schema = 'data' AND f_table_name = :t "
+            "AND f_geometry_column = 'geom'"
+        ).bindparams(t=table_name)
+    )
+    col_type = result.scalar_one_or_none()
+    return col_type is not None and col_type.strip().upper() == "GEOMETRY"
+
+
+async def effective_geometry_type(session: AsyncSession, dataset) -> str:
+    """Geometry type for feature-write validation and insert SQL.
+
+    fix(#430 codex r7): generic-column created datasets must accept ANY
+    subtype forever — even after refresh_dataset_metadata derives a concrete
+    DISPLAY type from the rows (done so the builder renders the layer instead
+    of an invisible fill). Validation therefore keys on the actual column
+    genericity, never on the derived type. Typed 'created' tables (layers
+    module) keep typed validation.
+    """
+    if dataset.source_format == "created" and await _geom_column_is_generic(
+        session, dataset.table_name
+    ):
+        return "GEOMETRY"
+    return dataset.geometry_type
+
+
 def _validate_geometry_type(geojson_type: str, dataset_geometry_type: str) -> None:
     """Check that a GeoJSON geometry type is compatible with the dataset's geometry type.
 
@@ -517,6 +554,50 @@ async def _refresh_count_and_extent(
     return int(row[0]), row[1]
 
 
+_CONCRETE_GEOMETRY_TYPES = {
+    "POINT",
+    "LINESTRING",
+    "POLYGON",
+    "MULTIPOINT",
+    "MULTILINESTRING",
+    "MULTIPOLYGON",
+    "GEOMETRYCOLLECTION",
+}
+
+
+async def _derive_created_geometry_type(session: AsyncSession, table_name: str) -> str:
+    """Concrete display geometry_type for a created (generic-column) dataset.
+
+    fix(#430 codex r7): the 'GEOMETRY' sentinel renders as an invisible fill
+    layer in the builder (classifyGeometry -> 'other'). Derive from the rows:
+    a homogeneous layer gets its real type, a single-family mix gets the
+    MULTI variant, a cross-family mix (or anything unexpected) stays generic —
+    the honest fallback, matching how GEOMETRYCOLLECTION datasets render.
+    Every return value satisfies chk_datasets_geometry_type by construction.
+    """
+    result = await session.execute(
+        text(
+            f"SELECT DISTINCT GeometryType(geom_4326) "
+            f"FROM {get_catalog_port().quote_table(table_name)} "
+            f"WHERE geom_4326 IS NOT NULL"
+        )
+    )
+    types = {str(row[0]).strip().upper() for row in result.all() if row[0]}
+    if not types <= (_CONCRETE_GEOMETRY_TYPES | {"GEOMETRY"}):
+        return "GEOMETRY"
+    if not types:
+        return "GEOMETRY"
+    if len(types) == 1:
+        (only,) = types
+        return only if only in _CONCRETE_GEOMETRY_TYPES else "GEOMETRY"
+    families = {t.removeprefix("MULTI") for t in types}
+    if len(families) == 1:
+        (family,) = families
+        if family in ("POINT", "LINESTRING", "POLYGON"):
+            return f"MULTI{family}"
+    return "GEOMETRY"
+
+
 async def refresh_dataset_metadata(session: AsyncSession, dataset: Dataset) -> None:
     """Refresh feature_count and extent on a Dataset after write operations.
 
@@ -534,5 +615,19 @@ async def refresh_dataset_metadata(session: AsyncSession, dataset: Dataset) -> N
         dataset.record.spatial_extent = func.ST_GeomFromText(extent_wkt, 4326)
     elif feature_count == 0:
         dataset.record.spatial_extent = None
+
+    # fix(#430 codex r7): keep generic-column created datasets' DISPLAY
+    # geometry_type in sync with their rows so the builder renders them (see
+    # _derive_created_geometry_type). Validation stays generic via
+    # effective_geometry_type(), so this never re-restricts what subtypes the
+    # layer accepts. Typed 'created' tables (layers module) are excluded by
+    # the genericity probe. Created layers are small (hand-authored), so the
+    # extra DISTINCT scan is in the same cost class as the COUNT above.
+    if dataset.source_format == "created" and await _geom_column_is_generic(
+        session, dataset.table_name
+    ):
+        dataset.geometry_type = await _derive_created_geometry_type(
+            session, dataset.table_name
+        )
 
     await session.flush()
