@@ -60,7 +60,7 @@ def _build_response(
 def sync_detailed(
     collection_id: UUID,
     *,
-    client: AuthenticatedClient | Client,
+    client: AuthenticatedClient,
 ) -> Response[HTTPValidationError | StacCollection]:
     """Get Collection
 
@@ -91,7 +91,7 @@ def sync_detailed(
 def sync(
     collection_id: UUID,
     *,
-    client: AuthenticatedClient | Client,
+    client: AuthenticatedClient,
 ) -> HTTPValidationError | StacCollection | None:
     """Get Collection
 
@@ -117,7 +117,7 @@ def sync(
 async def asyncio_detailed(
     collection_id: UUID,
     *,
-    client: AuthenticatedClient | Client,
+    client: AuthenticatedClient,
 ) -> Response[HTTPValidationError | StacCollection]:
     """Get Collection
 
@@ -146,7 +146,7 @@ async def asyncio_detailed(
 async def asyncio(
     collection_id: UUID,
     *,
-    client: AuthenticatedClient | Client,
+    client: AuthenticatedClient,
 ) -> HTTPValidationError | StacCollection | None:
     """Get Collection
 

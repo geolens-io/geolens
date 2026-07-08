@@ -22,6 +22,13 @@ from app.processing.export.service import export_dataset
 
 router = APIRouter(prefix="/datasets", tags=["Datasets"])
 
+# fix(BA-08): ceiling for UNFILTERED full-table exports (by feature count). An
+# unbounded ogr2ogr over the whole table writes an arbitrarily large temp file and
+# holds a worker for the full duration; require callers to narrow very large
+# datasets with bbox/where. A filtered export is the caller already narrowing, and
+# BA-06's subprocess timeout bounds runtime regardless.
+_MAX_EXPORT_FEATURES = 5_000_000
+
 
 def _cleanup_export(path: str) -> None:
     """Remove the temporary export directory after response is sent."""
@@ -149,6 +156,22 @@ async def export_dataset_endpoint(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Cannot export non-spatial dataset as {format}. Use csv format.",
+        )
+
+    # 6b. fix(BA-08): bound unfiltered full-table exports; filtered exports pass.
+    if (
+        bbox_parsed is None
+        and where is None
+        and dataset.feature_count is not None
+        and dataset.feature_count > _MAX_EXPORT_FEATURES
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=(
+                f"Dataset has {dataset.feature_count} features, exceeding the "
+                f"{_MAX_EXPORT_FEATURES} unfiltered-export limit; narrow the export "
+                "with a bbox or attribute filter."
+            ),
         )
 
     # 7. Run export

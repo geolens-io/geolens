@@ -57,6 +57,20 @@ def test_has_url_credentials_detects_userinfo() -> None:
     assert has_url_credentials("https://user:secret@example.com/cog.tif")
 
 
+@pytest.mark.parametrize(
+    "url",
+    [
+        "ESRIJSON:https://user:pass@evil/x",
+        "WFS:https://user:pass@evil/x",
+    ],
+)
+def test_has_url_credentials_detects_userinfo_behind_gdal_prefix(url: str) -> None:
+    # fix(BA-04): urlsplit sees scheme 'esrijson'/'wfs' with no netloc, so
+    # .username/.password were None and the credential slipped through. The
+    # validator must strip the GDAL prefix before inspecting userinfo.
+    assert has_url_credentials(url)
+
+
 def test_redact_url_credentials_masks_userinfo_and_gcs_signature() -> None:
     redacted = redact_url_credentials(
         "ESRIJSON:https://user:secret@example.com/cog.tif?"

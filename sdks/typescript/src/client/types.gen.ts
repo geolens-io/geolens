@@ -4866,9 +4866,17 @@ export type MapLayerResponse = {
         [key: string]: unknown;
     } | null;
     /**
+     * Dataset Status
+     */
+    dataset_status?: string | null;
+    /**
      * Dataset Table Name
      */
     dataset_table_name: string;
+    /**
+     * Dataset Visibility
+     */
+    dataset_visibility?: string | null;
     /**
      * Dem Vertical Units
      */

@@ -75,8 +75,12 @@ async def list_datasets(
     total_count = total.scalar_one()
 
     # Get paginated results
+    # fix(BA-19): Record.created_at is a non-unique server-default; add a
+    # unique tiebreaker so pagination over batch-seeded rows is stable.
     paginated_stmt = (
-        filtered_stmt.offset(skip).limit(limit).order_by(Record.created_at.desc())
+        filtered_stmt.offset(skip)
+        .limit(limit)
+        .order_by(Record.created_at.desc(), Record.id.desc())
     )
     result = await session.execute(paginated_stmt)
     datasets = list(result.scalars().unique().all())

@@ -74,8 +74,12 @@ class AzureBlobStorageProvider:
 
         def _get() -> bytes:
             blob = self._client.get_blob_client(container=self.container, blob=key)
-            downloader = blob.download_blob()
-            return downloader.readall()
+            try:
+                downloader = blob.download_blob()
+                return downloader.readall()
+            except ResourceNotFoundError as e:
+                # fix(BA-24): normalize missing-object to FileNotFoundError across providers.
+                raise FileNotFoundError(key) from e
 
         return await asyncio.to_thread(_get)
 
@@ -136,7 +140,11 @@ class AzureBlobStorageProvider:
 
         def _size() -> int:
             blob = self._client.get_blob_client(container=self.container, blob=key)
-            props = blob.get_blob_properties()
+            try:
+                props = blob.get_blob_properties()
+            except ResourceNotFoundError as e:
+                # fix(BA-24): normalize missing-object to FileNotFoundError across providers.
+                raise FileNotFoundError(key) from e
             size = getattr(props, "size", None)
             if size is None:
                 try:

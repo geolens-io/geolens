@@ -792,6 +792,14 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # 660 → 720 (~29 LOC headroom).
         "backend/app/modules/catalog/maps/service_public.py": 720,
         "backend/app/modules/catalog/search/service_records.py": 500,
+        # fix(V-14): _replace_layers now reconciles layers by id (update-in-place
+        # + create/delete) instead of delete-all-then-recreate, so a PUT preserves
+        # layer UUIDs. +~35 LOC over the 350 default. Cap → 400 (~34 headroom).
+        "backend/app/modules/catalog/maps/service_diff.py": 400,
+        # fix(V-17): DatasetMeta/LayerRow now carry dataset visibility+status so the
+        # builder can badge layers hidden from a public map's audience. +~10 LOC
+        # over the 350 default (BA-21 tie-break comment adds a couple more).
+        "backend/app/modules/catalog/maps/service_shared.py": 400,
         # Phase 269 H-05: dataset-domain modules over the 350 default at audit
         # time. Caps set ~20-30 LOC above current size to allow modest growth
         # while still tripping CI on substantial regrowth back toward the
@@ -933,7 +941,10 @@ def test_router_orchestrator_modules_stay_within_loc_cap() -> None:
         # further.
         # v1043 #186: terrainrgb nodata-mask handling added ~23 LOC (now 1943);
         # cap raised to 2050 (+5.5% headroom) pending the tile_seams.py split.
-        "backend/app/processing/tiles/router.py": 2050,
+        # fix(V-03): empty-tile (204) responses now carry Cache-Control via a new
+        # _empty_tile_headers helper applied at 3 sites (~21 LOC, now 2071); cap
+        # raised 2050 → 2090 (~19 headroom), still pending the tile_seams.py split.
+        "backend/app/processing/tiles/router.py": 2090,
     }
 
     violations: list[str] = []

@@ -28,7 +28,7 @@ class IngestJob(Base):
             name="chk_ingest_jobs_status",
         ),
         # DBM-03: partial index for stale-job recovery scans.
-        # Migration 0013 is the source of truth for the actual DDL.
+        # Migration 0001_baseline is the source of truth for the actual DDL.
         Index(
             "ix_ingest_jobs_status_active",
             "status",

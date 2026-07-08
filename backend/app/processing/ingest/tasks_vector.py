@@ -568,6 +568,29 @@ async def ingest_file(job_id: str, file_path: str, user_id: str, **kwargs) -> No
         ):
             Path(file_path).unlink(missing_ok=True)
 
+        # fix(BA-09): the ORIGINAL S3 staging object is otherwise never reaped —
+        # the task downloads it to a private local copy (unlinked above) but the
+        # staging/{job_id}/ key lives forever, and failed S3 ingests leak it with
+        # no dataset ever created. resolve_file_path only rewrites the path when it
+        # downloaded from S3, so file_path != original_file_path signals S3 mode.
+        # Skip fan-out children — siblings share the original; a retention policy
+        # reaps those.
+        if (
+            final_status in ("complete", "failed")
+            and file_path != original_file_path
+            and not is_fan_out_child
+        ):
+            try:
+                from app.platform.storage import get_storage
+
+                await get_storage().delete(original_file_path)
+            except Exception:  # broad: best-effort staging cleanup; never fail the task
+                structlog.get_logger().warning(
+                    "Failed to delete staging source object",
+                    job_id=job_id,
+                    storage_key=original_file_path,
+                )
+
 
 @task_app.task(queue="ingest", retry=0, aliases=["app.ingest.tasks.ingest_service"])
 @tenant_task

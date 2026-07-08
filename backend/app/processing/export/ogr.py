@@ -1,8 +1,14 @@
 """Async ogr2ogr export subprocess wrapper for PostGIS-to-file conversion."""
 
 import asyncio
+import os
 
-from app.processing.ingest.ogr import build_pg_conn_str
+from app.processing.ingest.ogr import (
+    OGR2OGR_FILE_TIMEOUT_SECONDS,
+    IngestionError,
+    _communicate_with_timeout,
+    build_pg_conn_str,
+)
 
 
 class ExportError(Exception):
@@ -90,12 +96,26 @@ async def run_ogr2ogr_export(
     if format_key == "csv":
         cmd.extend(["-lco", "GEOMETRY=AS_WKT"])
 
+    # fix(BA-06): bound the export subprocess wall-clock with a kill-on-timeout
+    # (mirrors the ingest path) so a slow/large table can't hold an API worker or
+    # orphan the ogr2ogr child on client disconnect; also cap the server-side query
+    # via libpq statement_timeout so the DB stops working when the child is killed.
+    env = {
+        **os.environ,
+        "PGOPTIONS": f"-c statement_timeout={OGR2OGR_FILE_TIMEOUT_SECONDS * 1000}",
+    }
     proc = await asyncio.create_subprocess_exec(
         *cmd,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
+        env=env,
     )
-    stdout, stderr = await proc.communicate()
+    try:
+        stdout, stderr = await _communicate_with_timeout(
+            proc, OGR2OGR_FILE_TIMEOUT_SECONDS, tool_name="ogr2ogr export"
+        )
+    except IngestionError as exc:
+        raise ExportError(str(exc)) from exc
 
     if proc.returncode != 0:
         raise ExportError(

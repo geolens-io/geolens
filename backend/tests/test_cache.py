@@ -39,6 +39,21 @@ async def test_memory_ttl_expiry():
 
 
 @pytest.mark.asyncio
+async def test_memory_lru_bound_evicts_coldest():
+    """BA-35: the store is size-bounded; overflow evicts least-recently-used."""
+    cache = InMemoryCacheProvider(max_entries=3)
+    for i in range(3):
+        await cache.set(f"k{i}", i, ttl=60)
+    # Touch k0 so it is most-recently-used; k1 is now the coldest.
+    assert await cache.get("k0") == 0
+    await cache.set("k3", 3, ttl=60)  # overflow -> evict k1
+    assert len(cache._store) == 3
+    assert await cache.get("k1") is None
+    assert await cache.get("k0") == 0
+    assert await cache.get("k3") == 3
+
+
+@pytest.mark.asyncio
 async def test_memory_delete():
     cache = InMemoryCacheProvider()
     await cache.set("key1", "val")

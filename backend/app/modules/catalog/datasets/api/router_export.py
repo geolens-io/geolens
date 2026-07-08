@@ -71,6 +71,13 @@ def _dcat_relationship_options():
     )
 
 
+# fix(BA-28): these anonymous feeds materialize every visible dataset (+ keywords/
+# contacts/distributions) into one in-memory JSON-LD doc with no pagination or
+# cache — a cheap repeatable memory/CPU amplifier on a large catalog. Bound the
+# row count (OGC/STAC cap at ≤200) and log when the bound truncates the feed.
+_DCAT_FEED_MAX_DATASETS = 10_000
+
+
 async def _get_visible_dcat_datasets(
     db: AsyncSession, user: Identity | None
 ) -> list[DatasetModel]:
@@ -78,6 +85,8 @@ async def _get_visible_dcat_datasets(
         select(DatasetModel)
         .join(Record, DatasetModel.record_id == Record.id)
         .options(_dcat_relationship_options())
+        .order_by(Record.created_at.desc(), Record.id.desc())
+        .limit(_DCAT_FEED_MAX_DATASETS)
     )
 
     if user is not None:
@@ -88,7 +97,14 @@ async def _get_visible_dcat_datasets(
     stmt = apply_visibility_filter(stmt, user, user_roles, Record, DatasetGrant)
 
     result = await db.execute(stmt)
-    return list(result.unique().scalars().all())
+    datasets = list(result.unique().scalars().all())
+    if len(datasets) >= _DCAT_FEED_MAX_DATASETS:
+        logger.warning(
+            "dcat_feed_truncated",
+            limit=_DCAT_FEED_MAX_DATASETS,
+            authenticated=user is not None,
+        )
+    return datasets
 
 
 async def _get_dcat_dataset_for_export(

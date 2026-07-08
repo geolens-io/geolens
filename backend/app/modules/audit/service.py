@@ -53,7 +53,7 @@ def _apply_filters(
         # ADMIN-02 (Phase 279 / M-02; fixed in T-1): rewrite ILIKE to
         # lower(catalog.immutable_unaccent(...)).like so the planner picks the
         # ix_audit_logs_action_trgm and ix_users_username_trgm functional GIN
-        # indexes from migration 0015. Those indexes are built on
+        # indexes from migration 0001_baseline. Those indexes are built on
         # lower(catalog.immutable_unaccent(...)) (IMMUTABLE). The query expression
         # MUST use that exact schema-qualified function: bare ILIKE, OR a plain
         # func.unaccent() (which renders unqualified and resolves via search_path

@@ -119,7 +119,11 @@ async def apply_layer_diff(
         raise ValueError(f"Map {map_id} not found")
 
     layers_result = await session.execute(
-        select(MapLayer).where(MapLayer.map_id == map_id).order_by(MapLayer.sort_order)
+        select(MapLayer)
+        .where(MapLayer.map_id == map_id)
+        .order_by(
+            MapLayer.sort_order, MapLayer.id
+        )  # fix(BA-21): deterministic tie-break
     )
     existing_layers = list(layers_result.scalars().all())
     existing_by_id = {layer.id: layer for layer in existing_layers}
@@ -266,12 +270,20 @@ async def _replace_layers(
     map_id: uuid.UUID,
     layers: list[dict],
 ) -> None:
-    """Delete all existing layers for a map and create new ones.
+    """Reconcile a map's layers against ``layers`` by id.
+
+    fix(V-14): match incoming layers to existing rows by ``id`` and update them
+    in place, creating only for unknown/absent ids and deleting rows no longer
+    present. The old implementation deleted every row and inserted fresh ones,
+    regenerating every layer UUID (breaking embed configs, bookmarks, in-flight
+    clients) and re-serializing numeric fields on an otherwise-unchanged PUT.
 
     Applies default styles if paint/layout is None. Flushes but does NOT commit.
     """
-    # Delete existing layers
-    await session.execute(delete(MapLayer).where(MapLayer.map_id == map_id))
+    existing_result = await session.execute(
+        select(MapLayer).where(MapLayer.map_id == map_id)
+    )
+    existing_by_id = {layer.id: layer for layer in existing_result.scalars().all()}
 
     # Bulk-fetch record_type + geometry_type for all datasets in one query
     dataset_ids = [ld["dataset_id"] for ld in layers]
@@ -292,25 +304,63 @@ async def _replace_layers(
         for row in ds_meta_result.all()
     }
 
+    def _coerce_uuid(value: object) -> uuid.UUID | None:
+        if isinstance(value, uuid.UUID):
+            return value
+        if isinstance(value, str):
+            try:
+                return uuid.UUID(value)
+            except ValueError:
+                return None
+        return None
+
+    kept_ids: set[uuid.UUID] = set()
     for layer_data in layers:
         prepared = _prepare_layer_storage(layer_data, ds_meta)
+        raw_id = _coerce_uuid(layer_data.get("id"))
+        existing = existing_by_id.get(raw_id) if raw_id is not None else None
 
-        new_layer = MapLayer(
-            map_id=map_id,
-            dataset_id=prepared["dataset_id"],
-            sort_order=prepared.get("sort_order", 0),
-            visible=prepared.get("visible", True),
-            opacity=prepared.get("opacity", 1.0),
-            paint=prepared["paint"],
-            layout=prepared["layout"],
-            layer_type=prepared["layer_type"],
-            display_name=prepared["display_name"],
-            filter=prepared.get("filter"),
-            label_config=prepared.get("label_config"),
-            popup_config=prepared.get("popup_config"),
-            style_config=prepared["style_config"],
-            show_in_legend=prepared.get("show_in_legend", True),
+        if existing is not None:
+            kept_ids.add(existing.id)
+            existing.dataset_id = prepared["dataset_id"]
+            existing.sort_order = prepared.get("sort_order", 0)
+            existing.visible = prepared.get("visible", True)
+            existing.opacity = prepared.get("opacity", 1.0)
+            existing.paint = prepared["paint"]
+            existing.layout = prepared["layout"]
+            existing.layer_type = prepared["layer_type"]
+            existing.display_name = prepared["display_name"]
+            existing.filter = prepared.get("filter")
+            existing.label_config = prepared.get("label_config")
+            existing.popup_config = prepared.get("popup_config")
+            existing.style_config = prepared["style_config"]
+            existing.show_in_legend = prepared.get("show_in_legend", True)
+        else:
+            session.add(
+                MapLayer(
+                    map_id=map_id,
+                    dataset_id=prepared["dataset_id"],
+                    sort_order=prepared.get("sort_order", 0),
+                    visible=prepared.get("visible", True),
+                    opacity=prepared.get("opacity", 1.0),
+                    paint=prepared["paint"],
+                    layout=prepared["layout"],
+                    layer_type=prepared["layer_type"],
+                    display_name=prepared["display_name"],
+                    filter=prepared.get("filter"),
+                    label_config=prepared.get("label_config"),
+                    popup_config=prepared.get("popup_config"),
+                    style_config=prepared["style_config"],
+                    show_in_legend=prepared.get("show_in_legend", True),
+                )
+            )
+
+    stale_ids = set(existing_by_id) - kept_ids
+    if stale_ids:
+        await session.execute(
+            delete(MapLayer).where(
+                MapLayer.map_id == map_id, MapLayer.id.in_(stale_ids)
+            )
         )
-        session.add(new_layer)
 
     await session.flush()

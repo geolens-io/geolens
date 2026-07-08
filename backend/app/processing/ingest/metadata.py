@@ -241,13 +241,22 @@ async def get_feature_count(session: AsyncSession, table_name: str) -> int:
 
 
 async def get_extent(session: AsyncSession, table_name: str) -> str | None:
-    """Get the 4326 bbox extent as POLYGON WKT (or None for empty tables)."""
+    """Get the 4326 bbox extent as POLYGON WKT (or None for empty tables).
+
+    fix(BA-18): records.spatial_extent is a POLYGON column. ST_Extent of a single
+    point / axis-collinear points casts to POINT / LINESTRING, which the column
+    rejects (crashing the reupload swap that stores this verbatim). Pad ONLY the
+    degenerate cases into a valid sub-mm polygon; genuine polygon extents are
+    returned byte-identical, matching refresh_dataset_metadata so the two paths agree.
+    """
     _validate_table_name(table_name)
     result = await session.execute(
         text(
             f"SELECT CASE "
             f"  WHEN ext IS NULL THEN NULL "
-            f"  ELSE ST_AsText(ST_SetSRID(ext::geometry, 4326)) "
+            f"  WHEN GeometryType(ext::geometry) = 'POLYGON' "
+            f"    THEN ST_AsText(ST_SetSRID(ext::geometry, 4326)) "
+            f"  ELSE ST_AsText(ST_Expand(ST_SetSRID(ext::geometry, 4326), 1e-9)) "
             f"END "
             f"FROM (SELECT ST_Extent(geom_4326) AS ext FROM {_qtable(table_name)}) s"
         )
@@ -762,10 +771,19 @@ async def extract_metadata(
                             WHERE geom IS NOT NULL
                             LIMIT 1
                         ) AS geometry_type,
+                        -- fix(BA-18): pad only degenerate (point/line) extents
+                        -- into a valid POLYGON the spatial_extent column accepts.
                         CASE
                             WHEN ST_Extent(geom_4326) IS NULL THEN NULL
-                            ELSE ST_AsText(
+                            WHEN GeometryType(ST_Extent(geom_4326)::geometry) = 'POLYGON'
+                            THEN ST_AsText(
                                 ST_SetSRID(ST_Extent(geom_4326)::geometry, 4326)
+                            )
+                            ELSE ST_AsText(
+                                ST_Expand(
+                                    ST_SetSRID(ST_Extent(geom_4326)::geometry, 4326),
+                                    1e-9
+                                )
                             )
                         END AS extent_wkt
                     FROM {tref}
@@ -1132,7 +1150,7 @@ async def add_4326_column(
 
     # DBM-05 (Phase 271): the previously-created `idx_<table>_gid` btree
     # was redundant with the PK btree on `gid SERIAL PRIMARY KEY`. Removed
-    # so new ingests no longer ship the duplicate. Migration 0016 drops
+    # so new ingests no longer ship the duplicate. Migration 0001_baseline drops
     # the leftovers from existing tables.
 
     # ING-02 / P2-02 (Phase 1076): no internal commit. The caller

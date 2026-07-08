@@ -79,7 +79,7 @@ def _build_text_filter(q: str):
     ts_query = ts_query_en.bool_op("||")(ts_query_simple)
     # Use || (IMMUTABLE) instead of concat_ws (STABLE) so this expression
     # matches the functional GIN index ix_records_simple_search_vector
-    # created by migration 0020_records_simple_search_vector_idx.
+    # created by migration 0001_baseline.
     # catalog.immutable_text_array_join is the IMMUTABLE wrapper around
     # array_to_string defined by the same migration.
     record_simple_vector = func.to_tsvector(

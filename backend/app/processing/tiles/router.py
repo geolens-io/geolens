@@ -1587,6 +1587,19 @@ def _tile_headers(cache_scope: str, cache_ttl: int) -> dict[str, str]:
     }
 
 
+def _empty_tile_headers(cache_scope: str, cache_ttl: int) -> dict[str, str]:
+    """Cache-Control + CORS for an empty (204) MVT tile.
+
+    fix(V-03): the empty-tile 204 path returned no Cache-Control, so sparse
+    datasets (where most tiles are empty) re-fetched every empty tile on every
+    pan/zoom despite stable signed URLs. No Content-Encoding/ETag — 204 has no body.
+    """
+    return {
+        "Cache-Control": f"{cache_scope}, max-age={cache_ttl}",
+        "Access-Control-Allow-Origin": "*",
+    }
+
+
 def _tile_etag(content: bytes) -> str:
     """builder-audit #338 MVT-04: strong ETag derived from a hash of the served tile bytes."""
     return '"' + hashlib.sha256(content).hexdigest()[:32] + '"'
@@ -1740,7 +1753,12 @@ async def _acquire_and_serve_tile(
             await tile_cache.set(
                 cache_key, z, x, y, b"", ttl=cache_ttl, cols_key=cols_cache_key
             )
-        return Response(status_code=status.HTTP_204_NO_CONTENT)
+        # fix(V-03): empty tiles were uncacheable — reuse the tile's Cache-Control
+        # from base_headers (drop Content-Encoding; a 204 has no body).
+        return Response(
+            status_code=status.HTTP_204_NO_CONTENT,
+            headers={k: v for k, v in base_headers.items() if k != "Content-Encoding"},
+        )
 
     logger.debug(log_event, table_name=table_name, z=z, x=x, y=y, **(log_extra or {}))
 
@@ -1829,7 +1847,10 @@ async def cluster_tile_endpoint(
         )
         if cached is not None:
             if len(cached) == 0:
-                return Response(status_code=status.HTTP_204_NO_CONTENT)
+                return Response(
+                    status_code=status.HTTP_204_NO_CONTENT,
+                    headers=_empty_tile_headers(cache_scope, cache_ttl),  # fix(V-03)
+                )
             # MVT-04: cache hits also carry an ETag / honor If-None-Match.
             return _tile_response(
                 request, cached, _tile_headers(cache_scope, cache_ttl)
@@ -1960,7 +1981,10 @@ async def tile_endpoint(
         if cached is not None:
             if len(cached) == 0:
                 # Empty sentinel — tile was previously confirmed empty
-                return Response(status_code=status.HTTP_204_NO_CONTENT)
+                return Response(
+                    status_code=status.HTTP_204_NO_CONTENT,
+                    headers=_empty_tile_headers(cache_scope, cache_ttl),  # fix(V-03)
+                )
             # MVT-04: cache hits also carry an ETag / honor If-None-Match.
             return _tile_response(
                 request, cached, _tile_headers(cache_scope, cache_ttl)

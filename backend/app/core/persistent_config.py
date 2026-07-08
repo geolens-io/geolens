@@ -274,8 +274,14 @@ class PersistentConfig(Generic[T]):
         *,
         user_id: uuid.UUID | None = None,
         ip_address: str | None = None,
+        commit: bool = True,
     ) -> None:
-        """Delete DB override, reverting to env_default. Audit and invalidate cache."""
+        """Delete DB override, reverting to env_default. Audit and invalidate cache.
+
+        fix(BA-31): pass ``commit=False`` to defer the DB commit to a caller's
+        terminal commit (config-import overwrite mode), so a mid-import failure
+        rolls the resets back instead of leaving settings wiped to defaults.
+        """
         if _is_env_only():
             raise HTTPException(
                 status_code=403,
@@ -305,7 +311,8 @@ class PersistentConfig(Generic[T]):
                     ),
                 )
 
-            await db.commit()
+            if commit:
+                await db.commit()
 
             cache = _get_cache_safe()
             if cache is not None:

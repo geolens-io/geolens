@@ -108,7 +108,7 @@ class Map(Base):
     thumbnail_uri: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # OG/social-card image — storage key (e.g. "maps/og-images/{id}.jpg")
-    # Added in migration 0024 (SHARE-08 Path A). Separate from thumbnail_uri
+    # Added in migration 0001_baseline (SHARE-08 Path A). Separate from thumbnail_uri
     # because the OG image is 1200x630 and exceeds the 100KB thumbnail cap.
     og_image_uri: Mapped[str | None] = mapped_column(Text, nullable=True)
 

@@ -212,6 +212,11 @@ async def ingest_vrt(
 
     job_uuid = uuid.UUID(job_id)
     tmp_dir: str | None = None
+    # fix(BA-30): track storage puts so a failure after put (terminal commit /
+    # later phase-2 step) reaps the VRT + quicklook bytes instead of orphaning
+    # them forever — the GAP-017 guard ingest_raster already has.
+    written_storage_keys: list[str] = []
+    final_status = "failed"
 
     try:
         # ----------------------------------------------------------------- #
@@ -368,11 +373,14 @@ async def ingest_vrt(
 
                 with open(vrt_path, "rb") as fobj:
                     await storage.put(_storage_vrt_key, fobj)
+                written_storage_keys.append(_storage_vrt_key)
 
                 if ql256 is not None:
                     await storage.put(_storage_ql256_key, io.BytesIO(ql256))
+                    written_storage_keys.append(_storage_ql256_key)
                 if ql512 is not None:
                     await storage.put(_storage_ql512_key, io.BytesIO(ql512))
+                    written_storage_keys.append(_storage_ql512_key)
 
                 # 11. Update asset URIs and create distribution.
                 # asset_uri stays as the logical (un-prefixed) key — the tenant
@@ -397,6 +405,7 @@ async def ingest_vrt(
                 job.dataset_id = dataset.id
                 job.completed_at = datetime.now(timezone.utc)
                 await session.commit()
+                final_status = "complete"
 
                 # Invalidate cache
                 await invalidate_catalog_cache()
@@ -434,6 +443,14 @@ async def ingest_vrt(
     finally:
         if tmp_dir:
             shutil.rmtree(tmp_dir, ignore_errors=True)
+        # fix(BA-30): reap storage bytes written before a non-complete terminal
+        # status (mirrors ingest_raster's GAP-017 guard).
+        if final_status != "complete" and written_storage_keys:
+            from app.processing.ingest.tasks_raster import (
+                _cleanup_orphaned_storage_keys,
+            )
+
+            await _cleanup_orphaned_storage_keys(written_storage_keys, job_id=job_id)
 
 
 @task_app.task(queue="raster", retry=0, aliases=["app.ingest.tasks.regenerate_vrt"])

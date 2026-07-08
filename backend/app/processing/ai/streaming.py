@@ -3,9 +3,13 @@
 import json
 import time
 from collections.abc import AsyncGenerator
+from datetime import datetime, timedelta, timezone
 
 import structlog
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.persistent_config import MAX_AI_TOKENS_PER_USER_PER_DAY
 
 from app.processing.ai.chat_service import (
     _collect_chat_action,
@@ -26,7 +30,7 @@ from app.processing.ai.llm_loop import (
     resolve_provider,
 )
 from app.processing.ai.schemas import ChatAction, ChatHistoryMessage, history_to_dicts
-from app.processing.ai.token_usage import record_token_usage
+from app.processing.ai.token_usage import AITokenUsage, record_token_usage
 from app.processing.ai.tools import CHAT_TOOLS_ANTHROPIC, select_chat_tools
 from typing import TYPE_CHECKING
 
@@ -37,6 +41,36 @@ if TYPE_CHECKING:
     from app.core.processing_port import ProcessingPort
 
 logger = structlog.stdlib.get_logger(__name__)
+
+
+async def _daily_token_budget(session: AsyncSession, user: Identity) -> tuple[int, int]:
+    """Snapshot the per-user daily AI token cap and 24h usage.
+
+    fix(BA-10): the cap is enforced once at request entry (enforce_ai_token_budget),
+    so a caller near the cap could still run a full multi-round tool loop over it.
+    Returns ``(cap, used_in_last_24h)``; ``cap <= 0`` means unlimited. Callers add
+    this request's in-memory token accumulator and stop the loop before crossing —
+    one query per request, not per round.
+    """
+    # Fail-open: this is a best-effort mid-loop backstop; the authoritative cap
+    # is enforced at request entry (enforce_ai_token_budget). A transient DB error
+    # must never crash the user's stream, so any failure disables mid-loop
+    # enforcement rather than raising.
+    try:
+        cap = await MAX_AI_TOKENS_PER_USER_PER_DAY.get(session)
+        if cap <= 0:
+            return 0, 0
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
+        used = await session.scalar(
+            select(
+                func.coalesce(
+                    func.sum(AITokenUsage.input_tokens + AITokenUsage.output_tokens), 0
+                )
+            ).where(AITokenUsage.user_id == user.id, AITokenUsage.created_at >= cutoff)
+        )
+        return cap, int(used or 0)
+    except Exception:  # broad: never let the backstop crash the stream
+        return 0, 0
 
 
 def _make_stage_callback(tool_name: str, stage_events: list[dict]):
@@ -156,6 +190,7 @@ async def _stream_anthropic_chat(
     total_output = 0
     deadline = time.monotonic() + MAX_STREAMING_WALL_CLOCK_SECONDS
     final_message = None
+    daily_cap, daily_used = await _daily_token_budget(session, user)  # fix(BA-10)
 
     for round_num in range(MAX_TOOL_ROUNDS):
         if time.monotonic() > deadline:
@@ -178,6 +213,21 @@ async def _stream_anthropic_chat(
                 total_output_tokens=total_output,
                 budget=MAX_REQUEST_TOKEN_BUDGET,
             )
+            break
+
+        # fix(BA-10): stop before the next round would push the user over their
+        # daily token cap (snapshot + this request's accumulator; no per-round query).
+        if daily_cap > 0 and daily_used + total_input + total_output >= daily_cap:
+            logger.info(
+                "Chat stream daily token budget exceeded",
+                provider="anthropic",
+                round=round_num,
+                daily_cap=daily_cap,
+            )
+            yield {
+                "type": "error",
+                "message": "Daily AI token budget exceeded. Try again later.",
+            }
             break
 
         buffered_tokens: list[str] = []
@@ -362,6 +412,7 @@ async def _stream_openai_chat(
     deadline = time.monotonic() + MAX_STREAMING_WALL_CLOCK_SECONDS
     total_input = 0
     total_output = 0
+    daily_cap, daily_used = await _daily_token_budget(session, user)  # fix(BA-10)
     # Read-only enforcement backstop: the XML fallback (parse_xml_tool_calls)
     # below extracts tool calls from model text, bypassing the advertised schema.
     # Restrict execution/collection to the selected tool set so a view-only caller
@@ -391,6 +442,21 @@ async def _stream_openai_chat(
                 total_output_tokens=total_output,
                 budget=MAX_REQUEST_TOKEN_BUDGET,
             )
+            break
+
+        # fix(BA-10): stop before the next round would push the user over their
+        # daily token cap (snapshot + this request's accumulator; no per-round query).
+        if daily_cap > 0 and daily_used + total_input + total_output >= daily_cap:
+            logger.info(
+                "Chat stream daily token budget exceeded",
+                provider="openai",
+                round=round_num,
+                daily_cap=daily_cap,
+            )
+            yield {
+                "type": "error",
+                "message": "Daily AI token budget exceeded. Try again later.",
+            }
             break
 
         # Phase 226 D-08: CHAT_TOOLS_OPENAI removed; convert from canonical Anthropic shape.

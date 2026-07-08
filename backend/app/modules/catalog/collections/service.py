@@ -179,7 +179,8 @@ async def add_datasets_to_collection(
     )
     existing_ids = {row[0] for row in existing_result.all()}
 
-    new_ids = [did for did in dataset_ids if did not in existing_ids]
+    # fix(BA-33): dedupe request ids or a repeated pair violates the composite PK -> 500.
+    new_ids = [did for did in dict.fromkeys(dataset_ids) if did not in existing_ids]
     for dataset_id in new_ids:
         session.add(
             CollectionDataset(
@@ -272,6 +273,24 @@ async def get_dataset_collections(
     return list(result.scalars().all())
 
 
+def _iter_coord_pairs(coords):
+    """Yield (x, y) from arbitrarily-nested GeoJSON coordinates.
+
+    Handles Point ([x, y]), LineString ([[x, y], ...]) and Polygon
+    ([[[x, y], ...]]) alike so an envelope that degenerates to a point/line
+    doesn't crash the bbox math (BA-20).
+    """
+    if (
+        len(coords) >= 2
+        and isinstance(coords[0], (int, float))
+        and isinstance(coords[1], (int, float))
+    ):
+        yield (coords[0], coords[1])
+        return
+    for c in coords:
+        yield from _iter_coord_pairs(c)
+
+
 async def batch_collection_extents(
     session: AsyncSession,
     collection_ids: list[uuid.UUID],
@@ -312,10 +331,13 @@ async def batch_collection_extents(
         extent_bbox = None
         if row.bbox_geojson is not None:
             geojson = json.loads(row.bbox_geojson)
-            coords = geojson["coordinates"][0]
-            xs = [c[0] for c in coords]
-            ys = [c[1] for c in coords]
-            extent_bbox = [min(xs), min(ys), max(xs), max(ys)]
+            # fix(BA-20): ST_Envelope of a single point/line is a Point/LineString,
+            # not a Polygon ring -- flatten coordinates generically.
+            pairs = list(_iter_coord_pairs(geojson["coordinates"]))
+            if pairs:
+                xs = [p[0] for p in pairs]
+                ys = [p[1] for p in pairs]
+                extent_bbox = [min(xs), min(ys), max(xs), max(ys)]
         extents[coll_id] = {
             "extent_bbox": extent_bbox,
             "temporal_start": row.temporal_start,

@@ -222,10 +222,14 @@ class TestManifestApplyEndpointRoundTrip:
     async def test_endpoint_dry_run_does_not_write_or_defer(
         self,
         client: AsyncClient,
-        editor_auth_header: dict,
+        admin_auth_header: dict,
         test_db_session,
         clean_tables,
     ):
+        # fix(BA-02): the caller must OWN the manifest-managed datasets, else the
+        # write-access gate now (correctly) denies the update. This test exercises
+        # dry-run side-effect-freeness, not cross-user authz — so run it as the
+        # owner (admin). The cross-user denial has its own test below.
         user = await _admin_user(test_db_session)
         skip_payload = _dataset_payload(
             key="roundtrip-dry-skip",
@@ -290,7 +294,7 @@ class TestManifestApplyEndpointRoundTrip:
                     skip_payload,
                     dry_run=True,
                 ),
-                headers=editor_auth_header,
+                headers=admin_auth_header,
             )
 
         assert response.status_code == 200
@@ -314,6 +318,60 @@ class TestManifestApplyEndpointRoundTrip:
         after_record = await test_db_session.get(Record, update_dataset.record_id)
         assert after_jobs == before_jobs
         assert after_record is not None
+        assert after_record.title == before_title
+
+    async def test_manifest_update_over_other_users_dataset_is_denied(
+        self,
+        client: AsyncClient,
+        editor_auth_header: dict,
+        test_db_session,
+        clean_tables,
+    ):
+        """fix(BA-02): an editor cannot overwrite another user's manifest-managed
+        dataset, and dry_run must not leak that dataset's UUID (a pre-write oracle)."""
+        owner = await _admin_user(test_db_session)
+        original_payload = _dataset_payload(
+            key="cross-user-update", title="Owner Original"
+        )
+        changed_payload = _dataset_payload(
+            key="cross-user-update", title="Attacker Changed"
+        )
+        original_request = ManifestApplyRequest.model_validate(
+            _manifest_payload(original_payload)
+        )
+        victim_dataset = await create_dataset(
+            test_db_session, created_by=owner.id, name="Owner Original"
+        )
+        await _create_completed_manifest_job(
+            test_db_session,
+            user=owner,
+            dataset=victim_dataset,
+            manifest_dataset=original_request.datasets[0],
+        )
+        before_title = (
+            await test_db_session.get(Record, victim_dataset.record_id)
+        ).title
+
+        for dry_run in (True, False):
+            with patch(
+                "app.processing.ingest.manifest_service.queue_ingest_job",
+                new=AsyncMock(),
+            ) as queue:
+                response = await client.post(
+                    "/ingest/manifest/apply",
+                    json=_manifest_payload(changed_payload, dry_run=dry_run),
+                    headers=editor_auth_header,
+                )
+            assert response.status_code == 200
+            actions = _actions_by_key(response.json())
+            entry = actions["cross-user-update"]
+            assert entry["action"] == "error"
+            # UUID oracle closed: the victim's dataset id must not be disclosed.
+            assert entry.get("dataset_id") is None
+            queue.assert_not_awaited()
+
+        # The victim's data was never touched.
+        after_record = await test_db_session.get(Record, victim_dataset.record_id)
         assert after_record.title == before_title
 
 

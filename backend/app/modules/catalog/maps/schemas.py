@@ -838,6 +838,8 @@ class DatasetMetaKwargs(TypedDict, total=False):
     dem_vertical_units: str | None
     band_count: int | None
     tile_version: int | None
+    dataset_visibility: str | None
+    dataset_status: str | None
 
 
 class MapLayerResponse(BaseModel):
@@ -871,6 +873,10 @@ class MapLayerResponse(BaseModel):
     # the client `_v=` tile-URL cache-buster (map-sync.ts) so a reupload busts
     # browser/CDN caches; the server-side Valkey purge is B-019.
     tile_version: int | None = None
+    # fix(V-17): dataset visibility/status so the builder can badge a layer whose
+    # dataset is hidden from a public/shared map's anonymous audience.
+    dataset_visibility: str | None = None
+    dataset_status: str | None = None
 
     model_config = ConfigDict(from_attributes=True)
 

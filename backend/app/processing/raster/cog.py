@@ -1,11 +1,10 @@
 """COG compliance check, conversion, and raster metadata extraction."""
 
 import hashlib
-import subprocess
 import tempfile
 from pathlib import Path
 
-from app.processing.raster.vrt import gdal_safe_env
+from app.processing.raster.vrt import gdal_safe_env, run_gdal
 
 
 _FLOAT_DTYPES = {"float32", "float64", "float16", "float", "complex"}
@@ -227,7 +226,7 @@ def prepare_with_overviews(
         "16",
         "32",
     ]
-    result = subprocess.run(cmd, capture_output=True, text=True, env=env)
+    result = run_gdal(cmd, env=env, tool="gdaladdo")  # fix(BA-29)
     if result.returncode != 0:
         Path(tmp_path).unlink(missing_ok=True)
         raise RuntimeError(f"gdaladdo failed: {result.stderr}")
@@ -280,9 +279,9 @@ def convert_to_cog(
         warp_cmd.extend([input_path, warp_tmp])
         # KNOWN-03 (Phase 1071): apply the raster-pipeline GDAL safety clamps
         # (was env=None before — inherited unclamped os.environ).
-        warp_result = subprocess.run(
-            warp_cmd, capture_output=True, text=True, env=gdal_safe_env()
-        )
+        warp_result = run_gdal(
+            warp_cmd, env=gdal_safe_env(), tool="gdalwarp"
+        )  # fix(BA-29)
         if warp_result.returncode != 0:
             Path(warp_tmp).unlink(missing_ok=True)
             raise RuntimeError(f"gdalwarp failed: {warp_result.stderr}")
@@ -320,7 +319,7 @@ def convert_to_cog(
         if nodata is not None:
             cmd.extend(["-a_nodata", str(nodata)])
         cmd.extend([tmp_path, output_path])
-        result = subprocess.run(cmd, capture_output=True, text=True, env=env)
+        result = run_gdal(cmd, env=env, tool="gdal_translate")  # fix(BA-29)
         if result.returncode != 0:
             raise RuntimeError(f"gdal_translate failed: {result.stderr}")
     finally:

@@ -127,7 +127,9 @@ async def add_layer(
         paint=paint,
         layout=layout,
         layer_type=resolved_layer_type,
-        display_name=body.display_name,
+        # fix(V-12): dialog-added layers POST no display_name; persist the dataset
+        # title so API consumers don't see null.
+        display_name=body.display_name or (meta.title if meta else None),
         filter=body.filter,
         label_config=body.label_config,
         popup_config=body.popup_config.model_dump() if body.popup_config else None,

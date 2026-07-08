@@ -3206,14 +3206,22 @@ export const landingPageStacGet = <ThrowOnError extends boolean = false>(options
  *
  * List all STAC Collections.
  */
-export const getCollectionsStacCollectionsGet = <ThrowOnError extends boolean = false>(options?: Options<GetCollectionsStacCollectionsGetData, ThrowOnError>) => (options?.client ?? client).get<GetCollectionsStacCollectionsGetResponses, unknown, ThrowOnError>({ url: '/stac/collections', ...options });
+export const getCollectionsStacCollectionsGet = <ThrowOnError extends boolean = false>(options?: Options<GetCollectionsStacCollectionsGetData, ThrowOnError>) => (options?.client ?? client).get<GetCollectionsStacCollectionsGetResponses, unknown, ThrowOnError>({
+    security: [{ scheme: 'bearer', type: 'http' }],
+    url: '/stac/collections',
+    ...options
+});
 
 /**
  * Get Collection
  *
  * Get a single STAC Collection.
  */
-export const getCollectionStacCollectionsCollectionIdGet = <ThrowOnError extends boolean = false>(options: Options<GetCollectionStacCollectionsCollectionIdGetData, ThrowOnError>) => (options.client ?? client).get<GetCollectionStacCollectionsCollectionIdGetResponses, GetCollectionStacCollectionsCollectionIdGetErrors, ThrowOnError>({ url: '/stac/collections/{collection_id}', ...options });
+export const getCollectionStacCollectionsCollectionIdGet = <ThrowOnError extends boolean = false>(options: Options<GetCollectionStacCollectionsCollectionIdGetData, ThrowOnError>) => (options.client ?? client).get<GetCollectionStacCollectionsCollectionIdGetResponses, GetCollectionStacCollectionsCollectionIdGetErrors, ThrowOnError>({
+    security: [{ scheme: 'bearer', type: 'http' }],
+    url: '/stac/collections/{collection_id}',
+    ...options
+});
 
 /**
  * Get Collection Items

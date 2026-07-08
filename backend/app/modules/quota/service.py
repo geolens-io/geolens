@@ -160,3 +160,48 @@ async def reserve_dataset_slot(db: AsyncSession, user_id: uuid.UUID) -> None:
         raise DatasetQuotaExceededError(
             f"Dataset quota exceeded: {usage.dataset_count} of {cap} datasets used"
         )
+
+
+class StorageQuotaExceededError(Exception):
+    """Per-user storage byte cap exceeded at asset-commit time (fix BA-23).
+
+    Plain exception (not HTTPException) because the authoritative check runs
+    inside the ingest worker; API-side callers get a 413 via the handler
+    registered in ``app.api.main``.
+    """
+
+
+async def reserve_storage_bytes(
+    db: AsyncSession, user_id: uuid.UUID, incoming_bytes: int
+) -> None:
+    """Atomically reserve ``incoming_bytes`` against the per-user byte cap (BA-23).
+
+    ``check_upload_quota`` runs the byte check at upload time with no
+    serialization, so N concurrent uploads all read the same pre-upload usage,
+    all pass, and overshoot the cap. Mirroring ``reserve_dataset_slot``, this is
+    the authoritative check: call it inside the SAME transaction that persists
+    the byte-bearing asset. It takes the same per-user transaction-scoped advisory
+    lock and recounts, so concurrent uploads for one user serialize and cannot
+    overshoot ``max_storage_bytes_per_user``.
+
+    No-op when the cap is 0 (the default unlimited config).
+    """
+    cap = await MAX_STORAGE_BYTES_PER_USER.get(db)
+    if cap <= 0:
+        return
+
+    # Same lock namespace as reserve_dataset_slot so both caps serialize together
+    # per user (a single upload takes both under one lock, no interleave).
+    await db.execute(
+        text(
+            "SELECT pg_advisory_xact_lock("
+            "hashtextextended('geolens:dataset_quota:' || :uid, 0))"
+        ),
+        {"uid": str(user_id)},
+    )
+    usage = await get_user_quota_usage(db, user_id)
+    if (usage.bytes_used + incoming_bytes) > cap:
+        raise StorageQuotaExceededError(
+            f"Storage quota exceeded: used {usage.bytes_used} of {cap} bytes "
+            f"(adding {incoming_bytes} bytes)"
+        )

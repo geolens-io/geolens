@@ -30,7 +30,7 @@ class AuditLog(Base):
             postgresql_where="resource_id IS NOT NULL",
         ),
         # DBM-09: GIN trigram index for admin audit-log ILIKE search.
-        # Migration 0015 is the source of truth for the actual DDL.
+        # Migration 0001_baseline is the source of truth for the actual DDL.
         Index(
             "ix_audit_logs_action_trgm",
             text("lower(catalog.immutable_unaccent(action))"),

@@ -28,8 +28,14 @@ repos:
           bash -c '
           for f in "$@"; do
             if grep -qE "follow_redirects\s*=\s*True" "$f"; then
-              if grep -qE "httpx\.AsyncClient" "$f" && ! grep -qE "make_safe_client|security\.py" "$f"; then
-                echo "FAIL: $f has follow_redirects=True with AsyncClient outside make_safe_client"
+              # fix(BA-26): scope to the construction site. A raw httpx.AsyncClient(
+              # call with follow_redirects=True is the danger; callers using
+              # make_safe_client() never write httpx.AsyncClient( at all. The old
+              # file-wide "make_safe_client|security.py" substring let a mere
+              # docstring/comment mention grant a pass. The two legit raw-construction
+              # sites are handled by exclude: below.
+              if grep -qE "httpx\.AsyncClient\(" "$f"; then
+                echo "FAIL: $f constructs httpx.AsyncClient( with follow_redirects=True"
                 echo "  Use make_safe_client() from backend/app/modules/catalog/sources/security.py"
                 echo "  See AGENTS.md Security pre-commit checklist Rule 2."
                 exit 1
@@ -59,7 +65,12 @@ repos:
         entry: >-
           bash -c '
           for f in "$@"; do
-            if grep -qE "^@(stac_|ogc_|layers_|router)\.(get|post|patch|delete|put)" "$f" \
+            # fix(BA-07): match ANY router var. The old alternation stac_|ogc_|layers_
+            # was each followed by "\." but the real vars are stac_router,
+            # ogc_features_router, layers_router, features_router, ... so only
+            # "@router." ever matched, letting features/router.py and
+            # layers/router.py escape the hook entirely.
+            if grep -qE "^@[A-Za-z_]*router\.(get|post|patch|delete|put)" "$f" \
               && grep -qE "get_dataset\(" "$f" \
               && ! grep -qE "check_dataset_access|check_dataset_write_access|apply_visibility_filter" "$f"; then
               echo "FAIL: $f has route handlers calling get_dataset without an access/visibility check"

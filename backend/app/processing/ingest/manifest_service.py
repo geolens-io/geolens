@@ -321,6 +321,19 @@ async def _run_entry(
             message="Manifest dataset is already up to date.",
         )
 
+    if classification == "update" and existing_dataset is not None:
+        # fix(BA-02): manifest_key is globally namespaced and taken from the request
+        # body, so an editor could otherwise overwrite (or, via dry_run, enumerate
+        # the UUID of) another user's manifest-managed dataset. Gate before the
+        # dry-run response too — it otherwise leaks existing_dataset.id.
+        # Lazy import: processing/ must not import app.modules.catalog.* at module
+        # level (PROCESS-02/04 layering invariant).
+        from app.modules.catalog.authorization import check_dataset_write_access
+
+        await check_dataset_write_access(
+            db, existing_dataset, existing_dataset.id, user
+        )
+
     if request.dry_run:
         if classification == "create":
             return ManifestApplyEntryResult(

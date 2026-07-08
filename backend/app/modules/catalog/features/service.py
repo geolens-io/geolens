@@ -296,6 +296,12 @@ def _validate_geometry_type(geojson_type: str, dataset_geometry_type: str) -> No
     # Normalize dataset type (stored UPPERCASE in DB) to GeoJSON mixed case.
     # str.title() fails for compound words: "LINESTRING" -> "Linestring" not "LineString".
     # Use a direct mapping instead.
+    # fix(BA-32): a generic-typed dataset (GEOMETRY column) accepts any subtype;
+    # only reject genuinely non-geometry GeoJSON.
+    if dataset_geometry_type.strip().upper() == "GEOMETRY":
+        if GEOJSON_TYPE_MAP.get(geojson_type.strip()) is None:
+            raise ValueError(f"Unsupported geometry type: {geojson_type}")
+        return
     _UPPER_TO_GEOJSON = {
         "POINT": "Point",
         "MULTIPOINT": "MultiPoint",
@@ -488,11 +494,22 @@ async def _refresh_count_and_extent(
     Returns (feature_count, extent_wkt) in a single query instead of the
     5 queries that extract_metadata() runs.
     """
+    # fix(BA-18): records.spatial_extent is a POLYGON column, but ST_Extent of a
+    # single point / axis-collinear points casts to POINT / LINESTRING, which the
+    # column rejects (previously the caller silently skipped storing it, leaving a
+    # stale/NULL extent). ST_Expand always returns the bounding-box POLYGON, so we
+    # pad ONLY the degenerate (non-polygon) cases into a valid sub-mm-padded
+    # polygon; genuine polygon extents are returned byte-identical (no epsilon).
     result = await session.execute(
         text(
             f"SELECT COUNT(*), "
-            f"CASE WHEN ST_Extent(geom_4326) IS NULL THEN NULL "
-            f"ELSE ST_AsText(ST_SetSRID(ST_Extent(geom_4326)::geometry, 4326)) END "
+            f"CASE "
+            f"  WHEN ST_Extent(geom_4326) IS NULL THEN NULL "
+            f"  WHEN GeometryType(ST_Extent(geom_4326)::geometry) = 'POLYGON' "
+            f"    THEN ST_AsText(ST_SetSRID(ST_Extent(geom_4326)::geometry, 4326)) "
+            f"  ELSE ST_AsText("
+            f"    ST_Expand(ST_SetSRID(ST_Extent(geom_4326)::geometry, 4326), 1e-9)) "
+            f"END "
             f"FROM {get_catalog_port().quote_table(table_name)}"
         )
     )
@@ -511,7 +528,9 @@ async def refresh_dataset_metadata(session: AsyncSession, dataset: Dataset) -> N
     )
     dataset.feature_count = feature_count
 
-    if extent_wkt and extent_wkt.startswith("POLYGON"):
+    # fix(BA-18): ST_Extent of a single point is a POINT and of axis-collinear
+    # points a LINESTRING, not always a POLYGON -- store any non-null extent.
+    if extent_wkt:
         dataset.record.spatial_extent = func.ST_GeomFromText(extent_wkt, 4326)
     elif feature_count == 0:
         dataset.record.spatial_extent = None

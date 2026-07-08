@@ -31,7 +31,7 @@ async def backfill_embeddings(session: AsyncSession, *, force: bool = False) -> 
     if force:
         from sqlalchemy import delete
 
-        # The HNSW index lives in Alembic migration 0011 (and is recreated
+        # The HNSW index lives in Alembic migration 0001_baseline (and is recreated
         # by service.rebuild_embedding_column on dimension change). On
         # force=True we just clear the rows; no need to drop the index.
         await session.execute(delete(RecordEmbedding))
@@ -101,7 +101,7 @@ async def backfill_embeddings(session: AsyncSession, *, force: bool = False) -> 
                 errors=errors,
             )
 
-    # The HNSW index is created by Alembic migration 0011 (and by
+    # The HNSW index is created by Alembic migration 0001_baseline (and by
     # service.rebuild_embedding_column when the dimension is first set or
     # changes). The backfill no longer needs to recreate it.
 

@@ -80,6 +80,14 @@ def _extract_jwt_tenant_claim(authorization: str) -> str | None:
     This is a read-only, side-effect-free operation — no DB lookup, no
     auth enforcement (T-1207-05). If the token is malformed the claim is
     silently ignored.
+
+    SECURITY (BA-25): in ``multi_tenant`` mode the caller uses this claim to set
+    the RLS tenant GUC, so an attacker supplying an arbitrary unsigned ``tid``
+    would scope RLS to that tenant. Dormant today (``single_tenant`` is the
+    default and ``dispatch`` is a strict no-op there; ``multi_tenant`` needs the
+    unshipped cloud overlay). BEFORE ``multi_tenant`` ships, derive the tenant
+    from a signature-VERIFIED token (or re-verify tenant membership post-auth) —
+    do NOT trust this unverified claim for RLS scoping.
     """
     if not authorization.lower().startswith("bearer "):
         return None

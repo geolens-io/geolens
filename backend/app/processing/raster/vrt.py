@@ -66,6 +66,34 @@ def gdal_safe_env(*, extras: dict[str, str] | None = None) -> dict[str, str]:
     return env
 
 
+# fix(BA-29): raster GDAL CLIs run synchronously inside asyncio.to_thread, and
+# Python threads aren't killable — a hung child (malformed TIFF, stalled /vsi
+# read) would pin a ThreadPoolExecutor thread forever and eventually starve every
+# other to_thread across the worker. A wall-clock timeout with kill-on-hang bounds
+# it, mirroring the vector-ingest _communicate_with_timeout.
+GDAL_SUBPROCESS_TIMEOUT_SECONDS = 3600  # 1h — large rasters legitimately take a while
+
+
+def run_gdal(cmd: list[str], *, env: dict[str, str], tool: str):
+    """``subprocess.run`` with a wall-clock timeout; kills a hung GDAL child.
+
+    ``subprocess.run`` kills the child on timeout; we translate ``TimeoutExpired``
+    into ``RuntimeError`` so the ingest task surfaces it as a failure.
+    """
+    try:
+        return subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            env=env,
+            timeout=GDAL_SUBPROCESS_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError(
+            f"{tool} timed out after {GDAL_SUBPROCESS_TIMEOUT_SECONDS}s"
+        ) from exc
+
+
 # KNOWN-04 (Phase 1071): VSI prefix allow-list for internally generated
 # managed-storage VRT <SourceFilename> body content. User-uploaded VRTs are
 # validated by ingest/validation.py and intentionally reject all VSI paths.
@@ -297,12 +325,7 @@ def _build_vrt(
         cmd.append("-separate")
     cmd.extend(["-resolution", gdal_res, output_path, *source_paths])
     try:
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            env=gdal_safe_env(),
-        )
+        result = run_gdal(cmd, env=gdal_safe_env(), tool="gdalbuildvrt")
     except FileNotFoundError:
         return _write_python_vrt(
             source_paths,

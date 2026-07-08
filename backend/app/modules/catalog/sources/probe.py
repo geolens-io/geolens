@@ -25,6 +25,7 @@ from urllib.parse import urlparse
 import httpx
 import structlog
 
+from app.core.url_redaction import redact_url_credentials
 from app.modules.catalog.sources.adapters.arcgis import (
     _looks_like_arcgis,
     enrich_arcgis_feature_counts,
@@ -125,7 +126,9 @@ async def detect_service_type(
 
     # Fast path: ArcGIS URL pattern
     if looks_arcgis:
-        logger.info("URL pattern matches ArcGIS", url=url)
+        logger.info(
+            "URL pattern matches ArcGIS", url=redact_url_credentials(url)
+        )  # fix(BA-27)
         base_url, layer_id = normalize_arcgis_url(url)
         result = await probe_arcgis_service(base_url, client, token=token)
         if result is not None:
@@ -139,7 +142,9 @@ async def detect_service_type(
 
     # Fast path: WFS URL pattern
     if not looks_arcgis and looks_wfs:
-        logger.info("URL pattern matches WFS", url=url)
+        logger.info(
+            "URL pattern matches WFS", url=redact_url_credentials(url)
+        )  # fix(BA-27)
         result = await probe_wfs(url, client, token=token)
         if result is not None:
             # D-05: no enrichment — layers already have geometry_type=None,
@@ -148,7 +153,7 @@ async def detect_service_type(
         # Fast-path failed — fall through to slow path
 
     # Slow path: OGC API probe first, then WFS, then ArcGIS
-    logger.info("Trying all probes", url=url)
+    logger.info("Trying all probes", url=redact_url_credentials(url))  # fix(BA-27)
 
     # Try OGC API Features landing page probe
     ogcapi_result = await probe_ogcapi(url, client, token=token)

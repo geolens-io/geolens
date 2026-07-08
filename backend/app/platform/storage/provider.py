@@ -13,7 +13,10 @@ class StorageProvider(Protocol):
         ...
 
     async def get(self, key: str) -> bytes:
-        """Retrieve raw bytes for a key."""
+        """Retrieve raw bytes for a key.
+
+        Raises FileNotFoundError if the key does not exist (BA-24).
+        """
         ...
 
     def get_stream(self, key: str) -> AsyncIterator[bytes]:
@@ -39,7 +42,11 @@ class StorageProvider(Protocol):
         ...
 
     async def size(self, key: str) -> int:
-        """Return the stored object size in bytes. Raises if key does not exist."""
+        """Return the stored object size in bytes.
+
+        Raises FileNotFoundError if the key does not exist (BA-24: all providers
+        normalize their native not-found error to FileNotFoundError).
+        """
         ...
 
     async def list(self, prefix: str) -> list[str]:
