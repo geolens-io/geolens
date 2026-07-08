@@ -6,6 +6,7 @@
   "loadingDatasets": "Chargement des jeux de données...",
   "resultCount_one": "{{count}} résultat",
   "resultCount_other": "{{count}} résultats",
+  "mapsSectionTitle": "Cartes",
   "empty": {
     "title": "Aucun jeu de données trouvé",
     "description": "Essayez d'ajuster votre recherche ou vos filtres",

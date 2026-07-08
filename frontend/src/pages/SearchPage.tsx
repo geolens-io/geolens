@@ -12,7 +12,8 @@ import { FilterPanel } from '@/components/search/FilterPanel';
 import { SearchResultCard } from '@/components/search/SearchResultCard';
 import { DatasetCardSkeleton } from '@/components/search/DatasetCardSkeleton';
 import { Pagination } from '@/components/layout/Pagination';
-import { useSearchResults } from '@/components/search/hooks/use-search';
+import { MapCard } from '@/components/maps/MapCard';
+import { useSearchResults, useMapSearchResults } from '@/components/search/hooks/use-search';
 import { useSearchStore } from '@/stores/search-store';
 import { useAuthStore } from '@/stores/auth-store';
 import { useUrlSearchSync } from '@/components/search/hooks/use-url-search-sync';
@@ -46,6 +47,10 @@ export function SearchPage() {
   const { t } = useTranslation('search');
   useDocumentTitle(t('common:pageTitle.search'));
   const { data, isLoading, error, isFetching } = useSearchResults();
+  // fix(V-08): maps aren't indexed in catalog search — issue a parallel,
+  // visibility-scoped lookup against the maps list endpoint so a search for a
+  // map's name (e.g. "matterhorn") surfaces it from the home/catalog search.
+  const { data: mapResults } = useMapSearchResults();
   const offset = useSearchStore((s) => s.offset);
   const limit = useSearchStore((s) => s.limit);
   const token = useAuthStore((s) => s.token);
@@ -120,6 +125,21 @@ export function SearchPage() {
 
             {error && (
               <ErrorState message={t('error.message', { message: error.message })} />
+            )}
+
+            {/* fix(V-08): rendered independent of the dataset result state above —
+                a query can match a map with zero matching datasets. */}
+            {mapResults && mapResults.maps.length > 0 && (
+              <section className="space-y-3" aria-label={t('mapsSectionTitle', { defaultValue: 'Maps' })}>
+                <h2 className="text-sm font-medium text-foreground px-0.5">
+                  {t('mapsSectionTitle', { defaultValue: 'Maps' })}
+                </h2>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {mapResults.maps.map((map) => (
+                    <MapCard key={map.id} map={map} />
+                  ))}
+                </div>
+              </section>
             )}
 
             {data && data.features.length === 0 && (

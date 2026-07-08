@@ -288,10 +288,45 @@ describe('LayerEditorPanel', () => {
       expect(activePill).not.toBeNull();
     });
 
-    it('clicking a non-active render-as pill opens the destructive confirm — does NOT immediately fire onRenderModeChange', () => {
+    // fix(V-09): a fresh/default layer (no mode-specific customization) has
+    // nothing to lose switching render-as modes, so the confirm is skipped.
+    it('clicking a non-active render-as pill on a FRESH layer switches immediately — no confirm', () => {
       // Point layer has multiple options (point/symbol/heatmap/cluster).
       const handlers = makeHandlers();
       const layer = makeLayer({ dataset_geometry_type: 'POINT' });
+      render(
+        <LayerEditorPanel
+          layer={layer}
+          onClose={vi.fn()}
+          handlers={handlers}
+          activeTab="style"
+        />
+      );
+      const pills = document.querySelectorAll('[data-active="false"]');
+      if (pills.length === 0) {
+        // Single render option for this geometry — skip
+        return;
+      }
+      fireEvent.click(pills[0] as HTMLElement);
+      expect(handlers.onRenderModeChange).toHaveBeenCalled();
+      expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    });
+
+    // fix(V-09): a layer whose current mode HAS diverged from its defaults
+    // (here: heatmap with a non-default ramp) still confirms before applying.
+    function makeCustomizedHeatmapLayer() {
+      return makeLayer({
+        dataset_geometry_type: 'POINT',
+        style_config: {
+          render_mode: 'heatmap',
+          builder: { heatmapRamp: 'Blues' },
+        } as MapLayerResponse['style_config'],
+      });
+    }
+
+    it('clicking a non-active render-as pill on a CUSTOMIZED layer opens the destructive confirm — does NOT immediately fire onRenderModeChange', () => {
+      const handlers = makeHandlers();
+      const layer = makeCustomizedHeatmapLayer();
       render(
         <LayerEditorPanel
           layer={layer}
@@ -315,7 +350,7 @@ describe('LayerEditorPanel', () => {
 
     it('clicking "Switch mode" in the render-as confirm calls onRenderModeChange', () => {
       const handlers = makeHandlers();
-      const layer = makeLayer({ dataset_geometry_type: 'POINT' });
+      const layer = makeCustomizedHeatmapLayer();
       render(
         <LayerEditorPanel
           layer={layer}
@@ -333,7 +368,7 @@ describe('LayerEditorPanel', () => {
 
     it('clicking "Keep style" dismisses the render-as confirm without calling onRenderModeChange', () => {
       const handlers = makeHandlers();
-      const layer = makeLayer({ dataset_geometry_type: 'POINT' });
+      const layer = makeCustomizedHeatmapLayer();
       render(
         <LayerEditorPanel
           layer={layer}

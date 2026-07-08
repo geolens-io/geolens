@@ -31,7 +31,7 @@ import { cn } from '@/lib/utils';
 import type { MapLayerResponse } from '@/types/api';
 import type { BasemapGroupInfo, BasemapSublayerInfo } from '@/components/builder/stack-types';
 import { isDemTerrainVisualSuppressed } from './map-sync';
-import { computeDisambiguationLabels } from './map-stack';
+import { computeDisambiguationLabels, isLayerHiddenFromMapAudience } from './map-stack';
 import { geometryClassOf, type GeometryStyleClass } from '@/lib/builder/layer-style-clipboard';
 
 // builder-audit #338 STACK-05: re-exported so existing imports
@@ -52,6 +52,15 @@ const NOOP = () => {};
 
 interface UnifiedStackPanelProps {
   layers: MapLayerResponse[];
+  /**
+   * fix(V-17): the map's own visibility, used to compute per-layer
+   * audience-hidden badges (a private dataset added to a public/shared map is
+   * silently filtered out for anonymous/other-audience viewers). Optional so
+   * existing call sites (and tests) that don't care about this warning keep
+   * compiling; a private default means "no audience beyond the owner" — the
+   * safest no-warning default.
+   */
+  mapVisibility?: 'private' | 'internal' | 'public';
   selectedLayerId: string | null;
   onSelectLayer: (id: string | null) => void;
   onToggleVisibility: (id: string) => void;
@@ -259,6 +268,7 @@ const SublayerRow = memo(function SublayerRow({
 
 export const UnifiedStackPanel = memo(function UnifiedStackPanel({
   layers,
+  mapVisibility = 'private',
   selectedLayerId,
   onSelectLayer,
   onToggleVisibility,
@@ -429,6 +439,17 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
     const ordered = [...layers].sort((a, b) => a.sort_order - b.sort_order);
     return computeDisambiguationLabels(ordered);
   }, [layers]);
+
+  // fix(V-17): per-layer audience-visibility mismatch — a private/unpublished
+  // dataset added to a public/shared map is silently filtered out for
+  // anonymous/other-audience viewers server-side. Flag it on the stack row.
+  const audienceHiddenLayerIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const layer of layers) {
+      if (isLayerHiddenFromMapAudience(layer, mapVisibility)) ids.add(layer.id);
+    }
+    return ids;
+  }, [layers, mapVisibility]);
 
   // SortableContext items: all layer ids + the basemap-group id.
   // UX-03 (Phase 1051 Plan 06): basemap is no longer excluded — it participates
@@ -763,6 +784,7 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
                                 onCheckboxClick={onCheckboxClick}
                                 isFresh={child.id === freshLayerId}
                                 disambiguationLabel={disambiguationLabels.get(child.id) ?? null}
+                                audienceHidden={audienceHiddenLayerIds.has(child.id)}
                                 dragDisabled={isSearchActive}
                               />
                             );
@@ -807,6 +829,7 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
                     onCheckboxClick={onCheckboxClick}
                     isFresh={layer.id === freshLayerId}
                     disambiguationLabel={disambiguationLabels.get(layer.id) ?? null}
+                    audienceHidden={audienceHiddenLayerIds.has(layer.id)}
                     dragDisabled={isSearchActive}
                   />
                 );

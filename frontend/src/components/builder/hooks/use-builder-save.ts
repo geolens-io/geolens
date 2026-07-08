@@ -20,6 +20,9 @@ import { useAuthStore } from '@/stores/auth-store';
 import { getDefaultPluginIds, resolveAvailablePluginIds, samePluginIds } from '@/components/map-plugins';
 import { prepareLayersForPersistence, type FolderGroupMeta } from '@/components/builder/folder-groups';
 import { normalizeDemStyleConfig } from '@/lib/dem-render-mode';
+// fix(V-01): capability gate used to detect fields the builder has no editor
+// for on a given layer type (see unmanagedNullableFields below).
+import { getLayerCapabilities } from '@/lib/layer-capabilities';
 
 /** Center-crop `srcCanvas` to the given target dimensions and return the
  *  resulting offscreen canvas. Crops from the center without distortion
@@ -340,6 +343,41 @@ function stableJson(value: unknown): string {
   });
 }
 
+/**
+ * fix(V-01): the subset of PATCHABLE_LAYER_FIELDS that (a) the backend treats
+ * as explicitly-nullable on a PATCH (`_NULLABLE_PATCH_FIELDS` — an explicit
+ * `null` NULLs the column, an omitted key leaves it untouched, per
+ * `service_diff.py`) AND (b) this specific layer's TYPE has no builder editor
+ * for at all — e.g. `style_config` on a raster layer (RasterLayerControls
+ * never writes style_config; only vector layers get LayerStyleEditor/
+ * DataDrivenStyleEditor/renderAs).
+ *
+ * When the local layer object simply never carried one of these fields (it
+ * was never populated because no editor manages it for this layer kind),
+ * `normalizeDemStyleConfig()` and the `?? null` fallbacks in toLayerSnapshot
+ * collapse that "never set" state into an explicit `null` — indistinguishable
+ * from a deliberate user clear once serialized. If the server-side baseline
+ * had real data (e.g. a style_config written by an earlier session, or a
+ * migration), the per-field diff below would otherwise emit an explicit
+ * `null` and the backend would NULL out real data the builder never touched.
+ * Gating on layer-type capability lets buildLayerDiff tell "genuinely
+ * unmanaged" apart from "user cleared it via the UI" without threading an
+ * extra flag through every layer object.
+ */
+function unmanagedNullableFields(
+  layer: Pick<MapLayerResponse, 'layer_type' | 'dataset_record_type' | 'dataset_geometry_type'>,
+): Set<PatchableLayerField> {
+  const caps = getLayerCapabilities(layer);
+  const fields = new Set<PatchableLayerField>();
+  if (!caps.supportsStyleEditor) fields.add('style_config');
+  if (!caps.supportsFilterEditor) fields.add('filter');
+  if (!caps.supportsLabelEditor) fields.add('label_config');
+  // Popup config is offered whenever EITHER the filter or label editor is
+  // available — mirrors LayerEditorPanel's `availableTabs` popup-tab gate.
+  if (!caps.supportsFilterEditor && !caps.supportsLabelEditor) fields.add('popup_config');
+  return fields;
+}
+
 function toLayerInput(layer: MapLayerResponse): MapLayerInput {
   return {
     dataset_id: layer.dataset_id,
@@ -422,13 +460,22 @@ export function buildLayerDiff(
     const baseline = baselineById.get(layer.id);
     if (!baseline) continue;
 
+    const unmanaged = unmanagedNullableFields(layer);
+    const currentSnapshot = toLayerSnapshot(layer);
     const patch: MapLayerPatch = { id: layer.id };
     for (const field of PATCHABLE_LAYER_FIELDS) {
-      const currentValue = toLayerSnapshot(layer)[field];
+      const currentValue = currentSnapshot[field];
       const baselineValue = baseline[field];
-      if (stableJson(currentValue) !== stableJson(baselineValue)) {
-        patch[field] = currentValue as never;
-      }
+      if (stableJson(currentValue) === stableJson(baselineValue)) continue;
+
+      // fix(V-01): never emit an explicit null-out for a nullable field this
+      // layer's type has no editor for — omit the key entirely (server keeps
+      // whatever it already has) instead of nulling real data. Only applies
+      // in the null/erasure direction; a genuinely new non-null value for an
+      // unmanaged field (shouldn't normally happen) still patches through.
+      if (currentValue == null && unmanaged.has(field)) continue;
+
+      patch[field] = currentValue as never;
     }
     if (Object.keys(patch).length > 1) updated.push(patch);
   }
@@ -600,9 +647,18 @@ export function useBuilderSave(state: SaveState) {
             await patchMapLayers.mutateAsync({ id, diff });
           } catch (error) {
             if (!isUnsupportedLayerPatchError(error)) throw error;
+            // fix(V-01): this fallback converts a rejected partial PATCH into a
+            // full PUT replacement (every layer re-serialized via toLayerInput,
+            // including a lossy style_config/paint round-trip and — per V-14 —
+            // fresh layer-row UUIDs). It used to report the same plain
+            // "Map saved" success toast as a normal save, silently hiding that
+            // a full re-sync occurred. Surface it instead so the user knows to
+            // double-check layer styling rather than trusting a clean save.
             await updateMap.mutateAsync({ id, data: fullReplacementPayload });
             baselineLayersRef.current = localLayers.map((layer) => ({ ...layer }));
-            toast.success(t('toasts.mapSaved'));
+            toast.warning(t('toasts.mapSavedFullResync', {
+              defaultValue: 'Map saved, but required a full re-sync. Please double-check layer styling.',
+            }));
             state.setHasUnsavedChanges(false);
             if (map && id) captureThumbnail(map, id, queryClient, localLayers);
             return;

@@ -284,6 +284,76 @@ export function isSupportedRenderAsId(value: string): value is RenderAsId {
   return RENDERER_CAPABILITIES.some((entry) => entry.id === value);
 }
 
+/**
+ * fix(V-09): whether the layer's CURRENT render mode carries mode-specific
+ * style settings that diverge from that mode's fresh/default state. Used to
+ * decide whether the render-as confirm dialog is warranted — a layer that has
+ * never been customized beyond the mode's defaults has nothing to lose by
+ * switching, so `handleRenderAsClick` skips the confirm when this is `false`.
+ *
+ * Only checks fields with a fixed, mode-independent default (radius/zoom/size
+ * numbers, ramp/icon names). Color fields are intentionally excluded — they
+ * are derived from the layer's base paint at mode-entry time (e.g. arrow
+ * color inherits the line color), so there is no fixed "default" to diverge
+ * from and comparing them would always read as customized.
+ */
+export function hasCustomizedRenderAsStyle(layer: RenderAsLayer): boolean {
+  const mode = getCurrentRenderAs(layer);
+  const builder = layer.style_config?.builder ?? {};
+  const paint = (layer.paint ?? {}) as Record<string, unknown>;
+
+  switch (mode) {
+    case 'symbol': {
+      const symbol = layer.style_config?.symbol;
+      if (!symbol) return false;
+      return (
+        (symbol.iconImage !== undefined && symbol.iconImage !== 'marker')
+        || (symbol.iconSize !== undefined && symbol.iconSize !== 1)
+        || (symbol.iconRotation !== undefined && symbol.iconRotation !== 0)
+        || (symbol.iconAnchor !== undefined && symbol.iconAnchor !== 'center')
+      );
+    }
+
+    case 'heatmap': {
+      if (builder.heatmapRamp !== undefined && builder.heatmapRamp !== 'YlOrRd') return true;
+      return (Object.keys(DEFAULT_HEATMAP_PAINT) as (keyof typeof DEFAULT_HEATMAP_PAINT)[]).some(
+        (key) => key in paint && paint[key] !== DEFAULT_HEATMAP_PAINT[key],
+      );
+    }
+
+    case 'cluster': {
+      return (
+        (typeof builder.clusterRadius === 'number' && builder.clusterRadius !== 48)
+        || (typeof builder.clusterMaxZoom === 'number' && builder.clusterMaxZoom !== 14)
+        || (typeof builder.clusterTextColor === 'string' && builder.clusterTextColor !== '#ffffff')
+        || (typeof builder.clusterTextSize === 'number' && builder.clusterTextSize !== 12)
+      );
+    }
+
+    case 'arrow': {
+      return (
+        (typeof builder.arrowSize === 'number' && builder.arrowSize !== DEFAULT_ARROW_SIZE)
+        || (typeof builder.arrowSpacing === 'number' && builder.arrowSpacing !== DEFAULT_ARROW_SPACING)
+      );
+    }
+
+    case 'extrusion-3d': {
+      return (
+        (typeof builder.heightScale === 'number' && builder.heightScale !== 1)
+        || (typeof builder.extrusionMinZoom === 'number' && builder.extrusionMinZoom !== DEFAULT_EXTRUSION_MIN_ZOOM)
+        || (typeof builder.extrusionOpacity === 'number' && builder.extrusionOpacity !== DEFAULT_EXTRUSION_OPACITY_CAP)
+      );
+    }
+
+    // 'point' / 'line' / 'fill' / 'stroke' / 'fill-stroke' / 'image' / 'hillshade':
+    // these modes have no destructible mode-specific settings of their own —
+    // buildRenderAsPatch preserves or stashes (savedCirclePaint) their base
+    // paint across a mode switch, so there is nothing mode-specific to lose.
+    default:
+      return false;
+  }
+}
+
 export function buildRenderAsPatch(layer: RenderAsLayer, renderAs: RenderAsId): RenderAsMutation | null {
   if (!getRenderAsOptions(layer).some((option) => option.id === renderAs)) return null;
 

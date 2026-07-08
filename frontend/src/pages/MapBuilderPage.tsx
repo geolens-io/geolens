@@ -1362,6 +1362,11 @@ export function MapBuilderPage() {
           onShowInfo: () => dialogs.setShowInfo(true),
           onFork: save.handleFork,
           isForkPending: save.isForkPending,
+          // fix(V-15): new tab so the editor's in-progress builder session
+          // (and any unsaved-changes nav guard) is untouched.
+          onViewAsViewer: id
+            ? () => window.open(`/maps/${id}?preview=viewer`, '_blank', 'noopener,noreferrer')
+            : undefined,
         }}
       />
 
@@ -1412,6 +1417,10 @@ export function MapBuilderPage() {
           ) : (
             <UnifiedStackPanel
               layers={layers.localLayers}
+              // fix(V-17): drives the per-layer "hidden from public viewers"
+              // badge — mapData is undefined only during initial load, before
+              // the stack panel has anything to render anyway.
+              mapVisibility={mapData?.visibility}
               selectedLayerId={layers.expandedLayerId}
               onSelectLayer={handleSelectLayer}
               onToggleVisibility={(layerId) => {

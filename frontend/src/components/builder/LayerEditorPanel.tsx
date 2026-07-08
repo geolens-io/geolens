@@ -9,7 +9,7 @@ import { RasterLayerControls } from './RasterLayerControls';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { getLayerCapabilities } from '@/lib/layer-capabilities';
-import { getRenderAsOptions, getCurrentRenderAs, type RenderAsId } from './renderAs';
+import { getRenderAsOptions, getCurrentRenderAs, hasCustomizedRenderAsStyle, type RenderAsId } from './renderAs';
 import { ColorizedGeometryIcon, getLayerColors, extractStyleHints } from '@/components/map/layer-icons';
 import type { FilterSpecification } from 'maplibre-gl';
 import type { MapLayerResponse, LabelConfig, PopupConfig, StyleConfig } from '@/types/api';
@@ -253,11 +253,18 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
 
   function handleRenderAsClick(target: RenderAsId) {
     if (target === currentRenderAs) return;
-    // Destructive switch — confirm before applying. Always confirm: switching
-    // render-as resets the paint properties owned by the prior mode (line color
-    // & width when going line→arrow → fill color when going fill→3D, etc.),
-    // and we'd rather force a deliberate click than silently nuke styling.
-    setPendingRenderAs(target);
+    // fix(V-09): only confirm when the CURRENT mode actually carries
+    // mode-specific style settings that diverge from that mode's defaults
+    // (see hasCustomizedRenderAsStyle). A fresh/default layer has nothing
+    // mode-specific to lose, so switch immediately — a clean layer clicking
+    // Point → Heatmap should not be interrupted. A layer whose current mode
+    // has been customized (e.g. a non-default cluster radius or arrow size)
+    // still confirms before applying.
+    if (hasCustomizedRenderAsStyle(layer)) {
+      setPendingRenderAs(target);
+      return;
+    }
+    handlers.onRenderModeChange?.(layer.id, target);
   }
 
   function confirmRenderAsSwitch() {

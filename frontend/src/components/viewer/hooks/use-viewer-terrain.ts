@@ -83,10 +83,13 @@ export function useViewerTerrain({
     // driven by a non-raster token (no bounds), the guard simply no-ops.
     const demBounds = terrainToken?.kind === 'raster' ? terrainToken.bounds : null;
     resetSmallDemWarning(map, terrainDatasetId);
+    // fix(V-06): suppress the builder-oriented small-DEM advice toast for viewers —
+    // "zoom in" / "drape over Copernicus GLO-30" isn't actionable read-only.
     maybeWarnSmallDemCoverage({
       map,
       demBounds,
       dedupeKey: terrainDatasetId,
+      audience: 'viewer',
     });
   }, [mapRef, tokenMap]);
 

@@ -413,20 +413,24 @@ describe('DatasetPage header status badge', () => {
     setUser(null);
   });
 
-  // "Published · Private" read as a contradiction; "Published" is the steady
-  // state and carries no info. Show the status badge only for the exceptional
-  // draft state; published records lead with visibility alone.
-  it('hides the status badge for a published dataset', () => {
+  // fix(V-07): "Private" badge alone next to the "Unpublish" action read as a
+  // contradiction (no visible cue explaining why "Unpublish" was offered).
+  // Catalog publish-state and access visibility are orthogonal — both axes
+  // are now always labeled explicitly ("Catalog: <status>" / "Access:
+  // <visibility>") so a published-but-private dataset reads unambiguously.
+  it('shows an explicit "Catalog: Published" badge alongside "Access: Private" for a published-but-private dataset', () => {
     setup({ record_status: 'published', visibility: 'private' });
     render(<DatasetPage />, { route: '/datasets/dataset-1' });
 
-    expect(screen.queryByText('Published')).not.toBeInTheDocument();
+    expect(screen.getByText('Catalog: Published')).toBeInTheDocument();
+    expect(screen.getByText('Access: Private')).toBeInTheDocument();
   });
 
-  it('shows a Draft badge for a draft dataset', () => {
+  it('shows an explicit "Catalog: Draft" badge for a draft dataset', () => {
     setup({ record_status: 'draft', visibility: 'private' });
     render(<DatasetPage />, { route: '/datasets/dataset-1' });
 
-    expect(screen.getByText('Draft')).toBeInTheDocument();
+    expect(screen.getByText('Catalog: Draft')).toBeInTheDocument();
+    expect(screen.getByText('Access: Private')).toBeInTheDocument();
   });
 });

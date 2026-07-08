@@ -126,6 +126,13 @@ export const DatasetMap = memo(function DatasetMap({
   const mapRef = useRef<MaplibreMap | null>(null);
   const [mapInstance, setMapInstance] = useState<MaplibreMap | null>(null);
   const { contextLost, reload } = useWebGLRecovery(mapRef, !!mapInstance);
+  // fix(V-13): dataset-detail preview map had no data-tiles-loaded signal at
+  // all. Mirror the re-arming ViewerMap/BuilderMap behavior: false while a
+  // camera move is in flight, true once idle (no tiles loading / no
+  // transitions / no animations running).
+  const [tilesIdle, setTilesIdle] = useState(false);
+  const tilesIdleMovestartHandlerRef = useRef<(() => void) | null>(null);
+  const tilesIdleIdleHandlerRef = useRef<(() => void) | null>(null);
 
   // Raster hero-state hardening (#13): ensure onMapReady / onTileError each fire
   // AT MOST ONCE per map mount, and that the imperatively-attached
@@ -257,6 +264,13 @@ export const DatasetMap = memo(function DatasetMap({
         }
         if (rasterListenersRef.current.sourcedata) {
           map.off('sourcedata', rasterListenersRef.current.sourcedata);
+        }
+        // fix(V-13): detach the re-arming data-tiles-loaded handlers symmetrically.
+        if (tilesIdleMovestartHandlerRef.current) {
+          map.off('movestart', tilesIdleMovestartHandlerRef.current);
+        }
+        if (tilesIdleIdleHandlerRef.current) {
+          map.off('idle', tilesIdleIdleHandlerRef.current);
         }
       }
       rasterListenersRef.current = {};
@@ -527,6 +541,13 @@ export const DatasetMap = memo(function DatasetMap({
         }
       });
 
+      // fix(V-13): data-tiles-loaded signal, re-armed on every camera move
+      // (see ViewerMap.tsx / BuilderMap.tsx for the mirrored viewer/builder fix).
+      tilesIdleMovestartHandlerRef.current = () => setTilesIdle(false);
+      tilesIdleIdleHandlerRef.current = () => setTilesIdle(true);
+      map.on('movestart', tilesIdleMovestartHandlerRef.current);
+      map.on('idle', tilesIdleIdleHandlerRef.current);
+
       if (recordType === 'raster_dataset' || recordType === 'vrt_dataset') {
         // Fresh mount: detach any stale listeners and reset the fire-once guards.
         if (rasterListenersRef.current.error) {
@@ -729,6 +750,9 @@ export const DatasetMap = memo(function DatasetMap({
       aria-label={t('map.ariaLabel', { defaultValue: 'Dataset map' })}
       data-map-interactive={isDrawing ? 'true' : 'false'}
       data-testid="dataset-map-shell"
+      // fix(V-13): "map fully rendered" signal — false during tile loads
+      // after a camera move, true at idle. Was previously absent entirely.
+      data-tiles-loaded={tilesIdle ? 'true' : 'false'}
     >
       <MapGL
         initialViewState={initialViewState}

@@ -434,6 +434,8 @@
     "noNumericColumns": "Sin columnas numéricas",
     "noTextColumnsHelp": "Los estilos categóricos necesitan una columna de texto. Cambie a modo graduado o añada un atributo de texto.",
     "noNumericColumnsHelp": "Los estilos graduados necesitan una columna numérica. Cambie a modo categórico o añada un atributo numérico.",
+    "numericColumnsAvailable": "{{count}} columnas numéricas disponibles en modo graduado.",
+    "switchToGraduated": "Cambiar a modo graduado",
     "missingColumnHelp": "La columna \"{{column}}\" ya no está disponible. Elija otra columna o borre el estilo basado en datos.",
     "statsUnavailableHelp": "Las estadísticas aún no están disponibles para esta columna. Elija otra columna numérica o inténtelo después de procesar el dataset.",
     "colorRamp": "Rampa de colores",
@@ -469,7 +471,8 @@
     "noResults": "No se encontraron conjuntos de datos",
     "added": "Agregado",
     "addToMap": "Agregar al mapa",
-    "dragHandle": "Arrastrar para agregar al mapa",
+    "addToMapDetails": "Agregar al mapa (panel de detalles)",
+    "dragHandle": "Arrastrar hacia el mapa",
     "catalogEmpty": "Su catálogo está vacío. Cargue un conjunto de datos para comenzar.",
     "uploadCta": "Subir un archivo →",
     "zeroResultHeading": "Ningún conjunto de datos coincide con '{{query}}'",
@@ -523,6 +526,7 @@
     "cannotPublish": "No se puede publicar: los conjuntos de datos {{datasets}} no son públicos",
     "embedTokenInfo": "Se incluyen capas no públicas. Un token de inserción gestiona el acceso automáticamente.",
     "unsavedWarning": "Los cambios sin guardar solo están en la vista previa del constructor. Guarda antes de copiar enlaces o inserciones.",
+    "audienceHiddenWarning": "Ocultas para los visitantes: {{layers}}. Los conjuntos de datos de estas capas son privados o no están publicados, por lo que solo tú podrás verlas.",
     "savingWarning": "Guardando cambios. Los enlaces e inserciones se actualizan cuando termine este guardado.",
     "saveFailedWarning": "Error al guardar. Los enlaces e inserciones siguen mostrando el último mapa guardado hasta que reintentes correctamente.",
     "expirationLabel": "Caducidad",
@@ -734,6 +738,7 @@
     "mapInfo": "Info del mapa",
     "downloadPng": "Descargar PNG",
     "duplicateMap": "Duplicar mapa",
+    "viewAsViewer": "Ver como visitante",
     "save": "Guardar ({{shortcut}})",
     "collapseSidebar": "Contraer barra lateral",
     "expandSidebar": "Expandir barra lateral",
@@ -746,6 +751,7 @@
   },
   "toasts": {
     "mapSaved": "Mapa guardado",
+    "mapSavedFullResync": "Mapa guardado, pero requirió una resincronización completa. Verifique el estilo de las capas.",
     "saveFailed": "Error al guardar el mapa",
     "saveFailedWithDetail": "Error al guardar el mapa: {{detail}}",
     "layerRemoved": "Capa eliminada",
@@ -1062,7 +1068,8 @@
     "kebabZoomToLayer": "Acercar a la capa",
     "kebabCopyStyle": "Copiar estilo",
     "kebabPasteStyle": "Pegar estilo",
-    "disambiguation": "{{label}}"
+    "disambiguation": "{{label}}",
+    "audienceHidden": "Oculto para visitantes públicos"
   },
   "basemapGroup": {
     "addCustomBasemap": "＋ Agregar mapa base personalizado…",

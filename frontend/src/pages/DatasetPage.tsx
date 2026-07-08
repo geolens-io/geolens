@@ -383,10 +383,15 @@ export function DatasetPage() {
     }
   };
 
-  // Lead with visibility (the access question users actually have). "Published"
-  // is the steady state and carries no information here — show a status badge
-  // ONLY when it's the exception that needs action (draft). Mirrors the pattern
-  // SearchResultCard already uses (showStatusBadge = record_status !== 'published').
+  // fix(V-07): record_status (catalog publish state) and visibility (access
+  // control) are orthogonal fields — a dataset can be "published" (catalog-
+  // listed) yet "private" (access-restricted) at the same time, e.g. right
+  // after upload (auto-published, defaults to private access). Previously the
+  // catalog-status badge was hidden whenever record_status === 'published',
+  // so the header showed only the "Private" visibility badge next to the
+  // "Unpublish" action — reading as a contradiction ("why can I unpublish
+  // something that isn't shown as published?"). Always label both axes
+  // explicitly so the two concepts don't collide.
   const origin = datasetOrigin(dataset);
   // Every spatial dataset lives in a PostGIS table — surfacing the table name
   // in the header is the "works with your existing GIS tools" affordance
@@ -399,14 +404,15 @@ export function DatasetPage() {
       <RecordTypeBadge recordType={dataset.record_type} />
       <div className="flex items-center gap-1.5">
         {origin && <OriginBadge origin={origin} />}
-        {dataset.record_status !== 'published' && (
-          <Badge variant="outline" className={cn('text-xs', ingestionStatusColors[dataset.record_status] ?? '')}>
-            {getRecordStatusLabel(t, dataset.record_status)}
-          </Badge>
-        )}
+        {/* fix(V-07): "Catalog: <status>" always shown (was hidden when
+            published), paired with "Access: <visibility>" below, so the two
+            orthogonal states never read as contradictory. */}
+        <Badge variant="outline" className={cn('text-xs', ingestionStatusColors[dataset.record_status] ?? '')}>
+          {t('header.catalogStatus', { status: getRecordStatusLabel(t, dataset.record_status), defaultValue: 'Catalog: {{status}}' })}
+        </Badge>
         <Badge variant="outline" className={cn('text-xs', visibilityColors[dataset.visibility] ?? '')}>
           {dataset.visibility === 'public' ? <Eye className="me-1 h-3 w-3" /> : dataset.visibility === 'restricted' ? <ShieldAlert className="me-1 h-3 w-3" /> : <EyeOff className="me-1 h-3 w-3" />}
-          {getVisibilityLabel(t, dataset.visibility)}
+          {t('header.accessStatus', { visibility: getVisibilityLabel(t, dataset.visibility), defaultValue: 'Access: {{visibility}}' })}
         </Badge>
       </div>
       {showTableReadout && (

@@ -182,6 +182,30 @@ export const ViewerMap = memo(function ViewerMap({
     tokenMap,
   });
 
+  // fix(V-05): opening a terrain map showed the wide flat DEM slab for
+  // several seconds before terrain activation re-anchored the camera to the
+  // saved 3D view (no entry animation exists — the jump is `setTerrain`
+  // recomputing the camera once the DEM source is ready). Treat that
+  // pre-terrain frame as loading state, not content: hold a veil over the map
+  // until terrain has applied (terrainReady) for terrain maps, or until the
+  // map is simply ready for non-terrain maps, then latch "revealed" true for
+  // the rest of the session — this is a one-time entry gate, not a re-arming
+  // signal like `tilesIdle`.
+  const [revealed, setRevealed] = useState(false);
+  useEffect(() => {
+    if (revealed || !mapReady) return;
+    const terrainExpected = Boolean(terrainConfig?.enabled);
+    if (!terrainExpected || terrainReady) setRevealed(true);
+  }, [revealed, mapReady, terrainReady, terrainConfig?.enabled]);
+  // Safety net: never veil the map forever if terrain activation stalls
+  // (e.g. a DEM tile source that never resolves) — fall back to revealing
+  // after a short grace period so the map is never permanently hidden.
+  useEffect(() => {
+    if (revealed) return;
+    const timer = setTimeout(() => setRevealed(true), 4000);
+    return () => clearTimeout(timer);
+  }, [revealed]);
+
   // Bounded GeoJSON data for small 3D datasets and eligible cluster layers.
   const geojsonDataRef = useRef<Map<string, GeoJSON.FeatureCollection>>(new Map());
   const boundedGeoJsonLayers = useMemo(
@@ -415,11 +439,15 @@ export const ViewerMap = memo(function ViewerMap({
 
       // `idle` fires when no tiles are loading, no transitions are in
       // progress, and no animations are running. We flip the container's
-      // data-tiles-loaded attribute on first idle (and keep it true) so
-      // Playwright can replace its 2 s arbitrary wait with a deterministic
-      // signal. The flag never toggles back — once the initial view has
-      // settled, it stays "ready" for the duration of the viewer session.
-      map.once('idle', () => setTilesIdle(true));
+      // data-tiles-loaded attribute to true on idle so Playwright (and V-13's
+      // loading-affordance consumers) can rely on a deterministic signal
+      // instead of an arbitrary wait.
+      // fix(V-13): re-arm on every camera move instead of firing once — the
+      // attribute previously never toggled back to "false" after the initial
+      // idle, so it couldn't distinguish "settled" from "tiles loading after
+      // a pan/zoom" (a false "map fully rendered" signal mid-move).
+      map.on('movestart', () => setTilesIdle(false));
+      map.on('idle', () => setTilesIdle(true));
 
       setMapReady(true);
       onMapReady?.(map);
@@ -907,6 +935,14 @@ export const ViewerMap = memo(function ViewerMap({
         )}
       </MapGL>
       <MapCoordReadout map={mapRef.current} />
+      {/* fix(V-05): loading veil over the pre-terrain flat-DEM frame — fades
+          out once the saved-camera 3D view is ready to show (or immediately
+          for non-terrain maps). */}
+      <div
+        aria-hidden="true"
+        data-testid="viewer-entry-veil"
+        className={`pointer-events-none absolute inset-0 z-20 bg-muted transition-opacity duration-500 ${revealed ? 'opacity-0' : 'opacity-100'}`}
+      />
       {showBranding && (
         <span
           data-testid="viewer-branding-overlay"

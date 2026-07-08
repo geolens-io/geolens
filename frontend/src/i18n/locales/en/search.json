@@ -6,6 +6,7 @@
   "loadingDatasets": "Loading datasets...",
   "resultCount_one": "{{count}} result",
   "resultCount_other": "{{count}} results",
+  "mapsSectionTitle": "Maps",
   "empty": {
     "title": "No results found",
     "description": "Try adjusting your search query or filters",

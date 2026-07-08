@@ -6,6 +6,7 @@
   "loadingDatasets": "Datensätze werden geladen...",
   "resultCount_one": "{{count}} Ergebnis",
   "resultCount_other": "{{count}} Ergebnisse",
+  "mapsSectionTitle": "Karten",
   "empty": {
     "title": "Keine Datensätze gefunden",
     "description": "Passen Sie Ihre Suchanfrage oder Filter an",
