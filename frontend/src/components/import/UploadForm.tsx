@@ -226,22 +226,39 @@ export function UploadForm({ onPhaseChange }: UploadFormProps) {
     void processFiles(files);
   };
 
-  // Flush queued drops once the quota query settles, re-applying the batch cap
-  // with the fresh quota (the dropzone's own maxFiles guard ran against the
-  // pre-fetch value). Over-cap batches are rejected whole, matching
-  // react-dropzone's maxFiles behavior.
+  // Flush queued drops once the quota query settles, re-applying every gate
+  // the dropzone validated against nothing (or stale values) during the fetch
+  // window: extension and per-file size are re-checked per file with the same
+  // rejection toast react-dropzone shows (Codex P2 round 2 on PR #432), then
+  // the batch cap with the fresh quota. Over-cap batches are rejected whole,
+  // matching react-dropzone's maxFiles behavior.
   useEffect(() => {
     if (configFetching || !pendingFiles || phase !== 'idle') return;
     setPendingFiles(null);
+    const files = pendingFiles.filter((f) => {
+      if (
+        allowedExtensions?.length &&
+        !allowedExtensions.some((ext) => f.name.toLowerCase().endsWith(ext.toLowerCase()))
+      ) {
+        toast.error(t('dropzone.fileRejected', { filename: f.name, reason: t('dropzone.unsupportedType') }));
+        return false;
+      }
+      if (maxSizeMb != null && f.size > maxSizeMb * 1024 * 1024) {
+        toast.error(t('dropzone.fileRejected', { filename: f.name, reason: t('dropzone.sizeLimitDynamic', { size: maxSizeMb }) }));
+        return false;
+      }
+      return true;
+    });
+    if (files.length === 0) return;
     const limit = effectiveBatchLimit(uploadConfig?.remaining_dataset_quota ?? null);
-    if (pendingFiles.length > limit) {
+    if (files.length > limit) {
       toast.error(t('dropzone.batchLimit', { max: limit }));
       return;
     }
-    void processFiles(pendingFiles);
+    void processFiles(files);
     // processFiles is recreated per render; the pendingFiles/configFetching
     // guards make re-runs no-ops, so listing it is safe.
-  }, [configFetching, pendingFiles, phase, uploadConfig?.remaining_dataset_quota, processFiles, t]);
+  }, [configFetching, pendingFiles, phase, uploadConfig?.remaining_dataset_quota, allowedExtensions, maxSizeMb, processFiles, t]);
 
   const handleCommitSingle = async (
     entryId: string,

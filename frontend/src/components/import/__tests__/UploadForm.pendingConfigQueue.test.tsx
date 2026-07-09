@@ -64,6 +64,16 @@ vi.mock('../FileDropzone', async (importOriginal) => {
         >
           Drop two
         </button>
+        <button
+          data-testid="drop-mixed"
+          onClick={() => {
+            const oversized = new File(['{}'], 'huge.geojson');
+            Object.defineProperty(oversized, 'size', { value: 50 * 1024 * 1024 });
+            onFilesAccepted([new File(['{}'], 'good.geojson'), new File(['x'], 'evil.exe'), oversized]);
+          }}
+        >
+          Drop mixed
+        </button>
       </div>
     ),
   };
@@ -165,6 +175,34 @@ describe('UploadForm — queued drops during config fetch', () => {
     expect(vi.mocked(toast.error)).toHaveBeenCalledTimes(1);
     // Form stays idle so the user can retry immediately.
     expect(screen.getByTestId('file-dropzone')).toBeInTheDocument();
+  });
+
+  it('re-applies extension and size gates from the settled config to queued drops', async () => {
+    // During the fetch window the dropzone validated against nothing — the
+    // flush must reject what the settled config rejects (Codex P2 r2 on #432).
+    mockConfig = { data: null, isFetching: true };
+    const { rerender } = render(<UploadForm />);
+
+    await act(async () => {
+      screen.getByTestId('drop-mixed').click();
+    });
+
+    mockConfig = {
+      data: {
+        remaining_dataset_quota: null,
+        allowed_extensions: '.geojson,.zip',
+        max_file_size_bytes: 10 * 1024 * 1024,
+      },
+      isFetching: false,
+    };
+    await act(async () => {
+      rerender(<UploadForm />);
+    });
+
+    // Only good.geojson survives: evil.exe (extension) and huge.geojson (50MB
+    // vs 10MB cap) are rejected with the dropzone's own toast.
+    await waitFor(() => expect(mockUploadFile).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(toast.error)).toHaveBeenCalledTimes(2);
   });
 
   it('passes a permissive quota to the dropzone while fetching, the live one after', async () => {
