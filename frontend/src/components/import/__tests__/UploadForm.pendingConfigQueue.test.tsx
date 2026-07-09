@@ -45,11 +45,20 @@ vi.mock('../FileDropzone', async (importOriginal) => {
     FileDropzone: ({
       onFilesAccepted,
       remainingQuota,
+      allowedExtensions,
+      maxSizeMb,
     }: {
       onFilesAccepted: (files: File[]) => void;
       remainingQuota?: number | null;
+      allowedExtensions?: string[];
+      maxSizeMb?: number;
     }) => (
-      <div data-testid="file-dropzone" data-remaining-quota={String(remainingQuota)}>
+      <div
+        data-testid="file-dropzone"
+        data-remaining-quota={String(remainingQuota)}
+        data-allowed-extensions={String(allowedExtensions)}
+        data-max-size-mb={String(maxSizeMb)}
+      >
         <button
           data-testid="drop-one"
           onClick={() => onFilesAccepted([new File(['{}'], 'a.geojson')])}
@@ -205,19 +214,40 @@ describe('UploadForm — queued drops during config fetch', () => {
     expect(vi.mocked(toast.error)).toHaveBeenCalledTimes(2);
   });
 
-  it('passes a permissive quota to the dropzone while fetching, the live one after', async () => {
-    // Cached stale-LOW quota during the refetch window must not reach
-    // react-dropzone's maxFiles — it would reject a multi-file drop before the
-    // queue could re-validate it against the fresh value (Codex P2 on #432).
-    mockConfig = { data: { remaining_dataset_quota: 1 }, isFetching: true };
+  it('passes permissive gates to the dropzone while fetching, the live ones after', async () => {
+    // Cached stale values during the refetch window must not reach
+    // react-dropzone's maxFiles/accept/maxSize — they would reject drops the
+    // fresh config allows before the queue could re-validate them (Codex P2
+    // rounds 1-3 on #432).
+    mockConfig = {
+      data: {
+        remaining_dataset_quota: 1,
+        allowed_extensions: '.zip',
+        max_file_size_bytes: 1024 * 1024,
+      },
+      isFetching: true,
+    };
     const { rerender } = render(<UploadForm />);
-    expect(screen.getByTestId('file-dropzone')).toHaveAttribute('data-remaining-quota', 'null');
+    const dz = screen.getByTestId('file-dropzone');
+    expect(dz).toHaveAttribute('data-remaining-quota', 'null');
+    expect(dz).toHaveAttribute('data-allowed-extensions', 'undefined');
+    expect(dz).toHaveAttribute('data-max-size-mb', 'undefined');
 
-    mockConfig = { data: { remaining_dataset_quota: 7 }, isFetching: false };
+    mockConfig = {
+      data: {
+        remaining_dataset_quota: 7,
+        allowed_extensions: '.zip,.geojson',
+        max_file_size_bytes: 10 * 1024 * 1024,
+      },
+      isFetching: false,
+    };
     await act(async () => {
       rerender(<UploadForm />);
     });
-    expect(screen.getByTestId('file-dropzone')).toHaveAttribute('data-remaining-quota', '7');
+    const settled = screen.getByTestId('file-dropzone');
+    expect(settled).toHaveAttribute('data-remaining-quota', '7');
+    expect(settled).toHaveAttribute('data-allowed-extensions', '.zip,.geojson');
+    expect(settled).toHaveAttribute('data-max-size-mb', '10');
   });
 
   it('processes immediately when the config is already settled', async () => {

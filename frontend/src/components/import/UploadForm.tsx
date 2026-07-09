@@ -525,15 +525,16 @@ export function UploadForm({ onPhaseChange }: UploadFormProps) {
   // still never *act* on an unresolved/stale quota (Codex P2 on PR #274). Once
   // a fetch settles, success carries the live remaining quota; an error
   // degrades to permissive — consistent with allowedExtensions/maxSizeMb.
-  // While fetching, the quota cap is also permissive (null): react-dropzone
-  // enforces maxFiles at drop time, so a cached stale-LOW quota would reject a
-  // multi-file drop before it could queue for fresh validation (Codex P2 on
-  // PR #432).
+  // While fetching, every config-derived gate is permissive (quota null,
+  // extensions/size undefined): react-dropzone enforces accept/maxSize/maxFiles
+  // at drop time, so cached stale values would reject files the fresh config
+  // allows before they could queue — the flush validates all three against the
+  // settled config instead (Codex P2 rounds 1-3 on PR #432).
   return (
     <FileDropzone
       onFilesAccepted={handleFilesAccepted}
-      allowedExtensions={allowedExtensions}
-      maxSizeMb={maxSizeMb}
+      allowedExtensions={configFetching ? undefined : allowedExtensions}
+      maxSizeMb={configFetching ? undefined : maxSizeMb}
       remainingQuota={configFetching ? null : (uploadConfig?.remaining_dataset_quota ?? null)}
     />
   );
