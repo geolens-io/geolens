@@ -205,7 +205,14 @@ async def fail_stale_jobs(db: AsyncSession) -> tuple[int, int]:
         manifest_key = IngestJob.user_metadata["manifest_key"].astext
         latest_manifest_ids = (
             select(IngestJob.id)
-            .where(IngestJob.status == "complete", manifest_key.is_not(None))
+            .where(
+                IngestJob.status == "complete",
+                manifest_key.is_not(None),
+                # codex P2 (r9): the mirrored lookup joins Dataset, so a job
+                # whose dataset was deleted (dataset_id nulled by the FK) can't
+                # influence reapply — exempting it would only defeat cleanup.
+                IngestJob.dataset_id.is_not(None),
+            )
             .distinct(manifest_key)
             .order_by(
                 manifest_key,
@@ -259,7 +266,12 @@ async def fail_stale_jobs(db: AsyncSession) -> tuple[int, int]:
                 if local.exists():
                     if local.is_relative_to(staging_root):
                         local.unlink(missing_ok=True)
-                elif not Path(file_path).is_absolute():
+                elif file_path.startswith("staging/"):
+                    # codex P1 (r9): only presigned-upload staging keys
+                    # ("staging/{job_id}/…", see ingest service/router) may be
+                    # deleted from object storage — manifest sources store
+                    # arbitrary same-bucket keys (user-managed objects) as
+                    # relative file_path values too.
                     from app.platform.storage import get_storage
 
                     await get_storage().delete(file_path)
