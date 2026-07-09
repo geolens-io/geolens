@@ -86,6 +86,26 @@ describe('reorderDataLayers', () => {
     ]);
   });
 
+  it('moves mixed-geometry family sublayers with their parent (fix #431 codex r1)', () => {
+    const map = createMockMap([
+      'layer-a', 'layer-a-outline', 'layer-a-lines', 'layer-a-points',
+      'layer-b',
+    ]);
+    const layers = [{ id: 'a' }, { id: 'b' }];
+
+    reorderDataLayers(map, layers);
+
+    const calls = (map.moveLayer as ReturnType<typeof vi.fn>).mock.calls.map(
+      (c: string[]) => c[0],
+    );
+    // The mixed sublayers travel with layer a and preserve the adapter's add
+    // order (fill < outline < lines < points; last moved ends topmost).
+    expect(calls).toEqual([
+      'layer-b',
+      'layer-a', 'layer-a-outline', 'layer-a-lines', 'layer-a-points',
+    ]);
+  });
+
   it('does nothing for empty layers array', () => {
     const map = createMockMap([]);
 

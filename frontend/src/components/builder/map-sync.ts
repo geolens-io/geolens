@@ -19,6 +19,7 @@ import { getAdapter } from './layer-adapters/registry';
 import type { AdapterLayerInput, LayerAdapter } from './layer-adapters/types';
 import { buildLabelLayerSpec, syncLabelLayer } from './label-layer-utils';
 import { clusterCircleLayerId, clusterCountLayerId, getClusterSourceOptions } from './layer-adapters/cluster-adapter';
+import { mixedLinesLayerId, mixedPointsLayerId } from './layer-adapters/mixed-adapter';
 import { getClusterSourceStrategy } from './cluster-source';
 import { syncColorReliefLayer } from './color-relief-sync';
 import { buildColormapTileUrl } from './layer-adapters/raster-adapter';
@@ -1320,6 +1321,10 @@ function reorderDataGeometry(
     const colorReliefId = `${lid}${COLOR_RELIEF_SUFFIX}`;
     const cid = clusterCircleLayerId(lid);
     const ccid = clusterCountLayerId(lid);
+    // fix(#431 codex r1): mixed-geometry family sublayers move with their parent,
+    // preserving the adapter's add order (fill < outline < lines < points).
+    const mlid = mixedLinesLayerId(lid);
+    const mpid = mixedPointsLayerId(lid);
     if (map.getLayer(cid)) map.moveLayer(cid);
     if (map.getLayer(ccid)) map.moveLayer(ccid);
     if (map.getLayer(colorReliefId)) map.moveLayer(colorReliefId);
@@ -1327,6 +1332,8 @@ function reorderDataGeometry(
     if (map.getLayer(aid)) map.moveLayer(aid);
     if (map.getLayer(eid)) map.moveLayer(eid);
     if (map.getLayer(oid)) map.moveLayer(oid);
+    if (map.getLayer(mlid)) map.moveLayer(mlid);
+    if (map.getLayer(mpid)) map.moveLayer(mpid);
   }
 }
 
