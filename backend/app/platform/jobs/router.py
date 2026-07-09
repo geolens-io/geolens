@@ -7,9 +7,10 @@ from typing import Literal, cast
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.identity import Identity
 from app.modules.auth.dependencies import get_current_active_user, require_permission
 from app.core.dependencies import get_db
@@ -172,6 +173,118 @@ async def fail_stale_jobs(db: AsyncSession) -> tuple[int, int]:
 
     # GAP-002: sweep stale VRT regenerating assets using the same cutoff.
     await sweep_stale_vrt_assets(db, running_cutoff)
+
+    # fix(#434): purge terminal jobs past retention so the admin Jobs page
+    # doesn't accumulate history forever. Cutoff is on finished-at
+    # (coalesce(completed_at, created_at)) rather than created_at — the stale
+    # sweep above fails ancient pending/running rows with completed_at=now, and
+    # a created_at cutoff would delete that fresh failure evidence in the same
+    # transaction (codex P2 r8). 0 = keep forever. Each dataset's most recent
+    # complete job is exempt regardless of age: /jobs/by-dataset/{id} serves the
+    # dataset page's persistent ingest warnings and the reupload source_layer
+    # hint from it (codex P2 on #434). Jobs whose dataset was deleted have
+    # dataset_id nulled (FK ondelete=SET NULL) and stay purgeable.
+    if settings.ingest_jobs_retention_days > 0:
+        retention_cutoff = now - timedelta(days=settings.ingest_jobs_retention_days)
+        latest_complete_ids = (
+            select(IngestJob.id)
+            .where(
+                IngestJob.status == "complete",
+                IngestJob.dataset_id.is_not(None),
+            )
+            .distinct(IngestJob.dataset_id)
+            .order_by(IngestJob.dataset_id, IngestJob.created_at.desc())
+        )
+        # codex P2 (r7) on #434: manifest apply classifies skip/update-vs-create
+        # via _latest_completed_manifest_job (manifest_service.py), which looks
+        # up the newest complete job per user_metadata->>'manifest_key'. A
+        # manual reupload makes the manual job the per-dataset exemption, so
+        # without this second exemption the manifest-keyed row would age out
+        # and the next apply would duplicate the dataset. Mirrors the lookup's
+        # ordering (completed_at desc, created_at desc).
+        manifest_key = IngestJob.user_metadata["manifest_key"].astext
+        latest_manifest_ids = (
+            select(IngestJob.id)
+            .where(
+                IngestJob.status == "complete",
+                manifest_key.is_not(None),
+                # codex P2 (r9): the mirrored lookup joins Dataset, so a job
+                # whose dataset was deleted (dataset_id nulled by the FK) can't
+                # influence reapply — exempting it would only defeat cleanup.
+                IngestJob.dataset_id.is_not(None),
+            )
+            .distinct(manifest_key)
+            .order_by(
+                manifest_key,
+                IngestJob.completed_at.desc(),
+                IngestJob.created_at.desc(),
+            )
+        )
+        # Single DELETE .. RETURNING re-applies every predicate atomically at
+        # delete time — a SELECT-then-DELETE-by-id pair let /jobs/{id}/retry
+        # flip a candidate back to pending between the two statements and
+        # still lose the row (codex P2 r10 on #434).
+        deleted = await db.execute(
+            delete(IngestJob)
+            .where(
+                IngestJob.status.not_in(("pending", "running")),
+                func.coalesce(IngestJob.completed_at, IngestJob.created_at)
+                < retention_cutoff,
+                IngestJob.id.not_in(latest_complete_ids),
+                IngestJob.id.not_in(latest_manifest_ids),
+            )
+            .returning(IngestJob.file_path)
+        )
+        deleted_rows = deleted.all()
+        deleted_paths = {fp for (fp,) in deleted_rows if fp}
+        if deleted_rows:
+            log.info(
+                "Purged ingest jobs past retention",
+                purged=len(deleted_rows),
+                retention_days=settings.ingest_jobs_retention_days,
+            )
+
+        # codex P2 (r3) on #434: failed local uploads keep their staged file
+        # for retry (_should_unlink_staging), and fan-out children's shared S3
+        # original is explicitly deferred to "a retention policy" (#430 BA-09)
+        # — this purge is that policy. Reap staged objects whose last pointer
+        # was just deleted, but (codex P2 r4) only when no surviving row that
+        # still NEEDS the file references the same path: pending/running read
+        # it now; failed keeps it for /jobs/{id}/retry (a failed-only
+        # endpoint). Surviving complete rows (e.g. the exemptions above) keep
+        # their metadata row but not the staged file — otherwise a successful
+        # fan-out's shared original, referenced forever by children that are
+        # each a dataset's latest complete job, would never be reaped
+        # (codex P2 r5). Running after the DELETE, any remaining row counts.
+        if deleted_paths:
+            survivors = await db.execute(
+                select(IngestJob.file_path).where(
+                    IngestJob.file_path.in_(deleted_paths),
+                    IngestJob.status.in_(("pending", "running", "failed")),
+                )
+            )
+            deleted_paths -= set(survivors.scalars())
+        staging_root = Path(settings.upload_staging_dir).resolve()
+        for file_path in deleted_paths:
+            try:
+                local = Path(file_path).resolve()
+                if local.exists():
+                    if local.is_relative_to(staging_root):
+                        local.unlink(missing_ok=True)
+                elif file_path.startswith("staging/"):
+                    # codex P1 (r9): only presigned-upload staging keys
+                    # ("staging/{job_id}/…", see ingest service/router) may be
+                    # deleted from object storage — manifest sources store
+                    # arbitrary same-bucket keys (user-managed objects) as
+                    # relative file_path values too.
+                    from app.platform.storage import get_storage
+
+                    await get_storage().delete(file_path)
+            except Exception:  # broad: best-effort staging cleanup
+                log.warning(
+                    "Failed to reap staged file for purged jobs",
+                    file_path=file_path,
+                )
 
     await db.commit()
     return len(pending_jobs), len(running_jobs)

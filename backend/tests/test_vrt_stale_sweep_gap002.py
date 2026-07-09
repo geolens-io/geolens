@@ -102,6 +102,7 @@ def _make_mock_db_for_fail_stale(
     stale_jobs_running: list | None = None,
     stale_vrt_assets: list | None = None,
     stale_vrt_generations: list | None = None,
+    purge_candidates: list | None = None,
 ) -> AsyncMock:
     """Build a mock AsyncSession for fail_stale_jobs.
 
@@ -110,6 +111,10 @@ def _make_mock_db_for_fail_stale(
       2. stale running IngestJobs → scalars() returns list
       3. stale regenerating RasterAssets → scalars() returns list
       4. stale VrtGeneration rows → scalars() returns list
+      5. purge DELETE .. RETURNING file_path (fix #434) → .all() returns
+         (file_path,) one-tuples
+    (a survivors SELECT fires after 5 only when a deleted row had a non-null
+    file_path — keep mock candidates' file_path None)
     """
     results = []
     for lst in [
@@ -121,6 +126,10 @@ def _make_mock_db_for_fail_stale(
         mock_result = MagicMock()
         mock_result.scalars.return_value = lst
         results.append(mock_result)
+
+    delete_result = MagicMock()
+    delete_result.all.return_value = purge_candidates or []
+    results.append(delete_result)
 
     mock_db = AsyncMock()
     mock_db.execute = AsyncMock(side_effect=results)
@@ -243,6 +252,188 @@ async def test_fail_stale_jobs_returns_vrt_asset_count():
 
     # Result must be a tuple (the IngestJob counts are the base contract).
     assert isinstance(result, tuple)
+
+
+# ---------------------------------------------------------------------------
+# fix(#434): retention purge of terminal jobs
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_fail_stale_jobs_purges_terminal_jobs_past_retention():
+    """The purge is one DELETE that carries the terminal-status predicates
+    itself (codex P2 r10: a SELECT-then-DELETE-by-id pair raced with
+    /jobs/{id}/retry)."""
+    from sqlalchemy.sql.dml import Delete
+
+    from app.platform.jobs.router import fail_stale_jobs
+
+    mock_db = _make_mock_db_for_fail_stale(purge_candidates=[(None,)])
+    await fail_stale_jobs(mock_db)
+
+    assert mock_db.execute.await_count == 5
+    purge_stmt = mock_db.execute.await_args_list[4].args[0]
+    assert isinstance(purge_stmt, Delete)
+    where_sql = str(purge_stmt.compile(compile_kwargs={"literal_binds": True}))
+    assert "'pending'" in where_sql and "'running'" in where_sql, (
+        "purge must exclude active statuses at delete time, got: " + where_sql
+    )
+
+
+# NOTE: no @pytest.mark.asyncio here — test_db_session is an AnyIO fixture and
+# the pytest-asyncio marker would run the test body on a different event loop
+# than the fixture's asyncpg connection ("attached to a different loop").
+async def test_retention_purge_keeps_latest_complete_job_per_dataset(
+    test_db_session, tmp_path, monkeypatch
+):
+    """codex P2 on #434: /jobs/by-dataset serves persistent ingest warnings and
+    the reupload source_layer hint from a dataset's most recent complete job —
+    that row must survive the purge no matter how old it is. Older completes
+    and failed rows past retention are still deleted, and (codex P2 r3) a
+    purged failed job's staged local file is reaped along with the row."""
+    from sqlalchemy import select as sa_select
+
+    from app.core.config import settings
+    from app.platform.jobs.models import IngestJob
+    from app.platform.jobs.router import fail_stale_jobs
+    from tests.factories import create_dataset, get_user_id
+
+    user_id = await get_user_id(test_db_session, "admin")
+    ds = await create_dataset(
+        test_db_session, created_by=user_id, name="Retention Exemption DS"
+    )
+
+    # Staged local upload kept for retry by a failed job (see
+    # _should_unlink_staging) — must be unlinked when its row is purged.
+    monkeypatch.setattr(settings, "upload_staging_dir", str(tmp_path))
+    staged_file = tmp_path / "failed-upload.geojson"
+    staged_file.write_text("{}")
+    # codex P2 (r4): fan-out siblings share one staging object — a path also
+    # referenced by a retryable row OUTSIDE the purge set must NOT be reaped.
+    shared_file = tmp_path / "shared-fanout.gpkg"
+    shared_file.write_text("{}")
+    # codex P2 (r5): a SUCCESSFUL fan-out's shared original is referenced
+    # forever by exempt latest-complete children — a surviving complete row
+    # must NOT block the reap (only pending/running/failed need the file).
+    fanout_file = tmp_path / "successful-fanout.gpkg"
+    fanout_file.write_text("{}")
+
+    now = datetime.now(timezone.utc)
+    ancient = now - timedelta(days=120)
+    old = now - timedelta(days=90)
+    rows = {
+        "older_complete": IngestJob(
+            dataset_id=ds.id, status="complete", created_at=ancient
+        ),
+        "latest_complete": IngestJob(
+            dataset_id=ds.id,
+            status="complete",
+            created_at=old,
+            file_path=str(fanout_file),
+        ),
+        "old_fanned_out_parent": IngestJob(
+            dataset_id=None,
+            status="fanned_out",
+            created_at=old,
+            file_path=str(fanout_file),
+        ),
+        # codex P2 (r7): manifest apply resolves datasets via the newest
+        # complete job per manifest_key — this row is OLDER than the dataset's
+        # latest complete job (so the per-dataset exemption skips it) but must
+        # survive via the manifest-key exemption or re-applying the manifest
+        # would duplicate the dataset.
+        "manifest_complete": IngestJob(
+            dataset_id=ds.id,
+            status="complete",
+            created_at=ancient,
+            completed_at=ancient,
+            user_metadata={"manifest_key": "showcase/retention-ds"},
+        ),
+        "old_failed": IngestJob(
+            dataset_id=ds.id,
+            status="failed",
+            created_at=old,
+            file_path=str(staged_file),
+        ),
+        "orphan_complete": IngestJob(
+            dataset_id=None, status="complete", created_at=old
+        ),
+        "old_failed_shared": IngestJob(
+            dataset_id=ds.id,
+            status="failed",
+            created_at=old,
+            file_path=str(shared_file),
+        ),
+        "recent_failed_shared": IngestJob(
+            dataset_id=ds.id,
+            status="failed",
+            created_at=now - timedelta(days=1),
+            file_path=str(shared_file),
+        ),
+        # codex P2 (r8): an ancient still-running row gets stale-failed by THIS
+        # same fail_stale_jobs call (completed_at=now) — the purge cutoff is on
+        # finished-at, so the fresh failure evidence must survive a full
+        # retention window instead of being deleted in the same transaction.
+        "ancient_stale_running": IngestJob(
+            dataset_id=ds.id,
+            status="running",
+            created_at=ancient,
+            started_at=ancient,
+        ),
+    }
+    test_db_session.add_all(rows.values())
+    await test_db_session.commit()
+    ids = {k: v.id for k, v in rows.items()}
+
+    await fail_stale_jobs(test_db_session)
+
+    remaining = set((await test_db_session.execute(sa_select(IngestJob.id))).scalars())
+    assert ids["latest_complete"] in remaining, (
+        "the dataset's most recent complete job must survive retention"
+    )
+    assert ids["recent_failed_shared"] in remaining, (
+        "a failed job within retention must survive"
+    )
+    assert ids["manifest_complete"] in remaining, (
+        "the newest complete job per manifest_key must survive retention"
+    )
+    assert ids["ancient_stale_running"] in remaining, (
+        "a row stale-failed by this same sweep must keep its fresh failure "
+        "evidence for a full retention window"
+    )
+    stale_failed = await test_db_session.get(IngestJob, ids["ancient_stale_running"])
+    assert stale_failed.status == "failed"
+    for name in (
+        "older_complete",
+        "old_failed",
+        "orphan_complete",
+        "old_failed_shared",
+        "old_fanned_out_parent",
+    ):
+        assert ids[name] not in remaining, f"{name} should have been purged"
+    assert not staged_file.exists(), (
+        "the purged failed job's staged file must be reaped with the row"
+    )
+    assert shared_file.exists(), (
+        "a staging file still referenced by a surviving RETRYABLE job must NOT be reaped"
+    )
+    assert not fanout_file.exists(), (
+        "a successful fan-out's shared original must be reaped even though the "
+        "exempt latest-complete child still references it"
+    )
+
+
+@pytest.mark.asyncio
+async def test_fail_stale_jobs_retention_zero_disables_purge(monkeypatch):
+    """ingest_jobs_retention_days=0 keeps history forever (no DELETE issued)."""
+    from app.core.config import settings
+    from app.platform.jobs.router import fail_stale_jobs
+
+    monkeypatch.setattr(settings, "ingest_jobs_retention_days", 0)
+    mock_db = _make_mock_db_for_fail_stale()
+    await fail_stale_jobs(mock_db)
+
+    assert mock_db.execute.await_count == 4
 
 
 # ---------------------------------------------------------------------------

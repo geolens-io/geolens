@@ -17,23 +17,14 @@ test.describe('Upload Flow', () => {
     await expect(uploadTab).toBeVisible();
 
     // Upload via hidden file input (react-dropzone renders a hidden input).
-    // Retry staging until the row renders: the upload-config query runs with
-    // staleTime 0, and a file set while its boot-time refetch is settling can
-    // be silently swallowed (#274 dropzone-disable design; pre-existing race,
-    // surfaced by dev-server timing). A swallowed drop does not recover on the
-    // same page, so each retry reloads for a fresh boot.
+    // fix(#432): files staged during the upload-config boot fetch are queued
+    // and flushed once the config settles, so a single set must stage the row
+    // — no reload-retry. This test failing here means the queue regressed.
     const fileInput = page.locator('input[type="file"]');
-    await expect(async () => {
-      await fileInput.setInputFiles(
-        path.join(__dirname, 'fixtures/sample.geojson'),
-      );
-      try {
-        await expect(page.getByText('sample')).toBeVisible({ timeout: 3_000 });
-      } catch (err) {
-        await page.reload();
-        throw err;
-      }
-    }).toPass({ timeout: 45_000 });
+    await fileInput.setInputFiles(
+      path.join(__dirname, 'fixtures/sample.geojson'),
+    );
+    await expect(page.getByText('sample')).toBeVisible({ timeout: 15_000 });
     await expect(page.getByText('Using embedded geometry')).toBeVisible({ timeout: 30_000 });
     await expect(page.getByText('Import as non-spatial')).toHaveCount(0);
 
