@@ -829,6 +829,19 @@ class MapUpdate(BaseModel):
     def _normalize_legend_title_nfc(cls, v: str | None) -> str | None:
         return _nfc(v)
 
+    @model_validator(mode="after")
+    def _validate_unique_layer_ids(self) -> "MapUpdate":
+        # fix(#430 codex r12): a full-replace payload repeating an existing
+        # layer id would silently collapse those entries in _replace_layers'
+        # by-id reconcile (second overwrites first). PATCH already rejects
+        # duplicate ids (MapLayerDiffRequest); mirror that here. Null ids are
+        # exempt — each absent id creates its own fresh row.
+        if self.layers is not None:
+            ids = [layer.id for layer in self.layers if layer.id is not None]
+            if len(set(ids)) != len(ids):
+                raise ValueError("layer ids must be unique")
+        return self
+
 
 class DatasetMetaKwargs(TypedDict, total=False):
     """Keyword arguments carrying dataset metadata into _build_layer_response."""

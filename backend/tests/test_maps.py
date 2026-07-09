@@ -2671,6 +2671,58 @@ class TestMapLayers:
         assert layers[0]["opacity"] == 0.4
         assert layers[1]["id"] != original_id  # id-less entry -> fresh row
 
+    async def test_full_put_rejects_duplicate_layer_ids(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+    ):
+        """fix(#430 codex r12): a full-replace payload repeating the same layer
+        id must 422 (PATCH already rejects duplicate ids) — previously the
+        by-id reconcile silently collapsed the entries, with the second
+        overwriting the first. Two id-less entries stay legal: each creates
+        its own fresh row."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await create_dataset(
+            test_db_session, created_by=admin_id, name="Dup Id Guard"
+        )
+        created = await _create_map(client, admin_auth_header)
+
+        post_resp = await client.post(
+            f"/maps/{created['id']}/layers",
+            json={"dataset_id": str(ds.id)},
+            headers=admin_auth_header,
+        )
+        assert post_resp.status_code == 201
+        layer_id = post_resp.json()["id"]
+
+        dup_resp = await client.put(
+            f"/maps/{created['id']}",
+            json={
+                "layers": [
+                    {"id": layer_id, "dataset_id": str(ds.id), "opacity": 0.3},
+                    {"id": layer_id, "dataset_id": str(ds.id), "opacity": 0.9},
+                ]
+            },
+            headers=admin_auth_header,
+        )
+        assert dup_resp.status_code == 422
+        assert "unique" in dup_resp.text
+
+        # Null-id entries are exempt — both create fresh rows.
+        ok_resp = await client.put(
+            f"/maps/{created['id']}",
+            json={
+                "layers": [
+                    {"dataset_id": str(ds.id), "sort_order": 0},
+                    {"dataset_id": str(ds.id), "sort_order": 1},
+                ]
+            },
+            headers=admin_auth_header,
+        )
+        assert ok_resp.status_code == 200
+        assert len(ok_resp.json()["layers"]) == 2
+
     async def test_patch_map_layers_applies_diff_and_preserves_stable_ids(
         self,
         client: AsyncClient,
