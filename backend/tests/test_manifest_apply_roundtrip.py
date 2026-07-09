@@ -374,6 +374,49 @@ class TestManifestApplyEndpointRoundTrip:
         after_record = await test_db_session.get(Record, victim_dataset.record_id)
         assert after_record.title == before_title
 
+    async def test_manifest_update_by_nonadmin_owner_classifies_as_update(
+        self,
+        client: AsyncClient,
+        editor_auth_header: dict,
+        test_db_session,
+        clean_tables,
+    ):
+        """fix(#430 codex r10, refuted): the BA-02 write gate dereferences
+        dataset.record synchronously, which is only safe because the
+        Dataset.record relationship is lazy='joined' (models.py) — the
+        completed-manifest-job query has no explicit eager-load of its own.
+        Nothing pinned the legitimate NON-admin owner update path: the admin
+        dry-run test short-circuits before touching record, and the
+        cross-user test asserts an error entry. If the model-level eager
+        load is ever weakened, this test catches the MissingGreenlet."""
+        me = await client.get("/auth/me/", headers=editor_auth_header)
+        assert me.status_code == 200
+        owner = await test_db_session.get(User, uuid.UUID(me.json()["id"]))
+        original = _dataset_payload(key="owner-update", title="Owner Original")
+        changed = _dataset_payload(key="owner-update", title="Owner Changed")
+        original_request = ManifestApplyRequest.model_validate(
+            _manifest_payload(original)
+        )
+        dataset = await create_dataset(
+            test_db_session, created_by=owner.id, name="Owner Original"
+        )
+        await _create_completed_manifest_job(
+            test_db_session,
+            user=owner,
+            dataset=dataset,
+            manifest_dataset=original_request.datasets[0],
+        )
+
+        response = await client.post(
+            "/ingest/manifest/apply",
+            json=_manifest_payload(changed, dry_run=True),
+            headers=editor_auth_header,
+        )
+        assert response.status_code == 200
+        entry = _actions_by_key(response.json())["owner-update"]
+        assert entry["action"] == "update", entry
+        assert entry["dataset_id"] == str(dataset.id)
+
 
 class TestManifestCompletedDatasetRoundTrip:
     async def test_completed_manifest_datasets_are_searchable_and_previewable(
