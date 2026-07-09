@@ -20,6 +20,7 @@ from app.platform.extensions import get_permission_extension, get_processing_por
 from app.processing.export.ogr import ExportError
 from app.processing.export.schemas import ExportFormat
 from app.processing.export.service import export_dataset, validate_where_clause
+from app.processing.export.where_validator import canonical_where
 from app.processing.ingest.metadata import _qtable
 
 router = APIRouter(prefix="/datasets", tags=["Datasets"])
@@ -63,12 +64,15 @@ async def _count_selected_features(
     if where is not None:
         try:
             validate_where_clause(where, column_info)
+            # Interpolate the canonical AST re-render, not the caller's raw
+            # bytes — the count query never splices unvalidated user input.
+            safe_where = canonical_where(where)
         except ValueError as e:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=str(e),
             )
-        clauses.append(f"({where})")
+        clauses.append(f"({safe_where})")
     if bbox is not None and has_geometry and bbox[0] <= bbox[2]:
         # Envelope && only (superset of exact intersects) — errs toward 413.
         # Antimeridian bboxes (minx > maxx) skip the clause and count without
