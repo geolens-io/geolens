@@ -58,10 +58,64 @@ export function useMapLayers({
           maxzoom: 22,
         });
 
-        const isPoint = geometryType.toUpperCase().includes('POINT');
-        const isLine = geometryType.toUpperCase().includes('LINE');
+        const upperType = geometryType.toUpperCase();
+        const isPoint = upperType.includes('POINT');
+        const isLine = upperType.includes('LINE');
+        // fix(#430 codex r21): a generic sketch dataset (GEOMETRY sentinel /
+        // GEOMETRYCOLLECTION) can hold every family at once — install all
+        // three renderers with $type filters so no family disappears when the
+        // display type degrades to generic after a cross-family draw.
+        const isGeneric =
+          upperType === 'GEOMETRY' || upperType === 'GEOMETRYCOLLECTION';
 
-        if (isPoint) {
+        if (isGeneric) {
+          map.addLayer({
+            id: 'vector-fill',
+            type: 'fill',
+            source: 'vector-tile-source',
+            'source-layer': sourceLayer,
+            filter: ['==', '$type', 'Polygon'],
+            paint: {
+              'fill-color': MAP_COLORS.default.fill,
+              'fill-opacity': MAP_COLORS.default.fillOpacity,
+            },
+          });
+          map.addLayer({
+            id: 'vector-outline',
+            type: 'line',
+            source: 'vector-tile-source',
+            'source-layer': sourceLayer,
+            filter: ['==', '$type', 'Polygon'],
+            paint: {
+              'line-color': MAP_COLORS.default.stroke,
+              'line-width': 1,
+            },
+          });
+          map.addLayer({
+            id: 'vector-lines',
+            type: 'line',
+            source: 'vector-tile-source',
+            'source-layer': sourceLayer,
+            filter: ['==', '$type', 'LineString'],
+            paint: {
+              'line-color': MAP_COLORS.default.fill,
+              'line-width': 2,
+            },
+          });
+          map.addLayer({
+            id: 'vector-points',
+            type: 'circle',
+            source: 'vector-tile-source',
+            'source-layer': sourceLayer,
+            filter: ['==', '$type', 'Point'],
+            paint: {
+              'circle-radius': 4,
+              'circle-color': MAP_COLORS.default.fill,
+              'circle-stroke-color': MAP_COLORS.default.stroke,
+              'circle-stroke-width': 1,
+            },
+          });
+        } else if (isPoint) {
           map.addLayer({
             id: 'vector-points',
             type: 'circle',
