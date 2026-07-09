@@ -145,6 +145,9 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
   // paint. Cluster renders as circles for validation purposes.
   const advancedJsonLayerType = useMemo(() => {
     const resolved = resolveAdapterType(layer.dataset_geometry_type, layer.style_config, editorPaint);
+    // 'mixed' passes through — AdvancedJsonEditor validates each family's keys
+    // against its own sublayer type (fix #431 codex r2), so line-*/circle-*
+    // keys stay authorable for the line/point sublayers.
     return resolved === 'cluster' ? 'circle' : resolved;
   }, [layer.dataset_geometry_type, layer.style_config, editorPaint]);
   const isDataDriven = !!layer.style_config?.column;

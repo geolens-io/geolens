@@ -112,6 +112,12 @@ export function useRenderModeLayers({
     if (map.getLayer(ids.arrow)) {
       map.removeLayer(ids.arrow);
     }
+    if (map.getLayer(ids.mixedLines)) {
+      map.removeLayer(ids.mixedLines);
+    }
+    if (map.getLayer(ids.mixedPoints)) {
+      map.removeLayer(ids.mixedPoints);
+    }
     // Per-layer raster/hillshade source removal — these layer types keep
     // their per-layer source id via `getSourceIdForLayer`'s raster branch,
     // so this is still safe (no sibling layer shares it).
@@ -203,7 +209,7 @@ export function useRenderModeLayers({
       return;
     }
     const ids = getCompanionLayerIds(layerId);
-    for (const id of [ids.colorRelief, ids.label, ids.arrow, ids.extrusion, ids.outline, ids.clusterCount, ids.cluster, ids.layer]) {
+    for (const id of [ids.colorRelief, ids.label, ids.arrow, ids.extrusion, ids.outline, ids.clusterCount, ids.cluster, ids.mixedLines, ids.mixedPoints, ids.layer]) {
       if (map.getLayer(id)) map.removeLayer(id);
     }
   }, [mapInstanceRef]);

@@ -31,6 +31,15 @@ export function classifyGeometry(geometryType: string | null): GeometryFamily {
   return 'other';
 }
 
+/** fix(#430 codex r23): the generic sentinels a created/mixed dataset carries when
+ *  its geometry column holds (or may hold) multiple families. These route to the
+ *  mixed adapter so every family renders; unknown exotic types keep the historic
+ *  fill fallback. Mirrors the backend `_derive_created_geometry_type` contract. */
+export function isGenericGeometryType(geometryType: string | null): boolean {
+  const gt = (geometryType ?? '').toUpperCase();
+  return gt === 'GEOMETRY' || gt === 'GEOMETRYCOLLECTION';
+}
+
 /** MapLibre vector layer type for a geometry. polygon/other both render as fill. */
 export function getLayerType(geometryType: string | null): 'circle' | 'line' | 'fill' {
   switch (classifyGeometry(geometryType)) {
@@ -337,6 +346,12 @@ export function resolveAdapterType(
   }
   if (styleConfig?.render_mode === 'cluster') {
     return 'cluster';
+  }
+  // fix(#430 codex r23): generic sentinel datasets mix families — route to the
+  // mixed adapter (per-family filtered sublayers) instead of the fill fallback
+  // that silently dropped point/line features.
+  if (isGenericGeometryType(geometryType)) {
+    return 'mixed';
   }
   // Use geometry type when available
   if (geometryType) {

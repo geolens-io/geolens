@@ -46,6 +46,8 @@ import {
 } from './map-sync';
 import { resolveTerrainSourceLayer } from './map-stack';
 import { getClusterSourceOptions } from './layer-adapters/cluster-adapter';
+import { isGenericGeometryType } from './layer-adapters/shared';
+import { mixedInteractiveLayerIds } from './layer-adapters/mixed-adapter';
 import type { AdapterLayerInput } from './layer-adapters/types';
 import { maybeWarnSmallDemCoverage, resetSmallDemWarning } from './terrain-coverage';
 import { applyMapBasemapAppearance, syncMapComposition } from './map-composition-sync';
@@ -708,7 +710,12 @@ export const BuilderMap = memo(function BuilderMap({
       .filter((l) => l.visible && l.layer_type !== 'raster_geolens')
       .flatMap((l) => {
         const layerId = getLayerId(l.id);
-        return isClusterRenderMode(l) ? clusterInteractiveLayerIds(layerId) : [layerId];
+        // fix(#430 codex r23): mixed-geometry layers spread hits across
+        // per-family sublayers — include them so point/line features stay
+        // clickable (the getLayer filter below drops any that don't exist).
+        if (isClusterRenderMode(l)) return clusterInteractiveLayerIds(layerId);
+        if (isGenericGeometryType(l.dataset_geometry_type)) return mixedInteractiveLayerIds(layerId);
+        return [layerId];
       })
       .filter((id) => map.getLayer(id));
   }, []);
@@ -796,7 +803,11 @@ export const BuilderMap = memo(function BuilderMap({
       // `activateClusterFeature(map, feature, hit.sourceId)` (line 544)
       // continues to receive the cluster's per-layer source id.
       const sourceId = getSourceIdForLayer(l);
-      const ids = isClusterRenderMode(l) ? clusterInteractiveLayerIds(layerId) : [layerId];
+      const ids = isClusterRenderMode(l)
+        ? clusterInteractiveLayerIds(layerId)
+        : isGenericGeometryType(l.dataset_geometry_type)
+          ? mixedInteractiveLayerIds(layerId)
+          : [layerId];
       for (const id of ids) byMapId.set(id, { layer: l, sourceId });
     }
     layerByMapIdRef.current = byMapId;

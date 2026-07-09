@@ -178,6 +178,25 @@ describe('resolveAdapterType', () => {
   it('geometry type takes priority over paint inference', () => {
     expect(resolveAdapterType('MULTIPOLYGON', null, { 'circle-color': '#f00' })).toBe('fill');
   });
+
+  // fix(#430 codex r23): generic sentinels route to the mixed adapter so
+  // point/line features of a mixed-family sketch are no longer dropped on maps.
+  it('returns mixed for the GEOMETRY sentinel', () => {
+    expect(resolveAdapterType('GEOMETRY', null)).toBe('mixed');
+    expect(resolveAdapterType('geometry', null)).toBe('mixed');
+  });
+
+  it('returns mixed for GEOMETRYCOLLECTION', () => {
+    expect(resolveAdapterType('GEOMETRYCOLLECTION', null)).toBe('mixed');
+  });
+
+  it('render_mode still overrides the generic sentinel', () => {
+    expect(resolveAdapterType('GEOMETRY', { render_mode: 'heatmap' })).toBe('heatmap');
+  });
+
+  it('unknown exotic geometry types keep the historic fill fallback', () => {
+    expect(resolveAdapterType('CURVE', null)).toBe('fill');
+  });
 });
 
 // ──────────────────────────────────────────────────────────────────────────────

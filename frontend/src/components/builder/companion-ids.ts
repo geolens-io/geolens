@@ -9,6 +9,7 @@
 // next) derives companion ids through `getCompanionLayerIds` so the convention
 // lives in exactly one place.
 import { clusterCircleLayerId, clusterCountLayerId } from './layer-adapters/cluster-adapter';
+import { mixedLinesLayerId, mixedPointsLayerId } from './layer-adapters/mixed-adapter';
 
 /**
  * Suffix for the DEM hypsometric color-relief companion layer. Unlike the other
@@ -37,6 +38,10 @@ export interface CompanionLayerIds {
   cluster: string;
   /** Cluster count label companion (`layer-${id}-cluster-count`). */
   clusterCount: string;
+  /** Mixed-geometry line-family companion (`layer-${id}-lines`, fix #430 codex r23). */
+  mixedLines: string;
+  /** Mixed-geometry point-family companion (`layer-${id}-points`, fix #430 codex r23). */
+  mixedPoints: string;
 }
 
 /**
@@ -61,5 +66,7 @@ export function getCompanionLayerIds(rawLayerId: string, prefix?: string): Compa
     colorRelief: `${layer}${COLOR_RELIEF_SUFFIX}`,
     cluster: clusterCircleLayerId(layer),
     clusterCount: clusterCountLayerId(layer),
+    mixedLines: mixedLinesLayerId(layer),
+    mixedPoints: mixedPointsLayerId(layer),
   };
 }

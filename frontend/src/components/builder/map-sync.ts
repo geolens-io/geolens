@@ -19,6 +19,7 @@ import { getAdapter } from './layer-adapters/registry';
 import type { AdapterLayerInput, LayerAdapter } from './layer-adapters/types';
 import { buildLabelLayerSpec, syncLabelLayer } from './label-layer-utils';
 import { clusterCircleLayerId, clusterCountLayerId, getClusterSourceOptions } from './layer-adapters/cluster-adapter';
+import { mixedLinesLayerId, mixedPointsLayerId } from './layer-adapters/mixed-adapter';
 import { getClusterSourceStrategy } from './cluster-source';
 import { syncColorReliefLayer } from './color-relief-sync';
 import { buildColormapTileUrl } from './layer-adapters/raster-adapter';
@@ -410,7 +411,7 @@ export function prefixed(kind: 'source' | 'layer' | 'outline' | 'extrusion' | 'a
 function removeKnownVectorLayers(map: MaplibreMap, layerId: string, id: string, prefix: string | undefined) {
   // builder-audit #338 SYNC-04: every companion id derived from one helper.
   const ids = getCompanionLayerIds(id, prefix);
-  for (const candidate of [ids.label, ids.arrow, ids.extrusion, ids.outline, ids.clusterCount, ids.cluster, layerId]) {
+  for (const candidate of [ids.label, ids.arrow, ids.extrusion, ids.outline, ids.clusterCount, ids.cluster, ids.mixedLines, ids.mixedPoints, layerId]) {
     if (map.getLayer(candidate)) map.removeLayer(candidate);
   }
 }
@@ -1115,7 +1116,14 @@ function syncVectorLayer(
   const outlineLayerId = prefixed('outline', layer.id, prefix);
   const extrusionLayerId = prefixed('extrusion', layer.id, prefix);
   const arrowLayerId = prefixed('arrow', layer.id, prefix);
-  syncLayerZoomRange(map, [layerId, outlineLayerId, extrusionLayerId, arrowLayerId], layerMinzoom, layerMaxzoom);
+  // fix(#430 codex r23): union with the adapter's own ids so mixed-geometry
+  // sublayers (-lines/-points) honor the custom zoom range too.
+  syncLayerZoomRange(
+    map,
+    [...new Set([...mode.adapter.getLayerIds(layerId), outlineLayerId, extrusionLayerId, arrowLayerId])],
+    layerMinzoom,
+    layerMaxzoom,
+  );
 
   syncLabelCompanion(map, layer, adapterInput, mode, prefix);
 
@@ -1157,7 +1165,7 @@ function removeStaleSourcesAndLayers(
     // raster-dem source), so it is not found by the source-keyed loop and must
     // be removed explicitly here.
     removeColorReliefCompanionLayer(map, ids.layer);
-    for (const candidate of [ids.label, ids.arrow, ids.extrusion, ids.outline, ids.clusterCount, ids.cluster, ids.layer]) {
+    for (const candidate of [ids.label, ids.arrow, ids.extrusion, ids.outline, ids.clusterCount, ids.cluster, ids.mixedLines, ids.mixedPoints, ids.layer]) {
       if (map.getLayer(candidate)) map.removeLayer(candidate);
     }
     // builder-audit #338 SYNC-06: enumerate any remaining layers still referencing
@@ -1313,6 +1321,10 @@ function reorderDataGeometry(
     const colorReliefId = `${lid}${COLOR_RELIEF_SUFFIX}`;
     const cid = clusterCircleLayerId(lid);
     const ccid = clusterCountLayerId(lid);
+    // fix(#431 codex r1): mixed-geometry family sublayers move with their parent,
+    // preserving the adapter's add order (fill < outline < lines < points).
+    const mlid = mixedLinesLayerId(lid);
+    const mpid = mixedPointsLayerId(lid);
     if (map.getLayer(cid)) map.moveLayer(cid);
     if (map.getLayer(ccid)) map.moveLayer(ccid);
     if (map.getLayer(colorReliefId)) map.moveLayer(colorReliefId);
@@ -1320,6 +1332,8 @@ function reorderDataGeometry(
     if (map.getLayer(aid)) map.moveLayer(aid);
     if (map.getLayer(eid)) map.moveLayer(eid);
     if (map.getLayer(oid)) map.moveLayer(oid);
+    if (map.getLayer(mlid)) map.moveLayer(mlid);
+    if (map.getLayer(mpid)) map.moveLayer(mpid);
   }
 }
 

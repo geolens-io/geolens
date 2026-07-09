@@ -30,6 +30,8 @@ import type { MapLibreEvent, MapMouseEvent, StyleSpecification, VectorTileSource
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { MapBasemapConfig, MapTerrainConfig, SharedLayerResponse } from '@/types/api';
 import { getAdapter } from '@/components/builder/layer-adapters/registry';
+import { isGenericGeometryType } from '@/components/builder/layer-adapters/shared';
+import { mixedInteractiveLayerIds } from '@/components/builder/layer-adapters/mixed-adapter';
 import type { AdapterLayerInput } from '@/components/builder/layer-adapters/types';
 import { clearTerrainForStyleSwap, resolveAdapterType, prefixed, getDataDrivenColumnsForLayer } from '@/components/builder/map-sync';
 import { applyMapBasemapAppearance, syncMapComposition } from '@/components/builder/map-composition-sync';
@@ -463,7 +465,12 @@ export const ViewerMap = memo(function ViewerMap({
         .filter(({ layer }) => layer.style_config?.render_mode !== 'heatmap')
         .flatMap(({ layer, key }) => {
           const layerId = prefixed('layer', key, VIEWER_PREFIX);
-          return isClusterRenderMode(layer) ? clusterInteractiveLayerIds(layerId) : [layerId];
+          // fix(#430 codex r23): mixed-geometry layers spread hits across
+          // per-family sublayers — include them so point/line features stay
+          // clickable (queryInteractiveFeatures filters to attached layers).
+          if (isClusterRenderMode(layer)) return clusterInteractiveLayerIds(layerId);
+          if (isGenericGeometryType(layer.geometry_type)) return mixedInteractiveLayerIds(layerId);
+          return [layerId];
         }),
     [layerEntries, visibleLayers],
   );
@@ -493,7 +500,11 @@ export const ViewerMap = memo(function ViewerMap({
     for (const { layer, key } of layerEntries) {
       const layerId = prefixed('layer', key, VIEWER_PREFIX);
       const sourceId = prefixed('source', key, VIEWER_PREFIX);
-      const ids = isClusterRenderMode(layer) ? clusterInteractiveLayerIds(layerId) : [layerId];
+      const ids = isClusterRenderMode(layer)
+        ? clusterInteractiveLayerIds(layerId)
+        : isGenericGeometryType(layer.geometry_type)
+          ? mixedInteractiveLayerIds(layerId)
+          : [layerId];
       for (const id of ids) m.set(id, { layer, sourceId });
     }
     layerByMapIdRef.current = m;

@@ -25,7 +25,8 @@ export const LINE_OWNED_LAYOUT_PROPERTIES = [
   'line-join',
 ] as const;
 
-const LINE_OWNED_PAINT_PROPERTIES = [
+// Exported for the mixed adapter's line-family sublayer (ADAPT-03 reuse).
+export const LINE_OWNED_PAINT_PROPERTIES = [
   'line-color',
   'line-width',
   'line-gap-width',

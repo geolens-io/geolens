@@ -6,6 +6,7 @@ import { hillshadeAdapter } from './hillshade-adapter';
 import { heatmapAdapter } from './heatmap-adapter';
 import { symbolAdapter } from './symbol-adapter';
 import { clusterAdapter } from './cluster-adapter';
+import { mixedAdapter } from './mixed-adapter';
 import type { LayerAdapter } from './types';
 
 const adapters: Record<string, LayerAdapter> = {
@@ -17,6 +18,7 @@ const adapters: Record<string, LayerAdapter> = {
   hillshade: hillshadeAdapter,
   heatmap: heatmapAdapter,
   cluster: clusterAdapter,
+  mixed: mixedAdapter,
 };
 
 export function getAdapter(type: string): LayerAdapter {
