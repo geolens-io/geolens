@@ -265,7 +265,12 @@ describe('DatasetPage editable affordance integration', () => {
     setUser(null);
   });
 
-  it('shows sticky pending controls for staged drafts and clears after save/cancel', async () => {
+  // fix(#433): this test walks two full edit→stage→resolve cycles with
+  // per-keystroke userEvent typing through a heavy DatasetPage render; on
+  // loaded CI runners (coverage-instrumented, 2 cores) it can exceed the 5s
+  // default timeout while every step is properly awaited — slowness, not a
+  // race. Give it explicit headroom.
+  it('shows sticky pending controls for staged drafts and clears after save/cancel', { timeout: 15_000 }, async () => {
     setUser(EDITOR_USER);
     const user = userEvent.setup();
 
