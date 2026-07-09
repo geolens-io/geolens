@@ -410,7 +410,7 @@ export function prefixed(kind: 'source' | 'layer' | 'outline' | 'extrusion' | 'a
 function removeKnownVectorLayers(map: MaplibreMap, layerId: string, id: string, prefix: string | undefined) {
   // builder-audit #338 SYNC-04: every companion id derived from one helper.
   const ids = getCompanionLayerIds(id, prefix);
-  for (const candidate of [ids.label, ids.arrow, ids.extrusion, ids.outline, ids.clusterCount, ids.cluster, layerId]) {
+  for (const candidate of [ids.label, ids.arrow, ids.extrusion, ids.outline, ids.clusterCount, ids.cluster, ids.mixedLines, ids.mixedPoints, layerId]) {
     if (map.getLayer(candidate)) map.removeLayer(candidate);
   }
 }
@@ -1115,7 +1115,14 @@ function syncVectorLayer(
   const outlineLayerId = prefixed('outline', layer.id, prefix);
   const extrusionLayerId = prefixed('extrusion', layer.id, prefix);
   const arrowLayerId = prefixed('arrow', layer.id, prefix);
-  syncLayerZoomRange(map, [layerId, outlineLayerId, extrusionLayerId, arrowLayerId], layerMinzoom, layerMaxzoom);
+  // fix(#430 codex r23): union with the adapter's own ids so mixed-geometry
+  // sublayers (-lines/-points) honor the custom zoom range too.
+  syncLayerZoomRange(
+    map,
+    [...new Set([...mode.adapter.getLayerIds(layerId), outlineLayerId, extrusionLayerId, arrowLayerId])],
+    layerMinzoom,
+    layerMaxzoom,
+  );
 
   syncLabelCompanion(map, layer, adapterInput, mode, prefix);
 
@@ -1157,7 +1164,7 @@ function removeStaleSourcesAndLayers(
     // raster-dem source), so it is not found by the source-keyed loop and must
     // be removed explicitly here.
     removeColorReliefCompanionLayer(map, ids.layer);
-    for (const candidate of [ids.label, ids.arrow, ids.extrusion, ids.outline, ids.clusterCount, ids.cluster, ids.layer]) {
+    for (const candidate of [ids.label, ids.arrow, ids.extrusion, ids.outline, ids.clusterCount, ids.cluster, ids.mixedLines, ids.mixedPoints, ids.layer]) {
       if (map.getLayer(candidate)) map.removeLayer(candidate);
     }
     // builder-audit #338 SYNC-06: enumerate any remaining layers still referencing

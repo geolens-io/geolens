@@ -78,7 +78,7 @@ function deriveCompanionIds(rawLayerId: string, renderMode: string | null | unde
   // adapters. Color-relief is included because DEM hillshade layers can create
   // it as a conditional companion on the same raster-dem source.
   const c = getCompanionLayerIds(rawLayerId);
-  return [c.layer, c.outline, c.label, c.extrusion, c.arrow, c.colorRelief, c.cluster, c.clusterCount];
+  return [c.layer, c.outline, c.label, c.extrusion, c.arrow, c.colorRelief, c.cluster, c.clusterCount, c.mixedLines, c.mixedPoints];
 }
 
 /**

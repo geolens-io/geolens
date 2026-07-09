@@ -99,8 +99,9 @@ describe('removePerLayerCompanions — per-render-mode regression (MAP-17)', () 
 
     // 'arrow' is not a registry key → getAdapter('arrow') returns circleAdapter fallback
     // whose type === 'circle', not 'arrow', so the type guard fails and the code falls
-    // through to the FALLBACK_SUFFIXES sweep (8 calls including optional companions).
-    expect(removeLayer).toHaveBeenCalledTimes(8);
+    // through to the FALLBACK_SUFFIXES sweep (10 calls including optional companions;
+    // fix #430 codex r23 added the mixed-geometry -lines/-points companions).
+    expect(removeLayer).toHaveBeenCalledTimes(10);
     expect(removeLayer).toHaveBeenCalledWith('layer-l1');
     expect(removeLayer).toHaveBeenCalledWith('layer-l1-arrow');
     expect(removeLayer).toHaveBeenCalledWith('layer-l1-colorrelief');
@@ -109,6 +110,8 @@ describe('removePerLayerCompanions — per-render-mode regression (MAP-17)', () 
     expect(removeLayer).toHaveBeenCalledWith('layer-l1-extrusion');
     expect(removeLayer).toHaveBeenCalledWith('layer-l1-cluster');
     expect(removeLayer).toHaveBeenCalledWith('layer-l1-cluster-count');
+    expect(removeLayer).toHaveBeenCalledWith('layer-l1-lines');
+    expect(removeLayer).toHaveBeenCalledWith('layer-l1-points');
   });
 
   it('Test 4: legacy / no renderMode falls back to 7-suffix sweep', () => {
@@ -119,8 +122,9 @@ describe('removePerLayerCompanions — per-render-mode regression (MAP-17)', () 
     // Called WITHOUT renderModeByLayerId — falls back to suffix list
     removePerLayerCompanions(map as never, ['l1']);
 
-    // Fallback suffixes: base + optional companions.
-    expect(removeLayer).toHaveBeenCalledTimes(8);
+    // Fallback suffixes: base + optional companions (incl. the mixed-geometry
+    // -lines/-points pair, fix #430 codex r23).
+    expect(removeLayer).toHaveBeenCalledTimes(10);
     expect(removeLayer).toHaveBeenCalledWith('layer-l1');
     expect(removeLayer).toHaveBeenCalledWith('layer-l1-outline');
     expect(removeLayer).toHaveBeenCalledWith('layer-l1-label');
@@ -129,6 +133,8 @@ describe('removePerLayerCompanions — per-render-mode regression (MAP-17)', () 
     expect(removeLayer).toHaveBeenCalledWith('layer-l1-colorrelief');
     expect(removeLayer).toHaveBeenCalledWith('layer-l1-cluster');
     expect(removeLayer).toHaveBeenCalledWith('layer-l1-cluster-count');
+    expect(removeLayer).toHaveBeenCalledWith('layer-l1-lines');
+    expect(removeLayer).toHaveBeenCalledWith('layer-l1-points');
   });
 
   it('Test 4b: hillshade render mode removes optional color-relief companion', () => {

@@ -16,7 +16,8 @@ import { ensureFillPatternImages } from './fill-pattern-images';
 // single builder-defaults source of truth (shared with renderAs + backend mirror).
 import { DEFAULT_EXTRUSION_MIN_ZOOM, DEFAULT_EXTRUSION_OPACITY_CAP } from './builder-defaults';
 
-const FILL_OWNED_PAINT_PROPERTIES = [
+// Exported for the mixed adapter's fill/outline sublayers (ADAPT-03 reuse).
+export const FILL_OWNED_PAINT_PROPERTIES = [
   'fill-color',
   'fill-opacity',
   'fill-outline-color',
@@ -25,7 +26,7 @@ const FILL_OWNED_PAINT_PROPERTIES = [
   'fill-translate',
   'fill-translate-anchor',
 ] as const;
-const OUTLINE_OWNED_PAINT_PROPERTIES = ['line-color', 'line-width', 'line-opacity'] as const;
+export const OUTLINE_OWNED_PAINT_PROPERTIES = ['line-color', 'line-width', 'line-opacity'] as const;
 // builder-audit #338 SPEC-11: 3D extrusion authoring is a DELIBERATE single-purpose subset
 // (column height only). fill-extrusion-base is intentionally fixed to 0 and
 // fill-extrusion-pattern / -translate / -translate-anchor are intentionally NOT authored;

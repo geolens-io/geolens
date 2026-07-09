@@ -3,6 +3,7 @@ import type { Map as MaplibreMap, FilterSpecification } from 'maplibre-gl';
 import { getLayerType, getSourceIdForLayer, resolveAdapterType, getCompoundOpacity, isDemTerrainVisualSuppressed } from '@/components/builder/map-sync';
 import { getAdapter } from '@/components/builder/layer-adapters/registry';
 import { getBuilderStyleConfig } from '@/components/builder/layer-adapters/shared';
+import { mixedFamilyFilter } from '@/components/builder/layer-adapters/mixed-adapter';
 import { coalesceFrame } from '@/lib/builder/raf-coalesce';
 // fix(#394) VT-03/VT-04: single source of truth for the MVT source-layer name.
 import { getMvtSourceLayerName } from '@/lib/tile-utils';
@@ -60,6 +61,8 @@ export function applyLayerVisibilityToMap(
   if (map.getLayer(ids.colorRelief)) map.setLayoutProperty(ids.colorRelief, 'visibility', newVis);
   if (map.getLayer(ids.cluster)) map.setLayoutProperty(ids.cluster, 'visibility', newVis);
   if (map.getLayer(ids.clusterCount)) map.setLayoutProperty(ids.clusterCount, 'visibility', newVis);
+  if (map.getLayer(ids.mixedLines)) map.setLayoutProperty(ids.mixedLines, 'visibility', newVis);
+  if (map.getLayer(ids.mixedPoints)) map.setLayoutProperty(ids.mixedPoints, 'visibility', newVis);
 }
 
 // STATE-03 / SYNC-04: the canonical per-layer opacity map side-effect. The
@@ -125,6 +128,27 @@ export function applyLayerOpacityToMap(
       is_dem: layer.is_dem,
     };
     getAdapter('cluster').syncPaint(map, input);
+  } else if (adapterType === 'mixed') {
+    // fix(#430 codex r23): mixed-geometry layers spread opacity across four
+    // family sublayers — route through the adapter like the cluster branch so
+    // the slider affects points/lines too, not just the fill primary.
+    const input: AdapterLayerInput & { style_config?: StyleConfig | null } = {
+      id: layer.id,
+      dataset_table_name: layer.dataset_table_name,
+      dataset_geometry_type: layer.dataset_geometry_type,
+      opacity,
+      visible: layer.visible,
+      paint,
+      layout: layer.layout ?? {},
+      filter: layer.filter ?? null,
+      sourceId: getSourceIdForLayer(layer),
+      layerId: mapLayerId,
+      sourceLayer: getMvtSourceLayerName(layer.dataset_table_name),
+      tileUrl: '',
+      style_config: layer.style_config ?? null,
+      is_dem: layer.is_dem,
+    };
+    getAdapter('mixed').syncPaint(map, input);
   } else if (adapterType === 'fill' || adapterType === 'line' || adapterType === 'circle') {
     if (map.getLayer(mapLayerId)) {
       map.setPaintProperty(
@@ -455,6 +479,20 @@ export function useLayerMapSync(
         (l) => ({ ...l, filter }),
         (map) => {
           const ids = getCompanionLayerIds(layerId);
+          // fix(#430 codex r23): mixed-geometry sublayers carry per-family
+          // geometry-type filters as part of their identity — COMPOSE the data
+          // filter with them (never replace), mirroring the dataset-page fix
+          // for the same clobber class (codex r22).
+          if (map.getLayer(ids.mixedPoints)) {
+            map.setFilter(ids.layer, mixedFamilyFilter('polygon', filter));
+            map.setFilter(ids.outline, mixedFamilyFilter('polygon', filter));
+            map.setFilter(ids.mixedLines, mixedFamilyFilter('line', filter));
+            map.setFilter(ids.mixedPoints, mixedFamilyFilter('point', filter));
+            if (map.getLayer(ids.label)) {
+              map.setFilter(ids.label, filter);
+            }
+            return;
+          }
           // fix(#394) FL-01/B-020: cluster layers keep the bare point_count
           // predicate — cluster features carry no data properties, so ANDing
           // the data filter in hid every cluster bubble (mirrors the same fix

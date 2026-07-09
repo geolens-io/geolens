@@ -145,7 +145,11 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
   // paint. Cluster renders as circles for validation purposes.
   const advancedJsonLayerType = useMemo(() => {
     const resolved = resolveAdapterType(layer.dataset_geometry_type, layer.style_config, editorPaint);
-    return resolved === 'cluster' ? 'circle' : resolved;
+    if (resolved === 'cluster') return 'circle';
+    // Mixed-geometry layers have no single MapLibre type; validate against the
+    // fill primary (the editor's controls are polygon-centric for these too).
+    if (resolved === 'mixed') return 'fill';
+    return resolved;
   }, [layer.dataset_geometry_type, layer.style_config, editorPaint]);
   const isDataDriven = !!layer.style_config?.column;
   const renderMode: 'points' | 'heatmap' | 'symbol' | 'cluster' = layer.style_config?.render_mode === 'heatmap'
