@@ -417,6 +417,91 @@ class TestManifestApplyEndpointRoundTrip:
         assert entry["action"] == "update", entry
         assert entry["dataset_id"] == str(dataset.id)
 
+        # fix(#430 codex r15): the OWNER's same-fingerprint submit still
+        # returns the skip entry WITH ids (the new skip gates only bite
+        # non-owners).
+        skip_response = await client.post(
+            "/ingest/manifest/apply",
+            json=_manifest_payload(original, dry_run=True),
+            headers=editor_auth_header,
+        )
+        assert skip_response.status_code == 200
+        skip_entry = _actions_by_key(skip_response.json())["owner-update"]
+        assert skip_entry["action"] == "skip", skip_entry
+        assert skip_entry["dataset_id"] == str(dataset.id)
+
+    async def test_manifest_skip_paths_hide_other_users_ids(
+        self,
+        client: AsyncClient,
+        editor_auth_header: dict,
+        test_db_session,
+        clean_tables,
+    ):
+        """fix(#430 codex r15): submitting a manifest whose key+fingerprint
+        matches ANOTHER user's completed or in-flight job previously returned
+        that user's job/dataset UUIDs in a 'skip' entry — the same
+        enumeration oracle BA-02 closed on the update path. Both skip paths
+        now yield an error entry with no ids for non-owners."""
+        owner = await _admin_user(test_db_session)
+
+        # -- skip_complete: victim has a COMPLETED job for this key --
+        complete_payload = _dataset_payload(
+            key="cross-user-skip-complete", title="Victim Complete"
+        )
+        complete_request = ManifestApplyRequest.model_validate(
+            _manifest_payload(complete_payload)
+        )
+        victim_dataset = await create_dataset(
+            test_db_session, created_by=owner.id, name="Victim Complete"
+        )
+        await _create_completed_manifest_job(
+            test_db_session,
+            user=owner,
+            dataset=victim_dataset,
+            manifest_dataset=complete_request.datasets[0],
+        )
+
+        # -- skip_in_flight: victim has a PENDING job for this key --
+        inflight_payload = _dataset_payload(
+            key="cross-user-skip-inflight", title="Victim Inflight"
+        )
+        inflight_request = ManifestApplyRequest.model_validate(
+            _manifest_payload(inflight_payload)
+        )
+        inflight_ds = inflight_request.datasets[0]
+        prepared = await classify_manifest_source(inflight_ds.sources[0])
+        test_db_session.add(
+            IngestJob(
+                dataset_id=None,
+                source_filename=prepared.source_filename,
+                file_path=prepared.file_path,
+                created_by=owner.id,
+                status="pending",
+                user_metadata=manifest_job_metadata(
+                    inflight_ds,
+                    prepared,
+                    fingerprint=manifest_dataset_fingerprint(inflight_ds),
+                ),
+            )
+        )
+        await test_db_session.commit()
+
+        for dry_run in (True, False):
+            response = await client.post(
+                "/ingest/manifest/apply",
+                json=_manifest_payload(
+                    complete_payload, inflight_payload, dry_run=dry_run
+                ),
+                headers=editor_auth_header,
+            )
+            assert response.status_code == 200
+            actions = _actions_by_key(response.json())
+            for key in ("cross-user-skip-complete", "cross-user-skip-inflight"):
+                entry = actions[key]
+                assert entry["action"] == "error", entry
+                assert entry.get("dataset_id") is None
+                assert entry.get("job_id") is None
+
 
 class TestManifestCompletedDatasetRoundTrip:
     async def test_completed_manifest_datasets_are_searchable_and_previewable(

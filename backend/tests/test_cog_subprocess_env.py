@@ -264,3 +264,88 @@ class TestGdalSafeEnvHelper:
 
         with pytest.raises(ValueError, match="security clamps"):
             gdal_safe_env(extras={"GDAL_HTTP_FOLLOWLOCATION": "YES"})
+
+
+# ---------------------------------------------------------------------------
+# fix(#430 codex r15): temp-file cleanup when run_gdal RAISES (BA-29 timeout)
+# ---------------------------------------------------------------------------
+
+
+class TestGdalFailureTempCleanup:
+    """run_gdal raises on timeout (BA-29); the returncode-only cleanup paths
+    leaked the staged temp copies. Any raise must remove them."""
+
+    def _stub_rasterio_no_overviews(self, monkeypatch):
+        fake_dataset = mock.MagicMock()
+        fake_dataset.count = 1
+        fake_dataset.overviews.return_value = []
+
+        fake_ctx = mock.MagicMock()
+        fake_ctx.__enter__.return_value = fake_dataset
+        fake_ctx.__exit__.return_value = False
+
+        import rasterio
+
+        monkeypatch.setattr(rasterio, "open", lambda *_a, **_k: fake_ctx)
+
+    def test_prepare_with_overviews_cleans_tmp_on_run_gdal_raise(
+        self, tmp_path, monkeypatch
+    ):
+        import tempfile
+
+        import pytest
+        from app.processing.raster import cog as cog_module
+
+        src_dir = tmp_path / "src"
+        work_dir = tmp_path / "work"
+        src_dir.mkdir()
+        work_dir.mkdir()
+        src = src_dir / "src.tif"
+        src.write_bytes(b"\x00" * 8)
+        monkeypatch.setattr(tempfile, "tempdir", str(work_dir))
+        self._stub_rasterio_no_overviews(monkeypatch)
+
+        def _raise(*_a, **_k):
+            raise RuntimeError("gdaladdo timed out after 900s")
+
+        monkeypatch.setattr(cog_module, "run_gdal", _raise)
+
+        with pytest.raises(RuntimeError, match="timed out"):
+            cog_module.prepare_with_overviews(str(src), "uint8")
+
+        assert list(work_dir.iterdir()) == [], (
+            "temp raster copy leaked after run_gdal raised"
+        )
+
+    def test_convert_to_cog_cleans_warp_tmp_on_run_gdal_raise(
+        self, tmp_path, monkeypatch
+    ):
+        import tempfile
+
+        import pytest
+        from app.processing.raster import cog as cog_module
+
+        src_dir = tmp_path / "src"
+        work_dir = tmp_path / "work"
+        src_dir.mkdir()
+        work_dir.mkdir()
+        src = src_dir / "src.tif"
+        src.write_bytes(b"\x00" * 8)
+        monkeypatch.setattr(tempfile, "tempdir", str(work_dir))
+
+        def _raise(*_a, **_k):
+            raise RuntimeError("gdalwarp timed out after 900s")
+
+        monkeypatch.setattr(cog_module, "run_gdal", _raise)
+
+        with pytest.raises(RuntimeError, match="timed out"):
+            cog_module.convert_to_cog(
+                str(src),
+                str(tmp_path / "out.tif"),
+                "uint8",
+                assign_crs=4326,
+            )
+
+        assert list(work_dir.iterdir()) == [], (
+            "gdalwarp temp file leaked after run_gdal raised"
+        )
