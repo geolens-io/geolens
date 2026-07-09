@@ -522,7 +522,7 @@ export const ViewerMap = memo(function ViewerMap({
   // Click handler: show popup with feature attributes
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !map.isStyleLoaded()) return;
+    if (!map) return;
 
     const fallbackName = t('viewer.featureFallback');
     const buildClusterPopup = (feature: Parameters<typeof isClusterFeature>[0], hit: { layer: SharedLayerResponse; sourceId: string }) => (
@@ -622,15 +622,28 @@ export const ViewerMap = memo(function ViewerMap({
       handleClusterHit(clusterHit.feature, clusterHit.hit, null);
     };
 
-    map.on('click', handleClick);
     let canvasForKeyboard: HTMLCanvasElement | null = null;
-    try {
-      canvasForKeyboard = map.getCanvas();
-      canvasForKeyboard?.addEventListener?.('keydown', handleKeyDown);
-    } catch {
-      canvasForKeyboard = null;
+    const attach = () => {
+      map.on('click', handleClick);
+      try {
+        canvasForKeyboard = map.getCanvas();
+        canvasForKeyboard?.addEventListener?.('keydown', handleKeyDown);
+      } catch {
+        canvasForKeyboard = null;
+      }
+    };
+    // BUG-037-style idle retry (mirrors the layer-sync/visibility effects):
+    // on a cold hard load — exactly how a share link opens — the style is
+    // still transitioning when this effect runs, and a plain early-return
+    // never re-attached the click listener, leaving popups inert for every
+    // geometry family on the shared-viewer surface (#431 QA finding).
+    if (!map.isStyleLoaded()) {
+      map.once('idle', attach);
+    } else {
+      attach();
     }
     return () => {
+      map.off('idle', attach);
       map.off('click', handleClick);
       canvasForKeyboard?.removeEventListener?.('keydown', handleKeyDown);
     };
@@ -639,7 +652,7 @@ export const ViewerMap = memo(function ViewerMap({
   // Mousemove: pointer cursor on interactive features
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !map.isStyleLoaded()) return;
+    if (!map) return;
 
     let rafId = 0;
     const handleMouseMove = (e: MapMouseEvent) => {
@@ -668,8 +681,15 @@ export const ViewerMap = memo(function ViewerMap({
       });
     };
 
-    map.on('mousemove', handleMouseMove);
+    // Same cold-load idle retry as the click effect above.
+    const attach = () => map.on('mousemove', handleMouseMove);
+    if (!map.isStyleLoaded()) {
+      map.once('idle', attach);
+    } else {
+      attach();
+    }
     return () => {
+      map.off('idle', attach);
       cancelAnimationFrame(rafId);
       map.off('mousemove', handleMouseMove);
       try {
