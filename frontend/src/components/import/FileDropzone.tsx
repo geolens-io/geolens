@@ -11,9 +11,21 @@ import type { DataKind } from '@/types/api';
 /** Client-side batch guard. Real caps (per-file size, dataset quota) are server-enforced. */
 const MAX_BATCH_FILES = 25;
 
+/**
+ * Batch cap = the smaller of the UX limit and remaining quota. Floor at 1
+ * (not 0 — react-dropzone treats maxFiles:0 as unlimited) so an at-cap user
+ * can still drop one file and get the explicit server quota error + banner.
+ * Shared with UploadForm's queued-drop flush (PR #274 follow-up) so both
+ * enforce the same limit.
+ */
+export function effectiveBatchLimit(remainingQuota: number | null | undefined): number {
+  return remainingQuota != null
+    ? Math.min(MAX_BATCH_FILES, Math.max(1, remainingQuota))
+    : MAX_BATCH_FILES;
+}
+
 interface FileDropzoneProps {
   onFilesAccepted: (files: File[]) => void;
-  disabled?: boolean;
   allowedExtensions?: string[];
   maxSizeMb?: number;
   /** Remaining per-user dataset quota; null = unlimited. Caps the batch so the
@@ -42,16 +54,12 @@ function groupByKind(extensions: string[]): { kind: DataKind; ext: string }[] {
   return result;
 }
 
-export function FileDropzone({ onFilesAccepted, disabled, allowedExtensions, maxSizeMb, remainingQuota }: FileDropzoneProps) {
+export function FileDropzone({ onFilesAccepted, allowedExtensions, maxSizeMb, remainingQuota }: FileDropzoneProps) {
   const { t } = useTranslation('import');
 
-  // Cap the batch at the smaller of the UX limit and remaining quota. Floor at
-  // 1 (not 0 — react-dropzone treats maxFiles:0 as unlimited) so an at-cap user
-  // can still drop one file and get the explicit server quota error + banner.
   // ponytail: client-side UX guard only; the cap is enforced server-side at
   // upload. Atomic batch enforcement is a deferred worker-side concern.
-  const effectiveMaxFiles =
-    remainingQuota != null ? Math.min(MAX_BATCH_FILES, Math.max(1, remainingQuota)) : MAX_BATCH_FILES;
+  const effectiveMaxFiles = effectiveBatchLimit(remainingQuota);
 
   const accept = useMemo(() => {
     if (!allowedExtensions || allowedExtensions.length === 0) return undefined;
@@ -76,7 +84,6 @@ export function FileDropzone({ onFilesAccepted, disabled, allowedExtensions, max
       maxFiles: effectiveMaxFiles,
       maxSize: maxSizeMb ? maxSizeMb * 1024 * 1024 : undefined,
       multiple: true,
-      disabled,
       onDrop: (accepted) => {
         if (accepted.length > 0) onFilesAccepted(accepted);
       },
@@ -92,7 +99,6 @@ export function FileDropzone({ onFilesAccepted, disabled, allowedExtensions, max
         isDragReject && 'border-destructive bg-destructive/10 scale-[1.005]',
         isDragActive && !isDragReject && 'border-primary bg-primary/5 scale-[1.005]',
         !isDragActive && !isDragReject && 'border-muted-foreground/30 hover:border-muted-foreground/50',
-        disabled && 'pointer-events-none opacity-50',
       )}
     >
       <input {...getInputProps({ 'aria-label': t('dropzone.ariaLabel') })} />
