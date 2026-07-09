@@ -16,7 +16,7 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 import { CheckCircle2, AlertCircle } from 'lucide-react';
-import { FileDropzone } from './FileDropzone';
+import { FileDropzone, effectiveBatchLimit } from './FileDropzone';
 import { BulkUploadProgress } from './BulkUploadProgress';
 import { inferImportedKind, isFilePreview, stripExtension } from './utils';
 import { BulkReviewList } from './BulkReviewList';
@@ -86,9 +86,16 @@ export function UploadForm({ onPhaseChange }: UploadFormProps) {
     entryId: string;
     results: FanOutResult[];
   } | null>(null);
-  // isFetching (not just isPending) so the dropzone is also disabled during the
-  // refetchOnMount background refresh — otherwise the cached-but-stale quota is
-  // briefly usable on remount before the live GET lands (Codex P2 on PR #274).
+  // Files dropped while the quota query is still fetching (initial load OR the
+  // refetch-on-mount refresh) are held here and processed once it settles.
+  // Disabling the dropzone during that window (the previous design) made
+  // react-dropzone silently swallow drops with no feedback and no same-page
+  // recovery (PR #274 follow-up).
+  const [pendingFiles, setPendingFiles] = useState<File[] | null>(null);
+  // isFetching (not just isPending) so drops during the refetchOnMount
+  // background refresh are also deferred — otherwise the cached-but-stale
+  // quota would briefly apply on remount before the live GET lands (Codex P2
+  // on PR #274).
   const { data: uploadConfig, isFetching: configFetching } = useUploadConfig();
 
   const allowedExtensions = useMemo(
@@ -108,6 +115,7 @@ export function UploadForm({ onPhaseChange }: UploadFormProps) {
     setEntries([]);
     setAutoOpenVrt(false);
     setQuotaNotice(null);
+    setPendingFiles(null);
     // Refresh remaining_dataset_quota so "Upload More" after an import reflects
     // the new dataset count instead of the cached pre-import value (Codex P2 on
     // PR #274). invalidate matches the user-scoped key by prefix.
@@ -138,7 +146,7 @@ export function UploadForm({ onPhaseChange }: UploadFormProps) {
     }
   }, [entries, phase, setPhase]);
 
-  const handleFilesAccepted = async (files: File[]) => {
+  const processFiles = useCallback(async (files: File[]) => {
     if (phase !== 'idle') return;
     setQuotaNotice(null);
 
@@ -204,7 +212,36 @@ export function UploadForm({ onPhaseChange }: UploadFormProps) {
     );
 
     setPhase('reviewing');
+  }, [phase, entries, t, uploadConfig?.presigned_uploads, updateEntry, setPhase]);
+
+  // Queue drops that land mid-fetch instead of processing them against an
+  // unresolved/stale quota; merge (not replace) so a second drop in the same
+  // window can't swallow the first (PR #274 follow-up).
+  const handleFilesAccepted = (files: File[]) => {
+    if (phase !== 'idle') return;
+    if (configFetching) {
+      setPendingFiles((prev) => (prev ? [...prev, ...files] : files));
+      return;
+    }
+    void processFiles(files);
   };
+
+  // Flush queued drops once the quota query settles, re-applying the batch cap
+  // with the fresh quota (the dropzone's own maxFiles guard ran against the
+  // pre-fetch value). Over-cap batches are rejected whole, matching
+  // react-dropzone's maxFiles behavior.
+  useEffect(() => {
+    if (configFetching || !pendingFiles || phase !== 'idle') return;
+    setPendingFiles(null);
+    const limit = effectiveBatchLimit(uploadConfig?.remaining_dataset_quota ?? null);
+    if (pendingFiles.length > limit) {
+      toast.error(t('dropzone.batchLimit', { max: limit }));
+      return;
+    }
+    void processFiles(pendingFiles);
+    // processFiles is recreated per render; the pendingFiles/configFetching
+    // guards make re-runs no-ops, so listing it is safe.
+  }, [configFetching, pendingFiles, phase, uploadConfig?.remaining_dataset_quota, processFiles, t]);
 
   const handleCommitSingle = async (
     entryId: string,
@@ -465,19 +502,18 @@ export function UploadForm({ onPhaseChange }: UploadFormProps) {
     return <BulkTrackingList entries={entries} onReset={reset} autoOpenVrt={autoOpenVrt} />;
   }
 
-  // idle. Disable while the quota query is fetching (initial load OR the
-  // refetch-on-mount refresh) so we never act on an unresolved/stale quota:
-  // treating undefined→null as "unlimited" would offer the full 25-file batch
-  // on a capped deployment (Codex P2 on PR #274). Once a fetch settles, success
-  // carries the live remaining quota; an error degrades to permissive —
-  // consistent with allowedExtensions/maxSizeMb.
+  // idle. The dropzone stays enabled while the quota query fetches — disabling
+  // it made react-dropzone silently swallow drops (PR #274 follow-up). Drops in
+  // that window queue in pendingFiles and flush with the fresh quota, so we
+  // still never *act* on an unresolved/stale quota (Codex P2 on PR #274). Once
+  // a fetch settles, success carries the live remaining quota; an error
+  // degrades to permissive — consistent with allowedExtensions/maxSizeMb.
   return (
     <FileDropzone
       onFilesAccepted={handleFilesAccepted}
       allowedExtensions={allowedExtensions}
       maxSizeMb={maxSizeMb}
       remainingQuota={uploadConfig?.remaining_dataset_quota ?? null}
-      disabled={configFetching}
     />
   );
 }
