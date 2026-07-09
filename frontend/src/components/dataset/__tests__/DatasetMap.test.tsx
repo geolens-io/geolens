@@ -62,8 +62,10 @@ vi.mock('@/components/drawing/hooks/use-terra-draw', () => ({
     canUndo: false,
   }),
   getModeName: () => 'polygon',
-  getAvailableModes: () => ['select', 'point', 'linestring', 'polygon'],
+  getAvailableModes: vi.fn(() => ['select', 'point', 'linestring', 'polygon']),
 }));
+
+import { getAvailableModes } from '@/components/drawing/hooks/use-terra-draw';
 
 vi.mock('@/hooks/use-features', () => ({
   useCreateFeature: () => ({ mutateAsync: vi.fn() }),
@@ -424,5 +426,41 @@ describe('DatasetMap callback props', () => {
     );
 
     expect(screen.getByTestId('dataset-map-shell')).toBeInTheDocument();
+  });
+});
+
+describe('DatasetMap generic-geometry draw gating (fix #430 codex r18/r19)', () => {
+  beforeEach(() => {
+    drawingState.isDrawing = true;
+    drawingState.activeMode = 'select';
+    vi.mocked(getAvailableModes).mockClear();
+  });
+
+  it('feeds the GEOMETRY sentinel to the drawing toolbar for generic datasets', () => {
+    render(
+      <DatasetMap
+        bbox={[-10, -10, 10, 10]}
+        tableName="sketch_table"
+        geometryType="Point"
+        hasGenericGeometry
+        datasetId="dataset-1"
+        canEdit
+      />,
+    );
+    expect(vi.mocked(getAvailableModes)).toHaveBeenCalledWith('GEOMETRY');
+  });
+
+  it('keeps the concrete display type for typed datasets', () => {
+    render(
+      <DatasetMap
+        bbox={[-10, -10, 10, 10]}
+        tableName="typed_table"
+        geometryType="Point"
+        datasetId="dataset-1"
+        canEdit
+      />,
+    );
+    expect(vi.mocked(getAvailableModes)).toHaveBeenCalledWith('Point');
+    expect(vi.mocked(getAvailableModes)).not.toHaveBeenCalledWith('GEOMETRY');
   });
 });

@@ -55,6 +55,11 @@ interface DatasetMapProps {
   bbox: [number, number, number, number] | null;
   tableName: string | null;
   geometryType: string | null;
+  /** fix(#430 codex r18/r19): generic created datasets accept any subtype.
+   * Gates DRAW MODES only — rendering keeps the concrete display
+   * geometryType (feeding 'GEOMETRY' into useMapLayers would fall through
+   * to polygon fill and hide point/line sketch features). */
+  hasGenericGeometry?: boolean;
   datasetId?: string;
   columnInfo?: { name: string; type: string }[] | null;
   containerRef?: RefObject<HTMLDivElement | null>;
@@ -73,6 +78,7 @@ export const DatasetMap = memo(function DatasetMap({
   bbox,
   tableName,
   geometryType,
+  hasGenericGeometry,
   datasetId,
   columnInfo,
   containerRef,
@@ -154,6 +160,10 @@ export const DatasetMap = memo(function DatasetMap({
     () => geometryType?.toUpperCase().includes('POLYGON') ? findElevationColumn(columnInfo) : null,
     [geometryType, columnInfo],
   );
+
+  // fix(#430 codex r19): draw-mode gating uses the generic sentinel; the
+  // concrete display geometryType keeps driving rendering above.
+  const drawGeometryType = hasGenericGeometry ? 'GEOMETRY' : geometryType;
 
   const { addVectorLayers, addRasterLayers, addOverlaySource } = useMapLayers({
     tableName,
@@ -789,14 +799,14 @@ export const DatasetMap = memo(function DatasetMap({
         )}
       </MapGL>
 
-      {canEdit && !isDrawing && datasetId && tableName && geometryType && (
+      {canEdit && !isDrawing && datasetId && tableName && drawGeometryType && (
         <div className="absolute top-3 left-1/2 -translate-x-1/2 z-10">
           <Button
             type="button"
             variant="outline"
             size="sm"
             className="shadow-lg"
-            onClick={() => setDrawing(datasetId, tableName, geometryType)}
+            onClick={() => setDrawing(datasetId, tableName, drawGeometryType)}
             data-testid="dataset-map-edit-trigger"
             aria-label={t('actions.editGeometry')}
           >
@@ -843,7 +853,7 @@ export const DatasetMap = memo(function DatasetMap({
       {/* Drawing toolbar overlay */}
       {isDrawing && (
         <DrawingToolbar
-          geometryType={geometryType}
+          geometryType={drawGeometryType}
           onClose={handleCloseDrawing}
           onModeChange={handleModeChange}
           onSaveEdit={handleSaveEdit}

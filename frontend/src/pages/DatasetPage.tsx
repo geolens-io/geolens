@@ -540,15 +540,16 @@ export function DatasetPage() {
                 />
               }
             >
-              {/* fix(#430 codex r18): a generic created dataset accepts any
-                  subtype regardless of the derived display type — gate the
-                  drawing toolbar on the generic sentinel so all draw modes
-                  stay available after the first homogeneous feature. */}
+              {/* fix(#430 codex r18/r19): geometryType stays the concrete
+                  display type (rendering); hasGenericGeometry separately
+                  gates the drawing toolbar so generic sketch layers keep
+                  every draw mode. */}
               <DatasetMap
                 key={isRasterOrVrt ? mapKey : undefined}
                 bbox={bbox}
                 tableName={dataset.table_name}
-                geometryType={dataset.has_generic_geometry ? 'GEOMETRY' : dataset.geometry_type}
+                geometryType={dataset.geometry_type}
+                hasGenericGeometry={dataset.has_generic_geometry}
                 datasetId={id}
                 columnInfo={dataset.column_info}
                 containerRef={mapContainerRef}
