@@ -111,10 +111,10 @@ def _make_mock_db_for_fail_stale(
       2. stale running IngestJobs → scalars() returns list
       3. stale regenerating RasterAssets → scalars() returns list
       4. stale VrtGeneration rows → scalars() returns list
-      5. purge-candidate SELECT (fix #434) → .all() returns (id, file_path) rows
-      6. purge DELETE by id (fix #434) — only issued when candidates exist
-    (a survivors SELECT fires between 5 and 6 only when a candidate has a
-    non-null file_path — keep mock candidates' file_path None)
+      5. purge DELETE .. RETURNING file_path (fix #434) → .all() returns
+         (file_path,) one-tuples
+    (a survivors SELECT fires after 5 only when a deleted row had a non-null
+    file_path — keep mock candidates' file_path None)
     """
     results = []
     for lst in [
@@ -127,14 +127,9 @@ def _make_mock_db_for_fail_stale(
         mock_result.scalars.return_value = lst
         results.append(mock_result)
 
-    candidates_result = MagicMock()
-    candidates_result.all.return_value = purge_candidates or []
-    results.append(candidates_result)
-
-    if purge_candidates:
-        delete_result = MagicMock()
-        delete_result.rowcount = len(purge_candidates)
-        results.append(delete_result)
+    delete_result = MagicMock()
+    delete_result.all.return_value = purge_candidates or []
+    results.append(delete_result)
 
     mock_db = AsyncMock()
     mock_db.execute = AsyncMock(side_effect=results)
@@ -266,24 +261,23 @@ async def test_fail_stale_jobs_returns_vrt_asset_count():
 
 @pytest.mark.asyncio
 async def test_fail_stale_jobs_purges_terminal_jobs_past_retention():
-    """Candidates are selected with terminal-status scoping, then deleted by id."""
+    """The purge is one DELETE that carries the terminal-status predicates
+    itself (codex P2 r10: a SELECT-then-DELETE-by-id pair raced with
+    /jobs/{id}/retry)."""
     from sqlalchemy.sql.dml import Delete
-    from sqlalchemy.sql.selectable import Select
 
     from app.platform.jobs.router import fail_stale_jobs
 
-    mock_db = _make_mock_db_for_fail_stale(purge_candidates=[(uuid4(), None)])
+    mock_db = _make_mock_db_for_fail_stale(purge_candidates=[(None,)])
     await fail_stale_jobs(mock_db)
 
-    assert mock_db.execute.await_count == 6
-    candidates_stmt = mock_db.execute.await_args_list[4].args[0]
-    assert isinstance(candidates_stmt, Select)
-    where_sql = str(candidates_stmt.compile(compile_kwargs={"literal_binds": True}))
-    assert "'pending'" in where_sql and "'running'" in where_sql, (
-        "purge candidates must exclude active statuses, got: " + where_sql
-    )
-    purge_stmt = mock_db.execute.await_args_list[5].args[0]
+    assert mock_db.execute.await_count == 5
+    purge_stmt = mock_db.execute.await_args_list[4].args[0]
     assert isinstance(purge_stmt, Delete)
+    where_sql = str(purge_stmt.compile(compile_kwargs={"literal_binds": True}))
+    assert "'pending'" in where_sql and "'running'" in where_sql, (
+        "purge must exclude active statuses at delete time, got: " + where_sql
+    )
 
 
 # NOTE: no @pytest.mark.asyncio here — test_db_session is an AnyIO fixture and

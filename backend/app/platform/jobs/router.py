@@ -220,47 +220,52 @@ async def fail_stale_jobs(db: AsyncSession) -> tuple[int, int]:
                 IngestJob.created_at.desc(),
             )
         )
-        candidates = await db.execute(
-            select(IngestJob.id, IngestJob.file_path).where(
+        # Single DELETE .. RETURNING re-applies every predicate atomically at
+        # delete time — a SELECT-then-DELETE-by-id pair let /jobs/{id}/retry
+        # flip a candidate back to pending between the two statements and
+        # still lose the row (codex P2 r10 on #434).
+        deleted = await db.execute(
+            delete(IngestJob)
+            .where(
                 IngestJob.status.not_in(("pending", "running")),
                 func.coalesce(IngestJob.completed_at, IngestJob.created_at)
                 < retention_cutoff,
                 IngestJob.id.not_in(latest_complete_ids),
                 IngestJob.id.not_in(latest_manifest_ids),
             )
+            .returning(IngestJob.file_path)
         )
-        purge_rows = candidates.all()
-        purge_ids = [row_id for row_id, _ in purge_rows]
+        deleted_rows = deleted.all()
+        deleted_paths = {fp for (fp,) in deleted_rows if fp}
+        if deleted_rows:
+            log.info(
+                "Purged ingest jobs past retention",
+                purged=len(deleted_rows),
+                retention_days=settings.ingest_jobs_retention_days,
+            )
 
         # codex P2 (r3) on #434: failed local uploads keep their staged file
         # for retry (_should_unlink_staging), and fan-out children's shared S3
         # original is explicitly deferred to "a retention policy" (#430 BA-09)
-        # — this purge is that policy. Reap the staged object before deleting
-        # its last pointer, but (codex P2 r4) only when no surviving row still
-        # references the same path — fan-out siblings share one staging object
-        # and a younger row must stay retryable. Local paths are absolute and
-        # only ever unlinked inside the staging dir; S3 staging keys are
-        # relative. Best-effort: a failed reap never blocks the sweep.
-        staged_paths = {fp for _, fp in purge_rows if fp}
-        if staged_paths:
-            # Only surviving rows that still NEED the file block the reap:
-            # pending/running read it now; failed keeps it for /jobs/{id}/retry
-            # (a failed-only endpoint). Surviving complete rows (e.g. the
-            # latest-complete exemption above) keep their metadata row but not
-            # the staged file — otherwise a successful fan-out's shared
-            # original, referenced forever by children that are each a
-            # dataset's latest complete job, would never be reaped
-            # (codex P2 r5 on #434).
+        # — this purge is that policy. Reap staged objects whose last pointer
+        # was just deleted, but (codex P2 r4) only when no surviving row that
+        # still NEEDS the file references the same path: pending/running read
+        # it now; failed keeps it for /jobs/{id}/retry (a failed-only
+        # endpoint). Surviving complete rows (e.g. the exemptions above) keep
+        # their metadata row but not the staged file — otherwise a successful
+        # fan-out's shared original, referenced forever by children that are
+        # each a dataset's latest complete job, would never be reaped
+        # (codex P2 r5). Running after the DELETE, any remaining row counts.
+        if deleted_paths:
             survivors = await db.execute(
                 select(IngestJob.file_path).where(
-                    IngestJob.file_path.in_(staged_paths),
-                    IngestJob.id.not_in(purge_ids),
+                    IngestJob.file_path.in_(deleted_paths),
                     IngestJob.status.in_(("pending", "running", "failed")),
                 )
             )
-            staged_paths -= set(survivors.scalars())
+            deleted_paths -= set(survivors.scalars())
         staging_root = Path(settings.upload_staging_dir).resolve()
-        for file_path in staged_paths:
+        for file_path in deleted_paths:
             try:
                 local = Path(file_path).resolve()
                 if local.exists():
@@ -280,14 +285,6 @@ async def fail_stale_jobs(db: AsyncSession) -> tuple[int, int]:
                     "Failed to reap staged file for purged jobs",
                     file_path=file_path,
                 )
-
-        if purge_ids:
-            await db.execute(delete(IngestJob).where(IngestJob.id.in_(purge_ids)))
-            log.info(
-                "Purged ingest jobs past retention",
-                purged=len(purge_ids),
-                retention_days=settings.ingest_jobs_retention_days,
-            )
 
     await db.commit()
     return len(pending_jobs), len(running_jobs)
