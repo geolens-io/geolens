@@ -43,7 +43,7 @@ class Collection(Base):
 class CollectionDataset(Base):
     __tablename__ = "collection_datasets"
     __table_args__ = (
-        # T-3: trailing composite-PK FK; covering index added in migration 0026.
+        # T-3: trailing composite-PK FK; covering index added in migration 0001_baseline.
         Index("ix_collection_datasets_dataset_id", "dataset_id"),
         {"schema": "catalog"},
     )
@@ -67,7 +67,7 @@ class DatasetVersion(Base):
     __tablename__ = "dataset_versions"
     __table_args__ = (
         UniqueConstraint("dataset_id", "version_number", name="uq_dataset_version"),
-        # DBM-10 covering index added in migration 0014.
+        # DBM-10 covering index added in migration 0001_baseline.
         Index("ix_dataset_versions_dataset_id", "dataset_id"),
         {"schema": "catalog"},
     )

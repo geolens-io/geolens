@@ -1,6 +1,6 @@
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router';
-import { AlertTriangle, Loader2, Save, Share2, MoreHorizontal, Info, Copy, Download, Pencil, ChevronRight } from 'lucide-react';
+import { AlertTriangle, Loader2, Save, Share2, MoreHorizontal, Info, Copy, Download, Pencil, ChevronRight, Eye } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -22,6 +22,16 @@ export interface OverflowActions {
   onShowInfo: () => void;
   onFork: () => void;
   isForkPending: boolean;
+  /**
+   * fix(#430 V-15): opens the read-only viewer UI of this map (`?preview=viewer`,
+   * handled by MapViewerGate) in a new tab, so an editor can check the viewer
+   * layout without losing their in-progress builder session. NOT an
+   * anonymous-data preview — requests still carry the editor's session, so
+   * private layers they can access still render (see MapViewerGate docs).
+   * Undefined (e.g. an unsaved new map with no id yet) hides the
+   * menu item — mirrors the `onShare` optional-prop pattern above.
+   */
+  onViewAsViewer?: () => void;
 }
 
 interface MapTitleBarProps {
@@ -210,6 +220,12 @@ export function MapTitleBar({
                 <Copy className="h-3.5 w-3.5 me-2" />
                 {t('tooltips.duplicateMap', { defaultValue: 'Duplicate map' })}
               </DropdownMenuItem>
+              {overflow.onViewAsViewer && (
+                <DropdownMenuItem onClick={overflow.onViewAsViewer}>
+                  <Eye className="h-3.5 w-3.5 me-2" />
+                  {t('tooltips.viewAsViewer', { defaultValue: 'View as viewer' })}
+                </DropdownMenuItem>
+              )}
             </DropdownMenuContent>
           </DropdownMenu>
         </div>

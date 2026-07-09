@@ -434,6 +434,8 @@
     "noNumericColumns": "Keine numerischen Spalten",
     "noTextColumnsHelp": "Kategorische Stile benötigen eine Textspalte. Wechseln Sie zum abgestuften Modus oder fügen Sie ein Textattribut hinzu.",
     "noNumericColumnsHelp": "Abgestufte Stile benötigen eine numerische Spalte. Wechseln Sie zum kategorischen Modus oder fügen Sie ein numerisches Attribut hinzu.",
+    "numericColumnsAvailable": "{{count}} numerische Spalten im abgestuften Modus verfügbar.",
+    "switchToGraduated": "Zu abgestuftem Modus wechseln",
     "missingColumnHelp": "Spalte \"{{column}}\" ist nicht mehr verfügbar. Wählen Sie eine andere Spalte oder entfernen Sie den datengesteuerten Stil.",
     "statsUnavailableHelp": "Für diese Spalte sind noch keine Statistiken verfügbar. Wählen Sie eine andere numerische Spalte oder versuchen Sie es nach der Dataset-Verarbeitung erneut.",
     "colorRamp": "Farbverlauf",
@@ -469,7 +471,8 @@
     "noResults": "Keine Datensätze gefunden",
     "added": "Hinzugefügt",
     "addToMap": "Zur Karte hinzufügen",
-    "dragHandle": "Ziehen, um zur Karte hinzuzufügen",
+    "addToMapDetails": "Zur Karte hinzufügen (Detailbereich)",
+    "dragHandle": "In die Karte ziehen",
     "catalogEmpty": "Ihr Katalog ist leer. Laden Sie einen Datensatz hoch, um zu beginnen.",
     "uploadCta": "Datei hochladen →",
     "zeroResultHeading": "Keine Datensätze passen zu '{{query}}'",
@@ -523,6 +526,7 @@
     "cannotPublish": "Veröffentlichung nicht möglich: Datensätze {{datasets}} sind nicht öffentlich",
     "embedTokenInfo": "Nicht-öffentliche Layer sind enthalten. Ein Einbettungs-Token regelt den Zugriff automatisch.",
     "unsavedWarning": "Ungespeicherte Änderungen sind nur in der Builder-Vorschau sichtbar. Speichere, bevor du Links oder Einbettungen kopierst.",
+    "audienceHiddenWarning": "Für Betrachter ausgeblendet: {{layers}}. Die Datensätze dieser Layer sind privat oder unveröffentlicht und daher nur für dich sichtbar.",
     "savingWarning": "Änderungen werden gespeichert. Links und Einbettungen werden nach Abschluss aktualisiert.",
     "saveFailedWarning": "Speichern fehlgeschlagen. Links und Einbettungen zeigen weiterhin die zuletzt gespeicherte Karte, bis ein erneuter Versuch erfolgreich ist.",
     "expirationLabel": "Ablaufdatum",
@@ -734,6 +738,7 @@
     "mapInfo": "Karteninfo",
     "downloadPng": "PNG herunterladen",
     "duplicateMap": "Karte duplizieren",
+    "viewAsViewer": "Als Betrachter anzeigen",
     "save": "Speichern ({{shortcut}})",
     "collapseSidebar": "Seitenleiste einklappen",
     "expandSidebar": "Seitenleiste ausklappen",
@@ -746,6 +751,7 @@
   },
   "toasts": {
     "mapSaved": "Karte gespeichert",
+    "mapSavedFullResync": "Karte gespeichert, aber eine vollständige Neusynchronisierung war erforderlich. Bitte Layer-Stil überprüfen.",
     "saveFailed": "Karte konnte nicht gespeichert werden",
     "saveFailedWithDetail": "Karte konnte nicht gespeichert werden: {{detail}}",
     "layerRemoved": "Layer entfernt",
@@ -1062,7 +1068,8 @@
     "kebabZoomToLayer": "Auf Ebene zoomen",
     "kebabCopyStyle": "Stil kopieren",
     "kebabPasteStyle": "Stil einfügen",
-    "disambiguation": "{{label}}"
+    "disambiguation": "{{label}}",
+    "audienceHidden": "Für die Betrachter dieser Karte ausgeblendet"
   },
   "basemapGroup": {
     "addCustomBasemap": "＋ Benutzerdefinierte Basiskarte hinzufügen…",

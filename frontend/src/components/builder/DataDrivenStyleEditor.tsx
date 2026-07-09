@@ -797,6 +797,25 @@ export function DataDrivenStyleEditor({
         </p>
       )}
 
+      {/* fix(#430 V-10): Mode defaults to Categorical, whose Column dropdown only lists
+          text columns — numeric columns (e.g. `mag`) were invisible with no hint
+          unless the current mode had ZERO compatible columns. Surface a persistent,
+          actionable pointer whenever numeric columns exist but are hidden by
+          Categorical mode, so a user can discover graduated styling without first
+          learning the Mode concept. */}
+      {mode === 'categorical' && numericColumns.length > 0 && (
+        <p className="rounded-md bg-muted px-2 py-1.5 text-[11px] leading-snug text-muted-foreground">
+          {t('dataDriven.numericColumnsAvailable', { count: numericColumns.length })}{' '}
+          <button
+            type="button"
+            className="font-medium text-foreground underline underline-offset-2 hover:no-underline"
+            onClick={() => handleModeChange('graduated')}
+          >
+            {t('dataDriven.switchToGraduated')}
+          </button>
+        </p>
+      )}
+
       {selectedColumnMissing && (
         <p className="rounded-md bg-warning/15 px-2 py-1.5 text-[11px] leading-snug text-warning-foreground">
           {t('dataDriven.missingColumnHelp', { column })}

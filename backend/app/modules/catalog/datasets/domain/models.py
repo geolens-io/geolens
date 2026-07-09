@@ -1,5 +1,5 @@
 import uuid
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 
 from geoalchemy2 import Geometry
 from sqlalchemy import (
@@ -17,6 +17,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    event,
     func,
     text,
 )
@@ -96,7 +97,7 @@ class Record(Base):
         ),
         # D-1: functional GIN on the simple-regconfig tsvector for non-English
         # (CJK / accented Latin) search. Created in migration
-        # 0020_records_simple_search_vector_idx; declared here so `alembic check`
+        # 0001_baseline (ix_records_simple_search_vector); declared here so `alembic check`
         # sees it (it cannot reflect a raw-SQL expression index otherwise and
         # would propose dropping it).
         #
@@ -228,6 +229,24 @@ class Record(Base):
     )
 
 
+def _stamp_published_at(mapper, connection, target: "Record") -> None:
+    """fix(#430 V-07): stamp published_at when a record is INSERTED as published.
+
+    Ingest auto-publishes (record_status defaults to 'published') but no ingest
+    path ever wrote published_at, so a freshly-uploaded dataset showed
+    status=published with published_at=NULL. This before_insert hook covers every
+    creation site (ingest, empty-dataset create, raster/vrt) centrally. The
+    explicit draft->published *transition* path (_apply_record_status_change)
+    already stamps published_at, so no before_update hook is needed (and
+    before_update attribute mutations aren't reliably emitted anyway).
+    """
+    if target.record_status == "published" and target.published_at is None:
+        target.published_at = datetime.now(timezone.utc)
+
+
+event.listen(Record, "before_insert", _stamp_published_at)
+
+
 class Dataset(Base):
     __tablename__ = "datasets"
     __table_args__ = (
@@ -237,10 +256,13 @@ class Dataset(Base):
             name="chk_quality_score_range",
         ),
         CheckConstraint(
+            # fix(#430 codex r5): 'GEOMETRY' = generic mixed-geometry sentinel
+            # stored by create_empty_dataset (fix #430 BA-32). Migration
+            # 0011_allow_generic_geometry_type is the source of truth.
             "geometry_type IS NULL OR UPPER(geometry_type) IN ("
             "'POINT', 'LINESTRING', 'POLYGON', "
             "'MULTIPOINT', 'MULTILINESTRING', 'MULTIPOLYGON', "
-            "'GEOMETRYCOLLECTION')",
+            "'GEOMETRYCOLLECTION', 'GEOMETRY')",
             name="chk_datasets_geometry_type",
         ),
         CheckConstraint(
@@ -531,7 +553,7 @@ class AttributeMetadata(Base):
 class DatasetGrant(Base):
     __tablename__ = "dataset_grants"
     __table_args__ = (
-        # T-3: trailing composite-PK FK; covering index added in migration 0026.
+        # T-3: trailing composite-PK FK; covering index added in migration 0001_baseline.
         Index("ix_dataset_grants_role_id", "role_id"),
         {"schema": "catalog"},
     )

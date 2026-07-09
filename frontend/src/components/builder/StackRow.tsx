@@ -66,6 +66,11 @@ interface StackRowProps {
   // per-layer by UnifiedStackPanel from map-stack's shared helper. Null = not a
   // duplicate; render nothing.
   disambiguationLabel?: string | null;
+  // fix(#430 V-17): true when this layer's dataset would be silently filtered out
+  // for the map's audience (private/unpublished dataset on a public/shared
+  // map) — computed per-layer by UnifiedStackPanel via
+  // isLayerHiddenFromMapAudience.
+  audienceHidden?: boolean;
 }
 
 function TypeIcon({ layer }: { layer: MapLayerResponse }) {
@@ -146,6 +151,7 @@ export const StackRow = memo(function StackRow({
   onCheckboxClick,
   isFresh = false,
   disambiguationLabel = null,
+  audienceHidden = false,
 }: StackRowProps) {
   const { t } = useTranslation('builder');
   const [confirmingDelete, setConfirmingDelete] = useState(false);
@@ -351,6 +357,18 @@ export const StackRow = memo(function StackRow({
               >
                 {disambiguationLabel}
                 <span className="sr-only">{t('stackRow.disambiguation', { label: disambiguationLabel, defaultValue: '{{label}}' })}</span>
+              </span>
+            )}
+            {/* fix(#430 V-17): audience-visibility mismatch — this layer's dataset
+                would be silently filtered out for the map's public/shared
+                audience (e.g. a private dataset added to a public map). */}
+            {audienceHidden && (
+              <span
+                title={t('stackRow.audienceHidden', { defaultValue: "Hidden from this map's viewers" })}
+                data-testid="stack-row-audience-hidden"
+                className="shrink-0 inline-flex items-center rounded-sm px-1 text-[10px] font-medium leading-tight bg-[var(--warning-50,oklch(0.97_0.04_85))] text-[var(--warning-700,oklch(0.45_0.12_85))]"
+              >
+                {t('stackRow.audienceHidden', { defaultValue: "Hidden from this map's viewers" })}
               </span>
             )}
           </div>

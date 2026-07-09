@@ -4408,6 +4408,12 @@
             "description": "OGC geometry type, e.g. MultiPolygon",
             "title": "Geometry Type"
           },
+          "has_generic_geometry": {
+            "default": false,
+            "description": "True when the underlying column is generic GEOMETRY (created sketch datasets): the dataset accepts ANY geometry subtype on write regardless of the display geometry_type above. Computed on the detail endpoint only (fix #430 codex r18); list endpoints always report false.",
+            "title": "Has Generic Geometry",
+            "type": "boolean"
+          },
           "id": {
             "format": "uuid",
             "title": "Id",
@@ -6266,7 +6272,15 @@
         "description": "GeoJSON-style feature for insertion.",
         "properties": {
           "geometry": {
-            "$ref": "#/components/schemas/GeoJSONGeometry"
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GeoJSONGeometryCollection"
+              },
+              {
+                "$ref": "#/components/schemas/GeoJSONGeometry"
+              }
+            ],
+            "title": "Geometry"
           },
           "properties": {
             "anyOf": [
@@ -6308,7 +6322,15 @@
         "description": "Full feature replacement (PUT semantics).",
         "properties": {
           "geometry": {
-            "$ref": "#/components/schemas/GeoJSONGeometry"
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GeoJSONGeometryCollection"
+              },
+              {
+                "$ref": "#/components/schemas/GeoJSONGeometry"
+              }
+            ],
+            "title": "Geometry"
           },
           "properties": {
             "additionalProperties": true,
@@ -6329,12 +6351,16 @@
           "geometry": {
             "anyOf": [
               {
+                "$ref": "#/components/schemas/GeoJSONGeometryCollection"
+              },
+              {
                 "$ref": "#/components/schemas/GeoJSONGeometry"
               },
               {
                 "type": "null"
               }
-            ]
+            ],
+            "title": "Geometry"
           },
           "properties": {
             "anyOf": [
@@ -6428,6 +6454,29 @@
           "coordinates"
         ],
         "title": "GeoJSONGeometry",
+        "type": "object"
+      },
+      "GeoJSONGeometryCollection": {
+        "description": "A GeoJSON GeometryCollection (RFC 7946 \u00a73.1.8).\n\nfix(#430 codex r9): carries ``geometries`` instead of ``coordinates``, so\nit needs its own model \u2014 only generic-GEOMETRY datasets accept it on write\n(enforced in the service), and any stored collection must serialize back\nout on read.\n\nDeliberately NON-recursive (codex r13, refuted): PostGIS cannot round-trip\nnested collections through the GeoJSON boundary in either direction \u2014\nST_GeomFromGeoJSON rejects them on write and ST_AsGeoJSON raises\n'GeoJson: geometry not supported' on read \u2014 so a recursive model could\nnever receive one and would only convert the write-side 422 into a raw\ndatabase 500. The write schemas add a raw-payload guard for a clear 422.",
+        "properties": {
+          "geometries": {
+            "items": {
+              "$ref": "#/components/schemas/GeoJSONGeometry"
+            },
+            "title": "Geometries",
+            "type": "array"
+          },
+          "type": {
+            "const": "GeometryCollection",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "geometries"
+        ],
+        "title": "GeoJSONGeometryCollection",
         "type": "object"
       },
       "HTTPValidationError": {
@@ -8008,6 +8057,19 @@
             "description": "MapLibre filter expression",
             "title": "Filter"
           },
+          "id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Existing layer id to update in place (full-save reconcile)",
+            "title": "Id"
+          },
           "label_config": {
             "anyOf": [
               {
@@ -8374,9 +8436,31 @@
             ],
             "title": "Dataset Sample Values"
           },
+          "dataset_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dataset Status"
+          },
           "dataset_table_name": {
             "title": "Dataset Table Name",
             "type": "string"
+          },
+          "dataset_visibility": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dataset Visibility"
           },
           "dem_vertical_units": {
             "anyOf": [
@@ -27084,12 +27168,16 @@
                         "geometry": {
                           "anyOf": [
                             {
+                              "$ref": "#/$defs/GeoJSONGeometryCollection"
+                            },
+                            {
                               "$ref": "#/$defs/GeoJSONGeometry"
                             },
                             {
                               "type": "null"
                             }
-                          ]
+                          ],
+                          "title": "Geometry"
                         },
                         "id": {
                           "title": "Id",
@@ -27132,6 +27220,29 @@
                         "coordinates"
                       ],
                       "title": "GeoJSONGeometry",
+                      "type": "object"
+                    },
+                    "GeoJSONGeometryCollection": {
+                      "description": "A GeoJSON GeometryCollection (RFC 7946 \u00a73.1.8).\n\nfix(#430 codex r9): carries ``geometries`` instead of ``coordinates``, so\nit needs its own model \u2014 only generic-GEOMETRY datasets accept it on write\n(enforced in the service), and any stored collection must serialize back\nout on read.\n\nDeliberately NON-recursive (codex r13, refuted): PostGIS cannot round-trip\nnested collections through the GeoJSON boundary in either direction \u2014\nST_GeomFromGeoJSON rejects them on write and ST_AsGeoJSON raises\n'GeoJson: geometry not supported' on read \u2014 so a recursive model could\nnever receive one and would only convert the write-side 422 into a raw\ndatabase 500. The write schemas add a raw-payload guard for a clear 422.",
+                      "properties": {
+                        "geometries": {
+                          "items": {
+                            "$ref": "#/$defs/GeoJSONGeometry"
+                          },
+                          "title": "Geometries",
+                          "type": "array"
+                        },
+                        "type": {
+                          "const": "GeometryCollection",
+                          "title": "Type",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "geometries"
+                      ],
+                      "title": "GeoJSONGeometryCollection",
                       "type": "object"
                     },
                     "Link": {
@@ -27332,6 +27443,29 @@
                       ],
                       "title": "GeoJSONGeometry",
                       "type": "object"
+                    },
+                    "GeoJSONGeometryCollection": {
+                      "description": "A GeoJSON GeometryCollection (RFC 7946 \u00a73.1.8).\n\nfix(#430 codex r9): carries ``geometries`` instead of ``coordinates``, so\nit needs its own model \u2014 only generic-GEOMETRY datasets accept it on write\n(enforced in the service), and any stored collection must serialize back\nout on read.\n\nDeliberately NON-recursive (codex r13, refuted): PostGIS cannot round-trip\nnested collections through the GeoJSON boundary in either direction \u2014\nST_GeomFromGeoJSON rejects them on write and ST_AsGeoJSON raises\n'GeoJson: geometry not supported' on read \u2014 so a recursive model could\nnever receive one and would only convert the write-side 422 into a raw\ndatabase 500. The write schemas add a raw-payload guard for a clear 422.",
+                      "properties": {
+                        "geometries": {
+                          "items": {
+                            "$ref": "#/$defs/GeoJSONGeometry"
+                          },
+                          "title": "Geometries",
+                          "type": "array"
+                        },
+                        "type": {
+                          "const": "GeometryCollection",
+                          "title": "Type",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "geometries"
+                      ],
+                      "title": "GeoJSONGeometryCollection",
+                      "type": "object"
                     }
                   },
                   "description": "A single GeoJSON Feature.",
@@ -27339,12 +27473,16 @@
                     "geometry": {
                       "anyOf": [
                         {
+                          "$ref": "#/$defs/GeoJSONGeometryCollection"
+                        },
+                        {
                           "$ref": "#/$defs/GeoJSONGeometry"
                         },
                         {
                           "type": "null"
                         }
-                      ]
+                      ],
+                      "title": "Geometry"
                     },
                     "id": {
                       "title": "Id",
@@ -27631,6 +27769,29 @@
                       ],
                       "title": "GeoJSONGeometry",
                       "type": "object"
+                    },
+                    "GeoJSONGeometryCollection": {
+                      "description": "A GeoJSON GeometryCollection (RFC 7946 \u00a73.1.8).\n\nfix(#430 codex r9): carries ``geometries`` instead of ``coordinates``, so\nit needs its own model \u2014 only generic-GEOMETRY datasets accept it on write\n(enforced in the service), and any stored collection must serialize back\nout on read.\n\nDeliberately NON-recursive (codex r13, refuted): PostGIS cannot round-trip\nnested collections through the GeoJSON boundary in either direction \u2014\nST_GeomFromGeoJSON rejects them on write and ST_AsGeoJSON raises\n'GeoJson: geometry not supported' on read \u2014 so a recursive model could\nnever receive one and would only convert the write-side 422 into a raw\ndatabase 500. The write schemas add a raw-payload guard for a clear 422.",
+                      "properties": {
+                        "geometries": {
+                          "items": {
+                            "$ref": "#/$defs/GeoJSONGeometry"
+                          },
+                          "title": "Geometries",
+                          "type": "array"
+                        },
+                        "type": {
+                          "const": "GeometryCollection",
+                          "title": "Type",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "geometries"
+                      ],
+                      "title": "GeoJSONGeometryCollection",
+                      "type": "object"
                     }
                   },
                   "description": "A single GeoJSON Feature.",
@@ -27638,12 +27799,16 @@
                     "geometry": {
                       "anyOf": [
                         {
+                          "$ref": "#/$defs/GeoJSONGeometryCollection"
+                        },
+                        {
                           "$ref": "#/$defs/GeoJSONGeometry"
                         },
                         {
                           "type": "null"
                         }
-                      ]
+                      ],
+                      "title": "Geometry"
                     },
                     "id": {
                       "title": "Id",
@@ -27811,6 +27976,29 @@
                       ],
                       "title": "GeoJSONGeometry",
                       "type": "object"
+                    },
+                    "GeoJSONGeometryCollection": {
+                      "description": "A GeoJSON GeometryCollection (RFC 7946 \u00a73.1.8).\n\nfix(#430 codex r9): carries ``geometries`` instead of ``coordinates``, so\nit needs its own model \u2014 only generic-GEOMETRY datasets accept it on write\n(enforced in the service), and any stored collection must serialize back\nout on read.\n\nDeliberately NON-recursive (codex r13, refuted): PostGIS cannot round-trip\nnested collections through the GeoJSON boundary in either direction \u2014\nST_GeomFromGeoJSON rejects them on write and ST_AsGeoJSON raises\n'GeoJson: geometry not supported' on read \u2014 so a recursive model could\nnever receive one and would only convert the write-side 422 into a raw\ndatabase 500. The write schemas add a raw-payload guard for a clear 422.",
+                      "properties": {
+                        "geometries": {
+                          "items": {
+                            "$ref": "#/$defs/GeoJSONGeometry"
+                          },
+                          "title": "Geometries",
+                          "type": "array"
+                        },
+                        "type": {
+                          "const": "GeometryCollection",
+                          "title": "Type",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "geometries"
+                      ],
+                      "title": "GeoJSONGeometryCollection",
+                      "type": "object"
                     }
                   },
                   "description": "A single GeoJSON Feature.",
@@ -27818,12 +28006,16 @@
                     "geometry": {
                       "anyOf": [
                         {
+                          "$ref": "#/$defs/GeoJSONGeometryCollection"
+                        },
+                        {
                           "$ref": "#/$defs/GeoJSONGeometry"
                         },
                         {
                           "type": "null"
                         }
-                      ]
+                      ],
+                      "title": "Geometry"
                     },
                     "id": {
                       "title": "Id",
@@ -28002,6 +28194,29 @@
                       ],
                       "title": "GeoJSONGeometry",
                       "type": "object"
+                    },
+                    "GeoJSONGeometryCollection": {
+                      "description": "A GeoJSON GeometryCollection (RFC 7946 \u00a73.1.8).\n\nfix(#430 codex r9): carries ``geometries`` instead of ``coordinates``, so\nit needs its own model \u2014 only generic-GEOMETRY datasets accept it on write\n(enforced in the service), and any stored collection must serialize back\nout on read.\n\nDeliberately NON-recursive (codex r13, refuted): PostGIS cannot round-trip\nnested collections through the GeoJSON boundary in either direction \u2014\nST_GeomFromGeoJSON rejects them on write and ST_AsGeoJSON raises\n'GeoJson: geometry not supported' on read \u2014 so a recursive model could\nnever receive one and would only convert the write-side 422 into a raw\ndatabase 500. The write schemas add a raw-payload guard for a clear 422.",
+                      "properties": {
+                        "geometries": {
+                          "items": {
+                            "$ref": "#/$defs/GeoJSONGeometry"
+                          },
+                          "title": "Geometries",
+                          "type": "array"
+                        },
+                        "type": {
+                          "const": "GeometryCollection",
+                          "title": "Type",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "geometries"
+                      ],
+                      "title": "GeoJSONGeometryCollection",
+                      "type": "object"
                     }
                   },
                   "description": "A single GeoJSON Feature.",
@@ -28009,12 +28224,16 @@
                     "geometry": {
                       "anyOf": [
                         {
+                          "$ref": "#/$defs/GeoJSONGeometryCollection"
+                        },
+                        {
                           "$ref": "#/$defs/GeoJSONGeometry"
                         },
                         {
                           "type": "null"
                         }
-                      ]
+                      ],
+                      "title": "Geometry"
                     },
                     "id": {
                       "title": "Id",

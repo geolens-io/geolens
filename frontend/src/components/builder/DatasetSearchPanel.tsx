@@ -200,7 +200,9 @@ const DraggableDatasetRow = memo(function DraggableDatasetRow({
           type="button"
           {...attributes}
           {...listeners}
-          aria-label={t('search.dragHandle', { defaultValue: 'Drag to add to map' })}
+          // fix(#430 V-11): reworded so it no longer substring-matches "Add to map"
+          // (the row/details action labels), keeping accessible names distinct.
+          aria-label={t('search.dragHandle', { defaultValue: 'Drag into map' })}
           // Phase 1199 STACK-05: reveal the catalog drag grip on coarse-pointer/touch.
           data-touch-reveal=""
           className="flex h-7 w-5 shrink-0 items-center justify-center cursor-grab opacity-0 group-hover/row:opacity-35 hover:opacity-70 focus-visible:opacity-70 text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded active:cursor-grabbing"
@@ -370,7 +372,15 @@ export function DatasetSearchPanel({
         onClick={() => onAddDataset(record.id)}
         disabled={isAdding}
         title={t('search.addToMap', { defaultValue: 'Add to map' })}
-        aria-label={`${t('search.addToMap', { defaultValue: 'Add to map' })} ${record.properties.title}`}
+        // fix(#430 V-11): the row action and the expanded-details action both render
+        // this button; give the details-panel instance a distinct accessible
+        // name so screen readers/role+name queries don't see two identical
+        // "Add to map <name>" buttons in one result row.
+        aria-label={
+          compact
+            ? `${t('search.addToMapDetails', { defaultValue: 'Add to map (details panel)' })} ${record.properties.title}`
+            : `${t('search.addToMap', { defaultValue: 'Add to map' })} ${record.properties.title}`
+        }
       >
         <Plus className="h-3.5 w-3.5" aria-hidden="true" />
         {compact && t('search.addToMap', { defaultValue: 'Add to map' })}

@@ -2,7 +2,9 @@
  * Phase 1040 Plan 04 — DatasetSearchPanel drag-drop contract tests.
  *
  * Verifies that:
- * 1. Dataset rows render a grip handle with aria-label "Drag to add to map".
+ * 1. Dataset rows render a grip handle with aria-label "Drag into map"
+ *    (fix(#430 V-11): reworded from "Drag to add to map" so it no longer
+ *    substring-matches the row/details "Add to map" action buttons).
  * 2. useDraggable is called with ids namespaced as `catalog:{datasetId}` for dataset rows.
  *
  * Basemaps are no longer draggable from this panel — they are managed entirely by
@@ -114,7 +116,7 @@ describe('DatasetSearchPanel — drag-drop wiring (Phase 1040 Plan 04)', () => {
     vi.restoreAllMocks();
   });
 
-  it('dataset row renders a grip handle with aria-label "Drag to add to map"', async () => {
+  it('dataset row renders a grip handle with aria-label "Drag into map"', async () => {
     renderWithDnd(<DatasetSearchPanel {...defaultProps()} />);
 
     // Wait for search results to load
@@ -123,7 +125,7 @@ describe('DatasetSearchPanel — drag-drop wiring (Phase 1040 Plan 04)', () => {
     });
 
     // Grip handle must have the correct aria-label for keyboard discoverability
-    const handles = screen.getAllByLabelText('Drag to add to map');
+    const handles = screen.getAllByLabelText('Drag into map');
     expect(handles.length).toBeGreaterThanOrEqual(1);
     expect(handles[0]).toBeInTheDocument();
   });

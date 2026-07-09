@@ -132,6 +132,22 @@ async def _stage_source_if_needed(
     return prepared.file_path
 
 
+async def _caller_owns_job(db: AsyncSession, job: IngestJob, user: Identity) -> bool:
+    """Owner-or-admin gate for referencing an existing manifest job's ids.
+
+    fix(#430 codex r15): in-flight jobs may have no Dataset row yet, so the
+    dataset-level write gate can't run — key ownership on IngestJob.created_by
+    instead (same contract as service.py's reupload ownership check).
+    """
+    if job.created_by is not None and job.created_by == user.id:
+        return True
+    # Lazy import: processing/ must not import app.modules.catalog.* at module
+    # level (PROCESS-02/04 layering invariant).
+    from app.modules.catalog.authorization import get_user_roles
+
+    return "admin" in await get_user_roles(db, user)
+
+
 def _skip_result_for_in_flight(
     dataset: ManifestDataset, job: IngestJob
 ) -> ManifestApplyEntryResult:
@@ -310,15 +326,48 @@ async def _run_entry(
         raise ManifestSourceError("Manifest source could not be prepared")
 
     if classification == "skip_in_flight" and job is not None:
+        # fix(#430 codex r15): the skip paths previously returned job/dataset
+        # ids for a manifest key owned by ANOTHER user whenever the caller
+        # submitted a matching fingerprint — the same enumeration oracle
+        # BA-02 closed on the update path. Non-owners get the identical
+        # generic error the fingerprint-mismatch path raises, with no ids.
+        if not await _caller_owns_job(db, job, user):
+            raise ManifestSourceError(
+                "Manifest dataset key already has an in-flight apply"
+            )
         return _skip_result_for_in_flight(dataset, job)
 
     if classification == "skip_complete" and job is not None:
+        if existing_dataset is not None:
+            # fix(#430 codex r15): same gate as the update branch below —
+            # raises 404/403 into the per-entry error wrapper, so the skip
+            # response cannot disclose another user's job/dataset UUIDs.
+            from app.modules.catalog.authorization import (
+                check_dataset_write_access,
+            )
+
+            await check_dataset_write_access(
+                db, existing_dataset, existing_dataset.id, user
+            )
         return ManifestApplyEntryResult(
             dataset_key=dataset.key,
             action="skip",
             job_id=job.id,
             dataset_id=job.dataset_id,
             message="Manifest dataset is already up to date.",
+        )
+
+    if classification == "update" and existing_dataset is not None:
+        # fix(#430 BA-02): manifest_key is globally namespaced and taken from the request
+        # body, so an editor could otherwise overwrite (or, via dry_run, enumerate
+        # the UUID of) another user's manifest-managed dataset. Gate before the
+        # dry-run response too — it otherwise leaks existing_dataset.id.
+        # Lazy import: processing/ must not import app.modules.catalog.* at module
+        # level (PROCESS-02/04 layering invariant).
+        from app.modules.catalog.authorization import check_dataset_write_access
+
+        await check_dataset_write_access(
+            db, existing_dataset, existing_dataset.id, user
         )
 
     if request.dry_run:

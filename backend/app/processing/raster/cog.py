@@ -1,11 +1,10 @@
 """COG compliance check, conversion, and raster metadata extraction."""
 
 import hashlib
-import subprocess
 import tempfile
 from pathlib import Path
 
-from app.processing.raster.vrt import gdal_safe_env
+from app.processing.raster.vrt import gdal_safe_env, run_gdal
 
 
 _FLOAT_DTYPES = {"float32", "float64", "float16", "float", "complex"}
@@ -194,45 +193,52 @@ def prepare_with_overviews(
 
     shutil.copy2(input_path, tmp_path)
 
-    with rasterio.open(input_path) as src:
-        has_internal_overviews = bool(src.overviews(1)) if src.count >= 1 else False
-    if has_internal_overviews:
+    # fix(#430 codex r15): run_gdal raises on timeout (BA-29), which bypassed
+    # the old returncode-only unlink and leaked the staged temp copy; a
+    # corrupt source raising inside rasterio.open leaked it the same way.
+    # Any exception past this point must remove tmp_path.
+    try:
+        with rasterio.open(input_path) as src:
+            has_internal_overviews = bool(src.overviews(1)) if src.count >= 1 else False
+        if has_internal_overviews:
+            return tmp_path
+
+        # Choose resampling based on dtype if not provided
+        if resampling is None:
+            resampling = "average" if _is_float_dtype(dtype) else "nearest"
+
+        # KNOWN-03 (Phase 1071): apply the raster-pipeline GDAL safety clamps
+        # (CPL_VSIL_CURL_ALLOWED_EXTENSIONS, VRT_VIRTUAL_OVERVIEWS,
+        # GDAL_HTTP_FOLLOWLOCATION) on top of the per-call extras. v1015 Phase
+        # 1068 originally scoped these to _build_vrt only.
+        env = gdal_safe_env(
+            extras={"GDAL_CACHEMAX": "200", "COMPRESS_OVERVIEW": compression}
+        )
+        cmd = [
+            "gdaladdo",
+            "-r",
+            resampling,
+            "--config",
+            "COMPRESS_OVERVIEW",
+            compression,
+            "--config",
+            "GDAL_CACHEMAX",
+            "200",
+            tmp_path,
+            "2",
+            "4",
+            "8",
+            "16",
+            "32",
+        ]
+        result = run_gdal(cmd, env=env, tool="gdaladdo")  # fix(#430 BA-29)
+        if result.returncode != 0:
+            raise RuntimeError(f"gdaladdo failed: {result.stderr}")
+
         return tmp_path
-
-    # Choose resampling based on dtype if not provided
-    if resampling is None:
-        resampling = "average" if _is_float_dtype(dtype) else "nearest"
-
-    # KNOWN-03 (Phase 1071): apply the raster-pipeline GDAL safety clamps
-    # (CPL_VSIL_CURL_ALLOWED_EXTENSIONS, VRT_VIRTUAL_OVERVIEWS,
-    # GDAL_HTTP_FOLLOWLOCATION) on top of the per-call extras. v1015 Phase
-    # 1068 originally scoped these to _build_vrt only.
-    env = gdal_safe_env(
-        extras={"GDAL_CACHEMAX": "200", "COMPRESS_OVERVIEW": compression}
-    )
-    cmd = [
-        "gdaladdo",
-        "-r",
-        resampling,
-        "--config",
-        "COMPRESS_OVERVIEW",
-        compression,
-        "--config",
-        "GDAL_CACHEMAX",
-        "200",
-        tmp_path,
-        "2",
-        "4",
-        "8",
-        "16",
-        "32",
-    ]
-    result = subprocess.run(cmd, capture_output=True, text=True, env=env)
-    if result.returncode != 0:
+    except Exception:  # broad: cleanup-and-reraise — tmp copy must not survive ANY failure (run_gdal timeout, corrupt-source rasterio error)
         Path(tmp_path).unlink(missing_ok=True)
-        raise RuntimeError(f"gdaladdo failed: {result.stderr}")
-
-    return tmp_path
+        raise
 
 
 def _predictor_for_dtype(dtype: str, compression: str = "DEFLATE") -> str | None:
@@ -280,12 +286,18 @@ def convert_to_cog(
         warp_cmd.extend([input_path, warp_tmp])
         # KNOWN-03 (Phase 1071): apply the raster-pipeline GDAL safety clamps
         # (was env=None before — inherited unclamped os.environ).
-        warp_result = subprocess.run(
-            warp_cmd, capture_output=True, text=True, env=gdal_safe_env()
-        )
-        if warp_result.returncode != 0:
+        # fix(#430 codex r15): run_gdal raises on timeout (BA-29) — same
+        # sibling leak as prepare_with_overviews; clean warp_tmp on ANY
+        # failure, not just non-zero exit.
+        try:
+            warp_result = run_gdal(
+                warp_cmd, env=gdal_safe_env(), tool="gdalwarp"
+            )  # fix(#430 BA-29)
+            if warp_result.returncode != 0:
+                raise RuntimeError(f"gdalwarp failed: {warp_result.stderr}")
+        except Exception:  # broad: cleanup-and-reraise — warp temp must not survive ANY failure (run_gdal timeout included)
             Path(warp_tmp).unlink(missing_ok=True)
-            raise RuntimeError(f"gdalwarp failed: {warp_result.stderr}")
+            raise
         actual_input = warp_tmp
 
     tmp_path = prepare_with_overviews(
@@ -320,7 +332,7 @@ def convert_to_cog(
         if nodata is not None:
             cmd.extend(["-a_nodata", str(nodata)])
         cmd.extend([tmp_path, output_path])
-        result = subprocess.run(cmd, capture_output=True, text=True, env=env)
+        result = run_gdal(cmd, env=env, tool="gdal_translate")  # fix(#430 BA-29)
         if result.returncode != 0:
             raise RuntimeError(f"gdal_translate failed: {result.stderr}")
     finally:

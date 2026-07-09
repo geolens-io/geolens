@@ -185,9 +185,9 @@ test.describe.serial('Builder v1.5 (drag-from-catalog + multi-select)', () => {
     await expect(dialog).toBeVisible({ timeout: 10_000 });
 
     // Locate the first catalog row drag handle
-    // aria-label resolves from search.dragHandle: "Drag to add to map"
+    // aria-label resolves from search.dragHandle: "Drag into map" (renamed in V-01..V-17)
     const dragHandle = dialog
-      .getByRole('button', { name: /drag to add to map/i })
+      .getByRole('button', { name: /drag into map/i })
       .first();
     await expect(dragHandle).toBeVisible({ timeout: 10_000 });
 
@@ -249,7 +249,7 @@ test.describe.serial('Builder v1.5 (drag-from-catalog + multi-select)', () => {
       // Ensure we're back to the initial count before the pointer attempt
       const countAfterKeyboardAttempt = await overlayRows.count();
 
-      const handle = dialog.getByRole('button', { name: /drag to add to map/i }).first();
+      const handle = dialog.getByRole('button', { name: /drag into map/i }).first();
       await expect(handle).toBeVisible({ timeout: 5_000 });
       const handleBox = await handle.boundingBox();
       expect(handleBox, 'Could not get drag handle bounding box').toBeTruthy();
@@ -316,7 +316,7 @@ test.describe.serial('Builder v1.5 (drag-from-catalog + multi-select)', () => {
 
     // Locate the first drag handle
     const dragHandle = dialog
-      .getByRole('button', { name: /drag to add to map/i })
+      .getByRole('button', { name: /drag into map/i })
       .first();
     await expect(dragHandle).toBeVisible({ timeout: 10_000 });
 

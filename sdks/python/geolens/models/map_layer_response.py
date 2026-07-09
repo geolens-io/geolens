@@ -52,6 +52,8 @@ class MapLayerResponse:
         dataset_feature_count (int | None | Unset):
         dataset_record_type (None | str | Unset):
         dataset_sample_values (MapLayerResponseDatasetSampleValuesType0 | None | Unset):
+        dataset_status (None | str | Unset):
+        dataset_visibility (None | str | Unset):
         dem_vertical_units (None | str | Unset):
         display_name (None | str | Unset):
         filter_ (list[Any] | None | Unset):
@@ -85,6 +87,8 @@ class MapLayerResponse:
     dataset_sample_values: MapLayerResponseDatasetSampleValuesType0 | None | Unset = (
         UNSET
     )
+    dataset_status: None | str | Unset = UNSET
+    dataset_visibility: None | str | Unset = UNSET
     dem_vertical_units: None | str | Unset = UNSET
     display_name: None | str | Unset = UNSET
     filter_: list[Any] | None | Unset = UNSET
@@ -180,6 +184,18 @@ class MapLayerResponse:
         else:
             dataset_sample_values = self.dataset_sample_values
 
+        dataset_status: None | str | Unset
+        if isinstance(self.dataset_status, Unset):
+            dataset_status = UNSET
+        else:
+            dataset_status = self.dataset_status
+
+        dataset_visibility: None | str | Unset
+        if isinstance(self.dataset_visibility, Unset):
+            dataset_visibility = UNSET
+        else:
+            dataset_visibility = self.dataset_visibility
+
         dem_vertical_units: None | str | Unset
         if isinstance(self.dem_vertical_units, Unset):
             dem_vertical_units = UNSET
@@ -274,6 +290,10 @@ class MapLayerResponse:
             field_dict["dataset_record_type"] = dataset_record_type
         if dataset_sample_values is not UNSET:
             field_dict["dataset_sample_values"] = dataset_sample_values
+        if dataset_status is not UNSET:
+            field_dict["dataset_status"] = dataset_status
+        if dataset_visibility is not UNSET:
+            field_dict["dataset_visibility"] = dataset_visibility
         if dem_vertical_units is not UNSET:
             field_dict["dem_vertical_units"] = dem_vertical_units
         if display_name is not UNSET:
@@ -447,6 +467,26 @@ class MapLayerResponse:
             d.pop("dataset_sample_values", UNSET)
         )
 
+        def _parse_dataset_status(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        dataset_status = _parse_dataset_status(d.pop("dataset_status", UNSET))
+
+        def _parse_dataset_visibility(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        dataset_visibility = _parse_dataset_visibility(
+            d.pop("dataset_visibility", UNSET)
+        )
+
         def _parse_dem_vertical_units(data: object) -> None | str | Unset:
             if data is None:
                 return data
@@ -587,6 +627,8 @@ class MapLayerResponse:
             dataset_feature_count=dataset_feature_count,
             dataset_record_type=dataset_record_type,
             dataset_sample_values=dataset_sample_values,
+            dataset_status=dataset_status,
+            dataset_visibility=dataset_visibility,
             dem_vertical_units=dem_vertical_units,
             display_name=display_name,
             filter_=filter_,

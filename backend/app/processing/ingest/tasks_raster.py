@@ -101,9 +101,15 @@ async def create_raster_dataset(
 
     # fix(#302): authoritative count-cap check in the same transaction that
     # inserts the Record (the upload-time pre-check is not atomic).
-    from app.modules.quota.service import reserve_dataset_slot
+    # fix(#430 BA-23): same for the byte cap — recount under the per-user advisory
+    # lock so concurrent raster uploads can't overshoot max_storage_bytes_per_user.
+    from app.modules.quota.service import (
+        reserve_dataset_slot,
+        reserve_storage_bytes,
+    )
 
     await reserve_dataset_slot(session, created_by)
+    await reserve_storage_bytes(session, created_by, cog_size)
 
     # Mirror the vector ingest path (datasets/service.py
     # `create_dataset_record`) which commits directly to `published`.

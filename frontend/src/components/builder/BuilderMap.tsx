@@ -239,6 +239,10 @@ export const BuilderMap = memo(function BuilderMap({
   // them symmetrically with the error/styleimagemissing handlers.
   const dataLoadingHandlerRef = useRef<(() => void) | null>(null);
   const idleHandlerRef = useRef<(() => void) | null>(null);
+  // fix(#430 V-13): re-arming data-tiles-loaded handlers — held for symmetric
+  // detach on unmount, same pattern as the dataloading/idle pair above.
+  const tilesIdleMovestartHandlerRef = useRef<(() => void) | null>(null);
+  const tilesIdleIdleHandlerRef = useRef<(() => void) | null>(null);
   // SF-08: latch first-load success so transient 5xx during save don't surface as outage
   const basemapLoadedAtRef = useRef<number | null>(null);
   const lastOrderKeyRef = useRef('');
@@ -562,10 +566,16 @@ export const BuilderMap = memo(function BuilderMap({
 
       // `idle` fires when no tiles are loading, no transitions are in
       // progress, and no animations are running. Flip the outer container's
-      // data-tiles-loaded attribute on first idle so the showcase-smoke spec can
-      // replace its 2 s arbitrary wait with a deterministic signal. Matches
-      // the ViewerMap hook from 6a5f0181.
-      map.once('idle', () => setTilesIdle(true));
+      // data-tiles-loaded attribute to true on idle so the showcase-smoke spec
+      // can rely on a deterministic signal instead of an arbitrary wait.
+      // fix(#430 V-13): re-arm on every camera move instead of firing once — it
+      // previously never toggled back to "false", so it couldn't distinguish
+      // "settled" from "tiles loading after a pan/zoom" (both viewer and
+      // builder maps needed this; see ViewerMap.tsx for the mirrored fix).
+      tilesIdleMovestartHandlerRef.current = () => setTilesIdle(false);
+      tilesIdleIdleHandlerRef.current = () => setTilesIdle(true);
+      map.on('movestart', tilesIdleMovestartHandlerRef.current);
+      map.on('idle', tilesIdleIdleHandlerRef.current);
 
       // Tile loading indicator. builder-audit #338 SYNC-08: keep references so the
       // unmount cleanup can detach them symmetrically.
@@ -1182,6 +1192,13 @@ export const BuilderMap = memo(function BuilderMap({
       }
       if (mapRef.current && idleHandlerRef.current) {
         mapRef.current.off('idle', idleHandlerRef.current);
+      }
+      // fix(#430 V-13): detach the re-arming data-tiles-loaded handlers symmetrically.
+      if (mapRef.current && tilesIdleMovestartHandlerRef.current) {
+        mapRef.current.off('movestart', tilesIdleMovestartHandlerRef.current);
+      }
+      if (mapRef.current && tilesIdleIdleHandlerRef.current) {
+        mapRef.current.off('idle', tilesIdleIdleHandlerRef.current);
       }
       // Phase 1051 WR-04: keep state mirror in sync on teardown.
       setMapInstance(null);

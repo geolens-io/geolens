@@ -123,6 +123,24 @@ async def get_optional_user(
     return user
 
 
+async def get_optional_user_no_security_schema(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> Identity | None:
+    """``get_optional_user`` minus the OpenAPI security marker.
+
+    fix(#430 codex): depending on ``oauth2_scheme_optional`` stamps a bearer
+    ``security`` entry onto the operation, so generated SDKs type genuinely
+    public endpoints (e.g. STAC collections) as requiring an authenticated
+    client. This variant extracts the bearer token from the raw header —
+    identical resolution semantics, zero schema footprint. Use ONLY on
+    endpoints that must stay anonymous on the public OpenAPI surface.
+    """
+    auth = request.headers.get("Authorization", "")
+    token = auth[7:] if auth.lower().startswith("bearer ") else None
+    return await get_optional_user(request, token, db)
+
+
 def request_carries_credentials(request: Request) -> bool:
     """True if the request supplied any user credential (Bearer / API key).
 

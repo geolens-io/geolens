@@ -38,7 +38,7 @@ class User(Base):
             postgresql_where="status = 'pending'",
         ),
         # DBM-09: GIN trigram index for admin user search ILIKE on username.
-        # Migration 0015 is the source of truth for the actual DDL.
+        # Migration 0001_baseline is the source of truth for the actual DDL.
         Index(
             "ix_users_username_trgm",
             text("lower(catalog.immutable_unaccent(username))"),
@@ -49,7 +49,7 @@ class User(Base):
         ),
         # GIN trigram index for admin user search ILIKE on email (pairs with the
         # username index so the username-OR-email search BitmapOrs both).
-        # Migration 0027 is the source of truth for the actual DDL.
+        # Migration 0001_baseline is the source of truth for the actual DDL.
         Index(
             "ix_users_email_trgm",
             text("lower(catalog.immutable_unaccent(email))"),
@@ -158,7 +158,7 @@ class Role(Base):
 class UserRole(Base):
     __tablename__ = "user_roles"
     __table_args__ = (
-        # T-3: trailing composite-PK FK; covering index added in migration 0026.
+        # T-3: trailing composite-PK FK; covering index added in migration 0001_baseline.
         Index("ix_user_roles_role_id", "role_id"),
         {"schema": "catalog"},
     )
@@ -203,7 +203,7 @@ class RefreshToken(Base):
         # alembic check sees it; the migration is the source of truth for
         # the actual DDL.
         Index("ix_catalog_refresh_tokens_expires_at", "expires_at"),
-        # DBM-10 covering index added in migration 0014.
+        # DBM-10 covering index added in migration 0001_baseline.
         Index("ix_refresh_tokens_user_id", "user_id"),
         {"schema": "catalog"},
     )

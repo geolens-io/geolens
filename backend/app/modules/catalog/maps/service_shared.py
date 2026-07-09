@@ -39,6 +39,10 @@ class DatasetMeta(NamedTuple):
     dem_vertical_units: str | None
     band_count: int | None
     tile_version: int | None
+    # fix(#430 V-17): dataset visibility/status so the builder can flag layers hidden
+    # from a public map's anonymous audience.
+    visibility: str | None
+    record_status: str | None
 
 
 class LayerRow(NamedTuple):
@@ -63,6 +67,10 @@ class LayerRow(NamedTuple):
     dem_vertical_units: str | None
     band_count: int | None
     tile_version: int | None
+    visibility: str | None = (
+        None  # fix(#430 V-17): dataset visibility for audience-badge
+    )
+    record_status: str | None = None
 
 
 def _extract_dem_vertical_units(band_info: object) -> str | None:
@@ -99,6 +107,8 @@ async def get_dataset_meta(
             RasterAsset.band_info,
             RasterAsset.band_count,
             Dataset.current_version,
+            Record.visibility,
+            Record.record_status,
         )
         .join(Record, Dataset.record_id == Record.id)
         .outerjoin(RasterAsset, RasterAsset.dataset_id == Dataset.id)
@@ -121,6 +131,8 @@ async def get_dataset_meta(
         dem_vertical_units=_extract_dem_vertical_units(row[10]),
         band_count=row[11],
         tile_version=row[12],
+        visibility=row[13],
+        record_status=row[14],
     )
 
 
@@ -224,12 +236,16 @@ async def _fetch_layer_rows_ordered(
             RasterAsset.band_info,
             RasterAsset.band_count,
             Dataset.current_version,
+            Record.visibility,
+            Record.record_status,
         )
         .join(Dataset, MapLayer.dataset_id == Dataset.id)
         .join(Record, Dataset.record_id == Record.id)
         .outerjoin(RasterAsset, RasterAsset.dataset_id == Dataset.id)
         .where(MapLayer.map_id == map_id)
-        .order_by(MapLayer.sort_order)
+        # fix(#430 BA-21): concurrent adds can collide on sort_order (non-atomic RMW);
+        # break ties by id so stacking order is at least deterministic.
+        .order_by(MapLayer.sort_order, MapLayer.id)
     )
     result = await session.execute(stmt)
     return [
@@ -248,6 +264,8 @@ async def _fetch_layer_rows_ordered(
             dem_vertical_units=_extract_dem_vertical_units(row[11]),
             band_count=row[12],
             tile_version=row[13],
+            visibility=row[14],
+            record_status=row[15],
         )
         for row in result.all()
     ]

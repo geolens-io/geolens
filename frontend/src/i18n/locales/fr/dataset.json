@@ -113,7 +113,9 @@
       "updated": "Date de mise à jour inconnue",
       "type": "Type inconnu"
     },
-    "tableReadout": "Table PostGIS"
+    "tableReadout": "Table PostGIS",
+    "catalogStatus": "Catalogue : {{status}}",
+    "accessStatus": "Accès : {{visibility}}"
   },
   "breadcrumbs": {
     "datasets": "Jeux de données"

@@ -24,6 +24,9 @@ vi.mock('@/hooks/use-permissions', () => ({
 
 vi.mock('@/components/search/hooks/use-search', () => ({
   useSearchResults: vi.fn(),
+  // fix(#430 V-08): SearchPage now also calls useMapSearchResults — stub it so
+  // the parallel maps section is inert (no maps) unless a test overrides it.
+  useMapSearchResults: vi.fn(() => ({ data: undefined })),
 }));
 
 vi.mock('@/components/search/hooks/use-url-search-sync', () => ({

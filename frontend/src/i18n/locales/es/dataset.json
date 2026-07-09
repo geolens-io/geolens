@@ -113,7 +113,9 @@
       "updated": "Fecha de actualización desconocida",
       "type": "Tipo desconocido"
     },
-    "tableReadout": "Tabla PostGIS"
+    "tableReadout": "Tabla PostGIS",
+    "catalogStatus": "Catálogo: {{status}}",
+    "accessStatus": "Acceso: {{visibility}}"
   },
   "breadcrumbs": {
     "datasets": "Conjuntos de datos"

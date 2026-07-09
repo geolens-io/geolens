@@ -35,6 +35,9 @@ interface SortableStackRowProps {
   isFresh?: boolean;
   // Phase 1199 STACK-01: "Copy N of M" duplicate label, null when not a duplicate
   disambiguationLabel?: string | null;
+  // fix(#430 V-17): true when this layer's dataset would be filtered out for the
+  // map's audience (private/unpublished dataset on a public/shared map).
+  audienceHidden?: boolean;
   // Phase 1201-02 (ENH-07): disable drag while search is active to prevent
   // sort_order corruption when only a filtered subset is visible.
   dragDisabled?: boolean;
@@ -65,6 +68,7 @@ export const SortableStackRow = memo(function SortableStackRow({
   onCheckboxClick,
   isFresh,
   disambiguationLabel,
+  audienceHidden,
   dragDisabled = false,
 }: SortableStackRowProps) {
   const {
@@ -117,6 +121,7 @@ export const SortableStackRow = memo(function SortableStackRow({
         onCheckboxClick={onCheckboxClick}
         isFresh={isFresh}
         disambiguationLabel={disambiguationLabel}
+        audienceHidden={audienceHidden}
       />
     </div>
   );

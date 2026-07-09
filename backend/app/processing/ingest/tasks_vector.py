@@ -545,7 +545,12 @@ async def ingest_file(job_id: str, file_path: str, user_id: str, **kwargs) -> No
         # child — no sibling shares it — so it is always safe to unlink even
         # for fan-out children. Previously the is_fan_out_child guard skipped
         # cleanup unconditionally, leaking every child's S3 download on disk.
-        is_fan_out_child = False
+        # fix(#430 review): default TRUE (treat unknown as fan-out child) so a
+        # failed/absent lookup SKIPS destructive cleanup — deleting the shared
+        # S3 staging original on a misdetected child would break every sibling
+        # (retry=0). Cost of the fail-safe: an orphaned staging object the
+        # retention policy reaps later.
+        is_fan_out_child = True
         try:
             # REMED-03 / P2-05: route through _job_phase_session. The helper
             # yields the IngestJob row directly, so we just check user_metadata.
@@ -553,12 +558,12 @@ async def ingest_file(job_id: str, file_path: str, user_id: str, **kwargs) -> No
                 _check_session,
                 _check_job,
             ):
-                if _check_job is not None and (_check_job.user_metadata or {}).get(
-                    "fan_out_parent_id"
-                ):
-                    is_fan_out_child = True
+                if _check_job is not None:
+                    is_fan_out_child = bool(
+                        (_check_job.user_metadata or {}).get("fan_out_parent_id")
+                    )
         except Exception:  # broad: cleanup decision is best-effort, never block completion on this query
-            is_fan_out_child = False
+            is_fan_out_child = True
 
         if _should_unlink_staging(
             file_path=file_path,
@@ -567,6 +572,29 @@ async def ingest_file(job_id: str, file_path: str, user_id: str, **kwargs) -> No
             is_fan_out_child=is_fan_out_child,
         ):
             Path(file_path).unlink(missing_ok=True)
+
+        # fix(#430 BA-09): the ORIGINAL S3 staging object is otherwise never reaped —
+        # the task downloads it to a private local copy (unlinked above) but the
+        # staging/{job_id}/ key lives forever, and failed S3 ingests leak it with
+        # no dataset ever created. resolve_file_path only rewrites the path when it
+        # downloaded from S3, so file_path != original_file_path signals S3 mode.
+        # Skip fan-out children — siblings share the original; a retention policy
+        # reaps those.
+        if (
+            final_status in ("complete", "failed")
+            and file_path != original_file_path
+            and not is_fan_out_child
+        ):
+            try:
+                from app.platform.storage import get_storage
+
+                await get_storage().delete(original_file_path)
+            except Exception:  # broad: best-effort staging cleanup; never fail the task
+                structlog.get_logger().warning(
+                    "Failed to delete staging source object",
+                    job_id=job_id,
+                    storage_key=original_file_path,
+                )
 
 
 @task_app.task(queue="ingest", retry=0, aliases=["app.ingest.tasks.ingest_service"])

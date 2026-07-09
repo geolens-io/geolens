@@ -249,10 +249,55 @@ async def lifespan(app: FastAPI):
 
     stale_jobs_task = asyncio.create_task(_stale_jobs_sweeper())
 
+    async def _rate_limit_warmer() -> None:
+        """fix(#430 BA-03): the slowapi sync accessors only read a per-process cache that
+        set()/reset() seed for 30s on the ONE worker that handled the write. No
+        request path re-resolves them, so the four runtime-tunable limits revert to
+        their hardcoded defaults after the TTL and admin changes never propagate
+        fleet-wide. Periodically re-resolve them from the DB (get() warms the sync
+        cache) on every worker, at an interval below _CACHE_TTL.
+        """
+        from app.core.db import async_session
+        from app.core.persistent_config import (
+            BASEMAP_PROXY_RATE_LIMIT,
+            GLOBAL_RATE_LIMIT,
+            LOGIN_RATE_LIMIT,
+            SEMANTIC_SEARCH_RATE_LIMIT,
+        )
+
+        warmer_log = structlog.stdlib.get_logger("rate_limit_warmer")
+        configs = (
+            LOGIN_RATE_LIMIT,
+            GLOBAL_RATE_LIMIT,
+            SEMANTIC_SEARCH_RATE_LIMIT,
+            BASEMAP_PROXY_RATE_LIMIT,
+        )
+        while True:
+            try:
+                async with async_session() as session:
+                    for cfg in configs:
+                        await cfg.get(session)
+            except asyncio.CancelledError:
+                raise
+            except (
+                Exception
+            ) as exc:  # broad: warmer must survive any transient DB error
+                warmer_log.warning(
+                    "Rate limit warmer iteration failed",
+                    error=str(exc),
+                    exc_info=True,
+                )
+            await asyncio.sleep(
+                15
+            )  # < _CACHE_TTL (30s) so the sync cache never expires to default
+
+    rate_limit_warmer_task = asyncio.create_task(_rate_limit_warmer())
+
     yield
 
     pool_metrics_task.cancel()
     stale_jobs_task.cancel()
+    rate_limit_warmer_task.cancel()
     await task_app.close_async()
     await close_tile_pool()
     await _titiler_client.aclose()
@@ -508,7 +553,10 @@ async def _rate_limit_handler(request: Request, exc: RateLimitExceeded) -> JSONR
 app.add_exception_handler(RateLimitExceeded, _rate_limit_handler)
 
 
-from app.modules.quota.service import DatasetQuotaExceededError  # noqa: E402
+from app.modules.quota.service import (  # noqa: E402
+    DatasetQuotaExceededError,
+    StorageQuotaExceededError,
+)
 
 
 async def _dataset_quota_handler(
@@ -528,7 +576,24 @@ async def _dataset_quota_handler(
     )
 
 
+async def _storage_quota_handler(
+    request: Request, exc: StorageQuotaExceededError
+) -> JSONResponse:
+    # fix(#430 BA-23): reserve_storage_bytes raises a plain exception in the worker;
+    # API-side callers get a 413 matching the check_upload_quota byte-cap contract.
+    return JSONResponse(
+        status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+        content=ProblemDetail(
+            title="Storage quota exceeded",
+            status=status.HTTP_413_CONTENT_TOO_LARGE,
+            detail=str(exc),
+        ).model_dump(),
+        media_type="application/problem+json",
+    )
+
+
 app.add_exception_handler(DatasetQuotaExceededError, _dataset_quota_handler)
+app.add_exception_handler(StorageQuotaExceededError, _storage_quota_handler)
 
 # SEC-02 / M-64 / SEC-005: gate https_only on the production indicator. Local-dev
 # and test runs use the development posture (no TLS terminator), so

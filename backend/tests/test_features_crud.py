@@ -68,6 +68,11 @@ async def _create_test_table_and_dataset(
             {"name": "name", "type": "text"},
             {"name": "status", "type": "text"},
         ],
+        # fix(#430 codex r7): deliberately 'created' WITH a concretely typed
+        # geom column (see pg_geom_type above) — this mirrors the layers-module
+        # creation path (layers/service.py), whose typed tables must KEEP typed
+        # validation + ST_Multi promotion. effective_geometry_type() only goes
+        # generic when the geometry_columns probe reports a generic column.
         source_format="created",
     )
     session.add(dataset)
@@ -1017,3 +1022,304 @@ class TestRasterDatasetFeatureGuard:
         )
         assert resp.status_code == 404, resp.text
         assert "raster collection" in resp.json()["detail"].lower()
+
+
+class TestCreateEmptyDatasetGenericGeometry:
+    """fix(#430 codex r5, P1): create_empty_dataset stores geometry_type='GEOMETRY'
+    (fix #430 BA-32), which the chk_datasets_geometry_type allow-list rejected —
+    every empty-dataset create 500'd at flush with ZERO endpoint coverage.
+    Migration 0011 admits the generic sentinel; this pins the whole flow."""
+
+    async def _stored_geometry_type(self, session, dataset_id: str) -> str | None:
+        result = await session.execute(
+            text(
+                "SELECT geometry_type FROM catalog.datasets WHERE id = :id"
+            ).bindparams(id=uuid.UUID(str(dataset_id)))
+        )
+        return result.scalar_one()
+
+    async def test_create_empty_dataset_then_insert_mixed_geometries(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+    ):
+        resp = await client.post(
+            "/datasets/create/",
+            json={
+                "title": "Mixed Sketch Layer",
+                "columns": [{"name": "name", "type": "text"}],
+            },
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 201, resp.text
+        dataset_id = resp.json()["id"]
+
+        # fix(#430 BA-32): the generic-typed dataset accepts ANY concrete
+        # geometry subtype — previously the stored 'POINT' rejected polygons.
+        geometries = [
+            {"type": "Point", "coordinates": [-73.9857, 40.7484]},
+            {
+                "type": "Polygon",
+                "coordinates": [
+                    [
+                        [-74.0, 40.7],
+                        [-73.9, 40.7],
+                        [-73.9, 40.8],
+                        [-74.0, 40.8],
+                        [-74.0, 40.7],
+                    ]
+                ],
+            },
+            {"type": "LineString", "coordinates": [[-74.0, 40.7], [-73.9, 40.8]]},
+        ]
+        for geometry in geometries:
+            feature_resp = await client.post(
+                f"/datasets/{dataset_id}/features/",
+                json={"geometry": geometry, "properties": {"name": geometry["type"]}},
+                headers=admin_auth_header,
+            )
+            assert feature_resp.status_code == 201, (
+                f"{geometry['type']}: {feature_resp.text}"
+            )
+
+        # fix(#430 codex r7): a cross-family mix stays generic (renders as fill,
+        # the honest fallback — same as GEOMETRYCOLLECTION datasets).
+        assert await self._stored_geometry_type(test_db_session, dataset_id) == (
+            "GEOMETRY"
+        )
+
+    async def test_homogeneous_created_layer_derives_renderable_type(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+    ):
+        """fix(#430 codex r7): a point-only sketch layer must expose a concrete
+        geometry_type ('POINT') so the builder renders circles — the 'GEOMETRY'
+        sentinel classified as an invisible fill layer. Later inserting another
+        family must still be ACCEPTED (validation stays generic for created
+        datasets) and flips the display type back to 'GEOMETRY'."""
+        resp = await client.post(
+            "/datasets/create/",
+            json={
+                "title": "Point Sketch Layer",
+                "columns": [{"name": "name", "type": "text"}],
+            },
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 201, resp.text
+        dataset_id = resp.json()["id"]
+
+        point_resp = await client.post(
+            f"/datasets/{dataset_id}/features/",
+            json={
+                "geometry": {"type": "Point", "coordinates": [-73.99, 40.75]},
+                "properties": {"name": "p1"},
+            },
+            headers=admin_auth_header,
+        )
+        assert point_resp.status_code == 201, point_resp.text
+        assert await self._stored_geometry_type(test_db_session, dataset_id) == "POINT"
+
+        # fix(#430 codex r18): even with a concrete DISPLAY type derived, the
+        # detail endpoint must expose the genericity signal so the drawing
+        # toolbar keeps offering every mode (the column still accepts any
+        # subtype).
+        detail = await client.get(f"/datasets/{dataset_id}", headers=admin_auth_header)
+        assert detail.status_code == 200
+        assert detail.json()["geometry_type"] == "POINT"
+        assert detail.json()["has_generic_geometry"] is True
+
+        # Single-family mix (Point + MultiPoint) -> the MULTI variant.
+        multipoint_resp = await client.post(
+            f"/datasets/{dataset_id}/features/",
+            json={
+                "geometry": {
+                    "type": "MultiPoint",
+                    "coordinates": [[-73.98, 40.74], [-73.97, 40.73]],
+                },
+                "properties": {"name": "p2"},
+            },
+            headers=admin_auth_header,
+        )
+        assert multipoint_resp.status_code == 201, multipoint_resp.text
+        assert await self._stored_geometry_type(test_db_session, dataset_id) == (
+            "MULTIPOINT"
+        )
+
+        # A different family is STILL accepted (derived type must not
+        # re-restrict inserts — that would reintroduce the BA-32 bug)...
+        line_resp = await client.post(
+            f"/datasets/{dataset_id}/features/",
+            json={
+                "geometry": {
+                    "type": "LineString",
+                    "coordinates": [[-74.0, 40.7], [-73.9, 40.8]],
+                },
+                "properties": {"name": "l1"},
+            },
+            headers=admin_auth_header,
+        )
+        assert line_resp.status_code == 201, line_resp.text
+        # ...and the display type honestly degrades to generic.
+        assert await self._stored_geometry_type(test_db_session, dataset_id) == (
+            "GEOMETRY"
+        )
+
+    async def test_geometry_collection_accepted_on_generic_rejected_on_typed(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_layer: Dataset,
+        test_db_session,
+    ):
+        """fix(#430 codex r9): a GeoJSON GeometryCollection is insertable into a
+        generic GEOMETRY column (the constraint and column allow it) but was
+        400'd as 'Unsupported geometry type' because GEOJSON_TYPE_MAP had no
+        entry. Typed datasets must keep rejecting it — as a type MISMATCH, not
+        as an unknown type."""
+        resp = await client.post(
+            "/datasets/create/",
+            json={
+                "title": "GC Sketch Layer",
+                "columns": [{"name": "name", "type": "text"}],
+            },
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 201, resp.text
+        dataset_id = resp.json()["id"]
+
+        collection = {
+            "type": "GeometryCollection",
+            "geometries": [
+                {"type": "Point", "coordinates": [-73.9857, 40.7484]},
+                {
+                    "type": "LineString",
+                    "coordinates": [[-74.0, 40.7], [-73.9, 40.8]],
+                },
+            ],
+        }
+        gc_resp = await client.post(
+            f"/datasets/{dataset_id}/features/",
+            json={"geometry": collection, "properties": {"name": "gc"}},
+            headers=admin_auth_header,
+        )
+        assert gc_resp.status_code == 201, gc_resp.text
+
+        # codex r13 (refuted as proposed): a NESTED collection cannot
+        # round-trip PostGIS's GeoJSON boundary in either direction —
+        # ST_GeomFromGeoJSON rejects it on write and ST_AsGeoJSON raises
+        # 'GeoJson: geometry not supported' on read — so the schema stays
+        # non-recursive and the write path rejects nesting with a CLEAR 422
+        # (previously a misleading 'coordinates: Field required').
+        nested = {
+            "type": "GeometryCollection",
+            "geometries": [
+                {
+                    "type": "GeometryCollection",
+                    "geometries": [
+                        {"type": "Point", "coordinates": [-73.95, 40.75]},
+                    ],
+                },
+            ],
+        }
+        nested_resp = await client.post(
+            f"/datasets/{dataset_id}/features/",
+            json={"geometry": nested, "properties": {"name": "nested"}},
+            headers=admin_auth_header,
+        )
+        assert nested_resp.status_code == 422, nested_resp.text
+        assert "Nested GeometryCollections" in nested_resp.text
+
+        # codex r14: a malformed collection WITHOUT a 'geometries' array must
+        # 422 too — it would otherwise slip through the union's broad
+        # GeoJSONGeometry member (type is plain str) and reach
+        # ST_GeomFromGeoJSON as a raw database error.
+        for malformed in (
+            {"type": "GeometryCollection", "coordinates": []},
+            {"type": "GeometryCollection", "geometries": "nope", "coordinates": []},
+        ):
+            malformed_resp = await client.post(
+                f"/datasets/{dataset_id}/features/",
+                json={"geometry": malformed, "properties": {"name": "bad"}},
+                headers=admin_auth_header,
+            )
+            assert malformed_resp.status_code == 422, malformed_resp.text
+            assert "requires a 'geometries' array" in malformed_resp.text
+
+        # Read side: the stored FLAT collection serializes back out through
+        # the GeoJSONGeometryCollection response variant.
+        read_resp = await client.get(
+            f"/datasets/{dataset_id}/features?limit=50",
+            headers=admin_auth_header,
+        )
+        assert read_resp.status_code == 200, read_resp.text
+        geoms = [f["geometry"]["type"] for f in read_resp.json()["features"]]
+        assert geoms.count("GeometryCollection") == 1
+
+        # Typed dataset (Point layer): still rejected, but as a mismatch.
+        typed_resp = await client.post(
+            f"/datasets/{test_layer.id}/features/",
+            json={"geometry": collection, "properties": {"name": "gc"}},
+            headers=admin_auth_header,
+        )
+        assert typed_resp.status_code == 400
+        assert "mismatch" in typed_resp.json()["detail"].lower()
+
+        # fix(#430 codex r18): typed datasets report no generic signal.
+        typed_detail = await client.get(
+            f"/datasets/{test_layer.id}", headers=admin_auth_header
+        )
+        assert typed_detail.status_code == 200
+        assert typed_detail.json()["has_generic_geometry"] is False
+
+    async def test_geometrycollection_typed_dataset_accepts_collections(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+    ):
+        """fix(#430 codex r20): a dataset whose column IS typed
+        GEOMETRYCOLLECTION (ingested GC data — the check constraint allows the
+        type) must accept flat GeoJSON collections through the feature API;
+        r9's empty compatibility set rejected them as a mismatch. Non-collection
+        subtypes stay rejected (the typed column cannot store them)."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _create_test_table_and_dataset(
+            test_db_session,
+            created_by=admin_id,
+            geometry_type="GEOMETRYCOLLECTION",
+        )
+        try:
+            gc_resp = await client.post(
+                f"/datasets/{dataset.id}/features/",
+                json={
+                    "geometry": {
+                        "type": "GeometryCollection",
+                        "geometries": [
+                            {"type": "Point", "coordinates": [-73.9, 40.7]},
+                        ],
+                    },
+                    "properties": {"name": "gc"},
+                },
+                headers=admin_auth_header,
+            )
+            assert gc_resp.status_code == 201, gc_resp.text
+
+            point_resp = await client.post(
+                f"/datasets/{dataset.id}/features/",
+                json={"geometry": POINT_GEOJSON, "properties": {"name": "p"}},
+                headers=admin_auth_header,
+            )
+            assert point_resp.status_code == 400
+            assert "mismatch" in point_resp.json()["detail"].lower()
+        finally:
+            tbl = dataset.table_name
+            rec_id = dataset.record_id
+            await _cleanup_table(test_db_session, tbl)
+            await test_db_session.execute(
+                text("DELETE FROM catalog.records WHERE id = :id"),
+                {"id": rec_id},
+            )
+            await test_db_session.commit()

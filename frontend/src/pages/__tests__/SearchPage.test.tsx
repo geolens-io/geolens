@@ -1,13 +1,16 @@
 import { act } from 'react';
 import { render, screen } from '@/test/test-utils';
 import { SearchPage } from '@/pages/SearchPage';
-import { useSearchResults } from '@/components/search/hooks/use-search';
+import { useSearchResults, useMapSearchResults } from '@/components/search/hooks/use-search';
 import { useSearchStore } from '@/stores/search-store';
 import { useAuthStore } from '@/stores/auth-store';
 import type { OGCRecordResponse } from '@/types/api';
 
 vi.mock('@/components/search/hooks/use-search', () => ({
   useSearchResults: vi.fn(),
+  // fix(#430 V-08): SearchPage now also calls useMapSearchResults — stub it so
+  // the parallel maps section is inert (no maps) unless a test overrides it.
+  useMapSearchResults: vi.fn(() => ({ data: undefined })),
 }));
 
 vi.mock('@/components/search/hooks/use-url-search-sync', () => ({
@@ -48,7 +51,14 @@ vi.mock('@/components/layout/Pagination', () => ({
   Pagination: ({ total }: { total: number }) => <div data-testid="pagination">{total}</div>,
 }));
 
+vi.mock('@/components/maps/MapCard', () => ({
+  MapCard: ({ map }: { map: { id: string; name: string } }) => (
+    <article data-testid="map-card">{map.name}</article>
+  ),
+}));
+
 const mockUseSearchResults = vi.mocked(useSearchResults);
+const mockUseMapSearchResults = vi.mocked(useMapSearchResults);
 const initialSearchState = useSearchStore.getState();
 const initialAuthState = useAuthStore.getState();
 
@@ -120,6 +130,11 @@ describe('SearchPage', () => {
       useSearchStore.setState(initialSearchState, true);
       useAuthStore.setState(initialAuthState, true);
     });
+
+    // Inert maps lookup by default; individual tests override.
+    mockUseMapSearchResults.mockReturnValue(
+      { data: undefined } as unknown as ReturnType<typeof useMapSearchResults>,
+    );
 
     mockUseSearchResults.mockReturnValue({
       data: {
@@ -221,5 +236,33 @@ describe('SearchPage', () => {
     // and no result cards are visible.
     expect(screen.queryByTestId('search-result-card')).not.toBeInTheDocument();
     expect(screen.queryByTestId('dataset-card-skeleton')).not.toBeInTheDocument();
+  });
+
+  // fix(#430 codex r4): a query matching maps but zero datasets must show the
+  // map cards WITHOUT the contradictory dataset empty state below them.
+  it('map-only match renders map cards and suppresses the empty state', () => {
+    setAnonymousUser();
+    mockUseSearchResults.mockReturnValue({
+      data: {
+        type: 'FeatureCollection',
+        numberMatched: 0,
+        numberReturned: 0,
+        features: [] as OGCRecordResponse[],
+      },
+      isLoading: false,
+      error: null,
+      isFetching: false,
+    } as unknown as ReturnType<typeof useSearchResults>);
+    mockUseMapSearchResults.mockReturnValue({
+      data: { maps: [{ id: 'map-1', name: 'Matterhorn 3D' }], total: 1 },
+    } as unknown as ReturnType<typeof useMapSearchResults>);
+
+    render(<SearchPage />, { route: '/' });
+
+    expect(screen.getByTestId('map-card')).toBeInTheDocument();
+    // Neither empty-state branch renders: no onboarding (the pre-fix branch
+    // for this scenario) and no "no results" state.
+    expect(screen.queryByText(/your catalog is empty/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/no results found/i)).not.toBeInTheDocument();
   });
 });

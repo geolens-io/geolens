@@ -177,6 +177,10 @@ export interface DatasetResponse {
   summary: string | null;
   srid: number | null;
   geometry_type: GeometryTypeName | null;
+  /** fix(#430 codex r18): true when the column is generic GEOMETRY (created
+   * sketch datasets) — the dataset accepts any subtype on write regardless of
+   * the display geometry_type. Detail endpoint only; lists report false. */
+  has_generic_geometry?: boolean;
   feature_count: number | null;
   extent_bbox: number[] | null;
   column_info: { name: string; type: string; semantic_role?: string | null; domain_type?: string | null }[] | null;
@@ -1018,6 +1022,10 @@ export interface MapLayerResponse {
   style_config?: StyleConfig | null;
   layer_type?: MapLayerType | null;
   dataset_record_type?: RecordType | null;
+  /** fix(#430 V-17): dataset's own visibility, for computing audience-hidden layers. */
+  dataset_visibility?: string | null;
+  /** fix(#430 V-17): dataset's own publish status, for computing audience-hidden layers. */
+  dataset_status?: string | null;
   show_in_legend?: boolean;
   is_3d?: boolean | null;
   is_dem?: boolean | null;
@@ -1137,6 +1145,8 @@ export interface MapUpdateRequest {
 }
 
 export interface MapLayerInput {
+  /** fix(#430 codex): existing layer id — lets a full PUT update rows in place (V-14). */
+  id?: string;
   dataset_id: string;
   sort_order?: number;
   visible?: boolean;

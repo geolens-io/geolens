@@ -257,9 +257,11 @@ async def conformance(f: str | None = Query(None)) -> ConformanceResponse:
             "http://www.opengis.net/spec/ogcapi-features-1/1.0/conf/core",
             "http://www.opengis.net/spec/ogcapi-features-1/1.0/conf/geojson",
             "http://www.opengis.net/spec/ogcapi-features-1/1.0/conf/oas30",
-            # OGC API Features Part 3: Filtering
-            "http://www.opengis.net/spec/ogcapi-features-3/1.0/conf/filter",
-            "http://www.opengis.net/spec/ogcapi-features-3/1.0/conf/features-filter",
+            # CQL2 query language (advertised for the Records collection, which
+            # supports filtering + /queryables). fix(#430 BA-14): the Features Part 3
+            # `conf/filter` / `conf/features-filter` classes were dropped because
+            # per-dataset feature collections reject `filter` with 400 — advertising
+            # them told spec-driven clients to send filters that always 400.
             "http://www.opengis.net/spec/cql2/1.0/conf/cql2-text",
             "http://www.opengis.net/spec/cql2/1.0/conf/cql2-json",
             "http://www.opengis.net/spec/cql2/1.0/conf/basic-cql2",
@@ -561,10 +563,13 @@ async def get_collection_items(
     # list_features handler and return 503 rather than an unhandled 500 that
     # holds a DB connection.
     try:
+        # fix(#430 BA-15): over-fetch one row so a full page can be distinguished from
+        # a full *final* page; otherwise a feature count that is an exact multiple
+        # of `limit` emits a phantom keyset `next` to an empty page.
         rows, total = await get_features(
             db,
             dataset.table_name,
-            limit=limit,
+            limit=limit + 1,
             offset=offset,
             after_gid=after_gid,
             bbox=bbox_parsed,
@@ -579,6 +584,9 @@ async def get_collection_items(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Dataset table is temporarily unavailable",
         )
+
+    has_more = len(rows) > limit
+    rows = rows[:limit]
 
     # Convert rows to GeoJSON features
     features = []
@@ -636,10 +644,10 @@ async def get_collection_items(
             type="application/json",
         ),
     ]
-    # H-24: emit a keyset `next` link when the page is full — primary path.
+    # H-24: emit a keyset `next` link when more rows exist — primary path.
     # Fall back to offset-based `next`/`prev` for legacy clients only when
     # the request itself used offset.
-    if rows and len(rows) == limit:
+    if rows and has_more:
         next_after_gid = rows[-1]["gid"]
         links.append(
             OGCLink(

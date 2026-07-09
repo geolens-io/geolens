@@ -127,7 +127,7 @@ async def rebuild_embedding_column(db: AsyncSession, new_dims: int) -> bool:
     Deletes all existing embeddings, drops the HNSW index, alters the column
     type, then recreates the index. Commits on success; rolls back on failure.
 
-    DBM-07 (Phase 271): The HNSW DDL is also issued by migration 0011 for
+    DBM-07 (Phase 271): The HNSW DDL is also issued by migration 0001_baseline for
     fresh-install / migrated-up environments. This function handles the
     config-time dimension-change path that the migration cannot reproduce
     (column dimension is set at runtime when an embedding model is first

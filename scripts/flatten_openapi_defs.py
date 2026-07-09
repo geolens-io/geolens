@@ -133,15 +133,25 @@ def _resolve_defs_entry(
     else:
         promoted_schema = defs_schema
 
-    existing = components.get(synth) or promotions.get(synth)
-    if existing is not None and _serialize(existing) != _serialize(promoted_schema):
+    existing_top = components.get(synth)
+    if existing_top is not None and _serialize(existing_top) != _serialize(
+        promoted_schema
+    ):
         sys.stderr.write(
             f"ERROR: synthetic name '{synth}' collides with an existing "
             "schema of different shape. Refusing to overwrite.\n"
         )
         sys.exit(1)
 
-    promotions[synth] = promoted_schema
+    # An entry already in ``promotions`` under the same synthetic name is
+    # same-shape BY CONSTRUCTION — the name embeds sha1(original body).
+    # Comparing bodies here would false-positive: Pass 2 rewrites the stored
+    # body's inner ``#/$defs/X`` refs in place, so the first inline $defs
+    # schema that itself references another def (e.g. GeoJSONGeometryCollection
+    # → GeoJSONGeometry) no longer serializes equal to its pristine twin.
+    # Keep the first (possibly already-rewritten) body.
+    if synth not in promotions:
+        promotions[synth] = promoted_schema
     return synth
 
 

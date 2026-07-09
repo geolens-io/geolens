@@ -251,16 +251,11 @@ def dataset_to_ogc_record(
     elif record.spatial_extent is not None:
         try:
             from geoalchemy2.shape import to_shape
+            from shapely.geometry import mapping
 
-            shape = to_shape(record.spatial_extent)
-            geometry = {
-                "type": shape.geom_type,
-                "coordinates": [
-                    [(round(x, 6), round(y, 6)) for x, y in shape.exterior.coords]
-                ]
-                if hasattr(shape, "exterior")
-                else [],
-            }
+            # fix(#430 BA-16): mapping() emits valid GeoJSON for any geometry type;
+            # the old .exterior path built {"coordinates": []} for Point extents.
+            geometry = mapping(to_shape(record.spatial_extent))
         except Exception:  # broad: WKB deserialize — geoalchemy/shapely errors fall back to None geometry
             logger.warning(
                 "ogc_geometry_wkb_deserialize_failed",

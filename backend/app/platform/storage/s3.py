@@ -90,8 +90,14 @@ class S3StorageProvider:
         """Retrieve raw bytes for a key."""
 
         def _get():
-            response = self.client.get_object(Bucket=self.bucket, Key=key)
-            return response["Body"].read()
+            try:
+                response = self.client.get_object(Bucket=self.bucket, Key=key)
+                return response["Body"].read()
+            except ClientError as e:
+                # fix(#430 BA-24): normalize missing-object to FileNotFoundError across providers.
+                if e.response.get("Error", {}).get("Code") in ("404", "NoSuchKey"):
+                    raise FileNotFoundError(key) from e
+                raise
 
         return await asyncio.to_thread(_get)
 
@@ -140,8 +146,14 @@ class S3StorageProvider:
         """Return object size in bytes via head_object."""
 
         def _size() -> int:
-            response = self.client.head_object(Bucket=self.bucket, Key=key)
-            return int(response["ContentLength"])
+            try:
+                response = self.client.head_object(Bucket=self.bucket, Key=key)
+                return int(response["ContentLength"])
+            except ClientError as e:
+                # fix(#430 BA-24): normalize missing-object to FileNotFoundError across providers.
+                if e.response.get("Error", {}).get("Code") in ("404", "NoSuchKey"):
+                    raise FileNotFoundError(key) from e
+                raise
 
         return await asyncio.to_thread(_size)
 

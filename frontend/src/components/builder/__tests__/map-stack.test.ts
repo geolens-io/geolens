@@ -4,6 +4,7 @@ import {
   buildMapStack,
   computeDisambiguationLabels,
   flattenMapStack,
+  isLayerHiddenFromMapAudience,
   resolveTerrainSourceLayer,
   type MapStackGroup,
   type MapStackMapInput,
@@ -438,6 +439,39 @@ describe('computeDisambiguationLabels', () => {
     ]);
     expect(labels.get('route')).toBeNull();
     expect(labels.get('casing')).toBeNull();
+  });
+});
+
+// fix(#430 V-17): audience-visibility mismatch detection.
+describe('isLayerHiddenFromMapAudience', () => {
+  it('never flags a private map — it has no audience beyond the owner/grantees', () => {
+    expect(
+      isLayerHiddenFromMapAudience({ dataset_visibility: 'private', dataset_status: 'draft' }, 'private'),
+    ).toBe(false);
+  });
+
+  it('flags a private dataset layer on a public map', () => {
+    expect(
+      isLayerHiddenFromMapAudience({ dataset_visibility: 'private', dataset_status: 'published' }, 'public'),
+    ).toBe(true);
+  });
+
+  it('flags an unpublished dataset layer on a shared (internal) map', () => {
+    expect(
+      isLayerHiddenFromMapAudience({ dataset_visibility: 'public', dataset_status: 'draft' }, 'internal'),
+    ).toBe(true);
+  });
+
+  it('does not flag a public+published dataset layer on a public map', () => {
+    expect(
+      isLayerHiddenFromMapAudience({ dataset_visibility: 'public', dataset_status: 'published' }, 'public'),
+    ).toBe(false);
+  });
+
+  it('is conservative when both signal fields are absent — no false positive', () => {
+    expect(
+      isLayerHiddenFromMapAudience({ dataset_visibility: undefined, dataset_status: undefined }, 'public'),
+    ).toBe(false);
   });
 });
 

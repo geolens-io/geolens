@@ -196,6 +196,16 @@ class DatasetResponse(BaseModel):
     geometry_type: str | None = Field(
         default=None, description="OGC geometry type, e.g. MultiPolygon"
     )
+    has_generic_geometry: bool = Field(
+        default=False,
+        description=(
+            "True when the underlying column is generic GEOMETRY (created "
+            "sketch datasets): the dataset accepts ANY geometry subtype on "
+            "write regardless of the display geometry_type above. Computed "
+            "on the detail endpoint only (fix #430 codex r18); list "
+            "endpoints always report false."
+        ),
+    )
     is_3d: bool | None = Field(
         default=None, description="True if geometry has Z dimension"
     )

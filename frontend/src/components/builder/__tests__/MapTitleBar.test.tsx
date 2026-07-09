@@ -235,4 +235,27 @@ describe('MapTitleBar', () => {
     await user.click(forkItem);
     expect(onFork).toHaveBeenCalledTimes(1);
   });
+
+  // fix(#430 V-15): "View as viewer" overflow item.
+  it('overflow dropdown omits "View as viewer" when onViewAsViewer is not provided', async () => {
+    const user = userEvent.setup();
+    render(<MapTitleBar {...defaultProps({ overflow: makeOverflow() })} />);
+
+    await user.click(screen.getByRole('button', { name: 'More actions' }));
+    await screen.findByRole('menuitem', { name: /Download PNG/i });
+    expect(screen.queryByRole('menuitem', { name: /View as viewer/i })).not.toBeInTheDocument();
+  });
+
+  it('overflow dropdown exposes "View as viewer" and invokes onViewAsViewer when clicked', async () => {
+    const user = userEvent.setup();
+    const onViewAsViewer = vi.fn();
+    const overflow = makeOverflow({ onViewAsViewer });
+
+    render(<MapTitleBar {...defaultProps({ overflow })} />);
+
+    await user.click(screen.getByRole('button', { name: 'More actions' }));
+    const viewAsViewerItem = await screen.findByRole('menuitem', { name: /View as viewer/i });
+    await user.click(viewAsViewerItem);
+    expect(onViewAsViewer).toHaveBeenCalledTimes(1);
+  });
 });

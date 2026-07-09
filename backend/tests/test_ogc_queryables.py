@@ -80,25 +80,31 @@ async def test_record_schema_endpoint(client: AsyncClient):
 
 
 @pytest.mark.anyio
-async def test_conformance_includes_part3(client: AsyncClient):
-    """GET /conformance includes OGC API Features Part 3 filtering and CQL2 conformance classes.
+async def test_conformance_includes_cql2(client: AsyncClient):
+    """GET /conformance advertises the CQL2 language classes for the Records collection.
 
-    Note: queryables conformance class is not declared because queryables
-    only apply to the catalog collection, not per-dataset features.
+    fix(#430 BA-14): the Features Part 3 `conf/filter` / `conf/features-filter` classes
+    are NOT declared, because per-dataset feature collections reject `filter` with
+    400 — only the Records collection filters.
     """
     resp = await client.get("/conformance")
     assert resp.status_code == 200
     data = resp.json()
 
-    part3_classes = [
-        "http://www.opengis.net/spec/ogcapi-features-3/1.0/conf/filter",
-        "http://www.opengis.net/spec/ogcapi-features-3/1.0/conf/features-filter",
+    cql2_classes = [
         "http://www.opengis.net/spec/cql2/1.0/conf/cql2-text",
         "http://www.opengis.net/spec/cql2/1.0/conf/cql2-json",
         "http://www.opengis.net/spec/cql2/1.0/conf/basic-cql2",
     ]
-    for cls in part3_classes:
+    for cls in cql2_classes:
         assert cls in data["conformsTo"], f"Missing conformance class: {cls}"
+
+    features_filter_classes = [
+        "http://www.opengis.net/spec/ogcapi-features-3/1.0/conf/filter",
+        "http://www.opengis.net/spec/ogcapi-features-3/1.0/conf/features-filter",
+    ]
+    for cls in features_filter_classes:
+        assert cls not in data["conformsTo"], f"Should not advertise: {cls}"
 
 
 # ---------------------------------------------------------------------------

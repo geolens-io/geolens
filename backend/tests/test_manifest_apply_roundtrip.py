@@ -222,10 +222,14 @@ class TestManifestApplyEndpointRoundTrip:
     async def test_endpoint_dry_run_does_not_write_or_defer(
         self,
         client: AsyncClient,
-        editor_auth_header: dict,
+        admin_auth_header: dict,
         test_db_session,
         clean_tables,
     ):
+        # fix(#430 BA-02): the caller must OWN the manifest-managed datasets, else the
+        # write-access gate now (correctly) denies the update. This test exercises
+        # dry-run side-effect-freeness, not cross-user authz — so run it as the
+        # owner (admin). The cross-user denial has its own test below.
         user = await _admin_user(test_db_session)
         skip_payload = _dataset_payload(
             key="roundtrip-dry-skip",
@@ -290,7 +294,7 @@ class TestManifestApplyEndpointRoundTrip:
                     skip_payload,
                     dry_run=True,
                 ),
-                headers=editor_auth_header,
+                headers=admin_auth_header,
             )
 
         assert response.status_code == 200
@@ -315,6 +319,188 @@ class TestManifestApplyEndpointRoundTrip:
         assert after_jobs == before_jobs
         assert after_record is not None
         assert after_record.title == before_title
+
+    async def test_manifest_update_over_other_users_dataset_is_denied(
+        self,
+        client: AsyncClient,
+        editor_auth_header: dict,
+        test_db_session,
+        clean_tables,
+    ):
+        """fix(#430 BA-02): an editor cannot overwrite another user's manifest-managed
+        dataset, and dry_run must not leak that dataset's UUID (a pre-write oracle)."""
+        owner = await _admin_user(test_db_session)
+        original_payload = _dataset_payload(
+            key="cross-user-update", title="Owner Original"
+        )
+        changed_payload = _dataset_payload(
+            key="cross-user-update", title="Attacker Changed"
+        )
+        original_request = ManifestApplyRequest.model_validate(
+            _manifest_payload(original_payload)
+        )
+        victim_dataset = await create_dataset(
+            test_db_session, created_by=owner.id, name="Owner Original"
+        )
+        await _create_completed_manifest_job(
+            test_db_session,
+            user=owner,
+            dataset=victim_dataset,
+            manifest_dataset=original_request.datasets[0],
+        )
+        before_title = (
+            await test_db_session.get(Record, victim_dataset.record_id)
+        ).title
+
+        for dry_run in (True, False):
+            with patch(
+                "app.processing.ingest.manifest_service.queue_ingest_job",
+                new=AsyncMock(),
+            ) as queue:
+                response = await client.post(
+                    "/ingest/manifest/apply",
+                    json=_manifest_payload(changed_payload, dry_run=dry_run),
+                    headers=editor_auth_header,
+                )
+            assert response.status_code == 200
+            actions = _actions_by_key(response.json())
+            entry = actions["cross-user-update"]
+            assert entry["action"] == "error"
+            # UUID oracle closed: the victim's dataset id must not be disclosed.
+            assert entry.get("dataset_id") is None
+            queue.assert_not_awaited()
+
+        # The victim's data was never touched.
+        after_record = await test_db_session.get(Record, victim_dataset.record_id)
+        assert after_record.title == before_title
+
+    async def test_manifest_update_by_nonadmin_owner_classifies_as_update(
+        self,
+        client: AsyncClient,
+        editor_auth_header: dict,
+        test_db_session,
+        clean_tables,
+    ):
+        """fix(#430 codex r10, refuted): the BA-02 write gate dereferences
+        dataset.record synchronously, which is only safe because the
+        Dataset.record relationship is lazy='joined' (models.py) — the
+        completed-manifest-job query has no explicit eager-load of its own.
+        Nothing pinned the legitimate NON-admin owner update path: the admin
+        dry-run test short-circuits before touching record, and the
+        cross-user test asserts an error entry. If the model-level eager
+        load is ever weakened, this test catches the MissingGreenlet."""
+        me = await client.get("/auth/me/", headers=editor_auth_header)
+        assert me.status_code == 200
+        owner = await test_db_session.get(User, uuid.UUID(me.json()["id"]))
+        original = _dataset_payload(key="owner-update", title="Owner Original")
+        changed = _dataset_payload(key="owner-update", title="Owner Changed")
+        original_request = ManifestApplyRequest.model_validate(
+            _manifest_payload(original)
+        )
+        dataset = await create_dataset(
+            test_db_session, created_by=owner.id, name="Owner Original"
+        )
+        await _create_completed_manifest_job(
+            test_db_session,
+            user=owner,
+            dataset=dataset,
+            manifest_dataset=original_request.datasets[0],
+        )
+
+        response = await client.post(
+            "/ingest/manifest/apply",
+            json=_manifest_payload(changed, dry_run=True),
+            headers=editor_auth_header,
+        )
+        assert response.status_code == 200
+        entry = _actions_by_key(response.json())["owner-update"]
+        assert entry["action"] == "update", entry
+        assert entry["dataset_id"] == str(dataset.id)
+
+        # fix(#430 codex r15): the OWNER's same-fingerprint submit still
+        # returns the skip entry WITH ids (the new skip gates only bite
+        # non-owners).
+        skip_response = await client.post(
+            "/ingest/manifest/apply",
+            json=_manifest_payload(original, dry_run=True),
+            headers=editor_auth_header,
+        )
+        assert skip_response.status_code == 200
+        skip_entry = _actions_by_key(skip_response.json())["owner-update"]
+        assert skip_entry["action"] == "skip", skip_entry
+        assert skip_entry["dataset_id"] == str(dataset.id)
+
+    async def test_manifest_skip_paths_hide_other_users_ids(
+        self,
+        client: AsyncClient,
+        editor_auth_header: dict,
+        test_db_session,
+        clean_tables,
+    ):
+        """fix(#430 codex r15): submitting a manifest whose key+fingerprint
+        matches ANOTHER user's completed or in-flight job previously returned
+        that user's job/dataset UUIDs in a 'skip' entry — the same
+        enumeration oracle BA-02 closed on the update path. Both skip paths
+        now yield an error entry with no ids for non-owners."""
+        owner = await _admin_user(test_db_session)
+
+        # -- skip_complete: victim has a COMPLETED job for this key --
+        complete_payload = _dataset_payload(
+            key="cross-user-skip-complete", title="Victim Complete"
+        )
+        complete_request = ManifestApplyRequest.model_validate(
+            _manifest_payload(complete_payload)
+        )
+        victim_dataset = await create_dataset(
+            test_db_session, created_by=owner.id, name="Victim Complete"
+        )
+        await _create_completed_manifest_job(
+            test_db_session,
+            user=owner,
+            dataset=victim_dataset,
+            manifest_dataset=complete_request.datasets[0],
+        )
+
+        # -- skip_in_flight: victim has a PENDING job for this key --
+        inflight_payload = _dataset_payload(
+            key="cross-user-skip-inflight", title="Victim Inflight"
+        )
+        inflight_request = ManifestApplyRequest.model_validate(
+            _manifest_payload(inflight_payload)
+        )
+        inflight_ds = inflight_request.datasets[0]
+        prepared = await classify_manifest_source(inflight_ds.sources[0])
+        test_db_session.add(
+            IngestJob(
+                dataset_id=None,
+                source_filename=prepared.source_filename,
+                file_path=prepared.file_path,
+                created_by=owner.id,
+                status="pending",
+                user_metadata=manifest_job_metadata(
+                    inflight_ds,
+                    prepared,
+                    fingerprint=manifest_dataset_fingerprint(inflight_ds),
+                ),
+            )
+        )
+        await test_db_session.commit()
+
+        for dry_run in (True, False):
+            response = await client.post(
+                "/ingest/manifest/apply",
+                json=_manifest_payload(
+                    complete_payload, inflight_payload, dry_run=dry_run
+                ),
+                headers=editor_auth_header,
+            )
+            assert response.status_code == 200
+            actions = _actions_by_key(response.json())
+            for key in ("cross-user-skip-complete", "cross-user-skip-inflight"):
+                entry = actions[key]
+                assert entry["action"] == "error", entry
+                assert entry.get("dataset_id") is None
+                assert entry.get("job_id") is None
 
 
 class TestManifestCompletedDatasetRoundTrip:

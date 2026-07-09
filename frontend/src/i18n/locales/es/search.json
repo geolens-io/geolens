@@ -6,6 +6,7 @@
   "loadingDatasets": "Cargando conjuntos de datos...",
   "resultCount_one": "{{count}} resultado",
   "resultCount_other": "{{count}} resultados",
+  "mapsSectionTitle": "Mapas",
   "empty": {
     "title": "No se encontraron conjuntos de datos",
     "description": "Intente ajustar su consulta de búsqueda o los filtros",

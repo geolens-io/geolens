@@ -29,7 +29,7 @@ class EmbedToken(Base):
         ),
         # DBM-02: partial index for the hot
         # `WHERE is_active = true AND expires_at > now()` filter combo.
-        # Migration 0013 is the source of truth for the actual DDL.
+        # Migration 0001_baseline is the source of truth for the actual DDL.
         Index(
             "ix_embed_tokens_active_expires",
             "expires_at",

@@ -75,6 +75,8 @@ def _meta_to_kwargs(meta) -> DatasetMetaKwargs:
             dem_vertical_units=None,
             band_count=None,
             tile_version=None,
+            dataset_visibility=None,
+            dataset_status=None,
         )
     return DatasetMetaKwargs(
         dataset_name=meta.title,
@@ -90,6 +92,8 @@ def _meta_to_kwargs(meta) -> DatasetMetaKwargs:
         dem_vertical_units=meta.dem_vertical_units,
         band_count=meta.band_count,
         tile_version=meta.tile_version,
+        dataset_visibility=meta.visibility,
+        dataset_status=meta.record_status,
     )
 
 
@@ -126,6 +130,8 @@ def _build_layer_response(
         dem_vertical_units=meta.get("dem_vertical_units"),
         band_count=meta.get("band_count"),
         tile_version=meta.get("tile_version"),
+        dataset_visibility=meta.get("dataset_visibility"),
+        dataset_status=meta.get("dataset_status"),
     )
 
 
@@ -148,6 +154,8 @@ def _layers_from_tuples(layer_rows: list[LayerRow]) -> list[MapLayerResponse]:
                 dem_vertical_units=row.dem_vertical_units,
                 band_count=row.band_count,
                 tile_version=row.tile_version,
+                dataset_visibility=row.visibility,
+                dataset_status=row.record_status,
             ),
         )
         for row in layer_rows

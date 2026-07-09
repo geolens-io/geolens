@@ -434,6 +434,8 @@
     "noNumericColumns": "No numeric columns",
     "noTextColumnsHelp": "Categorical styles need a text column. Switch to graduated mode or add a text attribute.",
     "noNumericColumnsHelp": "Graduated styles need a numeric column. Switch to categorical mode or add a numeric attribute.",
+    "numericColumnsAvailable": "{{count}} numeric columns available in graduated mode.",
+    "switchToGraduated": "Switch to graduated mode",
     "missingColumnHelp": "Column \"{{column}}\" is no longer available. Pick another column or clear the data-driven style.",
     "statsUnavailableHelp": "Statistics are not available for this column yet. Pick another numeric column or try again after the dataset finishes processing.",
     "colorRamp": "Color Ramp",
@@ -469,7 +471,8 @@
     "noResults": "No datasets found",
     "added": "Added",
     "addToMap": "Add to map",
-    "dragHandle": "Drag to add to map",
+    "addToMapDetails": "Add to map (details panel)",
+    "dragHandle": "Drag into map",
     "catalogEmpty": "Your catalog is empty. Upload a dataset to get started.",
     "uploadCta": "Upload a file →",
     "zeroResultHeading": "No datasets match '{{query}}'",
@@ -523,6 +526,7 @@
     "cannotPublish": "Cannot publish: datasets {{datasets}} are not public",
     "embedTokenInfo": "Non-public layers are included. An embed token handles access automatically.",
     "unsavedWarning": "Unsaved changes are only in the builder preview. Save before copying links or embeds.",
+    "audienceHiddenWarning": "Hidden from viewers: {{layers}}. These layers' datasets are private or unpublished, so they will not appear for anyone but you.",
     "savingWarning": "Saving changes. Share links and embeds update after this save finishes.",
     "saveFailedWarning": "Save failed. Share links and embeds still show the last saved map until you retry successfully.",
     "expirationLabel": "Expiration",
@@ -734,6 +738,7 @@
     "mapInfo": "Map info",
     "downloadPng": "Download PNG",
     "duplicateMap": "Duplicate map",
+    "viewAsViewer": "View as viewer",
     "save": "Save ({{shortcut}})",
     "collapseSidebar": "Collapse sidebar",
     "expandSidebar": "Expand sidebar",
@@ -746,6 +751,7 @@
   },
   "toasts": {
     "mapSaved": "Map saved",
+    "mapSavedFullResync": "Map saved, but required a full re-sync. Please double-check layer styling.",
     "saveFailed": "Failed to save map",
     "saveFailedWithDetail": "Failed to save map: {{detail}}",
     "layerRemoved": "Layer removed",
@@ -1066,7 +1072,8 @@
     "kebabZoomToLayer": "Zoom to layer",
     "kebabCopyStyle": "Copy style",
     "kebabPasteStyle": "Paste style",
-    "disambiguation": "{{label}}"
+    "disambiguation": "{{label}}",
+    "audienceHidden": "Hidden from this map's viewers"
   },
   "basemapGroup": {
     "addCustomBasemap": "＋ Add custom basemap…",

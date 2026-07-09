@@ -75,8 +75,12 @@ async def list_datasets(
     total_count = total.scalar_one()
 
     # Get paginated results
+    # fix(#430 BA-19): Record.created_at is a non-unique server-default; add a
+    # unique tiebreaker so pagination over batch-seeded rows is stable.
     paginated_stmt = (
-        filtered_stmt.offset(skip).limit(limit).order_by(Record.created_at.desc())
+        filtered_stmt.offset(skip)
+        .limit(limit)
+        .order_by(Record.created_at.desc(), Record.id.desc())
     )
     result = await session.execute(paginated_stmt)
     datasets = list(result.scalars().unique().all())
@@ -173,6 +177,7 @@ async def get_dataset_detail(
     """
     from app.modules.catalog.datasets.domain.helpers import (
         _load_actor_identities,
+        dataset_geom_is_generic,
         dataset_to_response,
     )
     from app.modules.catalog.datasets.domain.schemas import StacAsset
@@ -247,7 +252,7 @@ async def get_dataset_detail(
         user_roles = await get_user_roles(db, user) if user is not None else set()
     is_admin = "admin" in user_roles
 
-    return dataset_to_response(
+    response = dataset_to_response(
         dataset,
         collections=collections_data,
         actors_by_id=actors_by_id,
@@ -257,6 +262,12 @@ async def get_dataset_detail(
         base_url=base_url,
         stac_assets=stac_assets_dict or None,
     )
+    # fix(#430 codex r18): genericity probe (helpers.py) keeps all draw modes.
+    if response is not None and dataset.source_format == "created":
+        response.has_generic_geometry = await dataset_geom_is_generic(
+            db, dataset.table_name
+        )
+    return response
 
 
 # Geometry column names excluded from SELECT in get_dataset_rows.

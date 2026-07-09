@@ -306,9 +306,12 @@ class TestSamlRetainedOnDowngrade:
         )
 
         try:
-            # Downgrade one step (removes 0010 = removes 'github', keeps 'saml').
-            r = _run_alembic("downgrade", "-1")
-            assert r.returncode == 0, f"downgrade -1 failed: {r.stderr}"
+            # Downgrade BELOW 0010 (removes 'github', keeps 'saml').
+            # fix(#430): target 0010's parent explicitly — a relative "-1" was
+            # head-coupled and stopped landing below 0010 the moment a newer
+            # migration (0011_allow_generic_geometry_type) became head.
+            r = _run_alembic("downgrade", "0009_email_verification")
+            assert r.returncode == 0, f"downgrade to 0009 failed: {r.stderr}"
 
             rows = await _fresh_query(
                 """

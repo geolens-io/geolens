@@ -620,3 +620,145 @@ class TestExportParameters:
             headers=admin_auth_header,
         )
         assert resp.status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# Feature-cap tests — fix(#430 BA-08), codex r8
+# ---------------------------------------------------------------------------
+
+
+class TestExportFeatureCap:
+    """The 5M export cap must gate on what the filter SELECTS, not on whether a
+    filter is merely present: where=1=1 passes the AST validator (Literal EQ
+    Literal, no identifiers) and previously bypassed the cap entirely.
+
+    Tests lower _MAX_EXPORT_FEATURES to 2 and use a real 3-row data table so
+    the bounded filtered COUNT runs for real.
+    """
+
+    @pytest.fixture
+    async def capped_dataset(self, test_db_session, monkeypatch):
+        """Real 3-row point table + Dataset row, with the cap lowered to 2."""
+        from sqlalchemy import text
+
+        from app.processing.export import router as export_router
+
+        monkeypatch.setattr(export_router, "_MAX_EXPORT_FEATURES", 2)
+
+        table_name = f"exp_cap_{uuid.uuid4().hex[:12]}"
+        await test_db_session.execute(
+            text(
+                f"CREATE TABLE data.{table_name} "
+                "(gid serial PRIMARY KEY, pop integer, "
+                "geom geometry(Point, 4326), geom_4326 geometry(Point, 4326))"
+            )
+        )
+        await test_db_session.execute(
+            text(
+                f"INSERT INTO data.{table_name} (pop, geom, geom_4326) VALUES "
+                "(10, ST_SetSRID(ST_MakePoint(0, 0), 4326), "
+                " ST_SetSRID(ST_MakePoint(0, 0), 4326)), "
+                "(20, ST_SetSRID(ST_MakePoint(1, 1), 4326), "
+                " ST_SetSRID(ST_MakePoint(1, 1), 4326)), "
+                "(30, ST_SetSRID(ST_MakePoint(2, 2), 4326), "
+                " ST_SetSRID(ST_MakePoint(2, 2), 4326))"
+            )
+        )
+        await test_db_session.commit()
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_dataset(
+            test_db_session,
+            created_by=admin_id,
+            name="CappedExportDS",
+            table_name=table_name,
+            geometry_type="Point",
+            feature_count=3,
+            column_info=[
+                {"name": "gid", "type": "integer"},
+                {"name": "pop", "type": "integer"},
+            ],
+        )
+        yield ds
+        await test_db_session.execute(text(f"DROP TABLE IF EXISTS data.{table_name}"))
+        await test_db_session.commit()
+
+    @pytest.mark.anyio
+    async def test_unfiltered_oversized_export_413(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        """No filter + feature_count over the cap → 413 without touching the
+        data table (no real table exists for this dataset)."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_dataset(
+            test_db_session,
+            created_by=admin_id,
+            name="OversizedDS",
+            feature_count=5_000_001,
+        )
+        resp = await client.get(f"/datasets/{ds.id}/export", headers=admin_auth_header)
+        assert resp.status_code == 413
+        assert "unfiltered-export limit" in resp.json()["detail"]
+
+    @pytest.mark.anyio
+    async def test_tautological_where_still_413(
+        self, client: AsyncClient, admin_auth_header: dict, capped_dataset
+    ):
+        """where=1=1 selects every row, so an oversized dataset must still 413.
+        This is the codex r8 bypass regression."""
+        resp = await client.get(
+            f"/datasets/{capped_dataset.id}/export",
+            params={"where": "1=1"},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 413
+        assert "still selects" in resp.json()["detail"]
+
+    @pytest.mark.anyio
+    async def test_broad_bbox_still_413(
+        self, client: AsyncClient, admin_auth_header: dict, capped_dataset
+    ):
+        """A bbox covering every feature must not bypass the cap either."""
+        resp = await client.get(
+            f"/datasets/{capped_dataset.id}/export",
+            params={"bbox": "-10,-10,10,10"},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 413
+
+    @pytest.mark.anyio
+    async def test_selective_where_passes(
+        self, client: AsyncClient, admin_auth_header: dict, capped_dataset
+    ):
+        """A where selecting 1 of 3 rows is under the cap of 2 → 200."""
+        resp = await client.get(
+            f"/datasets/{capped_dataset.id}/export",
+            params={"where": "pop > 25"},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200
+
+    @pytest.mark.anyio
+    async def test_selective_bbox_passes(
+        self, client: AsyncClient, admin_auth_header: dict, capped_dataset
+    ):
+        """A bbox covering 1 of 3 points is under the cap of 2 → 200."""
+        resp = await client.get(
+            f"/datasets/{capped_dataset.id}/export",
+            params={"bbox": "0.5,0.5,1.5,1.5"},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200
+
+    @pytest.mark.anyio
+    async def test_oversized_invalid_where_400(
+        self, client: AsyncClient, admin_auth_header: dict, capped_dataset
+    ):
+        """The count path validates the where fragment BEFORE interpolating it
+        into SQL: a disallowed construct is a 400, never executed."""
+        resp = await client.get(
+            f"/datasets/{capped_dataset.id}/export",
+            params={"where": "pg_sleep(1) IS NOT NULL"},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 400

@@ -55,6 +55,11 @@ interface DatasetMapProps {
   bbox: [number, number, number, number] | null;
   tableName: string | null;
   geometryType: string | null;
+  /** fix(#430 codex r18/r19/r22): generic created datasets accept any
+   * subtype. Switches BOTH draw-mode gating and rendering to the GEOMETRY
+   * sentinel — use-map-layers installs all-family renderers for it, so
+   * features of any family drawn in the current visit stay visible. */
+  hasGenericGeometry?: boolean;
   datasetId?: string;
   columnInfo?: { name: string; type: string }[] | null;
   containerRef?: RefObject<HTMLDivElement | null>;
@@ -73,6 +78,7 @@ export const DatasetMap = memo(function DatasetMap({
   bbox,
   tableName,
   geometryType,
+  hasGenericGeometry,
   datasetId,
   columnInfo,
   containerRef,
@@ -126,6 +132,13 @@ export const DatasetMap = memo(function DatasetMap({
   const mapRef = useRef<MaplibreMap | null>(null);
   const [mapInstance, setMapInstance] = useState<MaplibreMap | null>(null);
   const { contextLost, reload } = useWebGLRecovery(mapRef, !!mapInstance);
+  // fix(#430 V-13): dataset-detail preview map had no data-tiles-loaded signal at
+  // all. Mirror the re-arming ViewerMap/BuilderMap behavior: false while a
+  // camera move is in flight, true once idle (no tiles loading / no
+  // transitions / no animations running).
+  const [tilesIdle, setTilesIdle] = useState(false);
+  const tilesIdleMovestartHandlerRef = useRef<(() => void) | null>(null);
+  const tilesIdleIdleHandlerRef = useRef<(() => void) | null>(null);
 
   // Raster hero-state hardening (#13): ensure onMapReady / onTileError each fire
   // AT MOST ONCE per map mount, and that the imperatively-attached
@@ -148,9 +161,16 @@ export const DatasetMap = memo(function DatasetMap({
     [geometryType, columnInfo],
   );
 
+  // fix(#430 codex r19/r22): generic datasets use the GEOMETRY sentinel for
+  // BOTH drawing and rendering — use-map-layers installs all-family
+  // renderers for it (r21), so a point-only generic sketch still renders a
+  // line drawn in the same visit. elevationColumn above stays keyed on the
+  // concrete display type (extrusion never applies to generic sketches).
+  const drawGeometryType = hasGenericGeometry ? 'GEOMETRY' : geometryType;
+
   const { addVectorLayers, addRasterLayers, addOverlaySource } = useMapLayers({
     tableName,
-    geometryType,
+    geometryType: drawGeometryType,
     rasterTileUrl,
     tileVersion,
     tileToken: tileToken ?? null,
@@ -257,6 +277,13 @@ export const DatasetMap = memo(function DatasetMap({
         }
         if (rasterListenersRef.current.sourcedata) {
           map.off('sourcedata', rasterListenersRef.current.sourcedata);
+        }
+        // fix(#430 V-13): detach the re-arming data-tiles-loaded handlers symmetrically.
+        if (tilesIdleMovestartHandlerRef.current) {
+          map.off('movestart', tilesIdleMovestartHandlerRef.current);
+        }
+        if (tilesIdleIdleHandlerRef.current) {
+          map.off('idle', tilesIdleIdleHandlerRef.current);
         }
       }
       rasterListenersRef.current = {};
@@ -527,6 +554,13 @@ export const DatasetMap = memo(function DatasetMap({
         }
       });
 
+      // fix(#430 V-13): data-tiles-loaded signal, re-armed on every camera move
+      // (see ViewerMap.tsx / BuilderMap.tsx for the mirrored viewer/builder fix).
+      tilesIdleMovestartHandlerRef.current = () => setTilesIdle(false);
+      tilesIdleIdleHandlerRef.current = () => setTilesIdle(true);
+      map.on('movestart', tilesIdleMovestartHandlerRef.current);
+      map.on('idle', tilesIdleIdleHandlerRef.current);
+
       if (recordType === 'raster_dataset' || recordType === 'vrt_dataset') {
         // Fresh mount: detach any stale listeners and reset the fire-once guards.
         if (rasterListenersRef.current.error) {
@@ -729,6 +763,9 @@ export const DatasetMap = memo(function DatasetMap({
       aria-label={t('map.ariaLabel', { defaultValue: 'Dataset map' })}
       data-map-interactive={isDrawing ? 'true' : 'false'}
       data-testid="dataset-map-shell"
+      // fix(#430 V-13): "map fully rendered" signal — false during tile loads
+      // after a camera move, true at idle. Was previously absent entirely.
+      data-tiles-loaded={tilesIdle ? 'true' : 'false'}
     >
       <MapGL
         initialViewState={initialViewState}
@@ -765,14 +802,14 @@ export const DatasetMap = memo(function DatasetMap({
         )}
       </MapGL>
 
-      {canEdit && !isDrawing && datasetId && tableName && geometryType && (
+      {canEdit && !isDrawing && datasetId && tableName && drawGeometryType && (
         <div className="absolute top-3 left-1/2 -translate-x-1/2 z-10">
           <Button
             type="button"
             variant="outline"
             size="sm"
             className="shadow-lg"
-            onClick={() => setDrawing(datasetId, tableName, geometryType)}
+            onClick={() => setDrawing(datasetId, tableName, drawGeometryType)}
             data-testid="dataset-map-edit-trigger"
             aria-label={t('actions.editGeometry')}
           >
@@ -819,7 +856,7 @@ export const DatasetMap = memo(function DatasetMap({
       {/* Drawing toolbar overlay */}
       {isDrawing && (
         <DrawingToolbar
-          geometryType={geometryType}
+          geometryType={drawGeometryType}
           onClose={handleCloseDrawing}
           onModeChange={handleModeChange}
           onSaveEdit={handleSaveEdit}

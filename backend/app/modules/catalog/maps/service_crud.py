@@ -199,7 +199,9 @@ async def list_maps(
         )
         .outerjoin(layer_count_sq, Map.id == layer_count_sq.c.map_id)
         .outerjoin(User, Map.created_by == User.id)
-        .order_by(order_clause)
+        # fix(#430 BA-19): batch-seeded rows share a server-default timestamp; add a
+        # unique tiebreaker so pagination is stable.
+        .order_by(order_clause, Map.id)
         .offset(skip)
         .limit(limit)
     )
@@ -424,7 +426,11 @@ async def duplicate_map(
 
     # Copy layers, filtering by RBAC
     layers_result = await session.execute(
-        select(MapLayer).where(MapLayer.map_id == map_id).order_by(MapLayer.sort_order)
+        select(MapLayer)
+        .where(MapLayer.map_id == map_id)
+        .order_by(
+            MapLayer.sort_order, MapLayer.id
+        )  # fix(#430 BA-21): deterministic tie-break
     )
     layers = layers_result.scalars().all()
 

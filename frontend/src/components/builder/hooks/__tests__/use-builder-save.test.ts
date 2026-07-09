@@ -332,6 +332,50 @@ describe('buildLayerDiff', () => {
 
     expect(result.diff).toEqual({});
   });
+
+  // fix(#430 V-01): P0 data-loss regression test. A raster layer's style_config is
+  // managed by RasterLayerControls, which never writes style_config at all —
+  // so a raster layer's local `style_config` can be `null`/undefined even
+  // when the server-side baseline has real data from an earlier session.
+  // Before this fix, buildLayerDiff emitted an explicit `style_config: null`
+  // in this case, which the backend's PATCH handler applies literally
+  // (`_NULLABLE_PATCH_FIELDS` — an explicit null NULLs the column), silently
+  // wiping real server-side data the builder never touched.
+  it('omits style_config from the patch for a raster layer whose local state never carries it, instead of nulling server-side data', () => {
+    const baseline = makeLayer({
+      id: 'raster-1',
+      layer_type: 'raster_geolens',
+      dataset_geometry_type: null,
+      dataset_record_type: 'raster_dataset',
+      style_config: { someRasterKey: 'value' } as unknown as MapLayerResponse['style_config'],
+    });
+    // Local builder state for this raster layer never carries style_config
+    // (RasterLayerControls doesn't manage it) — simulate that as null, while
+    // also changing a field RasterLayerControls DOES manage (opacity) so the
+    // layer produces a real patch to assert against.
+    const current = makeLayer({
+      ...baseline,
+      style_config: null,
+      opacity: 0.5,
+    });
+
+    const result = buildLayerDiff([baseline], [current]);
+
+    expect(result.diff.updated).toEqual([{ id: 'raster-1', opacity: 0.5 }]);
+    expect(result.diff.updated?.[0]).not.toHaveProperty('style_config');
+  });
+
+  it('still applies an explicit style_config on a VECTOR layer (the editor genuinely manages that field)', () => {
+    const baseline = makeLayer({
+      id: 'vector-1',
+      style_config: { mode: 'categorical', column: 'name' } as unknown as MapLayerResponse['style_config'],
+    });
+    const current = makeLayer({ ...baseline, style_config: null });
+
+    const result = buildLayerDiff([baseline], [current]);
+
+    expect(result.diff.updated).toEqual([{ id: 'vector-1', style_config: null }]);
+  });
 });
 
 describe('useBuilderSave', () => {

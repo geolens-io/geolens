@@ -395,6 +395,29 @@ export function computeDisambiguationLabels(
   return labels;
 }
 
+/**
+ * fix(#430 V-17): whether a layer would be silently filtered out for the map's
+ * audience. Adding a private dataset to a public/shared map used to succeed
+ * with no indication that anonymous/other-audience viewers would never see
+ * the layer (the backend's `filter_layer_rows_by_dataset_visibility` drops it
+ * server-side). A private map has no audience beyond the owner/grantees, so
+ * it is never flagged here — only public/internal (shared) maps can strand a
+ * layer this way.
+ *
+ * Conservative by design: when the dataset_visibility/dataset_status fields
+ * are both absent (e.g. an older cached response), this returns `false`
+ * rather than guessing — matching the pre-fix behavior of showing no warning,
+ * not a false positive on every layer.
+ */
+export function isLayerHiddenFromMapAudience(
+  layer: Pick<MapLayerResponse, 'dataset_visibility' | 'dataset_status'>,
+  mapVisibility: 'private' | 'internal' | 'public',
+): boolean {
+  if (mapVisibility === 'private') return false;
+  if (layer.dataset_visibility == null && layer.dataset_status == null) return false;
+  return layer.dataset_visibility !== 'public' || layer.dataset_status !== 'published';
+}
+
 function duplicateIndex(orderedLayers: IndexedLayer[]): LayerDuplicateIndex {
   const byLayerId = computeDisambiguationMetadata(orderedLayers.map(({ layer }) => layer));
   return { byLayerId };

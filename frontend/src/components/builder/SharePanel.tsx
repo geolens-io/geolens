@@ -27,7 +27,9 @@ import { usePublishMap, useCreateShareToken, useRevokeShareToken, useMapShareTok
 import { checkMapVisibility } from '@/api/maps';
 import { useCreateEmbedToken, useMapEmbedTokens, useUpdateEmbedToken, useRevokeEmbedToken } from '@/components/builder/hooks/use-embed-tokens';
 import { normalizeOrigin, WildcardOriginError } from '@/lib/builder/url-normalize';
-import type { MapVisibility } from '@/types/api';
+// fix(#430 V-17): reuse the same audience-visibility check as the layer-stack badge.
+import { isLayerHiddenFromMapAudience } from '@/components/builder/map-stack';
+import type { MapLayerResponse, MapVisibility } from '@/types/api';
 
 /**
  * Generate the iframe embed snippet for a shared map.
@@ -632,6 +634,13 @@ interface ShareDialogProps {
   onOpenChange: (open: boolean) => void;
   hasUnsavedChanges?: boolean;
   saveStatus?: 'saved' | 'unsaved' | 'saving' | 'failed';
+  /**
+   * fix(#430 V-17): the map's current layers, used to warn about layers whose
+   * dataset would be silently filtered out for this map's audience (a
+   * private/unpublished dataset on a public/shared map). Optional so
+   * existing tests that don't exercise this warning keep compiling.
+   */
+  layers?: MapLayerResponse[];
 }
 
 /**
@@ -830,10 +839,22 @@ export function ShareDialog({
   onOpenChange,
   hasUnsavedChanges = false,
   saveStatus = hasUnsavedChanges ? 'unsaved' : 'saved',
+  layers = [],
 }: ShareDialogProps) {
   const { t } = useTranslation('builder');
   const { isEnterprise } = useEdition();
   const publishMap = usePublishMap();
+
+  // fix(#430 V-17): names of layers that would be silently hidden from this map's
+  // audience — e.g. a private/unpublished dataset added to a public/shared
+  // map. Empty for a private map (no audience beyond the owner/grantees).
+  const audienceHiddenLayers = useMemo(
+    () =>
+      layers
+        .filter((layer) => isLayerHiddenFromMapAudience(layer, visibility as MapVisibility))
+        .map((layer) => layer.display_name ?? layer.dataset_name),
+    [layers, visibility],
+  );
 
   // builder-audit #338 SHARE-01: token lifecycle lives in a dedicated hook.
   const tokens = useShareTokens({ mapId, open });
@@ -976,6 +997,25 @@ export function ShareDialog({
                   : saveStatus === 'saving'
                     ? t('share.savingWarning', { defaultValue: 'Saving changes. Share links and embeds update after this save finishes.' })
                     : t('share.unsavedWarning', { defaultValue: 'Unsaved changes are only in the builder preview. Save before copying links or embeds.' })}
+              </p>
+            </div>
+          )}
+
+          {/* fix(#430 V-17): warn about layers whose dataset is private/unpublished
+              on a public/shared map — those viewers silently never see them
+              (filtered server-side by filter_layer_rows_by_dataset_visibility). */}
+          {audienceHiddenLayers.length > 0 && (
+            <div
+              data-testid="share-audience-hidden-warning"
+              className="flex items-start gap-2 rounded-md border border-warning/30 bg-warning/5 px-3 py-2 text-xs text-foreground"
+            >
+              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" aria-hidden="true" />
+              <p>
+                {t('share.audienceHiddenWarning', {
+                  count: audienceHiddenLayers.length,
+                  layers: audienceHiddenLayers.join(', '),
+                  defaultValue: 'Hidden from viewers: {{layers}}. These layers\' datasets are private or unpublished, so they will not appear for anyone but you.',
+                })}
               </p>
             </div>
           )}

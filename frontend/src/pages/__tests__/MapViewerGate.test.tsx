@@ -43,12 +43,12 @@ describe('MapViewerGate', () => {
     } as never);
   });
 
-  function renderRoute() {
+  function renderRoute(route = '/maps/map-1') {
     return render(
       <Routes>
         <Route path="/maps/:id" element={<MapViewerGate />} />
       </Routes>,
-      { route: '/maps/map-1' },
+      { route },
     );
   }
 
@@ -106,6 +106,32 @@ describe('MapViewerGate', () => {
 
   it('loads the public viewer for anonymous users', async () => {
     renderRoute();
+
+    expect(await screen.findByTestId('public-map-page')).toBeInTheDocument();
+  });
+
+  // fix(#430 V-15): editors can preview the exact anonymous rendering via ?preview=viewer.
+  it('renders the public viewer for an editor when ?preview=viewer is set', async () => {
+    mockedUseMapAccess.mockReturnValue({
+      data: { can_view: true, can_edit: true },
+      isLoading: false,
+      isError: false,
+    } as never);
+    useAuthStore.setState({
+      token: 'token',
+      refreshToken: 'refresh',
+      expiresAt: Date.now() + 900_000,
+      user: mockUser({ roles: ['editor'] }),
+    });
+
+    renderRoute('/maps/map-1?preview=viewer');
+
+    expect(await screen.findByTestId('public-map-page')).toBeInTheDocument();
+    expect(screen.queryByTestId('builder-page')).not.toBeInTheDocument();
+  });
+
+  it('ignores ?preview=viewer for a non-editor (already the public viewer)', async () => {
+    renderRoute('/maps/map-1?preview=viewer');
 
     expect(await screen.findByTestId('public-map-page')).toBeInTheDocument();
   });

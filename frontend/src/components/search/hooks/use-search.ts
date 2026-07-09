@@ -3,6 +3,7 @@ import { queryKeys } from '@/lib/query-keys';
 import { useShallow } from 'zustand/react/shallow';
 import { useSearchStore } from '@/stores/search-store';
 import { searchDatasets, fetchCatalogSummary, fetchFacets } from '@/api/search';
+import { listMaps } from '@/api/maps';
 
 export function useSearchResults() {
   const params = useSearchStore(useShallow((s) => s.toParams()));
@@ -12,6 +13,32 @@ export function useSearchResults() {
     queryFn: () => searchDatasets(params),
     staleTime: 30_000,
     placeholderData: keepPreviousData,
+  });
+}
+
+/**
+ * fix(#430 V-08): catalog search (`searchDatasets` above) only queries
+ * Dataset/DatasetGrant/Record — maps are never indexed into it, so a home
+ * search for a map's name (e.g. "matterhorn") surfaced zero results even
+ * though a public map by that name exists. Cheaper than teaching catalog
+ * search about maps: issue a PARALLEL request to the existing `/api/maps/`
+ * list endpoint with the same `q`, which already scopes results to what the
+ * caller can see (anonymous -> public maps only). Only fires with a non-empty
+ * query — this is a search-results affordance, not a "browse maps" one.
+ */
+export function useMapSearchResults() {
+  const q = useSearchStore((s) => s.q).trim();
+
+  return useQuery({
+    queryKey: queryKeys.search.maps(q),
+    queryFn: () => listMaps({ search: q, limit: 6 }),
+    enabled: q.length > 0,
+    staleTime: 30_000,
+    // fix(#430 codex r3): only carry previous results between NON-empty
+    // queries (typing). On a blank query the hook is disabled, and
+    // keepPreviousData would otherwise keep serving the last results —
+    // stale map cards lingering after the user clears the search box.
+    placeholderData: q.length > 0 ? keepPreviousData : undefined,
   });
 }
 

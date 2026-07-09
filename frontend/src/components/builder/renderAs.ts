@@ -187,7 +187,12 @@ function styleWithoutRenderModeAndBuilderKeys(layer: RenderAsLayer, builderKeys:
 function numericHeightColumn(layer: RenderAsLayer) {
   const existing = builderHeightColumn(layer);
   if (existing) return existing;
+  return defaultHeightColumn(layer);
+}
 
+/** The column auto-pick would choose on extrusion entry — the "uncustomized"
+ *  heightColumn baseline for hasCustomizedRenderAsStyle (fix #430 codex). */
+function defaultHeightColumn(layer: RenderAsLayer): string {
   const numericColumn = layer.dataset_column_info?.find((column) => {
     const type = column.type.toLowerCase();
     return /(int|float|double|decimal|numeric|real|number)/.test(type);
@@ -282,6 +287,105 @@ export function getCurrentRenderAs(layer: RenderAsLayer): RenderAsId | null {
 
 export function isSupportedRenderAsId(value: string): value is RenderAsId {
   return RENDERER_CAPABILITIES.some((entry) => entry.id === value);
+}
+
+/**
+ * fix(#430 V-09): whether the layer's CURRENT render mode carries mode-specific
+ * style settings that diverge from that mode's fresh/default state. Used to
+ * decide whether the render-as confirm dialog is warranted — a layer that has
+ * never been customized beyond the mode's defaults has nothing to lose by
+ * switching, so `handleRenderAsClick` skips the confirm when this is `false`.
+ *
+ * Only checks fields with a fixed, mode-independent default (radius/zoom/size
+ * numbers, ramp/icon names). Color fields are intentionally excluded — they
+ * are derived from the layer's base paint at mode-entry time (e.g. arrow
+ * color inherits the line color), so there is no fixed "default" to diverge
+ * from and comparing them would always read as customized.
+ */
+export function hasCustomizedRenderAsStyle(layer: RenderAsLayer): boolean {
+  const mode = getCurrentRenderAs(layer);
+  const builder = layer.style_config?.builder ?? {};
+  const paint = (layer.paint ?? {}) as Record<string, unknown>;
+
+  switch (mode) {
+    case 'symbol': {
+      const symbol = layer.style_config?.symbol;
+      if (!symbol) return false;
+      return (
+        (symbol.iconImage !== undefined && symbol.iconImage !== 'marker')
+        || (symbol.iconSize !== undefined && symbol.iconSize !== 1)
+        || (symbol.iconRotation !== undefined && symbol.iconRotation !== 0)
+        || (symbol.iconAnchor !== undefined && symbol.iconAnchor !== 'center')
+        // fix(#430 codex r3): the Symbol editor also persists iconOffset and a
+        // per-category icon mapping — all dropped when leaving symbol mode.
+        || (symbol.iconOffset !== undefined
+          && (symbol.iconOffset[0] !== 0 || symbol.iconOffset[1] !== 0))
+        || (typeof symbol.categoryColumn === 'string' && symbol.categoryColumn !== '')
+        || (Array.isArray(symbol.categories) && symbol.categories.length > 0)
+      );
+    }
+
+    case 'heatmap': {
+      if (builder.heatmapRamp !== undefined && builder.heatmapRamp !== 'YlOrRd') return true;
+      return (Object.keys(DEFAULT_HEATMAP_PAINT) as (keyof typeof DEFAULT_HEATMAP_PAINT)[]).some(
+        (key) => key in paint && paint[key] !== DEFAULT_HEATMAP_PAINT[key],
+      );
+    }
+
+    case 'cluster': {
+      // fix(#430 codex r9): clusterColor is auto-seeded on mode entry (from
+      // the circle paint), so presence alone isn't customization — diverging
+      // from that seed is (same pattern as extrusion heightColumn). Any
+      // non-empty ramp is user-authored destructible state.
+      const seededClusterColor = typeof paint['circle-color'] === 'string'
+        ? paint['circle-color']
+        : DEFAULT_CIRCLE_PAINT['circle-color'];
+      return (
+        (typeof builder.clusterRadius === 'number' && builder.clusterRadius !== 48)
+        || (typeof builder.clusterMaxZoom === 'number' && builder.clusterMaxZoom !== 14)
+        || (typeof builder.clusterTextColor === 'string' && builder.clusterTextColor !== '#ffffff')
+        || (typeof builder.clusterTextSize === 'number' && builder.clusterTextSize !== 12)
+        || (typeof builder.clusterColor === 'string' && builder.clusterColor !== seededClusterColor)
+        || (Array.isArray(builder.clusterColorRamp) && builder.clusterColorRamp.length > 0)
+      );
+    }
+
+    case 'arrow': {
+      // fix(#430 codex r17): arrowColor is auto-seeded on mode entry from the
+      // line paint (same pattern as clusterColor/heightColumn); diverging
+      // from the seed is destructible state. With this, every editor-persisted
+      // builder field (arrow*, cluster*, heightColumn, symbol.*) is covered
+      // by this switch — verified against the LayerStyleEditor inventory.
+      const seededArrowColor = typeof paint['line-color'] === 'string'
+        ? paint['line-color']
+        : MAP_COLORS.default.fill;
+      return (
+        (typeof builder.arrowSize === 'number' && builder.arrowSize !== DEFAULT_ARROW_SIZE)
+        || (typeof builder.arrowSpacing === 'number' && builder.arrowSpacing !== DEFAULT_ARROW_SPACING)
+        || (typeof builder.arrowColor === 'string' && builder.arrowColor !== seededArrowColor)
+      );
+    }
+
+    case 'extrusion-3d': {
+      // fix(#430 codex): a user-chosen heightColumn is destructible state too —
+      // leaving extrusion deletes it. Entry auto-picks a column, so presence
+      // alone isn't customization; diverging from the auto-pick default is.
+      const heightColumn = builderHeightColumn(layer);
+      return (
+        (typeof builder.heightScale === 'number' && builder.heightScale !== 1)
+        || (typeof builder.extrusionMinZoom === 'number' && builder.extrusionMinZoom !== DEFAULT_EXTRUSION_MIN_ZOOM)
+        || (typeof builder.extrusionOpacity === 'number' && builder.extrusionOpacity !== DEFAULT_EXTRUSION_OPACITY_CAP)
+        || (heightColumn !== null && heightColumn !== defaultHeightColumn(layer))
+      );
+    }
+
+    // 'point' / 'line' / 'fill' / 'stroke' / 'fill-stroke' / 'image' / 'hillshade':
+    // these modes have no destructible mode-specific settings of their own —
+    // buildRenderAsPatch preserves or stashes (savedCirclePaint) their base
+    // paint across a mode switch, so there is nothing mode-specific to lose.
+    default:
+      return false;
+  }
 }
 
 export function buildRenderAsPatch(layer: RenderAsLayer, renderAs: RenderAsId): RenderAsMutation | null {

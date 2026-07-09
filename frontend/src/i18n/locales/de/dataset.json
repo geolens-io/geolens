@@ -113,7 +113,9 @@
       "updated": "Unbekannter Aktualisierungszeitpunkt",
       "type": "Unbekannter Typ"
     },
-    "tableReadout": "PostGIS-Tabelle"
+    "tableReadout": "PostGIS-Tabelle",
+    "catalogStatus": "Katalog: {{status}}",
+    "accessStatus": "Zugriff: {{visibility}}"
   },
   "breadcrumbs": {
     "datasets": "Datensätze"

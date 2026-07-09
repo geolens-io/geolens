@@ -16,7 +16,7 @@ import os
 
 import pytest
 
-from app.processing.export.where_validator import validate_where_ast
+from app.processing.export.where_validator import canonical_where, validate_where_ast
 from app.processing.export.service import validate_where_clause
 
 
@@ -257,6 +257,27 @@ class TestWrapper:
 # These tests are skipped automatically when the env var is not set so the
 # full test suite remains runnable in CI without fixtures.
 # ─────────────────────────────────────────────────────────────────────────────
+
+
+class TestCanonicalWhere:
+    """fix(#430 BA-08): canonical_where re-renders the validated AST so the
+    export cap's bounded COUNT never interpolates the caller's raw bytes."""
+
+    def test_returns_equivalent_canonical_sql(self):
+        assert canonical_where("1=1") == "1 = 1"
+        assert canonical_where("pop > 25") == "pop > 25"
+        assert canonical_where("name = 'O''Brien'") == "name = 'O''Brien'"
+        assert canonical_where("category IN ('a', 'b')") == "category IN ('a', 'b')"
+
+    def test_rejects_disallowed_constructs(self):
+        with pytest.raises(ValueError):
+            canonical_where("pg_sleep(1) IS NOT NULL")
+        with pytest.raises(ValueError):
+            canonical_where("1=1 UNION SELECT * FROM users")
+
+    def test_output_revalidates(self):
+        # The canonical form must itself pass the validator (round-trip safe).
+        validate_where_ast(canonical_where("(a > 1 OR b < 2) AND NOT c = 'x'"))
 
 
 class TestEndpoint:

@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+import math
 import uuid
+from datetime import timedelta
 
 from urllib.parse import urlencode
 
@@ -25,7 +27,10 @@ from app.modules.catalog.collections.models import Collection, CollectionDataset
 from app.core.config import settings
 from app.core.identity import Identity
 import app.core.db as _db_module
-from app.modules.auth.dependencies import get_optional_user
+from app.modules.auth.dependencies import (
+    get_optional_user,
+    get_optional_user_no_security_schema,
+)
 from app.modules.catalog.authorization import apply_visibility_filter, get_user_roles
 from app.modules.catalog.datasets.domain.models import (
     Dataset,
@@ -232,6 +237,17 @@ async def _dataset_to_stac_item(
     )
 
 
+def _require_finite_bbox(values: list[float]) -> None:
+    """Reject NaN/Inf bbox coordinates before ST_MakeEnvelope.
+
+    fix(#430 BA-12): mirrors the OGC ``parse_bbox`` SEC-FU-06 guard, which STAC's
+    inline bbox parsing was missing.
+    """
+    for i, v in enumerate(values):
+        if not math.isfinite(v):
+            raise ValueError(f"bbox coordinate at index {i} is non-finite ({v!r})")
+
+
 def _base_published_raster_query(
     user: Identity | None,
     user_roles: set[str],
@@ -332,9 +348,16 @@ async def conformance() -> StacConformance:
 async def get_collections(
     request: Request,
     db: AsyncSession = Depends(get_db),
+    # fix(#430 codex): no-schema variant keeps this public endpoint anonymous in
+    # the OpenAPI surface — the plain optional dep stamped bearer security here,
+    # narrowing the generated SDK clients to AuthenticatedClient.
+    user: Identity | None = Depends(get_optional_user_no_security_schema),
 ) -> StacCollectionListResponse:
     """List all STAC Collections."""
     stac_api_url, _ = await _resolve_urls(db, request)
+    # fix(#430 BA-05): aggregate extent/keyword/EPSG summaries must exclude
+    # private-but-published rasters, matching the item-body visibility gate.
+    user_roles = await _resolve_roles(db, user)
 
     # Fetch all collections
     coll_result = await db.execute(select(Collection))
@@ -360,6 +383,9 @@ async def get_collections(
             .where(*_published_raster_filters())
             .group_by(CollectionDataset.collection_id)
         )
+        extent_stmt = apply_visibility_filter(
+            extent_stmt, user, user_roles, Record, DatasetGrant
+        )
         async with _db_module.async_session() as s:
             rows = await s.execute(extent_stmt)
             return {str(r[0]): r[1:] for r in rows.all()}
@@ -376,6 +402,9 @@ async def get_collections(
             .join(CollectionDataset, CollectionDataset.dataset_id == Dataset.id)
             .where(*_published_raster_filters())
             .group_by(CollectionDataset.collection_id)
+        )
+        kw_stmt = apply_visibility_filter(
+            kw_stmt, user, user_roles, Record, DatasetGrant
         )
         async with _db_module.async_session() as s:
             rows = await s.execute(kw_stmt)
@@ -398,6 +427,9 @@ async def get_collections(
             .join(CollectionDataset, CollectionDataset.dataset_id == Dataset.id)
             .where(*_published_raster_filters(), RasterAsset.epsg.isnot(None))
             .group_by(CollectionDataset.collection_id)
+        )
+        epsg_stmt = apply_visibility_filter(
+            epsg_stmt, user, user_roles, Record, DatasetGrant
         )
         async with _db_module.async_session() as s:
             rows = await s.execute(epsg_stmt)
@@ -450,9 +482,13 @@ async def get_collection(
     collection_id: uuid.UUID,
     request: Request,
     db: AsyncSession = Depends(get_db),
+    # fix(#430 codex): no-schema variant — see get_collections above.
+    user: Identity | None = Depends(get_optional_user_no_security_schema),
 ) -> StacCollection:
     """Get a single STAC Collection."""
     stac_api_url, _ = await _resolve_urls(db, request)
+    # fix(#430 BA-05): scope aggregate summaries to visible rasters.
+    user_roles = await _resolve_roles(db, user)
 
     coll_result = await db.execute(
         select(Collection).where(Collection.id == collection_id)
@@ -483,6 +519,9 @@ async def get_collection(
                 *_published_raster_filters(),
             )
         )
+        extent_stmt = apply_visibility_filter(
+            extent_stmt, user, user_roles, Record, DatasetGrant
+        )
         async with _db_module.async_session() as s:
             return (await s.execute(extent_stmt)).one_or_none()
 
@@ -497,6 +536,9 @@ async def get_collection(
                 CollectionDataset.collection_id == collection_id,
                 *_published_raster_filters(),
             )
+        )
+        kw_stmt = apply_visibility_filter(
+            kw_stmt, user, user_roles, Record, DatasetGrant
         )
         async with _db_module.async_session() as s:
             rows = await s.execute(kw_stmt)
@@ -514,6 +556,9 @@ async def get_collection(
                 *_published_raster_filters(),
                 RasterAsset.epsg.isnot(None),
             )
+        )
+        epsg_stmt = apply_visibility_filter(
+            epsg_stmt, user, user_roles, Record, DatasetGrant
         )
         async with _db_module.async_session() as s:
             rows = await s.execute(epsg_stmt)
@@ -596,6 +641,7 @@ async def get_collection_items(
             if len(parts) not in (4, 6):
                 raise ValueError("need 4 or 6 values")
             bbox_vals = [float(p) for p in parts]
+            _require_finite_bbox(bbox_vals)
             if len(bbox_vals) == 6:
                 bbox_vals = [bbox_vals[0], bbox_vals[1], bbox_vals[3], bbox_vals[4]]
         except (ValueError, TypeError) as e:
@@ -901,9 +947,10 @@ def _build_search_filters(
                     raise ValueError("need 4 or 6 values")
                 bbox_vals = [float(p) for p in parts]
             else:
-                bbox_vals = list(bbox)
+                bbox_vals = [float(v) for v in bbox]
                 if len(bbox_vals) not in (4, 6):
                     raise ValueError("need 4 or 6 values")
+            _require_finite_bbox(bbox_vals)
             if len(bbox_vals) == 6:
                 bbox_vals = [bbox_vals[0], bbox_vals[1], bbox_vals[3], bbox_vals[4]]
         except (ValueError, TypeError) as e:
@@ -1269,18 +1316,45 @@ def _apply_datetime_filter(stmt, datetime_str: str):
 
     start, end = parse_ogc_datetime(datetime_str.strip())
 
+    # fix(#430 BA-13): admit null-temporal records — dataset_to_ogc_record advertises
+    # datetime=created_at for them, so filter them by that SAME fallback instant.
+    # fix(#430 codex): unconditional NULL inclusion returned every null-temporal
+    # record for any datetime filter (e.g. datetime=1900-01-01 matched a record
+    # created in 2026); compare created_at against the requested bounds instead.
+    # parse_ogc_datetime truncates to whole DAYS, so created_at comparisons are
+    # day-granular: a bound day includes any created_at within that day
+    # (fix #430 codex round 2 — `created_at == start` only matched exact midnight).
+    null_temporal = Record.temporal_start.is_(None) & Record.temporal_end.is_(None)
     if "/" in datetime_str:
         if start is not None:
             stmt = stmt.where(
-                (Record.temporal_end >= start) | (Record.temporal_start >= start)
+                (Record.temporal_end >= start)
+                | (Record.temporal_start >= start)
+                | (null_temporal & (Record.created_at >= start))
             )
         if end is not None:
-            stmt = stmt.where(Record.temporal_start <= end)
-    else:
-        # Single instant — match records whose temporal range contains it.
-        if start is not None:
-            stmt = stmt.where(Record.temporal_start <= start)
             stmt = stmt.where(
-                (Record.temporal_end >= start) | (Record.temporal_end.is_(None))
+                (Record.temporal_start <= end)
+                # temporal_start NULL with temporal_end set = open start (-inf);
+                # always within any end bound. Null-null uses created_at,
+                # day-inclusive on the end bound.
+                | (Record.temporal_start.is_(None) & Record.temporal_end.isnot(None))
+                | (null_temporal & (Record.created_at < end + timedelta(days=1)))
+            )
+    else:
+        # Single instant (day-granular) — match records whose temporal range
+        # contains it. Null-temporal records advertise datetime=created_at, so
+        # they match when created_at falls anywhere on the requested day.
+        if start is not None:
+            range_contains = (
+                (Record.temporal_start <= start) | (Record.temporal_start.is_(None))
+            ) & ((Record.temporal_end >= start) | (Record.temporal_end.is_(None)))
+            stmt = stmt.where(
+                (range_contains & ~null_temporal)
+                | (
+                    null_temporal
+                    & (Record.created_at >= start)
+                    & (Record.created_at < start + timedelta(days=1))
+                )
             )
     return stmt

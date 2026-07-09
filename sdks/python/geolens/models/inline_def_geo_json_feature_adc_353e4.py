@@ -13,33 +13,41 @@ from typing import Literal
 
 if TYPE_CHECKING:
     from ..models.geo_json_geometry import GeoJSONGeometry
-    from ..models.inline_def_geo_json_feature_afaebacb_properties import (
-        InlineDefGeoJSONFeatureAfaebacbProperties,
+    from ..models.inline_def_geo_json_feature_adc_353e4_properties import (
+        InlineDefGeoJSONFeatureAdc353E4Properties,
+    )
+    from ..models.inline_def_geo_json_geometry_collection_d6b7_eb_76 import (
+        InlineDefGeoJSONGeometryCollectionD6B7Eb76,
     )
 
 
-T = TypeVar("T", bound="InlineDefGeoJSONFeatureAfaebacb")
+T = TypeVar("T", bound="InlineDefGeoJSONFeatureAdc353E4")
 
 
 @_attrs_define
-class InlineDefGeoJSONFeatureAfaebacb:
+class InlineDefGeoJSONFeatureAdc353E4:
     """A single GeoJSON Feature.
 
     Attributes:
         id (int):
-        properties (InlineDefGeoJSONFeatureAfaebacbProperties):
-        geometry (GeoJSONGeometry | None | Unset):
+        properties (InlineDefGeoJSONFeatureAdc353E4Properties):
+        geometry (GeoJSONGeometry | InlineDefGeoJSONGeometryCollectionD6B7Eb76 | None | Unset):
         type_ (Literal['Feature'] | Unset):  Default: 'Feature'.
     """
 
     id: int
-    properties: InlineDefGeoJSONFeatureAfaebacbProperties
-    geometry: GeoJSONGeometry | None | Unset = UNSET
+    properties: InlineDefGeoJSONFeatureAdc353E4Properties
+    geometry: (
+        GeoJSONGeometry | InlineDefGeoJSONGeometryCollectionD6B7Eb76 | None | Unset
+    ) = UNSET
     type_: Literal["Feature"] | Unset = "Feature"
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         from ..models.geo_json_geometry import GeoJSONGeometry
+        from ..models.inline_def_geo_json_geometry_collection_d6b7_eb_76 import (
+            InlineDefGeoJSONGeometryCollectionD6B7Eb76,
+        )
 
         id = self.id
 
@@ -48,6 +56,8 @@ class InlineDefGeoJSONFeatureAfaebacb:
         geometry: dict[str, Any] | None | Unset
         if isinstance(self.geometry, Unset):
             geometry = UNSET
+        elif isinstance(self.geometry, InlineDefGeoJSONGeometryCollectionD6B7Eb76):
+            geometry = self.geometry.to_dict()
         elif isinstance(self.geometry, GeoJSONGeometry):
             geometry = self.geometry.to_dict()
         else:
@@ -73,18 +83,25 @@ class InlineDefGeoJSONFeatureAfaebacb:
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         from ..models.geo_json_geometry import GeoJSONGeometry
-        from ..models.inline_def_geo_json_feature_afaebacb_properties import (
-            InlineDefGeoJSONFeatureAfaebacbProperties,
+        from ..models.inline_def_geo_json_feature_adc_353e4_properties import (
+            InlineDefGeoJSONFeatureAdc353E4Properties,
+        )
+        from ..models.inline_def_geo_json_geometry_collection_d6b7_eb_76 import (
+            InlineDefGeoJSONGeometryCollectionD6B7Eb76,
         )
 
         d = dict(src_dict)
         id = d.pop("id")
 
-        properties = InlineDefGeoJSONFeatureAfaebacbProperties.from_dict(
+        properties = InlineDefGeoJSONFeatureAdc353E4Properties.from_dict(
             d.pop("properties")
         )
 
-        def _parse_geometry(data: object) -> GeoJSONGeometry | None | Unset:
+        def _parse_geometry(
+            data: object,
+        ) -> (
+            GeoJSONGeometry | InlineDefGeoJSONGeometryCollectionD6B7Eb76 | None | Unset
+        ):
             if data is None:
                 return data
             if isinstance(data, Unset):
@@ -92,12 +109,28 @@ class InlineDefGeoJSONFeatureAfaebacb:
             try:
                 if not isinstance(data, dict):
                     raise TypeError()
-                geometry_type_0 = GeoJSONGeometry.from_dict(data)
+                geometry_type_0 = InlineDefGeoJSONGeometryCollectionD6B7Eb76.from_dict(
+                    data
+                )
 
                 return geometry_type_0
             except (TypeError, ValueError, AttributeError, KeyError):
                 pass
-            return cast(GeoJSONGeometry | None | Unset, data)
+            try:
+                if not isinstance(data, dict):
+                    raise TypeError()
+                geometry_type_1 = GeoJSONGeometry.from_dict(data)
+
+                return geometry_type_1
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(
+                GeoJSONGeometry
+                | InlineDefGeoJSONGeometryCollectionD6B7Eb76
+                | None
+                | Unset,
+                data,
+            )
 
         geometry = _parse_geometry(d.pop("geometry", UNSET))
 
@@ -105,15 +138,15 @@ class InlineDefGeoJSONFeatureAfaebacb:
         if type_ != "Feature" and not isinstance(type_, Unset):
             raise ValueError(f"type must match const 'Feature', got '{type_}'")
 
-        inline_def_geo_json_feature_afaebacb = cls(
+        inline_def_geo_json_feature_adc_353e4 = cls(
             id=id,
             properties=properties,
             geometry=geometry,
             type_=type_,
         )
 
-        inline_def_geo_json_feature_afaebacb.additional_properties = d
-        return inline_def_geo_json_feature_afaebacb
+        inline_def_geo_json_feature_adc_353e4.additional_properties = d
+        return inline_def_geo_json_feature_adc_353e4
 
     @property
     def additional_keys(self) -> list[str]:

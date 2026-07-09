@@ -28,6 +28,25 @@ describe('getAvailableModes', () => {
     expect(getAvailableModes('UNKNOWN')).toEqual([]);
   });
 
+  it('returns every draw mode for the generic GEOMETRY sentinel (fix #430 codex r11)', () => {
+    // Empty created datasets carry geometry_type='GEOMETRY' (BA-32); their
+    // generic column accepts any subtype, so the toolbar must offer all
+    // modes — an empty list left new sketch layers with no way to add the
+    // first feature.
+    expect(getAvailableModes('GEOMETRY')).toEqual([
+      'point',
+      'linestring',
+      'polygon',
+      'rectangle',
+      'circle',
+      'freehand',
+    ]);
+  });
+
+  it('keeps GEOMETRYCOLLECTION unmapped (typed GC columns reject subtype inserts)', () => {
+    expect(getAvailableModes('GEOMETRYCOLLECTION')).toEqual([]);
+  });
+
   it('handles case-insensitive input via toUpperCase', () => {
     expect(getAvailableModes('point')).toEqual(['point']);
   });

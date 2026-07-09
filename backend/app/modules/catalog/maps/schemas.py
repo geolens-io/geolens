@@ -574,6 +574,14 @@ def _validate_label_config_dict(v: dict | None) -> dict | None:
 
 
 class MapLayerInput(BaseModel):
+    # fix(#430 codex): without an id here, _replace_layers' by-id reconcile (V-14)
+    # never matched on real PUTs — every full save still regenerated layer UUIDs.
+    # Optional: absent/unknown ids create fresh rows; ids are only matched against
+    # THIS map's existing layers, so a foreign id cannot hijack another map's row.
+    id: uuid.UUID | None = Field(
+        default=None,
+        description="Existing layer id to update in place (full-save reconcile)",
+    )
     dataset_id: uuid.UUID
     sort_order: int = Field(
         default=0,
@@ -821,6 +829,19 @@ class MapUpdate(BaseModel):
     def _normalize_legend_title_nfc(cls, v: str | None) -> str | None:
         return _nfc(v)
 
+    @model_validator(mode="after")
+    def _validate_unique_layer_ids(self) -> "MapUpdate":
+        # fix(#430 codex r12): a full-replace payload repeating an existing
+        # layer id would silently collapse those entries in _replace_layers'
+        # by-id reconcile (second overwrites first). PATCH already rejects
+        # duplicate ids (MapLayerDiffRequest); mirror that here. Null ids are
+        # exempt — each absent id creates its own fresh row.
+        if self.layers is not None:
+            ids = [layer.id for layer in self.layers if layer.id is not None]
+            if len(set(ids)) != len(ids):
+                raise ValueError("layer ids must be unique")
+        return self
+
 
 class DatasetMetaKwargs(TypedDict, total=False):
     """Keyword arguments carrying dataset metadata into _build_layer_response."""
@@ -838,6 +859,8 @@ class DatasetMetaKwargs(TypedDict, total=False):
     dem_vertical_units: str | None
     band_count: int | None
     tile_version: int | None
+    dataset_visibility: str | None
+    dataset_status: str | None
 
 
 class MapLayerResponse(BaseModel):
@@ -871,6 +894,10 @@ class MapLayerResponse(BaseModel):
     # the client `_v=` tile-URL cache-buster (map-sync.ts) so a reupload busts
     # browser/CDN caches; the server-side Valkey purge is B-019.
     tile_version: int | None = None
+    # fix(#430 V-17): dataset visibility/status so the builder can badge a layer whose
+    # dataset is hidden from a public/shared map's anonymous audience.
+    dataset_visibility: str | None = None
+    dataset_status: str | None = None
 
     model_config = ConfigDict(from_attributes=True)
 

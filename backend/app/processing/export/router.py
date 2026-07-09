@@ -7,6 +7,7 @@ import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import FileResponse
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.background import BackgroundTask
 
@@ -18,15 +19,75 @@ from app.core.dependencies import get_db
 from app.platform.extensions import get_permission_extension, get_processing_port
 from app.processing.export.ogr import ExportError
 from app.processing.export.schemas import ExportFormat
-from app.processing.export.service import export_dataset
+from app.processing.export.service import export_dataset, validate_where_clause
+from app.processing.export.where_validator import canonical_where
+from app.processing.ingest.metadata import _qtable
 
 router = APIRouter(prefix="/datasets", tags=["Datasets"])
+
+# fix(#430 BA-08): ceiling for full-table exports (by feature count). An
+# unbounded ogr2ogr over the whole table writes an arbitrarily large temp file
+# and holds a worker for the full duration; require callers to narrow very
+# large datasets with bbox/where. Codex r8: a filter must actually narrow the
+# selection — a merely-present tautological filter (e.g. where=1=1) previously
+# bypassed the cap entirely, so oversized datasets now get a bounded COUNT with
+# the caller's filters applied. BA-06's subprocess timeout bounds runtime
+# regardless.
+_MAX_EXPORT_FEATURES = 5_000_000
 
 
 def _cleanup_export(path: str) -> None:
     """Remove the temporary export directory after response is sent."""
     if os.path.isdir(path):
         shutil.rmtree(path, ignore_errors=True)
+
+
+async def _count_selected_features(
+    db: AsyncSession,
+    *,
+    table_name: str,
+    where: str | None,
+    column_info: list[dict] | None,
+    bbox: list[float] | None,
+    has_geometry: bool,
+) -> int:
+    """Bounded COUNT of the rows an export's filters actually select.
+
+    Cap guard for oversized datasets (fix(#430 BA-08), codex r8). The WHERE
+    fragment is validated (AST allowlist + column check) before interpolation —
+    the same trust boundary as the ogr2ogr -where path that executes the same
+    fragment right after — and the inner LIMIT stops the scan at cap+1 rows, so
+    this check does strictly less work than the export it gates.
+    """
+    clauses: list[str] = []
+    params: dict = {"limit": _MAX_EXPORT_FEATURES + 1}
+    if where is not None:
+        try:
+            validate_where_clause(where, column_info)
+            # Interpolate the canonical AST re-render, not the caller's raw
+            # bytes — the count query never splices unvalidated user input.
+            safe_where = canonical_where(where)
+        except ValueError as e:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=str(e),
+            )
+        clauses.append(f"({safe_where})")
+    if bbox is not None and has_geometry and bbox[0] <= bbox[2]:
+        # Envelope && only (superset of exact intersects) — errs toward 413.
+        # Antimeridian bboxes (minx > maxx) skip the clause and count without
+        # it, also conservative. Non-spatial datasets skip it too: ogr2ogr
+        # -spat is a no-op on a layer with no geometry, so the unfiltered
+        # count matches what the export would actually emit.
+        clauses.append("geom_4326 && ST_MakeEnvelope(:minx, :miny, :maxx, :maxy, 4326)")
+        params.update(minx=bbox[0], miny=bbox[1], maxx=bbox[2], maxy=bbox[3])
+    where_sql = " AND ".join(clauses) if clauses else "TRUE"
+    sql = (
+        f"SELECT COUNT(*) FROM (SELECT 1 FROM {_qtable(table_name)} "
+        f"WHERE {where_sql} LIMIT :limit) sub"
+    )
+    result = await db.execute(text(sql).bindparams(**params))
+    return result.scalar_one()
 
 
 @router.get("/{dataset_id}/export", response_class=FileResponse)
@@ -150,6 +211,40 @@ async def export_dataset_endpoint(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Cannot export non-spatial dataset as {format}. Use csv format.",
         )
+
+    # 6b. fix(#430 BA-08): bound full-table exports. Codex r8: for oversized
+    # datasets a filter only passes if it actually narrows the selection under
+    # the cap (bounded filtered COUNT), closing the where=1=1 bypass.
+    if (
+        dataset.feature_count is not None
+        and dataset.feature_count > _MAX_EXPORT_FEATURES
+    ):
+        if bbox_parsed is None and where is None:
+            raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail=(
+                    f"Dataset has {dataset.feature_count} features, exceeding the "
+                    f"{_MAX_EXPORT_FEATURES} unfiltered-export limit; narrow the "
+                    "export with a bbox or attribute filter."
+                ),
+            )
+        selected = await _count_selected_features(
+            db,
+            table_name=dataset.table_name,
+            where=where,
+            column_info=dataset.column_info,
+            bbox=bbox_parsed,
+            has_geometry=dataset.geometry_type is not None,
+        )
+        if selected > _MAX_EXPORT_FEATURES:
+            raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail=(
+                    f"Export filter still selects more than "
+                    f"{_MAX_EXPORT_FEATURES} features; narrow the export with a "
+                    "more selective bbox or attribute filter."
+                ),
+            )
 
     # 7. Run export
     try:

@@ -140,3 +140,18 @@ def validate_where_ast(where: str) -> None:
                 "Disallowed expression in WHERE clause: table-qualified "
                 "column reference (only unqualified column names are accepted)"
             )
+
+
+def canonical_where(where: str) -> str:
+    """Validate ``where`` and return its canonical sqlglot re-render.
+
+    fix(#430 BA-08): for callers that must interpolate the fragment into SQL
+    text (the export cap's bounded COUNT), the interpolated string is the
+    re-emission of the allowlist-validated AST — never the caller's raw bytes.
+
+    Raises ValueError via validate_where_ast on any disallowed construct.
+    """
+    validate_where_ast(where)
+    wrapped = f"SELECT 1 FROM _t WHERE {where}"
+    statements = sqlglot.parse(wrapped, dialect="postgres")
+    return statements[0].args["where"].this.sql(dialect="postgres")
