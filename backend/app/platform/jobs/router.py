@@ -193,11 +193,30 @@ async def fail_stale_jobs(db: AsyncSession) -> tuple[int, int]:
             .distinct(IngestJob.dataset_id)
             .order_by(IngestJob.dataset_id, IngestJob.created_at.desc())
         )
+        # codex P2 (r7) on #434: manifest apply classifies skip/update-vs-create
+        # via _latest_completed_manifest_job (manifest_service.py), which looks
+        # up the newest complete job per user_metadata->>'manifest_key'. A
+        # manual reupload makes the manual job the per-dataset exemption, so
+        # without this second exemption the manifest-keyed row would age out
+        # and the next apply would duplicate the dataset. Mirrors the lookup's
+        # ordering (completed_at desc, created_at desc).
+        manifest_key = IngestJob.user_metadata["manifest_key"].astext
+        latest_manifest_ids = (
+            select(IngestJob.id)
+            .where(IngestJob.status == "complete", manifest_key.is_not(None))
+            .distinct(manifest_key)
+            .order_by(
+                manifest_key,
+                IngestJob.completed_at.desc(),
+                IngestJob.created_at.desc(),
+            )
+        )
         candidates = await db.execute(
             select(IngestJob.id, IngestJob.file_path).where(
                 IngestJob.status.not_in(("pending", "running")),
                 IngestJob.created_at < retention_cutoff,
                 IngestJob.id.not_in(latest_complete_ids),
+                IngestJob.id.not_in(latest_manifest_ids),
             )
         )
         purge_rows = candidates.all()

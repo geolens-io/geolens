@@ -343,6 +343,18 @@ async def test_retention_purge_keeps_latest_complete_job_per_dataset(
             created_at=old,
             file_path=str(fanout_file),
         ),
+        # codex P2 (r7): manifest apply resolves datasets via the newest
+        # complete job per manifest_key — this row is OLDER than the dataset's
+        # latest complete job (so the per-dataset exemption skips it) but must
+        # survive via the manifest-key exemption or re-applying the manifest
+        # would duplicate the dataset.
+        "manifest_complete": IngestJob(
+            dataset_id=ds.id,
+            status="complete",
+            created_at=ancient,
+            completed_at=ancient,
+            user_metadata={"manifest_key": "showcase/retention-ds"},
+        ),
         "old_failed": IngestJob(
             dataset_id=ds.id,
             status="failed",
@@ -377,6 +389,9 @@ async def test_retention_purge_keeps_latest_complete_job_per_dataset(
     )
     assert ids["recent_failed_shared"] in remaining, (
         "a failed job within retention must survive"
+    )
+    assert ids["manifest_complete"] in remaining, (
+        "the newest complete job per manifest_key must survive retention"
     )
     for name in (
         "older_complete",
