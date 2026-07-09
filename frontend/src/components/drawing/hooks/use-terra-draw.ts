@@ -151,6 +151,12 @@ export const GEOMETRY_TYPE_TO_MODES: Record<string, string[]> = {
   MULTILINESTRING: ['linestring'],
   POLYGON: ['polygon', 'rectangle', 'circle', 'freehand'],
   MULTIPOLYGON: ['polygon', 'rectangle', 'circle', 'freehand'],
+  // fix(#430 codex r11): empty created datasets carry the generic 'GEOMETRY'
+  // sentinel (BA-32) and their column accepts ANY subtype, so expose every
+  // mode — with no entry the toolbar rendered zero draw buttons and the first
+  // feature could never be added. GEOMETRYCOLLECTION stays unmapped on
+  // purpose: a typed GC column rejects subtype inserts (GEOJSON_TYPE_MAP).
+  GEOMETRY: ['point', 'linestring', 'polygon', 'rectangle', 'circle', 'freehand'],
 };
 
 /**
