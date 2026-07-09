@@ -42,8 +42,14 @@ vi.mock('../FileDropzone', async (importOriginal) => {
   const original = await importOriginal<typeof import('../FileDropzone')>();
   return {
     effectiveBatchLimit: original.effectiveBatchLimit,
-    FileDropzone: ({ onFilesAccepted }: { onFilesAccepted: (files: File[]) => void }) => (
-      <div data-testid="file-dropzone">
+    FileDropzone: ({
+      onFilesAccepted,
+      remainingQuota,
+    }: {
+      onFilesAccepted: (files: File[]) => void;
+      remainingQuota?: number | null;
+    }) => (
+      <div data-testid="file-dropzone" data-remaining-quota={String(remainingQuota)}>
         <button
           data-testid="drop-one"
           onClick={() => onFilesAccepted([new File(['{}'], 'a.geojson')])}
@@ -159,6 +165,21 @@ describe('UploadForm — queued drops during config fetch', () => {
     expect(vi.mocked(toast.error)).toHaveBeenCalledTimes(1);
     // Form stays idle so the user can retry immediately.
     expect(screen.getByTestId('file-dropzone')).toBeInTheDocument();
+  });
+
+  it('passes a permissive quota to the dropzone while fetching, the live one after', async () => {
+    // Cached stale-LOW quota during the refetch window must not reach
+    // react-dropzone's maxFiles — it would reject a multi-file drop before the
+    // queue could re-validate it against the fresh value (Codex P2 on #432).
+    mockConfig = { data: { remaining_dataset_quota: 1 }, isFetching: true };
+    const { rerender } = render(<UploadForm />);
+    expect(screen.getByTestId('file-dropzone')).toHaveAttribute('data-remaining-quota', 'null');
+
+    mockConfig = { data: { remaining_dataset_quota: 7 }, isFetching: false };
+    await act(async () => {
+      rerender(<UploadForm />);
+    });
+    expect(screen.getByTestId('file-dropzone')).toHaveAttribute('data-remaining-quota', '7');
   });
 
   it('processes immediately when the config is already settled', async () => {
