@@ -74,7 +74,7 @@ export function useMapLayers({
             type: 'fill',
             source: 'vector-tile-source',
             'source-layer': sourceLayer,
-            filter: ['==', '$type', 'Polygon'],
+            filter: ['in', ['geometry-type'], ['literal', ['Polygon', 'MultiPolygon']]],
             paint: {
               'fill-color': MAP_COLORS.default.fill,
               'fill-opacity': MAP_COLORS.default.fillOpacity,
@@ -85,7 +85,7 @@ export function useMapLayers({
             type: 'line',
             source: 'vector-tile-source',
             'source-layer': sourceLayer,
-            filter: ['==', '$type', 'Polygon'],
+            filter: ['in', ['geometry-type'], ['literal', ['Polygon', 'MultiPolygon']]],
             paint: {
               'line-color': MAP_COLORS.default.stroke,
               'line-width': 1,
@@ -96,7 +96,7 @@ export function useMapLayers({
             type: 'line',
             source: 'vector-tile-source',
             'source-layer': sourceLayer,
-            filter: ['==', '$type', 'LineString'],
+            filter: ['in', ['geometry-type'], ['literal', ['LineString', 'MultiLineString']]],
             paint: {
               'line-color': MAP_COLORS.default.fill,
               'line-width': 2,
@@ -107,7 +107,7 @@ export function useMapLayers({
             type: 'circle',
             source: 'vector-tile-source',
             'source-layer': sourceLayer,
-            filter: ['==', '$type', 'Point'],
+            filter: ['in', ['geometry-type'], ['literal', ['Point', 'MultiPoint']]],
             paint: {
               'circle-radius': 4,
               'circle-color': MAP_COLORS.default.fill,

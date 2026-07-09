@@ -23,19 +23,48 @@ const VECTOR_TILE_LAYERS = ['vector-points', 'vector-lines', 'vector-fill', 'vec
 const EMPTY_FC: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features: [] };
 
 /** Hide a specific feature from vector tile layers by filtering on gid */
+// fix(#430 codex r22): generic sketch datasets install per-family
+// geometry-type filters at layer creation (use-map-layers). The editing gid
+// filter must COMPOSE with those base filters, and clearing must RESTORE
+// them — overwriting with the gid filter / null made polygon outlines bleed
+// into the line renderer after any select/deselect on a generic dataset.
+// Base filters are captured per map on first touch (they are static after
+// layer creation).
+const _baseFilters = new WeakMap<MaplibreMap, Map<string, unknown>>();
+
+function _baseFilter(map: MaplibreMap, layerId: string): unknown {
+  let perMap = _baseFilters.get(map);
+  if (!perMap) {
+    perMap = new Map();
+    _baseFilters.set(map, perMap);
+  }
+  if (!perMap.has(layerId)) {
+    perMap.set(layerId, map.getFilter(layerId) ?? null);
+  }
+  return perMap.get(layerId) ?? null;
+}
+
 function hideFeatureFromTiles(map: MaplibreMap, gid: number) {
   for (const layerId of VECTOR_TILE_LAYERS) {
     if (map.getLayer(layerId)) {
-      map.setFilter(layerId, ['all', ['has', 'id'], ['!=', ['id'], gid]]);
+      const base = _baseFilter(map, layerId);
+      const gidFilter = ['all', ['has', 'id'], ['!=', ['id'], gid]];
+      map.setFilter(
+        layerId,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (base ? ['all', base, gidFilter] : gidFilter) as any,
+      );
     }
   }
 }
 
-/** Remove all filters from vector tile layers */
+/** Restore vector tile layers to their creation-time (base) filters */
 export function showAllFeaturesInTiles(map: MaplibreMap) {
   for (const layerId of VECTOR_TILE_LAYERS) {
     if (map.getLayer(layerId)) {
-      map.setFilter(layerId, null);
+      // Capture-on-first-touch also covers the cancel-before-any-hide path.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      map.setFilter(layerId, _baseFilter(map, layerId) as any);
     }
   }
 }

@@ -55,10 +55,10 @@ interface DatasetMapProps {
   bbox: [number, number, number, number] | null;
   tableName: string | null;
   geometryType: string | null;
-  /** fix(#430 codex r18/r19): generic created datasets accept any subtype.
-   * Gates DRAW MODES only — rendering keeps the concrete display
-   * geometryType (feeding 'GEOMETRY' into useMapLayers would fall through
-   * to polygon fill and hide point/line sketch features). */
+  /** fix(#430 codex r18/r19/r22): generic created datasets accept any
+   * subtype. Switches BOTH draw-mode gating and rendering to the GEOMETRY
+   * sentinel — use-map-layers installs all-family renderers for it, so
+   * features of any family drawn in the current visit stay visible. */
   hasGenericGeometry?: boolean;
   datasetId?: string;
   columnInfo?: { name: string; type: string }[] | null;
@@ -161,13 +161,16 @@ export const DatasetMap = memo(function DatasetMap({
     [geometryType, columnInfo],
   );
 
-  // fix(#430 codex r19): draw-mode gating uses the generic sentinel; the
-  // concrete display geometryType keeps driving rendering above.
+  // fix(#430 codex r19/r22): generic datasets use the GEOMETRY sentinel for
+  // BOTH drawing and rendering — use-map-layers installs all-family
+  // renderers for it (r21), so a point-only generic sketch still renders a
+  // line drawn in the same visit. elevationColumn above stays keyed on the
+  // concrete display type (extrusion never applies to generic sketches).
   const drawGeometryType = hasGenericGeometry ? 'GEOMETRY' : geometryType;
 
   const { addVectorLayers, addRasterLayers, addOverlaySource } = useMapLayers({
     tableName,
-    geometryType,
+    geometryType: drawGeometryType,
     rasterTileUrl,
     tileVersion,
     tileToken: tileToken ?? null,
