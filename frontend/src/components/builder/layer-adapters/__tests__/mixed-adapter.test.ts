@@ -101,6 +101,20 @@ describe('mixed adapter — data filters COMPOSE with family filters (never repl
     }
   });
 
+  it('normalizes legacy-syntax data filters before composing (fix #431 codex r3)', () => {
+    // A legacy child would make MapLibre classify the whole ['all', ...] as a
+    // legacy filter and reject the expression-syntax family predicate.
+    const composed = mixedFamilyFilter('point', ['==', 'status', 'open']) as unknown[];
+    expect(composed[0]).toBe('all');
+    expect(composed[2]).toEqual(['==', ['get', 'status'], 'open']);
+  });
+
+  it('passes expression-syntax data filters through unchanged', () => {
+    const expr = ['==', ['get', 'pop'], 5] as unknown as import('maplibre-gl').FilterSpecification;
+    const composed = mixedFamilyFilter('line', expr) as unknown[];
+    expect(composed[2]).toEqual(['==', ['get', 'pop'], 5]);
+  });
+
   it('syncPaint re-asserts a composed filter on every sublayer', () => {
     const map = createMockMap({ layerExists: true });
     mixedAdapter.syncPaint(map as unknown as import('maplibre-gl').Map, makeInput({ filter: dataFilter }));
@@ -111,6 +125,31 @@ describe('mixed adapter — data filters COMPOSE with family filters (never repl
       expect(call).toBeDefined();
       expect(call![1][0]).toBe('all');
     }
+  });
+});
+
+describe('mixed adapter — line-family sublayer honors line layout (fix #431 codex r3)', () => {
+  it('applies stored line-cap/line-join at add time (with round defaults)', () => {
+    const map = createMockMap();
+    mixedAdapter.addLayers(
+      map as unknown as import('maplibre-gl').Map,
+      makeInput({ layout: { 'line-cap': 'square', visibility: 'visible' } }),
+    );
+    const linesCall = (map.addLayer.mock.calls as Array<[{ id: string; layout?: Record<string, unknown> }]>)
+      .find(([c]) => c.id === mixedLinesLayerId('layer-mixed-1'));
+    expect(linesCall![0].layout?.['line-cap']).toBe('square');
+    expect(linesCall![0].layout?.['line-join']).toBe('round');
+  });
+
+  it('syncPaint reconciles owned line layout on the lines sublayer', () => {
+    const map = createMockMap({ layerExists: true });
+    mixedAdapter.syncPaint(
+      map as unknown as import('maplibre-gl').Map,
+      makeInput({ layout: { 'line-join': 'bevel' } }),
+    );
+    const layoutCalls = (map.setLayoutProperty.mock.calls as Array<[string, string, unknown]>)
+      .filter(([id, prop]) => id === mixedLinesLayerId('layer-mixed-1') && prop === 'line-join');
+    expect(layoutCalls).toEqual([[mixedLinesLayerId('layer-mixed-1'), 'line-join', 'bevel']]);
   });
 });
 

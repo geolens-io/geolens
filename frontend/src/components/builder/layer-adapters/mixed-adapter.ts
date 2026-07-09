@@ -1,10 +1,12 @@
 import type { FilterSpecification, Map as MaplibreMap } from 'maplibre-gl';
+import { convertFilter } from '@maplibre/maplibre-gl-style-spec';
 import { MAP_COLORS } from '@/lib/map-colors';
 import type { AdapterLayerInput, LayerAdapter } from './types';
 import {
   filterPaintForLayerType,
   finalizeLayer,
   getExpressionSafeOpacity,
+  syncOwnedLayoutProperties,
   syncOwnedPaintProperties,
   syncSingleLayerVisibility,
 } from './shared';
@@ -12,7 +14,7 @@ import {
 // the standalone adapters' owned-property sets and defaults instead of duplicating them.
 import { CIRCLE_OWNED_PAINT_PROPERTIES } from './circle-adapter';
 import { FILL_OWNED_PAINT_PROPERTIES, OUTLINE_OWNED_PAINT_PROPERTIES } from './fill-adapter';
-import { LINE_OWNED_PAINT_PROPERTIES } from './line-adapter';
+import { LINE_OWNED_LAYOUT_PROPERTIES, LINE_OWNED_PAINT_PROPERTIES } from './line-adapter';
 import { DEFAULT_CIRCLE_PAINT, DEFAULT_FILL_PAINT } from './builder-defaults';
 
 /**
@@ -63,9 +65,21 @@ export function mixedFamilyFilter(
   filter: FilterSpecification | unknown[] | null | undefined,
 ): FilterSpecification {
   const base = MIXED_FAMILY_FILTERS[family];
-  return Array.isArray(filter) && filter.length > 0
-    ? (['all', base, filter] as FilterSpecification)
-    : base;
+  if (!Array.isArray(filter) || filter.length === 0) return base;
+  // fix(#431 codex r3): normalize legacy-syntax data filters (e.g.
+  // ['==', 'status', 'open'] from older saved maps) to expression syntax
+  // before composing. A single legacy child makes MapLibre classify the whole
+  // ['all', ...] as a LEGACY filter, which then rejects the expression-syntax
+  // ['geometry-type'] family predicate and fails addLayer/setFilter.
+  // convertFilter passes expression-syntax filters through unchanged.
+  let expressionFilter: unknown = filter;
+  try {
+    expressionFilter = convertFilter(filter as Parameters<typeof convertFilter>[0]);
+  } catch (e) {
+    if (import.meta.env.DEV) console.warn('[map-sync] mixed filter conversion failed, dropping data filter:', e);
+    return base;
+  }
+  return ['all', base, expressionFilter] as FilterSpecification;
 }
 
 const DEFAULT_MIXED_LINE_PAINT = {
@@ -100,6 +114,25 @@ function mixedOutlinePaint(input: AdapterLayerInput): Record<string, unknown> {
     'line-color': MAP_COLORS.default.stroke,
     'line-width': 1,
     'line-opacity': input.opacity ?? 1,
+  };
+}
+
+// fix(#431 codex r3): the line-family sublayer honors authored line layout
+// (line-cap/line-join via Advanced JSON), mirroring the standalone line
+// adapter's defaults + owned-layout handling. Other layout keys are excluded —
+// a circle-*/fill-* layout key on a line layer would abort addLayer entirely.
+function mixedLineLayout(input: AdapterLayerInput): Record<string, unknown> {
+  const stored = (input.layout ?? {}) as Record<string, unknown>;
+  const owned = Object.fromEntries(
+    LINE_OWNED_LAYOUT_PROPERTIES
+      .filter((key) => stored[key] != null)
+      .map((key) => [key, stored[key]]),
+  );
+  return {
+    'line-cap': 'round',
+    'line-join': 'round',
+    ...owned,
+    visibility: input.visible === false ? 'none' : 'visible',
   };
 }
 
@@ -153,7 +186,7 @@ function addLinesLayer(map: MaplibreMap, input: AdapterLayerInput) {
     ...sourceLayerSpec(input),
     filter,
     paint: mixedLinePaint(input),
-    layout: initialLayout(input),
+    layout: mixedLineLayout(input),
   });
   finalizeLayer(map, id, input.paint, 'line', input.opacity ?? 1, filter, hasExpressions);
 }
@@ -201,6 +234,13 @@ function syncLinesLayer(map: MaplibreMap, input: AdapterLayerInput) {
   syncOwnedPaintProperties(map, id, mixedLinePaint(input), {
     geomType: 'line',
     ownedProperties: LINE_OWNED_PAINT_PROPERTIES,
+  });
+  // clearMissing: false — mirrors the standalone line adapter (CR-01): addLayers
+  // hardcodes 'round'/'round'; a stored layout without cap/join must not reset
+  // the live value to MapLibre's spec defaults ('butt'/'miter').
+  syncOwnedLayoutProperties(map, id, (input.layout ?? {}) as Record<string, unknown>, {
+    ownedProperties: LINE_OWNED_LAYOUT_PROPERTIES,
+    clearMissing: false,
   });
   map.setPaintProperty(id, 'line-opacity', getExpressionSafeOpacity(input.paint, 'line', input.opacity ?? 1));
   map.setFilter(id, mixedFamilyFilter('line', input.filter));
