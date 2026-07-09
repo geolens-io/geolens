@@ -160,9 +160,14 @@ describe('SourcesTab', () => {
     expect(completedBadge.className).not.toContain('bg-green-600');
     expect(failedBadge.className).not.toContain('bg-yellow-500');
 
-    // Should use centralized semantic colors (emerald for success, rose for destructive)
-    expect(completedBadge.className).toContain('border-emerald');
-    expect(failedBadge.className).toContain('border-rose');
+    // fix(#435): DS-01 — these used to assert raw `border-emerald` / `border-rose`
+    // Tailwind palettes. status-colors.ts is now token-driven, so the badge
+    // renders the same green as `<Badge variant="success">` does.
+    expect(completedBadge.className).toContain('border-success/30');
+    expect(completedBadge.className).toContain('text-success');
+    expect(failedBadge.className).toContain('border-destructive/30');
+    expect(failedBadge.className).toContain('text-destructive');
+    expect(completedBadge.className).not.toMatch(/\b(emerald|rose)-\d{2,3}\b/);
   });
 
   it('renders source rows', () => {

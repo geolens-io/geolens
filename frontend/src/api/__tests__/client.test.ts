@@ -6,9 +6,14 @@ vi.mock('@/api/auth', () => ({
   refreshAccessToken: vi.fn(),
 }));
 
-vi.mock('@/lib/error-map', () => ({
-  translateError: (msg: string) => msg,
-}));
+vi.mock('@/lib/error-map', async () => {
+  // fix(#435): partial mock — `summarizeErrorDetail` is real, so UX-03's
+  // collapse behavior is exercised here rather than stubbed away. A previous
+  // hand-written mock omitted it, which made apiFetch silently fall back to
+  // `statusText` for every error.
+  const actual = await vi.importActual<typeof import('@/lib/error-map')>('@/lib/error-map');
+  return { ...actual, translateError: (msg: string) => msg };
+});
 
 const mockFetch = vi.fn();
 globalThis.fetch = mockFetch;
@@ -123,6 +128,35 @@ describe('apiFetch', () => {
       expect(e).toBeInstanceOf(ApiError);
       expect((e as ApiError).message).toBe('Name is required');
       expect((e as ApiError).status).toBe(400);
+    }
+  });
+
+  // fix(#435): UX-03 — an unintercepted 422 used to surface the raw Pydantic
+  // array as JSON text in the toast body.
+  it('collapses a FastAPI 422 detail array to its first message', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 422,
+      statusText: 'Unprocessable Entity',
+      headers: new Headers(),
+      json: () =>
+        Promise.resolve({
+          detail: [
+            { type: 'missing', loc: ['body', 'name'], msg: 'Field required', input: {} },
+          ],
+        }),
+    } as Response);
+
+    try {
+      await apiFetch('/test/');
+      expect.fail('should have thrown');
+    } catch (e) {
+      expect((e as ApiError).message).toBe('Field required');
+      expect((e as ApiError).message).not.toContain('{');
+      // the raw payload is still available to callers that want it
+      expect((e as ApiError).body).toEqual([
+        { type: 'missing', loc: ['body', 'name'], msg: 'Field required', input: {} },
+      ]);
     }
   });
 

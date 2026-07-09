@@ -92,6 +92,21 @@
       "error": "Error al desactivar al usuario",
       "deactivating": "Desactivando...",
       "deactivate": "Desactivar"
+    },
+    "exportError": "No se pudieron exportar los usuarios",
+    "empty": {
+      "noUsers": "Todavía no hay usuarios",
+      "noResults": "Ningún usuario coincide con estos filtros",
+      "noResultsHint": "Prueba con otro término de búsqueda o cambia el estado.",
+      "clearFilters": "Borrar filtros"
+    },
+    "toasts": {
+      "created": "Usuario creado",
+      "updated": "Usuario actualizado",
+      "deactivated": "Usuario desactivado",
+      "deleted": "Usuario eliminado",
+      "approved": "Usuario aprobado",
+      "rejected": "Usuario rechazado"
     }
   },
   "userCreate": {

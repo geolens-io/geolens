@@ -1,8 +1,8 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { queryKeys } from '@/lib/query-keys';
+import { formatMutationError } from '@/lib/error-map';
 import { toast } from 'sonner';
 import i18n from '@/i18n/i18n';
-import { ApiError } from '@/api/client';
 import {
   getBasemaps,
   getMapDefaults,
@@ -115,20 +115,7 @@ export function useEnterpriseOnlyTabs() {
 
 // RES-N8: surface the specific API error message alongside the generic
 // "save failed" copy so the user can distinguish validation errors from
-// network / auth errors. ApiError carries a translated message already;
-// fallback to String(err) for unexpected error shapes.
-function formatMutationError(fallbackKey: string, err: unknown): string {
-  // i18next ``.t()`` returns ``unknown`` under the newer generic; narrow
-  // at the boundary so the string concatenation below type-checks.
-  const base = i18n.t(fallbackKey) as string;
-  if (err instanceof ApiError && err.message) {
-    return `${base}: ${err.message}`;
-  }
-  if (err instanceof Error && err.message) {
-    return `${base}: ${err.message}`;
-  }
-  return base;
-}
+// network / auth errors. `formatMutationError` lives in lib/error-map.ts.
 
 export function useUpdateSettings() {
   const qc = useQueryClient();
@@ -158,7 +145,12 @@ export function useUpdateBranding() {
   return useMutation({
     mutationFn: updateBranding,
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: queryKeys.settings.branding });
+      // fix(#435): DATA-08 — was `settings.branding` alone. Branding is also
+      // served inside the unified `settings.allSettings` payload, which sits
+      // beside it rather than under it, so the admin Settings page kept showing
+      // pre-save values. The `settings.all` prefix covers both, and matches
+      // what every sibling settings mutation already does.
+      qc.invalidateQueries({ queryKey: queryKeys.settings.all });
       toast.success(i18n.t('settingsToasts.saved'));
     },
     onError: (err) => {

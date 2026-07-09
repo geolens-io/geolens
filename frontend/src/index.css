@@ -105,6 +105,11 @@
   --type-vrt: oklch(0.50 0.16 300);
   --type-vrt-bg: oklch(0.94 0.04 300);
 
+  /* fix(#435): synthetic-data badge, was a raw violet-* Tailwind palette (DS-01).
+     Distinct from --type-vrt: that hue marks a record type, this marks provenance. */
+  --synthetic: oklch(0.47 0.17 285);
+  --synthetic-bg: oklch(0.94 0.04 285);
+
   /* ─ Code snippet syntax tokens ─ */
   --code-bg: oklch(0.17 0.006 250);
   --code-chrome: oklch(0.14 0.006 250);
@@ -223,6 +228,9 @@
   --type-table-bg: oklch(0.28 0.04 200);
   --type-vrt: oklch(0.68 0.15 300);
   --type-vrt-bg: oklch(0.28 0.06 300);
+
+  --synthetic: oklch(0.72 0.15 285);
+  --synthetic-bg: oklch(0.28 0.06 285);
 
   /* ─ Code snippet syntax tokens (dark mode) ─ */
   --code-bg: oklch(0.15 0.006 250);
@@ -351,6 +359,8 @@
   --color-type-table-bg: var(--type-table-bg);
   --color-type-vrt: var(--type-vrt);
   --color-type-vrt-bg: var(--type-vrt-bg);
+  --color-synthetic: var(--synthetic);
+  --color-synthetic-bg: var(--synthetic-bg);
 
   /* Chart colors (legacy) */
   --color-chart-1: var(--chart-1);

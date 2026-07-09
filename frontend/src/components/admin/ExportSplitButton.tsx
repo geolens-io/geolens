@@ -10,6 +10,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { exportAuditLogs } from '@/api/admin';
+import { triggerDownload, datedFilename } from '@/lib/download';
 
 interface ExportSplitButtonProps {
   filters: {
@@ -20,22 +21,6 @@ interface ExportSplitButtonProps {
   };
 }
 
-function triggerDownload(blob: Blob, filename: string) {
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
-}
-
-function buildFilename(format: 'csv' | 'json'): string {
-  const date = new Date().toISOString().slice(0, 10);
-  return `audit-export-${date}.${format}`;
-}
-
 export function ExportSplitButton({ filters }: ExportSplitButtonProps) {
   const { t } = useTranslation('admin');
   const [isExporting, setIsExporting] = useState(false);
@@ -44,7 +29,7 @@ export function ExportSplitButton({ filters }: ExportSplitButtonProps) {
     setIsExporting(true);
     try {
       const blob = await exportAuditLogs(format, filters);
-      triggerDownload(blob, buildFilename(format));
+      triggerDownload(blob, datedFilename('audit-export', format));
     } catch {
       toast.error(t('audit.export.errorTitle'), {
         description: t('audit.export.errorBody'),

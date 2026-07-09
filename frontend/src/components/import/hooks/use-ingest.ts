@@ -60,9 +60,21 @@ export function useDatasetJobStatus(datasetId: string | null) {
   });
 }
 
+/**
+ * fix(#435): DATA-01 — retrying used to leave the cached status on 'failed'.
+ * `useJobStatus`'s `refetchInterval` treats 'failed' as terminal and returns
+ * false, so polling never restarted: the job re-ran on the worker while the UI
+ * sat frozen on "failed" forever. Invalidating the job's status query forces a
+ * refetch, the fresh 'pending' status re-arms the interval, and progress
+ * resumes.
+ */
 export function useRetryJob() {
+  const qc = useQueryClient();
   return useMutation({
     mutationFn: retryJob,
+    onSuccess: (_data, jobId) => {
+      qc.invalidateQueries({ queryKey: queryKeys.ingest.jobStatus(jobId) });
+    },
   });
 }
 
@@ -93,9 +105,20 @@ export function useDatasetCountHint(enabled: boolean) {
   });
 }
 
+/**
+ * fix(#435): DATA-07 — newly registered datasets were missing from the catalog
+ * for up to 30s (the `search` staleTime) because nothing invalidated after the
+ * register call.
+ */
 export function useBulkRegister() {
+  const qc = useQueryClient();
   return useMutation({
     mutationFn: (request: BulkRegisterRequest) => bulkRegisterTables(request),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: queryKeys.datasets.all });
+      qc.invalidateQueries({ queryKey: queryKeys.search.all });
+      qc.invalidateQueries({ queryKey: queryKeys.ingest.discoverTables });
+    },
   });
 }
 

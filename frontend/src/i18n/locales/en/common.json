@@ -164,7 +164,8 @@
         "truncated": "(showing a sample)",
         "moreColumns": "more columns"
       }
-    }
+    },
+    "anonMapRecovery": "This map may be private. Sign in to check whether your account can open it."
   },
   "actions": {
     "editGeometry": "Edit Features"
@@ -443,7 +444,9 @@
     "adminAuditLog": "Admin Audit Log",
     "adminConfigOps": "Admin Config Ops",
     "adminSettings": "Admin Settings",
-    "adminSaml": "SAML SSO Configuration"
+    "adminSaml": "SAML SSO Configuration",
+    "verifyEmail": "Verify email",
+    "signingIn": "Signing in"
   },
   "sidebar": {
     "title": "Sidebar",

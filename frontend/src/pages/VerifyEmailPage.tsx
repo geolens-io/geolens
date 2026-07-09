@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { Loader2, Mail } from 'lucide-react';
 import { toast } from 'sonner';
 import { verifyEmail, resendVerification } from '@/api/auth';
+import { useDocumentTitle } from '@/hooks/use-document-title';
 import { GeoLensLogo } from '@/components/GeoLensLogo';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -20,6 +21,9 @@ type PageState = 'loading' | 'success' | 'error';
 
 export function VerifyEmailPage() {
   const { t } = useTranslation('auth');
+  // fix(#435): UX-09 — this page is landed on directly from an email link, so it
+  // is the one that most needs a real tab title.
+  useDocumentTitle(t('common:pageTitle.verifyEmail'));
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const token = searchParams.get('token');

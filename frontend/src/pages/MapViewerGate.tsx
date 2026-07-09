@@ -4,6 +4,8 @@ import { useAuthStore } from '@/stores/auth-store';
 import { LoadingState } from '@/components/layout/LoadingState';
 import { AppErrorBoundary } from '@/components/error';
 import { useMapAccess } from '@/hooks/use-maps';
+import { useDocumentTitle } from '@/hooks/use-document-title';
+import { useTranslation } from 'react-i18next';
 
 const MapBuilderPage = lazy(() =>
   import('./MapBuilderPage').then((m) => ({ default: m.MapBuilderPage })),
@@ -31,6 +33,10 @@ const PublicMapViewerPage = lazy(() =>
  * anonymous view needs an incognito window.
  */
 export function MapViewerGate() {
+  const { t } = useTranslation('common');
+  // fix(#435): UX-09 — covers the gate's own loading states. Both lazy children
+  // set a more specific title once they mount.
+  useDocumentTitle(t('pageTitle.map'));
   const { id } = useParams<{ id: string }>();
   const [searchParams] = useSearchParams();
   const hasToken = useAuthStore((s) => !!s.token);

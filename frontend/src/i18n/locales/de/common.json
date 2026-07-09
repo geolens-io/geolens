@@ -256,7 +256,8 @@
         "truncated": "(Stichprobe wird angezeigt)",
         "moreColumns": "weitere Spalten"
       }
-    }
+    },
+    "anonMapRecovery": "Diese Karte ist möglicherweise privat. Melden Sie sich an, um zu prüfen, ob Ihr Konto sie öffnen kann."
   },
   "maps": {
     "title": "Karten",
@@ -420,7 +421,9 @@
     "adminAuditLog": "Admin-Audit-Protokoll",
     "adminConfigOps": "Admin-Konfiguration",
     "adminSettings": "Admin-Einstellungen",
-    "adminSaml": "SAML-SSO-Konfiguration"
+    "adminSaml": "SAML-SSO-Konfiguration",
+    "verifyEmail": "E-Mail bestätigen",
+    "signingIn": "Anmeldung läuft"
   },
   "sidebar": {
     "title": "Seitenleiste",
@@ -458,7 +461,7 @@
     "panelMessage": "In diesem Panel ist ein Fehler aufgetreten. Der Rest des Editors ist nicht betroffen."
   },
   "export": {
-    "poweredBy": "Powered by GeoLens",
+    "poweredBy": "Bereitgestellt von GeoLens",
     "legendHeader": "Legende"
   },
   "actions": {

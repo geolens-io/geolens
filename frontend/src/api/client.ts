@@ -1,5 +1,5 @@
 import { API_BASE } from '@/lib/constants';
-import { translateError } from '@/lib/error-map';
+import { translateError, summarizeErrorDetail } from '@/lib/error-map';
 import { useAuthStore } from '@/stores/auth-store';
 import { refreshAccessToken } from './auth';
 
@@ -177,16 +177,22 @@ export async function apiFetch<T>(
   if (!response.ok) {
     let detail: string = response.statusText;
     let detailRaw: unknown = undefined;
+
+    // Only the parse is fallible. Keeping `summarizeErrorDetail` outside the
+    // try means a bug in it surfaces as a crash rather than silently degrading
+    // every error message to the bare status text.
+    let body: { detail?: unknown } | undefined;
     try {
-      const body = await response.json();
-      if (body.detail !== undefined) {
-        detailRaw = body.detail;
-        detail =
-          typeof body.detail === 'string' ? body.detail : JSON.stringify(body.detail);
-      }
+      body = await response.json();
     } catch {
       // body not JSON, use statusText
     }
+
+    if (body?.detail !== undefined) {
+      detailRaw = body.detail;
+      detail = summarizeErrorDetail(body.detail, response.statusText);
+    }
+
     throw new ApiError(translateError(detail), response.status, detailRaw);
   }
 

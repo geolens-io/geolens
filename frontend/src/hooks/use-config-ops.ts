@@ -1,6 +1,7 @@
 import { useMutation } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import i18n from '@/i18n/i18n';
+import { triggerDownload } from '@/lib/download';
 import {
   exportConfig,
   dryRunImport,
@@ -21,14 +22,7 @@ export function useExportConfig() {
     onSuccess: (data) => {
       const json = JSON.stringify(data, null, 2);
       const blob = new Blob([json], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `geolens-config-${data.exported_at.slice(0, 10)}.json`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+      triggerDownload(blob, `geolens-config-${data.exported_at.slice(0, 10)}.json`);
       toast.success(i18n.t('configOps.exported'));
     },
     onError: (err: Error) => {

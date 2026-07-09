@@ -312,12 +312,16 @@ function ValueDisplay({
     if (kind === 'image') {
       return (
         <span className="block space-y-1">
+          {/* fix(#435): BLD-01 — dropped `crossOrigin="anonymous"`. It forced a
+              CORS request for every popup image, so images from hosts without
+              CORS headers rendered broken where a plain <img> loads fine.
+              Nothing here reads the pixels back through a canvas, which is the
+              only thing the attribute buys. */}
           <img
             src={srcUrl}
             alt={srcUrl}
             loading="lazy"
             decoding="async"
-            crossOrigin="anonymous"
             className="max-h-32 max-w-full rounded object-contain"
           />
           <a

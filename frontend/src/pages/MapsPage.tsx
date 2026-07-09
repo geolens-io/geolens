@@ -98,9 +98,7 @@ export function MapsPage() {
         toast.success(t('maps.deleted'));
         setDeletingMap(null);
       },
-      onError: () => {
-        toast.error(t('maps.deleteFailed'));
-      },
+      // fix(#435): UX-07 — no onError toast here; useDeleteMap already raises one.
     });
   }
 

@@ -92,6 +92,21 @@
       "error": "Benutzer konnte nicht deaktiviert werden",
       "deactivating": "Wird deaktiviert...",
       "deactivate": "Deaktivieren"
+    },
+    "exportError": "Export der Benutzer fehlgeschlagen",
+    "empty": {
+      "noUsers": "Noch keine Benutzer",
+      "noResults": "Keine Benutzer entsprechen diesen Filtern",
+      "noResultsHint": "Versuchen Sie einen anderen Suchbegriff oder Status.",
+      "clearFilters": "Filter zurücksetzen"
+    },
+    "toasts": {
+      "created": "Benutzer erstellt",
+      "updated": "Benutzer aktualisiert",
+      "deactivated": "Benutzer deaktiviert",
+      "deleted": "Benutzer gelöscht",
+      "approved": "Benutzer freigegeben",
+      "rejected": "Benutzer abgelehnt"
     }
   },
   "userCreate": {

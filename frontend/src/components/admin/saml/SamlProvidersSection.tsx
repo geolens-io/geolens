@@ -72,6 +72,7 @@ import {
   type SamlProviderUpdateData,
 } from '@/api/saml';
 import { queryKeys } from '@/lib/query-keys';
+import { triggerDownload } from '@/lib/download';
 
 function slugify(name: string): string {
   return name
@@ -227,14 +228,7 @@ export function SamlProvidersSection() {
     try {
       const xml = await fetchSamlMetadata(slug);
       const blob = new Blob([xml], { type: 'application/samlmetadata+xml' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${slug}-metadata.xml`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+      triggerDownload(blob, `${slug}-metadata.xml`);
     } catch {
       toast.error(t('saml.metadataFailed'));
     }

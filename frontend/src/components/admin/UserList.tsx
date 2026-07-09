@@ -1,11 +1,14 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { toast } from 'sonner';
 import {
   useUserList,
   useApproveUser,
   useRejectUser,
   useDeactivateUser,
 } from '@/hooks/use-admin';
+import { exportUsersCsv } from '@/api/admin';
+import { triggerDownload, datedFilename } from '@/lib/download';
 import { formatDate, formatBytes } from '@/lib/format';
 import { paginationRange } from '@/lib/pagination';
 import { userStatusColors } from '@/lib/status-colors';
@@ -41,6 +44,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import {
   Download,
+  Loader2,
   MoreHorizontal,
   UserPlus,
   Check,
@@ -48,6 +52,7 @@ import {
   Edit,
   UserX,
   Trash,
+  Users,
 } from 'lucide-react';
 import { UserCreateDialog } from './UserCreateDialog';
 import { UserEditDialog } from './UserEditDialog';
@@ -58,6 +63,7 @@ import { DataTableSkeleton } from './DataTableSkeleton';
 import { FilterSelect } from './FilterSelect';
 import { RoleSelect } from './RoleSelect';
 import { ErrorState } from '@/components/layout/ErrorState';
+import { EmptyState } from '@/components/layout/EmptyState';
 
 const PAGE_SIZE = 20;
 
@@ -82,6 +88,7 @@ export function UserList() {
   const [approveRole, setApproveRole] = useState('viewer');
   const [rejectingUser, setRejectingUser] = useState<UserResponse | null>(null);
   const [deactivatingUser, setDeactivatingUser] = useState<UserResponse | null>(null);
+  const [isExporting, setIsExporting] = useState(false);
 
   const skip = page * PAGE_SIZE;
   const { data, isLoading, error } = useUserList(skip, PAGE_SIZE, statusFilter || undefined, searchQuery || undefined);
@@ -133,11 +140,27 @@ export function UserList() {
     }
   }
 
+  // fix(#435): UX-01 — was `window.open('/api/admin/users/export.csv')`, which
+  // carries no Authorization header and so returned a 401 JSON body in a new tab.
+  async function handleExportCsv() {
+    setIsExporting(true);
+    try {
+      const blob = await exportUsersCsv();
+      triggerDownload(blob, datedFilename('geolens-users', 'csv'));
+    } catch {
+      toast.error(t('users.exportError'));
+    } finally {
+      setIsExporting(false);
+    }
+  }
+
   if (error) {
     return <ErrorState message={t('users.errorLoading', { message: error.message })} />;
   }
 
   const { totalPages, rangeStart, rangeEnd } = paginationRange(data?.total ?? 0, page, PAGE_SIZE);
+  const hasFilters = statusFilter !== '' || searchQuery !== '';
+  const isEmpty = !isLoading && data != null && data.users.length === 0;
 
   return (
     <>
@@ -164,11 +187,15 @@ export function UserList() {
               <Button
                 size="sm"
                 variant="outline"
-                onClick={() => {
-                  window.open('/api/admin/users/export.csv', '_blank');
-                }}
+                onClick={handleExportCsv}
+                disabled={isExporting}
+                aria-busy={isExporting || undefined}
               >
-                <Download className="me-2 h-4 w-4" />
+                {isExporting ? (
+                  <Loader2 className="me-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Download className="me-2 h-4 w-4" />
+                )}
                 {t('users.exportEmailsCsv')}
               </Button>
               <Button size="sm" onClick={() => setShowCreateDialog(true)}>
@@ -203,6 +230,35 @@ export function UserList() {
                   { width: 'w-20' },
                   { width: 'w-8' },
                 ]} />
+              ) : isEmpty ? (
+                /* fix(#435): UX-05 — filtering to zero used to render an empty
+                   table body, which reads as a broken page. Siblings (JobList,
+                   AuditLog, SharedMaps) all say something here. */
+                <TableRow>
+                  <TableCell colSpan={8}>
+                    <EmptyState
+                      icon={Users}
+                      title={hasFilters ? t('users.empty.noResults') : t('users.empty.noUsers')}
+                      description={hasFilters ? t('users.empty.noResultsHint') : undefined}
+                      className="border-0 py-12"
+                      action={
+                        hasFilters ? (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              setSearchQuery('');
+                              setStatusFilter('');
+                              setPage(0);
+                            }}
+                          >
+                            {t('users.empty.clearFilters')}
+                          </Button>
+                        ) : undefined
+                      }
+                    />
+                  </TableCell>
+                </TableRow>
               ) : (
                 (data?.users ?? []).map((user) => (
                   <TableRow

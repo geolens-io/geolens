@@ -1,5 +1,6 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { queryKeys } from '@/lib/query-keys';
+import { formatMutationError } from '@/lib/error-map';
 import { createFeature, updateFeature, deleteFeature } from '@/api/features';
 import { addColumn, dropColumn } from '@/api/datasets';
 import type { Geometry } from 'geojson';
@@ -125,6 +126,7 @@ export function useDropColumn() {
       qc.invalidateQueries({ queryKey: queryKeys.datasets.attributes(variables.datasetId) });
       invalidateColumnCaches(qc, variables.datasetId);
     },
-    onError: () => { toast.error(i18n.t('dataset:schema.removeFailed')); },
+    // fix(#435): UX-07 — SchemaEditor also toasted; the hook now owns it.
+    onError: (err) => { toast.error(formatMutationError('dataset:schema.removeFailed', err)); },
   });
 }

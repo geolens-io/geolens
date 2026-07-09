@@ -256,7 +256,8 @@
         "truncated": "(affichage d'un échantillon)",
         "moreColumns": "plus de colonnes"
       }
-    }
+    },
+    "anonMapRecovery": "Cette carte est peut-être privée. Connectez-vous pour vérifier si votre compte peut l'ouvrir."
   },
   "maps": {
     "title": "Cartes",
@@ -420,7 +421,9 @@
     "adminAuditLog": "Journal d'audit admin",
     "adminConfigOps": "Configuration admin",
     "adminSettings": "Paramètres admin",
-    "adminSaml": "Configuration SSO SAML"
+    "adminSaml": "Configuration SSO SAML",
+    "verifyEmail": "Vérifier l'e-mail",
+    "signingIn": "Connexion en cours"
   },
   "sidebar": {
     "title": "Barre latérale",

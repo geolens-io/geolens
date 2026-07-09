@@ -82,3 +82,58 @@ export function translateError(backendMessage: string): string {
   if (!key) return backendMessage;
   return i18n.t(key, { ns: 'common', defaultValue: backendMessage });
 }
+
+/**
+ * Reduce a FastAPI `detail` payload to one human-readable line.
+ *
+ * fix(#435): UX-03 — seven call sites used to do
+ * `typeof detail === 'string' ? detail : JSON.stringify(detail)`, so any
+ * unintercepted 422 put a raw array of Pydantic error objects into a toast:
+ * `[{"type":"missing","loc":["body","name"],"msg":"Field required",...}]`.
+ *
+ * FastAPI's validation shape is `detail: [{loc, msg, type, input}]`. We take the
+ * first entry's `msg`. A bare object with a `msg` is handled too. Anything else
+ * falls back to the caller's status text rather than leaking JSON.
+ */
+export function summarizeErrorDetail(detail: unknown, fallback: string): string {
+  if (typeof detail === 'string') return detail;
+
+  const msgOf = (v: unknown): string | undefined => {
+    if (v && typeof v === 'object' && 'msg' in v) {
+      const msg = (v as { msg: unknown }).msg;
+      if (typeof msg === 'string' && msg.length > 0) return msg;
+    }
+    return undefined;
+  };
+
+  if (Array.isArray(detail)) {
+    for (const entry of detail) {
+      const msg = msgOf(entry);
+      if (msg) return msg;
+    }
+    return fallback;
+  }
+
+  return msgOf(detail) ?? fallback;
+}
+
+/**
+ * Compose a mutation's error toast: a translated fallback, plus the backend's
+ * specific reason when there is one.
+ *
+ * fix(#435): UX-07 — promoted out of `use-settings.ts`. Five mutations toasted
+ * from the hook *and* from the caller, so a failed delete raised two toasts.
+ * The hook is the right owner (it fires on every caller), but the callers were
+ * the ones passing `err.message` through. This helper lets the hook do both, so
+ * the caller-side toast can go away without losing the specific message.
+ *
+ * `ApiError.message` is already the translated backend `detail`, and `ApiError`
+ * extends `Error`, so one branch covers both.
+ */
+export function formatMutationError(fallbackKey: string, err: unknown): string {
+  const base = i18n.t(fallbackKey) as string;
+  if (err instanceof Error && err.message) {
+    return `${base}: ${err.message}`;
+  }
+  return base;
+}

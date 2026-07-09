@@ -149,12 +149,16 @@ export function useRetryAdminJob() {
 }
 
 // User mutations
+// fix(#435): UX-08 — these six succeeded silently; the house pattern is a success toast.
 export function useCreateUser() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (data: { username: string; password: string; email?: string; role: string }) =>
       createUser(data),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: queryKeys.admin.allUsers }); },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: queryKeys.admin.allUsers });
+      toast.success(i18n.t('admin:users.toasts.created'));
+    },
     onError: () => { toast.error(i18n.t('admin:errors.createUserFailed')); },
   });
 }
@@ -164,7 +168,10 @@ export function useUpdateUser() {
   return useMutation({
     mutationFn: ({ userId, data }: { userId: string; data: { email?: string; is_active?: boolean; role?: string } }) =>
       updateUser(userId, data),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: queryKeys.admin.allUsers }); },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: queryKeys.admin.allUsers });
+      toast.success(i18n.t('admin:users.toasts.updated'));
+    },
     onError: () => { toast.error(i18n.t('admin:errors.updateUserFailed')); },
   });
 }
@@ -173,7 +180,10 @@ export function useDeactivateUser() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (userId: string) => deactivateUser(userId),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: queryKeys.admin.allUsers }); },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: queryKeys.admin.allUsers });
+      toast.success(i18n.t('admin:users.toasts.deactivated'));
+    },
     // #347 (ADM-04): surface the backend reason (e.g. "Cannot deactivate the last
     // admin user" / "Cannot deactivate your own account") instead of a generic
     // "Failed to deactivate user". ApiError.message is the translated detail.
@@ -187,7 +197,10 @@ export function useDeleteUser() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (userId: string) => deleteUser(userId),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: queryKeys.admin.allUsers }); },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: queryKeys.admin.allUsers });
+      toast.success(i18n.t('admin:users.toasts.deleted'));
+    },
     onError: () => { toast.error(i18n.t('admin:errors.deleteUserFailed')); },
   });
 }
@@ -197,7 +210,10 @@ export function useApproveUser() {
   return useMutation({
     mutationFn: ({ userId, role }: { userId: string; role: string }) =>
       approveUser(userId, role),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: queryKeys.admin.allUsers }); },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: queryKeys.admin.allUsers });
+      toast.success(i18n.t('admin:users.toasts.approved'));
+    },
     onError: () => { toast.error(i18n.t('admin:users.approveDialog.error')); },
   });
 }
@@ -206,7 +222,10 @@ export function useRejectUser() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (userId: string) => rejectUser(userId),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: queryKeys.admin.allUsers }); },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: queryKeys.admin.allUsers });
+      toast.success(i18n.t('admin:users.toasts.rejected'));
+    },
     onError: () => { toast.error(i18n.t('admin:users.rejectDialog.error')); },
   });
 }

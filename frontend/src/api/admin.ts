@@ -220,3 +220,17 @@ export async function exportAuditLogs(
   }
   return response.blob();
 }
+
+/**
+ * fix(#435): UX-01 — the users CSV export used to be `window.open()`, which
+ * cannot carry the Bearer token, so admins got a tab full of
+ * `{"detail":"Could not validate credentials"}`. Same refresh-aware raw fetch
+ * as the audit-log export above.
+ */
+export async function exportUsersCsv(): Promise<Blob> {
+  const response = await authenticatedRawFetch(`${API_BASE}/admin/users/export.csv`);
+  if (!response.ok) {
+    throw new Error(`Export failed: ${response.statusText}`);
+  }
+  return response.blob();
+}

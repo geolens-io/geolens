@@ -1,14 +1,26 @@
-/** Single source of truth for all status-related colors (COMP-04). */
+/**
+ * Single source of truth for all status-related colors (COMP-04).
+ *
+ * fix(#435): every recipe below is built from design tokens (DS-01). This file
+ * previously hardcoded raw emerald/teal/amber/rose/violet Tailwind palettes —
+ * about 35 of the app's 49 raw-palette uses — which meant "success" rendered
+ * one green here and a different one through `<Badge variant="success">`.
+ * The recipes now mirror `badge.tsx`'s AA-verified soft variants exactly, so a
+ * status badge and a variant badge are the same color by construction.
+ *
+ * Values are Tailwind class strings rather than `<Badge variant>` names because
+ * every call site composes them with additional classes (sizing, mono type).
+ */
 
+/**
+ * Written as literals, never composed from a token name at runtime: Tailwind
+ * scans source text, so an interpolated class never reaches the stylesheet.
+ */
 export const semanticBadgeColors = {
-  warning:
-    'border-amber-300 bg-amber-100 text-amber-950 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-200',
-  info:
-    'border-teal-300 bg-teal-100 text-teal-950 dark:border-teal-900/60 dark:bg-teal-950/30 dark:text-teal-200',
-  success:
-    'border-emerald-300 bg-emerald-100 text-emerald-950 dark:border-emerald-900/60 dark:bg-emerald-950/30 dark:text-emerald-200',
-  destructive:
-    'border-rose-300 bg-rose-100 text-rose-950 dark:border-rose-900/60 dark:bg-rose-950/30 dark:text-rose-200',
+  warning: 'border-warning/30 bg-warning/10 text-warning',
+  info: 'border-info/30 bg-info/10 text-info',
+  success: 'border-success/30 bg-success/10 text-success',
+  destructive: 'border-destructive/30 bg-destructive/10 text-destructive',
 } as const;
 
 export const jobStatusColors: Record<string, string> = {
@@ -34,12 +46,12 @@ export const visibilityColors: Record<string, string> = {
 
 export function qualityScoreClasses(score: number): string {
   if (score >= 80) {
-    return 'border-emerald-200 bg-emerald-50 text-emerald-900 dark:border-emerald-900/60 dark:bg-emerald-950/30 dark:text-emerald-200';
+    return semanticBadgeColors.success;
   }
   if (score >= 60) {
     return 'border-border bg-secondary text-secondary-foreground';
   }
-  return 'border-rose-200 bg-rose-50 text-rose-900 dark:border-rose-900/60 dark:bg-rose-950/30 dark:text-rose-200';
+  return semanticBadgeColors.destructive;
 }
 
 export const vrtGenerationColors: Record<string, string> = {
@@ -81,11 +93,11 @@ export const healthDotColors = {
   unknown: 'bg-muted-foreground',
 } as const;
 
-export const experimentalBadgeColor =
-  'border-amber-500/50 text-amber-600 dark:text-amber-400';
+export const experimentalBadgeColor = 'border-warning/50 text-warning';
 
+/** Provenance marker, not a record type — hence its own token pair. */
 export const syntheticBadgeColor =
-  'border-violet-300 bg-violet-100 text-violet-950 dark:border-violet-900/60 dark:bg-violet-950/30 dark:text-violet-200';
+  'border-synthetic/30 bg-synthetic-bg text-synthetic';
 
 export const vrtRasterStatusColors: Record<string, string> = {
   ready: 'border-success/50 text-success',

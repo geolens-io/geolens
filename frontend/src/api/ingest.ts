@@ -1,7 +1,7 @@
 import { apiFetch, ApiError, tryRefresh } from './client';
 import { uploadChunks } from './_presignedUpload';
 import { API_BASE } from '@/lib/constants';
-import { translateError } from '@/lib/error-map';
+import { translateError, summarizeErrorDetail } from '@/lib/error-map';
 import { useAuthStore } from '@/stores/auth-store';
 import type {
   UploadResponse,
@@ -67,10 +67,7 @@ async function xhrUpload<T>(
     try {
       const parsed = JSON.parse(res.body);
       if (parsed?.detail !== undefined) {
-        detail =
-          typeof parsed.detail === 'string'
-            ? parsed.detail
-            : JSON.stringify(parsed.detail);
+        detail = summarizeErrorDetail(parsed.detail, detail);
       }
     } catch {
       // non-JSON body — keep the HTTP status fallback

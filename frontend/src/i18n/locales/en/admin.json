@@ -92,6 +92,21 @@
       "error": "Failed to deactivate user",
       "deactivating": "Deactivating...",
       "deactivate": "Deactivate"
+    },
+    "exportError": "Could not export users",
+    "empty": {
+      "noUsers": "No users yet",
+      "noResults": "No users match these filters",
+      "noResultsHint": "Try a different search term or status.",
+      "clearFilters": "Clear filters"
+    },
+    "toasts": {
+      "created": "User created",
+      "updated": "User updated",
+      "deactivated": "User deactivated",
+      "deleted": "User deleted",
+      "approved": "User approved",
+      "rejected": "User rejected"
     }
   },
   "userCreate": {

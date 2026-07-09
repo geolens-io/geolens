@@ -92,6 +92,21 @@
       "error": "Échec de la désactivation de l'utilisateur",
       "deactivating": "Désactivation...",
       "deactivate": "Désactiver"
+    },
+    "exportError": "Échec de l'export des utilisateurs",
+    "empty": {
+      "noUsers": "Aucun utilisateur pour l'instant",
+      "noResults": "Aucun utilisateur ne correspond à ces filtres",
+      "noResultsHint": "Essayez un autre terme de recherche ou un autre statut.",
+      "clearFilters": "Effacer les filtres"
+    },
+    "toasts": {
+      "created": "Utilisateur créé",
+      "updated": "Utilisateur mis à jour",
+      "deactivated": "Utilisateur désactivé",
+      "deleted": "Utilisateur supprimé",
+      "approved": "Utilisateur approuvé",
+      "rejected": "Utilisateur rejeté"
     }
   },
   "userCreate": {

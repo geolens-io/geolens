@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { queryKeys } from '@/lib/query-keys';
+import { formatMutationError } from '@/lib/error-map';
 import {
   listCollections,
   getCollection,
@@ -125,6 +126,7 @@ export function useRemoveDatasetFromCollection() {
       });
       qc.invalidateQueries({ queryKey: queryKeys.datasets.detail(variables.datasetId) });
     },
-    onError: () => { toast.error(i18n.t('collections:toasts.removeDatasetFailed')); },
+    // fix(#435): UX-07 — CollectionDetailPage also toasted; the hook now owns it.
+    onError: (err) => { toast.error(formatMutationError('collections:toasts.removeDatasetFailed', err)); },
   });
 }
