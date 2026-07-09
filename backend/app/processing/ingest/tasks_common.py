@@ -1040,7 +1040,15 @@ async def _finalize_ingest(ctx: IngestContext):
         visibility=user_metadata.get("visibility", "private"),
         ingestion=ingestion,
     )
-    dataset.record.record_status = user_metadata.get("record_status", "published")
+    # fix(#430 codex r16): create_dataset defaults the record to 'published',
+    # so the before_insert hook has already stamped published_at by the time
+    # this overwrite runs. A non-published final status must not keep that
+    # timestamp — the real transition path (_apply_record_status_change)
+    # stamps it when the dataset is actually published later.
+    final_status = user_metadata.get("record_status", "published")
+    dataset.record.record_status = final_status
+    if final_status != "published":
+        dataset.record.published_at = None
 
     # Compute quality score (requires Dataset to exist for metadata checks)
     quality_score = await compute_quality_score(

@@ -768,6 +768,97 @@ async def test_arcgis_table_ingest_populates_column_info(test_db_session):
 
 
 # ---------------------------------------------------------------------------
+# fix(#430 codex r16): published_at must match the FINAL record_status
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_finalize_ingest_non_published_status_has_no_published_at(
+    test_db_session,
+):
+    """fix(#430 codex r16): create_dataset defaults the record to 'published',
+    so the before_insert hook stamps published_at BEFORE _finalize_ingest
+    overwrites record_status from user_metadata — a manifest/vector ingest
+    finalizing as draft/ready/internal kept a bogus publication timestamp."""
+    import uuid as _uuid
+
+    from sqlalchemy import text
+
+    from app.modules.catalog.datasets.domain.models import Dataset
+    from app.processing.ingest.tasks import IngestContext, _finalize_ingest
+    from app.platform.jobs.models import IngestJob
+
+    admin_id = await _get_admin_id_for_ingest(test_db_session)
+
+    async def _run(record_status: str | None) -> tuple[str, object]:
+        user_metadata = {
+            "title": f"Status Stamp {record_status or 'default'}",
+            "visibility": "private",
+        }
+        if record_status is not None:
+            user_metadata["record_status"] = record_status
+        job = IngestJob(
+            source_filename="status.csv",
+            created_by=admin_id,
+            status="running",
+            user_metadata=user_metadata,
+        )
+        test_db_session.add(job)
+        await test_db_session.flush()
+        table_name = f"tbl_status_{_uuid.uuid4().hex[:10]}"
+        await test_db_session.execute(
+            text(
+                f"CREATE TABLE IF NOT EXISTS data.{table_name} "
+                "(gid serial PRIMARY KEY, name text)"
+            )
+        )
+        await test_db_session.commit()
+        await _finalize_ingest(
+            IngestContext(
+                session=test_db_session,
+                job=job,
+                table_name=table_name,
+                user_id=str(admin_id),
+                has_geometry=False,
+                effective_srid=None,
+                source_format="csv",
+                source_filename="status.csv",
+                original_srid=None,
+                user_metadata=user_metadata,
+            )
+        )
+        from sqlalchemy import select
+
+        dataset = (
+            await test_db_session.execute(
+                select(Dataset).where(Dataset.table_name == table_name)
+            )
+        ).scalar_one()
+        return table_name, dataset.record
+
+    tables = []
+    try:
+        table, record = await _run("ready")
+        tables.append(table)
+        assert record.record_status == "ready"
+        assert record.published_at is None, (
+            "non-published ingest kept the before_insert published_at stamp"
+        )
+
+        table, record = await _run(None)  # default -> published
+        tables.append(table)
+        assert record.record_status == "published"
+        assert record.published_at is not None
+    finally:
+        await test_db_session.rollback()
+        async with test_db_session.begin_nested():
+            for table in tables:
+                await test_db_session.execute(
+                    text(f"DROP TABLE IF EXISTS data.{table} CASCADE")
+                )
+
+
+# ---------------------------------------------------------------------------
 # K1 — ingest_file phase helpers (_detect_and_override_geometry, _archive_original_file)
 # ---------------------------------------------------------------------------
 
