@@ -127,6 +127,32 @@ async def _get_embedding_dim(session) -> int:
 
 
 # ---------------------------------------------------------------------------
+# Cache isolation
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(autouse=True)
+def _fresh_has_embeddings_cache():
+    """Clear the module-global has_embeddings cache before every test.
+
+    fix(#433): the cache (TTL 30s, app/processing/embeddings/helpers.py) is
+    keyed by model name only, so a semantic search that ran against an EMPTY
+    embeddings table — e.g. test_semantic_fallback_no_embeddings, or any
+    earlier test on the same xdist worker — caches False and starves the
+    vector path of every test in the next 30 seconds even after embeddings
+    are inserted (empty_vector_ranks → FTS fallback → empty pages). This was
+    the "Pytest Parallel Isolation" flake on
+    test_semantic_vector_only_pagination: under -n 4 the poisoner and the
+    pagination test can land on the same worker seconds apart, while serial
+    runs put >30s between them.
+    """
+    from app.processing.embeddings import helpers
+
+    helpers._has_embeddings_cache.clear()
+    yield
+
+
+# ---------------------------------------------------------------------------
 # Helpers: toggle semantic search setting
 # ---------------------------------------------------------------------------
 
