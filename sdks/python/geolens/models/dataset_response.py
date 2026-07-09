@@ -50,6 +50,9 @@ class DatasetResponse:
         data_vintage_start (datetime.date | None | Unset): Start of temporal coverage
         extent_bbox (list[float] | None | Unset): Bounding box [minx, miny, maxx, maxy]
         geometry_type (None | str | Unset): OGC geometry type, e.g. MultiPolygon
+        has_generic_geometry (bool | Unset): True when the underlying column is generic GEOMETRY (created sketch
+            datasets): the dataset accepts ANY geometry subtype on write regardless of the display geometry_type above.
+            Computed on the detail endpoint only (fix #430 codex r18); list endpoints always report false. Default: False.
         is_3d (bool | None | Unset): True if geometry has Z dimension
         language (None | str | Unset): ISO 639-1 language code, e.g. en, fr
         last_edited_at (datetime.datetime | None | Unset):
@@ -104,6 +107,7 @@ class DatasetResponse:
     data_vintage_start: datetime.date | None | Unset = UNSET
     extent_bbox: list[float] | None | Unset = UNSET
     geometry_type: None | str | Unset = UNSET
+    has_generic_geometry: bool | Unset = False
     is_3d: bool | None | Unset = UNSET
     language: None | str | Unset = UNSET
     last_edited_at: datetime.datetime | None | Unset = UNSET
@@ -235,6 +239,8 @@ class DatasetResponse:
             geometry_type = UNSET
         else:
             geometry_type = self.geometry_type
+
+        has_generic_geometry = self.has_generic_geometry
 
         is_3d: bool | None | Unset
         if isinstance(self.is_3d, Unset):
@@ -457,6 +463,8 @@ class DatasetResponse:
             field_dict["extent_bbox"] = extent_bbox
         if geometry_type is not UNSET:
             field_dict["geometry_type"] = geometry_type
+        if has_generic_geometry is not UNSET:
+            field_dict["has_generic_geometry"] = has_generic_geometry
         if is_3d is not UNSET:
             field_dict["is_3d"] = is_3d
         if language is not UNSET:
@@ -703,6 +711,8 @@ class DatasetResponse:
             return cast(None | str | Unset, data)
 
         geometry_type = _parse_geometry_type(d.pop("geometry_type", UNSET))
+
+        has_generic_geometry = d.pop("has_generic_geometry", UNSET)
 
         def _parse_is_3d(data: object) -> bool | None | Unset:
             if data is None:
@@ -1052,6 +1062,7 @@ class DatasetResponse:
             data_vintage_start=data_vintage_start,
             extent_bbox=extent_bbox,
             geometry_type=geometry_type,
+            has_generic_geometry=has_generic_geometry,
             is_3d=is_3d,
             language=language,
             last_edited_at=last_edited_at,

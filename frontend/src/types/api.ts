@@ -177,6 +177,10 @@ export interface DatasetResponse {
   summary: string | null;
   srid: number | null;
   geometry_type: GeometryTypeName | null;
+  /** fix(#430 codex r18): true when the column is generic GEOMETRY (created
+   * sketch datasets) — the dataset accepts any subtype on write regardless of
+   * the display geometry_type. Detail endpoint only; lists report false. */
+  has_generic_geometry?: boolean;
   feature_count: number | null;
   extent_bbox: number[] | null;
   column_info: { name: string; type: string; semantic_role?: string | null; domain_type?: string | null }[] | null;

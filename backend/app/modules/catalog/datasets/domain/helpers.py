@@ -202,3 +202,24 @@ def dataset_to_response(
         stac_assets=stac_assets,
         language=getattr(record, "language", None),
     )
+
+
+async def dataset_geom_is_generic(db, table_name: str) -> bool:
+    """True when data.<table>.geom is a generic GEOMETRY column.
+
+    fix(#430 codex r18): genericity signal for DatasetResponse.
+    Mirror of features/service.py::_geom_column_is_generic (kept in this
+    domain: features already imports from datasets, so the reverse import
+    would cycle). Keep the two probes in sync.
+    """
+    from sqlalchemy import text
+
+    result = await db.execute(
+        text(
+            "SELECT type FROM geometry_columns "
+            "WHERE f_table_schema = 'data' AND f_table_name = :t "
+            "AND f_geometry_column = 'geom'"
+        ).bindparams(t=table_name)
+    )
+    col_type = result.scalar_one_or_none()
+    return col_type is not None and col_type.strip().upper() == "GEOMETRY"

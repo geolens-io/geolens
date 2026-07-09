@@ -1122,6 +1122,15 @@ class TestCreateEmptyDatasetGenericGeometry:
         assert point_resp.status_code == 201, point_resp.text
         assert await self._stored_geometry_type(test_db_session, dataset_id) == "POINT"
 
+        # fix(#430 codex r18): even with a concrete DISPLAY type derived, the
+        # detail endpoint must expose the genericity signal so the drawing
+        # toolbar keeps offering every mode (the column still accepts any
+        # subtype).
+        detail = await client.get(f"/datasets/{dataset_id}", headers=admin_auth_header)
+        assert detail.status_code == 200
+        assert detail.json()["geometry_type"] == "POINT"
+        assert detail.json()["has_generic_geometry"] is True
+
         # Single-family mix (Point + MultiPoint) -> the MULTI variant.
         multipoint_resp = await client.post(
             f"/datasets/{dataset_id}/features/",
@@ -1257,3 +1266,10 @@ class TestCreateEmptyDatasetGenericGeometry:
         )
         assert typed_resp.status_code == 400
         assert "mismatch" in typed_resp.json()["detail"].lower()
+
+        # fix(#430 codex r18): typed datasets report no generic signal.
+        typed_detail = await client.get(
+            f"/datasets/{test_layer.id}", headers=admin_auth_header
+        )
+        assert typed_detail.status_code == 200
+        assert typed_detail.json()["has_generic_geometry"] is False

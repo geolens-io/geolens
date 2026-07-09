@@ -2597,6 +2597,12 @@ export type DatasetResponse = {
      */
     geometry_type?: string | null;
     /**
+     * Has Generic Geometry
+     *
+     * True when the underlying column is generic GEOMETRY (created sketch datasets): the dataset accepts ANY geometry subtype on write regardless of the display geometry_type above. Computed on the detail endpoint only (fix #430 codex r18); list endpoints always report false.
+     */
+    has_generic_geometry?: boolean;
+    /**
      * Id
      */
     id: string;
