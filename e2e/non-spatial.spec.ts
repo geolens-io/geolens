@@ -72,13 +72,21 @@ test.describe.serial('Non-spatial CSV', () => {
       page.getByRole('heading', { name: 'Import Data' }),
     ).toBeVisible();
 
+    // Retry staging until the row renders: the upload-config query runs with
+    // staleTime 0, and a file set while its boot-time refetch is settling can
+    // be silently swallowed (#274 dropzone-disable design; pre-existing race,
+    // surfaced by dev-server timing). A swallowed drop does not recover on the
+    // same page, so each retry reloads for a fresh boot.
     const fileInput = page.locator('input[type="file"]');
-    await fileInput.setInputFiles(tempCsvPath);
-
-    // Wait for preview
-    await expect(page.getByText(datasetSlug)).toBeVisible({
-      timeout: 30_000,
-    });
+    await expect(async () => {
+      await fileInput.setInputFiles(tempCsvPath);
+      try {
+        await expect(page.getByText(datasetSlug)).toBeVisible({ timeout: 3_000 });
+      } catch (err) {
+        await page.reload();
+        throw err;
+      }
+    }).toPass({ timeout: 45_000 });
 
     // Commit the import
     await page
