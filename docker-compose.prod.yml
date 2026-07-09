@@ -230,6 +230,9 @@ services:
       ENV_ONLY_CONFIG: "${ENV_ONLY_CONFIG:-false}"
       CORS_ALLOWED_ORIGINS: "${CORS_ALLOWED_ORIGINS:-}"
       INGEST_HTTP_TIMEOUT_SECONDS: "${INGEST_HTTP_TIMEOUT_SECONDS:-300}"
+      # fix(#434): retention for terminal ingest_jobs rows, purged by the API
+      # lifespan sweeper (0 = keep history forever).
+      INGEST_JOBS_RETENTION_DAYS: "${INGEST_JOBS_RETENTION_DAYS:-30}"
       PROCRASTINATE_SCHEMA: "${PROCRASTINATE_SCHEMA:-catalog}"
     depends_on:
       db:
