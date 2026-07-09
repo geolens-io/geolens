@@ -310,6 +310,9 @@ services:
       # Ingest tuning: GDAL_HTTP_TIMEOUT passed to ogr2ogr (SEED-02, raised
       # from the 120s hardcoded default that timed out 50% of AGO layers).
       INGEST_HTTP_TIMEOUT_SECONDS: "${INGEST_HTTP_TIMEOUT_SECONDS:-300}"
+      # fix(#434): retention for terminal ingest_jobs rows, purged by the API
+      # lifespan sweeper (0 = keep history forever).
+      INGEST_JOBS_RETENTION_DAYS: "${INGEST_JOBS_RETENTION_DAYS:-30}"
       # Job-queue schema: PROCRASTINATE_SCHEMA selects which Postgres schema
       # holds the procrastinate_jobs tables; default matches the bundled migration.
       PROCRASTINATE_SCHEMA: "${PROCRASTINATE_SCHEMA:-catalog}"
