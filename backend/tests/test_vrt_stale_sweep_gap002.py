@@ -315,9 +315,14 @@ async def test_retention_purge_keeps_latest_complete_job_per_dataset(
     staged_file = tmp_path / "failed-upload.geojson"
     staged_file.write_text("{}")
     # codex P2 (r4): fan-out siblings share one staging object — a path also
-    # referenced by a row OUTSIDE the purge set must NOT be reaped.
+    # referenced by a retryable row OUTSIDE the purge set must NOT be reaped.
     shared_file = tmp_path / "shared-fanout.gpkg"
     shared_file.write_text("{}")
+    # codex P2 (r5): a SUCCESSFUL fan-out's shared original is referenced
+    # forever by exempt latest-complete children — a surviving complete row
+    # must NOT block the reap (only pending/running/failed need the file).
+    fanout_file = tmp_path / "successful-fanout.gpkg"
+    fanout_file.write_text("{}")
 
     now = datetime.now(timezone.utc)
     ancient = now - timedelta(days=120)
@@ -327,7 +332,16 @@ async def test_retention_purge_keeps_latest_complete_job_per_dataset(
             dataset_id=ds.id, status="complete", created_at=ancient
         ),
         "latest_complete": IngestJob(
-            dataset_id=ds.id, status="complete", created_at=old
+            dataset_id=ds.id,
+            status="complete",
+            created_at=old,
+            file_path=str(fanout_file),
+        ),
+        "old_fanned_out_parent": IngestJob(
+            dataset_id=None,
+            status="fanned_out",
+            created_at=old,
+            file_path=str(fanout_file),
         ),
         "old_failed": IngestJob(
             dataset_id=ds.id,
@@ -369,13 +383,18 @@ async def test_retention_purge_keeps_latest_complete_job_per_dataset(
         "old_failed",
         "orphan_complete",
         "old_failed_shared",
+        "old_fanned_out_parent",
     ):
         assert ids[name] not in remaining, f"{name} should have been purged"
     assert not staged_file.exists(), (
         "the purged failed job's staged file must be reaped with the row"
     )
     assert shared_file.exists(), (
-        "a staging file still referenced by a surviving job must NOT be reaped"
+        "a staging file still referenced by a surviving RETRYABLE job must NOT be reaped"
+    )
+    assert not fanout_file.exists(), (
+        "a successful fan-out's shared original must be reaped even though the "
+        "exempt latest-complete child still references it"
     )
 
 

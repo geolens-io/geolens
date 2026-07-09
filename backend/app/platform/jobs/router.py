@@ -214,10 +214,19 @@ async def fail_stale_jobs(db: AsyncSession) -> tuple[int, int]:
         # relative. Best-effort: a failed reap never blocks the sweep.
         staged_paths = {fp for _, fp in purge_rows if fp}
         if staged_paths:
+            # Only surviving rows that still NEED the file block the reap:
+            # pending/running read it now; failed keeps it for /jobs/{id}/retry
+            # (a failed-only endpoint). Surviving complete rows (e.g. the
+            # latest-complete exemption above) keep their metadata row but not
+            # the staged file — otherwise a successful fan-out's shared
+            # original, referenced forever by children that are each a
+            # dataset's latest complete job, would never be reaped
+            # (codex P2 r5 on #434).
             survivors = await db.execute(
                 select(IngestJob.file_path).where(
                     IngestJob.file_path.in_(staged_paths),
                     IngestJob.id.not_in(purge_ids),
+                    IngestJob.status.in_(("pending", "running", "failed")),
                 )
             )
             staged_paths -= set(survivors.scalars())
