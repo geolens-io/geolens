@@ -376,7 +376,8 @@ services:
 
   titiler:
     # Pinned to 2.x stable (held back from 3.x without contract testing).
-    image: ghcr.io/developmentseed/titiler:2.0.2
+    # 2.0.5 bump per the 2026-07 TiTiler assessment (patch-level, same contract).
+    image: ghcr.io/developmentseed/titiler:2.0.5
     init: true
     restart: unless-stopped
     stop_grace_period: 15s
