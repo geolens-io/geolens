@@ -6,11 +6,27 @@ datasets ranked by embedding cosine similarity.
 
 import uuid
 
+import pytest
 from httpx import AsyncClient
 
 from app.processing.embeddings.models import RecordEmbedding
 
 from tests.factories import create_dataset, get_user_id
+
+
+@pytest.fixture(autouse=True)
+def _fresh_has_embeddings_cache():
+    """Clear the module-global has_embeddings cache before every test.
+
+    fix(#433 follow-up): same hazard class as test_hybrid_search.py — this file
+    inserts RecordEmbedding rows, so under xdist a stale cached False (poisoned
+    by an earlier empty-table test on the same worker, TTL 30s) would starve
+    the vector path, and our own inserts can poison True for later tests.
+    """
+    from app.processing.embeddings import helpers
+
+    helpers._has_embeddings_cache.clear()
+    yield
 
 
 def _make_embedding(base: list[float], dim: int = 1536) -> list[float]:
