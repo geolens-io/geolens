@@ -72,21 +72,12 @@ test.describe.serial('Non-spatial CSV', () => {
       page.getByRole('heading', { name: 'Import Data' }),
     ).toBeVisible();
 
-    // Retry staging until the row renders: the upload-config query runs with
-    // staleTime 0, and a file set while its boot-time refetch is settling can
-    // be silently swallowed (#274 dropzone-disable design; pre-existing race,
-    // surfaced by dev-server timing). A swallowed drop does not recover on the
-    // same page, so each retry reloads for a fresh boot.
+    // fix(#432): files staged during the upload-config boot fetch are queued
+    // and flushed once the config settles, so a single set must stage the row
+    // — no reload-retry. This test failing here means the queue regressed.
     const fileInput = page.locator('input[type="file"]');
-    await expect(async () => {
-      await fileInput.setInputFiles(tempCsvPath);
-      try {
-        await expect(page.getByText(datasetSlug)).toBeVisible({ timeout: 3_000 });
-      } catch (err) {
-        await page.reload();
-        throw err;
-      }
-    }).toPass({ timeout: 45_000 });
+    await fileInput.setInputFiles(tempCsvPath);
+    await expect(page.getByText(datasetSlug)).toBeVisible({ timeout: 15_000 });
 
     // Commit the import
     await page
