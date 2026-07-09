@@ -7,9 +7,10 @@ from typing import Literal, cast
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.identity import Identity
 from app.modules.auth.dependencies import get_current_active_user, require_permission
 from app.core.dependencies import get_db
@@ -172,6 +173,25 @@ async def fail_stale_jobs(db: AsyncSession) -> tuple[int, int]:
 
     # GAP-002: sweep stale VRT regenerating assets using the same cutoff.
     await sweep_stale_vrt_assets(db, running_cutoff)
+
+    # fix(R-02, video-reshoot 2026-07-09): purge terminal jobs past retention so
+    # the admin Jobs page doesn't accumulate history forever. Cutoff is on
+    # created_at (always set; jobs cap at 1h, so it is equivalent to finished-at
+    # for retention purposes and needs no NULL handling). 0 = keep forever.
+    if settings.ingest_jobs_retention_days > 0:
+        retention_cutoff = now - timedelta(days=settings.ingest_jobs_retention_days)
+        purge_result = await db.execute(
+            delete(IngestJob).where(
+                IngestJob.status.not_in(("pending", "running")),
+                IngestJob.created_at < retention_cutoff,
+            )
+        )
+        if purge_result.rowcount:
+            log.info(
+                "Purged ingest jobs past retention",
+                purged=purge_result.rowcount,
+                retention_days=settings.ingest_jobs_retention_days,
+            )
 
     await db.commit()
     return len(pending_jobs), len(running_jobs)

@@ -183,6 +183,13 @@ class Settings(BaseSettings):
     # Set INGEST_HTTP_TIMEOUT_SECONDS in the api service env to override.
     ingest_http_timeout_seconds: int = 300
 
+    # fix(R-02, video-reshoot 2026-07-09): finished ingest_jobs rows previously
+    # lived forever, so the admin Jobs page accumulated stale test junk with no
+    # cleanup affordance. Terminal jobs (complete/failed/cancelled/fanned_out)
+    # older than this many days are purged by the 5-minute lifespan sweeper.
+    # 0 disables the purge (keep history forever).
+    ingest_jobs_retention_days: int = 30
+
     # ---------------------------------------------------------------------------
     # Outbound Notification channels (Phase 1229 NOTIF-02 / NOTIF-03 / NOTIF-05)
     # ---------------------------------------------------------------------------

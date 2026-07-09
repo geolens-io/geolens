@@ -110,6 +110,7 @@ def _make_mock_db_for_fail_stale(
       2. stale running IngestJobs → scalars() returns list
       3. stale regenerating RasterAssets → scalars() returns list
       4. stale VrtGeneration rows → scalars() returns list
+      5. retention purge DELETE (fix R-02) → rowcount
     """
     results = []
     for lst in [
@@ -121,6 +122,10 @@ def _make_mock_db_for_fail_stale(
         mock_result = MagicMock()
         mock_result.scalars.return_value = lst
         results.append(mock_result)
+
+    purge_result = MagicMock()
+    purge_result.rowcount = 0
+    results.append(purge_result)
 
     mock_db = AsyncMock()
     mock_db.execute = AsyncMock(side_effect=results)
@@ -243,6 +248,43 @@ async def test_fail_stale_jobs_returns_vrt_asset_count():
 
     # Result must be a tuple (the IngestJob counts are the base contract).
     assert isinstance(result, tuple)
+
+
+# ---------------------------------------------------------------------------
+# fix(R-02, video-reshoot 2026-07-09): retention purge of terminal jobs
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_fail_stale_jobs_purges_terminal_jobs_past_retention():
+    """The 5th execute() is a DELETE on ingest_jobs scoped to terminal statuses."""
+    from sqlalchemy.sql.dml import Delete
+
+    from app.platform.jobs.router import fail_stale_jobs
+
+    mock_db = _make_mock_db_for_fail_stale()
+    await fail_stale_jobs(mock_db)
+
+    assert mock_db.execute.await_count == 5
+    purge_stmt = mock_db.execute.await_args_list[4].args[0]
+    assert isinstance(purge_stmt, Delete)
+    where_sql = str(purge_stmt.compile(compile_kwargs={"literal_binds": True}))
+    assert "'pending'" in where_sql and "'running'" in where_sql, (
+        "purge must exclude active statuses, got: " + where_sql
+    )
+
+
+@pytest.mark.asyncio
+async def test_fail_stale_jobs_retention_zero_disables_purge(monkeypatch):
+    """ingest_jobs_retention_days=0 keeps history forever (no DELETE issued)."""
+    from app.core.config import settings
+    from app.platform.jobs.router import fail_stale_jobs
+
+    monkeypatch.setattr(settings, "ingest_jobs_retention_days", 0)
+    mock_db = _make_mock_db_for_fail_stale()
+    await fail_stale_jobs(mock_db)
+
+    assert mock_db.execute.await_count == 4
 
 
 # ---------------------------------------------------------------------------
