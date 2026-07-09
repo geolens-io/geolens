@@ -193,13 +193,43 @@ async def fail_stale_jobs(db: AsyncSession) -> tuple[int, int]:
             .distinct(IngestJob.dataset_id)
             .order_by(IngestJob.dataset_id, IngestJob.created_at.desc())
         )
-        purge_result = await db.execute(
-            delete(IngestJob).where(
-                IngestJob.status.not_in(("pending", "running")),
-                IngestJob.created_at < retention_cutoff,
-                IngestJob.id.not_in(latest_complete_ids),
+        purge_filter = (
+            IngestJob.status.not_in(("pending", "running")),
+            IngestJob.created_at < retention_cutoff,
+            IngestJob.id.not_in(latest_complete_ids),
+        )
+
+        # codex P2 (r3) on #434: failed local uploads keep their staged file
+        # for retry (_should_unlink_staging), and fan-out children's shared S3
+        # original is explicitly deferred to "a retention policy" (#430 BA-09)
+        # — this purge is that policy. Reap the staged object before deleting
+        # its last pointer. Local paths are absolute and only ever unlinked
+        # inside the staging dir; S3 staging keys are relative. Best-effort:
+        # a failed reap never blocks the sweep.
+        staged = await db.execute(
+            select(IngestJob.id, IngestJob.file_path).where(
+                *purge_filter, IngestJob.file_path.is_not(None)
             )
         )
+        staging_root = Path(settings.upload_staging_dir).resolve()
+        for purge_job_id, file_path in staged.all():
+            try:
+                local = Path(file_path).resolve()
+                if local.exists():
+                    if local.is_relative_to(staging_root):
+                        local.unlink(missing_ok=True)
+                elif not Path(file_path).is_absolute():
+                    from app.platform.storage import get_storage
+
+                    await get_storage().delete(file_path)
+            except Exception:  # broad: best-effort staging cleanup
+                log.warning(
+                    "Failed to reap staged file for purged job",
+                    job_id=str(purge_job_id),
+                    file_path=file_path,
+                )
+
+        purge_result = await db.execute(delete(IngestJob).where(*purge_filter))
         if purge_result.rowcount:
             log.info(
                 "Purged ingest jobs past retention",

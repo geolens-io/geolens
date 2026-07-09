@@ -110,7 +110,8 @@ def _make_mock_db_for_fail_stale(
       2. stale running IngestJobs → scalars() returns list
       3. stale regenerating RasterAssets → scalars() returns list
       4. stale VrtGeneration rows → scalars() returns list
-      5. retention purge DELETE (fix #434) → rowcount
+      5. staged-file SELECT for the retention purge (fix #434) → .all() rows
+      6. retention purge DELETE (fix #434) → rowcount
     """
     results = []
     for lst in [
@@ -122,6 +123,10 @@ def _make_mock_db_for_fail_stale(
         mock_result = MagicMock()
         mock_result.scalars.return_value = lst
         results.append(mock_result)
+
+    staged_result = MagicMock()
+    staged_result.all.return_value = []
+    results.append(staged_result)
 
     purge_result = MagicMock()
     purge_result.rowcount = 0
@@ -257,7 +262,7 @@ async def test_fail_stale_jobs_returns_vrt_asset_count():
 
 @pytest.mark.asyncio
 async def test_fail_stale_jobs_purges_terminal_jobs_past_retention():
-    """The 5th execute() is a DELETE on ingest_jobs scoped to terminal statuses."""
+    """The final execute() is a DELETE on ingest_jobs scoped to terminal statuses."""
     from sqlalchemy.sql.dml import Delete
 
     from app.platform.jobs.router import fail_stale_jobs
@@ -265,8 +270,8 @@ async def test_fail_stale_jobs_purges_terminal_jobs_past_retention():
     mock_db = _make_mock_db_for_fail_stale()
     await fail_stale_jobs(mock_db)
 
-    assert mock_db.execute.await_count == 5
-    purge_stmt = mock_db.execute.await_args_list[4].args[0]
+    assert mock_db.execute.await_count == 6
+    purge_stmt = mock_db.execute.await_args_list[5].args[0]
     assert isinstance(purge_stmt, Delete)
     where_sql = str(purge_stmt.compile(compile_kwargs={"literal_binds": True}))
     assert "'pending'" in where_sql and "'running'" in where_sql, (
@@ -277,13 +282,17 @@ async def test_fail_stale_jobs_purges_terminal_jobs_past_retention():
 # NOTE: no @pytest.mark.asyncio here — test_db_session is an AnyIO fixture and
 # the pytest-asyncio marker would run the test body on a different event loop
 # than the fixture's asyncpg connection ("attached to a different loop").
-async def test_retention_purge_keeps_latest_complete_job_per_dataset(test_db_session):
+async def test_retention_purge_keeps_latest_complete_job_per_dataset(
+    test_db_session, tmp_path, monkeypatch
+):
     """codex P2 on #434: /jobs/by-dataset serves persistent ingest warnings and
     the reupload source_layer hint from a dataset's most recent complete job —
     that row must survive the purge no matter how old it is. Older completes
-    and failed rows past retention are still deleted."""
+    and failed rows past retention are still deleted, and (codex P2 r3) a
+    purged failed job's staged local file is reaped along with the row."""
     from sqlalchemy import select as sa_select
 
+    from app.core.config import settings
     from app.platform.jobs.models import IngestJob
     from app.platform.jobs.router import fail_stale_jobs
     from tests.factories import create_dataset, get_user_id
@@ -292,6 +301,12 @@ async def test_retention_purge_keeps_latest_complete_job_per_dataset(test_db_ses
     ds = await create_dataset(
         test_db_session, created_by=user_id, name="Retention Exemption DS"
     )
+
+    # Staged local upload kept for retry by a failed job (see
+    # _should_unlink_staging) — must be unlinked when its row is purged.
+    monkeypatch.setattr(settings, "upload_staging_dir", str(tmp_path))
+    staged_file = tmp_path / "failed-upload.geojson"
+    staged_file.write_text("{}")
 
     now = datetime.now(timezone.utc)
     ancient = now - timedelta(days=120)
@@ -303,7 +318,12 @@ async def test_retention_purge_keeps_latest_complete_job_per_dataset(test_db_ses
         "latest_complete": IngestJob(
             dataset_id=ds.id, status="complete", created_at=old
         ),
-        "old_failed": IngestJob(dataset_id=ds.id, status="failed", created_at=old),
+        "old_failed": IngestJob(
+            dataset_id=ds.id,
+            status="failed",
+            created_at=old,
+            file_path=str(staged_file),
+        ),
         "orphan_complete": IngestJob(
             dataset_id=None, status="complete", created_at=old
         ),
@@ -320,6 +340,9 @@ async def test_retention_purge_keeps_latest_complete_job_per_dataset(test_db_ses
     )
     for name in ("older_complete", "old_failed", "orphan_complete"):
         assert ids[name] not in remaining, f"{name} should have been purged"
+    assert not staged_file.exists(), (
+        "the purged failed job's staged file must be reaped with the row"
+    )
 
 
 @pytest.mark.asyncio
