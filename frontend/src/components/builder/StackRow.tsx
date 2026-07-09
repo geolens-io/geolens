@@ -349,13 +349,17 @@ export const StackRow = memo(function StackRow({
                 hover/sr-only text is wrapped in t() for parity hygiene. Mirrors
                 the warning-tone badge visual language used in the derived stack
                 (map-stack.ts layerBadges → tone 'warning'). */}
+            {/* fix(R-01, video-reshoot 2026-07-09): badges were shrink-0 and starved
+                the truncating title span to ~2 chars at sidebar width. Cap each
+                badge at 45% of the row and truncate inside; the title=/tooltip
+                keeps the full text discoverable. */}
             {disambiguationLabel && (
               <span
                 title={t('stackRow.disambiguation', { label: disambiguationLabel, defaultValue: '{{label}}' })}
                 data-testid="stack-row-disambiguation"
-                className="shrink-0 inline-flex items-center rounded-sm px-1 text-[10px] font-medium leading-tight bg-[var(--warning-50,oklch(0.97_0.04_85))] text-[var(--warning-700,oklch(0.45_0.12_85))]"
+                className="min-w-0 max-w-[45%] inline-flex items-center rounded-sm px-1 text-[10px] font-medium leading-tight bg-[var(--warning-50,oklch(0.97_0.04_85))] text-[var(--warning-700,oklch(0.45_0.12_85))]"
               >
-                {disambiguationLabel}
+                <span className="truncate">{disambiguationLabel}</span>
                 <span className="sr-only">{t('stackRow.disambiguation', { label: disambiguationLabel, defaultValue: '{{label}}' })}</span>
               </span>
             )}
@@ -366,9 +370,11 @@ export const StackRow = memo(function StackRow({
               <span
                 title={t('stackRow.audienceHidden', { defaultValue: "Hidden from this map's viewers" })}
                 data-testid="stack-row-audience-hidden"
-                className="shrink-0 inline-flex items-center rounded-sm px-1 text-[10px] font-medium leading-tight bg-[var(--warning-50,oklch(0.97_0.04_85))] text-[var(--warning-700,oklch(0.45_0.12_85))]"
+                className="min-w-0 max-w-[45%] inline-flex items-center rounded-sm px-1 text-[10px] font-medium leading-tight bg-[var(--warning-50,oklch(0.97_0.04_85))] text-[var(--warning-700,oklch(0.45_0.12_85))]"
               >
-                {t('stackRow.audienceHidden', { defaultValue: "Hidden from this map's viewers" })}
+                <span className="truncate">
+                  {t('stackRow.audienceHidden', { defaultValue: "Hidden from this map's viewers" })}
+                </span>
               </span>
             )}
           </div>
