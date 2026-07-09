@@ -110,7 +110,7 @@ def _make_mock_db_for_fail_stale(
       2. stale running IngestJobs → scalars() returns list
       3. stale regenerating RasterAssets → scalars() returns list
       4. stale VrtGeneration rows → scalars() returns list
-      5. retention purge DELETE (fix R-02) → rowcount
+      5. retention purge DELETE (fix #434) → rowcount
     """
     results = []
     for lst in [
@@ -251,7 +251,7 @@ async def test_fail_stale_jobs_returns_vrt_asset_count():
 
 
 # ---------------------------------------------------------------------------
-# fix(R-02, video-reshoot 2026-07-09): retention purge of terminal jobs
+# fix(#434): retention purge of terminal jobs
 # ---------------------------------------------------------------------------
 
 
@@ -272,6 +272,54 @@ async def test_fail_stale_jobs_purges_terminal_jobs_past_retention():
     assert "'pending'" in where_sql and "'running'" in where_sql, (
         "purge must exclude active statuses, got: " + where_sql
     )
+
+
+# NOTE: no @pytest.mark.asyncio here — test_db_session is an AnyIO fixture and
+# the pytest-asyncio marker would run the test body on a different event loop
+# than the fixture's asyncpg connection ("attached to a different loop").
+async def test_retention_purge_keeps_latest_complete_job_per_dataset(test_db_session):
+    """codex P2 on #434: /jobs/by-dataset serves persistent ingest warnings and
+    the reupload source_layer hint from a dataset's most recent complete job —
+    that row must survive the purge no matter how old it is. Older completes
+    and failed rows past retention are still deleted."""
+    from sqlalchemy import select as sa_select
+
+    from app.platform.jobs.models import IngestJob
+    from app.platform.jobs.router import fail_stale_jobs
+    from tests.factories import create_dataset, get_user_id
+
+    user_id = await get_user_id(test_db_session, "admin")
+    ds = await create_dataset(
+        test_db_session, created_by=user_id, name="Retention Exemption DS"
+    )
+
+    now = datetime.now(timezone.utc)
+    ancient = now - timedelta(days=120)
+    old = now - timedelta(days=90)
+    rows = {
+        "older_complete": IngestJob(
+            dataset_id=ds.id, status="complete", created_at=ancient
+        ),
+        "latest_complete": IngestJob(
+            dataset_id=ds.id, status="complete", created_at=old
+        ),
+        "old_failed": IngestJob(dataset_id=ds.id, status="failed", created_at=old),
+        "orphan_complete": IngestJob(
+            dataset_id=None, status="complete", created_at=old
+        ),
+    }
+    test_db_session.add_all(rows.values())
+    await test_db_session.commit()
+    ids = {k: v.id for k, v in rows.items()}
+
+    await fail_stale_jobs(test_db_session)
+
+    remaining = set((await test_db_session.execute(sa_select(IngestJob.id))).scalars())
+    assert ids["latest_complete"] in remaining, (
+        "the dataset's most recent complete job must survive retention"
+    )
+    for name in ("older_complete", "old_failed", "orphan_complete"):
+        assert ids[name] not in remaining, f"{name} should have been purged"
 
 
 @pytest.mark.asyncio

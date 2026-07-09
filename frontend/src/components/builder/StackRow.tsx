@@ -349,10 +349,10 @@ export const StackRow = memo(function StackRow({
                 hover/sr-only text is wrapped in t() for parity hygiene. Mirrors
                 the warning-tone badge visual language used in the derived stack
                 (map-stack.ts layerBadges → tone 'warning'). */}
-            {/* fix(R-01, video-reshoot 2026-07-09): badges were shrink-0 and starved
-                the truncating title span to ~2 chars at sidebar width. Cap each
-                badge at 45% of the row and truncate inside; the title=/tooltip
-                keeps the full text discoverable. */}
+            {/* fix(#434): badges were shrink-0 and starved the truncating title
+                span to ~2 chars at sidebar width. Cap each badge at 45% of the
+                row and truncate inside; the title=/tooltip keeps the full text
+                discoverable. */}
             {disambiguationLabel && (
               <span
                 title={t('stackRow.disambiguation', { label: disambiguationLabel, defaultValue: '{{label}}' })}
