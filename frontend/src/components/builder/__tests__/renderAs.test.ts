@@ -467,3 +467,24 @@ describe('hasCustomizedRenderAsStyle — cluster color settings (fix #430 codex 
     expect(hasCustomizedRenderAsStyle(clusterLayer({ clusterColorRamp: [] }))).toBe(false);
   });
 });
+
+describe('hasCustomizedRenderAsStyle — arrow color (fix #430 codex r17)', () => {
+  const arrowLayer = (builder: Record<string, unknown>, paint: Record<string, unknown> = {}) => layer({
+    paint,
+    dataset_geometry_type: 'LINESTRING',
+    style_config: { render_mode: 'arrow', builder } as unknown as StyleConfig,
+  });
+
+  it('the entry-seeded arrowColor is not customization', () => {
+    expect(hasCustomizedRenderAsStyle(
+      arrowLayer({ arrowColor: '#ff5500' }, { 'line-color': '#ff5500' }),
+    )).toBe(false);
+    expect(hasCustomizedRenderAsStyle(arrowLayer({}))).toBe(false);
+  });
+
+  it('an arrowColor diverging from the seed counts', () => {
+    expect(hasCustomizedRenderAsStyle(
+      arrowLayer({ arrowColor: '#00ff00' }, { 'line-color': '#ff5500' }),
+    )).toBe(true);
+  });
+});

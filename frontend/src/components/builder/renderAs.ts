@@ -351,9 +351,18 @@ export function hasCustomizedRenderAsStyle(layer: RenderAsLayer): boolean {
     }
 
     case 'arrow': {
+      // fix(#430 codex r17): arrowColor is auto-seeded on mode entry from the
+      // line paint (same pattern as clusterColor/heightColumn); diverging
+      // from the seed is destructible state. With this, every editor-persisted
+      // builder field (arrow*, cluster*, heightColumn, symbol.*) is covered
+      // by this switch — verified against the LayerStyleEditor inventory.
+      const seededArrowColor = typeof paint['line-color'] === 'string'
+        ? paint['line-color']
+        : MAP_COLORS.default.fill;
       return (
         (typeof builder.arrowSize === 'number' && builder.arrowSize !== DEFAULT_ARROW_SIZE)
         || (typeof builder.arrowSpacing === 'number' && builder.arrowSpacing !== DEFAULT_ARROW_SPACING)
+        || (typeof builder.arrowColor === 'string' && builder.arrowColor !== seededArrowColor)
       );
     }
 
