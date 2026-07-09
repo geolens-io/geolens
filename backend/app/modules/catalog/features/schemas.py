@@ -68,17 +68,27 @@ class GeoJSONFeatureCollection(BaseModel):
 
 
 def _reject_nested_collections(data: object) -> object:
-    """Raw-payload guard: clear 422 for nested GeometryCollections (codex r13).
+    """Raw-payload guard for GeometryCollection writes (codex r13/r14).
 
-    Runs mode='before' so it fires ahead of union parsing — the non-recursive
-    GeoJSONGeometryCollection would otherwise reject the nested child with a
-    misleading 'coordinates: Field required'. Nesting is unsupported by
-    PostGIS on both sides of the GeoJSON boundary (see the model docstring).
+    Runs mode='before' so it fires ahead of union parsing:
+
+    - r13: nested collections get a clear 422 — the non-recursive
+      GeoJSONGeometryCollection would otherwise reject the nested child with
+      a misleading 'coordinates: Field required'. Nesting is unsupported by
+      PostGIS on both sides of the GeoJSON boundary (see the model docstring).
+    - r14: a collection WITHOUT a 'geometries' array (e.g. carrying
+      'coordinates' instead) would otherwise sneak through the union's broad
+      GeoJSONGeometry member (type is plain str), pass the generic-dataset
+      type check by map presence, and blow up inside ST_GeomFromGeoJSON as a
+      raw database error.
     """
     if isinstance(data, dict):
         geometry = data.get("geometry")
         if isinstance(geometry, dict) and geometry.get("type") == "GeometryCollection":
-            for child in geometry.get("geometries") or []:
+            geometries = geometry.get("geometries")
+            if not isinstance(geometries, list):
+                raise ValueError("GeometryCollection requires a 'geometries' array.")
+            for child in geometries:
                 if (
                     isinstance(child, dict)
                     and child.get("type") == "GeometryCollection"

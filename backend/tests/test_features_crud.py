@@ -1223,6 +1223,22 @@ class TestCreateEmptyDatasetGenericGeometry:
         assert nested_resp.status_code == 422, nested_resp.text
         assert "Nested GeometryCollections" in nested_resp.text
 
+        # codex r14: a malformed collection WITHOUT a 'geometries' array must
+        # 422 too — it would otherwise slip through the union's broad
+        # GeoJSONGeometry member (type is plain str) and reach
+        # ST_GeomFromGeoJSON as a raw database error.
+        for malformed in (
+            {"type": "GeometryCollection", "coordinates": []},
+            {"type": "GeometryCollection", "geometries": "nope", "coordinates": []},
+        ):
+            malformed_resp = await client.post(
+                f"/datasets/{dataset_id}/features/",
+                json={"geometry": malformed, "properties": {"name": "bad"}},
+                headers=admin_auth_header,
+            )
+            assert malformed_resp.status_code == 422, malformed_resp.text
+            assert "requires a 'geometries' array" in malformed_resp.text
+
         # Read side: the stored FLAT collection serializes back out through
         # the GeoJSONGeometryCollection response variant.
         read_resp = await client.get(
