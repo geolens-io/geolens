@@ -27,11 +27,12 @@ GEOJSON_TYPE_MAP: dict[str, set[str]] = {
     "MultiLineString": {"MultiLineString"},
     "Polygon": {"Polygon", "MultiPolygon"},
     "MultiPolygon": {"MultiPolygon"},
-    # fix(#430 codex r9): a GeometryCollection is a real GeoJSON geometry but
-    # only a generic GEOMETRY column can store it — the generic branch in
-    # _validate_geometry_type only requires map presence, while the empty
-    # compatibility set makes every typed dataset report a type mismatch.
-    "GeometryCollection": set(),
+    # fix(#430 codex r9/r20): a GeometryCollection is storable in a generic
+    # GEOMETRY column (the generic branch only requires map presence) and in
+    # a typed GEOMETRYCOLLECTION column (ingested GC data — the dataset check
+    # constraint allows the type). Every OTHER typed dataset reports a type
+    # mismatch. Nested collections are rejected earlier at the schema guard.
+    "GeometryCollection": {"GeometryCollection"},
 }
 
 
@@ -351,6 +352,10 @@ def _validate_geometry_type(geojson_type: str, dataset_geometry_type: str) -> No
         "MULTILINESTRING": "MultiLineString",
         "POLYGON": "Polygon",
         "MULTIPOLYGON": "MultiPolygon",
+        # fix(#430 codex r20): without this entry a GEOMETRYCOLLECTION-typed
+        # dataset normalized to its raw uppercase name and never matched the
+        # mixed-case compatibility set above.
+        "GEOMETRYCOLLECTION": "GeometryCollection",
     }
     normalized_dataset = _UPPER_TO_GEOJSON.get(
         dataset_geometry_type.strip().upper(), dataset_geometry_type.strip()

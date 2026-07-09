@@ -1273,3 +1273,53 @@ class TestCreateEmptyDatasetGenericGeometry:
         )
         assert typed_detail.status_code == 200
         assert typed_detail.json()["has_generic_geometry"] is False
+
+    async def test_geometrycollection_typed_dataset_accepts_collections(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+    ):
+        """fix(#430 codex r20): a dataset whose column IS typed
+        GEOMETRYCOLLECTION (ingested GC data — the check constraint allows the
+        type) must accept flat GeoJSON collections through the feature API;
+        r9's empty compatibility set rejected them as a mismatch. Non-collection
+        subtypes stay rejected (the typed column cannot store them)."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _create_test_table_and_dataset(
+            test_db_session,
+            created_by=admin_id,
+            geometry_type="GEOMETRYCOLLECTION",
+        )
+        try:
+            gc_resp = await client.post(
+                f"/datasets/{dataset.id}/features/",
+                json={
+                    "geometry": {
+                        "type": "GeometryCollection",
+                        "geometries": [
+                            {"type": "Point", "coordinates": [-73.9, 40.7]},
+                        ],
+                    },
+                    "properties": {"name": "gc"},
+                },
+                headers=admin_auth_header,
+            )
+            assert gc_resp.status_code == 201, gc_resp.text
+
+            point_resp = await client.post(
+                f"/datasets/{dataset.id}/features/",
+                json={"geometry": POINT_GEOJSON, "properties": {"name": "p"}},
+                headers=admin_auth_header,
+            )
+            assert point_resp.status_code == 400
+            assert "mismatch" in point_resp.json()["detail"].lower()
+        finally:
+            tbl = dataset.table_name
+            rec_id = dataset.record_id
+            await _cleanup_table(test_db_session, tbl)
+            await test_db_session.execute(
+                text("DELETE FROM catalog.records WHERE id = :id"),
+                {"id": rec_id},
+            )
+            await test_db_session.commit()
