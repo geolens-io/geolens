@@ -12,8 +12,8 @@ from typing import cast
 from typing import Literal
 
 if TYPE_CHECKING:
-    from ..models.inline_def_geo_json_feature_afaebacb import (
-        InlineDefGeoJSONFeatureAfaebacb,
+    from ..models.inline_def_geo_json_feature_adc_353e4 import (
+        InlineDefGeoJSONFeatureAdc353E4,
     )
     from ..models.inline_def_link_900f1c94 import InlineDefLink900F1C94
 
@@ -28,14 +28,14 @@ class ListFeaturesDatasetsDatasetIdFeaturesGetGeoJSONFeatureCollection:
     """A GeoJSON FeatureCollection with OGC API Features pagination fields.
 
     Attributes:
-        features (list[InlineDefGeoJSONFeatureAfaebacb]):
+        features (list[InlineDefGeoJSONFeatureAdc353E4]):
         links (list[InlineDefLink900F1C94]):
         number_matched (int):
         number_returned (int):
         type_ (Literal['FeatureCollection'] | Unset):  Default: 'FeatureCollection'.
     """
 
-    features: list[InlineDefGeoJSONFeatureAfaebacb]
+    features: list[InlineDefGeoJSONFeatureAdc353E4]
     links: list[InlineDefLink900F1C94]
     number_matched: int
     number_returned: int
@@ -76,8 +76,8 @@ class ListFeaturesDatasetsDatasetIdFeaturesGetGeoJSONFeatureCollection:
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
-        from ..models.inline_def_geo_json_feature_afaebacb import (
-            InlineDefGeoJSONFeatureAfaebacb,
+        from ..models.inline_def_geo_json_feature_adc_353e4 import (
+            InlineDefGeoJSONFeatureAdc353E4,
         )
         from ..models.inline_def_link_900f1c94 import InlineDefLink900F1C94
 
@@ -85,7 +85,7 @@ class ListFeaturesDatasetsDatasetIdFeaturesGetGeoJSONFeatureCollection:
         features = []
         _features = d.pop("features")
         for features_item_data in _features:
-            features_item = InlineDefGeoJSONFeatureAfaebacb.from_dict(
+            features_item = InlineDefGeoJSONFeatureAdc353E4.from_dict(
                 features_item_data
             )
 

@@ -206,6 +206,7 @@ from .geo_json_feature_collection import GeoJSONFeatureCollection
 from .geo_json_feature_geometry_type_0 import GeoJSONFeatureGeometryType0
 from .geo_json_feature_properties_type_0 import GeoJSONFeaturePropertiesType0
 from .geo_json_geometry import GeoJSONGeometry
+from .geo_json_geometry_collection import GeoJSONGeometryCollection
 from .get_collection_item_feature_collections_dataset_id_items_feature_id_get_ogc_single_feature_response import (
     GetCollectionItemFeatureCollectionsDatasetIdItemsFeatureIdGetOGCSingleFeatureResponse,
 )
@@ -241,9 +242,12 @@ from .infrastructure_config import InfrastructureConfig
 from .infrastructure_response import InfrastructureResponse
 from .infrastructure_response_health import InfrastructureResponseHealth
 from .infrastructure_response_oidc_providers import InfrastructureResponseOidcProviders
-from .inline_def_geo_json_feature_afaebacb import InlineDefGeoJSONFeatureAfaebacb
-from .inline_def_geo_json_feature_afaebacb_properties import (
-    InlineDefGeoJSONFeatureAfaebacbProperties,
+from .inline_def_geo_json_feature_adc_353e4 import InlineDefGeoJSONFeatureAdc353E4
+from .inline_def_geo_json_feature_adc_353e4_properties import (
+    InlineDefGeoJSONFeatureAdc353E4Properties,
+)
+from .inline_def_geo_json_geometry_collection_d7598f77 import (
+    InlineDefGeoJSONGeometryCollectionD7598F77,
 )
 from .inline_def_link_900f1c94 import InlineDefLink900F1C94
 from .job_status_response import JobStatusResponse
@@ -755,6 +759,7 @@ __all__ = (
     "GeoJSONFeatureGeometryType0",
     "GeoJSONFeaturePropertiesType0",
     "GeoJSONGeometry",
+    "GeoJSONGeometryCollection",
     "GetCollectionItemFeatureCollectionsDatasetIdItemsFeatureIdGetOGCSingleFeatureResponse",
     "GetCollectionItemFeatureCollectionsDatasetIdItemsFeatureIdGetOGCSingleFeatureResponsePropertiesType0",
     "GetCollectionItemsCollectionsDatasetIdItemsGetOGCFeatureItemsResponse",
@@ -772,8 +777,9 @@ __all__ = (
     "InfrastructureResponse",
     "InfrastructureResponseHealth",
     "InfrastructureResponseOidcProviders",
-    "InlineDefGeoJSONFeatureAfaebacb",
-    "InlineDefGeoJSONFeatureAfaebacbProperties",
+    "InlineDefGeoJSONFeatureAdc353E4",
+    "InlineDefGeoJSONFeatureAdc353E4Properties",
+    "InlineDefGeoJSONGeometryCollectionD7598F77",
     "InlineDefLink900F1C94",
     "JobStatusResponse",
     "JobStatusResponseCurrentStepType0",

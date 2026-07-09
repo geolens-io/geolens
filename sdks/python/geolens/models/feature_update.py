@@ -13,6 +13,7 @@ from typing import cast
 if TYPE_CHECKING:
     from ..models.feature_update_properties_type_0 import FeatureUpdatePropertiesType0
     from ..models.geo_json_geometry import GeoJSONGeometry
+    from ..models.geo_json_geometry_collection import GeoJSONGeometryCollection
 
 
 T = TypeVar("T", bound="FeatureUpdate")
@@ -23,11 +24,11 @@ class FeatureUpdate:
     """Partial feature update (PATCH semantics).
 
     Attributes:
-        geometry (GeoJSONGeometry | None | Unset):
+        geometry (GeoJSONGeometry | GeoJSONGeometryCollection | None | Unset):
         properties (FeatureUpdatePropertiesType0 | None | Unset):
     """
 
-    geometry: GeoJSONGeometry | None | Unset = UNSET
+    geometry: GeoJSONGeometry | GeoJSONGeometryCollection | None | Unset = UNSET
     properties: FeatureUpdatePropertiesType0 | None | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
@@ -36,10 +37,13 @@ class FeatureUpdate:
             FeatureUpdatePropertiesType0,
         )
         from ..models.geo_json_geometry import GeoJSONGeometry
+        from ..models.geo_json_geometry_collection import GeoJSONGeometryCollection
 
         geometry: dict[str, Any] | None | Unset
         if isinstance(self.geometry, Unset):
             geometry = UNSET
+        elif isinstance(self.geometry, GeoJSONGeometryCollection):
+            geometry = self.geometry.to_dict()
         elif isinstance(self.geometry, GeoJSONGeometry):
             geometry = self.geometry.to_dict()
         else:
@@ -69,10 +73,13 @@ class FeatureUpdate:
             FeatureUpdatePropertiesType0,
         )
         from ..models.geo_json_geometry import GeoJSONGeometry
+        from ..models.geo_json_geometry_collection import GeoJSONGeometryCollection
 
         d = dict(src_dict)
 
-        def _parse_geometry(data: object) -> GeoJSONGeometry | None | Unset:
+        def _parse_geometry(
+            data: object,
+        ) -> GeoJSONGeometry | GeoJSONGeometryCollection | None | Unset:
             if data is None:
                 return data
             if isinstance(data, Unset):
@@ -80,12 +87,22 @@ class FeatureUpdate:
             try:
                 if not isinstance(data, dict):
                     raise TypeError()
-                geometry_type_0 = GeoJSONGeometry.from_dict(data)
+                geometry_type_0 = GeoJSONGeometryCollection.from_dict(data)
 
                 return geometry_type_0
             except (TypeError, ValueError, AttributeError, KeyError):
                 pass
-            return cast(GeoJSONGeometry | None | Unset, data)
+            try:
+                if not isinstance(data, dict):
+                    raise TypeError()
+                geometry_type_1 = GeoJSONGeometry.from_dict(data)
+
+                return geometry_type_1
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(
+                GeoJSONGeometry | GeoJSONGeometryCollection | None | Unset, data
+            )
 
         geometry = _parse_geometry(d.pop("geometry", UNSET))
 

@@ -1157,3 +1157,51 @@ class TestCreateEmptyDatasetGenericGeometry:
         assert await self._stored_geometry_type(test_db_session, dataset_id) == (
             "GEOMETRY"
         )
+
+    async def test_geometry_collection_accepted_on_generic_rejected_on_typed(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_layer: Dataset,
+    ):
+        """fix(#430 codex r9): a GeoJSON GeometryCollection is insertable into a
+        generic GEOMETRY column (the constraint and column allow it) but was
+        400'd as 'Unsupported geometry type' because GEOJSON_TYPE_MAP had no
+        entry. Typed datasets must keep rejecting it — as a type MISMATCH, not
+        as an unknown type."""
+        resp = await client.post(
+            "/datasets/create/",
+            json={
+                "title": "GC Sketch Layer",
+                "columns": [{"name": "name", "type": "text"}],
+            },
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 201, resp.text
+        dataset_id = resp.json()["id"]
+
+        collection = {
+            "type": "GeometryCollection",
+            "geometries": [
+                {"type": "Point", "coordinates": [-73.9857, 40.7484]},
+                {
+                    "type": "LineString",
+                    "coordinates": [[-74.0, 40.7], [-73.9, 40.8]],
+                },
+            ],
+        }
+        gc_resp = await client.post(
+            f"/datasets/{dataset_id}/features/",
+            json={"geometry": collection, "properties": {"name": "gc"}},
+            headers=admin_auth_header,
+        )
+        assert gc_resp.status_code == 201, gc_resp.text
+
+        # Typed dataset (Point layer): still rejected, but as a mismatch.
+        typed_resp = await client.post(
+            f"/datasets/{test_layer.id}/features/",
+            json={"geometry": collection, "properties": {"name": "gc"}},
+            headers=admin_auth_header,
+        )
+        assert typed_resp.status_code == 400
+        assert "mismatch" in typed_resp.json()["detail"].lower()

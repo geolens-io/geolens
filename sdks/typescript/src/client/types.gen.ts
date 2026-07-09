@@ -3617,7 +3617,10 @@ export type FanOutLayerResult = {
  * GeoJSON-style feature for insertion.
  */
 export type FeatureCreate = {
-    geometry: GeoJsonGeometry;
+    /**
+     * Geometry
+     */
+    geometry: GeoJsonGeometryCollection | GeoJsonGeometry;
     /**
      * Properties
      */
@@ -3648,7 +3651,10 @@ export type FeatureFlagsResponse = {
  * Full feature replacement (PUT semantics).
  */
 export type FeatureReplace = {
-    geometry: GeoJsonGeometry;
+    /**
+     * Geometry
+     */
+    geometry: GeoJsonGeometryCollection | GeoJsonGeometry;
     /**
      * Properties
      */
@@ -3663,7 +3669,10 @@ export type FeatureReplace = {
  * Partial feature update (PATCH semantics).
  */
 export type FeatureUpdate = {
-    geometry?: GeoJsonGeometry | null;
+    /**
+     * Geometry
+     */
+    geometry?: GeoJsonGeometryCollection | GeoJsonGeometry | null;
     /**
      * Properties
      */
@@ -3728,6 +3737,27 @@ export type GeoJsonGeometry = {
      * Type
      */
     type: string;
+};
+
+/**
+ * GeoJSONGeometryCollection
+ *
+ * A GeoJSON GeometryCollection (RFC 7946 §3.1.8).
+ *
+ * fix(#430 codex r9): carries ``geometries`` instead of ``coordinates``, so
+ * it needs its own model — only generic-GEOMETRY datasets accept it on write
+ * (enforced in the service), and any stored collection must serialize back
+ * out on read.
+ */
+export type GeoJsonGeometryCollection = {
+    /**
+     * Geometries
+     */
+    geometries: Array<GeoJsonGeometry>;
+    /**
+     * Type
+     */
+    type: 'GeometryCollection';
 };
 
 /**
@@ -3875,12 +3905,15 @@ export type InfrastructureResponse = {
 };
 
 /**
- * InlineDef_GeoJSONFeature_afaebacb
+ * InlineDef_GeoJSONFeature_adc353e4
  *
  * A single GeoJSON Feature.
  */
-export type InlineDefGeoJsonFeatureAfaebacb = {
-    geometry?: GeoJsonGeometry | null;
+export type InlineDefGeoJsonFeatureAdc353E4 = {
+    /**
+     * Geometry
+     */
+    geometry?: InlineDefGeoJsonGeometryCollectionD7598F77 | GeoJsonGeometry | null;
     /**
      * Id
      */
@@ -3895,6 +3928,27 @@ export type InlineDefGeoJsonFeatureAfaebacb = {
      * Type
      */
     type?: 'Feature';
+};
+
+/**
+ * InlineDef_GeoJSONGeometryCollection_d7598f77
+ *
+ * A GeoJSON GeometryCollection (RFC 7946 §3.1.8).
+ *
+ * fix(#430 codex r9): carries ``geometries`` instead of ``coordinates``, so
+ * it needs its own model — only generic-GEOMETRY datasets accept it on write
+ * (enforced in the service), and any stored collection must serialize back
+ * out on read.
+ */
+export type InlineDefGeoJsonGeometryCollectionD7598F77 = {
+    /**
+     * Geometries
+     */
+    geometries: Array<GeoJsonGeometry>;
+    /**
+     * Type
+     */
+    type: 'GeometryCollection';
 };
 
 /**
@@ -14525,7 +14579,7 @@ export type ListFeaturesDatasetsDatasetIdFeaturesGetResponses = {
         /**
          * Features
          */
-        features: Array<InlineDefGeoJsonFeatureAfaebacb>;
+        features: Array<InlineDefGeoJsonFeatureAdc353E4>;
         /**
          * Links
          */
@@ -14599,7 +14653,10 @@ export type CreateFeatureDatasetsDatasetIdFeaturesPostResponses = {
      * A single GeoJSON Feature.
      */
     201: {
-        geometry?: GeoJsonGeometry | null;
+        /**
+         * Geometry
+         */
+        geometry?: InlineDefGeoJsonGeometryCollectionD7598F77 | GeoJsonGeometry | null;
         /**
          * Id
          */
@@ -14729,7 +14786,10 @@ export type GetSingleFeatureDatasetsDatasetIdFeaturesGidGetResponses = {
      * A single GeoJSON Feature.
      */
     200: {
-        geometry?: GeoJsonGeometry | null;
+        /**
+         * Geometry
+         */
+        geometry?: InlineDefGeoJsonGeometryCollectionD7598F77 | GeoJsonGeometry | null;
         /**
          * Id
          */
@@ -14805,7 +14865,10 @@ export type PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchResponses = {
      * A single GeoJSON Feature.
      */
     200: {
-        geometry?: GeoJsonGeometry | null;
+        /**
+         * Geometry
+         */
+        geometry?: InlineDefGeoJsonGeometryCollectionD7598F77 | GeoJsonGeometry | null;
         /**
          * Id
          */
@@ -14881,7 +14944,10 @@ export type ReplaceSingleFeatureDatasetsDatasetIdFeaturesGidPutResponses = {
      * A single GeoJSON Feature.
      */
     200: {
-        geometry?: GeoJsonGeometry | null;
+        /**
+         * Geometry
+         */
+        geometry?: InlineDefGeoJsonGeometryCollectionD7598F77 | GeoJsonGeometry | null;
         /**
          * Id
          */

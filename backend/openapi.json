@@ -6266,7 +6266,15 @@
         "description": "GeoJSON-style feature for insertion.",
         "properties": {
           "geometry": {
-            "$ref": "#/components/schemas/GeoJSONGeometry"
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GeoJSONGeometryCollection"
+              },
+              {
+                "$ref": "#/components/schemas/GeoJSONGeometry"
+              }
+            ],
+            "title": "Geometry"
           },
           "properties": {
             "anyOf": [
@@ -6308,7 +6316,15 @@
         "description": "Full feature replacement (PUT semantics).",
         "properties": {
           "geometry": {
-            "$ref": "#/components/schemas/GeoJSONGeometry"
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GeoJSONGeometryCollection"
+              },
+              {
+                "$ref": "#/components/schemas/GeoJSONGeometry"
+              }
+            ],
+            "title": "Geometry"
           },
           "properties": {
             "additionalProperties": true,
@@ -6329,12 +6345,16 @@
           "geometry": {
             "anyOf": [
               {
+                "$ref": "#/components/schemas/GeoJSONGeometryCollection"
+              },
+              {
                 "$ref": "#/components/schemas/GeoJSONGeometry"
               },
               {
                 "type": "null"
               }
-            ]
+            ],
+            "title": "Geometry"
           },
           "properties": {
             "anyOf": [
@@ -6428,6 +6448,29 @@
           "coordinates"
         ],
         "title": "GeoJSONGeometry",
+        "type": "object"
+      },
+      "GeoJSONGeometryCollection": {
+        "description": "A GeoJSON GeometryCollection (RFC 7946 \u00a73.1.8).\n\nfix(#430 codex r9): carries ``geometries`` instead of ``coordinates``, so\nit needs its own model \u2014 only generic-GEOMETRY datasets accept it on write\n(enforced in the service), and any stored collection must serialize back\nout on read.",
+        "properties": {
+          "geometries": {
+            "items": {
+              "$ref": "#/components/schemas/GeoJSONGeometry"
+            },
+            "title": "Geometries",
+            "type": "array"
+          },
+          "type": {
+            "const": "GeometryCollection",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "geometries"
+        ],
+        "title": "GeoJSONGeometryCollection",
         "type": "object"
       },
       "HTTPValidationError": {
@@ -27119,12 +27162,16 @@
                         "geometry": {
                           "anyOf": [
                             {
+                              "$ref": "#/$defs/GeoJSONGeometryCollection"
+                            },
+                            {
                               "$ref": "#/$defs/GeoJSONGeometry"
                             },
                             {
                               "type": "null"
                             }
-                          ]
+                          ],
+                          "title": "Geometry"
                         },
                         "id": {
                           "title": "Id",
@@ -27167,6 +27214,29 @@
                         "coordinates"
                       ],
                       "title": "GeoJSONGeometry",
+                      "type": "object"
+                    },
+                    "GeoJSONGeometryCollection": {
+                      "description": "A GeoJSON GeometryCollection (RFC 7946 \u00a73.1.8).\n\nfix(#430 codex r9): carries ``geometries`` instead of ``coordinates``, so\nit needs its own model \u2014 only generic-GEOMETRY datasets accept it on write\n(enforced in the service), and any stored collection must serialize back\nout on read.",
+                      "properties": {
+                        "geometries": {
+                          "items": {
+                            "$ref": "#/$defs/GeoJSONGeometry"
+                          },
+                          "title": "Geometries",
+                          "type": "array"
+                        },
+                        "type": {
+                          "const": "GeometryCollection",
+                          "title": "Type",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "geometries"
+                      ],
+                      "title": "GeoJSONGeometryCollection",
                       "type": "object"
                     },
                     "Link": {
@@ -27367,6 +27437,29 @@
                       ],
                       "title": "GeoJSONGeometry",
                       "type": "object"
+                    },
+                    "GeoJSONGeometryCollection": {
+                      "description": "A GeoJSON GeometryCollection (RFC 7946 \u00a73.1.8).\n\nfix(#430 codex r9): carries ``geometries`` instead of ``coordinates``, so\nit needs its own model \u2014 only generic-GEOMETRY datasets accept it on write\n(enforced in the service), and any stored collection must serialize back\nout on read.",
+                      "properties": {
+                        "geometries": {
+                          "items": {
+                            "$ref": "#/$defs/GeoJSONGeometry"
+                          },
+                          "title": "Geometries",
+                          "type": "array"
+                        },
+                        "type": {
+                          "const": "GeometryCollection",
+                          "title": "Type",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "geometries"
+                      ],
+                      "title": "GeoJSONGeometryCollection",
+                      "type": "object"
                     }
                   },
                   "description": "A single GeoJSON Feature.",
@@ -27374,12 +27467,16 @@
                     "geometry": {
                       "anyOf": [
                         {
+                          "$ref": "#/$defs/GeoJSONGeometryCollection"
+                        },
+                        {
                           "$ref": "#/$defs/GeoJSONGeometry"
                         },
                         {
                           "type": "null"
                         }
-                      ]
+                      ],
+                      "title": "Geometry"
                     },
                     "id": {
                       "title": "Id",
@@ -27666,6 +27763,29 @@
                       ],
                       "title": "GeoJSONGeometry",
                       "type": "object"
+                    },
+                    "GeoJSONGeometryCollection": {
+                      "description": "A GeoJSON GeometryCollection (RFC 7946 \u00a73.1.8).\n\nfix(#430 codex r9): carries ``geometries`` instead of ``coordinates``, so\nit needs its own model \u2014 only generic-GEOMETRY datasets accept it on write\n(enforced in the service), and any stored collection must serialize back\nout on read.",
+                      "properties": {
+                        "geometries": {
+                          "items": {
+                            "$ref": "#/$defs/GeoJSONGeometry"
+                          },
+                          "title": "Geometries",
+                          "type": "array"
+                        },
+                        "type": {
+                          "const": "GeometryCollection",
+                          "title": "Type",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "geometries"
+                      ],
+                      "title": "GeoJSONGeometryCollection",
+                      "type": "object"
                     }
                   },
                   "description": "A single GeoJSON Feature.",
@@ -27673,12 +27793,16 @@
                     "geometry": {
                       "anyOf": [
                         {
+                          "$ref": "#/$defs/GeoJSONGeometryCollection"
+                        },
+                        {
                           "$ref": "#/$defs/GeoJSONGeometry"
                         },
                         {
                           "type": "null"
                         }
-                      ]
+                      ],
+                      "title": "Geometry"
                     },
                     "id": {
                       "title": "Id",
@@ -27846,6 +27970,29 @@
                       ],
                       "title": "GeoJSONGeometry",
                       "type": "object"
+                    },
+                    "GeoJSONGeometryCollection": {
+                      "description": "A GeoJSON GeometryCollection (RFC 7946 \u00a73.1.8).\n\nfix(#430 codex r9): carries ``geometries`` instead of ``coordinates``, so\nit needs its own model \u2014 only generic-GEOMETRY datasets accept it on write\n(enforced in the service), and any stored collection must serialize back\nout on read.",
+                      "properties": {
+                        "geometries": {
+                          "items": {
+                            "$ref": "#/$defs/GeoJSONGeometry"
+                          },
+                          "title": "Geometries",
+                          "type": "array"
+                        },
+                        "type": {
+                          "const": "GeometryCollection",
+                          "title": "Type",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "geometries"
+                      ],
+                      "title": "GeoJSONGeometryCollection",
+                      "type": "object"
                     }
                   },
                   "description": "A single GeoJSON Feature.",
@@ -27853,12 +28000,16 @@
                     "geometry": {
                       "anyOf": [
                         {
+                          "$ref": "#/$defs/GeoJSONGeometryCollection"
+                        },
+                        {
                           "$ref": "#/$defs/GeoJSONGeometry"
                         },
                         {
                           "type": "null"
                         }
-                      ]
+                      ],
+                      "title": "Geometry"
                     },
                     "id": {
                       "title": "Id",
@@ -28037,6 +28188,29 @@
                       ],
                       "title": "GeoJSONGeometry",
                       "type": "object"
+                    },
+                    "GeoJSONGeometryCollection": {
+                      "description": "A GeoJSON GeometryCollection (RFC 7946 \u00a73.1.8).\n\nfix(#430 codex r9): carries ``geometries`` instead of ``coordinates``, so\nit needs its own model \u2014 only generic-GEOMETRY datasets accept it on write\n(enforced in the service), and any stored collection must serialize back\nout on read.",
+                      "properties": {
+                        "geometries": {
+                          "items": {
+                            "$ref": "#/$defs/GeoJSONGeometry"
+                          },
+                          "title": "Geometries",
+                          "type": "array"
+                        },
+                        "type": {
+                          "const": "GeometryCollection",
+                          "title": "Type",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "geometries"
+                      ],
+                      "title": "GeoJSONGeometryCollection",
+                      "type": "object"
                     }
                   },
                   "description": "A single GeoJSON Feature.",
@@ -28044,12 +28218,16 @@
                     "geometry": {
                       "anyOf": [
                         {
+                          "$ref": "#/$defs/GeoJSONGeometryCollection"
+                        },
+                        {
                           "$ref": "#/$defs/GeoJSONGeometry"
                         },
                         {
                           "type": "null"
                         }
-                      ]
+                      ],
+                      "title": "Geometry"
                     },
                     "id": {
                       "title": "Id",

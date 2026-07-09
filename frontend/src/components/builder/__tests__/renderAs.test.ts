@@ -437,3 +437,33 @@ describe('hasCustomizedRenderAsStyle — symbol-only settings', () => {
     expect(hasCustomizedRenderAsStyle(symbolLayer({ categories: [{ value: 'a', icon: 'marker' }] }))).toBe(true);
   });
 });
+
+describe('hasCustomizedRenderAsStyle — cluster color settings (fix #430 codex r9)', () => {
+  const clusterLayer = (builder: Record<string, unknown>, paint: Record<string, unknown> = {}) => layer({
+    paint,
+    // cluster mode only resolves when the cluster source is usable
+    dataset_feature_count: 25,
+    style_config: { render_mode: 'cluster', builder } as unknown as StyleConfig,
+  });
+
+  it('the entry-seeded clusterColor is not customization', () => {
+    // buildRenderAsPatch seeds clusterColor from the circle paint on entry.
+    expect(hasCustomizedRenderAsStyle(
+      clusterLayer({ clusterColor: '#ff5500' }, { 'circle-color': '#ff5500' }),
+    )).toBe(false);
+    expect(hasCustomizedRenderAsStyle(clusterLayer({}))).toBe(false);
+  });
+
+  it('a clusterColor diverging from the seed counts', () => {
+    expect(hasCustomizedRenderAsStyle(
+      clusterLayer({ clusterColor: '#00ff00' }, { 'circle-color': '#ff5500' }),
+    )).toBe(true);
+  });
+
+  it('any non-empty clusterColorRamp counts; an empty ramp does not', () => {
+    expect(hasCustomizedRenderAsStyle(
+      clusterLayer({ clusterColorRamp: [{ count: 0, color: '#ff5500' }] }),
+    )).toBe(true);
+    expect(hasCustomizedRenderAsStyle(clusterLayer({ clusterColorRamp: [] }))).toBe(false);
+  });
+});

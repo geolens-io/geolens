@@ -16,6 +16,9 @@ if TYPE_CHECKING:
     from ..models.get_single_feature_datasets_dataset_id_features_gid_get_geo_json_feature_properties import (
         GetSingleFeatureDatasetsDatasetIdFeaturesGidGetGeoJSONFeatureProperties,
     )
+    from ..models.inline_def_geo_json_geometry_collection_d7598f77 import (
+        InlineDefGeoJSONGeometryCollectionD7598F77,
+    )
 
 
 T = TypeVar("T", bound="GetSingleFeatureDatasetsDatasetIdFeaturesGidGetGeoJSONFeature")
@@ -28,18 +31,23 @@ class GetSingleFeatureDatasetsDatasetIdFeaturesGidGetGeoJSONFeature:
     Attributes:
         id (int):
         properties (GetSingleFeatureDatasetsDatasetIdFeaturesGidGetGeoJSONFeatureProperties):
-        geometry (GeoJSONGeometry | None | Unset):
+        geometry (GeoJSONGeometry | InlineDefGeoJSONGeometryCollectionD7598F77 | None | Unset):
         type_ (Literal['Feature'] | Unset):  Default: 'Feature'.
     """
 
     id: int
     properties: GetSingleFeatureDatasetsDatasetIdFeaturesGidGetGeoJSONFeatureProperties
-    geometry: GeoJSONGeometry | None | Unset = UNSET
+    geometry: (
+        GeoJSONGeometry | InlineDefGeoJSONGeometryCollectionD7598F77 | None | Unset
+    ) = UNSET
     type_: Literal["Feature"] | Unset = "Feature"
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         from ..models.geo_json_geometry import GeoJSONGeometry
+        from ..models.inline_def_geo_json_geometry_collection_d7598f77 import (
+            InlineDefGeoJSONGeometryCollectionD7598F77,
+        )
 
         id = self.id
 
@@ -48,6 +56,8 @@ class GetSingleFeatureDatasetsDatasetIdFeaturesGidGetGeoJSONFeature:
         geometry: dict[str, Any] | None | Unset
         if isinstance(self.geometry, Unset):
             geometry = UNSET
+        elif isinstance(self.geometry, InlineDefGeoJSONGeometryCollectionD7598F77):
+            geometry = self.geometry.to_dict()
         elif isinstance(self.geometry, GeoJSONGeometry):
             geometry = self.geometry.to_dict()
         else:
@@ -76,6 +86,9 @@ class GetSingleFeatureDatasetsDatasetIdFeaturesGidGetGeoJSONFeature:
         from ..models.get_single_feature_datasets_dataset_id_features_gid_get_geo_json_feature_properties import (
             GetSingleFeatureDatasetsDatasetIdFeaturesGidGetGeoJSONFeatureProperties,
         )
+        from ..models.inline_def_geo_json_geometry_collection_d7598f77 import (
+            InlineDefGeoJSONGeometryCollectionD7598F77,
+        )
 
         d = dict(src_dict)
         id = d.pop("id")
@@ -84,7 +97,11 @@ class GetSingleFeatureDatasetsDatasetIdFeaturesGidGetGeoJSONFeature:
             d.pop("properties")
         )
 
-        def _parse_geometry(data: object) -> GeoJSONGeometry | None | Unset:
+        def _parse_geometry(
+            data: object,
+        ) -> (
+            GeoJSONGeometry | InlineDefGeoJSONGeometryCollectionD7598F77 | None | Unset
+        ):
             if data is None:
                 return data
             if isinstance(data, Unset):
@@ -92,12 +109,28 @@ class GetSingleFeatureDatasetsDatasetIdFeaturesGidGetGeoJSONFeature:
             try:
                 if not isinstance(data, dict):
                     raise TypeError()
-                geometry_type_0 = GeoJSONGeometry.from_dict(data)
+                geometry_type_0 = InlineDefGeoJSONGeometryCollectionD7598F77.from_dict(
+                    data
+                )
 
                 return geometry_type_0
             except (TypeError, ValueError, AttributeError, KeyError):
                 pass
-            return cast(GeoJSONGeometry | None | Unset, data)
+            try:
+                if not isinstance(data, dict):
+                    raise TypeError()
+                geometry_type_1 = GeoJSONGeometry.from_dict(data)
+
+                return geometry_type_1
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(
+                GeoJSONGeometry
+                | InlineDefGeoJSONGeometryCollectionD7598F77
+                | None
+                | Unset,
+                data,
+            )
 
         geometry = _parse_geometry(d.pop("geometry", UNSET))
 

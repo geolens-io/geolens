@@ -13,6 +13,7 @@ from typing import cast
 if TYPE_CHECKING:
     from ..models.feature_create_properties_type_0 import FeatureCreatePropertiesType0
     from ..models.geo_json_geometry import GeoJSONGeometry
+    from ..models.geo_json_geometry_collection import GeoJSONGeometryCollection
 
 
 T = TypeVar("T", bound="FeatureCreate")
@@ -23,11 +24,11 @@ class FeatureCreate:
     """GeoJSON-style feature for insertion.
 
     Attributes:
-        geometry (GeoJSONGeometry): A GeoJSON geometry object (RFC 7946).
+        geometry (GeoJSONGeometry | GeoJSONGeometryCollection):
         properties (FeatureCreatePropertiesType0 | None | Unset):
     """
 
-    geometry: GeoJSONGeometry
+    geometry: GeoJSONGeometry | GeoJSONGeometryCollection
     properties: FeatureCreatePropertiesType0 | None | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
@@ -35,8 +36,13 @@ class FeatureCreate:
         from ..models.feature_create_properties_type_0 import (
             FeatureCreatePropertiesType0,
         )
+        from ..models.geo_json_geometry_collection import GeoJSONGeometryCollection
 
-        geometry = self.geometry.to_dict()
+        geometry: dict[str, Any]
+        if isinstance(self.geometry, GeoJSONGeometryCollection):
+            geometry = self.geometry.to_dict()
+        else:
+            geometry = self.geometry.to_dict()
 
         properties: dict[str, Any] | None | Unset
         if isinstance(self.properties, Unset):
@@ -64,9 +70,28 @@ class FeatureCreate:
             FeatureCreatePropertiesType0,
         )
         from ..models.geo_json_geometry import GeoJSONGeometry
+        from ..models.geo_json_geometry_collection import GeoJSONGeometryCollection
 
         d = dict(src_dict)
-        geometry = GeoJSONGeometry.from_dict(d.pop("geometry"))
+
+        def _parse_geometry(
+            data: object,
+        ) -> GeoJSONGeometry | GeoJSONGeometryCollection:
+            try:
+                if not isinstance(data, dict):
+                    raise TypeError()
+                geometry_type_0 = GeoJSONGeometryCollection.from_dict(data)
+
+                return geometry_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            if not isinstance(data, dict):
+                raise TypeError()
+            geometry_type_1 = GeoJSONGeometry.from_dict(data)
+
+            return geometry_type_1
+
+        geometry = _parse_geometry(d.pop("geometry"))
 
         def _parse_properties(
             data: object,

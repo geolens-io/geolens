@@ -27,6 +27,11 @@ GEOJSON_TYPE_MAP: dict[str, set[str]] = {
     "MultiLineString": {"MultiLineString"},
     "Polygon": {"Polygon", "MultiPolygon"},
     "MultiPolygon": {"MultiPolygon"},
+    # fix(#430 codex r9): a GeometryCollection is a real GeoJSON geometry but
+    # only a generic GEOMETRY column can store it — the generic branch in
+    # _validate_geometry_type only requires map presence, while the empty
+    # compatibility set makes every typed dataset report a type mismatch.
+    "GeometryCollection": set(),
 }
 
 

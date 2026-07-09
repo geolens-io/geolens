@@ -7,11 +7,11 @@ from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 
 
-T = TypeVar("T", bound="InlineDefGeoJSONFeatureAfaebacbProperties")
+T = TypeVar("T", bound="InlineDefGeoJSONFeatureAdc353E4Properties")
 
 
 @_attrs_define
-class InlineDefGeoJSONFeatureAfaebacbProperties:
+class InlineDefGeoJSONFeatureAdc353E4Properties:
     """ """
 
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
@@ -26,10 +26,10 @@ class InlineDefGeoJSONFeatureAfaebacbProperties:
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
-        inline_def_geo_json_feature_afaebacb_properties = cls()
+        inline_def_geo_json_feature_adc_353e4_properties = cls()
 
-        inline_def_geo_json_feature_afaebacb_properties.additional_properties = d
-        return inline_def_geo_json_feature_afaebacb_properties
+        inline_def_geo_json_feature_adc_353e4_properties.additional_properties = d
+        return inline_def_geo_json_feature_adc_353e4_properties
 
     @property
     def additional_keys(self) -> list[str]:

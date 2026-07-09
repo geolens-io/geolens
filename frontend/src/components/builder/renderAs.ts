@@ -333,11 +333,20 @@ export function hasCustomizedRenderAsStyle(layer: RenderAsLayer): boolean {
     }
 
     case 'cluster': {
+      // fix(#430 codex r9): clusterColor is auto-seeded on mode entry (from
+      // the circle paint), so presence alone isn't customization — diverging
+      // from that seed is (same pattern as extrusion heightColumn). Any
+      // non-empty ramp is user-authored destructible state.
+      const seededClusterColor = typeof paint['circle-color'] === 'string'
+        ? paint['circle-color']
+        : DEFAULT_CIRCLE_PAINT['circle-color'];
       return (
         (typeof builder.clusterRadius === 'number' && builder.clusterRadius !== 48)
         || (typeof builder.clusterMaxZoom === 'number' && builder.clusterMaxZoom !== 14)
         || (typeof builder.clusterTextColor === 'string' && builder.clusterTextColor !== '#ffffff')
         || (typeof builder.clusterTextSize === 'number' && builder.clusterTextSize !== 12)
+        || (typeof builder.clusterColor === 'string' && builder.clusterColor !== seededClusterColor)
+        || (Array.isArray(builder.clusterColorRamp) && builder.clusterColorRamp.length > 0)
       );
     }
 
