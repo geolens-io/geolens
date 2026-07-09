@@ -7,7 +7,7 @@ from typing import Literal, cast
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -175,9 +175,11 @@ async def fail_stale_jobs(db: AsyncSession) -> tuple[int, int]:
     await sweep_stale_vrt_assets(db, running_cutoff)
 
     # fix(#434): purge terminal jobs past retention so the admin Jobs page
-    # doesn't accumulate history forever. Cutoff is on created_at (always set;
-    # jobs cap at 1h, so it is equivalent to finished-at for retention purposes
-    # and needs no NULL handling). 0 = keep forever. Each dataset's most recent
+    # doesn't accumulate history forever. Cutoff is on finished-at
+    # (coalesce(completed_at, created_at)) rather than created_at — the stale
+    # sweep above fails ancient pending/running rows with completed_at=now, and
+    # a created_at cutoff would delete that fresh failure evidence in the same
+    # transaction (codex P2 r8). 0 = keep forever. Each dataset's most recent
     # complete job is exempt regardless of age: /jobs/by-dataset/{id} serves the
     # dataset page's persistent ingest warnings and the reupload source_layer
     # hint from it (codex P2 on #434). Jobs whose dataset was deleted have
@@ -214,7 +216,8 @@ async def fail_stale_jobs(db: AsyncSession) -> tuple[int, int]:
         candidates = await db.execute(
             select(IngestJob.id, IngestJob.file_path).where(
                 IngestJob.status.not_in(("pending", "running")),
-                IngestJob.created_at < retention_cutoff,
+                func.coalesce(IngestJob.completed_at, IngestJob.created_at)
+                < retention_cutoff,
                 IngestJob.id.not_in(latest_complete_ids),
                 IngestJob.id.not_in(latest_manifest_ids),
             )

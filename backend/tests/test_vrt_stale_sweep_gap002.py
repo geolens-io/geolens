@@ -376,6 +376,16 @@ async def test_retention_purge_keeps_latest_complete_job_per_dataset(
             created_at=now - timedelta(days=1),
             file_path=str(shared_file),
         ),
+        # codex P2 (r8): an ancient still-running row gets stale-failed by THIS
+        # same fail_stale_jobs call (completed_at=now) — the purge cutoff is on
+        # finished-at, so the fresh failure evidence must survive a full
+        # retention window instead of being deleted in the same transaction.
+        "ancient_stale_running": IngestJob(
+            dataset_id=ds.id,
+            status="running",
+            created_at=ancient,
+            started_at=ancient,
+        ),
     }
     test_db_session.add_all(rows.values())
     await test_db_session.commit()
@@ -393,6 +403,12 @@ async def test_retention_purge_keeps_latest_complete_job_per_dataset(
     assert ids["manifest_complete"] in remaining, (
         "the newest complete job per manifest_key must survive retention"
     )
+    assert ids["ancient_stale_running"] in remaining, (
+        "a row stale-failed by this same sweep must keep its fresh failure "
+        "evidence for a full retention window"
+    )
+    stale_failed = await test_db_session.get(IngestJob, ids["ancient_stale_running"])
+    assert stale_failed.status == "failed"
     for name in (
         "older_complete",
         "old_failed",
