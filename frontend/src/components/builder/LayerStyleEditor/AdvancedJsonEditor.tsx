@@ -4,18 +4,51 @@ import { ChevronDown, ChevronRight, Code } from 'lucide-react';
 import { validateStyleMin } from '@maplibre/maplibre-gl-style-spec';
 import { Button } from '@/components/ui/button';
 
+// fix(#431 codex r2): a mixed-geometry (GEOMETRY sentinel) layer's paint and
+// layout span three MapLibre layer types — the adapter fans the same dict out
+// to fill/line/circle sublayers via filterPaintForLayerType. Split the block
+// by family prefix so each subset validates against its own layer type;
+// un-prefixed keys (e.g. layout `visibility`) validate under the fill primary.
+// fill-extrusion-* lands in the fill bucket and is rejected there — correct,
+// since the mixed adapter deliberately has no extrusion sublayer.
+function splitMixedBlock(value: Record<string, unknown>) {
+  const buckets: Record<'fill' | 'line' | 'circle', Record<string, unknown>> = {
+    fill: {},
+    line: {},
+    circle: {},
+  };
+  for (const [key, entry] of Object.entries(value)) {
+    if (key.startsWith('line-')) buckets.line[key] = entry;
+    else if (key.startsWith('circle-')) buckets.circle[key] = entry;
+    else buckets.fill[key] = entry;
+  }
+  return buckets;
+}
+
 // Use the real MapLibre style-spec validator to catch property names,
 // color values, numeric bounds, expression syntax, and type mismatches —
 // not just property names. Wrap the user's paint/layout in a minimal
 // single-layer style of the correct layer type and filter errors that
 // aren't about paint/layout (we synthesize the source, so source errors
 // would always fire here and are irrelevant to what the user is editing).
-function validatePropertyBlock(
+// Exported for tests.
+export function validatePropertyBlock(
   value: Record<string, unknown>,
   layerType: string | undefined,
   block: 'paint' | 'layout',
 ): string[] | null {
   if (!layerType) return [];
+  if (layerType === 'mixed') {
+    const buckets = splitMixedBlock(value);
+    const allErrors: string[] = [];
+    for (const family of ['fill', 'line', 'circle'] as const) {
+      if (Object.keys(buckets[family]).length === 0) continue;
+      const familyErrors = validatePropertyBlock(buckets[family], family, block);
+      if (familyErrors === null) return null;
+      allErrors.push(...familyErrors);
+    }
+    return allErrors;
+  }
   // Construct a layer object with the right shape for the requested type.
   // Use a GeoJSON source stub (no source-layer needed) with lineMetrics
   // enabled so line-gradient expressions using ["line-progress"] validate
