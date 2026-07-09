@@ -14,17 +14,24 @@ if TYPE_CHECKING:
     from ..models.geo_json_geometry import GeoJSONGeometry
 
 
-T = TypeVar("T", bound="InlineDefGeoJSONGeometryCollectionD7598F77")
+T = TypeVar("T", bound="InlineDefGeoJSONGeometryCollectionD6B7Eb76")
 
 
 @_attrs_define
-class InlineDefGeoJSONGeometryCollectionD7598F77:
+class InlineDefGeoJSONGeometryCollectionD6B7Eb76:
     """A GeoJSON GeometryCollection (RFC 7946 §3.1.8).
 
     fix(#430 codex r9): carries ``geometries`` instead of ``coordinates``, so
     it needs its own model — only generic-GEOMETRY datasets accept it on write
     (enforced in the service), and any stored collection must serialize back
     out on read.
+
+    Deliberately NON-recursive (codex r13, refuted): PostGIS cannot round-trip
+    nested collections through the GeoJSON boundary in either direction —
+    ST_GeomFromGeoJSON rejects them on write and ST_AsGeoJSON raises
+    'GeoJson: geometry not supported' on read — so a recursive model could
+    never receive one and would only convert the write-side 422 into a raw
+    database 500. The write schemas add a raw-payload guard for a clear 422.
 
         Attributes:
             geometries (list[GeoJSONGeometry]):
@@ -72,13 +79,13 @@ class InlineDefGeoJSONGeometryCollectionD7598F77:
                 f"type must match const 'GeometryCollection', got '{type_}'"
             )
 
-        inline_def_geo_json_geometry_collection_d7598f77 = cls(
+        inline_def_geo_json_geometry_collection_d6b7_eb_76 = cls(
             geometries=geometries,
             type_=type_,
         )
 
-        inline_def_geo_json_geometry_collection_d7598f77.additional_properties = d
-        return inline_def_geo_json_geometry_collection_d7598f77
+        inline_def_geo_json_geometry_collection_d6b7_eb_76.additional_properties = d
+        return inline_def_geo_json_geometry_collection_d6b7_eb_76
 
     @property
     def additional_keys(self) -> list[str]:

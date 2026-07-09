@@ -26,6 +26,13 @@ class GeoJSONGeometryCollection:
     (enforced in the service), and any stored collection must serialize back
     out on read.
 
+    Deliberately NON-recursive (codex r13, refuted): PostGIS cannot round-trip
+    nested collections through the GeoJSON boundary in either direction —
+    ST_GeomFromGeoJSON rejects them on write and ST_AsGeoJSON raises
+    'GeoJson: geometry not supported' on read — so a recursive model could
+    never receive one and would only convert the write-side 422 into a raw
+    database 500. The write schemas add a raw-payload guard for a clear 422.
+
         Attributes:
             geometries (list[GeoJSONGeometry]):
             type_ (Literal['GeometryCollection']):

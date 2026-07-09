@@ -2,7 +2,7 @@
 
 from typing import Any, Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 
 
 class GeoJSONGeometry(BaseModel):
@@ -19,6 +19,13 @@ class GeoJSONGeometryCollection(BaseModel):
     it needs its own model — only generic-GEOMETRY datasets accept it on write
     (enforced in the service), and any stored collection must serialize back
     out on read.
+
+    Deliberately NON-recursive (codex r13, refuted): PostGIS cannot round-trip
+    nested collections through the GeoJSON boundary in either direction —
+    ST_GeomFromGeoJSON rejects them on write and ST_AsGeoJSON raises
+    'GeoJson: geometry not supported' on read — so a recursive model could
+    never receive one and would only convert the write-side 422 into a raw
+    database 500. The write schemas add a raw-payload guard for a clear 422.
     """
 
     type: Literal["GeometryCollection"]
@@ -60,11 +67,39 @@ class GeoJSONFeatureCollection(BaseModel):
 # ---------------------------------------------------------------------------
 
 
+def _reject_nested_collections(data: object) -> object:
+    """Raw-payload guard: clear 422 for nested GeometryCollections (codex r13).
+
+    Runs mode='before' so it fires ahead of union parsing — the non-recursive
+    GeoJSONGeometryCollection would otherwise reject the nested child with a
+    misleading 'coordinates: Field required'. Nesting is unsupported by
+    PostGIS on both sides of the GeoJSON boundary (see the model docstring).
+    """
+    if isinstance(data, dict):
+        geometry = data.get("geometry")
+        if isinstance(geometry, dict) and geometry.get("type") == "GeometryCollection":
+            for child in geometry.get("geometries") or []:
+                if (
+                    isinstance(child, dict)
+                    and child.get("type") == "GeometryCollection"
+                ):
+                    raise ValueError(
+                        "Nested GeometryCollections are not supported; "
+                        "flatten the collection into a single level."
+                    )
+    return data
+
+
 class FeatureCreate(BaseModel):
     """GeoJSON-style feature for insertion."""
 
     geometry: GeoJSONGeometryLike
     properties: dict | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _no_nested_collections(cls, data: object) -> object:
+        return _reject_nested_collections(data)
 
 
 class FeatureReplace(BaseModel):
@@ -73,9 +108,19 @@ class FeatureReplace(BaseModel):
     geometry: GeoJSONGeometryLike  # Required for full replacement
     properties: dict  # Required — set fields to null explicitly
 
+    @model_validator(mode="before")
+    @classmethod
+    def _no_nested_collections(cls, data: object) -> object:
+        return _reject_nested_collections(data)
+
 
 class FeatureUpdate(BaseModel):
     """Partial feature update (PATCH semantics)."""
 
     geometry: GeoJSONGeometryLike | None = None
     properties: dict | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _no_nested_collections(cls, data: object) -> object:
+        return _reject_nested_collections(data)

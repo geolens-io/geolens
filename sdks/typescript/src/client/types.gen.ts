@@ -3748,6 +3748,13 @@ export type GeoJsonGeometry = {
  * it needs its own model — only generic-GEOMETRY datasets accept it on write
  * (enforced in the service), and any stored collection must serialize back
  * out on read.
+ *
+ * Deliberately NON-recursive (codex r13, refuted): PostGIS cannot round-trip
+ * nested collections through the GeoJSON boundary in either direction —
+ * ST_GeomFromGeoJSON rejects them on write and ST_AsGeoJSON raises
+ * 'GeoJson: geometry not supported' on read — so a recursive model could
+ * never receive one and would only convert the write-side 422 into a raw
+ * database 500. The write schemas add a raw-payload guard for a clear 422.
  */
 export type GeoJsonGeometryCollection = {
     /**
@@ -3913,7 +3920,7 @@ export type InlineDefGeoJsonFeatureAdc353E4 = {
     /**
      * Geometry
      */
-    geometry?: InlineDefGeoJsonGeometryCollectionD7598F77 | GeoJsonGeometry | null;
+    geometry?: InlineDefGeoJsonGeometryCollectionD6B7Eb76 | GeoJsonGeometry | null;
     /**
      * Id
      */
@@ -3931,7 +3938,7 @@ export type InlineDefGeoJsonFeatureAdc353E4 = {
 };
 
 /**
- * InlineDef_GeoJSONGeometryCollection_d7598f77
+ * InlineDef_GeoJSONGeometryCollection_d6b7eb76
  *
  * A GeoJSON GeometryCollection (RFC 7946 §3.1.8).
  *
@@ -3939,8 +3946,15 @@ export type InlineDefGeoJsonFeatureAdc353E4 = {
  * it needs its own model — only generic-GEOMETRY datasets accept it on write
  * (enforced in the service), and any stored collection must serialize back
  * out on read.
+ *
+ * Deliberately NON-recursive (codex r13, refuted): PostGIS cannot round-trip
+ * nested collections through the GeoJSON boundary in either direction —
+ * ST_GeomFromGeoJSON rejects them on write and ST_AsGeoJSON raises
+ * 'GeoJson: geometry not supported' on read — so a recursive model could
+ * never receive one and would only convert the write-side 422 into a raw
+ * database 500. The write schemas add a raw-payload guard for a clear 422.
  */
-export type InlineDefGeoJsonGeometryCollectionD7598F77 = {
+export type InlineDefGeoJsonGeometryCollectionD6B7Eb76 = {
     /**
      * Geometries
      */
@@ -14656,7 +14670,7 @@ export type CreateFeatureDatasetsDatasetIdFeaturesPostResponses = {
         /**
          * Geometry
          */
-        geometry?: InlineDefGeoJsonGeometryCollectionD7598F77 | GeoJsonGeometry | null;
+        geometry?: InlineDefGeoJsonGeometryCollectionD6B7Eb76 | GeoJsonGeometry | null;
         /**
          * Id
          */
@@ -14789,7 +14803,7 @@ export type GetSingleFeatureDatasetsDatasetIdFeaturesGidGetResponses = {
         /**
          * Geometry
          */
-        geometry?: InlineDefGeoJsonGeometryCollectionD7598F77 | GeoJsonGeometry | null;
+        geometry?: InlineDefGeoJsonGeometryCollectionD6B7Eb76 | GeoJsonGeometry | null;
         /**
          * Id
          */
@@ -14868,7 +14882,7 @@ export type PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchResponses = {
         /**
          * Geometry
          */
-        geometry?: InlineDefGeoJsonGeometryCollectionD7598F77 | GeoJsonGeometry | null;
+        geometry?: InlineDefGeoJsonGeometryCollectionD6B7Eb76 | GeoJsonGeometry | null;
         /**
          * Id
          */
@@ -14947,7 +14961,7 @@ export type ReplaceSingleFeatureDatasetsDatasetIdFeaturesGidPutResponses = {
         /**
          * Geometry
          */
-        geometry?: InlineDefGeoJsonGeometryCollectionD7598F77 | GeoJsonGeometry | null;
+        geometry?: InlineDefGeoJsonGeometryCollectionD6B7Eb76 | GeoJsonGeometry | null;
         /**
          * Id
          */

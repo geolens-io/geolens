@@ -1163,6 +1163,7 @@ class TestCreateEmptyDatasetGenericGeometry:
         client: AsyncClient,
         admin_auth_header: dict,
         test_layer: Dataset,
+        test_db_session,
     ):
         """fix(#430 codex r9): a GeoJSON GeometryCollection is insertable into a
         generic GEOMETRY column (the constraint and column allow it) but was
@@ -1196,6 +1197,41 @@ class TestCreateEmptyDatasetGenericGeometry:
             headers=admin_auth_header,
         )
         assert gc_resp.status_code == 201, gc_resp.text
+
+        # codex r13 (refuted as proposed): a NESTED collection cannot
+        # round-trip PostGIS's GeoJSON boundary in either direction —
+        # ST_GeomFromGeoJSON rejects it on write and ST_AsGeoJSON raises
+        # 'GeoJson: geometry not supported' on read — so the schema stays
+        # non-recursive and the write path rejects nesting with a CLEAR 422
+        # (previously a misleading 'coordinates: Field required').
+        nested = {
+            "type": "GeometryCollection",
+            "geometries": [
+                {
+                    "type": "GeometryCollection",
+                    "geometries": [
+                        {"type": "Point", "coordinates": [-73.95, 40.75]},
+                    ],
+                },
+            ],
+        }
+        nested_resp = await client.post(
+            f"/datasets/{dataset_id}/features/",
+            json={"geometry": nested, "properties": {"name": "nested"}},
+            headers=admin_auth_header,
+        )
+        assert nested_resp.status_code == 422, nested_resp.text
+        assert "Nested GeometryCollections" in nested_resp.text
+
+        # Read side: the stored FLAT collection serializes back out through
+        # the GeoJSONGeometryCollection response variant.
+        read_resp = await client.get(
+            f"/datasets/{dataset_id}/features?limit=50",
+            headers=admin_auth_header,
+        )
+        assert read_resp.status_code == 200, read_resp.text
+        geoms = [f["geometry"]["type"] for f in read_resp.json()["features"]]
+        assert geoms.count("GeometryCollection") == 1
 
         # Typed dataset (Point layer): still rejected, but as a mismatch.
         typed_resp = await client.post(

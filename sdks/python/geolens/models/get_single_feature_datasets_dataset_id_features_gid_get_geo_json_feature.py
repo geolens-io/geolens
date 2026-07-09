@@ -16,8 +16,8 @@ if TYPE_CHECKING:
     from ..models.get_single_feature_datasets_dataset_id_features_gid_get_geo_json_feature_properties import (
         GetSingleFeatureDatasetsDatasetIdFeaturesGidGetGeoJSONFeatureProperties,
     )
-    from ..models.inline_def_geo_json_geometry_collection_d7598f77 import (
-        InlineDefGeoJSONGeometryCollectionD7598F77,
+    from ..models.inline_def_geo_json_geometry_collection_d6b7_eb_76 import (
+        InlineDefGeoJSONGeometryCollectionD6B7Eb76,
     )
 
 
@@ -31,22 +31,22 @@ class GetSingleFeatureDatasetsDatasetIdFeaturesGidGetGeoJSONFeature:
     Attributes:
         id (int):
         properties (GetSingleFeatureDatasetsDatasetIdFeaturesGidGetGeoJSONFeatureProperties):
-        geometry (GeoJSONGeometry | InlineDefGeoJSONGeometryCollectionD7598F77 | None | Unset):
+        geometry (GeoJSONGeometry | InlineDefGeoJSONGeometryCollectionD6B7Eb76 | None | Unset):
         type_ (Literal['Feature'] | Unset):  Default: 'Feature'.
     """
 
     id: int
     properties: GetSingleFeatureDatasetsDatasetIdFeaturesGidGetGeoJSONFeatureProperties
     geometry: (
-        GeoJSONGeometry | InlineDefGeoJSONGeometryCollectionD7598F77 | None | Unset
+        GeoJSONGeometry | InlineDefGeoJSONGeometryCollectionD6B7Eb76 | None | Unset
     ) = UNSET
     type_: Literal["Feature"] | Unset = "Feature"
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         from ..models.geo_json_geometry import GeoJSONGeometry
-        from ..models.inline_def_geo_json_geometry_collection_d7598f77 import (
-            InlineDefGeoJSONGeometryCollectionD7598F77,
+        from ..models.inline_def_geo_json_geometry_collection_d6b7_eb_76 import (
+            InlineDefGeoJSONGeometryCollectionD6B7Eb76,
         )
 
         id = self.id
@@ -56,7 +56,7 @@ class GetSingleFeatureDatasetsDatasetIdFeaturesGidGetGeoJSONFeature:
         geometry: dict[str, Any] | None | Unset
         if isinstance(self.geometry, Unset):
             geometry = UNSET
-        elif isinstance(self.geometry, InlineDefGeoJSONGeometryCollectionD7598F77):
+        elif isinstance(self.geometry, InlineDefGeoJSONGeometryCollectionD6B7Eb76):
             geometry = self.geometry.to_dict()
         elif isinstance(self.geometry, GeoJSONGeometry):
             geometry = self.geometry.to_dict()
@@ -86,8 +86,8 @@ class GetSingleFeatureDatasetsDatasetIdFeaturesGidGetGeoJSONFeature:
         from ..models.get_single_feature_datasets_dataset_id_features_gid_get_geo_json_feature_properties import (
             GetSingleFeatureDatasetsDatasetIdFeaturesGidGetGeoJSONFeatureProperties,
         )
-        from ..models.inline_def_geo_json_geometry_collection_d7598f77 import (
-            InlineDefGeoJSONGeometryCollectionD7598F77,
+        from ..models.inline_def_geo_json_geometry_collection_d6b7_eb_76 import (
+            InlineDefGeoJSONGeometryCollectionD6B7Eb76,
         )
 
         d = dict(src_dict)
@@ -100,7 +100,7 @@ class GetSingleFeatureDatasetsDatasetIdFeaturesGidGetGeoJSONFeature:
         def _parse_geometry(
             data: object,
         ) -> (
-            GeoJSONGeometry | InlineDefGeoJSONGeometryCollectionD7598F77 | None | Unset
+            GeoJSONGeometry | InlineDefGeoJSONGeometryCollectionD6B7Eb76 | None | Unset
         ):
             if data is None:
                 return data
@@ -109,7 +109,7 @@ class GetSingleFeatureDatasetsDatasetIdFeaturesGidGetGeoJSONFeature:
             try:
                 if not isinstance(data, dict):
                     raise TypeError()
-                geometry_type_0 = InlineDefGeoJSONGeometryCollectionD7598F77.from_dict(
+                geometry_type_0 = InlineDefGeoJSONGeometryCollectionD6B7Eb76.from_dict(
                     data
                 )
 
@@ -126,7 +126,7 @@ class GetSingleFeatureDatasetsDatasetIdFeaturesGidGetGeoJSONFeature:
                 pass
             return cast(
                 GeoJSONGeometry
-                | InlineDefGeoJSONGeometryCollectionD7598F77
+                | InlineDefGeoJSONGeometryCollectionD6B7Eb76
                 | None
                 | Unset,
                 data,
