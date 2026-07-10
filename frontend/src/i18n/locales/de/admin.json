@@ -156,7 +156,8 @@
     "title": "Benutzer löschen",
     "description": "Möchten Sie den Benutzer \"{{username}}\" wirklich löschen? Diese Aktion kann nicht rückgängig gemacht werden. Vorhandene Datensätze bleiben erhalten, zeigen aber \"Gelöschter Benutzer\" als Ersteller an.",
     "deleting": "Wird gelöscht...",
-    "error": "Benutzer konnte nicht gelöscht werden"
+    "error": "Benutzer konnte nicht gelöscht werden",
+    "confirmPrompt": "Geben Sie {{username}} ein, um das Löschen zu bestätigen"
   },
   "jobs": {
     "title": "Aufträge",

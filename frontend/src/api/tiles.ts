@@ -1,4 +1,4 @@
-import { apiFetch } from '@/api/client';
+import { apiFetch, safeFetch } from '@/api/client';
 import { API_BASE } from '@/lib/constants';
 
 export type VectorTileToken = {
@@ -46,7 +46,11 @@ export type TileTokenBatchResponse = {
 export function getTileTokensBatch(datasetIds: string[], apiKey?: string, embedToken?: string): Promise<TileTokenBatchResponse> {
   const embedHeader: Record<string, string> = embedToken ? { 'X-Embed-Token': embedToken } : {};
   if (apiKey) {
-    return fetch(`${API_BASE}/tiles/tokens/`, {
+    // fix(#438): DATA-11 — the API-key branch used a bare `fetch()`, so a
+    // network failure surfaced as a raw `TypeError` while the JWT branch below
+    // (via apiFetch → safeFetch) yielded a normalized status-0 ApiError.
+    // safeFetch gives both branches the same error shape.
+    return safeFetch(`${API_BASE}/tiles/tokens/`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-Api-Key': apiKey, ...embedHeader },
       body: JSON.stringify({ dataset_ids: datasetIds }),

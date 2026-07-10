@@ -17,7 +17,7 @@ import { formatBytes, formatNumber } from '@/lib/format';
 export function SettingsPage() {
   const { t, i18n } = useTranslation();
   const { user } = useAuth();
-  const { data: usage } = useMyUsage();
+  const { data: usage, isError: usageError } = useMyUsage();
   useDocumentTitle(t('common:pageTitle.settings'));
 
   return (
@@ -62,11 +62,15 @@ export function SettingsPage() {
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-muted-foreground">{t('settings.storage.storageUsed')}</span>
                   <span className="font-medium">
+                    {/* fix(#438): UX-13 — a failed usage query used to read the
+                        same '—' as a legitimately empty account. Distinguish. */}
                     {usage
                       ? usage.storage_cap > 0
                         ? `${formatBytes(usage.bytes_used)} / ${formatBytes(usage.storage_cap)}`
                         : formatBytes(usage.bytes_used)
-                      : '—'}
+                      : usageError
+                        ? t('settings.storage.usageUnavailable')
+                        : '—'}
                   </span>
                 </div>
                 {usage && usage.storage_cap > 0 ? (

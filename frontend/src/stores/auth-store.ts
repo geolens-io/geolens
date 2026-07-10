@@ -97,6 +97,20 @@ export const useAuthStore = create<AuthState>()(
  */
 if (typeof window !== 'undefined') {
   window.addEventListener('storage', (e) => {
-    if (e.key === persistConfig.name) void useAuthStore.persist.rehydrate();
+    if (e.key !== persistConfig.name) return;
+    const hadToken = !!useAuthStore.getState().token;
+    void Promise.resolve(useAuthStore.persist.rehydrate()).then(() => {
+      // fix(#438): DATA-09 — when another tab logs out, rehydrating clears this
+      // tab's token, but React only re-checks auth on its next render, so the
+      // tab kept showing protected chrome. On a present→absent transition, send
+      // it to /login. Skip if already on a public auth route so we don't loop.
+      const stillLoggedIn = !!useAuthStore.getState().token;
+      if (hadToken && !stillLoggedIn) {
+        const path = window.location.pathname;
+        if (path !== '/login' && path !== '/register') {
+          window.location.assign('/login');
+        }
+      }
+    });
   });
 }

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { Loader2 } from 'lucide-react';
+import { LoadingState } from '@/components/layout/LoadingState';
 import { toast } from 'sonner';
 import { useAuthStore } from '@/stores/auth-store';
 import { getAuthConfig } from '@/api/auth';
@@ -51,7 +51,8 @@ export function RegisterPage() {
   if (isLoading) {
     return (
       <main className="flex min-h-screen items-center justify-center">
-        <Loader2 className="size-6 animate-spin text-muted-foreground" />
+        {/* fix(#438): UX-16 — LoadingState carries role="status" + aria-live. */}
+        <LoadingState />
       </main>
     );
   }

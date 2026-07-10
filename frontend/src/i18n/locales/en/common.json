@@ -168,7 +168,8 @@
     "anonMapRecovery": "This map may be private. Sign in to check whether your account can open it."
   },
   "actions": {
-    "editGeometry": "Edit Features"
+    "editGeometry": "Edit Features",
+    "retry": "Try again"
   },
   "map": {
     "ariaLabel": "Dataset map",
@@ -246,7 +247,10 @@
     "sharedMapExpired": "This shared map link has expired or been revoked",
     "forbidden": "403",
     "forbiddenAdmin": "Forbidden — Admin access required",
-    "forbiddenEditor": "Forbidden — Editor or Admin access required"
+    "forbiddenEditor": "Forbidden — Editor or Admin access required",
+    "networkUnavailable": "Network unavailable. Check your connection.",
+    "requestTimeout": "The request took too long. Try again.",
+    "unauthorized": "Your session has expired. Sign in again."
   },
   "settings": {
     "tabs": {
@@ -271,7 +275,8 @@
       "datasetsUsed": "Datasets",
       "unlimited": "Unlimited",
       "overLimit": "Over limit",
-      "fileStorageNote": "Counts uploaded file size only"
+      "fileStorageNote": "Counts uploaded file size only",
+      "usageUnavailable": "Unavailable"
     }
   },
   "maps": {
@@ -406,7 +411,9 @@
       "changedFields": "Changed Fields",
       "noChanges": "No changes detected.",
       "success": "Import complete.",
-      "successDetail": "{{settingsApplied}} settings applied, {{settingsSkipped}} skipped. {{oauthCreated}} providers created, {{oauthUpdated}} updated, {{oauthDeleted}} deleted."
+      "successDetail": "{{settingsApplied}} settings applied, {{settingsSkipped}} skipped. {{oauthCreated}} providers created, {{oauthUpdated}} updated, {{oauthDeleted}} deleted.",
+      "confirmTitle": "Overwrite the entire configuration?",
+      "confirmDescription": "This replaces every current setting and cannot be undone. Type {{keyword}} to confirm."
     }
   },
   "footer": {
@@ -491,5 +498,8 @@
   "yes": "Yes",
   "no": "No",
   "copy": "Copy",
-  "copied": "Copied"
+  "copied": "Copied",
+  "mapViewerGate": {
+    "accessCheckFailed": "We could not check your access to this map. Try again."
+  }
 }

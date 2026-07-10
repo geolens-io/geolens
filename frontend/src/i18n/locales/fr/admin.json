@@ -156,7 +156,8 @@
     "title": "Supprimer l'utilisateur",
     "description": "Êtes-vous sûr de vouloir supprimer l'utilisateur \"{{username}}\" ? Cette action est irréversible. Ses jeux de données seront conservés mais afficheront \"Utilisateur supprimé\" comme créateur.",
     "deleting": "Suppression...",
-    "error": "Échec de la suppression de l'utilisateur"
+    "error": "Échec de la suppression de l'utilisateur",
+    "confirmPrompt": "Saisissez {{username}} pour confirmer la suppression"
   },
   "jobs": {
     "title": "Tâches",

@@ -156,7 +156,8 @@
     "title": "Delete User",
     "description": "Are you sure you want to delete user \"{{username}}\"? This action cannot be undone. Their datasets will be preserved but will show \"Deleted user\" as the creator.",
     "deleting": "Deleting...",
-    "error": "Failed to delete user"
+    "error": "Failed to delete user",
+    "confirmPrompt": "Type {{username}} to confirm deletion"
   },
   "jobs": {
     "title": "Jobs",

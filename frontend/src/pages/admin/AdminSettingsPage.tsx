@@ -3,8 +3,16 @@ import { useTranslation } from 'react-i18next';
 import { useParams, Navigate } from 'react-router';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Button } from '@/components/ui/button';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { EnvOnlyBanner } from '@/components/admin/settings/EnvOnlyBanner';
 import { SettingsGeneralTab } from '@/components/admin/settings/SettingsGeneralTab';
 import { SettingsAuthTab } from '@/components/admin/settings/SettingsAuthTab';
@@ -150,23 +158,26 @@ export function AdminSettingsPage() {
         />
       </div>
 
-      {/* Unsaved changes navigation guard */}
-      <Dialog open={blocker.state === 'blocked'} onOpenChange={() => blocker.reset?.()}>
-        <DialogContent className="sm:max-w-sm">
-          <DialogHeader>
-            <DialogTitle>{t('settings.unsaved.title')}</DialogTitle>
-            <DialogDescription>{t('settings.unsaved.description')}</DialogDescription>
-          </DialogHeader>
-          <div className="flex justify-end gap-2">
-            <Button variant="outline" onClick={() => blocker.reset?.()}>
+      {/* Unsaved changes navigation guard.
+          fix(#438): UX-11 — was a dismissible Dialog, so clicking the backdrop
+          silently discarded the guard. DatasetPage uses a modal AlertDialog
+          that forces an explicit Stay/Leave; match it. */}
+      <AlertDialog open={blocker.state === 'blocked'} onOpenChange={() => blocker.reset?.()}>
+        <AlertDialogContent size="sm">
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('settings.unsaved.title')}</AlertDialogTitle>
+            <AlertDialogDescription>{t('settings.unsaved.description')}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => blocker.reset?.()}>
               {t('settings.unsaved.stay')}
-            </Button>
-            <Button variant="destructive" onClick={() => blocker.proceed?.()}>
+            </AlertDialogCancel>
+            <AlertDialogAction variant="destructive" onClick={() => blocker.proceed?.()}>
               {t('settings.unsaved.leave')}
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 }

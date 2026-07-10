@@ -23,14 +23,14 @@ export function CollectionDatasetList({ collectionId, onRemove }: CollectionData
   const { t } = useTranslation('collections');
   const [skip, setSkip] = useState(0);
   const [filter, setFilter] = useState('');
-  const { data, isLoading, error } = useCollectionDatasets(collectionId, skip, PAGE_SIZE);
+  const { data, isLoading, error, refetch } = useCollectionDatasets(collectionId, skip, PAGE_SIZE);
 
   if (isLoading) {
     return <LoadingState message={t('datasetList.loading')} className="py-12" />;
   }
 
   if (error) {
-    return <ErrorState message={t('datasetList.errorMessage', { error: error.message })} />;
+    return <ErrorState message={t('datasetList.errorMessage', { error: error.message })} onRetry={() => refetch()} />;
   }
 
   if (!data || data.total === 0) {

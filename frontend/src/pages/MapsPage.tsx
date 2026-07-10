@@ -66,7 +66,7 @@ export function MapsPage() {
     setSkip(0);
   }, [debouncedSearch, sortBy, sortDir, visibility]);
 
-  const { data, isLoading, error } = useMaps({
+  const { data, isLoading, error, refetch } = useMaps({
     skip,
     limit: PAGE_SIZE,
     search: debouncedSearch || undefined,
@@ -196,7 +196,7 @@ export function MapsPage() {
       )}
 
       {error && (
-        <ErrorState message={t('maps.loadFailed', { message: error.message })} />
+        <ErrorState message={t('maps.loadFailed', { message: error.message })} onRetry={() => refetch()} />
       )}
 
       {data && data.total === 0 && (

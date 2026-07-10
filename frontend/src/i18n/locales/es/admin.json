@@ -156,7 +156,8 @@
     "title": "Eliminar usuario",
     "description": "¿Está seguro de que desea eliminar al usuario \"{{username}}\"? Esta acción no se puede deshacer. Sus conjuntos de datos se conservarán pero mostrarán \"Usuario eliminado\" como creador.",
     "deleting": "Eliminando...",
-    "error": "Error al eliminar el usuario"
+    "error": "Error al eliminar el usuario",
+    "confirmPrompt": "Escribe {{username}} para confirmar la eliminación"
   },
   "jobs": {
     "title": "Trabajos",

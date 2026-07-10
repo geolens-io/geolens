@@ -91,7 +91,7 @@ export function UserList() {
   const [isExporting, setIsExporting] = useState(false);
 
   const skip = page * PAGE_SIZE;
-  const { data, isLoading, error } = useUserList(skip, PAGE_SIZE, statusFilter || undefined, searchQuery || undefined);
+  const { data, isLoading, error, refetch } = useUserList(skip, PAGE_SIZE, statusFilter || undefined, searchQuery || undefined);
 
   const approveUser = useApproveUser();
   const rejectUser = useRejectUser();
@@ -155,7 +155,7 @@ export function UserList() {
   }
 
   if (error) {
-    return <ErrorState message={t('users.errorLoading', { message: error.message })} />;
+    return <ErrorState message={t('users.errorLoading', { message: error.message })} onRetry={() => refetch()} />;
   }
 
   const { totalPages, rangeStart, rangeEnd } = paginationRange(data?.total ?? 0, page, PAGE_SIZE);

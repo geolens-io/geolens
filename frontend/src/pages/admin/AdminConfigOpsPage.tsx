@@ -42,6 +42,17 @@ import {
   useImportConfig,
   useValidateConnectivity,
 } from '@/hooks/use-config-ops';
+import { Input } from '@/components/ui/input';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { formatNumber } from '@/lib/format';
 import { truncateGraphemes } from '@/lib/text';
 import type {
@@ -208,6 +219,10 @@ function ImportSection() {
   const [fileName, setFileName] = useState<string | null>(null);
   const [parseError, setParseError] = useState<string | null>(null);
   const [dryRunResult, setDryRunResult] = useState<DryRunResult | null>(null);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [overwriteConfirm, setOverwriteConfirm] = useState('');
+  // fix(#438): UX-17 — keyword the admin types to confirm a full overwrite.
+  const OVERWRITE_KEYWORD = 'OVERWRITE';
 
   const dryRunMutation = useDryRunImport();
   const importMutation = useImportConfig();
@@ -263,7 +278,7 @@ function ImportSection() {
     );
   }
 
-  function handleApply() {
+  function runImport() {
     if (!fileData) return;
     importMutation.mutate(
       { data: fileData, mode },
@@ -278,12 +293,28 @@ function ImportSection() {
     );
   }
 
+  // fix(#438): UX-17 — overwrite replaces the whole config and cannot be undone,
+  // so it is the one import path that warrants type-to-confirm. Merge applies
+  // directly.
+  function handleApply() {
+    if (!fileData) return;
+    if (mode === 'overwrite') {
+      setOverwriteConfirm('');
+      setConfirmOpen(true);
+      return;
+    }
+    runImport();
+  }
+
   const hasChanges =
     dryRunResult &&
     (dryRunResult.settings.changes.some((c) => c.action !== 'no_change') ||
       dryRunResult.oauth_providers.changes.some((c) => c.action !== 'no_change'));
 
+  const overwriteConfirmed = overwriteConfirm.trim() === OVERWRITE_KEYWORD;
+
   return (
+    <>
     <Card className="border border-border">
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
@@ -480,6 +511,39 @@ function ImportSection() {
         )}
       </CardContent>
     </Card>
+
+    {/* fix(#438): UX-17 — type-to-confirm gate for the irreversible overwrite. */}
+    <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>{t('configOps.import.confirmTitle')}</AlertDialogTitle>
+          <AlertDialogDescription>
+            {t('configOps.import.confirmDescription', { keyword: OVERWRITE_KEYWORD })}
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <Input
+          value={overwriteConfirm}
+          onChange={(e) => setOverwriteConfirm(e.target.value)}
+          placeholder={OVERWRITE_KEYWORD}
+          aria-label={t('configOps.import.confirmTitle')}
+          autoComplete="off"
+        />
+        <AlertDialogFooter>
+          <AlertDialogCancel>{t('common:cancel')}</AlertDialogCancel>
+          <AlertDialogAction
+            variant="destructive"
+            disabled={!overwriteConfirmed}
+            onClick={() => {
+              setConfirmOpen(false);
+              runImport();
+            }}
+          >
+            {t('configOps.import.apply')}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+    </>
   );
 }
 

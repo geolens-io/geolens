@@ -99,7 +99,7 @@ function RelatedSection({
 export function RelatedRecordsPanel({ datasetId, featureGid }: RelatedRecordsPanelProps) {
   const { t } = useTranslation('dataset');
 
-  const { data: relationships, isLoading, isError } = useQuery<DatasetRelationship[]>({
+  const { data: relationships, isLoading, isError, refetch } = useQuery<DatasetRelationship[]>({
     queryKey: queryKeys.relationships.list(datasetId),
     queryFn: () => listRelationships(datasetId),
     staleTime: 2 * 60_000,
@@ -115,7 +115,7 @@ export function RelatedRecordsPanel({ datasetId, featureGid }: RelatedRecordsPan
   }
 
   if (isError) {
-    return <ErrorState message={t('relatedRecords.error')} />;
+    return <ErrorState message={t('relatedRecords.error')} onRetry={() => refetch()} />;
   }
 
   if (!relationships || relationships.length === 0) {

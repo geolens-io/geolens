@@ -165,7 +165,7 @@ export function DatasetPage() {
   const { t } = useTranslation('dataset');
   const { id } = useParams<{ id: string }>();
   const queryClient = useQueryClient();
-  const { data: dataset, isLoading, error } = useDataset(id ?? '', {
+  const { data: dataset, isLoading, error, refetch } = useDataset(id ?? '', {
     refetchInterval: (query) => {
       const data = (query as { state: { data?: DatasetResponse } }).state.data;
       return data?.raster?.status === 'regenerating' ? 5_000 : false;
@@ -321,6 +321,7 @@ export function DatasetPage() {
         <ErrorState
           title={t('page.errorTitle')}
           message={error instanceof Error ? error.message : t('page.errorMessage')}
+          onRetry={() => refetch()}
           action={
             <Link
               to="/"

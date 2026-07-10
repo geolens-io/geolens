@@ -21,6 +21,17 @@ function invalidateColumnCaches(qc: QueryClient, datasetId: string): void {
   qc.invalidateQueries({ queryKey: queryKeys.maps.columnStatsPrefix(datasetId) });
 }
 
+/**
+ * fix(#438): DATA-03 — adding/removing/editing features changes the feature
+ * count the catalog cards display and can move the quality badge, but the
+ * feature mutations only invalidated the dataset detail + rows. Refresh the
+ * search results and the dataset's validation so both reflect the edit.
+ */
+function invalidateFeatureDerived(qc: QueryClient, datasetId: string): void {
+  qc.invalidateQueries({ queryKey: queryKeys.search.all });
+  qc.invalidateQueries({ queryKey: queryKeys.datasets.validation(datasetId) });
+}
+
 export function useCreateFeature() {
   const qc = useQueryClient();
   return useMutation({
@@ -37,6 +48,7 @@ export function useCreateFeature() {
       qc.invalidateQueries({ queryKey: queryKeys.datasets.detail(variables.datasetId) });
       qc.invalidateQueries({ queryKey: queryKeys.datasets.rowsPrefix(variables.datasetId) });
       invalidateColumnCaches(qc, variables.datasetId);
+      invalidateFeatureDerived(qc, variables.datasetId);
     },
     onError: (err) => {
       logger.error('[useCreateFeature]', err);
@@ -62,6 +74,7 @@ export function useUpdateFeature() {
       qc.invalidateQueries({ queryKey: queryKeys.datasets.detail(variables.datasetId) });
       qc.invalidateQueries({ queryKey: queryKeys.datasets.rowsPrefix(variables.datasetId) });
       invalidateColumnCaches(qc, variables.datasetId);
+      invalidateFeatureDerived(qc, variables.datasetId);
     },
     onError: (err) => {
       logger.error('[useUpdateFeature]', err);
@@ -83,6 +96,7 @@ export function useDeleteFeature() {
       qc.invalidateQueries({ queryKey: queryKeys.datasets.detail(variables.datasetId) });
       qc.invalidateQueries({ queryKey: queryKeys.datasets.rowsPrefix(variables.datasetId) });
       invalidateColumnCaches(qc, variables.datasetId);
+      invalidateFeatureDerived(qc, variables.datasetId);
     },
     onError: (err) => {
       logger.error('[useDeleteFeature]', err);

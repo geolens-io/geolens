@@ -2,7 +2,8 @@ import { useEffect, useCallback, useRef, useState } from 'react';
 import { Link, Navigate, useLocation, useNavigate } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { ArrowRight, Layers, Loader2, Search, Upload } from 'lucide-react';
+import { ArrowRight, Layers, Search, Upload } from 'lucide-react';
+import { LoadingState } from '@/components/layout/LoadingState';
 import { toast } from 'sonner';
 import { useAuthStore } from '@/stores/auth-store';
 import { getAuthConfig } from '@/api/auth';
@@ -252,7 +253,8 @@ export function LoginPage() {
   if (configLoading) {
     return (
       <div className="flex min-h-screen items-center justify-center">
-        <Loader2 className="size-6 animate-spin text-muted-foreground" />
+        {/* fix(#438): UX-16 — LoadingState carries role="status" + aria-live. */}
+        <LoadingState />
       </div>
     );
   }
@@ -357,7 +359,7 @@ export function LoginPage() {
 
           {/* SSO-only login mode (#268): hide the password form (no flash) when
               password_login_enabled is explicitly false. Config is already
-              resolved here (configLoading shows the Loader2 above). Treat an
+              resolved here (configLoading shows the LoadingState above). Treat an
               absent field (older servers) and a config error as true. */}
           {showPasswordForm ? (
             <>

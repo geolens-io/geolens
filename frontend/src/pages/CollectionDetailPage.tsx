@@ -29,7 +29,7 @@ import { useDocumentTitle } from '@/hooks/use-document-title';
 export function CollectionDetailPage() {
   const { t } = useTranslation('collections');
   const { id } = useParams<{ id: string }>();
-  const { data: collection, isLoading, error } = useCollection(id ?? '');
+  const { data: collection, isLoading, error, refetch } = useCollection(id ?? '');
   const removeDataset = useRemoveDatasetFromCollection();
   // Mutating a collection requires the manage_collections capability (proxied
   // by the editor role) AND ownership (or admin) — mirrors the backend
@@ -56,6 +56,7 @@ export function CollectionDetailPage() {
         <ErrorState
           title={t('detail.notFoundTitle')}
           message={error instanceof Error ? error.message : t('detail.notFoundMessage')}
+          onRetry={() => refetch()}
           action={
             <Link
               to="/collections"
