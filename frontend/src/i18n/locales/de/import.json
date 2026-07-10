@@ -336,7 +336,8 @@
       "complete": "Abgeschlossen"
     },
     "downloadCog": "COG herunterladen",
-    "addToMap": "Zur Karte hinzufügen"
+    "addToMap": "Zur Karte hinzufügen",
+    "progressLabel": "Auftragsfortschritt"
   },
   "review": {
     "headerStatus": "Erkennung abgeschlossen",
@@ -419,7 +420,8 @@
     "activeJobs": "Aktive und aktuelle Jobs",
     "detectingHint": "Hochladen & Erkennen…",
     "importingFiles": "{{count}} Dateien werden importiert",
-    "progressDetail": "{{done}} abgeschlossen · {{active}} in Bearbeitung · {{queued}} in Warteschlange"
+    "progressDetail": "{{done}} abgeschlossen · {{active}} in Bearbeitung · {{queued}} in Warteschlange",
+    "uploadProgressLabel": "Upload-Fortschritt für {{name}}"
   },
   "eyebrow": "Importieren",
   "pageDescription": "Dateien hochladen, Tabellen aus Ihrem Postgres registrieren oder einen Remote-Service verbinden. GeoLens erkennt Geometrie, Schema und KRS und macht die Daten abfragbar, stilisierbar und einbettbar.",

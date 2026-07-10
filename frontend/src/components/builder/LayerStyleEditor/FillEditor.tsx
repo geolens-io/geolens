@@ -7,6 +7,7 @@ import { StrokeControls } from './StrokeControls';
 import { FillPatternPicker } from '../FillPatternPicker';
 import { getPaintValue, FILL_DEFAULTS } from './utils';
 import type { BaseStyleEditorProps } from './types';
+import { formatNumber } from '@/lib/format';
 
 function deriveExtrusionRange(samples: unknown[] | undefined): { min: string; max: string; count: number } | null {
   if (!samples || samples.length === 0) return null;
@@ -22,7 +23,7 @@ function deriveExtrusionRange(samples: unknown[] | undefined): { min: string; ma
   if (numeric.length === 0) return null;
   const min = Math.min(...numeric);
   const max = Math.max(...numeric);
-  const fmt = (n: number) => (Number.isInteger(n) ? n.toLocaleString() : n.toFixed(1));
+  const fmt = (n: number) => (Number.isInteger(n) ? formatNumber(n) : n.toFixed(1));
   return { min: fmt(min), max: fmt(max), count: numeric.length };
 }
 
@@ -118,7 +119,7 @@ export function FillEditor({
             {t('style.extrusionRange', {
               min: range.min,
               max: range.max,
-              count: range.count.toLocaleString(),
+              count: formatNumber(range.count),
               defaultValue: 'Range: {{min}}–{{max}}, {{count}} features',
             })}
           </div>

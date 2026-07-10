@@ -336,7 +336,8 @@
       "complete": "Terminé"
     },
     "downloadCog": "Télécharger le COG",
-    "addToMap": "Ajouter à la carte"
+    "addToMap": "Ajouter à la carte",
+    "progressLabel": "Progression de la tâche"
   },
   "review": {
     "headerStatus": "Détection terminée",
@@ -419,7 +420,8 @@
     "activeJobs": "Tâches actives et récentes",
     "detectingHint": "Chargement & détection…",
     "importingFiles": "Importation de {{count}} fichiers",
-    "progressDetail": "{{done}} terminé · {{active}} en cours · {{queued}} en attente"
+    "progressDetail": "{{done}} terminé · {{active}} en cours · {{queued}} en attente",
+    "uploadProgressLabel": "Progression du téléversement de {{name}}"
   },
   "eyebrow": "Importer",
   "pageDescription": "Chargez des fichiers, enregistrez des tables depuis votre Postgres ou connectez un service distant. GeoLens détecte la géométrie, le schéma et le SCR, puis rend les données interrogeables, stylisables et intégrables.",

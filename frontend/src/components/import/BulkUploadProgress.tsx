@@ -47,7 +47,16 @@ export function BulkUploadProgress({ entries }: BulkUploadProgressProps) {
                 <span className="font-mono font-normal text-muted-foreground">{ext}</span>
               </div>
               {pct != null && (
-                <div className="mt-1.5 h-1 w-full overflow-hidden rounded-full bg-surface-2">
+                /* fix(#438): A11Y-01 — was a visual-only div; expose progress
+                   semantics so assistive tech can announce it. */
+                <div
+                  className="mt-1.5 h-1 w-full overflow-hidden rounded-full bg-surface-2"
+                  role="progressbar"
+                  aria-valuenow={Math.round(pct)}
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-label={t('bulk.uploadProgressLabel', { name: entry.fileName })}
+                >
                   <div
                     className="h-full rounded-full bg-primary transition-[width] duration-150 ease-out"
                     style={{ width: `${pct}%` }}

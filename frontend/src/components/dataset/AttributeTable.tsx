@@ -332,8 +332,18 @@ export function AttributeTable({ datasetId, canEdit = false, compact = false }: 
             <TableHeader className="sticky top-0 z-10 bg-muted/80 backdrop-blur-sm">
               {table.getHeaderGroups().map((headerGroup) => (
                 <TableRow key={headerGroup.id}>
-                  {headerGroup.headers.map((header) => (
-                    <TableHead key={header.id}>
+                  {headerGroup.headers.map((header) => {
+                    // fix(#438): A11Y-04 — announce sort state on the column header.
+                    const sorted = header.column.getIsSorted();
+                    const ariaSort = sorted === 'asc'
+                      ? 'ascending'
+                      : sorted === 'desc'
+                        ? 'descending'
+                        : header.column.getCanSort()
+                          ? 'none'
+                          : undefined;
+                    return (
+                    <TableHead key={header.id} aria-sort={ariaSort}>
                       {header.isPlaceholder ? null : (
                         <button
                           type="button"
@@ -351,7 +361,8 @@ export function AttributeTable({ datasetId, canEdit = false, compact = false }: 
                         </button>
                       )}
                     </TableHead>
-                  ))}
+                    );
+                  })}
                 </TableRow>
               ))}
               {/* Filter row */}

@@ -191,9 +191,11 @@ export function EmptyStackState({ onOpenAddData, onAddDataset }: EmptyStackState
     >
       {/* Prompt */}
       <div className="text-center">
-        <h4 className="text-sm font-semibold">
+        {/* fix(#438): A11Y-05 — was <h4>, which skipped h2/h3 under the builder's
+            new <h1>. Styling is unchanged; only the level moves onto the outline. */}
+        <h2 className="text-sm font-semibold">
           {t('unifiedStack.emptyHeading', { defaultValue: 'Add your first layer' })}
-        </h4>
+        </h2>
         <p className="text-xs text-muted-foreground mt-1">
           {t('unifiedStack.emptyBody', { defaultValue: 'Search the catalog or pick a starter dataset below.' })}
         </p>

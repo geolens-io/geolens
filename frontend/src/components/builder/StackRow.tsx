@@ -23,6 +23,7 @@ import {
 } from '@/components/builder/row-chrome';
 import { useInlineRename } from '@/components/builder/useInlineRename';
 import type { MapLayerResponse } from '@/types/api';
+import { formatNumber } from '@/lib/format';
 
 interface StackRowProps {
   layer: MapLayerResponse;
@@ -441,7 +442,7 @@ export const StackRow = memo(function StackRow({
                         <span className="text-muted-foreground">
                           {t('layerEditor.source.features', { defaultValue: 'Features' })}
                         </span>
-                        <span className="font-medium">{layer.dataset_feature_count.toLocaleString()}</span>
+                        <span className="font-medium">{formatNumber(layer.dataset_feature_count)}</span>
                       </div>
                     )}
                     <div className="flex justify-between gap-2">

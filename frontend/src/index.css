@@ -57,8 +57,15 @@
   --accent-foreground: oklch(0.205 0.005 250);
   --destructive: oklch(0.577 0.245 27.325);
   --destructive-foreground: oklch(0.985 0 0);
+  /* fix(#438): A11Y-02 — measured contrast (OKLCH→sRGB→WCAG):
+     --border 0.88 sits at ~1.4:1 against card/background. Decorative dividers
+     and card edges are not WCAG-1.4.11 "components", so this subtle hairline is
+     kept intentionally for the instrument-panel look; darkening every card edge
+     to 3:1 is a design decision, not swept here. */
   --border: oklch(0.88 0.005 85);
-  --input: oklch(0.88 0.005 85);
+  /* --input IS a 1.4.11 component (form-control boundary), so it is brought to
+     ≥3:1: L 0.65 measures ~3.1:1 vs card and background. */
+  --input: oklch(0.65 0.006 85);
   /* Focus-ring color. fix(#438): DS-10 — the standard focus treatment is
      `ring-2 ring-ring`. `ring-primary` was folded into `ring-ring` (same hue).
      The residual `ring-1` width one-offs and unmapped shadow-xs/xl are a
@@ -130,7 +137,8 @@
   --code-function: oklch(0.78 0.13 220);
   --code-string: oklch(0.78 0.13 140);
   --code-number: oklch(0.8 0.14 70);
-  --code-comment: oklch(0.5 0.008 250);
+  /* fix(#438): A11Y-11 — was 0.5 (~3.3:1 on --code-bg, below AA); 0.6 clears 4.5:1. */
+  --code-comment: oklch(0.6 0.008 250);
   --code-method-badge: oklch(0.75 0.14 155);
   --code-method-badge-bg: oklch(0.75 0.14 155 / 15%);
 
@@ -191,7 +199,9 @@
   --destructive: oklch(0.704 0.191 22.216);
   --destructive-foreground: oklch(0.25 0.05 22);
   --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
+  /* fix(#438): A11Y-02 — 15% white measured ~1.5:1; 38% reaches ~3.3:1 vs the
+     dark card/surface-2, meeting WCAG 1.4.11 for form controls. */
+  --input: oklch(1 0 0 / 38%);
   --ring: oklch(0.72 0.17 250);
 
   /* ─ Surface hierarchy (true dark, near-black base) ─ */
@@ -245,7 +255,7 @@
   --code-function: oklch(0.78 0.13 220);
   --code-string: oklch(0.78 0.13 140);
   --code-number: oklch(0.8 0.14 70);
-  --code-comment: oklch(0.5 0.008 250);
+  --code-comment: oklch(0.6 0.008 250);
   --code-method-badge: oklch(0.75 0.14 155);
   --code-method-badge-bg: oklch(0.75 0.14 155 / 15%);
 

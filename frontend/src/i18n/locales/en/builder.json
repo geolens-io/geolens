@@ -713,7 +713,8 @@
       "unsaved": "Unsaved changes",
       "saving": "Saving...",
       "failed": "Save failed"
-    }
+    },
+    "builderHeading": "Map builder: {{name}}"
   },
   "visibility": {
     "public": "Public",
@@ -1232,5 +1233,12 @@
     "projectionAria": "Map projection",
     "globeDisclaimer": "Globe projection is experimental. Some layers may not render correctly.",
     "terrainSmallDemTip": "Tip: for a small high-resolution DEM, drape it over a coarse global DEM (e.g. Copernicus GLO-30) so terrain stays smooth beyond its extent."
+  },
+  "cluster": {
+    "popupTitle_one": "Cluster: {{countLabel}} feature",
+    "popupTitle_other": "Cluster: {{countLabel}} features",
+    "sourceServerTile": "Server-side cluster tile",
+    "sourceBoundedGeojson": "Bounded GeoJSON cluster",
+    "sourceFallback": "Cluster fallback"
   }
 }

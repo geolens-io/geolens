@@ -1344,6 +1344,14 @@ export function MapBuilderPage() {
       >
         {dragAnnouncement}
       </div>
+      {/* fix(#438): A11Y-03 — the builder's heading outline started at <h2>. The
+          map name is an editable <input>, not a heading, so this sr-only <h1>
+          anchors the outline without altering the visible title bar. */}
+      <h1 className="sr-only">
+        {mapData?.name
+          ? t('titleBar.builderHeading', { name: mapData.name, defaultValue: 'Map builder: {{name}}' })
+          : t('common:pageTitle.mapBuilder')}
+      </h1>
       {/* Breadcrumb header bar — title + save status + actions */}
       <MapTitleBar
         name={layers.localName}

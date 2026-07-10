@@ -35,6 +35,7 @@ import type { LngLatBoundsLike, MapLibreEvent, StyleSpecification } from 'maplib
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { Feature, Geometry, GeoJsonProperties } from 'geojson';
 import 'maplibre-gl/dist/maplibre-gl.css';
+import { motionDuration } from '@/lib/reduced-motion';
 
 /** System columns excluded from the attribute form */
 const SYSTEM_COLUMNS = new Set(['gid', 'geom', 'geom_4326']);
@@ -441,9 +442,10 @@ export const DatasetMap = memo(function DatasetMap({
     if (!map || !hasBbox) return;
     if (isLargeExtent(bbox!)) {
       const { center, zoom } = computeLargeExtentView(bbox!);
-      map.flyTo({ center, zoom });
+      // fix(#438): A11Y-08 — instant under prefers-reduced-motion.
+      map.flyTo({ center, zoom, duration: motionDuration(1000) });
     } else {
-      map.fitBounds(bbox!, { padding: 60 });
+      map.fitBounds(bbox!, { padding: 60, duration: motionDuration(1000) });
     }
   }, [hasBbox, bbox]);
 

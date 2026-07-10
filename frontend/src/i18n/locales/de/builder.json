@@ -713,7 +713,8 @@
     },
     "description": "Beschreibung",
     "unsavedDot": "Nicht gespeicherte Änderungen",
-    "untitled": "Unbenannte Karte"
+    "untitled": "Unbenannte Karte",
+    "builderHeading": "Karten-Editor: {{name}}"
   },
   "visibility": {
     "public": "Öffentlich",
@@ -1232,5 +1233,12 @@
   "toolbar": {
     "pan": "Schwenken",
     "styleJson": "Style-JSON"
+  },
+  "cluster": {
+    "popupTitle_one": "Cluster: {{countLabel}} Objekt",
+    "popupTitle_other": "Cluster: {{countLabel}} Objekte",
+    "sourceServerTile": "Server-Cluster-Kachel",
+    "sourceBoundedGeojson": "Begrenzter GeoJSON-Cluster",
+    "sourceFallback": "Cluster-Fallback"
   }
 }

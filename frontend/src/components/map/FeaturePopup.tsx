@@ -317,9 +317,12 @@ function ValueDisplay({
               CORS headers rendered broken where a plain <img> loads fine.
               Nothing here reads the pixels back through a canvas, which is the
               only thing the attribute buys. */}
+          {/* fix(#438): A11Y-07 — `alt={srcUrl}` made a screen reader read out a
+              raw URL. The image is a popup thumbnail with no caption we can
+              derive, so an empty alt (decorative) is the correct treatment. */}
           <img
             src={srcUrl}
-            alt={srcUrl}
+            alt=""
             loading="lazy"
             decoding="async"
             className="max-h-32 max-w-full rounded-sm object-contain"

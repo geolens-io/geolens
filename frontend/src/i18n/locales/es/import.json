@@ -336,7 +336,8 @@
       "complete": "Completado"
     },
     "downloadCog": "Descargar COG",
-    "addToMap": "Añadir al mapa"
+    "addToMap": "Añadir al mapa",
+    "progressLabel": "Progreso del trabajo"
   },
   "review": {
     "headerStatus": "Detección completa",
@@ -419,7 +420,8 @@
     "activeJobs": "Trabajos activos y recientes",
     "detectingHint": "Cargando y detectando…",
     "importingFiles": "Importando {{count}} archivos",
-    "progressDetail": "{{done}} completo · {{active}} en progreso · {{queued}} en cola"
+    "progressDetail": "{{done}} completo · {{active}} en progreso · {{queued}} en cola",
+    "uploadProgressLabel": "Progreso de carga de {{name}}"
   },
   "eyebrow": "Importar",
   "pageDescription": "Sube archivos, registra tablas de tu Postgres o conecta un servicio remoto. GeoLens detecta geometría, esquema y CRS, luego hace los datos consultables, estilizables e integrables.",
