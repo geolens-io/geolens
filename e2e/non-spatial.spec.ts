@@ -141,9 +141,14 @@ test.describe.serial('Non-spatial CSV', () => {
     await expect(codeBlock).toContainText(`/api/collections/${datasetId}/items?limit=10`);
     await expect(codeBlock).not.toContainText('/api/v1/collections/');
 
-    const options = page.locator('select option');
+    // fix(#438): DS-08 replaced the native <select> with ui/select (Radix)
+    const formatTrigger = page.getByRole('combobox', { name: 'Export format' });
+    await expect(formatTrigger).toContainText('CSV');
+    await formatTrigger.click();
+    const options = page.getByRole('option');
     await expect(options).toHaveCount(1);
     await expect(options.first()).toHaveText('CSV');
+    await page.keyboard.press('Escape');
     await expect(page.getByRole('button', { name: 'Export' })).toBeVisible();
   });
 
