@@ -374,6 +374,7 @@ For day-2 operations, restore procedures, and incident response, see
 ## Community
 
 - [GitHub Discussions](https://github.com/geolens-io/geolens/discussions): questions, ideas, show and tell
+- [Support](SUPPORT.md): where to ask for help and how problems get routed
 - [Contributing Guide](.github/CONTRIBUTING.md): development setup, code style, and PR guidelines
 
 ## Known limitations

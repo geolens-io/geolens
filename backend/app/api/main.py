@@ -458,7 +458,7 @@ _is_production = settings.is_production
 # no metadata to read. We fall back to the current published line so import never
 # crashes. Keep this fallback in lockstep with backend/pyproject.toml — it is one
 # of the sites `make bump` rewrites.
-_FALLBACK_APP_VERSION = "1.4.2"
+_FALLBACK_APP_VERSION = "1.4.3"
 
 
 def _resolve_app_version() -> str:
@@ -802,6 +802,14 @@ async def health(request: Request):
     from fastapi.responses import JSONResponse
 
     result = await check_health()
+    # fix(#441): report the running version + build commit so a deployment can
+    # be verified over HTTP (production disables /docs, which was the only
+    # surface exposing the version). GEOLENS_BUILD_SHA is stamped into release
+    # images by publish.yml; local and source builds report null.
+    import os
+
+    result["version"] = app.version
+    result["build"] = os.environ.get("GEOLENS_BUILD_SHA") or None
     status_code = 200 if result["status"] == "healthy" else 503
 
     # Phase 1230 EVENT-04: emit a health-alert notification when the result is

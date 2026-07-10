@@ -7,8 +7,52 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+## [1.4.3] - 2026-07-10
+
+### Security
+
+- **Layer column changes now require write access.** The four layer-column
+  endpoints gated schema-changing operations on read visibility; they now
+  require dataset write access like every other mutation.
+- **VRT ingestion rejects remote and virtual sources.** A crafted VRT file
+  could reference URL or `/vsi`-prefixed sources and make the ingest worker
+  fetch them. Source validation now walks the full XML and rejects both.
+- **Raster preview and tile fetches no longer follow HTTP redirects.** Both
+  the GDAL source-preview path and the bundled Titiler run with
+  `GDAL_HTTP_FOLLOWLOCATION=NO`, so a redirect can no longer route an
+  already-validated fetch to an internal address.
+- **Search facets cap the geometry filter size.** The facets endpoint accepted
+  unbounded geometry input that could pin PostGIS on a single request; input
+  is now capped at 10,000 characters.
+
+### Added
+
+- **Six curated showcase maps.** The showcase seed now builds six themed maps
+  (terrain, Sentinel-2 imagery, plate tectonics, and more) on a rebuilt
+  Restless Earth dataset, replacing the older single-map demo seed.
+- **Per-user daily AI token budget.** `MAX_AI_TOKENS_PER_USER_PER_DAY` caps
+  what any one user can spend on AI calls per day; 0 keeps it unlimited.
+- **Edition badge in the admin overview.** Administrators can see at a glance
+  whether a deployment runs the Community or Enterprise edition.
+- **`/api/health` reports the running version and build.** The health payload
+  carries `version` and `build` fields so operators can verify what a
+  deployment runs over HTTP; release images stamp the exact build commit.
+
 ### Changed
 
+- **Unified interface design.** The UI moved to a single design language
+  across the catalog, builder, viewer, and admin pages, including contrast
+  fixes for accessibility.
+- **Translation completeness.** Remaining hardcoded interface strings now go
+  through the translation layer, and all four locales (en, es, fr, de) ship
+  the full key set.
+- **The installer waits longer and no longer cries wolf.** The startup health
+  wait rose from 90 to 300 seconds, and a timeout now prints "still starting"
+  guidance instead of failing the install while the stack is converging,
+  which is common on Apple Silicon where the database image runs emulated.
+  The installer also warns when Docker has less than about 8 GB of memory
+  available.
+- **Titiler updated to 2.0.5.**
 - **A custom share-link expiration is now rejected with a validation error on
   the Community edition.** Setting `expires_at` on `POST /maps/{id}/share/`
   without the advanced-sharing entitlement returns 422 instead of 400, so it
@@ -18,6 +62,34 @@ and releases use semantic versioning.
   or statement timeout) on `GET /datasets/{id}/rows/` now returns 503 rather
   than a 200 with an empty result set that looked like the dataset had no rows.
   A dataset that is genuinely empty, or has no backing table, still returns 200.
+
+### Fixed
+
+- **Saving a map right after adding a layer no longer clears that layer's
+  styling.**
+- **Mixed-geometry datasets render fully.** Layers whose table mixes geometry
+  families (points, lines, polygons) now render each family instead of
+  drawing only one.
+- **Files dropped during upload setup are no longer lost.** Dropping files
+  onto the import dialog while it was still fetching its configuration
+  silently discarded them; they now queue and validate once the
+  configuration settles.
+- **Anonymous viewers can load `features.geojson` on public datasets.**
+- **PNG map exports draw their legend swatches.**
+- **AI-assisted builder labels are readable, and active filters show a
+  summary pill.**
+- **The dataset-count quota is enforced atomically at record creation**, so
+  concurrent uploads can no longer slip past the cap.
+- **AI chat handles numeric query results reliably.** Provider calls
+  serialize decimal values safely and return plain-text output.
+- **The frontend container no longer crash-loops when `PUBLIC_APP_URL` is
+  set.** The social-preview image rewrite ran at boot in a way the
+  unprivileged nginx image could not execute.
+- **Two map-builder audit passes** fixed styling, filtering, viewer, and
+  export defects across the builder.
+- **Interrupted exports clean up after themselves.** A failed export removes
+  its temporary directory, and the boot-time sweeper only removes export
+  staging entries older than an hour instead of everything it finds.
 
 ## [1.4.2] - 2026-07-01
 
@@ -440,3 +512,13 @@ regression-covered fixes:
 
 - Initial public release of the GeoLens catalog, API, map builder, CLI, SDKs,
   Docker development stack, and public documentation entrypoints.
+
+[Unreleased]: https://github.com/geolens-io/geolens/compare/v1.4.3...HEAD
+[1.4.3]: https://github.com/geolens-io/geolens/compare/v1.4.2...v1.4.3
+[1.4.2]: https://github.com/geolens-io/geolens/compare/v1.4.1...v1.4.2
+[1.4.1]: https://github.com/geolens-io/geolens/compare/v1.4.0...v1.4.1
+[1.4.0]: https://github.com/geolens-io/geolens/compare/v1.3.0...v1.4.0
+[1.3.0]: https://github.com/geolens-io/geolens/compare/v1.2.4...v1.3.0
+[1.2.4]: https://github.com/geolens-io/geolens/compare/v1.2.3...v1.2.4
+[1.2.3]: https://github.com/geolens-io/geolens/compare/v1.2.0...v1.2.3
+[1.2.0]: https://github.com/geolens-io/geolens/releases/tag/v1.2.0

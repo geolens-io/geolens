@@ -177,6 +177,13 @@ COPY --from=backend-builder --chown=appuser:appgroup /app /app
 RUN mkdir -p /app/staging /home/appuser/.cache/uv && \
     chown -R appuser:appgroup /app /app/staging /home/appuser
 
+# fix(#441): stamp the build commit for /health `build` reporting. publish.yml
+# passes it on release builds; local and dev builds leave it empty. Declared
+# last in this shared stage so a changing SHA invalidates no heavy layers, and
+# as ENV so the api and worker child stages inherit it.
+ARG GEOLENS_BUILD_SHA=
+ENV GEOLENS_BUILD_SHA=${GEOLENS_BUILD_SHA}
+
 FROM backend-base AS api
 
 LABEL org.opencontainers.image.title="geolens-api"

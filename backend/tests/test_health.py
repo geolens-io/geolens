@@ -199,6 +199,35 @@ async def test_health_endpoint_does_not_leak_provider_error(client):
     assert "error" not in payload["providers"]["storage"]
 
 
+@pytest.mark.anyio
+async def test_health_endpoint_reports_version_and_build(client, monkeypatch):
+    """fix(#441): /health carries the running version and the build commit.
+
+    Production disables /docs, so /health is the surface an operator can use
+    to verify what a deployment runs. `build` comes from the GEOLENS_BUILD_SHA
+    env stamped into release images; it is null everywhere else.
+    """
+    from app.api.main import app
+
+    async def noop():
+        pass
+
+    monkeypatch.delenv("GEOLENS_BUILD_SHA", raising=False)
+    with (
+        patch("app.observability.health.service._check_database", new=noop),
+        patch("app.observability.health.service._check_storage", new=noop),
+        patch("app.observability.health.service._check_cache", new=noop),
+    ):
+        resp = await client.get("/health")
+        payload = resp.json()
+        assert payload["version"] == app.version
+        assert payload["build"] is None
+
+        monkeypatch.setenv("GEOLENS_BUILD_SHA", "abc123def456")
+        resp = await client.get("/health")
+        assert resp.json()["build"] == "abc123def456"
+
+
 def test_health_endpoint_is_rate_limited():
     """GAP-016: /health carries an explicit rate limit and is not exempt.
 

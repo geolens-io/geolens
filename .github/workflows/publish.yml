@@ -159,6 +159,11 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          # fix(#441): stamp the exact commit into the image so /api/health can
+          # report it (`build` field). Only the pushed image needs it; the
+          # scan-only builds above stay cache-stable without it.
+          build-args: |
+            GEOLENS_BUILD_SHA=${{ github.sha }}
           provenance: false
           sbom: false
           cache-from: type=gha,scope=${{ matrix.image }}

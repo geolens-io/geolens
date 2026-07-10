@@ -162,13 +162,16 @@ prompt_value() {
   printf '%s\n' "$default"
 }
 
-# Wait up to 90s for the stack to become healthy. The migrate one-shot must
-# exit 0; every healthcheck-having service must report (healthy). If migrate
-# fails or the wait times out, surface the failing service with its log tail
-# and exit non-zero — silent "Starting..." on a dead stack is the worst kind
-# of false success signal.
+# Wait up to 300s for the stack to become healthy. The migrate one-shot must
+# exit 0; every healthcheck-having service must report (healthy). A migrate
+# failure is a real failure (return 1, with its log tail). A timeout is NOT
+# (return 2): on hosts that emulate amd64 (Apple Silicon and other ARM
+# machines) the database image runs under QEMU and first boot can outlast any
+# reasonable budget while still converging — treating that as a dead stack
+# false-alarmed real installs. fix(#441): budget raised from 90s and the
+# timeout softened to "still starting" guidance.
 wait_for_healthy() {
-  attempts=18
+  attempts=60
   sleep_s=5
   i=0
   while [ "$i" -lt "$attempts" ]; do
@@ -207,10 +210,12 @@ wait_for_healthy() {
   done
 
   printf '\n' >&2
-  warn "timed out after $((attempts * sleep_s))s waiting for services. Current status:"
+  warn "services are not all healthy yet after $((attempts * sleep_s))s. This is usually still a"
+  warn "normal startup: on Apple Silicon and other ARM hosts the database image runs emulated"
+  warn "and can take several more minutes on first boot. Current status:"
   compose ps 2>&1 | sed 's/^/  /' >&2
-  warn "Inspect with: docker compose ps  /  docker compose logs <service>"
-  return 1
+  warn "Watch progress with: docker compose ps  /  docker compose logs <service>"
+  return 2
 }
 
 # GAP-025: the entire imperative install sequence lives in main() and is
@@ -236,6 +241,21 @@ main() {
   # docker's root usage). `docker compose version` only exits 0 when the plugin is
   # actually present.
   docker compose version >/dev/null 2>&1 || fail "Docker Compose v2 is required. Install Docker Desktop or the docker compose plugin."
+
+  # fix(#441): warn when Docker has less memory than the stack's compose
+  # limits assume (worker 4g + api 2g + db 2g + titiler 1g). A low-RAM Docker
+  # Desktop otherwise OOM-kills services with no explanation. Warn-only: a
+  # light catalog can run smaller. Threshold is 7 GiB so a host that gives
+  # Docker "8 GB" minus VM overhead does not false-alarm.
+  docker_mem="$(docker info --format '{{.MemTotal}}' 2>/dev/null || printf '0')"
+  case "$docker_mem" in
+    ''|*[!0-9]*) docker_mem=0 ;;
+  esac
+  if [ "$docker_mem" -gt 0 ] && [ "$docker_mem" -lt 7516192768 ]; then
+    warn "Docker reports about $((docker_mem / 1073741824)) GB of memory. GeoLens runs best with 8 GB or more;"
+    warn "with less, services may be OOM-killed under load. On Docker Desktop, raise the limit under"
+    warn "Settings > Resources > Memory."
+  fi
 
   # If the user already cd'd into a checkout, use it. Otherwise honor INSTALL_DIR.
   PROJECT_HINT=""
@@ -505,12 +525,21 @@ main() {
   # form with "unknown flag: --detach". `compose` adds -f "$COMPOSE_FILE".
   compose up -d
 
-  if ! wait_for_healthy; then
+  # `set -eu` is active: capture the status without letting a non-zero return
+  # abort the script. 1 = migrate failed (fatal); 2 = still converging (not
+  # fatal — see wait_for_healthy).
+  health_rc=0
+  wait_for_healthy || health_rc=$?
+  if [ "$health_rc" -eq 1 ]; then
     fail "GeoLens did not come up cleanly. See the failing service output above."
   fi
 
   say ""
-  say "GeoLens is ready."
+  if [ "$health_rc" -eq 0 ]; then
+    say "GeoLens is ready."
+  else
+    say "GeoLens is still starting. Give it a few more minutes, then open the UI."
+  fi
   say "UI:  http://localhost:${fe_port}"
   say "API: http://localhost:${api_port}"
   say ""
