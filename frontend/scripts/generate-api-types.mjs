@@ -12,10 +12,16 @@
  *      `#/$defs/` form and errors out on the raw snapshot.
  *   2. openapi-typescript (pinned) emits the typed mirror.
  *
- * openapi-typescript is invoked via pinned `npx`, not a devDependency: its latest
- * (7.13.0) declares peer `typescript@^5` while this project is on typescript@6,
- * and the repo already runs its codegen tools this way (see the `sdks` target's
- * `uvx openapi-python-client@…` / `npx --yes @hey-api/openapi-ts@…`).
+ * openapi-typescript is invoked via pinned `npx`, NOT a devDependency, and this
+ * is a deliberate exception to the "pin codegen as exact devDeps, never npx"
+ * rule (feedback_npx_peer_resolution_beats_pins): 7.13.0 hard-peers
+ * `typescript@^5` while this project is on typescript@6, so a devDep install
+ * ERESOLVE-fails and would need `--legacy-peer-deps` (which just masks the
+ * incompatibility). The rule exists because a cold `npx` resolve can pull a
+ * broken transitive `typescript` — but openapi-typescript@7 emits strings and
+ * does NOT invoke the TS compiler at generation, so that trap does not apply.
+ * Verified 2026-07-10: a cold-cache run (`npm_config_cache=<fresh>`) produces
+ * byte-identical output. Re-verify the same way before bumping the pin.
  *
  * Usage:
  *   npm run types:generate      # regenerate in place
