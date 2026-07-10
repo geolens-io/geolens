@@ -68,6 +68,10 @@ x-storage-env: &storage-env
 x-logging-env: &logging-env
   LOG_JSON: "${LOG_JSON:-false}"
   LOG_LEVEL: "${LOG_LEVEL:-INFO}"
+  # fix(#441): the SEC-005 posture flag never reached the containers — an
+  # operator setting ENVIRONMENT=production in .env got no Secure cookie and
+  # public /docs anyway. Empty (unset) falls back to LOG_JSON in Settings.
+  ENVIRONMENT: "${ENVIRONMENT:-}"
 
 x-ai-env: &ai-env
   ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"

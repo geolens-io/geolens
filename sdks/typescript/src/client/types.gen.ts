@@ -3788,6 +3788,10 @@ export type HttpValidationError = {
  */
 export type HealthResponse = {
     /**
+     * Build
+     */
+    build?: string | null;
+    /**
      * Providers
      */
     providers: {
@@ -3797,6 +3801,10 @@ export type HealthResponse = {
      * Status
      */
     status: string;
+    /**
+     * Version
+     */
+    version: string;
 };
 
 /**

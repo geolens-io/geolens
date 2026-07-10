@@ -55,6 +55,9 @@ x-storage-env: &storage-env
 x-logging-env: &logging-env
   LOG_JSON: "${LOG_JSON:-false}"
   LOG_LEVEL: "${LOG_LEVEL:-INFO}"
+  # fix(#441): pass the SEC-005 posture flag through (kept in sync with
+  # docker-compose.prod.yml). Empty (unset) falls back to LOG_JSON in Settings.
+  ENVIRONMENT: "${ENVIRONMENT:-}"
 
 x-ai-env: &ai-env
   ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
