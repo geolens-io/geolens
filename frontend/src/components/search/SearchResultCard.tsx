@@ -2,6 +2,7 @@ import { memo } from 'react';
 import { Link } from 'react-router';
 import type { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
+import { useQueryClient } from '@tanstack/react-query';
 import { Combine, FolderOpen, Globe, Hash, Layers, Ruler, Shapes, Table2, type LucideIcon } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -13,6 +14,8 @@ import { extractBbox, geometryIcon } from '@/lib/geo-utils';
 import { getGeometryTypeLabel } from '@/i18n/labels';
 import { ingestionStatusColors, syntheticBadgeColor } from '@/lib/status-colors';
 import { useQuicklook } from '@/components/maps/hooks/use-quicklook';
+import { queryKeys } from '@/lib/query-keys';
+import { getDataset } from '@/api/datasets';
 import type { OGCRecordResponse } from '@/types/api';
 
 const statusStyles: Record<string, string> = {
@@ -142,6 +145,7 @@ function buildAutoDescription(
 
 export const SearchResultCard = memo(function SearchResultCard({ feature }: { feature: OGCRecordResponse }) {
   const { t, i18n } = useTranslation('search');
+  const queryClient = useQueryClient();
   const { properties } = feature;
   const recordType = properties.record_type ?? 'vector_dataset';
   const isCollection = recordType === 'collection';
@@ -194,8 +198,26 @@ export const SearchResultCard = memo(function SearchResultCard({ feature }: { fe
   // Footer status badge — only for non-collection, non-published records
   const showStatusBadge = !isCollection && !!recordStatus && recordStatus !== 'published';
 
+  // fix(#438): PERF-04 — warm the dataset detail query on hover/focus so the
+  // navigation doesn't pay chunk + query serially after the click. Cheap:
+  // prefetchQuery is a no-op when the data is already fresh.
+  const prefetchDetail = () => {
+    if (isCollection) return;
+    queryClient.prefetchQuery({
+      queryKey: queryKeys.datasets.detail(feature.id),
+      queryFn: () => getDataset(feature.id),
+      staleTime: 60_000,
+    });
+  };
+
   return (
-    <Link to={linkPath} className="group block" data-testid="search-result-card">
+    <Link
+      to={linkPath}
+      className="group block"
+      data-testid="search-result-card"
+      onMouseEnter={prefetchDetail}
+      onFocus={prefetchDetail}
+    >
       <Card className="cursor-pointer overflow-hidden border-border/50 bg-card/95 py-0 transition-[transform,color,background-color,box-shadow,border-color] duration-200 ease-out group-hover:-translate-y-0.5 group-hover:border-primary/20 group-hover:shadow-md">
         <div className="p-3 sm:p-4 lg:p-3.5">
           <div className="flex flex-col gap-1.5">
@@ -239,7 +261,7 @@ export const SearchResultCard = memo(function SearchResultCard({ feature }: { fe
                   </span>
                   {sourceOrganization && (
                     <p
-                      className="text-[12px] leading-4 text-muted-foreground line-clamp-1"
+                      className="text-xs leading-4 text-muted-foreground line-clamp-1"
                       data-testid="dataset-card-source"
                       title={sourceOrganization}
                     >
@@ -274,7 +296,7 @@ export const SearchResultCard = memo(function SearchResultCard({ feature }: { fe
                       {displayKeywords.slice(0, 3).map((tag, index) => (
                         <span
                           key={`${tag}-${index}`}
-                          className="inline-flex items-center rounded-md border border-border/30 bg-muted/15 px-2.5 py-0.5 text-[11px] text-muted-foreground"
+                          className="inline-flex items-center rounded-md border border-border/30 bg-muted/15 px-2.5 py-0.5 text-mini text-muted-foreground"
                         >
                           {tag}
                         </span>

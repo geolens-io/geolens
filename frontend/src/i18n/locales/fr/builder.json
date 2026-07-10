@@ -713,7 +713,8 @@
     },
     "description": "Description",
     "unsavedDot": "Modifications non sauvegardées",
-    "untitled": "Carte sans titre"
+    "untitled": "Carte sans titre",
+    "builderHeading": "Éditeur de carte : {{name}}"
   },
   "visibility": {
     "public": "Public",
@@ -1232,5 +1233,13 @@
   "toolbar": {
     "pan": "Déplacer",
     "styleJson": "JSON de style"
-  }
+  },
+  "cluster": {
+    "popupTitle_one": "Groupe : {{countLabel}} entité",
+    "popupTitle_other": "Groupe : {{countLabel}} entités",
+    "sourceServerTile": "Tuile de groupe côté serveur",
+    "sourceBoundedGeojson": "Groupe GeoJSON borné",
+    "sourceFallback": "Groupe de repli"
+  },
+  "mobileNotice": "L'éditeur de carte fonctionne mieux sur un grand écran. Certains contrôles sont limités ici."
 }

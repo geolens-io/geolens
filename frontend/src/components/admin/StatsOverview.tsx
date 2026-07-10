@@ -223,14 +223,14 @@ function StatCard({
 
 export function StatsOverview() {
   const { t } = useTranslation('admin');
-  const { data, isLoading, error } = useCatalogStats();
+  const { data, isLoading, error, refetch } = useCatalogStats();
 
   if (isLoading) {
     return <LoadingState message={t('stats.loading')} className="py-12" />;
   }
 
   if (error) {
-    return <ErrorState message={t('stats.errorLoading', { message: error.message })} />;
+    return <ErrorState message={t('stats.errorLoading', { message: error.message })} onRetry={() => refetch()} />;
   }
 
   if (!data) return null;

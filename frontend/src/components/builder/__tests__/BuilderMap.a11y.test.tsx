@@ -32,6 +32,7 @@ const tileTokenState = vi.hoisted(() => ({
 }));
 
 vi.mock('@/hooks/use-tile-token', () => ({
+  useInvalidateTileTokens: () => vi.fn(),
   useTileTokens: () => tileTokenState.tokens,
 }));
 

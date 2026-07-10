@@ -1,5 +1,6 @@
 import { API_BASE } from '@/lib/constants';
 import { apiFetch } from './client';
+import { summarizeErrorDetail } from '@/lib/error-map';
 import type { TokenResponse, UserResponse, AuthConfigResponse, MessageResponse, SignupResponse, MyApiKeyResponse, ApiKeyCreateResponse, OAuthProviderPublic, UserQuotaUsage } from '@/types/api';
 
 export async function login(
@@ -19,7 +20,7 @@ export async function login(
     try {
       const body = await response.json();
       if (body.detail) {
-        detail = typeof body.detail === 'string' ? body.detail : JSON.stringify(body.detail);
+        detail = summarizeErrorDetail(body.detail, detail);
       }
     } catch {
       // body not JSON
@@ -48,7 +49,7 @@ export async function registerUser(data: {
     let detail = 'Registration failed';
     try {
       const body = await response.json();
-      if (body.detail) detail = typeof body.detail === 'string' ? body.detail : JSON.stringify(body.detail);
+      if (body.detail) detail = summarizeErrorDetail(body.detail, detail);
     } catch { /* ignore */ }
     throw new Error(detail);
   }
@@ -105,7 +106,7 @@ export async function verifyEmail(token: string): Promise<MessageResponse> {
     let detail = 'Verification failed';
     try {
       const body = await response.json();
-      if (body.detail) detail = typeof body.detail === 'string' ? body.detail : JSON.stringify(body.detail);
+      if (body.detail) detail = summarizeErrorDetail(body.detail, detail);
     } catch { /* ignore */ }
     throw new Error(detail);
   }
@@ -122,7 +123,7 @@ export async function resendVerification(email: string): Promise<MessageResponse
     let detail = 'Resend failed';
     try {
       const body = await response.json();
-      if (body.detail) detail = typeof body.detail === 'string' ? body.detail : JSON.stringify(body.detail);
+      if (body.detail) detail = summarizeErrorDetail(body.detail, detail);
     } catch { /* ignore */ }
     throw new Error(detail);
   }

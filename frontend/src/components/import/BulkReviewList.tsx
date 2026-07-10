@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useTranslation } from 'react-i18next';
 import { Layers, X, ChevronDown, ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -33,15 +34,15 @@ function DetectionPanel({ entry }: { entry: FileEntry }) {
         <dl className="grid grid-cols-[92px_1fr] gap-x-3 gap-y-1 text-xs">
           {raster ? (
             <>
-              <dt className="font-mono text-[11px] text-muted-foreground">{t('detect.labels.bands')}</dt>
+              <dt className="font-mono text-mini text-muted-foreground">{t('detect.labels.bands')}</dt>
               <dd className="font-mono text-[11.5px]">{preview.band_count}</dd>
-              <dt className="font-mono text-[11px] text-muted-foreground">{t('detect.labels.size')}</dt>
+              <dt className="font-mono text-mini text-muted-foreground">{t('detect.labels.size')}</dt>
               <dd className="font-mono text-[11.5px]">{preview.width} x {preview.height} px</dd>
-              <dt className="font-mono text-[11px] text-muted-foreground">{t('detect.labels.dataType')}</dt>
+              <dt className="font-mono text-mini text-muted-foreground">{t('detect.labels.dataType')}</dt>
               <dd className="font-mono text-[11.5px]">{preview.dtype}</dd>
-              <dt className="font-mono text-[11px] text-muted-foreground">{t('detect.labels.crs')}</dt>
+              <dt className="font-mono text-mini text-muted-foreground">{t('detect.labels.crs')}</dt>
               <dd className="font-mono text-[11.5px]">{preview.crs_epsg ? `EPSG:${preview.crs_epsg}` : t('preview.unknown')}</dd>
-              <dt className="font-mono text-[11px] text-muted-foreground">{t('detect.labels.cog')}</dt>
+              <dt className="font-mono text-mini text-muted-foreground">{t('detect.labels.cog')}</dt>
               <dd className="font-mono text-[11.5px]">
                 {preview.is_cog_compliant
                   ? <span className="text-success">{t('detect.validCog')}</span>
@@ -50,22 +51,22 @@ function DetectionPanel({ entry }: { entry: FileEntry }) {
             </>
           ) : file ? (
             <>
-              <dt className="font-mono text-[11px] text-muted-foreground">{t('detect.labels.type')}</dt>
+              <dt className="font-mono text-mini text-muted-foreground">{t('detect.labels.type')}</dt>
               <dd className="font-mono text-[11.5px]">
                 {file.geometry_type ? getGeometryTypeLabel(t, file.geometry_type) : t('detect.nonSpatial')}
               </dd>
-              <dt className="font-mono text-[11px] text-muted-foreground">{t('detect.labels.features')}</dt>
+              <dt className="font-mono text-mini text-muted-foreground">{t('detect.labels.features')}</dt>
               <dd className="font-mono text-[11.5px]">
                 {file.feature_count != null ? formatNumber(file.feature_count) : '—'}
               </dd>
-              <dt className="font-mono text-[11px] text-muted-foreground">{t('detect.labels.crs')}</dt>
+              <dt className="font-mono text-mini text-muted-foreground">{t('detect.labels.crs')}</dt>
               <dd className="font-mono text-[11.5px]">
                 {file.crs ? `EPSG:${file.crs}` : '—'}
                 {file.crs && file.crs !== 4326 && file.crs !== 3857 && (
                   <span className="ms-1 text-muted-foreground">→ {t('detect.willReproject')}</span>
                 )}
               </dd>
-              <dt className="font-mono text-[11px] text-muted-foreground">{t('detect.labels.layer')}</dt>
+              <dt className="font-mono text-mini text-muted-foreground">{t('detect.labels.layer')}</dt>
               <dd className="font-mono text-[11.5px]">{file.layer_name}</dd>
             </>
           ) : null}
@@ -78,12 +79,12 @@ function DetectionPanel({ entry }: { entry: FileEntry }) {
           <h5 className="mb-2 font-mono text-[10.5px] uppercase tracking-widest text-muted-foreground">
             {t('detect.schema')} · {t('detect.columnCount', { count: file.columns.length, value: formatNumber(file.columns.length) })}
           </h5>
-          <div className="max-h-44 overflow-y-auto rounded border border-border">
+          <div className="max-h-44 overflow-y-auto rounded-sm border border-border">
             <table className="w-full text-xs">
               <thead>
                 <tr className="border-b border-border bg-surface-0">
-                  <th className="px-2 py-1.5 text-start font-mono text-[10px] uppercase tracking-wider text-muted-foreground">{t('detect.table.column')}</th>
-                  <th className="px-2 py-1.5 text-start font-mono text-[10px] uppercase tracking-wider text-muted-foreground">{t('detect.table.type')}</th>
+                  <th className="px-2 py-1.5 text-start font-mono text-2xs uppercase tracking-wider text-muted-foreground">{t('detect.table.column')}</th>
+                  <th className="px-2 py-1.5 text-start font-mono text-2xs uppercase tracking-wider text-muted-foreground">{t('detect.table.type')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -92,7 +93,7 @@ function DetectionPanel({ entry }: { entry: FileEntry }) {
                     <td className="px-2 py-1 font-mono text-[11.5px]">{col.name}</td>
                     <td className="px-2 py-1">
                       <span className={cn(
-                        'inline-block rounded px-1.5 py-px font-mono text-[10.5px]',
+                        'inline-block rounded-sm px-1.5 py-px font-mono text-[10.5px]',
                         col.type.toLowerCase().includes('geom')
                           ? 'bg-type-vector-bg text-type-vector'
                           : 'bg-surface-2 text-muted-foreground',
@@ -104,7 +105,7 @@ function DetectionPanel({ entry }: { entry: FileEntry }) {
                 ))}
                 {file.columns.length > 12 && (
                   <tr>
-                    <td colSpan={2} className="px-2 py-1 text-center text-[11px] text-muted-foreground">
+                    <td colSpan={2} className="px-2 py-1 text-center text-mini text-muted-foreground">
                       {t('preview.moreColumns', { count: file.columns.length - 12 })}
                     </td>
                   </tr>
@@ -316,7 +317,7 @@ export function BulkReviewList({
                       <span className="font-mono font-normal text-muted-foreground">{ext}</span>
                     </span>
                     {entry.status === 'tracking' && (
-                      <Badge variant="outline" className="bg-success/10 text-success border-success/30 text-[10px]">
+                      <Badge variant="outline" className="bg-success/10 text-success border-success/30 text-2xs">
                         {t('bulk.committed')}
                       </Badge>
                     )}
@@ -332,7 +333,7 @@ export function BulkReviewList({
                   <button
                     onClick={(e) => { e.stopPropagation(); onRemove(entry.id); }}
                     disabled={entry.status === 'committing' || entry.status === 'tracking'}
-                    className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-30"
+                    className="rounded-sm p-1 text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-30"
                     aria-label={t('bulk.removeFile')}
                   >
                     <X className="size-3.5" />
@@ -349,18 +350,22 @@ export function BulkReviewList({
                     entry.previewData.layers.length > 1 && (
                       <div className="mb-3 space-y-1">
                         <Label htmlFor={`sheet-${entry.id}`}>{t('bulk.sheetLabel')}</Label>
-                        <select
-                          id={`sheet-${entry.id}`}
+                        {/* fix(#438): DS-08 — native <select> → themed ui/select. */}
+                        <Select
                           value={entry.previewData.layer_name}
-                          onChange={(e) => onSheetChange?.(entry.id, e.target.value)}
-                          className="h-9 w-full max-w-xs rounded-md border border-input bg-background px-3 text-sm shadow-xs focus:outline-none focus:ring-2 focus:ring-ring/50"
+                          onValueChange={(v) => onSheetChange?.(entry.id, v)}
                         >
-                          {entry.previewData.layers.map((layer) => (
-                            <option key={layer.name} value={layer.name}>
-                              {formatLayerOption(layer)}
-                            </option>
-                          ))}
-                        </select>
+                          <SelectTrigger id={`sheet-${entry.id}`} className="w-full max-w-xs">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {entry.previewData.layers.map((layer) => (
+                              <SelectItem key={layer.name} value={layer.name}>
+                                {formatLayerOption(layer)}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
                       </div>
                     )}
 
@@ -420,7 +425,7 @@ export function BulkReviewList({
               tables: formatReviewCount('tableCount', tableCount),
             })}
           </p>
-          <p className="font-mono text-[11px] text-muted-foreground tracking-wide">
+          <p className="font-mono text-mini text-muted-foreground tracking-wide">
             {t('review.actionHint')}
           </p>
         </div>

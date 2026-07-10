@@ -255,7 +255,7 @@ export function FeaturePopup({
                     key={key}
                     role="button"
                     tabIndex={0}
-                    className="group cursor-pointer hover:bg-accent/50 rounded transition-[color,background-color,box-shadow,border-color,opacity] duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+                    className="group cursor-pointer hover:bg-accent/50 rounded-sm transition-[color,background-color,box-shadow,border-color,opacity] duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
                     onClick={() => handleCopy(key, value)}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter' || e.key === ' ') {
@@ -312,19 +312,26 @@ function ValueDisplay({
     if (kind === 'image') {
       return (
         <span className="block space-y-1">
+          {/* fix(#438): BLD-01 — dropped `crossOrigin="anonymous"`. It forced a
+              CORS request for every popup image, so images from hosts without
+              CORS headers rendered broken where a plain <img> loads fine.
+              Nothing here reads the pixels back through a canvas, which is the
+              only thing the attribute buys. */}
+          {/* fix(#438): A11Y-07 — `alt={srcUrl}` made a screen reader read out a
+              raw URL. The image is a popup thumbnail with no caption we can
+              derive, so an empty alt (decorative) is the correct treatment. */}
           <img
             src={srcUrl}
-            alt={srcUrl}
+            alt=""
             loading="lazy"
             decoding="async"
-            crossOrigin="anonymous"
-            className="max-h-32 max-w-full rounded object-contain"
+            className="max-h-32 max-w-full rounded-sm object-contain"
           />
           <a
             href={srcUrl}
             target="_blank"
             rel="noopener noreferrer"
-            className="text-primary underline break-all text-[10px]"
+            className="text-primary underline break-all text-2xs"
             onClick={(e) => e.stopPropagation()}
           >
             {truncateGraphemes(srcUrl, MAX_VALUE_LENGTH)}
@@ -341,7 +348,7 @@ function ValueDisplay({
             src={srcUrl}
             controls
             preload="metadata"
-            className="max-h-32 max-w-full rounded"
+            className="max-h-32 max-w-full rounded-sm"
           />
         </span>
       );
@@ -356,7 +363,7 @@ function ValueDisplay({
             sandbox="allow-scripts allow-same-origin allow-presentation"
             referrerPolicy="no-referrer-when-downgrade"
             loading="lazy"
-            className="max-h-32 max-w-full rounded w-full aspect-video"
+            className="max-h-32 max-w-full rounded-sm w-full aspect-video"
           />
         </span>
       );

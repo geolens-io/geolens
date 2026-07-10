@@ -168,7 +168,7 @@ export function LegendPlugin({ ctx }: { ctx: PluginContext }) {
               aria-pressed={isEditing}
               aria-label={t('plugins.legend.editLegend')}
               title={t('plugins.legend.editLegend')}
-              className="flex-shrink-0 p-0.5 rounded text-muted-foreground hover:text-foreground hover:bg-accent"
+              className="flex-shrink-0 p-0.5 rounded-sm text-muted-foreground hover:text-foreground hover:bg-accent"
             >
               {isEditing ? <Check className="w-3.5 h-3.5" aria-hidden="true" /> : <Pencil className="w-3.5 h-3.5" aria-hidden="true" />}
             </button>
@@ -177,7 +177,7 @@ export function LegendPlugin({ ctx }: { ctx: PluginContext }) {
       )}
 
       {isEditing && canEdit && (
-        <div className="mb-1 space-y-1.5 rounded border border-border/50 bg-muted/30 p-1.5" data-testid="legend-editor">
+        <div className="mb-1 space-y-1.5 rounded-sm border border-border/50 bg-muted/30 p-1.5" data-testid="legend-editor">
           {ctx.onLegendTitleChange && (
             <input
               type="text"
@@ -185,7 +185,7 @@ export function LegendPlugin({ ctx }: { ctx: PluginContext }) {
               maxLength={120}
               placeholder={t('plugins.legend.titlePlaceholder')}
               aria-label={t('plugins.legend.titlePlaceholder')}
-              className="w-full rounded border border-border bg-background px-1.5 py-0.5 text-xs"
+              className="w-full rounded-sm border border-border bg-background px-1.5 py-0.5 text-xs"
               onBlur={(e) => ctx.onLegendTitleChange?.(e.target.value.trim() || null)}
             />
           )}
@@ -206,7 +206,7 @@ export function LegendPlugin({ ctx }: { ctx: PluginContext }) {
                 aria-label={t('plugins.legend.entryLabelPlaceholder', {
                   name: layer.display_name ?? layer.dataset_name,
                 })}
-                className="w-full rounded border border-border bg-background px-1.5 py-0.5 text-xs"
+                className="w-full rounded-sm border border-border bg-background px-1.5 py-0.5 text-xs"
                 onBlur={(e) => ctx.onLegendLabelChange?.(layer.id, e.target.value.trim())}
               />
             ))}
@@ -372,7 +372,7 @@ function GraduatedLegendSwitch({
     const circleColor = (typeof rawCircleColor === 'string' ? rawCircleColor : undefined) ?? MAP_COLORS.fallback;
     return (
       <div className="space-y-1">
-        <div className="text-[11px] font-medium text-muted-foreground">
+        <div className="text-mini font-medium text-muted-foreground">
           Size: {metricLabel}
         </div>
         <GraduatedRadiusLegend
@@ -383,7 +383,7 @@ function GraduatedLegendSwitch({
         />
         {parsedCircleColor && colorColumn && colorColumn !== styleConfig.column && (
           <>
-            <div className="pt-1 text-[11px] font-medium text-muted-foreground">
+            <div className="pt-1 text-mini font-medium text-muted-foreground">
               Color: {labelConfig.colorLabel ?? displayColumn(colorColumn)}
             </div>
             <GraduatedColorLegend
@@ -403,7 +403,7 @@ function GraduatedLegendSwitch({
     const lineColor = (typeof raw === 'string' ? raw : undefined) ?? MAP_COLORS.fallback;
     return (
       <div className="space-y-1">
-        <div className="text-[11px] font-medium text-muted-foreground">
+        <div className="text-mini font-medium text-muted-foreground">
           Width: {metricLabel}
         </div>
         <GraduatedWidthLegend

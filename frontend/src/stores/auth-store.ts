@@ -51,6 +51,21 @@ const persistConfig: PersistOptions<AuthState> = {
     }
     return persistedState as AuthState;
   },
+  /**
+   * fix(#438): DATA-05 — persisting the JWT + refresh token in localStorage is a
+   * deliberate multi-tab trade-off: the cross-tab `storage` listener below keeps
+   * every tab converged on the latest rotated (single-use) refresh token, which
+   * an in-memory-only store could not do. `partialize` makes the persisted
+   * surface explicit — only these auth fields are written, never any transient
+   * UI state that might later be added to the store.
+   */
+  partialize: (state) =>
+    ({
+      token: state.token,
+      refreshToken: state.refreshToken,
+      expiresAt: state.expiresAt,
+      user: state.user,
+    }) as unknown as AuthState,
 };
 
 export const useAuthStore = create<AuthState>()(
@@ -97,6 +112,20 @@ export const useAuthStore = create<AuthState>()(
  */
 if (typeof window !== 'undefined') {
   window.addEventListener('storage', (e) => {
-    if (e.key === persistConfig.name) void useAuthStore.persist.rehydrate();
+    if (e.key !== persistConfig.name) return;
+    const hadToken = !!useAuthStore.getState().token;
+    void Promise.resolve(useAuthStore.persist.rehydrate()).then(() => {
+      // fix(#438): DATA-09 — when another tab logs out, rehydrating clears this
+      // tab's token, but React only re-checks auth on its next render, so the
+      // tab kept showing protected chrome. On a present→absent transition, send
+      // it to /login. Skip if already on a public auth route so we don't loop.
+      const stillLoggedIn = !!useAuthStore.getState().token;
+      if (hadToken && !stillLoggedIn) {
+        const path = window.location.pathname;
+        if (path !== '/login' && path !== '/register') {
+          window.location.assign('/login');
+        }
+      }
+    });
   });
 }

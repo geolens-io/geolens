@@ -67,7 +67,7 @@ export function RasterLayerControls({
           {t('style.raster.reset', { defaultValue: 'Reset' })}
         </Button>
       </div>
-      <p className="text-[11px] leading-snug text-muted-foreground">
+      <p className="text-mini leading-snug text-muted-foreground">
         {t('style.raster.help', { defaultValue: 'Adjust imagery appearance for this layer only.' })}
       </p>
 

@@ -44,7 +44,7 @@ export function KeywordsEditor({ recordId, canEdit }: KeywordsEditorProps) {
       await deleteKeyword.mutateAsync(keywordId);
       toast.success(t('keywords.removed'));
     } catch {
-      toast.error(t('keywords.removeFailed'));
+      // fix(#438): UX-07 — useKeywords raises the error toast.
     }
   };
 

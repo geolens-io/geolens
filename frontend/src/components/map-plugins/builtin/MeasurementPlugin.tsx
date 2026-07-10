@@ -256,7 +256,7 @@ export function MeasurementPlugin({ ctx }: { ctx: PluginContext }) {
         <button
           onClick={() => handleModeChange('distance')}
           className={cn(
-            'flex items-center gap-1 px-2 py-1 rounded text-xs border transition-colors',
+            'flex items-center gap-1 px-2 py-1 rounded-sm text-xs border transition-colors',
             mode === 'distance'
               ? 'bg-primary text-primary-foreground border-primary'
               : 'border-border hover:bg-accent/50'
@@ -270,7 +270,7 @@ export function MeasurementPlugin({ ctx }: { ctx: PluginContext }) {
         <button
           onClick={() => handleModeChange('area')}
           className={cn(
-            'flex items-center gap-1 px-2 py-1 rounded text-xs border transition-colors',
+            'flex items-center gap-1 px-2 py-1 rounded-sm text-xs border transition-colors',
             mode === 'area'
               ? 'bg-primary text-primary-foreground border-primary'
               : 'border-border hover:bg-accent/50'

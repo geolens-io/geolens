@@ -43,7 +43,7 @@ export function useSettingsForm<K extends string>(
       vals[f.key] = f.coerce ? f.coerce(raw) : raw;
     }
     return vals as Values;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reset the draft only when the loaded settings change
   }, [settings]);
 
   const [values, setValues] = useState<Values>(initialValues);
@@ -63,7 +63,7 @@ export function useSettingsForm<K extends string>(
         setValues((prev) => ({ ...prev, [f.key]: v }));
     }
     return s as Record<K, (v: unknown) => void>;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- run once on mount
   }, []);
 
   const dirty = useMemo(() => {

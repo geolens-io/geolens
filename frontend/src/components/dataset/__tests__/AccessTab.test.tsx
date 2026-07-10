@@ -117,10 +117,11 @@ describe('AccessTab', () => {
     expect(codeBlock).not.toHaveTextContent('/api/v1/collections/public_parks');
     expect(codeBlock).not.toHaveTextContent('public_parks');
 
+    // fix(#438): DS-08 — the format picker is now a Radix Select; its options
+    // only mount when opened. For table datasets CSV is the sole format, so the
+    // trigger displays it.
     const select = screen.getByRole('combobox', { name: 'Export format' });
-    const options = Array.from(select.querySelectorAll('option'));
-    expect(options).toHaveLength(1);
-    expect(options[0]).toHaveValue('csv');
+    expect(select).toHaveTextContent('CSV');
   });
 
   it('hides the API snippet for raster datasets that do not expose OGC features', () => {

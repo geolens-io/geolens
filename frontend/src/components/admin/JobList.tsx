@@ -46,7 +46,7 @@ export function JobList() {
 
   const skip = page * PAGE_SIZE;
 
-  const { data, isLoading, error } = useAdminJobs({
+  const { data, isLoading, error, refetch } = useAdminJobs({
     status: status || undefined,
     user_id: userId || undefined,
     search: searchQuery || undefined,
@@ -153,7 +153,7 @@ export function JobList() {
 
         {/* Error */}
         {error && (
-          <ErrorState message={t('jobs.errorLoading', { message: error.message })} />
+          <ErrorState message={t('jobs.errorLoading', { message: error.message })} onRetry={() => refetch()} />
         )}
 
         {/* Job entries */}

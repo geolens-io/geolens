@@ -19,39 +19,35 @@ describe('qualityScoreClasses', () => {
   it('returns neutral styling for score 70 (60-79 range)', () => {
     const result = qualityScoreClasses(70);
     expect(result).toContain('bg-secondary');
-    expect(result).not.toContain('amber');
+    expect(result).not.toContain('warning');
   });
 
-  it('returns emerald styling for score 85 (80+ range)', () => {
-    const result = qualityScoreClasses(85);
-    expect(result).toContain('emerald');
+  it('returns the success token for score 85 (80+ range)', () => {
+    expect(qualityScoreClasses(85)).toBe(semanticBadgeColors.success);
   });
 
-  it('returns rose styling for score 40 (below 60)', () => {
-    const result = qualityScoreClasses(40);
-    expect(result).toContain('rose');
+  it('returns the destructive token for score 40 (below 60)', () => {
+    expect(qualityScoreClasses(40)).toBe(semanticBadgeColors.destructive);
   });
 
-  it('returns emerald styling for score 95 (high score)', () => {
-    const result = qualityScoreClasses(95);
-    expect(result).toContain('emerald');
+  it('returns the success token for score 95 (high score)', () => {
+    expect(qualityScoreClasses(95)).toBe(semanticBadgeColors.success);
   });
 
-  it('returns rose styling for score 55 (just below 60)', () => {
-    const result = qualityScoreClasses(55);
-    expect(result).toContain('rose');
+  it('returns the destructive token for score 55 (just below 60)', () => {
+    expect(qualityScoreClasses(55)).toBe(semanticBadgeColors.destructive);
   });
 
-  it('returns emerald styling for exact boundary 80', () => {
-    expect(qualityScoreClasses(80)).toContain('emerald');
+  it('returns the success token for exact boundary 80', () => {
+    expect(qualityScoreClasses(80)).toBe(semanticBadgeColors.success);
   });
 
   it('returns neutral styling for exact boundary 60', () => {
     expect(qualityScoreClasses(60)).toContain('bg-secondary');
   });
 
-  it('returns rose styling for score 59 (just below 60)', () => {
-    expect(qualityScoreClasses(59)).toContain('rose');
+  it('returns the destructive token for score 59 (just below 60)', () => {
+    expect(qualityScoreClasses(59)).toBe(semanticBadgeColors.destructive);
   });
 });
 
@@ -158,15 +154,57 @@ describe('vrtRasterStatusColors', () => {
 });
 
 describe('experimentalBadgeColor', () => {
-  it('uses amber palette with dark mode variant', () => {
-    expect(experimentalBadgeColor).toContain('amber');
-    expect(experimentalBadgeColor).toContain('dark:');
+  it('uses the warning token', () => {
+    expect(experimentalBadgeColor).toContain('warning');
   });
 });
 
 describe('syntheticBadgeColor', () => {
-  it('uses violet palette with dark mode variants', () => {
-    expect(syntheticBadgeColor).toContain('violet');
-    expect(syntheticBadgeColor).toContain('dark:');
+  it('uses the synthetic provenance token', () => {
+    expect(syntheticBadgeColor).toContain('synthetic');
+  });
+});
+
+// fix(#438): DS-01 — this file is the app's declared "single source of truth for
+// status colors", so it is also the right place to guard against a raw Tailwind
+// palette creeping back in. Every export must be token-driven.
+describe('token discipline (DS-01)', () => {
+  const RAW_PALETTES = /\b(emerald|teal|amber|rose|violet|sky|lime|fuchsia|cyan|indigo)-\d{2,3}\b/;
+
+  const allRecipes = [
+    ...Object.values(semanticBadgeColors),
+    ...Object.values(jobStatusColors),
+    ...Object.values(userStatusColors),
+    ...Object.values(visibilityColors),
+    ...Object.values(vrtGenerationColors),
+    ...Object.values(activeDotColor),
+    ...Object.values(recordTypeColors),
+    ...Object.values(ingestionStatusColors),
+    ...Object.values(validationLevelColors),
+    ...Object.values(healthDotColors),
+    ...Object.values(vrtRasterStatusColors),
+    experimentalBadgeColor,
+    syntheticBadgeColor,
+    qualityScoreClasses(95),
+    qualityScoreClasses(70),
+    qualityScoreClasses(20),
+  ];
+
+  it.each(allRecipes)('%s contains no raw Tailwind palette', (recipe) => {
+    expect(recipe).not.toMatch(RAW_PALETTES);
+  });
+
+  it('renders one success green everywhere it appears', () => {
+    const successRecipes = [
+      semanticBadgeColors.success,
+      jobStatusColors.complete,
+      jobStatusColors.fanned_out,
+      userStatusColors.active,
+      visibilityColors.public,
+      vrtGenerationColors.completed,
+      ingestionStatusColors.published,
+      qualityScoreClasses(95),
+    ];
+    expect(new Set(successRecipes).size).toBe(1);
   });
 });

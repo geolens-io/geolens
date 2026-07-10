@@ -105,7 +105,7 @@ export function BasemapSublayerEditorScene({
       {supportsStrokeAndCasing && (
       <section className="border-b">
         <div className="px-4 py-2">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground mb-2">
+          <p className="text-2xs font-semibold uppercase tracking-[0.08em] text-muted-foreground mb-2">
             {t('basemapSublayer.strokeLabel', { defaultValue: 'STROKE' })}
           </p>
           <div className="space-y-3">
@@ -140,7 +140,7 @@ export function BasemapSublayerEditorScene({
       {supportsStrokeAndCasing && (
       <section className="border-b">
         <div className="px-4 py-2">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground mb-2">
+          <p className="text-2xs font-semibold uppercase tracking-[0.08em] text-muted-foreground mb-2">
             {t('basemapSublayer.casingLabel', { defaultValue: 'CASING' })}
           </p>
           <div className="space-y-3">
@@ -174,7 +174,7 @@ export function BasemapSublayerEditorScene({
       {/* 3. ZOOM RANGE section — Phase 1059 BSE-01 restored */}
       <section className="border-b">
         <div className="px-4 py-2">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground mb-2">
+          <p className="text-2xs font-semibold uppercase tracking-[0.08em] text-muted-foreground mb-2">
             {t('basemapSublayer.zoomLabel', { defaultValue: 'ZOOM RANGE' })}
           </p>
           <div className="grid grid-cols-2 gap-2">
@@ -225,7 +225,7 @@ export function BasemapSublayerEditorScene({
       {/* 4. Visibility section — opacity only (existing, untouched) */}
       <section className="border-b">
         <div className="px-4 py-2">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground mb-2">
+          <p className="text-2xs font-semibold uppercase tracking-[0.08em] text-muted-foreground mb-2">
             {t('layerEditor.section.visibility', { defaultValue: 'Visibility' })}
           </p>
           <div className="space-y-3">
@@ -268,7 +268,7 @@ export function BasemapSublayerEditorScene({
               className={cn('h-4 w-4 shrink-0 transition-transform duration-[--motion-fast]', resetOpen && 'rotate-90')}
               aria-hidden="true"
             />
-            <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+            <span className="text-2xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">
               {t('basemapSublayer.resetLabel', { defaultValue: 'RESET' })}
             </span>
             {!resetOpen && (

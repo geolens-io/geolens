@@ -150,6 +150,9 @@ export function InlineEdit({
           onChange={(e) => handleDraftChange(e.target.value)}
           onBlur={cancel}
           onKeyDown={handleKeyDown}
+          // fix(#438): DS-03 — deliberately shares inputClasses with its
+          // sibling <input> so the inline editor looks identical in both modes;
+          // that's why it doesn't use the ui/textarea primitive.
           className={cn(inputClasses, 'resize-none min-h-[3rem]')}
           rows={3}
           title={t('common:inlineEdit.hint', { defaultValue: 'Ctrl+Enter to save, Escape to cancel' })}
@@ -183,7 +186,7 @@ export function InlineEdit({
         }
       }}
       className={cn(
-        'cursor-pointer hover:bg-accent/50 rounded px-1 -mx-1 transition-colors duration-150',
+        'cursor-pointer hover:bg-accent/50 rounded-sm px-1 -mx-1 transition-colors duration-150',
         className,
       )}
     >

@@ -71,8 +71,8 @@ export function FillPatternPicker({ value, onChange, t }: FillPatternPickerProps
         <button
           type="button"
           className={cn(
-            'flex cursor-pointer h-8 w-8 items-center justify-center rounded border bg-background text-[10px] font-medium',
-            !value ? 'border-primary ring-1 ring-primary' : 'border-border hover:bg-accent',
+            'flex cursor-pointer h-8 w-8 items-center justify-center rounded-sm border bg-background text-2xs font-medium',
+            !value ? 'border-primary ring-1 ring-ring' : 'border-border hover:bg-accent',
           )}
           onClick={() => onChange(undefined)}
           title={t('style.fillPatternNone')}
@@ -88,8 +88,8 @@ export function FillPatternPicker({ value, onChange, t }: FillPatternPickerProps
               key={id}
               type="button"
               className={cn(
-                'flex cursor-pointer h-8 w-8 items-center justify-center rounded border bg-background',
-                isActive ? 'border-primary ring-1 ring-primary' : 'border-border hover:bg-accent',
+                'flex cursor-pointer h-8 w-8 items-center justify-center rounded-sm border bg-background',
+                isActive ? 'border-primary ring-1 ring-ring' : 'border-border hover:bg-accent',
               )}
               onClick={() => onChange(id)}
               title={label}

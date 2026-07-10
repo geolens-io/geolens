@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient, keepPreviousData, type QueryClient } from '@tanstack/react-query';
 import { queryKeys } from '@/lib/query-keys';
+import { formatMutationError } from '@/lib/error-map';
 import {
   listMaps,
   getMap,
@@ -172,7 +173,10 @@ export function useDeleteMap() {
       qc.invalidateQueries({ queryKey: queryKeys.maps.all });
       invalidateDatasetMapLists(qc);
     },
-    onError: () => { toast.error(i18n.t('common:maps.deleteFailed')); },
+    // fix(#438): UX-07 — the hook owns the error toast. MapsPage used to raise a
+    // second one, so a failed delete produced two. `formatMutationError` keeps
+    // the specific backend reason the caller was surfacing.
+    onError: (err) => { toast.error(formatMutationError('common:maps.deleteFailed', err)); },
   });
 }
 
@@ -207,7 +211,7 @@ export function useImportMapStyleJson() {
 
 export function useMapIcons() {
   return useQuery({
-    queryKey: ['maps', 'icons'],
+    queryKey: queryKeys.mapIcons.all,
     queryFn: listMapIcons,
     staleTime: 60_000,
   });
@@ -218,7 +222,7 @@ export function useUploadMapIcon() {
   return useMutation({
     mutationFn: uploadMapIcon,
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['maps', 'icons'] });
+      qc.invalidateQueries({ queryKey: queryKeys.mapIcons.all });
     },
   });
 }

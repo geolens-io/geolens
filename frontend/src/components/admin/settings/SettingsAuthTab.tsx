@@ -48,6 +48,7 @@ import {
 import { queryKeys } from '@/lib/query-keys';
 import { useTileConfig } from '@/hooks/use-settings';
 import { getPublicApiBaseUrl } from '@/lib/dataset-access';
+import { Textarea } from '@/components/ui/textarea';
 
 interface TabProps {
   settings: SettingItem[];
@@ -653,9 +654,9 @@ function OAuthProvidersSection({ envOnly }: { envOnly: boolean }) {
 
             <div className="space-y-2">
               <Label htmlFor="group-role-mapping">{t('settings.oauth.groupRoleMapping')}</Label>
-              <textarea
+              <Textarea
                 id="group-role-mapping"
-                className="flex min-h-[80px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-xs placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-50"
+                className="min-h-[80px]"
                 value={form.group_role_mapping}
                 onChange={(e) => setForm((prev) => ({ ...prev, group_role_mapping: e.target.value }))}
                 placeholder='{"IdP Group": "viewer", "Admins": "admin"}'

@@ -1,3 +1,14 @@
+/**
+ * fix(#438): I18N-04 — TEST-ONLY MODULE. `buildMapStack` and the `mapStack.*`
+ * locale keys it reads are a verification oracle for the saved-map normalizer
+ * (`api/__tests__/maps.normalize.test.ts`, `__tests__/map-stack.test.ts`). No
+ * production component imports this, so Vite tree-shakes the code out of the
+ * bundle — its English labels never reach a user, and its keys are not a real
+ * i18n gap. Kept (not deleted) because it is the oracle that proves normalize
+ * output structure; marked here so future audits stop re-flagging it. If this
+ * ever gains a production consumer, its `mapStack.*` strings must be reviewed
+ * for translation quality like any other rendered copy.
+ */
 import type {
   LabelConfig,
   MapBasemapConfig,

@@ -1,7 +1,14 @@
 import { API_BASE } from '@/lib/constants';
-import { translateError } from '@/lib/error-map';
+import { translateError, summarizeErrorDetail } from '@/lib/error-map';
 import { useAuthStore } from '@/stores/auth-store';
 import { refreshAccessToken } from './auth';
+import i18n from '@/i18n/i18n';
+
+// fix(#438): DATA-04 — a request whose socket hangs used to spin forever and
+// stall the polling loop that issued it. 30s comfortably covers a slow catalog
+// query while still freeing a wedged loop. Applied to apiFetch (JSON) only;
+// streaming and blob-download callers manage their own longer-lived signals.
+const REQUEST_TIMEOUT_MS = 30_000;
 
 export class ApiError extends Error {
   status: number;
@@ -64,7 +71,7 @@ export async function tryRefresh(): Promise<boolean> {
  * Without this, network failures propagate as opaque unhandled rejections
  * through every TanStack Query and the UI shows "Failed to fetch" literally.
  */
-async function safeFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+export async function safeFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
   try {
     return await fetch(input, init);
   } catch (err) {
@@ -72,7 +79,14 @@ async function safeFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
     // (offline, DNS unresolvable, CORS preflight blocked, etc.). Other
     // errors (e.g. AbortError) should bubble through unchanged.
     if (err instanceof TypeError) {
-      throw new ApiError('Network unavailable — check your connection', 0);
+      // fix(#438): UX-10 — was hardcoded English; this is one of the errors a
+      // non-English user is most likely to hit.
+      throw new ApiError(i18n.t('common:errors.networkUnavailable'), 0);
+    }
+    // fix(#438): DATA-04 — a timeout-triggered abort becomes a normalized
+    // ApiError; a caller-initiated AbortError still bubbles unchanged.
+    if (err instanceof DOMException && err.name === 'TimeoutError') {
+      throw new ApiError(i18n.t('common:errors.requestTimeout'), 0);
     }
     throw err;
   }
@@ -132,7 +146,8 @@ export async function authenticatedRawFetch(
       if (retry.status !== 401) return retry;
     }
     useAuthStore.getState().logout();
-    throw new ApiError('Unauthorized', 401);
+    // fix(#438): UX-10 — was hardcoded English.
+    throw new ApiError(i18n.t('common:errors.unauthorized'), 401);
   }
 
   return response;
@@ -164,6 +179,14 @@ export async function apiFetch<T>(
   options: RequestInit & { expected404?: boolean } = {},
 ): Promise<T> {
   const { expected404, ...fetchOptions } = options;
+
+  // fix(#438): DATA-04 — bound the request. Compose with any caller signal so
+  // an explicit cancel still works; whichever fires first wins.
+  const timeoutSignal = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
+  fetchOptions.signal = fetchOptions.signal
+    ? AbortSignal.any([fetchOptions.signal, timeoutSignal])
+    : timeoutSignal;
+
   const response = await authenticatedFetch(path, fetchOptions, (headers) => {
     if (!headers.has('Content-Type') && !(fetchOptions.body instanceof URLSearchParams) && !(fetchOptions.body instanceof FormData)) {
       headers.set('Content-Type', 'application/json');
@@ -177,16 +200,22 @@ export async function apiFetch<T>(
   if (!response.ok) {
     let detail: string = response.statusText;
     let detailRaw: unknown = undefined;
+
+    // Only the parse is fallible. Keeping `summarizeErrorDetail` outside the
+    // try means a bug in it surfaces as a crash rather than silently degrading
+    // every error message to the bare status text.
+    let body: { detail?: unknown } | undefined;
     try {
-      const body = await response.json();
-      if (body.detail !== undefined) {
-        detailRaw = body.detail;
-        detail =
-          typeof body.detail === 'string' ? body.detail : JSON.stringify(body.detail);
-      }
+      body = await response.json();
     } catch {
       // body not JSON, use statusText
     }
+
+    if (body?.detail !== undefined) {
+      detailRaw = body.detail;
+      detail = summarizeErrorDetail(body.detail, response.statusText);
+    }
+
     throw new ApiError(translateError(detail), response.status, detailRaw);
   }
 

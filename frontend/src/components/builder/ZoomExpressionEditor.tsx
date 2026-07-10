@@ -161,7 +161,7 @@ export function ZoomExpressionEditor({
       <div className="space-y-1.5">
         <div className="flex items-center justify-between gap-2">
           <span className="text-xs text-muted-foreground w-20">{label}</span>
-          <p className="flex-1 text-xs text-warning-foreground bg-warning/15 rounded px-2 py-1">
+          <p className="flex-1 text-xs text-warning-foreground bg-warning/15 rounded-sm px-2 py-1">
             {t('style.zoomExpression.unsupported')}
           </p>
         </div>
@@ -178,7 +178,7 @@ export function ZoomExpressionEditor({
             type="button"
             aria-pressed={mode === 'fixed'}
             className={cn(
-              'flex-1 cursor-pointer rounded px-2 py-1 text-xs transition-colors',
+              'flex-1 cursor-pointer rounded-sm px-2 py-1 text-xs transition-colors',
               mode === 'fixed' ? 'bg-background text-foreground shadow-xs' : 'text-muted-foreground hover:text-foreground',
             )}
             onClick={switchToFixed}
@@ -189,7 +189,7 @@ export function ZoomExpressionEditor({
             type="button"
             aria-pressed={mode === 'zoom'}
             className={cn(
-              'flex-1 cursor-pointer rounded px-2 py-1 text-xs transition-colors',
+              'flex-1 cursor-pointer rounded-sm px-2 py-1 text-xs transition-colors',
               mode === 'zoom' ? 'bg-background text-foreground shadow-xs' : 'text-muted-foreground hover:text-foreground',
             )}
             onClick={switchToZoom}
@@ -218,7 +218,7 @@ export function ZoomExpressionEditor({
                 type="button"
                 aria-pressed={draft.kind === kind}
                 className={cn(
-                  'flex-1 cursor-pointer rounded border px-2 py-1 text-xs transition-colors',
+                  'flex-1 cursor-pointer rounded-sm border px-2 py-1 text-xs transition-colors',
                   draft.kind === kind
                     ? 'bg-primary text-primary-foreground border-primary'
                     : 'bg-muted/50 text-muted-foreground border-border hover:bg-muted',

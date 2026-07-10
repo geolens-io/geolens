@@ -46,7 +46,7 @@ function SearchControls({ totalResults, children }: SearchControlsProps) {
 export function SearchPage() {
   const { t } = useTranslation('search');
   useDocumentTitle(t('common:pageTitle.search'));
-  const { data, isLoading, error, isFetching } = useSearchResults();
+  const { data, isLoading, error, isFetching, refetch } = useSearchResults();
   // fix(#430 V-08): maps aren't indexed in catalog search — issue a parallel,
   // visibility-scoped lookup against the maps list endpoint so a search for a
   // map's name (e.g. "matterhorn") surfaces it from the home/catalog search.
@@ -124,7 +124,7 @@ export function SearchPage() {
             )}
 
             {error && (
-              <ErrorState message={t('error.message', { message: error.message })} />
+              <ErrorState message={t('error.message', { message: error.message })} onRetry={() => refetch()} />
             )}
 
             {/* fix(#430 V-08): rendered independent of the dataset result state above —

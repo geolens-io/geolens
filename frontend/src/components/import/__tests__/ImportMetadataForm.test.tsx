@@ -12,6 +12,23 @@ vi.mock('react-i18next', () => ({
   }),
 }));
 
+// fix(#438): DS-08 — the geometry-mode picker is now a Radix Select. jsdom lacks
+// these pointer/scroll APIs Radix calls, and its options mount only once opened.
+beforeAll(() => {
+  Element.prototype.hasPointerCapture = vi.fn(() => false);
+  Element.prototype.setPointerCapture = vi.fn();
+  Element.prototype.releasePointerCapture = vi.fn();
+  Element.prototype.scrollIntoView = vi.fn();
+});
+
+async function selectGeomMode(
+  user: ReturnType<typeof userEvent.setup>,
+  optionText: string,
+) {
+  await user.click(screen.getByLabelText('metadata.geometryMode'));
+  await user.click(await screen.findByRole('option', { name: optionText }));
+}
+
 const defaultProps = {
   defaultName: 'test-data.csv',
   detectedCrs: null,
@@ -112,7 +129,7 @@ describe('ImportMetadataForm', () => {
       />,
     );
     const modeSelect = screen.getByLabelText('metadata.geometryMode');
-    expect(modeSelect).toHaveValue('auto');
+    expect(modeSelect).toHaveTextContent('metadata.autoDetected');
   });
 
   it('pre-fills x/y dropdowns from detected columns in auto mode', () => {
@@ -179,7 +196,7 @@ describe('ImportMetadataForm', () => {
       />,
     );
     const modeSelect = screen.getByLabelText('metadata.geometryMode');
-    expect(modeSelect).toHaveValue('none');
+    expect(modeSelect).toHaveTextContent('metadata.nonSpatial');
   });
 
   it('hides column selectors in none mode', () => {
@@ -209,8 +226,7 @@ describe('ImportMetadataForm', () => {
       />,
     );
 
-    const modeSelect = screen.getByLabelText('metadata.geometryMode');
-    await user.selectOptions(modeSelect, 'manual');
+    await selectGeomMode(user, 'metadata.manualOverride');
 
     expect(screen.getByLabelText('metadata.xColumn')).not.toBeDisabled();
     expect(screen.getByLabelText('metadata.yColumn')).not.toBeDisabled();
@@ -226,8 +242,7 @@ describe('ImportMetadataForm', () => {
       />,
     );
 
-    const modeSelect = screen.getByLabelText('metadata.geometryMode');
-    await user.selectOptions(modeSelect, 'none');
+    await selectGeomMode(user, 'metadata.nonSpatial');
 
     expect(screen.queryByLabelText('metadata.xColumn')).not.toBeInTheDocument();
   });
@@ -323,7 +338,7 @@ describe('ImportMetadataForm', () => {
     );
 
     // Switch to manual mode
-    await user.selectOptions(screen.getByLabelText('metadata.geometryMode'), 'manual');
+    await selectGeomMode(user, 'metadata.manualOverride');
 
     // Change x column to id (numeric)
     await user.selectOptions(screen.getByLabelText('metadata.xColumn'), 'id');
@@ -397,7 +412,7 @@ describe('ImportMetadataForm', () => {
     );
 
     // Mode is 'none' because no columns were detected — switch to manual to reveal dropdowns.
-    await user.selectOptions(screen.getByLabelText('metadata.geometryMode'), 'manual');
+    await selectGeomMode(user, 'metadata.manualOverride');
 
     const xSelect = screen.getByLabelText('metadata.xColumn');
     const options = within(xSelect).getAllByRole('option').map((o) => (o as HTMLOptionElement).value);
@@ -421,7 +436,7 @@ describe('ImportMetadataForm', () => {
     );
 
     // Switch to manual mode
-    await user.selectOptions(screen.getByLabelText('metadata.geometryMode'), 'manual');
+    await selectGeomMode(user, 'metadata.manualOverride');
     // Switch to WKT type
     await user.click(screen.getByRole('radio', { name: 'metadata.wkt' }));
 

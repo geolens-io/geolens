@@ -39,7 +39,7 @@ function EntryRow({ entry, language }: { entry: ReportEntry; language: string })
         aria-expanded={canExpand ? expanded : undefined}
       >
         <SeverityIcon severity={entry.severity} />
-        <span className="shrink-0 rounded bg-muted px-1 py-0.5 font-mono text-[10px] uppercase text-muted-foreground">
+        <span className="shrink-0 rounded-sm bg-muted px-1 py-0.5 font-mono text-2xs uppercase text-muted-foreground">
           {entry.source}
         </span>
         <span className="min-w-0 flex-1 break-words font-mono text-foreground/90">
@@ -47,7 +47,7 @@ function EntryRow({ entry, language }: { entry: ReportEntry; language: string })
           {entry.count > 1 && <span className="ml-1 text-muted-foreground">×{entry.count}</span>}
           {entry.suppressed && <span className="ml-1 italic text-muted-foreground">(suppressed)</span>}
         </span>
-        <span className="shrink-0 text-[10px] text-muted-foreground">{formatRelative(entry.ts, language)}</span>
+        <span className="shrink-0 text-2xs text-muted-foreground">{formatRelative(entry.ts, language)}</span>
         {canExpand && (
           <ChevronRight
             className={cn('size-3 shrink-0 text-muted-foreground transition-transform', expanded && 'rotate-90')}
@@ -56,7 +56,7 @@ function EntryRow({ entry, language }: { entry: ReportEntry; language: string })
         )}
       </button>
       {expanded && entry.detail && (
-        <pre className="mb-1.5 ml-7 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded bg-muted/70 p-2 text-[10px] leading-relaxed text-muted-foreground">
+        <pre className="mb-1.5 ml-7 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-sm bg-muted/70 p-2 text-2xs leading-relaxed text-muted-foreground">
           {entry.detail}
         </pre>
       )}

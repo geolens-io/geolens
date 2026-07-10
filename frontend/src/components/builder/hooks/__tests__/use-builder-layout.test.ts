@@ -89,7 +89,7 @@ describe('useBuilderLayout', () => {
       unmount();
 
       // Two MQL listeners should be removed (rail + editorHidden)
-      expect(removeListeners.length).toBe(2);
+      expect(removeListeners.length).toBe(3); // fix(#438): +mobileMql (UX-06)
       expect(removeListeners.every(([event]) => event === 'change')).toBe(true);
     });
   });

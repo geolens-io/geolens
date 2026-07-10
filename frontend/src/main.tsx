@@ -80,6 +80,11 @@ const router = createBrowserRouter(createRoutesFromElements(appRoutes));
 // (MAPS-01 / #122). Type-only; erased at runtime.
 interface RootContainer extends HTMLElement { __glRoot?: Root }
 
+// fix(#438): PERF-01 — awaiting initializeI18n() before the first render blocks
+// non-English first paint on the locale chunk (en is bundled, so it is
+// unaffected). This is a deliberate no-FOUC trade-off: rendering before the
+// bundle resolves would flash raw keys. Upgrade path: render en immediately and
+// background-swap the locale, or ship a static skeleton in index.html.
 async function bootstrap() {
   await initializeI18n();
 

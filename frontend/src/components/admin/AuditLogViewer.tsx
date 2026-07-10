@@ -41,7 +41,7 @@ export function AuditLogViewer() {
 
   const skip = page * PAGE_SIZE;
 
-  const { data, isLoading, error } = useAuditLogs({
+  const { data, isLoading, error, refetch } = useAuditLogs({
     action: action || undefined,
     date_from: dateFrom || undefined,
     date_to: dateTo || undefined,
@@ -179,7 +179,7 @@ export function AuditLogViewer() {
 
         {/* Error */}
         {error && (
-          <ErrorState message={t('audit.errorLoading', { message: error.message })} />
+          <ErrorState message={t('audit.errorLoading', { message: error.message })} onRetry={() => refetch()} />
         )}
 
         {/* Loading skeleton */}

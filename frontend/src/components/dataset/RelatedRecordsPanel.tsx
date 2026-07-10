@@ -60,7 +60,7 @@ function RelatedSection({
             <p className="text-sm text-muted-foreground py-2">{t('relatedRecords.noRecords')}</p>
           )}
           {data && data.rows.length > 0 && (
-            <div className="overflow-x-auto rounded border">
+            <div className="overflow-x-auto rounded-sm border">
               <table className="w-full text-xs">
                 <thead>
                   <tr className="bg-muted/50 border-b">
@@ -99,7 +99,7 @@ function RelatedSection({
 export function RelatedRecordsPanel({ datasetId, featureGid }: RelatedRecordsPanelProps) {
   const { t } = useTranslation('dataset');
 
-  const { data: relationships, isLoading, isError } = useQuery<DatasetRelationship[]>({
+  const { data: relationships, isLoading, isError, refetch } = useQuery<DatasetRelationship[]>({
     queryKey: queryKeys.relationships.list(datasetId),
     queryFn: () => listRelationships(datasetId),
     staleTime: 2 * 60_000,
@@ -115,7 +115,7 @@ export function RelatedRecordsPanel({ datasetId, featureGid }: RelatedRecordsPan
   }
 
   if (isError) {
-    return <ErrorState message={t('relatedRecords.error')} />;
+    return <ErrorState message={t('relatedRecords.error')} onRetry={() => refetch()} />;
   }
 
   if (!relationships || relationships.length === 0) {

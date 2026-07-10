@@ -74,17 +74,18 @@ function defaultProps(overrides: Partial<React.ComponentProps<typeof FolderGroup
 }
 
 describe('FolderGroupRow', () => {
-  it('Test 1: Renders with ▸ glyph in the type-icon cell with amber background and foreground colors', () => {
+  it('Test 1: Renders the ▸ glyph in the type-icon cell using the folder-group token', () => {
     render(<FolderGroupRow {...defaultProps()} />);
 
-    // Find the type icon span by aria-hidden (matches the bg color in style attribute)
-    const typeIcon = document.querySelector('[aria-hidden="true"][style*="oklch(0.93 0.03 80)"]');
+    // fix(#438): DS-05 — the type icon moved from an inline OKLCH amber style to
+    // the theme-aware --type-folder token classes.
+    const typeIcon = Array.from(document.querySelectorAll('[aria-hidden="true"]')).find(
+      (el) => el.textContent === '▸',
+    ) as HTMLElement | undefined;
     expect(typeIcon).toBeTruthy();
-    expect(typeIcon?.textContent).toBe('▸');
-    const iconEl = typeIcon as HTMLElement;
-    expect(iconEl.style.backgroundColor).toBe('oklch(0.93 0.03 80)');
-    // JSDOM normalizes 0.10 to 0.1 in inline styles
-    expect(iconEl.style.color).toMatch(/oklch\(0\.45\s+0\.1\s+80\)/);
+    expect(typeIcon?.className).toContain('bg-type-folder-bg');
+    expect(typeIcon?.className).toContain('text-type-folder');
+    expect(typeIcon?.getAttribute('style')).toBeNull();
   });
 
   it('Test 2: Caret button has aria-expanded and aria-controls; rotates 90 when isExpanded=true', () => {

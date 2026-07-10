@@ -92,6 +92,21 @@
       "error": "Benutzer konnte nicht deaktiviert werden",
       "deactivating": "Wird deaktiviert...",
       "deactivate": "Deaktivieren"
+    },
+    "exportError": "Export der Benutzer fehlgeschlagen",
+    "empty": {
+      "noUsers": "Noch keine Benutzer",
+      "noResults": "Keine Benutzer entsprechen diesen Filtern",
+      "noResultsHint": "Versuchen Sie einen anderen Suchbegriff oder Status.",
+      "clearFilters": "Filter zurücksetzen"
+    },
+    "toasts": {
+      "created": "Benutzer erstellt",
+      "updated": "Benutzer aktualisiert",
+      "deactivated": "Benutzer deaktiviert",
+      "deleted": "Benutzer gelöscht",
+      "approved": "Benutzer freigegeben",
+      "rejected": "Benutzer abgelehnt"
     }
   },
   "userCreate": {
@@ -141,7 +156,8 @@
     "title": "Benutzer löschen",
     "description": "Möchten Sie den Benutzer \"{{username}}\" wirklich löschen? Diese Aktion kann nicht rückgängig gemacht werden. Vorhandene Datensätze bleiben erhalten, zeigen aber \"Gelöschter Benutzer\" als Ersteller an.",
     "deleting": "Wird gelöscht...",
-    "error": "Benutzer konnte nicht gelöscht werden"
+    "error": "Benutzer konnte nicht gelöscht werden",
+    "confirmPrompt": "Geben Sie {{username}} ein, um das Löschen zu bestätigen"
   },
   "jobs": {
     "title": "Aufträge",

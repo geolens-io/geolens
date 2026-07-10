@@ -61,7 +61,7 @@ function StyleControlSection({
       <div className="flex items-center justify-between gap-2">
         <div className="space-y-0.5 min-w-0">
           <div className="text-xs font-semibold text-foreground">{title}</div>
-          {description && <p className="text-[11px] leading-snug text-muted-foreground">{description}</p>}
+          {description && <p className="text-mini leading-snug text-muted-foreground">{description}</p>}
         </div>
         {headerAction}
       </div>
@@ -80,7 +80,7 @@ function StylePreview({ layer, onReset }: { layer: MapLayerResponse; onReset: ()
         <GeometrySwatch geometryType={layer.dataset_geometry_type} color={swatchColor} style={stylePreviewStyle(layer)} />
         <div className="min-w-0">
           <div className="truncate text-xs font-medium">{t('style.preview.title')}</div>
-          <p className="truncate text-[11px] text-muted-foreground">{t('style.preview.description')}</p>
+          <p className="truncate text-mini text-muted-foreground">{t('style.preview.description')}</p>
         </div>
       </div>
       <Button
@@ -223,7 +223,7 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
       onOpacityChange(layer.id, localOpacity);
     }, 100);
     return () => clearTimeout(opacityTimerRef.current);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- push opacity only on local/layer change; the sync setter is stable
   }, [localOpacity, layer.id]);
 
   // builder-audit #338 DRY-01: forward map derived from the single BUILDER_PAINT_FIELDS

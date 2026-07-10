@@ -58,7 +58,7 @@ export function SwatchColorPopover({
       <PopoverTrigger asChild>
         <button
           type="button"
-          className="w-5 h-5 rounded-sm border border-border shrink-0 cursor-pointer hover:ring-2 hover:ring-primary/30 transition-shadow"
+          className="w-5 h-5 rounded-sm border border-border shrink-0 cursor-pointer hover:ring-2 hover:ring-ring/30 transition-shadow"
           style={{ background: color }}
           title={color}
           aria-label={label ?? color}
@@ -71,7 +71,7 @@ export function SwatchColorPopover({
           onChange={(hex) => {
             if (HEX_REGEX.test(hex)) onChange(hex);
           }}
-          className="mt-2 w-full text-xs border rounded px-2 py-1 bg-background text-foreground"
+          className="mt-2 w-full text-xs border rounded-sm px-2 py-1 bg-background text-foreground"
           prefixed
         />
       </PopoverContent>
@@ -101,7 +101,7 @@ export function StyleColorPicker({ label, color, onChange }: StyleColorPickerPro
       <Popover>
         <PopoverTrigger asChild>
           <button
-            className="w-8 h-6 rounded border border-border cursor-pointer"
+            className="w-8 h-6 rounded-sm border border-border cursor-pointer"
             style={{ background: localColor }}
             title={localColor}
             aria-label={label}
@@ -117,7 +117,7 @@ export function StyleColorPicker({ label, color, onChange }: StyleColorPickerPro
                 onClick={() => onChange(hex)}
                 className={cn(
                   'cursor-pointer w-5 h-5 rounded-sm border transition-transform hover:scale-125',
-                  localColor === hex ? 'ring-2 ring-primary ring-offset-background' : 'border-border',
+                  localColor === hex ? 'ring-2 ring-ring ring-offset-background' : 'border-border',
                 )}
                 style={{ background: hex }}
                 title={hex}
@@ -131,7 +131,7 @@ export function StyleColorPicker({ label, color, onChange }: StyleColorPickerPro
           <HexColorInput
             color={localColor}
             onChange={handleInputChange}
-            className="mt-2 w-full text-xs border rounded px-2 py-1 bg-background text-foreground"
+            className="mt-2 w-full text-xs border rounded-sm px-2 py-1 bg-background text-foreground"
             prefixed
           />
         </PopoverContent>

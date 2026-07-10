@@ -39,6 +39,9 @@ export function useMapThumbnail(
   const { data: src = null } = useQuery({
     queryKey: ['map-thumbnail', thumbnailUrl, version],
     queryFn: async () => {
+      // fix(#438): PERF-05 — `cache: 'reload'` intentionally bypasses the HTTP
+      // cache so a thumbnail regenerated after an edit is never stale. Upgrade
+      // path: version the thumbnail URL, then this can drop to `cache: 'default'`.
       const blob = await apiFetchBlob(thumbnailPath!, { cache: 'reload' });
       return URL.createObjectURL(blob);
     },

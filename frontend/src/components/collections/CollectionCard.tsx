@@ -49,7 +49,7 @@ export function CollectionCard({ collection }: CollectionCardProps) {
             {collection.name}
           </Link>
           {isEmpty && (
-            <Badge variant="outline" className="shrink-0 border-dashed text-[11px] uppercase tracking-[0.08em] text-muted-foreground">
+            <Badge variant="outline" className="shrink-0 border-dashed text-mini uppercase tracking-[0.08em] text-muted-foreground">
               {t('card.emptyBadge', { defaultValue: 'Empty' })}
             </Badge>
           )}

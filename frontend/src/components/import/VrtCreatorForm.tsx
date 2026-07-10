@@ -29,6 +29,7 @@ import {
 } from '@/components/ui/tooltip';
 import { ApiError } from '@/api/client';
 import type { OGCRecordResponse } from '@/types/api';
+import { Textarea } from '@/components/ui/textarea';
 
 const VRT_MAX_SOURCES = 20;
 
@@ -174,7 +175,7 @@ export function VrtCreatorForm({ initialSourceId, initialSourceIds, onCancel }: 
     ) {
       setSelectedSources([initialSource]);
     }
-  }, [initialSource]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [initialSource]); // eslint-disable-line react-hooks/exhaustive-deps -- reseed only when the initial source changes; the field setters are stable
 
   // Pre-select multiple sources when initialSourceIds is provided (multi-source flow)
   const multiSourceQueries = useQueries({
@@ -197,7 +198,7 @@ export function VrtCreatorForm({ initialSourceId, initialSourceIds, onCancel }: 
       multiInitializedRef.current = true;
       setSelectedSources(rasterSources);
     }
-  }, [multiSourceQueries, initialSourceIds, initialSourceId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [multiSourceQueries, initialSourceIds, initialSourceId]); // eslint-disable-line react-hooks/exhaustive-deps -- react to the query set / initial ids only; the setters are stable
 
   // Surface multi-source load errors so they aren't silently swallowed
   const multiSourceErrorCount = multiSourceQueries.filter((q) => q.isError).length;
@@ -498,9 +499,9 @@ export function VrtCreatorForm({ initialSourceId, initialSourceIds, onCancel }: 
         {/* Summary */}
         <div className="space-y-1.5">
           <Label htmlFor="vrt-summary">{t('vrt.summaryLabel')}</Label>
-          <textarea
+          <Textarea
             id="vrt-summary"
-            className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+            className="min-h-[80px]"
             placeholder={t('vrt.summaryPlaceholder')}
             value={summary}
             onChange={(e) => setSummary(e.target.value)}

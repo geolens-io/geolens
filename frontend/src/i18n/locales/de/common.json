@@ -163,7 +163,10 @@
     "forbiddenAdmin": "Verboten — Administratorzugang erforderlich",
     "forbiddenEditor": "Verboten — Editor- oder Administratorzugang erforderlich",
     "loadFailed": "Laden fehlgeschlagen",
-    "mapMessage": "Kartenfehler — einige Ebenen werden möglicherweise nicht korrekt angezeigt."
+    "mapMessage": "Kartenfehler — einige Ebenen werden möglicherweise nicht korrekt angezeigt.",
+    "networkUnavailable": "Netzwerk nicht verfügbar. Prüfen Sie Ihre Verbindung.",
+    "requestTimeout": "Die Anfrage hat zu lange gedauert. Versuchen Sie es erneut.",
+    "unauthorized": "Ihre Sitzung ist abgelaufen. Melden Sie sich erneut an."
   },
   "settings": {
     "tabs": {
@@ -188,7 +191,8 @@
       "datasetsUsed": "Datensätze",
       "unlimited": "Unbegrenzt",
       "overLimit": "Über dem Limit",
-      "fileStorageNote": "Zählt nur die Größe hochgeladener Dateien"
+      "fileStorageNote": "Zählt nur die Größe hochgeladener Dateien",
+      "usageUnavailable": "Nicht verfügbar"
     }
   },
   "footer": {
@@ -256,7 +260,8 @@
         "truncated": "(Stichprobe wird angezeigt)",
         "moreColumns": "weitere Spalten"
       }
-    }
+    },
+    "anonMapRecovery": "Diese Karte ist möglicherweise privat. Melden Sie sich an, um zu prüfen, ob Ihr Konto sie öffnen kann."
   },
   "maps": {
     "title": "Karten",
@@ -390,7 +395,9 @@
       "changedFields": "Geänderte Felder",
       "noChanges": "Keine Änderungen erkannt.",
       "success": "Import abgeschlossen.",
-      "successDetail": "{{settingsApplied}} Einstellungen angewendet, {{settingsSkipped}} übersprungen. {{oauthCreated}} Anbieter erstellt, {{oauthUpdated}} aktualisiert, {{oauthDeleted}} gelöscht."
+      "successDetail": "{{settingsApplied}} Einstellungen angewendet, {{settingsSkipped}} übersprungen. {{oauthCreated}} Anbieter erstellt, {{oauthUpdated}} aktualisiert, {{oauthDeleted}} gelöscht.",
+      "confirmTitle": "Die gesamte Konfiguration überschreiben?",
+      "confirmDescription": "Dies ersetzt alle aktuellen Einstellungen und kann nicht rückgängig gemacht werden. Geben Sie {{keyword}} zur Bestätigung ein."
     }
   },
   "notFound": {
@@ -420,7 +427,9 @@
     "adminAuditLog": "Admin-Audit-Protokoll",
     "adminConfigOps": "Admin-Konfiguration",
     "adminSettings": "Admin-Einstellungen",
-    "adminSaml": "SAML-SSO-Konfiguration"
+    "adminSaml": "SAML-SSO-Konfiguration",
+    "verifyEmail": "E-Mail bestätigen",
+    "signingIn": "Anmeldung läuft"
   },
   "sidebar": {
     "title": "Seitenleiste",
@@ -458,11 +467,12 @@
     "panelMessage": "In diesem Panel ist ein Fehler aufgetreten. Der Rest des Editors ist nicht betroffen."
   },
   "export": {
-    "poweredBy": "Powered by GeoLens",
+    "poweredBy": "Bereitgestellt von GeoLens",
     "legendHeader": "Legende"
   },
   "actions": {
-    "editGeometry": "Geometrie bearbeiten"
+    "editGeometry": "Geometrie bearbeiten",
+    "retry": "Erneut versuchen"
   },
   "map": {
     "ariaLabel": "Datensatzkarte",
@@ -488,5 +498,8 @@
   "yes": "Ja",
   "no": "Nein",
   "copy": "Kopieren",
-  "copied": "Kopiert"
+  "copied": "Kopiert",
+  "mapViewerGate": {
+    "accessCheckFailed": "Ihr Zugriff auf diese Karte konnte nicht geprüft werden. Versuchen Sie es erneut."
+  }
 }

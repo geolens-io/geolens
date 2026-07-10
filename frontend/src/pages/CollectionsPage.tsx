@@ -31,7 +31,14 @@ export function CollectionsPage() {
   const [sortBy, setSortBy] = useState<'updated_at' | 'created_at' | 'name'>('updated_at');
   const [createOpen, setCreateOpen] = useState(false);
   const { t, i18n } = useTranslation('collections');
-  const { data, isLoading, error } = useCollections(0, 100);
+  // fix(#438): UX-15 (partial) — filtering is still client-side because the
+  // backend collections list endpoint takes only skip/limit, no `search`
+  // param (unlike the maps list, which MapsPage filters server-side). Raised
+  // the fetch to the backend maximum (200) so the name filter covers every
+  // collection short of that ceiling. True server-side search needs a backend
+  // `search` query param on GET /catalog/collections/ — tracked for the
+  // backend audit; the frontend switch to it is then a one-line change here.
+  const { data, isLoading, error, refetch } = useCollections(0, 200);
   const isEditor = useAuthStore((s) => s.isEditor());
   const handlePageChange = useCallback((newOffset: number) => setSkip(newOffset), []);
   useDocumentTitle(t('common:pageTitle.collections'));
@@ -107,7 +114,7 @@ export function CollectionsPage() {
 
       {/* Error state */}
       {error && (
-        <ErrorState message={t('error.message', { error: error.message })} />
+        <ErrorState message={t('error.message', { error: error.message })} onRetry={() => refetch()} />
       )}
 
       {/* Empty state - no collections at all */}

@@ -10,6 +10,7 @@ import { findSetting } from './utils';
 import { useSettingsForm } from './useSettingsForm';
 import { useNotificationStatus, useSendTestNotification } from '@/hooks/use-settings';
 import type { SettingItem, NotificationTestChannelResult } from '@/api/settings';
+import { Textarea } from '@/components/ui/textarea';
 
 interface TabProps {
   settings: SettingItem[];
@@ -80,14 +81,14 @@ export function SettingsNetworkTab({ settings, envOnly, onSave, onReset, isSavin
           <SettingSourceBadge source={findSetting(settings, 'cors_allowed_origins')?.source ?? 'default'} settingKey="cors_allowed_origins" onReset={onReset} />
         </div>
         <p className="text-sm text-muted-foreground">{t('settings.network.corsAllowedOriginsDescription')}</p>
-        <textarea
+        <Textarea
           id="cors-origins"
           value={values.cors_allowed_origins as string}
           onChange={(e) => setters.cors_allowed_origins(e.target.value)}
           disabled={envOnly}
           placeholder={t('settings.network.corsAllowedOriginsPlaceholder')}
           rows={3}
-          className="flex w-full max-w-md rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-xs placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-50"
+          className="max-w-md"
         />
       </div>
 

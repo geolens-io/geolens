@@ -44,7 +44,7 @@ export function RasterEditor({ layer, paint, onPaintProp, t }: BaseStyleEditorPr
       {/* APPEARANCE section — 4 slider rows */}
       <section className="border-b">
         <div className="px-4 py-2">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground mb-2">
+          <p className="text-2xs font-semibold uppercase tracking-[0.08em] text-muted-foreground mb-2">
             {t('style.raster.title')}
           </p>
           <div className="space-y-3">
@@ -82,7 +82,7 @@ export function RasterEditor({ layer, paint, onPaintProp, t }: BaseStyleEditorPr
               )}
               aria-hidden="true"
             />
-            <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+            <span className="text-2xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">
               {t('style.raster.reset')}
             </span>
             {!resetOpen && (

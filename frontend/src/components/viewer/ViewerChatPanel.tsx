@@ -306,6 +306,8 @@ export function ViewerChatPanel({ mapId, layers, mapInstanceRef }: ViewerChatPan
           </div>
 
           <div className="flex items-end gap-2 border-t px-3 py-2">
+            {/* fix(#438): DS-03 — raw textarea kept for the auto-growing
+                chat composer; the ui/textarea primitive covers static fields. */}
             <textarea
               ref={inputRef}
               value={input}

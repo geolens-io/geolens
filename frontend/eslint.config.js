@@ -8,7 +8,9 @@ import tseslint from 'typescript-eslint'
 import { defineConfig, globalIgnores } from 'eslint/config'
 
 export default defineConfig([
-  globalIgnores(['dist', 'coverage']),
+  // src/types/api.generated.ts is openapi-typescript output (ARC-02) — 500KB of
+  // generated declarations; linting it is wasteful and unfixable.
+  globalIgnores(['dist', 'coverage', 'src/types/api.generated.ts']),
   {
     files: ['**/*.{ts,tsx}'],
     extends: [

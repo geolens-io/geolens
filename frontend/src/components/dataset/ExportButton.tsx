@@ -1,6 +1,13 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { downloadExport } from '@/api/datasets';
 import { Download, Loader2 } from 'lucide-react';
 import type { RecordType } from '@/types/api';
@@ -48,22 +55,24 @@ export function ExportButton({ datasetId, datasetName, recordType }: ExportButto
   return (
     <div className="space-y-3">
       <div className="flex items-center gap-2">
-        <label htmlFor={selectId} className="sr-only">
-          {t('export.formatLabel', { defaultValue: 'Export format' })}
-        </label>
-        <select
-          id={selectId}
-          value={effectiveFormat}
-          onChange={(e) => setFormat(e.target.value)}
-          className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-xs focus:outline-none focus:ring-2 focus:ring-ring/50"
-          disabled={loading}
-        >
-          {formats.map((f) => (
-            <option key={f.value} value={f.value}>
-              {t(f.labelKey)}
-            </option>
-          ))}
-        </select>
+        {/* fix(#438): DS-08 — was a native <select>; ui/select restores the
+            themed, coarse-pointer-friendly dropdown. */}
+        <Select value={effectiveFormat} onValueChange={setFormat} disabled={loading}>
+          <SelectTrigger
+            id={selectId}
+            className="w-full"
+            aria-label={t('export.formatLabel', { defaultValue: 'Export format' })}
+          >
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {formats.map((f) => (
+              <SelectItem key={f.value} value={f.value}>
+                {t(f.labelKey)}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
         <Button onClick={handleExport} disabled={loading} className="shrink-0">
           {loading ? (
             <Loader2 className="h-4 w-4 animate-spin me-2" />

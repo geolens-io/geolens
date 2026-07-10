@@ -63,7 +63,7 @@ export function OriginBadge({ origin, className }: OriginBadgeProps) {
       data-origin={origin}
       title={t(`origin.${origin}.title`)}
       className={cn(
-        'gap-1 border-border/70 bg-surface-2/60 font-mono text-[10px] font-medium uppercase tracking-[0.08em] text-muted-foreground',
+        'gap-1 border-border/70 bg-surface-2/60 font-mono text-2xs font-medium uppercase tracking-[0.08em] text-muted-foreground',
         className,
       )}
     >

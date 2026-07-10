@@ -47,7 +47,11 @@ export function DatasetDeleteDialog({ dataset, open, onOpenChange }: DatasetDele
   useEffect(() => {
     if (open) {
       setConfirmName('');
+      // fix(#438): UX-12 — clear a prior failure so reopening the dialog starts
+      // clean instead of showing the last attempt's error.
+      deleteDataset.reset();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reset() identity is stable; reopen is the only trigger we want
   }, [open]);
 
   const isConfirmed = confirmName === dataset.title;

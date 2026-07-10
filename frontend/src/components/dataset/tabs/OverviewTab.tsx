@@ -117,7 +117,7 @@ function ProvenanceTimeline({ datasetId }: { datasetId: string }) {
                 'absolute -start-5 top-[5px] size-[9px] rounded-full border-[1.5px]',
                 i === 0 ? 'border-primary bg-background' : 'border-muted-foreground/40 bg-muted',
               )} />
-              <div className="font-mono text-[11px] text-muted-foreground tracking-wider uppercase mb-0.5">
+              <div className="font-mono text-mini text-muted-foreground tracking-wider uppercase mb-0.5">
                 {formatDate(v.uploaded_at)}
                 {' · '}v{v.version_number}
               </div>

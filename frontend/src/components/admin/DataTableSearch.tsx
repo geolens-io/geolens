@@ -30,7 +30,7 @@ export function DataTableSearch({ value, onChange, placeholder, debounceMs }: Da
     if (!debounceMs) return;
     const timer = setTimeout(() => onChange(internal), debounceMs);
     return () => clearTimeout(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- onChange fires through a stable debounce; adding it would re-arm the timer each render
   }, [internal, debounceMs]);
 
   function handleChange(v: string) {

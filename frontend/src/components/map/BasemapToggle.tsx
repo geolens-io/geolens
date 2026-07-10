@@ -22,7 +22,6 @@ export function BasemapToggle({ value, onChange, title = 'Change basemap', class
   const triggerRef = useRef<HTMLButtonElement>(null);
 
   const enabled = (basemaps ?? []).filter((b) => b.enabled);
-  const current = enabled.find((b) => b.id === value);
 
   // Shared close-and-return-focus helper
   function closeAndReturnFocus() {
@@ -69,11 +68,14 @@ export function BasemapToggle({ value, onChange, title = 'Change basemap', class
         aria-label={title}
         aria-expanded={open}
         aria-controls={open ? POPOVER_ID : undefined}
-        aria-haspopup="menu"
       >
+        {/* fix(#438): A11Y-10 — the button's aria-label already names the control,
+            so the thumbnail is decorative (was double-announced). Also dropped
+            aria-haspopup="menu": the popover is a role="group" disclosure, not a
+            menu, and aria-expanded already conveys the disclosure. */}
         <img
           src={basemapThumbnail(value)}
-          alt={current?.label ?? title}
+          alt=""
           className="w-16 h-16 object-cover"
         />
       </button>
@@ -102,10 +104,12 @@ export function BasemapToggle({ value, onChange, title = 'Change basemap', class
                 )}
                 aria-label={b.label}
               >
+                {/* fix(#438): A11Y-10 — decorative; the visible label text and the
+                    button aria-label already name this option. */}
                 <img
                   src={basemapThumbnail(b.id)}
-                  alt={b.label}
-                  className="w-9 h-9 rounded border object-cover shrink-0"
+                  alt=""
+                  className="w-9 h-9 rounded-sm border object-cover shrink-0"
                 />
                 <span className="text-xs font-medium truncate flex-1">{b.label}</span>
                 {isActive && <Check className="h-3.5 w-3.5 text-primary shrink-0" aria-hidden="true" />}

@@ -10,7 +10,7 @@ import { useTerraDraw } from '@/components/drawing/hooks/use-terra-draw';
 import { useFeatureEditing, showAllFeaturesInTiles } from '@/components/dataset/hooks/use-feature-editing';
 import { DrawingToolbar } from '@/components/drawing/DrawingToolbar';
 import { AttributeForm } from '@/components/drawing/AttributeForm';
-import { useTileToken } from '@/hooks/use-tile-token';
+import { useTileToken, useInvalidateTileTokens } from '@/hooks/use-tile-token';
 import { useMapLayers, getSourceLayerName } from '@/components/maps/hooks/use-map-layers';
 import { computeLargeExtentView, isLargeExtent } from '@/lib/map-extent';
 import { findElevationColumn } from '@/lib/geo-utils';
@@ -35,6 +35,7 @@ import type { LngLatBoundsLike, MapLibreEvent, StyleSpecification } from 'maplib
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { Feature, Geometry, GeoJsonProperties } from 'geojson';
 import 'maplibre-gl/dist/maplibre-gl.css';
+import { motionDuration } from '@/lib/reduced-motion';
 
 /** System columns excluded from the attribute form */
 const SYSTEM_COLUMNS = new Set(['gid', 'geom', 'geom_4326']);
@@ -49,6 +50,13 @@ const SYSTEM_COLUMNS = new Set(['gid', 'geom', 'geom_4326']);
  * declarative `transformRequest` prop is silently ignored in v8.
  *
  * Used by the dataset detail page (`pages/DatasetPage.tsx`).
+ *
+ * fix(#438): ARC-05 — this map is intentionally declarative (@vis.gl JSX
+ * <Source>/<Layer>), unlike the builder/viewer which drive an imperative
+ * adapter core (map-sync + getAdapter). The split is defensible: this host
+ * renders one dataset's tiles with light interaction, so JSX is simpler and
+ * needs no incremental paint diffing. Converge onto the adapter core only if
+ * this page grows builder-like styling; revisit after the ARC-01 extraction.
  */
 
 interface DatasetMapProps {
@@ -131,7 +139,8 @@ export const DatasetMap = memo(function DatasetMap({
   const hasBbox = bbox && bbox.length >= 4;
   const mapRef = useRef<MaplibreMap | null>(null);
   const [mapInstance, setMapInstance] = useState<MaplibreMap | null>(null);
-  const { contextLost, reload } = useWebGLRecovery(mapRef, !!mapInstance);
+    const invalidateTileTokens = useInvalidateTileTokens();
+  const { contextLost, reload } = useWebGLRecovery(mapRef, !!mapInstance, invalidateTileTokens);
   // fix(#430 V-13): dataset-detail preview map had no data-tiles-loaded signal at
   // all. Mirror the re-arming ViewerMap/BuilderMap behavior: false while a
   // camera move is in flight, true once idle (no tiles loading / no
@@ -441,9 +450,10 @@ export const DatasetMap = memo(function DatasetMap({
     if (!map || !hasBbox) return;
     if (isLargeExtent(bbox!)) {
       const { center, zoom } = computeLargeExtentView(bbox!);
-      map.flyTo({ center, zoom });
+      // fix(#438): A11Y-08 — instant under prefers-reduced-motion.
+      map.flyTo({ center, zoom, duration: motionDuration(1000) });
     } else {
-      map.fitBounds(bbox!, { padding: 60 });
+      map.fitBounds(bbox!, { padding: 60, duration: motionDuration(1000) });
     }
   }, [hasBbox, bbox]);
 
@@ -833,7 +843,7 @@ export const DatasetMap = memo(function DatasetMap({
           <button
             type="button"
             onClick={handleZoomToExtent}
-            className="bg-background border rounded shadow-sm p-1.5 hover:bg-accent"
+            className="bg-background border rounded-sm shadow-sm p-1.5 hover:bg-accent"
             title={t('map.zoomToExtent')}
             aria-label={t('map.zoomToExtent')}
           >
@@ -844,7 +854,7 @@ export const DatasetMap = memo(function DatasetMap({
           <button
             type="button"
             onClick={handleToggleFullscreen}
-            className="bg-background border rounded shadow-sm p-1.5 hover:bg-accent"
+            className="bg-background border rounded-sm shadow-sm p-1.5 hover:bg-accent"
             title={isFullscreen ? t('map.exitFullscreen') : t('map.fullscreen')}
             aria-label={isFullscreen ? t('map.exitFullscreen') : t('map.fullscreen')}
           >

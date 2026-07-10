@@ -5,7 +5,7 @@ import { useJobStatus, useRetryJob } from '@/components/import/hooks/use-ingest'
 import { toast } from 'sonner';
 import { Copy, Download, Link2, Map } from 'lucide-react';
 import { jobStatusColors } from '@/lib/status-colors';
-import { formatDateTimeSmart } from '@/lib/format';
+import { formatDateTimeSmart, formatNumber } from '@/lib/format';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -149,13 +149,21 @@ export function JobProgress({ jobId, onReset, isRasterEntry = false }: JobProgre
 
         {hasDeterminateProgress && (
           <div className="space-y-1.5">
-            <div className="h-1.5 w-full overflow-hidden rounded-full bg-surface-2">
+            {/* fix(#438): A11Y-01 — expose progress semantics to assistive tech. */}
+            <div
+              className="h-1.5 w-full overflow-hidden rounded-full bg-surface-2"
+              role="progressbar"
+              aria-valuenow={Math.round((job.progress ?? 0) * 100)}
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-label={t('jobProgress.progressLabel', { defaultValue: 'Job progress' })}
+            >
               <span
                 className="block h-full rounded-full bg-primary transition-[width] duration-300"
                 style={{ width: `${Math.round((job.progress ?? 0) * 100)}%` }}
               />
             </div>
-            <p className="font-mono text-[11px] text-muted-foreground tracking-wide">
+            <p className="font-mono text-mini text-muted-foreground tracking-wide">
               {job.current_step &&
                 t(`jobProgress.step.${job.current_step}`, {
                   defaultValue: job.current_step,
@@ -163,7 +171,7 @@ export function JobProgress({ jobId, onReset, isRasterEntry = false }: JobProgre
               {job.rows_processed != null && (
                 <>
                   {' '}
-                  · {job.rows_processed.toLocaleString()}{' '}
+                  · {formatNumber(job.rows_processed)}{' '}
                   {t('jobProgress.rowsSuffix', { defaultValue: 'rows' })}
                 </>
               )}

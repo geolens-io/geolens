@@ -81,7 +81,7 @@ export function BasemapGroupEditorScene({
       {/* 1. Preset section */}
       <section className="border-b">
         <div className="px-4 py-2">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground mb-2">
+          <p className="text-2xs font-semibold uppercase tracking-[0.08em] text-muted-foreground mb-2">
             {t('basemapGroup.presetSectionLabel', { defaultValue: 'PRESET' })}
           </p>
           {/* fix(#394) UX-03/B-017: expose selected-state to assistive tech —
@@ -113,7 +113,7 @@ export function BasemapGroupEditorScene({
                 className="w-full rounded-[var(--radius-sm)] object-cover"
                 style={{ height: '56px' }}
               />
-              <span className="mt-1 block truncate text-[11px] text-foreground">
+              <span className="mt-1 block truncate text-mini text-foreground">
                 {t('basemapGroup.noBasemap', { defaultValue: 'No basemap' })}
               </span>
             </button>
@@ -140,11 +140,11 @@ export function BasemapGroupEditorScene({
                     className="w-full rounded-[var(--radius-sm)] object-cover"
                     style={{ height: '56px' }}
                   />
-                  <span className="mt-1 block truncate text-[11px] text-foreground">
+                  <span className="mt-1 block truncate text-mini text-foreground">
                     {preset.name}
                   </span>
                   {preset.provider && (
-                    <span className="block truncate text-[10px] text-muted-foreground">
+                    <span className="block truncate text-2xs text-muted-foreground">
                       {preset.provider}
                     </span>
                   )}
@@ -156,7 +156,7 @@ export function BasemapGroupEditorScene({
             <button
               type="button"
               onClick={onAddCustomBasemap}
-              className="text-[12px] text-primary text-left mt-2 hover:underline"
+              className="text-xs text-primary text-left mt-2 hover:underline"
             >
               {t('basemapGroup.addCustomBasemap', { defaultValue: '＋ Add custom basemap…' })}
             </button>
@@ -168,7 +168,7 @@ export function BasemapGroupEditorScene({
       {sublayers.length > 0 && (
       <section className="border-b">
         <div className="px-4 py-2">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground mb-2">
+          <p className="text-2xs font-semibold uppercase tracking-[0.08em] text-muted-foreground mb-2">
             {t('basemapGroup.sublayersSectionLabel', { defaultValue: 'SUBLAYERS' })}
           </p>
           <p className="text-xs text-muted-foreground mb-2">
@@ -206,7 +206,7 @@ export function BasemapGroupEditorScene({
                       defaultValue: 'Toggle visibility for {{name}}',
                       name: sublayer.name,
                     })}
-                    className="flex items-center justify-center h-[22px] w-[22px] shrink-0 rounded text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    className="flex items-center justify-center h-[22px] w-[22px] shrink-0 rounded-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     onClick={(e) => {
                       e.stopPropagation();
                       onSublayerVisibilityChange(sublayer.id);

@@ -186,7 +186,7 @@ export function PublicViewerPage() {
       {!isEmbed && (
         <AppFooter
           showBranding={showFooterBranding}
-          className="pointer-events-none absolute inset-x-0 bottom-0 z-10 hidden min-[400px]:block px-3 pb-2 text-[10px] text-muted-foreground/80"
+          className="pointer-events-none absolute inset-x-0 bottom-0 z-10 hidden min-[400px]:block px-3 pb-2 text-2xs text-muted-foreground/80"
           navClassName="pointer-events-auto mx-auto inline-flex max-w-full rounded-full border border-border/50 bg-background/75 px-3 py-1.5 shadow-sm backdrop-blur-sm"
         />
       )}

@@ -378,7 +378,8 @@
       "complete": "Complete"
     },
     "downloadCog": "Download COG",
-    "addToMap": "Add to Map"
+    "addToMap": "Add to Map",
+    "progressLabel": "Job progress"
   },
   "review": {
     "headerStatus": "Detection complete",
@@ -463,7 +464,8 @@
     "rasterDatasetsReady": "{{count}} raster datasets ready",
     "createVrtMosaic": "Create VRT Mosaic",
     "importAsVrt": "Import as VRT Mosaic",
-    "ingestAllLayers": "Ingest all {{count}} layers as separate datasets"
+    "ingestAllLayers": "Ingest all {{count}} layers as separate datasets",
+    "uploadProgressLabel": "Upload progress for {{name}}"
   },
   "status": {
     "uploading": "Uploading",

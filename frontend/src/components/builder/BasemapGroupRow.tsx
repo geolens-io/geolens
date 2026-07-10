@@ -108,7 +108,7 @@ export const BasemapGroupRow = memo(function BasemapGroupRow({
           onToggleExpand(groupId);
         }}
         className={cn(
-          'flex items-center justify-center h-6 w-6 -mx-1 rounded text-muted-foreground',
+          'flex items-center justify-center h-6 w-6 -mx-1 rounded-sm text-muted-foreground',
           'transition-transform duration-[--motion-fast]',
           'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
           isExpanded && 'rotate-90',
@@ -144,7 +144,7 @@ export const BasemapGroupRow = memo(function BasemapGroupRow({
           name: rowName,
         })}
         aria-pressed={visible}
-        className="flex items-center justify-center h-[22px] w-[22px] rounded text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className="flex items-center justify-center h-[22px] w-[22px] rounded-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         onClick={(e) => {
           e.stopPropagation();
           onToggleVisibility(groupId);
@@ -196,7 +196,7 @@ export const BasemapGroupRow = memo(function BasemapGroupRow({
                 name: rowName,
               })}
               className={cn(
-                'flex items-center justify-center h-[22px] w-[22px] rounded text-muted-foreground',
+                'flex items-center justify-center h-[22px] w-[22px] rounded-sm text-muted-foreground',
                 'opacity-0 group-hover/row:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
                 'hover:text-foreground hover:bg-[var(--surface-2)]',
                 selected && 'opacity-100',

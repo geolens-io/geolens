@@ -1,5 +1,5 @@
-import { useMemo } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useCallback, useMemo } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { queryKeys } from '@/lib/query-keys';
 import { getTileToken, getTileTokensBatch } from '@/api/tiles';
 import type { TileToken, TileTokenError } from '@/api/tiles';
@@ -7,6 +7,22 @@ import type { TileToken, TileTokenError } from '@/api/tiles';
 /** Narrow a batch entry to a successful TileToken. */
 function isToken(v: TileToken | TileTokenError | undefined): v is TileToken {
   return !!v && 'kind' in v;
+}
+
+/**
+ * fix(#438): BLD-04 — a stable callback that drops every cached tile token
+ * (single + batch), forcing a re-mint. Map hosts pass it to useWebGLRecovery so
+ * a GPU context restore re-fetches tokens that may have expired during the outage.
+ */
+export function useInvalidateTileTokens() {
+  const qc = useQueryClient();
+  return useCallback(() => {
+    qc.invalidateQueries({
+      predicate: (q) =>
+        Array.isArray(q.queryKey) &&
+        (q.queryKey[0] === 'tile-token' || q.queryKey[0] === 'tile-tokens-batch'),
+    });
+  }, [qc]);
 }
 
 /**
@@ -80,13 +96,23 @@ export function useTileTokens(datasetIds: string[]) {
     return uniqueIds.map((id) => {
       const entry = batchQuery.data?.tokens?.[id];
       const isTokenEntry = isToken(entry);
+      // fix(#438): BLD-05 — a requested dataset absent from a settled batch used
+      // to yield {data: undefined, isError: false}, i.e. a silently blank layer.
+      // Treat a missing entry after a successful load as an error so callers can
+      // surface it rather than render nothing.
+      const missingAfterLoad = batchQuery.isSuccess && entry === undefined;
       return {
         data: isTokenEntry ? (entry as TileToken) : undefined,
         isLoading: batchQuery.isLoading,
-        isError: batchQuery.isError || (!isTokenEntry && !!entry),
+        isError: batchQuery.isError || (!isTokenEntry && !!entry) || missingAfterLoad,
         error:
-          batchQuery.error ?? (!isTokenEntry && entry ? new Error((entry as TileTokenError).error) : null),
+          batchQuery.error ??
+          (!isTokenEntry && entry
+            ? new Error((entry as TileTokenError).error)
+            : missingAfterLoad
+              ? new Error(`No tile token returned for dataset ${id}`)
+              : null),
       };
     });
-  }, [uniqueIds, batchQuery.data, batchQuery.isLoading, batchQuery.isError, batchQuery.error]);
+  }, [uniqueIds, batchQuery.data, batchQuery.isLoading, batchQuery.isError, batchQuery.isSuccess, batchQuery.error]);
 }

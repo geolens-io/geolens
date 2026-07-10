@@ -145,7 +145,7 @@ function TableHero() {
             <span className="text-sm font-semibold">
               {t('page.dataFirstTitle', { defaultValue: 'Data-first table dataset' })}
             </span>
-            <Badge variant="outline" className="text-[11px]">
+            <Badge variant="outline" className="text-mini">
               <EyeOff className="me-1 h-3 w-3" />
               {t('page.noMapPreview', { defaultValue: 'No map preview' })}
             </Badge>
@@ -165,7 +165,7 @@ export function DatasetPage() {
   const { t } = useTranslation('dataset');
   const { id } = useParams<{ id: string }>();
   const queryClient = useQueryClient();
-  const { data: dataset, isLoading, error } = useDataset(id ?? '', {
+  const { data: dataset, isLoading, error, refetch } = useDataset(id ?? '', {
     refetchInterval: (query) => {
       const data = (query as { state: { data?: DatasetResponse } }).state.data;
       return data?.raster?.status === 'regenerating' ? 5_000 : false;
@@ -321,6 +321,7 @@ export function DatasetPage() {
         <ErrorState
           title={t('page.errorTitle')}
           message={error instanceof Error ? error.message : t('page.errorMessage')}
+          onRetry={() => refetch()}
           action={
             <Link
               to="/"
@@ -422,7 +423,7 @@ export function DatasetPage() {
           data-testid="dataset-table-readout"
         >
           {dataset.table_name}
-          <CopyButton value={dataset.table_name} className="inline-flex size-5 items-center justify-center rounded hover:bg-muted transition-colors" />
+          <CopyButton value={dataset.table_name} className="inline-flex size-5 items-center justify-center rounded-sm hover:bg-muted transition-colors" />
         </span>
       )}
     </>
@@ -566,7 +567,7 @@ export function DatasetPage() {
             </Suspense>
           </MapErrorBoundary>
           {dataset.record_type === 'raster_dataset' && !dataset.raster?.tile_url && heroState === 'loaded' && (
-            <div className="absolute bottom-2 left-2 z-10 px-2 py-1 rounded bg-muted/80 text-xs text-muted-foreground">
+            <div className="absolute bottom-2 left-2 z-10 px-2 py-1 rounded-sm bg-muted/80 text-xs text-muted-foreground">
               {t('raster.noTiles')}
             </div>
           )}

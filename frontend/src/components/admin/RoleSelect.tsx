@@ -1,4 +1,11 @@
 import { useTranslation } from 'react-i18next';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 
 interface RoleSelectProps {
   id?: string;
@@ -7,20 +14,21 @@ interface RoleSelectProps {
   disabled?: boolean;
 }
 
+// fix(#438): DS-08 — was a native <select>, which skips the 44px coarse-pointer
+// target treatment and the app's themed dropdown. Routed through ui/select.
 export function RoleSelect({ id, value, onChange, disabled }: RoleSelectProps) {
   const { t } = useTranslation('admin');
 
   return (
-    <select
-      id={id}
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      disabled={disabled}
-      className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-xs focus:outline-none focus:ring-2 focus:ring-ring/50"
-    >
-      <option value="viewer">{t('roles.viewer')}</option>
-      <option value="editor">{t('roles.editor')}</option>
-      <option value="admin">{t('roles.admin')}</option>
-    </select>
+    <Select value={value} onValueChange={onChange} disabled={disabled}>
+      <SelectTrigger id={id} className="w-full">
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem value="viewer">{t('roles.viewer')}</SelectItem>
+        <SelectItem value="editor">{t('roles.editor')}</SelectItem>
+        <SelectItem value="admin">{t('roles.admin')}</SelectItem>
+      </SelectContent>
+    </Select>
   );
 }

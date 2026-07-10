@@ -163,7 +163,10 @@
     "forbiddenAdmin": "Interdit — Accès administrateur requis",
     "forbiddenEditor": "Interdit — Accès éditeur ou administrateur requis",
     "loadFailed": "Échec du chargement",
-    "mapMessage": "Erreur de carte — certains calques pourraient ne pas s'afficher correctement."
+    "mapMessage": "Erreur de carte — certains calques pourraient ne pas s'afficher correctement.",
+    "networkUnavailable": "Réseau indisponible. Vérifiez votre connexion.",
+    "requestTimeout": "La requête a pris trop de temps. Réessayez.",
+    "unauthorized": "Votre session a expiré. Reconnectez-vous."
   },
   "settings": {
     "tabs": {
@@ -188,7 +191,8 @@
       "datasetsUsed": "Jeux de données",
       "unlimited": "Illimité",
       "overLimit": "Au-dessus de la limite",
-      "fileStorageNote": "Compte uniquement la taille des fichiers téléversés"
+      "fileStorageNote": "Compte uniquement la taille des fichiers téléversés",
+      "usageUnavailable": "Indisponible"
     }
   },
   "footer": {
@@ -256,7 +260,8 @@
         "truncated": "(affichage d'un échantillon)",
         "moreColumns": "plus de colonnes"
       }
-    }
+    },
+    "anonMapRecovery": "Cette carte est peut-être privée. Connectez-vous pour vérifier si votre compte peut l'ouvrir."
   },
   "maps": {
     "title": "Cartes",
@@ -390,7 +395,9 @@
       "changedFields": "Champs modifiés",
       "noChanges": "Aucun changement détecté.",
       "success": "Importation terminée.",
-      "successDetail": "{{settingsApplied}} paramètres appliqués, {{settingsSkipped}} ignorés. {{oauthCreated}} fournisseurs créés, {{oauthUpdated}} mis à jour, {{oauthDeleted}} supprimés."
+      "successDetail": "{{settingsApplied}} paramètres appliqués, {{settingsSkipped}} ignorés. {{oauthCreated}} fournisseurs créés, {{oauthUpdated}} mis à jour, {{oauthDeleted}} supprimés.",
+      "confirmTitle": "Écraser toute la configuration ?",
+      "confirmDescription": "Cela remplace tous les paramètres actuels et est irréversible. Saisissez {{keyword}} pour confirmer."
     }
   },
   "notFound": {
@@ -420,7 +427,9 @@
     "adminAuditLog": "Journal d'audit admin",
     "adminConfigOps": "Configuration admin",
     "adminSettings": "Paramètres admin",
-    "adminSaml": "Configuration SSO SAML"
+    "adminSaml": "Configuration SSO SAML",
+    "verifyEmail": "Vérifier l'e-mail",
+    "signingIn": "Connexion en cours"
   },
   "sidebar": {
     "title": "Barre latérale",
@@ -462,7 +471,8 @@
     "legendHeader": "Légende"
   },
   "actions": {
-    "editGeometry": "Modifier la géométrie"
+    "editGeometry": "Modifier la géométrie",
+    "retry": "Réessayer"
   },
   "map": {
     "ariaLabel": "Carte du jeu de données",
@@ -488,5 +498,8 @@
   "yes": "Oui",
   "no": "Non",
   "copy": "Copier",
-  "copied": "Copié"
+  "copied": "Copié",
+  "mapViewerGate": {
+    "accessCheckFailed": "Impossible de vérifier votre accès à cette carte. Réessayez."
+  }
 }

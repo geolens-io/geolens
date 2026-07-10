@@ -212,7 +212,7 @@ export function FilterSheet({ totalResults }: FilterSheetProps) {
               <SlidersHorizontal className="size-4" />
               {t('filters.filtersButton', { defaultValue: 'Filters' })}
               {activeFilterCount > 0 && (
-                <span className="rounded-sm bg-background/20 px-1.5 py-0 text-[11px] font-semibold">
+                <span className="rounded-sm bg-background/20 px-1.5 py-0 text-mini font-semibold">
                   {activeFilterCount}
                 </span>
               )}

@@ -9,6 +9,7 @@ import { ZoomExpressionEditor } from './ZoomExpressionEditor';
 import { MAP_COLORS } from '@/lib/map-colors';
 import { cn } from '@/lib/utils';
 import type { LabelConfig } from '@/types/api';
+import { DEFAULT_POINT_LABEL_OFFSET } from '@/components/builder/label-layer-utils';
 
 interface LabelEditorProps {
   columns: { name: string; type: string }[];
@@ -94,12 +95,20 @@ export function LabelEditor({ columns, labelConfig, onLabelChange, geometryType 
   const placement = labelConfig?.placement ?? (isLine ? 'line' : 'point');
   const isPointPlacement = placement === 'point';
 
+  // fix(#438): BLD-02 — resolve the same implicit default the renderer applies
+  // for point labels, so the sliders show what the map draws (0/-1.5, not 0/0)
+  // and dragging one axis preserves the other instead of discarding it.
+  const isPointGeometry = (geometryType ?? '').toUpperCase().includes('POINT');
+  const effectiveOffset: [number, number] =
+    labelConfig?.textOffset ??
+    (isPointGeometry ? DEFAULT_POINT_LABEL_OFFSET : [0, 0]);
+
   return (
     <div className="space-y-3 p-3 bg-muted/30 rounded-md border">
       <div className="flex items-center justify-between">
         <div className="min-w-0">
           <Label className="text-xs font-medium">{t('labels.title')}</Label>
-          <p className="text-[11px] leading-snug text-muted-foreground">{t('labels.scopeHelp')}</p>
+          <p className="text-mini leading-snug text-muted-foreground">{t('labels.scopeHelp')}</p>
         </div>
         <Switch
           checked={isOn}
@@ -112,7 +121,7 @@ export function LabelEditor({ columns, labelConfig, onLabelChange, geometryType 
       </div>
 
       {!isOn && columns.length === 0 && (
-        <p className="rounded-md bg-muted px-2 py-1.5 text-[11px] leading-snug text-muted-foreground">
+        <p className="rounded-md bg-muted px-2 py-1.5 text-mini leading-snug text-muted-foreground">
           {t('labels.noColumns')}
         </p>
       )}
@@ -197,7 +206,7 @@ export function LabelEditor({ columns, labelConfig, onLabelChange, geometryType 
                 key={opt.value}
                 type="button"
                 className={cn(
-                  'flex-1 cursor-pointer px-2 py-1 text-xs rounded border transition-colors',
+                  'flex-1 cursor-pointer px-2 py-1 text-xs rounded-sm border transition-colors',
                   placement === opt.value
                     ? 'bg-primary text-primary-foreground border-primary'
                     : 'bg-muted/50 text-muted-foreground border-border hover:bg-muted',
@@ -237,29 +246,29 @@ export function LabelEditor({ columns, labelConfig, onLabelChange, geometryType 
               <div className="flex items-center gap-2">
                 <span className="text-xs text-muted-foreground w-20">{t('labels.offsetX')}</span>
                 <Slider
-                  value={[labelConfig.textOffset?.[0] ?? 0]}
+                  value={[effectiveOffset[0]]}
                   min={-3}
                   max={3}
                   step={0.1}
-                  onValueChange={([v]) => update({ textOffset: [v, labelConfig.textOffset?.[1] ?? 0] })}
+                  onValueChange={([v]) => update({ textOffset: [v, effectiveOffset[1]] })}
                   className="flex-1"
                 />
                 <span className="text-xs text-muted-foreground w-10 text-end">
-                  {(labelConfig.textOffset?.[0] ?? 0).toFixed(1)}
+                  {effectiveOffset[0].toFixed(1)}
                 </span>
               </div>
               <div className="flex items-center gap-2">
                 <span className="text-xs text-muted-foreground w-20">{t('labels.offsetY')}</span>
                 <Slider
-                  value={[labelConfig.textOffset?.[1] ?? 0]}
+                  value={[effectiveOffset[1]]}
                   min={-3}
                   max={3}
                   step={0.1}
-                  onValueChange={([v]) => update({ textOffset: [labelConfig.textOffset?.[0] ?? 0, v] })}
+                  onValueChange={([v]) => update({ textOffset: [effectiveOffset[0], v] })}
                   className="flex-1"
                 />
                 <span className="text-xs text-muted-foreground w-10 text-end">
-                  {(labelConfig.textOffset?.[1] ?? 0).toFixed(1)}
+                  {effectiveOffset[1].toFixed(1)}
                 </span>
               </div>
             </>

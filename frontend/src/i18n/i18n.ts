@@ -5,6 +5,10 @@ import { detectionOptions, defaultNS, fallbackLng, namespaces, supportedLngs } f
 import { getBrowserI18nOptions } from './options';
 import { loadLocaleResources, resources } from './resources';
 
+// fix(#438): I18N-09 — RTL infrastructure is live (the <html dir> below flips
+// for these languages), but no RTL locale is shipped yet, so it is untested in
+// practice and no logical-property (start/end vs left/right) audit has run.
+// Adding an RTL locale must be paired with that audit.
 const rtlLanguages = new Set(['ar', 'he', 'fa', 'ur']);
 
 function updateDocumentLanguage(lng?: string) {

@@ -1,4 +1,5 @@
 import { API_BASE } from '@/lib/constants';
+import { summarizeErrorDetail } from '@/lib/error-map';
 import { apiFetch, authenticatedRawFetch } from './client';
 import { uploadChunks } from './_presignedUpload';
 import type {
@@ -75,7 +76,7 @@ async function authenticatedDownload(url: string, filename: string): Promise<voi
     try {
       const body = await response.json();
       if (body.detail) {
-        detail = typeof body.detail === 'string' ? body.detail : JSON.stringify(body.detail);
+        detail = summarizeErrorDetail(body.detail, detail);
       }
     } catch {
       // body not JSON

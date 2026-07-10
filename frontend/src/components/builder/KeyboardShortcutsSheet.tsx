@@ -20,10 +20,10 @@ function ShortcutRow({ id, label, chord }: ShortcutRowProps) {
   return (
     <div
       data-testid={`shortcut-${id}`}
-      className="flex items-center justify-between gap-4 rounded px-1 py-1.5 text-sm hover:bg-muted/40"
+      className="flex items-center justify-between gap-4 rounded-sm px-1 py-1.5 text-sm hover:bg-muted/40"
     >
       <span className="text-foreground">{label}</span>
-      <kbd className="rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-xs text-muted-foreground">
+      <kbd className="rounded-sm border border-border bg-muted px-1.5 py-0.5 font-mono text-xs text-muted-foreground">
         {chord}
       </kbd>
     </div>

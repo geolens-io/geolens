@@ -38,7 +38,7 @@ vi.mock('@/components/map/layer-icons', () => ({
 }));
 
 vi.mock('../EmptyStackState', () => ({
-  eyebrowClassName: 'block text-[10px] font-semibold tracking-wide text-muted-foreground uppercase px-1',
+  eyebrowClassName: 'block text-2xs font-semibold tracking-wide text-muted-foreground uppercase px-1',
   EmptyStackState: ({ onOpenAddData, onAddDataset }: {
     onOpenAddData: (query?: string) => void;
     onAddDataset: (id: string) => void;

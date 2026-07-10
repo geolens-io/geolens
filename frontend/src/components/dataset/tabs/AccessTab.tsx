@@ -68,7 +68,7 @@ function TileUrlSection({ tileUrl }: { tileUrl: string }) {
         <div className="space-y-1.5">
           <Badge variant="outline" className="text-xs">XYZ</Badge>
           <div className="flex items-center gap-2">
-            <code className="flex-1 rounded bg-muted px-2 py-1.5 font-mono text-xs text-foreground truncate" title={tileUrl}>
+            <code className="flex-1 rounded-sm bg-muted px-2 py-1.5 font-mono text-xs text-foreground truncate" title={tileUrl}>
               {tileUrl}
             </code>
             <Button
@@ -166,7 +166,7 @@ function ApiSnippet({
         <h2 className="text-[15px] font-semibold tracking-tight">
           {t('overview.apiTitle', { defaultValue: 'Access via API' })}
         </h2>
-        <span className="font-mono text-[11px] text-muted-foreground tracking-wide">
+        <span className="font-mono text-mini text-muted-foreground tracking-wide">
           {t('overview.ogcApiFeatures', { defaultValue: 'OGC API Features' })}
         </span>
       </div>
@@ -188,16 +188,16 @@ function ApiSnippet({
       </div>
       <div className="rounded-lg overflow-hidden border bg-(--code-bg) text-(--code-text)">
         <div className="flex items-center gap-2 px-3.5 py-2 bg-(--code-chrome) border-b border-(--code-chrome-border)">
-          <span className="px-1.5 py-0.5 rounded font-mono text-[11px] font-semibold text-(--code-method-badge) bg-(--code-method-badge-bg)">
+          <span className="px-1.5 py-0.5 rounded-sm font-mono text-mini font-semibold text-(--code-method-badge) bg-(--code-method-badge-bg)">
             {activeTab === 'qgis' ? 'ADD' : 'GET'}
           </span>
-          <span className="font-mono text-[11px] text-(--code-muted)">
+          <span className="font-mono text-mini text-(--code-muted)">
             {activeTab === 'qgis' ? 'Layer → Add Vector Layer' : ogcFeaturesUrl}
           </span>
           <span className="flex-1" />
           <button
             onClick={handleCopy}
-            className="px-2 py-0.5 rounded text-[11px] font-mono bg-(--code-chrome-border) text-(--code-text)/80 hover:text-(--code-text) cursor-pointer border-0"
+            className="px-2 py-0.5 rounded-sm text-mini font-mono bg-(--code-chrome-border) text-(--code-text)/80 hover:text-(--code-text) cursor-pointer border-0"
           >
             {copied ? <Check className="inline size-3 me-1" /> : <Copy className="inline size-3 me-1" />}
             {copied ? t('common:copied') : t('common:copy')}

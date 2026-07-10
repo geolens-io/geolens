@@ -41,16 +41,21 @@ describe('FeaturePopup — EASY-11 rich-text rendering', () => {
     expect(screen.getByText(/See/)).toBeInTheDocument();
   });
 
-  it('EASY-11 — image URL value renders an <img> with src, alt, and lazy loading', () => {
+  it('EASY-11 — image URL value renders a decorative <img> with src and lazy loading', () => {
     const features: FeatureInfo[] = [
       makeFeature({
         properties: { photo: 'https://example.com/x.jpg' },
         visibleFields: ['photo'],
       }),
     ];
-    render(<FeaturePopup longitude={0} latitude={0} features={features} onClose={vi.fn()} />);
-    const img = screen.getByRole('img');
+    const { container } = render(
+      <FeaturePopup longitude={0} latitude={0} features={features} onClose={vi.fn()} />,
+    );
+    // fix(#438): A11Y-07 — the popup image is decorative (alt=""), so it is not
+    // in the a11y tree and getByRole('img') no longer finds it. Query the DOM.
+    const img = container.querySelector('img')!;
     expect(img).toHaveAttribute('src', 'https://example.com/x.jpg');
+    expect(img).toHaveAttribute('alt', '');
     expect(img).toHaveAttribute('loading', 'lazy');
     // Fallback anchor also present
     expect(screen.getByRole('link')).toHaveAttribute('href', 'https://example.com/x.jpg');

@@ -46,7 +46,7 @@ export function ColorRampPicker({ rampName, onChange, mode, customColors, count,
             type="checkbox"
             checked={reversed}
             onChange={(e) => onReversedChange?.(e.target.checked)}
-            className="h-3 w-3 rounded border-border accent-primary"
+            className="h-3 w-3 rounded-sm border-border accent-primary"
             aria-label={t('dataDriven.reverseRamp')}
             data-testid="reverse-ramp-toggle"
           />
@@ -57,7 +57,7 @@ export function ColorRampPicker({ rampName, onChange, mode, customColors, count,
             type="checkbox"
             checked={cvdOnly}
             onChange={(e) => setCvdOnly(e.target.checked)}
-            className="h-3 w-3 rounded border-border accent-primary"
+            className="h-3 w-3 rounded-sm border-border accent-primary"
             aria-label={t('dataDriven.cvdSafeOnly')}
             data-testid="cvd-safe-toggle"
           />
@@ -90,9 +90,9 @@ export function ColorRampPicker({ rampName, onChange, mode, customColors, count,
               onClick={() => onChange(ramp.name)}
               aria-label={ramp.label}
               className={cn(
-                'flex cursor-pointer items-center gap-2 w-full px-1.5 py-1 rounded text-start transition-colors',
+                'flex cursor-pointer items-center gap-2 w-full px-1.5 py-1 rounded-sm text-start transition-colors',
                 isSelected
-                  ? 'bg-accent ring-1 ring-primary'
+                  ? 'bg-accent ring-1 ring-ring'
                   : 'hover:bg-accent/50',
               )}
             >

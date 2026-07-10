@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Label } from '@/components/ui/label';
 import {
   Select,
@@ -46,6 +47,14 @@ export function RasterStretchControls({
   isDem = false,
   t,
 }: RasterStretchControlsProps) {
+  // fix(#438): BLD-03 — the inputs used to reject any keystroke that crossed the
+  // sibling bound mid-typing (e.g. clearing pmin to type a new value, or typing
+  // a high pmax digit-by-digit), so the field appeared frozen. Now the user
+  // types freely into a draft and the value is clamped once, on blur.
+  // Hooks must run before the early returns below.
+  const [pminDraft, setPminDraft] = useState<string | null>(null);
+  const [pmaxDraft, setPmaxDraft] = useState<string | null>(null);
+
   if (isDem) return null;
   if (typeof bandCount !== 'number' || bandCount < 1) return null;
 
@@ -56,29 +65,31 @@ export function RasterStretchControls({
   const pmax = typeof paint['_pmax'] === 'number' ? (paint['_pmax'] as number) : 98;
   const sigma = typeof paint['_sigma'] === 'number' ? (paint['_sigma'] as number) : 2;
 
-  const handlePminChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    // Number('') is 0 → would silently write pmin=0 on backspace. Ignore empty/non-finite.
-    const raw = e.target.value;
-    if (raw === '') return;
-    const candidate = Number(raw);
-    if (Number.isFinite(candidate) && candidate >= 0 && candidate < pmax) {
-      onPaintProp('_pmin', candidate);
+  const commitPmin = () => {
+    if (pminDraft === null) return;
+    const candidate = Number(pminDraft);
+    if (pminDraft !== '' && Number.isFinite(candidate)) {
+      // Keep at least 1 below pmax, within [0, 99].
+      const clamped = Math.min(Math.max(candidate, 0), Math.min(pmax - 1, 99));
+      onPaintProp('_pmin', clamped);
     }
+    setPminDraft(null);
   };
 
-  const handlePmaxChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const raw = e.target.value;
-    if (raw === '') return;
-    const candidate = Number(raw);
-    if (Number.isFinite(candidate) && candidate > pmin && candidate <= 100) {
-      onPaintProp('_pmax', candidate);
+  const commitPmax = () => {
+    if (pmaxDraft === null) return;
+    const candidate = Number(pmaxDraft);
+    if (pmaxDraft !== '' && Number.isFinite(candidate)) {
+      const clamped = Math.max(Math.min(candidate, 100), Math.max(pmin + 1, 1));
+      onPaintProp('_pmax', clamped);
     }
+    setPmaxDraft(null);
   };
 
   return (
     <section className="border-b">
       <div className="px-4 py-2">
-        <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground mb-2">
+        <p className="text-2xs font-semibold uppercase tracking-[0.08em] text-muted-foreground mb-2">
           {isSingleBand
             ? t('style.raster.sectionColormap', { defaultValue: 'COLORMAP' })
             : t('style.raster.stretchLabel', { defaultValue: 'STRETCH' })}
@@ -142,8 +153,9 @@ export function RasterStretchControls({
                   min={0}
                   max={100}
                   step={1}
-                  value={pmin}
-                  onChange={handlePminChange}
+                  value={pminDraft ?? pmin}
+                  onChange={(e) => setPminDraft(e.target.value)}
+                  onBlur={commitPmin}
                 />
               </div>
               <div className="flex-1 flex flex-col gap-1">
@@ -154,8 +166,9 @@ export function RasterStretchControls({
                   min={0}
                   max={100}
                   step={1}
-                  value={pmax}
-                  onChange={handlePmaxChange}
+                  value={pmaxDraft ?? pmax}
+                  onChange={(e) => setPmaxDraft(e.target.value)}
+                  onBlur={commitPmax}
                 />
               </div>
             </div>
@@ -191,7 +204,7 @@ export function RasterStretchControls({
           {/* Stretch↔colormap hint (RASTER-STRETCH-UI-02) — single-band only,
               shown when stretch is not minmax AND colormap is not gray */}
           {isSingleBand && currentStretch !== 'minmax' && currentColormap !== 'gray' && (
-            <p role="note" className="text-[11px] leading-snug text-muted-foreground">
+            <p role="note" className="text-mini leading-snug text-muted-foreground">
               {t('style.raster.stretchColormapHint', { defaultValue: 'Stretch sets the input range for the colormap.' })}
             </p>
           )}

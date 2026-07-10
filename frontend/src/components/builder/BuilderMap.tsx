@@ -12,7 +12,7 @@ import {
   BLANK_BASEMAP_ID,
 } from '@/lib/basemap-utils';
 import { buildClusterTileUrl, buildSignedTileUrl } from '@/lib/tile-utils';
-import { useTileTokens } from '@/hooks/use-tile-token';
+import { useTileTokens, useInvalidateTileTokens } from '@/hooks/use-tile-token';
 import { useTileTokenError } from './hooks/use-tile-token-error';
 import { getEnvConfig } from '@/lib/env';
 import { pushReportEntry } from '@/lib/report';
@@ -469,7 +469,7 @@ export const BuilderMap = memo(function BuilderMap({
       }
     }
     return map;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the primitive join is the intended dep; the array identity churns each render
   }, [datasetIds.join(','), tokenSig]);
 
   const terrainStateRef = useRef({ terrainConfig, layers, tokenMap });
@@ -1225,7 +1225,8 @@ export const BuilderMap = memo(function BuilderMap({
     pitch: initialViewState?.pitch ?? 0,
   }), [initialViewState?.center_lng, initialViewState?.center_lat, initialViewState?.zoom, initialViewState?.bearing, initialViewState?.pitch, mapDefaults?.center_lng, mapDefaults?.center_lat, mapDefaults?.zoom]);
 
-  const { contextLost, reload } = useWebGLRecovery(mapRef, mapReady);
+    const invalidateTileTokens = useInvalidateTileTokens();
+  const { contextLost, reload } = useWebGLRecovery(mapRef, mapReady, invalidateTileTokens);
 
   return (
     <div
@@ -1297,7 +1298,7 @@ export const BuilderMap = memo(function BuilderMap({
         <div className="absolute inset-0 z-50 flex items-center justify-center bg-background/80">
           <div className="text-center space-y-2">
             <p className="text-sm text-muted-foreground">{t('errors.mapMessage')}</p>
-            <button type="button" onClick={reload} className="cursor-pointer text-sm underline text-primary hover:text-primary/80 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring rounded px-1">{t('common.reload')}</button>
+            <button type="button" onClick={reload} className="cursor-pointer text-sm underline text-primary hover:text-primary/80 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring rounded-sm px-1">{t('common.reload')}</button>
           </div>
         </div>
       )}

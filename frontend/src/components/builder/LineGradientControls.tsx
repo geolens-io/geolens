@@ -8,6 +8,7 @@ import type { BuilderStyleConfig, StyleConfig } from '@/types/api';
 import { cn } from '@/lib/utils';
 import { MAP_COLORS } from '@/lib/map-colors';
 import { walkExpressionPairs } from '@/lib/zoom-expressions';
+import { Textarea } from '@/components/ui/textarea';
 
 export const DEFAULT_GRADIENT_STOPS: ReadonlyArray<{ position: number; color: string }> = [
   { position: 0, color: '#0066cc' },
@@ -330,7 +331,7 @@ export function LineGradientControls({ paint, styleConfig, onPaintProp, onBuilde
     <div className="space-y-2">
       <div className="text-xs font-medium">{t('style.lineGradient.label')}</div>
 
-      <div className="inline-flex rounded border border-border overflow-hidden text-xs">
+      <div className="inline-flex rounded-sm border border-border overflow-hidden text-xs">
         <button
           type="button"
           aria-label={t('style.lineGradient.solid')}
@@ -376,7 +377,7 @@ export function LineGradientControls({ paint, styleConfig, onPaintProp, onBuilde
           <div
             data-testid="line-gradient-preview-swatch"
             aria-hidden="true"
-            className="h-3 rounded w-full border border-border"
+            className="h-3 rounded-sm w-full border border-border"
             style={{
               background: `linear-gradient(to right, ${liveStops
                 .map((s) => `${s.color} ${Math.round(s.position * 100)}%`)
@@ -474,9 +475,9 @@ export function LineGradientControls({ paint, styleConfig, onPaintProp, onBuilde
         {advancedOpen && (
           <div className="mt-2 space-y-1.5">
             <div className="text-xs italic text-muted-foreground">{t('style.lineGradient.advancedHint')}</div>
-            <textarea
+            <Textarea
               aria-label={t('style.lineGradient.advanced')}
-              className="w-full rounded border border-input bg-background p-2 text-xs font-mono resize-y min-h-[80px] outline-none focus:ring-1 focus:ring-ring"
+              className="text-xs font-mono resize-y min-h-[80px]"
               value={advancedText}
               onChange={(e) => { setAdvancedText(e.target.value); setAdvancedError(null); }}
               spellCheck={false}

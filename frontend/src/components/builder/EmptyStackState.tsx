@@ -14,7 +14,7 @@ export interface EmptyStackStateProps {
 
 // AUD-02: shared eyebrow class string — single source of truth for 10px uppercase label
 // imported by UnifiedStackPanel for the basemap-dock BASEMAP eyebrow label
-export const eyebrowClassName = 'block text-[10px] font-semibold tracking-wide text-muted-foreground uppercase px-1';
+export const eyebrowClassName = 'block text-2xs font-semibold tracking-wide text-muted-foreground uppercase px-1';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -102,7 +102,7 @@ function SuggestCard({ suggestion, onOpenAddData, addingId, addedIds, onDirectAd
           tabIndex={-1}
           aria-hidden="true"
         >
-          <span className="text-[10px] font-medium select-none">
+          <span className="text-2xs font-medium select-none">
             {isRaster ? '▦' : '⬡'}
           </span>
         </button>
@@ -112,11 +112,11 @@ function SuggestCard({ suggestion, onOpenAddData, addingId, addedIds, onDirectAd
           type="button"
           aria-label={`Open ${suggestion.name} in Add Data modal`}
           onClick={() => onOpenAddData(suggestion.name)}
-          className="min-w-0 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded"
+          className="min-w-0 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm"
         >
           <span className="block text-sm truncate">{suggestion.name}</span>
           {metaString && (
-            <span className="block text-[10px] text-muted-foreground truncate">{metaString}</span>
+            <span className="block text-2xs text-muted-foreground truncate">{metaString}</span>
           )}
         </button>
 
@@ -129,7 +129,7 @@ function SuggestCard({ suggestion, onOpenAddData, addingId, addedIds, onDirectAd
             e.stopPropagation();
             onDirectAdd(suggestion.id);
           }}
-          className="h-[22px] w-[22px] flex items-center justify-center rounded text-primary hover:bg-[var(--primary-50,oklch(0.97_0.02_250))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="h-[22px] w-[22px] flex items-center justify-center rounded-sm text-primary hover:bg-[var(--primary-50,oklch(0.97_0.02_250))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           {isAdding ? (
             <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
@@ -191,9 +191,11 @@ export function EmptyStackState({ onOpenAddData, onAddDataset }: EmptyStackState
     >
       {/* Prompt */}
       <div className="text-center">
-        <h4 className="text-sm font-semibold">
+        {/* fix(#438): A11Y-05 — was <h4>, which skipped h2/h3 under the builder's
+            new <h1>. Styling is unchanged; only the level moves onto the outline. */}
+        <h2 className="text-sm font-semibold">
           {t('unifiedStack.emptyHeading', { defaultValue: 'Add your first layer' })}
-        </h4>
+        </h2>
         <p className="text-xs text-muted-foreground mt-1">
           {t('unifiedStack.emptyBody', { defaultValue: 'Search the catalog or pick a starter dataset below.' })}
         </p>
@@ -268,7 +270,7 @@ export function EmptyStackState({ onOpenAddData, onAddDataset }: EmptyStackState
         type="button"
         aria-label={t('unifiedStack.browseAllLabel', { defaultValue: 'Browse all datasets in the Add Data modal' })}
         onClick={() => onOpenAddData()}
-        className="text-xs text-primary self-start hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded"
+        className="text-xs text-primary self-start hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm"
       >
         {t('unifiedStack.browseAll', { defaultValue: 'Browse all datasets →' })}
       </button>

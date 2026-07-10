@@ -30,6 +30,7 @@ import { normalizeOrigin, WildcardOriginError } from '@/lib/builder/url-normaliz
 // fix(#430 V-17): reuse the same audience-visibility check as the layer-stack badge.
 import { isLayerHiddenFromMapAudience } from '@/components/builder/map-stack';
 import type { MapLayerResponse, MapVisibility } from '@/types/api';
+import { Textarea } from '@/components/ui/textarea';
 
 /**
  * Generate the iframe embed snippet for a shared map.
@@ -1036,7 +1037,7 @@ export function ShareDialog({
                     className={cn(
                       'cursor-pointer w-full flex items-start gap-3 rounded-lg border px-3 py-2.5 text-start transition-colors',
                       isActive
-                        ? 'ring-2 ring-primary border-primary bg-primary/5'
+                        ? 'ring-2 ring-ring border-primary bg-primary/5'
                         : 'border-border hover:border-muted-foreground/30 hover:bg-accent/50',
                     )}
                     onClick={() => handleVisibilityChange(opt.value)}
@@ -1181,11 +1182,11 @@ export function ShareDialog({
                     <span className="text-sm font-semibold">{t('share.embedCode')}</span>
                   </div>
                   <div className="relative">
-                    <textarea
+                    <Textarea
                       readOnly
                       value={getEmbedCode()}
                       rows={3}
-                      className="w-full rounded-md border border-input bg-muted/30 px-3 py-2 text-xs font-mono resize-none focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:border-ring"
+                      className="bg-muted/30 text-xs font-mono resize-none"
                     />
                     <Button
                       variant="outline"
@@ -1243,9 +1244,9 @@ export function ShareDialog({
                   <div className="space-y-1">
                     <p className="text-xs font-medium text-muted-foreground">{t('share.customizeTitle')}</p>
                     <ul className="text-xs text-muted-foreground space-y-0.5 ms-3">
-                      <li><code className="bg-muted px-1 rounded text-[11px]">zoom=N</code> {t('share.customizeZoom')}</li>
-                      <li><code className="bg-muted px-1 rounded text-[11px]">center=lng,lat</code> {t('share.customizeCenter')}</li>
-                      <li><code className="bg-muted px-1 rounded text-[11px]">legend=true|false</code> {t('share.customizeLegend')}</li>
+                      <li><code className="bg-muted px-1 rounded-sm text-mini">zoom=N</code> {t('share.customizeZoom')}</li>
+                      <li><code className="bg-muted px-1 rounded-sm text-mini">center=lng,lat</code> {t('share.customizeCenter')}</li>
+                      <li><code className="bg-muted px-1 rounded-sm text-mini">legend=true|false</code> {t('share.customizeLegend')}</li>
                     </ul>
                   </div>
                   {/* builder-audit #338 P2-01: a fully-public map has no embed token (none was

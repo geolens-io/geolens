@@ -36,15 +36,13 @@ import {
   mapAreaFromPath,
 } from '@/lib/report';
 import { ReportEntryList } from './ReportEntryList';
+import { Textarea } from '@/components/ui/textarea';
 
 // `__APP_VERSION__` is replaced at build by Vite's `define`. The typeof guard
 // keeps this safe in any environment where the define isn't applied.
 const APP_VERSION = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.0.0';
 const STEP_PLACEHOLDER = '1. \n2. \n3. ';
 const TOTAL_STEPS = 3;
-
-const textareaClass =
-  'flex w-full min-h-20 rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-xs outline-none transition-[color,box-shadow] duration-200 placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-50';
 
 async function copyToClipboard(text: string): Promise<void> {
   try {
@@ -204,9 +202,9 @@ export function ReportProblemWizard({ open, onOpenChange, entries }: ReportProbl
 
               <div className="space-y-1.5">
                 <Label htmlFor="rp-description">{t('step1.descriptionLabel')}</Label>
-                <textarea
+                <Textarea
                   id="rp-description"
-                  className={textareaClass}
+                  className="min-h-20"
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
                   placeholder={t('step1.descriptionPlaceholder')}
@@ -215,9 +213,9 @@ export function ReportProblemWizard({ open, onOpenChange, entries }: ReportProbl
 
               <div className="space-y-1.5">
                 <Label htmlFor="rp-steps">{t('step1.stepsLabel')}</Label>
-                <textarea
+                <Textarea
                   id="rp-steps"
-                  className={textareaClass}
+                  className="min-h-20"
                   value={steps}
                   onChange={(e) => setSteps(e.target.value)}
                   placeholder={STEP_PLACEHOLDER}
@@ -226,9 +224,9 @@ export function ReportProblemWizard({ open, onOpenChange, entries }: ReportProbl
 
               <div className="space-y-1.5">
                 <Label htmlFor="rp-expected">{t('step1.expectedLabel')}</Label>
-                <textarea
+                <Textarea
                   id="rp-expected"
-                  className={textareaClass}
+                  className="min-h-20"
                   value={expected}
                   onChange={(e) => setExpected(e.target.value)}
                   placeholder={t('step1.expectedPlaceholder')}
@@ -249,7 +247,7 @@ export function ReportProblemWizard({ open, onOpenChange, entries }: ReportProbl
 
               <Collapsible open={detailsOpen} onOpenChange={setDetailsOpen}>
                 <div className="flex items-center justify-between gap-2">
-                  <CollapsibleTrigger className="flex min-w-0 items-center gap-1 rounded text-xs font-medium text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                  <CollapsibleTrigger className="flex min-w-0 items-center gap-1 rounded-sm text-xs font-medium text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
                     <ChevronDown className={cn('size-3.5 shrink-0 transition-transform', detailsOpen && 'rotate-180')} aria-hidden />
                     {t('technicalDetails', { count: entries.length })}
                   </CollapsibleTrigger>

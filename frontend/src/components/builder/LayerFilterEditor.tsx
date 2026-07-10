@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
+import { Textarea } from '@/components/ui/textarea';
 import { useTranslation } from 'react-i18next';
 import { Plus, X, Code } from 'lucide-react';
 import type { FilterSpecification } from 'maplibre-gl';
@@ -403,7 +404,7 @@ export function LayerFilterEditor({
           <p className="text-xs font-semibold text-foreground">
             {t('layerEditor.emptyResult.title', { defaultValue: '0 features in view — check your filter' })}
           </p>
-          <p className="mt-1 text-[11px] text-muted-foreground">
+          <p className="mt-1 text-mini text-muted-foreground">
             {t('layerEditor.emptyResult.help', {
               defaultValue:
                 'The current filter matches nothing in the visible map area. Matches may exist off-screen — pan or zoom out, adjust a condition, or clear the filter.',
@@ -424,7 +425,7 @@ export function LayerFilterEditor({
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0 space-y-0.5">
           <div className="text-xs font-medium">{t('filters.layerTitle')}</div>
-          <p className="text-[11px] leading-snug text-muted-foreground">
+          <p className="text-mini leading-snug text-muted-foreground">
             {t('filters.scopeHelp', { layer: layerName ?? t('filters.thisLayer') })}
           </p>
         </div>
@@ -443,8 +444,8 @@ export function LayerFilterEditor({
       {rawMode ? (
         /* Raw JSON editing mode */
         <div className="space-y-2">
-          <textarea
-            className="w-full rounded border border-input bg-background p-2 text-xs font-mono resize-y min-h-[100px] outline-none focus:ring-1 focus:ring-ring"
+          <Textarea
+            className="text-xs font-mono resize-y min-h-[100px]"
             value={rawText}
             onChange={(e) => {
               setRawText(e.target.value);
@@ -461,7 +462,7 @@ export function LayerFilterEditor({
         </div>
       ) : opaque ? (
         /* Opaque banner — cannot edit visually */
-        <div className="rounded bg-muted p-2 text-xs text-muted-foreground space-y-2">
+        <div className="rounded-sm bg-muted p-2 text-xs text-muted-foreground space-y-2">
           <p>{t('filters.opaqueWarning')}</p>
           <Button
             variant="outline"
@@ -477,7 +478,7 @@ export function LayerFilterEditor({
         /* Visual editing mode */
         <>
           {columnInfo.length === 0 && (
-            <p className="rounded-md bg-muted px-2 py-1.5 text-[11px] leading-snug text-muted-foreground">
+            <p className="rounded-md bg-muted px-2 py-1.5 text-mini leading-snug text-muted-foreground">
               {t('filters.noColumns')}
             </p>
           )}

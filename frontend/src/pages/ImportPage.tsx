@@ -31,7 +31,7 @@ export function ImportPage() {
     <PageShell className="space-y-0">
       {/* Hero */}
       <div className="pb-4 pt-2">
-        <p className="mb-2.5 font-mono text-[11px] uppercase tracking-[0.12em] text-muted-foreground">
+        <p className="mb-2.5 font-mono text-mini uppercase tracking-[0.12em] text-muted-foreground">
           {t('eyebrow', { defaultValue: 'Import' })}
         </p>
         <h1 className="text-2xl font-semibold tracking-tight">

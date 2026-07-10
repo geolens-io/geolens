@@ -206,4 +206,38 @@ test.describe('Accessibility - WCAG 2AA', () => {
 
     expect(results.violations, formatViolations(results.violations)).toEqual([]);
   });
+
+  // fix(#438): A11Y-12 — the audit found Import, Settings, and Collections
+  // uncovered. Same wcagTags contract as the routes above.
+  for (const { name, path } of [
+    { name: 'import', path: '/import' },
+    { name: 'settings', path: '/settings' },
+    { name: 'collections', path: '/collections' },
+  ]) {
+    test(`${name} page has no accessibility violations`, async ({ page }) => {
+      await page.goto(path);
+      await page.waitForLoadState('networkidle');
+
+      const results = await new AxeBuilder({ page })
+        .withTags(wcagTags)
+        .analyze();
+
+      expect(results.violations, formatViolations(results.violations)).toEqual([]);
+    });
+  }
+
+  test.describe('register (logged out)', () => {
+    test.use({ storageState: { cookies: [], origins: [] } });
+
+    test('register page has no accessibility violations', async ({ page }) => {
+      await page.goto('/register');
+      await page.waitForLoadState('networkidle');
+
+      const results = await new AxeBuilder({ page })
+        .withTags(wcagTags)
+        .analyze();
+
+      expect(results.violations, formatViolations(results.violations)).toEqual([]);
+    });
+  });
 });

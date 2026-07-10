@@ -28,16 +28,12 @@ import { Pagination } from '@/components/layout/Pagination';
 import { useMaps, useDeleteMap } from '@/hooks/use-maps';
 import { useDocumentTitle } from '@/hooks/use-document-title';
 import { useAuthStore } from '@/stores/auth-store';
+import { readStorage, writeStorage, storageKeys } from '@/lib/storage';
 
 const PAGE_SIZE = 20;
-const VIEW_STORAGE_KEY = 'geolens-maps-view';
-
+// fix(#438): ARC-06 — key + access via the typed storage helper.
 function getStoredView(): string {
-  try {
-    return localStorage.getItem(VIEW_STORAGE_KEY) ?? 'list';
-  } catch {
-    return 'list';
-  }
+  return readStorage(storageKeys.mapsView) ?? 'list';
 }
 
 export function MapsPage() {
@@ -66,7 +62,7 @@ export function MapsPage() {
     setSkip(0);
   }, [debouncedSearch, sortBy, sortDir, visibility]);
 
-  const { data, isLoading, error } = useMaps({
+  const { data, isLoading, error, refetch } = useMaps({
     skip,
     limit: PAGE_SIZE,
     search: debouncedSearch || undefined,
@@ -84,11 +80,7 @@ export function MapsPage() {
   function handleViewChange(value: string) {
     if (!value) return; // ToggleGroup sends empty string on deselect
     setViewMode(value);
-    try {
-      localStorage.setItem(VIEW_STORAGE_KEY, value);
-    } catch {
-      // localStorage not available
-    }
+    writeStorage(storageKeys.mapsView, value);
   }
 
   function handleDeleteConfirm() {
@@ -98,9 +90,7 @@ export function MapsPage() {
         toast.success(t('maps.deleted'));
         setDeletingMap(null);
       },
-      onError: () => {
-        toast.error(t('maps.deleteFailed'));
-      },
+      // fix(#438): UX-07 — no onError toast here; useDeleteMap already raises one.
     });
   }
 
@@ -198,7 +188,7 @@ export function MapsPage() {
       )}
 
       {error && (
-        <ErrorState message={t('maps.loadFailed', { message: error.message })} />
+        <ErrorState message={t('maps.loadFailed', { message: error.message })} onRetry={() => refetch()} />
       )}
 
       {data && data.total === 0 && (

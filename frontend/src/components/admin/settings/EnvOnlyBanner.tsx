@@ -15,7 +15,7 @@ export function EnvOnlyBanner() {
         <p className="font-medium">{t('settings.envOnly.title')}</p>
         <p className="mt-1 text-muted-foreground">
           {t('settings.envOnly.descriptionPrefix')}{' '}
-          <code className="rounded bg-info/10 px-1 py-0.5 text-xs font-mono">ENV_ONLY_CONFIG=false</code>{' '}
+          <code className="rounded-sm bg-info/10 px-1 py-0.5 text-xs font-mono">ENV_ONLY_CONFIG=false</code>{' '}
           {t('settings.envOnly.descriptionSuffix')}
         </p>
       </div>

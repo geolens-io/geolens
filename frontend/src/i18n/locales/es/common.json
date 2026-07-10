@@ -163,7 +163,10 @@
     "forbiddenAdmin": "Prohibido — Se requiere acceso de administrador",
     "forbiddenEditor": "Prohibido — Se requiere acceso de editor o administrador",
     "loadFailed": "Error al cargar",
-    "mapMessage": "Error de mapa — algunas capas pueden no mostrarse correctamente."
+    "mapMessage": "Error de mapa — algunas capas pueden no mostrarse correctamente.",
+    "networkUnavailable": "Red no disponible. Comprueba tu conexión.",
+    "requestTimeout": "La solicitud tardó demasiado. Inténtalo de nuevo.",
+    "unauthorized": "Tu sesión ha expirado. Inicia sesión de nuevo."
   },
   "settings": {
     "tabs": {
@@ -188,7 +191,8 @@
       "datasetsUsed": "Conjuntos de datos",
       "unlimited": "Ilimitado",
       "overLimit": "Por encima del límite",
-      "fileStorageNote": "Solo cuenta el tamaño de los archivos subidos"
+      "fileStorageNote": "Solo cuenta el tamaño de los archivos subidos",
+      "usageUnavailable": "No disponible"
     }
   },
   "footer": {
@@ -256,7 +260,8 @@
         "truncated": "(mostrando una muestra)",
         "moreColumns": "más columnas"
       }
-    }
+    },
+    "anonMapRecovery": "Puede que este mapa sea privado. Inicia sesión para comprobar si tu cuenta puede abrirlo."
   },
   "maps": {
     "title": "Mapas",
@@ -390,7 +395,9 @@
       "changedFields": "Campos modificados",
       "noChanges": "No se detectaron cambios.",
       "success": "Importación completada.",
-      "successDetail": "{{settingsApplied}} configuraciones aplicadas, {{settingsSkipped}} omitidas. {{oauthCreated}} proveedores creados, {{oauthUpdated}} actualizados, {{oauthDeleted}} eliminados."
+      "successDetail": "{{settingsApplied}} configuraciones aplicadas, {{settingsSkipped}} omitidas. {{oauthCreated}} proveedores creados, {{oauthUpdated}} actualizados, {{oauthDeleted}} eliminados.",
+      "confirmTitle": "¿Sobrescribir toda la configuración?",
+      "confirmDescription": "Esto reemplaza toda la configuración actual y no se puede deshacer. Escribe {{keyword}} para confirmar."
     }
   },
   "notFound": {
@@ -420,7 +427,9 @@
     "adminAuditLog": "Registro de auditoría admin",
     "adminConfigOps": "Configuración admin",
     "adminSettings": "Ajustes admin",
-    "adminSaml": "Configuración de SSO SAML"
+    "adminSaml": "Configuración de SSO SAML",
+    "verifyEmail": "Verificar correo",
+    "signingIn": "Iniciando sesión"
   },
   "sidebar": {
     "title": "Barra lateral",
@@ -462,7 +471,8 @@
     "legendHeader": "Leyenda"
   },
   "actions": {
-    "editGeometry": "Editar geometría"
+    "editGeometry": "Editar geometría",
+    "retry": "Reintentar"
   },
   "map": {
     "ariaLabel": "Mapa del conjunto de datos",
@@ -488,5 +498,8 @@
   "yes": "Sí",
   "no": "No",
   "copy": "Copiar",
-  "copied": "Copiado"
+  "copied": "Copiado",
+  "mapViewerGate": {
+    "accessCheckFailed": "No pudimos comprobar tu acceso a este mapa. Inténtalo de nuevo."
+  }
 }

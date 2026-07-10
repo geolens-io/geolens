@@ -1,4 +1,6 @@
 import { render, screen } from '@/test/test-utils';
+import userEvent from '@testing-library/user-event';
+import { vi } from 'vitest';
 import { ErrorState } from '../ErrorState';
 
 describe('ErrorState', () => {
@@ -21,6 +23,19 @@ describe('ErrorState', () => {
   it('renders action when provided', () => {
     render(<ErrorState message="Something broke" action={<button>Retry</button>} />);
     expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
+  });
+
+  it('renders a Try again button and calls onRetry when clicked (UX-02)', async () => {
+    const onRetry = vi.fn();
+    render(<ErrorState message="Something broke" onRetry={onRetry} />);
+    const retry = screen.getByRole('button', { name: /try again/i });
+    await userEvent.click(retry);
+    expect(onRetry).toHaveBeenCalledTimes(1);
+  });
+
+  it('renders no retry button when onRetry is omitted', () => {
+    render(<ErrorState message="Something broke" />);
+    expect(screen.queryByRole('button', { name: /try again/i })).not.toBeInTheDocument();
   });
 
   it('uses destructive border and background styling', () => {

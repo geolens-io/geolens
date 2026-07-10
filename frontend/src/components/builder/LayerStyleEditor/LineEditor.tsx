@@ -114,7 +114,7 @@ export function LineEditor({
             <button
               key={preset.key} type="button"
               className={cn(
-                'flex-1 cursor-pointer px-2 py-1 text-xs rounded border transition-colors',
+                'flex-1 cursor-pointer px-2 py-1 text-xs rounded-sm border transition-colors',
                 isActive ? 'bg-primary text-primary-foreground border-primary' : 'bg-muted/50 text-muted-foreground border-border hover:bg-muted',
               )}
               onClick={() => {

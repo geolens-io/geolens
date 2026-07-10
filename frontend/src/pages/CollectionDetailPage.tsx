@@ -29,7 +29,7 @@ import { useDocumentTitle } from '@/hooks/use-document-title';
 export function CollectionDetailPage() {
   const { t } = useTranslation('collections');
   const { id } = useParams<{ id: string }>();
-  const { data: collection, isLoading, error } = useCollection(id ?? '');
+  const { data: collection, isLoading, error, refetch } = useCollection(id ?? '');
   const removeDataset = useRemoveDatasetFromCollection();
   // Mutating a collection requires the manage_collections capability (proxied
   // by the editor role) AND ownership (or admin) — mirrors the backend
@@ -56,6 +56,7 @@ export function CollectionDetailPage() {
         <ErrorState
           title={t('detail.notFoundTitle')}
           message={error instanceof Error ? error.message : t('detail.notFoundMessage')}
+          onRetry={() => refetch()}
           action={
             <Link
               to="/collections"
@@ -89,10 +90,9 @@ export function CollectionDetailPage() {
     try {
       await removeDataset.mutateAsync({ collectionId: id!, datasetId });
       toast.success(t('toasts.datasetRemoved'));
-    } catch (err) {
-      toast.error(
-        err instanceof Error ? err.message : t('toasts.removeError'),
-      );
+    } catch {
+      // fix(#438): UX-07 — useRemoveDatasetFromCollection raises the error toast,
+      // including the backend reason. Swallow here so only one appears.
     }
   }
 

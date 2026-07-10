@@ -1,7 +1,7 @@
 import { lazy, Suspense, useState, useEffect, useRef, useCallback, useMemo, type ReactNode } from 'react';
 import { useParams, Link, useSearchParams } from 'react-router';
 import { useTranslation } from 'react-i18next';
-import { FileText, History, Sparkles } from 'lucide-react';
+import { FileText, History, Sparkles, Info } from 'lucide-react';
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import { ApiError } from '@/api/client';
 import {
@@ -99,6 +99,7 @@ import {
 import { PluginHost, PluginSidebar, getDefaultPluginIds, resolveAvailablePluginIds, usePartitionedPlugins } from '@/components/map-plugins';
 import { usePluginStore } from '@/stores/map-plugin-store';
 import type { ViewportContext } from '@/components/builder/chat-suggestions';
+import { readStorage, removeStorage, storageKeys } from '@/lib/storage';
 
 export function MapBuilderPage() {
   const { id } = useParams<{ id: string }>();
@@ -125,7 +126,7 @@ export function MapBuilderPage() {
   useDocumentTitle(mapData?.name ?? t('common:pageTitle.mapBuilder'));
 
   // Three-column layout: isRail (sidebar→64px at <1100px), isEditorHidden (flyout hidden at <800px)
-  const { isRail, isEditorHidden } = useBuilderLayout();
+  const { isRail, isEditorHidden, isMobile } = useBuilderLayout();
 
   const mapInstanceRef = useRef<MaplibreMap | null>(null);
   // mapInstance state duplicates the ref — needed to trigger re-renders for
@@ -189,12 +190,10 @@ export function MapBuilderPage() {
     const hasServerNotes = Object.prototype.hasOwnProperty.call(mapData, 'notes') && mapData.notes !== undefined;
     if (hasServerNotes) {
       setDockNotes(mapData.notes ?? '');
-      try { localStorage.removeItem(`geolens-map-notes-${id}`); } catch { /* localStorage unavailable */ }
+      // fix(#438): ARC-06 — key + access via the typed storage helper.
+      removeStorage(storageKeys.mapNotes(id ?? ''));
     } else {
-      try {
-        const local = localStorage.getItem(`geolens-map-notes-${id}`);
-        setDockNotes(local ?? '');
-      } catch { /* localStorage unavailable */ }
+      setDockNotes(readStorage(storageKeys.mapNotes(id ?? '')) ?? '');
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- run once when mapData loads
   }, [mapData?.notes, id]);
@@ -1344,6 +1343,26 @@ export function MapBuilderPage() {
       >
         {dragAnnouncement}
       </div>
+      {/* fix(#438): A11Y-03 — the builder's heading outline started at <h2>. The
+          map name is an editable <input>, not a heading, so this sr-only <h1>
+          anchors the outline without altering the visible title bar. */}
+      <h1 className="sr-only">
+        {mapData?.name
+          ? t('titleBar.builderHeading', { name: mapData.name, defaultValue: 'Map builder: {{name}}' })
+          : t('common:pageTitle.mapBuilder')}
+      </h1>
+      {/* fix(#438): UX-06 / LIVE-03 — below 768px the top bar cramps and the
+          builder isn't a real editing surface; tell the user rather than
+          presenting a broken-looking layout. */}
+      {isMobile && (
+        <div
+          role="status"
+          className="flex items-center gap-2 border-b border-warning/30 bg-warning/10 px-3 py-1.5 text-mini text-warning"
+        >
+          <Info className="size-3.5 shrink-0" aria-hidden="true" />
+          <span>{t('builder:mobileNotice', { defaultValue: 'The map builder works best on a larger screen. Some controls are limited here.' })}</span>
+        </div>
+      )}
       {/* Breadcrumb header bar — title + save status + actions */}
       <MapTitleBar
         name={layers.localName}

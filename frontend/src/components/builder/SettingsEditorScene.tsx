@@ -153,7 +153,7 @@ export const SettingsEditorScene = memo(function SettingsEditorScene({
             {isTerrainActive && (
               // #186 (c): guide users with a small high-res DEM toward draping it
               // over a coarse global DEM so terrain stays smooth across the map.
-              <p className="mt-1 text-[11px] italic text-muted-foreground">
+              <p className="mt-1 text-mini italic text-muted-foreground">
                 {t('settings.terrainSmallDemTip', {
                   defaultValue:
                     'Tip: for a small high-resolution DEM, drape it over a coarse global DEM (e.g. Copernicus GLO-30) so terrain stays smooth beyond its extent.',
@@ -200,7 +200,7 @@ export const SettingsEditorScene = memo(function SettingsEditorScene({
           ) : (
             <>
               {/* UX-04: clarify that this section controls AVAILABILITY (vs live interaction on the map). */}
-              <p className="px-4 pt-2 pb-1 text-[11px] text-muted-foreground">
+              <p className="px-4 pt-2 pb-1 text-mini text-muted-foreground">
                 {t('settings.pluginsAvailabilityNote', {
                   defaultValue: 'Controls whether each plugin appears on the map.',
                 })}
@@ -274,7 +274,7 @@ export const SettingsEditorScene = memo(function SettingsEditorScene({
                     role="radio"
                     aria-checked={isActive}
                     className={[
-                      'rounded-full border border-transparent px-[10px] py-[5px] text-[12px] transition-colors',
+                      'rounded-full border border-transparent px-[10px] py-[5px] text-xs transition-colors',
                       isActive
                         ? 'bg-primary text-primary-foreground border-transparent'
                         : 'bg-[var(--surface-2,theme(colors.muted.DEFAULT))] text-foreground hover:bg-[var(--surface-3,theme(colors.muted.DEFAULT))]',

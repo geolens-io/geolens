@@ -2,6 +2,8 @@ import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { FeatureInfo } from './FeaturePopup';
 import { clusterCircleLayerId, clusterCountLayerId } from '@/components/builder/layer-adapters/cluster-adapter';
 import type { ClusterSourceStrategyKind } from '@/components/builder/cluster-source';
+import { motionDuration } from '@/lib/reduced-motion';
+import i18n from '@/i18n/i18n';
 
 type ClusterFeatureLike = {
   layer?: { id?: string };
@@ -54,9 +56,11 @@ export function clusterFeatureCoordinates(feature: ClusterFeatureLike): [number,
 }
 
 function sourceLabel(kind: ClusterSourceStrategyKind) {
-  if (kind === 'server-tile') return 'Server-side cluster tile';
-  if (kind === 'bounded-geojson') return 'Bounded GeoJSON cluster';
-  return 'Cluster fallback';
+  // fix(#438): I18N-02 — these strings render in the cluster popup ('source'
+  // field); they were hardcoded English.
+  if (kind === 'server-tile') return i18n.t('builder:cluster.sourceServerTile');
+  if (kind === 'bounded-geojson') return i18n.t('builder:cluster.sourceBoundedGeojson');
+  return i18n.t('builder:cluster.sourceFallback');
 }
 
 export function clusterAggregateFeatureInfo(
@@ -82,7 +86,9 @@ export function clusterAggregateFeatureInfo(
   return {
     properties: aggregateProperties,
     layerName: options.layerName,
-    title: `Cluster: ${countLabel} feature${count === 1 ? '' : 's'}`,
+    // fix(#438): I18N-02 — was `Cluster: N feature(s)` with manual English
+    // pluralization; now an i18next plural key.
+    title: i18n.t('builder:cluster.popupTitle', { count, countLabel }),
     visibleFields: ['feature_count', 'source', 'expansion_zoom', 'cluster_id'],
   };
 }
@@ -124,7 +130,8 @@ export async function activateClusterFeature(
   map.easeTo({
     center,
     zoom,
-    duration: 500,
+    // fix(#438): A11Y-08 — instant under prefers-reduced-motion.
+    duration: motionDuration(500),
   });
   return true;
 }

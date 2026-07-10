@@ -92,6 +92,21 @@
       "error": "Failed to deactivate user",
       "deactivating": "Deactivating...",
       "deactivate": "Deactivate"
+    },
+    "exportError": "Could not export users",
+    "empty": {
+      "noUsers": "No users yet",
+      "noResults": "No users match these filters",
+      "noResultsHint": "Try a different search term or status.",
+      "clearFilters": "Clear filters"
+    },
+    "toasts": {
+      "created": "User created",
+      "updated": "User updated",
+      "deactivated": "User deactivated",
+      "deleted": "User deleted",
+      "approved": "User approved",
+      "rejected": "User rejected"
     }
   },
   "userCreate": {
@@ -141,7 +156,8 @@
     "title": "Delete User",
     "description": "Are you sure you want to delete user \"{{username}}\"? This action cannot be undone. Their datasets will be preserved but will show \"Deleted user\" as the creator.",
     "deleting": "Deleting...",
-    "error": "Failed to delete user"
+    "error": "Failed to delete user",
+    "confirmPrompt": "Type {{username}} to confirm deletion"
   },
   "jobs": {
     "title": "Jobs",

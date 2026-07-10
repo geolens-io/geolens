@@ -13,6 +13,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useExportMapStyleJson, useImportMapStyleJson } from '@/hooks/use-maps';
 import type { MapStyleImportResponse, MapStyleImportSummary } from '@/types/api';
+import { Textarea } from '@/components/ui/textarea';
 
 interface StyleJsonDialogProps {
   mapId: string;
@@ -42,7 +43,7 @@ function downloadJson(filename: string, data: Record<string, unknown>) {
 function ImportSummary({ summary }: { summary: MapStyleImportSummary }) {
   const { t } = useTranslation('builder');
   return (
-    <div className="space-y-2 rounded border bg-muted/30 p-3 text-xs">
+    <div className="space-y-2 rounded-sm border bg-muted/30 p-3 text-xs">
       <div className="flex items-center gap-2 font-medium">
         <CheckCircle2 className="h-3.5 w-3.5 text-success" />
         {t('styleJson.summary.imported', { count: summary.layers_imported })}
@@ -122,7 +123,7 @@ export function StyleJsonDialog({ mapId, mapName, open, onOpenChange }: StyleJso
             <TabsTrigger value="import">{t('styleJson.tabs.import')}</TabsTrigger>
           </TabsList>
           <TabsContent value="export" className="space-y-3 pt-3">
-            <div className="rounded border bg-muted/30 p-3 text-sm text-muted-foreground">
+            <div className="rounded-sm border bg-muted/30 p-3 text-sm text-muted-foreground">
               {t('styleJson.exportHint', { filename })}
             </div>
             <Button onClick={handleExport} disabled={exportStyle.isPending} className="gap-2">
@@ -131,12 +132,12 @@ export function StyleJsonDialog({ mapId, mapName, open, onOpenChange }: StyleJso
             </Button>
           </TabsContent>
           <TabsContent value="import" className="space-y-3 pt-3">
-            <div className="flex items-start gap-2 rounded border bg-muted/30 p-3 text-xs text-muted-foreground">
+            <div className="flex items-start gap-2 rounded-sm border bg-muted/30 p-3 text-xs text-muted-foreground">
               <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
               <span>{t('styleJson.importHint')}</span>
             </div>
-            <textarea
-              className="min-h-48 w-full resize-y rounded border bg-background p-2 font-mono text-xs outline-none focus:ring-2 focus:ring-ring"
+            <Textarea
+              className="min-h-48 resize-y font-mono text-xs"
               value={jsonText}
               onChange={(event) => {
                 setJsonText(event.target.value);
@@ -149,7 +150,7 @@ export function StyleJsonDialog({ mapId, mapName, open, onOpenChange }: StyleJso
               spellCheck={false}
             />
             {error && (
-              <div className="flex items-start gap-2 rounded border border-destructive/40 bg-destructive/10 p-2 text-xs text-destructive">
+              <div className="flex items-start gap-2 rounded-sm border border-destructive/40 bg-destructive/10 p-2 text-xs text-destructive">
                 <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                 <span>{error}</span>
               </div>
@@ -157,7 +158,7 @@ export function StyleJsonDialog({ mapId, mapName, open, onOpenChange }: StyleJso
             {result && (
               <div className="space-y-2">
                 <ImportSummary summary={result.summary} />
-                <div className="flex items-center justify-between gap-2 rounded border border-success/40 bg-success/10 p-2 text-xs">
+                <div className="flex items-center justify-between gap-2 rounded-sm border border-success/40 bg-success/10 p-2 text-xs">
                   <span className="text-muted-foreground">
                     {t('styleJson.summary.newMap', { name: result.map.name })}
                   </span>

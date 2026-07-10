@@ -122,7 +122,7 @@ export const MapCoordReadout = memo(function MapCoordReadout({
 
   return (
     <div data-coord-readout="true" className="absolute top-2 right-14 z-10 pointer-events-none">
-      <div className="font-mono text-2xs tracking-wide text-muted-foreground/70 bg-background/60 backdrop-blur-sm rounded px-1.5 py-0.5">
+      <div className="font-mono text-2xs tracking-wide text-muted-foreground/70 bg-background/60 backdrop-blur-sm rounded-sm px-1.5 py-0.5">
         {Math.abs(coords.lat).toFixed(2)}° {latDir}
         {' · '}
         {Math.abs(coords.lng).toFixed(2)}° {lngDir}

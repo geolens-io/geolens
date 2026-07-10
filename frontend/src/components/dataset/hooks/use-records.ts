@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { queryKeys } from '@/lib/query-keys';
+import { formatMutationError } from '@/lib/error-map';
 import {
   listContacts,
   createContact,
@@ -43,7 +44,8 @@ export function useDeleteContact(recordId: string | undefined) {
       qc.invalidateQueries({ queryKey: queryKeys.records.contacts(recordId) });
       qc.invalidateQueries({ queryKey: queryKeys.records.validation });
     },
-    onError: () => { toast.error(i18n.t('dataset:contacts.removeFailed')); },
+    // fix(#438): UX-07 — ContactsEditor also toasted; the hook now owns it.
+    onError: (err) => { toast.error(formatMutationError('dataset:contacts.removeFailed', err)); },
   });
 }
 
@@ -76,7 +78,8 @@ export function useDeleteKeyword(recordId: string | undefined) {
       qc.invalidateQueries({ queryKey: queryKeys.records.keywords(recordId) });
       qc.invalidateQueries({ queryKey: queryKeys.records.validation });
     },
-    onError: () => { toast.error(i18n.t('dataset:keywords.removeFailed')); },
+    // fix(#438): UX-07 — KeywordsEditor also toasted; the hook now owns it.
+    onError: (err) => { toast.error(formatMutationError('dataset:keywords.removeFailed', err)); },
   });
 }
 

@@ -159,7 +159,7 @@ export const FolderGroupRow = memo(function FolderGroupRow({
               onToggleExpand(groupId);
             }}
             className={cn(
-              'flex items-center justify-center h-6 w-6 -mx-1 rounded text-muted-foreground',
+              'flex items-center justify-center h-6 w-6 -mx-1 rounded-sm text-muted-foreground',
               'transition-transform duration-[--motion-fast]',
               'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
               isExpanded && 'rotate-90',
@@ -188,7 +188,7 @@ export const FolderGroupRow = memo(function FolderGroupRow({
             name: groupName,
           })}
           aria-pressed={visible}
-          className="flex items-center justify-center h-[22px] w-[22px] rounded text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="flex items-center justify-center h-[22px] w-[22px] rounded-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           onClick={(e) => {
             e.stopPropagation();
             onToggleVisibility(groupId);
@@ -201,10 +201,11 @@ export const FolderGroupRow = memo(function FolderGroupRow({
           )}
         </button>
 
-        {/* Cell 4: Type icon — folder group amber variant */}
+        {/* Cell 4: Type icon — folder group.
+            fix(#438): DS-05 — was an inline OKLCH amber with no dark variant;
+            now the theme-aware --type-folder token pair. */}
         <span
-          className="flex items-center justify-center h-[22px] w-[22px] rounded-sm text-xs font-medium"
-          style={{ backgroundColor: 'oklch(0.93 0.03 80)', color: 'oklch(0.45 0.10 80)' }}
+          className="flex items-center justify-center h-[22px] w-[22px] rounded-sm text-xs font-medium bg-type-folder-bg text-type-folder"
           aria-hidden="true"
         >
           ▸
@@ -252,7 +253,7 @@ export const FolderGroupRow = memo(function FolderGroupRow({
                   name: groupName,
                 })}
                 className={cn(
-                  'flex items-center justify-center h-[22px] w-[22px] rounded text-muted-foreground',
+                  'flex items-center justify-center h-[22px] w-[22px] rounded-sm text-muted-foreground',
                   'opacity-0 group-hover/row:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
                   'hover:text-foreground hover:bg-[var(--surface-2)]',
                   selected && 'opacity-100',

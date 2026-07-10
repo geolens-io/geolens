@@ -2,11 +2,13 @@ import { useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { useAuthStore } from '@/stores/auth-store';
+import { useDocumentTitle } from '@/hooks/use-document-title';
 import { getMe } from '@/api/auth';
 import { Loader2 } from 'lucide-react';
 
 export function OAuthCallbackPage() {
   const { t } = useTranslation('auth');
+  useDocumentTitle(t('common:pageTitle.signingIn')); // fix(#438): UX-09
   const navigate = useNavigate();
   const processedRef = useRef(false);
 

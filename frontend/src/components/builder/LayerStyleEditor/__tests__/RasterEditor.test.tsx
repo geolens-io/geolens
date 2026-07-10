@@ -515,7 +515,10 @@ describe('RasterEditor', () => {
     );
     const spinbuttons = screen.getAllByRole('spinbutton');
     const pminInput = spinbuttons[0]!;
+    // fix(#438): BLD-03 — percentile inputs now commit on blur (clamp-on-blur),
+    // not on every keystroke.
     fireEvent.change(pminInput, { target: { value: '10' } });
+    fireEvent.blur(pminInput);
     expect(onPaintProp).toHaveBeenCalledWith('_pmin', 10);
   });
 

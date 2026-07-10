@@ -57,8 +57,19 @@
   --accent-foreground: oklch(0.205 0.005 250);
   --destructive: oklch(0.577 0.245 27.325);
   --destructive-foreground: oklch(0.985 0 0);
+  /* fix(#438): A11Y-02 — measured contrast (OKLCH→sRGB→WCAG):
+     --border 0.88 sits at ~1.4:1 against card/background. Decorative dividers
+     and card edges are not WCAG-1.4.11 "components", so this subtle hairline is
+     kept intentionally for the instrument-panel look; darkening every card edge
+     to 3:1 is a design decision, not swept here. */
   --border: oklch(0.88 0.005 85);
-  --input: oklch(0.88 0.005 85);
+  /* --input IS a 1.4.11 component (form-control boundary), so it is brought to
+     ≥3:1: L 0.65 measures ~3.1:1 vs card and background. */
+  --input: oklch(0.65 0.006 85);
+  /* Focus-ring color. fix(#438): DS-10 — the standard focus treatment is
+     `ring-2 ring-ring`. `ring-primary` was folded into `ring-ring` (same hue).
+     The residual `ring-1` width one-offs and unmapped shadow-xs/xl are a
+     visible-weight change left for a dedicated design pass, not swept here. */
   --ring: oklch(0.55 0.18 250);
 
   /* ─ Surface hierarchy (light mode — warm) ─ */
@@ -67,11 +78,12 @@
   --surface-2: oklch(0.97 0.004 85);
   --surface-3: oklch(0.95 0.005 85);
 
-  /* ─ Brand accent — signature tint ─ */
-  --signature: oklch(0.48 0.14 250);
-  --signature-soft: oklch(0.93 0.03 250);
 
-  /* ─ Map-native surface tones ─ */
+  /* ─ Map-native surface tones ─
+     fix(#438): DS-07 — intentionally scoped to the LoginPage brand panel's
+     wireframe-globe illustration, not general surfaces. Kept as their own
+     tokens (rather than folded into --surface-*) so the illustration can be
+     retuned without shifting app chrome. */
   --map-paper:  oklch(0.95 0.008 85);
   --map-street: oklch(0.82 0.004 85);
   --map-water:  oklch(0.85 0.02 220);
@@ -105,6 +117,16 @@
   --type-vrt: oklch(0.50 0.16 300);
   --type-vrt-bg: oklch(0.94 0.04 300);
 
+  /* fix(#438): synthetic-data badge, was a raw violet-* Tailwind palette (DS-01).
+     Distinct from --type-vrt: that hue marks a record type, this marks provenance. */
+  --synthetic: oklch(0.47 0.17 285);
+  --synthetic-bg: oklch(0.94 0.04 285);
+
+  /* fix(#438): DS-05 — folder-group type icon, was an inline OKLCH amber with no
+     dark variant (the app's only theme-breaking inline color). */
+  --type-folder: oklch(0.45 0.10 80);
+  --type-folder-bg: oklch(0.93 0.03 80);
+
   /* ─ Code snippet syntax tokens ─ */
   --code-bg: oklch(0.17 0.006 250);
   --code-chrome: oklch(0.14 0.006 250);
@@ -115,7 +137,8 @@
   --code-function: oklch(0.78 0.13 220);
   --code-string: oklch(0.78 0.13 140);
   --code-number: oklch(0.8 0.14 70);
-  --code-comment: oklch(0.5 0.008 250);
+  /* fix(#438): A11Y-11 — was 0.5 (~3.3:1 on --code-bg, below AA); 0.6 clears 4.5:1. */
+  --code-comment: oklch(0.6 0.008 250);
   --code-method-badge: oklch(0.75 0.14 155);
   --code-method-badge-bg: oklch(0.75 0.14 155 / 15%);
 
@@ -128,13 +151,6 @@
   --viz-6: oklch(0.65 0.20 5);     /* pink */
   --viz-7: oklch(0.75 0.16 80);    /* amber */
   --viz-8: oklch(0.50 0.18 280);   /* indigo */
-
-  /* ─ Chart colors (legacy, kept for compatibility) ─ */
-  --chart-1: oklch(0.646 0.222 41.116);
-  --chart-2: oklch(0.6 0.118 184.704);
-  --chart-3: oklch(0.398 0.07 227.392);
-  --chart-4: oklch(0.828 0.189 84.429);
-  --chart-5: oklch(0.769 0.188 70.08);
 
   /* ─ Sidebar ─ */
   --sidebar: oklch(0.98 0.003 85);
@@ -183,7 +199,9 @@
   --destructive: oklch(0.704 0.191 22.216);
   --destructive-foreground: oklch(0.25 0.05 22);
   --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
+  /* fix(#438): A11Y-02 — 15% white measured ~1.5:1; 38% reaches ~3.3:1 vs the
+     dark card/surface-2, meeting WCAG 1.4.11 for form controls. */
+  --input: oklch(1 0 0 / 38%);
   --ring: oklch(0.72 0.17 250);
 
   /* ─ Surface hierarchy (true dark, near-black base) ─ */
@@ -192,9 +210,6 @@
   --surface-2: oklch(0.22 0.010 250);
   --surface-3: oklch(0.26 0.012 250);
 
-  /* ─ Brand accent — signature tint (dark mode) ─ */
-  --signature: oklch(0.72 0.17 250);
-  --signature-soft: oklch(0.28 0.06 250);
 
   /* ─ Map-native surface tones (dark mode) ─ */
   --map-paper:  oklch(0.22 0.010 250);
@@ -224,6 +239,12 @@
   --type-vrt: oklch(0.68 0.15 300);
   --type-vrt-bg: oklch(0.28 0.06 300);
 
+  --synthetic: oklch(0.72 0.15 285);
+  --synthetic-bg: oklch(0.28 0.06 285);
+
+  --type-folder: oklch(0.80 0.13 85);
+  --type-folder-bg: oklch(0.30 0.05 80);
+
   /* ─ Code snippet syntax tokens (dark mode) ─ */
   --code-bg: oklch(0.15 0.006 250);
   --code-chrome: oklch(0.12 0.006 250);
@@ -234,7 +255,7 @@
   --code-function: oklch(0.78 0.13 220);
   --code-string: oklch(0.78 0.13 140);
   --code-number: oklch(0.8 0.14 70);
-  --code-comment: oklch(0.5 0.008 250);
+  --code-comment: oklch(0.6 0.008 250);
   --code-method-badge: oklch(0.75 0.14 155);
   --code-method-badge-bg: oklch(0.75 0.14 155 / 15%);
 
@@ -247,13 +268,6 @@
   --viz-6: oklch(0.72 0.18 5);     /* pink */
   --viz-7: oklch(0.80 0.15 80);    /* amber */
   --viz-8: oklch(0.60 0.17 280);   /* indigo */
-
-  /* ─ Chart colors (legacy, kept for compatibility) ─ */
-  --chart-1: oklch(0.488 0.18 264);
-  --chart-2: oklch(0.696 0.17 145);
-  --chart-3: oklch(0.769 0.188 70.08);
-  --chart-4: oklch(0.627 0.18 303.9);
-  --chart-5: oklch(0.645 0.18 16.439);
 
   /* ─ Sidebar ─ */
   --sidebar: oklch(0.13 0.008 250);
@@ -310,9 +324,6 @@
   --color-surface-2: var(--surface-2);
   --color-surface-3: var(--surface-3);
 
-  /* Brand accent (bg-signature, text-signature, bg-signature-soft) */
-  --color-signature: var(--signature);
-  --color-signature-soft: var(--signature-soft);
 
   /* Map-native tones (bg-map-paper, bg-map-street, bg-map-water) */
   --color-map-paper: var(--map-paper);
@@ -351,17 +362,18 @@
   --color-type-table-bg: var(--type-table-bg);
   --color-type-vrt: var(--type-vrt);
   --color-type-vrt-bg: var(--type-vrt-bg);
-
-  /* Chart colors (legacy) */
-  --color-chart-1: var(--chart-1);
-  --color-chart-2: var(--chart-2);
-  --color-chart-3: var(--chart-3);
-  --color-chart-4: var(--chart-4);
-  --color-chart-5: var(--chart-5);
+  --color-synthetic: var(--synthetic);
+  --color-synthetic-bg: var(--synthetic-bg);
+  --color-type-folder: var(--type-folder);
+  --color-type-folder-bg: var(--type-folder-bg);
 
   /* Typography: micro text (badges, readouts, chips) */
-  --text-2xs: 0.625rem;
+  --text-2xs: 0.625rem; /* 10px */
   --text-2xs--line-height: 0.875rem;
+  /* fix(#438): DS-02 — 11px was the single most-used arbitrary size (text-[11px]
+     ×97) and had no token. `text-mini` sits between 2xs (10px) and xs (12px). */
+  --text-mini: 0.6875rem; /* 11px */
+  --text-mini--line-height: 1rem;
 
   /* Animation */
   --animate-fade-in: fade-in 200ms ease-out both;
@@ -417,7 +429,7 @@
 
 /* Neatline tick rule — a map sheet's neatline: 1px baseline with survey
    ticks rising from it every 16px. Used under page headers and panel
-   headers as the redesign's signature divider. Theme-aware via --border. */
+   headers as the redesign's measuring-tape divider. Theme-aware via --border. */
 .tick-rule {
   height: 5px;
   background-image:

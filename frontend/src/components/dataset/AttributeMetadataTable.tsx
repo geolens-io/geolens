@@ -129,7 +129,7 @@ export function AttributeMetadataTable({ datasetId, canEdit }: AttributeMetadata
         <button
           type="button"
           onClick={() => startEditing(attr, field)}
-          className="w-full text-start rounded px-1 -mx-1 hover:bg-accent/50 transition-colors text-xs min-h-[1.75rem] flex items-center"
+          className="w-full text-start rounded-sm px-1 -mx-1 hover:bg-accent/50 transition-colors text-xs min-h-[1.75rem] flex items-center"
           title={t('attributeMetadata.clickToEdit')}
         >
           {value || (
@@ -172,7 +172,7 @@ export function AttributeMetadataTable({ datasetId, canEdit }: AttributeMetadata
                 <div className="flex items-center gap-1.5">
                   {attr.field_name}
                   {attr.semantic_role && (
-                    <Badge variant="outline" className="text-[10px] px-1 py-0">
+                    <Badge variant="outline" className="text-2xs px-1 py-0">
                       {attr.semantic_role}
                     </Badge>
                   )}

@@ -23,6 +23,7 @@ import {
 } from '@/components/builder/row-chrome';
 import { useInlineRename } from '@/components/builder/useInlineRename';
 import type { MapLayerResponse } from '@/types/api';
+import { formatNumber } from '@/lib/format';
 
 interface StackRowProps {
   layer: MapLayerResponse;
@@ -292,7 +293,7 @@ export const StackRow = memo(function StackRow({
           name: displayName,
         })}
         aria-pressed={layer.visible}
-        className="flex items-center justify-center h-[22px] w-[22px] rounded text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className="flex items-center justify-center h-[22px] w-[22px] rounded-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         onClick={(e) => {
           e.stopPropagation();
           onToggleVisibility(layer.id);
@@ -357,7 +358,7 @@ export const StackRow = memo(function StackRow({
               <span
                 title={t('stackRow.disambiguation', { label: disambiguationLabel, defaultValue: '{{label}}' })}
                 data-testid="stack-row-disambiguation"
-                className="min-w-0 max-w-[45%] inline-flex items-center rounded-sm px-1 text-[10px] font-medium leading-tight bg-[var(--warning-50,oklch(0.97_0.04_85))] text-[var(--warning-700,oklch(0.45_0.12_85))]"
+                className="min-w-0 max-w-[45%] inline-flex items-center rounded-sm border border-warning/30 px-1 text-2xs font-medium leading-tight bg-warning/10 text-warning"
               >
                 <span className="truncate">{disambiguationLabel}</span>
                 <span className="sr-only">{t('stackRow.disambiguation', { label: disambiguationLabel, defaultValue: '{{label}}' })}</span>
@@ -370,7 +371,7 @@ export const StackRow = memo(function StackRow({
               <span
                 title={t('stackRow.audienceHidden', { defaultValue: "Hidden from this map's viewers" })}
                 data-testid="stack-row-audience-hidden"
-                className="min-w-0 max-w-[45%] inline-flex items-center rounded-sm px-1 text-[10px] font-medium leading-tight bg-[var(--warning-50,oklch(0.97_0.04_85))] text-[var(--warning-700,oklch(0.45_0.12_85))]"
+                className="min-w-0 max-w-[45%] inline-flex items-center rounded-sm border border-warning/30 px-1 text-2xs font-medium leading-tight bg-warning/10 text-warning"
               >
                 <span className="truncate">
                   {t('stackRow.audienceHidden', { defaultValue: "Hidden from this map's viewers" })}
@@ -396,7 +397,7 @@ export const StackRow = memo(function StackRow({
                 name: displayName,
               })}
               className={cn(
-                'flex items-center justify-center h-[22px] w-[22px] rounded text-muted-foreground',
+                'flex items-center justify-center h-[22px] w-[22px] rounded-sm text-muted-foreground',
                 'opacity-0 group-hover/row:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
                 'hover:text-foreground hover:bg-[var(--surface-2)]',
                 selected && 'opacity-100',
@@ -424,7 +425,7 @@ export const StackRow = memo(function StackRow({
               const columnCount = layer.dataset_column_info?.length ?? 0;
               return (
                 <>
-                  <DropdownMenuLabel className="text-[10px] uppercase tracking-[0.06em] text-muted-foreground px-2 pt-2 pb-1">
+                  <DropdownMenuLabel className="text-2xs uppercase tracking-[0.06em] text-muted-foreground px-2 pt-2 pb-1">
                     {t('layerEditor.source.menuLabel', { defaultValue: 'Source' })}
                   </DropdownMenuLabel>
                   <div className="px-2 pb-2 text-xs space-y-1" data-testid="stack-row-kebab-source">
@@ -441,7 +442,7 @@ export const StackRow = memo(function StackRow({
                         <span className="text-muted-foreground">
                           {t('layerEditor.source.features', { defaultValue: 'Features' })}
                         </span>
-                        <span className="font-medium">{layer.dataset_feature_count.toLocaleString()}</span>
+                        <span className="font-medium">{formatNumber(layer.dataset_feature_count)}</span>
                       </div>
                     )}
                     <div className="flex justify-between gap-2">

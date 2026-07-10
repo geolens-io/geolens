@@ -228,6 +228,9 @@ export function ChatInput({
           label={triggerState!.type === '@' ? t('chat.layersDropdown') : t('chat.commandsDropdown')}
         />
       )}
+      {/* fix(#438): DS-03 — kept as a raw textarea, not the ui/textarea
+          primitive: this one auto-resizes, is a combobox for @-mentions, and
+          carries bespoke keyboard handling. */}
       <textarea
         ref={textareaRef}
         value={value}

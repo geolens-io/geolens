@@ -713,7 +713,8 @@
     },
     "description": "Descripción",
     "unsavedDot": "Cambios sin guardar",
-    "untitled": "Mapa sin título"
+    "untitled": "Mapa sin título",
+    "builderHeading": "Editor de mapas: {{name}}"
   },
   "visibility": {
     "public": "Público",
@@ -1232,5 +1233,13 @@
   "toolbar": {
     "pan": "Desplazar",
     "styleJson": "JSON de estilo"
-  }
+  },
+  "cluster": {
+    "popupTitle_one": "Grupo: {{countLabel}} entidad",
+    "popupTitle_other": "Grupo: {{countLabel}} entidades",
+    "sourceServerTile": "Tesela de grupo del servidor",
+    "sourceBoundedGeojson": "Grupo GeoJSON acotado",
+    "sourceFallback": "Grupo alternativo"
+  },
+  "mobileNotice": "El editor de mapas funciona mejor en una pantalla más grande. Algunos controles están limitados aquí."
 }
