@@ -51,6 +51,21 @@ const persistConfig: PersistOptions<AuthState> = {
     }
     return persistedState as AuthState;
   },
+  /**
+   * fix(#438): DATA-05 — persisting the JWT + refresh token in localStorage is a
+   * deliberate multi-tab trade-off: the cross-tab `storage` listener below keeps
+   * every tab converged on the latest rotated (single-use) refresh token, which
+   * an in-memory-only store could not do. `partialize` makes the persisted
+   * surface explicit — only these auth fields are written, never any transient
+   * UI state that might later be added to the store.
+   */
+  partialize: (state) =>
+    ({
+      token: state.token,
+      refreshToken: state.refreshToken,
+      expiresAt: state.expiresAt,
+      user: state.user,
+    }) as unknown as AuthState,
 };
 
 export const useAuthStore = create<AuthState>()(

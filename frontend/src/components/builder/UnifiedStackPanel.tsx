@@ -266,6 +266,10 @@ const SublayerRow = memo(function SublayerRow({
 // Main panel
 // ---------------------------------------------------------------------------
 
+// fix(#438): PERF-03 — the layer stack is intentionally NOT virtualized. Real
+// maps run well under ~100 layers, where a plain map() out-performs a windowed
+// list (no scroll math, no measurement churn). Upgrade path: swap to a virtual
+// list only if a map is observed to exceed ~100 layers.
 export const UnifiedStackPanel = memo(function UnifiedStackPanel({
   layers,
   mapVisibility = 'private',

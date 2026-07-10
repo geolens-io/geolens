@@ -50,6 +50,13 @@ const SYSTEM_COLUMNS = new Set(['gid', 'geom', 'geom_4326']);
  * declarative `transformRequest` prop is silently ignored in v8.
  *
  * Used by the dataset detail page (`pages/DatasetPage.tsx`).
+ *
+ * fix(#438): ARC-05 — this map is intentionally declarative (@vis.gl JSX
+ * <Source>/<Layer>), unlike the builder/viewer which drive an imperative
+ * adapter core (map-sync + getAdapter). The split is defensible: this host
+ * renders one dataset's tiles with light interaction, so JSX is simpler and
+ * needs no incremental paint diffing. Converge onto the adapter core only if
+ * this page grows builder-like styling; revisit after the ARC-01 extraction.
  */
 
 interface DatasetMapProps {
