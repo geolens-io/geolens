@@ -73,6 +73,68 @@ async def get_user_quota_usage(
     )
 
 
+async def get_user_quota_usage_bulk(
+    db: AsyncSession,
+    user_ids: list[uuid.UUID],
+) -> dict[uuid.UUID, UserQuotaUsage]:
+    """Return quota usage for many users in one aggregate plus one cap read.
+
+    fix(#435): the admin user list called `get_user_quota_usage()` once per row —
+    200 rows per page, each running its own three-table aggregate, plus two
+    persistent-config reads. That is 600 queries to render one admin page, and it
+    grows with the catalog.
+
+    Users with no records are absent from the aggregate; they get a zeroed usage
+    row so callers can index the result unconditionally.
+    """
+    storage_cap = int(await MAX_STORAGE_BYTES_PER_USER.get(db))
+    count_cap = int(await MAX_DATASETS_PER_USER.get(db))
+
+    if not user_ids:
+        return {}
+
+    sql = text(
+        """
+        SELECT
+            r.created_by                            AS user_id,
+            COALESCE(SUM(da.size_bytes), 0)::bigint AS bytes_used,
+            COUNT(DISTINCT r.id)::bigint            AS dataset_count
+        FROM   catalog.records r
+        LEFT JOIN catalog.datasets d  ON d.record_id = r.id
+        LEFT JOIN catalog.dataset_assets da
+               ON da.dataset_id = d.id AND da.key = 'data'
+        WHERE  r.created_by = ANY(CAST(:user_ids AS uuid[]))
+          AND  r.record_type IN (
+                   'vector_dataset', 'raster_dataset', 'vrt_dataset', 'table'
+               )
+        GROUP BY r.created_by
+        """
+    )
+    result = await db.execute(sql, {"user_ids": [str(uid) for uid in user_ids]})
+    by_user = {
+        row.user_id: UserQuotaUsage(
+            bytes_used=int(row.bytes_used),
+            dataset_count=int(row.dataset_count),
+            storage_cap=storage_cap,
+            count_cap=count_cap,
+        )
+        for row in result.all()
+    }
+
+    return {
+        user_id: by_user.get(
+            user_id,
+            UserQuotaUsage(
+                bytes_used=0,
+                dataset_count=0,
+                storage_cap=storage_cap,
+                count_cap=count_cap,
+            ),
+        )
+        for user_id in user_ids
+    }
+
+
 async def check_upload_quota(
     db: AsyncSession,
     user_id: uuid.UUID,

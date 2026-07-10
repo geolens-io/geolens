@@ -25,6 +25,7 @@ from app.core.persistent_config import (
     EMBEDDING_DIMS,
     ENABLE_DATASET_EDITING,
     ENABLED_PLUGINS,
+    ENTERPRISE_ONLY_TABS,
     MAP_DEFAULTS,
     PASSWORD_LOGIN_ENABLED,
     REQUIRE_METADATA_FOR_PUBLISH,
@@ -77,19 +78,6 @@ def _basemap_proxy_rate_limit(_request: Request | None = None) -> str:
 # ---------------------------------------------------------------------------
 
 
-# Phase 279 ADMIN-03 (M-03): Single source of truth for enterprise-only Settings
-# tabs. Both the backend (_require_enterprise_for_key gate) and the frontend
-# (AdminSidebar conditional render) consult this set. The frontend reaches it
-# via GET /admin/settings/enterprise-tabs/ which returns its keys as a JSON
-# list. Adding a new enterprise-only tab: edit this set.
-#
-# Note: "appearance" was previously hardcoded as enterpriseOnly only on the
-# frontend (AdminSidebar.tsx). The backend gate did not enforce it, allowing a
-# community caller to write appearance keys silently. Adding it here closes
-# that drift before the frontend collapses to read this list.
-_ENTERPRISE_ONLY_TABS = frozenset({"branding", "appearance"})
-
-
 # Phase 279 ADMIN-09 (L-01): The PUT/RESET handlers below intentionally end with
 # `return await get_all_settings(...)` to capture side-effects from
 # rebuild_embedding_column rollback, _auto_detect_embedding_dims write, and
@@ -139,7 +127,7 @@ def _require_enterprise_for_key(key: str) -> None:
     if is_enterprise():
         return
     cfg = _get_registry_map().get(key)
-    if cfg is not None and cfg.tab in _ENTERPRISE_ONLY_TABS:
+    if cfg is not None and cfg.tab in ENTERPRISE_ONLY_TABS:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
 
 
@@ -198,7 +186,7 @@ async def get_all_settings(
     tabs: dict[str, list[SettingItem]] = {}
     for cfg in _registry:
         # Hide enterprise-only tabs in community edition
-        if not enterprise and cfg.tab in _ENTERPRISE_ONLY_TABS:
+        if not enterprise and cfg.tab in ENTERPRISE_ONLY_TABS:
             continue
         if cfg.key == "public_app_url":
             value = await get_public_app_url(db, request=request)
@@ -248,7 +236,7 @@ async def get_enterprise_only_tabs(
     aligned.
     """
     # Sort for stable JSON output (downstream tests rely on deterministic order)
-    return EnterpriseTabsResponse(tabs=sorted(_ENTERPRISE_ONLY_TABS))
+    return EnterpriseTabsResponse(tabs=sorted(ENTERPRISE_ONLY_TABS))
 
 
 # ROUTE-01 (Phase 1092): dual-shape decorator — see /all above. The empty

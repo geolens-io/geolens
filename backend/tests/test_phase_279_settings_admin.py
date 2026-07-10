@@ -2,7 +2,7 @@
 
 ADMIN-03 (M-03): Lock the single-source-of-truth contract for enterprise-only
 Settings tab keys. Without this gate, future drift between backend
-``_ENTERPRISE_ONLY_TABS`` and frontend ``AdminSidebar`` enterpriseOnly flags
+``ENTERPRISE_ONLY_TABS`` and frontend ``AdminSidebar`` enterpriseOnly flags
 can re-emerge silently.
 
 ADMIN-04 (M-04): Lock the unified audit-export format dispatcher. Without
@@ -17,7 +17,7 @@ be unreachable (e.g. lint-only CI lanes).
 from pathlib import Path
 
 from app.modules.audit.router import FORMAT_HANDLERS
-from app.modules.settings.router import _ENTERPRISE_ONLY_TABS
+from app.core.persistent_config import ENTERPRISE_ONLY_TABS
 from app.modules.settings.schemas import EnterpriseTabsResponse
 
 
@@ -34,19 +34,19 @@ def test_enterprise_only_tabs_constant_includes_branding_and_appearance():
     settings because `_require_enterprise_for_key` only blocked branding.
     Phase 279 ADMIN-03 reconciles them and this test gates against regression.
     """
-    assert "branding" in _ENTERPRISE_ONLY_TABS
-    assert "appearance" in _ENTERPRISE_ONLY_TABS
+    assert "branding" in ENTERPRISE_ONLY_TABS
+    assert "appearance" in ENTERPRISE_ONLY_TABS
     # The set must remain exactly these two as of v13.13. Adding tabs is a
     # deliberate boundary change and should be paired with an update to this
     # assertion AND a corresponding update to the frontend FALLBACK constant
     # in AdminSidebar.tsx (server-driven hook is the canonical source, but
     # the fallback applies during boot/network failures).
-    assert _ENTERPRISE_ONLY_TABS == frozenset({"branding", "appearance"})
+    assert ENTERPRISE_ONLY_TABS == frozenset({"branding", "appearance"})
 
 
 def test_enterprise_tabs_response_schema_serializes_sorted():
     """The endpoint returns sorted(set) for stable JSON; validate the response model."""
-    resp = EnterpriseTabsResponse(tabs=sorted(_ENTERPRISE_ONLY_TABS))
+    resp = EnterpriseTabsResponse(tabs=sorted(ENTERPRISE_ONLY_TABS))
     assert resp.tabs == ["appearance", "branding"]
 
 

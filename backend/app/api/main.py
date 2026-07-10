@@ -25,7 +25,7 @@ from app.platform.cache.provider import init_tile_cache
 # settings already imported above for the tempdir override — do NOT reimport
 from app.core.db import async_session, engine
 from app.core.logging_config import setup_logging
-from app.core.runtime.staging import ensure_staging_ready
+from app.core.runtime.staging import ensure_staging_ready, sweep_orphaned_exports
 from app.platform.extensions.bootstrap import bootstrap
 from app.modules.auth.models import Role, User, UserRole
 from app.modules.auth.providers.local import hash_password
@@ -193,20 +193,13 @@ async def lifespan(app: FastAPI):
     await bootstrap(app=app)
 
     staging_root = ensure_staging_ready(settings.upload_staging_dir)
-    ensure_staging_ready(staging_root / "exports")
+    exports_dir = ensure_staging_ready(staging_root / "exports")
 
-    import shutil
-
-    exports_dir = staging_root / "exports"
-    if exports_dir.exists():
-        orphaned = list(exports_dir.iterdir())
-        if orphaned:
-            for item in orphaned:
-                if item.is_dir():
-                    shutil.rmtree(item, ignore_errors=True)
-                else:
-                    item.unlink(missing_ok=True)
-            logger.info("Cleaned orphaned export temp files", count=len(orphaned))
+    # fix(#435): this used to delete every entry unconditionally. Production runs
+    # two Uvicorn workers over one staging volume, so a restarting worker could
+    # truncate an export a surviving sibling was still writing or streaming. Share
+    # the worker's age-aware sweeper instead.
+    sweep_orphaned_exports(exports_dir)
 
     init_tile_cache()
     await init_tile_pool()
@@ -553,6 +546,9 @@ async def _rate_limit_handler(request: Request, exc: RateLimitExceeded) -> JSONR
 app.add_exception_handler(RateLimitExceeded, _rate_limit_handler)
 
 
+from sqlalchemy.exc import DBAPIError  # noqa: E402
+
+from app.core.db.sqlstate import is_operational, sqlstate  # noqa: E402
 from app.modules.quota.service import (  # noqa: E402
     DatasetQuotaExceededError,
     StorageQuotaExceededError,
@@ -592,8 +588,41 @@ async def _storage_quota_handler(
     )
 
 
+async def _database_error_handler(request: Request, exc: DBAPIError) -> JSONResponse:
+    """Map an operational database failure to a 503 (fix(#435)).
+
+    Connection loss, statement timeout, cancellation, and serialization failures used
+    to be caught per-handler and reported as domain data — a dataset with zero rows,
+    say — which hid ingest corruption and infrastructure incidents from users and from
+    health monitoring. Handlers now re-raise what they cannot legitimately answer.
+
+    Non-operational errors (integrity violations, syntax and access errors) are
+    re-raised so they keep their existing 500 path; calling a unique-constraint
+    collision "database unavailable" would just invite a retry loop.
+
+    The detail is deliberately generic: the SQLSTATE and statement go to the log.
+    """
+    if not is_operational(exc):
+        raise exc
+    logger.exception(
+        "Operational database error",
+        path=request.url.path,
+        sqlstate=sqlstate(exc),
+    )
+    return JSONResponse(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        content=ProblemDetail(
+            title="Database unavailable",
+            status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="The database could not serve this request. Please retry.",
+        ).model_dump(),
+        media_type="application/problem+json",
+    )
+
+
 app.add_exception_handler(DatasetQuotaExceededError, _dataset_quota_handler)
 app.add_exception_handler(StorageQuotaExceededError, _storage_quota_handler)
+app.add_exception_handler(DBAPIError, _database_error_handler)
 
 # SEC-02 / M-64 / SEC-005: gate https_only on the production indicator. Local-dev
 # and test runs use the development posture (no TLS terminator), so

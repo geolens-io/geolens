@@ -606,9 +606,13 @@ async def _authorize_metadata_dataset(
     that has a ``dataset_id``-keyed TTL cache and no ``user`` param, so a cache hit
     would bypass an in-service check). On denial ``check_dataset_access`` raises 404
     — same response as a nonexistent dataset, so this is not an existence oracle.
+
+    fix(#435): goes through ProcessingPort rather than importing catalog directly.
+    Both operations already exist on the port, so the lazy import bought nothing and
+    cost the overlay seam: an Enterprise/Cloud port could not observe this
+    authorization at all.
     """
-    from app.modules.catalog.authorization import check_dataset_access
-    from app.modules.catalog.datasets.domain.service import get_dataset
+    port = get_processing_port()
 
     try:
         dsid = uuid_mod.UUID(dataset_id)
@@ -617,12 +621,12 @@ async def _authorize_metadata_dataset(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Invalid dataset_id",
         )
-    dataset = await get_dataset(db, dsid)
+    dataset = await port.get_dataset(db, dsid)
     if dataset is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found"
         )
-    await check_dataset_access(db, dataset, dsid, user)
+    await port.check_dataset_access(db, dataset, dsid, user)
 
 
 @router.post("/metadata/summary/", response_model=SummaryDraftResponse)

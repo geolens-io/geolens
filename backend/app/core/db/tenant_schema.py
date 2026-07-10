@@ -266,3 +266,22 @@ def tenant_shard_id(tenant_id: str | None) -> str | None:
             exc_info=True,  # WR-01: surface stack trace so failures are diagnosable
         )
         return "shard-0"
+
+
+async def schema_exists(session, schema: str) -> bool:
+    """True when *schema* exists in the current database.
+
+    fix(#435 codex r1): Postgres answers `SELECT * FROM missing_schema.t` with
+    `42P01` (undefined_table), the same code a raster dataset's synthetic table
+    produces in a schema that does exist. Read-side callers that degrade `42P01`
+    to an empty page must probe first, or a tenant data schema that was never
+    provisioned (or was lost in a restore) is silently reported as a dataset with
+    zero rows.
+
+    Run this only on an error path: it costs a catalog lookup, and it must follow
+    a rollback because the failed statement aborted the transaction.
+    """
+    result = await session.execute(
+        text("SELECT to_regnamespace(:schema) IS NOT NULL"), {"schema": schema}
+    )
+    return bool(result.scalar_one())

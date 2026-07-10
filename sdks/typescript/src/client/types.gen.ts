@@ -7680,7 +7680,7 @@ export type ShareTokenRequest = {
     /**
      * Expires At
      *
-     * Expiration timestamp. Null creates a non-expiring share link.
+     * Expiration timestamp; must carry a UTC offset. Null creates a non-expiring share link. A custom expiration requires advanced sharing controls.
      */
     expires_at?: string | null;
 };

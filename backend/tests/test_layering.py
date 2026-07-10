@@ -817,7 +817,12 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # queries (raster/missing-table guard). Cap 595 -> 620 (~3 LOC headroom).
         "backend/app/modules/catalog/datasets/domain/service_relationships.py": 620,
         "backend/app/modules/catalog/datasets/domain/service_metadata.py": 460,
-        "backend/app/modules/catalog/datasets/domain/service_query.py": 390,
+        # fix(#435 codex r1): +6 LOC in get_dataset_rows to probe schema existence
+        # before degrading a 42P01 to an empty page. Postgres reports a missing
+        # tenant data schema with the same code as a raster dataset's synthetic
+        # table, so the code alone cannot tell provisioning drift from normal
+        # emptiness. Cap 390 -> 396, no headroom.
+        "backend/app/modules/catalog/datasets/domain/service_query.py": 396,
         # Phase 276 CODE-02: chat_*.py sub-modules are all under the 350
         # default (largest is chat_actions.py at ~245 LOC). No explicit
         # per-file overrides needed; default applies.
@@ -868,84 +873,73 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         )
 
 
+# fix(#435): each cap equals the file's current LOC, so these files can only shrink.
+# Every cap here used to carry 3-7% headroom, and each time a file grew into its cap
+# the cap was raised (five documented raises for tiles/router.py alone). That is how
+# "decomposition is queued" stayed true for a year while the routers grew past 2,000
+# lines.
+#
+# To add lines to a ratcheted file: remove lines from it, or decompose it into
+# sub-routers (per Phase 226 / Phase 238) and lower its cap in the same commit.
+# Lowering a cap is always fine. Raising one needs a written carve-out here.
+#
+# History of the previous caps, kept because it records why each file is large:
+#   maps/router.py    1610 → 1700 → 1800 → 1900. Phase 1047 bulk-delete, then PR #118
+#     builder polish took it to 2107; extracting _router_helpers.py brought it back.
+#     Splitting share/media/layers into sub-routers is the remaining work.
+#   search/router.py  1515 → 1600 → 1640 → 1700. OGC record metadata (#315), then the
+#     record_type/sort_by allowlist + to_filters() chokepoint (#317 A2).
+#   tiles/router.py   1500 → 1660 → 1850 → 1920 → 2050 → 2090. Raster meta TTLCache
+#     (1176 PERF-002), SET LOCAL ROLE binding (1209-03 DP-02), cloud fairness/metering
+#     seams (1213-06), the cold-tier seam (1214-04), terrainrgb nodata (#186), and
+#     empty-tile Cache-Control (#430 V-03). NOTE: `_check_cold_rehydrate` is pinned to
+#     this module by the overlay's 1214-05 static AST proof, so the tile_seams.py split
+#     must update the overlay in lockstep.
+_ROUTER_LOC_CAPS: dict[str, int] = {
+    "backend/app/modules/catalog/maps/router.py": 1884,
+    "backend/app/modules/catalog/search/router.py": 1671,
+    "backend/app/processing/tiles/router.py": 2077,
+}
+
+
+@pytest.mark.architecture
+def test_router_loc_caps_have_no_headroom() -> None:
+    """Every ratchet must equal its file's current LOC.
+
+    A cap above the current size is permission to grow. The audit found 13, 3, and 29
+    spare lines in the three largest routers — each one the seed of the next
+    "cap raised to N, decomposition queued" comment.
+
+    Shrinking a file fails this too. Lower the cap in the same commit.
+    """
+    drift: list[str] = []
+    for rel, cap in sorted(_ROUTER_LOC_CAPS.items()):
+        actual = len(_repo_style_path(rel).read_text().splitlines())
+        if actual != cap:
+            verb = "shrank below" if actual < cap else "exceeds"
+            drift.append(f"{rel}: {actual} lines {verb} its cap of {cap}")
+
+    if drift:
+        pytest.fail(
+            "Router LOC ratchets are out of sync with the files they track. Set each "
+            "cap to the file's current line count.\n" + "\n".join(drift)
+        )
+
+
 @pytest.mark.architecture
 def test_router_orchestrator_modules_stay_within_loc_cap() -> None:
     """Phase 276 CODE-01: router and orchestrator modules stay <= 1500 LOC.
 
     Catches regrowth of large API-edge modules toward the size cliff that
     triggered the Phase 226 / Phase 238 / Phase 252 decompositions.
-    Allowlist exists for currently-over-cap modules; values are HARD CAPS
-    (current LOC + small headroom), not waivers — the test still fails if
-    an allowlisted file grows past its listed cap.
+    Allowlisted modules are ratcheted at their current size (see _ROUTER_LOC_CAPS).
 
     Scope: ``backend/app/**/router.py`` (all module + standards routers).
     Decomposed service modules (``service_*.py``) are covered separately by
     ``test_decomposed_service_modules_stay_within_size_budgets``.
     """
     DEFAULT_CAP = 1500
-    # Allowlist values track each file's current LOC + ~5-7% headroom for
-    # routine line drift (rounded up to the nearest 50). Tighten back toward
-    # DEFAULT_CAP when natural decomposition opportunities arise; do NOT
-    # raise these caps to mask regrowth without a documented carve-out.
-    allowlist: dict[str, int] = {
-        # Phase 276 CODE-01 baseline at plan time:
-        #   maps/router.py    = 1610 LOC -> cap 1700 (+5.6% headroom)
-        #   search/router.py  = 1515 LOC -> cap 1600 (+5.6% headroom)
-        # Phase 1060 CTRL-01 close-gate carve-out (v1013, 2026-05-20):
-        #   maps/router.py grew to 1761 via Phase 1047 bulk-delete endpoint
-        #   (commits 76cd7642 + 52f04462) without triggering CI on the
-        #   subsequent v1010/v1011/v1012 closes — the v1013 close gate
-        #   surfaced it. Re-baselining at 1800 with ~2% headroom; decomposition
-        #   (split into facade + sub-routers per Phase 226/238 pattern) is
-        #   queued for v1014. HARD ceiling — do NOT raise past 1800 without
-        #   decomposing.
-        # Both are top decomposition candidates for a future phase; the cap
-        # is a HARD ceiling, not a waiver — growth past it still fails CI.
-        # PR #118 (v1024->v1033 builder catch-up): maps/router.py grew to 2107
-        # via builder-polish features. Post-merge follow-up extracted the
-        # 12-helper response-builder/access-check cluster into _router_helpers.py,
-        # bringing it to 1844. Cap re-baselined to 1900 (~3% headroom). Further
-        # reduction below the 1500 default requires splitting the share/media/
-        # layers endpoint groups into sub-routers (per Phase 226 / Phase 238) —
-        # queued. HARD ceiling — do NOT raise past 1900 without decomposing.
-        "backend/app/modules/catalog/maps/router.py": 1900,
-        # Smoke-check backlog (#315): raster coverage list metadata (itemType +
-        # rel=tiles, omit rel=items), stable numberMatched + collection count,
-        # and the filter-lang 400. Smoke-residual follow-up (#315): +public_app_url
-        # fetches in 3 OGC-record handlers for the raster_tiles app-origin fix.
-        # Hygiene follow-up (#317, A2): +~25 LOC for the record_type/sort_by
-        # allowlist constants + the to_filters() validation chokepoint.
-        # Cap 1640 -> 1700 (now 1671 LOC, ~1.7% headroom).
-        "backend/app/modules/catalog/search/router.py": 1700,
-        # Phase 1176 PERF-002: +~60 lines for the raster tile auth/metadata
-        # TTLCache (_RasterMeta + _resolve_raster_meta), mirroring the vector
-        # tile meta cache so raster tiles aren't asymmetric.
-        # Phase 1209-03 DP-02: +~51 lines for per-request SET LOCAL ROLE binding,
-        # schema-qualified tile queries, and tenant-filtered resolver. Cap raised
-        # to 1660 (29 LOC headroom).
-        # Phase 1213-06 FAIR-01/METER-03: +~128 lines for _get_cloud_fairness()
-        # lazy importer, _emit_tile_usage_event() billing-import-free seam helper,
-        # per-tenant semaphore acquisition around the tile pool, and Cache-Control
-        # override for cloud CDN SLO. All cloud-conditional (has_extension gate);
-        # OSS byte-identical. Cap raised to 1850 (+62 headroom).
-        # Phase 1214-04 COLD-02/03: +~70 lines for the _check_cold_rehydrate()
-        # billing-import-free cold-tier seam (deferred geolens_cloud import behind
-        # is_multi_tenant()/has_extension('cloud') guards; never 500s a tile —
-        # T-1214-17). Cloud-conditional; OSS byte-identical. The seam helper is
-        # pinned to THIS module by the overlay's 1214-05 static AST proof
-        # (ast.AsyncFunctionDef _check_cold_rehydrate must resolve in the core
-        # router source), so it cannot be relocated without cross-repo
-        # coordination. Cap raised to 1920 (+26 headroom). HARD ceiling — the
-        # cold/fairness/metering seams must be decomposed into a tile_seams.py
-        # sub-module (updating the overlay AST proof in lockstep) before raising
-        # further.
-        # v1043 #186: terrainrgb nodata-mask handling added ~23 LOC (now 1943);
-        # cap raised to 2050 (+5.5% headroom) pending the tile_seams.py split.
-        # fix(#430 V-03): empty-tile (204) responses now carry Cache-Control via a new
-        # _empty_tile_headers helper applied at 3 sites (~21 LOC, now 2071); cap
-        # raised 2050 → 2090 (~19 headroom), still pending the tile_seams.py split.
-        "backend/app/processing/tiles/router.py": 2090,
-    }
+    allowlist = _ROUTER_LOC_CAPS
 
     violations: list[str] = []
     for path in sorted((BACKEND_ROOT / "app").rglob("router.py")):
@@ -1174,72 +1168,119 @@ def test_billing_dispatch_uses_hardcoded_timeout() -> None:
         )
 
 
+# fix(#435): burn-down list of function-local `app.modules.catalog` imports inside
+# `backend/app/processing/`. Every entry is a place where processing reaches past
+# ProcessingPort, so an Enterprise/Cloud overlay cannot observe or intercept the call.
+#
+# The list may SHRINK, never grow. Adding an entry means adding a new port bypass —
+# route the behavior through `app.core.processing_port` instead. See
+# `_authorize_metadata_dataset` in `processing/ai/router.py`, migrated to the port's
+# existing `get_dataset` / `check_dataset_access` methods.
+_PROCESSING_CATALOG_IMPORT_BURNDOWN: dict[str, set[str]] = {
+    "ai/chat_validation.py": {"app.modules.catalog.maps.filter_grammar"},
+    "ai/router.py": {
+        # Private cross-domain helpers. Needs behavior-level ProcessingPort methods
+        # (check_map_read_access, can_edit_map) before this edge can go.
+        "app.modules.catalog.maps._router_helpers",
+        "app.modules.catalog.maps.models",
+    },
+    "ai/service.py": {
+        "app.modules.catalog.datasets.domain.models",
+        "app.modules.catalog.search.service",
+    },
+    "export/router.py": {
+        "app.modules.catalog.authorization",
+        "app.modules.catalog.features.service",
+    },
+    "ingest/manifest_service.py": {
+        "app.modules.catalog.authorization",
+        # Rule 2 (AGENTS.md): SSRF redirect revalidation must use make_safe_client.
+        "app.modules.catalog.sources.security",
+    },
+    "ingest/manifest_sources.py": {"app.modules.catalog.sources"},
+    "ingest/router.py": {
+        "app.modules.catalog.authorization",
+        "app.modules.catalog.datasets.domain.service",
+        "app.modules.catalog.sources.security",
+    },
+    "ingest/service.py": {
+        "app.modules.catalog.authorization",
+        "app.modules.catalog.datasets.domain.service",
+    },
+    "ingest/tasks_reupload.py": {"app.modules.catalog.sources.security"},
+    "ingest/tasks_vector.py": {
+        "app.modules.catalog.sources.adapters.arcgis",
+        "app.modules.catalog.sources.security",
+    },
+    "tiles/router.py": {"app.modules.catalog.datasets.domain.models"},
+}
+
+_PROCESSING_DIR = REPO_ROOT / "backend" / "app" / "processing"
+
+
+def _catalog_import_edges() -> dict[str, set[str]]:
+    """Every `app.modules.catalog.*` import under processing/, at ANY scope."""
+    import ast
+
+    edges: dict[str, set[str]] = {}
+    for path in sorted(_PROCESSING_DIR.rglob("*.py")):
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if isinstance(node, ast.ImportFrom) and node.module:
+                modules = [node.module]
+            elif isinstance(node, ast.Import):
+                modules = [alias.name for alias in node.names]
+            else:
+                continue
+            for module in modules:
+                if module.startswith("app.modules.catalog"):
+                    key = str(path.relative_to(_PROCESSING_DIR))
+                    edges.setdefault(key, set()).add(module)
+    return edges
+
+
 @pytest.mark.architecture
-@pytest.mark.skipif(not _GIT_METADATA_AVAILABLE, reason=_GIT_METADATA_REASON)
-@pytest.mark.skipif(
-    not _PATHSPEC_MAGIC_AVAILABLE,
-    reason=(
-        "git < 2.13 lacks `:!` pathspec exclusion; cannot enforce "
-        "Phase 225 PROCESS-04 invariant via grep-based guard"
-    ),
-)
 def test_no_processing_imports_catalog() -> None:
-    """Phase 225 PROCESS-02/04: backend/app/processing/ must not have module-level imports from app.modules.catalog.*.
+    """Phase 225 PROCESS-02/04: processing/ reaches catalog only through ProcessingPort.
 
-    All catalog access must go through ProcessingPort (app.core.processing_port).
-    Strict zero-hit for module-level (top-level, unindented) imports — no allowlist
-    for processing/* (D-23).
-
-    Excluded paths:
-      - backend/tests/ — test fixtures construct catalog ORM objects directly,
-        structurally satisfying the Protocols (the scan target backend/app/processing/
-        is already disjoint from backend/tests/, so no explicit pathspec exclusion
-        is needed).
-
-    Scope: this guard catches module-level imports (lines starting at column 0
-    with ``from app.modules.catalog`` or ``import app.modules.catalog``).
-    Function-scope lazy imports (indented, e.g. inside async def bodies in
-    tiles/router.py, ai/service.py, ai/router.py, ai/metadata_service.py,
-    export/router.py) are a separate migration target and are out of scope for
-    this guard. The guard prevents any NEW module-level catalog import edges
-    from being introduced.
-
-    The pattern ``^(from|import) app.modules.catalog`` (literal space, no backslash-s
-    metachar) is used because git grep's POSIX ERE does not recognize backslash-s as a
-    whitespace class — the POSIX-compatible form would require ``[[:space:]]``, but
-    a literal space is equivalent for well-formatted Python import statements and
-    matches the intent of the guard.
-
-    Maps to Phase 225 ROADMAP SC#2 / SC#3. Inlines former Phase 999.11
-    (added in same phase as the inversion — guard before inversion fails CI).
+    fix(#435): this guard was a `git grep` for imports starting at column 0, so moving
+    an import inside a function body satisfied it while still bypassing the overlay
+    seam. An AST scan found 30 such function-local imports across 11 files, one
+    reaching into private router helpers and another bypassing the port for dataset
+    authorization. The guard now walks every scope, and the surviving edges are an
+    explicit burn-down list rather than an invisible exemption.
     """
-    result = subprocess.run(
-        [
-            "git",
-            "grep",
-            "-n",
-            "-E",
-            r"^(from|import) app\.modules\.catalog",
-            "--",
-            "backend/app/processing/",
-        ],
-        cwd=REPO_ROOT,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    offenders: list[str] = []
+    for file, modules in sorted(_catalog_import_edges().items()):
+        allowed = _PROCESSING_CATALOG_IMPORT_BURNDOWN.get(file, set())
+        for module in sorted(modules - allowed):
+            offenders.append(f"  backend/app/processing/{file}: {module}")
 
-    if result.returncode == 0:
+    if offenders:
         pytest.fail(
             "Phase 225 PROCESS-02/04 invariant violated: backend/app/processing/ "
-            "contains a module-level import from app.modules.catalog.*. All catalog "
-            "access must go through ProcessingPort (app.core.processing_port). "
-            f"Offending lines:\n{result.stdout}"
+            "imports app.modules.catalog.* outside the burn-down allowlist. Route the "
+            "behavior through ProcessingPort (app.core.processing_port) instead of "
+            "adding an entry to _PROCESSING_CATALOG_IMPORT_BURNDOWN.\n"
+            + "\n".join(offenders)
         )
-    if result.returncode != 1:
+
+
+@pytest.mark.architecture
+def test_processing_catalog_import_allowlist_is_current() -> None:
+    """The burn-down list must shrink as edges are migrated — no stale entries.
+
+    A stale entry is a silent licence to reintroduce the bypass later.
+    """
+    edges = _catalog_import_edges()
+    stale: list[str] = []
+    for file, modules in sorted(_PROCESSING_CATALOG_IMPORT_BURNDOWN.items()):
+        for module in sorted(modules - edges.get(file, set())):
+            stale.append(f"  {file}: {module}")
+
+    if stale:
         pytest.fail(
-            f"git grep failed unexpectedly: rc={result.returncode}\n"
-            f"stderr: {result.stderr}"
+            "_PROCESSING_CATALOG_IMPORT_BURNDOWN lists edges that no longer exist. "
+            "Delete them — the list only shrinks.\n" + "\n".join(stale)
         )
 
 
@@ -1692,4 +1733,111 @@ def test_no_unjustified_broad_except_sites() -> None:
             "<reason>`) on the SAME line as the `except`, OR tighten the "
             "catch to a specific exception class.\n"
             "Offending lines:\n" + "\n".join(violations)
+        )
+
+
+# fix(#435): `platform/` is the shared layer beneath `modules/`, but four files import
+# upward into product domains at module scope. Each edge means a product-layer refactor
+# can break platform imports at runtime, so they are enumerated rather than tolerated
+# silently. The list may SHRINK, never grow.
+#
+# Deferred (function-local) imports are out of scope: they are the established D-17
+# discipline for breaking these cycles, and `platform/extensions/defaults.py` is built
+# on them by design.
+_PLATFORM_MODULE_IMPORT_BURNDOWN: dict[str, set[str]] = {
+    # Bootstrap adapters: FastAPI dependency callables must be imported to be used as
+    # route dependencies. Resolvable by moving these routers under modules/.
+    "config_ops/router.py": {"app.modules.auth.dependencies"},
+    "jobs/router.py": {"app.modules.auth.dependencies"},
+    # Config import/export validates product schemas. Resolvable by moving config_ops
+    # under modules/settings/, or by passing validated DTOs across a settings port.
+    "config_ops/service.py": {
+        "app.modules.auth.oauth.schemas",
+        "app.modules.auth.permissions",
+        "app.modules.settings.schemas",
+    },
+    # The SQL sandbox enforces catalog visibility. Resolvable via CatalogPort.
+    "sandbox/validator.py": {
+        "app.modules.catalog.authorization",
+        "app.modules.catalog.datasets.domain.models",
+    },
+}
+
+_PLATFORM_DIR = REPO_ROOT / "backend" / "app" / "platform"
+
+
+def _platform_module_level_edges() -> dict[str, set[str]]:
+    """Module-level (column 0) `app.modules.*` imports under platform/."""
+    import ast
+
+    edges: dict[str, set[str]] = {}
+    for path in sorted(_PLATFORM_DIR.rglob("*.py")):
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if isinstance(node, ast.ImportFrom) and node.module:
+                modules = [node.module]
+            elif isinstance(node, ast.Import):
+                modules = [alias.name for alias in node.names]
+            else:
+                continue
+            if node.col_offset != 0:
+                continue
+            for module in modules:
+                if module.startswith("app.modules"):
+                    key = str(path.relative_to(_PLATFORM_DIR))
+                    edges.setdefault(key, set()).add(module)
+    return edges
+
+
+@pytest.mark.architecture
+def test_platform_does_not_import_modules() -> None:
+    """The shared platform layer must not depend upward on product domains.
+
+    fix(#435): `platform/config_ops/service.py` reached into `modules.settings.router`
+    for the private `_ENTERPRISE_ONLY_TABS`. That constant now lives beside the
+    persistent-config registry that defines `PersistentConfig.tab`, so edition policy
+    has a stable owner and decomposing the settings router cannot break config import.
+    """
+    offenders: list[str] = []
+    for file, modules in sorted(_platform_module_level_edges().items()):
+        allowed = _PLATFORM_MODULE_IMPORT_BURNDOWN.get(file, set())
+        for module in sorted(modules - allowed):
+            offenders.append(f"  backend/app/platform/{file}: {module}")
+
+    if offenders:
+        pytest.fail(
+            "platform/ imports upward into app.modules.* at module scope. Depend on a "
+            "core port or DTO, or defer the import (D-17), rather than adding an entry "
+            "to _PLATFORM_MODULE_IMPORT_BURNDOWN.\n" + "\n".join(offenders)
+        )
+
+
+@pytest.mark.architecture
+def test_platform_does_not_import_private_module_names() -> None:
+    """No `from app.modules.… import _private` anywhere in platform/, at any scope.
+
+    A leading underscore says the name can move or vanish without notice.
+    `platform/config_ops` imported the settings router's `_ENTERPRISE_ONLY_TABS`, so any
+    refactor of that router became a runtime break here.
+    """
+    import ast
+
+    offenders: list[str] = []
+    for path in sorted(_PLATFORM_DIR.rglob("*.py")):
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if not isinstance(node, ast.ImportFrom) or not node.module:
+                continue
+            if not node.module.startswith("app.modules"):
+                continue
+            for alias in node.names:
+                if alias.name.startswith("_"):
+                    rel = path.relative_to(_PLATFORM_DIR)
+                    offenders.append(
+                        f"  backend/app/platform/{rel}: {node.module}.{alias.name}"
+                    )
+
+    if offenders:
+        pytest.fail(
+            "platform/ imports a private name from a product module. Promote it to a "
+            "public home (core registry, port, or DTO) instead.\n"
+            + "\n".join(offenders)
         )

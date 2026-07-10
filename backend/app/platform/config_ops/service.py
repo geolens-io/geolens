@@ -291,15 +291,12 @@ async def import_config(
     Callers with access apply all keys.
     """
     from app.core.edition import is_enterprise
-    from app.core.persistent_config import _registry
+    from app.core.persistent_config import ENTERPRISE_ONLY_TABS, _registry
     from app.core.public_urls import _is_env_only
     from app.modules.audit.service import (
         AuditEvent,
         audit_emit,
     )  # LAZY — preserved per D-17
-
-    # BUG-011: mirror the same restricted tab set the settings PUT gate uses.
-    from app.modules.settings.router import _ENTERPRISE_ONLY_TABS
 
     if _is_env_only():
         raise ConfigLockedError("Configuration locked to environment variables")
@@ -343,7 +340,7 @@ async def import_config(
 
         # BUG-011: callers without access cannot write restricted keys. Skip
         # (don't apply) rather than reject the whole import.
-        if not caller_is_enterprise and cfg.tab in _ENTERPRISE_ONLY_TABS:
+        if not caller_is_enterprise and cfg.tab in ENTERPRISE_ONLY_TABS:
             settings_skipped += 1
             skipped_restricted.append(key)
             continue
@@ -385,7 +382,7 @@ async def import_config(
             # mode would still call reset() on them - reverting restricted
             # branding/appearance settings to env defaults despite reporting them
             # as skipped.
-            if not caller_is_enterprise and cfg.tab in _ENTERPRISE_ONLY_TABS:
+            if not caller_is_enterprise and cfg.tab in ENTERPRISE_ONLY_TABS:
                 continue
             # fix(#430 BA-31): defer to the single terminal commit so the whole import
             # is one transaction — a later failure (e.g. missing OAuth secret)

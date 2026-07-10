@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.edition import is_enterprise
 from app.core.identity import Identity
 from app.modules.auth.models import User
 from app.modules.catalog._ilike import escape_ilike
@@ -21,6 +22,7 @@ from app.modules.catalog.maps.service_shared import (
     _extract_dem_vertical_units,
 )
 from app.modules.embed_tokens.models import EmbedToken
+from app.modules.embed_tokens.schemas import ADVANCED_SHARING_ERROR
 from app.modules.embed_tokens.service import resolve_embed_scope_for_map
 from app.platform.extensions import get_catalog_port
 
@@ -85,6 +87,19 @@ async def find_public_maps_using_dataset(
     return [row[0] for row in result.all()]
 
 
+def _reject_custom_expiration_in_community(expires_at: datetime | None) -> None:
+    """Enforce the advanced-sharing edition boundary at the service entry points.
+
+    fix(#435): only the two route handlers called `is_enterprise()` before invoking
+    these services, so a bulk-import path, overlay, or test helper could persist an
+    Enterprise-only expiration on a Community deployment. `None` remains valid, which
+    keeps basic create/revoke working and lets Community clear an expiration that an
+    Enterprise license previously set.
+    """
+    if expires_at is not None and not is_enterprise():
+        raise ValueError(ADVANCED_SHARING_ERROR)
+
+
 async def create_share_token(
     session: AsyncSession,
     map_id: uuid.UUID,
@@ -92,6 +107,7 @@ async def create_share_token(
     expires_at: datetime | None = None,
 ) -> MapShareToken:
     """Create a share token for a map. Reuses existing token if one exists. Does NOT commit."""
+    _reject_custom_expiration_in_community(expires_at)
     # Check for existing token
     existing = await session.execute(
         select(MapShareToken).where(MapShareToken.map_id == map_id)
@@ -133,6 +149,7 @@ async def update_share_token(
     expires_at: datetime | None,
 ) -> MapShareToken | None:
     """Update expiration on the active share token for a map. Returns None if no active token."""
+    _reject_custom_expiration_in_community(expires_at)
     result = await session.execute(
         select(MapShareToken).where(
             MapShareToken.map_id == map_id,
