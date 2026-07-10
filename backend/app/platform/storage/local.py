@@ -90,8 +90,8 @@ class LocalStorageProvider:
                     await asyncio.shield(copy)
                 except asyncio.CancelledError:
                     continue
-                except Exception:
-                    break  # the copy failed; we still report the cancellation
+                except Exception:  # broad: the copy thread raised (OSError, etc.); stop draining and report our cancellation
+                    break
             if not copy.cancelled():
                 copy.exception()  # retrieve it so it is not flagged never-retrieved
             raise
