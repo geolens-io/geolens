@@ -95,7 +95,8 @@ interface ProviderFormData {
   client_id: string;
   client_secret: string;
   discovery_url: string;
-  // GitHub Enterprise endpoints (optional; blank => backend defaults to GitHub.com).
+  // Explicit endpoints are editable for GitHub Enterprise and retained for
+  // imported/legacy generic OAuth providers that do not use discovery.
   authorize_url: string;
   token_url: string;
   userinfo_url: string;
@@ -267,9 +268,9 @@ function OAuthProvidersSection({ envOnly }: { envOnly: boolean }) {
       }
     }
 
-    // Always clear the inactive endpoint mode. This lets an administrator
-    // transition between OIDC discovery and explicit GitHub endpoints without
-    // leaving a hidden credential destination in the payload.
+    // Clear the inactive endpoint mode while preserving an existing generic
+    // provider's explicit endpoints when it has no discovery URL. Those legacy
+    // endpoint fields are not editable here, but unrelated edits must retain them.
     const endpointFields = buildOAuthEndpointFields(form);
 
     if (editingProvider) {

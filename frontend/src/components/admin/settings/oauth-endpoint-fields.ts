@@ -22,10 +22,18 @@ export function buildOAuthEndpointFields(
       userinfo_url: form.userinfo_url || null,
     };
   }
+  if (form.discovery_url) {
+    return {
+      discovery_url: form.discovery_url,
+      authorize_url: null,
+      token_url: null,
+      userinfo_url: null,
+    };
+  }
   return {
-    discovery_url: form.discovery_url || null,
-    authorize_url: null,
-    token_url: null,
-    userinfo_url: null,
+    discovery_url: null,
+    authorize_url: form.authorize_url || null,
+    token_url: form.token_url || null,
+    userinfo_url: form.userinfo_url || null,
   };
 }
