@@ -390,6 +390,107 @@ async def test_merge_import_cannot_bypass_destination_binding(
 
 
 @pytest.mark.anyio
+async def test_merge_import_applies_null_endpoint_clears(
+    test_db_session: AsyncSession,
+) -> None:
+    provider = await _make_oidc_provider(test_db_session)
+    discovery_url = "https://idp.example.com/.well-known/openid-configuration"
+
+    counts = await _apply_oauth_providers(
+        test_db_session,
+        [
+            {
+                "slug": provider.slug,
+                "display_name": None,
+                "client_secret": "replacement-secret",
+                "discovery_url": discovery_url,
+                "authorize_url": None,
+                "token_url": None,
+                "userinfo_url": None,
+            }
+        ],
+        "merge",
+    )
+
+    assert counts == (0, 1, 0)
+    assert provider.display_name == "Destination Security"
+    assert provider.discovery_url == discovery_url
+    assert provider.authorize_url is None
+    assert provider.token_url is None
+    assert provider.userinfo_url is None
+    assert decrypt_secret(provider.client_secret_encrypted) == "replacement-secret"
+
+
+@pytest.mark.anyio
+async def test_merge_import_mode_switch_requires_secret_rotation(
+    test_db_session: AsyncSession,
+) -> None:
+    provider = await _make_oidc_provider(test_db_session)
+
+    with pytest.raises(ConfigValidationError, match="client_secret"):
+        await _apply_oauth_providers(
+            test_db_session,
+            [
+                {
+                    "slug": provider.slug,
+                    "discovery_url": (
+                        "https://idp.example.com/.well-known/openid-configuration"
+                    ),
+                    "authorize_url": None,
+                    "token_url": None,
+                    "userinfo_url": None,
+                }
+            ],
+            "merge",
+        )
+
+    assert provider.discovery_url is None
+    assert provider.authorize_url == "https://idp.example.com/authorize"
+    assert provider.token_url == "https://idp.example.com/token"
+    assert provider.userinfo_url == "https://idp.example.com/userinfo"
+
+
+@pytest.mark.anyio
+async def test_merge_import_clears_discovery_for_explicit_mode(
+    test_db_session: AsyncSession,
+) -> None:
+    suffix = uuid.uuid4().hex[:8]
+    provider = await create_provider(
+        test_db_session,
+        OAuthProviderCreate(
+            slug=f"discovery-{suffix}",
+            display_name="Discovery Provider",
+            provider_type="oidc",
+            client_id=f"client-{suffix}",
+            client_secret="original-secret",
+            discovery_url="https://idp.example.com/.well-known/openid-configuration",
+        ),
+    )
+
+    counts = await _apply_oauth_providers(
+        test_db_session,
+        [
+            {
+                "slug": provider.slug,
+                "client_secret": "replacement-secret",
+                "discovery_url": None,
+                "authorize_url": "https://idp.example.com/authorize",
+                "token_url": "https://idp.example.com/token",
+                "userinfo_url": "https://idp.example.com/userinfo",
+            }
+        ],
+        "merge",
+    )
+
+    assert counts == (0, 1, 0)
+    assert provider.discovery_url is None
+    assert provider.authorize_url == "https://idp.example.com/authorize"
+    assert provider.token_url == "https://idp.example.com/token"
+    assert provider.userinfo_url == "https://idp.example.com/userinfo"
+    assert decrypt_secret(provider.client_secret_encrypted) == "replacement-secret"
+
+
+@pytest.mark.anyio
 async def test_runtime_validation_checks_all_server_endpoints(
     test_db_session: AsyncSession,
 ) -> None:

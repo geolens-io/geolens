@@ -70,6 +70,10 @@ _PROVIDER_COMPARE_FIELDS = [
     "enabled",
 ]
 
+_OAUTH_ENDPOINT_FIELDS = frozenset(
+    {"discovery_url", "authorize_url", "token_url", "userinfo_url"}
+)
+
 
 def _diff_provider(existing_dict: dict, imported: dict) -> list[str]:
     """Return list of fields that differ between existing and imported provider."""
@@ -251,8 +255,12 @@ async def _apply_oauth_providers(
                     raise ConfigValidationError(str(exc)) from exc
                 created += 1
             else:
+                # Exported endpoint nulls explicitly clear the inactive OAuth mode.
+                # Other null values retain merge mode's "leave unchanged" semantics.
                 update_fields = {
-                    k: v for k, v in imp.items() if k != "slug" and v is not None
+                    k: v
+                    for k, v in imp.items()
+                    if k != "slug" and (v is not None or k in _OAUTH_ENDPOINT_FIELDS)
                 }
                 if update_fields:
                     try:

@@ -25,7 +25,11 @@ from app.platform.sandbox.validator import validate_sql
 # ---------------------------------------------------------------------------
 
 
-def _assert_rejects(sql: str, expected_category: str = "invalid_query") -> None:
+def _assert_rejects(
+    sql: str,
+    expected_category: str = "invalid_query",
+    expected_message: str | None = None,
+) -> None:
     """Assert that validate_sql raises SandboxError for the given SQL."""
     with pytest.raises(SandboxError) as exc_info:
         validate_sql(sql)
@@ -33,6 +37,8 @@ def _assert_rejects(sql: str, expected_category: str = "invalid_query") -> None:
         f"Expected category={expected_category!r} but got "
         f"{exc_info.value.category!r} for SQL: {sql!r}"
     )
+    if expected_message is not None:
+        assert exc_info.value.user_message == expected_message
 
 
 def _assert_allows(sql: str) -> None:
@@ -444,6 +450,17 @@ class TestResourceAmplificationRejected:
             "WITH RECURSIVE bomb(n) AS ("
             "SELECT 1 UNION ALL SELECT n + 1 FROM bomb WHERE n < 1000000000"
             ") SELECT count(*) FROM bomb, data.cities"
+        )
+
+    def test_rejects_nested_recursive_cte_after_non_recursive_outer_cte(self):
+        _assert_rejects(
+            "WITH harmless AS (SELECT 1 AS marker) "
+            "SELECT count(*) FROM data.cities CROSS JOIN LATERAL ("
+            "WITH RECURSIVE bomb(n) AS ("
+            "SELECT 1 UNION ALL SELECT n + 1 FROM bomb WHERE n < 1000000000"
+            ") SELECT n FROM bomb"
+            ") AS nested",
+            expected_message="Recursive queries are not allowed",
         )
 
     @pytest.mark.parametrize(
