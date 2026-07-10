@@ -38,8 +38,8 @@
     "@hey-api/client-fetch": "0.13.1"
   },
   "devDependencies": {
-    "@hey-api/openapi-ts": "0.99.0",
-    "typescript": "^5.6.0"
+    "@hey-api/openapi-ts": "0.96.1",
+    "typescript": "5.9.3"
   },
   "publishConfig": {
     "access": "public"

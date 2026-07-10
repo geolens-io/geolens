@@ -140,7 +140,14 @@ sdks:
 	# PEP 561 marker — generator with --meta none doesn't emit it; touch so
 	# typecheckers consume the inline annotations on consumers' machines.
 	touch sdks/python/geolens/py.typed
-	cd sdks/typescript && npm install --silent && npx --yes @hey-api/openapi-ts@0.96.1 -i /tmp/openapi-flat.json
+	# fix(#441): run the generator from the LOCAL lockfile-pinned install, not a
+	# fresh `npx @hey-api/openapi-ts@…` resolve. openapi-ts declares an
+	# open-ended `typescript >=5.5.3 || >=6.0.0` peer, so a cold npx resolve
+	# pulls typescript 7 (published 2026-07-08), whose changed compiler API
+	# crashes the generator (`ts.NewLineKind` undefined) — and npm lets the peer
+	# range beat even an explicit `-p typescript@5.9.x`. package.json pins the
+	# generator + typescript exactly; package-lock.json makes it reproducible.
+	cd sdks/typescript && npm install --silent && ./node_modules/.bin/openapi-ts -i /tmp/openapi-flat.json
 	-cp /tmp/_geolens_auth.py sdks/python/geolens/auth.py 2>/dev/null
 	-cp /tmp/_geolens_init.py sdks/python/geolens/__init__.py 2>/dev/null
 	-cp /tmp/_geolens_auth.ts sdks/typescript/src/auth.ts 2>/dev/null

@@ -33,7 +33,7 @@ and releases use semantic versioning.
 - **Per-user daily AI token budget.** `MAX_AI_TOKENS_PER_USER_PER_DAY` caps
   what any one user can spend on AI calls per day; 0 keeps it unlimited.
 - **Edition badge in the admin overview.** Administrators can see at a glance
-  whether a deployment runs the Community or Enterprise edition.
+  which edition a deployment runs.
 - **`/api/health` reports the running version and build.** The health payload
   carries `version` and `build` fields so operators can verify what a
   deployment runs over HTTP; release images stamp the exact build commit.
