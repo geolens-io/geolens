@@ -15,7 +15,9 @@ and releases use semantic versioning.
 - **Accessibility improvements across the interface.** Upload and export
   progress indicators announce themselves to screen readers, sortable table
   headers report their sort state, form-input borders meet the 3:1 contrast
-  minimum, and animations respect the reduced-motion preference.
+  minimum, the destructive red is darkened in light mode so error badges and
+  text meet the 4.5:1 minimum on tinted surfaces, and animations respect the
+  reduced-motion preference.
 - **Deleting a user now asks the administrator to type the username to
   confirm.**
 - **Locale completeness checks now compare translated values and variables**,
