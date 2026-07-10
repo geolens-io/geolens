@@ -269,6 +269,10 @@ class Settings(BaseSettings):
         "notification_webhook_url",
         # Phase 1230 EVENT-05 recipient field — blank env value normalizes to None
         "notification_admin_email",
+        # fix(#441): compose passes ENVIRONMENT through as "${ENVIRONMENT:-}",
+        # so an unset value arrives as "" — normalize to None (LOG_JSON fallback)
+        # instead of failing the Literal validation at boot.
+        "environment",
         mode="before",
     )
     @classmethod

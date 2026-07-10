@@ -90,6 +90,11 @@ and releases use semantic versioning.
 - **Interrupted exports clean up after themselves.** A failed export removes
   its temporary directory, and the boot-time sweeper only removes export
   staging entries older than an hour instead of everything it finds.
+- **`ENVIRONMENT=production` in `.env` now reaches the containers.** Neither
+  compose file passed the variable through, so an operator who set it still
+  got the open posture: interactive docs exposed and the OAuth session cookie
+  sent without the Secure flag. Both compose files now forward it, and an
+  empty value keeps the old `LOG_JSON` fallback behavior.
 
 ## [1.4.2] - 2026-07-01
 
