@@ -7477,12 +7477,16 @@ export interface components {
         };
         /** HealthResponse */
         HealthResponse: {
+            /** Build */
+            build?: string | null;
             /** Providers */
             providers: {
                 [key: string]: components["schemas"]["ServiceHealth"];
             };
             /** Status */
             status: string;
+            /** Version */
+            version: string;
         };
         /**
          * ImportResult
