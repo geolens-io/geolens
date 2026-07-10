@@ -4,7 +4,8 @@
  */
 import { test, expect } from '@playwright/test';
 
-const BASE = process.env.BASE_URL ?? 'http://localhost:8080';
+// fix(#441): read the same env var as playwright.config.ts so absolute URLs track baseURL
+const BASE = process.env.E2E_BASE_URL ?? 'http://localhost:8080';
 const ADMIN_USER = process.env.GEOLENS_ADMIN_USERNAME ?? 'admin';
 const ADMIN_PASS = process.env.GEOLENS_ADMIN_PASSWORD ?? 'admin';
 
