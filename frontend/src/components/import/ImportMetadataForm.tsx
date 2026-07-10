@@ -1,4 +1,5 @@
 import { useRef, useMemo, useState } from 'react';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useTranslation } from 'react-i18next';
 import { Loader2 } from 'lucide-react';
 import type { CommitImportRequest, RasterPreviewResponse } from '@/types/api';
@@ -188,18 +189,19 @@ export function ImportMetadataForm({
 
           <div className="space-y-2">
             <Label htmlFor="import-visibility">{t('metadata.visibilityLabel')}</Label>
-            <select
-              id="import-visibility"
-              value={visibility}
-              onChange={(e) => setVisibility(e.target.value)}
-              className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-xs focus:outline-none focus:ring-2 focus:ring-ring/50"
-            >
-              {VISIBILITY_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {t(opt.labelKey)}
-                </option>
-              ))}
-            </select>
+            {/* fix(#438): DS-08 — native <select> → themed ui/select. */}
+            <Select value={visibility} onValueChange={setVisibility}>
+              <SelectTrigger id="import-visibility" className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {VISIBILITY_OPTIONS.map((opt) => (
+                  <SelectItem key={opt.value} value={opt.value}>
+                    {t(opt.labelKey)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
 
           {/* CRS Override — Phase 1057 CRS-06 D-08:
@@ -271,26 +273,22 @@ export function ImportMetadataForm({
                 <Label htmlFor="geom-mode">
                   {t('metadata.geometryMode')}
                 </Label>
-                <select
-                  id="geom-mode"
+                {/* fix(#438): DS-08 — native <select> → themed ui/select. */}
+                <Select
                   value={geomMode}
-                  onChange={(e) =>
-                    setGeomMode(e.target.value as GeometryMode)
-                  }
-                  className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-xs focus:outline-none focus:ring-2 focus:ring-ring/50"
+                  onValueChange={(v) => setGeomMode(v as GeometryMode)}
                 >
-                  {hasDetected && (
-                    <option value="auto">
-                      {t('metadata.autoDetected')}
-                    </option>
-                  )}
-                  <option value="manual">
-                    {t('metadata.manualOverride')}
-                  </option>
-                  <option value="none">
-                    {t('metadata.nonSpatial')}
-                  </option>
-                </select>
+                  <SelectTrigger id="geom-mode" className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {hasDetected && (
+                      <SelectItem value="auto">{t('metadata.autoDetected')}</SelectItem>
+                    )}
+                    <SelectItem value="manual">{t('metadata.manualOverride')}</SelectItem>
+                    <SelectItem value="none">{t('metadata.nonSpatial')}</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
 
               {geomMode !== 'none' && (
@@ -324,6 +322,12 @@ export function ImportMetadataForm({
                         <Label htmlFor="x-column">
                           {t('metadata.xColumn')}
                         </Label>
+                        {/* fix(#438): DS-08 exception — the X/Y/WKT column
+                            pickers stay native: they carry an empty-string
+                            placeholder option, which Radix Select cannot
+                            represent without sentinel plumbing, and they sit in a
+                            dense keyboard-driven metadata grid where the native
+                            control is defensible. */}
                         <select
                           id="x-column"
                           value={xColumn}
@@ -428,18 +432,17 @@ export function ImportMetadataForm({
                   <Label htmlFor="compression">
                     {t('metadata.compressionLabel')}
                   </Label>
-                  <select
-                    id="compression"
-                    value={compression}
-                    onChange={(e) => setCompression(e.target.value)}
-                    className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-xs focus:outline-none focus:ring-2 focus:ring-ring/50"
-                  >
-                    {COMPRESSION_OPTIONS.map((opt) => (
-                      <option key={opt} value={opt}>
-                        {opt}
-                      </option>
-                    ))}
-                  </select>
+                  {/* fix(#438): DS-08 — native <select> → themed ui/select. */}
+                  <Select value={compression} onValueChange={setCompression}>
+                    <SelectTrigger id="compression" className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {COMPRESSION_OPTIONS.map((opt) => (
+                        <SelectItem key={opt} value={opt}>{opt}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                   <p className="text-xs text-muted-foreground">
                     {t('metadata.compressionHelp')}
                   </p>
@@ -449,18 +452,19 @@ export function ImportMetadataForm({
                   <Label htmlFor="resampling">
                     {t('metadata.resamplingLabel')}
                   </Label>
-                  <select
-                    id="resampling"
-                    value={resampling}
-                    onChange={(e) => setResampling(e.target.value)}
-                    className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-xs focus:outline-none focus:ring-2 focus:ring-ring/50"
-                  >
-                    {RESAMPLING_OPTIONS.map((opt) => (
-                      <option key={opt} value={opt}>
-                        {opt === 'auto' ? `(${opt})` : opt}
-                      </option>
-                    ))}
-                  </select>
+                  {/* fix(#438): DS-08 — native <select> → themed ui/select. */}
+                  <Select value={resampling} onValueChange={setResampling}>
+                    <SelectTrigger id="resampling" className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {RESAMPLING_OPTIONS.map((opt) => (
+                        <SelectItem key={opt} value={opt}>
+                          {opt === 'auto' ? `(${opt})` : opt}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                   <p className="text-xs text-muted-foreground">
                     {t('metadata.resamplingHelp')}
                   </p>

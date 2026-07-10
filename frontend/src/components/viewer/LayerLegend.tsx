@@ -129,7 +129,7 @@ function GraduatedLegend({
   if (styleConfig.target === 'radius' && styleConfig.sizes) {
     return (
       <div className="space-y-1">
-        <div className="text-[11px] font-medium text-muted-foreground">
+        <div className="text-mini font-medium text-muted-foreground">
           Size: {metricLabel}
         </div>
         <GraduatedRadiusLegend
@@ -140,7 +140,7 @@ function GraduatedLegend({
         />
         {parsedColor && colorColumn && colorColumn !== styleConfig.column && (
           <>
-            <div className="pt-1 text-[11px] font-medium text-muted-foreground">
+            <div className="pt-1 text-mini font-medium text-muted-foreground">
               Color: {styleConfig.colorLabel ?? displayColumn(colorColumn)}
             </div>
             <GraduatedColorLegend
@@ -159,7 +159,7 @@ function GraduatedLegend({
     const rawLineColor = paint['line-color'];
     return (
       <div className="space-y-1">
-        <div className="text-[11px] font-medium text-muted-foreground">
+        <div className="text-mini font-medium text-muted-foreground">
           Width: {metricLabel}
         </div>
         <GraduatedWidthLegend
@@ -324,7 +324,7 @@ export function LayerLegend({
                   <button
                     type="button"
                     onClick={() => onToggleVisibility(key)}
-                    className="flex-shrink-0 p-1 rounded hover:bg-accent text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    className="flex-shrink-0 p-1 rounded-sm hover:bg-accent text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     aria-label={isVisible
                       ? t('viewer.legend.hideLayer', { name: layerName })
                       : t('viewer.legend.showLayer', { name: layerName })}
@@ -333,7 +333,7 @@ export function LayerLegend({
                   </button>
                 </div>
                 {clusterLabel && (
-                  <div className="mt-1 ms-6 text-[11px] font-medium text-muted-foreground">
+                  <div className="mt-1 ms-6 text-mini font-medium text-muted-foreground">
                     {clusterLabel}
                   </div>
                 )}

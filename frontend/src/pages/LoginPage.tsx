@@ -291,7 +291,7 @@ export function LoginPage() {
             >
               <GeoLensLogo size="lg" />
             </Link>
-            <p className="mt-2.5 font-mono text-[11px] uppercase tracking-[0.08em] text-muted-foreground">
+            <p className="mt-2.5 font-mono text-mini uppercase tracking-[0.08em] text-muted-foreground">
               {t('geospatialDataCatalog')}
             </p>
           </div>

@@ -42,10 +42,10 @@ export function CatalogDragGhost({
       {/* Type swatch */}
       <span
         aria-hidden="true"
-        className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded"
+        className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-sm"
         style={{ background: swatchBg, color: swatchColor }}
       >
-        <span className="text-[10px] font-semibold uppercase">{swatchGlyph}</span>
+        <span className="text-2xs font-semibold uppercase">{swatchGlyph}</span>
       </span>
       {/* Dataset name */}
       <span className="truncate text-sm" style={{ maxWidth: 200 }}>{name}</span>

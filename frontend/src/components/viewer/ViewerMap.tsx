@@ -977,7 +977,7 @@ export const ViewerMap = memo(function ViewerMap({
       {showBranding && (
         <span
           data-testid="viewer-branding-overlay"
-          className="absolute bottom-2 left-2 z-10 text-xs text-muted-foreground bg-background/70 rounded px-2 py-1 pointer-events-none"
+          className="absolute bottom-2 left-2 z-10 text-xs text-muted-foreground bg-background/70 rounded-sm px-2 py-1 pointer-events-none"
         >
           {t('export.poweredBy', { defaultValue: 'Powered by GeoLens' })}
         </span>
@@ -986,7 +986,7 @@ export const ViewerMap = memo(function ViewerMap({
         <div className="absolute inset-0 z-50 flex items-center justify-center bg-background/80">
           <div className="text-center space-y-2">
             <p className="text-sm text-muted-foreground">{t('errorBoundary.mapMessage')}</p>
-            <button type="button" onClick={reload} className="text-sm underline text-primary hover:text-primary/80 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring rounded px-1">{t('reload')}</button>
+            <button type="button" onClick={reload} className="text-sm underline text-primary hover:text-primary/80 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring rounded-sm px-1">{t('reload')}</button>
           </div>
         </div>
       )}

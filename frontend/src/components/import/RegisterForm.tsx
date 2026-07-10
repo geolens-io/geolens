@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useNavigate, Link } from 'react-router';
 import { useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
@@ -190,7 +191,7 @@ export function RegisterForm() {
           </div>
         </div>
 
-        <div className="px-3.5 py-1.5 font-mono text-[10px] uppercase tracking-widest text-muted-foreground flex items-center gap-1.5">
+        <div className="px-3.5 py-1.5 font-mono text-2xs uppercase tracking-widest text-muted-foreground flex items-center gap-1.5">
           <Database className="size-2.5" />
           public · {filtered.length} tables
         </div>
@@ -257,7 +258,7 @@ function TableDetail({
 
   return (
     <>
-      <p className="font-mono text-[11px] uppercase tracking-widest text-muted-foreground mb-2.5">
+      <p className="font-mono text-mini uppercase tracking-widest text-muted-foreground mb-2.5">
         public / <span className="font-medium text-foreground normal-case">{table.table_name}</span>
       </p>
       <h2 className="text-xl font-medium tracking-tight mb-1.5">{table.table_name}</h2>
@@ -276,7 +277,7 @@ function TableDetail({
           { label: t('register.stats.type'), value: table.geometry_type ? t('register.stats.spatial') : t('register.stats.nonSpatial') },
         ].map((stat) => (
           <div key={stat.label} className="bg-card px-3.5 py-2.5">
-            <dt className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground mb-1">{stat.label}</dt>
+            <dt className="font-mono text-2xs uppercase tracking-widest text-muted-foreground mb-1">{stat.label}</dt>
             <dd className="text-sm font-medium tracking-tight">{stat.value}</dd>
           </div>
         ))}
@@ -284,15 +285,20 @@ function TableDetail({
 
       {/* Actions */}
       <fieldset disabled={isPending} className="flex items-center gap-3 flex-wrap mt-5 disabled:opacity-60">
-        <select
+        {/* fix(#438): DS-08 — native <select> → themed ui/select. */}
+        <Select
           value={visibility}
-          onChange={(e) => onVisibilityChange(e.target.value as DatasetVisibilityChoice)}
-          className="h-9 rounded-md border border-input bg-background px-3 text-sm shadow-xs focus:outline-none focus:ring-2 focus:ring-ring/50"
+          onValueChange={(v) => onVisibilityChange(v as DatasetVisibilityChoice)}
         >
-          <option value="private">{t('register.visibilityPrivate')}</option>
-          <option value="restricted">{t('register.visibilityRestricted')}</option>
-          <option value="public">{t('register.visibilityPublic')}</option>
-        </select>
+          <SelectTrigger className="w-auto min-w-[160px]" aria-label={t('register.visibilityLabel', { defaultValue: 'Visibility' })}>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="private">{t('register.visibilityPrivate')}</SelectItem>
+            <SelectItem value="restricted">{t('register.visibilityRestricted')}</SelectItem>
+            <SelectItem value="public">{t('register.visibilityPublic')}</SelectItem>
+          </SelectContent>
+        </Select>
         <Button onClick={onRegister} disabled={isPending}>
           {isPending ? (
             <span className="flex items-center gap-2">

@@ -61,7 +61,7 @@ export function WorkflowRail({ mode, phase }: WorkflowRailProps) {
                 )}
                 <span
                   className={cn(
-                    'flex h-[22px] w-[22px] items-center justify-center rounded-full font-mono text-[10px] font-semibold border',
+                    'flex h-[22px] w-[22px] items-center justify-center rounded-full font-mono text-2xs font-semibold border',
                     isDone && 'bg-success text-success-foreground border-success',
                     isActive && 'bg-primary text-primary-foreground border-primary shadow-[0_0_0_3px] shadow-primary/15',
                     !isDone && !isActive && 'bg-surface-2 text-muted-foreground border-border',
@@ -138,7 +138,7 @@ function NonUploadRail({ mode }: { mode: 'register' | 'service' | 'stac' }) {
               ? t('rail.stacDesc', { defaultValue: 'Connect a STAC catalog or collection and import selected assets into GeoLens.' })
               : t('rail.serviceDesc', { defaultValue: 'Connect a remote WFS, ArcGIS FeatureServer, or OGC API Features service. GeoLens imports the layer into the catalog for tiling and querying.' })}
         </p>
-        <p className="font-mono text-[11px] text-muted-foreground tracking-wide">
+        <p className="font-mono text-mini text-muted-foreground tracking-wide">
           {isRegister
             ? t('rail.registerNote', { defaultValue: 'No data copied · tiles generated directly from your tables' })
             : isStac

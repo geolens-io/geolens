@@ -73,6 +73,7 @@ import {
 } from '@/api/saml';
 import { queryKeys } from '@/lib/query-keys';
 import { triggerDownload } from '@/lib/download';
+import { Textarea } from '@/components/ui/textarea';
 
 function slugify(name: string): string {
   return name
@@ -448,9 +449,9 @@ export function SamlProvidersSection() {
                   </span>
                 )}
               </Label>
-              <textarea
+              <Textarea
                 id="saml-idp-certificate"
-                className="flex min-h-[140px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-xs font-mono shadow-xs placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-50"
+                className="min-h-[140px] text-xs font-mono"
                 value={form.idp_certificate}
                 onChange={(e) =>
                   setForm((prev) => ({ ...prev, idp_certificate: e.target.value }))
@@ -513,9 +514,9 @@ export function SamlProvidersSection() {
 
             <div className="space-y-2">
               <Label htmlFor="saml-group-role-mapping">{t('saml.groupRoleMapping')}</Label>
-              <textarea
+              <Textarea
                 id="saml-group-role-mapping"
-                className="flex min-h-[80px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-xs placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-50"
+                className="min-h-[80px]"
                 value={form.group_role_mapping}
                 onChange={(e) =>
                   setForm((prev) => ({ ...prev, group_role_mapping: e.target.value }))

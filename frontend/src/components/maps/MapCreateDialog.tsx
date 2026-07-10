@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { Textarea } from '@/components/ui/textarea';
 import { useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { useQueryClient } from '@tanstack/react-query';
@@ -157,7 +158,7 @@ export function MapCreateDialog({ open, onOpenChange }: MapCreateDialogProps) {
               <TabsTrigger value="ai">
                 <Sparkles className="me-1 size-3.5" />
                 {t('mapCreate.tabAI')}
-                <Badge variant="outline" className="ms-1.5 border-warning/50 px-1.5 py-0 text-[10px] font-medium text-warning">
+                <Badge variant="outline" className="ms-1.5 border-warning/50 px-1.5 py-0 text-2xs font-medium text-warning">
                   {t('chat.experimental')}
                 </Badge>
               </TabsTrigger>
@@ -179,13 +180,12 @@ export function MapCreateDialog({ open, onOpenChange }: MapCreateDialogProps) {
 
               <div className="space-y-2">
                 <Label htmlFor="map-description">{t('mapCreate.descriptionLabel')}</Label>
-                <textarea
+                <Textarea
                   id="map-description"
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
                   rows={3}
                   placeholder={t('mapCreate.descriptionPlaceholder')}
-                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 />
               </div>
 
@@ -217,13 +217,13 @@ export function MapCreateDialog({ open, onOpenChange }: MapCreateDialogProps) {
               <form onSubmit={handleAiGenerate} className="space-y-4 pt-2">
                 <div className="space-y-2">
                   <Label htmlFor="ai-prompt">{t('mapCreate.aiPromptLabel')}</Label>
-                  <textarea
+                  <Textarea
                     id="ai-prompt"
                     value={aiPrompt}
                     onChange={(e) => setAiPrompt(e.target.value)}
                     rows={4}
                     placeholder={t('mapCreate.aiPromptPlaceholder')}
-                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+
                     disabled={isGenerating}
                   />
                   <p className="text-xs text-muted-foreground">

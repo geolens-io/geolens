@@ -78,7 +78,7 @@ export function RasterStretchControls({
   return (
     <section className="border-b">
       <div className="px-4 py-2">
-        <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground mb-2">
+        <p className="text-2xs font-semibold uppercase tracking-[0.08em] text-muted-foreground mb-2">
           {isSingleBand
             ? t('style.raster.sectionColormap', { defaultValue: 'COLORMAP' })
             : t('style.raster.stretchLabel', { defaultValue: 'STRETCH' })}
@@ -191,7 +191,7 @@ export function RasterStretchControls({
           {/* Stretch↔colormap hint (RASTER-STRETCH-UI-02) — single-band only,
               shown when stretch is not minmax AND colormap is not gray */}
           {isSingleBand && currentStretch !== 'minmax' && currentColormap !== 'gray' && (
-            <p role="note" className="text-[11px] leading-snug text-muted-foreground">
+            <p role="note" className="text-mini leading-snug text-muted-foreground">
               {t('style.raster.stretchColormapHint', { defaultValue: 'Stretch sets the input range for the colormap.' })}
             </p>
           )}

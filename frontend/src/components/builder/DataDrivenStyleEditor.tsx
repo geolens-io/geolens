@@ -720,7 +720,7 @@ export function DataDrivenStyleEditor({
           </Button>
         )}
       </div>
-      <p className="text-[11px] leading-snug text-muted-foreground">
+      <p className="text-mini leading-snug text-muted-foreground">
         {t('dataDriven.scopeHelp')}
       </p>
 
@@ -790,7 +790,7 @@ export function DataDrivenStyleEditor({
       </div>
 
       {noCompatibleColumns && (
-        <p className="rounded-md bg-muted px-2 py-1.5 text-[11px] leading-snug text-muted-foreground">
+        <p className="rounded-md bg-muted px-2 py-1.5 text-mini leading-snug text-muted-foreground">
           {mode === 'categorical'
             ? t('dataDriven.noTextColumnsHelp')
             : t('dataDriven.noNumericColumnsHelp')}
@@ -804,7 +804,7 @@ export function DataDrivenStyleEditor({
           Categorical mode, so a user can discover graduated styling without first
           learning the Mode concept. */}
       {mode === 'categorical' && numericColumns.length > 0 && (
-        <p className="rounded-md bg-muted px-2 py-1.5 text-[11px] leading-snug text-muted-foreground">
+        <p className="rounded-md bg-muted px-2 py-1.5 text-mini leading-snug text-muted-foreground">
           {t('dataDriven.numericColumnsAvailable', { count: numericColumns.length })}{' '}
           <button
             type="button"
@@ -817,13 +817,13 @@ export function DataDrivenStyleEditor({
       )}
 
       {selectedColumnMissing && (
-        <p className="rounded-md bg-warning/15 px-2 py-1.5 text-[11px] leading-snug text-warning-foreground">
+        <p className="rounded-md bg-warning/15 px-2 py-1.5 text-mini leading-snug text-warning-foreground">
           {t('dataDriven.missingColumnHelp', { column })}
         </p>
       )}
 
       {graduatedStatsUnavailable && (
-        <p className="rounded-md bg-warning/15 px-2 py-1.5 text-[11px] leading-snug text-warning-foreground">
+        <p className="rounded-md bg-warning/15 px-2 py-1.5 text-mini leading-snug text-warning-foreground">
           {t('dataDriven.statsUnavailableHelp')}
         </p>
       )}
@@ -970,7 +970,7 @@ export function DataDrivenStyleEditor({
           {/* Jenks operates on the server quantile sample, not the raw column —
               label that honestly so users don't over-trust the precision. */}
           {method === 'jenks' && (
-            <p className="text-[11px] leading-snug text-muted-foreground">
+            <p className="text-mini leading-snug text-muted-foreground">
               {t('dataDriven.jenksSampledHint')}
             </p>
           )}
@@ -992,7 +992,7 @@ export function DataDrivenStyleEditor({
                           rows.map((r, ri) => (ri === i ? e.target.value : r)),
                         )
                       }
-                      className="h-7 flex-1 rounded border border-border bg-background px-2 text-xs text-foreground"
+                      className="h-7 flex-1 rounded-sm border border-border bg-background px-2 text-xs text-foreground"
                     />
                     <Button
                       variant="ghost"
@@ -1019,7 +1019,7 @@ export function DataDrivenStyleEditor({
                 {t('dataDriven.manualBreaksAddRow')}
               </Button>
               {manualBreaksInvalid && (
-                <p className="rounded-md bg-warning/15 px-2 py-1.5 text-[11px] leading-snug text-warning-foreground">
+                <p className="rounded-md bg-warning/15 px-2 py-1.5 text-mini leading-snug text-warning-foreground">
                   {t('dataDriven.manualBreaksInvalid')}
                 </p>
               )}
@@ -1029,7 +1029,7 @@ export function DataDrivenStyleEditor({
       )}
 
       {hasTooManyCategories && (
-        <p className="rounded-md bg-warning/15 px-2 py-1.5 text-[11px] leading-snug text-warning-foreground">
+        <p className="rounded-md bg-warning/15 px-2 py-1.5 text-mini leading-snug text-warning-foreground">
           {t('dataDriven.categoriesWarning', { count: valuesData.values.length })}
         </p>
       )}

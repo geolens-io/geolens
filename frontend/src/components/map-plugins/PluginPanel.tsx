@@ -30,7 +30,7 @@ export const PluginPanel = memo(function PluginPanel({ def, children }: PluginPa
         <span className="text-xs font-medium flex-1">{t(def.labelKey)}</span>
         <button
           onClick={() => usePluginStore.getState().close(def.id)}
-          className="shrink-0 rounded p-1 hover:bg-accent/50 text-foreground/50 hover:text-foreground transition-colors min-h-6 min-w-6 flex items-center justify-center"
+          className="shrink-0 rounded-sm p-1 hover:bg-accent/50 text-foreground/50 hover:text-foreground transition-colors min-h-6 min-w-6 flex items-center justify-center"
           aria-label={t('plugins.closePlugin')}
         >
           <X className="h-3 w-3" />

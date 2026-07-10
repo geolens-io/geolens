@@ -210,13 +210,13 @@ export function StacImportForm() {
 
           <div className="grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-border bg-border">
             <div className="bg-surface-0 px-4 py-3">
-              <dt className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground mb-1">
+              <dt className="font-mono text-2xs uppercase tracking-widest text-muted-foreground mb-1">
                 {t('stac.confirm.itemsLabel')}
               </dt>
               <dd className="text-lg font-medium tracking-tight">{itemsToImport.length}</dd>
             </div>
             <div className="bg-surface-0 px-4 py-3">
-              <dt className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground mb-1">
+              <dt className="font-mono text-2xs uppercase tracking-widest text-muted-foreground mb-1">
                 {t('stac.confirm.totalSizeLabel')}
               </dt>
               <dd className="text-lg font-medium tracking-tight">
@@ -309,7 +309,7 @@ export function StacImportForm() {
                 <li key={group.message} className="px-5 py-3">
                   <div className="flex items-start justify-between gap-3">
                     <p className="text-[13px] text-foreground">{group.message}</p>
-                    <span className="shrink-0 rounded-md bg-destructive/10 px-2 py-0.5 font-mono text-[11px] font-semibold text-destructive">
+                    <span className="shrink-0 rounded-md bg-destructive/10 px-2 py-0.5 font-mono text-mini font-semibold text-destructive">
                       {t('stac.failureGroupCount', { count: group.itemIds.length })}
                     </span>
                   </div>
@@ -343,11 +343,11 @@ export function StacImportForm() {
       <div className="space-y-5">
         {/* Connected state header */}
         <div className="rounded-xl border border-border bg-card p-5">
-          <span className="mb-2.5 block font-mono text-[11px] uppercase tracking-widest text-muted-foreground">
+          <span className="mb-2.5 block font-mono text-mini uppercase tracking-widest text-muted-foreground">
             {t('stac.catalogConnected')}
           </span>
           <div className="flex items-stretch overflow-hidden rounded-lg border-[1.5px] border-success bg-surface-0">
-            <span className="flex items-center gap-1.5 border-r border-border bg-success/10 px-3.5 font-mono text-[11px] font-semibold uppercase tracking-wider text-success">
+            <span className="flex items-center gap-1.5 border-r border-border bg-success/10 px-3.5 font-mono text-mini font-semibold uppercase tracking-wider text-success">
               <Check className="size-3.5" />
               STAC {catalogInfo.stac_version}
             </span>
@@ -369,12 +369,12 @@ export function StacImportForm() {
         {/* Collection cards */}
         <div className="overflow-hidden rounded-xl border border-border bg-card">
           <div className="flex items-center gap-3.5 border-b border-border px-5 py-3.5">
-            <span className="rounded-md bg-type-raster-bg px-2.5 py-0.5 font-mono text-[11px] font-semibold uppercase tracking-wider text-type-raster">
+            <span className="rounded-md bg-type-raster-bg px-2.5 py-0.5 font-mono text-mini font-semibold uppercase tracking-wider text-type-raster">
               STAC
             </span>
             <div className="flex-1">
               <h3 className="text-[15px] font-medium tracking-tight">{catalogInfo.title}</h3>
-              <p className="font-mono text-[11px] text-muted-foreground tracking-wide">
+              <p className="font-mono text-mini text-muted-foreground tracking-wide">
                 {t('stac.collectionsAvailable', { count: collections.length })}
               </p>
             </div>
@@ -398,11 +398,11 @@ export function StacImportForm() {
                     {col.title}
                   </p>
                   {col.description && (
-                    <p className="mt-0.5 line-clamp-2 text-[11px] text-muted-foreground">
+                    <p className="mt-0.5 line-clamp-2 text-mini text-muted-foreground">
                       {col.description}
                     </p>
                   )}
-                  <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 font-mono text-[10px] text-muted-foreground/70">
+                  <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 font-mono text-2xs text-muted-foreground/70">
                     {col.item_count != null && <span>{t('stac.itemCount', { count: col.item_count })}</span>}
                     {col.license && <span>{col.license}</span>}
                     {col.temporal_start && (
@@ -445,7 +445,7 @@ export function StacImportForm() {
           <ChevronRight className="size-3 text-muted-foreground/40 rtl-mirror" />
           <span className="font-medium">{selectedCollection.title}</span>
           {matchedCount != null && (
-            <span className="font-mono text-[11px] text-muted-foreground">
+            <span className="font-mono text-mini text-muted-foreground">
               {t('stac.matchedTotal', { count: matchedCount })}
             </span>
           )}
@@ -458,7 +458,7 @@ export function StacImportForm() {
               type="checkbox"
               checked={allSelected}
               onChange={toggleAll}
-              className="rounded border-border"
+              className="rounded-sm border-border"
             />
             {selectedItems.size > 0
               ? t('stac.selectedCount', { selected: selectedItems.size, total: items.length })
@@ -498,7 +498,7 @@ export function StacImportForm() {
                   checked={isSelected}
                   disabled={!hasAsset}
                   onChange={() => toggleItem(item.id)}
-                  className="rounded border-border shrink-0"
+                  className="rounded-sm border-border shrink-0"
                 />
 
                 {/* Thumbnail */}
@@ -506,11 +506,11 @@ export function StacImportForm() {
                   <img
                     src={item.thumbnail_href}
                     alt=""
-                    className="size-10 shrink-0 rounded border border-border object-cover"
+                    className="size-10 shrink-0 rounded-sm border border-border object-cover"
                     onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
                   />
                 ) : (
-                  <div className="flex size-10 shrink-0 items-center justify-center rounded border border-border bg-surface-2">
+                  <div className="flex size-10 shrink-0 items-center justify-center rounded-sm border border-border bg-surface-2">
                     <Image className="size-4 text-muted-foreground/40" />
                   </div>
                 )}
@@ -535,7 +535,7 @@ export function StacImportForm() {
                 </div>
 
                 {!hasAsset && (
-                  <span className="shrink-0 font-mono text-[10px] text-muted-foreground">
+                  <span className="shrink-0 font-mono text-2xs text-muted-foreground">
                     {t('stac.noCogAsset')}
                   </span>
                 )}
@@ -554,11 +554,11 @@ export function StacImportForm() {
     <div className="rounded-xl border border-border bg-card p-5">
       <form onSubmit={handleConnect} className="space-y-5">
         <div>
-          <label className="mb-2.5 block font-mono text-[11px] uppercase tracking-widest text-muted-foreground">
+          <label className="mb-2.5 block font-mono text-mini uppercase tracking-widest text-muted-foreground">
             {t('stac.label', { defaultValue: "STAC API URL — paste the catalog root endpoint" })}
           </label>
           <div className="flex items-stretch overflow-hidden rounded-lg border-[1.5px] border-border bg-surface-0 transition-colors focus-within:border-primary">
-            <span className="flex items-center gap-1.5 border-r border-border bg-surface-2 px-3.5 font-mono text-[11px] uppercase tracking-wider text-muted-foreground font-medium">
+            <span className="flex items-center gap-1.5 border-r border-border bg-surface-2 px-3.5 font-mono text-mini uppercase tracking-wider text-muted-foreground font-medium">
               <Satellite className="size-3.5" />
               STAC
             </span>
@@ -580,10 +580,10 @@ export function StacImportForm() {
           <div className="mt-2.5 flex flex-wrap gap-4 text-xs text-muted-foreground">
             <span>
               {t('stac.catalogHelp')}{' '}
-              <code className="rounded bg-surface-2 px-1.5 py-px font-mono text-[11px]">
+              <code className="rounded-sm bg-surface-2 px-1.5 py-px font-mono text-mini">
                 Earth Search
               </code>{' '}
-              <code className="rounded bg-surface-2 px-1.5 py-px font-mono text-[11px]">
+              <code className="rounded-sm bg-surface-2 px-1.5 py-px font-mono text-mini">
                 Planetary Computer
               </code>
             </span>

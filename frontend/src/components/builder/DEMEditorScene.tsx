@@ -218,7 +218,7 @@ export const DEMEditorScene = memo(function DEMEditorScene({
         <div className="px-4 py-2">
           <p
             id={`section-renderas-dem-${layer.id}`}
-            className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground mb-2"
+            className="text-2xs font-semibold uppercase tracking-[0.08em] text-muted-foreground mb-2"
           >
             {t('demEditor.renderAsLabel', { defaultValue: 'RENDER AS' })}
           </p>
@@ -233,7 +233,7 @@ export const DEMEditorScene = memo(function DEMEditorScene({
                   aria-checked={isActive}
                   data-active={isActive ? 'true' : 'false'}
                   className={[
-                    'rounded-full border border-transparent px-[10px] py-[5px] text-[12px] transition-colors',
+                    'rounded-full border border-transparent px-[10px] py-[5px] text-xs transition-colors',
                     isActive
                       ? 'bg-primary text-primary-foreground border-transparent'
                       : 'bg-[var(--surface-2,theme(colors.muted.DEFAULT))] text-foreground hover:bg-[var(--surface-3,theme(colors.muted.DEFAULT))]',
@@ -258,7 +258,7 @@ export const DEMEditorScene = memo(function DEMEditorScene({
         <div className="px-4 py-2">
           <p
             id={`section-appearance-dem-${layer.id}`}
-            className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground mb-2"
+            className="text-2xs font-semibold uppercase tracking-[0.08em] text-muted-foreground mb-2"
           >
             {t('layerEditor.section.appearance', { defaultValue: 'Appearance' })}
           </p>
@@ -270,7 +270,7 @@ export const DEMEditorScene = memo(function DEMEditorScene({
                   two raster-dem consumers on one source (a MapLibre error). The parent
                   computes isTerrainBound via isHillshadeTerrainBound. */}
               {isTerrainBound && (
-                <p role="note" className="rounded-md bg-muted/50 px-2 py-1.5 text-[11px] leading-snug text-muted-foreground">
+                <p role="note" className="rounded-md bg-muted/50 px-2 py-1.5 text-mini leading-snug text-muted-foreground">
                   {t('demEditor.terrainBoundNote', {
                     defaultValue: "This DEM also powers the map's 3D terrain. Hillshade shading is hidden to avoid a source conflict.",
                   })}
@@ -279,7 +279,7 @@ export const DEMEditorScene = memo(function DEMEditorScene({
 
               {/* Sub-section: SUN POSITION */}
               <div>
-                <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground mb-3">
+                <p className="text-2xs font-semibold uppercase tracking-[0.08em] text-muted-foreground mb-3">
                   {t('demEditor.sunPositionLabel', { defaultValue: 'SUN POSITION' })}
                 </p>
 
@@ -319,7 +319,7 @@ export const DEMEditorScene = memo(function DEMEditorScene({
 
               {/* Sub-section: SHADING COLORS */}
               <div>
-                <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground mb-2">
+                <p className="text-2xs font-semibold uppercase tracking-[0.08em] text-muted-foreground mb-2">
                   {t('demEditor.shadingColorsLabel', { defaultValue: 'SHADING COLORS' })}
                 </p>
                 <div className="space-y-2">
@@ -375,7 +375,7 @@ export const DEMEditorScene = memo(function DEMEditorScene({
         <div className="px-4 py-2">
           <p
             id={`section-hypso-dem-${layer.id}`}
-            className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground mb-2"
+            className="text-2xs font-semibold uppercase tracking-[0.08em] text-muted-foreground mb-2"
           >
             {t('demEditor.sectionHypsometricTint', { defaultValue: 'HYPSOMETRIC TINT' })}
           </p>
@@ -414,7 +414,7 @@ export const DEMEditorScene = memo(function DEMEditorScene({
                   {/* builder-audit #338 MAINT-01: surface the hardcoded 0–4000 m, meters-only
                       elevation range limitation in-product (buildElevationExpression in
                       color-relief-sync.ts has no min/max control yet). */}
-                  <p className="text-[11px] leading-snug text-muted-foreground">
+                  <p className="text-mini leading-snug text-muted-foreground">
                     {t('demEditor.hypsometricRangeNote', {
                       defaultValue: 'Elevation tint spans 0–4000 m and assumes meters. DEMs in other units or ranges may appear flat.',
                     })}
@@ -434,7 +434,7 @@ export const DEMEditorScene = memo(function DEMEditorScene({
         <div className="px-4 py-2">
           <p
             id={`section-visibility-dem-${layer.id}`}
-            className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground mb-2"
+            className="text-2xs font-semibold uppercase tracking-[0.08em] text-muted-foreground mb-2"
           >
             {t('layerEditor.section.visibility', { defaultValue: 'Visibility' })}
           </p>

@@ -155,7 +155,7 @@ export function JobProgress({ jobId, onReset, isRasterEntry = false }: JobProgre
                 style={{ width: `${Math.round((job.progress ?? 0) * 100)}%` }}
               />
             </div>
-            <p className="font-mono text-[11px] text-muted-foreground tracking-wide">
+            <p className="font-mono text-mini text-muted-foreground tracking-wide">
               {job.current_step &&
                 t(`jobProgress.step.${job.current_step}`, {
                   defaultValue: job.current_step,

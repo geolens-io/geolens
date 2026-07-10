@@ -148,11 +148,11 @@ export function ServiceUrlForm() {
       <div className="space-y-5">
         {/* Probe input — detected state */}
         <div className="rounded-xl border border-border bg-card p-5">
-          <label className="mb-2.5 block font-mono text-[11px] uppercase tracking-widest text-muted-foreground">
+          <label className="mb-2.5 block font-mono text-mini uppercase tracking-widest text-muted-foreground">
             {t('serviceUrl.detectedLabel', { defaultValue: 'Service URL — detected' })}
           </label>
           <div className="flex items-stretch overflow-hidden rounded-lg border-[1.5px] border-success bg-surface-0">
-            <span className="flex items-center gap-1.5 border-r border-border bg-success/10 px-3.5 font-mono text-[11px] font-semibold uppercase tracking-wider text-success">
+            <span className="flex items-center gap-1.5 border-r border-border bg-success/10 px-3.5 font-mono text-mini font-semibold uppercase tracking-wider text-success">
               <Check className="size-3.5" />
               {probeResult.service_type}
             </span>
@@ -174,14 +174,14 @@ export function ServiceUrlForm() {
         {/* Service info + layer cards */}
         <div className="overflow-hidden rounded-xl border border-border bg-card">
           <div className="flex items-center gap-3.5 border-b border-border px-5 py-3.5">
-            <span className="rounded-md bg-type-vrt-bg px-2.5 py-0.5 font-mono text-[11px] font-semibold uppercase tracking-wider text-type-vrt">
+            <span className="rounded-md bg-type-vrt-bg px-2.5 py-0.5 font-mono text-mini font-semibold uppercase tracking-wider text-type-vrt">
               {probeResult.service_type}
             </span>
             <div className="flex-1">
               <h3 className="text-[15px] font-medium tracking-tight">
                 {probeResult.url}
               </h3>
-              <p className="font-mono text-[11px] text-muted-foreground tracking-wide">
+              <p className="font-mono text-mini text-muted-foreground tracking-wide">
                 {t('serviceUrl.layersAvailable', { count: probeResult.layers.length, defaultValue: `${probeResult.layers.length} layers available` })}
               </p>
             </div>
@@ -258,11 +258,11 @@ export function ServiceUrlForm() {
     <div className="rounded-xl border border-border bg-card p-5">
       <form onSubmit={handleConnect} className="space-y-5">
         <div>
-          <label className="mb-2.5 block font-mono text-[11px] uppercase tracking-widest text-muted-foreground">
+          <label className="mb-2.5 block font-mono text-mini uppercase tracking-widest text-muted-foreground">
             {t('serviceUrl.label', { defaultValue: 'Service URL — we\'ll auto-detect the type' })}
           </label>
           <div className="flex items-stretch overflow-hidden rounded-lg border-[1.5px] border-border bg-surface-0 transition-colors focus-within:border-primary">
-            <span className="flex items-center gap-1.5 border-r border-border bg-surface-2 px-3.5 font-mono text-[11px] uppercase tracking-wider text-muted-foreground font-medium">
+            <span className="flex items-center gap-1.5 border-r border-border bg-surface-2 px-3.5 font-mono text-mini uppercase tracking-wider text-muted-foreground font-medium">
               <Globe className="size-3.5" />
               URL
             </span>
@@ -284,9 +284,9 @@ export function ServiceUrlForm() {
           <div className="mt-2.5 flex flex-wrap gap-4 text-xs text-muted-foreground">
             <span>
               {t('serviceUrl.supported', { defaultValue: 'Supported:' })}{' '}
-              <code className="rounded bg-surface-2 px-1.5 py-px font-mono text-[11px] text-muted-foreground">WFS</code>{' '}
-              <code className="rounded bg-surface-2 px-1.5 py-px font-mono text-[11px] text-muted-foreground">ArcGIS FeatureServer</code>{' '}
-              <code className="rounded bg-surface-2 px-1.5 py-px font-mono text-[11px] text-muted-foreground">OGC API Features</code>
+              <code className="rounded-sm bg-surface-2 px-1.5 py-px font-mono text-mini text-muted-foreground">WFS</code>{' '}
+              <code className="rounded-sm bg-surface-2 px-1.5 py-px font-mono text-mini text-muted-foreground">ArcGIS FeatureServer</code>{' '}
+              <code className="rounded-sm bg-surface-2 px-1.5 py-px font-mono text-mini text-muted-foreground">OGC API Features</code>
             </span>
           </div>
         </div>

@@ -54,7 +54,7 @@ export function ApiKeyRevealDialog({ apiKey, open, onOpenChange }: ApiKeyRevealD
           </DialogDescription>
         </DialogHeader>
         <div className="flex items-center gap-2">
-          <code className="flex-1 rounded bg-muted p-3 font-mono text-sm break-all select-all">
+          <code className="flex-1 rounded-sm bg-muted p-3 font-mono text-sm break-all select-all">
             {apiKey.key}
           </code>
           <Button variant="outline" size="sm" onClick={handleCopy}>

@@ -60,7 +60,7 @@ function RelatedSection({
             <p className="text-sm text-muted-foreground py-2">{t('relatedRecords.noRecords')}</p>
           )}
           {data && data.rows.length > 0 && (
-            <div className="overflow-x-auto rounded border">
+            <div className="overflow-x-auto rounded-sm border">
               <table className="w-full text-xs">
                 <thead>
                   <tr className="bg-muted/50 border-b">

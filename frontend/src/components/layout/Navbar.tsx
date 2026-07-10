@@ -176,7 +176,7 @@ function UserMenu() {
           <>
             <DropdownMenuLabel className="flex items-center gap-2">
               {user.username}
-              <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
+              <Badge variant="secondary" className="text-2xs px-1.5 py-0">
                 {user.roles?.[0]}
               </Badge>
             </DropdownMenuLabel>

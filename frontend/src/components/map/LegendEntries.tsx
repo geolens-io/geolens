@@ -212,11 +212,11 @@ export const HeatmapLegend = memo(function HeatmapLegend({
         style={{ background: gradient }}
       />
       <div className="flex justify-between mt-0.5">
-        <span className="text-[10px] text-muted-foreground">{lowLabel}</span>
-        <span className="text-[10px] text-muted-foreground">{highLabel}</span>
+        <span className="text-2xs text-muted-foreground">{lowLabel}</span>
+        <span className="text-2xs text-muted-foreground">{highLabel}</span>
       </div>
       {weightColumn && weightedByLabel && (
-        <div className="text-[10px] text-muted-foreground mt-0.5 truncate">
+        <div className="text-2xs text-muted-foreground mt-0.5 truncate">
           {weightedByLabel}
         </div>
       )}

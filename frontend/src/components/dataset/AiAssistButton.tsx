@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Sparkles, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Textarea } from '@/components/ui/textarea';
 
 interface AiAssistButtonProps {
   onClick: () => void;
@@ -49,10 +50,10 @@ export function AiDraftPreview({ draft, onAccept, onDiscard }: AiDraftPreviewPro
       <Badge variant="secondary" className="text-xs">
         {t('ai.draft')}
       </Badge>
-      <textarea
+      <Textarea
         value={editedText}
         onChange={(e) => setEditedText(e.target.value)}
-        className="w-full min-h-[4rem] bg-transparent border border-border rounded-md p-2 text-sm resize-none focus:outline-none focus:ring-1 focus:ring-ring"
+        className="min-h-[4rem] resize-none"
         rows={4}
       />
       <div className="flex items-center gap-2">

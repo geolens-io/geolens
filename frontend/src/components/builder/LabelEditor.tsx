@@ -99,7 +99,7 @@ export function LabelEditor({ columns, labelConfig, onLabelChange, geometryType 
       <div className="flex items-center justify-between">
         <div className="min-w-0">
           <Label className="text-xs font-medium">{t('labels.title')}</Label>
-          <p className="text-[11px] leading-snug text-muted-foreground">{t('labels.scopeHelp')}</p>
+          <p className="text-mini leading-snug text-muted-foreground">{t('labels.scopeHelp')}</p>
         </div>
         <Switch
           checked={isOn}
@@ -112,7 +112,7 @@ export function LabelEditor({ columns, labelConfig, onLabelChange, geometryType 
       </div>
 
       {!isOn && columns.length === 0 && (
-        <p className="rounded-md bg-muted px-2 py-1.5 text-[11px] leading-snug text-muted-foreground">
+        <p className="rounded-md bg-muted px-2 py-1.5 text-mini leading-snug text-muted-foreground">
           {t('labels.noColumns')}
         </p>
       )}
@@ -197,7 +197,7 @@ export function LabelEditor({ columns, labelConfig, onLabelChange, geometryType 
                 key={opt.value}
                 type="button"
                 className={cn(
-                  'flex-1 cursor-pointer px-2 py-1 text-xs rounded border transition-colors',
+                  'flex-1 cursor-pointer px-2 py-1 text-xs rounded-sm border transition-colors',
                   placement === opt.value
                     ? 'bg-primary text-primary-foreground border-primary'
                     : 'bg-muted/50 text-muted-foreground border-border hover:bg-muted',

@@ -60,7 +60,7 @@ export function BulkUploadProgress({ entries }: BulkUploadProgressProps) {
             </div>
             <div className="flex items-center gap-2">
               {pct != null && (
-                <span className="font-mono text-[11px] tabular-nums text-muted-foreground">
+                <span className="font-mono text-mini tabular-nums text-muted-foreground">
                   {pct}%
                 </span>
               )}

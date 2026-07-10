@@ -833,7 +833,7 @@ export const DatasetMap = memo(function DatasetMap({
           <button
             type="button"
             onClick={handleZoomToExtent}
-            className="bg-background border rounded shadow-sm p-1.5 hover:bg-accent"
+            className="bg-background border rounded-sm shadow-sm p-1.5 hover:bg-accent"
             title={t('map.zoomToExtent')}
             aria-label={t('map.zoomToExtent')}
           >
@@ -844,7 +844,7 @@ export const DatasetMap = memo(function DatasetMap({
           <button
             type="button"
             onClick={handleToggleFullscreen}
-            className="bg-background border rounded shadow-sm p-1.5 hover:bg-accent"
+            className="bg-background border rounded-sm shadow-sm p-1.5 hover:bg-accent"
             title={isFullscreen ? t('map.exitFullscreen') : t('map.fullscreen')}
             aria-label={isFullscreen ? t('map.exitFullscreen') : t('map.fullscreen')}
           >

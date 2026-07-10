@@ -90,7 +90,7 @@ function LayerEditorTypePill({ layer }: { layer: MapLayerResponse }) {
 
   return (
     <span className={cn(
-      'inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em]',
+      'inline-flex items-center rounded-sm px-1.5 py-0.5 text-2xs font-semibold uppercase tracking-[0.08em]',
       caps.kind === 'vector' && 'bg-[var(--type-vector-bg)] text-[var(--type-vector)]',
       (caps.kind === 'raster' || caps.kind === 'vrt') && 'bg-[var(--type-raster-bg)] text-[var(--type-raster)]',
     )}>
@@ -341,7 +341,7 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
               )}
             </div>
             {!isPureSettings && editorScene !== 'basemap-group' && editorScene !== 'basemap-sublayer' && (layer.dataset_geometry_type || caps.kind === 'raster' || caps.kind === 'vrt') && (
-              <span className="text-[11px] text-muted-foreground truncate">
+              <span className="text-mini text-muted-foreground truncate">
                 {layer.dataset_geometry_type ?? (
                   (caps.kind === 'raster' || caps.kind === 'vrt')
                     ? (typeof layer.band_count === 'number' && layer.band_count >= 1
@@ -427,7 +427,7 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
                     >
                       <p
                         id={`section-renderas-${layer.id}`}
-                        className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground mb-2"
+                        className="text-2xs font-semibold uppercase tracking-[0.08em] text-muted-foreground mb-2"
                       >
                         {t('layerEditor.section.renderAs', { defaultValue: 'Render as' })}
                       </p>
@@ -441,7 +441,7 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
                               data-active={isActive ? 'true' : 'false'}
                               onClick={() => handleRenderAsClick(option.id)}
                               className={cn(
-                                'rounded-full border border-transparent px-[10px] py-[5px] text-[12px] transition-colors',
+                                'rounded-full border border-transparent px-[10px] py-[5px] text-xs transition-colors',
                                 isActive
                                   ? 'bg-primary text-primary-foreground border-transparent'
                                   : 'bg-[var(--surface-2,theme(colors.muted.DEFAULT))] text-foreground hover:bg-[var(--surface-3,theme(colors.muted.DEFAULT))]',

@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { Textarea } from '@/components/ui/textarea';
 import { useTranslation } from 'react-i18next';
 import { useQueryClient } from '@tanstack/react-query';
 import { Loader2 } from 'lucide-react';
@@ -82,13 +83,12 @@ export function CollectionCreateDialog({ open, onOpenChange }: CollectionCreateD
 
           <div className="space-y-2">
             <Label htmlFor="collection-description">{t('createDialog.descriptionLabel')}</Label>
-            <textarea
+            <Textarea
               id="collection-description"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               rows={3}
               placeholder={t('createDialog.descriptionPlaceholder')}
-              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             />
           </div>
 

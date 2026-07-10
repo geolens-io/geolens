@@ -34,7 +34,7 @@ export function CopyButton({ value, className }: CopyButtonProps) {
       onClick={handleCopy}
       className={
         className ??
-        'inline-flex items-center justify-center h-6 w-6 rounded hover:bg-muted transition-colors'
+        'inline-flex items-center justify-center h-6 w-6 rounded-sm hover:bg-muted transition-colors'
       }
       title={t('metadata.copyToClipboard')}
     >

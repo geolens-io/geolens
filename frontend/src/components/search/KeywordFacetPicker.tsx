@@ -46,7 +46,7 @@ export function KeywordFacetPicker({ facets, isLoading }: KeywordFacetPickerProp
           <Tag className="me-1 size-3.5" />
           {t('filters.keywords', { defaultValue: 'Keywords' })}
           {selectedKeywords.length > 0 && (
-            <span className="ms-1 rounded-sm bg-primary px-1.5 py-0 text-[11px] font-semibold text-primary-foreground">
+            <span className="ms-1 rounded-sm bg-primary px-1.5 py-0 text-mini font-semibold text-primary-foreground">
               {selectedKeywords.length}
             </span>
           )}

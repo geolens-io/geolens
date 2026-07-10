@@ -105,7 +105,7 @@ export function BasemapToggle({ value, onChange, title = 'Change basemap', class
                 <img
                   src={basemapThumbnail(b.id)}
                   alt={b.label}
-                  className="w-9 h-9 rounded border object-cover shrink-0"
+                  className="w-9 h-9 rounded-sm border object-cover shrink-0"
                 />
                 <span className="text-xs font-medium truncate flex-1">{b.label}</span>
                 {isActive && <Check className="h-3.5 w-3.5 text-primary shrink-0" aria-hidden="true" />}

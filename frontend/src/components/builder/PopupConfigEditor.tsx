@@ -59,7 +59,7 @@ function SortableField({
     <div
       ref={setNodeRef}
       style={style}
-      className="flex items-center gap-1.5 px-2 py-1 rounded bg-background border text-xs"
+      className="flex items-center gap-1.5 px-2 py-1 rounded-sm bg-background border text-xs"
     >
       <button
         type="button"
@@ -70,7 +70,7 @@ function SortableField({
       >
         <GripVertical className="h-3 w-3" />
       </button>
-      <span className="flex-1 font-mono text-[11px] truncate">{name}</span>
+      <span className="flex-1 font-mono text-mini truncate">{name}</span>
       <button
         type="button"
         onClick={onRemove}
@@ -177,7 +177,7 @@ export function PopupConfigEditor({ columns, popupConfig, onPopupChange }: Popup
       <div className="flex items-center justify-between">
         <div className="min-w-0">
           <Label className="text-xs font-medium">{t('popup.enable')}</Label>
-          <p className="text-[11px] leading-snug text-muted-foreground">{t('popup.scopeHelp')}</p>
+          <p className="text-mini leading-snug text-muted-foreground">{t('popup.scopeHelp')}</p>
         </div>
         <Switch
           checked={isOn}
@@ -189,7 +189,7 @@ export function PopupConfigEditor({ columns, popupConfig, onPopupChange }: Popup
       {isOn && (
         <>
           {columns.length === 0 && mode === 'all' && (
-            <p className="rounded-md bg-muted px-2 py-1.5 text-[11px] leading-snug text-muted-foreground">
+            <p className="rounded-md bg-muted px-2 py-1.5 text-mini leading-snug text-muted-foreground">
               {t('popup.noColumns')}
             </p>
           )}
@@ -212,7 +212,7 @@ export function PopupConfigEditor({ columns, popupConfig, onPopupChange }: Popup
               aria-invalid={!validation.ok}
               aria-describedby="popup-expression-help"
             />
-            <p id="popup-expression-help" className="text-[11px] text-muted-foreground">
+            <p id="popup-expression-help" className="text-mini text-muted-foreground">
               {validation.ok
                 ? t('popup.expressionHelp')
                 : t('popup.unknownPlaceholders', { list: validation.unknown.join(', ') })}
@@ -222,14 +222,14 @@ export function PopupConfigEditor({ columns, popupConfig, onPopupChange }: Popup
           {/* Visible fields mode toggle */}
           <div className="space-y-1.5 pt-2 border-t">
             <Label className="text-xs font-medium">{t('popup.visibleFields')}</Label>
-            <p className="text-[11px] text-muted-foreground leading-snug">
+            <p className="text-mini text-muted-foreground leading-snug">
               {t('popup.mediaHint')}
             </p>
             <div className="flex gap-1">
               <button
                 type="button"
                 className={cn(
-                  'flex-1 px-2 py-1 text-xs rounded border transition-colors',
+                  'flex-1 px-2 py-1 text-xs rounded-sm border transition-colors',
                   mode === 'all'
                     ? 'bg-primary text-primary-foreground border-primary'
                     : 'bg-muted/50 text-muted-foreground border-border hover:bg-muted',
@@ -241,7 +241,7 @@ export function PopupConfigEditor({ columns, popupConfig, onPopupChange }: Popup
               <button
                 type="button"
                 className={cn(
-                  'flex-1 px-2 py-1 text-xs rounded border transition-colors',
+                  'flex-1 px-2 py-1 text-xs rounded-sm border transition-colors',
                   mode === 'custom'
                     ? 'bg-primary text-primary-foreground border-primary'
                     : 'bg-muted/50 text-muted-foreground border-border hover:bg-muted',
@@ -257,11 +257,11 @@ export function PopupConfigEditor({ columns, popupConfig, onPopupChange }: Popup
           {mode === 'custom' && visibleFields !== null && (
             <div className="space-y-2">
               {columnNames.length === 0 ? (
-                <p className="text-[11px] text-muted-foreground italic">
+                <p className="text-mini text-muted-foreground italic">
                   {t('popup.noColumns')}
                 </p>
               ) : visibleFields.length === 0 ? (
-                <p className="text-[11px] text-muted-foreground italic">
+                <p className="text-mini text-muted-foreground italic">
                   {t('popup.noFieldsSelected')}
                 </p>
               ) : (
@@ -288,14 +288,14 @@ export function PopupConfigEditor({ columns, popupConfig, onPopupChange }: Popup
 
               {availableFields.length > 0 && (
                 <div className="space-y-1">
-                  <Label className="text-[11px] text-muted-foreground">{t('popup.addField')}</Label>
+                  <Label className="text-mini text-muted-foreground">{t('popup.addField')}</Label>
                   <div className="flex flex-wrap gap-1">
                     {availableFields.map((name) => (
                       <button
                         key={name}
                         type="button"
                         onClick={() => handleAddField(name)}
-                        className="flex items-center gap-1 px-1.5 py-0.5 text-[11px] font-mono rounded border border-dashed border-muted-foreground/40 text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+                        className="flex items-center gap-1 px-1.5 py-0.5 text-mini font-mono rounded-sm border border-dashed border-muted-foreground/40 text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
                       >
                         <Plus className="h-3 w-3" />
                         {name}

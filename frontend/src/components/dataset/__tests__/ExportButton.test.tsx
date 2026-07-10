@@ -1,32 +1,44 @@
 import { render, screen } from '@/test/test-utils';
+import userEvent from '@testing-library/user-event';
 import { ExportButton } from '../ExportButton';
 
 vi.mock('@/api/datasets', () => ({
   downloadExport: vi.fn(),
 }));
 
+// fix(#438): DS-08 — the format picker is now a Radix Select, whose options only
+// mount once the trigger is opened, and which needs these pointer/scroll APIs
+// that jsdom lacks.
+beforeAll(() => {
+  Element.prototype.hasPointerCapture = vi.fn(() => false);
+  Element.prototype.setPointerCapture = vi.fn();
+  Element.prototype.releasePointerCapture = vi.fn();
+  Element.prototype.scrollIntoView = vi.fn();
+});
+
 describe('ExportButton', () => {
-  it('renders all 4 format options by default', () => {
+  it('renders all 4 format options by default', async () => {
+    const user = userEvent.setup();
     render(<ExportButton datasetId="ds-1" datasetName="test" />);
 
-    const select = screen.getByRole('combobox');
-    const options = Array.from(select.querySelectorAll('option'));
+    await user.click(screen.getByRole('combobox'));
+    const options = await screen.findAllByRole('option');
     expect(options).toHaveLength(4);
-    const values = options.map((o) => o.value);
-    expect(values).toContain('gpkg');
-    expect(values).toContain('geojson');
-    expect(values).toContain('shp');
-    expect(values).toContain('csv');
+    const labels = options.map((o) => o.textContent);
+    expect(labels).toEqual(
+      expect.arrayContaining(['GeoPackage', 'GeoJSON', 'Shapefile', 'CSV']),
+    );
   });
 
-  it('limits table datasets to CSV export', () => {
+  it('limits table datasets to CSV export', async () => {
+    const user = userEvent.setup();
     render(<ExportButton datasetId="ds-1" datasetName="test" recordType="table" />);
 
-    const select = screen.getByRole('combobox');
-    const options = Array.from(select.querySelectorAll('option'));
+    // The trigger already shows CSV as the only/selected format.
+    expect(screen.getByRole('combobox')).toHaveTextContent('CSV');
+    await user.click(screen.getByRole('combobox'));
+    const options = await screen.findAllByRole('option');
     expect(options).toHaveLength(1);
-    const values = options.map((o) => o.value);
-    expect(values).toContain('csv');
-    expect(select).toHaveValue('csv');
+    expect(options[0]).toHaveTextContent('CSV');
   });
 });

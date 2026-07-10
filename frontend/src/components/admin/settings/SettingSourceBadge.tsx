@@ -26,7 +26,7 @@ export function SettingSourceBadge({ source, settingKey, onReset }: SettingSourc
             <Button
               variant="ghost"
               size="sm"
-              className="h-5 px-1.5 text-[10px] text-muted-foreground hover:text-foreground gap-1"
+              className="h-5 px-1.5 text-2xs text-muted-foreground hover:text-foreground gap-1"
               onClick={() => onReset(settingKey)}
             >
               <RotateCcw className="h-3 w-3" />
@@ -46,7 +46,7 @@ export function SettingSourceBadge({ source, settingKey, onReset }: SettingSourc
       <TooltipProvider>
         <Tooltip>
           <TooltipTrigger asChild>
-            <Badge variant="outline" className="text-[10px] px-1.5 py-0 cursor-help gap-1">
+            <Badge variant="outline" className="text-2xs px-1.5 py-0 cursor-help gap-1">
               <Lock className="h-3 w-3" />
               {t('settings.sourceBadge.envVar')}
             </Badge>

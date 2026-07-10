@@ -13,6 +13,7 @@ import type { ViewportContext } from '@/components/builder/chat-suggestions';
 import { HistoryPanel } from '@/components/builder/HistoryPanel';
 import { useAIAvailability } from '@/hooks/use-ai-availability';
 import { useAuthStore } from '@/stores/auth-store';
+import { Textarea } from '@/components/ui/textarea';
 
 const ChatPanel = lazy(() => import('@/components/builder/ChatPanel').then(m => ({ default: m.ChatPanel })));
 
@@ -232,8 +233,8 @@ export function BuilderRail({
           <div className="flex-1 min-h-0 overflow-hidden">
             {activePanel === 'notes' && (
               <div className="flex h-full min-h-0 p-3">
-                <textarea
-                  className="min-h-[18rem] w-full flex-1 resize-none rounded-md border border-input bg-transparent p-3 text-sm placeholder:text-muted-foreground/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                <Textarea
+                  className="min-h-[18rem] flex-1 resize-none p-3 placeholder:text-muted-foreground/50"
                   placeholder={t('dock.notesPlaceholder', { defaultValue: 'Add notes about this map\u2026' })}
                   value={notes}
                   onChange={(e) => {

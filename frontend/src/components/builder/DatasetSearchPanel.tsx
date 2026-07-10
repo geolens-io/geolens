@@ -205,7 +205,7 @@ const DraggableDatasetRow = memo(function DraggableDatasetRow({
           aria-label={t('search.dragHandle', { defaultValue: 'Drag into map' })}
           // Phase 1199 STACK-05: reveal the catalog drag grip on coarse-pointer/touch.
           data-touch-reveal=""
-          className="flex h-7 w-5 shrink-0 items-center justify-center cursor-grab opacity-0 group-hover/row:opacity-35 hover:opacity-70 focus-visible:opacity-70 text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded active:cursor-grabbing"
+          className="flex h-7 w-5 shrink-0 items-center justify-center cursor-grab opacity-0 group-hover/row:opacity-35 hover:opacity-70 focus-visible:opacity-70 text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm active:cursor-grabbing"
           // builder-audit #338 P1-10: {...listeners} spreads dnd-kit's PointerSensor
           // activator (incl. onPointerDown). A bare onPointerDown={stopPropagation}
           // AFTER the spread would OVERRIDE the activator and break drag-to-add from
@@ -221,7 +221,7 @@ const DraggableDatasetRow = memo(function DraggableDatasetRow({
         </button>
         <button
           type="button"
-          className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-[var(--surface-2)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-sm text-muted-foreground hover:bg-[var(--surface-2)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           aria-label={expanded ? `Collapse ${props.title}` : `Expand ${props.title}`}
           onClick={() => setExpandedRowId(expanded ? null : rowId)}
         >
@@ -230,9 +230,9 @@ const DraggableDatasetRow = memo(function DraggableDatasetRow({
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-medium">{props.title}</p>
           <div className="mt-0.5 flex min-w-0 items-center gap-1 overflow-hidden">
-            <RecordTypeBadge recordType={recordType} className="h-5 rounded px-1.5 text-[10px]" />
+            <RecordTypeBadge recordType={recordType} className="h-5 rounded-sm px-1.5 text-2xs" />
             {props.geometry_type && (
-              <Badge variant="outline" className="h-5 shrink-0 rounded px-1.5 text-[10px]">
+              <Badge variant="outline" className="h-5 shrink-0 rounded-sm px-1.5 text-2xs">
                 {getGeometryTypeLabel(t, props.geometry_type)}
               </Badge>
             )}
@@ -344,7 +344,7 @@ export function DatasetSearchPanel({
     if (layer) {
       return (
         <div className={cn('flex shrink-0 items-center gap-1', compact && 'justify-end')}>
-          <Badge variant="secondary" className="h-6 rounded px-2 text-xs">
+          <Badge variant="secondary" className="h-6 rounded-sm px-2 text-xs">
             <Check className="me-1 h-3 w-3" aria-hidden="true" />
             {t('search.added', { defaultValue: 'Added' })}
           </Badge>
@@ -427,7 +427,7 @@ export function DatasetSearchPanel({
                 type="button"
                 variant="secondary"
                 size="sm"
-                className="h-7 min-w-0 max-w-full rounded px-2 text-xs"
+                className="h-7 min-w-0 max-w-full rounded-sm px-2 text-xs"
                 onClick={() => setSourceOrganization('')}
               >
                 <span className="block truncate">{sourceOrganization}</span>
@@ -439,7 +439,7 @@ export function DatasetSearchPanel({
                 type="button"
                 variant="outline"
                 size="sm"
-                className="h-7 min-w-0 max-w-full rounded px-2 text-xs"
+                className="h-7 min-w-0 max-w-full rounded-sm px-2 text-xs"
                 onClick={() => setSourceOrganization(option)}
               >
                 <span className="block truncate">{option}</span>
@@ -450,7 +450,7 @@ export function DatasetSearchPanel({
                 type="button"
                 variant="secondary"
                 size="sm"
-                className="h-7 rounded px-2 text-xs"
+                className="h-7 rounded-sm px-2 text-xs"
                 onClick={() => setKeyword('')}
               >
                 #{keyword}
@@ -462,7 +462,7 @@ export function DatasetSearchPanel({
                 type="button"
                 variant="ghost"
                 size="sm"
-                className="h-7 rounded px-2 text-xs text-muted-foreground"
+                className="h-7 rounded-sm px-2 text-xs text-muted-foreground"
                 onClick={() => setKeyword(option)}
               >
                 #{option}

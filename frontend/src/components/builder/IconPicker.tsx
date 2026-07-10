@@ -71,8 +71,8 @@ export function IconPicker({ value, onChange, label, uploadAriaLabel }: IconPick
               key={icon.id}
               type="button"
               className={cn(
-                'flex cursor-pointer h-8 w-8 items-center justify-center rounded border bg-background text-[10px] font-medium',
-                value === icon.sprite_id ? 'border-primary ring-1 ring-primary' : 'border-border hover:bg-accent',
+                'flex cursor-pointer h-8 w-8 items-center justify-center rounded-sm border bg-background text-2xs font-medium',
+                value === icon.sprite_id ? 'border-primary ring-1 ring-ring' : 'border-border hover:bg-accent',
               )}
               onClick={() => onChange(icon.sprite_id)}
               title={icon.name}

@@ -50,7 +50,7 @@ export function ReportProblemHost() {
               <span
                 aria-live="polite"
                 aria-atomic="true"
-                className="absolute -right-1 -top-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-semibold leading-none text-destructive-foreground"
+                className="absolute -right-1 -top-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-2xs font-semibold leading-none text-destructive-foreground"
               >
                 {badge}
               </span>

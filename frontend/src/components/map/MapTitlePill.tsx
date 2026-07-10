@@ -31,7 +31,7 @@ export function MapTitlePill({ name, description }: MapTitlePillProps) {
               aria-label={showDesc
                 ? t('viewer.hideDescription')
                 : t('viewer.showDescription')}
-              className="flex-shrink-0 p-0.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-[color,background-color,box-shadow,border-color,opacity] duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="flex-shrink-0 p-0.5 rounded-sm hover:bg-accent text-muted-foreground hover:text-foreground transition-[color,background-color,box-shadow,border-color,opacity] duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               {showDesc
                 ? <X className="w-3.5 h-3.5" aria-hidden="true" />

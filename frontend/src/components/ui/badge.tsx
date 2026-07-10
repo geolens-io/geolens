@@ -22,7 +22,7 @@ const badgeVariants = cva(
         ghost: "[a&]:hover:bg-accent [a&]:hover:text-accent-foreground",
         link: "text-primary underline-offset-4 [a&]:hover:underline",
         // #305: token-driven soft status variants (AA-compliant).
-        // Replaces ad-hoc per-call `bg-success/10 text-success text-[10px]` recipes.
+        // Replaces ad-hoc per-call `bg-success/10 text-success text-2xs` recipes.
         success: "border-success/30 bg-success/10 text-success [a&]:hover:bg-success/15",
         warning: "border-warning/30 bg-warning/10 text-warning [a&]:hover:bg-warning/15",
         info: "border-info/30 bg-info/10 text-info [a&]:hover:bg-info/15",

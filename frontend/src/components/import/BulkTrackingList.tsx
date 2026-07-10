@@ -137,7 +137,7 @@ export function BulkTrackingList({ entries, onReset, autoOpenVrt = false }: Bulk
               { label: t('complete.statTabular', { defaultValue: 'Tabular' }), value: completedEntries.filter((e) => e.kind === 'table').length },
             ].map((stat, i) => (
               <div key={i} className="px-5 py-4">
-                <dt className="mb-1.5 font-mono text-[10px] uppercase tracking-widest text-muted-foreground">{stat.label}</dt>
+                <dt className="mb-1.5 font-mono text-2xs uppercase tracking-widest text-muted-foreground">{stat.label}</dt>
                 <dd className="text-xl font-medium tracking-tight">{stat.value}</dd>
               </div>
             ))}
@@ -157,8 +157,8 @@ export function BulkTrackingList({ entries, onReset, autoOpenVrt = false }: Bulk
                 <div className="min-w-0">
                   <p className="truncate text-[13.5px] font-medium tracking-tight">{entry.title}</p>
                   <div className="flex items-center gap-2 mt-0.5">
-                    <Badge variant="secondary" className="text-[10px]">{entry.kind}</Badge>
-                    <Badge variant="outline" className="text-[10px]">{getVisibilityLabel(t, entry.visibility)}</Badge>
+                    <Badge variant="secondary" className="text-2xs">{entry.kind}</Badge>
+                    <Badge variant="outline" className="text-2xs">{getVisibilityLabel(t, entry.visibility)}</Badge>
                   </div>
                 </div>
                 <StatusPill status="complete" />
@@ -214,7 +214,7 @@ export function BulkTrackingList({ entries, onReset, autoOpenVrt = false }: Bulk
             <p className="text-[13px]">
               <span className="font-semibold">{t('bulk.importingFiles', { count: trackable.length, defaultValue: `Importing ${trackable.length} files` })}</span>
             </p>
-            <p className="font-mono text-[11px] text-muted-foreground tracking-wide mt-0.5">
+            <p className="font-mono text-mini text-muted-foreground tracking-wide mt-0.5">
               {t('bulk.progressDetail', {
                 done: completedEntries.length,
                 active: inProgressCount,
@@ -249,7 +249,7 @@ export function BulkTrackingList({ entries, onReset, autoOpenVrt = false }: Bulk
               <div key={entry.datasetId} className="flex items-center justify-between gap-3 rounded-lg border bg-background/80 px-3 py-2.5">
                 <div className="min-w-0">
                   <p className="truncate text-sm font-medium">{entry.title}</p>
-                  <Badge variant="secondary" className="text-[10px] mt-0.5">{entry.kind}</Badge>
+                  <Badge variant="secondary" className="text-2xs mt-0.5">{entry.kind}</Badge>
                 </div>
                 <Button asChild size="sm" className="shrink-0">
                   <Link to={`/datasets/${entry.datasetId}`}>

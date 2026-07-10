@@ -73,7 +73,7 @@ export function DragGripButton({
       {...(touchReveal ? { 'data-touch-reveal': '' } : {})}
       className={cn(
         'flex items-center justify-center cursor-grab opacity-35 group-hover/row:opacity-70 text-muted-foreground',
-        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded active:cursor-grabbing',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm active:cursor-grabbing',
         listenersSuppressed && 'cursor-not-allowed opacity-20',
         className,
       )}

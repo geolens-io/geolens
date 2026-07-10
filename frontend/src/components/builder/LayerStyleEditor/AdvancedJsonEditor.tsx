@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { ChevronDown, ChevronRight, Code } from 'lucide-react';
 import { validateStyleMin } from '@maplibre/maplibre-gl-style-spec';
 import { Button } from '@/components/ui/button';
+import { Textarea } from '@/components/ui/textarea';
 
 // fix(#431 codex r2): a mixed-geometry (GEOMETRY sentinel) layer's paint and
 // layout span three MapLibre layer types — the adapter fans the same dict out
@@ -167,8 +168,8 @@ function JsonBlock({ label, value, onApply, layerType, block }: JsonBlockProps) 
   return (
     <div className="space-y-1.5">
       <div className="text-xs font-medium text-muted-foreground">{label}</div>
-      <textarea
-        className="w-full rounded border border-input bg-background p-2 text-xs font-mono resize-y min-h-[80px] outline-none focus:ring-1 focus:ring-ring"
+      <Textarea
+        className="text-xs font-mono resize-y min-h-[80px]"
         value={text}
         onChange={(e) => { setText(e.target.value); setError(null); }}
         spellCheck={false}

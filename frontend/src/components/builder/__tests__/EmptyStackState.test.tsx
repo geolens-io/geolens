@@ -272,7 +272,7 @@ describe('EmptyStackState', () => {
     const module = await import('../EmptyStackState');
     expect(module.eyebrowClassName).toBeDefined();
     expect(typeof module.eyebrowClassName).toBe('string');
-    expect(module.eyebrowClassName).toContain('text-[10px]');
+    expect(module.eyebrowClassName).toContain('text-2xs');
     expect(module.eyebrowClassName).toContain('font-semibold');
     expect(module.eyebrowClassName).toContain('tracking-wide');
   });

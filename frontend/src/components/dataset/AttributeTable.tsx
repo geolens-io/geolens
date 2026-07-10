@@ -194,7 +194,7 @@ export function AttributeTable({ datasetId, canEdit = false, compact = false }: 
           return (
             <button
               type="button"
-              className="group/cell flex items-center gap-1 rounded px-0.5 -mx-0.5 text-start hover:bg-muted/50 w-full"
+              className="group/cell flex items-center gap-1 rounded-sm px-0.5 -mx-0.5 text-start hover:bg-muted/50 w-full"
               onClick={() => setEditingCell({ rowGid: gid, column: col.name })}
             >
               <span className="truncate">{cellValue}</span>

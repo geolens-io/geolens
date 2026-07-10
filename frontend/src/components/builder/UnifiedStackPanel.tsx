@@ -208,7 +208,7 @@ const SublayerRow = memo(function SublayerRow({
         type="button"
         aria-label={`Toggle visibility for ${sublayer.name}`}
         aria-pressed={sublayer.visible}
-        className="flex items-center justify-center h-[22px] w-[22px] rounded text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className="flex items-center justify-center h-[22px] w-[22px] rounded-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         onClick={(e) => {
           e.stopPropagation();
           onToggleSublayerVisibility(sublayer.id);
@@ -604,7 +604,7 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
                 aria-pressed={isSettingsOpen}
                 data-testid="settings-cog-btn"
                 className={cn(
-                  'flex h-8 w-8 items-center justify-center rounded transition-colors',
+                  'flex h-8 w-8 items-center justify-center rounded-sm transition-colors',
                   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
                   isSettingsOpen
                     ? 'bg-[var(--primary-50,oklch(0.97_0.02_250))] text-primary'
@@ -652,7 +652,7 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
             value={layerSearch}
             onChange={(e) => setLayerSearch(e.target.value)}
             className={cn(
-              'w-full h-7 rounded border border-[var(--border)] bg-[var(--surface-1,var(--background))]',
+              'w-full h-7 rounded-sm border border-[var(--border)] bg-[var(--surface-1,var(--background))]',
               'pl-7 pr-2 text-xs text-foreground placeholder:text-muted-foreground',
               'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
             )}
@@ -863,7 +863,7 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
                 if (!activeDragId) return null;
                 const activeLayer = layers.find((l) => l.id === activeDragId);
                 return activeLayer ? (
-                  <div className="opacity-40 scale-[0.98] pointer-events-none bg-[var(--surface-2)] rounded shadow-md">
+                  <div className="opacity-40 scale-[0.98] pointer-events-none bg-[var(--surface-2)] rounded-sm shadow-md">
                     <StackRow
                       layer={activeLayer}
                       selected={false}

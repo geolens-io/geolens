@@ -110,7 +110,7 @@ export function MapTitleBar({
             onBlur={() => { if (!name.trim()) onNameChange(t('titleBar.untitled', { defaultValue: 'Untitled Map' })); }}
             maxLength={255}
             aria-label={t('mapNameLabel', { defaultValue: 'Map name' })}
-            className="text-sm font-medium truncate bg-transparent border-none outline-none focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring rounded px-1.5 py-0.5 -ms-1.5 w-full hover:bg-accent/40 transition-colors pe-5"
+            className="text-sm font-medium truncate bg-transparent border-none outline-none focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring rounded-sm px-1.5 py-0.5 -ms-1.5 w-full hover:bg-accent/40 transition-colors pe-5"
             title={name}
           />
           <Pencil className="absolute right-1 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground/40 opacity-0 group-hover:opacity-100 group-focus-within:opacity-0 transition-opacity pointer-events-none" />
@@ -125,7 +125,7 @@ export function MapTitleBar({
             maxLength={500}
             placeholder={t('descriptionPlaceholder', { defaultValue: 'Add a description\u2026' })}
             aria-label={t('titleBar.description', { defaultValue: 'Description' })}
-            className="flex-1 min-w-0 text-xs text-muted-foreground bg-transparent border-none outline-none focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring rounded px-1.5 py-0.5 truncate placeholder:text-muted-foreground/40 hover:bg-accent/40 transition-colors"
+            className="flex-1 min-w-0 text-xs text-muted-foreground bg-transparent border-none outline-none focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring rounded-sm px-1.5 py-0.5 truncate placeholder:text-muted-foreground/40 hover:bg-accent/40 transition-colors"
           />
         )}
 
