@@ -60,10 +60,21 @@ def test_operational_errors_are_retryable(code) -> None:
         "42703",  # undefined_column
         "42501",  # insufficient_privilege
         "22P02",  # invalid_text_representation
+        "3F000",  # invalid_schema_name
     ],
 )
 def test_request_shaped_errors_are_not_retryable(code) -> None:
     assert is_operational(_dbapi_error(code)) is False
+
+
+def test_invalid_schema_name_is_not_a_benign_absent_table() -> None:
+    """fix(#435 codex r1): 3F000 must never degrade to a 200 empty page.
+
+    Postgres raises it from DDL paths, where it means the schema is gone. A SELECT
+    against a missing schema reports 42P01 instead, so 3F000 never described the
+    raster/VRT case this fallback exists for.
+    """
+    assert "3F000" not in TABLE_ABSENT
 
 
 def test_sqlstate_sets_do_not_overlap() -> None:
@@ -120,3 +131,34 @@ async def test_permission_failure_propagates(test_db_session, monkeypatch) -> No
 
     with pytest.raises(DBAPIError):
         await get_dataset_rows(test_db_session, "some_table", column_info=[])
+
+
+async def test_missing_data_schema_raises_instead_of_returning_empty(
+    test_db_session,
+) -> None:
+    """fix(#435 codex r1): an unprovisioned tenant schema is drift, not empty data.
+
+    Postgres answers a SELECT against a missing schema with 42P01, the same code a
+    raster dataset's synthetic table produces inside a schema that does exist. Without
+    a schema probe, a tenant whose `data_t_*` schema was never provisioned (or was
+    lost in a restore) reads as a dataset with zero rows.
+    """
+    import app.core.db.tenant_schema as tenant_schema
+
+    # `get_dataset_rows` resolves the schema through `tenant_data_schema()`. Point it
+    # at a schema that was never provisioned; the process is single_tenant here, so
+    # setting `current_tenant_var` alone would still resolve to "data".
+    real = tenant_schema.tenant_data_schema
+    tenant_schema.tenant_data_schema = lambda _tenant: "data_t_never_provisioned"
+    try:
+        with pytest.raises(DBAPIError):
+            await get_dataset_rows(test_db_session, "some_table", column_info=[])
+    finally:
+        tenant_schema.tenant_data_schema = real
+
+
+async def test_schema_exists_probe(test_db_session) -> None:
+    from app.core.db.tenant_schema import schema_exists
+
+    assert await schema_exists(test_db_session, "catalog") is True
+    assert await schema_exists(test_db_session, "data_t_definitely_missing") is False

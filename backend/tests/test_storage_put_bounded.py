@@ -119,3 +119,62 @@ async def test_put_rejects_traversal_before_touching_the_filesystem(
 
     with pytest.raises(ValueError):
         await provider.put("../escape.bin", b"x")
+
+
+async def test_cancelled_put_waits_for_the_copy_thread(tmp_path: Path) -> None:
+    """fix(#435 codex r2): cancelling a put must not leave a thread reading `data`.
+
+    `asyncio.to_thread` cannot cancel a running thread. Once `put()` reads from the
+    caller's handle instead of a `bytes` snapshot, an early return would let the
+    caller's `with open(...)` block close the file while `copyfileobj` is mid-read.
+    """
+    provider = LocalStorageProvider(str(tmp_path))
+
+    class _SlowReader:
+        def __init__(self) -> None:
+            self.chunks = 4
+            self.hit_eof = False
+            self.closed = False
+            self.read_after_close = False
+
+        def read(self, size: int = -1) -> bytes:
+            if self.closed:
+                self.read_after_close = True
+                raise ValueError("read of closed file")
+            if self.chunks == 0:
+                self.hit_eof = True
+                return b""
+            self.chunks -= 1
+            time.sleep(0.03)
+            return b"\x00" * 1024
+
+        def close(self) -> None:
+            self.closed = True
+
+    reader = _SlowReader()
+    task = asyncio.create_task(provider.put("cancelled.bin", reader))
+    await asyncio.sleep(0.04)  # let the copy thread get going
+
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    # The copy must have run to completion before `await task` returned. If it had
+    # not, the caller (below) would close the handle out from under the thread.
+    assert reader.hit_eof, (
+        "put() returned while the copy thread was still reading the caller's handle"
+    )
+
+    reader.close()  # what the caller's `with open(...)` block does next
+    await asyncio.sleep(0.1)
+    assert not reader.read_after_close
+
+
+async def test_cancelled_put_of_bytes_still_cancels(tmp_path: Path) -> None:
+    """The bytes path owns its data, so cancellation stays plain cancellation."""
+    provider = LocalStorageProvider(str(tmp_path))
+
+    task = asyncio.create_task(provider.put("b.bin", b"x" * 1024))
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task

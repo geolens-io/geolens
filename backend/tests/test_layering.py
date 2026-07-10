@@ -817,7 +817,12 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # queries (raster/missing-table guard). Cap 595 -> 620 (~3 LOC headroom).
         "backend/app/modules/catalog/datasets/domain/service_relationships.py": 620,
         "backend/app/modules/catalog/datasets/domain/service_metadata.py": 460,
-        "backend/app/modules/catalog/datasets/domain/service_query.py": 390,
+        # fix(#435 codex r1): +6 LOC in get_dataset_rows to probe schema existence
+        # before degrading a 42P01 to an empty page. Postgres reports a missing
+        # tenant data schema with the same code as a raster dataset's synthetic
+        # table, so the code alone cannot tell provisioning drift from normal
+        # emptiness. Cap 390 -> 396, no headroom.
+        "backend/app/modules/catalog/datasets/domain/service_query.py": 396,
         # Phase 276 CODE-02: chat_*.py sub-modules are all under the 350
         # default (largest is chat_actions.py at ~245 LOC). No explicit
         # per-file overrides needed; default applies.

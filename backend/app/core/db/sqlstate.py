@@ -11,14 +11,18 @@ from __future__ import annotations
 
 from sqlalchemy.exc import DBAPIError
 
-# Class 42 / 3F — the relation the query names does not exist. Not always damage:
-# raster and VRT datasets carry a synthetic `table_name` with no PostGIS table.
-TABLE_ABSENT = frozenset(
-    {
-        "42P01",  # undefined_table
-        "3F000",  # invalid_schema_name
-    }
-)
+# The relation the query names does not exist. Not always damage: raster and VRT
+# datasets carry a synthetic `table_name` with no PostGIS table behind it.
+#
+# fix(#435 codex r1): `3F000` (invalid_schema_name) was in this set and is now not.
+# A `SELECT` against a missing schema reports `42P01`, so `3F000` never described the
+# benign case here; Postgres raises it from DDL paths, where it means the schema is
+# gone. Treating it as "empty dataset" would have hidden real provisioning drift.
+#
+# `42P01` alone cannot separate "raster dataset, no backing table" from "the tenant's
+# data schema was never provisioned" — both report it. Callers must probe the schema.
+# See `schema_exists()` and `get_dataset_rows()`.
+TABLE_ABSENT = frozenset({"42P01"})  # undefined_table
 
 # The caller sent something the table cannot answer — a bad filter column or an
 # unparseable literal. These are 4xx, not 5xx.

@@ -337,7 +337,7 @@ async def get_dataset_rows(
     if not SAFE_TABLE_NAME_RE.match(table_name):
         raise ValueError(f"Invalid table name: {table_name}")
 
-    from app.core.db.tenant_schema import tenant_data_schema
+    from app.core.db.tenant_schema import schema_exists, tenant_data_schema
     from app.core.db.tenant_session import current_tenant_var
     from app.modules.catalog.datasets.domain._sql_safety import _safe_table_ref
 
@@ -382,9 +382,15 @@ async def get_dataset_rows(
         # whose synthetic table_name has no PostGIS table. The rest reach the 503 path.
         if sqlstate(exc) not in TABLE_ABSENT:
             raise
-        logger.warning("Data table %s is absent", table_name, exc_info=True)
         # Postgres aborted the transaction; read-only here, so rollback is safe.
         await db.rollback()
+        # fix(#435 codex r1): a missing schema reports 42P01 too, so the code alone
+        # cannot tell a synthetic raster table from a tenant schema that was never
+        # provisioned. Only the second is drift, and it must not read as empty data.
+        if not await schema_exists(db, _schema):
+            logger.error("Data schema %s does not exist", _schema)
+            raise
+        logger.warning("Data table %s is absent", table_name, exc_info=True)
         return [], 0, column_info or [], None
 
     return rows, approx_total, column_info or [], next_cursor
