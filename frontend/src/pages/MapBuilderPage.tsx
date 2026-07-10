@@ -99,6 +99,7 @@ import {
 import { PluginHost, PluginSidebar, getDefaultPluginIds, resolveAvailablePluginIds, usePartitionedPlugins } from '@/components/map-plugins';
 import { usePluginStore } from '@/stores/map-plugin-store';
 import type { ViewportContext } from '@/components/builder/chat-suggestions';
+import { readStorage, removeStorage, storageKeys } from '@/lib/storage';
 
 export function MapBuilderPage() {
   const { id } = useParams<{ id: string }>();
@@ -189,12 +190,10 @@ export function MapBuilderPage() {
     const hasServerNotes = Object.prototype.hasOwnProperty.call(mapData, 'notes') && mapData.notes !== undefined;
     if (hasServerNotes) {
       setDockNotes(mapData.notes ?? '');
-      try { localStorage.removeItem(`geolens-map-notes-${id}`); } catch { /* localStorage unavailable */ }
+      // fix(#438): ARC-06 — key + access via the typed storage helper.
+      removeStorage(storageKeys.mapNotes(id ?? ''));
     } else {
-      try {
-        const local = localStorage.getItem(`geolens-map-notes-${id}`);
-        setDockNotes(local ?? '');
-      } catch { /* localStorage unavailable */ }
+      setDockNotes(readStorage(storageKeys.mapNotes(id ?? '')) ?? '');
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- run once when mapData loads
   }, [mapData?.notes, id]);

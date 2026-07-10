@@ -28,16 +28,12 @@ import { Pagination } from '@/components/layout/Pagination';
 import { useMaps, useDeleteMap } from '@/hooks/use-maps';
 import { useDocumentTitle } from '@/hooks/use-document-title';
 import { useAuthStore } from '@/stores/auth-store';
+import { readStorage, writeStorage, storageKeys } from '@/lib/storage';
 
 const PAGE_SIZE = 20;
-const VIEW_STORAGE_KEY = 'geolens-maps-view';
-
+// fix(#438): ARC-06 — key + access via the typed storage helper.
 function getStoredView(): string {
-  try {
-    return localStorage.getItem(VIEW_STORAGE_KEY) ?? 'list';
-  } catch {
-    return 'list';
-  }
+  return readStorage(storageKeys.mapsView) ?? 'list';
 }
 
 export function MapsPage() {
@@ -84,11 +80,7 @@ export function MapsPage() {
   function handleViewChange(value: string) {
     if (!value) return; // ToggleGroup sends empty string on deselect
     setViewMode(value);
-    try {
-      localStorage.setItem(VIEW_STORAGE_KEY, value);
-    } catch {
-      // localStorage not available
-    }
+    writeStorage(storageKeys.mapsView, value);
   }
 
   function handleDeleteConfirm() {
