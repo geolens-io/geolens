@@ -18,6 +18,8 @@
     "test:coverage": "vitest run --coverage --passWithNoTests",
     "check:i18n:changed": "node ./scripts/check-i18n-changed-namespaces.mjs",
     "check:i18n:toast-strings": "node ./scripts/check-hardcoded-toast.mjs --strict",
+    "types:generate": "node ./scripts/generate-api-types.mjs",
+    "types:check": "node ./scripts/generate-api-types.mjs && git diff --exit-code -- src/types/api.generated.ts",
     "lint:sec-s14-regression": "eslint --no-inline-config src/__tests__/sec-s14-eslint-regression.ts; test $? -ne 0",
     "lint:sec-s14-no-false-positive": "eslint src/__tests__/sec-s14-eslint-regression.skip.ts",
     "lint:sec-fu-03-regression": "eslint --no-inline-config src/__tests__/sec-fu-03-react-no-danger-regression.skip.tsx; test $? -ne 0",
