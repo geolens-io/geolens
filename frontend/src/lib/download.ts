@@ -1,7 +1,7 @@
 /**
  * Browser blob download.
  *
- * fix(#435): extracted during UX-01. Four call sites had hand-rolled copies of
+ * fix(#438): extracted during UX-01. Four call sites had hand-rolled copies of
  * this same anchor dance, and a fifth (admin CSV export) skipped it entirely in
  * favor of `window.open()` — which sends no Authorization header, so the export
  * came back 401 against our Bearer-JWT API. Having one helper makes the

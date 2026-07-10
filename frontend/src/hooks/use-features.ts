@@ -126,7 +126,7 @@ export function useDropColumn() {
       qc.invalidateQueries({ queryKey: queryKeys.datasets.attributes(variables.datasetId) });
       invalidateColumnCaches(qc, variables.datasetId);
     },
-    // fix(#435): UX-07 — SchemaEditor also toasted; the hook now owns it.
+    // fix(#438): UX-07 — SchemaEditor also toasted; the hook now owns it.
     onError: (err) => { toast.error(formatMutationError('dataset:schema.removeFailed', err)); },
   });
 }

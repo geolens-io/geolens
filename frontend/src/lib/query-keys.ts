@@ -77,7 +77,7 @@ export const queryKeys = {
   },
 
   /**
-   * fix(#435): DATA-06 — the icon list used a bare inline `['maps', 'icons']`,
+   * fix(#438): DATA-06 — the icon list used a bare inline `['maps', 'icons']`,
    * which sits under the `maps.all` prefix. Every map mutation invalidates
    * `maps.all`, so the sprite catalog refetched on every save, rename, and
    * visibility toggle. It is not map-scoped data; it gets its own root.

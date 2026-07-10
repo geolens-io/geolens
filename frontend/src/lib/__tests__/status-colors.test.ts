@@ -165,7 +165,7 @@ describe('syntheticBadgeColor', () => {
   });
 });
 
-// fix(#435): DS-01 — this file is the app's declared "single source of truth for
+// fix(#438): DS-01 — this file is the app's declared "single source of truth for
 // status colors", so it is also the right place to guard against a raw Tailwind
 // palette creeping back in. Every export must be token-driven.
 describe('token discipline (DS-01)', () => {

@@ -160,7 +160,7 @@ describe('SourcesTab', () => {
     expect(completedBadge.className).not.toContain('bg-green-600');
     expect(failedBadge.className).not.toContain('bg-yellow-500');
 
-    // fix(#435): DS-01 — these used to assert raw `border-emerald` / `border-rose`
+    // fix(#438): DS-01 — these used to assert raw `border-emerald` / `border-rose`
     // Tailwind palettes. status-colors.ts is now token-driven, so the badge
     // renders the same green as `<Badge variant="success">` does.
     expect(completedBadge.className).toContain('border-success/30');

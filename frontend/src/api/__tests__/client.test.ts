@@ -7,7 +7,7 @@ vi.mock('@/api/auth', () => ({
 }));
 
 vi.mock('@/lib/error-map', async () => {
-  // fix(#435): partial mock — `summarizeErrorDetail` is real, so UX-03's
+  // fix(#438): partial mock — `summarizeErrorDetail` is real, so UX-03's
   // collapse behavior is exercised here rather than stubbed away. A previous
   // hand-written mock omitted it, which made apiFetch silently fall back to
   // `statusText` for every error.
@@ -131,7 +131,7 @@ describe('apiFetch', () => {
     }
   });
 
-  // fix(#435): UX-03 — an unintercepted 422 used to surface the raw Pydantic
+  // fix(#438): UX-03 — an unintercepted 422 used to surface the raw Pydantic
   // array as JSON text in the toast body.
   it('collapses a FastAPI 422 detail array to its first message', async () => {
     mockFetch.mockResolvedValueOnce({

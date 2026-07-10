@@ -145,7 +145,7 @@ export function useUpdateBranding() {
   return useMutation({
     mutationFn: updateBranding,
     onSuccess: () => {
-      // fix(#435): DATA-08 — was `settings.branding` alone. Branding is also
+      // fix(#438): DATA-08 — was `settings.branding` alone. Branding is also
       // served inside the unified `settings.allSettings` payload, which sits
       // beside it rather than under it, so the admin Settings page kept showing
       // pre-save values. The `settings.all` prefix covers both, and matches

@@ -105,7 +105,7 @@
   --type-vrt: oklch(0.50 0.16 300);
   --type-vrt-bg: oklch(0.94 0.04 300);
 
-  /* fix(#435): synthetic-data badge, was a raw violet-* Tailwind palette (DS-01).
+  /* fix(#438): synthetic-data badge, was a raw violet-* Tailwind palette (DS-01).
      Distinct from --type-vrt: that hue marks a record type, this marks provenance. */
   --synthetic: oklch(0.47 0.17 285);
   --synthetic-bg: oklch(0.94 0.04 285);

@@ -21,7 +21,7 @@ type PageState = 'loading' | 'success' | 'error';
 
 export function VerifyEmailPage() {
   const { t } = useTranslation('auth');
-  // fix(#435): UX-09 — this page is landed on directly from an email link, so it
+  // fix(#438): UX-09 — this page is landed on directly from an email link, so it
   // is the one that most needs a real tab title.
   useDocumentTitle(t('common:pageTitle.verifyEmail'));
   const [searchParams] = useSearchParams();

@@ -65,7 +65,7 @@ export function ContactsEditor({ recordId, canEdit }: ContactsEditorProps) {
       await deleteContact.mutateAsync(contactId);
       toast.success(t('contacts.removed'));
     } catch {
-      // fix(#435): UX-07 — useContacts raises the error toast.
+      // fix(#438): UX-07 — useContacts raises the error toast.
     }
   };
 

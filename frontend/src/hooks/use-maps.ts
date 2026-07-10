@@ -173,7 +173,7 @@ export function useDeleteMap() {
       qc.invalidateQueries({ queryKey: queryKeys.maps.all });
       invalidateDatasetMapLists(qc);
     },
-    // fix(#435): UX-07 — the hook owns the error toast. MapsPage used to raise a
+    // fix(#438): UX-07 — the hook owns the error toast. MapsPage used to raise a
     // second one, so a failed delete produced two. `formatMutationError` keeps
     // the specific backend reason the caller was surfacing.
     onError: (err) => { toast.error(formatMutationError('common:maps.deleteFailed', err)); },

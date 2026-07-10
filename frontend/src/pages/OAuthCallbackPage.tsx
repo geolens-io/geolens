@@ -8,7 +8,7 @@ import { Loader2 } from 'lucide-react';
 
 export function OAuthCallbackPage() {
   const { t } = useTranslation('auth');
-  useDocumentTitle(t('common:pageTitle.signingIn')); // fix(#435): UX-09
+  useDocumentTitle(t('common:pageTitle.signingIn')); // fix(#438): UX-09
   const navigate = useNavigate();
   const processedRef = useRef(false);
 

@@ -90,7 +90,7 @@ export function CollectionDetailPage() {
       await removeDataset.mutateAsync({ collectionId: id!, datasetId });
       toast.success(t('toasts.datasetRemoved'));
     } catch {
-      // fix(#435): UX-07 — useRemoveDatasetFromCollection raises the error toast,
+      // fix(#438): UX-07 — useRemoveDatasetFromCollection raises the error toast,
       // including the backend reason. Swallow here so only one appears.
     }
   }

@@ -90,7 +90,7 @@ export function PublicMapViewerPage() {
   if (isError || !data) {
     const is403 = error instanceof ApiError && error.status === 403;
     const is404 = error instanceof ApiError && error.status === 404;
-    // fix(#435): LIVE-01 — an anonymous visitor following a colleague's map link
+    // fix(#438): LIVE-01 — an anonymous visitor following a colleague's map link
     // got "Open maps" and "Browse catalog", neither of which helps: the map is
     // private and signing in is the actual fix. Offer that first when logged out.
     const isAnonymous = !hasToken;

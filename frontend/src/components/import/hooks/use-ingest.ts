@@ -61,7 +61,7 @@ export function useDatasetJobStatus(datasetId: string | null) {
 }
 
 /**
- * fix(#435): DATA-01 — retrying used to leave the cached status on 'failed'.
+ * fix(#438): DATA-01 — retrying used to leave the cached status on 'failed'.
  * `useJobStatus`'s `refetchInterval` treats 'failed' as terminal and returns
  * false, so polling never restarted: the job re-ran on the worker while the UI
  * sat frozen on "failed" forever. Invalidating the job's status query forces a
@@ -106,7 +106,7 @@ export function useDatasetCountHint(enabled: boolean) {
 }
 
 /**
- * fix(#435): DATA-07 — newly registered datasets were missing from the catalog
+ * fix(#438): DATA-07 — newly registered datasets were missing from the catalog
  * for up to 30s (the `search` staleTime) because nothing invalidated after the
  * register call.
  */

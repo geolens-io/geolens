@@ -1,7 +1,7 @@
 import { summarizeErrorDetail } from '@/lib/error-map';
 
 /**
- * fix(#435): UX-03 — an unintercepted 422 used to put a raw array of Pydantic
+ * fix(#438): UX-03 — an unintercepted 422 used to put a raw array of Pydantic
  * error objects into a toast. These assert that no branch can return JSON.
  */
 describe('summarizeErrorDetail', () => {

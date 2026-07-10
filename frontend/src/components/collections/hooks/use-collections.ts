@@ -126,7 +126,7 @@ export function useRemoveDatasetFromCollection() {
       });
       qc.invalidateQueries({ queryKey: queryKeys.datasets.detail(variables.datasetId) });
     },
-    // fix(#435): UX-07 — CollectionDetailPage also toasted; the hook now owns it.
+    // fix(#438): UX-07 — CollectionDetailPage also toasted; the hook now owns it.
     onError: (err) => { toast.error(formatMutationError('collections:toasts.removeDatasetFailed', err)); },
   });
 }

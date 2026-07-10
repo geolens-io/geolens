@@ -44,7 +44,7 @@ export function useDeleteContact(recordId: string | undefined) {
       qc.invalidateQueries({ queryKey: queryKeys.records.contacts(recordId) });
       qc.invalidateQueries({ queryKey: queryKeys.records.validation });
     },
-    // fix(#435): UX-07 — ContactsEditor also toasted; the hook now owns it.
+    // fix(#438): UX-07 — ContactsEditor also toasted; the hook now owns it.
     onError: (err) => { toast.error(formatMutationError('dataset:contacts.removeFailed', err)); },
   });
 }
@@ -78,7 +78,7 @@ export function useDeleteKeyword(recordId: string | undefined) {
       qc.invalidateQueries({ queryKey: queryKeys.records.keywords(recordId) });
       qc.invalidateQueries({ queryKey: queryKeys.records.validation });
     },
-    // fix(#435): UX-07 — KeywordsEditor also toasted; the hook now owns it.
+    // fix(#438): UX-07 — KeywordsEditor also toasted; the hook now owns it.
     onError: (err) => { toast.error(formatMutationError('dataset:keywords.removeFailed', err)); },
   });
 }

@@ -34,7 +34,7 @@ const PublicMapViewerPage = lazy(() =>
  */
 export function MapViewerGate() {
   const { t } = useTranslation('common');
-  // fix(#435): UX-09 — covers the gate's own loading states. Both lazy children
+  // fix(#438): UX-09 — covers the gate's own loading states. Both lazy children
   // set a more specific title once they mount.
   useDocumentTitle(t('pageTitle.map'));
   const { id } = useParams<{ id: string }>();

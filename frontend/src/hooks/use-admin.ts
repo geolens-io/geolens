@@ -149,7 +149,7 @@ export function useRetryAdminJob() {
 }
 
 // User mutations
-// fix(#435): UX-08 — these six succeeded silently; the house pattern is a success toast.
+// fix(#438): UX-08 — these six succeeded silently; the house pattern is a success toast.
 export function useCreateUser() {
   const qc = useQueryClient();
   return useMutation({

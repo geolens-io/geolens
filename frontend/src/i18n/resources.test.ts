@@ -111,7 +111,7 @@ describe('i18n resources', () => {
   });
 
   /**
-   * fix(#435): I18N-01 — key parity above compares key *names* only. An English
+   * fix(#438): I18N-01 — key parity above compares key *names* only. An English
    * value pasted verbatim into `de.json` shipped green, and the corpus was only
    * clean because a human swept it by hand (PRs #426/#428 were copy fixes, not
    * gate changes). This is the gate.
@@ -145,7 +145,7 @@ describe('i18n resources', () => {
   });
 
   /**
-   * fix(#435): I18N-08 — a `{{count}}` → `{{n}}` typo in one locale used to ship
+   * fix(#438): I18N-08 — a `{{count}}` → `{{n}}` typo in one locale used to ship
    * green and then render the raw `{{n}}` to the user at runtime.
    */
   it('keeps interpolation variables identical across locales', async () => {

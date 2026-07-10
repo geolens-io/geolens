@@ -97,7 +97,7 @@ export function SchemaEditor({ datasetId, columns, open, onOpenChange }: SchemaE
           toast.success(t('schema.columnRemoved'));
           setConfirmDelete(null);
         },
-        // fix(#435): UX-07 — the dropColumn hook raises the error toast.
+        // fix(#438): UX-07 — the dropColumn hook raises the error toast.
         onError: () => {
           setConfirmDelete(null);
         },

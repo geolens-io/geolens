@@ -86,7 +86,7 @@ export function translateError(backendMessage: string): string {
 /**
  * Reduce a FastAPI `detail` payload to one human-readable line.
  *
- * fix(#435): UX-03 — seven call sites used to do
+ * fix(#438): UX-03 — seven call sites used to do
  * `typeof detail === 'string' ? detail : JSON.stringify(detail)`, so any
  * unintercepted 422 put a raw array of Pydantic error objects into a toast:
  * `[{"type":"missing","loc":["body","name"],"msg":"Field required",...}]`.
@@ -121,7 +121,7 @@ export function summarizeErrorDetail(detail: unknown, fallback: string): string 
  * Compose a mutation's error toast: a translated fallback, plus the backend's
  * specific reason when there is one.
  *
- * fix(#435): UX-07 — promoted out of `use-settings.ts`. Five mutations toasted
+ * fix(#438): UX-07 — promoted out of `use-settings.ts`. Five mutations toasted
  * from the hook *and* from the caller, so a failed delete raised two toasts.
  * The hook is the right owner (it fires on every caller), but the callers were
  * the ones passing `err.message` through. This helper lets the hook do both, so
