@@ -2,6 +2,7 @@ import { Fragment } from 'react';
 import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
 import {
+  GEOLENS_SITE_URL,
   GEOLENS_GITHUB_URL,
   GEOLENS_DISCUSSIONS_URL,
   GEOLENS_LICENSE_URL,
@@ -38,7 +39,17 @@ export function AppFooter({
         aria-label={showBranding ? t('footer.poweredBy') : t('appName')}
         className={cn('flex items-center justify-center flex-wrap gap-x-1.5', navClassName)}
       >
-        {showBranding && <span>{t('footer.poweredBy')}</span>}
+        {/* fix(#441): badge click-through — top-of-funnel link was a dead <span> */}
+        {showBranding && (
+          <a
+            href={GEOLENS_SITE_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className={cn('hover:text-foreground transition-colors', linkClassName)}
+          >
+            {t('footer.poweredBy')}
+          </a>
+        )}
         {footerLinks.map((link, index) => (
           <Fragment key={link.label}>
             {(showBranding || index > 0) && <span aria-hidden="true">·</span>}

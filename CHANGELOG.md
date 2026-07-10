@@ -7,6 +7,38 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+## [1.4.4] - 2026-07-10
+
+### Changed
+
+- **The "Powered by GeoLens" footer badge now links to getgeolens.com.**
+- **Accessibility improvements across the interface.** Upload and export
+  progress indicators announce themselves to screen readers, sortable table
+  headers report their sort state, form-input borders meet the 3:1 contrast
+  minimum, the destructive red is darkened in light mode so error badges and
+  text meet the 4.5:1 minimum on tinted surfaces, and animations respect the
+  reduced-motion preference.
+- **Deleting a user now asks the administrator to type the username to
+  confirm.**
+- **Locale completeness checks now compare translated values and variables**,
+  not just key presence, across all four languages.
+
+### Fixed
+
+- **Admin "Export emails (CSV)" downloads again.** The export opened a
+  browser tab without credentials and showed an authentication error instead
+  of the file; it now downloads through the authenticated path like the
+  audit-log export.
+- **Failed requests are easier to recover from.** Error panels gained a retry
+  action, API requests time out instead of hanging indefinitely, and an
+  in-flight upload can be aborted and retried.
+- **Builder polish from the frontend audit.** Map label offsets apply
+  correctly, raster styling inputs clamp when leaving the field instead of
+  while typing, and a missing tile token surfaces as an error instead of
+  rendering an empty layer.
+- **A frontend audit pass closed 85 findings in total** across design-system
+  consistency, interface resilience, and code health.
+
 ## [1.4.3] - 2026-07-10
 
 ### Security
@@ -518,7 +550,8 @@ regression-covered fixes:
 - Initial public release of the GeoLens catalog, API, map builder, CLI, SDKs,
   Docker development stack, and public documentation entrypoints.
 
-[Unreleased]: https://github.com/geolens-io/geolens/compare/v1.4.3...HEAD
+[Unreleased]: https://github.com/geolens-io/geolens/compare/v1.4.4...HEAD
+[1.4.4]: https://github.com/geolens-io/geolens/compare/v1.4.3...v1.4.4
 [1.4.3]: https://github.com/geolens-io/geolens/compare/v1.4.2...v1.4.3
 [1.4.2]: https://github.com/geolens-io/geolens/compare/v1.4.1...v1.4.2
 [1.4.1]: https://github.com/geolens-io/geolens/compare/v1.4.0...v1.4.1

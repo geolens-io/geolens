@@ -1,3 +1,4 @@
+export const GEOLENS_SITE_URL = 'https://getgeolens.com';
 export const GEOLENS_GITHUB_URL = 'https://github.com/geolens-io/geolens';
 export const GEOLENS_BUG_REPORT_URL = `${GEOLENS_GITHUB_URL}/issues/new?template=bug_report.yml`;
 export const GEOLENS_DISCUSSIONS_URL = 'https://github.com/geolens-io/geolens/discussions';

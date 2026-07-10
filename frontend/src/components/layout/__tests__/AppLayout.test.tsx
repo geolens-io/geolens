@@ -58,6 +58,14 @@ describe('AppLayout', () => {
     expect(footer).toHaveTextContent('GitHub');
   });
 
+  it('Powered by GeoLens badge links to getgeolens.com', () => {
+    renderAppLayout();
+    const badge = screen.getByRole('link', { name: /powered by geolens/i });
+    expect(badge).toHaveAttribute('href', 'https://getgeolens.com');
+    expect(badge).toHaveAttribute('target', '_blank');
+    expect(badge).toHaveAttribute('rel', 'noopener noreferrer');
+  });
+
   it('footer links to GitHub repository with correct attributes', () => {
     renderAppLayout();
     const link = screen.getByRole('link', { name: /^github$/i });
