@@ -78,8 +78,7 @@ _BLOCKED_FUNCTIONS: frozenset[str] = frozenset(
 #
 # Every function name that validate_sql may encounter as a sqlglot sql_name()
 # (for named Func subclasses) or Anonymous.name (for pass-through calls) is
-# enumerated here.  Any function NOT in this set — AND not covered by the
-# "st_" prefix shortcut — is rejected as invalid_query.
+# enumerated here. Any other function is rejected as invalid_query.
 #
 # IMPORTANT: All names are lowercased and match what sqlglot produces:
 #
@@ -94,8 +93,7 @@ _BLOCKED_FUNCTIONS: frozenset[str] = frozenset(
 #   • Anonymous Func nodes use fn.name.lower() — the raw SQL keyword
 #     (e.g. "similarity", "jsonb_agg", "st_area").
 #
-#   • PostGIS functions are covered by the "st_" prefix check in
-#     validate_sql, so individual "st_*" names are NOT listed here.
+#   • PostGIS functions use a separate explicit allowlist below.
 #
 #   • CAST, CASE, COALESCE etc. ARE exp.Func subclasses in sqlglot and DO
 #     appear in find_all(exp.Func), so they must be in this set
@@ -126,9 +124,6 @@ _ALLOWED_FUNCTIONS: frozenset[str] = frozenset(
         "avg",  # AVG(col)
         "min",  # MIN(col)
         "max",  # MAX(col)
-        "array_agg",  # ARRAY_AGG(col)
-        "group_concat",  # STRING_AGG(col, sep) — sqlglot maps to group_concat
-        "j_s_o_n_array_agg",  # JSON_AGG(col) — sqlglot internal name
         "logical_and",  # BOOL_AND(expr) — sqlglot maps to logical_and
         "logical_or",  # BOOL_OR(expr) — sqlglot maps to logical_or
         "every",  # EVERY(expr) — Anonymous, same semantics as bool_and
@@ -199,7 +194,6 @@ _ALLOWED_FUNCTIONS: frozenset[str] = frozenset(
         "concat_ws",
         "left",
         "right",
-        "pad",  # LPAD, RPAD → sql_name "pad"
         "str_position",  # STRPOS, POSITION → sql_name "str_position"
         "initcap",
         "time_to_str",  # TO_CHAR → sqlglot sql_name "time_to_str"
@@ -211,11 +205,9 @@ _ALLOWED_FUNCTIONS: frozenset[str] = frozenset(
         "reverse",
         "ascii",
         "chr",
-        "repeat",
         "translate",
         # String fns that remain Anonymous in sqlglot:
         "regexp_match",
-        "regexp_matches",
         "regexp_split_to_array",
         # -- Date/time (sqlglot named Func subclasses) --------------------
         "current_timestamp",  # NOW(), CURRENT_TIMESTAMP → sql_name "current_timestamp"
@@ -241,17 +233,13 @@ _ALLOWED_FUNCTIONS: frozenset[str] = frozenset(
         "array_size",  # ARRAY_LENGTH → sql_name "array_size"
         "array_position",
         "array_to_string",
-        "explode",  # UNNEST → sql_name "explode"
-        "exploding_generate_series",  # GENERATE_SERIES → sql_name
         # JSON/array fns that remain Anonymous in sqlglot:
         "json_build_object",
         "jsonb_build_object",
         "jsonb_extract_path",
         "jsonb_extract_path_text",
-        "jsonb_object_keys",
         "json_array_length",
         "jsonb_array_length",
-        "jsonb_agg",  # JSONB_AGG → Anonymous("jsonb_agg")
         "cardinality",
         # -- pg_trgm (text similarity) ------------------------------------
         "similarity",
@@ -267,6 +255,55 @@ _ALLOWED_FUNCTIONS: frozenset[str] = frozenset(
         "vector_norm",
     }
 )
+
+# PostGIS is intentionally fail-closed. The SQL generator prompt is the
+# source of truth for the spatial functions it may emit; allowing every st_*
+# function admitted generators such as ST_GeneratePoints with attacker-chosen
+# cardinality.
+_ALLOWED_POSTGIS_FUNCTIONS: frozenset[str] = frozenset(
+    {
+        "st_area",
+        "st_asgeojson",
+        "st_buffer",
+        "st_centroid",
+        "st_collect",
+        "st_contains",
+        "st_distance",
+        "st_dwithin",
+        "st_intersects",
+        "st_length",
+        "st_point",  # sqlglot canonical name for ST_MakePoint
+        "st_setsrid",
+        "st_transform",
+        "st_union",
+        "st_within",
+        "st_x",
+        "st_y",
+    }
+)
+
+
+def _validate_function_cost(func: exp.Func, fn_name: str, sql: str) -> None:
+    """Reject function arguments that can amplify a one-row query into a DoS."""
+    if fn_name in {"st_collect", "st_union"} and len(func.expressions) < 2:
+        logger.info("sandbox.unbounded_spatial_aggregate", sql=sql, function=fn_name)
+        raise SandboxError(
+            "invalid_query", "Query uses an unbounded collection aggregate"
+        )
+
+    if fn_name == "st_buffer" and len(func.expressions) > 2:
+        logger.info("sandbox.custom_buffer_segments", sql=sql)
+        raise SandboxError(
+            "invalid_query", "Query uses an unbounded geometry complexity option"
+        )
+
+
+def _reject_recursive_cte(stmt: exp.Expression, sql: str) -> None:
+    """Reject recursive CTEs, which are unbounded row generators."""
+    recursive_with = stmt.find(exp.With)
+    if recursive_with is not None and recursive_with.args.get("recursive"):
+        logger.info("sandbox.recursive_cte", sql=sql)
+        raise SandboxError("invalid_query", "Recursive queries are not allowed")
 
 
 def validate_sql(sql: str) -> ValidatedQuery:
@@ -302,6 +339,8 @@ def validate_sql(sql: str) -> ValidatedQuery:
         logger.info("sandbox.select_into", sql=sql)
         raise SandboxError("invalid_query", "Only SELECT queries are allowed")
 
+    _reject_recursive_cte(stmt, sql)
+
     # Fail-closed function check (SEC-025).
     #
     # For each Func node in the AST, extract its canonical lowercase name:
@@ -309,11 +348,12 @@ def validate_sql(sql: str) -> ValidatedQuery:
     #   • Named Func nodes → fn.sql_name().lower()  (sqlglot's canonical name,
     #     which may differ from the SQL keyword — see _ALLOWED_FUNCTIONS docs)
     #
-    # Then apply three-stage logic (order matters):
+    # Then apply fail-closed logic (order matters):
     #   1. BLOCKED  → always reject (defense-in-depth; checked before allowlist)
-    #   2. "st_" prefix → allow (covers the entire PostGIS function family)
-    #   3. In _ALLOWED_FUNCTIONS → allow
-    #   4. Otherwise → reject (fail-closed)
+    #   2. "st_" name → require the prompt-derived PostGIS allowlist
+    #   3. Other name → require _ALLOWED_FUNCTIONS
+    #   4. Allowed spatial functions → reject unbounded aggregate/complexity forms
+    #   5. Otherwise → reject (fail-closed)
     for func in stmt.find_all(exp.Func):
         if isinstance(func, exp.Anonymous):
             fn_name = func.name.lower() if hasattr(func, "name") else ""
@@ -325,12 +365,18 @@ def validate_sql(sql: str) -> ValidatedQuery:
             raise SandboxError("invalid_query", "Query uses a disallowed function")
 
         if fn_name.startswith("st_"):
-            # PostGIS family — allowed by prefix
-            continue
-
-        if fn_name not in _ALLOWED_FUNCTIONS:
+            if fn_name not in _ALLOWED_POSTGIS_FUNCTIONS:
+                logger.info(
+                    "sandbox.unlisted_postgis_function", sql=sql, function=fn_name
+                )
+                raise SandboxError(
+                    "invalid_query", "Query uses a disallowed spatial function"
+                )
+        elif fn_name not in _ALLOWED_FUNCTIONS:
             logger.info("sandbox.unlisted_function", sql=sql, function=fn_name)
             raise SandboxError("invalid_query", "Query uses a disallowed function")
+
+        _validate_function_cost(func, fn_name, sql)
 
     # Extract CTE names to exclude from table validation
     cte_names: set[str] = set()

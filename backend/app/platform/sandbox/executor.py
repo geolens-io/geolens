@@ -19,7 +19,7 @@ from app.platform.sandbox.schemas import SandboxError, SandboxResult
 logger = structlog.stdlib.get_logger(__name__)
 
 DEFAULT_ROW_LIMIT = 1000
-DEFAULT_TIMEOUT_MS = 30_000
+DEFAULT_TIMEOUT_MS = 10_000
 
 
 async def execute_safe(
@@ -28,6 +28,7 @@ async def execute_safe(
     *,
     row_limit: int = DEFAULT_ROW_LIMIT,
     timeout_ms: int = DEFAULT_TIMEOUT_MS,
+    concurrency_key: str | None = None,
 ) -> SandboxResult:
     """Execute validated SQL inside a READ ONLY transaction with timeout and row cap.
 
@@ -38,7 +39,8 @@ async def execute_safe(
         db: Async database session (used only for engine reference).
         sql: Pre-validated SQL string (must be a single SELECT).
         row_limit: Maximum rows to return (default 1000).
-        timeout_ms: Statement timeout in milliseconds (default 30000).
+        timeout_ms: Statement timeout in milliseconds (default 10000).
+        concurrency_key: Stable caller key for a cross-worker, fail-fast query lock.
 
     Returns:
         SandboxResult with rows, columns, row_count, and truncated flag.
@@ -56,6 +58,19 @@ async def execute_safe(
         async with db_module.engine.connect() as conn:
             async with conn.begin():
                 await conn.execute(text("SET TRANSACTION READ ONLY"))
+                if concurrency_key is not None:
+                    lock_result = await conn.execute(
+                        text(
+                            "SELECT pg_try_advisory_xact_lock("
+                            "hashtextextended(:concurrency_key, 0))"
+                        ),
+                        {"concurrency_key": f"geolens:ai-sql:{concurrency_key}"},
+                    )
+                    if not lock_result.scalar_one():
+                        raise SandboxError(
+                            "query_busy",
+                            "Another data query is already running for this user",
+                        )
                 # Defense-in-depth: use the restricted reader role if available.
                 # DP-02 (Phase 1209-03): in multi_tenant, use the per-tenant reader
                 # role so the sandbox SQL runs with only per-tenant schema access.
@@ -87,6 +102,8 @@ async def execute_safe(
                 result = await conn.execute(text(limited_sql))
                 columns = list(result.keys())
                 all_rows = result.fetchall()
+    except SandboxError:
+        raise
     except Exception as exc:  # broad: SQL execution can throw asyncpg/sqlalchemy errors of varied types; classify in handler
         _handle_execution_error(exc, sql)
 

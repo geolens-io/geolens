@@ -226,7 +226,10 @@ async def _apply_oauth_providers(
                 raise ConfigValidationError(
                     f"client_secret required for provider '{imp.get('slug', '?')}' in overwrite mode"
                 )
-            await oauth_service.create_provider(db, OAuthProviderCreate(**imp))
+            try:
+                await oauth_service.create_provider(db, OAuthProviderCreate(**imp))
+            except ValueError as exc:
+                raise ConfigValidationError(str(exc)) from exc
             created += 1
     else:
         existing_providers = await oauth_service.list_providers(db)
@@ -242,16 +245,22 @@ async def _apply_oauth_providers(
                     raise ConfigValidationError(
                         f"client_secret required for new provider '{slug}'"
                     )
-                await oauth_service.create_provider(db, OAuthProviderCreate(**imp))
+                try:
+                    await oauth_service.create_provider(db, OAuthProviderCreate(**imp))
+                except ValueError as exc:
+                    raise ConfigValidationError(str(exc)) from exc
                 created += 1
             else:
                 update_fields = {
                     k: v for k, v in imp.items() if k != "slug" and v is not None
                 }
                 if update_fields:
-                    await oauth_service.update_provider(
-                        db, existing, OAuthProviderUpdate(**update_fields)
-                    )
+                    try:
+                        await oauth_service.update_provider(
+                            db, existing, OAuthProviderUpdate(**update_fields)
+                        )
+                    except ValueError as exc:
+                        raise ConfigValidationError(str(exc)) from exc
                     updated += 1
 
     return created, updated, deleted
@@ -463,9 +472,18 @@ async def check_oidc_endpoint(provider: Any) -> None:
 
     Raises on failure so the _probe wrapper captures the error.
     """
-    async with httpx.AsyncClient(timeout=OIDC_PROBE_TIMEOUT) as client:
+    from app.modules.catalog.sources.security import (
+        make_safe_client,
+        validate_url_for_ssrf,
+    )
+
+    endpoint = provider.discovery_url or provider.authorize_url
+    if endpoint:
+        await validate_url_for_ssrf(endpoint)
+
+    async with make_safe_client(timeout=OIDC_PROBE_TIMEOUT) as client:
         if provider.discovery_url:
-            resp = await client.get(provider.discovery_url)
+            resp = await client.get(provider.discovery_url, follow_redirects=False)
             resp.raise_for_status()
         elif provider.authorize_url:
             resp = await client.head(provider.authorize_url, follow_redirects=False)

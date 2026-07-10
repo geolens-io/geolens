@@ -1,9 +1,11 @@
 """CRUD service for OAuth provider configuration and user account linking."""
 
+import ipaddress
 import secrets
 import uuid
+from collections.abc import Mapping
+from urllib.parse import urlparse
 
-import httpx
 import structlog
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -34,6 +36,199 @@ GITHUB_USERINFO_URL = "https://api.github.com/user"
 # /user/emails (needed to resolve the primary verified email when email is null
 # on /user — which is the normal case for users who have set email to private).
 GITHUB_DEFAULT_SCOPE = "read:user user:email"
+
+_OAUTH_ENDPOINT_FIELDS = (
+    "discovery_url",
+    "authorize_url",
+    "token_url",
+    "userinfo_url",
+)
+_GITHUB_PUBLIC_HOSTS = frozenset({"github.com", "api.github.com"})
+
+
+class OAuthProviderConfigurationError(ValueError):
+    """An OAuth provider configuration violates a security invariant."""
+
+
+class OAuthCredentialDestinationError(OAuthProviderConfigurationError):
+    """A credential destination changed without an explicit secret rotation."""
+
+
+def _url_origin(url: str | None) -> tuple[str, str, int] | None:
+    """Return a normalized ``(scheme, host, port)`` tuple for an endpoint."""
+    if not url:
+        return None
+    try:
+        parsed = urlparse(url)
+        port = parsed.port
+    except ValueError as exc:
+        raise OAuthProviderConfigurationError(
+            "OAuth endpoint has an invalid port"
+        ) from exc
+    if not parsed.hostname:
+        raise OAuthProviderConfigurationError("OAuth endpoint must include a host")
+    if parsed.username is not None or parsed.password is not None:
+        raise OAuthProviderConfigurationError(
+            "OAuth endpoint URLs must not contain credentials"
+        )
+    scheme = parsed.scheme.lower()
+    if scheme not in ("http", "https"):
+        raise OAuthProviderConfigurationError(
+            "OAuth endpoint URLs must use http or https"
+        )
+    return scheme, parsed.hostname.lower(), port or (443 if scheme == "https" else 80)
+
+
+def _reject_obvious_internal_endpoint(url: str | None) -> None:
+    """Reject literal/local endpoint targets without performing configuration-time DNS.
+
+    Full DNS validation and IP pinning happen immediately before every server-side
+    request. Keeping CRUD validation network-independent preserves offline config
+    management while still refusing unambiguous loopback/private destinations at
+    submission time.
+    """
+    origin = _url_origin(url)
+    if origin is None:
+        return
+    host = origin[1]
+    if host == "localhost" or host.endswith(".localhost"):
+        raise OAuthProviderConfigurationError(
+            "OAuth endpoints cannot target private/internal networks"
+        )
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        return
+    if (
+        address.is_private
+        or address.is_loopback
+        or address.is_link_local
+        or address.is_reserved
+        or address.is_multicast
+        or address in ipaddress.ip_network("100.64.0.0/10")
+        or address in ipaddress.ip_network("fc00::/7")
+        or address in ipaddress.ip_network("64:ff9b::/96")
+    ):
+        raise OAuthProviderConfigurationError(
+            "OAuth endpoints cannot target private/internal networks"
+        )
+
+
+def _default_and_validate_github_endpoints(values: dict) -> None:
+    """Apply GitHub.com defaults and pin any public-GitHub configuration.
+
+    Custom endpoint triples remain supported for GitHub Enterprise. A provider
+    that uses either public GitHub hostname, however, must use the exact canonical
+    public endpoint triple; this prevents a partly overridden public configuration
+    from becoming a credential redirect.
+    """
+    if values.get("provider_type") != "github":
+        return
+    if values.get("discovery_url"):
+        raise OAuthProviderConfigurationError(
+            "GitHub providers cannot use an OIDC discovery URL"
+        )
+    values["authorize_url"] = values.get("authorize_url") or GITHUB_AUTHORIZE_URL
+    values["token_url"] = values.get("token_url") or GITHUB_TOKEN_URL
+    values["userinfo_url"] = values.get("userinfo_url") or GITHUB_USERINFO_URL
+
+    endpoints = (
+        values["authorize_url"],
+        values["token_url"],
+        values["userinfo_url"],
+    )
+    hosts = {_url_origin(url)[1] for url in endpoints}
+    if hosts & _GITHUB_PUBLIC_HOSTS and endpoints != (
+        GITHUB_AUTHORIZE_URL,
+        GITHUB_TOKEN_URL,
+        GITHUB_USERINFO_URL,
+    ):
+        raise OAuthProviderConfigurationError(
+            "Public GitHub providers must use the canonical GitHub endpoints"
+        )
+
+
+def _raw_provider_endpoint_values(
+    provider: OAuthProvider | Mapping[str, object],
+    updates: Mapping[str, object] | None = None,
+) -> dict:
+    """Project endpoint-bearing fields without rejecting a repairable legacy row."""
+    if isinstance(provider, Mapping):
+        values = {
+            "provider_type": provider.get("provider_type"),
+            **{field: provider.get(field) for field in _OAUTH_ENDPOINT_FIELDS},
+        }
+    else:
+        values = {
+            "provider_type": provider.provider_type,
+            **{field: getattr(provider, field) for field in _OAUTH_ENDPOINT_FIELDS},
+        }
+    if updates:
+        for field in ("provider_type", *_OAUTH_ENDPOINT_FIELDS):
+            if field in updates:
+                values[field] = updates[field]
+    return values
+
+
+def _provider_endpoint_values(
+    provider: OAuthProvider | Mapping[str, object],
+    updates: Mapping[str, object] | None = None,
+) -> dict:
+    """Project, normalize, and validate endpoint-bearing provider fields."""
+    values = _raw_provider_endpoint_values(provider, updates)
+    _default_and_validate_github_endpoints(values)
+    if values.get("discovery_url") and any(
+        values.get(field) for field in ("authorize_url", "token_url", "userinfo_url")
+    ):
+        raise OAuthProviderConfigurationError(
+            "OAuth providers must use either discovery or explicit endpoints, not both"
+        )
+    for field in _OAUTH_ENDPOINT_FIELDS:
+        _reject_obvious_internal_endpoint(values.get(field))
+    return values
+
+
+def _credential_destination_changed(
+    current: Mapping[str, object], updated: Mapping[str, object]
+) -> bool:
+    """Return whether an update adds or retargets a credential destination."""
+    if current.get("provider_type") != updated.get("provider_type"):
+        return True
+
+    def active_destinations(values: Mapping[str, object]) -> dict[str, tuple]:
+        discovery_url = values.get("discovery_url")
+        if isinstance(discovery_url, str) and discovery_url:
+            active = {"discovery_url": _url_origin(discovery_url)}
+            # Historical mixed GitHub rows used discovery for token exchange but
+            # still sent the access token to their explicit identity endpoint.
+            if values.get("provider_type") == "github":
+                userinfo_url = values.get("userinfo_url")
+                if isinstance(userinfo_url, str) and userinfo_url:
+                    active["userinfo_url"] = _url_origin(userinfo_url)
+            return active
+        return {
+            field: _url_origin(url)
+            for field in ("token_url", "userinfo_url")
+            if isinstance((url := values.get(field)), str) and url
+        }
+
+    current_active = active_destinations(current)
+    updated_active = active_destinations(updated)
+    for field, updated_origin in updated_active.items():
+        if updated_origin != current_active.get(field):
+            return True
+    return False
+
+
+async def validate_provider_server_endpoints(provider: OAuthProvider) -> None:
+    """Resolve and validate every configured URL before OAuth credentials are used."""
+    from app.modules.catalog.sources.security import validate_url_for_ssrf
+
+    values = _provider_endpoint_values(provider)
+    for field in _OAUTH_ENDPOINT_FIELDS:
+        url = values.get(field)
+        if isinstance(url, str) and url:
+            await validate_url_for_ssrf(url)
 
 
 async def _is_manage_settings_admin(db: AsyncSession, user: User) -> bool:
@@ -107,6 +302,8 @@ async def create_provider(
     if is_saml and not is_enterprise():
         raise ValueError(SAML_PROVIDER_ERROR)
 
+    endpoint_values = _provider_endpoint_values(data.model_dump())
+
     # NOT-NULL placeholder strings for SAML rows (DB columns require non-null).
     client_id_value = data.client_id if not is_saml else "saml-no-client-id"
     client_secret_value = (
@@ -124,17 +321,11 @@ async def create_provider(
     # is None (i.e. the admin left it blank).  The scope is auto-defaulted to
     # GITHUB_DEFAULT_SCOPE only when the admin sent the schema default
     # ("openid profile email"), which is not useful for GitHub.
-    authorize_url = data.authorize_url
-    token_url = data.token_url
-    userinfo_url = data.userinfo_url
+    authorize_url = endpoint_values["authorize_url"]
+    token_url = endpoint_values["token_url"]
+    userinfo_url = endpoint_values["userinfo_url"]
     scopes = data.scopes
     if data.provider_type == "github":
-        if not authorize_url:
-            authorize_url = GITHUB_AUTHORIZE_URL
-        if not token_url:
-            token_url = GITHUB_TOKEN_URL
-        if not userinfo_url:
-            userinfo_url = GITHUB_USERINFO_URL
         # Replace the schema default ("openid profile email") with GitHub's
         # native scope when the admin did not explicitly customise scopes.
         # The schema default is a sentinel we can detect: if an admin supplied
@@ -148,7 +339,7 @@ async def create_provider(
         provider_type=data.provider_type,
         client_id=client_id_value,
         client_secret_encrypted=client_secret_value,
-        discovery_url=data.discovery_url,
+        discovery_url=endpoint_values["discovery_url"],
         authorize_url=authorize_url,
         token_url=token_url,
         userinfo_url=userinfo_url,
@@ -239,6 +430,17 @@ async def update_provider(
     Fernet-encrypted before storage if present in the update body. Other
     fields flow through the standard ``setattr`` loop.
     """
+    # Serialize updates to the same provider row. Besides preventing lost
+    # updates, populate_existing refreshes the supplied ORM instance after the
+    # lock wait so the credential-origin comparison always uses current state.
+    locked_result = await db.execute(
+        select(OAuthProvider)
+        .where(OAuthProvider.id == provider.id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    provider = locked_result.scalar_one()
+
     update_data = data.model_dump(exclude_unset=True)
     if not is_enterprise() and (
         provider.provider_type == "saml"
@@ -246,6 +448,21 @@ async def update_provider(
         or any(field in update_data for field in SAML_PROVIDER_FIELDS)
     ):
         raise ValueError(SAML_PROVIDER_ERROR)
+
+    current_endpoints = _raw_provider_endpoint_values(provider)
+    updated_endpoints = _provider_endpoint_values(provider, update_data)
+    destination_changed = _credential_destination_changed(
+        current_endpoints, updated_endpoints
+    )
+    replacement_secret = update_data.get("client_secret")
+    if (
+        updated_endpoints["provider_type"] != "saml"
+        and destination_changed
+        and not replacement_secret
+    ):
+        raise OAuthCredentialDestinationError(
+            "client_secret must be provided when changing an OAuth credential destination origin"
+        )
 
     # Handle client_secret specially: encrypt before storing
     if "client_secret" in update_data:
@@ -262,19 +479,9 @@ async def update_provider(
     for field, value in update_data.items():
         setattr(provider, field, value)
 
-    # Codex P2: mirror create_provider's GitHub endpoint defaulting on UPDATE too.
-    # GitHub is plain OAuth2 with fixed endpoints; if an admin saves a github
-    # provider with blank URLs — editing a provider into github, or clearing the
-    # GitHub Enterprise overrides to "revert to GitHub.com defaults" as the UI
-    # hint promises — fill the GitHub.com endpoints so the login client is never
-    # built with null URLs.
-    if provider.provider_type == "github":
-        if not provider.authorize_url:
-            provider.authorize_url = GITHUB_AUTHORIZE_URL
-        if not provider.token_url:
-            provider.token_url = GITHUB_TOKEN_URL
-        if not provider.userinfo_url:
-            provider.userinfo_url = GITHUB_USERINFO_URL
+    # Store the normalized/defaulted values used for the security comparison.
+    for field in _OAUTH_ENDPOINT_FIELDS:
+        setattr(provider, field, updated_endpoints[field])
 
     await db.flush()
     await db.refresh(provider)
@@ -344,15 +551,22 @@ async def _resolve_github_identity(
     user_url = userinfo_url or GITHUB_USERINFO_URL
     emails_url = user_url.rstrip("/") + "/emails"
 
-    async with httpx.AsyncClient(follow_redirects=False) as client:
+    # The provider URL is admin-configured. Use the shared IP-pinning transport
+    # and disable redirects for bearer-token requests so neither DNS rebinding
+    # nor a redirect can retarget the token to another authority.
+    from app.modules.catalog.sources.security import make_safe_client
+
+    async with make_safe_client() as client:
         # Fetch basic user profile for id, login, name.
-        user_resp = await client.get(user_url, headers=headers)
+        user_resp = await client.get(user_url, headers=headers, follow_redirects=False)
         user_resp.raise_for_status()
         user_data = user_resp.json()
 
         # Fetch verified email list — required because /user returns email=null
         # when the user has set their email to private (the common case).
-        emails_resp = await client.get(emails_url, headers=headers)
+        emails_resp = await client.get(
+            emails_url, headers=headers, follow_redirects=False
+        )
         emails_resp.raise_for_status()
         emails_data = emails_resp.json()
 

@@ -49,6 +49,7 @@ import { queryKeys } from '@/lib/query-keys';
 import { useTileConfig } from '@/hooks/use-settings';
 import { getPublicApiBaseUrl } from '@/lib/dataset-access';
 import { Textarea } from '@/components/ui/textarea';
+import { buildOAuthEndpointFields } from './oauth-endpoint-fields';
 
 interface TabProps {
   settings: SettingItem[];
@@ -94,7 +95,8 @@ interface ProviderFormData {
   client_id: string;
   client_secret: string;
   discovery_url: string;
-  // GitHub Enterprise endpoints (optional; blank => backend defaults to GitHub.com).
+  // Explicit endpoints are editable for GitHub Enterprise and retained for
+  // imported/legacy OIDC providers that do not use discovery.
   authorize_url: string;
   token_url: string;
   userinfo_url: string;
@@ -237,6 +239,9 @@ function OAuthProvidersSection({ envOnly }: { envOnly: boolean }) {
       // GitHub has no discovery URL; its endpoints are auto-filled by the
       // backend (or supplied per-field below for GitHub Enterprise).
       discovery_url: isGithub ? '' : discoveryUrl,
+      authorize_url: isGithub ? prev.authorize_url : '',
+      token_url: isGithub ? prev.token_url : '',
+      userinfo_url: isGithub ? prev.userinfo_url : '',
       scopes: isGithub ? GITHUB_DEFAULT_SCOPE : prev.scopes,
     }));
   }
@@ -263,16 +268,10 @@ function OAuthProvidersSection({ envOnly }: { envOnly: boolean }) {
       }
     }
 
-    // GitHub Enterprise endpoints — only sent for github providers; blank fields
-    // become null so the backend applies its GitHub.com defaults.
-    const githubEndpoints =
-      form.provider_type === 'github'
-        ? {
-            authorize_url: form.authorize_url || null,
-            token_url: form.token_url || null,
-            userinfo_url: form.userinfo_url || null,
-          }
-        : {};
+    // Clear the inactive endpoint mode while preserving an existing generic
+    // OIDC provider's explicit endpoints when it has no discovery URL. Those legacy
+    // endpoint fields are not editable here, but unrelated edits must retain them.
+    const endpointFields = buildOAuthEndpointFields(form);
 
     if (editingProvider) {
       const data: OAuthProviderUpdateData = {
@@ -280,13 +279,12 @@ function OAuthProvidersSection({ envOnly }: { envOnly: boolean }) {
         display_name: form.display_name,
         provider_type: form.provider_type,
         client_id: form.client_id,
-        discovery_url: form.discovery_url || null,
         scopes: form.scopes,
         default_role: form.default_role,
         group_claim: form.group_claim || null,
         group_role_mapping: groupMapping,
         enabled: form.enabled,
-        ...githubEndpoints,
+        ...endpointFields,
       };
       // Only include client_secret if user entered a new one
       if (form.client_secret) {
@@ -307,13 +305,12 @@ function OAuthProvidersSection({ envOnly }: { envOnly: boolean }) {
         provider_type: form.provider_type,
         client_id: form.client_id,
         client_secret: form.client_secret,
-        discovery_url: form.discovery_url || null,
         scopes: form.scopes,
         default_role: form.default_role,
         group_claim: form.group_claim || null,
         group_role_mapping: groupMapping,
         enabled: form.enabled,
-        ...githubEndpoints,
+        ...endpointFields,
       };
       createMutation.mutate(data, { onSuccess: () => setDialogOpen(false) });
     }

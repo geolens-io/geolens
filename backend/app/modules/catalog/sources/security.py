@@ -164,6 +164,16 @@ class _SSRFGuardTransport(httpx.AsyncHTTPTransport):
         return await super().handle_async_request(request)
 
 
+def make_safe_transport() -> httpx.AsyncBaseTransport:
+    """Return an HTTP transport that blocks SSRF and DNS rebinding.
+
+    This is the transport-level counterpart to :func:`make_safe_client` for
+    libraries (such as Authlib) that construct their own ``httpx`` client but
+    accept a transport through client kwargs.
+    """
+    return _SSRFGuardTransport()
+
+
 def make_safe_client(
     timeout: float | httpx.Timeout = PROBE_TIMEOUT,
 ) -> httpx.AsyncClient:
@@ -184,5 +194,5 @@ def make_safe_client(
         follow_redirects=True,
         max_redirects=5,
         event_hooks={"response": [_revalidate_redirect]},
-        transport=_SSRFGuardTransport(),
+        transport=make_safe_transport(),
     )

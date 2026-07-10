@@ -7,6 +7,7 @@ module can be safely imported by every other ``chat_*`` sibling.
 
 ERROR_MESSAGES = {
     "query_timeout": "Query took too long. Try narrowing your question to fewer features or a smaller area.",
+    "query_busy": "Another data query is already running. Wait for it to finish and try again.",
     "table_not_accessible": "You don't have access to one of the referenced datasets.",
     "invalid_query": "I couldn't generate a valid query for that. Try rephrasing your question.",
     "query_failed": "Something went wrong. Try rephrasing your question.",

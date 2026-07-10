@@ -6,9 +6,11 @@ from pathlib import Path
 
 import pytest
 
+import app.processing.ingest.validation as validation
 from app.processing.ingest.validation import (
     validate_file_content,
     validate_file_size,
+    validate_archive_safety,
     validate_zip_safety,
 )
 
@@ -109,6 +111,97 @@ class TestValidateZipSafety:
         f.write_bytes(buf.getvalue())
         with pytest.raises(ValueError, match="nested"):
             validate_zip_safety(str(f))
+
+    def test_entry_count_rejected_before_zipfile_materialization(
+        self, tmp_path: Path, monkeypatch
+    ):
+        f = tmp_path / "too-many.zip"
+        with zipfile.ZipFile(f, "w") as zf:
+            for index in range(3):
+                zf.writestr(f"part-{index}.txt", b"")
+
+        monkeypatch.setattr(validation, "MAX_ARCHIVE_ENTRIES", 2)
+
+        def fail_if_materialized(*_args, **_kwargs):
+            raise AssertionError("ZipFile must not run before the entry-count gate")
+
+        monkeypatch.setattr(validation.zipfile, "ZipFile", fail_if_materialized)
+        with pytest.raises(ValueError, match="maximum"):
+            validate_zip_safety(str(f))
+
+    def test_central_directory_scan_catches_falsified_low_count(
+        self, tmp_path: Path, monkeypatch
+    ):
+        f = tmp_path / "falsified-count.zip"
+        with zipfile.ZipFile(f, "w") as zf:
+            for index in range(3):
+                zf.writestr(f"part-{index}.txt", b"")
+
+        raw = bytearray(f.read_bytes())
+        eocd = raw.rfind(b"PK\x05\x06")
+        assert eocd >= 0
+        raw[eocd + 8 : eocd + 12] = b"\x01\x00\x01\x00"
+        f.write_bytes(raw)
+
+        monkeypatch.setattr(validation, "MAX_ARCHIVE_ENTRIES", 2)
+        with pytest.raises(ValueError, match="more than"):
+            validate_zip_safety(str(f))
+
+    def test_central_directory_metadata_size_is_bounded(
+        self, tmp_path: Path, monkeypatch
+    ):
+        f = tmp_path / "metadata-heavy.zip"
+        with zipfile.ZipFile(f, "w") as zf:
+            zf.writestr("entry-with-a-long-name.txt", b"x")
+
+        monkeypatch.setattr(validation, "MAX_CENTRAL_DIRECTORY_BYTES", 1)
+        with pytest.raises(ValueError, match="central directory"):
+            validate_zip_safety(str(f))
+
+    def test_zip64_member_count_is_preflighted(self, tmp_path: Path, monkeypatch):
+        f = tmp_path / "zip64.zip"
+        original_limit = zipfile.ZIP_FILECOUNT_LIMIT
+        monkeypatch.setattr(zipfile, "ZIP_FILECOUNT_LIMIT", 1)
+        with zipfile.ZipFile(f, "w", allowZip64=True) as zf:
+            zf.writestr("one.txt", b"1")
+            zf.writestr("two.txt", b"2")
+        monkeypatch.setattr(zipfile, "ZIP_FILECOUNT_LIMIT", original_limit)
+
+        validate_zip_safety(str(f))
+
+    def test_repeated_central_directory_signatures_are_rejected_before_zipfile(
+        self, tmp_path: Path, monkeypatch
+    ):
+        f = tmp_path / "signature-loop.zip"
+        signature_records = b"PK\x05\x05\x00\x00" * 2
+        eocd = validation._EOCD.pack(
+            validation._EOCD_SIGNATURE,
+            0,
+            0,
+            0,
+            0,
+            len(signature_records),
+            0,
+            0,
+        )
+        f.write_bytes(signature_records + eocd)
+
+        def fail_if_materialized(*_args, **_kwargs):
+            raise AssertionError("ZipFile must not run after malformed metadata")
+
+        monkeypatch.setattr(validation.zipfile, "ZipFile", fail_if_materialized)
+        with pytest.raises(ValueError, match="not a valid ZIP"):
+            validate_zip_safety(str(f))
+
+    def test_xlsx_container_uses_entry_preflight(self, tmp_path: Path, monkeypatch):
+        staged = tmp_path / "opaque-upload"
+        with zipfile.ZipFile(staged, "w") as zf:
+            zf.writestr("[Content_Types].xml", b"<Types/>")
+            zf.writestr("xl/workbook.xml", b"<workbook/>")
+
+        monkeypatch.setattr(validation, "MAX_ARCHIVE_ENTRIES", 1)
+        with pytest.raises(ValueError, match="maximum"):
+            validate_archive_safety(str(staged), "renamed-upload.xlsx")
 
     def test_decompressed_size_over_2gb_rejected(self, tmp_path: Path):
         """ZIP with total decompressed size >2GB is rejected."""

@@ -14,6 +14,7 @@ class SandboxError(Exception):
         - invalid_query: SQL is not a valid single SELECT
         - table_not_accessible: Table not in user's RBAC allowlist
         - query_timeout: Query exceeded time limit
+        - query_busy: Another query is already running for the caller
         - query_failed: Database execution error
     """
 

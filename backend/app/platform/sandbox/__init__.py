@@ -58,6 +58,15 @@ async def validate_and_execute(
     try:
         # Phase 1: Validate SQL structure
         validated = validate_sql(sql)
+        real_tables = {
+            (schema, name)
+            for schema, name in validated.tables
+            if schema or name not in validated.cte_names
+        }
+        if not real_tables:
+            raise SandboxError(
+                "invalid_query", "Query must reference an accessible dataset"
+            )
 
         # Phase 2: Build RBAC allowlist
         allowed_tables = await build_table_allowlist(db, user)
@@ -66,7 +75,13 @@ async def validate_and_execute(
         check_table_access(validated.tables, allowed_tables, validated.cte_names)
 
         # Phase 4: Execute safely
-        return await execute_safe(db, validated.sql, row_limit=row_limit)
+        concurrency_key = str(user.id) if user is not None else "anonymous"
+        return await execute_safe(
+            db,
+            validated.sql,
+            row_limit=row_limit,
+            concurrency_key=concurrency_key,
+        )
 
     except SandboxError:
         # Already a sandbox error -- re-raise as-is

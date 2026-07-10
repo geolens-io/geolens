@@ -371,6 +371,20 @@ def validate_strip_string(v: Any) -> str:
     return v.strip()
 
 
+def validate_openai_base_url(v: Any) -> str:
+    """Keep the environment API key bound to the operator's chat endpoint."""
+    from app.core.ai_credentials import validate_persistent_openai_base_url
+
+    return validate_persistent_openai_base_url(v, purpose="chat")
+
+
+def validate_embedding_base_url(v: Any) -> str:
+    """Keep the environment API key bound to the operator's embedding endpoint."""
+    from app.core.ai_credentials import validate_persistent_openai_base_url
+
+    return validate_persistent_openai_base_url(v, purpose="embedding")
+
+
 def _normalize_absolute_url(v: Any) -> str:
     if not isinstance(v, str):
         raise ValueError("Value must be a string")
@@ -529,8 +543,8 @@ SETTING_VALIDATORS: dict[str, Any] = {
     "basemaps": validate_basemaps,
     "map_defaults": validate_map_defaults,
     "embedding_model": validate_strip_string,
-    "embedding_base_url": validate_strip_string,
-    "openai_base_url": validate_strip_string,
+    "embedding_base_url": validate_embedding_base_url,
+    "openai_base_url": validate_openai_base_url,
     "llm_model": validate_strip_string,
     "public_app_url": validate_public_app_url,
     "public_api_url": validate_public_api_url,

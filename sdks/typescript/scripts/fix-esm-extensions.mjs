@@ -7,7 +7,7 @@
 // ESM rejects (`ERR_MODULE_NOT_FOUND`) — so `import('@geolens/sdk')` crashed for
 // any pure-Node consumer (caught by verify-published, broke npm 1.4.0). We can't
 // hand-edit the generated src (the SDK drift gate checks generated-file equality)
-// and hey-api 0.96.1 won't emit extensions, so fix the dist instead.
+// and hey-api 0.99.0 won't emit extensions, so fix the dist instead.
 //
 // Resolution is filesystem-based, not a regex guess: each relative specifier
 // becomes `<spec>.js` if that file exists, else `<spec>/index.js` if that exists.

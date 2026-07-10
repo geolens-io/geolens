@@ -160,10 +160,25 @@ class TestGithubProviderCreate:
         assert create.status_code == 201, create.text
         provider_id = create.json()["id"]
 
-        # Clear the enterprise URLs (revert to GitHub.com) — frontend sends null.
+        # Moving the credential destinations from GHE to GitHub.com must require
+        # an explicit secret rotation; retaining the old secret would otherwise
+        # silently re-bind it to different authorities.
         update = await client.put(
             f"/settings/oauth-providers/{provider_id}",
             json={"authorize_url": None, "token_url": None, "userinfo_url": None},
+            headers=admin_auth_header,
+        )
+        assert update.status_code == 422, update.text
+        assert "client_secret" in update.json()["detail"]
+
+        update = await client.put(
+            f"/settings/oauth-providers/{provider_id}",
+            json={
+                "authorize_url": None,
+                "token_url": None,
+                "userinfo_url": None,
+                "client_secret": "rotated-github-secret",
+            },
             headers=admin_auth_header,
         )
         assert update.status_code == 200, update.text
@@ -240,7 +255,7 @@ class TestResolveGithubIdentity:
         mock = self._mock_client(self._USER_PAYLOAD, emails)
 
         with patch(
-            "app.modules.auth.oauth.service.httpx.AsyncClient", return_value=mock
+            "app.modules.catalog.sources.security.make_safe_client", return_value=mock
         ):
             result = await _resolve_github_identity(token)
 
@@ -259,7 +274,7 @@ class TestResolveGithubIdentity:
         ghe_user_url = "https://ghe.example.com/api/v3/user"
 
         with patch(
-            "app.modules.auth.oauth.service.httpx.AsyncClient", return_value=mock
+            "app.modules.catalog.sources.security.make_safe_client", return_value=mock
         ):
             result = await _resolve_github_identity(token, userinfo_url=ghe_user_url)
 
@@ -272,6 +287,9 @@ class TestResolveGithubIdentity:
         assert not any("api.github.com" in u for u in called_urls), (
             f"enterprise token must not be sent to public GitHub: {called_urls}"
         )
+        assert all(
+            call.kwargs["follow_redirects"] is False for call in mock.get.call_args_list
+        )
 
     async def test_ignores_verified_but_not_primary(self) -> None:
         """An email that is verified-but-not-primary is NEVER selected."""
@@ -283,7 +301,7 @@ class TestResolveGithubIdentity:
         mock = self._mock_client(self._USER_PAYLOAD, emails)
 
         with patch(
-            "app.modules.auth.oauth.service.httpx.AsyncClient", return_value=mock
+            "app.modules.catalog.sources.security.make_safe_client", return_value=mock
         ):
             with pytest.raises(ValueError, match=r"no primary\+verified email"):
                 await _resolve_github_identity(token)
@@ -297,7 +315,7 @@ class TestResolveGithubIdentity:
         mock = self._mock_client(self._USER_PAYLOAD, emails)
 
         with patch(
-            "app.modules.auth.oauth.service.httpx.AsyncClient", return_value=mock
+            "app.modules.catalog.sources.security.make_safe_client", return_value=mock
         ):
             with pytest.raises(ValueError, match=r"no primary\+verified email"):
                 await _resolve_github_identity(token)
@@ -309,7 +327,7 @@ class TestResolveGithubIdentity:
         mock = self._mock_client(self._USER_PAYLOAD, emails)
 
         with patch(
-            "app.modules.auth.oauth.service.httpx.AsyncClient", return_value=mock
+            "app.modules.catalog.sources.security.make_safe_client", return_value=mock
         ):
             with pytest.raises(ValueError, match=r"no primary\+verified email"):
                 await _resolve_github_identity(token)
@@ -322,7 +340,7 @@ class TestResolveGithubIdentity:
         mock = self._mock_client(user_no_name, emails)
 
         with patch(
-            "app.modules.auth.oauth.service.httpx.AsyncClient", return_value=mock
+            "app.modules.catalog.sources.security.make_safe_client", return_value=mock
         ):
             result = await _resolve_github_identity(token)
 

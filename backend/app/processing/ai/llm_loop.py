@@ -94,6 +94,13 @@ def get_openai_client(base_url: str) -> AsyncOpenAI:
     if not settings.openai_api_key:
         raise ValueError("OpenAI-compatible API key not configured")
 
+    # Re-check at the SDK boundary.  Runtime config normally validates this
+    # first, but direct callers and stale imported DB rows must fail before a
+    # client can attach the environment credential to an untrusted URL.
+    from app.core.ai_credentials import bind_openai_credential_base_url
+
+    base_url = bind_openai_credential_base_url(base_url, purpose="chat")
+
     # Deferred imports — see get_anthropic_client() rationale.
     from openai import AsyncOpenAI
     from app.platform.extensions.defaults import DefaultOpenAICompatibleProvider

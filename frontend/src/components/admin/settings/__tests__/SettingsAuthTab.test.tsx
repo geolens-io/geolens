@@ -1,7 +1,13 @@
-import { render, screen } from '@/test/test-utils';
+import { render, screen, waitFor, within } from '@/test/test-utils';
 import userEvent from '@testing-library/user-event';
 import { SettingsAuthTab } from '../SettingsAuthTab';
-import type { SettingItem } from '@/api/settings';
+import { buildOAuthEndpointFields } from '../oauth-endpoint-fields';
+import {
+  listOAuthProviders,
+  updateOAuthProvider,
+  type OAuthProviderConfig,
+  type SettingItem,
+} from '@/api/settings';
 
 // Mock listOAuthProviders so the embedded OAuthProvidersSection does not hit
 // the network via useQuery — return an empty provider list.
@@ -10,6 +16,7 @@ vi.mock('@/api/settings', async () => {
   return {
     ...actual,
     listOAuthProviders: vi.fn().mockResolvedValue([]),
+    updateOAuthProvider: vi.fn(),
   };
 });
 
@@ -62,6 +69,126 @@ function renderTab(
 }
 
 describe('SettingsAuthTab', () => {
+  describe('OAuth endpoint modes', () => {
+    it('clears explicit GitHub endpoints when discovery mode is selected', () => {
+      expect(
+        buildOAuthEndpointFields({
+          provider_type: 'google',
+          discovery_url: 'https://accounts.google.com/.well-known/openid-configuration',
+          authorize_url: 'https://ghe.example.com/authorize',
+          token_url: 'https://ghe.example.com/token',
+          userinfo_url: 'https://ghe.example.com/user',
+        }),
+      ).toEqual({
+        discovery_url: 'https://accounts.google.com/.well-known/openid-configuration',
+        authorize_url: null,
+        token_url: null,
+        userinfo_url: null,
+      });
+    });
+
+    it('preserves explicit endpoints for an OIDC provider without discovery', () => {
+      expect(
+        buildOAuthEndpointFields({
+          provider_type: 'oidc',
+          discovery_url: '',
+          authorize_url: 'https://idp.example.com/authorize',
+          token_url: 'https://idp.example.com/token',
+          userinfo_url: 'https://idp.example.com/userinfo',
+        }),
+      ).toEqual({
+        discovery_url: null,
+        authorize_url: 'https://idp.example.com/authorize',
+        token_url: 'https://idp.example.com/token',
+        userinfo_url: 'https://idp.example.com/userinfo',
+      });
+    });
+
+    it.each(['google', 'microsoft'] as const)(
+      'clears hidden explicit endpoints for %s without discovery',
+      (provider_type) => {
+        expect(
+          buildOAuthEndpointFields({
+            provider_type,
+            discovery_url: '',
+            authorize_url: 'https://hidden.example.com/authorize',
+            token_url: 'https://hidden.example.com/token',
+            userinfo_url: 'https://hidden.example.com/userinfo',
+          }),
+        ).toEqual({
+          discovery_url: null,
+          authorize_url: null,
+          token_url: null,
+          userinfo_url: null,
+        });
+      },
+    );
+
+    it('retains explicit OIDC endpoints when saving an unrelated edit', async () => {
+      const provider: OAuthProviderConfig = {
+        id: 'provider-1',
+        slug: 'legacy-oidc',
+        display_name: 'Legacy OIDC',
+        provider_type: 'oidc',
+        client_id: 'client-id',
+        discovery_url: null,
+        authorize_url: 'https://idp.example.com/authorize',
+        token_url: 'https://idp.example.com/token',
+        userinfo_url: 'https://idp.example.com/userinfo',
+        scopes: 'openid profile email',
+        default_role: 'viewer',
+        group_claim: null,
+        group_role_mapping: null,
+        enabled: true,
+        created_at: '2026-07-10T00:00:00Z',
+        updated_at: '2026-07-10T00:00:00Z',
+      };
+      vi.mocked(listOAuthProviders).mockResolvedValueOnce([provider]);
+      vi.mocked(updateOAuthProvider).mockResolvedValueOnce(provider);
+      const user = userEvent.setup();
+
+      renderTab();
+
+      const providerRow = (await screen.findByText('Legacy OIDC')).closest('tr');
+      expect(providerRow).not.toBeNull();
+      await user.click(within(providerRow!).getAllByRole('button')[0]);
+      const displayName = await screen.findByLabelText('Display Name');
+      await user.clear(displayName);
+      await user.type(displayName, 'Renamed OIDC');
+      await user.click(screen.getByRole('button', { name: 'Save Changes' }));
+
+      await waitFor(() => expect(updateOAuthProvider).toHaveBeenCalledOnce());
+      expect(updateOAuthProvider).toHaveBeenCalledWith(
+        provider.id,
+        expect.objectContaining({
+          display_name: 'Renamed OIDC',
+          discovery_url: null,
+          authorize_url: provider.authorize_url,
+          token_url: provider.token_url,
+          userinfo_url: provider.userinfo_url,
+        }),
+      );
+      expect(vi.mocked(updateOAuthProvider).mock.calls[0][1]).not.toHaveProperty('client_secret');
+    });
+
+    it('clears discovery when explicit GitHub mode is selected', () => {
+      expect(
+        buildOAuthEndpointFields({
+          provider_type: 'github',
+          discovery_url: 'https://stale.example.com/.well-known/openid-configuration',
+          authorize_url: '',
+          token_url: '',
+          userinfo_url: '',
+        }),
+      ).toEqual({
+        discovery_url: null,
+        authorize_url: null,
+        token_url: null,
+        userinfo_url: null,
+      });
+    });
+  });
+
   describe('Test 1: control rendering', () => {
     it('renders the Allow Password Login Switch and the domain allowlist widget', () => {
       renderTab();

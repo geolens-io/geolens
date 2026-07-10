@@ -14,7 +14,7 @@ import logging
 import uuid
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import select, text
 
 from app.modules.auth.models import User
 from app.platform.sandbox import validate_and_execute
@@ -481,23 +481,39 @@ class TestTimeoutHandling:
 class TestValidateAndExecuteIntegration:
     """Full pipeline: validate -> RBAC -> execute."""
 
-    async def test_simple_select_via_pipeline(self, client, test_db_session):
-        """A valid SELECT against an allowed table should succeed."""
+    async def test_tableless_select_rejected_before_execution(
+        self, client, test_db_session
+    ):
+        """AI data queries must be anchored to an authorized dataset."""
         session = test_db_session
         admin = await _get_user(session, "admin")
-        tbl = f"sandbox_e2e_{uuid.uuid4().hex[:8]}"
-        await create_dataset(session, created_by=admin.id, table_name=tbl)
+        with pytest.raises(SandboxError) as exc_info:
+            await validate_and_execute("SELECT 1", session, admin)
+        assert exc_info.value.category == "invalid_query"
 
-        # generate_series has no schema, so we test with a simple SELECT 1
-        # The full RBAC pipeline check is that validate_and_execute wires correctly
-        result = await validate_and_execute(
-            "SELECT * FROM generate_series(1, 5) AS t(n)",
-            session,
-            admin,
-        )
-        assert isinstance(result, SandboxResult)
-        assert result.row_count == 5
-        assert result.truncated is False
+    async def test_per_user_query_lock_is_cross_connection(
+        self, client, test_db_session
+    ):
+        """A held user lock prevents a second pool connection from running."""
+        import app.core.db as db_module
+
+        key = f"geolens:ai-sql:{uuid.uuid4()}"
+        async with db_module.engine.connect() as blocker:
+            async with blocker.begin():
+                await blocker.execute(
+                    text(
+                        "SELECT pg_advisory_xact_lock("
+                        "hashtextextended(:concurrency_key, 0))"
+                    ),
+                    {"concurrency_key": key},
+                )
+                with pytest.raises(SandboxError) as exc_info:
+                    await execute_safe(
+                        test_db_session,
+                        "SELECT 1",
+                        concurrency_key=key.removeprefix("geolens:ai-sql:"),
+                    )
+        assert exc_info.value.category == "query_busy"
 
     async def test_invalid_sql_rejected(self, client, test_db_session):
         """Invalid SQL should be rejected at the validation phase."""

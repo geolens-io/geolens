@@ -1266,6 +1266,7 @@ class DefaultOpenAICompatibleProvider:
         import structlog
         from openai import AsyncOpenAI
 
+        from app.core.ai_credentials import bind_openai_credential_base_url
         from app.core.config import reveal, settings
         from app.processing.ai.constants import MAX_TOOL_ROUNDS
         from app.processing.ai.llm_loop import (
@@ -1298,8 +1299,9 @@ class DefaultOpenAICompatibleProvider:
             for t in tools
         ]
 
-        effective_base_url = (
-            base_url or settings.openai_base_url or "https://api.openai.com/v1"
+        effective_base_url = bind_openai_credential_base_url(
+            base_url or settings.openai_base_url,
+            purpose="chat",
         )
 
         # Lazy class-level keyed-client cache
@@ -1433,14 +1435,14 @@ class DefaultOpenAICompatibleProvider:
         )
 
     async def stream_chat_events(self, **kwargs):  # type: ignore[no-untyped-def]
+        from app.core.ai_credentials import bind_openai_credential_base_url
         from app.core.config import settings
         from app.processing.ai.llm_loop import get_openai_client
         from app.processing.ai.streaming import _stream_openai_chat
 
-        base_url = (
-            kwargs.pop("base_url", None)
-            or settings.openai_base_url
-            or "https://api.openai.com/v1"
+        base_url = bind_openai_credential_base_url(
+            kwargs.pop("base_url", None) or settings.openai_base_url,
+            purpose="chat",
         )
         kwargs["client"] = get_openai_client(base_url)
         async for event in _stream_openai_chat(**kwargs):
@@ -1459,11 +1461,13 @@ class DefaultOpenAICompatibleProvider:
     ):
         import structlog
 
+        from app.core.ai_credentials import bind_openai_credential_base_url
         from app.core.config import settings
         from app.processing.ai.llm_loop import get_openai_client
 
-        effective_base_url = (
-            base_url or settings.openai_base_url or "https://api.openai.com/v1"
+        effective_base_url = bind_openai_credential_base_url(
+            base_url or settings.openai_base_url,
+            purpose="chat",
         )
         client = get_openai_client(effective_base_url)
 
@@ -1496,10 +1500,14 @@ class DefaultOpenAICompatibleProvider:
         )
 
     async def resolve_runtime_config(self, db) -> dict[str, object]:  # type: ignore[no-untyped-def]
+        from app.core.ai_credentials import bind_openai_credential_base_url
         from app.core.persistent_config import LLM_MODEL, OPENAI_BASE_URL
 
         model = await LLM_MODEL.get(db)
-        base_url = await OPENAI_BASE_URL.get(db) or "https://api.openai.com/v1"
+        base_url = bind_openai_credential_base_url(
+            await OPENAI_BASE_URL.get(db),
+            purpose="chat",
+        )
         return {"base_url": base_url, "default_model": model}
 
 
@@ -1577,6 +1585,7 @@ class DefaultOpenAIEmbeddingProvider:
         import structlog
         from openai import AsyncOpenAI
 
+        from app.core.ai_credentials import bind_openai_credential_base_url
         from app.core.config import reveal, settings
         from app.processing.embeddings.service import EmbeddingUnavailableError
 
@@ -1587,8 +1596,9 @@ class DefaultOpenAIEmbeddingProvider:
                 "Embedding generation requires an OpenAI-compatible API key."
             )
 
-        effective_base_url = (
-            base_url or settings.openai_base_url or "https://api.openai.com/v1"
+        effective_base_url = bind_openai_credential_base_url(
+            base_url or settings.embedding_base_url or settings.openai_base_url,
+            purpose="embedding",
         )
 
         # Lazy class-level keyed-client cache (mirrors defaults.py:684-692)
@@ -1642,6 +1652,7 @@ class DefaultOpenAIEmbeddingProvider:
         ) from last_exc
 
     async def resolve_runtime_config(self, db) -> dict[str, object]:  # type: ignore[no-untyped-def]
+        from app.core.ai_credentials import bind_openai_credential_base_url
         from app.core.persistent_config import (
             EMBEDDING_BASE_URL,
             EMBEDDING_DIMS,
@@ -1652,10 +1663,9 @@ class DefaultOpenAIEmbeddingProvider:
         # Fallback chain mirrors helpers.py:90-97 byte-for-byte (D-04 / D-24):
         # EMBEDDING_BASE_URL -> OPENAI_BASE_URL -> hardcoded default
         embedding_url = await EMBEDDING_BASE_URL.get(db)
-        base_url = (
-            embedding_url
-            or await OPENAI_BASE_URL.get(db)
-            or "https://api.openai.com/v1"
+        base_url = bind_openai_credential_base_url(
+            embedding_url or await OPENAI_BASE_URL.get(db) or None,
+            purpose="embedding",
         )
         return {
             "base_url": base_url,

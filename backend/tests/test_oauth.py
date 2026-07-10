@@ -1,6 +1,7 @@
 """Tests for OAuth/OIDC integration (Phase 118)."""
 
 import uuid
+from unittest.mock import patch
 
 import pytest
 from sqlalchemy import select
@@ -1056,10 +1057,13 @@ class TestOAuthLoginEndpoint:
         await create_provider(client_session, data)
         await client_session.commit()
 
-        resp = await client.get(
-            f"/auth/oauth/login-test-{suffix}/login",
-            follow_redirects=False,
-        )
+        # The synthetic *.example.com IdP intentionally has no DNS record;
+        # endpoint/transport security is covered in test_oauth_destination_security.
+        with patch("app.modules.auth.oauth.router.validate_provider_server_endpoints"):
+            resp = await client.get(
+                f"/auth/oauth/login-test-{suffix}/login",
+                follow_redirects=False,
+            )
         # Should redirect (302/307) to the IdP authorize URL
         assert resp.status_code in (302, 307)
         location = resp.headers.get("location", "")
@@ -1111,10 +1115,11 @@ class TestOAuthCallbackCSRF:
         await client_session.commit()
 
         # Call callback with no state/code — should error, not create a session
-        resp = await client.get(
-            f"/auth/oauth/csrf-test-{suffix}/callback",
-            follow_redirects=False,
-        )
+        with patch("app.modules.auth.oauth.router.validate_provider_server_endpoints"):
+            resp = await client.get(
+                f"/auth/oauth/csrf-test-{suffix}/callback",
+                follow_redirects=False,
+            )
         # The callback catches exceptions and redirects with error fragment
         assert resp.status_code == 302
         location = resp.headers.get("location", "")
@@ -1152,10 +1157,11 @@ class TestOAuthCallbackCSRF:
         await client_session.commit()
 
         # Call callback with bogus code and state — should error
-        resp = await client.get(
-            f"/auth/oauth/badcode-test-{suffix}/callback?code=bogus&state=malicious",
-            follow_redirects=False,
-        )
+        with patch("app.modules.auth.oauth.router.validate_provider_server_endpoints"):
+            resp = await client.get(
+                f"/auth/oauth/badcode-test-{suffix}/callback?code=bogus&state=malicious",
+                follow_redirects=False,
+            )
         assert resp.status_code == 302
         location = resp.headers.get("location", "")
         assert "error" in location

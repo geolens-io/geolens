@@ -1,15 +1,95 @@
 """GeoJSON response models following OGC API Features conventions."""
 
-from typing import Any, Literal
+import math
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, model_validator
+from pydantic import AfterValidator, BaseModel, model_validator
+
+
+MAX_COORDINATE_TUPLES = 100_000
+MAX_COORDINATE_DEPTH = 8
+MAX_GEOMETRY_COLLECTION_MEMBERS = 1_000
+MAX_POSITION_DIMENSIONS = 4
+
+
+def _coordinate_tuple_count(coordinates: object) -> int:
+    """Validate a GeoJSON coordinate tree and return its position count."""
+    if not isinstance(coordinates, list):
+        raise ValueError("GeoJSON coordinates must be arrays.")
+
+    count = 0
+    stack: list[tuple[list[Any], int]] = [(coordinates, 0)]
+    while stack:
+        current, depth = stack.pop()
+        if depth > MAX_COORDINATE_DEPTH:
+            raise ValueError(
+                f"GeoJSON coordinate nesting exceeds {MAX_COORDINATE_DEPTH} levels."
+            )
+        if not current:
+            continue
+
+        first = current[0]
+        if isinstance(first, (int, float)) and not isinstance(first, bool):
+            if not 2 <= len(current) <= MAX_POSITION_DIMENSIONS:
+                raise ValueError(
+                    "GeoJSON positions must contain between 2 and "
+                    f"{MAX_POSITION_DIMENSIONS} numeric values."
+                )
+            if any(
+                isinstance(value, bool)
+                or not isinstance(value, (int, float))
+                or (isinstance(value, float) and not math.isfinite(value))
+                for value in current
+            ):
+                raise ValueError("GeoJSON positions must contain finite numbers.")
+            longitude = current[0]
+            latitude = current[1]
+            if not -180 <= longitude <= 180 or not -90 <= latitude <= 90:
+                raise ValueError(
+                    "GeoJSON longitude/latitude must be within WGS84 bounds."
+                )
+            count += 1
+            if count > MAX_COORDINATE_TUPLES:
+                raise ValueError(
+                    "GeoJSON geometry exceeds the "
+                    f"{MAX_COORDINATE_TUPLES} coordinate limit."
+                )
+            continue
+
+        for child in current:
+            if not isinstance(child, list):
+                raise ValueError(
+                    "GeoJSON coordinate arrays may contain only positions or arrays."
+                )
+            stack.append((child, depth + 1))
+
+    return count
 
 
 class GeoJSONGeometry(BaseModel):
     """A GeoJSON geometry object (RFC 7946)."""
 
-    type: str  # "Point", "MultiPoint", "LineString", "Polygon", etc.
+    type: Literal[
+        "Point",
+        "MultiPoint",
+        "LineString",
+        "MultiLineString",
+        "Polygon",
+        "MultiPolygon",
+    ]
     coordinates: list[Any]
+
+
+def _bounded_geometry(value: GeoJSONGeometry) -> GeoJSONGeometry:
+    """Apply coordinate budgets to a geometry at the feature-write boundary."""
+    _coordinate_tuple_count(value.coordinates)
+    return value
+
+
+BoundedGeoJSONGeometry = Annotated[
+    GeoJSONGeometry,
+    AfterValidator(_bounded_geometry),
+]
 
 
 class GeoJSONGeometryCollection(BaseModel):
@@ -32,9 +112,35 @@ class GeoJSONGeometryCollection(BaseModel):
     geometries: list[GeoJSONGeometry]
 
 
+def _bounded_geometry_collection(
+    value: GeoJSONGeometryCollection,
+) -> GeoJSONGeometryCollection:
+    """Apply member and aggregate budgets at the feature-write boundary."""
+    if len(value.geometries) > MAX_GEOMETRY_COLLECTION_MEMBERS:
+        raise ValueError(
+            "GeometryCollection exceeds the "
+            f"{MAX_GEOMETRY_COLLECTION_MEMBERS} member limit."
+        )
+    total = sum(
+        _coordinate_tuple_count(geometry.coordinates) for geometry in value.geometries
+    )
+    if total > MAX_COORDINATE_TUPLES:
+        raise ValueError(
+            f"GeometryCollection exceeds the {MAX_COORDINATE_TUPLES} coordinate limit."
+        )
+    return value
+
+
+BoundedGeoJSONGeometryCollection = Annotated[
+    GeoJSONGeometryCollection,
+    AfterValidator(_bounded_geometry_collection),
+]
+
+
 # Discriminated by the Literal type on the collection variant; plain geometries
 # keep their exact prior wire shape.
 GeoJSONGeometryLike = GeoJSONGeometryCollection | GeoJSONGeometry
+BoundedGeoJSONGeometryLike = BoundedGeoJSONGeometryCollection | BoundedGeoJSONGeometry
 
 
 class GeoJSONFeature(BaseModel):
@@ -103,7 +209,7 @@ def _reject_nested_collections(data: object) -> object:
 class FeatureCreate(BaseModel):
     """GeoJSON-style feature for insertion."""
 
-    geometry: GeoJSONGeometryLike
+    geometry: BoundedGeoJSONGeometryLike
     properties: dict | None = None
 
     @model_validator(mode="before")
@@ -115,7 +221,7 @@ class FeatureCreate(BaseModel):
 class FeatureReplace(BaseModel):
     """Full feature replacement (PUT semantics)."""
 
-    geometry: GeoJSONGeometryLike  # Required for full replacement
+    geometry: BoundedGeoJSONGeometryLike  # Required for full replacement
     properties: dict  # Required — set fields to null explicitly
 
     @model_validator(mode="before")
@@ -127,7 +233,7 @@ class FeatureReplace(BaseModel):
 class FeatureUpdate(BaseModel):
     """Partial feature update (PATCH semantics)."""
 
-    geometry: GeoJSONGeometryLike | None = None
+    geometry: BoundedGeoJSONGeometryLike | None = None
     properties: dict | None = None
 
     @model_validator(mode="before")

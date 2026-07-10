@@ -192,7 +192,6 @@ ST_Union(geomA, geomB) -> geometry        -- Merge geometries
 ST_Centroid(geom) -> geometry             -- Center point of geometry
 ST_MakePoint(lon, lat) -> geometry        -- Create a point from coordinates
 ST_SetSRID(geom, srid) -> geometry        -- Set SRID on geometry
-ST_Collect(geom) -> geometry             -- Aggregate geometries into a collection (preserves structure)
 ST_AsGeoJSON(geom) -> text               -- Convert geometry to GeoJSON string
 ST_Transform(geom, srid) -> geometry     -- Reproject geometry to target SRID
 ST_X(point) -> float                     -- X coordinate (longitude) of a point
@@ -260,8 +259,8 @@ For pattern matching: column ~ 'regex_pattern' (case-sensitive), column ~* 'rege
 ## Aggregation & Grouping
 
 All non-aggregated columns MUST appear in GROUP BY.
-Common aggregates: COUNT(*), SUM(col), AVG(col), MIN(col), MAX(col), ARRAY_AGG(col)
-For spatial aggregation: ST_Collect(geom_4326) to group geometries (preserves structure), ST_Union(geom_4326) to dissolve boundaries into one geometry.
+Common aggregates: COUNT(*), SUM(col), AVG(col), MIN(col), MAX(col).
+Collection-building aggregates are unavailable because their output size is not bounded by the result row limit.
 
 ## Date & Time Functions
 
