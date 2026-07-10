@@ -7,6 +7,18 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+### Changed
+
+- **A custom share-link expiration is now rejected with a validation error on
+  the Community edition.** Setting `expires_at` on `POST /maps/{id}/share/`
+  without the advanced-sharing entitlement returns 422 instead of 400, so it
+  matches how embed tokens already report the same restriction.
+- **The dataset rows endpoint returns 503 when the database is unavailable
+  instead of an empty page.** An operational database failure (connection loss
+  or statement timeout) on `GET /datasets/{id}/rows/` now returns 503 rather
+  than a 200 with an empty result set that looked like the dataset had no rows.
+  A dataset that is genuinely empty, or has no backing table, still returns 200.
+
 ## [1.4.2] - 2026-07-01
 
 ### Changed
