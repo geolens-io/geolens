@@ -276,27 +276,34 @@ async def export_dataset_endpoint(
     # 8. Audit log. user_id may be None for anonymous exports (EXP-01).
     # The audit_logs.user_id column is nullable; AuditEvent.user_id is typed
     # uuid.UUID | None to match.
-    await audit_emit(
-        db,
-        AuditEvent(
-            user_id=user.id if user is not None else None,
-            action="dataset.export",
-            resource_type="dataset",
-            resource_id=dataset_id,
-            details={
-                "format": format,
-                "target_crs": target_crs,
-                "bbox": bbox,
-                "where": where,
-            },
-            ip_address=request.client.host if request.client else None,
-        ),
-    )
-    await db.commit()
+    #
+    # fix(#435): the export file exists from here on, but nothing owns it until the
+    # FileResponse below attaches the background cleanup. An audit or commit failure
+    # in between used to strand the directory on the staging volume.
+    temp_dir = os.path.dirname(file_path)
+    try:
+        await audit_emit(
+            db,
+            AuditEvent(
+                user_id=user.id if user is not None else None,
+                action="dataset.export",
+                resource_type="dataset",
+                resource_id=dataset_id,
+                details={
+                    "format": format,
+                    "target_crs": target_crs,
+                    "bbox": bbox,
+                    "where": where,
+                },
+                ip_address=request.client.host if request.client else None,
+            ),
+        )
+        await db.commit()
+    except BaseException:
+        _cleanup_export(temp_dir)
+        raise
 
     # 9. Return file with background cleanup
-    temp_dir = os.path.dirname(file_path)
-
     return FileResponse(
         path=file_path,
         filename=filename,

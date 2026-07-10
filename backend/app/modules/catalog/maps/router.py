@@ -28,7 +28,6 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.audit.service import AuditEvent, audit_emit
-from app.core.edition import is_enterprise
 from app.core.identity import Identity
 from app.modules.auth.dependencies import (
     get_current_active_user,
@@ -101,7 +100,6 @@ from app.modules.catalog.maps.service import (
 )
 from app.modules.catalog.maps.models import MapLayer
 from app.modules.catalog.maps.service import _validate_share_token, remove_layers_bulk
-from app.modules.embed_tokens.schemas import ADVANCED_SHARING_ERROR
 from app.modules.embed_tokens.service import (
     revoke_embed_tokens_by_map,
     revoke_embed_tokens_for_dropped_datasets,
@@ -1250,15 +1248,10 @@ async def share_map_endpoint(
             detail="Map must be public before sharing",
         )
     # builder-audit #338 P1-14: custom share expiration is an advanced-sharing control.
-    # The UI hides it in Community, but the backend accepted any expires_at — gate
-    # it here with the same error taxonomy embed tokens use so API clients cannot
-    # bypass the product gate. The basic Community share/revoke flow (no expiry)
-    # is unaffected. Enterprise accepts future expiration.
-    if body is not None and body.expires_at is not None and not is_enterprise():
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=ADVANCED_SHARING_ERROR,
-        )
+    # fix(#435): the gate moved down to `ShareTokenRequest` (422, like every other
+    # embed/share control) and to `create_share_token` itself, so a caller that never
+    # passes through this handler cannot persist an Enterprise-only expiration. The
+    # `except ValueError` below surfaces the service-layer guard for such callers.
     try:
         token_obj = await create_share_token(
             db, map_id, user.id, expires_at=body.expires_at if body else None
@@ -1309,14 +1302,8 @@ async def update_map_share_token_endpoint(
             detail="Map not found",
         )
     await check_map_ownership(map_obj, user, db)
-    # builder-audit #338 P1-14: gate custom expiration on update too. Null clears
-    # expiration (basic Community flow, allowed); a non-null custom expiry is an
-    # advanced-sharing control reserved for Enterprise.
-    if body.expires_at is not None and not is_enterprise():
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=ADVANCED_SHARING_ERROR,
-        )
+    # builder-audit #338 P1-14 / fix(#435): gated in `ShareTokenRequest` (422) and in
+    # `update_share_token`. Null clears expiration and stays valid in Community.
     try:
         token_obj = await update_share_token(db, map_id, body.expires_at)
     except ValueError as e:

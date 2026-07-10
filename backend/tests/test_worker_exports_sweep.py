@@ -1,4 +1,8 @@
-"""Regression test for ING-04 / P2-04: worker exports temp-dir sweep must skip entries younger than 1 hour."""
+"""Regression tests for the shared exports temp-dir sweep (ING-04 / P2-04, fix(#435)).
+
+The sweeper lives in ``app.core.runtime.staging`` so the API lifespan and the
+worker share one age-aware implementation; entries younger than 1 hour survive.
+"""
 
 import os
 import time
@@ -15,9 +19,9 @@ def test_sweep_deletes_only_old_entries(tmp_path: Path) -> None:
     sweep gates on `stat.st_mtime` and only deletes entries older
     than `EXPORTS_SWEEP_AGE_SECONDS = 3600`.
     """
-    from app.platform.jobs.worker import (
+    from app.core.runtime.staging import (
         EXPORTS_SWEEP_AGE_SECONDS,
-        _sweep_orphaned_exports,
+        sweep_orphaned_exports,
     )
 
     exports_dir = tmp_path / "exports"
@@ -39,7 +43,7 @@ def test_sweep_deletes_only_old_entries(tmp_path: Path) -> None:
         "rolling-deploy safety window"
     )
 
-    deleted, skipped = _sweep_orphaned_exports(exports_dir)
+    deleted, skipped = sweep_orphaned_exports(exports_dir)
 
     assert not old_file.exists(), "2-hour-old entry should have been swept"
     assert new_file.exists(), (
@@ -52,7 +56,7 @@ def test_sweep_deletes_only_old_entries(tmp_path: Path) -> None:
 
 def test_sweep_handles_subdirectories(tmp_path: Path) -> None:
     """Subdirectory entries older than threshold are removed recursively (shutil.rmtree)."""
-    from app.platform.jobs.worker import _sweep_orphaned_exports
+    from app.core.runtime.staging import sweep_orphaned_exports
 
     exports_dir = tmp_path / "exports"
     exports_dir.mkdir()
@@ -65,7 +69,7 @@ def test_sweep_handles_subdirectories(tmp_path: Path) -> None:
     # Set mtime on the directory itself
     os.utime(old_dir, (now - 2 * 3600, now - 2 * 3600))
 
-    deleted, skipped = _sweep_orphaned_exports(exports_dir)
+    deleted, skipped = sweep_orphaned_exports(exports_dir)
 
     assert not old_dir.exists(), "Old subdirectory should have been removed recursively"
     assert deleted == 1
@@ -74,7 +78,7 @@ def test_sweep_handles_subdirectories(tmp_path: Path) -> None:
 
 def test_sweep_skipped_recent_export_logs(tmp_path: Path) -> None:
     """The skip branch emits a structured `sweep_skipped_recent_export` log event."""
-    from app.platform.jobs.worker import _sweep_orphaned_exports
+    from app.core.runtime.staging import sweep_orphaned_exports
 
     exports_dir = tmp_path / "exports"
     exports_dir.mkdir()
@@ -85,7 +89,7 @@ def test_sweep_skipped_recent_export_logs(tmp_path: Path) -> None:
     os.utime(new_file, (now - 600, now - 600))  # 10 minutes old
 
     with structlog.testing.capture_logs() as captured:
-        deleted, skipped = _sweep_orphaned_exports(exports_dir)
+        deleted, skipped = sweep_orphaned_exports(exports_dir)
 
     assert deleted == 0
     assert skipped == 1
@@ -107,12 +111,12 @@ def test_sweep_skipped_recent_export_logs(tmp_path: Path) -> None:
 
 def test_sweep_empty_dir_noop(tmp_path: Path) -> None:
     """An empty exports directory yields no deletions, no skips, and no errors."""
-    from app.platform.jobs.worker import _sweep_orphaned_exports
+    from app.core.runtime.staging import sweep_orphaned_exports
 
     exports_dir = tmp_path / "exports"
     exports_dir.mkdir()
 
-    deleted, skipped = _sweep_orphaned_exports(exports_dir)
+    deleted, skipped = sweep_orphaned_exports(exports_dir)
 
     assert deleted == 0
     assert skipped == 0
@@ -120,13 +124,29 @@ def test_sweep_empty_dir_noop(tmp_path: Path) -> None:
 
 def test_sweep_missing_dir_is_noop(tmp_path: Path) -> None:
     """If the exports dir does not exist, sweep is a no-op (no FileNotFoundError)."""
-    from app.platform.jobs.worker import _sweep_orphaned_exports
+    from app.core.runtime.staging import sweep_orphaned_exports
 
     exports_dir = tmp_path / "exports"
     # Deliberately do NOT create exports_dir
     assert not exports_dir.exists()
 
-    deleted, skipped = _sweep_orphaned_exports(exports_dir)
+    deleted, skipped = sweep_orphaned_exports(exports_dir)
 
     assert deleted == 0
     assert skipped == 0
+
+
+def test_api_and_worker_share_one_sweeper() -> None:
+    """fix(#435): both startup paths bind the same age-aware sweeper.
+
+    The API lifespan used to delete every `exports/` entry unconditionally, which
+    truncated exports owned by a surviving sibling Uvicorn worker on the shared
+    staging volume. If someone reintroduces a bespoke cleanup loop, they will drop
+    this import and this test fails.
+    """
+    import app.api.main as api_main
+    import app.platform.jobs.worker as worker_main
+    from app.core.runtime import staging
+
+    assert api_main.sweep_orphaned_exports is staging.sweep_orphaned_exports
+    assert worker_main.sweep_orphaned_exports is staging.sweep_orphaned_exports

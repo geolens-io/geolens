@@ -12,9 +12,11 @@ if TYPE_CHECKING:
     from app.modules.catalog.datasets.domain.schemas import DatasetResponse
 
 from sqlalchemy import func, select, text
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
+from app.core.db.sqlstate import TABLE_ABSENT, sqlstate
 from app.core.identity import Identity
 from app.modules.catalog.authorization import apply_visibility_filter
 from app.modules.catalog.datasets.domain._sql_safety import SAFE_TABLE_NAME_RE
@@ -372,17 +374,17 @@ async def get_dataset_rows(
         rel = count_result.scalar_one_or_none()
         approx_total = max(0, rel) if rel is not None else 0
 
-        # Compute next_cursor from last row's gid (None when no more pages)
         next_cursor = rows[-1]["gid"] if rows and len(rows) == limit else None
-    except Exception:  # broad: data.* table may be missing/locked/dropped — log and degrade to empty result
-        # Table may not exist (dropped, migration issue, etc.). Log the
-        # failure so consistent errors are visible instead of silently
-        # returning empty results on every request (RES-N9).
-        logger.warning(
-            "Failed to query rows from data table %s",
-            table_name,
-            exc_info=True,
-        )
+    except DBAPIError as exc:
+        # fix(#435): was `except Exception`, so connection loss, timeouts, and
+        # permission failures all rendered as a valid dataset with zero rows. Only an
+        # absent table still degrades to an empty page — normal for raster/VRT datasets,
+        # whose synthetic table_name has no PostGIS table. The rest reach the 503 path.
+        if sqlstate(exc) not in TABLE_ABSENT:
+            raise
+        logger.warning("Data table %s is absent", table_name, exc_info=True)
+        # Postgres aborted the transaction; read-only here, so rollback is safe.
+        await db.rollback()
         return [], 0, column_info or [], None
 
     return rows, approx_total, column_info or [], next_cursor

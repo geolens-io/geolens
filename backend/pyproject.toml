@@ -98,6 +98,50 @@ dev = [
     "pystac>=1.14",
 ]
 
+[tool.ruff.lint]
+# Ruff's defaults (E4/E7/E9/F) plus a cyclomatic-complexity gate. fix(#435): the
+# audit found 33 functions above McCabe 15 with no configured gate — a line cap on a
+# module does not stop one function accumulating branches, transaction boundaries,
+# I/O, authorization, and serialization concerns.
+select = ["E4", "E7", "E9", "F", "C901"]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 15
+
+[tool.ruff.lint.per-file-ignores]
+# Burn-down baseline: every file that exceeded McCabe 15 when the gate went in.
+# New code everywhere else is gated. This list may SHRINK, never grow — a new entry
+# means a new over-complex function. Start with `raster_tile_proxy` (30),
+# `_build_dataset_context` (35), and `_stream_openai_chat` (32): they combine the
+# most failure domains. The standards serializers (dcat, dcat_us, geodcat_ap, stac,
+# ogc) are compatibility mappings — churn-only rewrites there are not worth it.
+"app/modules/auth/oauth/service.py" = ["C901"]
+"app/modules/catalog/maps/filter_grammar.py" = ["C901"]
+"app/modules/catalog/maps/service_diff.py" = ["C901"]
+"app/modules/catalog/maps/sprites.py" = ["C901"]
+"app/modules/catalog/maps/style_json.py" = ["C901"]
+"app/modules/catalog/search/router.py" = ["C901"]
+"app/modules/catalog/search/service_records.py" = ["C901"]
+"app/modules/catalog/sources/router.py" = ["C901"]
+"app/modules/embed_tokens/service.py" = ["C901"]
+"app/platform/extensions/defaults.py" = ["C901"]
+"app/processing/ai/chat_actions.py" = ["C901"]
+"app/processing/ai/metadata_service.py" = ["C901"]
+"app/processing/ai/service.py" = ["C901"]
+"app/processing/ai/streaming.py" = ["C901"]
+"app/processing/export/router.py" = ["C901"]
+"app/processing/ingest/metadata.py" = ["C901"]
+"app/processing/ingest/tasks_raster.py" = ["C901"]
+"app/processing/ingest/tasks_vector.py" = ["C901"]
+"app/processing/ingest/tasks_vrt.py" = ["C901"]
+"app/processing/raster/quicklook.py" = ["C901"]
+"app/processing/tiles/router.py" = ["C901"]
+"app/standards/dcat/service.py" = ["C901"]
+"app/standards/dcat_us/service.py" = ["C901"]
+"app/standards/geodcat_ap/service.py" = ["C901"]
+"app/standards/ogc/router.py" = ["C901"]
+"app/standards/stac/router.py" = ["C901"]
+
 [tool.pytest.ini_options]
 # Let AnyIO own the project’s coroutine tests and plain async fixtures. Keep
 # pytest-asyncio strict so it only handles the explicit asyncio-only unit-test

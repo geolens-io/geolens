@@ -44,6 +44,17 @@ _CACHE_PREFIX = "config:"
 
 _registry: list[PersistentConfig] = []
 
+# Phase 279 ADMIN-03 (M-03): the single source of truth for enterprise-only Settings
+# tabs. The backend `_require_enterprise_for_key` gate, the config import/export
+# gate, and the frontend AdminSidebar (via GET /admin/settings/enterprise-tabs/) all
+# consult this set. Adding a new enterprise-only tab: edit this set.
+#
+# fix(#435): lives with the registry that defines `PersistentConfig.tab`, rather than
+# in `modules/settings/router.py` where it was a private name that `platform/config_ops`
+# reached into at import time. Edition policy now has a stable owner, and decomposing
+# the settings router can no longer break config import at runtime.
+ENTERPRISE_ONLY_TABS = frozenset({"branding", "appearance"})
+
 
 def _get_cache_safe() -> CacheProvider | None:
     """Return the cache provider or None if not yet initialized."""

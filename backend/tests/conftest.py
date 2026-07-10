@@ -1243,6 +1243,44 @@ class _RetryingAsyncEngine:
         return getattr(self._underlying, name)
 
 
+# fix(#435): fixtures whose setup needs a reachable Postgres. When the database is
+# unreachable, only tests that request one of these (directly or transitively) are
+# skipped — pure unit, schema, AST, and architecture tests still execute.
+#
+# `client` is the root of the DB fixture graph; the rest are listed because a test
+# can reach them without naming `client`, and `request.fixturenames` already carries
+# the transitive closure.
+_DB_FIXTURE_NAMES = frozenset(
+    {
+        "client",
+        "test_db_session",
+        "clean_tables",
+        "admin_auth_header",
+        "editor_auth_header",
+        "viewer_auth_header",
+    }
+)
+
+# Set by `_test_db_lifecycle` when the Postgres host cannot be reached at all.
+_db_unavailable_reason: str | None = None
+
+
+@pytest.fixture(autouse=True)
+def _skip_if_db_unavailable(request):
+    """Skip DB-backed tests — and only those — when Postgres is unreachable.
+
+    fix(#435): `_test_db_lifecycle` used to call `pytest.skip()` from session-scoped
+    autouse setup, which skipped every collected item. A targeted run of
+    `test_layering.py` then exited 0 with 48 skipped and 0 executed, so the
+    architecture gates could report green while asserting nothing.
+    """
+    if _db_unavailable_reason is None:
+        return
+    if _DB_FIXTURE_NAMES.isdisjoint(request.fixturenames):
+        return
+    pytest.skip(f"Postgres unreachable: {_db_unavailable_reason}")
+
+
 @pytest.fixture(autouse=True, scope="session")
 def _test_db_lifecycle():
     """Create, migrate, and tear down the test database once per session.
@@ -1250,10 +1288,12 @@ def _test_db_lifecycle():
     Uses sync SQLAlchemy because CREATE/DROP DATABASE require AUTOCOMMIT
     isolation which is simpler with the synchronous driver.
 
-    Gracefully skips DB setup when database host is unreachable (e.g. pure
-    unit test runs outside Docker). Tests that require DB will fail with a
-    clear connection error; DB-independent tests will run normally.
+    When the database host is unreachable (e.g. a pure unit-test run outside
+    Docker), DB setup is skipped and `_db_unavailable_reason` is recorded;
+    `_skip_if_db_unavailable` then skips the DB-backed tests individually and
+    everything else runs normally.
     """
+    global _db_unavailable_reason
     original_test_db_name = settings.postgres_db_test
     db_name = _worker_test_database_name(original_test_db_name)
     settings.postgres_db_test = db_name
@@ -1314,9 +1354,12 @@ def _test_db_lifecycle():
                 # InvalidCatalogNameError on this worker's tests.
                 raise
             # Truly unreachable host (DNS failure, refused connection, auth
-            # error, etc.) — preserve the existing skip semantics for
-            # pure unit-test runs outside Docker.
-            pytest.skip(f"Postgres unreachable: {e}")
+            # error, etc.). Record it and hand control back: the per-test
+            # `_skip_if_db_unavailable` fixture skips only the DB-backed tests,
+            # so pure unit-test runs outside Docker still execute.
+            _db_unavailable_reason = str(e)
+            yield
+            return
 
         # --- Init: extensions, schemas, roles ---
         test_engine_sync = sqlalchemy.create_engine(settings.test_database_url_sync)

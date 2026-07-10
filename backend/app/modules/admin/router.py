@@ -35,7 +35,7 @@ from app.modules.admin.schemas import (
     UserUpdate,
 )
 from app.modules.admin.service import AdminService
-from app.modules.quota.service import get_user_quota_usage
+from app.modules.quota.service import get_user_quota_usage_bulk
 from app.modules.audit.service import AuditEvent, audit_emit
 from app.modules.auth.dependencies import require_permission
 from app.modules.auth.router import limiter  # HARDEN-01: shared rate-limiter instance
@@ -195,24 +195,23 @@ async def list_users(
     users, total = await service.list_users(
         skip=skip, limit=limit, status=status_filter, search=search
     )
-    # QUOTA-04: batch-load quota usage for each user on this page.
-    # One SQL aggregate per user (≤200/page; cheap at admin-only frequency).
-    user_responses = []
-    for u in users:
-        usage = await get_user_quota_usage(db, u.id)
-        user_responses.append(
-            UserResponse(
-                id=u.id,
-                username=u.username,
-                email=u.email,
-                is_active=u.is_active,
-                status=u.status,
-                last_login_at=u.last_login_at,
-                created_at=u.created_at,
-                roles=sorted(r.name for r in u.roles),
-                quota_usage=usage,
-            )
+    # QUOTA-04: quota usage for the page. fix(#435): genuinely batched now — this
+    # said "batch" but ran one three-table aggregate per user, 200 users per page.
+    usage_by_user = await get_user_quota_usage_bulk(db, [u.id for u in users])
+    user_responses = [
+        UserResponse(
+            id=u.id,
+            username=u.username,
+            email=u.email,
+            is_active=u.is_active,
+            status=u.status,
+            last_login_at=u.last_login_at,
+            created_at=u.created_at,
+            roles=sorted(r.name for r in u.roles),
+            quota_usage=usage_by_user[u.id],
         )
+        for u in users
+    ]
     return UserListResponse(users=user_responses, total=total)
 
 

@@ -13,6 +13,7 @@ from fastapi import (
 )
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import joinedload
 
 from app.core.identity import Identity
 from app.modules.auth.dependencies import get_current_active_user
@@ -29,6 +30,7 @@ from app.modules.catalog.datasets.domain.schemas import (
     VrtSourceListResponse,
     VrtStatusResponse,
 )
+from app.modules.catalog.datasets.domain.models import Dataset
 from app.modules.catalog.datasets.domain.service import get_dataset
 from app.core.db.tenant_session import defer_async_with_tenant
 from app.core.dependencies import get_db
@@ -45,6 +47,28 @@ VrtMutationResponse = get_catalog_port().vrt_mutation_response_model()
 def _advisory_lock_key(dataset_id: uuid.UUID) -> int:
     """Derive a PostgreSQL advisory lock key from a UUID."""
     return dataset_id.int % (2**63)
+
+
+async def _load_source_datasets(
+    db: AsyncSession, dataset_ids: list[uuid.UUID]
+) -> dict[uuid.UUID, object]:
+    """Load VRT source datasets by id in one query, records eager-loaded.
+
+    fix(#435): both VRT source endpoints called `get_dataset()` once per member row,
+    so a 200-source VRT cost 200 round trips before it could return a page. The
+    per-row `can_access_dataset()` call stays — it is the permission seam's decision
+    to make, and only `restricted` rows reach the database from there. Batching that
+    too needs a seam-level operation, because an overlay wrapping
+    `DefaultPermissionExtension` must not have its policy skipped.
+    """
+    if not dataset_ids:
+        return {}
+    result = await db.execute(
+        select(Dataset)
+        .options(joinedload(Dataset.record))
+        .where(Dataset.id.in_(dataset_ids))
+    )
+    return {dataset.id: dataset for dataset in result.scalars().unique().all()}
 
 
 @router.get("/{dataset_id}/vrt-sources/", response_model=VrtSourceListResponse)
@@ -81,9 +105,13 @@ async def list_vrt_sources(
     # title/CRS/resolution/extent never leak. Non-raising (can_access_dataset)
     # — a 404 would abort the whole listing.
     ext = get_permission_extension()
+    source_rows = rows.all()
+    datasets_by_id = await _load_source_datasets(
+        db, [row.dataset_id for row in source_rows]
+    )
     sources = []
-    for row in rows.all():
-        src_dataset = await get_dataset(db, row.dataset_id)
+    for row in source_rows:
+        src_dataset = datasets_by_id.get(row.dataset_id)
         if src_dataset is None or not await ext.can_access_dataset(
             db, src_dataset, row.dataset_id, user, user_roles=user_roles
         ):
@@ -214,8 +242,12 @@ async def get_vrt_status(
     ext = get_permission_extension()
 
     # Collect sources and their URIs for parallel checks
+    health_rows = source_rows.all()
+    datasets_by_id = await _load_source_datasets(
+        db, [row.source_dataset_id for row in health_rows if row.ds_id is not None]
+    )
     sources_to_check = []
-    for row in source_rows.all():
+    for row in health_rows:
         if row.ds_id is None:
             # Source dataset was deleted. Keep this "missing" health branch and
             # the None-guard below so can_access_dataset never deref's
@@ -228,7 +260,7 @@ async def get_vrt_status(
                 )
             )
             continue
-        src_dataset = await get_dataset(db, row.source_dataset_id)
+        src_dataset = datasets_by_id.get(row.source_dataset_id)
         if src_dataset is None or not await ext.can_access_dataset(
             db, src_dataset, row.source_dataset_id, user, user_roles=user_roles
         ):

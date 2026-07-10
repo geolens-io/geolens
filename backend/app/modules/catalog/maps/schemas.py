@@ -6,6 +6,7 @@ from enum import Enum
 from typing import Annotated, TypedDict
 
 from pydantic import (
+    AwareDatetime,
     BaseModel,
     ConfigDict,
     Field,
@@ -15,8 +16,10 @@ from pydantic import (
     model_validator,
 )
 
+from app.core.edition import is_enterprise
 from app.core.text import normalize_nfc as _nfc
 from app.modules.catalog.maps.filter_grammar import validate_filter
+from app.modules.embed_tokens.schemas import ADVANCED_SHARING_ERROR
 
 LEGACY_BUILDER_PAINT_KEYS = {
     "_outline-width": "outline_width",
@@ -1118,17 +1121,36 @@ class SharedMapResponse(BaseModel):
 
 
 class ShareTokenRequest(BaseModel):
-    expires_at: datetime | None = Field(
+    # fix(#435): `AwareDatetime`, not bare `datetime`. Pydantic accepts a naive ISO
+    # string for a plain `datetime`, and comparing it to `datetime.now(timezone.utc)`
+    # below raised `TypeError: can't compare offset-naive and offset-aware datetimes`
+    # — a 500 for what is a malformed payload. `AwareDatetime` rejects it with a 422.
+    expires_at: AwareDatetime | None = Field(
         default=None,
-        description="Expiration timestamp. Null creates a non-expiring share link.",
+        description=(
+            "Expiration timestamp; must carry a UTC offset. Null creates a "
+            "non-expiring share link. A custom expiration requires advanced "
+            "sharing controls."
+        ),
     )
 
     @field_validator("expires_at")
     @classmethod
-    def expires_at_must_be_future(cls, v: datetime | None) -> datetime | None:
+    def expires_at_must_be_future(cls, v: AwareDatetime | None) -> AwareDatetime | None:
         if v is not None and v < datetime.now(timezone.utc):
             raise ValueError("expires_at must be in the future")
         return v
+
+    @model_validator(mode="after")
+    def validate_enterprise_controls(self):
+        # fix(#435): the edition boundary was enforced only by the two route handlers,
+        # so any internal caller reaching the service directly could persist an
+        # Enterprise-only expiration in Community. Guard at the schema too, mirroring
+        # `EmbedTokenCreate`. `None` stays valid — Community keeps basic create/revoke
+        # and can still clear an existing expiration.
+        if self.expires_at is not None and not is_enterprise():
+            raise ValueError(ADVANCED_SHARING_ERROR)
+        return self
 
 
 class ShareTokenResponse(BaseModel):

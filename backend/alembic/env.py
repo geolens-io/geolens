@@ -222,36 +222,14 @@ def include_name(name, type_, parent_names):
     return True
 
 
-# H-21: SAML columns live in the OAuthProvider model so a single
-# ``OAuthProvider`` class serves both OSS and enterprise deployments
-# (deferred-load pattern, see ``modules/auth/oauth/models.py``). The
-# enterprise overlay's migration ``e002_add_saml_columns`` actually adds
-# the columns to the database. On OSS-only deployments these columns
-# exist in the model but not in the schema, so ``alembic check`` /
-# autogenerate always produced 4 false-positive ``add_column`` ops —
-# which made ``alembic check`` useless as a CI drift gate (real drift
-# would be lost in the noise). We skip those columns from autogenerate
-# diff when running OSS-only (no enterprise overlay discovered).
-_SAML_COLUMNS = frozenset(
-    {"idp_entity_id", "idp_sso_url", "idp_certificate", "sp_entity_id"}
-)
-_OAUTH_PROVIDERS_TABLE = "oauth_providers"
-
-
 def include_object(obj, name, type_, reflected, compare_to):
-    """Skip procrastinate-managed objects + SAML columns (when OSS-only).
+    """Skip procrastinate-managed objects and the runtime-built HNSW index.
 
     Procrastinate's tables, types, indexes, sequences, and triggers are created
     via raw SQL in ``0002_procrastinate.py`` and are not declared as SQLAlchemy
     models. Without this filter, ``alembic check`` and autogenerate diff produce
     false-positive ``remove_table`` / ``remove_index`` ops because the metadata
     lacks them.
-
-    SAML columns on ``oauth_providers`` are declared in the model union but
-    only created by ``e002_add_saml_columns`` when the enterprise overlay is
-    installed. When no overlay is present, those columns are intentional
-    schema/model drift and would be reported by ``alembic check`` on every
-    OSS deployment — see migration-audit H-21.
 
     ``ix_record_embeddings_hnsw`` is a pgvector HNSW index created and dropped
     at runtime by ``embeddings/service.py`` (``rebuild_embedding_column``) once
@@ -262,20 +240,19 @@ def include_object(obj, name, type_, reflected, compare_to):
     ``pytest -n4`` a sibling test that built it on the shared worker DB before
     ``alembic check`` ran turned this into a high-rate flake in
     ``test_alembic_check_no_drift``.
+
+    fix(#435): the four ``oauth_providers`` SAML columns used to be excluded here
+    on OSS-only deployments, because only the enterprise overlay's
+    ``e002_add_saml_columns`` created them and autogenerate reported four phantom
+    ``add_column`` ops. Core migration ``0008_oauth_saml_columns`` now creates them
+    unconditionally (``ADD COLUMN IF NOT EXISTS``), so an OSS database at head has
+    them for real. The filter had become a blind spot: dropping or retyping a
+    now-core-owned column still passed ``alembic check``. See migration-audit H-21
+    for the original rationale.
     """
     if name and name.startswith("procrastinate_"):
         return False
     if type_ == "index" and name == "ix_record_embeddings_hnsw":
-        return False
-    if (
-        type_ == "column"
-        and not _extra_paths
-        and name in _SAML_COLUMNS
-        and getattr(getattr(obj, "table", None), "name", None) == _OAUTH_PROVIDERS_TABLE
-    ):
-        # OSS-only deployment: hide the enterprise-overlay-managed SAML
-        # columns from autogenerate so 'alembic check' surfaces only real
-        # drift.
         return False
     return True
 

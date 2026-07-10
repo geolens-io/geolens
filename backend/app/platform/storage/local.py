@@ -50,14 +50,24 @@ class LocalStorageProvider:
         return candidate
 
     async def put(self, key: str, data: BinaryIO | bytes) -> str:
-        """Store data at key. Returns the absolute path as a string."""
+        """Store data at key. Returns the absolute path as a string.
+
+        fix(#435): a file-like `data` stays file-like. This used to call `data.read()`
+        on the event-loop thread before the handoff, materializing a whole COG, VRT,
+        or archived original as one `bytes` object — the raster/VRT/original ingest
+        paths all pass open file handles, and those artifacts can exceed the 2 GB
+        production container limit. The copy now streams in 1 MiB chunks inside the
+        worker thread, so resident memory is bounded and the loop never blocks.
+        """
         dest = self._resolve_contained(key)
-        if not isinstance(data, bytes):
-            data = data.read()  # read in async context before thread handoff
 
         def _put() -> str:
             dest.parent.mkdir(parents=True, exist_ok=True)
-            dest.write_bytes(data)
+            if isinstance(data, bytes):
+                dest.write_bytes(data)
+            else:
+                with open(dest, "wb") as out:
+                    shutil.copyfileobj(data, out, _STREAM_CHUNK_BYTES)
             return str(dest)
 
         return await asyncio.to_thread(_put)

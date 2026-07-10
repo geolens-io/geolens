@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from pathlib import Path
 
@@ -18,6 +19,7 @@ from app.platform.jobs.defer_guard import (
     defer_with_orphan_guard,
     make_ingest_job_failed_rollback,
 )
+
 from app.platform.jobs.models import IngestJob
 from app.processing.ingest.manifest_schemas import (
     ManifestApplyEntryResult,
@@ -33,6 +35,11 @@ from app.processing.ingest.manifest_sources import (
     manifest_job_metadata,
 )
 from app.processing.ingest.service import queue_ingest_job, validate_file_extension
+
+# fix(#435): batch manifest-download writes so a 64 KiB httpx chunk does not cost
+# one `asyncio.to_thread` handoff each. 4 MiB keeps peak buffer memory small
+# while amortizing the thread hop across ~64 chunks.
+_WRITE_BUFFER_BYTES = 4 * 1024 * 1024
 
 
 async def _latest_in_flight_manifest_job(
@@ -101,14 +108,29 @@ async def _download_http_source(
         async with make_safe_client(timeout=60.0) as client:
             async with client.stream("GET", prepared.source_uri) as response:
                 response.raise_for_status()
-                with destination.open("wb") as file_obj:
+                # fix(#435): `Path.open()` + `file_obj.write()` ran synchronously
+                # inside this async loop, stalling the event loop — and therefore job
+                # heartbeats, cancellation, and unrelated requests — for the length of
+                # a multi-GB download. Writes now go to a worker thread, batched
+                # through a 4 MiB buffer so we are not paying a thread handoff per
+                # 64 KiB httpx chunk.
+                file_obj = await asyncio.to_thread(destination.open, "wb")
+                try:
+                    buffer = bytearray()
                     async for chunk in response.aiter_bytes():
                         bytes_seen += len(chunk)
                         if bytes_seen > max_size_bytes:
                             raise ManifestSourceError(
                                 "Manifest source exceeds configured upload size limit"
                             )
-                        file_obj.write(chunk)
+                        buffer.extend(chunk)
+                        if len(buffer) >= _WRITE_BUFFER_BYTES:
+                            await asyncio.to_thread(file_obj.write, bytes(buffer))
+                            buffer.clear()
+                    if buffer:
+                        await asyncio.to_thread(file_obj.write, bytes(buffer))
+                finally:
+                    await asyncio.to_thread(file_obj.close)
     except ManifestSourceError:
         destination.unlink(missing_ok=True)
         raise

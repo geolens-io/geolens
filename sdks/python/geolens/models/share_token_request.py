@@ -20,7 +20,8 @@ T = TypeVar("T", bound="ShareTokenRequest")
 class ShareTokenRequest:
     """
     Attributes:
-        expires_at (datetime.datetime | None | Unset): Expiration timestamp. Null creates a non-expiring share link.
+        expires_at (datetime.datetime | None | Unset): Expiration timestamp; must carry a UTC offset. Null creates a
+            non-expiring share link. A custom expiration requires advanced sharing controls.
     """
 
     expires_at: datetime.datetime | None | Unset = UNSET

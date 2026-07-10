@@ -12,6 +12,8 @@ from fastapi import (
 )
 from sqlalchemy import select
 from sqlalchemy.exc import DBAPIError
+
+from app.core.db.sqlstate import BAD_QUERY_INPUT, sqlstate
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
@@ -126,11 +128,18 @@ async def get_dataset_rows_endpoint(
             column_info=dataset.column_info,
             filters=filters if filters else None,
         )
-    except DBAPIError:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid filter parameters",
-        )
+    except DBAPIError as exc:
+        # fix(#435): this used to swallow every DBAPIError as a 400. The service
+        # swallowed them first anyway, so the handler was unreachable for failures
+        # inside the query. Now only a caller-caused error is a 400; connection loss,
+        # statement timeout, and permission failures fall through to the central
+        # 503 handler rather than being reported as the caller's fault.
+        if sqlstate(exc) in BAD_QUERY_INPUT:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid filter parameters",
+            )
+        raise
 
     return DatasetRowsResponse(
         rows=rows,

@@ -49,21 +49,19 @@ class OAuthProvider(Base):
     authorize_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
     token_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
     userinfo_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
-    # SAML provider columns (added by enterprise migration e002_add_saml_columns).
-    # All four are nullable; only populated when provider_type='saml' and the
-    # enterprise overlay is loaded.
+    # SAML provider columns. All four are nullable; only populated when
+    # provider_type='saml' and the enterprise overlay is loaded.
     #
-    # Pitfall 11 mitigation: declared with ``deferred=True`` so they are NOT
-    # included in the default ``SELECT`` against ``oauth_providers``. Community
-    # deployments (which do NOT run e002_add_saml_columns) lack these columns
-    # entirely; without ``deferred``, every list/get of an OAuth provider would
-    # raise ``UndefinedColumnError``. With ``deferred``, the columns are only
-    # loaded when explicitly accessed (e.g. ``provider.idp_entity_id`` in the
-    # SAML router) -- which only happens when the enterprise overlay is loaded
-    # AND the row is provider_type='saml'. Grouped under ``deferred_group="saml"``
-    # so the SAML router can ``undefer_group("saml")`` to load all four in a
-    # single query when needed. Schema/service-layer validation that these are
-    # required for SAML and forbidden for OAuth lands in Plan 03.
+    # fix(#435): these are core-owned columns now. Community databases DO have them
+    # — core migration ``0008_oauth_saml_columns`` adds all four (``ADD COLUMN IF
+    # NOT EXISTS``, so the enterprise overlay's ``e002_add_saml_columns`` stays a
+    # compatible no-op). They simply sit NULL for OSS OAuth/OIDC providers, and the
+    # ``'saml'`` provider_type CHECK constraint remains enterprise-only.
+    #
+    # ``deferred=True`` is kept for the original reason it was added: the columns stay
+    # out of the default ``SELECT`` against ``oauth_providers``. Grouped under
+    # ``deferred_group="saml"`` so the SAML router can ``undefer_group("saml")`` to
+    # load all four in a single query when needed.
     idp_entity_id: Mapped[str | None] = mapped_column(
         String(512), nullable=True, deferred=True, deferred_group="saml"
     )

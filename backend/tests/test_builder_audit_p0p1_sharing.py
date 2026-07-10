@@ -307,7 +307,9 @@ class TestP114ShareExpirationEdition:
             json={"expires_at": _future_expires_at().isoformat()},
             headers=admin_auth_header,
         )
-        assert resp.status_code == 400, resp.text
+        # fix(#435): 422, not 400 — the gate moved from the handler into
+        # ShareTokenRequest, matching the embed-token controls.
+        assert resp.status_code == 422, resp.text
         assert ADVANCED_SHARING_ERROR in resp.text
 
     async def test_community_basic_share_without_expiration_succeeds(
@@ -381,7 +383,8 @@ class TestP114ShareExpirationEdition:
             json={"expires_at": _future_expires_at().isoformat()},
             headers=admin_auth_header,
         )
-        assert resp.status_code == 400, resp.text
+        # fix(#435): schema-layer gate → 422 (see the create-path test above).
+        assert resp.status_code == 422, resp.text
         assert ADVANCED_SHARING_ERROR in resp.text
 
     async def test_community_update_null_expiration_allowed(

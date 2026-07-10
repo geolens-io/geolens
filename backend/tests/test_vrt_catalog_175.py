@@ -403,14 +403,29 @@ class TestVrtSourcesEndpoint:
         stub the per-member check to allow-all — otherwise can_access_dataset
         would run for real against a None user_roles and raise. The filtering
         behavior itself is covered by tests/test_vrt_source_authz_1172.py.
+
+        fix(#435): the endpoint now batch-loads member datasets in one query instead
+        of calling `get_dataset()` per row, so stub `_load_source_datasets` too. These
+        tests point a blanket `db.execute` mock at the raw-SQL result, which the
+        batch loader would otherwise read as "no member datasets exist".
         """
         ext = MagicMock()
         ext.can_access_dataset = AsyncMock(return_value=True)
+
+        async def _all_members_exist(_db, dataset_ids):
+            return {
+                ds_id: _make_mock_dataset("raster_dataset") for ds_id in dataset_ids
+            }
+
         with patch(
             "app.modules.catalog.datasets.api.router_vrt.get_permission_extension",
             return_value=ext,
         ):
-            yield
+            with patch(
+                "app.modules.catalog.datasets.api.router_vrt._load_source_datasets",
+                _all_members_exist,
+            ):
+                yield
 
     @pytest.mark.asyncio
     async def test_returns_ordered_source_list_for_vrt_dataset(self):

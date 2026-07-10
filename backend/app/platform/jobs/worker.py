@@ -18,7 +18,11 @@ from sqlalchemy import select, text
 
 from app.core.config import settings
 from app.core.logging_config import setup_logging
-from app.core.runtime.staging import ensure_staging_ready, redirect_tempfile_to_staging
+from app.core.runtime.staging import (
+    ensure_staging_ready,
+    redirect_tempfile_to_staging,
+    sweep_orphaned_exports,
+)
 
 # Redirect stdlib tempfile to the staging volume BEFORE any task module is
 # imported. Otherwise the COG conversion sanity check in tasks_raster
@@ -36,82 +40,6 @@ log = structlog.get_logger()
 # Stable app-unique integer used for the PostgreSQL advisory lock that
 # prevents concurrent stale-job recovery across multiple worker processes.
 RECOVERY_LOCK_KEY = 224_001
-
-
-# ING-04 (P2-04): exports temp-dir sweep age threshold. Only entries
-# whose mtime is older than this many seconds are deleted on worker
-# startup. In-flight large exports younger than 1 hour survive a
-# rolling worker restart; truly orphaned crash-residue gets cleaned.
-# Matches the 1-hour window used by the worker stale-job recovery
-# (`JOB_TIMEOUT_SECONDS` in router.py) so a 6-minute COG export that
-# survives a rolling restart at the job layer also keeps its on-disk
-# staging artifact.
-EXPORTS_SWEEP_AGE_SECONDS = 3600  # 1 hour
-
-
-def _sweep_orphaned_exports(
-    exports_dir: Path,
-    *,
-    age_threshold_seconds: int = EXPORTS_SWEEP_AGE_SECONDS,
-) -> tuple[int, int]:
-    """Sweep orphaned export temp entries older than ``age_threshold_seconds``.
-
-    ING-04 (P2-04): entries whose ``stat.st_mtime`` is within the last
-    ``age_threshold_seconds`` are skipped (and logged) so an in-flight
-    large export does not get truncated by a worker restart. Entries
-    older than the threshold are removed (``shutil.rmtree`` for
-    directories, ``Path.unlink`` for files).
-
-    Args:
-        exports_dir: The ``<staging>/exports/`` directory to sweep. A
-            missing directory is treated as a no-op (no error raised).
-        age_threshold_seconds: Skip entries newer than this many seconds.
-            Defaults to ``EXPORTS_SWEEP_AGE_SECONDS`` (1 hour).
-
-    Returns:
-        ``(deleted_count, skipped_count)``.
-    """
-    import shutil
-
-    if not exports_dir.exists():
-        return (0, 0)
-
-    entries = list(exports_dir.iterdir())
-    if not entries:
-        return (0, 0)
-
-    now_ts = datetime.now(timezone.utc).timestamp()
-    deleted_count = 0
-    skipped_count = 0
-    for item in entries:
-        try:
-            item_mtime = item.stat().st_mtime
-        except FileNotFoundError:
-            # Raced with another worker / external cleanup — treat as already-gone.
-            continue
-        age_seconds = now_ts - item_mtime
-        if age_seconds < age_threshold_seconds:
-            log.info(
-                "sweep_skipped_recent_export",
-                path=str(item),
-                age_seconds=round(age_seconds, 1),
-                threshold_seconds=age_threshold_seconds,
-            )
-            skipped_count += 1
-            continue
-        if item.is_dir():
-            shutil.rmtree(item, ignore_errors=True)
-        else:
-            item.unlink(missing_ok=True)
-        deleted_count += 1
-
-    if deleted_count or skipped_count:
-        log.info(
-            "exports_sweep_complete",
-            deleted=deleted_count,
-            skipped=skipped_count,
-        )
-    return (deleted_count, skipped_count)
 
 
 async def recover_stale_jobs() -> None:
@@ -271,7 +199,7 @@ async def main() -> None:
     # truncated mid-download because the new worker process happened to
     # boot during the export's stream phase.
     exports_dir = Path(settings.upload_staging_dir) / "exports"
-    _sweep_orphaned_exports(exports_dir)
+    sweep_orphaned_exports(exports_dir)
 
     # 3. WORK-01: shared bootstrap — load extensions (overlay), check enterprise
     # overlay requested, init edition, init storage + S3 health probe, init cache.

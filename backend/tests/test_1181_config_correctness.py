@@ -369,7 +369,7 @@ class TestBug011EditionGatedImport:
         allowed non-imported keys are still reset (overwrite semantics kept).
         """
         from app.core.persistent_config import _registry
-        from app.modules.settings.router import _ENTERPRISE_ONLY_TABS
+        from app.core.persistent_config import ENTERPRISE_ONLY_TABS
         from app.platform.config_ops.service import import_config
 
         mock_db = AsyncMock(spec=AsyncSession)
@@ -406,7 +406,7 @@ class TestBug011EditionGatedImport:
                     ip_address=None,
                 )
 
-        enterprise_keys = {c.key for c in _registry if c.tab in _ENTERPRISE_ONLY_TABS}
+        enterprise_keys = {c.key for c in _registry if c.tab in ENTERPRISE_ONLY_TABS}
         assert enterprise_keys, "expected the registry to define restricted keys"
         leaked = enterprise_keys & set(reset_keys)
         assert not leaked, (
