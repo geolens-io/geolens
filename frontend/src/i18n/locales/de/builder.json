@@ -1240,5 +1240,6 @@
     "sourceServerTile": "Server-Cluster-Kachel",
     "sourceBoundedGeojson": "Begrenzter GeoJSON-Cluster",
     "sourceFallback": "Cluster-Fallback"
-  }
+  },
+  "mobileNotice": "Der Karten-Editor funktioniert am besten auf einem größeren Bildschirm. Einige Steuerelemente sind hier eingeschränkt."
 }

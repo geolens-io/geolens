@@ -1240,5 +1240,6 @@
     "sourceServerTile": "Tuile de groupe côté serveur",
     "sourceBoundedGeojson": "Groupe GeoJSON borné",
     "sourceFallback": "Groupe de repli"
-  }
+  },
+  "mobileNotice": "L'éditeur de carte fonctionne mieux sur un grand écran. Certains contrôles sont limités ici."
 }

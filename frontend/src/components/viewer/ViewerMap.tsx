@@ -13,6 +13,7 @@ import {
 } from '@/lib/basemap-utils';
 import { buildClusterTileUrl, buildSignedTileUrl, getMvtSourceLayerName, resolveTileBaseUrl } from '@/lib/tile-utils';
 import { useWebGLRecovery } from '@/hooks/use-webgl-recovery';
+import { useInvalidateTileTokens } from '@/hooks/use-tile-token';
 import { useViewerTokens } from '@/components/viewer/hooks/use-viewer-tokens';
 import { useViewerTerrain } from '@/components/viewer/hooks/use-viewer-terrain';
 import { FeaturePopup, type FeatureInfo } from '@/components/map/FeaturePopup';
@@ -931,7 +932,8 @@ export const ViewerMap = memo(function ViewerMap({
     pitch: initialViewState.pitch,
   }), [initialViewState.center_lng, initialViewState.center_lat, initialViewState.zoom, initialViewState.bearing, initialViewState.pitch]);
 
-  const { contextLost, reload } = useWebGLRecovery(mapRef, mapReady);
+    const invalidateTileTokens = useInvalidateTileTokens();
+  const { contextLost, reload } = useWebGLRecovery(mapRef, mapReady, invalidateTileTokens);
 
   return (
     <div

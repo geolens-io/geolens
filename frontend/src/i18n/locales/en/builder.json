@@ -1240,5 +1240,6 @@
     "sourceServerTile": "Server-side cluster tile",
     "sourceBoundedGeojson": "Bounded GeoJSON cluster",
     "sourceFallback": "Cluster fallback"
-  }
+  },
+  "mobileNotice": "The map builder works best on a larger screen. Some controls are limited here."
 }

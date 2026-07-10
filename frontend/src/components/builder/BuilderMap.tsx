@@ -12,7 +12,7 @@ import {
   BLANK_BASEMAP_ID,
 } from '@/lib/basemap-utils';
 import { buildClusterTileUrl, buildSignedTileUrl } from '@/lib/tile-utils';
-import { useTileTokens } from '@/hooks/use-tile-token';
+import { useTileTokens, useInvalidateTileTokens } from '@/hooks/use-tile-token';
 import { useTileTokenError } from './hooks/use-tile-token-error';
 import { getEnvConfig } from '@/lib/env';
 import { pushReportEntry } from '@/lib/report';
@@ -1225,7 +1225,8 @@ export const BuilderMap = memo(function BuilderMap({
     pitch: initialViewState?.pitch ?? 0,
   }), [initialViewState?.center_lng, initialViewState?.center_lat, initialViewState?.zoom, initialViewState?.bearing, initialViewState?.pitch, mapDefaults?.center_lng, mapDefaults?.center_lat, mapDefaults?.zoom]);
 
-  const { contextLost, reload } = useWebGLRecovery(mapRef, mapReady);
+    const invalidateTileTokens = useInvalidateTileTokens();
+  const { contextLost, reload } = useWebGLRecovery(mapRef, mapReady, invalidateTileTokens);
 
   return (
     <div

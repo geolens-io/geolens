@@ -1240,5 +1240,6 @@
     "sourceServerTile": "Tesela de grupo del servidor",
     "sourceBoundedGeojson": "Grupo GeoJSON acotado",
     "sourceFallback": "Grupo alternativo"
-  }
+  },
+  "mobileNotice": "El editor de mapas funciona mejor en una pantalla más grande. Algunos controles están limitados aquí."
 }

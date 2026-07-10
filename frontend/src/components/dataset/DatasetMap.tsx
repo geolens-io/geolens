@@ -10,7 +10,7 @@ import { useTerraDraw } from '@/components/drawing/hooks/use-terra-draw';
 import { useFeatureEditing, showAllFeaturesInTiles } from '@/components/dataset/hooks/use-feature-editing';
 import { DrawingToolbar } from '@/components/drawing/DrawingToolbar';
 import { AttributeForm } from '@/components/drawing/AttributeForm';
-import { useTileToken } from '@/hooks/use-tile-token';
+import { useTileToken, useInvalidateTileTokens } from '@/hooks/use-tile-token';
 import { useMapLayers, getSourceLayerName } from '@/components/maps/hooks/use-map-layers';
 import { computeLargeExtentView, isLargeExtent } from '@/lib/map-extent';
 import { findElevationColumn } from '@/lib/geo-utils';
@@ -132,7 +132,8 @@ export const DatasetMap = memo(function DatasetMap({
   const hasBbox = bbox && bbox.length >= 4;
   const mapRef = useRef<MaplibreMap | null>(null);
   const [mapInstance, setMapInstance] = useState<MaplibreMap | null>(null);
-  const { contextLost, reload } = useWebGLRecovery(mapRef, !!mapInstance);
+    const invalidateTileTokens = useInvalidateTileTokens();
+  const { contextLost, reload } = useWebGLRecovery(mapRef, !!mapInstance, invalidateTileTokens);
   // fix(#430 V-13): dataset-detail preview map had no data-tiles-loaded signal at
   // all. Mirror the re-arming ViewerMap/BuilderMap behavior: false while a
   // camera move is in flight, true once idle (no tiles loading / no

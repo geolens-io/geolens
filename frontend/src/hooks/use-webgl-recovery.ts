@@ -10,6 +10,13 @@ import { logger } from '@/lib/logger';
 export function useWebGLRecovery(
   mapRef: RefObject<MaplibreMap | null>,
   mapReady: boolean,
+  /**
+   * fix(#438): BLD-04 — fired after a successful context restore, before the
+   * style is re-applied. Callers use it to invalidate tile tokens: a GPU outage
+   * can outlast a signed token's expiry, and re-applying the same style would
+   * otherwise reinstall tile URLs carrying a now-dead token.
+   */
+  onRestore?: () => void,
 ) {
   const [contextLost, setContextLost] = useState(false);
 
@@ -36,6 +43,9 @@ export function useWebGLRecovery(
 
     const onRestored = () => {
       if (import.meta.env.DEV) console.warn('[map] WebGL context restored');
+      // BLD-04: refresh tile tokens before re-applying the style, so the
+      // reinstalled tile URLs pick up freshly-minted (non-expired) tokens.
+      onRestore?.();
       // Force a full re-render of the map style
       try {
         const style = map.getStyle();
@@ -54,7 +64,7 @@ export function useWebGLRecovery(
       canvas.removeEventListener('webglcontextlost', onLost);
       canvas.removeEventListener('webglcontextrestored', onRestored);
     };
-  }, [mapRef, mapReady]);
+  }, [mapRef, mapReady, onRestore]);
 
   return { contextLost, reload: () => window.location.reload() };
 }

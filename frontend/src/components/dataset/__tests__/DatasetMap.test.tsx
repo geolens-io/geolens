@@ -42,6 +42,7 @@ vi.mock('@/hooks/use-settings', () => ({
 }));
 
 vi.mock('@/hooks/use-tile-token', () => ({
+  useInvalidateTileTokens: () => vi.fn(),
   useTileToken: () => ({ data: null }),
 }));
 

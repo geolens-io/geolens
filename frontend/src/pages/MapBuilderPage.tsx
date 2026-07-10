@@ -1,7 +1,7 @@
 import { lazy, Suspense, useState, useEffect, useRef, useCallback, useMemo, type ReactNode } from 'react';
 import { useParams, Link, useSearchParams } from 'react-router';
 import { useTranslation } from 'react-i18next';
-import { FileText, History, Sparkles } from 'lucide-react';
+import { FileText, History, Sparkles, Info } from 'lucide-react';
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import { ApiError } from '@/api/client';
 import {
@@ -125,7 +125,7 @@ export function MapBuilderPage() {
   useDocumentTitle(mapData?.name ?? t('common:pageTitle.mapBuilder'));
 
   // Three-column layout: isRail (sidebar→64px at <1100px), isEditorHidden (flyout hidden at <800px)
-  const { isRail, isEditorHidden } = useBuilderLayout();
+  const { isRail, isEditorHidden, isMobile } = useBuilderLayout();
 
   const mapInstanceRef = useRef<MaplibreMap | null>(null);
   // mapInstance state duplicates the ref — needed to trigger re-renders for
@@ -1352,6 +1352,18 @@ export function MapBuilderPage() {
           ? t('titleBar.builderHeading', { name: mapData.name, defaultValue: 'Map builder: {{name}}' })
           : t('common:pageTitle.mapBuilder')}
       </h1>
+      {/* fix(#438): UX-06 / LIVE-03 — below 768px the top bar cramps and the
+          builder isn't a real editing surface; tell the user rather than
+          presenting a broken-looking layout. */}
+      {isMobile && (
+        <div
+          role="status"
+          className="flex items-center gap-2 border-b border-warning/30 bg-warning/10 px-3 py-1.5 text-mini text-warning"
+        >
+          <Info className="size-3.5 shrink-0" aria-hidden="true" />
+          <span>{t('builder:mobileNotice', { defaultValue: 'The map builder works best on a larger screen. Some controls are limited here.' })}</span>
+        </div>
+      )}
       {/* Breadcrumb header bar — title + save status + actions */}
       <MapTitleBar
         name={layers.localName}

@@ -6,6 +6,14 @@ export const LABEL_FONT_STACK = [
   'Noto Sans Regular',
 ] as const;
 
+/**
+ * fix(#438): BLD-02 — the offset a point label renders at when the user hasn't
+ * set one. The renderer applied this implicitly while the editor showed 0/0, so
+ * the first X-drag silently discarded the -1.5 Y. Both sides now read this
+ * constant, so the editor shows what the map renders.
+ */
+export const DEFAULT_POINT_LABEL_OFFSET: [number, number] = [0, -1.5];
+
 /** Phase 20260526-builder-audit #338 BLD-20260526-11: resolve symbol-placement, enforcing point-only for fill geometries. */
 export function resolvePlacement(
   lc: Pick<LabelConfig, 'placement'>,
@@ -45,7 +53,7 @@ export function buildLabelStyle(
     'text-max-width': 10,
     'text-anchor': placement === 'point' ? (lc.textAnchor ?? 'center') : 'center',
     'text-offset': placement === 'point'
-      ? (lc.textOffset ?? (geomType === 'circle' ? [0, -1.5] : [0, 0]))
+      ? (lc.textOffset ?? (geomType === 'circle' ? DEFAULT_POINT_LABEL_OFFSET : [0, 0]))
       : [0, 0],
   };
   if (geomType === 'fill') layout['symbol-avoid-edges'] = true;
