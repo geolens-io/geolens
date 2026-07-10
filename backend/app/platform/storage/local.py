@@ -74,16 +74,26 @@ class LocalStorageProvider:
         try:
             return await asyncio.shield(copy)
         except asyncio.CancelledError:
-            # fix(#435 codex r2): `asyncio.to_thread` cannot stop a thread that is
+            # fix(#435 codex r2/r3): `asyncio.to_thread` cannot stop a thread that is
             # already running. Once the copy reads from a caller-owned handle rather
             # than a `bytes` snapshot, returning here would let the caller leave its
             # `with open(...)` block and close `data` mid-`copyfileobj`: a truncated
             # artifact plus an exception nobody retrieves. Cancellation on an ingest
-            # task or worker shutdown hits exactly this. Wait for the thread to let
-            # go of the handle, then report the cancellation.
-            await asyncio.wait({copy})
+            # task or worker shutdown hits exactly this.
+            #
+            # The drain itself is cancellable, so a second cancel (shutdown after a
+            # timeout, say) must not abandon the thread mid-read. `copy` is never
+            # cancelled — only the shield around it is — so it always finishes; loop
+            # until it does, absorbing repeated cancellations, then report ours.
+            while not copy.done():
+                try:
+                    await asyncio.shield(copy)
+                except asyncio.CancelledError:
+                    continue
+                except Exception:
+                    break  # the copy failed; we still report the cancellation
             if not copy.cancelled():
-                copy.exception()  # retrieve it; the cancellation is what we report
+                copy.exception()  # retrieve it so it is not flagged never-retrieved
             raise
 
     async def get(self, key: str) -> bytes:

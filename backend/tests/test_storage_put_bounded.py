@@ -178,3 +178,59 @@ async def test_cancelled_put_of_bytes_still_cancels(tmp_path: Path) -> None:
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
         await task
+
+
+async def test_repeated_cancellation_still_drains_the_copy_thread(
+    tmp_path: Path,
+) -> None:
+    """fix(#435 codex r3): a second cancel during the drain must not abandon the thread.
+
+    `asyncio.wait`/`asyncio.shield` are themselves cancellable, so a shutdown or outer
+    timeout that cancels twice could return before `copyfileobj` releases the caller's
+    handle. The drain absorbs repeated cancellations until the copy actually finishes.
+    """
+    provider = LocalStorageProvider(str(tmp_path))
+
+    class _SlowReader:
+        def __init__(self) -> None:
+            self.chunks = 6
+            self.hit_eof = False
+            self.closed = False
+            self.read_after_close = False
+
+        def read(self, size: int = -1) -> bytes:
+            if self.closed:
+                self.read_after_close = True
+                raise ValueError("read of closed file")
+            if self.chunks == 0:
+                self.hit_eof = True
+                return b""
+            self.chunks -= 1
+            time.sleep(0.02)
+            return b"\x00" * 1024
+
+        def close(self) -> None:
+            self.closed = True
+
+    reader = _SlowReader()
+    task = asyncio.create_task(provider.put("hammered.bin", reader))
+    await asyncio.sleep(0.03)  # let the copy thread get going
+
+    # Hammer cancel() while the thread is still reading. A single-cancel drain would
+    # be interrupted by one of these and return before the thread finishes.
+    for _ in range(30):
+        task.cancel()
+        await asyncio.sleep(0.005)
+        if task.done():
+            break
+
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert reader.hit_eof, (
+        "put() returned mid-copy under repeated cancellation; the thread was still "
+        "reading the caller's handle"
+    )
+    reader.close()  # the caller's `with open(...)` block closes the handle next
+    await asyncio.sleep(0.05)
+    assert not reader.read_after_close
