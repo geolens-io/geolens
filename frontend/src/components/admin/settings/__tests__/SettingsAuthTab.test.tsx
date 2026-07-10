@@ -87,7 +87,7 @@ describe('SettingsAuthTab', () => {
       });
     });
 
-    it('preserves explicit endpoints for a non-GitHub provider without discovery', () => {
+    it('preserves explicit endpoints for an OIDC provider without discovery', () => {
       expect(
         buildOAuthEndpointFields({
           provider_type: 'oidc',
@@ -103,6 +103,26 @@ describe('SettingsAuthTab', () => {
         userinfo_url: 'https://idp.example.com/userinfo',
       });
     });
+
+    it.each(['google', 'microsoft'] as const)(
+      'clears hidden explicit endpoints for %s without discovery',
+      (provider_type) => {
+        expect(
+          buildOAuthEndpointFields({
+            provider_type,
+            discovery_url: '',
+            authorize_url: 'https://hidden.example.com/authorize',
+            token_url: 'https://hidden.example.com/token',
+            userinfo_url: 'https://hidden.example.com/userinfo',
+          }),
+        ).toEqual({
+          discovery_url: null,
+          authorize_url: null,
+          token_url: null,
+          userinfo_url: null,
+        });
+      },
+    );
 
     it('retains explicit OIDC endpoints when saving an unrelated edit', async () => {
       const provider: OAuthProviderConfig = {

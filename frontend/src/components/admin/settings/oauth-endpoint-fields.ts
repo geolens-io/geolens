@@ -22,9 +22,9 @@ export function buildOAuthEndpointFields(
       userinfo_url: form.userinfo_url || null,
     };
   }
-  if (form.discovery_url) {
+  if (form.provider_type !== 'oidc' || form.discovery_url) {
     return {
-      discovery_url: form.discovery_url,
+      discovery_url: form.discovery_url || null,
       authorize_url: null,
       token_url: null,
       userinfo_url: null,
