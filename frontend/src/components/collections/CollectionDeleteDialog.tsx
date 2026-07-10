@@ -33,7 +33,7 @@ export function CollectionDeleteDialog({ collection, open, onOpenChange }: Colle
       setConfirmName('');
       deleteCollection.reset();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reset confirm state only when the dialog (re)opens
   }, [open]);
 
   const isConfirmed = confirmName === collection.name;

@@ -223,7 +223,7 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
       onOpacityChange(layer.id, localOpacity);
     }, 100);
     return () => clearTimeout(opacityTimerRef.current);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- push opacity only on local/layer change; the sync setter is stable
   }, [localOpacity, layer.id]);
 
   // builder-audit #338 DRY-01: forward map derived from the single BUILDER_PAINT_FIELDS

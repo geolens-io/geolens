@@ -35,7 +35,7 @@ export function CollectionCreateDialog({ open, onOpenChange }: CollectionCreateD
       setDescription('');
       createCollection.reset();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reset the form only when the dialog (re)opens
   }, [open]);
 
   async function handleSubmit(e: React.FormEvent) {

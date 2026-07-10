@@ -197,7 +197,7 @@ export function SamlProvidersSection() {
       }
       return prev;
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- prefill runs on slug/api-url/edit-target change; the setters are stable
   }, [form.slug, tileConfig?.public_api_url, editingProvider]);
 
   function openAddDialog() {

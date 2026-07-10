@@ -59,7 +59,7 @@ export function MapCreateDialog({ open, onOpenChange }: MapCreateDialogProps) {
       abortRef.current = null;
       inflightRef.current = false;
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reset the form only when the dialog (re)opens
   }, [open]);
 
   useEffect(() => {

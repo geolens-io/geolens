@@ -249,7 +249,7 @@ export function useBuilderLayers(
       prev.delete('add_dataset');
       return prev;
     }, { replace: true });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- react to URL/map changes only; the applier is stable
   }, [searchParams, mapData]);
 
   // Compute initial view state only once
@@ -263,7 +263,7 @@ export function useBuilderLayers(
       pitch: mapData.pitch,
     };
     // Only compute on first load
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- re-run only when the map identity changes
   }, [mapData?.id]);
 
   // --- Layer handlers ---

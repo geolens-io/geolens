@@ -114,5 +114,5 @@ export function useTileTokens(datasetIds: string[]) {
               : null),
       };
     });
-  }, [uniqueIds, batchQuery.data, batchQuery.isLoading, batchQuery.isError, batchQuery.error]);
+  }, [uniqueIds, batchQuery.data, batchQuery.isLoading, batchQuery.isError, batchQuery.isSuccess, batchQuery.error]);
 }

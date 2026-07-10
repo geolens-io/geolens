@@ -175,7 +175,7 @@ export function VrtCreatorForm({ initialSourceId, initialSourceIds, onCancel }: 
     ) {
       setSelectedSources([initialSource]);
     }
-  }, [initialSource]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [initialSource]); // eslint-disable-line react-hooks/exhaustive-deps -- reseed only when the initial source changes; the field setters are stable
 
   // Pre-select multiple sources when initialSourceIds is provided (multi-source flow)
   const multiSourceQueries = useQueries({
@@ -198,7 +198,7 @@ export function VrtCreatorForm({ initialSourceId, initialSourceIds, onCancel }: 
       multiInitializedRef.current = true;
       setSelectedSources(rasterSources);
     }
-  }, [multiSourceQueries, initialSourceIds, initialSourceId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [multiSourceQueries, initialSourceIds, initialSourceId]); // eslint-disable-line react-hooks/exhaustive-deps -- react to the query set / initial ids only; the setters are stable
 
   // Surface multi-source load errors so they aren't silently swallowed
   const multiSourceErrorCount = multiSourceQueries.filter((q) => q.isError).length;

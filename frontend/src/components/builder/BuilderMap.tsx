@@ -469,7 +469,7 @@ export const BuilderMap = memo(function BuilderMap({
       }
     }
     return map;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the primitive join is the intended dep; the array identity churns each render
   }, [datasetIds.join(','), tokenSig]);
 
   const terrainStateRef = useRef({ terrainConfig, layers, tokenMap });

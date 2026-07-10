@@ -35,7 +35,7 @@ export function CollectionEditDialog({ collection, open, onOpenChange }: Collect
       setDescription(collection.description ?? '');
       updateCollection.reset();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reseed fields only when the dialog opens or the collection changes
   }, [open, collection.name, collection.description]);
 
   const hasChanges =
