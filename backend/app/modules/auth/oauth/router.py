@@ -4,6 +4,7 @@ import uuid
 
 import structlog
 from authlib.integrations.starlette_client import OAuth
+from authlib.integrations.starlette_client.apps import StarletteOAuth2App
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.responses import RedirectResponse
 from sqlalchemy import func
@@ -16,6 +17,7 @@ from app.modules.auth.oauth.service import (
     get_enabled_providers,
     get_provider_by_slug,
     is_azure_multitenant,
+    validate_provider_server_endpoints,
     verify_azure_multitenant_issuer,
 )
 from app.modules.auth.providers import AuthenticatedIdentity
@@ -32,6 +34,18 @@ from app.standards.ogc.errors import ERROR_RESPONSES_AUTH
 logger = structlog.stdlib.get_logger(__name__)
 
 router = APIRouter(prefix="/auth/oauth", tags=["Auth"], responses=ERROR_RESPONSES_AUTH)
+
+
+class _SSRFSafeOAuth2App(StarletteOAuth2App):
+    """Create a fresh IP-pinning transport for each Authlib HTTP session."""
+
+    def _get_session(self):
+        from app.modules.catalog.sources.security import make_safe_transport
+
+        client_kwargs = {**self.client_kwargs, "transport": make_safe_transport()}
+        session = self.client_cls(**client_kwargs)
+        session.headers["User-Agent"] = self._user_agent
+        return session
 
 
 def _id_token_claims_options(
@@ -73,12 +87,30 @@ async def build_oauth_client(provider_slug: str, db: AsyncSession) -> tuple:
             detail="OAuth provider not found or not enabled",
         )
 
+    # Validate every persisted endpoint before decrypting the client secret.
+    # This protects legacy rows as well as configurations written through CRUD
+    # or config import. Authlib receives the same IP-pinning transport below,
+    # closing the DNS-rebinding gap between validation and request dispatch.
+    try:
+        await validate_provider_server_endpoints(provider)
+    except ValueError as exc:
+        logger.warning(
+            "OAuth provider endpoint rejected",
+            provider=provider_slug,
+            error_type=type(exc).__name__,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="OAuth provider endpoint is not permitted",
+        ) from exc
+
     client_secret = decrypt_secret(provider.client_secret_encrypted)
 
     oauth = OAuth()
 
     # Build registration kwargs
     register_kwargs: dict = {
+        "client_cls": _SSRFSafeOAuth2App,
         "client_id": provider.client_id,
         "client_secret": client_secret,
         "client_kwargs": {

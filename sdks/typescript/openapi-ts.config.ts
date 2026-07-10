@@ -1,4 +1,4 @@
-// Hand-maintained — read by `npx @hey-api/openapi-ts@0.96.1`.
+// Hand-maintained — read by `npx @hey-api/openapi-ts@0.99.0`.
 // Generator emits to src/client/. Plan 03 adds src/auth.ts + src/index.ts.
 // Source: heyapi.dev/openapi-ts/configuration
 //

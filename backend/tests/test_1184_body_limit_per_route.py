@@ -6,7 +6,8 @@ GAP-001: Non-upload routes must enforce a small default cap (10 MB);
 Design:
   - The middleware grants the large UPLOAD_MAX_SIZE_MB limit to exactly the two
     multipart file endpoints (/ingest/upload, /datasets/{id}/reupload) and the
-    small DEFAULT_BODY_LIMIT_BYTES (10 MB) to everything else.
+    FEATURE_WRITE_BODY_LIMIT_BYTES (1 MB) to GeoJSON mutations, and the small
+    DEFAULT_BODY_LIMIT_BYTES (10 MB) to everything else.
   - We verify the RED case (non-upload with 11 MB → 413) and the GREEN case
     (upload path with 11 MB → NOT 413) without needing a real file upload.
 """
@@ -20,7 +21,9 @@ from httpx import AsyncClient
 
 from app.api.middleware.body_limit import (
     DEFAULT_BODY_LIMIT_BYTES,
+    FEATURE_WRITE_BODY_LIMIT_BYTES,
     _get_upload_limit,
+    _is_feature_write_route,
     _is_upload_route,
 )
 
@@ -193,6 +196,25 @@ class TestIsUploadRouteProxyStripped:
 
     def test_stripped_ingest_non_upload_is_not_upload(self):
         assert _is_upload_route("/ingest/commit/some-job-id") is False
+
+
+class TestIsFeatureWriteRoute:
+    def test_matches_feature_create_with_optional_api_prefix(self):
+        assert _is_feature_write_route(f"/api/datasets/{_UUID}/features/", "POST")
+        assert _is_feature_write_route(f"/datasets/{_UUID}/features/", "post")
+
+    def test_matches_feature_replace_and_patch(self):
+        assert _is_feature_write_route(f"/datasets/{_UUID}/features/42", "PUT")
+        assert _is_feature_write_route(f"/api/datasets/{_UUID}/features/-1", "PATCH")
+
+    def test_rejects_read_delete_and_invalid_route_variants(self):
+        assert not _is_feature_write_route(f"/datasets/{_UUID}/features/42", "GET")
+        assert not _is_feature_write_route(f"/datasets/{_UUID}/features/42", "DELETE")
+        assert not _is_feature_write_route("/datasets/not-a-uuid/features/", "POST")
+        assert not _is_feature_write_route(
+            f"/datasets/{_UUID}/features/not-an-int", "PATCH"
+        )
+        assert not _is_feature_write_route(f"/datasets/{_UUID}/features", "POST")
 
 
 # ---------------------------------------------------------------------------
@@ -378,6 +400,15 @@ class TestGap001PerRouteBodyCap:
             "GAP-001: 5 MB body to non-upload route must not be 413 "
             f"(default cap is 10 MB); got {resp.status_code}"
         )
+
+    @pytest.mark.anyio
+    async def test_feature_write_over_1mb_is_413(self, client: AsyncClient):
+        resp = await client.post(
+            f"/api/datasets/{_UUID}/features/",
+            content=b"x",
+            headers={"Content-Length": str(FEATURE_WRITE_BODY_LIMIT_BYTES + 1)},
+        )
+        assert resp.status_code == 413
 
 
 class TestGap032ProblemDetailShape:

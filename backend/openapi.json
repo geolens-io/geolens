@@ -6445,6 +6445,14 @@
             "type": "array"
           },
           "type": {
+            "enum": [
+              "Point",
+              "MultiPoint",
+              "LineString",
+              "MultiLineString",
+              "Polygon",
+              "MultiPolygon"
+            ],
             "title": "Type",
             "type": "string"
           }
@@ -23786,6 +23794,14 @@
                           "type": "array"
                         },
                         "type": {
+                          "enum": [
+                            "Point",
+                            "MultiPoint",
+                            "LineString",
+                            "MultiLineString",
+                            "Polygon",
+                            "MultiPolygon"
+                          ],
                           "title": "Type",
                           "type": "string"
                         }
@@ -27227,6 +27243,14 @@
                           "type": "array"
                         },
                         "type": {
+                          "enum": [
+                            "Point",
+                            "MultiPoint",
+                            "LineString",
+                            "MultiLineString",
+                            "Polygon",
+                            "MultiPolygon"
+                          ],
                           "title": "Type",
                           "type": "string"
                         }
@@ -27449,6 +27473,14 @@
                           "type": "array"
                         },
                         "type": {
+                          "enum": [
+                            "Point",
+                            "MultiPoint",
+                            "LineString",
+                            "MultiLineString",
+                            "Polygon",
+                            "MultiPolygon"
+                          ],
                           "title": "Type",
                           "type": "string"
                         }
@@ -27775,6 +27807,14 @@
                           "type": "array"
                         },
                         "type": {
+                          "enum": [
+                            "Point",
+                            "MultiPoint",
+                            "LineString",
+                            "MultiLineString",
+                            "Polygon",
+                            "MultiPolygon"
+                          ],
                           "title": "Type",
                           "type": "string"
                         }
@@ -27982,6 +28022,14 @@
                           "type": "array"
                         },
                         "type": {
+                          "enum": [
+                            "Point",
+                            "MultiPoint",
+                            "LineString",
+                            "MultiLineString",
+                            "Polygon",
+                            "MultiPolygon"
+                          ],
                           "title": "Type",
                           "type": "string"
                         }
@@ -28200,6 +28248,14 @@
                           "type": "array"
                         },
                         "type": {
+                          "enum": [
+                            "Point",
+                            "MultiPoint",
+                            "LineString",
+                            "MultiLineString",
+                            "Polygon",
+                            "MultiPolygon"
+                          ],
                           "title": "Type",
                           "type": "string"
                         }

@@ -1,5 +1,6 @@
 """Request logging middleware with structured output and request ID tracking."""
 
+import re
 import time
 import uuid
 
@@ -9,6 +10,13 @@ from starlette.requests import Request
 from starlette.responses import Response
 
 access_logger = structlog.stdlib.get_logger("api.access")
+
+_SHARED_MAP_PATH = re.compile(r"^(?P<prefix>/(?:api/)?maps/shared/)[^/]+")
+
+
+def safe_access_log_path(path: str) -> str:
+    """Remove bearer capability segments from paths written to access logs."""
+    return _SHARED_MAP_PATH.sub(r"\g<prefix>[REDACTED]", path, count=1)
 
 
 class RequestLoggingMiddleware(BaseHTTPMiddleware):
@@ -38,7 +46,7 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
             access_logger.info(
                 "request_completed",
                 http_method=request.method,
-                path=request.url.path,
+                path=safe_access_log_path(request.url.path),
                 status_code=status_code,
                 duration_ms=round(duration_ms, 2),
                 request_id=request_id,

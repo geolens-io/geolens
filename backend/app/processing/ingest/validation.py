@@ -8,6 +8,7 @@ Validates uploaded files beyond extension checks:
 """
 
 import re
+import struct
 import zipfile
 from pathlib import Path
 
@@ -47,6 +48,19 @@ _WINDOWS_ABSOLUTE_RE = re.compile(r"^[A-Za-z]:[\\/]")
 # ZIP bomb thresholds
 MAX_COMPRESSION_RATIO = 500
 MAX_DECOMPRESSED_BYTES = 2 * 1024 * 1024 * 1024  # 2 GB
+MAX_ARCHIVE_ENTRIES = 10_000
+MAX_CENTRAL_DIRECTORY_BYTES = 32 * 1024 * 1024
+ZIP_CONTAINER_EXTENSIONS = frozenset({".zip", ".xlsx"})
+
+_EOCD_SIGNATURE = b"PK\x05\x06"
+_ZIP64_EOCD_SIGNATURE = b"PK\x06\x06"
+_ZIP64_LOCATOR_SIGNATURE = b"PK\x06\x07"
+_CENTRAL_FILE_SIGNATURE = b"PK\x01\x02"
+_CENTRAL_DIGITAL_SIGNATURE = b"PK\x05\x05"
+_EOCD = struct.Struct("<4s4H2LH")
+_ZIP64_LOCATOR = struct.Struct("<4sLQL")
+_ZIP64_EOCD = struct.Struct("<4sQ2H2L4Q")
+_CENTRAL_FILE_HEADER = struct.Struct("<4s6H3L5H2L")
 
 ARCHIVE_EXTENSIONS = frozenset(
     {
@@ -60,6 +74,161 @@ ARCHIVE_EXTENSIONS = frozenset(
         ".xz",
     }
 )
+
+
+def _zip_directory_metadata(file_path: str) -> tuple[int, int, int]:
+    """Return member count, central-directory offset, and size without parsing members."""
+    path = Path(file_path)
+    file_size = path.stat().st_size
+    tail_size = min(file_size, _EOCD.size + 65_535)
+
+    with path.open("rb") as archive:
+        archive.seek(file_size - tail_size)
+        tail = archive.read(tail_size)
+
+        search_end = len(tail)
+        eocd_offset = -1
+        eocd: tuple | None = None
+        while search_end > 0:
+            candidate = tail.rfind(_EOCD_SIGNATURE, 0, search_end)
+            if candidate < 0:
+                break
+            if candidate + _EOCD.size <= len(tail):
+                unpacked = _EOCD.unpack_from(tail, candidate)
+                comment_length = unpacked[7]
+                if candidate + _EOCD.size + comment_length == len(tail):
+                    eocd_offset = file_size - tail_size + candidate
+                    eocd = unpacked
+                    break
+            search_end = candidate
+
+        if eocd is None:
+            raise zipfile.BadZipFile("End of central directory not found")
+
+        (
+            _signature,
+            disk_number,
+            directory_disk,
+            entries_on_disk,
+            total_entries,
+            directory_size,
+            directory_offset,
+            _comment_length,
+        ) = eocd
+
+        uses_zip64 = (
+            entries_on_disk == 0xFFFF
+            or total_entries == 0xFFFF
+            or directory_size == 0xFFFFFFFF
+            or directory_offset == 0xFFFFFFFF
+        )
+        if uses_zip64:
+            locator_offset = eocd_offset - _ZIP64_LOCATOR.size
+            if locator_offset < 0:
+                raise zipfile.BadZipFile("ZIP64 locator not found")
+            archive.seek(locator_offset)
+            locator = archive.read(_ZIP64_LOCATOR.size)
+            if len(locator) != _ZIP64_LOCATOR.size:
+                raise zipfile.BadZipFile("Truncated ZIP64 locator")
+            locator_signature, zip64_disk, zip64_offset, total_disks = (
+                _ZIP64_LOCATOR.unpack(locator)
+            )
+            if locator_signature != _ZIP64_LOCATOR_SIGNATURE:
+                raise zipfile.BadZipFile("ZIP64 locator not found")
+            if zip64_disk != 0 or total_disks != 1:
+                raise zipfile.BadZipFile("Multi-disk ZIP archives are not supported")
+
+            archive.seek(zip64_offset)
+            record = archive.read(_ZIP64_EOCD.size)
+            if len(record) != _ZIP64_EOCD.size:
+                raise zipfile.BadZipFile("Truncated ZIP64 end record")
+            values = _ZIP64_EOCD.unpack(record)
+            if values[0] != _ZIP64_EOCD_SIGNATURE:
+                raise zipfile.BadZipFile("ZIP64 end record not found")
+            disk_number = values[4]
+            directory_disk = values[5]
+            entries_on_disk = values[6]
+            total_entries = values[7]
+            directory_size = values[8]
+            directory_offset = values[9]
+
+        if disk_number != 0 or directory_disk != 0 or entries_on_disk != total_entries:
+            raise zipfile.BadZipFile("Multi-disk ZIP archives are not supported")
+        if directory_offset + directory_size > eocd_offset:
+            raise zipfile.BadZipFile("Invalid central directory bounds")
+
+        return int(total_entries), int(directory_offset), int(directory_size)
+
+
+def _validate_zip_directory_cardinality(file_path: str) -> None:
+    """Bound ZIP metadata before ZipFile materializes a ZipInfo per member."""
+    reported_entries, directory_offset, directory_size = _zip_directory_metadata(
+        file_path
+    )
+    if reported_entries > MAX_ARCHIVE_ENTRIES:
+        raise ValueError(
+            f"ZIP contains {reported_entries} entries; the maximum is "
+            f"{MAX_ARCHIVE_ENTRIES}."
+        )
+    if directory_size > MAX_CENTRAL_DIRECTORY_BYTES:
+        raise ValueError(
+            "ZIP central directory exceeds the "
+            f"{MAX_CENTRAL_DIRECTORY_BYTES // (1024 * 1024)} MB metadata limit."
+        )
+
+    count = 0
+    remaining = directory_size
+    saw_digital_signature = False
+    with open(file_path, "rb") as archive:
+        archive.seek(directory_offset)
+        while remaining:
+            signature = archive.read(4)
+            if len(signature) != 4:
+                raise zipfile.BadZipFile("Truncated central directory")
+
+            if signature == _CENTRAL_FILE_SIGNATURE:
+                rest = archive.read(_CENTRAL_FILE_HEADER.size - 4)
+                if len(rest) != _CENTRAL_FILE_HEADER.size - 4:
+                    raise zipfile.BadZipFile("Truncated central directory entry")
+                fields = _CENTRAL_FILE_HEADER.unpack(signature + rest)
+                variable_size = fields[10] + fields[11] + fields[12]
+                entry_size = _CENTRAL_FILE_HEADER.size + variable_size
+                if entry_size > remaining:
+                    raise zipfile.BadZipFile("Invalid central directory entry size")
+                archive.seek(variable_size, 1)
+                remaining -= entry_size
+                count += 1
+                if count > MAX_ARCHIVE_ENTRIES:
+                    raise ValueError(
+                        f"ZIP contains more than {MAX_ARCHIVE_ENTRIES} entries."
+                    )
+                continue
+
+            if signature == _CENTRAL_DIGITAL_SIGNATURE:
+                if saw_digital_signature or count != reported_entries:
+                    raise zipfile.BadZipFile(
+                        "Invalid central-directory digital signature placement"
+                    )
+                length_bytes = archive.read(2)
+                if len(length_bytes) != 2:
+                    raise zipfile.BadZipFile("Truncated central-directory signature")
+                signature_size = struct.unpack("<H", length_bytes)[0]
+                record_size = 6 + signature_size
+                if record_size > remaining:
+                    raise zipfile.BadZipFile("Invalid central-directory signature size")
+                if record_size != remaining:
+                    raise zipfile.BadZipFile(
+                        "Central-directory digital signature must be the final record"
+                    )
+                archive.seek(signature_size, 1)
+                remaining -= record_size
+                saw_digital_signature = True
+                continue
+
+            raise zipfile.BadZipFile("Invalid central directory signature")
+
+    if count != reported_entries:
+        raise zipfile.BadZipFile("ZIP member count does not match central directory")
 
 
 def _is_text_content(header: bytes) -> bool:
@@ -228,6 +397,7 @@ def validate_zip_safety(file_path: str) -> None:
     - Total decompressed size > MAX_DECOMPRESSED_BYTES
     """
     try:
+        _validate_zip_directory_cardinality(file_path)
         with zipfile.ZipFile(file_path, "r") as zf:
             total_uncompressed = 0
 
@@ -284,7 +454,13 @@ def validate_zip_safety(file_path: str) -> None:
                 )
 
     except zipfile.BadZipFile:
-        raise ValueError("File has .zip extension but is not a valid ZIP archive.")
+        raise ValueError("File is not a valid ZIP container.")
+
+
+def validate_archive_safety(file_path: str, filename: str) -> None:
+    """Apply ZIP safety checks to every accepted ZIP-container source format."""
+    if Path(filename).suffix.lower() in ZIP_CONTAINER_EXTENSIONS:
+        validate_zip_safety(file_path)
 
 
 def validate_file_size(file_path: str, max_size_bytes: int) -> None:

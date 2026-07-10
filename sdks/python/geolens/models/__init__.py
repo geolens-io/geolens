@@ -207,6 +207,7 @@ from .geo_json_feature_geometry_type_0 import GeoJSONFeatureGeometryType0
 from .geo_json_feature_properties_type_0 import GeoJSONFeaturePropertiesType0
 from .geo_json_geometry import GeoJSONGeometry
 from .geo_json_geometry_collection import GeoJSONGeometryCollection
+from .geo_json_geometry_type import GeoJSONGeometryType
 from .get_collection_item_feature_collections_dataset_id_items_feature_id_get_ogc_single_feature_response import (
     GetCollectionItemFeatureCollectionsDatasetIdItemsFeatureIdGetOGCSingleFeatureResponse,
 )
@@ -760,6 +761,7 @@ __all__ = (
     "GeoJSONFeaturePropertiesType0",
     "GeoJSONGeometry",
     "GeoJSONGeometryCollection",
+    "GeoJSONGeometryType",
     "GetCollectionItemFeatureCollectionsDatasetIdItemsFeatureIdGetOGCSingleFeatureResponse",
     "GetCollectionItemFeatureCollectionsDatasetIdItemsFeatureIdGetOGCSingleFeatureResponsePropertiesType0",
     "GetCollectionItemsCollectionsDatasetIdItemsGetOGCFeatureItemsResponse",

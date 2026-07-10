@@ -170,11 +170,11 @@ class TestLegitimateQueriesAllowed:
     def test_allows_st_asgeojson(self):
         _assert_allows("SELECT name, ST_AsGeoJSON(geom_4326) AS geom FROM data.cities")
 
-    def test_allows_st_collect(self):
-        _assert_allows("SELECT ST_Collect(geom_4326) FROM data.cities")
+    def test_allows_binary_st_collect(self):
+        _assert_allows("SELECT ST_Collect(first_geom, second_geom) FROM data.cities")
 
-    def test_allows_st_union(self):
-        _assert_allows("SELECT ST_Union(geom_4326) FROM data.countries GROUP BY region")
+    def test_allows_binary_st_union(self):
+        _assert_allows("SELECT ST_Union(first_geom, second_geom) FROM data.countries")
 
     def test_allows_st_centroid(self):
         _assert_allows("SELECT ST_Centroid(geom_4326) FROM data.polygons")
@@ -287,22 +287,6 @@ class TestLegitimateQueriesAllowed:
     def test_allows_jsonb_build_object(self):
         _assert_allows("SELECT JSONB_BUILD_OBJECT('k', v) FROM data.t")
 
-    def test_allows_array_agg(self):
-        _assert_allows("SELECT ARRAY_AGG(name ORDER BY name) FROM data.cities")
-
-    def test_allows_json_agg(self):
-        _assert_allows("SELECT JSON_AGG(name) FROM data.cities")
-
-    def test_allows_jsonb_agg(self):
-        _assert_allows("SELECT JSONB_AGG(x) FROM data.t")
-
-    def test_allows_unnest(self):
-        _assert_allows("SELECT UNNEST(tags) FROM data.t")
-
-    def test_allows_generate_series(self):
-        """generate_series is used in existing SAND-03 row-limit tests."""
-        _assert_allows("SELECT * FROM generate_series(1, 100) AS t(n)")
-
     def test_allows_cardinality(self):
         _assert_allows("SELECT CARDINALITY(tags) FROM data.t")
 
@@ -383,12 +367,12 @@ class TestLegitimateQueriesAllowed:
             "SELECT COUNT(*) AS cnt FROM big_cities"
         )
 
-    def test_allows_aggregate_date_string_combo(self):
-        """Aggregate + date_trunc + string function in one query."""
+    def test_allows_aggregate_date_combo(self):
+        """Bounded aggregates remain available with date truncation."""
         _assert_allows(
             "SELECT DATE_TRUNC('month', created_at) AS month, "
             "COUNT(*) AS n, "
-            "STRING_AGG(DISTINCT category, ', ') AS categories "
+            "MIN(category) AS first_category "
             "FROM data.incidents "
             "GROUP BY 1 ORDER BY 1"
         )
@@ -409,11 +393,71 @@ class TestLegitimateQueriesAllowed:
             "SELECT BOOL_AND(is_active), BOOL_OR(has_permit) FROM data.parcels"
         )
 
-    def test_allows_string_agg(self):
-        _assert_allows(
-            "SELECT country, STRING_AGG(name, ', ' ORDER BY name) AS cities "
-            "FROM data.cities GROUP BY country"
-        )
-
     def test_allows_md5(self):
         _assert_allows("SELECT MD5(name) FROM data.cities")
+
+
+class TestResourceAmplificationRejected:
+    """One-row SELECTs must not create attacker-sized intermediate values."""
+
+    def test_rejects_unlisted_postgis_generator(self):
+        _assert_rejects(
+            "SELECT ST_GeneratePoints("
+            "ST_SetSRID(ST_Buffer(ST_MakePoint(0, 0), 1), 4326), "
+            "1000000000)"
+        )
+
+    def test_rejects_unknown_postgis_function(self):
+        _assert_rejects("SELECT ST_MakeEnvelope(0, 0, 1, 1, 4326)")
+
+    def test_rejects_oversized_generate_series(self):
+        _assert_rejects("SELECT array_agg(i) FROM generate_series(1, 1000000000) AS i")
+
+    def test_rejects_dynamic_generate_series_bounds(self):
+        _assert_rejects(
+            "SELECT * FROM data.cities c "
+            "CROSS JOIN generate_series(1, c.population) AS i"
+        )
+
+    def test_rejects_oversized_repeat(self):
+        _assert_rejects("SELECT REPEAT('x', 1000000000)")
+
+    def test_rejects_dynamic_repeat_count(self):
+        _assert_rejects("SELECT REPEAT(name, population) FROM data.cities")
+
+    def test_rejects_even_individually_bounded_generator_composition(self):
+        _assert_rejects(
+            "SELECT count(*) FROM generate_series(1, 10000) a, "
+            "generate_series(1, 10000) b"
+        )
+
+    def test_rejects_nested_string_amplification(self):
+        _assert_rejects("SELECT REPEAT(REPEAT('x', 10000), 10000)")
+
+    def test_rejects_custom_buffer_complexity(self):
+        _assert_rejects(
+            "SELECT ST_Buffer(geom_4326, 1, 'quad_segs=1000000000') FROM data.cities"
+        )
+
+    def test_rejects_recursive_cte_generator(self):
+        _assert_rejects(
+            "WITH RECURSIVE bomb(n) AS ("
+            "SELECT 1 UNION ALL SELECT n + 1 FROM bomb WHERE n < 1000000000"
+            ") SELECT count(*) FROM bomb, data.cities"
+        )
+
+    @pytest.mark.parametrize(
+        "sql",
+        [
+            "SELECT ARRAY_AGG(name) FROM data.cities",
+            "SELECT STRING_AGG(name, ',') FROM data.cities",
+            "SELECT JSON_AGG(name) FROM data.cities",
+            "SELECT JSONB_AGG(name) FROM data.cities",
+            "SELECT ST_Collect(geom_4326) FROM data.cities",
+            "SELECT ST_Union(geom_4326) FROM data.cities",
+            "SELECT UNNEST(tags) FROM data.cities",
+            "SELECT JSONB_OBJECT_KEYS(properties) FROM data.cities",
+        ],
+    )
+    def test_rejects_unbounded_collection_builders(self, sql):
+        _assert_rejects(sql)

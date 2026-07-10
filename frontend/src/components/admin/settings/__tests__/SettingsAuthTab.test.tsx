@@ -1,6 +1,7 @@
 import { render, screen } from '@/test/test-utils';
 import userEvent from '@testing-library/user-event';
 import { SettingsAuthTab } from '../SettingsAuthTab';
+import { buildOAuthEndpointFields } from '../oauth-endpoint-fields';
 import type { SettingItem } from '@/api/settings';
 
 // Mock listOAuthProviders so the embedded OAuthProvidersSection does not hit
@@ -62,6 +63,42 @@ function renderTab(
 }
 
 describe('SettingsAuthTab', () => {
+  describe('OAuth endpoint modes', () => {
+    it('clears explicit GitHub endpoints when discovery mode is selected', () => {
+      expect(
+        buildOAuthEndpointFields({
+          provider_type: 'google',
+          discovery_url: 'https://accounts.google.com/.well-known/openid-configuration',
+          authorize_url: 'https://ghe.example.com/authorize',
+          token_url: 'https://ghe.example.com/token',
+          userinfo_url: 'https://ghe.example.com/user',
+        }),
+      ).toEqual({
+        discovery_url: 'https://accounts.google.com/.well-known/openid-configuration',
+        authorize_url: null,
+        token_url: null,
+        userinfo_url: null,
+      });
+    });
+
+    it('clears discovery when explicit GitHub mode is selected', () => {
+      expect(
+        buildOAuthEndpointFields({
+          provider_type: 'github',
+          discovery_url: 'https://stale.example.com/.well-known/openid-configuration',
+          authorize_url: '',
+          token_url: '',
+          userinfo_url: '',
+        }),
+      ).toEqual({
+        discovery_url: null,
+        authorize_url: null,
+        token_url: null,
+        userinfo_url: null,
+      });
+    });
+  });
+
   describe('Test 1: control rendering', () => {
     it('renders the Allow Password Login Switch and the domain allowlist widget', () => {
       renderTab();

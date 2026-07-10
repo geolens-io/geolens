@@ -687,7 +687,13 @@ async def create_oauth_provider(
     fields verbatim and ``<redacted>`` markers for secrets that were submitted
     in the request body (SAML-12 / Pitfall 9 / T-217-03-AUDIT-LEAK).
     """
-    provider = await oauth_service.create_provider(db, body)
+    try:
+        provider = await oauth_service.create_provider(db, body)
+    except oauth_service.OAuthProviderConfigurationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from exc
     ip = get_client_ip(request)
 
     created_state = {
@@ -789,7 +795,13 @@ async def update_oauth_provider(
     # Snapshot non-secret fields BEFORE the update so we can diff old vs. new.
     old_values = _snapshot_provider(provider)
 
-    provider = await oauth_service.update_provider(db, provider, body)
+    try:
+        provider = await oauth_service.update_provider(db, provider, body)
+    except oauth_service.OAuthProviderConfigurationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from exc
 
     # Build the changes diff. SECRET_FIELDS membership flips any matching
     # field's diff to <redacted>/<redacted> — protects against future

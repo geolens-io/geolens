@@ -12,10 +12,10 @@ GAP-001 (Phase 1184): Per-route body cap. Non-upload routes get a small
 default cap (DEFAULT_BODY_LIMIT_BYTES = 10 MB). Only the two endpoints that
 stream a multipart file body — POST /ingest/upload and POST
 /datasets/{id}/reupload — get the admin-configurable UPLOAD_MAX_SIZE_MB
-(500 MB default) resolved via _get_upload_limit(). Everything else, including
-the JSON-only presigned / commit / preview sub-routes of those flows, stays on
-the small default so a large JSON body cannot slip past the DoS cap (PR #249
-review).
+(500 MB default) resolved via _get_upload_limit(). GeoJSON feature mutations
+get a stricter 1 MB cap before JSON decoding; everything else, including the
+JSON-only presigned / commit / preview sub-routes of upload flows, stays on the
+10 MB default so a large JSON body cannot slip past the DoS cap (PR #249 review).
 
 GAP-001 fix: the app runs with root_path="/api", but every deployment fronts
 it with a proxy that STRIPS the /api prefix before the request reaches the
@@ -54,6 +54,11 @@ _FALLBACK_LIMIT_BYTES = 500 * 1024 * 1024  # 500 MB
 # GAP-001: small default cap for non-upload routes (protects JSON/form endpoints
 # from large-body DoS while leaving file-upload paths unrestricted).
 DEFAULT_BODY_LIMIT_BYTES = 10 * 1024 * 1024  # 10 MB
+
+# GeoJSON feature writes are parsed into nested Python lists and then parsed
+# again by PostGIS. Keep their pre-JSON-decode ceiling substantially below the
+# general API limit; coordinate cardinality is enforced by the feature schema.
+FEATURE_WRITE_BODY_LIMIT_BYTES = 1 * 1024 * 1024  # 1 MB
 
 
 def _too_large_response(max_bytes: int) -> JSONResponse:
@@ -158,6 +163,38 @@ def _is_upload_route(path: str, method: str = "POST") -> bool:
     return False
 
 
+def _is_feature_write_route(path: str, method: str) -> bool:
+    """Return True for the three GeoJSON feature mutation route shapes."""
+    norm = _strip_api_prefix(path)
+    method = method.upper()
+    segments = norm.split("/")
+
+    if (
+        method == "POST"
+        and len(segments) == 5
+        and segments[1] == "datasets"
+        and _is_uuid(segments[2])
+        and segments[3] == "features"
+        and segments[4] == ""
+    ):
+        return True
+
+    if (
+        method in {"PUT", "PATCH"}
+        and len(segments) == 5
+        and segments[1] == "datasets"
+        and _is_uuid(segments[2])
+        and segments[3] == "features"
+    ):
+        try:
+            int(segments[4])
+        except ValueError:
+            return False
+        return True
+
+    return False
+
+
 def _get_upload_limit(route_override: int | None = None) -> int:
     """Return the effective upload limit in bytes.
 
@@ -219,8 +256,9 @@ class RequestBodyLimitMiddleware:
     (BUG-007).  ``max_bytes`` passed at construction is used only as the
     initial fallback until the first async cache refresh completes.
 
-    GAP-001: non-upload routes get DEFAULT_BODY_LIMIT_BYTES (10 MB); upload
-    and reupload routes get the full UPLOAD_MAX_SIZE_MB limit.
+    GAP-001: upload and reupload routes get the full UPLOAD_MAX_SIZE_MB limit;
+    GeoJSON feature writes get FEATURE_WRITE_BODY_LIMIT_BYTES; other routes get
+    DEFAULT_BODY_LIMIT_BYTES (10 MB).
     """
 
     def __init__(self, app: Any, max_bytes: int) -> None:
@@ -246,6 +284,8 @@ class RequestBodyLimitMiddleware:
         if _is_upload_route(path, method):
             # Upload/reupload: use the admin-configurable limit (500 MB default)
             max_bytes = _get_upload_limit()
+        elif _is_feature_write_route(path, method):
+            max_bytes = FEATURE_WRITE_BODY_LIMIT_BYTES
         else:
             # All other routes: small default cap (10 MB)
             max_bytes = _get_upload_limit(route_override=DEFAULT_BODY_LIMIT_BYTES)

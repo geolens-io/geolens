@@ -11,9 +11,9 @@
  *
  * Exits 0 on success; non-zero on any failure with a descriptive console.error.
  *
- * The function names below follow @hey-api/openapi-ts 0.96.1's camelCase
+ * The function names below follow @hey-api/openapi-ts 0.99.0's camelCase
  * conversion of FastAPI operationIds. Verified against
- * sdks/typescript/dist/client/sdk.gen.d.ts on 2026-04-27.
+ * sdks/typescript/dist/client/sdk.gen.d.ts on 2026-07-10.
  */
 import { createGeolensClient } from '../dist/index.js';
 import {

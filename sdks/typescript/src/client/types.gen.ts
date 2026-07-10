@@ -3742,7 +3742,7 @@ export type GeoJsonGeometry = {
     /**
      * Type
      */
-    type: string;
+    type: 'Point' | 'MultiPoint' | 'LineString' | 'MultiLineString' | 'Polygon' | 'MultiPolygon';
 };
 
 /**
@@ -4062,11 +4062,7 @@ export type JobStatusResponse = {
     /**
      * Warnings
      */
-    warnings?: Array<({
-        kind: 'reserved_rename';
-    } & ReservedRenameWarning) | ({
-        kind: 'dbf_truncation_collision';
-    } & DbfTruncationCollisionWarning)>;
+    warnings?: Array<ReservedRenameWarning | DbfTruncationCollisionWarning>;
 };
 
 /**

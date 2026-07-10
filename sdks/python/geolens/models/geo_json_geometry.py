@@ -7,6 +7,8 @@ from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 
 
+from ..models.geo_json_geometry_type import check_geo_json_geometry_type
+from ..models.geo_json_geometry_type import GeoJSONGeometryType
 from typing import cast
 
 
@@ -19,17 +21,17 @@ class GeoJSONGeometry:
 
     Attributes:
         coordinates (list[Any]):
-        type_ (str):
+        type_ (GeoJSONGeometryType):
     """
 
     coordinates: list[Any]
-    type_: str
+    type_: GeoJSONGeometryType
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         coordinates = self.coordinates
 
-        type_ = self.type_
+        type_: str = self.type_
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
@@ -47,7 +49,7 @@ class GeoJSONGeometry:
         d = dict(src_dict)
         coordinates = cast(list[Any], d.pop("coordinates"))
 
-        type_ = d.pop("type")
+        type_ = check_geo_json_geometry_type(d.pop("type"))
 
         geo_json_geometry = cls(
             coordinates=coordinates,

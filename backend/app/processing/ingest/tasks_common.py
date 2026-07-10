@@ -367,7 +367,7 @@ async def _validate_upload_file_safety(
 
     - content validation (magic bytes, extension match, CSV parse)
     - size validation (against the persistent_config max)
-    - zip-bomb / path-traversal validation (only for .zip uploads)
+    - ZIP-container bomb / path-traversal validation
 
     Shared by ``ingest_file``, ``reupload_file``, and ``ingest_raster``
     (KISS-3/5/6 consolidation). Raises ``ValueError`` on any check so
@@ -376,7 +376,7 @@ async def _validate_upload_file_safety(
     from app.processing.ingest.validation import (
         validate_file_content,
         validate_file_size,
-        validate_zip_safety,
+        validate_archive_safety,
     )
     from app.core.persistent_config import UPLOAD_MAX_SIZE_MB
 
@@ -387,8 +387,7 @@ async def _validate_upload_file_safety(
     effective_filename = source_filename or Path(file_path).name
     validate_file_content(file_path, effective_filename)
     validate_file_size(file_path, max_size_mb * 1024 * 1024)
-    if file_path.lower().endswith(".zip"):
-        validate_zip_safety(file_path)
+    validate_archive_safety(file_path, effective_filename)
 
 
 def _resolve_effective_srid(

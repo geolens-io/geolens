@@ -63,6 +63,7 @@ def test_error_message_mapping():
     """Each SandboxError category maps to an actionable message."""
     expected_categories = {
         "query_timeout",
+        "query_busy",
         "table_not_accessible",
         "invalid_query",
         "query_failed",

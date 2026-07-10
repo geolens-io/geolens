@@ -190,6 +190,7 @@ sdks-check:
 	  ':!sdks/typescript/README.md' \
 	  ':!sdks/python/LICENSE' \
 	  ':!sdks/typescript/LICENSE'
+	cd sdks/typescript && npm run build && npm test
 
 # `make sdks-test` runs the SDK round-trip integration test.
 sdks-test:
