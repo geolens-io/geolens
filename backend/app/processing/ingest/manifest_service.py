@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import uuid
 from pathlib import Path
 
@@ -10,6 +9,7 @@ from fastapi import HTTPException
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.async_io import run_in_thread_draining
 from app.core.config import settings
 from app.core.db.tenant_session import defer_async_with_tenant
 from app.core.identity import Identity
@@ -114,7 +114,12 @@ async def _download_http_source(
                 # a multi-GB download. Writes now go to a worker thread, batched
                 # through a 4 MiB buffer so we are not paying a thread handoff per
                 # 64 KiB httpx chunk.
-                file_obj = await asyncio.to_thread(destination.open, "wb")
+                # fix(#435 codex r4): each threaded write/close is drained on
+                # cancellation (run_in_thread_draining), so worker shutdown or a client
+                # disconnect cannot return while a thread still owns the staged fd and
+                # race the unlink below. `bytes(buffer)` snapshots before the thread
+                # reads it, so the following `buffer.clear()` is safe.
+                file_obj = await run_in_thread_draining(destination.open, "wb")
                 try:
                     buffer = bytearray()
                     async for chunk in response.aiter_bytes():
@@ -125,18 +130,23 @@ async def _download_http_source(
                             )
                         buffer.extend(chunk)
                         if len(buffer) >= _WRITE_BUFFER_BYTES:
-                            await asyncio.to_thread(file_obj.write, bytes(buffer))
+                            await run_in_thread_draining(file_obj.write, bytes(buffer))
                             buffer.clear()
                     if buffer:
-                        await asyncio.to_thread(file_obj.write, bytes(buffer))
+                        await run_in_thread_draining(file_obj.write, bytes(buffer))
                 finally:
-                    await asyncio.to_thread(file_obj.close)
+                    await run_in_thread_draining(file_obj.close)
     except ManifestSourceError:
         destination.unlink(missing_ok=True)
         raise
     except Exception as exc:  # broad: HTTP client / I/O / decompress can throw varied types; map to ManifestSourceError
         destination.unlink(missing_ok=True)
         raise ManifestSourceError(f"Failed to download manifest source: {exc}") from exc
+    except BaseException:
+        # fix(#435 codex r4): cancellation/shutdown. The `finally` above already
+        # drained the close, so no thread owns the fd — drop the partial staged file.
+        destination.unlink(missing_ok=True)
+        raise
 
     return str(destination)
 

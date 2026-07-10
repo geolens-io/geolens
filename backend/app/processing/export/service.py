@@ -1,6 +1,5 @@
 """Export orchestration: validate params, run ogr2ogr, package output."""
 
-import asyncio
 import os
 import re
 import shutil
@@ -8,6 +7,7 @@ import uuid
 import zipfile
 from urllib.parse import quote
 
+from app.core.async_io import run_in_thread_draining
 from app.core.config import settings
 from app.processing.export.ogr import FORMAT_MAP, run_ogr2ogr_export
 from app.processing.export.where_validator import validate_where_ast
@@ -187,10 +187,12 @@ async def export_dataset(
 
             # Zip all export.* files. fix(#435): DEFLATE of a multi-GB shapefile
             # is CPU-bound and ran on the event loop, stalling every other request
-            # (and job heartbeats) for the duration.
+            # (and job heartbeats) for the duration. fix(#435 codex r4): drained on
+            # cancellation so the `except BaseException` rmtree below cannot delete
+            # temp_dir while the zip thread is still writing into it.
             zip_filename = f"{safe_name}.zip"
             zip_path = os.path.join(temp_dir, zip_filename)
-            await asyncio.to_thread(_zip_export_files, temp_dir, zip_path)
+            await run_in_thread_draining(_zip_export_files, temp_dir, zip_path)
 
             return zip_path, zip_filename, media_type
 
