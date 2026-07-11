@@ -230,8 +230,16 @@ function sampleStops(stops: readonly string[], t: number): string {
   );
 }
 
+// fix(#449, codex P2): chroma.scale() resolved brewer names case-insensitively
+// (chroma.brewer carries lowercase aliases), and legacy/imported style configs
+// can hold lowercase ramp names like 'viridis' — keep matching them.
+const BREWER_STOPS_BY_LOWER: Record<string, readonly string[]> = Object.fromEntries(
+  Object.entries(BREWER_STOPS).map(([name, stops]) => [name.toLowerCase(), stops]),
+);
+
 /**
- * Generate an array of hex color strings from a named ColorBrewer color scale.
+ * Generate an array of hex color strings from a named ColorBrewer color scale
+ * (case-insensitive, matching chroma.scale()'s name resolution).
  * Pass reversed=true to get the reverse of the normal color order (e.g. dark-low vs dark-high).
  *
  * Unknown ramp names fall back to YlOrRd — this includes 'Inferno' and
@@ -240,7 +248,7 @@ function sampleStops(stops: readonly string[], t: number): string {
  * try/catch already served YlOrRd for them).
  */
 export function getRampColors(rampName: string, count: number, reversed = false): string[] {
-  const stops = BREWER_STOPS[rampName] ?? BREWER_STOPS.YlOrRd;
+  const stops = BREWER_STOPS_BY_LOWER[rampName.toLowerCase()] ?? BREWER_STOPS.YlOrRd;
   const colors =
     count === 1
       ? [sampleStops(stops, 0.5)]

@@ -38,4 +38,15 @@ describe('getRampColors ↔ chroma-js parity', () => {
     expect(getRampColors('Plasma', 5)).toEqual(chroma.scale('YlOrRd').colors(5));
     expect(getRampColors('not-a-ramp', 5)).toEqual(chroma.scale('YlOrRd').colors(5));
   });
+
+  // fix(#449, codex P2): chroma.scale() lowercases brewer names, so legacy
+  // style configs with 'viridis'/'blues' resolved correctly — the local
+  // lookup must stay case-insensitive rather than fall back to YlOrRd.
+  it.each(CHROMA_KNOWN)('%s resolves case-insensitively like chroma', (name) => {
+    const lower = name.toLowerCase();
+    expect(getRampColors(lower, 7)).toEqual(
+      chroma.scale(lower as chroma.BrewerPaletteName).colors(7),
+    );
+    expect(getRampColors(name.toUpperCase(), 7)).toEqual(getRampColors(name, 7));
+  });
 });
