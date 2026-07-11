@@ -7,6 +7,60 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+## [1.4.5] - 2026-07-11
+
+### Security
+
+- **AI-generated SQL runs under a stricter sandbox.** An explicit
+  PostGIS/function allow-policy, rejection of recursive CTEs (at any nesting
+  depth), set-generating and collection-amplifying functions, anchoring to
+  data tables, a 10-second statement timeout, and a per-user execution lock.
+- **Environment AI credentials and OAuth secrets bind to their configured
+  destinations.** Operator-supplied keys can no longer be redirected to
+  attacker-chosen endpoints via settings or config import; changing a
+  provider origin or mode requires rotating the secret atomically, and
+  provider fetches use SSRF-safe IP-pinned transports.
+- **Feature writes and archive ingestion validate before parsing.** GeoJSON
+  writes get a 1 MiB pre-parse cap plus depth/cardinality/coordinate
+  validation, and ZIP/XLSX containers are preflighted before extraction.
+
+### Changed
+
+- **Hillshade shading and 3D terrain are now independent controls on a DEM
+  layer.** The old either/or "render as" choice is gone: a DEM can paint
+  hillshade (with an optional hypsometric elevation tint) and drive the 3D
+  terrain mesh at the same time, from one layer. Terrain binds at the map
+  level, so duplicating a DEM rendering can no longer accumulate extra
+  terrain. Every DEM rendering is reachable in the layer stack, and a DEM
+  that draws nothing says so with a "Not shown" badge.
+- **Layer icons match everywhere.** The layer stack, the builder legend, and
+  the shared-map legend now render the same type icon for every layer,
+  including the DEM glyphs (hillshade, terrain, image).
+
+### Fixed
+
+- **Saving an unrelated layer change no longer erases DEM styling.** A
+  partial layer update (for example toggling visibility) used to clear the
+  layer's saved style metadata — hypsometric tint settings and render mode
+  could vanish on the next save. Partial updates now leave untouched fields
+  alone.
+- **Hiding a DEM layer in the shared-map viewer hides all of it.** The
+  legend's eye toggle used to leave the elevation tint painting, the 3D
+  terrain mesh extruded, and a phantom legend entry behind; all three now
+  follow the toggle, and re-showing the layer restores them.
+- **3D terrain no longer intermittently fails to appear on load.** A terrain
+  re-apply scheduled around a basemap style change could land mid-transition
+  and be dropped silently, leaving a terrain-enabled map flat until an
+  unrelated change; the re-apply now retries until the style settles.
+- **Terrain status, legend entries, and the 3D mesh stay in lockstep** when
+  the bound DEM layer is hidden, on both the builder and the shared-map
+  viewer.
+- **Maps with an inconsistent saved terrain configuration open normally**
+  (terrain simply stays off) instead of failing to load.
+- **Performance-profile follow-ups from the 2026-07-10 audit** landed:
+  faster catalog search paging and reduced tile-request overhead on
+  layer-heavy maps.
+
 ## [1.4.4] - 2026-07-10
 
 ### Changed
