@@ -57,6 +57,10 @@ and releases use semantic versioning.
   viewer.
 - **Maps with an inconsistent saved terrain configuration open normally**
   (terrain simply stays off) instead of failing to load.
+- **The hypsometric elevation tint no longer paints areas outside the DEM's
+  coverage.** Pixels beyond the data footprint used to render as a solid
+  ramp-low band with a hard edge along the coverage boundary; they are now
+  transparent.
 - **Performance-profile follow-ups from the 2026-07-10 audit** landed:
   faster catalog search paging and reduced tile-request overhead on
   layer-heavy maps.
