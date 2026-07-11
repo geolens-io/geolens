@@ -24,3 +24,15 @@ def test_exaggeration_above_three_rejected():
 
 def test_exaggeration_default_is_true_scale():
     assert TerrainConfig().exaggeration == 1.0
+
+
+def test_enabled_without_source_rejected():
+    # fix(HT-15): enabled=True with no source can only produce dangling
+    # status and resolver no-ops; reject it at the schema boundary.
+    with pytest.raises(ValidationError):
+        TerrainConfig(enabled=True)
+
+
+def test_disabled_without_source_accepted():
+    cfg = TerrainConfig(enabled=False, source_dataset_id=None)
+    assert cfg.enabled is False

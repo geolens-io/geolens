@@ -3,7 +3,7 @@ import re
 import uuid
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Annotated, TypedDict
+from typing import Annotated, Any, TypedDict
 
 from pydantic import (
     AwareDatetime,
@@ -260,6 +260,15 @@ class TerrainConfig(BaseModel):
     exaggeration: float = Field(default=1.0, ge=0.0, le=3.0)
 
     model_config = ConfigDict(extra="forbid")
+
+    @model_validator(mode="after")
+    def _enabled_requires_source(self) -> "TerrainConfig":
+        # fix(HT-15): reject internally inconsistent configs at the boundary —
+        # an enabled terrain mesh with no source can only produce dangling
+        # status text and resolver no-ops downstream.
+        if self.enabled and self.source_dataset_id is None:
+            raise ValueError("terrain_config.enabled requires source_dataset_id")
+        return self
 
 
 class BasemapLabelMode(str, Enum):
@@ -695,19 +704,40 @@ class MapLayerPatch(BaseModel):
     # (shared with style import/export and AI set_filter via filter_grammar).
     _validate_filter = field_validator("filter")(validate_filter)
 
-    @model_validator(mode="after")
-    def _normalize_paint_boundary(self) -> "MapLayerPatch":
-        self.paint, self.style_config = split_legacy_builder_paint(
-            self.paint,
-            self.style_config,
-        )
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize_paint_boundary(cls, data: Any) -> Any:
+        # fix(HT-14): this MUST run in before-mode. The previous after-validator
+        # assigned self.paint/self.style_config unconditionally, which added
+        # both names to model_fields_set and defeated the router's
+        # exclude_unset=True — a partial patch such as {id, visible} then
+        # carried explicit style_config=None and erased stored DEM/builder
+        # style metadata (and falsified history changed_fields).
+        if not isinstance(data, dict):
+            return data
+        if "paint" not in data and "style_config" not in data:
+            return data
+        paint = data.get("paint")
+        style_config = data.get("style_config")
+        if not isinstance(paint, dict | None) or not isinstance(
+            style_config, dict | None
+        ):
+            # Let field validation reject the wrong type.
+            return data
+        paint, style_config = split_legacy_builder_paint(paint, style_config)
         # Phase 1060: canonicalize builder keys to snake_case (storage shape)
         # so frontend-normalized camelCase keys don't persist as a separate
         # schema after layer duplication. See canonicalize_builder_style_config.
-        self.style_config = canonicalize_builder_style_config(self.style_config)
-        _validate_style_dict(self.paint)
-        _validate_style_dict(self.style_config)
-        return self
+        style_config = canonicalize_builder_style_config(style_config)
+        data = dict(data)
+        if "paint" in data:
+            data["paint"] = paint
+        # Only materialize style_config when the client sent it or the split
+        # moved legacy builder paint keys into it; writing None/{} for an
+        # omitted field would turn the patch into an explicit clear.
+        if "style_config" in data or style_config:
+            data["style_config"] = style_config
+        return data
 
 
 class MapLayerDiffRequest(BaseModel):
