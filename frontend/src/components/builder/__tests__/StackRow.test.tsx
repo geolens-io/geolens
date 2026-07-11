@@ -22,14 +22,9 @@ vi.mock('react-i18next', () => ({
   }),
 }));
 
-// Mock layer-icons to avoid rendering SVG in tests
-vi.mock('@/components/map/layer-icons', () => ({
-  ColorizedGeometryIcon: ({ layerId }: { layerId: string }) => (
-    <span data-testid={`type-icon-${layerId}`} />
-  ),
-  getLayerColors: () => ({ fill: '#000', stroke: '#fff', outline: '#000' }),
-  extractStyleHints: () => ({}),
-}));
+// fix(#452): no layer-icons mock — the type icon (glyph chip + colorized
+// vector icon) is now the shared LayerTypeIcon inside that module, so the DEM
+// glyph tests below exercise the real rendering path end-to-end.
 
 beforeAll(() => {
   vi.stubGlobal('ResizeObserver', class ResizeObserver {
@@ -415,10 +410,12 @@ describe('DEM type icon', () => {
       layer_type: null,
       is_dem: false,
     });
-    render(<StackRow {...defaultProps({ layer })} />);
+    const { container } = render(<StackRow {...defaultProps({ layer })} />);
 
-    // The mock renders a span with data-testid="type-icon-{layerId}"
-    expect(screen.getByTestId('type-icon-vector-regression')).toBeInTheDocument();
+    // Real ColorizedGeometryIcon output for a single-color POLYGON: a filled
+    // Pentagon SVG (default color #6366f1) — and no raster glyph chip.
+    expect(container.querySelector('svg[fill="#6366f1"]')).toBeInTheDocument();
+    expect(screen.queryByText('▦')).not.toBeInTheDocument();
   });
 
   // Test 6: DEM type icon uses raster color tokens for all three glyphs

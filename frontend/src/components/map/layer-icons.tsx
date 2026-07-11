@@ -1,5 +1,7 @@
+import { useMemo } from 'react';
 import { Circle, Pentagon, Grid3x3, Layers } from 'lucide-react';
 import { getColorProperty, getRampColors } from '@/lib/color-ramps';
+import { getLayerCapabilities } from '@/lib/layer-capabilities';
 import type { MapLayerResponse } from '@/types/api';
 
 /** Darken a hex color by reducing each channel by ~30% for outline contrast */
@@ -220,4 +222,77 @@ export function getLayerColors(layer: Pick<MapLayerResponse, 'dataset_geometry_t
   if (layer.style_config?.colors?.length)
     return layer.style_config.colors;
   return ['#6366f1'];
+}
+
+/**
+ * fix(#452): shared glyph chip for raster-family layers. StackRow, the builder
+ * LegendPlugin, and the viewer LayerLegend all render this one component so the
+ * legend icon can never drift from the layer-stack icon again.
+ */
+export function RasterGlyphChip({ glyph }: { glyph: string }) {
+  return (
+    <span
+      className="flex items-center justify-center h-[22px] w-[22px] shrink-0 rounded-sm bg-[--type-raster-bg] text-[--type-raster] text-xs font-semibold"
+      aria-hidden="true"
+    >
+      {glyph}
+    </span>
+  );
+}
+
+/** Glyph for the DEM chip by effective render mode (⛰ hillshade, ◬ terrain-only, ▦ image). */
+export function demChipGlyph(renderMode: unknown): string {
+  if (renderMode === 'hillshade') return '⛰';
+  if (renderMode === 'terrain') return '◬';
+  return '▦';
+}
+
+export type LayerTypeIconLayer = Pick<MapLayerResponse, 'dataset_geometry_type'> &
+  Partial<
+    Pick<
+      MapLayerResponse,
+      'layer_type' | 'dataset_record_type' | 'is_dem' | 'paint' | 'layout' | 'opacity' | 'style_config'
+    >
+  >;
+
+/**
+ * fix(#452): single source of truth for a layer's type icon, shared by the
+ * builder layer stack and BOTH legend surfaces (LegendPlugin, viewer
+ * LayerLegend). Raster/VRT layers get the glyph chip (▦, DEM: ⛰/◬); vector
+ * layers get the colorized geometry icon. Extracted from StackRow.TypeIcon.
+ */
+export function LayerTypeIcon({ layer, iconId }: { layer: LayerTypeIconLayer; iconId: string }) {
+  const caps = getLayerCapabilities({
+    layer_type: layer.layer_type,
+    dataset_record_type: layer.dataset_record_type,
+    dataset_geometry_type: layer.dataset_geometry_type,
+  });
+  const paint = layer.paint ?? {};
+  const layout = layer.layout ?? {};
+  // GUARD-04 (moved from StackRow.TypeIcon): memoize hint extraction on the
+  // exact fields it reads.
+  const styleHints = useMemo(
+    () => extractStyleHints(paint, layout, layer.dataset_geometry_type, layer.opacity, layer.style_config),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [layer.paint, layer.layout, layer.dataset_geometry_type, layer.opacity, layer.style_config],
+  );
+
+  if (caps.kind === 'raster' || caps.kind === 'vrt') {
+    const renderMode = (layer.style_config as Record<string, unknown> | null | undefined)?.render_mode;
+    return <RasterGlyphChip glyph={layer.is_dem === true ? demChipGlyph(renderMode) : '▦'} />;
+  }
+
+  return (
+    <ColorizedGeometryIcon
+      geometryType={layer.dataset_geometry_type}
+      colors={getLayerColors({
+        dataset_geometry_type: layer.dataset_geometry_type,
+        paint,
+        style_config: layer.style_config ?? null,
+      })}
+      layerId={iconId}
+      layerType={caps.kind}
+      styleHints={styleHints}
+    />
+  );
 }
