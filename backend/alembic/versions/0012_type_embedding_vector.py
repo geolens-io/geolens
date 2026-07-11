@@ -9,7 +9,9 @@ HNSW/ivfflat index can never be built (pgvector requires a typed column).
 Semantic search then does an O(N) x dims cosine scan per query, twice.
 
 This migration types the column in place, preferring (in order) the
-dimension of vectors already stored, the ``embedding_dims`` persistent
+dimension of vectors already stored (only when they all agree — mixed
+dimensions mean a model switch, where the active config must win), the
+``embedding_dims`` persistent
 config override (skipped when ``ENV_ONLY_CONFIG`` is set, mirroring
 runtime resolution in persistent_config.py), and finally the configured
 ``EMBEDDING_DIMS`` env value / Settings default (1536,
@@ -49,6 +51,7 @@ def upgrade() -> None:
         DECLARE
           cur_typmod int;
           dims int;
+          distinct_dims int;
         BEGIN
           SELECT atttypmod INTO cur_typmod
           FROM pg_attribute
@@ -64,8 +67,18 @@ def upgrade() -> None:
             -- Prefer the dimension of data already stored; fall back to the
             -- embedding_dims persistent-config override (unless env-only),
             -- then the configured EMBEDDING_DIMS / app default.
-            SELECT max(vector_dims(embedding)) INTO dims
+            SELECT count(DISTINCT vector_dims(embedding)),
+                   max(vector_dims(embedding))
+              INTO distinct_dims, dims
             FROM catalog.record_embeddings;
+            IF distinct_dims > 1 THEN
+              -- fix(#449, codex P2): mixed dimensions mean a model switch
+              -- happened without a rebuild — the largest stored dim may
+              -- belong to the STALE model. Fall through to the configured
+              -- dimension instead; mismatched rows are deleted below
+              -- (embeddings are a regenerable cache).
+              dims := NULL;
+            END IF;
             IF dims IS NULL AND {consult_db} THEN
               -- PersistentConfig wraps scalars as {{"v": <value>}} (see
               -- persistent_config.py set()); older/manual rows may hold a

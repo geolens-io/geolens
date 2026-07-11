@@ -8,6 +8,9 @@ A: with an empty table and EMBEDDING_DIMS=768, the migration types the column
 B: with EMBEDDING_DIMS=3072 (legal config, over pgvector's 2000-dim HNSW
    limit), the upgrade still exits 0, types the column vector(3072), and
    skips the index instead of failing (codex P1).
+C: with mixed-dimension rows (stale 1536-dim next to current 768-dim), the
+   configured dimension wins over max(stored) and only the stale row is
+   deleted (codex P2 round 4).
 
 Notes
 -----
@@ -132,6 +135,46 @@ _SKIP_UNDER_OVERLAY = pytest.mark.skipif(
 )
 
 
+_TEST_RECORD_TITLE = "embedding-vector-migration-test"
+
+
+async def _insert_untyped_embedding_rows(dims_list: list[int]) -> None:
+    """Seed one embedding row per requested dimension (untyped column only).
+
+    Creates a minimal parent record per row to satisfy the records FK; the
+    rows are cleaned up by _restore_default_head's TRUNCATE + record delete.
+    """
+    from sqlalchemy.ext.asyncio import create_async_engine
+
+    from app.core.config import settings
+
+    engine = create_async_engine(
+        settings.test_database_url, isolation_level="AUTOCOMMIT"
+    )
+    try:
+        async with engine.connect() as conn:
+            for d in dims_list:
+                rid = (
+                    await conn.execute(
+                        sa.text(
+                            "INSERT INTO catalog.records (title, visibility, record_status) "
+                            "VALUES (:t, 'private', 'active') RETURNING id"
+                        ),
+                        {"t": _TEST_RECORD_TITLE},
+                    )
+                ).scalar_one()
+                await conn.execute(
+                    sa.text(
+                        "INSERT INTO catalog.record_embeddings "
+                        "(record_id, embedding, model_name, content_hash) "
+                        "VALUES (:rid, CAST(:v AS vector), 'test-model', 'x')"
+                    ),
+                    {"rid": rid, "v": "[" + ",".join(["0"] * d) + "]"},
+                )
+    finally:
+        await engine.dispose()
+
+
 async def _retype_via_migration(dims: str) -> subprocess.CompletedProcess:
     """Downgrade below 0012, empty the table, re-upgrade with EMBEDDING_DIMS set."""
     r = _run_alembic("downgrade", _PRE_TYPED_REVISION)
@@ -146,6 +189,9 @@ async def _restore_default_head() -> None:
     r = _run_alembic("downgrade", _PRE_TYPED_REVISION)
     assert r.returncode == 0, f"restore downgrade failed: {r.stderr}"
     await _fresh_query("TRUNCATE catalog.record_embeddings")
+    await _fresh_query(
+        f"DELETE FROM catalog.records WHERE title = '{_TEST_RECORD_TITLE}'"
+    )
     r = _run_alembic("upgrade", "head")
     assert r.returncode == 0, f"restore upgrade failed: {r.stderr}"
     assert await _embedding_column_type() == "vector(1536)"
@@ -181,5 +227,27 @@ class TestEmbeddingVectorMigrationDims:
             assert not await _hnsw_index_exists(), (
                 "HNSW must be skipped above pgvector's 2000-dim limit"
             )
+        finally:
+            await _restore_default_head()
+
+    async def test_mixed_dims_prefer_configured_dimension(self):
+        """fix(#449, codex P2 round 4): when stored rows disagree (stale
+        1536-dim next to current 768-dim), the configured dimension wins over
+        max(stored) — otherwise the current model's rows get deleted and its
+        future inserts fail against the stale-typed column."""
+        try:
+            r = _run_alembic("downgrade", _PRE_TYPED_REVISION)
+            assert r.returncode == 0, f"downgrade failed: {r.stderr}"
+            await _fresh_query("TRUNCATE catalog.record_embeddings")
+            await _fresh_query(
+                "DELETE FROM catalog.app_settings WHERE key = 'embedding_dims'"
+            )
+            await _insert_untyped_embedding_rows([1536, 768])
+
+            r = _run_alembic("upgrade", "head", extra_env={"EMBEDDING_DIMS": "768"})
+            assert r.returncode == 0, f"upgrade failed: {r.stderr}"
+            assert await _embedding_column_type() == "vector(768)"
+            rows = await _fresh_query("SELECT count(*) FROM catalog.record_embeddings")
+            assert rows[0][0] == 1, "only the stale 1536-dim row should be deleted"
         finally:
             await _restore_default_head()

@@ -108,12 +108,52 @@ class TestBackfillEmbeddings:
                     new_callable=AsyncMock,
                 )
             )
-            mock_batch.side_effect = [RuntimeError("API error"), [[0.1] * 3]]
+            # fix(#449): a failed batch is retried per record, so the failing
+            # single-record batch consumes TWO calls (batch, then retry).
+            mock_batch.side_effect = [
+                RuntimeError("API error"),
+                RuntimeError("API error"),
+                [[0.1] * 3],
+            ]
             result = await backfill_embeddings(session)
 
         assert result["processed"] == 2
         assert result["created"] == 1
         assert result["errors"] == 1
+
+    @pytest.mark.asyncio
+    async def test_failed_batch_retries_per_record(self):
+        """fix(#449, codex P2): one rejected input must not sink its batchmates —
+        the failed batch is retried per record and only the bad one errors."""
+        from app.processing.embeddings.backfill import backfill_embeddings
+
+        r1 = _make_record(title="Good")
+        r2 = _make_record(title="Too long for the model")
+
+        session = AsyncMock()
+        session.execute = AsyncMock(return_value=_make_query_result([r1, r2]))
+
+        with ExitStack() as stack:
+            _patch_backfill_gates(stack)
+            mock_batch = stack.enter_context(
+                patch(
+                    "app.processing.embeddings.backfill.generate_embeddings_batch",
+                    new_callable=AsyncMock,
+                )
+            )
+            # Batch call rejects; per-record retry succeeds for r1, fails for r2.
+            mock_batch.side_effect = [
+                RuntimeError("one input over the token limit"),
+                [[0.1] * 3],
+                RuntimeError("input over the token limit"),
+            ]
+            result = await backfill_embeddings(session)
+
+        assert mock_batch.call_count == 3
+        assert result["processed"] == 2
+        assert result["created"] == 1
+        assert result["errors"] == 1
+        assert session.add.call_count == 1
 
     @pytest.mark.asyncio
     async def test_returns_correct_counts(self):

@@ -4,7 +4,8 @@ Processes all records missing a corresponding RecordEmbedding row.
 fix(#448): texts are embedded in batches of _BATCH_SIZE per provider call
 (the embeddings endpoint accepts input lists) instead of one call per
 record — a 50-200x reduction in API round trips on bulk backfills.
-Batch failures are logged and counted but do not halt the backfill.
+A failed batch is retried per record so a single rejected input doesn't
+sink its batchmates; only the individually-failing records count as errors.
 
 Can be run as a module: python -m app.embeddings.backfill
 """
@@ -119,13 +120,36 @@ async def backfill_embeddings(session: AsyncSession, *, force: bool = False) -> 
             created += len(batch)
         except Exception:  # broad: per-batch backfill is isolated; embedding API/DB errors are counted not raised
             await session.rollback()
-            errors += len(batch)
             logger.warning(
-                "Backfill: error processing batch",
+                "Backfill: batch failed, retrying records individually",
                 batch_start=start,
                 batch_size=len(batch),
                 exc_info=True,
             )
+            # fix(#449, codex P2): one rejected input (e.g. a record over the
+            # model's token limit) must not sink the other 127 — retry the
+            # failed batch per record so only the bad ones count as errors.
+            for record_id, content in batch:
+                try:
+                    [vector] = await generate_embeddings_batch([content], session)
+                    session.add(
+                        RecordEmbedding(
+                            record_id=record_id,
+                            embedding=vector,
+                            model_name=model_name,
+                            content_hash=compute_content_hash(content),
+                        )
+                    )
+                    await session.commit()
+                    created += 1
+                except Exception:  # broad: same isolation, per record
+                    await session.rollback()
+                    errors += 1
+                    logger.warning(
+                        "Backfill: error processing record",
+                        record_id=record_id,
+                        exc_info=True,
+                    )
 
         logger.info(
             "Backfill progress",
