@@ -7,6 +7,9 @@ import math
 import re
 from typing import TYPE_CHECKING
 
+from shapely.errors import GEOSException
+from shapely.geometry import shape as shapely_shape
+from shapely.validation import explain_validity
 from sqlalchemy import func, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -345,6 +348,26 @@ async def effective_geometry_type(session: AsyncSession, dataset) -> str:
     return dataset.geometry_type
 
 
+def _validate_geometry_structure(geometry: dict) -> None:
+    """Reject degenerate or topologically invalid geometry before PostGIS.
+
+    fix(#458 E-02): degenerate-but-schema-valid input (2-point polygon rings,
+    1-vertex LineStrings, empty coordinate arrays) crashed ST_GeomFromGeoJSON
+    into a 500, and well-formed self-intersecting polygons persisted and later
+    raised GEOS TopologyException on bbox queries and tile renders — read-path
+    500s that hit anonymous viewers of public datasets. Raises ValueError
+    (routers map it to 400).
+    """
+    try:
+        geom = shapely_shape(geometry)
+    except (GEOSException, ValueError, TypeError, AttributeError) as exc:
+        raise ValueError(f"Invalid geometry: {exc}") from exc
+    if geom.is_empty:
+        raise ValueError("Invalid geometry: geometry is empty")
+    if not geom.is_valid:
+        raise ValueError(f"Invalid geometry: {explain_validity(geom)}")
+
+
 def _validate_geometry_type(geojson_type: str, dataset_geometry_type: str) -> None:
     """Check that a GeoJSON geometry type is compatible with the dataset's geometry type.
 
@@ -407,6 +430,7 @@ async def insert_feature(
     get_feature_by_id.
     """
     _validate_geometry_type(geometry.get("type", ""), dataset_geometry_type)
+    _validate_geometry_structure(geometry)
 
     geojson_str = json.dumps(geometry)
 
@@ -453,6 +477,7 @@ async def replace_feature(
     present in properties are set to NULL.
     """
     _validate_geometry_type(geometry.get("type", ""), dataset_geometry_type)
+    _validate_geometry_structure(geometry)
 
     geojson_str = json.dumps(geometry)
     geom_expr, geom_4326_expr = _geom_write_exprs(dataset_geometry_type, dataset_srid)
@@ -505,6 +530,7 @@ async def update_feature(
 
     if geometry is not None:
         _validate_geometry_type(geometry.get("type", ""), dataset_geometry_type)
+        _validate_geometry_structure(geometry)
         geojson_str = json.dumps(geometry)
         geom_expr, geom_4326_expr = _geom_write_exprs(
             dataset_geometry_type, dataset_srid
