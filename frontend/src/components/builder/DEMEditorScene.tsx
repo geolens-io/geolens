@@ -35,10 +35,10 @@ export interface DEMEditorSceneProps {
   onStyleConfigChange: (config: StyleConfig | null, paint: Record<string, unknown>) => void;
   onOpacityChange: (opacity: number) => void;
   onZoomChange: (min: number, max: number) => void;
-  /** Called when the user switches to Terrain mode. Wires map-level terrain_config
-   * via use-builder-layers handleDEMTerrainBind. */
+  /** Called when the user enables "Use as 3D terrain". Wires map-level
+   * terrain_config via use-builder-layers handleDEMTerrainBind. */
   onTerrainBind: (layerId: string) => void;
-  /** Called when the user switches this DEM away from Terrain mode. */
+  /** Called when the user disables "Use as 3D terrain" for this DEM. */
   onTerrainUnbind: (layerId: string) => void;
   /** Terrain surface exaggeration belongs to the bound DEM layer editor. */
   terrainExaggeration: number;
@@ -47,10 +47,10 @@ export interface DEMEditorSceneProps {
    * LayerEditorHandlers — same wiring used by the default layer editor. */
   onRemove: (layerId: string) => void;
   /**
-   * POLISH-02 / builder-audit #338 YAGNI-01: when true, this DEM is already powering the
-   * map's terrain source. A muted advisory note is rendered in hillshade mode to inform
-   * the user that hillshade shading is hidden (two raster-dem consumers on one source
-   * cause MapLibre errors). Defaults to false when omitted.
+   * fix(HT-01): true when this DEM's dataset is the map's bound 3D terrain
+   * source (parent computes it via isHillshadeTerrainBound). Drives the
+   * "Use as 3D terrain" switch — hillshade overlay and 3D terrain are
+   * independent, composable outputs of one DEM, not exclusive modes.
    */
   isTerrainBound?: boolean;
 }
@@ -147,7 +147,10 @@ export const DEMEditorScene = memo(function DEMEditorScene({
 }: DEMEditorSceneProps) {
   const { t } = useTranslation('builder');
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const mode = currentMode(layer);
+  // 'hillshade' = visible relief overlay on; 'terrain' is the legacy persisted
+  // value meaning "no visual overlay" — it does NOT control the 3D mesh, which
+  // is bound separately through map-level terrain_config (isTerrainBound).
+  const overlayOn = currentMode(layer) === 'hillshade';
   const paint = useMemo(() => layer.paint ?? {}, [layer.paint]);
 
   const layout = layer.layout ?? {};
@@ -158,27 +161,24 @@ export const DEMEditorScene = memo(function DEMEditorScene({
     typeof layout._maxzoom === 'number' ? layout._maxzoom : 22,
   );
 
-  const handleSwitchMode = useCallback((nextMode: DemRenderMode) => {
-    const current = currentMode(layer);
-    if (current === nextMode) return;
-
+  // fix(HT-02): the overlay toggle writes ONLY style_config.render_mode. It no
+  // longer binds/unbinds map-level terrain, so overlay round trips can never
+  // silently drop an active terrain binding (and vice versa).
+  const handleOverlayToggle = useCallback((next: boolean) => {
+    if (next === (currentMode(layer) === 'hillshade')) return;
     const nextConfig: Record<string, unknown> = { ...(layer.style_config ?? {}) };
-    nextConfig.render_mode = nextMode;
+    nextConfig.render_mode = next ? 'hillshade' : 'terrain';
+    // Source binding (the layer dataset_id + paint object) is intentionally preserved
+    // unchanged across toggles. Overlay-specific paint values stay in layer.paint;
+    // reading the paint dict per key (e.g. hillshade-* keys) returns last-saved
+    // values on re-entry.
+    onStyleConfigChange(nextConfig as StyleConfig, layer.paint ?? {});
+  }, [layer, onStyleConfigChange]);
 
-    // Source binding (the layer dataset_id + paint object) is intentionally preserved unchanged
-    // across mode switches. Mode-specific paint values stay in layer.paint; reading the paint dict
-    // per key (e.g. hillshade-* keys) returns last-saved values on re-entry.
-    onStyleConfigChange(
-      Object.keys(nextConfig).length > 0 ? (nextConfig as StyleConfig) : null,
-      layer.paint ?? {},
-    );
-
-    if (nextMode === 'terrain') {
-      onTerrainBind(layer.id);
-    } else if (current === 'terrain') {
-      onTerrainUnbind(layer.id);
-    }
-  }, [layer, onStyleConfigChange, onTerrainBind, onTerrainUnbind]);
+  const handleTerrainToggle = useCallback((next: boolean) => {
+    if (next) onTerrainBind(layer.id);
+    else onTerrainUnbind(layer.id);
+  }, [layer.id, onTerrainBind, onTerrainUnbind]);
 
   const handlePaintValue = useCallback((key: string, value: unknown) => {
     const nextValue = key === 'hillshade-exaggeration' && typeof value === 'number'
@@ -186,11 +186,6 @@ export const DEMEditorScene = memo(function DEMEditorScene({
       : value;
     onPaintChange({ ...paint, [key]: nextValue });
   }, [paint, onPaintChange]);
-
-  const pills: { id: DemRenderMode; label: string }[] = [
-    { id: 'hillshade', label: t('demEditor.renderAsHillshade', { defaultValue: '⛰ Hillshade' }) },
-    { id: 'terrain', label: t('demEditor.renderAsTerrain', { defaultValue: '◬ Terrain' }) },
-  ];
 
   // builder-audit #338 CONSIST-01: read hillshade fallbacks from the adapter's
   // HILLSHADE_PAINT_DEFAULTS (the values buildHillshadePaint actually renders) rather
@@ -210,47 +205,9 @@ export const DEMEditorScene = memo(function DEMEditorScene({
 
   return (
     <div className="flex flex-col h-full overflow-y-auto">
-      {/* 1. RENDER AS section — always expanded */}
-      <section
-        aria-labelledby={`section-renderas-dem-${layer.id}`}
-        className="border-b"
-      >
-        <div className="px-4 py-2">
-          <p
-            id={`section-renderas-dem-${layer.id}`}
-            className="text-2xs font-semibold uppercase tracking-[0.08em] text-muted-foreground mb-2"
-          >
-            {t('demEditor.renderAsLabel', { defaultValue: 'RENDER AS' })}
-          </p>
-          <div role="radiogroup" className="flex flex-wrap gap-1.5">
-            {pills.map((pill) => {
-              const isActive = mode === pill.id;
-              return (
-                <button
-                  key={pill.id}
-                  type="button"
-                  role="radio"
-                  aria-checked={isActive}
-                  data-active={isActive ? 'true' : 'false'}
-                  className={[
-                    'rounded-full border border-transparent px-[10px] py-[5px] text-xs transition-colors',
-                    isActive
-                      ? 'bg-primary text-primary-foreground border-transparent'
-                      : 'bg-[var(--surface-2,theme(colors.muted.DEFAULT))] text-foreground hover:bg-[var(--surface-3,theme(colors.muted.DEFAULT))]',
-                  ].join(' ')}
-                  onClick={() => {
-                    if (!isActive) handleSwitchMode(pill.id);
-                  }}
-                >
-                  {pill.label}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      </section>
-
-      {/* 2. APPEARANCE section — content branches on mode */}
+      {/* 1. RELIEF SHADING section — the visible 2D overlay (hillshade + tint).
+          fix(HT-01): an independent switch, not a radio against 3D terrain —
+          both outputs can be active on one DEM at the same time. */}
       <section
         aria-labelledby={`section-appearance-dem-${layer.id}`}
         className="border-b"
@@ -260,23 +217,30 @@ export const DEMEditorScene = memo(function DEMEditorScene({
             id={`section-appearance-dem-${layer.id}`}
             className="text-2xs font-semibold uppercase tracking-[0.08em] text-muted-foreground mb-2"
           >
-            {t('layerEditor.section.appearance', { defaultValue: 'Appearance' })}
+            {t('demEditor.reliefShadingLabel', { defaultValue: 'RELIEF SHADING' })}
           </p>
 
-          {mode === 'hillshade' && (
-            <div className="space-y-4">
-              {/* builder-audit #338 YAGNI-01: advisory note when this DEM is also bound as the
-                  map's 3D terrain source. Hillshade shading is hidden in that case to avoid
-                  two raster-dem consumers on one source (a MapLibre error). The parent
-                  computes isTerrainBound via isHillshadeTerrainBound. */}
-              {isTerrainBound && (
-                <p role="note" className="rounded-md bg-muted/50 px-2 py-1.5 text-mini leading-snug text-muted-foreground">
-                  {t('demEditor.terrainBoundNote', {
-                    defaultValue: "This DEM also powers the map's 3D terrain. Hillshade shading is hidden to avoid a source conflict.",
-                  })}
-                </p>
-              )}
+          <div className="flex items-center justify-between mb-2">
+            <Label className="text-xs text-muted-foreground">
+              {t('demEditor.hillshadeToggle', { defaultValue: 'Hillshade shading' })}
+            </Label>
+            <Switch
+              checked={overlayOn}
+              onCheckedChange={handleOverlayToggle}
+              aria-label={t('demEditor.hillshadeToggle', { defaultValue: 'Hillshade shading' })}
+            />
+          </div>
 
+          {!overlayOn && (
+            <p className="text-xs text-muted-foreground">
+              {t('demEditor.overlayOffHint', {
+                defaultValue: 'Relief shading is off — this DEM draws no 2D overlay.',
+              })}
+            </p>
+          )}
+
+          {overlayOn && (
+            <div className="space-y-4">
               {/* Sub-section: SUN POSITION */}
               <div>
                 <p className="text-2xs font-semibold uppercase tracking-[0.08em] text-muted-foreground mb-3">
@@ -342,15 +306,40 @@ export const DEMEditorScene = memo(function DEMEditorScene({
               </div>
             </div>
           )}
+        </div>
+      </section>
 
-          {mode === 'terrain' && (
-            <div className="space-y-3">
-              <p className="text-xs text-muted-foreground">
-                {t('demEditor.terrainHint', {
-                  defaultValue:
-                    'Terrain uses elevation data to extrude the map surface.',
-                })}
-              </p>
+      {/* 2. 3D TERRAIN section — the additive map-level mesh binding.
+          Independent of the relief overlay; both can be active together. */}
+      <section
+        aria-labelledby={`section-terrain-dem-${layer.id}`}
+        className="border-b"
+      >
+        <div className="px-4 py-2">
+          <p
+            id={`section-terrain-dem-${layer.id}`}
+            className="text-2xs font-semibold uppercase tracking-[0.08em] text-muted-foreground mb-2"
+          >
+            {t('demEditor.terrainSectionLabel', { defaultValue: '3D TERRAIN' })}
+          </p>
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <Label className="text-xs text-muted-foreground">
+                {t('demEditor.useAsTerrain', { defaultValue: 'Use as 3D terrain' })}
+              </Label>
+              <Switch
+                checked={isTerrainBound}
+                onCheckedChange={handleTerrainToggle}
+                aria-label={t('demEditor.useAsTerrain', { defaultValue: 'Use as 3D terrain' })}
+              />
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {t('demEditor.terrainHint', {
+                defaultValue:
+                  'Terrain uses elevation data to extrude the map surface.',
+              })}
+            </p>
+            {isTerrainBound && (
               <SliderRow
                 label={t('demEditor.terrainExaggeration', { defaultValue: 'Exaggeration' })}
                 value={terrainSurfaceExaggeration}
@@ -362,12 +351,12 @@ export const DEMEditorScene = memo(function DEMEditorScene({
                 onChange={(v) => onTerrainExaggerationChange(layer.id, normalizeTerrainExaggeration(v))}
                 showInput
               />
-            </div>
-          )}
+            )}
+          </div>
         </div>
       </section>
 
-      {/* 3. HYPSOMETRIC TINT section — hillshade (full control) and terrain (hint only) modes */}
+      {/* 3. HYPSOMETRIC TINT section — part of the 2D overlay (requires hillshade) */}
       <section
         aria-labelledby={`section-hypso-dem-${layer.id}`}
         className="border-b"
@@ -380,17 +369,17 @@ export const DEMEditorScene = memo(function DEMEditorScene({
             {t('demEditor.sectionHypsometricTint', { defaultValue: 'HYPSOMETRIC TINT' })}
           </p>
 
-          {/* Terrain mode: inline hint only — color-relief requires hillshade mode */}
-          {mode === 'terrain' && (
+          {/* Overlay off: inline hint only — color-relief rides the hillshade overlay */}
+          {!overlayOn && (
             <p className="text-xs text-muted-foreground">
               {t('demEditor.hypsometricTerrainHint', {
-                defaultValue: 'Elevation tint is not available in Terrain mode',
+                defaultValue: 'Elevation tint requires hillshade shading',
               })}
             </p>
           )}
 
-          {/* Hillshade mode: full toggle + ramp picker */}
-          {mode === 'hillshade' && (
+          {/* Overlay on: full toggle + ramp picker */}
+          {overlayOn && (
             <div className="space-y-3">
               {/* Enable toggle */}
               <div className="flex items-center justify-between">
@@ -426,7 +415,11 @@ export const DEMEditorScene = memo(function DEMEditorScene({
         </div>
       </section>
 
-      {/* 4. VISIBILITY section — always expanded */}
+      {/* 4. VISIBILITY section — fix(HT-07): opacity and zoom range act on the
+          2D overlay only (the 3D mesh ignores both: opacity is skipped for
+          suppressed layers and the terrain source uses token min/max), so the
+          controls render only while the overlay exists. */}
+      {overlayOn && (
       <section
         aria-labelledby={`section-visibility-dem-${layer.id}`}
         className="border-b"
@@ -499,6 +492,7 @@ export const DEMEditorScene = memo(function DEMEditorScene({
           </div>
         </div>
       </section>
+      )}
 
       {/* Footer — Delete layer (inline confirmation, same pattern as FolderGroupRow) */}
       <footer className="shrink-0 border-t p-3 mt-auto">

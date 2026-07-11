@@ -2,10 +2,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import {
   ensureRasterDemTerrainSource,
-  isTerrainCapableDemLayer,
   normalizeTerrainExaggeration,
   TERRAIN_SOURCE_ID,
 } from '@/components/builder/map-sync';
+import { resolveTerrainSourceLayer } from '@/components/builder/map-stack';
 import { maybeWarnSmallDemCoverage, resetSmallDemWarning } from '@/components/builder/terrain-coverage';
 import type { MapTerrainConfig, SharedLayerResponse } from '@/types/api';
 import type { TileToken } from '@/api/tiles';
@@ -30,13 +30,11 @@ export function useViewerTerrain({
 }) {
   const [terrainReady, setTerrainReady] = useState(false);
 
+  // fix(HT-12): resolve through the SAME shared resolver the builder uses
+  // (deterministic duplicate semantics included) instead of a local find.
   const terrainLayer = useMemo(
-    () => terrainConfig?.source_dataset_id
-      ? layers.find(
-        (layer) => layer.dataset_id === terrainConfig.source_dataset_id && isTerrainCapableDemLayer(layer),
-      ) ?? null
-      : null,
-    [layers, terrainConfig?.source_dataset_id],
+    () => resolveTerrainSourceLayer(layers, terrainConfig) ?? null,
+    [layers, terrainConfig],
   );
 
   const terrainStateRef = useRef({ terrainConfig, terrainLayer });
@@ -55,7 +53,13 @@ export function useViewerTerrain({
     const terrainTileUrl = terrainToken?.kind === 'raster'
       ? terrainToken.tile_url
       : currentTerrainLayer?.tile_url;
-    if (!currentTerrainConfig?.enabled || !terrainDatasetId || !terrainTileUrl) {
+    // fix(HT-12): honor the bound DEM layer's saved visibility the same way the
+    // builder does (BuilderMap applyTerrainConfig: effectiveTerrainEnabled =
+    // enabled && demLayerVisible). Previously the viewer (and embeds, which
+    // reuse this hook) rendered terrain from a hidden DEM row, so a saved map
+    // could show no terrain in the builder and active terrain in the viewer.
+    const demLayerVisible = currentTerrainLayer?.visible !== false;
+    if (!currentTerrainConfig?.enabled || !terrainDatasetId || !terrainTileUrl || !demLayerVisible) {
       map.setTerrain(null);
       setTerrainReady(false);
       // #186 (b): terrain off → clear the small-DEM warning dedupe.
@@ -114,6 +118,7 @@ export function useViewerTerrain({
     terrainConfig?.source_dataset_id,
     terrainConfig?.exaggeration,
     terrainLayer?.tile_url,
+    terrainLayer?.visible,
     tokenMap,
   ]);
 

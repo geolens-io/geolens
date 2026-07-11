@@ -931,9 +931,12 @@ export interface SymbolStyleConfig {
 
 export interface StyleConfig {
   [key: string]: unknown;
-  mode: 'categorical' | 'graduated';
-  column: string;
-  ramp: string;
+  // fix(HT-19): optional — a valid DEM config carries only render_mode (plus
+  // builder metadata); requiring the data-driven trio forced `as unknown as`
+  // casts that hid the DEM state model from the type checker.
+  mode?: 'categorical' | 'graduated';
+  column?: string;
+  ramp?: string;
   classCount?: number;
   method?: 'equal_interval' | 'quantile' | 'jenks' | 'std_dev' | 'manual';
   categories?: { value: string | number | null; label?: string; color: string }[];

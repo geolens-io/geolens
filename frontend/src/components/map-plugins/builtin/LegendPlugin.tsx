@@ -123,8 +123,8 @@ export function LegendPlugin({ ctx }: { ctx: PluginContext }) {
   // BuilderMap clears terrain when the bound DEM is hidden (effectiveTerrainEnabled
   // = enabled && demLayerVisible), so a hidden source = no mesh = no synthetic row.
   // Resolve the bound DEM with the SAME shared resolver BuilderMap uses so the two
-  // can't drift. (The viewer differs — useViewerTerrain ignores the toggle — which
-  // is why LayerLegend gates on its own visible set, not this.)
+  // can't drift. (fix(HT-12): useViewerTerrain now honors saved visibility the
+  // same way; LayerLegend still gates on its own visible set for local toggles.)
   const boundTerrainDem = useMemo(
     () => resolveTerrainSourceLayer(ctx.layers, ctx.terrainConfig),
     [ctx.layers, ctx.terrainConfig],
@@ -220,8 +220,10 @@ export function LegendPlugin({ ctx }: { ctx: PluginContext }) {
           <div className="p-1 text-xs">
             <div className="flex items-center gap-1.5">
               <Mountain className="w-4 h-4 text-muted-foreground" aria-hidden="true" />
+              {/* fix(HT-08): keep the bound DEM's identity — fall back to the
+                  generic "3D terrain" label only when the layer has no name. */}
               <span className="font-medium text-foreground truncate">
-                {t(terrainEntry.labelKey)}
+                {terrainEntry.sourceName ?? t(terrainEntry.labelKey)}
               </span>
             </div>
           </div>

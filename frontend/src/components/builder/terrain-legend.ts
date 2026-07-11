@@ -24,6 +24,13 @@ export interface TerrainLegendEntry {
   role: 'surface-terrain';
   /** i18n key the caller resolves in its own namespace. */
   labelKey: string;
+  /**
+   * fix(HT-08): the bound DEM layer's display name, so the legend keeps the
+   * dataset identity ("swissALTI3D relief") instead of degrading to a generic
+   * "3D terrain" row the moment the overlay is off. Null when the backing
+   * layer carries no name; callers then fall back to t(labelKey).
+   */
+  sourceName: string | null;
 }
 
 export interface DeriveTerrainLegendEntryOptions {
@@ -36,6 +43,8 @@ type TerrainBackingLayer = {
   dataset_id?: string | null;
   is_dem?: boolean | null;
   dataset_record_type?: string | null;
+  display_name?: string | null;
+  dataset_name?: string | null;
 };
 
 /**
@@ -57,15 +66,16 @@ export function deriveTerrainLegendEntry(
   const sourceDatasetId = terrainConfig?.enabled === true ? terrainConfig.source_dataset_id : null;
   if (!sourceDatasetId) return null;
 
-  const hasBackingLayer = (layers ?? []).some(
+  const backingLayer = (layers ?? []).find(
     (layer) => layer.dataset_id === sourceDatasetId && isTerrainCapableDemLayer(layer),
   );
-  if (!hasBackingLayer) return null;
+  if (!backingLayer) return null;
 
   return {
     id: 'relief:terrain',
     role: 'surface-terrain',
     labelKey: opts.labelKey,
+    sourceName: backingLayer.display_name ?? backingLayer.dataset_name ?? null,
   };
 }
 

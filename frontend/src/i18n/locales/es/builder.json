@@ -1110,10 +1110,6 @@
     "resetAction": "Restablecer al valor predeterminado"
   },
   "demEditor": {
-    "renderAsLabel": "RENDERIZAR COMO",
-    "renderAsImage": "▦ Imagen",
-    "renderAsHillshade": "⛰ Sombreado",
-    "renderAsTerrain": "◬ Terreno",
     "sunPositionLabel": "POSICIÓN DEL SOL",
     "azimuth": "Azimut",
     "exaggeration": "Exageración",
@@ -1123,13 +1119,16 @@
     "accent": "Acento",
     "terrainHint": "El terreno usa datos de elevación para extruir la superficie del mapa.",
     "terrainExaggeration": "Exageración del terreno",
-    "imageHint": "No hay controles de apariencia adicionales para el modo imagen",
     "compassAriaLabel": "Azimut solar: {{azimuth}}°",
     "sectionHypsometricTint": "TINTE HIPSOMÉTRICO",
     "hypsometricEnable": "Tintura de elevación",
-    "hypsometricTerrainHint": "La tintura de elevación no está disponible en modo Terreno",
-    "terrainBoundNote": "Este MDE también alimenta el terreno 3D del mapa. El sombreado de relieve se oculta para evitar un conflicto de origen.",
-    "hypsometricRangeNote": "El tinte de elevación abarca 0–4000 m y asume metros. Los MDE en otras unidades o rangos pueden verse planos."
+    "hypsometricTerrainHint": "La tintura de elevación requiere el sombreado de laderas",
+    "hypsometricRangeNote": "El tinte de elevación abarca 0–4000 m y asume metros. Los MDE en otras unidades o rangos pueden verse planos.",
+    "reliefShadingLabel": "SOMBREADO DEL RELIEVE",
+    "hillshadeToggle": "Sombreado de laderas",
+    "overlayOffHint": "El sombreado del relieve está desactivado — este MDE no dibuja ninguna superposición 2D.",
+    "terrainSectionLabel": "TERRENO 3D",
+    "useAsTerrain": "Usar como terreno 3D"
   },
   "folderGroup": {
     "defaultName": "Grupo {{n}}",
@@ -1222,7 +1221,8 @@
     "projectionGlobe": "Globo",
     "projectionAria": "Proyección del mapa",
     "globeDisclaimer": "La proyección de globo es experimental. Es posible que algunas capas no se rendericen correctamente.",
-    "terrainSmallDemTip": "Consejo: superponga un DEM pequeño de alta resolución sobre un DEM global de baja resolución (p. ej. Copernicus GLO-30) para que el terreno se mantenga uniforme más allá de su extensión."
+    "terrainSmallDemTip": "Consejo: superponga un DEM pequeño de alta resolución sobre un DEM global de baja resolución (p. ej. Copernicus GLO-30) para que el terreno se mantenga uniforme más allá de su extensión.",
+    "openTerrainLayer": "Abrir capa de terreno"
   },
   "common": {
     "reload": "Recargar"

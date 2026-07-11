@@ -19,6 +19,10 @@ export interface SettingsEditorSceneProps {
   isTerrainActive: boolean;
   /** Name of the bound DEM layer (for the "Bound to:" hint) */
   boundLayerName?: string;
+  /** fix(HT-04): open the bound DEM layer's editor from Settings so the
+   *  terrain source is always reachable (its controls live in the DEM editor).
+   *  Undefined when no bound layer resolves. */
+  onOpenBoundLayer?: () => void;
   // Plugins
   /** Admin allowlist of plugin IDs (null/undefined = no restriction). The
    *  per-map toggle list is filtered to these so admin-disabled plugins do not
@@ -39,6 +43,7 @@ export const SettingsEditorScene = memo(function SettingsEditorScene({
   terrainConfig: _terrainConfig,
   isTerrainActive,
   boundLayerName,
+  onOpenBoundLayer,
   enabledPluginIds,
   activePluginIds,
   onTogglePlugin,
@@ -149,6 +154,19 @@ export const SettingsEditorScene = memo(function SettingsEditorScene({
               <p className="text-xs text-muted-foreground">
                 {t('settings.boundTo', { defaultValue: 'Bound to: {{name}}', name: boundLayerName })}
               </p>
+            )}
+            {/* fix(HT-04): the terrain controls live in the bound DEM's editor;
+                link there so the source stays reachable from Settings. */}
+            {onOpenBoundLayer && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="mt-2 h-7 text-xs"
+                onClick={onOpenBoundLayer}
+              >
+                {t('settings.openTerrainLayer', { defaultValue: 'Open terrain layer' })}
+              </Button>
             )}
             {isTerrainActive && (
               // #186 (c): guide users with a small high-res DEM toward draping it

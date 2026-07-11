@@ -740,9 +740,7 @@ export const BuilderMap = memo(function BuilderMap({
       managedSourcesRef,
       orderKeyRef: lastOrderKeyRef,
       geojsonDataMap: clusterGeoJsonDataRef.current,
-      // POLISH-02: thread terrainConfig so syncRasterLayer can skip the hillshade
-      // raster-dem consumer for a DEM that is already powering terrain.
-      syncOptions: { showBasemapLabels: sbl, basemapPosition: bc?.basemap_position, terrainConfig: terrainStateRef.current.terrainConfig },
+      syncOptions: { showBasemapLabels: sbl, basemapPosition: bc?.basemap_position },
       basemapConfig: bc,
       showBasemapLabels: sbl,
       reorderDataLayerIds: syncInputs,

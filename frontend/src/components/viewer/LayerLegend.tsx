@@ -281,8 +281,10 @@ export function LayerLegend({
             >
               <div className="flex items-center gap-2">
                 <Mountain className="w-4 h-4 text-muted-foreground" aria-hidden="true" />
+                {/* fix(HT-08): keep the bound DEM's identity — fall back to the
+                    generic "3D terrain" label only when the layer has no name. */}
                 <span className="text-sm text-foreground flex-1">
-                  {t(terrainEntry.labelKey)}
+                  {terrainEntry.sourceName ?? t(terrainEntry.labelKey)}
                 </span>
               </div>
             </li>

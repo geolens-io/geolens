@@ -551,11 +551,16 @@ export function useBuilderSave(state: SaveState) {
   );
 
   const baselineLayersRef = useRef<MapLayerResponse[]>([]);
+  // fix(HT-13): snapshot terrain_config alongside the layer baseline so
+  // handleSave can tell when one save spans BOTH authorities (layer diff +
+  // map-level terrain binding) and must persist them in a single request.
+  const baselineTerrainRef = useRef<MapTerrainConfig | null>(null);
   useEffect(() => {
     if (!state.hasUnsavedChanges) {
       baselineLayersRef.current = state.localLayers.map((layer) => ({ ...layer }));
+      baselineTerrainRef.current = state.terrainConfig ? { ...state.terrainConfig } : null;
     }
-  }, [state.hasUnsavedChanges, state.localLayers]);
+  }, [state.hasUnsavedChanges, state.localLayers, state.terrainConfig]);
 
   useEffect(() => {
     // fix(#392): let layer-create paths register the server-created layer into the
@@ -643,7 +648,16 @@ export function useBuilderSave(state: SaveState) {
 
     try {
       const { diff, unsupported } = buildLayerDiff(baselineLayersRef.current, localLayers, groupMeta);
-      if (unsupported) {
+      // fix(HT-13): a DEM gesture can change a layer's style AND the map-level
+      // terrain binding. The split "layer PATCH, then metadata PUT" pipeline
+      // persists them in two requests, so a failure between them stored a new
+      // render mode with the old terrain binding — permanently, since the
+      // client baseline can't reconstruct the pre-save state. When one save
+      // touches both authorities, send the single full-replacement PUT instead:
+      // the server applies layers + terrain_config in one transaction.
+      const terrainChanged =
+        stableJson(state.terrainConfig) !== stableJson(baselineTerrainRef.current);
+      if (unsupported || (hasDiff(diff) && terrainChanged)) {
         await updateMap.mutateAsync({ id, data: fullReplacementPayload });
       } else {
         if (hasDiff(diff)) {

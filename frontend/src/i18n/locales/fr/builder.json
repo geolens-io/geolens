@@ -1110,10 +1110,6 @@
     "resetAction": "Réinitialiser par défaut"
   },
   "demEditor": {
-    "renderAsLabel": "AFFICHER COMME",
-    "renderAsImage": "▦ Image",
-    "renderAsHillshade": "⛰ Ombrage",
-    "renderAsTerrain": "◬ Terrain",
     "sunPositionLabel": "POSITION DU SOLEIL",
     "azimuth": "Azimut",
     "exaggeration": "Exagération",
@@ -1123,13 +1119,16 @@
     "accent": "Accentuation",
     "terrainHint": "Le terrain utilise des données d'élévation pour extruder la surface de la carte.",
     "terrainExaggeration": "Exagération du terrain",
-    "imageHint": "Aucun contrôle d'apparence supplémentaire pour le mode image",
     "compassAriaLabel": "Azimut solaire : {{azimuth}}°",
     "sectionHypsometricTint": "TEINTE HYPSOMÉTRIQUE",
     "hypsometricEnable": "Teinte d'élévation",
-    "hypsometricTerrainHint": "La teinte d'élévation n'est pas disponible en mode Terrain",
-    "terrainBoundNote": "Ce MNT alimente aussi le terrain 3D de la carte. L'ombrage est masqué pour éviter un conflit de source.",
-    "hypsometricRangeNote": "La teinte d'altitude couvre 0–4000 m et suppose des mètres. Les MNT dans d'autres unités ou plages peuvent paraître plats."
+    "hypsometricTerrainHint": "La teinte d'élévation nécessite l'ombrage du relief",
+    "hypsometricRangeNote": "La teinte d'altitude couvre 0–4000 m et suppose des mètres. Les MNT dans d'autres unités ou plages peuvent paraître plats.",
+    "reliefShadingLabel": "OMBRAGE DU RELIEF",
+    "hillshadeToggle": "Ombrage du relief",
+    "overlayOffHint": "L'ombrage du relief est désactivé — ce MNT ne dessine aucune superposition 2D.",
+    "terrainSectionLabel": "TERRAIN 3D",
+    "useAsTerrain": "Utiliser comme terrain 3D"
   },
   "folderGroup": {
     "defaultName": "Groupe {{n}}",
@@ -1222,7 +1221,8 @@
     "projectionGlobe": "Globe",
     "projectionAria": "Projection de la carte",
     "globeDisclaimer": "La projection globe est expérimentale. Certaines couches peuvent ne pas s'afficher correctement.",
-    "terrainSmallDemTip": "Astuce : drapez un petit MNT haute résolution sur un MNT global grossier (p. ex. Copernicus GLO-30) afin que le terrain reste régulier au-delà de son emprise."
+    "terrainSmallDemTip": "Astuce : drapez un petit MNT haute résolution sur un MNT global grossier (p. ex. Copernicus GLO-30) afin que le terrain reste régulier au-delà de son emprise.",
+    "openTerrainLayer": "Ouvrir la couche de terrain"
   },
   "common": {
     "reload": "Recharger"

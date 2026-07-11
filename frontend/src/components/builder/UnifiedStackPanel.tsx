@@ -30,7 +30,6 @@ import { isFolderGroupLayer } from '@/lib/layer-capabilities';
 import { cn } from '@/lib/utils';
 import type { MapLayerResponse } from '@/types/api';
 import type { BasemapGroupInfo, BasemapSublayerInfo } from '@/components/builder/stack-types';
-import { isDemTerrainVisualSuppressed } from './map-sync';
 import { computeDisambiguationLabels, isLayerHiddenFromMapAudience } from './map-stack';
 import { geometryClassOf, type GeometryStyleClass } from '@/lib/builder/layer-style-clipboard';
 
@@ -423,22 +422,19 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
     return () => el.removeEventListener('keydown', handleKeyDown);
   }, [selectedIds.size, selectableRowIds, onClearSelection, onShiftClick]);
 
-  // Filter out terrain-mode DEM layers from the stack UI — the map-sync layer
-  // render already suppresses them (map-sync.ts:1014); this aligns the stack
-  // display with what the map actually renders. Reorder/bulk/drag paths still
-  // see the full `layers` prop so their persistence logic is unaffected.
-  const visibleStackLayers = useMemo(
-    () => layers.filter((l) => !isDemTerrainVisualSuppressed(l)),
-    [layers],
-  );
+  // fix(HT-03): terrain-mode (overlay-off) DEM rows are NO LONGER filtered out
+  // of the stack. Suppressing the row made the DEM unmanageable the moment the
+  // editor closed — its only controls live in the DEM editor this row opens —
+  // and let rebinding orphan invisible render_mode:"terrain" layers (HT-11).
+  // The map still paints nothing for them (map-sync suppression is unchanged);
+  // the row just stays reachable, like any other hidden-from-view layer.
+  const visibleStackLayers = layers;
 
   // Phase 1199 STACK-01: per-layer "Copy N of M" disambiguation labels for the
   // LIVE stack rows. map-stack.ts already computes these for the derived/legend
   // path; this reuses the same exported helper so the live badge and the legend
-  // badge can never drift. Computed over the full `layers` set (sorted by
-  // sort_order to match the derived-stack occurrence numbering), not just
-  // visibleStackLayers, so a duplicate hidden behind a suppressed terrain row is
-  // still counted consistently.
+  // badge can never drift. Computed over `layers` sorted by sort_order to match
+  // the derived-stack occurrence numbering.
   const disambiguationLabels = useMemo(() => {
     const ordered = [...layers].sort((a, b) => a.sort_order - b.sort_order);
     return computeDisambiguationLabels(ordered);
@@ -499,11 +495,9 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
   const safeMoveLayerOutOfGroup = onMoveLayerOutOfGroup ?? NOOP;
   const safeToggleGroupExpand = onToggleGroupExpand ?? NOOP;
 
-  // BLDR-03: emptiness is measured over visibleStackLayers (terrain-mode DEM
-  // rows are suppressed because terrain is a map-level setting, not a data row).
-  // A map whose only layer is a terrain-mode DEM therefore intentionally shows
-  // the "add data" empty state — there are no data layers to manage in the stack;
-  // terrain is configured via the map-level terrain controls.
+  // fix(HT-03): emptiness now counts every layer — a map whose only layer is a
+  // terrain-mode DEM has a manageable data row (its editor holds the terrain
+  // controls), so it must not show the "add data" empty state.
   const isEmpty = visibleStackLayers.length === 0;
 
   // Phase 1201-02 (ENH-07): whether a search query is currently active.

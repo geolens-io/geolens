@@ -78,7 +78,7 @@ import { useBuilderEditorScene, type BuilderEditorScene } from '@/components/bui
 import { useFilteredFeatureCount } from '@/components/builder/hooks/use-filtered-feature-count';
 import { useBuilderLayers } from '@/components/builder/hooks/use-builder-layers';
 import { useBuilderSave } from '@/components/builder/hooks/use-builder-save';
-import { TERRAIN_SOURCE_ID, normalizeTerrainExaggeration, isHillshadeTerrainBound, isDemTerrainVisualSuppressed } from '@/components/builder/map-sync';
+import { TERRAIN_SOURCE_ID, normalizeTerrainExaggeration, isHillshadeTerrainBound } from '@/components/builder/map-sync';
 import { resolveTerrainSourceLayer } from '@/components/builder/map-stack';
 import {
   createBuilderBasemapState,
@@ -597,19 +597,12 @@ export function MapBuilderPage() {
 
   // Phase 1041: derive selectable row ids (ordered flat list, basemap excluded)
   // Used by handleShiftClick for range computation and by the Shift+Arrow keyboard handler
-  const selectableRowIds = useMemo((): string[] => {
-    const ids: string[] = [];
-    for (const layer of layers.localLayers) {
-      // BLDR-03: terrain-mode DEM layers are suppressed from the stack panel
-      // (no row rendered), so they must not be range-selectable either —
-      // otherwise a shift-click range spanning a hidden terrain row could
-      // silently include and bulk-delete that terrain record. Mirror the
-      // visibleStackLayers filter applied inside UnifiedStackPanel.
-      if (isDemTerrainVisualSuppressed(layer)) continue;
-      ids.push(layer.id);
-    }
-    return ids;
-  }, [layers.localLayers]);
+  const selectableRowIds = useMemo(
+    // fix(HT-03): terrain-mode DEM rows render in the stack again, so they are
+    // range-selectable like any other row (the BLDR-03 skip is obsolete).
+    (): string[] => layers.localLayers.map((layer) => layer.id),
+    [layers.localLayers],
+  );
 
   // Phase 1041 + SP-04 (Phase 1045): multi-selection handlers driven by the
   // `computeNextSelection` pure helper. Anchor lives in `lastToggleAnchor` ref
@@ -1031,7 +1024,12 @@ export function MapBuilderPage() {
       });
     } else if (expandedId) {
       requestAnimationFrame(() => {
-        const rowEl = document.getElementById(`stack-row-${expandedId}`);
+        // fix(HT-18): the row can be gone by the time focus returns (e.g. the
+        // layer was deleted from the editor footer). Falling back to the first
+        // stack row keeps keyboard focus in the panel instead of dropping it
+        // on <body>.
+        const rowEl = document.getElementById(`stack-row-${expandedId}`)
+          ?? document.querySelector<HTMLElement>('[data-row-id]');
         rowEl?.focus();
       });
     }
@@ -1257,6 +1255,11 @@ export function MapBuilderPage() {
             terrainConfig={layers.localTerrainConfig}
             isTerrainActive={isTerrainActive}
             boundLayerName={boundLayerName}
+            onOpenBoundLayer={
+              boundTerrainLayer
+                ? () => handleSelectLayer(boundTerrainLayer.id)
+                : undefined
+            }
             enabledPluginIds={enabledPluginIds}
             activePluginIds={activePlugins}
             onTogglePlugin={handleTogglePlugin}

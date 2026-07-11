@@ -276,11 +276,10 @@ export function useBuilderLayers(
 
   const handleMove = useCallback((layerId: string, direction: 'up' | 'down') => {
     const currentLayers = layersRef.current;
-    // fix(#394) LM-05: pick the neighbor from the RENDERED stack — the UI
-    // filters out terrain-suppressed DEM rows (UnifiedStackPanel
-    // visibleStackLayers), so a full-array swap could exchange with an
-    // invisible row and the arrow-move would look like a no-op.
-    const rendered = currentLayers.filter((l) => !isDemTerrainVisualSuppressed(l));
+    // fix(HT-03): the stack no longer suppresses terrain-mode DEM rows, so the
+    // rendered order IS the full layer order again (the #394 LM-05 filter is
+    // obsolete — an arrow-move can never swap with an invisible row).
+    const rendered = currentLayers;
     const renderedIdx = rendered.findIndex((l) => l.id === layerId);
     if (direction === 'up' && renderedIdx <= 0) return;
     if (direction === 'down' && (renderedIdx < 0 || renderedIdx >= rendered.length - 1)) return;

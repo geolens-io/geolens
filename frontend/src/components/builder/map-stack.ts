@@ -246,14 +246,24 @@ export function isTerrainCapableDemLayer(layer: {
  * rendering terrain from a hillshade DEM.
  */
 export function resolveTerrainSourceLayer<
-  T extends { dataset_id?: string | null; is_dem?: boolean | null; dataset_record_type?: string | null },
+  T extends {
+    dataset_id?: string | null;
+    is_dem?: boolean | null;
+    dataset_record_type?: string | null;
+    visible?: boolean | null;
+  },
 >(
   layers: readonly T[],
   terrainConfig: { source_dataset_id?: string | null } | null | undefined,
 ): T | undefined {
   const src = terrainConfig?.source_dataset_id;
   if (!src) return undefined;
-  return layers.find((l) => l.dataset_id === src && isTerrainCapableDemLayer(l));
+  // fix(HT-10): terrain_config binds a DATASET, but a dataset may have several
+  // renderings. Deterministic duplicate semantics: prefer the first visible
+  // matching DEM (a hidden rendering detaches builder terrain, so a visible
+  // sibling should win), then fall back to the first match in stack order.
+  const matches = layers.filter((l) => l.dataset_id === src && isTerrainCapableDemLayer(l));
+  return matches.find((l) => l.visible !== false) ?? matches[0];
 }
 
 function isTerrainRenderLayer(layer: MapLayerResponse) {
@@ -499,19 +509,19 @@ function makeTerrainReliefEntry(
   const selectedDemLayer = configuredSourceId
     ? demLayers.find((layer) => layer.dataset_id === configuredSourceId) ?? null
     : demLayers[0] ?? null;
-  const selectedTerrainLayer = selectedDemLayer && isTerrainRenderLayer(selectedDemLayer)
-    ? selectedDemLayer
-    : null;
-  const fallbackLayer = !selectedTerrainLayer && terrainLayers.length > 0 ? terrainLayers[0] : null;
-  const sourceLayer = selectedTerrainLayer ?? selectedDemLayer ?? fallbackLayer;
+  const fallbackLayer = !selectedDemLayer && terrainLayers.length > 0 ? terrainLayers[0] : null;
+  const sourceLayer = selectedDemLayer ?? fallbackLayer;
+  // fix(HT-01): 'active' matches the runtime resolver (resolveTerrainSourceLayer /
+  // BuilderMap): any dataset-matched terrain-capable DEM powers the mesh,
+  // regardless of render_mode. The old rule required render_mode === 'terrain'
+  // and reported the hybrid hillshade+terrain state as 'disabled' while the map
+  // was actively rendering terrain from it.
   const sourceStatus: MapStackTerrainSourceStatus = terrainConfig?.enabled
-    ? selectedTerrainLayer
+    ? selectedDemLayer
       ? 'active'
-      : selectedDemLayer
-        ? 'disabled'
-        : fallbackLayer
-          ? 'fallback'
-          : 'missing'
+      : fallbackLayer
+        ? 'fallback'
+        : 'missing'
     : configuredSourceId
       ? selectedDemLayer
         ? 'disabled'
