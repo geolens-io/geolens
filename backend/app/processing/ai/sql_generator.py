@@ -148,20 +148,18 @@ def build_sql_schema_context(
     return result
 
 
-def build_sql_generation_prompt(
+def build_sql_user_message(
     question: str, schema_context: str, layer_descriptions: str | None = None
 ) -> str:
-    """Build the complete system prompt for the SQL generation LLM call.
+    """Build the per-call (dynamic) user message for the SQL generation call.
 
-    Includes schema context, PostGIS function reference, geography cast
-    templates, example queries, and constraints.
-
-    Args:
-        question: The user's natural language question.
-        schema_context: DDL schema context from build_sql_schema_context().
-
-    Returns:
-        Complete prompt string for the SQL generation LLM.
+    fix(#448): the schema DDL and the question used to be interpolated into
+    the SYSTEM prompt together with the ~3K-token static PostGIS reference,
+    so the Anthropic cache_control breakpoint never saw a stable prefix —
+    every query_data call paid a full cache miss on the app's largest prompt,
+    and the question was billed twice (it was also sent as the user message).
+    Static reference lives in SQL_SYSTEM_PROMPT (cacheable); everything
+    per-call goes here.
     """
     layer_context = ""
     if layer_descriptions:
@@ -172,12 +170,20 @@ def build_sql_generation_prompt(
 """
 
     return f"""\
-You are a PostgreSQL/PostGIS SQL expert. Generate a single SELECT query to answer the user's question using the provided database schema.
-
 ## Available Tables
 
 {schema_context}
 {layer_context}
+## Question
+
+{question}
+
+Respond with ONLY the SQL query (or an -- ERROR comment if the query cannot be generated). No explanation, no markdown, no code fences."""
+
+
+SQL_SYSTEM_PROMPT = """\
+You are a PostgreSQL/PostGIS SQL expert. Generate a single SELECT query to answer the user's question using the database schema provided in the user message.
+
 ## PostGIS Spatial Functions
 
 ST_Intersects(geomA, geomB) -> boolean    -- True if geometries share any space
@@ -367,19 +373,14 @@ LIMIT 10;
 - For ad-hoc coordinate queries, create points with: ST_SetSRID(ST_MakePoint(longitude, latitude), 4326)::geography
 - For case-insensitive text matching, use ILIKE (e.g., WHERE name ILIKE 'california').
 - Always include LIMIT 1000 unless the query is an aggregation (GROUP BY, COUNT, SUM, etc.).
-- Use ONLY the tables and columns shown in the schema above. Do not invent names.
+- Use ONLY the tables and columns shown in the provided schema. Do not invent names.
 - Use ONLY the functions and operators listed in the PostGIS, Text Search, and Vector Similarity sections above. Do not use functions not in this reference.
 - Vector columns (type vector(N)) are queried with the <->/<=>/<#> operators, NOT with similarity() or ILIKE.
 - Queries are limited to 30 seconds. Prefer indexed operations (ST_DWithin) over unindexed scans (ST_Distance < X).
-- You may use CTEs (WITH clauses) and subqueries. All referenced tables must be from the schema above.
+- You may use CTEs (WITH clauses) and subqueries. All referenced tables must be from the provided schema.
 - If the question cannot be answered with the available schema, respond with: -- ERROR: Cannot answer this question with the available data.
 - If the question asks to modify, delete, or insert data, respond with: -- ERROR: Only SELECT queries are supported.
-
-## Question
-
-{question}
-
-Respond with ONLY the SQL query (or an -- ERROR comment if the query cannot be generated). No explanation, no markdown, no code fences."""
+"""
 
 
 async def generate_sql(
@@ -415,7 +416,10 @@ async def generate_sql(
     """
     provider = await LLM_PROVIDER.get(db)
     model = await LLM_MODEL_LIGHT.get(db)
-    prompt = build_sql_generation_prompt(
+    # fix(#448): static reference → system prompt (stable prefix, provider
+    # prompt-cacheable); schema + question → user message (sent once, not
+    # twice as before).
+    user_message = build_sql_user_message(
         question, schema_context, layer_descriptions=layer_descriptions
     )
 
@@ -439,8 +443,8 @@ async def generate_sql(
 
     result = await provider_ext.complete(
         model=model,
-        system_prompt=prompt,
-        user_message=question,
+        system_prompt=SQL_SYSTEM_PROMPT,
+        user_message=user_message,
         tools=[],
         tool_executor=_noop_executor,
         max_rounds=1,

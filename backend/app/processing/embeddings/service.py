@@ -30,12 +30,36 @@ async def generate_embedding(text: str, session: AsyncSession) -> list[float]:
     Model, dimensions, and base URL are read from PersistentConfig and the
     EmbeddingProviderExtension's resolve_runtime_config (Phase 231 D-21).
 
+    The 130s provider timeout suits background paths (ingest, backfill);
+    request-hot-path callers (semantic search) wrap this call in a short
+    ``asyncio.wait_for`` instead — see service_semantic (fix #448).
+
     Args:
         text: The text to embed.
         session: Database session for reading PersistentConfig values.
 
     Returns:
         A list of floats representing the embedding vector.
+
+    Raises:
+        EmbeddingUnavailableError: If no OpenAI-compatible API key is configured.
+    """
+    vectors = await generate_embeddings_batch([text], session)
+    return vectors[0]
+
+
+async def generate_embeddings_batch(
+    texts: list[str], session: AsyncSession
+) -> list[list[float]]:
+    """Generate embedding vectors for many texts in ONE provider call.
+
+    fix(#448): the backfill previously embedded one record per API call even
+    though the provider accepts input lists. Callers chunk to a sane batch
+    size (backfill uses 128; the OpenAI endpoint accepts up to 2048 inputs).
+    Config resolution and retry semantics are identical to the single-text
+    path — generate_embedding() delegates here with a one-element list.
+
+    Returns vectors in the same order as ``texts``.
 
     Raises:
         EmbeddingUnavailableError: If no OpenAI-compatible API key is configured.
@@ -56,28 +80,27 @@ async def generate_embedding(text: str, session: AsyncSession) -> list[float]:
     dims = await EMBEDDING_DIMS.get(session) or runtime_config.get("default_dims")
     base_url = runtime_config.get("base_url")
 
-    # Truncate very long input
-    if len(text) > _MAX_INPUT_CHARS:
-        text = text[:_MAX_INPUT_CHARS]
+    # Truncate very long inputs
+    texts = [t[:_MAX_INPUT_CHARS] if len(t) > _MAX_INPUT_CHARS else t for t in texts]
 
     logger.info(
-        "Generating embedding",
+        "Generating embeddings",
         model=model,
         dimensions=dims,
-        text_length=len(text),
+        batch_size=len(texts),
+        text_length=sum(len(t) for t in texts),
     )
 
     # Phase 231 D-22: retry/backoff lives in DefaultOpenAIEmbeddingProvider.embed().
     # The provider raises EmbeddingUnavailableError on terminal failure (no
     # service-level retry needed — single source of truth).
-    vectors = await provider_ext.embed(
-        texts=[text],
+    return await provider_ext.embed(
+        texts=texts,
         model=model,
         dimensions=dims,
         base_url=base_url,
         timeout=130.0,
     )
-    return vectors[0]
 
 
 async def probe_embedding_dimensions(session: AsyncSession) -> int:
@@ -125,7 +148,9 @@ async def rebuild_embedding_column(db: AsyncSession, new_dims: int) -> bool:
     """Resize the embedding column to new_dims if it currently differs.
 
     Deletes all existing embeddings, drops the HNSW index, alters the column
-    type, then recreates the index. Commits on success; rolls back on failure.
+    type, then recreates the index (skipped above pgvector's 2000-dim HNSW
+    limit — the column stays unindexed and searches use exact scans).
+    Commits on success; rolls back on failure.
 
     DBM-07 (Phase 271): The HNSW DDL is also issued by migration 0001_baseline for
     fresh-install / migrated-up environments. This function handles the
@@ -166,13 +191,22 @@ async def rebuild_embedding_column(db: AsyncSession, new_dims: int) -> bool:
                 f"USING embedding::vector({new_dims})"
             )
         )
-        await db.execute(
-            sa_text(
-                "CREATE INDEX ix_record_embeddings_hnsw "
-                "ON catalog.record_embeddings USING hnsw (embedding vector_cosine_ops) "
-                "WITH (m=16, ef_construction=64)"
+        if new_dims <= 2000:
+            await db.execute(
+                sa_text(
+                    "CREATE INDEX ix_record_embeddings_hnsw "
+                    "ON catalog.record_embeddings USING hnsw (embedding vector_cosine_ops) "
+                    "WITH (m=16, ef_construction=64)"
+                )
             )
-        )
+        else:
+            # fix(#449, codex P1): pgvector rejects HNSW on vector columns over
+            # 2000 dims; leave the column unindexed (exact-scan fallback)
+            # instead of failing the whole dimension change.
+            logger.warning(
+                "Skipping HNSW index: %s dims exceeds pgvector's 2000-dim limit",
+                new_dims,
+            )
         await db.commit()
     except Exception:  # broad: DDL (DROP INDEX, ALTER COLUMN) can fail for schema/lock reasons; re-raise to caller
         await db.rollback()

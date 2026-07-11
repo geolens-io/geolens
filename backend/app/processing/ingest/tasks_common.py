@@ -1378,6 +1378,15 @@ async def _apply_reupload_swap(
             retry_timeout_seconds=15,
         )
 
+    # fix(#448): belt-and-braces after the swap — the staging pipeline is
+    # responsible for the GIST index, but a re-ingest of a table that already
+    # lost its index (the IF-NOT-EXISTS name-collision regression) must
+    # self-heal here rather than serve full-scan tiles until the next audit.
+    if metadata.get("geometry_type") is not None:
+        from app.processing.ingest.metadata import ensure_geom_4326_gist_index
+
+        await ensure_geom_4326_gist_index(session, table_name, schema=_tenant_schema)
+
     # Update dataset metadata in the same transaction as swap
     dataset.srid = metadata["srid"]
     dataset.geometry_type = metadata["geometry_type"]

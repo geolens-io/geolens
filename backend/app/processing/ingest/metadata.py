@@ -1141,12 +1141,7 @@ async def add_4326_column(
             text(f"UPDATE {tref} SET geom_4326 = ST_Force2D(ST_Transform(geom, 4326))")
         )
 
-    await session.execute(
-        text(
-            f"CREATE INDEX IF NOT EXISTS idx_{table_name}_geom_4326 "
-            f"ON {tref} USING GIST (geom_4326)"
-        )
-    )
+    await ensure_geom_4326_gist_index(session, table_name)
 
     # DBM-05 (Phase 271): the previously-created `idx_<table>_gid` btree
     # was redundant with the PK btree on `gid SERIAL PRIMARY KEY`. Removed
@@ -1157,6 +1152,50 @@ async def add_4326_column(
     # (_finalize_ingest at tasks_common.py:821) owns the phase-2 commit
     # boundary so a downstream failure rolls back the ALTER + UPDATE +
     # CREATE INDEX above atomically.
+
+
+async def ensure_geom_4326_gist_index(
+    session: AsyncSession, table_name: str, *, schema: str = "data"
+) -> None:
+    """Create the GIST index on geom_4326 if this table doesn't have one.
+
+    fix(#448): the previous ``CREATE INDEX IF NOT EXISTS idx_<table>_geom_4326``
+    matched by NAME schema-wide, not per-table. On a second re-ingest the
+    previous swap's index (created against ``<table>_staging`` and carried
+    along by the RENAME) still held that name, so the new staging table
+    silently got NO spatial index — and the swap then dropped the only
+    indexed copy of the data. Check ``pg_indexes`` for a gist index on THIS
+    table instead, and let PostgreSQL pick a collision-free index name.
+    Called from both add_4326_column (staging load) and _apply_reupload_swap
+    (post-swap belt-and-braces), so any re-ingest self-heals a missing index.
+
+    No-op when the table has no geom_4326 column: a dataset can carry a
+    geometry_type while only exposing the native ``geom`` column (the
+    effective_srid=None staging path skips add_4326_column).
+    """
+    has_col = await session.execute(
+        text(
+            "SELECT 1 FROM information_schema.columns "
+            "WHERE table_schema = :schema AND table_name = :tn "
+            "AND column_name = 'geom_4326'"
+        ).bindparams(schema=schema, tn=table_name)
+    )
+    if has_col.first() is None:
+        return
+
+    has_gist = await session.execute(
+        text(
+            "SELECT 1 FROM pg_indexes "
+            "WHERE schemaname = :schema AND tablename = :tn "
+            "AND indexdef LIKE '%USING gist (geom_4326)%'"
+        ).bindparams(schema=schema, tn=table_name)
+    )
+    if has_gist.first() is None:
+        await session.execute(
+            text(
+                f"CREATE INDEX ON {_qtable(table_name, schema)} USING GIST (geom_4326)"
+            )
+        )
 
 
 async def grant_reader_access(

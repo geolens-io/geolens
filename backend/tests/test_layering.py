@@ -792,6 +792,11 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # 660 → 720 (~29 LOC headroom).
         "backend/app/modules/catalog/maps/service_public.py": 720,
         "backend/app/modules/catalog/search/service_records.py": 500,
+        # fix(#448): +~40 LOC — query-embedding hot-path deadline (asyncio.wait_for
+        # wrapper) + the gated/approximated vector-only match COUNT in
+        # _run_rrf_merge (perf audit 2026-07-10 §2d). Cap 350 → 390
+        # (~19 LOC headroom above 371).
+        "backend/app/modules/catalog/search/service_semantic.py": 390,
         # fix(#430 V-14): _replace_layers now reconciles layers by id (update-in-place
         # + create/delete) instead of delete-all-then-recreate, so a PUT preserves
         # layer UUIDs. +~35 LOC over the 350 default. Cap → 400 (~34 headroom).

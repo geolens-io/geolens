@@ -164,6 +164,15 @@ class Settings(BaseSettings):
     # CONF-03 (Phase 277 / M-38): replaces raw os.environ.get("WORKER_SHUTDOWN_TIMEOUT") in worker.py
     worker_shutdown_timeout: int = 30
 
+    # fix(#448): Procrastinate parallel job slots per worker process. The
+    # implicit default of 1 head-of-line-blocked every queued upload behind a
+    # long COG conversion. 2-3 suits multi-core hosts; keep 1 on 2-vCPU boxes.
+    worker_concurrency: int = 1
+    # fix(#448): queues this worker listens to. Lets a deployment run a second
+    # worker service dedicated to e.g. WORKER_QUEUES=raster so long raster jobs
+    # never stall vector ingests.
+    worker_queues: str = "priority,ingest,raster"
+
     # CONF-04 (Phase 277 / M-39): replaces raw os.environ.get("ENV_ONLY_CONFIG") in core/public_urls.py
     # Security-relevant: when true, the PersistentConfig DB layer is bypassed for reads
     # and writes return 403. Keep in sync with .env.example.

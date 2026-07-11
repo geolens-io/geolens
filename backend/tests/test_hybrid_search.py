@@ -791,3 +791,70 @@ async def test_semantic_vector_only_pagination(
     assert matched >= 5, (
         f"numberMatched should count all semantic matches, got {matched}"
     )
+
+
+@pytest.mark.anyio
+async def test_semantic_approximate_count_keeps_next_link(
+    client: AsyncClient,
+    test_db_session,
+):
+    """fix(#448, codex P2): past the exact-count gate, a FULL vector window must
+    report numberMatched > offset+limit or the router suppresses the `next`
+    link on a semantic-only first page. The +1 full-window sentinel keeps
+    paging alive; a non-full (final) window reports the exact tail."""
+    session = test_db_session
+    admin_id = await get_user_id(session, "admin")
+    dim = await _get_embedding_dim(session)
+    await _set_semantic_search(session, True)
+
+    # Five public datasets in an isolated vector band (lo=90), no lexical overlap.
+    for i, base in enumerate((0.99, 0.95, 0.90, 0.85, 0.80)):
+        ds = await _create_search_dataset(
+            session,
+            created_by=admin_id,
+            name=f"Approx Band Layer {i}",
+            description="public",
+        )
+        session.add(
+            RecordEmbedding(
+                record_id=ds.record_id,
+                embedding=_make_vector_band(base, dim=dim, lo=90),
+                model_name="text-embedding-3-small",
+                content_hash=f"approx_band_{i}",
+            )
+        )
+    await session.commit()
+
+    async def _page(offset: int) -> tuple[int, int]:
+        with (
+            patch(
+                "app.modules.catalog.search.service_semantic.generate_embedding",
+                new_callable=AsyncMock,
+                return_value=_make_vector_band(1.0, dim=dim, lo=90),
+            ),
+            # Force the approximate branch (as if the catalog held >5000 embeddings).
+            patch(
+                "app.modules.catalog.search.service_semantic._EXACT_SEMANTIC_COUNT_MAX_ROWS",
+                0,
+            ),
+        ):
+            r = await client.get(
+                "/search/datasets/",
+                params={"q": "zzznolexicalapproxxyz", "limit": 2, "offset": offset},
+            )
+        assert r.status_code == 200
+        body = r.json()
+        return len(body["features"]), body.get("numberMatched", 0)
+
+    returned1, matched1 = await _page(0)
+    assert returned1 == 2
+    # Full window (2 fetched for page_end=2): the sentinel must push the total
+    # past offset+limit so rel="next" is emitted.
+    assert matched1 > 2, f"full-window total must exceed the page, got {matched1}"
+
+    # Deep page: window (page_end=6) is NOT full for 5 matches — exact tail.
+    returned3, matched3 = await _page(4)
+    assert returned3 == 1
+    assert matched3 == 5, (
+        f"non-full window should report the exact tail, got {matched3}"
+    )

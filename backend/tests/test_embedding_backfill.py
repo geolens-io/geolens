@@ -1,10 +1,12 @@
 """Tests for embedding backfill: backfill_embeddings processes records without
-embeddings, handles errors gracefully, and returns progress counts.
+embeddings in provider batches (fix #448), handles errors gracefully, and
+returns progress counts.
 
 Unit tests using mocks -- no running database required.
 """
 
 import uuid
+from contextlib import ExitStack
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -35,10 +37,28 @@ def _make_query_result(records):
     return result
 
 
+def _patch_backfill_gates(stack: ExitStack, *, ai_enabled=True):
+    """Patch the run-level PersistentConfig gates the backfill reads once."""
+    from app.processing.embeddings import backfill as backfill_module
+
+    stack.enter_context(
+        patch.object(
+            backfill_module.AI_ENABLED, "get", AsyncMock(return_value=ai_enabled)
+        )
+    )
+    stack.enter_context(
+        patch.object(
+            backfill_module.EMBEDDING_MODEL,
+            "get",
+            AsyncMock(return_value="test-model"),
+        )
+    )
+
+
 class TestBackfillEmbeddings:
     @pytest.mark.asyncio
-    async def test_processes_records_without_embeddings(self):
-        """Records without embeddings should be processed via generate_and_store_embedding."""
+    async def test_processes_records_in_one_batch(self):
+        """Records without embeddings are embedded in a single provider call."""
         from app.processing.embeddings.backfill import backfill_embeddings
 
         r1 = _make_record(title="Dataset A")
@@ -47,21 +67,27 @@ class TestBackfillEmbeddings:
         session = AsyncMock()
         session.execute = AsyncMock(return_value=_make_query_result([r1, r2]))
 
-        with patch(
-            "app.processing.embeddings.backfill.generate_and_store_embedding",
-            new_callable=AsyncMock,
-        ) as mock_gen:
-            mock_gen.return_value = True
+        with ExitStack() as stack:
+            _patch_backfill_gates(stack)
+            mock_batch = stack.enter_context(
+                patch(
+                    "app.processing.embeddings.backfill.generate_embeddings_batch",
+                    new_callable=AsyncMock,
+                )
+            )
+            mock_batch.return_value = [[0.1] * 3, [0.2] * 3]
             result = await backfill_embeddings(session)
 
-        assert mock_gen.call_count == 2
+        # fix(#448): both records ride ONE provider call, not one call each.
+        assert mock_batch.call_count == 1
         assert result["processed"] == 2
         assert result["created"] == 2
         assert result["errors"] == 0
+        assert session.add.call_count == 2
 
     @pytest.mark.asyncio
-    async def test_individual_errors_do_not_stop_backfill(self):
-        """If one record fails, the backfill should continue to the next."""
+    async def test_batch_errors_do_not_stop_backfill(self):
+        """If one batch fails, the backfill should continue to the next."""
         from app.processing.embeddings.backfill import backfill_embeddings
 
         r1 = _make_record(title="Fails")
@@ -70,16 +96,64 @@ class TestBackfillEmbeddings:
         session = AsyncMock()
         session.execute = AsyncMock(return_value=_make_query_result([r1, r2]))
 
-        with patch(
-            "app.processing.embeddings.backfill.generate_and_store_embedding",
-            new_callable=AsyncMock,
-        ) as mock_gen:
-            mock_gen.side_effect = [RuntimeError("API error"), True]
+        with ExitStack() as stack:
+            _patch_backfill_gates(stack)
+            # Force one record per batch so the two records land in two batches.
+            stack.enter_context(
+                patch("app.processing.embeddings.backfill._BATCH_SIZE", 1)
+            )
+            mock_batch = stack.enter_context(
+                patch(
+                    "app.processing.embeddings.backfill.generate_embeddings_batch",
+                    new_callable=AsyncMock,
+                )
+            )
+            # fix(#449): a failed batch is retried per record, so the failing
+            # single-record batch consumes TWO calls (batch, then retry).
+            mock_batch.side_effect = [
+                RuntimeError("API error"),
+                RuntimeError("API error"),
+                [[0.1] * 3],
+            ]
             result = await backfill_embeddings(session)
 
         assert result["processed"] == 2
         assert result["created"] == 1
         assert result["errors"] == 1
+
+    @pytest.mark.asyncio
+    async def test_failed_batch_retries_per_record(self):
+        """fix(#449, codex P2): one rejected input must not sink its batchmates —
+        the failed batch is retried per record and only the bad one errors."""
+        from app.processing.embeddings.backfill import backfill_embeddings
+
+        r1 = _make_record(title="Good")
+        r2 = _make_record(title="Too long for the model")
+
+        session = AsyncMock()
+        session.execute = AsyncMock(return_value=_make_query_result([r1, r2]))
+
+        with ExitStack() as stack:
+            _patch_backfill_gates(stack)
+            mock_batch = stack.enter_context(
+                patch(
+                    "app.processing.embeddings.backfill.generate_embeddings_batch",
+                    new_callable=AsyncMock,
+                )
+            )
+            # Batch call rejects; per-record retry succeeds for r1, fails for r2.
+            mock_batch.side_effect = [
+                RuntimeError("one input over the token limit"),
+                [[0.1] * 3],
+                RuntimeError("input over the token limit"),
+            ]
+            result = await backfill_embeddings(session)
+
+        assert mock_batch.call_count == 3
+        assert result["processed"] == 2
+        assert result["created"] == 1
+        assert result["errors"] == 1
+        assert session.add.call_count == 1
 
     @pytest.mark.asyncio
     async def test_returns_correct_counts(self):
@@ -89,37 +163,60 @@ class TestBackfillEmbeddings:
         session = AsyncMock()
         session.execute = AsyncMock(return_value=_make_query_result([]))
 
-        with patch(
-            "app.processing.embeddings.backfill.generate_and_store_embedding",
-            new_callable=AsyncMock,
-        ):
-            result = await backfill_embeddings(session)
+        result = await backfill_embeddings(session)
 
         assert result == {"processed": 0, "created": 0, "skipped": 0, "errors": 0}
 
     @pytest.mark.asyncio
-    async def test_skips_when_generate_returns_false(self):
-        """When generate_and_store_embedding returns False, record counts as skipped."""
+    async def test_skips_records_with_empty_content(self):
+        """Records whose metadata builds no content text count as skipped."""
         from app.processing.embeddings.backfill import backfill_embeddings
 
-        r1 = _make_record(title="Skipped")
+        r1 = _make_record(title=None)
 
         session = AsyncMock()
         session.execute = AsyncMock(return_value=_make_query_result([r1]))
 
-        with patch(
-            "app.processing.embeddings.backfill.generate_and_store_embedding",
-            new_callable=AsyncMock,
-        ) as mock_gen:
-            mock_gen.return_value = False
+        with ExitStack() as stack:
+            _patch_backfill_gates(stack)
+            mock_batch = stack.enter_context(
+                patch(
+                    "app.processing.embeddings.backfill.generate_embeddings_batch",
+                    new_callable=AsyncMock,
+                )
+            )
             result = await backfill_embeddings(session)
 
+        assert mock_batch.call_count == 0
         assert result["processed"] == 0
         assert result["skipped"] == 1
 
     @pytest.mark.asyncio
+    async def test_skips_all_when_ai_disabled(self):
+        """AI_ENABLED=false short-circuits the run with everything skipped."""
+        from app.processing.embeddings.backfill import backfill_embeddings
+
+        r1 = _make_record(title="Dataset A")
+
+        session = AsyncMock()
+        session.execute = AsyncMock(return_value=_make_query_result([r1]))
+
+        with ExitStack() as stack:
+            _patch_backfill_gates(stack, ai_enabled=False)
+            mock_batch = stack.enter_context(
+                patch(
+                    "app.processing.embeddings.backfill.generate_embeddings_batch",
+                    new_callable=AsyncMock,
+                )
+            )
+            result = await backfill_embeddings(session)
+
+        assert mock_batch.call_count == 0
+        assert result == {"processed": 0, "created": 0, "skipped": 1, "errors": 0}
+
+    @pytest.mark.asyncio
     async def test_extracts_keyword_strings(self):
-        """Keywords should be extracted as strings from RecordKeyword objects."""
+        """Keywords should be extracted as strings into the embedded content."""
         from app.processing.embeddings.backfill import backfill_embeddings
 
         r1 = _make_record(title="With Keywords", keywords=["water", "hydrology"])
@@ -127,12 +224,17 @@ class TestBackfillEmbeddings:
         session = AsyncMock()
         session.execute = AsyncMock(return_value=_make_query_result([r1]))
 
-        with patch(
-            "app.processing.embeddings.backfill.generate_and_store_embedding",
-            new_callable=AsyncMock,
-        ) as mock_gen:
-            mock_gen.return_value = True
+        with ExitStack() as stack:
+            _patch_backfill_gates(stack)
+            mock_batch = stack.enter_context(
+                patch(
+                    "app.processing.embeddings.backfill.generate_embeddings_batch",
+                    new_callable=AsyncMock,
+                )
+            )
+            mock_batch.return_value = [[0.1] * 3]
             await backfill_embeddings(session)
 
-        call_kwargs = mock_gen.call_args[1]
-        assert call_kwargs["keywords"] == ["water", "hydrology"]
+        texts = mock_batch.call_args[0][0]
+        assert len(texts) == 1
+        assert "water, hydrology" in texts[0]

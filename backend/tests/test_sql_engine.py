@@ -12,8 +12,9 @@ from app.processing.ai.constants import tool_label
 from app.processing.ai.schemas import ChatMapLayer
 from app.processing.ai.tools import CHAT_TOOLS_ANTHROPIC
 from app.processing.ai.sql_generator import (
+    SQL_SYSTEM_PROMPT,
     build_sql_schema_context,
-    build_sql_generation_prompt,
+    build_sql_user_message,
 )
 from app.platform.extensions.defaults import DefaultProcessingPort
 from app.platform.sandbox.schemas import SandboxError, SandboxResult
@@ -122,14 +123,29 @@ class TestSchemaContext:
 
 
 class TestSqlPrompt:
-    """Tests for build_sql_generation_prompt()."""
+    """Tests for SQL_SYSTEM_PROMPT + build_sql_user_message().
+
+    fix(#448): the prompt is split — static reference in the (cacheable)
+    system prompt, schema + question in the user message. The combined text
+    keeps the pre-split assertions meaningful.
+    """
 
     def setup_method(self):
         self.schema = "CREATE TABLE data.cities (\n  name text\n);"
-        self.prompt = build_sql_generation_prompt(
+        self.user_message = build_sql_user_message(
             question="How many cities per country?",
             schema_context=self.schema,
         )
+        self.prompt = SQL_SYSTEM_PROMPT + "\n" + self.user_message
+
+    def test_system_prompt_is_static(self):
+        """The cacheable prefix must not contain per-call content."""
+        assert "How many cities per country?" not in SQL_SYSTEM_PROMPT
+        assert self.schema not in SQL_SYSTEM_PROMPT
+
+    def test_user_message_carries_schema_and_question(self):
+        assert self.schema in self.user_message
+        assert "How many cities per country?" in self.user_message
 
     def test_includes_all_8_postgis_functions(self):
         required = [

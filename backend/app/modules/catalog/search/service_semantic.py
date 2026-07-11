@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import time
 import uuid as uuid_mod
 from collections import OrderedDict
@@ -32,6 +33,11 @@ EmbeddingUnavailableError = get_catalog_port().embedding_unavailable_error_class
 # 300 seconds (matches audit recommendation), max 512 entries.
 _EMBEDDING_CACHE_TTL_SECONDS = 300.0
 _EMBEDDING_CACHE_MAX_SIZE = 512
+
+# fix(#448): above this many stored embeddings, _run_rrf_merge stops running
+# the exact vector-only match COUNT (a full cosine scan) and approximates
+# from the already-fetched top-k ranks instead.
+_EXACT_SEMANTIC_COUNT_MAX_ROWS = 5000
 _embedding_cache: "OrderedDict[tuple[str, str], tuple[float, list[float]]]" = (
     OrderedDict()
 )
@@ -65,6 +71,21 @@ def _embedding_cache_clear() -> None:
     _embedding_cache.clear()
 
 
+# fix(#448): this module embeds INSIDE a search request. The provider default
+# timeout (130s) is sized for background ingest/backfill; a hung embedding
+# provider must not hold a search request when _get_vector_ranks silently
+# falls back to FTS on any error. asyncio.wait_for (rather than a port
+# signature change) keeps enterprise CatalogPort overlays source-compatible.
+_QUERY_EMBED_TIMEOUT_SECONDS = 8.0
+
+
+async def _embed_with_deadline(text: str, session: AsyncSession) -> list[float]:
+    return await asyncio.wait_for(
+        get_catalog_port().generate_embedding(text, session),
+        timeout=_QUERY_EMBED_TIMEOUT_SECONDS,
+    )
+
+
 async def generate_embedding(text: str, session: AsyncSession) -> list[float]:
     """Generate an embedding through the configured CatalogPort provider.
 
@@ -75,7 +96,7 @@ async def generate_embedding(text: str, session: AsyncSession) -> list[float]:
     normalized = text.strip().lower()
     if not normalized:
         # Don't cache empty inputs — let the provider raise its usual error.
-        return await get_catalog_port().generate_embedding(text, session)
+        return await _embed_with_deadline(text, session)
 
     model_name = await EMBEDDING_MODEL.get(session)
     cache_key = (normalized, model_name)
@@ -84,7 +105,7 @@ async def generate_embedding(text: str, session: AsyncSession) -> list[float]:
     if cached is not None:
         return cached
 
-    vector = await get_catalog_port().generate_embedding(text, session)
+    vector = await _embed_with_deadline(text, session)
     _embedding_cache_put(cache_key, vector)
     return vector
 
@@ -290,17 +311,45 @@ async def _run_rrf_merge(
     )
     model_name = await EMBEDDING_MODEL.get(session)
     RecordEmbedding = get_catalog_port().record_embedding_orm_class()
-    new_count_stmt = (
-        select(func.count())
-        .select_from(RecordEmbedding)
-        .where(
-            RecordEmbedding.model_name == model_name,
-            RecordEmbedding.embedding.cosine_distance(query_vector) <= 0.7,
-            RecordEmbedding.record_id.in_(vet_stmt),
-            RecordEmbedding.record_id.notin_(fts_match_subq),
+    # fix(#448): the exact COUNT below re-computes cosine distance against
+    # EVERY stored embedding — a second full O(N)·dims vector scan per search
+    # that no ANN index can serve (aggregate over a distance predicate).
+    # Exact and cheap at today's catalog size; past the row gate, approximate
+    # the vector-only surplus from the vetted top-k ranks already in hand.
+    # numberMatched becomes a lower bound (may under-report distant tail
+    # matches); a full-window sentinel below keeps `next` links alive.
+    emb_rows = (
+        await session.execute(
+            select(func.count())
+            .select_from(RecordEmbedding)
+            .where(RecordEmbedding.model_name == model_name)
         )
-    )
-    total += (await session.execute(new_count_stmt)).scalar_one()
+    ).scalar_one()
+    if emb_rows <= _EXACT_SEMANTIC_COUNT_MAX_ROWS:
+        new_count_stmt = (
+            select(func.count())
+            .select_from(RecordEmbedding)
+            .where(
+                RecordEmbedding.model_name == model_name,
+                RecordEmbedding.embedding.cosine_distance(query_vector) <= 0.7,
+                RecordEmbedding.record_id.in_(vet_stmt),
+                RecordEmbedding.record_id.notin_(fts_match_subq),
+            )
+        )
+        total += (await session.execute(new_count_stmt)).scalar_one()
+    else:
+        fts_id_set = set(fts_ids)
+        vector_only = sum(1 for rid in vector_ranks if rid not in fts_id_set)
+        # fix(#448, codex P2): a FULL top-k window means deeper matches may
+        # exist beyond what was fetched, but reporting exactly page_end as the
+        # total makes the router's `offset + limit < total` check suppress the
+        # rel="next" link on a semantic-only page. Report one past the window
+        # so paging continues; each deeper page fetches a deeper window until
+        # a non-full window yields the exact tail. Worst case the final next
+        # link lands on one empty page — acceptable for an approximation.
+        if len(vector_ranks) >= page_end:
+            vector_only += 1
+        total += vector_only
 
     rrf_ordered = _compute_rrf_scores(fts_ids, vector_ranks)
 

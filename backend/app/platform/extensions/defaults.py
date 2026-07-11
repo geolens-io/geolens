@@ -1017,12 +1017,17 @@ class DefaultAnthropicProvider:
         del temperature  # rejected by Claude 4.6+; kept in signature for callers
         # Deferred imports (Phase 214 discipline)
         import json
+        import time
 
         import structlog
         from anthropic import AsyncAnthropic
 
         from app.core.config import reveal, settings
-        from app.processing.ai.constants import MAX_TOOL_ROUNDS
+        from app.processing.ai.constants import (
+            MAX_REQUEST_TOKEN_BUDGET,
+            MAX_STREAMING_WALL_CLOCK_SECONDS,
+            MAX_TOOL_ROUNDS,
+        )
         from app.processing.ai.llm_loop import (
             ToolLoopExhaustedError,
             ToolLoopResult,
@@ -1064,8 +1069,19 @@ class DefaultAnthropicProvider:
         collected_actions: list[dict] = []
         total_input = 0
         total_output = 0
+        # fix(#448): mirror the streaming path's PERF-009 runaway guards — the
+        # blocking tool loop (map-gen and friends) previously had neither a
+        # wall-clock deadline nor a cumulative token cap, so a pathological
+        # tool loop could burn budget until max_rounds.
+        deadline = time.monotonic() + MAX_STREAMING_WALL_CLOCK_SECONDS
 
         for round_num in range(max_rounds):
+            if time.monotonic() > deadline:
+                raise ToolLoopExhaustedError("LLM tool loop exceeded wall-clock budget")
+            if total_input + total_output > MAX_REQUEST_TOKEN_BUDGET:
+                raise ToolLoopExhaustedError(
+                    "LLM tool loop exceeded request token budget"
+                )
             # Anthropic API rejects `tools=[]` with 400 BadRequestError
             # ("tools: must have at least 1 item"). Omit the kwarg entirely
             # for no-tools paths (sql_generator.generate_sql,
@@ -1262,13 +1278,18 @@ class DefaultOpenAICompatibleProvider:
     ):
         # Deferred imports (Phase 214 discipline)
         import json
+        import time
 
         import structlog
         from openai import AsyncOpenAI
 
         from app.core.ai_credentials import bind_openai_credential_base_url
         from app.core.config import reveal, settings
-        from app.processing.ai.constants import MAX_TOOL_ROUNDS
+        from app.processing.ai.constants import (
+            MAX_REQUEST_TOKEN_BUDGET,
+            MAX_STREAMING_WALL_CLOCK_SECONDS,
+            MAX_TOOL_ROUNDS,
+        )
         from app.processing.ai.llm_loop import (
             ToolLoopExhaustedError,
             ToolLoopResult,
@@ -1321,8 +1342,17 @@ class DefaultOpenAICompatibleProvider:
         collected_actions: list[dict] = []
         total_input = 0
         total_output = 0
+        # fix(#448): same PERF-009 runaway guards as the Anthropic complete()
+        # loop above — see that comment.
+        deadline = time.monotonic() + MAX_STREAMING_WALL_CLOCK_SECONDS
 
         for round_num in range(max_rounds):
+            if time.monotonic() > deadline:
+                raise ToolLoopExhaustedError("LLM tool loop exceeded wall-clock budget")
+            if total_input + total_output > MAX_REQUEST_TOKEN_BUDGET:
+                raise ToolLoopExhaustedError(
+                    "LLM tool loop exceeded request token budget"
+                )
             # OpenAI API rejects `tools=[]` similarly. Omit when empty so
             # no-tools paths (sql_generator.generate_sql, _retry_parse_map_spec)
             # work for OpenAI-compatible providers too. REVIEW.md CR-01.
