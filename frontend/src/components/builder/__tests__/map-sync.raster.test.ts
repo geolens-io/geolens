@@ -983,4 +983,18 @@ describe('POLISH-02 syncRasterLayer hillshade skip guard', () => {
 
     expect(map.setLayerZoomRange as ReturnType<typeof vi.fn>).toHaveBeenCalledWith('layer-dem-layer-1', 8, 15);
   });
+
+  // codex(#451): a raster/DEM layer with NO saved custom range must NOT be
+  // force-capped — leave maplibre's default (uncapped) so it doesn't blink off
+  // at the max zoom stop.
+  it('does not touch the zoom range when no custom _minzoom/_maxzoom is saved', () => {
+    const layer = makeDEMLayer({ layout: {} });
+    const tokenMap = new Map<string, TileToken>([
+      ['dem-ds-1', makeRasterToken({ tile_url: '/tiles/dem/{z}/{x}/{y}.png' })],
+    ]);
+
+    syncLayersToMap(map, [layer], tokenMap, undefined, managedSourcesRef, { current: '' });
+
+    expect(map.setLayerZoomRange as ReturnType<typeof vi.fn>).not.toHaveBeenCalled();
+  });
 });

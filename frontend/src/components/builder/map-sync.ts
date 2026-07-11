@@ -1208,13 +1208,23 @@ export function syncLayersToMap(
         // layers too (plus the color-relief companion). Only the vector paths
         // called syncLayerZoomRange, so saved _minzoom/_maxzoom silently
         // stopped applying after a reload.
+        // codex(#451): gate on a custom range ACTUALLY being present. A plain
+        // raster/imagery layer has no zoom editor and never carries these keys,
+        // so an unconditional (0, 22) fallback would force setLayerZoomRange(…,
+        // 0, 22) and hide the layer at the max zoom stop — a behavior change for
+        // layers that never had a saved range. maplibre's default (uncapped)
+        // must stand unless the user saved one.
         const rasterLayout = layer.layout ?? {};
-        syncLayerZoomRange(
-          map,
-          [layerId, getCompanionLayerIds(layer.id, prefix).colorRelief],
-          (rasterLayout['_minzoom'] as number) ?? 0,
-          (rasterLayout['_maxzoom'] as number) ?? 22,
-        );
+        const rasterMin = rasterLayout['_minzoom'];
+        const rasterMax = rasterLayout['_maxzoom'];
+        if (typeof rasterMin === 'number' || typeof rasterMax === 'number') {
+          syncLayerZoomRange(
+            map,
+            [layerId, getCompanionLayerIds(layer.id, prefix).colorRelief],
+            typeof rasterMin === 'number' ? rasterMin : 0,
+            typeof rasterMax === 'number' ? rasterMax : 22,
+          );
+        }
       } else {
         const vectorToken = token?.kind === 'vector' ? token : null;
         syncVectorLayer(map, layer, renderableLayers, adapterInput, tileBaseUrl, vectorToken, desiredSources, geojsonDataMap, prefix);

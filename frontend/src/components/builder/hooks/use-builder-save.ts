@@ -551,16 +551,11 @@ export function useBuilderSave(state: SaveState) {
   );
 
   const baselineLayersRef = useRef<MapLayerResponse[]>([]);
-  // fix(HT-13): snapshot terrain_config alongside the layer baseline so
-  // handleSave can tell when one save spans BOTH authorities (layer diff +
-  // map-level terrain binding) and must persist them in a single request.
-  const baselineTerrainRef = useRef<MapTerrainConfig | null>(null);
   useEffect(() => {
     if (!state.hasUnsavedChanges) {
       baselineLayersRef.current = state.localLayers.map((layer) => ({ ...layer }));
-      baselineTerrainRef.current = state.terrainConfig ? { ...state.terrainConfig } : null;
     }
-  }, [state.hasUnsavedChanges, state.localLayers, state.terrainConfig]);
+  }, [state.hasUnsavedChanges, state.localLayers]);
 
   useEffect(() => {
     // fix(#392): let layer-create paths register the server-created layer into the
@@ -648,16 +643,16 @@ export function useBuilderSave(state: SaveState) {
 
     try {
       const { diff, unsupported } = buildLayerDiff(baselineLayersRef.current, localLayers, groupMeta);
-      // fix(HT-13): a DEM gesture can change a layer's style AND the map-level
-      // terrain binding. The split "layer PATCH, then metadata PUT" pipeline
-      // persists them in two requests, so a failure between them stored a new
-      // render mode with the old terrain binding — permanently, since the
-      // client baseline can't reconstruct the pre-save state. When one save
-      // touches both authorities, send the single full-replacement PUT instead:
-      // the server applies layers + terrain_config in one transaction.
-      const terrainChanged =
-        stableJson(state.terrainConfig) !== stableJson(baselineTerrainRef.current);
-      if (unsupported || (hasDiff(diff) && terrainChanged)) {
+      // HT-13 note: the DEM editor's hillshade overlay (style_config.render_mode)
+      // and 3D terrain binding (terrain_config) are now INDEPENDENT authorities.
+      // A save that persists only one of them (e.g. the layer PATCH commits and
+      // the metadata PUT fails) is therefore NOT a contradiction — it's an
+      // incomplete save of two independent settings, coherent on reload and
+      // recoverable by re-toggling. So the split PATCH+PUT path is safe and we
+      // keep it, rather than forcing every combined save through the lossy
+      // full-replacement PUT (which can null server-only layer fields — see the
+      // #430 V-01 note below). The failed-save toast already prompts a retry.
+      if (unsupported) {
         await updateMap.mutateAsync({ id, data: fullReplacementPayload });
       } else {
         if (hasDiff(diff)) {

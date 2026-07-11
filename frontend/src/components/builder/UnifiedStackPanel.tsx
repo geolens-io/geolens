@@ -60,6 +60,11 @@ interface UnifiedStackPanelProps {
    * safest no-warning default.
    */
   mapVisibility?: 'private' | 'internal' | 'public';
+  /** codex(#451): ids of DEM layers whose 2D overlay is off and that aren't the
+   *  active 3D terrain source — they paint nothing despite the eye being on.
+   *  Computed by MapBuilderPage (needs terrain_config); optional so other call
+   *  sites/tests keep compiling. */
+  drawsNothingLayerIds?: ReadonlySet<string>;
   selectedLayerId: string | null;
   onSelectLayer: (id: string | null) => void;
   onToggleVisibility: (id: string) => void;
@@ -272,6 +277,7 @@ const SublayerRow = memo(function SublayerRow({
 export const UnifiedStackPanel = memo(function UnifiedStackPanel({
   layers,
   mapVisibility = 'private',
+  drawsNothingLayerIds,
   selectedLayerId,
   onSelectLayer,
   onToggleVisibility,
@@ -783,6 +789,7 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
                                 isFresh={child.id === freshLayerId}
                                 disambiguationLabel={disambiguationLabels.get(child.id) ?? null}
                                 audienceHidden={audienceHiddenLayerIds.has(child.id)}
+                                drawsNothing={drawsNothingLayerIds?.has(child.id) ?? false}
                                 dragDisabled={isSearchActive}
                               />
                             );
@@ -828,6 +835,7 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
                     isFresh={layer.id === freshLayerId}
                     disambiguationLabel={disambiguationLabels.get(layer.id) ?? null}
                     audienceHidden={audienceHiddenLayerIds.has(layer.id)}
+                    drawsNothing={drawsNothingLayerIds?.has(layer.id) ?? false}
                     dragDisabled={isSearchActive}
                   />
                 );

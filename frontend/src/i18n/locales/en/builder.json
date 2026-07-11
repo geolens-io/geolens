@@ -1074,7 +1074,8 @@
     "kebabCopyStyle": "Copy style",
     "kebabPasteStyle": "Paste style",
     "disambiguation": "{{label}}",
-    "audienceHidden": "Hidden from this map's viewers"
+    "audienceHidden": "Hidden from this map's viewers",
+    "drawsNothing": "Not shown — enable Hillshade or 3D terrain"
   },
   "basemapGroup": {
     "addCustomBasemap": "＋ Add custom basemap…",

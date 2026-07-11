@@ -1070,7 +1070,8 @@
     "kebabCopyStyle": "Copiar estilo",
     "kebabPasteStyle": "Pegar estilo",
     "disambiguation": "{{label}}",
-    "audienceHidden": "Oculto para los visitantes de este mapa"
+    "audienceHidden": "Oculto para los visitantes de este mapa",
+    "drawsNothing": "No se muestra — activa el sombreado o el terreno 3D"
   },
   "basemapGroup": {
     "addCustomBasemap": "＋ Agregar mapa base personalizado…",

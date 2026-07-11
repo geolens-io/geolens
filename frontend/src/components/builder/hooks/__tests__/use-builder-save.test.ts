@@ -474,11 +474,12 @@ describe('useBuilderSave', () => {
     expect(mockUpdateMapMutateAsync.mock.calls[0][0].data.layers).toBeUndefined();
   });
 
-  // fix(HT-13): a save that changes BOTH a layer (zoom range) AND the map-level
-  // terrain binding is persisted through the single full-replacement PUT so the
-  // two authorities can't half-commit. The PUT reconciles layers by id (V-14),
-  // so identity is preserved.
-  it('saves duplicate renderings, basemap config, terrain config, and zoom range atomically through one PUT', async () => {
+  // A save that changes a layer (zoom range) AND terrain uses the normal split
+  // path: minimal layer PATCH + metadata PUT. HT-13 note: the overlay and
+  // terrain authorities are independent in the composable model, so a partial
+  // persist is recoverable (not a contradiction) — no need to force the lossy
+  // full-replacement PUT here.
+  it('saves duplicate renderings, basemap config, terrain config, and zoom range through existing fields', async () => {
     const layerA = makeLayer({
       id: 'layer-a',
       dataset_id: 'dataset-shared',
@@ -527,8 +528,12 @@ describe('useBuilderSave', () => {
       await result.current.handleSave();
     });
 
-    // Atomic path: the split layer PATCH is NOT used when terrain also changed.
-    expect(mockPatchMapLayersMutateAsync).not.toHaveBeenCalled();
+    expect(mockPatchMapLayersMutateAsync).toHaveBeenCalledWith({
+      id: 'map-1',
+      diff: {
+        updated: [{ id: 'layer-a', layout: { _minzoom: 3, _maxzoom: 17 } }],
+      },
+    });
     expect(mockUpdateMapMutateAsync).toHaveBeenCalledWith(
       expect.objectContaining({
         id: 'map-1',
@@ -551,12 +556,8 @@ describe('useBuilderSave', () => {
         }),
       }),
     );
-    // The single PUT carries the layers (reconciled by id), including the
-    // updated zoom range on layer-a.
-    const putLayers = mockUpdateMapMutateAsync.mock.calls[0][0].data.layers;
-    expect(putLayers).toBeDefined();
-    const layerAPut = putLayers.find((l: { id: string }) => l.id === 'layer-a');
-    expect(layerAPut.layout).toMatchObject({ _minzoom: 3, _maxzoom: 17 });
+    // Metadata PUT carries no layers on the split path.
+    expect(mockUpdateMapMutateAsync.mock.calls[0][0].data.layers).toBeUndefined();
   });
 
   it('persists basemap_config opacity, background color, and sublayer opacity', async () => {
