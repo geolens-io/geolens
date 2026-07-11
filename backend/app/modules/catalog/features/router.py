@@ -452,6 +452,7 @@ async def create_feature(
             dataset.column_info or [],
             # fix(#430 codex r7): generic for created datasets — see effective_geometry_type
             await effective_geometry_type(db, dataset),
+            dataset_srid=dataset.srid,
         )
     except ValueError as e:
         raise HTTPException(
@@ -539,6 +540,7 @@ async def replace_single_feature(
             dataset.column_info or [],
             # fix(#430 codex r7): generic for created datasets — see effective_geometry_type
             await effective_geometry_type(db, dataset),
+            dataset_srid=dataset.srid,
         )
     except ValueError as e:
         if "not found" in str(e).lower():
@@ -623,6 +625,7 @@ async def patch_single_feature(
             dataset.column_info or [],
             # fix(#430 codex r7): generic for created datasets — see effective_geometry_type
             await effective_geometry_type(db, dataset),
+            dataset_srid=dataset.srid,
         )
     except ValueError as e:
         if "not found" in str(e).lower():

@@ -51,6 +51,24 @@ def _geometry_sql(dataset_geometry_type: str) -> str:
     return base
 
 
+def _geom_write_exprs(
+    dataset_geometry_type: str, dataset_srid: int | None
+) -> tuple[str, str]:
+    """SQL expressions for the (geom, geom_4326) write pair.
+
+    GeoJSON is WGS84 by spec, so ST_GeomFromGeoJSON yields SRID 4326 — correct
+    for geom_4326, but file-ingested layers keep their source CRS in `geom`
+    (the file path runs ogr2ogr without -t_srs), so writing 4326 into a
+    projected-SRID column violates the typmod and 500s. Transform when the
+    dataset SRID differs; dataset.srid mirrors Find_SRID on the live column
+    (refresh_dataset_metadata), so it is the column's actual SRID.
+    """
+    base = _geometry_sql(dataset_geometry_type)
+    if dataset_srid and dataset_srid != 4326:
+        return f"ST_Transform({base}, {int(dataset_srid)})", base
+    return base, base
+
+
 def parse_bbox(bbox_str: str) -> list[float]:
     """Parse a comma-separated bbox string into a 4- or 6-element list.
 
@@ -380,6 +398,7 @@ async def insert_feature(
     properties: dict | None,
     column_info: list[dict],
     dataset_geometry_type: str,
+    dataset_srid: int | None = None,
 ) -> dict:
     """Insert a GeoJSON feature into a PostGIS data table.
 
@@ -391,9 +410,9 @@ async def insert_feature(
 
     geojson_str = json.dumps(geometry)
 
-    geom_expr = _geometry_sql(dataset_geometry_type)
+    geom_expr, geom_4326_expr = _geom_write_exprs(dataset_geometry_type, dataset_srid)
     cols = ["geom", "geom_4326"]
-    vals = [geom_expr, geom_expr]
+    vals = [geom_expr, geom_4326_expr]
     params: dict = {"geojson": geojson_str}
 
     if properties:
@@ -426,6 +445,7 @@ async def replace_feature(
     properties: dict,
     column_info: list[dict],
     dataset_geometry_type: str,
+    dataset_srid: int | None = None,
 ) -> dict:
     """Full replacement of a feature (PUT semantics).
 
@@ -435,11 +455,11 @@ async def replace_feature(
     _validate_geometry_type(geometry.get("type", ""), dataset_geometry_type)
 
     geojson_str = json.dumps(geometry)
-    geom_expr = _geometry_sql(dataset_geometry_type)
+    geom_expr, geom_4326_expr = _geom_write_exprs(dataset_geometry_type, dataset_srid)
 
     sets = [
         f"geom = {geom_expr}",
-        f"geom_4326 = {geom_expr}",
+        f"geom_4326 = {geom_4326_expr}",
     ]
     params: dict = {"geojson": geojson_str, "gid": gid}
 
@@ -472,6 +492,7 @@ async def update_feature(
     properties: dict | None,
     column_info: list[dict],
     dataset_geometry_type: str,
+    dataset_srid: int | None = None,
 ) -> dict:
     """Partial update of a feature (PATCH semantics).
 
@@ -485,9 +506,11 @@ async def update_feature(
     if geometry is not None:
         _validate_geometry_type(geometry.get("type", ""), dataset_geometry_type)
         geojson_str = json.dumps(geometry)
-        geom_expr = _geometry_sql(dataset_geometry_type)
+        geom_expr, geom_4326_expr = _geom_write_exprs(
+            dataset_geometry_type, dataset_srid
+        )
         sets.append(f"geom = {geom_expr}")
-        sets.append(f"geom_4326 = {geom_expr}")
+        sets.append(f"geom_4326 = {geom_4326_expr}")
         params["geojson"] = geojson_str
 
     if properties is not None:
