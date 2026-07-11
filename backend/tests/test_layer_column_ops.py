@@ -157,3 +157,25 @@ async def test_column_ddl_invalidates_tile_cache(
         assert resp.status_code in (200, 201, 204), resp.text
 
     assert mock_cache.invalidate_table.await_count == 4
+
+
+@pytest.mark.anyio
+async def test_drop_readd_drop_same_column(
+    client: AsyncClient, admin_auth_header: dict
+):
+    """fix(#458 E-12): dropping a re-added column must not 500 on the
+    historical AttributeMetadata row left by the first drop."""
+    dataset_id = await _create_layer(client, admin_auth_header, title="Drop Readd Test")
+
+    for step in range(2):
+        resp = await client.post(
+            f"/layers/{dataset_id}/columns/",
+            json={"column": {"name": "flaky", "type": "text"}},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 201, f"add #{step}: {resp.text}"
+        resp = await client.delete(
+            f"/layers/{dataset_id}/columns/flaky",
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200, f"drop #{step}: {resp.text}"

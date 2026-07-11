@@ -149,25 +149,36 @@ async def add_column(
     column_info = await get_catalog_port().get_column_info(session, dataset.table_name)
     dataset.column_info = column_info
 
-    # Create AttributeMetadata row for the new column
+    # Create (or revive) the AttributeMetadata row for the new column.
+    # fix(#458 E-12): (dataset_id, field_name) is unique, so re-adding a name
+    # dropped earlier must revive the historical is_current=False row instead
+    # of inserting a duplicate (which raised UniqueViolation -> 500).
     new_col = next((c for c in column_info if c["name"] == column_name), None)
     if new_col:
         data_type = new_col.get("type", "")
-        am = AttributeMetadata(
-            dataset_id=dataset.id,
-            field_name=column_name,
-            title=get_catalog_port().humanize_column_name(column_name),
-            data_type=data_type,
-            units=get_catalog_port().infer_units(column_name),
-            semantic_role=get_catalog_port().infer_semantic_role(
-                column_name, data_type
-            ),
-            domain_type=get_catalog_port().infer_domain_type(data_type),
-            ordinal_position=new_col.get("ordinal_position"),
-            is_nullable=new_col.get("is_nullable"),
-            is_current=True,
+        result = await session.execute(
+            select(AttributeMetadata).where(
+                AttributeMetadata.dataset_id == dataset.id,
+                AttributeMetadata.field_name == column_name,
+            )
         )
-        session.add(am)
+        am = result.scalar_one_or_none()
+        if am is None:
+            am = AttributeMetadata(
+                dataset_id=dataset.id,
+                field_name=column_name,
+                title=get_catalog_port().humanize_column_name(column_name),
+            )
+            session.add(am)
+        am.data_type = data_type
+        am.units = get_catalog_port().infer_units(column_name)
+        am.semantic_role = get_catalog_port().infer_semantic_role(
+            column_name, data_type
+        )
+        am.domain_type = get_catalog_port().infer_domain_type(data_type)
+        am.ordinal_position = new_col.get("ordinal_position")
+        am.is_nullable = new_col.get("is_nullable")
+        am.is_current = True
 
     await session.flush()
 
@@ -325,11 +336,15 @@ async def drop_column(
     column_info = await get_catalog_port().get_column_info(session, dataset.table_name)
     dataset.column_info = column_info
 
-    # Mark AttributeMetadata row as removed
+    # Mark AttributeMetadata row as removed. fix(#458 E-12): filter on
+    # is_current like rename/alter do — drop→re-add→drop of the same name
+    # leaves historical rows for the field, and an unfiltered
+    # scalar_one_or_none() raised MultipleResultsFound (500).
     result = await session.execute(
         select(AttributeMetadata).where(
             AttributeMetadata.dataset_id == dataset.id,
             AttributeMetadata.field_name == column_name,
+            AttributeMetadata.is_current.is_(True),
         )
     )
     am = result.scalar_one_or_none()
