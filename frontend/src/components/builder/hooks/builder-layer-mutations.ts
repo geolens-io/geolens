@@ -2,7 +2,7 @@ import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { MapLayerInput, MapLayerResponse, MapTerrainConfig, StyleConfig } from '@/types/api';
 import { getAdapter } from '@/components/builder/layer-adapters/registry';
 import { isTerrainCapableDemLayer } from '@/components/builder/map-stack';
-import { getCompanionLayerIds, COLOR_RELIEF_SUFFIX } from '@/components/builder/companion-ids';
+import { getCompanionLayerIds } from '@/components/builder/companion-ids';
 
 /**
  * Phase 999.17 Fix 2 (D-05 / Advisory A2): decide whether deleting a layer must
@@ -61,10 +61,9 @@ function deriveCompanionIds(rawLayerId: string, renderMode: string | null | unde
       // the adapter only when its registered type matches exactly.
       const adapter = getAdapter(renderMode);
       if (adapter.type === renderMode) {
-        const ids = adapter.getLayerIds(prefixedLayerId);
-        return renderMode === 'hillshade'
-          ? [...ids, `${prefixedLayerId}${COLOR_RELIEF_SUFFIX}`]
-          : ids;
+        // fix(#452): the hillshade adapter's getLayerIds now declares the
+        // color-relief companion itself, so the old append special-case is gone.
+        return adapter.getLayerIds(prefixedLayerId);
       }
     } catch {
       // Defensive — getAdapter should never throw, but fall through to the

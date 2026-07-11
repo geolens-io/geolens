@@ -377,11 +377,13 @@ describe('LayerLegend terrain consistency (Fix 1)', () => {
   });
 
   // Regression: the viewer keeps toggled-off layers in the list (visibility
-  // lives in visibleLayers, not the list), but 3D terrain stays active from
-  // terrain_config regardless. If the source hillshade is toggled OFF, the
-  // synthetic entry must STILL show — otherwise active 3D terrain has no legend
-  // representation. So dedup against visible entries only.
-  it('keeps the synthetic entry when the source DEM is toggled off but terrain is active', () => {
+  // fix(#452): live-hiding the bound DEM now DISABLES terrain (useViewerTerrain
+  // honors visibleLayers), so the synthetic entry must disappear with it — a
+  // "3D terrain" row for a mesh that no longer renders is a phantom. The DEM
+  // keeps its own toggled-off per-layer row so the user can re-show it.
+  // (Inverts the pre-#452 pin: back then the mesh stayed active on live-hide,
+  // so the synthetic row had to stay too.)
+  it('drops the synthetic entry when the source DEM is live-toggled off', () => {
     render(
       <LayerLegend
         layers={[
@@ -399,11 +401,43 @@ describe('LayerLegend terrain consistency (Fix 1)', () => {
       />,
     );
 
+    expect(screen.queryByTestId('legend-terrain-synthetic')).not.toBeInTheDocument();
+    // The DEM's own row survives as the re-show affordance.
+    expect(screen.getByText('swissALTI3D relief')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Show swissALTI3D relief' })).toBeInTheDocument();
+  });
+
+  // fix(#452): icon parity — the legend renders the SAME glyph chip as the
+  // builder layer stack (⛰ for a hillshade-mode DEM row, ◬ for the synthetic
+  // terrain entry), not divergent lucide icons.
+  it('renders stack-parity glyph chips for DEM rows and the synthetic terrain entry', () => {
+    render(
+      <LayerLegend
+        layers={[
+          demLayer({
+            id: 'dem-terrain-only',
+            display_name: 'Terrain source',
+            layer_type: 'raster_geolens',
+            style_config: { render_mode: 'terrain' } as SharedLayerResponse['style_config'],
+          }),
+          demLayer({
+            id: 'dem-hillshade',
+            dataset_id: 'other-dem',
+            display_name: 'Shaded relief',
+            layer_type: 'raster_geolens',
+            style_config: { render_mode: 'hillshade' } as SharedLayerResponse['style_config'],
+          }),
+        ]}
+        visibleLayers={new Set(['dem-terrain-only', 'dem-hillshade'])}
+        terrainConfig={activeTerrain}
+        onToggleVisibility={vi.fn()}
+        isOpen
+        onToggle={vi.fn()}
+      />,
+    );
+
     const synthetic = screen.getByTestId('legend-terrain-synthetic');
-    expect(synthetic).toBeInTheDocument();
-    // fix(HT-08): the synthetic entry carries the bound DEM's name. (The DEM
-    // also keeps its own toggled-off per-layer row, so the name appears twice —
-    // scope the assertion to the synthetic entry.)
-    expect(within(synthetic).getByText('swissALTI3D relief')).toBeInTheDocument();
+    expect(within(synthetic).getByText('◬')).toBeInTheDocument();
+    expect(screen.getByText('⛰')).toBeInTheDocument();
   });
 });
