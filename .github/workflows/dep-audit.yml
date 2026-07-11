@@ -133,8 +133,8 @@ jobs:
       # docker-compose*.yml, and nginx config at the repo root; fails the job on
       # any CRITICAL or HIGH misconfiguration finding. ignore-unfixed is inert for
       # config/misconfiguration scans (no fixed-version concept) — severity scope
-      # alone bounds noise. Helm charts live in sibling repos (geolens-helm /
-      # geolens-deployments) — out of scope here.
+      # alone bounds noise. The Helm chart lives in the sibling geolens-deployments
+      # repo (geolens-helm is archived) — out of scope here.
       - name: Trivy config scan (enforcing)
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
         with:
