@@ -1,6 +1,6 @@
 import type { MapTerrainConfig } from '@/types/api';
 import { isDemTerrainVisualSuppressed } from './map-sync';
-import { isTerrainCapableDemLayer } from './map-stack';
+import { resolveTerrainSourceLayer } from './map-stack';
 
 /**
  * Single source of truth for "this DEM layer is suppressed because it powers
@@ -45,6 +45,7 @@ type TerrainBackingLayer = {
   dataset_record_type?: string | null;
   display_name?: string | null;
   dataset_name?: string | null;
+  visible?: boolean | null;
 };
 
 /**
@@ -66,10 +67,12 @@ export function deriveTerrainLegendEntry(
   const sourceDatasetId = terrainConfig?.enabled === true ? terrainConfig.source_dataset_id : null;
   if (!sourceDatasetId) return null;
 
-  const backingLayer = (layers ?? []).find(
-    (layer) => layer.dataset_id === sourceDatasetId && isTerrainCapableDemLayer(layer),
-  );
-  if (!backingLayer) return null;
+  // Resolve the backing DEM the SAME way BuilderMap/useViewerTerrain do (prefer
+  // a visible rendering). codex(#451): the renderers apply no mesh when the
+  // resolved DEM is saved-hidden, so a hidden source must not list a phantom
+  // "3D terrain" legend entry using that hidden layer's name.
+  const backingLayer = resolveTerrainSourceLayer(layers ?? [], terrainConfig);
+  if (!backingLayer || backingLayer.visible === false) return null;
 
   return {
     id: 'relief:terrain',

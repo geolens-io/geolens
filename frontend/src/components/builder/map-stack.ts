@@ -506,8 +506,10 @@ function makeTerrainReliefEntry(
   if (demLayers.length === 0 && !terrainConfig?.source_dataset_id) return;
 
   const configuredSourceId = terrainConfig?.source_dataset_id ?? null;
+  // fix(HT-10): resolve the bound DEM the SAME way BuilderMap does (prefer a
+  // visible rendering) so a duplicate can't flip the reported status.
   const selectedDemLayer = configuredSourceId
-    ? demLayers.find((layer) => layer.dataset_id === configuredSourceId) ?? null
+    ? resolveTerrainSourceLayer(demLayers, terrainConfig) ?? null
     : demLayers[0] ?? null;
   const fallbackLayer = !selectedDemLayer && terrainLayers.length > 0 ? terrainLayers[0] : null;
   const sourceLayer = selectedDemLayer ?? fallbackLayer;
@@ -516,9 +518,16 @@ function makeTerrainReliefEntry(
   // regardless of render_mode. The old rule required render_mode === 'terrain'
   // and reported the hybrid hillshade+terrain state as 'disabled' while the map
   // was actively rendering terrain from it.
+  // codex(#451): BuilderMap sets no mesh when the bound DEM is hidden
+  // (effectiveTerrainEnabled = enabled && demLayerVisible), and Settings gates
+  // isTerrainActive the same way — so a hidden source is 'disabled', not
+  // 'active', or the stack badge drifts from the map and Settings.
+  const sourceVisible = selectedDemLayer ? selectedDemLayer.visible !== false : false;
   const sourceStatus: MapStackTerrainSourceStatus = terrainConfig?.enabled
     ? selectedDemLayer
-      ? 'active'
+      ? sourceVisible
+        ? 'active'
+        : 'disabled'
       : fallbackLayer
         ? 'fallback'
         : 'missing'

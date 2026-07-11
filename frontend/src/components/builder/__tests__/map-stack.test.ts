@@ -144,6 +144,34 @@ describe('buildMapStack', () => {
     expect(terrain?.metadata.terrain?.sourceStatus).toBe('active');
   });
 
+  // codex(#451): BuilderMap sets no mesh when the bound DEM is hidden, and
+  // Settings reports terrain inactive — the stack status must agree, not show
+  // an active surface-terrain row.
+  it('reports terrain disabled when the bound DEM is hidden', () => {
+    const demLayer = makeLayer({
+      id: 'dem-hidden',
+      dataset_id: 'dem-1',
+      dataset_name: 'Canyon DEM',
+      dataset_geometry_type: null,
+      dataset_table_name: 'canyon_dem',
+      dataset_record_type: 'raster_dataset',
+      layer_type: 'raster_geolens',
+      is_dem: true,
+      visible: false,
+      style_config: { render_mode: 'hillshade' } as StyleConfig,
+    });
+
+    const entries = flattenMapStack(buildMapStack(makeMap({
+      terrain_config: { enabled: true, source_dataset_id: 'dem-1', exaggeration: 2 },
+      layers: [demLayer],
+    })));
+
+    const terrain = entries.find((entry) => entry.id === 'relief:terrain');
+    expect(terrain?.visible).toBe(false);
+    expect(terrain?.metadata.terrain?.enabled).toBe(false);
+    expect(terrain?.metadata.terrain?.sourceStatus).toBe('disabled');
+  });
+
   it('computes stable order labels and metadata for duplicates, hidden layers, legend state, and labels', () => {
     const topLayer = makeLayer({
       id: 'counties-a',
