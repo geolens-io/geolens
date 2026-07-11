@@ -137,7 +137,9 @@ services:
     # GAP-001: memory limit prevents the DB from consuming all host RAM under
     # heavy query load. 2 GB covers shared_buffers (512 MB) + work_mem headroom
     # for concurrent queries. Raise on hosts with > 8 GB RAM.
-    mem_limit: "2g"
+    # fix(#448): env-overridable — mirrors docker-compose.prod.yml so the caps
+    # can be rebalanced on small hosts without editing the file.
+    mem_limit: "${DB_MEM_LIMIT:-2g}"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -p 5432 -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 5s
@@ -208,7 +210,8 @@ services:
     restart: unless-stopped
     # GAP-001: 2 GB covers the Python process + Uvicorn workers + ORM caches.
     # Raise if ingesting very large files with many concurrent workers.
-    mem_limit: "2g"
+    # fix(#448): env-overridable — mirrors docker-compose.prod.yml.
+    mem_limit: "${API_MEM_LIMIT:-2g}"
     # Hardening (security_opt + cap_drop + cap_add + read_only): see
     # x-hardened-base anchor at top of file. no-new-privileges:true blocks
     # setuid escalation but NOT setpriv (which de-escalates), so the
@@ -343,7 +346,8 @@ services:
     restart: unless-stopped
     # GAP-001: 4 GB covers the worker process + GDAL/OGR buffers during large
     # file ingestion (GeoTIFF COG conversion can be RAM-intensive).
-    mem_limit: "4g"
+    # fix(#448): env-overridable — mirrors docker-compose.prod.yml.
+    mem_limit: "${WORKER_MEM_LIMIT:-4g}"
     # Hardening: see x-hardened-base anchor at top of file (same profile as api).
     <<: *hardened-base
     tmpfs:
@@ -364,6 +368,10 @@ services:
       # /app/staging mount target on every service. See .env.example.
       UPLOAD_STAGING_DIR: "/app/staging"
       WORKER_SHUTDOWN_TIMEOUT: "${WORKER_SHUTDOWN_TIMEOUT:-30}"
+      # fix(#448): parallel job slots (2-3 on multi-core hosts; keep 1 on
+      # 2-vCPU boxes) and queue pinning for a dedicated raster worker.
+      WORKER_CONCURRENCY: "${WORKER_CONCURRENCY:-1}"
+      WORKER_QUEUES: "${WORKER_QUEUES:-priority,ingest,raster}"
       # Mirror the api service: ingest tuning + procrastinate schema reach
       # the worker container so operator overrides take effect.
       INGEST_HTTP_TIMEOUT_SECONDS: "${INGEST_HTTP_TIMEOUT_SECONDS:-300}"
@@ -394,7 +402,8 @@ services:
       - ALL
     # GAP-001: 1 GB covers GDAL_CACHEMAX (200 MB) + Python process overhead for
     # concurrent tile rendering. Raise for very large raster catalogs.
-    mem_limit: "1g"
+    # fix(#448): env-overridable — mirrors docker-compose.prod.yml.
+    mem_limit: "${TITILER_MEM_LIMIT:-1g}"
     # Immutable root with /tmp tmpfs for GDAL VSI cache writes.
     read_only: true
     tmpfs:

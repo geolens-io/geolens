@@ -9,6 +9,7 @@ import structlog
 from app.core.db.tenant_session import tenant_task
 from app.platform.cache.tiles import invalidate_catalog_cache
 from app.processing.raster.cog import (
+    _scratch_dir,
     check_and_prepare_cog,
     check_cog_compliance,
     extract_raster_metadata,
@@ -455,7 +456,11 @@ async def ingest_raster(job_id: str, file_path: str, user_id: str, **kwargs) -> 
             # can produce output up to ~3× source size (decompressed + tiled +
             # overviews); a stretched disk crashes here with opaque IOError and
             # may leave concurrent ingests in a half-converted state.
-            tmp_dir = tempfile.mkdtemp()
+            # fix(#448): mkdtemp() defaulted to /tmp — a 512 MB RAM-backed
+            # tmpfs in the worker container — so the disk-space check below
+            # was measuring the wrong filesystem AND a big conversion could
+            # ENOSPC or eat the memory cap. Land it on the staging volume.
+            tmp_dir = tempfile.mkdtemp(dir=_scratch_dir())
             source_bytes = os.path.getsize(file_path)
             free_bytes = shutil.disk_usage(tmp_dir).free
             min_free = source_bytes * 3

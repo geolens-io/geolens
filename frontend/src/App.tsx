@@ -14,14 +14,27 @@ const LoginPage = lazy(() => import('./pages/LoginPage').then(m => ({ default: m
 const RegisterPage = lazy(() => import('./pages/RegisterPage').then(m => ({ default: m.RegisterPage })));
 const VerifyEmailPage = lazy(() => import('./pages/VerifyEmailPage').then(m => ({ default: m.VerifyEmailPage })));
 const OAuthCallbackPage = lazy(() => import('./pages/OAuthCallbackPage').then(m => ({ default: m.OAuthCallbackPage })));
-const PublicViewerPage = lazy(() => import('./pages/PublicViewerPage').then(m => ({ default: m.PublicViewerPage })));
+// fix(#448): map routes kick off the map-vendor chunk (~306KB gz, maplibre-gl)
+// in parallel with the route chunk. Without this the vendor download
+// serializes BEHIND the page chunk — the page module only reaches its own
+// maplibre import after it has itself loaded.
+const PublicViewerPage = lazy(() =>
+  Promise.all([import('./pages/PublicViewerPage'), import('maplibre-gl')]).then(
+    ([m]) => ({ default: m.PublicViewerPage }),
+  ),
+);
 const DatasetPage = lazy(() => import('./pages/DatasetPage').then(m => ({ default: m.DatasetPage })));
 const CollectionsPage = lazy(() => import('./pages/CollectionsPage').then(m => ({ default: m.CollectionsPage })));
 const CollectionDetailPage = lazy(() => import('./pages/CollectionDetailPage').then(m => ({ default: m.CollectionDetailPage })));
 const SettingsPage = lazy(() => import('./pages/SettingsPage').then(m => ({ default: m.SettingsPage })));
 const ImportPage = lazy(() => import('./pages/ImportPage').then(m => ({ default: m.ImportPage })));
 const MapsPage = lazy(() => import('./pages/MapsPage').then(m => ({ default: m.MapsPage })));
-const MapViewerGate = lazy(() => import('./pages/MapViewerGate').then(m => ({ default: m.MapViewerGate })));
+// fix(#448): see PublicViewerPage — warm map-vendor alongside the route chunk.
+const MapViewerGate = lazy(() =>
+  Promise.all([import('./pages/MapViewerGate'), import('maplibre-gl')]).then(
+    ([m]) => ({ default: m.MapViewerGate }),
+  ),
+);
 const AdminOverviewPage = lazy(() => import('./pages/admin/AdminOverviewPage').then(m => ({ default: m.AdminOverviewPage })));
 const AdminUsersPage = lazy(() => import('./pages/admin/AdminUsersPage').then(m => ({ default: m.AdminUsersPage })));
 const AdminJobsPage = lazy(() => import('./pages/admin/AdminJobsPage').then(m => ({ default: m.AdminJobsPage })));

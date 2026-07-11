@@ -884,3 +884,81 @@ class TestIngestVectorIntoStagingErrors:
                     user_wants_geom=True,
                     user_metadata={"x_column": "lon", "y_column": "lat"},
                 )
+
+
+# ---------------------------------------------------------------------------
+# fix(#448): ensure_geom_4326_gist_index — the staging-swap index regression
+# ---------------------------------------------------------------------------
+
+
+class TestEnsureGeom4326GistIndex:
+    """The old `CREATE INDEX IF NOT EXISTS idx_<table>_geom_4326` matched by
+    NAME schema-wide: on a second re-ingest the previous swap's index still
+    held the name, so the staging table silently got NO gist index and the
+    swap dropped the only indexed copy of the data (perf audit 2026-07-10 §4c).
+    """
+
+    @staticmethod
+    def _probe(found: bool):
+        result = MagicMock()
+        result.first.return_value = (1,) if found else None
+        return result
+
+    @pytest.mark.asyncio
+    async def test_creates_unnamed_index_when_table_has_none(self):
+        from app.processing.ingest.metadata import ensure_geom_4326_gist_index
+
+        session = AsyncMock()
+        # column exists, no gist index yet, then the CREATE INDEX itself
+        session.execute = AsyncMock(
+            side_effect=[self._probe(True), self._probe(False), MagicMock()]
+        )
+
+        await ensure_geom_4326_gist_index(session, "my_table")
+
+        assert session.execute.await_count == 3
+        create_sql = str(session.execute.await_args_list[2].args[0])
+        assert 'CREATE INDEX ON "data"."my_table" USING GIST (geom_4326)' in create_sql
+        # The index must stay UNNAMED — PostgreSQL picks a collision-free
+        # name; a fixed name is exactly what regressed.
+        assert "idx_" not in create_sql
+
+    @pytest.mark.asyncio
+    async def test_skips_when_table_already_indexed(self):
+        from app.processing.ingest.metadata import ensure_geom_4326_gist_index
+
+        session = AsyncMock()
+        session.execute = AsyncMock(side_effect=[self._probe(True), self._probe(True)])
+
+        await ensure_geom_4326_gist_index(session, "my_table")
+
+        # Column + index probes only — no DDL issued.
+        assert session.execute.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_noop_when_table_has_no_geom_4326_column(self):
+        from app.processing.ingest.metadata import ensure_geom_4326_gist_index
+
+        session = AsyncMock()
+        session.execute = AsyncMock(side_effect=[self._probe(False)])
+
+        await ensure_geom_4326_gist_index(session, "my_table")
+
+        # effective_srid=None staging path: geometry_type set, no geom_4326.
+        assert session.execute.await_count == 1
+
+    @pytest.mark.asyncio
+    async def test_existence_check_is_table_scoped(self):
+        from app.processing.ingest.metadata import ensure_geom_4326_gist_index
+
+        session = AsyncMock()
+        session.execute = AsyncMock(
+            side_effect=[self._probe(True), self._probe(False), MagicMock()]
+        )
+
+        await ensure_geom_4326_gist_index(session, "my_table", schema="data")
+
+        probe = session.execute.await_args_list[1].args[0]
+        compiled = probe.compile(compile_kwargs={"literal_binds": True})
+        assert "pg_indexes" in str(compiled)
+        assert "my_table" in str(compiled)

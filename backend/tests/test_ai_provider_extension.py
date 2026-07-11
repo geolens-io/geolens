@@ -173,3 +173,46 @@ async def test_overlay_provider_is_dispatched():
         assert isinstance(
             get_ai_provider("openai_compatible"), DefaultOpenAICompatibleProvider
         )
+
+
+@pytest.mark.asyncio
+async def test_anthropic_complete_aborts_at_token_budget():
+    """fix(#448): the non-streaming tool loop must stop once cumulative
+    input+output tokens exceed MAX_REQUEST_TOKEN_BUDGET (PERF-009 parity with
+    the streaming path). A tool_use round that reports a huge usage makes the
+    next round-top guard raise instead of calling the provider again."""
+    from unittest.mock import AsyncMock
+
+    from app.core.config import settings
+    from app.platform.extensions.defaults import DefaultAnthropicProvider
+    from app.processing.ai.llm_loop import ToolLoopExhaustedError
+
+    response = MagicMock()
+    response.stop_reason = "tool_use"
+    response.usage.input_tokens = 300_000  # > MAX_REQUEST_TOKEN_BUDGET (200K)
+    response.usage.output_tokens = 0
+    response.content = []
+
+    fake_client = MagicMock()
+    fake_client.messages.create = AsyncMock(return_value=response)
+
+    provider = DefaultAnthropicProvider()
+    original_client = DefaultAnthropicProvider._client
+    DefaultAnthropicProvider._client = fake_client
+    try:
+        with patch.object(settings, "anthropic_api_key", "test-key"):
+            with pytest.raises(ToolLoopExhaustedError, match="token budget"):
+                await provider.complete(
+                    model="test-model",
+                    system_prompt="s",
+                    user_message="u",
+                    tools=[],
+                    tool_executor=AsyncMock(return_value={}),
+                    max_rounds=5,
+                    max_tokens=128,
+                )
+    finally:
+        DefaultAnthropicProvider._client = original_client
+
+    # Round 1 ran (and reported the runaway usage); round 2 was refused.
+    assert fake_client.messages.create.await_count == 1

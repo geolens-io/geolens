@@ -1,8 +1,10 @@
 """Backfill embeddings for records that don't have them yet.
 
-Processes all records missing a corresponding RecordEmbedding row,
-calling generate_and_store_embedding for each. Individual failures
-are logged and counted but do not halt the backfill.
+Processes all records missing a corresponding RecordEmbedding row.
+fix(#448): texts are embedded in batches of _BATCH_SIZE per provider call
+(the embeddings endpoint accepts input lists) instead of one call per
+record — a 50-200x reduction in API round trips on bulk backfills.
+Batch failures are logged and counted but do not halt the backfill.
 
 Can be run as a module: python -m app.embeddings.backfill
 """
@@ -10,11 +12,21 @@ Can be run as a module: python -m app.embeddings.backfill
 import structlog
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.persistent_config import AI_ENABLED, EMBEDDING_MODEL
 from app.platform.extensions import get_processing_port
 from app.processing.embeddings.models import RecordEmbedding
-from app.processing.embeddings.service import generate_and_store_embedding
+from app.processing.embeddings.service import (
+    build_content_text,
+    compute_content_hash,
+    generate_embeddings_batch,
+)
 
 logger = structlog.stdlib.get_logger(__name__)
+
+# fix(#448): texts per provider call. OpenAI accepts up to 2048 inputs per
+# request; 128 keeps request bodies modest for compatible providers (Ollama,
+# Groq, Together) while still collapsing a 10K-record backfill to ~80 calls.
+_BATCH_SIZE = 128
 
 
 async def backfill_embeddings(session: AsyncSession, *, force: bool = False) -> dict:
@@ -31,7 +43,7 @@ async def backfill_embeddings(session: AsyncSession, *, force: bool = False) -> 
     if force:
         from sqlalchemy import delete
 
-        # The HNSW index lives in Alembic migration 0001_baseline (and is recreated
+        # The HNSW index lives in Alembic migration 0012 (and is recreated
         # by service.rebuild_embedding_column on dimension change). On
         # force=True we just clear the rows; no need to drop the index.
         await session.execute(delete(RecordEmbedding))
@@ -56,54 +68,72 @@ async def backfill_embeddings(session: AsyncSession, *, force: bool = False) -> 
     ]
 
     total = len(record_data)
-    created = 0
-    errors = 0
-    skipped = 0
 
     if total == 0:
         logger.info("Backfill: no records without embeddings found")
         return {"processed": 0, "created": 0, "skipped": 0, "errors": 0}
 
-    logger.info("Backfill: starting", total_records=total)
+    # Gate once for the whole run (the per-record path checked this per call).
+    if not await AI_ENABLED.get(session):
+        logger.info("Backfill: AI disabled, skipping", total_records=total)
+        return {"processed": 0, "created": 0, "skipped": total, "errors": 0}
 
-    for i, rd in enumerate(record_data, 1):
+    model_name = await EMBEDDING_MODEL.get(session)
+
+    # Build embeddable (record_id, content_text) pairs; empty content skips.
+    skipped = 0
+    items: list[tuple[object, str]] = []
+    for rd in record_data:
+        content_text = build_content_text(
+            title=rd["title"],
+            summary=rd["summary"],
+            keywords=rd["keywords"],
+            lineage=rd["lineage"],
+        )
+        if not content_text:
+            skipped += 1
+            continue
+        items.append((rd["id"], content_text))
+
+    logger.info("Backfill: starting", total_records=total, batch_size=_BATCH_SIZE)
+
+    created = 0
+    errors = 0
+
+    for start in range(0, len(items), _BATCH_SIZE):
+        batch = items[start : start + _BATCH_SIZE]
         try:
-            stored = await generate_and_store_embedding(
-                session=session,
-                record_id=rd["id"],
-                title=rd["title"],
-                summary=rd["summary"],
-                keywords=rd["keywords"],
-                lineage=rd["lineage"],
+            vectors = await generate_embeddings_batch(
+                [content for _, content in batch], session
             )
-            if stored:
-                await session.commit()
-                created += 1
-            else:
-                await session.rollback()
-                skipped += 1
-        except Exception:  # broad: per-record backfill is isolated; embedding API/DB errors are counted not raised
+            for (record_id, content), vector in zip(batch, vectors):
+                session.add(
+                    RecordEmbedding(
+                        record_id=record_id,
+                        embedding=vector,
+                        model_name=model_name,
+                        content_hash=compute_content_hash(content),
+                    )
+                )
+            await session.commit()
+            created += len(batch)
+        except Exception:  # broad: per-batch backfill is isolated; embedding API/DB errors are counted not raised
             await session.rollback()
-            errors += 1
+            errors += len(batch)
             logger.warning(
-                "Backfill: error processing record",
-                record_id=str(rd["id"]),
+                "Backfill: error processing batch",
+                batch_start=start,
+                batch_size=len(batch),
                 exc_info=True,
             )
 
-        # Log progress every 10 records
-        if i % 10 == 0:
-            logger.info(
-                "Backfill progress",
-                processed=i,
-                total=total,
-                created=created,
-                errors=errors,
-            )
-
-    # The HNSW index is created by Alembic migration 0001_baseline (and by
-    # service.rebuild_embedding_column when the dimension is first set or
-    # changes). The backfill no longer needs to recreate it.
+        logger.info(
+            "Backfill progress",
+            processed=min(start + _BATCH_SIZE, len(items)),
+            total=len(items),
+            created=created,
+            errors=errors,
+        )
 
     processed = created + errors
     result_dict = {

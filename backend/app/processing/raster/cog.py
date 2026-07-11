@@ -15,6 +15,23 @@ def _is_float_dtype(dtype: str) -> bool:
     return any(f in dtype.lower() for f in _FLOAT_DTYPES)
 
 
+def _scratch_dir() -> str | None:
+    """Directory for COG temp copies (fix #448).
+
+    tempfile's default lands in /tmp — a 512 MB RAM-backed tmpfs in the
+    worker container — so a large raster both eats the memory cap and can
+    ENOSPC mid-conversion. Prefer the upload_staging volume (disk-backed,
+    shared mount). None falls back to the tempfile default for host runs
+    and tests where the staging dir doesn't exist.
+    """
+    from pathlib import Path as _Path
+
+    from app.core.config import settings
+
+    staging = settings.upload_staging_dir
+    return staging if _Path(staging).is_dir() else None
+
+
 def validate_raster_crs(file_path: str) -> None:
     """Raise ValueError if the raster file has no valid CRS."""
     import rasterio
@@ -187,7 +204,7 @@ def prepare_with_overviews(
     import shutil
 
     suffix = Path(input_path).suffix
-    tmp = tempfile.NamedTemporaryFile(suffix=suffix, delete=False)
+    tmp = tempfile.NamedTemporaryFile(suffix=suffix, delete=False, dir=_scratch_dir())
     tmp.close()
     tmp_path = tmp.name
 
@@ -273,7 +290,9 @@ def convert_to_cog(
     # If CRS assignment requested, prepend a gdalwarp step
     warp_tmp: str | None = None
     if assign_crs is not None:
-        warp_tmp_file = tempfile.NamedTemporaryFile(suffix=".tif", delete=False)
+        warp_tmp_file = tempfile.NamedTemporaryFile(
+            suffix=".tif", delete=False, dir=_scratch_dir()
+        )
         warp_tmp_file.close()
         warp_tmp = warp_tmp_file.name
         warp_cmd = [
