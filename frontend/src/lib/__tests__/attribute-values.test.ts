@@ -30,6 +30,15 @@ describe('coerceAttributeValue', () => {
     expect(coerceAttributeValue('abc', 'integer')).toEqual({ ok: false });
   });
 
+  it('rejects integers beyond Number precision instead of rounding them', () => {
+    expect(coerceAttributeValue('9007199254740991', 'bigint')).toEqual({
+      ok: true,
+      value: 9007199254740991,
+    });
+    expect(coerceAttributeValue('9007199254740993', 'bigint')).toEqual({ ok: false });
+    expect(coerceAttributeValue('-9007199254740993', 'bigint')).toEqual({ ok: false });
+  });
+
   it('coerces floats and rejects garbage', () => {
     expect(coerceAttributeValue('3.14', 'double precision')).toEqual({ ok: true, value: 3.14 });
     expect(coerceAttributeValue('1e3', 'numeric')).toEqual({ ok: true, value: 1000 });

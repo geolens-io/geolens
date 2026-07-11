@@ -42,7 +42,10 @@ export function coerceAttributeValue(
   switch (getAttributeInputType(colType)) {
     case 'number-int': {
       const n = Number(trimmed);
-      return Number.isInteger(n) ? { ok: true, value: n } : { ok: false };
+      // isSafeInteger, not isInteger: beyond 2^53 Number silently rounds
+      // (9007199254740993 -> ...992), which would corrupt identifier-like
+      // bigint values on save instead of rejecting them.
+      return Number.isSafeInteger(n) ? { ok: true, value: n } : { ok: false };
     }
     case 'number-float': {
       const n = Number(trimmed);
