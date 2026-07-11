@@ -10,7 +10,9 @@ Semantic search then does an O(N) x dims cosine scan per query, twice.
 
 This migration types the column in place, preferring (in order) the
 dimension of vectors already stored, the ``embedding_dims`` persistent
-config override, and finally the Settings default (1536,
+config override (skipped when ``ENV_ONLY_CONFIG`` is set, mirroring
+runtime resolution in persistent_config.py), and finally the configured
+``EMBEDDING_DIMS`` env value / Settings default (1536,
 text-embedding-3-small). Rows whose dimension disagrees with the chosen
 value are deleted — embeddings are a regenerable cache (content-hash
 backfill restores them). Deployments whose column is already typed (the
@@ -25,6 +27,8 @@ from typing import Sequence, Union
 
 from alembic import op
 
+from app.core.config import settings
+
 revision: str = "0012_type_embedding_vector"
 down_revision: Union[str, None] = "0011_allow_generic_geometry_type"
 branch_labels: Union[str, Sequence[str], None] = None
@@ -32,8 +36,15 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
+    # fix(#449, codex P2): the empty-table fallback must honor the deployment's
+    # configured dimension, not a hardcoded 1536 — a fresh install running a
+    # 384/768-dim model via EMBEDDING_DIMS would otherwise get the column
+    # permanently mistyped before any data exists. Mirror runtime resolution
+    # (persistent_config.py): ENV_ONLY_CONFIG ignores DB overrides.
+    fallback_dims = settings.embedding_dims if settings.embedding_dims >= 1 else 1536
+    consult_db = "false" if settings.env_only_config else "true"
     op.execute(
-        """
+        f"""
         DO $$
         DECLARE
           cur_typmod int;
@@ -51,23 +62,24 @@ def upgrade() -> None:
             LOCK TABLE catalog.record_embeddings IN ACCESS EXCLUSIVE MODE;
 
             -- Prefer the dimension of data already stored; fall back to the
-            -- embedding_dims persistent-config override, then the app default.
+            -- embedding_dims persistent-config override (unless env-only),
+            -- then the configured EMBEDDING_DIMS / app default.
             SELECT max(vector_dims(embedding)) INTO dims
             FROM catalog.record_embeddings;
-            IF dims IS NULL THEN
-              -- PersistentConfig wraps scalars as {"v": <value>} (see
+            IF dims IS NULL AND {consult_db} THEN
+              -- PersistentConfig wraps scalars as {{"v": <value>}} (see
               -- persistent_config.py set()); older/manual rows may hold a
               -- bare number. Handle both shapes.
               SELECT CASE jsonb_typeof(value)
-                       WHEN 'object' THEN (value #>> '{v}')::int
-                       WHEN 'number' THEN (value #>> '{}')::int
+                       WHEN 'object' THEN (value #>> '{{v}}')::int
+                       WHEN 'number' THEN (value #>> '{{}}')::int
                        ELSE NULL
                      END
               INTO dims
               FROM catalog.app_settings WHERE key = 'embedding_dims';
             END IF;
             IF dims IS NULL OR dims < 1 THEN
-              dims := 1536;
+              dims := {fallback_dims};
             END IF;
 
             DELETE FROM catalog.record_embeddings
