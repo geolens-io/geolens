@@ -148,8 +148,12 @@ function defaultProps(
 // Tests
 // ---------------------------------------------------------------------------
 
-describe('UnifiedStackPanel BLDR-03: terrain-mode DEM row suppression', () => {
-  it('hillshade DEM row IS rendered (data-row-id present); terrain-mode DEM row is NOT rendered (data-row-id absent)', () => {
+// fix(HT-03): terrain-mode (overlay-off) DEM rows are NO LONGER suppressed from
+// the stack. Hiding them made the DEM unmanageable the moment the editor closed
+// and let rebinding orphan invisible layers (HT-11). The map still paints
+// nothing for them; the row just stays reachable, like any hidden-from-view row.
+describe('UnifiedStackPanel HT-03: terrain-mode DEM rows stay reachable', () => {
+  it('renders both hillshade and terrain-mode DEM rows', () => {
     const hillshadeDem = makeDemLayer('dem-hillshade', 'hillshade');
     const terrainDem = makeDemLayer('dem-terrain', 'terrain');
 
@@ -159,17 +163,11 @@ describe('UnifiedStackPanel BLDR-03: terrain-mode DEM row suppression', () => {
       />,
     );
 
-    // Hillshade DEM: visibleStackLayers includes it → StackRow renders with data-row-id
-    const hillshadeRow = document.querySelector('[data-row-id="dem-hillshade"]');
-    expect(hillshadeRow).toBeTruthy();
-
-    // Terrain-mode DEM: visibleStackLayers filters it out via isDemTerrainVisualSuppressed
-    // → no SortableStackRow is rendered for this layer id
-    const terrainRow = document.querySelector('[data-row-id="dem-terrain"]');
-    expect(terrainRow).toBeNull();
+    expect(document.querySelector('[data-row-id="dem-hillshade"]')).toBeTruthy();
+    expect(document.querySelector('[data-row-id="dem-terrain"]')).toBeTruthy();
   });
 
-  it('non-DEM layer rows are unaffected by the terrain suppression filter', () => {
+  it('non-DEM layer rows render alongside a terrain-mode DEM', () => {
     const terrainDem = makeDemLayer('dem-terrain', 'terrain');
     const vectorLayer: MapLayerResponse = {
       id: 'vector-pop',
@@ -204,16 +202,11 @@ describe('UnifiedStackPanel BLDR-03: terrain-mode DEM row suppression', () => {
       />,
     );
 
-    // Vector layer should render normally
-    const vectorRow = document.querySelector('[data-row-id="vector-pop"]');
-    expect(vectorRow).toBeTruthy();
-
-    // Terrain-mode DEM is still suppressed
-    const terrainRow = document.querySelector('[data-row-id="dem-terrain"]');
-    expect(terrainRow).toBeNull();
+    expect(document.querySelector('[data-row-id="vector-pop"]')).toBeTruthy();
+    expect(document.querySelector('[data-row-id="dem-terrain"]')).toBeTruthy();
   });
 
-  it('hillshade and image DEM rows both render (only terrain mode is suppressed)', () => {
+  it('renders hillshade, image, AND terrain DEM rows', () => {
     const hillshadeDem = makeDemLayer('dem-hillshade', 'hillshade');
     const imageDem = makeDemLayer('dem-image', 'image');
     const terrainDem = makeDemLayer('dem-terrain', 'terrain');
@@ -226,6 +219,6 @@ describe('UnifiedStackPanel BLDR-03: terrain-mode DEM row suppression', () => {
 
     expect(document.querySelector('[data-row-id="dem-hillshade"]')).toBeTruthy();
     expect(document.querySelector('[data-row-id="dem-image"]')).toBeTruthy();
-    expect(document.querySelector('[data-row-id="dem-terrain"]')).toBeNull();
+    expect(document.querySelector('[data-row-id="dem-terrain"]')).toBeTruthy();
   });
 });

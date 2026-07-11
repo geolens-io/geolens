@@ -86,7 +86,8 @@ describe('LegendPlugin terrain consistency (Fix 1)', () => {
     render(<LegendPlugin ctx={ctx} />);
 
     expect(screen.getAllByTestId('legend-terrain-synthetic')).toHaveLength(1);
-    expect(screen.getByText('3D terrain')).toBeInTheDocument();
+    // fix(HT-08): the synthetic entry keeps the bound DEM's name.
+    expect(screen.getByText('Elevation (terrain)')).toBeInTheDocument();
   });
 
   it('does NOT show the synthetic entry when terrain is configured but disabled', () => {

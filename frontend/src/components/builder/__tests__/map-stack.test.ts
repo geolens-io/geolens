@@ -116,7 +116,11 @@ describe('buildMapStack', () => {
     expect(entries.find((entry) => entry.id === 'data:trails')!.order).toBeGreaterThan(relief!.order);
   });
 
-  it('does not mark stale terrain config active when the source DEM is not in Terrain mode', () => {
+  // fix(HT-01): a hillshade-mode DEM bound as the terrain source drives the 3D
+  // mesh too (the renderer never required render_mode:"terrain"). The stack
+  // status must agree — reporting 'disabled' while the map rendered terrain was
+  // the drift #345 set out to fix.
+  it('marks terrain active when a hillshade-mode DEM is the bound source', () => {
     const demLayer = makeLayer({
       id: 'dem-hillshade',
       dataset_id: 'dem-1',
@@ -135,9 +139,9 @@ describe('buildMapStack', () => {
     })));
 
     const terrain = entries.find((entry) => entry.id === 'relief:terrain');
-    expect(terrain?.visible).toBe(false);
-    expect(terrain?.metadata.terrain?.enabled).toBe(false);
-    expect(terrain?.metadata.terrain?.sourceStatus).toBe('disabled');
+    expect(terrain?.visible).toBe(true);
+    expect(terrain?.metadata.terrain?.enabled).toBe(true);
+    expect(terrain?.metadata.terrain?.sourceStatus).toBe('active');
   });
 
   it('computes stable order labels and metadata for duplicates, hidden layers, legend state, and labels', () => {
