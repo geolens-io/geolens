@@ -38,8 +38,7 @@ import { clearTerrainForStyleSwap, resolveAdapterType, prefixed, getDataDrivenCo
 import { applyMapBasemapAppearance, syncMapComposition } from '@/components/builder/map-composition-sync';
 import type { SyncLayerInput } from '@/components/builder/map-sync';
 import { asFeatureCollection, fetchBoundedGeoJson } from '@/api/geojson-z';
-import { createViewerLayerEntries } from '@/components/viewer/layer-identity';
-import { resolveTerrainSourceLayer } from '@/components/builder/map-stack';
+import { createViewerLayerEntries, isTerrainBackingLiveVisible } from '@/components/viewer/layer-identity';
 import { getClusterSourceEligibility, getClusterSourceStrategy, isClusterRenderMode, shouldFetchClusterGeoJson } from '@/components/builder/cluster-source';
 import { effectiveDemRenderMode } from '@/lib/dem-render-mode';
 import 'maplibre-gl/dist/maplibre-gl.css';
@@ -177,18 +176,14 @@ export const ViewerMap = memo(function ViewerMap({
   // Tile token management (fetch, auto-refresh, error toast)
   const { tokenMap } = useViewerTokens({ layers, apiKey, embedToken });
 
-  const terrainSourceLayer = useMemo(
-    () => resolveTerrainSourceLayer(layers, terrainConfig),
-    [layers, terrainConfig],
-  );
   // fix(#452): the bound DEM's LIVE visibility (legend eye toggle). Saved
   // visibility is handled inside the hook (HT-12); this covers the client-side
-  // override so hiding the DEM in the viewer flattens the mesh too.
-  const demLayerLiveVisible = useMemo(() => {
-    if (!terrainSourceLayer) return true;
-    const entry = layerEntries.find((e) => e.layer === terrainSourceLayer);
-    return entry ? visibleLayers.has(entry.key) : true;
-  }, [terrainSourceLayer, layerEntries, visibleLayers]);
+  // override so hiding the DEM in the viewer flattens the mesh too. Shared
+  // with LayerLegend's synthetic-entry gate so legend and mesh cannot split.
+  const demLayerLiveVisible = useMemo(
+    () => isTerrainBackingLiveVisible(layers, terrainConfig, visibleLayers),
+    [layers, terrainConfig, visibleLayers],
+  );
 
   // Persisted terrain source and exaggeration
   const { terrainReady, reseedTerrainOnStyleLoad } = useViewerTerrain({

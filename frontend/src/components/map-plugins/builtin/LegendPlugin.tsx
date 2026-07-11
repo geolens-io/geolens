@@ -1,6 +1,6 @@
 import { memo, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { LayerTypeIcon, RasterGlyphChip } from '@/components/map/layer-icons';
+import { demChipGlyph, LayerTypeIcon, RasterGlyphChip } from '@/components/map/layer-icons';
 import {
   CategoricalLegend,
   GraduatedColorLegend,
@@ -219,8 +219,9 @@ export function LegendPlugin({ ctx }: { ctx: PluginContext }) {
           <div className="p-1 text-xs">
             <div className="flex items-center gap-1.5">
               {/* fix(#452): same ◬ chip as the stack's terrain-mode DEM row —
-                  legend and layer-list icons must agree. */}
-              <RasterGlyphChip glyph="◬" />
+                  legend and layer-list icons must agree, so derive the glyph
+                  instead of hardcoding it. */}
+              <RasterGlyphChip glyph={demChipGlyph('terrain')} />
               {/* fix(HT-08): keep the bound DEM's identity — fall back to the
                   generic "3D terrain" label only when the layer has no name. */}
               <span className="font-medium text-foreground truncate">

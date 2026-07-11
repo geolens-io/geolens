@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef } from 'react';
 import type { MapTerrainConfig, SharedLayerResponse, StyleConfig } from '@/types/api';
 import { useTranslation } from 'react-i18next';
-import { LayerTypeIcon, RasterGlyphChip } from '@/components/map/layer-icons';
+import { demChipGlyph, LayerTypeIcon, RasterGlyphChip } from '@/components/map/layer-icons';
 import {
   CategoricalLegend,
   GraduatedColorLegend,
@@ -13,13 +13,12 @@ import type { SwatchStyle } from '@/components/map/LegendEntries';
 import { Eye, EyeOff, Layers, X } from 'lucide-react';
 import { parseStepOrInterpolate } from '@/lib/normalize-style-config';
 import { MAP_COLORS } from '@/lib/map-colors';
-import { createViewerLayerEntries } from '@/components/viewer/layer-identity';
+import { createViewerLayerEntries, isTerrainBackingLiveVisible } from '@/components/viewer/layer-identity';
 import {
   deriveTerrainLegendEntry,
   isDemTerrainVisualSuppressed,
   terrainSourceIsShownAsLayer,
 } from '@/components/builder/terrain-legend';
-import { resolveTerrainSourceLayer } from '@/components/builder/map-stack';
 import { getClusterSourceStrategy, isClusterRenderMode } from '@/components/builder/cluster-source';
 
 interface LayerLegendProps {
@@ -217,11 +216,9 @@ export function LayerLegend({
     // fix(#452): the viewer now clears terrain when the bound DEM is LIVE-hidden
     // via the legend eye (useViewerTerrain honors visibleLayers), so a hidden
     // source must not keep a synthetic "3D terrain" row for a mesh that no
-    // longer renders. Resolve the bound DEM with the same shared resolver the
-    // renderer uses and gate on the live toggle state.
-    const backing = resolveTerrainSourceLayer(layers, terrainConfig);
-    const backingKey = createViewerLayerEntries(layers).find((e) => e.layer === backing)?.key;
-    if (backingKey && !visibleLayers.has(backingKey)) return null;
+    // longer renders. Same helper as ViewerMap's mesh gate — one definition,
+    // so legend and mesh cannot disagree.
+    if (!isTerrainBackingLiveVisible(layers, terrainConfig, visibleLayers)) return null;
     // Dedup: drop the synthetic entry when the terrain source DEM is shown as a
     // VISIBLE per-layer entry (e.g. a visible hillshade of the same dataset), so
     // the legend doesn't list one DEM twice. Kept for the pure-terrain case
@@ -283,8 +280,9 @@ export function LayerLegend({
             >
               <div className="flex items-center gap-2">
                 {/* fix(#452): same ◬ chip as the stack's terrain-mode DEM row —
-                    legend and layer-list icons must agree. */}
-                <RasterGlyphChip glyph="◬" />
+                    legend and layer-list icons must agree, so derive the glyph
+                    instead of hardcoding it. */}
+                <RasterGlyphChip glyph={demChipGlyph('terrain')} />
                 {/* fix(HT-08): keep the bound DEM's identity — fall back to the
                     generic "3D terrain" label only when the layer has no name. */}
                 <span className="text-sm text-foreground flex-1">
