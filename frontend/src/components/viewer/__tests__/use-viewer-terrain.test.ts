@@ -210,6 +210,34 @@ describe('useViewerTerrain', () => {
     expect(map.addSource).not.toHaveBeenCalled();
   });
 
+  // fix(#452): the viewer legend's live eye toggle must flatten the mesh —
+  // the saved `visible` flag never reflects that client-side override.
+  it('clears terrain when the bound DEM is live-hidden and restores it on re-show', async () => {
+    const map = createMap();
+    const mapRef = { current: map as unknown as MaplibreMap };
+
+    const { result, rerender } = renderHook(
+      ({ liveVisible }: { liveVisible: boolean }) => useViewerTerrain({
+        layers: [layer({})],
+        mapRef,
+        mapReady: true,
+        terrainConfig: { enabled: true, source_dataset_id: 'dem-1', exaggeration: 1.5 },
+        demLayerLiveVisible: liveVisible,
+      }),
+      { initialProps: { liveVisible: true } },
+    );
+
+    await waitFor(() => expect(result.current.terrainReady).toBe(true));
+
+    rerender({ liveVisible: false });
+    await waitFor(() => expect(result.current.terrainReady).toBe(false));
+    expect(map.setTerrain).toHaveBeenLastCalledWith(null);
+
+    rerender({ liveVisible: true });
+    await waitFor(() => expect(result.current.terrainReady).toBe(true));
+    expect(map.setTerrain).toHaveBeenLastCalledWith({ source: 'terrain-dem', exaggeration: 1.5 });
+  });
+
   it('reapplies persisted terrain after a style reload', async () => {
     const map = createMap();
     const mapRef = { current: map as unknown as MaplibreMap };

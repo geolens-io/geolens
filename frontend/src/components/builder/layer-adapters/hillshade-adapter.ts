@@ -2,6 +2,7 @@ import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { AdapterLayerInput, LayerAdapter } from './types';
 import { normalizeRasterBounds, paintValueChanged, syncSingleLayerVisibility } from './shared';
 import { DEFAULT_HILLSHADE_PAINT } from './builder-defaults';
+import { COLOR_RELIEF_SUFFIX } from '../companion-ids';
 
 // builder-audit #338 ADAPT-06: re-export the single hillshade default from builder-defaults
 // (was a byte-identical local copy that diverged from renderAs's DEFAULT_HILLSHADE_PAINT).
@@ -174,9 +175,18 @@ export const hillshadeAdapter: LayerAdapter = {
 
   syncVisibility(map: MaplibreMap, input: AdapterLayerInput): void {
     syncSingleLayerVisibility(map, input.layerId, input.visible);
+    // fix(#452): the hypso color-relief companion shares the raster-dem source
+    // and must follow the DEM's visibility. The full sync path recreates it via
+    // syncColorReliefLayer, but visibility-only diffs (the viewer legend's live
+    // eye toggle) only call syncVisibility — without this the unshaded tint
+    // kept painting after the DEM was hidden.
+    syncSingleLayerVisibility(map, `${input.layerId}${COLOR_RELIEF_SUFFIX}`, input.visible);
   },
 
   getLayerIds(layerId: string): string[] {
-    return [layerId];
+    // fix(#452): the conditional color-relief companion belongs to this adapter;
+    // consumers (zoom-range sync, teardown) must see it. syncSingleLayerVisibility
+    // and removal both no-op when the companion doesn't exist.
+    return [layerId, `${layerId}${COLOR_RELIEF_SUFFIX}`];
   },
 };
