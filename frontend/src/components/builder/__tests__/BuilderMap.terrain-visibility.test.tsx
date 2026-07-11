@@ -333,4 +333,49 @@ describe('BuilderMap BLDR-02: terrain attach/detach on DEM layer visibility togg
     const lastCall = setTerrainCalls[setTerrainCalls.length - 1];
     expect(lastCall[0]).toBeNull();
   });
+
+  // fix(#454): the intermittent flat-Matterhorn-on-load bug. After a basemap
+  // style swap, terrain re-apply is deferred to ONE map.once('idle',
+  // applyTerrainConfig). When that idle fired mid style-transition
+  // (isStyleLoaded()===false), applyTerrainConfig no-oped silently and an
+  // enabled terrain_config rendered a flat map until an unrelated dep changed.
+  // It must re-arm on the next idle instead.
+  it('re-arms and applies terrain when the deferred idle lands mid style-transition (#454)', async () => {
+    const demLayer = makeDemLayer(true);
+
+    await act(async () => {
+      render(
+        <BuilderMap
+          layers={[demLayer]}
+          basemapStyle="openfreemap-positron"
+          terrainConfig={terrainConfig}
+        />,
+      );
+    });
+    mapState.fakeMap.setTerrain.mockClear();
+
+    // Basemap swap: style.load fires while the (next) transition is in flight.
+    mapState.fakeMap.isStyleLoaded.mockReturnValue(false);
+    await act(async () => {
+      mapState.fakeMap.emit('style.load');
+    });
+
+    // The deferred idle lands mid-transition — the old code dropped the apply
+    // here permanently.
+    await act(async () => {
+      mapState.fakeMap.emit('idle');
+    });
+    expect(mapState.fakeMap.setTerrain).not.toHaveBeenCalledWith(
+      expect.objectContaining({ source: TERRAIN_SOURCE_ID }),
+    );
+
+    // Style settles; the re-armed idle must now attach the mesh.
+    mapState.fakeMap.isStyleLoaded.mockReturnValue(true);
+    await act(async () => {
+      mapState.fakeMap.emit('idle');
+    });
+    const setTerrainCalls = mapState.fakeMap.setTerrain.mock.calls;
+    expect(setTerrainCalls.length).toBeGreaterThan(0);
+    expect(setTerrainCalls[setTerrainCalls.length - 1][0]).toMatchObject({ source: TERRAIN_SOURCE_ID });
+  });
 });
