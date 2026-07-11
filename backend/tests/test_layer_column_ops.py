@@ -114,3 +114,46 @@ async def test_rename_column_viewer_forbidden(
         headers=viewer_auth_header,
     )
     assert resp.status_code == 403
+
+
+@pytest.mark.anyio
+async def test_column_ddl_invalidates_tile_cache(
+    client: AsyncClient, admin_auth_header: dict, monkeypatch
+):
+    """fix(#458 E-05): every column DDL op purges the layer's cached tiles."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    import app.modules.catalog.layers.router as layers_router
+
+    mock_cache = MagicMock()
+    mock_cache.invalidate_table = AsyncMock()
+    monkeypatch.setattr(layers_router, "get_tile_cache", lambda: mock_cache)
+
+    dataset_id = await _create_layer(client, admin_auth_header, title="Tile Purge Test")
+
+    ops = [
+        client.post(
+            f"/layers/{dataset_id}/columns/",
+            json={"column": {"name": "extra", "type": "text"}},
+            headers=admin_auth_header,
+        ),
+        client.patch(
+            f"/layers/{dataset_id}/columns/extra/name",
+            json={"new_name": "extra2"},
+            headers=admin_auth_header,
+        ),
+        client.patch(
+            f"/layers/{dataset_id}/columns/value/type",
+            json={"new_type": "integer"},
+            headers=admin_auth_header,
+        ),
+        client.delete(
+            f"/layers/{dataset_id}/columns/extra2",
+            headers=admin_auth_header,
+        ),
+    ]
+    for op in ops:
+        resp = await op
+        assert resp.status_code in (200, 201, 204), resp.text
+
+    assert mock_cache.invalidate_table.await_count == 4

@@ -27,6 +27,17 @@ from app.modules.catalog.layers.service import (
     drop_column,
     rename_column,
 )
+from app.platform.cache.provider import get_tile_cache
+
+
+async def _invalidate_tiles(table_name: str) -> None:
+    """fix(#458 E-05): column DDL changes the attribute set embedded in vector
+    tiles, so purge cached tiles post-commit — same treatment as the
+    feature-edit path (features/router.py) and the reupload swap."""
+    tile_cache = get_tile_cache()
+    if tile_cache is not None:
+        await tile_cache.invalidate_table(table_name)
+
 
 logger = structlog.stdlib.get_logger(__name__)
 
@@ -138,6 +149,7 @@ async def add_column_endpoint(
         ),
     )
     await db.commit()
+    await _invalidate_tiles(dataset.table_name)
 
     return ColumnListResponse(columns=columns)
 
@@ -190,6 +202,7 @@ async def rename_column_endpoint(
         ),
     )
     await db.commit()
+    await _invalidate_tiles(dataset.table_name)
     return ColumnListResponse(columns=columns)
 
 
@@ -253,6 +266,7 @@ async def alter_column_type_endpoint(
         ),
     )
     await db.commit()
+    await _invalidate_tiles(dataset.table_name)
     return ColumnListResponse(columns=columns)
 
 
@@ -302,5 +316,6 @@ async def drop_column_endpoint(
         ),
     )
     await db.commit()
+    await _invalidate_tiles(dataset.table_name)
 
     return ColumnListResponse(columns=columns)
