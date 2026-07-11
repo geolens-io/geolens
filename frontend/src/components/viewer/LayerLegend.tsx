@@ -1,21 +1,19 @@
 import { useEffect, useMemo, useRef } from 'react';
 import type { MapTerrainConfig, SharedLayerResponse, StyleConfig } from '@/types/api';
 import { useTranslation } from 'react-i18next';
-import { getLayerColors } from '@/components/map/layer-icons';
+import { demChipGlyph, LayerTypeIcon, RasterGlyphChip } from '@/components/map/layer-icons';
 import {
   CategoricalLegend,
-  GeometrySwatch,
   GraduatedColorLegend,
   GraduatedRadiusLegend,
   GraduatedWidthLegend,
   HeatmapLegend,
 } from '@/components/map/LegendEntries';
 import type { SwatchStyle } from '@/components/map/LegendEntries';
-import { Eye, EyeOff, Grid3x3, Layers, Mountain, X } from 'lucide-react';
+import { Eye, EyeOff, Layers, X } from 'lucide-react';
 import { parseStepOrInterpolate } from '@/lib/normalize-style-config';
 import { MAP_COLORS } from '@/lib/map-colors';
-import { getLayerCapabilities } from '@/lib/layer-capabilities';
-import { createViewerLayerEntries } from '@/components/viewer/layer-identity';
+import { createViewerLayerEntries, isTerrainBackingLiveVisible } from '@/components/viewer/layer-identity';
 import {
   deriveTerrainLegendEntry,
   isDemTerrainVisualSuppressed,
@@ -214,18 +212,19 @@ export function LayerLegend({
   // (999.17 MD-01: no phantom entry for a dangling terrain_config).
   const terrainEntry = useMemo(() => {
     const entry = deriveTerrainLegendEntry(terrainConfig, layers, { labelKey: 'viewer.legend.terrain3d' });
+    if (!entry) return null;
+    // fix(#452): the viewer now clears terrain when the bound DEM is LIVE-hidden
+    // via the legend eye (useViewerTerrain honors visibleLayers), so a hidden
+    // source must not keep a synthetic "3D terrain" row for a mesh that no
+    // longer renders. Same helper as ViewerMap's mesh gate — one definition,
+    // so legend and mesh cannot disagree.
+    if (!isTerrainBackingLiveVisible(layers, terrainConfig, visibleLayers)) return null;
     // Dedup: drop the synthetic entry when the terrain source DEM is shown as a
     // VISIBLE per-layer entry (e.g. a visible hillshade of the same dataset), so
-    // the legend doesn't list one DEM twice. The viewer keeps toggled-off layers
-    // in `sorted` (visibility lives in `visibleLayers`, not the list), but 3D
-    // terrain stays active from terrain_config regardless of that toggle — so we
-    // must dedup against currently-visible entries only, else toggling the
-    // hillshade off would hide BOTH it and the synthetic row, leaving active 3D
-    // terrain unrepresented. Kept for the pure-terrain / hidden-source case.
+    // the legend doesn't list one DEM twice. Kept for the pure-terrain case
+    // where the suppressed DEM has no per-layer row.
     const visibleSourceLayers = sorted.filter((s) => visibleLayers.has(s.key)).map((s) => s.layer);
-    return entry && !terrainSourceIsShownAsLayer(terrainConfig, visibleSourceLayers)
-      ? entry
-      : null;
+    return terrainSourceIsShownAsLayer(terrainConfig, visibleSourceLayers) ? null : entry;
   }, [terrainConfig, layers, sorted, visibleLayers]);
 
   // Dismiss on Escape
@@ -280,7 +279,10 @@ export function LayerLegend({
               className="px-3 py-2 hover:bg-accent/50"
             >
               <div className="flex items-center gap-2">
-                <Mountain className="w-4 h-4 text-muted-foreground" aria-hidden="true" />
+                {/* fix(#452): same ◬ chip as the stack's terrain-mode DEM row —
+                    legend and layer-list icons must agree, so derive the glyph
+                    instead of hardcoding it. */}
+                <RasterGlyphChip glyph={demChipGlyph('terrain')} />
                 {/* fix(HT-08): keep the bound DEM's identity — fall back to the
                     generic "3D terrain" label only when the layer has no name. */}
                 <span className="text-sm text-foreground flex-1">
@@ -292,34 +294,27 @@ export function LayerLegend({
           {sorted.map(({ layer, key }) => {
             const isVisible = visibleLayers.has(key);
             const sc = layer.style_config;
-            const isHeatmap = sc?.render_mode === 'heatmap';
-            // Raster/VRT layers have no vector fill — show a raster icon (as the
-            // builder does), not the colored point/polygon swatch + default color.
-            const caps = getLayerCapabilities({
-              layer_type: layer.layer_type,
-              dataset_record_type: layer.dataset_record_type,
-              dataset_geometry_type: layer.geometry_type,
-            });
-            const isRasterLike = caps.kind === 'raster' || caps.kind === 'vrt';
-            const color = isHeatmap || isRasterLike ? null : getLayerColors({
-              dataset_geometry_type: layer.geometry_type ?? null,
-              paint: layer.paint ?? {},
-              style_config: sc,
-            })[0];
             const layerName = viewerLegendEntryName(layer);
             const clusterLabel = clusterLegendLabel(layer);
             return (
               <li key={key} className="px-3 py-2 hover:bg-accent/50">
                 <div className="flex items-center gap-2">
-                  {isRasterLike ? (
-                    caps.kind === 'vrt' ? (
-                      <Layers className="w-3.5 h-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
-                    ) : (
-                      <Grid3x3 className="w-3.5 h-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
-                    )
-                  ) : color ? (
-                    <GeometrySwatch geometryType={layer.geometry_type} color={color} />
-                  ) : null}
+                  {/* fix(#452): one shared icon component with the builder layer
+                      stack — raster/DEM rows get the same glyph chip (▦/⛰/◬),
+                      vector rows the same colorized geometry icon. */}
+                  <LayerTypeIcon
+                    layer={{
+                      dataset_geometry_type: layer.geometry_type,
+                      layer_type: layer.layer_type,
+                      dataset_record_type: layer.dataset_record_type,
+                      is_dem: layer.is_dem,
+                      paint: layer.paint,
+                      layout: layer.layout,
+                      opacity: layer.opacity,
+                      style_config: sc,
+                    }}
+                    iconId={`viewer-legend-${key}`}
+                  />
                   <span className="text-sm text-foreground flex-1 line-clamp-2" title={layerName}>
                     {layerName}
                   </span>

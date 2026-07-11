@@ -1,6 +1,6 @@
 import { memo, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ColorizedGeometryIcon, getLayerColors, extractStyleHints } from '@/components/map/layer-icons';
+import { demChipGlyph, LayerTypeIcon, RasterGlyphChip } from '@/components/map/layer-icons';
 import {
   CategoricalLegend,
   GraduatedColorLegend,
@@ -13,8 +13,7 @@ import type { MapLayerResponse, StyleConfig } from '@/types/api';
 import { MAP_COLORS } from '@/lib/map-colors';
 import { parseStepOrInterpolate } from '@/lib/normalize-style-config';
 import { inferGeometryType } from '@/lib/geo-utils';
-import { getLayerCapabilities } from '@/lib/layer-capabilities';
-import { Mountain, Pencil, Check } from 'lucide-react';
+import { Pencil, Check } from 'lucide-react';
 import {
   deriveTerrainLegendEntry,
   isDemTerrainVisualSuppressed,
@@ -219,7 +218,10 @@ export function LegendPlugin({ ctx }: { ctx: PluginContext }) {
         <div data-testid="legend-terrain-synthetic">
           <div className="p-1 text-xs">
             <div className="flex items-center gap-1.5">
-              <Mountain className="w-4 h-4 text-muted-foreground" aria-hidden="true" />
+              {/* fix(#452): same ◬ chip as the stack's terrain-mode DEM row —
+                  legend and layer-list icons must agree, so derive the glyph
+                  instead of hardcoding it. */}
+              <RasterGlyphChip glyph={demChipGlyph('terrain')} />
               {/* fix(HT-08): keep the bound DEM's identity — fall back to the
                   generic "3D terrain" label only when the layer has no name. */}
               <span className="font-medium text-foreground truncate">
@@ -301,26 +303,12 @@ const LegendLayerEntry = memo(function LegendLayerEntry({
             </>
           ) : (
             <div className="flex items-center gap-1.5">
-              <ColorizedGeometryIcon
-                geometryType={effectiveGeom}
-                colors={getLayerColors({
-                  dataset_geometry_type: effectiveGeom,
-                  paint: layer.paint ?? {},
-                  style_config: layer.style_config,
-                })}
-                layerId={`legend-plugin-${idx}`}
-                // Pass the capability kind ('raster'/'vrt'/'vector'), not the raw
-                // layer_type ('raster_geolens') — ColorizedGeometryIcon keys its
-                // raster/vrt icons off kind, same contract StackRow uses. Raw
-                // layer_type fell through to a polygon swatch for raster layers.
-                layerType={getLayerCapabilities(layer).kind}
-                styleHints={extractStyleHints(
-                  layer.paint ?? {},
-                  layer.layout ?? {},
-                  effectiveGeom,
-                  opacity,
-                  layer.style_config,
-                )}
+              {/* fix(#452): one shared icon component with the layer stack —
+                  raster/DEM rows get the same glyph chip (▦/⛰/◬) the stack
+                  shows instead of a divergent lucide icon. */}
+              <LayerTypeIcon
+                layer={{ ...layer, dataset_geometry_type: effectiveGeom }}
+                iconId={`legend-plugin-${idx}`}
               />
               <span className="font-medium text-foreground truncate">
                 {entryName}

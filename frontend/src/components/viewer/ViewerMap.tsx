@@ -38,7 +38,7 @@ import { clearTerrainForStyleSwap, resolveAdapterType, prefixed, getDataDrivenCo
 import { applyMapBasemapAppearance, syncMapComposition } from '@/components/builder/map-composition-sync';
 import type { SyncLayerInput } from '@/components/builder/map-sync';
 import { asFeatureCollection, fetchBoundedGeoJson } from '@/api/geojson-z';
-import { createViewerLayerEntries } from '@/components/viewer/layer-identity';
+import { createViewerLayerEntries, isTerrainBackingLiveVisible } from '@/components/viewer/layer-identity';
 import { getClusterSourceEligibility, getClusterSourceStrategy, isClusterRenderMode, shouldFetchClusterGeoJson } from '@/components/builder/cluster-source';
 import { effectiveDemRenderMode } from '@/lib/dem-render-mode';
 import 'maplibre-gl/dist/maplibre-gl.css';
@@ -176,6 +176,15 @@ export const ViewerMap = memo(function ViewerMap({
   // Tile token management (fetch, auto-refresh, error toast)
   const { tokenMap } = useViewerTokens({ layers, apiKey, embedToken });
 
+  // fix(#452): the bound DEM's LIVE visibility (legend eye toggle). Saved
+  // visibility is handled inside the hook (HT-12); this covers the client-side
+  // override so hiding the DEM in the viewer flattens the mesh too. Shared
+  // with LayerLegend's synthetic-entry gate so legend and mesh cannot split.
+  const demLayerLiveVisible = useMemo(
+    () => isTerrainBackingLiveVisible(layers, terrainConfig, visibleLayers),
+    [layers, terrainConfig, visibleLayers],
+  );
+
   // Persisted terrain source and exaggeration
   const { terrainReady, reseedTerrainOnStyleLoad } = useViewerTerrain({
     layers,
@@ -183,6 +192,7 @@ export const ViewerMap = memo(function ViewerMap({
     mapReady,
     terrainConfig,
     tokenMap,
+    demLayerLiveVisible,
   });
 
   // fix(#430 V-05): opening a terrain map showed the wide flat DEM slab for
@@ -200,8 +210,8 @@ export const ViewerMap = memo(function ViewerMap({
   // gate it stayed under the veil until the 4s safety timer. Compute the same
   // effective expectation the hook uses so those maps reveal immediately.
   const terrainExpected = useMemo(
-    () => isViewerTerrainExpected(layers, terrainConfig),
-    [layers, terrainConfig],
+    () => isViewerTerrainExpected(layers, terrainConfig) && demLayerLiveVisible,
+    [layers, terrainConfig, demLayerLiveVisible],
   );
   const [revealed, setRevealed] = useState(false);
   useEffect(() => {

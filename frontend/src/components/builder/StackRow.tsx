@@ -1,5 +1,5 @@
 /* eslint-disable jsx-a11y/no-static-element-interactions, jsx-a11y/no-noninteractive-tabindex -- Phase 1111 LINT-01: stack rows are composite focus targets with nested controls, so role="button"/listbox roles are intentionally avoided. */
-import { memo, useMemo, useState, type KeyboardEvent } from 'react';
+import { memo, useState, type KeyboardEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ClipboardPaste, Copy, Crosshair, Eye, EyeOff, MoreVertical, Type } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -12,7 +12,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { ColorizedGeometryIcon, extractStyleHints, getLayerColors } from '@/components/map/layer-icons';
+import { LayerTypeIcon } from '@/components/map/layer-icons';
 import { getLayerCapabilities } from '@/lib/layer-capabilities';
 import { cn } from '@/lib/utils';
 import {
@@ -81,54 +81,10 @@ interface StackRowProps {
 }
 
 function TypeIcon({ layer }: { layer: MapLayerResponse }) {
-  const caps = getLayerCapabilities(layer);
-  const layerColors = getLayerColors(layer);
-  // GUARD-04: memoize hint extraction — keyed on the exact fields extractStyleHints reads:
-  // paint (line-width/dasharray/opacity, fill-opacity, circle-radius/stroke/opacity,
-  //        _stroke-disabled, _outline-color), layout (line-dasharray fallback),
-  // dataset_geometry_type (drives per-geometry branches), opacity (layer-level),
-  // style_config (render_mode → isHeatmap).
-  const styleHints = useMemo(
-    () =>
-      extractStyleHints(
-        layer.paint ?? {},
-        layer.layout ?? {},
-        layer.dataset_geometry_type,
-        layer.opacity,
-        layer.style_config,
-      ),
-    [layer.paint, layer.layout, layer.dataset_geometry_type, layer.opacity, layer.style_config],
-  );
-
-  if (caps.kind === 'raster' || caps.kind === 'vrt') {
-    const isDEM = layer.is_dem === true;
-    const renderMode = (layer.style_config as Record<string, unknown> | null | undefined)?.render_mode;
-    let glyph = '▦';
-    if (isDEM) {
-      if (renderMode === 'hillshade') glyph = '⛰';
-      else if (renderMode === 'terrain') glyph = '◬';
-      // else image → ▦ (default)
-    }
-    return (
-      <span
-        className="flex items-center justify-center h-[22px] w-[22px] rounded-sm bg-[--type-raster-bg] text-[--type-raster] text-xs font-semibold"
-        aria-hidden="true"
-      >
-        {glyph}
-      </span>
-    );
-  }
-
-  // Vector layer
-  return (
-    <ColorizedGeometryIcon
-      geometryType={layer.dataset_geometry_type}
-      colors={layerColors}
-      layerId={layer.id}
-      layerType={caps.kind}
-      styleHints={styleHints}
-    />
-  );
+  // fix(#452): the icon logic (raster glyph chip + colorized vector icon) moved
+  // to the shared LayerTypeIcon so both legends render the same icons as the
+  // stack rows.
+  return <LayerTypeIcon layer={layer} iconId={layer.id} />;
 }
 
 export const StackRow = memo(function StackRow({

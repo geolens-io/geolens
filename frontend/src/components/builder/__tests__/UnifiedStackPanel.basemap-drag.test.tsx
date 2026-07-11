@@ -38,6 +38,10 @@ vi.mock('@/components/map/layer-icons', () => ({
   ColorizedGeometryIcon: ({ layerId }: { layerId: string }) => (
     <span data-testid={`type-icon-${layerId}`} />
   ),
+  // fix(#452): StackRow's type icon is now the shared LayerTypeIcon.
+  LayerTypeIcon: ({ iconId }: { iconId: string }) => (
+    <span data-testid={`type-icon-${iconId}`} />
+  ),
   getLayerColors: () => ({ fill: '#000', stroke: '#fff', outline: '#000' }),
   extractStyleHints: () => ({}),
 }));

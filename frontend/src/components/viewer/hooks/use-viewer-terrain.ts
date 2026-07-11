@@ -36,12 +36,21 @@ export function useViewerTerrain({
   mapReady,
   terrainConfig,
   tokenMap,
+  demLayerLiveVisible = true,
 }: {
   layers: SharedLayerResponse[];
   mapRef: React.RefObject<MaplibreMap | null>;
   mapReady: boolean;
   terrainConfig?: MapTerrainConfig | null;
   tokenMap?: Map<string, TileToken>;
+  /**
+   * fix(#452): the bound DEM's LIVE visibility from the viewer legend's eye
+   * toggle (ViewerMap resolves it from visibleLayers). The saved `visible`
+   * check below covers maps saved with a hidden DEM (HT-12), but the legend
+   * toggle is a client-side override the saved flag never reflects — without
+   * this the mesh stayed extruded after the viewer hid the DEM live.
+   */
+  demLayerLiveVisible?: boolean;
 }) {
   const [terrainReady, setTerrainReady] = useState(false);
 
@@ -62,8 +71,8 @@ export function useViewerTerrain({
     [layers, terrainConfig?.source_dataset_id],
   );
 
-  const terrainStateRef = useRef({ terrainConfig, terrainLayer, boundDatasetHasRows });
-  terrainStateRef.current = { terrainConfig, terrainLayer, boundDatasetHasRows };
+  const terrainStateRef = useRef({ terrainConfig, terrainLayer, boundDatasetHasRows, demLayerLiveVisible });
+  terrainStateRef.current = { terrainConfig, terrainLayer, boundDatasetHasRows, demLayerLiveVisible };
 
   const applyTerrain = useCallback(() => {
     const map = mapRef.current;
@@ -76,6 +85,7 @@ export function useViewerTerrain({
       terrainConfig: currentTerrainConfig,
       terrainLayer: currentTerrainLayer,
       boundDatasetHasRows: currentBoundDatasetHasRows,
+      demLayerLiveVisible: currentLiveVisible,
     } = terrainStateRef.current;
     const terrainDatasetId = currentTerrainConfig?.source_dataset_id;
     const terrainToken = terrainDatasetId ? tokenMap?.get(terrainDatasetId) : null;
@@ -93,9 +103,11 @@ export function useViewerTerrain({
     // that state. When it carries NO rows (filtered private dataset in a
     // share-token embed, or metadata still loading), keep seeding from the
     // raster token as before.
-    const demLayerVisible = currentTerrainLayer
+    // fix(#452): AND the live legend-toggle state, so hiding the DEM in the
+    // viewer flattens the mesh just like the builder's eye toggle does.
+    const demLayerVisible = (currentTerrainLayer
       ? currentTerrainLayer.visible !== false
-      : !currentBoundDatasetHasRows;
+      : !currentBoundDatasetHasRows) && currentLiveVisible;
     if (!currentTerrainConfig?.enabled || !terrainDatasetId || !terrainTileUrl || !demLayerVisible) {
       map.setTerrain(null);
       setTerrainReady(false);
@@ -157,6 +169,7 @@ export function useViewerTerrain({
     terrainLayer?.tile_url,
     terrainLayer?.visible,
     boundDatasetHasRows,
+    demLayerLiveVisible,
     tokenMap,
   ]);
 

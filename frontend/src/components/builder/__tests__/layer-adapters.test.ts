@@ -1843,4 +1843,36 @@ describe('hillshadeAdapter', () => {
     expect(map.setPaintProperty).toHaveBeenCalledWith('layer-h4', 'hillshade-accent-color', 'rgba(100, 116, 139, 0.1333)');
     expect(map.setPaintProperty).not.toHaveBeenCalledWith('layer-h4', 'raster-opacity', expect.anything());
   });
+
+  // fix(#452): the hypso color-relief companion must follow the DEM layer's
+  // visibility on visibility-only diffs (the viewer legend's live eye toggle
+  // only calls syncVisibility — the full sync path that recreates the
+  // companion never runs there).
+  it('syncVisibility toggles the color-relief companion with the hillshade layer', () => {
+    (map.getLayer as ReturnType<typeof vi.fn>).mockImplementation((id: string) =>
+      id === 'layer-h5' || id === 'layer-h5-colorrelief' ? { id } : undefined,
+    );
+    const input = makeInput({ id: 'h5', layerId: 'layer-h5', visible: false });
+
+    hillshadeAdapter.syncVisibility(map, input);
+
+    expect(map.setLayoutProperty).toHaveBeenCalledWith('layer-h5', 'visibility', 'none');
+    expect(map.setLayoutProperty).toHaveBeenCalledWith('layer-h5-colorrelief', 'visibility', 'none');
+  });
+
+  it('syncVisibility no-ops the companion when it does not exist', () => {
+    (map.getLayer as ReturnType<typeof vi.fn>).mockImplementation((id: string) =>
+      id === 'layer-h6' ? { id } : undefined,
+    );
+    const input = makeInput({ id: 'h6', layerId: 'layer-h6', visible: false });
+
+    hillshadeAdapter.syncVisibility(map, input);
+
+    expect(map.setLayoutProperty).toHaveBeenCalledWith('layer-h6', 'visibility', 'none');
+    expect(map.setLayoutProperty).not.toHaveBeenCalledWith('layer-h6-colorrelief', 'visibility', expect.anything());
+  });
+
+  it('getLayerIds declares the color-relief companion', () => {
+    expect(hillshadeAdapter.getLayerIds('layer-h1')).toEqual(['layer-h1', 'layer-h1-colorrelief']);
+  });
 });
