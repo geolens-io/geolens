@@ -55,6 +55,11 @@ function makeInput(
 // buildElevationExpression
 // ---------------------------------------------------------------------------
 describe('buildElevationExpression', () => {
+  // fix(#455): 3 header tokens + 3 no-data guard pairs + 7 ramp pairs.
+  const HEADER = 3;
+  const GUARD_PAIRS = 3;
+  const RAMP_START = HEADER + GUARD_PAIRS * 2;
+
   it('returns an interpolate expression starting with the correct tokens', () => {
     const expr = buildElevationExpression('Viridis');
     expect(expr[0]).toBe('interpolate');
@@ -62,15 +67,26 @@ describe('buildElevationExpression', () => {
     expect(expr[2]).toEqual(['elevation']);
   });
 
-  it('produces 7 color stops (14 value/color pairs after the 3 header tokens)', () => {
+  it('produces the guard + 7 color stops (23 tokens total)', () => {
     const expr = buildElevationExpression('Viridis');
-    // Total length = 3 (header) + 7 * 2 (stop pairs) = 17
-    expect(expr.length).toBe(17);
+    expect(expr.length).toBe(HEADER + (GUARD_PAIRS + 7) * 2);
   });
 
-  it('first elevation stop is at elevMin (default 0)', () => {
+  // fix(#455): no-data pixels read as the -10000 m encoding floor and used to
+  // clamp to the first ramp color, painting a solid fringe beyond the DEM
+  // footprint. The ramp must hold fully transparent through the guard band.
+  it('holds transparent from the encoding floor to below the lowest land', () => {
     const expr = buildElevationExpression('Viridis');
-    expect(expr[3]).toBe(0);
+    expect(expr.slice(HEADER, RAMP_START)).toEqual([
+      -10000, 'rgba(0,0,0,0)',
+      -500, 'rgba(0,0,0,0)',
+      -499, expr[RAMP_START + 1],
+    ]);
+  });
+
+  it('first ramp stop is at elevMin (default 0)', () => {
+    const expr = buildElevationExpression('Viridis');
+    expect(expr[RAMP_START]).toBe(0);
   });
 
   it('last elevation stop is at elevMax (default 4000)', () => {
@@ -78,23 +94,22 @@ describe('buildElevationExpression', () => {
     expect(expr[expr.length - 2]).toBe(4000);
   });
 
-  it('elevation stops are evenly spaced across 0–4000 m', () => {
+  it('elevation stops are evenly spaced across 0-4000 m', () => {
     const expr = buildElevationExpression('Viridis');
     const stops: number[] = [];
-    for (let i = 3; i < expr.length; i += 2) {
+    for (let i = RAMP_START; i < expr.length; i += 2) {
       stops.push(expr[i] as number);
     }
     expect(stops).toHaveLength(7);
-    // Step = 4000 / 6 ≈ 666.67
     const step = 4000 / 6;
     for (let i = 0; i < stops.length; i++) {
       expect(stops[i]).toBeCloseTo(i * step, 5);
     }
   });
 
-  it('color values are hex strings', () => {
+  it('ramp color values are hex strings', () => {
     const expr = buildElevationExpression('Viridis');
-    for (let i = 4; i < expr.length; i += 2) {
+    for (let i = RAMP_START + 1; i < expr.length; i += 2) {
       expect(typeof expr[i]).toBe('string');
       expect((expr[i] as string).startsWith('#')).toBe(true);
     }
@@ -102,15 +117,23 @@ describe('buildElevationExpression', () => {
 
   it('respects custom elevMin and elevMax', () => {
     const expr = buildElevationExpression('Inferno', 500, 2000);
-    expect(expr[3]).toBe(500);
+    expect(expr[RAMP_START]).toBe(500);
     expect(expr[expr.length - 2]).toBe(2000);
+  });
+
+  // fix(#455): an elevMin inside the guard band (e.g. bathymetry) must skip
+  // the guard rather than emit non-ascending interpolate stops.
+  it('skips the guard when elevMin dips into the guard band', () => {
+    const expr = buildElevationExpression('Viridis', -600, 4000);
+    expect(expr.length).toBe(HEADER + 7 * 2);
+    expect(expr[HEADER]).toBe(-600);
   });
 
   it('falls back to a valid expression for an unknown ramp name', () => {
     // getRampColors falls back to YlOrRd for unknown names (Threat T-1140-05)
     const expr = buildElevationExpression('NotARealRamp');
     expect(expr[0]).toBe('interpolate');
-    expect(expr.length).toBe(17);
+    expect(expr.length).toBe(HEADER + (GUARD_PAIRS + 7) * 2);
   });
 });
 
