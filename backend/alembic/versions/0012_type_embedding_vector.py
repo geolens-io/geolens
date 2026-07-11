@@ -93,10 +93,23 @@ def upgrade() -> None:
           END IF;
 
           -- Same DDL the baseline and rebuild_embedding_column intend.
-          EXECUTE 'CREATE INDEX IF NOT EXISTS ix_record_embeddings_hnsw '
-                  'ON catalog.record_embeddings USING hnsw '
-                  '(embedding vector_cosine_ops) '
-                  'WITH (m = 16, ef_construction = 64)';
+          -- fix(#449, codex P1): pgvector rejects HNSW on vector columns over
+          -- 2000 dims (3072-dim models are legal config, cap is 4096) — skip
+          -- the index rather than fail the upgrade; semantic search falls
+          -- back to exact scans. Re-probe: the ALTER above may have typed it.
+          SELECT atttypmod INTO cur_typmod
+          FROM pg_attribute
+          WHERE attrelid = 'catalog.record_embeddings'::regclass
+            AND attname = 'embedding';
+
+          IF cur_typmod BETWEEN 1 AND 2000 THEN
+            EXECUTE 'CREATE INDEX IF NOT EXISTS ix_record_embeddings_hnsw '
+                    'ON catalog.record_embeddings USING hnsw '
+                    '(embedding vector_cosine_ops) '
+                    'WITH (m = 16, ef_construction = 64)';
+          ELSE
+            RAISE NOTICE 'Skipping ix_record_embeddings_hnsw: % dims exceeds pgvector''s 2000-dim HNSW limit; semantic search stays on exact scans.', cur_typmod;
+          END IF;
         END $$;
         """
     )

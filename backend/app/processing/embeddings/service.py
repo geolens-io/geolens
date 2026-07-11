@@ -148,7 +148,9 @@ async def rebuild_embedding_column(db: AsyncSession, new_dims: int) -> bool:
     """Resize the embedding column to new_dims if it currently differs.
 
     Deletes all existing embeddings, drops the HNSW index, alters the column
-    type, then recreates the index. Commits on success; rolls back on failure.
+    type, then recreates the index (skipped above pgvector's 2000-dim HNSW
+    limit — the column stays unindexed and searches use exact scans).
+    Commits on success; rolls back on failure.
 
     DBM-07 (Phase 271): The HNSW DDL is also issued by migration 0001_baseline for
     fresh-install / migrated-up environments. This function handles the
@@ -189,13 +191,22 @@ async def rebuild_embedding_column(db: AsyncSession, new_dims: int) -> bool:
                 f"USING embedding::vector({new_dims})"
             )
         )
-        await db.execute(
-            sa_text(
-                "CREATE INDEX ix_record_embeddings_hnsw "
-                "ON catalog.record_embeddings USING hnsw (embedding vector_cosine_ops) "
-                "WITH (m=16, ef_construction=64)"
+        if new_dims <= 2000:
+            await db.execute(
+                sa_text(
+                    "CREATE INDEX ix_record_embeddings_hnsw "
+                    "ON catalog.record_embeddings USING hnsw (embedding vector_cosine_ops) "
+                    "WITH (m=16, ef_construction=64)"
+                )
             )
-        )
+        else:
+            # fix(#449, codex P1): pgvector rejects HNSW on vector columns over
+            # 2000 dims; leave the column unindexed (exact-scan fallback)
+            # instead of failing the whole dimension change.
+            logger.warning(
+                "Skipping HNSW index: %s dims exceeds pgvector's 2000-dim limit",
+                new_dims,
+            )
         await db.commit()
     except Exception:  # broad: DDL (DROP INDEX, ALTER COLUMN) can fail for schema/lock reasons; re-raise to caller
         await db.rollback()
