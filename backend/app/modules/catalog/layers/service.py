@@ -104,6 +104,35 @@ async def create_layer(
     return dataset
 
 
+async def count_maps_referencing_column(
+    session: AsyncSession, dataset_id: uuid.UUID, column_name: str
+) -> int:
+    """Count distinct saved maps whose layer config references the column.
+
+    fix(#458 E-06): renaming or dropping a column silently broke saved maps
+    whose data-driven styles, filters, labels, or popups referenced it. This
+    text-scans the dataset's map-layer JSONB configs for the quoted column
+    name — approximate (a same-named string literal also matches), but scoped
+    to this dataset's layers the cost of a false warning is low.
+    """
+    if not COLUMN_NAME_RE.match(column_name):
+        return 0
+    pattern = f'%"{column_name}"%'
+    result = await session.execute(
+        text(
+            "SELECT COUNT(DISTINCT map_id) FROM catalog.map_layers "
+            "WHERE dataset_id = :ds AND ("
+            "COALESCE(style_config::text, '') LIKE :pat "
+            "OR COALESCE(paint::text, '') LIKE :pat "
+            "OR COALESCE(layout::text, '') LIKE :pat "
+            "OR COALESCE(\"filter\"::text, '') LIKE :pat "
+            "OR COALESCE(label_config::text, '') LIKE :pat "
+            "OR COALESCE(popup_config::text, '') LIKE :pat)"
+        ).bindparams(ds=dataset_id, pat=pattern)
+    )
+    return int(result.scalar_one())
+
+
 async def add_column(
     session: AsyncSession,
     dataset: Dataset,

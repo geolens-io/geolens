@@ -179,3 +179,51 @@ async def test_drop_readd_drop_same_column(
             headers=admin_auth_header,
         )
         assert resp.status_code == 200, f"drop #{step}: {resp.text}"
+
+
+@pytest.mark.anyio
+async def test_column_references_counts_saved_maps(
+    client: AsyncClient, admin_auth_header: dict, test_db_session
+):
+    """fix(#458 E-06): the references probe counts maps whose layer config
+    mentions the column, so the schema editor can warn before rename/drop."""
+    import uuid as _uuid
+
+    from app.modules.catalog.datasets.domain.models import Dataset
+    from app.modules.catalog.maps.models import Map, MapLayer
+    from tests.factories import get_user_id
+
+    dataset_id = await _create_layer(client, admin_auth_header, title="Refs Test")
+
+    admin_id = await get_user_id(test_db_session, "admin")
+    dataset = await test_db_session.get(Dataset, _uuid.UUID(dataset_id))
+    map_obj = Map(
+        name=f"Refs Map {_uuid.uuid4().hex[:6]}",
+        visibility="private",
+        created_by=admin_id,
+    )
+    test_db_session.add(map_obj)
+    await test_db_session.flush()
+    test_db_session.add(
+        MapLayer(
+            map_id=map_obj.id,
+            dataset_id=dataset.id,
+            sort_order=0,
+            style_config={"column": "value", "type": "categorical"},
+        )
+    )
+    await test_db_session.commit()
+
+    referenced = await client.get(
+        f"/layers/{dataset_id}/columns/value/references",
+        headers=admin_auth_header,
+    )
+    assert referenced.status_code == 200, referenced.text
+    assert referenced.json()["map_count"] == 1
+
+    unreferenced = await client.get(
+        f"/layers/{dataset_id}/columns/name/references",
+        headers=admin_auth_header,
+    )
+    assert unreferenced.status_code == 200
+    assert unreferenced.json()["map_count"] == 0

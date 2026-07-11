@@ -1769,6 +1769,20 @@ export type ColumnPreview = {
 };
 
 /**
+ * ColumnReferencesResponse
+ *
+ * How many saved maps reference a column in their layer config.
+ */
+export type ColumnReferencesResponse = {
+    /**
+     * Map Count
+     *
+     * Distinct saved maps whose styles/filters/labels/popups reference this column
+     */
+    map_count: number;
+};
+
+/**
  * ColumnStatsResponse
  */
 export type ColumnStatsResponse = {
@@ -17432,6 +17446,40 @@ export type RenameColumnEndpointLayersDatasetIdColumnsColumnNameNamePatchRespons
 };
 
 export type RenameColumnEndpointLayersDatasetIdColumnsColumnNameNamePatchResponse = RenameColumnEndpointLayersDatasetIdColumnsColumnNameNamePatchResponses[keyof RenameColumnEndpointLayersDatasetIdColumnsColumnNameNamePatchResponses];
+
+export type ColumnReferencesEndpointLayersDatasetIdColumnsColumnNameReferencesGetData = {
+    body?: never;
+    path: {
+        /**
+         * Dataset Id
+         */
+        dataset_id: string;
+        /**
+         * Column Name
+         */
+        column_name: string;
+    };
+    query?: never;
+    url: '/layers/{dataset_id}/columns/{column_name}/references';
+};
+
+export type ColumnReferencesEndpointLayersDatasetIdColumnsColumnNameReferencesGetErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type ColumnReferencesEndpointLayersDatasetIdColumnsColumnNameReferencesGetError = ColumnReferencesEndpointLayersDatasetIdColumnsColumnNameReferencesGetErrors[keyof ColumnReferencesEndpointLayersDatasetIdColumnsColumnNameReferencesGetErrors];
+
+export type ColumnReferencesEndpointLayersDatasetIdColumnsColumnNameReferencesGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: ColumnReferencesResponse;
+};
+
+export type ColumnReferencesEndpointLayersDatasetIdColumnsColumnNameReferencesGetResponse = ColumnReferencesEndpointLayersDatasetIdColumnsColumnNameReferencesGetResponses[keyof ColumnReferencesEndpointLayersDatasetIdColumnsColumnNameReferencesGetResponses];
 
 export type AlterColumnTypeEndpointLayersDatasetIdColumnsColumnNameTypePatchData = {
     body: AlterColumnTypeRequest;

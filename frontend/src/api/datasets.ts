@@ -267,6 +267,15 @@ export async function dropColumn(
   );
 }
 
+export async function getColumnReferences(
+  datasetId: string,
+  columnName: string,
+): Promise<{ map_count: number }> {
+  return apiFetch<{ map_count: number }>(
+    `/layers/${datasetId}/columns/${columnName}/references`,
+  );
+}
+
 export async function getDatasetVersions(
   datasetId: string,
   params: { skip?: number; limit?: number } = {},

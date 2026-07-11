@@ -388,6 +388,8 @@
     "columnName": "Name",
     "columnType": "Typ",
     "noColumns": "Noch keine Attributspalten.",
+    "dropWarning": "Das Entfernen von „{{name}}\" löscht die Spalte und alle ihre Werte dauerhaft.",
+    "usedByMaps": "Von {{mapCount}} gespeicherten Karte(n) verwendet — Stile, Filter oder Beschriftungen, die diese Spalte referenzieren, funktionieren dann nicht mehr.",
     "addColumn": "Spalte hinzufügen",
     "add": "Hinzufügen",
     "columnNamePlaceholder": "column_name",
