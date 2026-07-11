@@ -27,6 +27,7 @@ async def _create_test_table_and_dataset(
     table_name: str | None = None,
     geometry_type: str = "POINT",
     visibility: str = "public",
+    srid: int = 4326,
 ) -> Dataset:
     """Create a PostGIS data table and register it as a dataset.
 
@@ -42,7 +43,7 @@ async def _create_test_table_and_dataset(
         text(
             f"CREATE TABLE IF NOT EXISTS data.{table_name} ("
             f"gid SERIAL PRIMARY KEY, "
-            f"geom geometry({pg_geom_type}, 4326), "
+            f"geom geometry({pg_geom_type}, {srid}), "
             f"geom_4326 geometry(Geometry, 4326), "
             f"name TEXT, "
             f"status TEXT)"
@@ -61,7 +62,7 @@ async def _create_test_table_and_dataset(
     dataset = Dataset(
         record_id=record.id,
         table_name=table_name,
-        srid=4326,
+        srid=srid,
         geometry_type=geometry_type,
         feature_count=0,
         column_info=[
@@ -1314,6 +1315,131 @@ class TestCreateEmptyDatasetGenericGeometry:
             )
             assert point_resp.status_code == 400
             assert "mismatch" in point_resp.json()["detail"].lower()
+        finally:
+            tbl = dataset.table_name
+            rec_id = dataset.record_id
+            await _cleanup_table(test_db_session, tbl)
+            await test_db_session.execute(
+                text("DELETE FROM catalog.records WHERE id = :id"),
+                {"id": rec_id},
+            )
+            await test_db_session.commit()
+
+
+# ---------------------------------------------------------------------------
+# Native-SRID write tests
+# ---------------------------------------------------------------------------
+
+
+class TestNativeSridWrites:
+    """fix(#458 E-01): geometry writes must land in the geom column's native SRID.
+
+    File-ingested layers keep their source CRS in ``geom`` (the file path runs
+    ogr2ogr without -t_srs); ``ST_GeomFromGeoJSON`` emits SRID 4326, so before
+    the ST_Transform fix every geometry write on a projected-SRID dataset
+    violated the column typmod and returned 500.
+    """
+
+    # Empire State Building, WGS84. EPSG:2263 = NY State Plane Long Island (ft).
+    NYC_POINT = {"type": "Point", "coordinates": [-73.9857, 40.7484]}
+
+    async def _make_stateplane_layer(self, test_db_session):
+        admin_id = await get_user_id(test_db_session, "admin")
+        return await _create_test_table_and_dataset(
+            test_db_session,
+            created_by=admin_id,
+            geometry_type="POINT",
+            srid=2263,
+        )
+
+    async def _geom_srids(self, session, table_name: str, gid: int):
+        row = (
+            await session.execute(
+                text(
+                    f"SELECT ST_SRID(geom), ST_SRID(geom_4326), "
+                    f"ST_X(geom), ST_Y(geom) "
+                    f"FROM data.{table_name} WHERE gid = :gid"
+                ),
+                {"gid": gid},
+            )
+        ).one()
+        return row
+
+    async def test_insert_transforms_geom_to_native_srid(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+    ):
+        dataset = await self._make_stateplane_layer(test_db_session)
+        try:
+            resp = await client.post(
+                f"/datasets/{dataset.id}/features/",
+                json={"geometry": self.NYC_POINT, "properties": {"name": "esb"}},
+                headers=admin_auth_header,
+            )
+            assert resp.status_code == 201, resp.text
+            data = resp.json()
+            gid = data["id"]
+            # API response reads geom_4326 -> WGS84 round-trip.
+            lon, lat = data["geometry"]["coordinates"]
+            assert abs(lon - self.NYC_POINT["coordinates"][0]) < 1e-4
+            assert abs(lat - self.NYC_POINT["coordinates"][1]) < 1e-4
+
+            srid, srid4326, x, y = await self._geom_srids(
+                test_db_session, dataset.table_name, gid
+            )
+            assert srid == 2263
+            assert srid4326 == 4326
+            # Manhattan in NY-LI State Plane feet: ~987k east, ~211k north.
+            assert 900_000 < x < 1_100_000
+            assert 150_000 < y < 300_000
+        finally:
+            tbl = dataset.table_name
+            rec_id = dataset.record_id
+            await _cleanup_table(test_db_session, tbl)
+            await test_db_session.execute(
+                text("DELETE FROM catalog.records WHERE id = :id"),
+                {"id": rec_id},
+            )
+            await test_db_session.commit()
+
+    async def test_put_and_patch_geometry_on_native_srid_layer(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+    ):
+        dataset = await self._make_stateplane_layer(test_db_session)
+        try:
+            resp = await client.post(
+                f"/datasets/{dataset.id}/features/",
+                json={"geometry": self.NYC_POINT, "properties": {"name": "esb"}},
+                headers=admin_auth_header,
+            )
+            assert resp.status_code == 201, resp.text
+            gid = resp.json()["id"]
+
+            moved = {"type": "Point", "coordinates": [-73.9772, 40.7527]}
+            put_resp = await client.put(
+                f"/datasets/{dataset.id}/features/{gid}",
+                json={"geometry": moved, "properties": {"name": "grand central"}},
+                headers=admin_auth_header,
+            )
+            assert put_resp.status_code == 200, put_resp.text
+
+            patch_resp = await client.patch(
+                f"/datasets/{dataset.id}/features/{gid}",
+                json={"geometry": self.NYC_POINT},
+                headers=admin_auth_header,
+            )
+            assert patch_resp.status_code == 200, patch_resp.text
+
+            srid, srid4326, _x, _y = await self._geom_srids(
+                test_db_session, dataset.table_name, gid
+            )
+            assert srid == 2263
+            assert srid4326 == 4326
         finally:
             tbl = dataset.table_name
             rec_id = dataset.record_id

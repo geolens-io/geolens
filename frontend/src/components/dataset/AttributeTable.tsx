@@ -27,6 +27,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import { formatNumber } from '@/lib/format';
+import { coerceAttributeValue } from '@/lib/attribute-values';
 import { Loader2, ArrowUpDown, Settings2, Pencil } from 'lucide-react';
 
 /** Columns that are not user-editable */
@@ -134,13 +135,20 @@ export function AttributeTable({ datasetId, canEdit = false, compact = false }: 
     setColumnFilters((prev) => ({ ...prev, [colName]: value }));
   }, []);
 
-  const handleCellSave = useCallback(async (rowGid: number, column: string, newValue: string) => {
+  const handleCellSave = useCallback(async (rowGid: number, column: string, colType: string, newValue: string) => {
+    // fix(#458 E-03): the inline editor is a plain text input; coerce to the
+    // column's wire type instead of sending a string into a typed column.
+    const coerced = coerceAttributeValue(newValue, colType);
+    if (!coerced.ok) {
+      toast.error(t('attributes.editInvalidValue', { type: colType }));
+      return; // keep the editor open so the value can be corrected
+    }
     setEditingCell(null);
     try {
       await updateFeature.mutateAsync({
         datasetId,
         gid: rowGid,
-        properties: { [column]: newValue || null },
+        properties: { [column]: coerced.value },
       });
       toast.success(t('attributes.editSaved'));
     } catch {
@@ -181,7 +189,7 @@ export function AttributeTable({ datasetId, canEdit = false, compact = false }: 
           return (
             <InlineCellEditor
               initialValue={String(info.getValue() ?? '')}
-              onSave={(val) => handleCellSave(gid, col.name, val)}
+              onSave={(val) => handleCellSave(gid, col.name, col.type, val)}
               onCancel={() => setEditingCell(null)}
               isSaving={updateFeature.isPending}
             />
