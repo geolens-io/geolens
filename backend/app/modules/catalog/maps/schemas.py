@@ -263,11 +263,14 @@ class TerrainConfig(BaseModel):
 
     @model_validator(mode="after")
     def _enabled_requires_source(self) -> "TerrainConfig":
-        # fix(HT-15): reject internally inconsistent configs at the boundary —
-        # an enabled terrain mesh with no source can only produce dangling
-        # status text and resolver no-ops downstream.
+        # fix(HT-15): an enabled terrain mesh with no source is internally
+        # inconsistent — it can only produce dangling status text and resolver
+        # no-ops. Coerce it to disabled rather than raise: this model also
+        # validates stored JSONB on the read path (MapResponse), so a raise
+        # would 500 any legacy/corrupt row instead of self-healing it, and the
+        # coerced value is the same "no mesh" the resolvers already render.
         if self.enabled and self.source_dataset_id is None:
-            raise ValueError("terrain_config.enabled requires source_dataset_id")
+            self.enabled = False
         return self
 
 
