@@ -15,6 +15,9 @@ D: explicit config beats UNIFORM stale rows too — all-512-dim rows with
    EMBEDDING_DIMS=768 type the column vector(768) (codex P2 round 5).
 E: uniform stored rows beat only the built-in default — all-768-dim rows
    with nothing configured keep their dimension and their rows.
+F: a deliberate EMBEDDING_DIMS=1536 (equal to the default) still counts as
+   explicit and beats uniform stale 768-dim rows (codex P2 round 7 —
+   detected via pydantic's model_fields_set, not a value comparison).
 
 Notes
 -----
@@ -294,5 +297,26 @@ class TestEmbeddingVectorMigrationDims:
             assert await _embedding_column_type() == "vector(768)"
             rows = await _fresh_query("SELECT count(*) FROM catalog.record_embeddings")
             assert rows[0][0] == 2, "agreeing rows must survive the retype"
+        finally:
+            await _restore_default_head()
+
+    async def test_explicit_default_value_still_beats_stored_rows(self):
+        """fix(#449, codex P2 round 7): EMBEDDING_DIMS=1536 set deliberately
+        equals the class default, but presence (model_fields_set) makes it
+        explicit — it must beat uniform stale 768-dim rows."""
+        try:
+            r = _run_alembic("downgrade", _PRE_TYPED_REVISION)
+            assert r.returncode == 0, f"downgrade failed: {r.stderr}"
+            await _fresh_query("TRUNCATE catalog.record_embeddings")
+            await _fresh_query(
+                "DELETE FROM catalog.app_settings WHERE key = 'embedding_dims'"
+            )
+            await _insert_untyped_embedding_rows([768, 768])
+
+            r = _run_alembic("upgrade", "head", extra_env={"EMBEDDING_DIMS": "1536"})
+            assert r.returncode == 0, f"upgrade failed: {r.stderr}"
+            assert await _embedding_column_type() == "vector(1536)"
+            rows = await _fresh_query("SELECT count(*) FROM catalog.record_embeddings")
+            assert rows[0][0] == 0, "stale 768-dim rows should be deleted"
         finally:
             await _restore_default_head()

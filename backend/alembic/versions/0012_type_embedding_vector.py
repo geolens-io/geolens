@@ -13,10 +13,12 @@ This migration types the column in place, preferring (in order):
 1. An explicitly configured dimension: the ``embedding_dims``
    persistent-config override (skipped when ``ENV_ONLY_CONFIG`` is set,
    mirroring runtime resolution in persistent_config.py), then an
-   explicitly-set ``EMBEDDING_DIMS`` env value. Explicit config beats
-   stored rows — stale cache rows from a superseded model must not pin
-   the column to the old dimension (the current model's inserts would
-   fail until a manual rebuild).
+   explicitly-set ``EMBEDDING_DIMS`` env value (detected via pydantic's
+   ``model_fields_set``, so a deliberate ``EMBEDDING_DIMS=1536`` counts
+   even though it equals the default). Explicit config beats stored
+   rows — stale cache rows from a superseded model must not pin the
+   column to the old dimension (the current model's inserts would fail
+   until a manual rebuild).
 2. The dimension of vectors already stored, when they all agree. Stored
    rows beat only the BUILT-IN default: a local model emitting 768-dim
    vectors with nothing configured anywhere must keep its rows.
@@ -48,13 +50,14 @@ def upgrade() -> None:
     # fix(#449, codex P2): honor the deployment's configured dimension, not a
     # hardcoded 1536, and let explicit config beat stale stored rows. Mirror
     # runtime resolution (persistent_config.py): ENV_ONLY_CONFIG ignores DB
-    # overrides. "Explicit" = differs from the class default; comparing against
-    # the field default (rather than probing os.environ) also catches values
-    # set via the project-root .env file that Settings reads.
-    field_default = type(settings).model_fields["embedding_dims"].default
+    # overrides. "Explicit" = the operator provided EMBEDDING_DIMS (env var or
+    # the project-root .env file Settings reads) — pydantic's model_fields_set
+    # distinguishes a deliberate EMBEDDING_DIMS=1536 from the untouched class
+    # default, which a value comparison cannot.
     explicit = (
         settings.embedding_dims
-        if settings.embedding_dims >= 1 and settings.embedding_dims != field_default
+        if "embedding_dims" in settings.model_fields_set
+        and settings.embedding_dims >= 1
         else None
     )
     explicit_env_dims = str(explicit) if explicit is not None else "NULL"
