@@ -211,6 +211,7 @@ export function SourceQualityTab({
                 <InlineEdit
                   value={draftValues.lineage_summary}
                   onSave={(val) => onDraftSave('lineage_summary', val)}
+                  allowClear
                   as="p"
                   multiline
                   canEdit={capabilities.lineage_summary.editable}
@@ -246,6 +247,7 @@ export function SourceQualityTab({
                 <InlineEdit
                   value={draftValues.source_url}
                   onSave={(val) => onDraftSave('source_url', val)}
+                  allowClear
                   as="p"
                   canEdit={capabilities.source_url.editable}
                   placeholder={t('iso.sourceUrlPlaceholder')}
@@ -265,6 +267,7 @@ export function SourceQualityTab({
                 <InlineEdit
                   value={draftValues.source_organization}
                   onSave={(val) => onDraftSave('source_organization', val)}
+                  allowClear
                   as="p"
                   canEdit={capabilities.source_organization.editable}
                   placeholder={t('metadata.sourceOrganization')}
@@ -339,6 +342,7 @@ export function SourceQualityTab({
                 <InlineEdit
                   value={draftValues.quality_statement}
                   onSave={(val) => onDraftSave('quality_statement', val)}
+                  allowClear
                   as="p"
                   multiline
                   canEdit={capabilities.quality_statement.editable}
@@ -433,6 +437,7 @@ export function SourceQualityTab({
                 <InlineEdit
                   value={draftValues.usage_constraints}
                   onSave={(val) => onDraftSave('usage_constraints', val)}
+                  allowClear
                   as="p"
                   multiline
                   canEdit={capabilities.usage_constraints.editable}
@@ -453,6 +458,7 @@ export function SourceQualityTab({
                 <InlineEdit
                   value={draftValues.access_constraints}
                   onSave={(val) => onDraftSave('access_constraints', val)}
+                  allowClear
                   as="p"
                   multiline
                   canEdit={capabilities.access_constraints.editable}

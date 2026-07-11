@@ -302,3 +302,40 @@ async def test_dcat3_catalog_validation_endpoint(
     assert report["schema"] == "Catalog"
     assert report["valid"] is True
     assert report["error_count"] == 0
+
+
+# ---------------------------------------------------------------------------
+# Clear-to-null: explicit nulls in the PATCH actually clear fields
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_patch_explicit_null_clears_field(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+):
+    """fix(#458 E-04): an explicit null clears the field; absent fields keep
+    PATCH semantics; title (NOT NULL) ignores a null."""
+    admin_id = await get_user_id(test_db_session, "admin")
+    ds = await _create_complete_dataset(
+        test_db_session, created_by=admin_id, name="ClearToNull Dataset"
+    )
+
+    resp = await client.patch(
+        f"/datasets/{ds.id}",
+        json={"summary": None, "lineage_summary": None, "title": None},
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 200, resp.text
+
+    got = await client.get(f"/datasets/{ds.id}", headers=admin_auth_header)
+    assert got.status_code == 200
+    body = got.json()
+    assert body["summary"] is None
+    assert body["lineage_summary"] is None
+    # title is non-clearable: the explicit null is dropped, not applied
+    assert body["title"] == "ClearToNull Dataset"
+    # absent fields stay untouched (PATCH semantics)
+    assert body["source_organization"] == "Original Org"
+    assert body["usage_constraints"] == "Attribution required"
