@@ -43,6 +43,17 @@ const STOP_COUNT = 7;
  * ['interpolate', ['linear'], ['elevation'], elev0, '#color0', elev1, '#color1', ...]
  * ```
  */
+// fix(#455): no-data guard. Titiler masks no-data pixels with alpha=0, but the
+// color-relief shader reads decoded elevation regardless of the mask, and after
+// texture upload those pixels read as the mapbox-encoding floor (-10000 m,
+// RGB 0/0/0) — which clamped to the ramp's FIRST color and painted a solid
+// ramp-low fringe over everything beyond the DEM's data footprint. Hold the
+// ramp fully transparent from the encoding floor up to below Earth's lowest
+// land (Dead Sea shore ≈ -418 m), so real below-`elevMin` terrain keeps its
+// first-color clamp while no-data renders as nothing.
+const NODATA_ELEVATION_FLOOR = -10000;
+const LOWEST_LAND_GUARD = -500;
+
 export function buildElevationExpression(
   rampName: string,
   elevMin = DEFAULT_ELEV_MIN,
@@ -51,6 +62,14 @@ export function buildElevationExpression(
   const colors = getRampColors(rampName, STOP_COUNT);
   const step = (elevMax - elevMin) / (colors.length - 1);
   const expr: unknown[] = ['interpolate', ['linear'], ['elevation']];
+  // Guard stops only make sense below the real domain; a ramp whose elevMin
+  // dips into the guard band (unusual, e.g. bathymetry) skips them rather than
+  // emit non-ascending stops.
+  if (elevMin > LOWEST_LAND_GUARD + 1) {
+    expr.push(NODATA_ELEVATION_FLOOR, 'rgba(0,0,0,0)');
+    expr.push(LOWEST_LAND_GUARD, 'rgba(0,0,0,0)');
+    expr.push(LOWEST_LAND_GUARD + 1, colors[0]);
+  }
   colors.forEach((color, i) => {
     expr.push(elevMin + i * step, color);
   });
