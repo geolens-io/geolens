@@ -198,6 +198,7 @@
     "filter": "Filter...",
     "editSaved": "Cell updated",
     "editFailed": "Failed to update cell",
+    "editInvalidValue": "Not a valid {{type}} value",
     "noResults": "No matching rows found.",
     "showingExact": "Showing {{start}}-{{end}} of {{total}} rows",
     "rowsPerPage": "Rows per page",

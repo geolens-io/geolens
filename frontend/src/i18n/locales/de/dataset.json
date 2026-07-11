@@ -197,6 +197,7 @@
     "previous": "Zurück",
     "editSaved": "Zelle aktualisiert",
     "editFailed": "Zelle konnte nicht aktualisiert werden",
+    "editInvalidValue": "Kein gültiger {{type}}-Wert",
     "filter": "Filtern...",
     "noResults": "Keine passenden Zeilen gefunden.",
     "showingExact": "{{start}}-{{end}} von {{total}} Zeilen",

@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
+import { getAttributeInputType as getInputType } from '@/lib/attribute-values';
 
 /** System columns that should never appear in the attribute form */
 const SYSTEM_COLUMNS = new Set(['gid', 'geom', 'geom_4326']);
@@ -28,16 +29,6 @@ interface AttributeFormProps {
   onSubmit: (properties: Record<string, unknown>) => void;
   onCancel: () => void;
   initialValues?: Record<string, unknown>;
-}
-
-function getInputType(colType: string): string {
-  const t = colType.toLowerCase();
-  if (t === 'integer' || t === 'bigint') return 'number-int';
-  if (['double precision', 'real', 'numeric'].includes(t)) return 'number-float';
-  if (t === 'boolean') return 'checkbox';
-  if (t === 'date') return 'date';
-  if (t === 'timestamp' || t === 'timestamptz' || t.startsWith('timestamp')) return 'datetime-local';
-  return 'text';
 }
 
 function buildFormValues(
