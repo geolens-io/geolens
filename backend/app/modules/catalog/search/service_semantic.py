@@ -315,9 +315,9 @@ async def _run_rrf_merge(
     # EVERY stored embedding — a second full O(N)·dims vector scan per search
     # that no ANN index can serve (aggregate over a distance predicate).
     # Exact and cheap at today's catalog size; past the row gate, approximate
-    # the vector-only surplus from the vetted top-k ranks already in hand —
-    # a lower bound that is ≥ page_end-deep, so pagination `next` links
-    # survive while numberMatched may under-report distant tail matches.
+    # the vector-only surplus from the vetted top-k ranks already in hand.
+    # numberMatched becomes a lower bound (may under-report distant tail
+    # matches); a full-window sentinel below keeps `next` links alive.
     emb_rows = (
         await session.execute(
             select(func.count())
@@ -339,7 +339,17 @@ async def _run_rrf_merge(
         total += (await session.execute(new_count_stmt)).scalar_one()
     else:
         fts_id_set = set(fts_ids)
-        total += sum(1 for rid in vector_ranks if rid not in fts_id_set)
+        vector_only = sum(1 for rid in vector_ranks if rid not in fts_id_set)
+        # fix(#448, codex P2): a FULL top-k window means deeper matches may
+        # exist beyond what was fetched, but reporting exactly page_end as the
+        # total makes the router's `offset + limit < total` check suppress the
+        # rel="next" link on a semantic-only page. Report one past the window
+        # so paging continues; each deeper page fetches a deeper window until
+        # a non-full window yields the exact tail. Worst case the final next
+        # link lands on one empty page — acceptable for an approximation.
+        if len(vector_ranks) >= page_end:
+            vector_only += 1
+        total += vector_only
 
     rrf_ordered = _compute_rrf_scores(fts_ids, vector_ranks)
 
