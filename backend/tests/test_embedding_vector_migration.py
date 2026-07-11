@@ -11,6 +11,10 @@ B: with EMBEDDING_DIMS=3072 (legal config, over pgvector's 2000-dim HNSW
 C: with mixed-dimension rows (stale 1536-dim next to current 768-dim), the
    configured dimension wins over max(stored) and only the stale row is
    deleted (codex P2 round 4).
+D: explicit config beats UNIFORM stale rows too — all-512-dim rows with
+   EMBEDDING_DIMS=768 type the column vector(768) (codex P2 round 5).
+E: uniform stored rows beat only the built-in default — all-768-dim rows
+   with nothing configured keep their dimension and their rows.
 
 Notes
 -----
@@ -249,5 +253,46 @@ class TestEmbeddingVectorMigrationDims:
             assert await _embedding_column_type() == "vector(768)"
             rows = await _fresh_query("SELECT count(*) FROM catalog.record_embeddings")
             assert rows[0][0] == 1, "only the stale 1536-dim row should be deleted"
+        finally:
+            await _restore_default_head()
+
+    async def test_explicit_config_beats_uniform_stale_rows(self):
+        """fix(#449, codex P2 round 5): rows that ALL carry a superseded
+        model's dimension must not pin the column — explicit config wins."""
+        try:
+            r = _run_alembic("downgrade", _PRE_TYPED_REVISION)
+            assert r.returncode == 0, f"downgrade failed: {r.stderr}"
+            await _fresh_query("TRUNCATE catalog.record_embeddings")
+            await _fresh_query(
+                "DELETE FROM catalog.app_settings WHERE key = 'embedding_dims'"
+            )
+            await _insert_untyped_embedding_rows([512, 512])
+
+            r = _run_alembic("upgrade", "head", extra_env={"EMBEDDING_DIMS": "768"})
+            assert r.returncode == 0, f"upgrade failed: {r.stderr}"
+            assert await _embedding_column_type() == "vector(768)"
+            rows = await _fresh_query("SELECT count(*) FROM catalog.record_embeddings")
+            assert rows[0][0] == 0, "stale rows should be deleted, not kept"
+        finally:
+            await _restore_default_head()
+
+    async def test_uniform_stored_rows_beat_builtin_default(self):
+        """Uniform stored rows with nothing configured anywhere keep their
+        dimension — a local 768-dim model on default config must not have its
+        working rows deleted in favor of the built-in 1536."""
+        try:
+            r = _run_alembic("downgrade", _PRE_TYPED_REVISION)
+            assert r.returncode == 0, f"downgrade failed: {r.stderr}"
+            await _fresh_query("TRUNCATE catalog.record_embeddings")
+            await _fresh_query(
+                "DELETE FROM catalog.app_settings WHERE key = 'embedding_dims'"
+            )
+            await _insert_untyped_embedding_rows([768, 768])
+
+            r = _run_alembic("upgrade", "head")
+            assert r.returncode == 0, f"upgrade failed: {r.stderr}"
+            assert await _embedding_column_type() == "vector(768)"
+            rows = await _fresh_query("SELECT count(*) FROM catalog.record_embeddings")
+            assert rows[0][0] == 2, "agreeing rows must survive the retype"
         finally:
             await _restore_default_head()

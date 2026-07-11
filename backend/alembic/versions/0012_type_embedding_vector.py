@@ -8,17 +8,24 @@ UI, so a deployment running on defaults never gets a typed column — and an
 HNSW/ivfflat index can never be built (pgvector requires a typed column).
 Semantic search then does an O(N) x dims cosine scan per query, twice.
 
-This migration types the column in place, preferring (in order) the
-dimension of vectors already stored (only when they all agree — mixed
-dimensions mean a model switch, where the active config must win), the
-``embedding_dims`` persistent
-config override (skipped when ``ENV_ONLY_CONFIG`` is set, mirroring
-runtime resolution in persistent_config.py), and finally the configured
-``EMBEDDING_DIMS`` env value / Settings default (1536,
-text-embedding-3-small). Rows whose dimension disagrees with the chosen
-value are deleted — embeddings are a regenerable cache (content-hash
-backfill restores them). Deployments whose column is already typed (the
-settings-UI path ran) are left untouched except for ensuring the index.
+This migration types the column in place, preferring (in order):
+
+1. An explicitly configured dimension: the ``embedding_dims``
+   persistent-config override (skipped when ``ENV_ONLY_CONFIG`` is set,
+   mirroring runtime resolution in persistent_config.py), then an
+   explicitly-set ``EMBEDDING_DIMS`` env value. Explicit config beats
+   stored rows — stale cache rows from a superseded model must not pin
+   the column to the old dimension (the current model's inserts would
+   fail until a manual rebuild).
+2. The dimension of vectors already stored, when they all agree. Stored
+   rows beat only the BUILT-IN default: a local model emitting 768-dim
+   vectors with nothing configured anywhere must keep its rows.
+3. The Settings default (1536, text-embedding-3-small).
+
+Rows whose dimension disagrees with the chosen value are deleted —
+embeddings are a regenerable cache (content-hash backfill restores them).
+Deployments whose column is already typed (the settings-UI path ran) are
+left untouched except for ensuring the index.
 
 Revision ID: 0012_type_embedding_vector
 Revises: 0011_allow_generic_geometry_type
@@ -38,12 +45,19 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    # fix(#449, codex P2): the empty-table fallback must honor the deployment's
-    # configured dimension, not a hardcoded 1536 — a fresh install running a
-    # 384/768-dim model via EMBEDDING_DIMS would otherwise get the column
-    # permanently mistyped before any data exists. Mirror runtime resolution
-    # (persistent_config.py): ENV_ONLY_CONFIG ignores DB overrides.
-    fallback_dims = settings.embedding_dims if settings.embedding_dims >= 1 else 1536
+    # fix(#449, codex P2): honor the deployment's configured dimension, not a
+    # hardcoded 1536, and let explicit config beat stale stored rows. Mirror
+    # runtime resolution (persistent_config.py): ENV_ONLY_CONFIG ignores DB
+    # overrides. "Explicit" = differs from the class default; comparing against
+    # the field default (rather than probing os.environ) also catches values
+    # set via the project-root .env file that Settings reads.
+    field_default = type(settings).model_fields["embedding_dims"].default
+    explicit = (
+        settings.embedding_dims
+        if settings.embedding_dims >= 1 and settings.embedding_dims != field_default
+        else None
+    )
+    explicit_env_dims = str(explicit) if explicit is not None else "NULL"
     consult_db = "false" if settings.env_only_config else "true"
     op.execute(
         f"""
@@ -51,7 +65,9 @@ def upgrade() -> None:
         DECLARE
           cur_typmod int;
           dims int;
+          stored_dims int;
           distinct_dims int;
+          config_dims int;
         BEGIN
           SELECT atttypmod INTO cur_typmod
           FROM pg_attribute
@@ -64,22 +80,16 @@ def upgrade() -> None:
             -- a deadlock-prone pattern if anything is reading the table.
             LOCK TABLE catalog.record_embeddings IN ACCESS EXCLUSIVE MODE;
 
-            -- Prefer the dimension of data already stored; fall back to the
-            -- embedding_dims persistent-config override (unless env-only),
-            -- then the configured EMBEDDING_DIMS / app default.
             SELECT count(DISTINCT vector_dims(embedding)),
                    max(vector_dims(embedding))
-              INTO distinct_dims, dims
+              INTO distinct_dims, stored_dims
             FROM catalog.record_embeddings;
-            IF distinct_dims > 1 THEN
-              -- fix(#449, codex P2): mixed dimensions mean a model switch
-              -- happened without a rebuild — the largest stored dim may
-              -- belong to the STALE model. Fall through to the configured
-              -- dimension instead; mismatched rows are deleted below
-              -- (embeddings are a regenerable cache).
-              dims := NULL;
-            END IF;
-            IF dims IS NULL AND {consult_db} THEN
+
+            -- fix(#449, codex P2): explicit config (app_settings override
+            -- unless env-only, then an explicitly-set EMBEDDING_DIMS) beats
+            -- stored rows — stale cache rows from a superseded model must
+            -- not pin the column to the old dimension.
+            IF {consult_db} THEN
               -- PersistentConfig wraps scalars as {{"v": <value>}} (see
               -- persistent_config.py set()); older/manual rows may hold a
               -- bare number. Handle both shapes.
@@ -88,11 +98,23 @@ def upgrade() -> None:
                        WHEN 'number' THEN (value #>> '{{}}')::int
                        ELSE NULL
                      END
-              INTO dims
+              INTO config_dims
               FROM catalog.app_settings WHERE key = 'embedding_dims';
             END IF;
-            IF dims IS NULL OR dims < 1 THEN
-              dims := {fallback_dims};
+            IF config_dims IS NULL THEN
+              config_dims := {explicit_env_dims};
+            END IF;
+
+            -- Stored rows (when they all agree) beat only the built-in
+            -- default; mixed dimensions mean a model switch, so they never
+            -- pick the dimension themselves.
+            dims := COALESCE(
+              config_dims,
+              CASE WHEN distinct_dims = 1 THEN stored_dims END,
+              1536
+            );
+            IF dims < 1 THEN
+              dims := 1536;
             END IF;
 
             DELETE FROM catalog.record_embeddings
