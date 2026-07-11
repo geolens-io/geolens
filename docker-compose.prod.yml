@@ -132,7 +132,10 @@ services:
     # GAP-001: memory limit prevents the DB from consuming all host RAM under
     # heavy query load. 2 GB covers shared_buffers (512 MB) + work_mem headroom
     # for concurrent queries. Raise on hosts with > 8 GB RAM.
-    mem_limit: "2g"
+    # fix(#448): env-overridable — the fixed caps summed to 9 GB, over-committing
+    # an 8 GB host (no cap sum guard exists in Docker). On 8 GB set
+    # DB_MEM_LIMIT=1.5g API_MEM_LIMIT=1g WORKER_MEM_LIMIT=2g (sum ≈ 6 GB).
+    mem_limit: "${DB_MEM_LIMIT:-2g}"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -p 5432 -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 5s
@@ -197,7 +200,8 @@ services:
     restart: unless-stopped
     # GAP-001: 2 GB covers the Python process + Uvicorn workers + ORM caches.
     # Raise if ingesting very large files with many concurrent workers.
-    mem_limit: "2g"
+    # fix(#448): env-overridable for small hosts — see the db service note.
+    mem_limit: "${API_MEM_LIMIT:-2g}"
     <<: *hardened-base
     tmpfs:
       - /tmp:size=512m,mode=1777
@@ -259,7 +263,8 @@ services:
     restart: unless-stopped
     # GAP-001: 4 GB covers the worker process + GDAL/OGR buffers during large
     # file ingestion (GeoTIFF COG conversion can be RAM-intensive).
-    mem_limit: "4g"
+    # fix(#448): env-overridable for small hosts — see the db service note.
+    mem_limit: "${WORKER_MEM_LIMIT:-4g}"
     <<: *hardened-base
     tmpfs:
       - /tmp:size=512m,mode=1777
@@ -276,6 +281,10 @@ services:
       # operator knob in compose. See docker-compose.yml + .env.example.
       UPLOAD_STAGING_DIR: "/app/staging"
       WORKER_SHUTDOWN_TIMEOUT: "${WORKER_SHUTDOWN_TIMEOUT:-30}"
+      # fix(#448): parallel job slots (2-3 on multi-core hosts; keep 1 on
+      # 2-vCPU boxes) and queue pinning for a dedicated raster worker.
+      WORKER_CONCURRENCY: "${WORKER_CONCURRENCY:-1}"
+      WORKER_QUEUES: "${WORKER_QUEUES:-priority,ingest,raster}"
       INGEST_HTTP_TIMEOUT_SECONDS: "${INGEST_HTTP_TIMEOUT_SECONDS:-300}"
       PROCRASTINATE_SCHEMA: "${PROCRASTINATE_SCHEMA:-catalog}"
     healthcheck:
@@ -305,7 +314,8 @@ services:
       - ALL
     # GAP-001: 1 GB covers GDAL_CACHEMAX (200 MB) + Python process overhead for
     # concurrent tile rendering. Raise for very large raster catalogs.
-    mem_limit: "1g"
+    # fix(#448): env-overridable for small hosts — see the db service note.
+    mem_limit: "${TITILER_MEM_LIMIT:-1g}"
     read_only: true
     tmpfs:
       - /tmp:size=128m,mode=1777
@@ -341,6 +351,9 @@ services:
     # frontend/nginx.conf). No build, no bind-mounts, no Vite.
     image: ${REGISTRY:-ghcr.io}/${IMAGE_OWNER:-geolens-io}/geolens-frontend:${GEOLENS_VERSION:-latest}
     restart: unless-stopped
+    # fix(#448): previously uncapped — nginx idles ~25 MB, peaks ~50 MB; a cap
+    # keeps a leak from eating a small host's headroom.
+    mem_limit: "${FRONTEND_MEM_LIMIT:-128m}"
     security_opt:
       - no-new-privileges:true
     cap_drop:
@@ -372,6 +385,9 @@ services:
     image: ${REGISTRY:-ghcr.io}/${IMAGE_OWNER:-geolens-io}/geolens-backup:${GEOLENS_VERSION:-latest}
     restart: unless-stopped
     init: true
+    # fix(#448): previously uncapped — the nightly pg_dump+tar peaks ~300 MB;
+    # 512m default leaves headroom while bounding it on small hosts.
+    mem_limit: "${BACKUP_MEM_LIMIT:-512m}"
     security_opt:
       - no-new-privileges:true
     cap_drop:

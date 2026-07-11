@@ -229,9 +229,15 @@ async def main() -> None:
     try:
         # 6. Run Procrastinate worker
         shutdown_timeout = settings.worker_shutdown_timeout
+        # fix(#448): concurrency was implicitly 1 (Procrastinate default), so a
+        # single long COG conversion head-of-line-blocked every queued upload
+        # across all three queues. Both knobs are env-configurable; a second
+        # worker service can pin WORKER_QUEUES=raster on multi-core hosts.
+        queues = [q.strip() for q in settings.worker_queues.split(",") if q.strip()]
         async with task_app.open_async():
             await task_app.run_worker_async(
-                queues=["priority", "ingest", "raster"],
+                queues=queues,
+                concurrency=settings.worker_concurrency,
                 listen_notify=not settings.db_use_external_pooler,
                 install_signal_handlers=True,
                 delete_jobs="successful",
