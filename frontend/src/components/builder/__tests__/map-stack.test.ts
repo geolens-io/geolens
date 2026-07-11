@@ -116,7 +116,11 @@ describe('buildMapStack', () => {
     expect(entries.find((entry) => entry.id === 'data:trails')!.order).toBeGreaterThan(relief!.order);
   });
 
-  it('does not mark stale terrain config active when the source DEM is not in Terrain mode', () => {
+  // fix(HT-01): a hillshade-mode DEM bound as the terrain source drives the 3D
+  // mesh too (the renderer never required render_mode:"terrain"). The stack
+  // status must agree — reporting 'disabled' while the map rendered terrain was
+  // the drift #345 set out to fix.
+  it('marks terrain active when a hillshade-mode DEM is the bound source', () => {
     const demLayer = makeLayer({
       id: 'dem-hillshade',
       dataset_id: 'dem-1',
@@ -126,6 +130,34 @@ describe('buildMapStack', () => {
       dataset_record_type: 'raster_dataset',
       layer_type: 'raster_geolens',
       is_dem: true,
+      style_config: { render_mode: 'hillshade' } as StyleConfig,
+    });
+
+    const entries = flattenMapStack(buildMapStack(makeMap({
+      terrain_config: { enabled: true, source_dataset_id: 'dem-1', exaggeration: 2 },
+      layers: [demLayer],
+    })));
+
+    const terrain = entries.find((entry) => entry.id === 'relief:terrain');
+    expect(terrain?.visible).toBe(true);
+    expect(terrain?.metadata.terrain?.enabled).toBe(true);
+    expect(terrain?.metadata.terrain?.sourceStatus).toBe('active');
+  });
+
+  // codex(#451): BuilderMap sets no mesh when the bound DEM is hidden, and
+  // Settings reports terrain inactive — the stack status must agree, not show
+  // an active surface-terrain row.
+  it('reports terrain disabled when the bound DEM is hidden', () => {
+    const demLayer = makeLayer({
+      id: 'dem-hidden',
+      dataset_id: 'dem-1',
+      dataset_name: 'Canyon DEM',
+      dataset_geometry_type: null,
+      dataset_table_name: 'canyon_dem',
+      dataset_record_type: 'raster_dataset',
+      layer_type: 'raster_geolens',
+      is_dem: true,
+      visible: false,
       style_config: { render_mode: 'hillshade' } as StyleConfig,
     });
 

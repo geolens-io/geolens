@@ -72,6 +72,12 @@ interface StackRowProps {
   // map) — computed per-layer by UnifiedStackPanel via
   // isLayerHiddenFromMapAudience.
   audienceHidden?: boolean;
+  // codex(#451): true when this DEM has its 2D relief overlay turned off
+  // (render_mode 'terrain') and is NOT the active 3D terrain source, so it
+  // currently paints nothing even though its eye is on. Computed per-layer by
+  // MapBuilderPage (needs terrain_config). Recoverable by re-enabling Hillshade
+  // or binding terrain — the badge just keeps the eye-on row honest.
+  drawsNothing?: boolean;
 }
 
 function TypeIcon({ layer }: { layer: MapLayerResponse }) {
@@ -153,6 +159,7 @@ export const StackRow = memo(function StackRow({
   isFresh = false,
   disambiguationLabel = null,
   audienceHidden = false,
+  drawsNothing = false,
 }: StackRowProps) {
   const { t } = useTranslation('builder');
   const [confirmingDelete, setConfirmingDelete] = useState(false);
@@ -375,6 +382,19 @@ export const StackRow = memo(function StackRow({
               >
                 <span className="truncate">
                   {t('stackRow.audienceHidden', { defaultValue: "Hidden from this map's viewers" })}
+                </span>
+              </span>
+            )}
+            {/* codex(#451): DEM overlay off + not the terrain source → paints
+                nothing despite the eye being on. Keep the row honest. */}
+            {drawsNothing && (
+              <span
+                title={t('stackRow.drawsNothing', { defaultValue: 'Not shown — enable Hillshade or 3D terrain' })}
+                data-testid="stack-row-draws-nothing"
+                className="min-w-0 max-w-[45%] inline-flex items-center rounded-sm border border-warning/30 px-1 text-2xs font-medium leading-tight bg-warning/10 text-warning"
+              >
+                <span className="truncate">
+                  {t('stackRow.drawsNothing', { defaultValue: 'Not shown — enable Hillshade or 3D terrain' })}
                 </span>
               </span>
             )}

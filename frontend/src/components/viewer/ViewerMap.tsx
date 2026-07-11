@@ -15,7 +15,7 @@ import { buildClusterTileUrl, buildSignedTileUrl, getMvtSourceLayerName, resolve
 import { useWebGLRecovery } from '@/hooks/use-webgl-recovery';
 import { useInvalidateTileTokens } from '@/hooks/use-tile-token';
 import { useViewerTokens } from '@/components/viewer/hooks/use-viewer-tokens';
-import { useViewerTerrain } from '@/components/viewer/hooks/use-viewer-terrain';
+import { isViewerTerrainExpected, useViewerTerrain } from '@/components/viewer/hooks/use-viewer-terrain';
 import { FeaturePopup, type FeatureInfo } from '@/components/map/FeaturePopup';
 import {
   activateClusterFeature,
@@ -194,12 +194,20 @@ export const ViewerMap = memo(function ViewerMap({
   // map is simply ready for non-terrain maps, then latch "revealed" true for
   // the rest of the session — this is a one-time entry gate, not a re-arming
   // signal like `tilesIdle`.
+  // codex(#451): terrain is only actually applied when the bound DEM resolves
+  // AND is visible (useViewerTerrain gates on the same). A map with terrain
+  // enabled but the DEM saved hidden never sets terrainReady, so without this
+  // gate it stayed under the veil until the 4s safety timer. Compute the same
+  // effective expectation the hook uses so those maps reveal immediately.
+  const terrainExpected = useMemo(
+    () => isViewerTerrainExpected(layers, terrainConfig),
+    [layers, terrainConfig],
+  );
   const [revealed, setRevealed] = useState(false);
   useEffect(() => {
     if (revealed || !mapReady) return;
-    const terrainExpected = Boolean(terrainConfig?.enabled);
     if (!terrainExpected || terrainReady) setRevealed(true);
-  }, [revealed, mapReady, terrainReady, terrainConfig?.enabled]);
+  }, [revealed, mapReady, terrainReady, terrainExpected]);
   // Safety net: never veil the map forever if terrain activation stalls
   // (e.g. a DEM tile source that never resolves) — fall back to revealing
   // after a short grace period so the map is never permanently hidden.

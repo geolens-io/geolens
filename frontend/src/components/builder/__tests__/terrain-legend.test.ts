@@ -124,6 +124,32 @@ describe('terrain-legend helper', () => {
         ),
       ).toBeNull();
     });
+
+    // codex(#451): the renderers apply no mesh for a saved-hidden bound DEM, so
+    // no phantom terrain legend entry may show for it.
+    it('returns null when the only backing DEM is saved hidden', () => {
+      expect(
+        deriveTerrainLegendEntry(
+          { enabled: true, source_dataset_id: 'dem-1', exaggeration: 1 },
+          [{ ...backingDemLayer, visible: false }],
+          { labelKey },
+        ),
+      ).toBeNull();
+    });
+
+    // With duplicate renderings, a visible one still backs the terrain and its
+    // name is carried on the entry.
+    it('prefers a visible rendering and carries its name when a duplicate is hidden', () => {
+      const entry = deriveTerrainLegendEntry(
+        { enabled: true, source_dataset_id: 'dem-1', exaggeration: 1 },
+        [
+          { ...backingDemLayer, visible: false, display_name: 'Hidden copy' },
+          { ...backingDemLayer, visible: true, display_name: 'Visible relief' },
+        ],
+        { labelKey },
+      );
+      expect(entry?.sourceName).toBe('Visible relief');
+    });
   });
 
   describe('terrainSourceIsShownAsLayer (dedup guard)', () => {

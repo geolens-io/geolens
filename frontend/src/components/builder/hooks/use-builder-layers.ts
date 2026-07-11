@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import type { Map as MaplibreMap } from 'maplibre-gl';
-import { isDemTerrainVisualSuppressed, normalizeTerrainExaggeration, reorderDataLayers } from '@/components/builder/map-sync';
+import { normalizeTerrainExaggeration, reorderDataLayers } from '@/components/builder/map-sync';
 import type { LayerActions } from '@/components/builder/ChatPanel';
 import {
   dispatchBuilderLayerAction,
@@ -276,11 +276,10 @@ export function useBuilderLayers(
 
   const handleMove = useCallback((layerId: string, direction: 'up' | 'down') => {
     const currentLayers = layersRef.current;
-    // fix(#394) LM-05: pick the neighbor from the RENDERED stack — the UI
-    // filters out terrain-suppressed DEM rows (UnifiedStackPanel
-    // visibleStackLayers), so a full-array swap could exchange with an
-    // invisible row and the arrow-move would look like a no-op.
-    const rendered = currentLayers.filter((l) => !isDemTerrainVisualSuppressed(l));
+    // fix(HT-03): the stack no longer suppresses terrain-mode DEM rows, so the
+    // rendered order IS the full layer order again (the #394 LM-05 filter is
+    // obsolete — an arrow-move can never swap with an invisible row).
+    const rendered = currentLayers;
     const renderedIdx = rendered.findIndex((l) => l.id === layerId);
     if (direction === 'up' && renderedIdx <= 0) return;
     if (direction === 'down' && (renderedIdx < 0 || renderedIdx >= rendered.length - 1)) return;
@@ -644,15 +643,10 @@ export function useBuilderLayers(
     const layer = layersRef.current.find((candidate) => candidate.id === layerId);
     if (!layer) return;
 
-    // Phase 999.17 Fix 2 (D-04): a DEM dataset can only back 3D terrain once.
-    // buildDuplicateRenderingInput copies dataset_id + style_config verbatim, so
-    // duplicating a render_mode:'terrain' DEM layer would always create a SECOND
-    // terrain layer on the same dataset — the duplicate-accumulation bug that
-    // drifted map 8dd6a129 to 3 terrain layers. Refuse it (non-blocking toast).
-    if (isDemTerrainVisualSuppressed(layer)) {
-      toast.info(t('toasts.terrainDuplicateBlocked'));
-      return;
-    }
+    // fix(#451): the old D-04 guard that refused to duplicate a
+    // render_mode:'terrain' DEM is gone. Under the composable model that mode
+    // only means "overlay off" — terrain itself is a single map-level
+    // terrain_config pointer, so duplicates can no longer accumulate terrain.
 
     const currentLayers = layersRef.current;
     const data = buildDuplicateRenderingInput(layer, currentLayers);

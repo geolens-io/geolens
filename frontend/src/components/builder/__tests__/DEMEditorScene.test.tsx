@@ -151,110 +151,106 @@ function defaultProps(
 }
 
 describe('DEMEditorScene', () => {
-  // Test 1: Renders RENDER AS pill strip with DEM-safe modes
-  it('renders RENDER AS pill strip with Hillshade and Terrain pills with radiogroup role', () => {
+  // fix(HT-01): hillshade overlay and 3D terrain are independent switches, not
+  // an exclusive radio. Both can be active on one DEM at once.
+  it('renders independent Hillshade shading and Use as 3D terrain switches', () => {
     render(<DEMEditorScene {...defaultProps()} />);
 
-    const group = screen.getByRole('radiogroup');
-    expect(group).toBeInTheDocument();
-
-    expect(screen.queryByText(/Image/)).not.toBeInTheDocument();
-    expect(screen.getByText(/Hillshade/)).toBeInTheDocument();
-    expect(screen.getByText(/Terrain/)).toBeInTheDocument();
+    expect(screen.queryByRole('radiogroup')).not.toBeInTheDocument();
+    expect(screen.getByRole('switch', { name: 'Hillshade shading' })).toBeInTheDocument();
+    expect(screen.getByRole('switch', { name: 'Use as 3D terrain' })).toBeInTheDocument();
   });
 
-  // Test 2: Active pill matches layer's render mode
-  it('active pill matches layer render_mode: null/image → Hillshade, terrain → Terrain', () => {
-    // No render_mode → Hillshade active
+  // fix(HT-01): the overlay switch reflects render_mode; the terrain switch
+  // reflects isTerrainBound — independently.
+  it('overlay switch reflects render_mode and terrain switch reflects isTerrainBound', () => {
+    // No render_mode → overlay on; not bound → terrain off
     const { rerender } = render(
       <DEMEditorScene {...defaultProps({ layer: makeDEMLayer({ style_config: null }) })} />,
     );
-    const hillshadePill = screen.getByRole('radio', { name: /Hillshade/i });
-    expect(hillshadePill).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByRole('switch', { name: 'Hillshade shading' })).toBeChecked();
+    expect(screen.getByRole('switch', { name: 'Use as 3D terrain' })).not.toBeChecked();
 
-    // Legacy image render_mode → Hillshade active
+    // render_mode:terrain → overlay off
     rerender(
       <DEMEditorScene
         {...defaultProps({
-          layer: makeDEMLayer({ style_config: { render_mode: 'image' } as unknown as MapLayerResponse['style_config'] }),
+          layer: makeDEMLayer({ style_config: { render_mode: 'terrain' } }),
         })}
       />,
     );
-    expect(hillshadePill).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByRole('switch', { name: 'Hillshade shading' })).not.toBeChecked();
 
-    // Terrain
+    // The hybrid state: overlay on AND terrain bound simultaneously
     rerender(
       <DEMEditorScene
         {...defaultProps({
-          layer: makeDEMLayer({ style_config: { render_mode: 'terrain' } as unknown as MapLayerResponse['style_config'] }),
+          layer: makeDEMLayer({ style_config: { render_mode: 'hillshade' } }),
+          isTerrainBound: true,
         })}
       />,
     );
-    const terrainPill = screen.getByRole('radio', { name: /Terrain/i });
-    expect(terrainPill).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByRole('switch', { name: 'Hillshade shading' })).toBeChecked();
+    expect(screen.getByRole('switch', { name: 'Use as 3D terrain' })).toBeChecked();
   });
 
-  // Test 3: Clicking Hillshade from Terrain calls onStyleConfigChange with render_mode='hillshade'
-  it('clicking Hillshade from Terrain calls onStyleConfigChange with render_mode=hillshade', () => {
+  // fix(HT-02): toggling the overlay writes ONLY render_mode — it never
+  // binds/unbinds terrain, so an overlay round trip can't drop the mesh.
+  it('toggling the hillshade overlay off writes render_mode=terrain without touching terrain binding', () => {
     const onStyleConfigChange = vi.fn();
     const onTerrainUnbind = vi.fn();
     render(
       <DEMEditorScene
         {...defaultProps({
-          layer: makeDEMLayer({ id: 'dem-terrain-test', style_config: { render_mode: 'terrain' } as unknown as MapLayerResponse['style_config'] }),
+          layer: makeDEMLayer({ id: 'dem-1', style_config: { render_mode: 'hillshade' } }),
           onStyleConfigChange,
           onTerrainUnbind,
+          isTerrainBound: true,
         })}
       />,
     );
 
-    const hillshadePill = screen.getByRole('radio', { name: /Hillshade/i });
-    fireEvent.click(hillshadePill);
+    fireEvent.click(screen.getByRole('switch', { name: 'Hillshade shading' }));
 
-    expect(onStyleConfigChange).toHaveBeenCalledOnce();
-    const [config] = onStyleConfigChange.mock.calls[0] as [{ render_mode: string } | null, Record<string, unknown>];
-    expect(config?.render_mode).toBe('hillshade');
-    expect(onTerrainUnbind).toHaveBeenCalledWith('dem-terrain-test');
-  });
-
-  // Test 4: Clicking Terrain pill calls onTerrainBind AND onStyleConfigChange
-  it('clicking Terrain pill calls onTerrainBind(layerId) AND onStyleConfigChange with render_mode=terrain', () => {
-    const onTerrainBind = vi.fn();
-    const onStyleConfigChange = vi.fn();
-    const layer = makeDEMLayer({ id: 'dem-terrain-test', style_config: null });
-
-    render(
-      <DEMEditorScene
-        {...defaultProps({ layer, onTerrainBind, onStyleConfigChange })}
-      />,
-    );
-
-    const terrainPill = screen.getByRole('radio', { name: /Terrain/i });
-    fireEvent.click(terrainPill);
-
-    expect(onTerrainBind).toHaveBeenCalledOnce();
-    expect(onTerrainBind).toHaveBeenCalledWith('dem-terrain-test');
     expect(onStyleConfigChange).toHaveBeenCalledOnce();
     const [config] = onStyleConfigChange.mock.calls[0] as [{ render_mode: string } | null, Record<string, unknown>];
     expect(config?.render_mode).toBe('terrain');
+    expect(onTerrainUnbind).not.toHaveBeenCalled();
   });
 
-  it('switching away from Terrain unbinds the DEM terrain source', () => {
+  // fix(HT-02): the terrain switch binds/unbinds ONLY terrain — it never
+  // rewrites render_mode, so the overlay survives a terrain round trip.
+  it('the terrain switch binds and unbinds terrain without touching render_mode', () => {
+    const onTerrainBind = vi.fn();
     const onTerrainUnbind = vi.fn();
-    const layer = makeDEMLayer({
-      id: 'dem-terrain-test',
-      style_config: { render_mode: 'terrain' } as unknown as MapLayerResponse['style_config'],
-    });
+    const onStyleConfigChange = vi.fn();
 
-    render(
+    const { rerender } = render(
       <DEMEditorScene
-        {...defaultProps({ layer, onTerrainUnbind })}
+        {...defaultProps({
+          layer: makeDEMLayer({ id: 'dem-1', style_config: { render_mode: 'hillshade' } }),
+          onTerrainBind, onTerrainUnbind, onStyleConfigChange,
+          isTerrainBound: false,
+        })}
       />,
     );
 
-    fireEvent.click(screen.getByRole('radio', { name: /Hillshade/i }));
+    fireEvent.click(screen.getByRole('switch', { name: 'Use as 3D terrain' }));
+    expect(onTerrainBind).toHaveBeenCalledWith('dem-1');
+    expect(onStyleConfigChange).not.toHaveBeenCalled();
 
-    expect(onTerrainUnbind).toHaveBeenCalledWith('dem-terrain-test');
+    rerender(
+      <DEMEditorScene
+        {...defaultProps({
+          layer: makeDEMLayer({ id: 'dem-1', style_config: { render_mode: 'hillshade' } }),
+          onTerrainBind, onTerrainUnbind, onStyleConfigChange,
+          isTerrainBound: true,
+        })}
+      />,
+    );
+    fireEvent.click(screen.getByRole('switch', { name: 'Use as 3D terrain' }));
+    expect(onTerrainUnbind).toHaveBeenCalledWith('dem-1');
+    expect(onStyleConfigChange).not.toHaveBeenCalled();
   });
 
   // Test 5: Missing/legacy Image mode falls back to Hillshade controls
@@ -269,8 +265,8 @@ describe('DEMEditorScene', () => {
     expect(screen.getByRole('img', { name: /Sun azimuth/i })).toBeInTheDocument();
   });
 
-  // Test 6: Hillshade mode shows Sun Position and Shading Colors
-  it('in Hillshade mode, Appearance section shows Sun Position and Shading Colors sub-sections', () => {
+  // Test 6: Overlay-on shows Sun Position and Shading Colors
+  it('with the hillshade overlay on, Relief Shading section shows Sun Position and Shading Colors', () => {
     render(
       <DEMEditorScene
         {...defaultProps({
@@ -283,9 +279,7 @@ describe('DEMEditorScene', () => {
     expect(screen.getByText('SUN POSITION')).toBeInTheDocument();
     // Shading colors heading
     expect(screen.getByText('SHADING COLORS')).toBeInTheDocument();
-    // Should not show image hint or terrain hint
     expect(screen.queryByText('No additional appearance controls for image mode')).not.toBeInTheDocument();
-    expect(screen.queryByText(/Terrain uses elevation data/)).not.toBeInTheDocument();
   });
 
   // Test 7: Compass widget renders correctly
@@ -423,39 +417,46 @@ describe('DEMEditorScene', () => {
     expect(screen.getByTestId('color-picker-shadow')).toHaveTextContent('#000000');
   });
 
-  // Test 11: Terrain mode shows terrain hint and layer-owned terrain exaggeration
-  it('in Terrain mode, Appearance section shows terrain controls without hillshade controls', () => {
-    render(
+  // Test 11: the exaggeration slider appears under the terrain switch when bound
+  it('shows the terrain exaggeration control only when the DEM is bound as terrain', () => {
+    const { rerender } = render(
       <DEMEditorScene
         {...defaultProps({
-          layer: makeDEMLayer({ style_config: { render_mode: 'terrain' } as unknown as MapLayerResponse['style_config'] }),
+          layer: makeDEMLayer({ style_config: { render_mode: 'hillshade' } }),
+          isTerrainBound: false,
           terrainExaggeration: 1.6,
         })}
       />,
     );
-
+    // Unbound: no exaggeration control, but the terrain hint is always present.
+    expect(screen.queryByRole('slider', { name: 'Terrain exaggeration' })).not.toBeInTheDocument();
     expect(
       screen.getByText(/Terrain uses elevation data to extrude the map surface/),
     ).toBeInTheDocument();
+
+    rerender(
+      <DEMEditorScene
+        {...defaultProps({
+          layer: makeDEMLayer({ style_config: { render_mode: 'hillshade' } }),
+          isTerrainBound: true,
+          terrainExaggeration: 1.6,
+        })}
+      />,
+    );
     const terrainExaggeration = screen.getByRole('slider', { name: 'Terrain exaggeration' });
     expect(terrainExaggeration).toHaveAttribute('min', '0');
     expect(terrainExaggeration).toHaveAttribute('max', '3');
     expect((terrainExaggeration as HTMLInputElement).value).toBe('1.6');
     expect(screen.getByRole('spinbutton', { name: 'Terrain exaggeration value' })).toHaveValue(1.6);
-    expect(screen.queryByRole('img', { name: /Sun azimuth/i })).not.toBeInTheDocument();
-    expect(screen.queryByText('No additional appearance controls for image mode')).not.toBeInTheDocument();
-    expect(screen.queryByText('SUN POSITION')).not.toBeInTheDocument();
   });
 
-  it('Terrain mode exaggeration slider writes through the DEM layer callback', () => {
+  it('terrain exaggeration slider writes through the DEM layer callback', () => {
     const onTerrainExaggerationChange = vi.fn();
     render(
       <DEMEditorScene
         {...defaultProps({
-          layer: makeDEMLayer({
-            id: 'dem-terrain-test',
-            style_config: { render_mode: 'terrain' } as unknown as MapLayerResponse['style_config'],
-          }),
+          layer: makeDEMLayer({ id: 'dem-terrain-test', style_config: { render_mode: 'hillshade' } }),
+          isTerrainBound: true,
           onTerrainExaggerationChange,
         })}
       />,
@@ -466,15 +467,13 @@ describe('DEMEditorScene', () => {
     expect(onTerrainExaggerationChange).toHaveBeenCalledWith('dem-terrain-test', 2.4);
   });
 
-  it('Terrain mode exaggeration number field writes through the DEM layer callback', () => {
+  it('terrain exaggeration number field writes through the DEM layer callback', () => {
     const onTerrainExaggerationChange = vi.fn();
     render(
       <DEMEditorScene
         {...defaultProps({
-          layer: makeDEMLayer({
-            id: 'dem-terrain-test',
-            style_config: { render_mode: 'terrain' } as unknown as MapLayerResponse['style_config'],
-          }),
+          layer: makeDEMLayer({ id: 'dem-terrain-test', style_config: { render_mode: 'hillshade' } }),
+          isTerrainBound: true,
           onTerrainExaggerationChange,
         })}
       />,
@@ -593,21 +592,21 @@ describe('DEMEditorScene', () => {
       expect(screen.getByTestId('color-ramp-picker')).toBeInTheDocument();
     });
 
-    it('section shows only the terrain hint (no toggle) in terrain mode', () => {
+    it('section shows only the requires-hillshade hint when the overlay is off', () => {
       render(
         <DEMEditorScene
           {...defaultProps({
             layer: makeDEMLayer({
-              style_config: { render_mode: 'terrain' } as unknown as MapLayerResponse['style_config'],
+              style_config: { render_mode: 'terrain' },
             }),
           })}
         />,
       );
       expect(screen.getByText('HYPSOMETRIC TINT')).toBeInTheDocument();
       expect(
-        screen.getByText('Elevation tint is not available in Terrain mode'),
+        screen.getByText('Elevation tint requires hillshade shading'),
       ).toBeInTheDocument();
-      // No toggle or picker in terrain mode
+      // No toggle or picker while the overlay is off
       expect(screen.queryByRole('switch', { name: 'Elevation tint' })).not.toBeInTheDocument();
       expect(screen.queryByTestId('color-ramp-picker')).not.toBeInTheDocument();
     });
@@ -696,51 +695,75 @@ describe('DEMEditorScene', () => {
     });
   });
 
-  // builder-audit #338 YAGNI-01: the POLISH-02 terrain-bound advisory note is implemented
-  // (it consumes the isTerrainBound value the parent already computes).
-  describe('terrain-bound hillshade advisory note', () => {
-    it('renders the advisory note in hillshade mode when isTerrainBound is true', () => {
+  // fix(HT-01/02): the Matterhorn hybrid state — hillshade overlay ON and 3D
+  // terrain bound on the SAME DEM — is representable truthfully, and a terrain
+  // off→on round trip neither touches the overlay nor loses information.
+  describe('hybrid hillshade + terrain state (Matterhorn regression)', () => {
+    it('shows both switches on simultaneously for the hybrid state', () => {
       render(
         <DEMEditorScene
           {...defaultProps({
-            layer: makeDEMLayer({ style_config: { render_mode: 'hillshade' } }),
+            layer: makeDEMLayer({
+              style_config: { render_mode: 'hillshade', builder: { hypso_enabled: true, hypso_ramp: 'Viridis' } },
+            }),
             isTerrainBound: true,
           })}
         />,
       );
-      expect(screen.getByRole('note')).toHaveTextContent(/also powers the map's 3D terrain/i);
+      expect(screen.getByRole('switch', { name: 'Hillshade shading' })).toBeChecked();
+      expect(screen.getByRole('switch', { name: 'Use as 3D terrain' })).toBeChecked();
+      // Overlay controls remain available while terrain is also bound.
+      expect(screen.getByText('SUN POSITION')).toBeInTheDocument();
     });
 
-    it('does not render the advisory note when isTerrainBound is false', () => {
-      render(
-        <DEMEditorScene
-          {...defaultProps({
-            layer: makeDEMLayer({ style_config: { render_mode: 'hillshade' } }),
-            isTerrainBound: false,
-          })}
-        />,
-      );
-      expect(screen.queryByRole('note')).not.toBeInTheDocument();
-    });
+    it('terrain off→on round trip never rewrites render_mode (overlay preserved)', () => {
+      const onStyleConfigChange = vi.fn();
+      const onTerrainBind = vi.fn();
+      const onTerrainUnbind = vi.fn();
+      const layer = makeDEMLayer({ id: 'dem-1', style_config: { render_mode: 'hillshade' } });
 
-    it('does not render the advisory note in terrain mode even when isTerrainBound is true', () => {
-      render(
+      const { rerender } = render(
         <DEMEditorScene
-          {...defaultProps({
-            layer: makeDEMLayer({ style_config: { render_mode: 'terrain' } as unknown as MapLayerResponse['style_config'] }),
-            isTerrainBound: true,
-          })}
+          {...defaultProps({ layer, onStyleConfigChange, onTerrainBind, onTerrainUnbind, isTerrainBound: true })}
         />,
       );
-      expect(screen.queryByRole('note')).not.toBeInTheDocument();
+
+      // Turn terrain off, then back on.
+      fireEvent.click(screen.getByRole('switch', { name: 'Use as 3D terrain' }));
+      rerender(
+        <DEMEditorScene
+          {...defaultProps({ layer, onStyleConfigChange, onTerrainBind, onTerrainUnbind, isTerrainBound: false })}
+        />,
+      );
+      fireEvent.click(screen.getByRole('switch', { name: 'Use as 3D terrain' }));
+
+      expect(onTerrainUnbind).toHaveBeenCalledWith('dem-1');
+      expect(onTerrainBind).toHaveBeenCalledWith('dem-1');
+      // The overlay authority was never written during the terrain round trip.
+      expect(onStyleConfigChange).not.toHaveBeenCalled();
     });
   });
 
-  // Test 14: Switching render mode preserves style_config keys not under current mode
-  it('switching terrain→hillshade preserves other style_config keys', () => {
+  // fix(HT-05): the old "source conflict" advisory note is gone — the hillshade
+  // overlay and 3D mesh coexist on one DEM, so there is nothing to warn about.
+  it('never renders a terrain-bound source-conflict advisory note', () => {
+    render(
+      <DEMEditorScene
+        {...defaultProps({
+          layer: makeDEMLayer({ style_config: { render_mode: 'hillshade' } }),
+          isTerrainBound: true,
+        })}
+      />,
+    );
+    expect(screen.queryByRole('note')).not.toBeInTheDocument();
+    expect(screen.queryByText(/also powers the map's 3D terrain/i)).not.toBeInTheDocument();
+  });
+
+  // fix(HT-02): toggling the overlay off preserves unrelated style_config keys.
+  it('toggling the overlay off preserves other style_config keys', () => {
     const onStyleConfigChange = vi.fn();
     const layer = makeDEMLayer({
-      style_config: { render_mode: 'terrain', some_other_key: 'preserved' } as unknown as MapLayerResponse['style_config'],
+      style_config: { render_mode: 'hillshade', some_other_key: 'preserved' },
     });
 
     render(
@@ -749,19 +772,11 @@ describe('DEMEditorScene', () => {
       />,
     );
 
-    const hillshadePill = screen.getByRole('radio', { name: /Hillshade/i });
-    fireEvent.click(hillshadePill);
+    fireEvent.click(screen.getByRole('switch', { name: 'Hillshade shading' }));
 
     expect(onStyleConfigChange).toHaveBeenCalledOnce();
     const [config] = onStyleConfigChange.mock.calls[0] as [Record<string, unknown> | null, Record<string, unknown>];
-    expect(config?.render_mode).toBe('hillshade');
+    expect(config?.render_mode).toBe('terrain');
     expect(config?.some_other_key).toBe('preserved');
   });
 });
-
-// ---------------------------------------------------------------------------
-// builder-audit #338 YAGNI-01: the POLISH-02 terrain-bound advisory note (previously
-// removed as unreachable under CLEANUP-01) is now implemented and wired to the
-// isTerrainBound prop the parent already computes. See the
-// "terrain-bound hillshade advisory note" describe block above.
-// ---------------------------------------------------------------------------

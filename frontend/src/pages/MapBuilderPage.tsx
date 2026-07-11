@@ -78,8 +78,9 @@ import { useBuilderEditorScene, type BuilderEditorScene } from '@/components/bui
 import { useFilteredFeatureCount } from '@/components/builder/hooks/use-filtered-feature-count';
 import { useBuilderLayers } from '@/components/builder/hooks/use-builder-layers';
 import { useBuilderSave } from '@/components/builder/hooks/use-builder-save';
-import { TERRAIN_SOURCE_ID, normalizeTerrainExaggeration, isHillshadeTerrainBound, isDemTerrainVisualSuppressed } from '@/components/builder/map-sync';
+import { TERRAIN_SOURCE_ID, normalizeTerrainExaggeration, isHillshadeTerrainBound } from '@/components/builder/map-sync';
 import { resolveTerrainSourceLayer } from '@/components/builder/map-stack';
+import { effectiveDemRenderMode } from '@/lib/dem-render-mode';
 import {
   createBuilderBasemapState,
   removeBasemap as removeBasemapFromState,
@@ -597,19 +598,12 @@ export function MapBuilderPage() {
 
   // Phase 1041: derive selectable row ids (ordered flat list, basemap excluded)
   // Used by handleShiftClick for range computation and by the Shift+Arrow keyboard handler
-  const selectableRowIds = useMemo((): string[] => {
-    const ids: string[] = [];
-    for (const layer of layers.localLayers) {
-      // BLDR-03: terrain-mode DEM layers are suppressed from the stack panel
-      // (no row rendered), so they must not be range-selectable either —
-      // otherwise a shift-click range spanning a hidden terrain row could
-      // silently include and bulk-delete that terrain record. Mirror the
-      // visibleStackLayers filter applied inside UnifiedStackPanel.
-      if (isDemTerrainVisualSuppressed(layer)) continue;
-      ids.push(layer.id);
-    }
-    return ids;
-  }, [layers.localLayers]);
+  const selectableRowIds = useMemo(
+    // fix(HT-03): terrain-mode DEM rows render in the stack again, so they are
+    // range-selectable like any other row (the BLDR-03 skip is obsolete).
+    (): string[] => layers.localLayers.map((layer) => layer.id),
+    [layers.localLayers],
+  );
 
   // Phase 1041 + SP-04 (Phase 1045): multi-selection handlers driven by the
   // `computeNextSelection` pure helper. Anchor lives in `lastToggleAnchor` ref
@@ -1031,7 +1025,12 @@ export function MapBuilderPage() {
       });
     } else if (expandedId) {
       requestAnimationFrame(() => {
-        const rowEl = document.getElementById(`stack-row-${expandedId}`);
+        // fix(HT-18): the row can be gone by the time focus returns (e.g. the
+        // layer was deleted from the editor footer). Falling back to the first
+        // stack row keeps keyboard focus in the panel instead of dropping it
+        // on <body>.
+        const rowEl = document.getElementById(`stack-row-${expandedId}`)
+          ?? document.querySelector<HTMLElement>('[data-row-id]');
         rowEl?.focus();
       });
     }
@@ -1065,6 +1064,23 @@ export function MapBuilderPage() {
   const boundLayerName = boundTerrainLayer
     ? (boundTerrainLayer.display_name ?? boundTerrainLayer.dataset_name ?? undefined)
     : undefined;
+
+  // codex(#451): a DEM whose 2D relief overlay is off (render_mode 'terrain')
+  // paints nothing unless it is the ACTIVE 3D terrain source. When it isn't, the
+  // stack row would show a normal eye-on layer that draws nothing — flag those
+  // so the row stays honest. Skip already-hidden rows (their eye is off, which
+  // already reads as "not shown").
+  const drawsNothingLayerIds = useMemo(() => {
+    const ids = new Set<string>();
+    const activeMeshId = isTerrainActive ? boundTerrainLayer?.id : undefined;
+    for (const layer of layers.localLayers) {
+      if (layer.is_dem !== true || layer.visible === false) continue;
+      if (effectiveDemRenderMode(layer.style_config, layer.is_dem) !== 'terrain') continue;
+      if (layer.id === activeMeshId) continue;
+      ids.add(layer.id);
+    }
+    return ids;
+  }, [layers.localLayers, isTerrainActive, boundTerrainLayer?.id]);
 
   // Phase 1035+1036: scene-specific content + footer for LayerEditorPanel
   // Computed after handleSelectLayer and handleAddDataClick are in scope
@@ -1257,6 +1273,11 @@ export function MapBuilderPage() {
             terrainConfig={layers.localTerrainConfig}
             isTerrainActive={isTerrainActive}
             boundLayerName={boundLayerName}
+            onOpenBoundLayer={
+              boundTerrainLayer
+                ? () => handleSelectLayer(boundTerrainLayer.id)
+                : undefined
+            }
             enabledPluginIds={enabledPluginIds}
             activePluginIds={activePlugins}
             onTogglePlugin={handleTogglePlugin}
@@ -1440,6 +1461,7 @@ export function MapBuilderPage() {
               // badge — mapData is undefined only during initial load, before
               // the stack panel has anything to render anyway.
               mapVisibility={mapData?.visibility}
+              drawsNothingLayerIds={drawsNothingLayerIds}
               selectedLayerId={layers.expandedLayerId}
               onSelectLayer={handleSelectLayer}
               onToggleVisibility={(layerId) => {

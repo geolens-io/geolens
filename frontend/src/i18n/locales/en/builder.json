@@ -783,7 +783,6 @@
     "popupConfigInvalidNamed": "Cannot save: layer \"{{layerName}}\" has an invalid popup expression.",
     "popupConfigBackendRejected": "Server rejected the popup configuration ({{field}}). Adjust the layer's popup template and save again.",
     "layerFallbackName": "Untitled layer",
-    "terrainDuplicateBlocked": "3D terrain can't be duplicated — a dataset can only power terrain once.",
     "terrainDisabledSourceRemoved": "3D terrain disabled — its source layer was removed.",
     "domainClearFailed": "Failed to clear domain restrictions",
     "shareLinkCreated": "Share link created",
@@ -1074,7 +1073,8 @@
     "kebabCopyStyle": "Copy style",
     "kebabPasteStyle": "Paste style",
     "disambiguation": "{{label}}",
-    "audienceHidden": "Hidden from this map's viewers"
+    "audienceHidden": "Hidden from this map's viewers",
+    "drawsNothing": "Not shown — enable Hillshade or 3D terrain"
   },
   "basemapGroup": {
     "addCustomBasemap": "＋ Add custom basemap…",
@@ -1114,10 +1114,6 @@
     "zoomLabel": "ZOOM RANGE"
   },
   "demEditor": {
-    "renderAsLabel": "RENDER AS",
-    "renderAsImage": "▦ Image",
-    "renderAsHillshade": "⛰ Hillshade",
-    "renderAsTerrain": "◬ Terrain",
     "sunPositionLabel": "SUN POSITION",
     "azimuth": "Azimuth",
     "exaggeration": "Exaggeration",
@@ -1127,13 +1123,16 @@
     "accent": "Accent",
     "terrainHint": "Terrain uses elevation data to extrude the map surface.",
     "terrainExaggeration": "Terrain exaggeration",
-    "imageHint": "No additional appearance controls for image mode",
     "compassAriaLabel": "Sun azimuth: {{azimuth}}°",
     "sectionHypsometricTint": "HYPSOMETRIC TINT",
     "hypsometricEnable": "Elevation tint",
-    "hypsometricTerrainHint": "Elevation tint is not available in Terrain mode",
-    "terrainBoundNote": "This DEM also powers the map's 3D terrain. Hillshade shading is hidden to avoid a source conflict.",
-    "hypsometricRangeNote": "Elevation tint spans 0–4000 m and assumes meters. DEMs in other units or ranges may appear flat."
+    "hypsometricTerrainHint": "Elevation tint requires hillshade shading",
+    "hypsometricRangeNote": "Elevation tint spans 0–4000 m and assumes meters. DEMs in other units or ranges may appear flat.",
+    "reliefShadingLabel": "RELIEF SHADING",
+    "hillshadeToggle": "Hillshade shading",
+    "overlayOffHint": "Relief shading is off — this DEM draws no 2D overlay.",
+    "terrainSectionLabel": "3D TERRAIN",
+    "useAsTerrain": "Use as 3D terrain"
   },
   "folderGroup": {
     "defaultName": "Group {{n}}",
@@ -1232,7 +1231,8 @@
     "projectionGlobe": "Globe",
     "projectionAria": "Map projection",
     "globeDisclaimer": "Globe projection is experimental. Some layers may not render correctly.",
-    "terrainSmallDemTip": "Tip: for a small high-resolution DEM, drape it over a coarse global DEM (e.g. Copernicus GLO-30) so terrain stays smooth beyond its extent."
+    "terrainSmallDemTip": "Tip: for a small high-resolution DEM, drape it over a coarse global DEM (e.g. Copernicus GLO-30) so terrain stays smooth beyond its extent.",
+    "openTerrainLayer": "Open terrain layer"
   },
   "cluster": {
     "popupTitle_one": "Cluster: {{countLabel}} feature",

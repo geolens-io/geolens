@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { syncLayersToMap, stripCustomProps, CUSTOM_PAINT_PROPS, isHillshadeTerrainBound, shouldSkipHillshadeForTerrain } from '@/components/builder/map-sync';
+import { syncLayersToMap, stripCustomProps, CUSTOM_PAINT_PROPS, isHillshadeTerrainBound } from '@/components/builder/map-sync';
 import type { SyncLayerInput } from '@/components/builder/map-sync';
 import type { MapLayerResponse, MapTerrainConfig } from '@/types/api';
 import type { TileToken, RasterTileToken, VectorTileToken } from '@/api/tiles';
@@ -906,27 +906,17 @@ describe('POLISH-02 syncRasterLayer hillshade skip guard', () => {
     managedSourcesRef = { current: new Set() };
   });
 
-  // 999.17 BL-01: the POLISH-02 guard is now NARROWED. A terrain-bound hillshade
-  // DEM whose source tileSize MATCHES the active terrain source tileSize (the
-  // normal case — both default from token.tile_size ?? 256) must NOT be skipped:
-  // the visible hillshade overlay paints on its own per-layer source alongside the
-  // 3D mesh. This is the user-visible outcome Fix 3 promised but the old blanket
-  // guard suppressed.
-  it('Test E: terrain-bound hillshade with MATCHING tileSize is NOT skipped (addSource called)', () => {
+  // fix(HT-05): a terrain-bound hillshade DEM always paints its visible overlay
+  // on its own per-layer source (`source-dem-layer-1`) alongside the 3D mesh.
+  // The old tile-size-mismatch skip guard was dead code (same-dataset binding
+  // means the sizes always match) and has been removed.
+  it('Test E: a terrain-bound hillshade DEM paints its own per-layer source', () => {
     const layer = makeDEMLayer(); // dataset_id 'dem-ds-1', render_mode 'hillshade'
     const tokenMap = new Map<string, TileToken>([
-      // hillshade layer + terrain source resolve the SAME token (same dataset) → tileSize matches
       ['dem-ds-1', makeRasterToken({ tile_url: '/tiles/dem/{z}/{x}/{y}.png', tile_size: 256 })],
     ]);
-    const terrainConfig: MapTerrainConfig = {
-      enabled: true,
-      source_dataset_id: 'dem-ds-1',
-      exaggeration: 1,
-    };
 
-    syncLayersToMap(map, [layer], tokenMap, undefined, managedSourcesRef, { current: '' }, undefined, {
-      terrainConfig,
-    });
+    syncLayersToMap(map, [layer], tokenMap, undefined, managedSourcesRef, { current: '' });
 
     // The hillshade consumer runs on its own per-layer source (`source-dem-layer-1`).
     expect((map.addSource as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThan(0);
@@ -968,73 +958,43 @@ describe('POLISH-02 syncRasterLayer hillshade skip guard', () => {
     expect(addLayerCall.type).toBe('hillshade');
   });
 
-  it('Test F: when isHillshadeTerrainBound is false + hillshade mode, normal hillshade path runs', () => {
+  it('Test F: a hillshade DEM with no terrain binding runs the normal hillshade path', () => {
     const layer = makeDEMLayer();
     const tokenMap = new Map<string, TileToken>([
       ['dem-ds-1', makeRasterToken({ tile_url: '/tiles/dem/{z}/{x}/{y}.png' })],
     ]);
-    // terrain is disabled — predicate returns false — hillshade path runs normally
-    const terrainConfig: MapTerrainConfig = {
-      enabled: false,
-      source_dataset_id: 'dem-ds-1',
-      exaggeration: 1,
-    };
 
-    syncLayersToMap(map, [layer], tokenMap, undefined, managedSourcesRef, { current: '' }, undefined, {
-      terrainConfig,
-    });
+    syncLayersToMap(map, [layer], tokenMap, undefined, managedSourcesRef, { current: '' });
 
     // Normal hillshade path runs: addSource should be called
     expect((map.addSource as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThan(0);
   });
-});
 
-// ---------------------------------------------------------------------------
-// 999.17 BL-01: shouldSkipHillshadeForTerrain — the narrowed POLISH-02 decision.
-// Through syncLayersToMap a terrain-bound hillshade and the terrain source share
-// a dataset (same token → same tileSize), so the MISMATCH branch is only
-// deterministically reachable at the pure-helper level. Both branches are pinned
-// here; Test E above pins the end-to-end MATCH → paint behavior.
-// ---------------------------------------------------------------------------
+  // fix(HT-07): raster/hillshade layers now reapply their saved custom zoom
+  // range on (re)sync — previously only vector paths called syncLayerZoomRange,
+  // so a saved _minzoom/_maxzoom silently stopped applying after reload.
+  it('applies the saved custom zoom range to the hillshade layer', () => {
+    const layer = makeDEMLayer({ layout: { _minzoom: 8, _maxzoom: 15 } });
+    const tokenMap = new Map<string, TileToken>([
+      ['dem-ds-1', makeRasterToken({ tile_url: '/tiles/dem/{z}/{x}/{y}.png' })],
+    ]);
 
-describe('999.17 BL-01 shouldSkipHillshadeForTerrain', () => {
-  it('does NOT skip when the DEM is not terrain-bound', () => {
-    expect(shouldSkipHillshadeForTerrain({
-      isTerrainBound: false,
-      hillshadeTileSize: 512,
-      terrainSourceTileSize: 256,
-    })).toBe(false);
+    syncLayersToMap(map, [layer], tokenMap, undefined, managedSourcesRef, { current: '' });
+
+    expect(map.setLayerZoomRange as ReturnType<typeof vi.fn>).toHaveBeenCalledWith('layer-dem-layer-1', 8, 15);
   });
 
-  it('does NOT skip when terrain-bound AND tileSizes MATCH (visible hillshade paints)', () => {
-    expect(shouldSkipHillshadeForTerrain({
-      isTerrainBound: true,
-      hillshadeTileSize: 256,
-      terrainSourceTileSize: 256,
-    })).toBe(false);
-  });
+  // codex(#451): a raster/DEM layer with NO saved custom range must NOT be
+  // force-capped — leave maplibre's default (uncapped) so it doesn't blink off
+  // at the max zoom stop.
+  it('does not touch the zoom range when no custom _minzoom/_maxzoom is saved', () => {
+    const layer = makeDEMLayer({ layout: {} });
+    const tokenMap = new Map<string, TileToken>([
+      ['dem-ds-1', makeRasterToken({ tile_url: '/tiles/dem/{z}/{x}/{y}.png' })],
+    ]);
 
-  it('treats undefined/null tileSizes as the 256 default → MATCH → does NOT skip', () => {
-    expect(shouldSkipHillshadeForTerrain({
-      isTerrainBound: true,
-      hillshadeTileSize: undefined,
-      terrainSourceTileSize: null,
-    })).toBe(false);
-  });
+    syncLayersToMap(map, [layer], tokenMap, undefined, managedSourcesRef, { current: '' });
 
-  it('SKIPS when terrain-bound AND tileSizes MISMATCH (preserve backfillBorder fix)', () => {
-    expect(shouldSkipHillshadeForTerrain({
-      isTerrainBound: true,
-      hillshadeTileSize: 512,
-      terrainSourceTileSize: 256,
-    })).toBe(true);
-  });
-
-  it('SKIPS when terrain-bound AND hillshade default (256) MISMATCHES a 512 terrain source', () => {
-    expect(shouldSkipHillshadeForTerrain({
-      isTerrainBound: true,
-      hillshadeTileSize: undefined,
-      terrainSourceTileSize: 512,
-    })).toBe(true);
+    expect(map.setLayerZoomRange as ReturnType<typeof vi.fn>).not.toHaveBeenCalled();
   });
 });

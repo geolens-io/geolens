@@ -474,6 +474,11 @@ describe('useBuilderSave', () => {
     expect(mockUpdateMapMutateAsync.mock.calls[0][0].data.layers).toBeUndefined();
   });
 
+  // A save that changes a layer (zoom range) AND terrain uses the normal split
+  // path: minimal layer PATCH + metadata PUT. HT-13 note: the overlay and
+  // terrain authorities are independent in the composable model, so a partial
+  // persist is recoverable (not a contradiction) — no need to force the lossy
+  // full-replacement PUT here.
   it('saves duplicate renderings, basemap config, terrain config, and zoom range through existing fields', async () => {
     const layerA = makeLayer({
       id: 'layer-a',
@@ -551,6 +556,7 @@ describe('useBuilderSave', () => {
         }),
       }),
     );
+    // Metadata PUT carries no layers on the split path.
     expect(mockUpdateMapMutateAsync.mock.calls[0][0].data.layers).toBeUndefined();
   });
 

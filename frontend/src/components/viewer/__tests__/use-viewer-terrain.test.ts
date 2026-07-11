@@ -1,5 +1,5 @@
 import { act, renderHook, waitFor } from '@/test/test-utils';
-import { useViewerTerrain } from '../hooks/use-viewer-terrain';
+import { isViewerTerrainExpected, useViewerTerrain } from '../hooks/use-viewer-terrain';
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { SharedLayerResponse } from '@/types/api';
 
@@ -180,6 +180,36 @@ describe('useViewerTerrain', () => {
     expect(map.setTerrain).toHaveBeenLastCalledWith(null);
   });
 
+  // fix(#451): rows for the bound dataset exist but none is terrain-capable
+  // (legacy/corrupt binding) — the mesh must stay off, matching the reveal
+  // gate and legend, instead of silently draping from the raster token.
+  it('clears terrain when the bound dataset has rows but no terrain-capable DEM rendering', async () => {
+    const map = createMap();
+    const mapRef = { current: map as unknown as MaplibreMap };
+
+    const { result } = renderHook(() => useViewerTerrain({
+      layers: [layer({ is_dem: false, dataset_record_type: 'vector_dataset' })],
+      mapRef,
+      mapReady: true,
+      terrainConfig: { enabled: true, source_dataset_id: 'dem-1', exaggeration: 1 },
+      tokenMap: new Map([
+        ['dem-1', {
+          kind: 'raster',
+          tile_url: '/raster-tiles/token-dem/tiles/{z}/{x}/{y}.png',
+          bounds: null,
+          minzoom: 0,
+          maxzoom: 18,
+          tile_size: 256,
+          format: 'png',
+        }],
+      ]),
+    }));
+
+    await waitFor(() => expect(result.current.terrainReady).toBe(false));
+    expect(map.setTerrain).toHaveBeenCalledWith(null);
+    expect(map.addSource).not.toHaveBeenCalled();
+  });
+
   it('reapplies persisted terrain after a style reload', async () => {
     const map = createMap();
     const mapRef = { current: map as unknown as MaplibreMap };
@@ -204,5 +234,32 @@ describe('useViewerTerrain', () => {
     });
 
     expect(map.setTerrain).toHaveBeenCalledWith({ source: 'terrain-dem', exaggeration: 1.75 });
+  });
+});
+
+// fix(#451): the ViewerMap reveal gate. A regression here degrades to a silent
+// 4s veil on every terrain-enabled map with a hidden/unresolvable DEM — no
+// other test observes that, so pin the predicate directly.
+describe('isViewerTerrainExpected', () => {
+  const enabled = { enabled: true, source_dataset_id: 'dem-1', exaggeration: 1 };
+
+  it('expects terrain for an enabled config with a visible terrain-capable DEM', () => {
+    expect(isViewerTerrainExpected([layer({})], enabled)).toBe(true);
+  });
+
+  it('does not expect terrain when the config is disabled or absent', () => {
+    expect(isViewerTerrainExpected([layer({})], { ...enabled, enabled: false })).toBe(false);
+    expect(isViewerTerrainExpected([layer({})], null)).toBe(false);
+  });
+
+  it('does not expect terrain when the bound DEM is saved hidden', () => {
+    expect(isViewerTerrainExpected([layer({ visible: false })], enabled)).toBe(false);
+  });
+
+  it('does not expect terrain when no terrain-capable rendering resolves', () => {
+    expect(isViewerTerrainExpected([], enabled)).toBe(false);
+    expect(
+      isViewerTerrainExpected([layer({ is_dem: false, dataset_record_type: 'vector_dataset' })], enabled),
+    ).toBe(false);
   });
 });

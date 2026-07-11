@@ -2537,6 +2537,55 @@ class TestMapLayers:
             "hypso_ramp": "Inferno",
         }
 
+    async def test_visibility_only_patch_preserves_dem_style_config(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+    ):
+        """fix(HT-14): a partial layer PATCH that omits style_config must NOT
+        erase the DEM's stored hypsometric builder metadata. The old after-mode
+        validator assigned style_config=None into model_fields_set, defeating
+        exclude_unset=True, so the builder's own eye-toggle Save ({id, visible})
+        wiped hypso_enabled/hypso_ramp back to {"render_mode": "hillshade"}."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_dem_dataset(test_db_session, created_by=admin_id)
+        created = await _create_map(client, admin_auth_header)
+        map_id = created["id"]
+
+        add = await client.post(
+            f"/maps/{map_id}/layers",
+            json={
+                "dataset_id": str(ds.id),
+                "paint": {
+                    "raster-opacity": 1,
+                    "_hypso-enabled": True,
+                    "_hypso-ramp": "Viridis",
+                },
+                "style_config": {"render_mode": "hillshade"},
+            },
+            headers=admin_auth_header,
+        )
+        assert add.status_code == 201, add.text
+        layer_id = add.json()["id"]
+
+        # The exact shape the builder's eye-toggle Save emits: {id, visible}.
+        patch = await client.patch(
+            f"/maps/{map_id}/layers",
+            json={"updated": [{"id": layer_id, "visible": False}]},
+            headers=admin_auth_header,
+        )
+        assert patch.status_code == 200, patch.text
+
+        layer = next(la for la in patch.json()["layers"] if la["id"] == layer_id)
+        assert layer["visible"] is False
+        # Hypsometric builder metadata survived the unrelated visibility patch.
+        assert layer["style_config"]["render_mode"] == "hillshade"
+        assert layer["style_config"]["builder"] == {
+            "hypso_enabled": True,
+            "hypso_ramp": "Viridis",
+        }
+
     async def test_add_layer_rejects_unknown_private_paint_key(
         self,
         client: AsyncClient,

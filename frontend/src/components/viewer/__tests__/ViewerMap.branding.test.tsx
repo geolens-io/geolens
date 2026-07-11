@@ -49,6 +49,7 @@ vi.mock('@/components/viewer/hooks/use-viewer-tokens', () => ({
 
 vi.mock('@/components/viewer/hooks/use-viewer-terrain', () => ({
   useViewerTerrain: () => ({ terrainReady: false, reseedTerrainOnStyleLoad: vi.fn() }),
+  isViewerTerrainExpected: () => false,
 }));
 
 vi.mock('@/components/map/MapCoordReadout', () => ({

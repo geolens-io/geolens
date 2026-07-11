@@ -170,12 +170,29 @@ export interface SeededDataset {
  * `afterAll`.
  */
 export async function seedDataset(): Promise<SeededDataset> {
-  const title = `A11y Seed Dataset ${Date.now()}`;
-  const fixture = path.join(__dirname, '../fixtures/sample.geojson');
+  return seedFixtureDataset('sample.geojson', 'application/geo+json', `A11y Seed Dataset ${Date.now()}`);
+}
+
+/**
+ * fix(#451): ingest the single-band Float32 GeoTIFF fixture as a real DEM
+ * dataset (`is_dem_candidate` in processing/raster/cog.py flags single-band
+ * float rasters). Powers the two-switch DEM editor spec. Pair with
+ * `deleteDataset()` in `afterAll`.
+ */
+export async function seedDemDataset(): Promise<SeededDataset> {
+  return seedFixtureDataset('sample-dem.tif', 'image/tiff', `E2E DEM ${Date.now()}`);
+}
+
+async function seedFixtureDataset(
+  fixtureName: string,
+  mimeType: string,
+  title: string,
+): Promise<SeededDataset> {
+  const fixture = path.join(__dirname, `../fixtures/${fixtureName}`);
   const bytes = fs.readFileSync(fixture);
 
   const form = new FormData();
-  form.append('file', new Blob([bytes], { type: 'application/geo+json' }), 'sample.geojson');
+  form.append('file', new Blob([bytes], { type: mimeType }), fixtureName);
   const upload = await fetch(`${BASE_URL}/api/ingest/upload`, {
     method: 'POST',
     headers: authHeaders(),

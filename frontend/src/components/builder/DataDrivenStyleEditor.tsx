@@ -647,7 +647,7 @@ export function DataDrivenStyleEditor({
 
   const handleCategoryColorChange = useCallback(
     (value: string | number | null, newColor: string) => {
-      if (!styleConfig?.categories) return;
+      if (!styleConfig?.categories || !styleConfig.column) return;
 
       const updated = styleConfig.categories.map((c) =>
         c.value === value ? { ...c, color: newColor } : c,
@@ -673,7 +673,7 @@ export function DataDrivenStyleEditor({
 
   const handleGraduatedColorChange = useCallback(
     (index: number, newColor: string) => {
-      if (!styleConfig?.colors || !styleConfig.breaks) return;
+      if (!styleConfig?.colors || !styleConfig.breaks || !styleConfig.column) return;
 
       const updatedColors = [...styleConfig.colors];
       updatedColors[index] = newColor;

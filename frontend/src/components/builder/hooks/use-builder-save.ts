@@ -643,6 +643,15 @@ export function useBuilderSave(state: SaveState) {
 
     try {
       const { diff, unsupported } = buildLayerDiff(baselineLayersRef.current, localLayers, groupMeta);
+      // HT-13 note: the DEM editor's hillshade overlay (style_config.render_mode)
+      // and 3D terrain binding (terrain_config) are now INDEPENDENT authorities.
+      // A save that persists only one of them (e.g. the layer PATCH commits and
+      // the metadata PUT fails) is therefore NOT a contradiction — it's an
+      // incomplete save of two independent settings, coherent on reload and
+      // recoverable by re-toggling. So the split PATCH+PUT path is safe and we
+      // keep it, rather than forcing every combined save through the lossy
+      // full-replacement PUT (which can null server-only layer fields — see the
+      // #430 V-01 note below). The failed-save toast already prompts a retry.
       if (unsupported) {
         await updateMap.mutateAsync({ id, data: fullReplacementPayload });
       } else {

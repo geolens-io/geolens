@@ -429,6 +429,11 @@ export function useLayerMapSync(
           if (map.getLayer(ids.outline)) {
             map.setLayerZoomRange(ids.outline, minzoom, maxzoom);
           }
+          // fix(HT-07): the DEM color-relief companion rides the same source
+          // and must honor the layer's custom zoom range too.
+          if (map.getLayer(ids.colorRelief)) {
+            map.setLayerZoomRange(ids.colorRelief, minzoom, maxzoom);
+          }
           if (map.getLayer(ids.cluster)) {
             map.setLayerZoomRange(ids.cluster, minzoom, maxzoom);
           }

@@ -38,6 +38,8 @@ interface SortableStackRowProps {
   // fix(#430 V-17): true when this layer's dataset would be filtered out for the
   // map's audience (private/unpublished dataset on a public/shared map).
   audienceHidden?: boolean;
+  // codex(#451): DEM overlay off + not the active terrain source → draws nothing.
+  drawsNothing?: boolean;
   // Phase 1201-02 (ENH-07): disable drag while search is active to prevent
   // sort_order corruption when only a filtered subset is visible.
   dragDisabled?: boolean;
@@ -69,6 +71,7 @@ export const SortableStackRow = memo(function SortableStackRow({
   isFresh,
   disambiguationLabel,
   audienceHidden,
+  drawsNothing,
   dragDisabled = false,
 }: SortableStackRowProps) {
   const {
@@ -122,6 +125,7 @@ export const SortableStackRow = memo(function SortableStackRow({
         isFresh={isFresh}
         disambiguationLabel={disambiguationLabel}
         audienceHidden={audienceHidden}
+        drawsNothing={drawsNothing}
       />
     </div>
   );

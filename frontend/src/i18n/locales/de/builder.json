@@ -783,7 +783,6 @@
     "popupConfigInvalidNamed": "Speichern nicht möglich: Layer \"{{layerName}}\" hat einen ungültigen Popup-Ausdruck.",
     "popupConfigBackendRejected": "Der Server hat die Popup-Konfiguration abgelehnt ({{field}}). Passen Sie die Popup-Vorlage des Layers an und speichern Sie erneut.",
     "layerFallbackName": "Unbenannter Layer",
-    "terrainDuplicateBlocked": "3D-Gelände kann nicht dupliziert werden – ein Datensatz kann Gelände nur einmal erzeugen.",
     "terrainDisabledSourceRemoved": "3D-Gelände deaktiviert – die Quellebene wurde entfernt.",
     "domainClearFailed": "Domain-Einschränkungen konnten nicht gelöscht werden",
     "shareLinkCreated": "Freigabelink erstellt",
@@ -1070,7 +1069,8 @@
     "kebabCopyStyle": "Stil kopieren",
     "kebabPasteStyle": "Stil einfügen",
     "disambiguation": "{{label}}",
-    "audienceHidden": "Für die Betrachter dieser Karte ausgeblendet"
+    "audienceHidden": "Für die Betrachter dieser Karte ausgeblendet",
+    "drawsNothing": "Nicht sichtbar — Schummerung oder 3D-Terrain aktivieren"
   },
   "basemapGroup": {
     "addCustomBasemap": "＋ Benutzerdefinierte Basiskarte hinzufügen…",
@@ -1110,10 +1110,6 @@
     "resetAction": "Auf Standard zurücksetzen"
   },
   "demEditor": {
-    "renderAsLabel": "DARSTELLUNG",
-    "renderAsImage": "▦ Bild",
-    "renderAsHillshade": "⛰ Schummerung",
-    "renderAsTerrain": "◬ Terrain",
     "sunPositionLabel": "SONNENPOSITION",
     "azimuth": "Azimut",
     "exaggeration": "Überhöhung",
@@ -1123,13 +1119,16 @@
     "accent": "Akzent",
     "terrainHint": "Terrain verwendet Höhendaten, um die Kartenoberfläche zu extrudieren.",
     "terrainExaggeration": "Terrain-Überhöhung",
-    "imageHint": "Keine weiteren Darstellungssteuerungen für den Bildmodus",
     "compassAriaLabel": "Sonnenazimut: {{azimuth}}°",
     "sectionHypsometricTint": "HYPSOMETRISCHE FÄRBUNG",
     "hypsometricEnable": "Höhentönung",
-    "hypsometricTerrainHint": "Höhentönung ist im Terrain-Modus nicht verfügbar",
-    "terrainBoundNote": "Dieses DGM speist auch das 3D-Gelände der Karte. Die Schummerung wird ausgeblendet, um einen Quellenkonflikt zu vermeiden.",
-    "hypsometricRangeNote": "Die Höhenfärbung umfasst 0–4000 m und setzt Meter voraus. DGMs in anderen Einheiten oder Bereichen können flach wirken."
+    "hypsometricTerrainHint": "Höhentönung erfordert Schummerung",
+    "hypsometricRangeNote": "Die Höhenfärbung umfasst 0–4000 m und setzt Meter voraus. DGMs in anderen Einheiten oder Bereichen können flach wirken.",
+    "reliefShadingLabel": "RELIEFSCHATTIERUNG",
+    "hillshadeToggle": "Schummerung",
+    "overlayOffHint": "Reliefschattierung ist aus — dieses DGM zeichnet keine 2D-Überlagerung.",
+    "terrainSectionLabel": "3D-TERRAIN",
+    "useAsTerrain": "Als 3D-Terrain verwenden"
   },
   "folderGroup": {
     "defaultName": "Gruppe {{n}}",
@@ -1222,7 +1221,8 @@
     "projectionGlobe": "Globus",
     "projectionAria": "Kartenprojektion",
     "globeDisclaimer": "Die Globusprojektion ist experimentell. Einige Layer werden möglicherweise nicht korrekt dargestellt.",
-    "terrainSmallDemTip": "Tipp: Legen Sie ein kleines hochauflösendes DEM über ein grobes globales DEM (z. B. Copernicus GLO-30), damit das Terrain über seine Ausdehnung hinaus gleichmäßig bleibt."
+    "terrainSmallDemTip": "Tipp: Legen Sie ein kleines hochauflösendes DEM über ein grobes globales DEM (z. B. Copernicus GLO-30), damit das Terrain über seine Ausdehnung hinaus gleichmäßig bleibt.",
+    "openTerrainLayer": "Terrain-Ebene öffnen"
   },
   "common": {
     "reload": "Neu laden"

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { LayerLegend } from '../LayerLegend';
 import type { MapTerrainConfig, SharedLayerResponse } from '@/types/api';
@@ -229,7 +229,7 @@ describe('LayerLegend terrain consistency (Fix 1)', () => {
     } as SharedLayerResponse;
   }
 
-  it('excludes a terrain-suppressed DEM layer from per-layer entries (D-02)', () => {
+  it('shows the terrain-mode DEM only as the synthetic entry, not a per-layer row (D-02)', () => {
     render(
       <LayerLegend
         layers={[
@@ -245,10 +245,13 @@ describe('LayerLegend terrain consistency (Fix 1)', () => {
     );
 
     expect(screen.getByText('Roads')).toBeInTheDocument();
-    expect(screen.queryByText('Elevation (terrain)')).not.toBeInTheDocument();
+    // fix(HT-08): the DEM name shows exactly once, inside the synthetic terrain
+    // entry — never as a second per-layer row for a render_mode:"terrain" DEM.
+    const nameEl = screen.getByText('Elevation (terrain)');
+    expect(screen.getByTestId('legend-terrain-synthetic')).toContainElement(nameEl);
   });
 
-  it('shows exactly one synthetic 3D terrain entry when terrain_config is active (D-01)', () => {
+  it('shows exactly one synthetic terrain entry carrying the DEM name when terrain_config is active (D-01)', () => {
     render(
       <LayerLegend
         layers={[
@@ -264,7 +267,9 @@ describe('LayerLegend terrain consistency (Fix 1)', () => {
     );
 
     expect(screen.getAllByTestId('legend-terrain-synthetic')).toHaveLength(1);
-    expect(screen.getByText('3D terrain')).toBeInTheDocument();
+    // fix(HT-08): keeps the bound DEM's identity ("Elevation") instead of a
+    // generic "3D terrain" row.
+    expect(screen.getByText('Elevation')).toBeInTheDocument();
   });
 
   it('does NOT show the synthetic entry when terrain is inactive', () => {
@@ -394,7 +399,11 @@ describe('LayerLegend terrain consistency (Fix 1)', () => {
       />,
     );
 
-    expect(screen.getByTestId('legend-terrain-synthetic')).toBeInTheDocument();
-    expect(screen.getByText('3D terrain')).toBeInTheDocument();
+    const synthetic = screen.getByTestId('legend-terrain-synthetic');
+    expect(synthetic).toBeInTheDocument();
+    // fix(HT-08): the synthetic entry carries the bound DEM's name. (The DEM
+    // also keeps its own toggled-off per-layer row, so the name appears twice —
+    // scope the assertion to the synthetic entry.)
+    expect(within(synthetic).getByText('swissALTI3D relief')).toBeInTheDocument();
   });
 });

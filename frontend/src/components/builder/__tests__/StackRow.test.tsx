@@ -444,6 +444,20 @@ describe('DEM type icon', () => {
       unmount();
     }
   });
+
+  // codex(#451): the "draws nothing" badge (overlay off + not the terrain
+  // source) keeps an eye-on DEM row honest; absent otherwise.
+  it('renders the draws-nothing badge only when drawsNothing is set', () => {
+    const layer = makeDEMLayerFixture({
+      style_config: { render_mode: 'terrain' } as unknown as MapLayerResponse['style_config'],
+    });
+
+    const { rerender } = render(<StackRow {...defaultProps({ layer })} drawsNothing={false} />);
+    expect(screen.queryByTestId('stack-row-draws-nothing')).not.toBeInTheDocument();
+
+    rerender(<StackRow {...defaultProps({ layer })} drawsNothing />);
+    expect(screen.getByTestId('stack-row-draws-nothing')).toBeInTheDocument();
+  });
 });
 
 describe('Add to group sub-flow', () => {

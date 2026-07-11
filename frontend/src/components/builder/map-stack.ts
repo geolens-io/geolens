@@ -1,13 +1,16 @@
 /**
- * fix(#438): I18N-04 — TEST-ONLY MODULE. `buildMapStack` and the `mapStack.*`
- * locale keys it reads are a verification oracle for the saved-map normalizer
- * (`api/__tests__/maps.normalize.test.ts`, `__tests__/map-stack.test.ts`). No
- * production component imports this, so Vite tree-shakes the code out of the
- * bundle — its English labels never reach a user, and its keys are not a real
- * i18n gap. Kept (not deleted) because it is the oracle that proves normalize
- * output structure; marked here so future audits stop re-flagging it. If this
- * ever gains a production consumer, its `mapStack.*` strings must be reviewed
- * for translation quality like any other rendered copy.
+ * fix(#438): I18N-04 — `buildMapStack` and the `mapStack.*` locale keys it
+ * reads are TEST-ONLY: a verification oracle for the saved-map normalizer
+ * (`api/__tests__/maps.normalize.test.ts`, `__tests__/map-stack.test.ts`).
+ * No production component calls `buildMapStack`, so Vite tree-shakes it and
+ * its English labels never reach a user — the `mapStack.*` keys are not a
+ * real i18n gap. If `buildMapStack` ever gains a production consumer, those
+ * strings must be reviewed for translation quality like any rendered copy.
+ *
+ * fix(#451): the REST of this module is production code — the shared terrain
+ * resolver (`resolveTerrainSourceLayer`, `isTerrainCapableDemLayer`) and
+ * helpers are imported by ViewerMap, MapBuilderPage, use-viewer-terrain,
+ * terrain-legend, and UnifiedStackPanel. Only `buildMapStack` is test-only.
  */
 import type {
   LabelConfig,
@@ -246,14 +249,24 @@ export function isTerrainCapableDemLayer(layer: {
  * rendering terrain from a hillshade DEM.
  */
 export function resolveTerrainSourceLayer<
-  T extends { dataset_id?: string | null; is_dem?: boolean | null; dataset_record_type?: string | null },
+  T extends {
+    dataset_id?: string | null;
+    is_dem?: boolean | null;
+    dataset_record_type?: string | null;
+    visible?: boolean | null;
+  },
 >(
   layers: readonly T[],
   terrainConfig: { source_dataset_id?: string | null } | null | undefined,
 ): T | undefined {
   const src = terrainConfig?.source_dataset_id;
   if (!src) return undefined;
-  return layers.find((l) => l.dataset_id === src && isTerrainCapableDemLayer(l));
+  // fix(HT-10): terrain_config binds a DATASET, but a dataset may have several
+  // renderings. Deterministic duplicate semantics: prefer the first visible
+  // matching DEM (a hidden rendering detaches builder terrain, so a visible
+  // sibling should win), then fall back to the first match in stack order.
+  const matches = layers.filter((l) => l.dataset_id === src && isTerrainCapableDemLayer(l));
+  return matches.find((l) => l.visible !== false) ?? matches[0];
 }
 
 function isTerrainRenderLayer(layer: MapLayerResponse) {
@@ -496,22 +509,31 @@ function makeTerrainReliefEntry(
   if (demLayers.length === 0 && !terrainConfig?.source_dataset_id) return;
 
   const configuredSourceId = terrainConfig?.source_dataset_id ?? null;
+  // fix(HT-10): resolve the bound DEM the SAME way BuilderMap does (prefer a
+  // visible rendering) so a duplicate can't flip the reported status.
   const selectedDemLayer = configuredSourceId
-    ? demLayers.find((layer) => layer.dataset_id === configuredSourceId) ?? null
+    ? resolveTerrainSourceLayer(demLayers, terrainConfig) ?? null
     : demLayers[0] ?? null;
-  const selectedTerrainLayer = selectedDemLayer && isTerrainRenderLayer(selectedDemLayer)
-    ? selectedDemLayer
-    : null;
-  const fallbackLayer = !selectedTerrainLayer && terrainLayers.length > 0 ? terrainLayers[0] : null;
-  const sourceLayer = selectedTerrainLayer ?? selectedDemLayer ?? fallbackLayer;
+  const fallbackLayer = !selectedDemLayer && terrainLayers.length > 0 ? terrainLayers[0] : null;
+  const sourceLayer = selectedDemLayer ?? fallbackLayer;
+  // fix(HT-01): 'active' matches the runtime resolver (resolveTerrainSourceLayer /
+  // BuilderMap): any dataset-matched terrain-capable DEM powers the mesh,
+  // regardless of render_mode. The old rule required render_mode === 'terrain'
+  // and reported the hybrid hillshade+terrain state as 'disabled' while the map
+  // was actively rendering terrain from it.
+  // codex(#451): BuilderMap sets no mesh when the bound DEM is hidden
+  // (effectiveTerrainEnabled = enabled && demLayerVisible), and Settings gates
+  // isTerrainActive the same way — so a hidden source is 'disabled', not
+  // 'active', or the stack badge drifts from the map and Settings.
+  const sourceVisible = selectedDemLayer ? selectedDemLayer.visible !== false : false;
   const sourceStatus: MapStackTerrainSourceStatus = terrainConfig?.enabled
-    ? selectedTerrainLayer
-      ? 'active'
-      : selectedDemLayer
-        ? 'disabled'
-        : fallbackLayer
-          ? 'fallback'
-          : 'missing'
+    ? selectedDemLayer
+      ? sourceVisible
+        ? 'active'
+        : 'disabled'
+      : fallbackLayer
+        ? 'fallback'
+        : 'missing'
     : configuredSourceId
       ? selectedDemLayer
         ? 'disabled'
