@@ -300,8 +300,9 @@ def _validate_function_cost(func: exp.Func, fn_name: str, sql: str) -> None:
 
 def _reject_recursive_cte(stmt: exp.Expression, sql: str) -> None:
     """Reject recursive CTEs, which are unbounded row generators."""
-    recursive_with = stmt.find(exp.With)
-    if recursive_with is not None and recursive_with.args.get("recursive"):
+    if any(
+        with_clause.args.get("recursive") for with_clause in stmt.find_all(exp.With)
+    ):
         logger.info("sandbox.recursive_cte", sql=sql)
         raise SandboxError("invalid_query", "Recursive queries are not allowed")
 
