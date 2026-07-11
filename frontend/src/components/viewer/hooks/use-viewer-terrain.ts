@@ -74,10 +74,19 @@ export function useViewerTerrain({
   const terrainStateRef = useRef({ terrainConfig, terrainLayer, boundDatasetHasRows, demLayerLiveVisible });
   terrainStateRef.current = { terrainConfig, terrainLayer, boundDatasetHasRows, demLayerLiveVisible };
 
-  const applyTerrain = useCallback(() => {
+  const applyTerrain = useCallback(function apply() {
     const map = mapRef.current;
-    if (!map || !map.isStyleLoaded()) {
+    if (!map) {
       setTerrainReady(false);
+      return;
+    }
+    // fix(#454): same hole as BuilderMap.applyTerrainConfig — a one-shot idle
+    // deferral (reseedTerrainOnStyleLoad) landing mid style-transition used to
+    // no-op silently and leave the mesh flat until an unrelated dep changed.
+    // Re-arm on the next idle instead; double-applies are idempotent.
+    if (!map.isStyleLoaded()) {
+      setTerrainReady(false);
+      map.once('idle', apply);
       return;
     }
 

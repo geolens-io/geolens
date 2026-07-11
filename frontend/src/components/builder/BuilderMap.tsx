@@ -475,9 +475,19 @@ export const BuilderMap = memo(function BuilderMap({
   const terrainStateRef = useRef({ terrainConfig, layers, tokenMap });
   terrainStateRef.current = { terrainConfig, layers, tokenMap };
 
-  const applyTerrainConfig = useCallback(() => {
+  const applyTerrainConfig = useCallback(function apply() {
     const map = mapRef.current;
-    if (!map || !map.isStyleLoaded()) return;
+    if (!map) return;
+    // fix(#454): the post-basemap-swap path re-applies terrain via a SINGLE
+    // `once('idle', applyTerrainConfig)`. When that idle lands mid
+    // style-transition, a silent return here dropped the apply for good — an
+    // enabled terrain_config rendered a flat map until an unrelated dep
+    // changed (the intermittent "Matterhorn loads without 3D" bug). Re-arm on
+    // the next idle instead of no-oping; double-applies are idempotent.
+    if (!map.isStyleLoaded()) {
+      map.once('idle', apply);
+      return;
+    }
 
     const { terrainConfig: currentTerrainConfig, layers: currentLayers, tokenMap: currentTokenMap } = terrainStateRef.current;
     if (!currentTerrainConfig?.enabled || !currentTerrainConfig.source_dataset_id) {

@@ -40,8 +40,11 @@ function createMap() {
     }),
     emit: (event: string) => {
       for (const handler of Array.from(handlers.get(event) ?? [])) {
-        handler();
+        // Delete BEFORE invoking (maplibre removes a once-listener before it
+        // runs) so a handler that re-arms itself with the same identity — the
+        // #454 re-arm — lands in the set instead of being swallowed by dedup.
         handlers.get(event)?.delete(handler);
+        handler();
       }
     },
   };
@@ -236,6 +239,41 @@ describe('useViewerTerrain', () => {
     rerender({ liveVisible: true });
     await waitFor(() => expect(result.current.terrainReady).toBe(true));
     expect(map.setTerrain).toHaveBeenLastCalledWith({ source: 'terrain-dem', exaggeration: 1.5 });
+  });
+
+  // fix(#454): same hole as BuilderMap — a reseed idle landing mid
+  // style-transition used to no-op silently, leaving the viewer mesh flat.
+  it('re-arms when the reseed idle lands mid style-transition (#454)', async () => {
+    const map = createMap();
+    const mapRef = { current: map as unknown as MaplibreMap };
+
+    const { result } = renderHook(() => useViewerTerrain({
+      layers: [layer({})],
+      mapRef,
+      mapReady: true,
+      terrainConfig: { enabled: true, source_dataset_id: 'dem-1', exaggeration: 1 },
+    }));
+    await waitFor(() => expect(result.current.terrainReady).toBe(true));
+    map.setTerrain.mockClear();
+
+    // Style swap: reseed defers to idle; that idle lands while the next
+    // transition is still in flight.
+    map.isStyleLoaded.mockReturnValue(false);
+    act(() => {
+      result.current.reseedTerrainOnStyleLoad();
+    });
+    act(() => {
+      map.emit('idle');
+    });
+    expect(map.setTerrain).not.toHaveBeenCalled();
+
+    // Style settles — the re-armed idle must reattach the mesh.
+    map.isStyleLoaded.mockReturnValue(true);
+    act(() => {
+      map.emit('idle');
+    });
+    await waitFor(() => expect(result.current.terrainReady).toBe(true));
+    expect(map.setTerrain).toHaveBeenLastCalledWith({ source: 'terrain-dem', exaggeration: 1 });
   });
 
   it('reapplies persisted terrain after a style reload', async () => {
