@@ -42,8 +42,11 @@ export function ExportButton({ datasetId, datasetName, recordType }: ExportButto
 
   // GeoParquet is a lakehouse-native format — show a copy-paste DuckDB snippet
   // so the download becomes queryable, not just archived. Points at the local
-  // file (works for any dataset, no auth caveats).
-  const duckdbSnippet = `INSTALL spatial; LOAD spatial;\nSELECT * FROM '${datasetName}.parquet' LIMIT 10;`;
+  // file (works for any dataset, no auth caveats). Single quotes in the title
+  // (e.g. "Bob's Roads") are doubled so the DuckDB string literal stays valid —
+  // and this matches the downloaded filename (anchor.download uses datasetName).
+  const duckdbFile = `${datasetName.replace(/'/g, "''")}.parquet`;
+  const duckdbSnippet = `INSTALL spatial; LOAD spatial;\nSELECT * FROM '${duckdbFile}' LIMIT 10;`;
 
   const handleExport = async () => {
     setLoading(true);
