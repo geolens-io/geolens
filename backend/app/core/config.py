@@ -105,7 +105,7 @@ class Settings(BaseSettings):
     geolens_tenancy_mode: Literal["single_tenant", "multi_tenant"] = "single_tenant"
 
     anthropic_api_key: SecretStr | None = None
-    llm_model: str = "claude-sonnet-4-20250514"
+    llm_model: str = "claude-sonnet-5"
 
     openai_api_key: SecretStr | None = None
     openai_model: str = "gpt-4o"
