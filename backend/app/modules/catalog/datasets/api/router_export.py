@@ -8,6 +8,7 @@ from fastapi import (
     APIRouter,
     Depends,
     HTTPException,
+    Query,
     Request,
     Response,
     status,
@@ -72,21 +73,32 @@ def _dcat_relationship_options():
 
 
 # fix(#430 BA-28): these anonymous feeds materialize every visible dataset (+ keywords/
-# contacts/distributions) into one in-memory JSON-LD doc with no pagination or
-# cache — a cheap repeatable memory/CPU amplifier on a large catalog. Bound the
-# row count (OGC/STAC cap at ≤200) and log when the bound truncates the feed.
+# contacts/distributions) into one in-memory JSON-LD doc with no cache — a cheap
+# repeatable memory/CPU amplifier on a large catalog. A single page is bounded at
+# _DCAT_FEED_MAX_DATASETS; the catalog #catalog-enhancement fix adds limit/offset
+# so a large-catalog operator (e.g. a federal data.json harvester) can crawl the
+# whole feed instead of silently losing everything past the first 10k.
+#
+# ponytail: offset paging keeps the memory guard while unblocking >10k catalogs;
+# a spec-correct single-document streaming data.json is the real fix if a
+# harvester that can't page ever needs >10k in one request.
 _DCAT_FEED_MAX_DATASETS = 10_000
 
 
 async def _get_visible_dcat_datasets(
-    db: AsyncSession, user: Identity | None
+    db: AsyncSession,
+    user: Identity | None,
+    *,
+    limit: int = _DCAT_FEED_MAX_DATASETS,
+    offset: int = 0,
 ) -> list[DatasetModel]:
     stmt = (
         select(DatasetModel)
         .join(Record, DatasetModel.record_id == Record.id)
         .options(_dcat_relationship_options())
         .order_by(Record.created_at.desc(), Record.id.desc())
-        .limit(_DCAT_FEED_MAX_DATASETS)
+        .offset(offset)
+        .limit(limit)
     )
 
     if user is not None:
@@ -98,13 +110,26 @@ async def _get_visible_dcat_datasets(
 
     result = await db.execute(stmt)
     datasets = list(result.unique().scalars().all())
-    if len(datasets) >= _DCAT_FEED_MAX_DATASETS:
+    if len(datasets) >= limit:
         logger.warning(
             "dcat_feed_truncated",
-            limit=_DCAT_FEED_MAX_DATASETS,
+            limit=limit,
+            offset=offset,
             authenticated=user is not None,
         )
     return datasets
+
+
+# Shared query params for the paginated catalog feed handlers.
+_FEED_LIMIT_Q = Query(
+    _DCAT_FEED_MAX_DATASETS,
+    ge=1,
+    le=_DCAT_FEED_MAX_DATASETS,
+    description="Max datasets in this page (default = max).",
+)
+_FEED_OFFSET_Q = Query(
+    0, ge=0, description="Datasets to skip — page a catalog larger than one page."
+)
 
 
 async def _get_dcat_dataset_for_export(
@@ -138,9 +163,11 @@ async def get_dcat_catalog(
     request: Request,
     user: Identity | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
+    limit: int = _FEED_LIMIT_Q,
+    offset: int = _FEED_OFFSET_Q,
 ) -> JSONResponse:
     """DCAT 3 JSON-LD catalog feed. Respects dataset visibility."""
-    datasets = await _get_visible_dcat_datasets(db, user)
+    datasets = await _get_visible_dcat_datasets(db, user, limit=limit, offset=offset)
 
     base_url = await get_public_api_url(db)
     catalog = catalog_to_dcat(datasets, base_url)
@@ -181,9 +208,11 @@ async def get_dcat_us3_catalog(
     request: Request,
     user: Identity | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
+    limit: int = _FEED_LIMIT_Q,
+    offset: int = _FEED_OFFSET_Q,
 ) -> JSONResponse:
     """DCAT-US Schema v3.0 catalog feed. Respects dataset visibility."""
-    datasets = await _get_visible_dcat_datasets(db, user)
+    datasets = await _get_visible_dcat_datasets(db, user, limit=limit, offset=offset)
 
     base_url = await get_public_api_url(db)
     catalog = catalog_to_dcat_us3(datasets, base_url)
@@ -224,9 +253,11 @@ async def get_geodcat_ap_catalog(
     request: Request,
     user: Identity | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
+    limit: int = _FEED_LIMIT_Q,
+    offset: int = _FEED_OFFSET_Q,
 ) -> JSONResponse:
     """GeoDCAT-AP 2.0.0 catalog feed. Respects dataset visibility."""
-    datasets = await _get_visible_dcat_datasets(db, user)
+    datasets = await _get_visible_dcat_datasets(db, user, limit=limit, offset=offset)
 
     base_url = await get_public_api_url(db)
     catalog = catalog_to_geodcat_ap(datasets, base_url)

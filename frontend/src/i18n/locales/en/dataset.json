@@ -187,6 +187,8 @@
     "geojson": "GeoJSON",
     "shp": "Shapefile",
     "csv": "CSV",
+    "parquet": "GeoParquet",
+    "duckdbHint": "Query with DuckDB",
     "button": "Export",
     "failed": "Export failed",
     "formatLabel": "Export format"

@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useMemo } from 'react';
 import { Link } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { useQueries } from '@tanstack/react-query';
-import { ArrowRight, CheckCircle2, Layers } from 'lucide-react';
+import { ArrowRight, CheckCircle2, Layers, Sparkles } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -11,6 +11,7 @@ import { VrtCreateDialog } from './VrtCreateDialog';
 import { TypeTag } from './TypeTag';
 import { StatusPill } from './StatusPill';
 import { getJobStatus } from '@/api/ingest';
+import { useAIAvailability } from '@/hooks/use-ai-availability';
 import { queryKeys } from '@/lib/query-keys';
 import { getVisibilityLabel } from '@/i18n/labels';
 import type { FileEntry } from '@/types/api';
@@ -27,6 +28,9 @@ export function BulkTrackingList({ entries, onReset, autoOpenVrt = false }: Bulk
   const { t } = useTranslation('import');
   const [vrtDialogOpen, setVrtDialogOpen] = useState(false);
   const autoOpenedRef = useRef(false);
+  // Surface the (existing) AI metadata drafter at the ingest exit — the moment a
+  // dataset lands is when its metadata is emptiest. Only when AI is available.
+  const { isAIAvailable } = useAIAvailability();
 
   const trackable = entries.filter(
     (e) =>
@@ -174,6 +178,19 @@ export function BulkTrackingList({ entries, onReset, autoOpenVrt = false }: Bulk
                 <Link to={`/datasets/${completedEntries[0].datasetId}`}>
                   {t('bulk.openDataset', { defaultValue: 'Open dataset' })}
                   <ArrowRight className="ms-1 size-3 rtl-mirror" />
+                </Link>
+              </Button>
+            )}
+            {completedEntries.length === 1 && completedEntries[0] && isAIAvailable && (
+              <Button
+                asChild
+                variant="outline"
+                size="sm"
+                className="border-primary/40 text-primary hover:bg-primary/10 hover:text-primary"
+              >
+                <Link to={`/datasets/${completedEntries[0].datasetId}`}>
+                  <Sparkles className="me-1 size-3" />
+                  {t('complete.aiMetadata', { defaultValue: 'Add AI metadata' })}
                 </Link>
               </Button>
             )}

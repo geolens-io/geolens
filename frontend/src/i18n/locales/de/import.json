@@ -434,7 +434,8 @@
     "statTabular": "Tabellarisch",
     "next": "Weiter:",
     "viewCatalog": "Im Katalog anzeigen",
-    "importMore": "Mehr importieren"
+    "importMore": "Mehr importieren",
+    "aiMetadata": "KI-Metadaten hinzufügen"
   },
   "rail": {
     "stageTitle": "Dateien bereitstellen",

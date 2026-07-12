@@ -3478,7 +3478,7 @@ export type EmbeddingStatsResponse = {
 /**
  * ExportFormat
  */
-export type ExportFormat = 'gpkg' | 'geojson' | 'shp' | 'csv';
+export type ExportFormat = 'gpkg' | 'geojson' | 'shp' | 'csv' | 'parquet';
 
 /**
  * FacetCountResponse
@@ -13459,7 +13459,20 @@ export type CreateEmptyDatasetEndpointDatasetsCreatePostResponse = CreateEmptyDa
 export type GetDcatUs3CatalogDatasetsDcatUs30GetData = {
     body?: never;
     path?: never;
-    query?: never;
+    query?: {
+        /**
+         * Limit
+         *
+         * Max datasets in this page (default = max).
+         */
+        limit?: number;
+        /**
+         * Offset
+         *
+         * Datasets to skip — page a catalog larger than one page.
+         */
+        offset?: number;
+    };
     url: '/datasets/dcat-us/3.0/';
 };
 
@@ -13529,7 +13542,20 @@ export type ValidateDcatUs3CatalogDatasetsDcatUs30ValidationGetResponses = {
 export type GetDcatCatalogDatasetsDcatGetData = {
     body?: never;
     path?: never;
-    query?: never;
+    query?: {
+        /**
+         * Limit
+         *
+         * Max datasets in this page (default = max).
+         */
+        limit?: number;
+        /**
+         * Offset
+         *
+         * Datasets to skip — page a catalog larger than one page.
+         */
+        offset?: number;
+    };
     url: '/datasets/dcat/';
 };
 
@@ -13599,7 +13625,20 @@ export type ValidateDcat3CatalogDatasetsDcatValidationGetResponses = {
 export type GetGeodcatApCatalogDatasetsGeodcatApGetData = {
     body?: never;
     path?: never;
-    query?: never;
+    query?: {
+        /**
+         * Limit
+         *
+         * Max datasets in this page (default = max).
+         */
+        limit?: number;
+        /**
+         * Offset
+         *
+         * Datasets to skip — page a catalog larger than one page.
+         */
+        offset?: number;
+    };
     url: '/datasets/geodcat-ap/';
 };
 

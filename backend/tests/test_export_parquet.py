@@ -1,0 +1,417 @@
+"""End-to-end tests for the GeoParquet export path.
+
+Unlike test_export.py (which mocks the ogr2ogr service), the parquet path is
+written directly via pyarrow and must run against a real data table. These
+tests create a 3-row point table, export it, and read the bytes back with
+pyarrow to assert the GeoParquet `geo` metadata and geometry decoding.
+
+Requires the Docker database (docker compose up db) with migrations applied.
+"""
+
+import json
+import uuid
+
+import pyarrow as pa
+import pyarrow.parquet as pq
+import pytest
+from httpx import AsyncClient
+from sqlalchemy import text
+
+from tests.factories import get_user_id
+from tests.test_export import _create_dataset
+
+
+@pytest.fixture
+async def parquet_dataset(test_db_session):
+    """Real 3-row point table + Dataset row for GeoParquet export."""
+    table_name = f"exp_pq_{uuid.uuid4().hex[:12]}"
+    await test_db_session.execute(
+        text(
+            f"CREATE TABLE data.{table_name} "
+            "(gid serial PRIMARY KEY, pop integer, name text, "
+            "geom geometry(Point, 4326), geom_4326 geometry(Point, 4326))"
+        )
+    )
+    await test_db_session.execute(
+        text(
+            f"INSERT INTO data.{table_name} (pop, name, geom, geom_4326) VALUES "
+            "(10, 'a', ST_SetSRID(ST_MakePoint(0, 0), 4326), "
+            " ST_SetSRID(ST_MakePoint(0, 0), 4326)), "
+            "(20, 'b', ST_SetSRID(ST_MakePoint(1, 1), 4326), "
+            " ST_SetSRID(ST_MakePoint(1, 1), 4326)), "
+            "(30, 'c', ST_SetSRID(ST_MakePoint(2, 2), 4326), "
+            " ST_SetSRID(ST_MakePoint(2, 2), 4326))"
+        )
+    )
+    await test_db_session.commit()
+
+    admin_id = await get_user_id(test_db_session, "admin")
+    ds = await _create_dataset(
+        test_db_session,
+        created_by=admin_id,
+        name="ParquetExportDS",
+        table_name=table_name,
+        geometry_type="Point",
+        feature_count=3,
+        column_info=[
+            {"name": "gid", "type": "integer"},
+            {"name": "pop", "type": "integer"},
+            {"name": "name", "type": "text"},
+        ],
+    )
+    yield ds
+    await test_db_session.execute(text(f"DROP TABLE IF EXISTS data.{table_name}"))
+    await test_db_session.commit()
+
+
+def _read_parquet(content: bytes):
+    return pq.read_table(pa.BufferReader(content))
+
+
+class TestGeoParquetExport:
+    @pytest.mark.anyio
+    async def test_export_parquet_valid_geoparquet(
+        self, client: AsyncClient, admin_auth_header: dict, parquet_dataset
+    ):
+        """format=parquet returns a valid GeoParquet: geo metadata + all rows."""
+        resp = await client.get(
+            f"/datasets/{parquet_dataset.id}/export",
+            params={"format": "parquet"},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200
+        assert "parquet" in resp.headers["content-type"]
+
+        table = _read_parquet(resp.content)
+        assert table.num_rows == 3
+        assert "geometry" in table.column_names
+        assert {"pop", "name"} <= set(table.column_names)
+
+        # GeoParquet file-level `geo` metadata is present and well-formed.
+        meta = table.schema.metadata
+        assert meta is not None and b"geo" in meta
+        geo = json.loads(meta[b"geo"])
+        assert geo["version"] == "1.1.0"
+        assert geo["primary_column"] == "geometry"
+        assert geo["columns"]["geometry"]["encoding"] == "WKB"
+
+        # Geometry column decodes as valid WKB.
+        from shapely import wkb as shapely_wkb
+
+        geoms = table.column("geometry").to_pylist()
+        assert len(geoms) == 3
+        pt = shapely_wkb.loads(geoms[0])
+        assert pt.geom_type == "Point"
+
+    @pytest.mark.anyio
+    async def test_export_parquet_where_filter(
+        self, client: AsyncClient, admin_auth_header: dict, parquet_dataset
+    ):
+        """A where clause narrows the exported rows."""
+        resp = await client.get(
+            f"/datasets/{parquet_dataset.id}/export",
+            params={"format": "parquet", "where": "pop > 25"},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200
+        table = _read_parquet(resp.content)
+        assert table.num_rows == 1
+
+    @pytest.mark.anyio
+    async def test_export_parquet_bbox_exact_intersection(
+        self, client: AsyncClient, admin_auth_header: dict, parquet_dataset
+    ):
+        """A bbox selects only features that actually intersect it (points at
+        (0,0),(1,1),(2,2); bbox around (1,1) returns exactly one)."""
+        resp = await client.get(
+            f"/datasets/{parquet_dataset.id}/export",
+            params={"format": "parquet", "bbox": "0.5,0.5,1.5,1.5"},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200
+        assert _read_parquet(resp.content).num_rows == 1
+
+    @pytest.mark.anyio
+    async def test_export_parquet_where_colon_literal(
+        self, client: AsyncClient, admin_auth_header: dict, parquet_dataset
+    ):
+        """A colon inside a where string literal must not be misparsed as a
+        SQLAlchemy bind param. The literal ' :name' has a colon after a
+        non-word char (space), which text() would otherwise read as an unbound
+        ':name' param; 'name' also keeps the identifier validator happy."""
+        resp = await client.get(
+            f"/datasets/{parquet_dataset.id}/export",
+            params={"format": "parquet", "where": "name = ' :name'"},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200
+        # No row equals ' :name'; the point is that it executes rather than 500s.
+        assert _read_parquet(resp.content).num_rows == 0
+
+    @pytest.mark.anyio
+    async def test_export_parquet_rejects_non_4326_crs(
+        self, client: AsyncClient, admin_auth_header: dict, parquet_dataset
+    ):
+        """A non-4326 target_crs is rejected (parquet is CRS84-only)."""
+        resp = await client.get(
+            f"/datasets/{parquet_dataset.id}/export",
+            params={"format": "parquet", "target_crs": "EPSG:3857"},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 400
+        assert "4326" in resp.json()["detail"]
+
+    @pytest.mark.anyio
+    async def test_export_parquet_allows_4326_crs(
+        self, client: AsyncClient, admin_auth_header: dict, parquet_dataset
+    ):
+        """target_crs=EPSG:4326 is the identity case and is allowed."""
+        resp = await client.get(
+            f"/datasets/{parquet_dataset.id}/export",
+            params={"format": "parquet", "target_crs": "EPSG:4326"},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200
+
+    @pytest.mark.anyio
+    async def test_export_parquet_keeps_null_geometry_rows(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        """A full export keeps rows whose geom_4326 is NULL (exported with a null
+        geometry cell), matching the other formats and the feature read path."""
+        table_name = f"exp_pqnull_{uuid.uuid4().hex[:12]}"
+        await test_db_session.execute(
+            text(
+                f"CREATE TABLE data.{table_name} "
+                "(gid serial PRIMARY KEY, pop integer, "
+                "geom geometry(Point, 4326), geom_4326 geometry(Point, 4326))"
+            )
+        )
+        await test_db_session.execute(
+            text(
+                f"INSERT INTO data.{table_name} (pop, geom, geom_4326) VALUES "
+                "(1, ST_SetSRID(ST_MakePoint(0, 0), 4326), "
+                " ST_SetSRID(ST_MakePoint(0, 0), 4326)), "
+                "(2, NULL, NULL)"
+            )
+        )
+        await test_db_session.commit()
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_dataset(
+            test_db_session,
+            created_by=admin_id,
+            name="NullGeomParquetDS",
+            table_name=table_name,
+            geometry_type="Point",
+            feature_count=2,
+            column_info=[
+                {"name": "gid", "type": "integer"},
+                {"name": "pop", "type": "integer"},
+            ],
+        )
+        try:
+            resp = await client.get(
+                f"/datasets/{ds.id}/export",
+                params={"format": "parquet"},
+                headers=admin_auth_header,
+            )
+            assert resp.status_code == 200
+            table = _read_parquet(resp.content)
+            assert table.num_rows == 2
+            assert None in table.column("geometry").to_pylist()
+        finally:
+            await test_db_session.execute(
+                text(f"DROP TABLE IF EXISTS data.{table_name}")
+            )
+            await test_db_session.commit()
+
+    @pytest.mark.anyio
+    async def test_export_parquet_introspects_columns_and_preserves_types(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        """Even with column_info absent, attributes are exported (live
+        introspection, not the nullable metadata), and typed columns keep native
+        Arrow types instead of JSON strings."""
+        import datetime
+
+        import pyarrow as pa
+
+        table_name = f"exp_pqtype_{uuid.uuid4().hex[:12]}"
+        await test_db_session.execute(
+            text(
+                f"CREATE TABLE data.{table_name} "
+                "(gid serial PRIMARY KEY, pop integer, evt date, "
+                "geom geometry(Point, 4326), geom_4326 geometry(Point, 4326))"
+            )
+        )
+        await test_db_session.execute(
+            text(
+                f"INSERT INTO data.{table_name} (pop, evt, geom, geom_4326) VALUES "
+                "(7, '2020-01-15', ST_SetSRID(ST_MakePoint(0, 0), 4326), "
+                " ST_SetSRID(ST_MakePoint(0, 0), 4326))"
+            )
+        )
+        await test_db_session.commit()
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_dataset(
+            test_db_session,
+            created_by=admin_id,
+            name="TypedParquetDS",
+            table_name=table_name,
+            geometry_type="Point",
+            feature_count=1,
+            column_info=[],  # absent/empty metadata — export must still introspect
+        )
+        try:
+            resp = await client.get(
+                f"/datasets/{ds.id}/export",
+                params={"format": "parquet"},
+                headers=admin_auth_header,
+            )
+            assert resp.status_code == 200
+            table = _read_parquet(resp.content)
+            # Attributes present despite empty column_info.
+            assert {"pop", "evt"} <= set(table.column_names)
+            # Date column kept a native date type (not a JSON/text string).
+            assert pa.types.is_date(table.schema.field("evt").type)
+            assert table.column("evt").to_pylist()[0] == datetime.date(2020, 1, 15)
+            assert table.column("pop").to_pylist()[0] == 7
+        finally:
+            await test_db_session.execute(
+                text(f"DROP TABLE IF EXISTS data.{table_name}")
+            )
+            await test_db_session.commit()
+
+    @pytest.mark.anyio
+    async def test_export_parquet_filter_without_column_info(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        """A where filter works on a dataset with empty column_info — validated
+        against live-introspected columns, not the absent stored metadata."""
+        table_name = f"exp_pqf_{uuid.uuid4().hex[:12]}"
+        await test_db_session.execute(
+            text(
+                f"CREATE TABLE data.{table_name} (gid serial PRIMARY KEY, "
+                "pop integer, geom geometry(Point, 4326), "
+                "geom_4326 geometry(Point, 4326))"
+            )
+        )
+        await test_db_session.execute(
+            text(
+                f"INSERT INTO data.{table_name} (pop, geom, geom_4326) VALUES "
+                "(10, ST_SetSRID(ST_MakePoint(0, 0), 4326), "
+                " ST_SetSRID(ST_MakePoint(0, 0), 4326)), "
+                "(30, ST_SetSRID(ST_MakePoint(1, 1), 4326), "
+                " ST_SetSRID(ST_MakePoint(1, 1), 4326))"
+            )
+        )
+        await test_db_session.commit()
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_dataset(
+            test_db_session,
+            created_by=admin_id,
+            name="NoMetaFilterDS",
+            table_name=table_name,
+            geometry_type="Point",
+            feature_count=2,
+            column_info=[],  # absent metadata — filter must validate on live cols
+        )
+        try:
+            resp = await client.get(
+                f"/datasets/{ds.id}/export",
+                params={"format": "parquet", "where": "pop > 20"},
+                headers=admin_auth_header,
+            )
+            assert resp.status_code == 200
+            assert _read_parquet(resp.content).num_rows == 1
+        finally:
+            await test_db_session.execute(
+                text(f"DROP TABLE IF EXISTS data.{table_name}")
+            )
+            await test_db_session.commit()
+
+    @pytest.mark.anyio
+    async def test_export_parquet_oversized_metadata_less_is_filterable(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        """An oversized (feature_count > cap) parquet dataset with empty
+        column_info stays filterable: the router's cap guard is skipped for
+        parquet, and export_parquet validates the filter against live columns
+        (Codex r10 regression)."""
+        table_name = f"exp_pqov_{uuid.uuid4().hex[:12]}"
+        await test_db_session.execute(
+            text(
+                f"CREATE TABLE data.{table_name} (gid serial PRIMARY KEY, "
+                "pop integer, geom geometry(Point, 4326), "
+                "geom_4326 geometry(Point, 4326))"
+            )
+        )
+        await test_db_session.execute(
+            text(
+                f"INSERT INTO data.{table_name} (pop, geom, geom_4326) VALUES "
+                "(10, ST_SetSRID(ST_MakePoint(0, 0), 4326), "
+                " ST_SetSRID(ST_MakePoint(0, 0), 4326)), "
+                "(30, ST_SetSRID(ST_MakePoint(1, 1), 4326), "
+                " ST_SetSRID(ST_MakePoint(1, 1), 4326))"
+            )
+        )
+        await test_db_session.commit()
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_dataset(
+            test_db_session,
+            created_by=admin_id,
+            name="OversizedNoMetaDS",
+            table_name=table_name,
+            geometry_type="Point",
+            feature_count=5_000_001,  # trips the router cap path
+            column_info=[],  # ...which must NOT reject the filter for parquet
+        )
+        try:
+            resp = await client.get(
+                f"/datasets/{ds.id}/export",
+                params={"format": "parquet", "where": "pop > 20"},
+                headers=admin_auth_header,
+            )
+            assert resp.status_code == 200
+            assert _read_parquet(resp.content).num_rows == 1
+        finally:
+            await test_db_session.execute(
+                text(f"DROP TABLE IF EXISTS data.{table_name}")
+            )
+            await test_db_session.commit()
+
+    @pytest.mark.anyio
+    async def test_export_parquet_bounded_row_cap(
+        self, client: AsyncClient, admin_auth_header: dict, parquet_dataset, monkeypatch
+    ):
+        """The parquet path enforces its own in-memory cap (independent of the
+        router's feature_count guard) — lower it to 1 against a 3-row table."""
+        from app.processing.export import parquet as parquet_mod
+
+        monkeypatch.setattr(parquet_mod, "_MAX_EXPORT_FEATURES", 1)
+        resp = await client.get(
+            f"/datasets/{parquet_dataset.id}/export",
+            params={"format": "parquet"},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 413
+
+    @pytest.mark.anyio
+    async def test_export_parquet_non_spatial_400(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        """A non-spatial dataset cannot be exported as parquet."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_dataset(
+            test_db_session,
+            created_by=admin_id,
+            name="NonSpatialParquetDS",
+            geometry_type=None,
+        )
+        resp = await client.get(
+            f"/datasets/{ds.id}/export",
+            params={"format": "parquet"},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 400
+        assert "non-spatial" in resp.json()["detail"].lower()
