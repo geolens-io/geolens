@@ -75,7 +75,7 @@ x-logging-env: &logging-env
 
 x-ai-env: &ai-env
   ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
-  LLM_MODEL: "${LLM_MODEL:-claude-sonnet-4-20250514}"
+  LLM_MODEL: "${LLM_MODEL:-claude-sonnet-5}"
   OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
   OPENAI_MODEL: "${OPENAI_MODEL:-gpt-4o}"
   OPENAI_MODEL_LIGHT: "${OPENAI_MODEL_LIGHT:-}"
