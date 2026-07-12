@@ -210,6 +210,25 @@ wait_for_healthy() {
   done
 
   printf '\n' >&2
+
+  # fix(#446): distinguish genuinely-still-starting from stuck. A service that is
+  # crash-looping (Restarting) or sitting in a non-zero Exited state after the full
+  # timeout is not converging (bad image, OOM-kill, broken config) — fail with its
+  # logs like the migrate path, instead of the exit-0 "still starting" guidance
+  # below. `Exited (0)` and `starting`/`health: starting` are excluded, so the
+  # ARM/QEMU first-boot case (#441) stays non-fatal (return 2).
+  stuck=$(compose ps --format '{{.Service}}|{{.Status}}' 2>/dev/null \
+    | grep -E '\|(Restarting|Exited \([1-9])' || true)
+  if [ -n "$stuck" ]; then
+    warn "services failed to start after $((attempts * sleep_s))s (crash-looping or exited non-zero):"
+    printf '%s\n' "$stuck" | sed 's/^/  /' >&2
+    for svc in $(printf '%s\n' "$stuck" | cut -d'|' -f1); do
+      warn "last 30 log lines for $svc:"
+      compose logs --tail 30 "$svc" 2>&1 | sed 's/^/  /' >&2
+    done
+    return 1
+  fi
+
   warn "services are not all healthy yet after $((attempts * sleep_s))s. This is usually still a"
   warn "normal startup: on Apple Silicon and other ARM hosts the database image runs emulated"
   warn "and can take several more minutes on first boot. Current status:"
@@ -526,8 +545,8 @@ main() {
   compose up -d
 
   # `set -eu` is active: capture the status without letting a non-zero return
-  # abort the script. 1 = migrate failed (fatal); 2 = still converging (not
-  # fatal — see wait_for_healthy).
+  # abort the script. 1 = migrate failed or a service is stuck in a terminal
+  # failed state (fatal); 2 = still converging (not fatal — see wait_for_healthy).
   health_rc=0
   wait_for_healthy || health_rc=$?
   if [ "$health_rc" -eq 1 ]; then
