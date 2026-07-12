@@ -9,6 +9,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { downloadExport } from '@/api/datasets';
+import { CopyButton } from '@/components/ui/copy-button';
 import { Download, Loader2 } from 'lucide-react';
 import type { RecordType } from '@/types/api';
 
@@ -23,6 +24,7 @@ const EXPORT_FORMATS = [
   { value: 'geojson', labelKey: 'export.geojson', ext: 'geojson' },
   { value: 'shp', labelKey: 'export.shp', ext: 'zip' },
   { value: 'csv', labelKey: 'export.csv', ext: 'csv' },
+  { value: 'parquet', labelKey: 'export.parquet', ext: 'parquet' },
 ] as const;
 
 const CSV_ONLY = EXPORT_FORMATS.filter((f) => f.value === 'csv');
@@ -37,6 +39,11 @@ export function ExportButton({ datasetId, datasetName, recordType }: ExportButto
 
   // Derive effective format — if current selection isn't in the available list, reset
   const effectiveFormat = formats.some((f) => f.value === format) ? format : formats[0]?.value ?? 'gpkg';
+
+  // GeoParquet is a lakehouse-native format — show a copy-paste DuckDB snippet
+  // so the download becomes queryable, not just archived. Points at the local
+  // file (works for any dataset, no auth caveats).
+  const duckdbSnippet = `INSTALL spatial; LOAD spatial;\nSELECT * FROM '${datasetName}.parquet' LIMIT 10;`;
 
   const handleExport = async () => {
     setLoading(true);
@@ -82,6 +89,19 @@ export function ExportButton({ datasetId, datasetName, recordType }: ExportButto
           {t('export.button')}
         </Button>
       </div>
+      {effectiveFormat === 'parquet' && (
+        <div className="rounded-md border bg-muted/30 p-2.5">
+          <div className="mb-1.5 flex items-center justify-between">
+            <span className="font-mono text-2xs uppercase tracking-wide text-muted-foreground">
+              {t('export.duckdbHint', { defaultValue: 'Query with DuckDB' })}
+            </span>
+            <CopyButton value={duckdbSnippet} />
+          </div>
+          <pre className="overflow-x-auto text-2xs leading-5 text-foreground/90">
+            <code>{duckdbSnippet}</code>
+          </pre>
+        </div>
+      )}
       {error && <p className="text-sm text-destructive">{error}</p>}
     </div>
   );

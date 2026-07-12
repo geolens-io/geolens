@@ -434,7 +434,8 @@
     "statTabular": "Tabular",
     "next": "Siguiente:",
     "viewCatalog": "Ver en el catálogo",
-    "importMore": "Importar más"
+    "importMore": "Importar más",
+    "aiMetadata": "Añadir metadatos con IA"
   },
   "rail": {
     "stageTitle": "Preparar archivos",

@@ -4,17 +4,31 @@ from typing import Any
 import httpx
 
 from ...client import AuthenticatedClient, Client
-from ...types import Response
+from ...types import Response, UNSET
 from ... import errors
 
 from ...models.problem_detail import ProblemDetail
+from ...types import Unset
 
 
-def _get_kwargs() -> dict[str, Any]:
+def _get_kwargs(
+    *,
+    limit: int | Unset = 10000,
+    offset: int | Unset = 0,
+) -> dict[str, Any]:
+
+    params: dict[str, Any] = {}
+
+    params["limit"] = limit
+
+    params["offset"] = offset
+
+    params = {k: v for k, v in params.items() if v is not UNSET and v is not None}
 
     _kwargs: dict[str, Any] = {
         "method": "get",
         "url": "/datasets/dcat-us/3.0/",
+        "params": params,
     }
 
     return _kwargs
@@ -67,10 +81,16 @@ def _build_response(
 def sync_detailed(
     *,
     client: AuthenticatedClient,
+    limit: int | Unset = 10000,
+    offset: int | Unset = 0,
 ) -> Response[Any | ProblemDetail]:
     """Get Dcat Us3 Catalog
 
      DCAT-US Schema v3.0 catalog feed. Respects dataset visibility.
+
+    Args:
+        limit (int | Unset): Max datasets in this page (default = max). Default: 10000.
+        offset (int | Unset): Datasets to skip — page a catalog larger than one page. Default: 0.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -80,7 +100,10 @@ def sync_detailed(
         Response[Any | ProblemDetail]
     """
 
-    kwargs = _get_kwargs()
+    kwargs = _get_kwargs(
+        limit=limit,
+        offset=offset,
+    )
 
     response = client.get_httpx_client().request(
         **kwargs,
@@ -92,10 +115,16 @@ def sync_detailed(
 def sync(
     *,
     client: AuthenticatedClient,
+    limit: int | Unset = 10000,
+    offset: int | Unset = 0,
 ) -> Any | ProblemDetail | None:
     """Get Dcat Us3 Catalog
 
      DCAT-US Schema v3.0 catalog feed. Respects dataset visibility.
+
+    Args:
+        limit (int | Unset): Max datasets in this page (default = max). Default: 10000.
+        offset (int | Unset): Datasets to skip — page a catalog larger than one page. Default: 0.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -107,16 +136,24 @@ def sync(
 
     return sync_detailed(
         client=client,
+        limit=limit,
+        offset=offset,
     ).parsed
 
 
 async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
+    limit: int | Unset = 10000,
+    offset: int | Unset = 0,
 ) -> Response[Any | ProblemDetail]:
     """Get Dcat Us3 Catalog
 
      DCAT-US Schema v3.0 catalog feed. Respects dataset visibility.
+
+    Args:
+        limit (int | Unset): Max datasets in this page (default = max). Default: 10000.
+        offset (int | Unset): Datasets to skip — page a catalog larger than one page. Default: 0.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -126,7 +163,10 @@ async def asyncio_detailed(
         Response[Any | ProblemDetail]
     """
 
-    kwargs = _get_kwargs()
+    kwargs = _get_kwargs(
+        limit=limit,
+        offset=offset,
+    )
 
     response = await client.get_async_httpx_client().request(**kwargs)
 
@@ -136,10 +176,16 @@ async def asyncio_detailed(
 async def asyncio(
     *,
     client: AuthenticatedClient,
+    limit: int | Unset = 10000,
+    offset: int | Unset = 0,
 ) -> Any | ProblemDetail | None:
     """Get Dcat Us3 Catalog
 
      DCAT-US Schema v3.0 catalog feed. Respects dataset visibility.
+
+    Args:
+        limit (int | Unset): Max datasets in this page (default = max). Default: 10000.
+        offset (int | Unset): Datasets to skip — page a catalog larger than one page. Default: 0.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -152,5 +198,7 @@ async def asyncio(
     return (
         await asyncio_detailed(
             client=client,
+            limit=limit,
+            offset=offset,
         )
     ).parsed

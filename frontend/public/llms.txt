@@ -1,0 +1,29 @@
+# GeoLens
+
+> GeoLens is a PostGIS-native geospatial data catalog. It exposes its holdings
+> through open standards (OGC API, STAC, DCAT) and a JSON search API, so agents
+> can discover datasets, read metadata, and query features directly. The links
+> below are live discovery endpoints on this instance — follow them to enumerate
+> the actual collections; they reflect only datasets the caller is allowed to see.
+
+## API
+
+- [OpenAPI schema](/api/openapi.json): Full machine-readable API description.
+- [API docs](/api/docs): Interactive OpenAPI documentation (non-production instances).
+- [Dataset search](/api/search/datasets/): Keyword, spatial (bbox/GeoJSON), and CQL2 search over the catalog. Returns dataset metadata as JSON.
+- [Search facets](/api/search/facets/): Aggregated facet counts (record type, keywords, organization, SRID, collections).
+
+## Standards
+
+- [OGC API landing](/api/): OGC API — Common/Features/Records landing page and conformance.
+- [OGC API collections](/api/collections): Each dataset as an OGC API collection; the `datasets` collection is the Records catalog (CQL2 + sorting).
+- [STAC catalog](/api/stac): SpatioTemporal Asset Catalog root, collections, and `/search`.
+- [DCAT-US 3.0 feed](/api/datasets/dcat-us/3.0): Federal `data.json`-style catalog feed (supports `?limit=&offset=` paging).
+- [DCAT 3 feed](/api/datasets/dcat/): W3C DCAT 3 JSON-LD catalog feed.
+- [GeoDCAT-AP feed](/api/datasets/geodcat-ap/): GeoDCAT-AP 2.0.0 JSON-LD catalog feed.
+
+## Data access
+
+- Per-dataset metadata: `/api/datasets/{id}` — full record, schema, extent, and distributions.
+- Features: `/api/collections/{id}/items` — GeoJSON features (OGC API — Features).
+- Export: `/api/datasets/{id}/export?format=parquet` — GeoParquet (also gpkg, geojson, shp, csv); query the result with DuckDB.

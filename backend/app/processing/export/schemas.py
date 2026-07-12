@@ -8,3 +8,4 @@ class ExportFormat(StrEnum):
     geojson = "geojson"
     shp = "shp"
     csv = "csv"
+    parquet = "parquet"

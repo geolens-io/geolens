@@ -6067,7 +6067,8 @@
           "gpkg",
           "geojson",
           "shp",
-          "csv"
+          "csv",
+          "parquet"
         ],
         "title": "ExportFormat",
         "type": "string"
@@ -24853,6 +24854,35 @@
       "get": {
         "description": "DCAT-US Schema v3.0 catalog feed. Respects dataset visibility.",
         "operationId": "get_dcat_us3_catalog_datasets_dcat_us_3_0__get",
+        "parameters": [
+          {
+            "description": "Max datasets in this page (default = max).",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 10000,
+              "description": "Max datasets in this page (default = max).",
+              "maximum": 10000,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Datasets to skip \u2014 page a catalog larger than one page.",
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "description": "Datasets to skip \u2014 page a catalog larger than one page.",
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -24991,6 +25021,35 @@
       "get": {
         "description": "DCAT 3 JSON-LD catalog feed. Respects dataset visibility.",
         "operationId": "get_dcat_catalog_datasets_dcat__get",
+        "parameters": [
+          {
+            "description": "Max datasets in this page (default = max).",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 10000,
+              "description": "Max datasets in this page (default = max).",
+              "maximum": 10000,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Datasets to skip \u2014 page a catalog larger than one page.",
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "description": "Datasets to skip \u2014 page a catalog larger than one page.",
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -25129,6 +25188,35 @@
       "get": {
         "description": "GeoDCAT-AP 2.0.0 catalog feed. Respects dataset visibility.",
         "operationId": "get_geodcat_ap_catalog_datasets_geodcat_ap__get",
+        "parameters": [
+          {
+            "description": "Max datasets in this page (default = max).",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 10000,
+              "description": "Max datasets in this page (default = max).",
+              "maximum": 10000,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Datasets to skip \u2014 page a catalog larger than one page.",
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "description": "Datasets to skip \u2014 page a catalog larger than one page.",
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -26905,7 +26993,7 @@
     },
     "/datasets/{dataset_id}/export": {
       "get": {
-        "description": "Export a dataset as a downloadable file.\n\nSupports GeoPackage, GeoJSON, Shapefile (zipped), and CSV formats.\nOptional CRS reprojection, spatial filtering, and attribute filtering.",
+        "description": "Export a dataset as a downloadable file.\n\nSupports GeoPackage, GeoJSON, Shapefile (zipped), CSV, and GeoParquet\nformats. Optional CRS reprojection, spatial filtering, and attribute\nfiltering. GeoParquet is always emitted in EPSG:4326 (OGC:CRS84).",
         "operationId": "export_dataset_endpoint_datasets__dataset_id__export_get",
         "parameters": [
           {

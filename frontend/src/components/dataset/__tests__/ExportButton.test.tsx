@@ -17,17 +17,28 @@ beforeAll(() => {
 });
 
 describe('ExportButton', () => {
-  it('renders all 4 format options by default', async () => {
+  it('renders all 5 format options by default', async () => {
     const user = userEvent.setup();
     render(<ExportButton datasetId="ds-1" datasetName="test" />);
 
     await user.click(screen.getByRole('combobox'));
     const options = await screen.findAllByRole('option');
-    expect(options).toHaveLength(4);
+    expect(options).toHaveLength(5);
     const labels = options.map((o) => o.textContent);
     expect(labels).toEqual(
-      expect.arrayContaining(['GeoPackage', 'GeoJSON', 'Shapefile', 'CSV']),
+      expect.arrayContaining(['GeoPackage', 'GeoJSON', 'Shapefile', 'CSV', 'GeoParquet']),
     );
+  });
+
+  it('shows a DuckDB snippet when GeoParquet is selected', async () => {
+    const user = userEvent.setup();
+    render(<ExportButton datasetId="ds-1" datasetName="rivers" />);
+
+    await user.click(screen.getByRole('combobox'));
+    await user.click(await screen.findByRole('option', { name: 'GeoParquet' }));
+
+    expect(screen.getByText(/LOAD spatial/)).toBeInTheDocument();
+    expect(screen.getByText(/rivers\.parquet/)).toBeInTheDocument();
   });
 
   it('limits table datasets to CSV export', async () => {
