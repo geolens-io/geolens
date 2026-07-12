@@ -42,6 +42,26 @@ GEOJSON_TYPE_MAP: dict[str, set[str]] = {
 _MULTI_TYPES = {"MULTIPOINT", "MULTILINESTRING", "MULTIPOLYGON"}
 
 
+def _reject_unknown_properties(
+    properties: dict | None, column_info: list[dict]
+) -> None:
+    """Raise ValueError if a property key names no real attribute column.
+
+    fix(#458 E-25): writers used to silently drop unknown keys. On PUT that is a
+    footgun — a misspelled key isn't written AND the intended column is nulled
+    (replace sets every known column to `properties.get(name)`), all with a 200.
+    Rejecting unknown keys up front surfaces the typo as a 400 instead. Reserved
+    system columns (gid/geom/…) are absent from column_info, so a write attempt
+    against them is correctly reported here too.
+    """
+    if not properties:
+        return
+    allowed = {c["name"] for c in column_info}
+    unknown = sorted(k for k in properties if k not in allowed)
+    if unknown:
+        raise ValueError(f"Unknown property columns: {', '.join(unknown)}")
+
+
 def _geometry_sql(dataset_geometry_type: str) -> str:
     """Return the SQL expression for geometry insertion.
 
@@ -431,6 +451,7 @@ async def insert_feature(
     """
     _validate_geometry_type(geometry.get("type", ""), dataset_geometry_type)
     _validate_geometry_structure(geometry)
+    _reject_unknown_properties(properties, column_info)
 
     geojson_str = json.dumps(geometry)
 
@@ -478,6 +499,7 @@ async def replace_feature(
     """
     _validate_geometry_type(geometry.get("type", ""), dataset_geometry_type)
     _validate_geometry_structure(geometry)
+    _reject_unknown_properties(properties, column_info)
 
     geojson_str = json.dumps(geometry)
     geom_expr, geom_4326_expr = _geom_write_exprs(dataset_geometry_type, dataset_srid)
@@ -540,6 +562,7 @@ async def update_feature(
         params["geojson"] = geojson_str
 
     if properties is not None:
+        _reject_unknown_properties(properties, column_info)
         allowed = {c["name"] for c in column_info}
         for key, value in properties.items():
             if key in allowed and _COLUMN_NAME_RE.match(key):
