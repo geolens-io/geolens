@@ -119,6 +119,44 @@ async def _create_raster_dataset(
     return dataset
 
 
+async def _create_tabular_dataset(
+    session,
+    *,
+    created_by: uuid.UUID,
+    visibility: str = "public",
+) -> Dataset:
+    """Register a non-spatial (tabular) dataset: a real data table with NO geom
+    column and geometry_type=None — the read path's has_geometry=False signal."""
+    table_name = f"test_crud_tab_{uuid.uuid4().hex[:8]}"
+    await session.execute(
+        text(
+            f"CREATE TABLE IF NOT EXISTS data.{table_name} "
+            f"(gid SERIAL PRIMARY KEY, name TEXT)"
+        )
+    )
+    await session.execute(text(f"GRANT SELECT ON data.{table_name} TO geolens_reader"))
+    record = Record(
+        title=f"Test Tabular Layer {table_name}",
+        visibility=visibility,
+        record_status="published",
+        created_by=created_by,
+    )
+    session.add(record)
+    await session.flush()
+    dataset = Dataset(
+        record_id=record.id,
+        table_name=table_name,
+        srid=4326,
+        geometry_type=None,
+        feature_count=0,
+        column_info=[{"name": "name", "type": "text"}],
+    )
+    session.add(dataset)
+    await session.commit()
+    await session.refresh(dataset)
+    return dataset
+
+
 async def _cleanup_table(session, table_name: str) -> None:
     """Drop a test data table."""
     await session.execute(text(f"DROP TABLE IF EXISTS data.{table_name}"))
@@ -180,6 +218,22 @@ async def multipolygon_layer(client: AsyncClient, test_db_session, admin_auth_he
         created_by=admin_id,
         geometry_type="MULTIPOLYGON",
     )
+    tbl = dataset.table_name
+    rec_id = dataset.record_id
+    yield dataset
+    await _cleanup_table(test_db_session, tbl)
+    await test_db_session.execute(
+        text("DELETE FROM catalog.records WHERE id = :id"),
+        {"id": rec_id},
+    )
+    await test_db_session.commit()
+
+
+@pytest.fixture
+async def tabular_layer(client: AsyncClient, test_db_session, admin_auth_header):
+    """Create a non-spatial (tabular) dataset for the geometry_type=None guard."""
+    admin_id = await get_user_id(test_db_session, "admin")
+    dataset = await _create_tabular_dataset(test_db_session, created_by=admin_id)
     tbl = dataset.table_name
     rec_id = dataset.record_id
     yield dataset
@@ -1607,6 +1661,28 @@ class TestEditingEnforcementAndContracts:
             headers=admin_auth_header,
         )
         assert resp.status_code == 404, resp.text
+
+    async def test_write_to_tabular_dataset_is_400_not_500(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        tabular_layer: Dataset,
+    ):
+        """E-08 (PR #463 review): a non-spatial dataset rejects feature writes with
+        400 — including DELETE, which touches no geometry and used to slip past to
+        refresh_dataset_metadata's geom_4326 read and 500."""
+        post = await client.post(
+            f"/datasets/{tabular_layer.id}/features/",
+            json={"geometry": POINT_GEOJSON, "properties": {}},
+            headers=admin_auth_header,
+        )
+        assert post.status_code == 400, post.text
+
+        delete = await client.delete(
+            f"/datasets/{tabular_layer.id}/features/1",
+            headers=admin_auth_header,
+        )
+        assert delete.status_code == 400, delete.text
 
     async def test_type_mismatch_is_400_not_500(
         self,

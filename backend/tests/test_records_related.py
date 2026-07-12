@@ -1194,3 +1194,36 @@ class TestRecordWriteContracts:
         assert contact.status_code == 201, contact.text
         assert len(cache_calls) == 2  # cache busted again
         assert embed_calls == [str(ds.record_id)]  # NOT re-embedded
+
+    async def test_keyword_delete_is_record_scoped(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session: AsyncSession,
+    ):
+        """PR #463 review: a keyword id addressed through a different record's
+        path 404s instead of being deleted (keeping the re-embed correct)."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds_a = await create_dataset(test_db_session, created_by=admin_id)
+        ds_b = await create_dataset(test_db_session, created_by=admin_id)
+
+        created = await client.post(
+            f"/records/{ds_b.record_id}/keywords/",
+            json={"keyword": "geo"},
+            headers=admin_auth_header,
+        )
+        assert created.status_code == 201, created.text
+        kw_id = created.json()["id"]
+
+        # Delete B's keyword through A's path -> not found under A.
+        mismatch = await client.delete(
+            f"/records/{ds_a.record_id}/keywords/{kw_id}/",
+            headers=admin_auth_header,
+        )
+        assert mismatch.status_code == 404, mismatch.text
+
+        # The keyword still exists on B.
+        listing = await client.get(
+            f"/records/{ds_b.record_id}/keywords/", headers=admin_auth_header
+        )
+        assert any(k["id"] == kw_id for k in listing.json()["keywords"])

@@ -363,7 +363,7 @@ async def delete_keyword_endpoint(
     """Delete a keyword."""
     await _check_record_ownership(db, record_id, user)
     try:
-        await delete_keyword(db, keyword_id)
+        await delete_keyword(db, keyword_id, record_id)
         await db.commit()
     except ValueError:
         raise HTTPException(

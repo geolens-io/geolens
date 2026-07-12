@@ -69,18 +69,31 @@ _NON_FEATURE_RECORD_TYPES = ("raster_dataset", "vrt_dataset")
 
 
 def _require_feature_table(dataset) -> None:
-    """Reject feature writes to datasets that have no feature table.
+    """Reject feature writes to datasets with no writable feature geometry.
 
     fix(#458 E-08): the read handlers 404 raster/VRT datasets, but the write
     handlers didn't — a write hit a missing `data.<table>` (42P01) and surfaced
-    as a 500. Mirror the read side. (Tabular datasets have a table but no geom
-    column; those 42703 at write time and are caught by `_feature_write_db_error`
-    below, so a generic-geometry created layer is never falsely blocked here.)
+    as a 500. Mirror the read side.
+
+    Also reject non-spatial (tabular) datasets, where `geometry_type is None`
+    (the same signal the read path uses for `has_geometry`). Their table has no
+    `geom`/`geom_4326` column, so an insert/replace 42703s, and a delete — which
+    touches no geometry — succeeds but then 500s in `refresh_dataset_metadata`'s
+    unconditional `geom_4326` read, *outside* the DBAPIError handler below
+    (PR #463 review). Created layers always carry a concrete `geometry_type`
+    (generic ones resolve via `effective_geometry_type`), so this never blocks a
+    spatial layer.
     """
     if dataset.record.record_type in _NON_FEATURE_RECORD_TYPES:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="This dataset has no feature table.",
+        )
+    if dataset.geometry_type is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This dataset has no geometry column and does not support "
+            "feature editing.",
         )
 
 
