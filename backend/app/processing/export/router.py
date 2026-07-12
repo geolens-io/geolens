@@ -264,16 +264,26 @@ async def export_dataset_endpoint(
     # build has no Arrow driver); all other formats use the ogr2ogr path.
     try:
         if format == ExportFormat.parquet:
-            from app.processing.export.parquet import export_parquet
-
-            file_path, filename, media_type = await export_parquet(
-                db,
-                dataset.table_name,
-                dataset.record.title,
-                bbox=bbox_parsed,
-                where=where,
-                column_info=dataset.column_info,
+            from app.processing.export.parquet import (
+                ExportTooLargeError,
+                export_parquet,
             )
+
+            try:
+                file_path, filename, media_type = await export_parquet(
+                    db,
+                    dataset.table_name,
+                    dataset.record.title,
+                    bbox=bbox_parsed,
+                    where=where,
+                )
+            except ExportTooLargeError as e:
+                # In-memory parquet build exceeded the cap (covers datasets with a
+                # NULL feature_count that skipped the guard above).
+                raise HTTPException(
+                    status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                    detail=str(e),
+                )
         else:
             file_path, filename, media_type = await export_dataset(
                 dataset.table_name,

@@ -31,6 +31,15 @@ from app.processing.ingest.metadata import _qtable, get_column_info
 
 PARQUET_MEDIA_TYPE = "application/vnd.apache.parquet"
 
+# Mirror router._MAX_EXPORT_FEATURES. The router skips its cap when a dataset's
+# feature_count is NULL (legacy/registered rows); the parquet path builds the
+# selection in memory, so it enforces its own bounded-count cap regardless.
+_MAX_EXPORT_FEATURES = 5_000_000
+
+
+class ExportTooLargeError(Exception):
+    """Raised when a parquet export's selection exceeds _MAX_EXPORT_FEATURES."""
+
 
 def _geo_metadata(primary_column: str) -> dict:
     """GeoParquet 1.1 file-level metadata for a given geometry column name.
@@ -134,7 +143,6 @@ async def export_parquet(
     *,
     bbox: list[float] | None = None,
     where: str | None = None,
-    column_info: list[dict] | None = None,
 ) -> tuple[str, str, str]:
     """Export a PostGIS feature table to a GeoParquet file.
 
@@ -142,22 +150,24 @@ async def export_parquet(
     returned file's parent directory (FileResponse background cleanup).
 
     ponytail: builds the whole selection in memory before writing one Parquet
-    file. The export is already capped at 5M features upstream; switch to a
-    fixed-schema batched ParquetWriter if large-catalog exports OOM.
+    file. Bounded by _MAX_EXPORT_FEATURES below; switch to a fixed-schema batched
+    ParquetWriter if that ceiling ever needs raising.
     """
+    # Introspect the live table once and use it for BOTH column selection and
+    # filter validation — dataset.column_info is nullable, and trusting it would
+    # (a) silently export geometry-only and (b) reject a valid filter on a
+    # metadata-less dataset even though the columns are right here.
+    live_columns = await get_column_info(db, table_name)
+    attr_names = _attr_names(live_columns)
+
     if where is not None:
         # Same trust boundary as the ogr2ogr -where path: AST allowlist + column
-        # check, then interpolate the canonical re-render, never the raw bytes.
-        validate_where_clause(where, column_info)
+        # check (against the live columns), then interpolate the canonical
+        # re-render, never the raw bytes.
+        validate_where_clause(where, live_columns)
         safe_where = canonical_where(where)
     else:
         safe_where = None
-
-    # Introspect the live table for attribute columns rather than trusting the
-    # (nullable) dataset.column_info — otherwise a dataset with missing metadata
-    # would silently export geometry-only. Names come from information_schema, so
-    # they are real identifiers safe to quote.
-    attr_names = _attr_names(await get_column_info(db, table_name))
 
     # No blanket geom_4326 IS NOT NULL: a full export must keep rows with null
     # geometry (they export with a null geometry cell, like the feature read path
@@ -193,6 +203,25 @@ async def export_parquet(
         escaped_where = safe_where.replace(":", "\\:")
         clauses.append(f"({escaped_where})")
     where_sql = " AND ".join(clauses) if clauses else "TRUE"
+
+    # Bound the in-memory build. The router caps by feature_count, but that guard
+    # is skipped when feature_count is NULL, so count the actual selection here
+    # (LIMIT stops the scan at cap+1) before streaming millions of rows into
+    # Python lists and OOMing the worker.
+    count_sql = (
+        f"SELECT COUNT(*) FROM (SELECT 1 FROM {_qtable(table_name)} t "
+        f"WHERE {where_sql} LIMIT :__cap) sub"
+    )
+    count = (
+        await db.execute(
+            text(count_sql).bindparams(**params, __cap=_MAX_EXPORT_FEATURES + 1)
+        )
+    ).scalar_one()
+    if count > _MAX_EXPORT_FEATURES:
+        raise ExportTooLargeError(
+            f"Export selects more than {_MAX_EXPORT_FEATURES} features; narrow it "
+            "with a bbox or attribute filter."
+        )
 
     # Select the attribute columns directly (not via to_jsonb) so the async
     # driver returns native Python values — dates, timestamps, UUIDs, numerics —
