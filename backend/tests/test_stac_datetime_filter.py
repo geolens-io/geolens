@@ -45,8 +45,18 @@ async def _create_null_temporal_raster(
     return dataset
 
 
-async def _search_ids(client: AsyncClient, datetime_str: str) -> set[str]:
-    resp = await client.get("/stac/search", params={"datetime": datetime_str})
+async def _search_ids(
+    client: AsyncClient, datetime_str: str, ids: str | None = None
+) -> set[str]:
+    # fix(#439): scope the search to a specific item id when given. Under
+    # `pytest -n`, sibling tests on the same per-worker DB seed records with
+    # today's created_at that crowd the bounded result window and push the
+    # target out — filtering to the record under test keeps the datetime
+    # assertion hermetic while still exercising the created_at fallback filter.
+    params = {"datetime": datetime_str}
+    if ids is not None:
+        params["ids"] = ids
+    resp = await client.get("/stac/search", params=params)
     assert resp.status_code == 200, resp.text
     return {f["id"] for f in resp.json()["features"]}
 
@@ -60,7 +70,9 @@ async def test_past_interval_excludes_null_temporal_record(
     ds = await _create_null_temporal_raster(
         test_db_session, created_by=admin_id, name="Null Temporal Past"
     )
-    ids = await _search_ids(client, "1900-01-01T00:00:00Z/1900-12-31T23:59:59Z")
+    ids = await _search_ids(
+        client, "1900-01-01T00:00:00Z/1900-12-31T23:59:59Z", ids=str(ds.id)
+    )
     assert str(ds.id) not in ids
 
 
@@ -73,7 +85,9 @@ async def test_interval_spanning_created_at_includes_null_temporal_record(
     ds = await _create_null_temporal_raster(
         test_db_session, created_by=admin_id, name="Null Temporal Spanning"
     )
-    ids = await _search_ids(client, "2000-01-01T00:00:00Z/2100-01-01T00:00:00Z")
+    ids = await _search_ids(
+        client, "2000-01-01T00:00:00Z/2100-01-01T00:00:00Z", ids=str(ds.id)
+    )
     assert str(ds.id) in ids
 
 
@@ -86,7 +100,7 @@ async def test_past_instant_excludes_null_temporal_record(
     ds = await _create_null_temporal_raster(
         test_db_session, created_by=admin_id, name="Null Temporal Instant"
     )
-    ids = await _search_ids(client, "1900-06-01T00:00:00Z")
+    ids = await _search_ids(client, "1900-06-01T00:00:00Z", ids=str(ds.id))
     assert str(ds.id) not in ids
 
 
@@ -103,5 +117,5 @@ async def test_advertised_fallback_instant_matches_null_temporal_record(
     )
     record = await test_db_session.get(Record, ds.record_id)
     own_day = record.created_at.date().isoformat()
-    ids = await _search_ids(client, f"{own_day}T00:00:00Z")
+    ids = await _search_ids(client, f"{own_day}T00:00:00Z", ids=str(ds.id))
     assert str(ds.id) in ids
