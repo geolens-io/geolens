@@ -63,6 +63,8 @@ describe('builder action contract', () => {
           'layer-1',
           { mode: 'categorical', column: 'kind', ramp: 'Viridis', render_mode: 'heatmap' },
           { 'heatmap-opacity': 0.7 },
+          // fix(#461): the reducer forwards the optional { replace } (undefined here).
+          { replace: undefined },
         ],
       },
       {

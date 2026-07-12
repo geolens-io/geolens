@@ -37,7 +37,7 @@ interface LayerStyleEditorProps {
   onPaintChange: (layerId: string, paint: Record<string, unknown>) => void;
   /** Omit to hide the master opacity slider (e.g. when the parent owns opacity via a separate control). */
   onOpacityChange?: (layerId: string, opacity: number) => void;
-  onStyleConfigChange: (layerId: string, config: StyleConfig | null, paint: Record<string, unknown>) => void;
+  onStyleConfigChange: (layerId: string, config: StyleConfig | null, paint: Record<string, unknown>, opts?: { replace?: boolean }) => void;
   onLayoutChange: (layerId: string, layout: Record<string, unknown>) => void;
 }
 
@@ -70,7 +70,7 @@ function StyleControlSection({
   );
 }
 
-function StylePreview({ layer, onReset }: { layer: MapLayerResponse; onReset: () => void }) {
+function StylePreview({ layer, onRevert }: { layer: MapLayerResponse; onRevert: () => void }) {
   const { t } = useTranslation('builder');
   const colors = getLayerColors(layer);
   const swatchColor = colors[0] ?? '#6366f1';
@@ -88,11 +88,11 @@ function StylePreview({ layer, onReset }: { layer: MapLayerResponse; onReset: ()
         variant="ghost"
         size="xs"
         className="shrink-0"
-        onClick={onReset}
-        title={t('style.resetTitle')}
+        onClick={onRevert}
+        title={t('style.preview.revertTitle')}
       >
         <RotateCcw className="h-3 w-3" />
-        {t('style.reset')}
+        {t('style.preview.revert')}
       </Button>
     </div>
   );
@@ -349,6 +349,30 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
     onOpacityChange?.(layer.id, 1);
   }, [geomType, layer.id, layoutObj, onLayoutChange, onOpacityChange, onStyleConfigChange]);
 
+  // Bumped by handleRevertToSaved to force-remount the data-driven editor.
+  const [revertNonce, setRevertNonce] = useState(0);
+
+  // fix(#461): banner Reset misbehaved — the "Pending style
+  // preview" banner promises to reflect "this layer before save", so its action
+  // must REVERT the unsaved edits to the server baseline — not apply library
+  // defaults (which silently flattened hand-authored expressions like the
+  // wind-speed line-width). The banner only renders when `savedLayer` exists
+  // (isStyleDirty is false without a baseline), but we guard and fall back to the
+  // defaults reset if it is ever missing. The section-header Reset keeps its
+  // distinct "reset appearance to defaults" behavior via handleResetStyle.
+  const handleRevertToSaved = useCallback(() => {
+    if (!savedLayer) {
+      handleResetStyle();
+      return;
+    }
+    onStyleConfigChange(layer.id, savedLayer.style_config ?? null, savedLayer.paint ?? {}, { replace: true });
+    onLayoutChange(layer.id, savedLayer.layout ?? {});
+    onOpacityChange?.(layer.id, savedLayer.opacity ?? 1);
+    // Remount DataDrivenStyleEditor so its local ramp/mode/column re-seed from the
+    // restored config instead of re-applying the just-discarded selection.
+    setRevertNonce((n) => n + 1);
+  }, [savedLayer, layer.id, onStyleConfigChange, onLayoutChange, onOpacityChange, handleResetStyle]);
+
   const unsupportedBuilderState = hasUnsupportedBuilderState(layer, geomType);
 
   // SP-05 (Phase 1045): Gate the "Pending style preview" banner on real dirty
@@ -399,7 +423,7 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
 
   return (
     <div className="space-y-2">
-      {isStyleDirty && <StylePreview layer={layer} onReset={handleResetStyle} />}
+      {isStyleDirty && <StylePreview layer={layer} onRevert={handleRevertToSaved} />}
 
       {unsupportedBuilderState && (
         <div className="flex items-start gap-2 rounded-md border border-warning/40 bg-warning/10 p-2 text-xs text-warning-foreground">
@@ -414,6 +438,14 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
           <LazyLoadErrorBoundary>
             <Suspense fallback={null}>
               <DataDrivenStyleEditor
+                // fix(#461): DataDrivenStyleEditor seeds its
+                // ramp/mode/column into local useState on mount. A banner Revert
+                // rewrites layer.style_config externally, but that local state
+                // stays stale and its effect would immediately re-apply the
+                // discarded ramp. Bumping this key on revert remounts the editor
+                // so it re-seeds from the restored config. (Normal edits don't
+                // bump it, so typing/interaction is unaffected.)
+                key={`dds-${revertNonce}`}
                 layer={layer}
                 onStyleConfigChange={onStyleConfigChange}
               />

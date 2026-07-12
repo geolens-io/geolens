@@ -10,7 +10,7 @@ interface BuilderActionBase {
 export type BuilderLayerAction =
   | (BuilderActionBase & { type: 'set_filter'; layerId: string; expression: FilterSpecification | null })
   | (BuilderActionBase & { type: 'set_paint'; layerId: string; paint: Record<string, unknown> })
-  | (BuilderActionBase & { type: 'set_style_config'; layerId: string; config: StyleConfig | null; paint: Record<string, unknown> })
+  | (BuilderActionBase & { type: 'set_style_config'; layerId: string; config: StyleConfig | null; paint: Record<string, unknown>; replace?: boolean })
   | (BuilderActionBase & { type: 'set_label'; layerId: string; config: LabelConfig | null })
   | (BuilderActionBase & { type: 'set_popup'; layerId: string; config: PopupConfig | null })
   | (BuilderActionBase & { type: 'set_layout'; layerId: string; layout: Record<string, unknown> })
@@ -39,7 +39,7 @@ export type BuilderMapAction = BuilderLayerAction | BuilderBasemapAction | Build
 export interface BuilderLayerActionHandlers {
   setFilter: (layerId: string, expression: FilterSpecification | null) => void;
   setPaint: (layerId: string, paint: Record<string, unknown>) => void;
-  setStyleConfig: (layerId: string, config: StyleConfig | null, paint: Record<string, unknown>) => void;
+  setStyleConfig: (layerId: string, config: StyleConfig | null, paint: Record<string, unknown>, opts?: { replace?: boolean }) => void;
   setLabel: (layerId: string, config: LabelConfig | null) => void;
   setPopup: (layerId: string, config: PopupConfig | null) => void;
   setLayout: (layerId: string, layout: Record<string, unknown>) => void;
@@ -83,7 +83,7 @@ export function dispatchBuilderLayerAction(
       handlers.setPaint(action.layerId, action.paint);
       break;
     case 'set_style_config':
-      handlers.setStyleConfig(action.layerId, action.config, action.paint);
+      handlers.setStyleConfig(action.layerId, action.config, action.paint, { replace: action.replace });
       break;
     case 'set_label':
       handlers.setLabel(action.layerId, action.config);

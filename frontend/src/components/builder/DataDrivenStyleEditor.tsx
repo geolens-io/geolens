@@ -212,14 +212,36 @@ export function styleConfigAlreadyMatches(p: StyleGuardParams): boolean {
   // Categorical color
   if (p.mode === 'categorical') {
     const values = p.categoryValues ?? [];
+    const dataValues = new Set(values);
+    // fix(#461): clobber-on-open — skip the regenerate when
+    // every styled category still exists in the data, even if the data has
+    // ADDITIONAL distinct values the saved config never listed. Requiring exact
+    // length+order equality meant merely OPENING the style editor regenerated
+    // colors from the ramp, discarding hand-authored per-category colors/labels,
+    // for any categorical layer whose column gained a value the saved config
+    // omitted (e.g. a "TD" hurricane segment). Unlisted values keep falling
+    // through to the paint expression's own fallback, exactly as before the
+    // editor opened. A stale category value no longer present in the data still
+    // fails the check, so a genuinely drifted config regenerates as before.
+    //
+    // fix(#461, codex P2): when the column has NO distinct values the effect
+    // writes `categories: []`; that empty config must count as a match or the
+    // effect re-writes every render (an empty dataset / all-null column loops).
+    // So for empty data, match iff the saved categories are also empty; for
+    // non-empty data, require a non-empty subset (empty config still regenerates
+    // to style the values).
+    const categoriesSettled =
+      values.length === 0
+        ? ec.categories?.length === 0
+        : (ec.categories?.length ?? 0) > 0 &&
+          ec.categories!.every((c) => dataValues.has(c.value));
     return Boolean(
       ec.mode === 'categorical' &&
       ec.column === p.column &&
       ec.ramp === p.ramp &&
       (ec.reversed ?? false) === p.reversed &&
       ec.categories &&
-      ec.categories.length === values.length &&
-      ec.categories.every((c, i) => c.value === values[i]),
+      categoriesSettled,
     );
   }
 
