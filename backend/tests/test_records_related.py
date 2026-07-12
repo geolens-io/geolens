@@ -603,7 +603,7 @@ class TestDistributions:
         )
         assert resp.status_code == 200
         data = resp.json()
-        assert data["total"] == 6
+        assert data["total"] == 7
 
         # All auto_generated
         for d in data["distributions"]:
@@ -821,7 +821,7 @@ class TestDistributions:
             geometry_type="MultiPolygon",
         )
         await test_db_session.commit()
-        assert len(created1) == 6
+        assert len(created1) == 7
 
         # Second generation (idempotent)
         created2 = await generate_distributions(
@@ -834,11 +834,11 @@ class TestDistributions:
         await test_db_session.commit()
         assert len(created2) == 0  # No new rows
 
-        # Still only 6 total
+        # Still only 7 total
         resp = await client.get(
             f"/records/{ds.record_id}/distributions/", headers=admin_auth_header
         )
-        assert resp.json()["total"] == 6
+        assert resp.json()["total"] == 7
 
     async def test_distribution_lifecycle_modes(
         self,
@@ -866,11 +866,11 @@ class TestDistributions:
         assert manual_resp.status_code == 201
         manual_id = manual_resp.json()["id"]
 
-        # Total: 6 system + 1 manual = 7
+        # Total: 7 system + 1 manual = 8
         list_resp = await client.get(
             f"/records/{ds.record_id}/distributions/", headers=admin_auth_header
         )
-        assert list_resp.json()["total"] == 7
+        assert list_resp.json()["total"] == 8
 
         # System distributions are immutable
         auto_dist = next(
@@ -996,7 +996,7 @@ class TestCascadeDelete:
         pre_result = await test_db_session.execute(
             select(RecordDistribution).where(RecordDistribution.record_id == record_id)
         )
-        assert len(pre_result.all()) == 6
+        assert len(pre_result.all()) == 7
 
         await client.request(
             "DELETE",
@@ -1095,7 +1095,7 @@ class TestMigrationData:
             )
         )
         download_dists = result.scalars().all()
-        assert len(download_dists) == 4
+        assert len(download_dists) == 5
 
         for d in download_dists:
             assert dataset_id_str in d.url, (
