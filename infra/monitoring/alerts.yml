@@ -41,10 +41,13 @@ groups:
             the last 5 minutes.
 
       - alert: GeoLensApiHighLatencyP95
-        # The duration histogram has no status label; aggregate by le only.
+        # fix(#466): use the HIGH-resolution histogram. The default
+        # http_request_duration_seconds tops out at le=1.0 (then +Inf), so
+        # histogram_quantile caps at 1.0 and `> 1` could never fire; the highr
+        # histogram has buckets out to 60s. No status label on either → group by le.
         expr: |
           histogram_quantile(0.95,
-            sum by (le) (rate(http_request_duration_seconds_bucket[5m]))) > 1
+            sum by (le) (rate(http_request_duration_highr_seconds_bucket[5m]))) > 1
         for: 10m
         labels:
           severity: warning
