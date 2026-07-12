@@ -148,7 +148,9 @@
     "radius": "Rayon",
     "preview": {
       "title": "Aperçu du style en attente",
-      "description": "Reflète cette couche avant l'enregistrement"
+      "description": "Reflète cette couche avant l'enregistrement",
+      "revert": "Rétablir",
+      "revertTitle": "Annuler les modifications de style non enregistrées et restaurer le style enregistré"
     },
     "reset": "Réinitialiser",
     "resetTitle": "Réinitialiser le style de cette couche",

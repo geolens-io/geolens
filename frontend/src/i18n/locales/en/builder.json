@@ -148,7 +148,9 @@
     "radius": "Radius",
     "preview": {
       "title": "Pending style preview",
-      "description": "Reflects this layer before save"
+      "description": "Reflects this layer before save",
+      "revert": "Revert",
+      "revertTitle": "Discard unsaved style changes and restore the saved style"
     },
     "reset": "Reset",
     "resetTitle": "Reset this layer style",

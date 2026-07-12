@@ -97,15 +97,21 @@ describe('LayerStyleEditor - SP-05 pending preview banner gating', () => {
     expect(screen.getByText('Reflects this layer before save')).toBeInTheDocument();
   });
 
-  it('Reset action is exposed and wired to scoped style reset when banner is visible', async () => {
+  // fix(#461): the banner action ("Revert") restores the
+  // server baseline; the section-header action ("Reset") clears to library
+  // defaults. They are now distinct handlers, so assert each separately.
+  it('banner Revert restores the saved baseline paint/layout/opacity (not defaults)', async () => {
     const onStyleConfigChange = vi.fn();
     const onOpacityChange = vi.fn();
+    const onLayoutChange = vi.fn();
     const user = userEvent.setup();
 
     const saved = makeLayer({
       dataset_geometry_type: 'Polygon',
       opacity: 1,
       paint: { 'fill-color': '#000000', 'fill-opacity': 1, '_outline-color': '#ffffff' },
+      layout: {},
+      style_config: null,
     });
     const draft = {
       ...saved,
@@ -119,17 +125,42 @@ describe('LayerStyleEditor - SP-05 pending preview banner gating', () => {
         onPaintChange={vi.fn()}
         onOpacityChange={onOpacityChange}
         onStyleConfigChange={onStyleConfigChange}
-        onLayoutChange={vi.fn()}
+        onLayoutChange={onLayoutChange}
       />,
     );
 
     expect(screen.getByText('Pending style preview')).toBeInTheDocument();
 
-    // When the dirty banner is visible there are two Reset buttons (banner + section header).
-    // Both call the same handleResetStyle handler, so clicking either one is correct.
-    const resetButtons = screen.getAllByRole('button', { name: 'Reset' });
-    expect(resetButtons.length).toBeGreaterThanOrEqual(1);
-    await user.click(resetButtons[0]);
+    // Restores the exact saved paint (not FILL_DEFAULTS), saved layout, saved opacity.
+    await user.click(screen.getByRole('button', { name: 'Revert' }));
+    expect(onStyleConfigChange).toHaveBeenCalledWith('layer-1', null, saved.paint);
+    expect(onLayoutChange).toHaveBeenCalledWith('layer-1', saved.layout);
+    expect(onOpacityChange).toHaveBeenCalledWith('layer-1', 1);
+  });
+
+  it('section-header Reset still clears to library defaults', async () => {
+    const onStyleConfigChange = vi.fn();
+    const onOpacityChange = vi.fn();
+    const user = userEvent.setup();
+
+    const saved = makeLayer({
+      dataset_geometry_type: 'Polygon',
+      opacity: 1,
+      paint: { 'fill-color': '#000000', 'fill-opacity': 1 },
+    });
+    const draft = { ...saved, opacity: 0.42, paint: { 'fill-color': '#123456', 'fill-opacity': 0.4 } };
+    render(
+      <LayerStyleEditor
+        layer={draft}
+        savedLayer={saved}
+        onPaintChange={vi.fn()}
+        onOpacityChange={onOpacityChange}
+        onStyleConfigChange={onStyleConfigChange}
+        onLayoutChange={vi.fn()}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Reset' }));
     expect(onStyleConfigChange).toHaveBeenCalledWith('layer-1', null, expect.objectContaining({
       'fill-color': expect.any(String),
       'fill-opacity': expect.any(Number),

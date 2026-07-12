@@ -63,6 +63,20 @@ describe('styleConfigAlreadyMatches (COMPLEXITY-01 loop guards)', () => {
       expect(styleConfigAlreadyMatches({ ...params, categoryValues: ['a', 'c'] })).toBe(false);
     });
 
+    // fix(#461): clobber-on-open — the data has an EXTRA
+    // distinct value the saved config never styled ('c'). Opening the editor
+    // must NOT regenerate (which would clobber the authored 'a'/'b' colors) —
+    // the still-present styled categories are a subset of the data values.
+    it('matches when the data has extra values not listed in the saved categories', () => {
+      expect(styleConfigAlreadyMatches({ ...params, categoryValues: ['a', 'b', 'c'] })).toBe(true);
+    });
+
+    // But a styled category that no longer exists in the data IS drift → regenerate.
+    it('does not match when a styled category is absent from the data', () => {
+      expect(styleConfigAlreadyMatches({ ...params, categoryValues: ['a', 'c'] })).toBe(false);
+      expect(styleConfigAlreadyMatches({ ...params, categoryValues: ['a'] })).toBe(false);
+    });
+
     it('treats a missing reversed field as false', () => {
       const noReversed: StyleConfig = { ...written, reversed: undefined };
       expect(styleConfigAlreadyMatches({ ...params, existing: noReversed })).toBe(true);
