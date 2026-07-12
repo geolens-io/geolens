@@ -1,0 +1,101 @@
+# GeoLens reference alerting rules.
+#
+# These are conservative defaults meant to catch the failure modes a self-hoster
+# actually gets paged for — a target down, the API erroring or stalling, the job
+# queue not draining, the DB pool saturating. Thresholds (>5%, >1s, >100, etc.)
+# are starting points; tune them to your traffic. See RUNBOOK.md §4.
+#
+# Every expression below references a metric this build actually exports (verified
+# against a live /metrics). `up` is synthesized by Prometheus per scrape target.
+
+groups:
+  - name: geolens-availability
+    rules:
+      - alert: GeoLensTargetDown
+        expr: up{job=~"geolens-.*"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.job }} scrape target is down"
+          description: >-
+            Prometheus has failed to scrape {{ $labels.job }}
+            ({{ $labels.instance }}) for more than 2 minutes — the API or worker
+            process may be down.
+
+  - name: geolens-api
+    rules:
+      - alert: GeoLensApiHigh5xxRate
+        # 5xx as a share of all requests. status is the ungrouped code because the
+        # instrumentator is configured should_group_status_codes=False.
+        expr: |
+          sum(rate(http_requests_total{status=~"5.."}[5m]))
+            / sum(rate(http_requests_total[5m])) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "API 5xx error ratio above 5%"
+          description: >-
+            {{ $value | humanizePercentage }} of API requests returned 5xx over
+            the last 5 minutes.
+
+      - alert: GeoLensApiHighLatencyP95
+        # fix(#466): use the HIGH-resolution histogram. The default
+        # http_request_duration_seconds tops out at le=1.0 (then +Inf), so
+        # histogram_quantile caps at 1.0 and `> 1` could never fire; the highr
+        # histogram has buckets out to 60s. No status label on either → group by le.
+        expr: |
+          histogram_quantile(0.95,
+            sum by (le) (rate(http_request_duration_highr_seconds_bucket[5m]))) > 1
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "API p95 latency above 1s"
+          description: >-
+            95th-percentile request latency is {{ $value | humanizeDuration }}
+            (sustained over 10 minutes).
+
+  - name: geolens-jobs
+    rules:
+      - alert: GeoLensJobQueueBacklog
+        # geolens_jobs_queue_depth is a per-queue gauge exported by the worker.
+        expr: max by (queue) (geolens_jobs_queue_depth) > 100
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Job queue '{{ $labels.queue }}' backlog above 100"
+          description: >-
+            {{ $value }} jobs have been waiting in the '{{ $labels.queue }}' queue
+            for more than 15 minutes — the worker may be stuck or under-provisioned.
+            Threshold is tunable.
+
+      - alert: GeoLensJobFailures
+        expr: increase(geolens_jobs_failed_total[15m]) > 5
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Jobs failing in queue '{{ $labels.queue }}'"
+          description: >-
+            {{ $value }} jobs failed in the '{{ $labels.queue }}' queue in the last
+            15 minutes.
+
+  - name: geolens-database
+    rules:
+      - alert: GeoLensDbPoolSaturated
+        # Overflow connections are only opened once the base pool is full. Sustained
+        # overflow use = the pool is a bottleneck. Not emitted under an external
+        # pooler (DB_USE_EXTERNAL_POOLER → NullPool has no stats).
+        expr: geolens_db_pool_overflow > 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "DB connection pool saturated (overflow in use)"
+          description: >-
+            The base connection pool has been full and using overflow connections
+            for more than 10 minutes. Consider raising the pool size or
+            investigating slow queries.
