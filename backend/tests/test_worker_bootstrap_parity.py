@@ -101,6 +101,31 @@ class TestBootstrapWiredIntoEntrypoints:
             "sequence must not be re-inlined directly in the lifespan."
         )
 
+    def test_lifespan_references_port_assertion(self):
+        """api lifespan must run assert_enterprise_ports_resolved() after bootstrap.
+
+        WORK-02: the affirmative port assertion has to run in BOTH entrypoints,
+        else a license-key activation with a missing overlay crashes the worker
+        while the API keeps serving Default community ports (API-up/worker-down
+        split-brain).
+        """
+        from app.api import main as main_module
+
+        lifespan_src = inspect.getsource(main_module.lifespan)
+        assert "assert_enterprise_ports_resolved" in lifespan_src, (
+            "WORK-02: api lifespan must call assert_enterprise_ports_resolved() "
+            "so the API fails closed on a missing overlay, matching worker.main()."
+        )
+
+    def test_worker_main_references_port_assertion(self):
+        """worker.main must run assert_enterprise_ports_resolved() (its half of the pair)."""
+        from app.platform.jobs import worker as worker_module
+
+        worker_src = inspect.getsource(worker_module.main)
+        assert "assert_enterprise_ports_resolved" in worker_src, (
+            "WORK-02: worker.main() must call assert_enterprise_ports_resolved()."
+        )
+
     def test_lifespan_does_not_directly_call_load_extensions(self):
         """lifespan must NOT re-inline load_extensions() directly (single source of truth).
 
