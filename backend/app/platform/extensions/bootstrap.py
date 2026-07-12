@@ -6,9 +6,10 @@ BOTH ``api/main.py`` lifespan AND ``worker.main()`` so the two entrypoints
 cannot drift into different bootstrap states.
 
 WORK-02: ``assert_enterprise_ports_resolved()`` performs an affirmative
-post-bootstrap assertion: under ``GEOLENS_EDITION=enterprise``, every expected
-single-slot port MUST be resolved to a non-Default implementation or the
-process raises ``RuntimeError`` and refuses to start.
+post-bootstrap assertion: each overlay tier's single-slot ports MUST resolve to
+a non-Default implementation (enterprise ports under a resolved enterprise
+edition; cloud ports under ``GEOLENS_TENANCY_MODE=multi_tenant``) or the process
+raises ``RuntimeError`` and refuses to start.
 
 References: WORK-01, WORK-02
 """
@@ -146,24 +147,39 @@ def assert_enterprise_ports_resolved() -> None:
         # Community, single-tenant — no overlay ports are required.
         return
 
-    still_default: list[str] = [
-        f"{port_key} ({resolved[port_key]})"
+    still_default_keys = [
+        port_key
         for port_key, default_cls_name in required
         if resolved[port_key] == default_cls_name
     ]
 
-    if still_default:
-        still_list = ", ".join(still_default)
+    if still_default_keys:
+        still_list = ", ".join(f"{k} ({resolved[k]})" for k in still_default_keys)
+
+        # Point at the overlay that actually provides each missing tier. The
+        # enterprise overlay does NOT ship processing_port/catalog_port, so a
+        # cloud-port failure must send the operator to the cloud overlay build,
+        # not INSTALL_ENTERPRISE_OVERLAY=1 (which bakes /enterprise only).
+        cloud_keys = {k for k, _ in _CLOUD_PORT_CHECKS}
+        remedies: list[str] = []
+        if any(k not in cloud_keys for k in still_default_keys):
+            remedies.append(
+                "the enterprise overlay (build --build-arg INSTALL_OVERLAYS="
+                '"/enterprise", or the legacy --build-arg '
+                "INSTALL_ENTERPRISE_OVERLAY=1)"
+            )
+        if any(k in cloud_keys for k in still_default_keys):
+            remedies.append(
+                "the cloud overlay that provides processing_port/catalog_port "
+                "under GEOLENS_TENANCY_MODE=multi_tenant (build --build-arg "
+                'INSTALL_OVERLAYS="/enterprise /cloud")'
+            )
+
         raise RuntimeError(
             f"A licensed/overlay edition is active but the following single-slot "
             f"ports are still the Default community implementations: [{still_list}]. "
-            f"The required overlay (enterprise, plus the cloud overlay when "
-            f"GEOLENS_TENANCY_MODE=multi_tenant) must register non-Default "
-            f"implementations for these ports before the worker starts. "
-            f"Pre-bake the overlay into the image at build time using "
-            f"'docker build --build-arg INSTALL_ENTERPRISE_OVERLAY=1 ...' "
-            f"(see ARG INSTALL_ENTERPRISE_OVERLAY in the Dockerfile). "
-            f"References: WORK-02."
+            f"Pre-bake {' and '.join(remedies)} into the image at build time "
+            f"(see ARG INSTALL_OVERLAYS in the Dockerfile). References: WORK-02."
         )
 
 

@@ -246,6 +246,12 @@ class TestAssertEnterprisePortsResolved:
         assert "permission" in msg or "identity" in msg or "workflow" in msg
         # Cloud-only ports must not be demanded under bare enterprise.
         assert "processing_port" not in msg and "catalog_port" not in msg
+        # Remediation points at the enterprise overlay, NOT the cloud overlay.
+        assert (
+            "INSTALL_ENTERPRISE_OVERLAY" in msg
+            or 'INSTALL_OVERLAYS="/enterprise"' in msg
+        )
+        assert "/cloud" not in msg
 
     def test_raises_on_multi_tenant_missing_cloud_ports(self):
         """multi_tenant + Default processing/catalog → RuntimeError naming them."""
@@ -259,6 +265,9 @@ class TestAssertEnterprisePortsResolved:
         msg = str(exc_info.value)
         assert "processing_port" in msg
         assert "catalog_port" in msg
+        # Cloud-port failure must send the operator to the CLOUD overlay build,
+        # not INSTALL_ENTERPRISE_OVERLAY=1 (which bakes /enterprise only).
+        assert 'INSTALL_OVERLAYS="/enterprise /cloud"' in msg
 
     def test_licensed_enterprise_without_env_var_is_checked(self):
         """License-key activation (resolved enterprise, GEOLENS_EDITION unset) is
