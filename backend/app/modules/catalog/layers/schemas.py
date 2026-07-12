@@ -65,6 +65,14 @@ class ColumnListResponse(BaseModel):
     columns: list[dict]
 
 
+class ColumnReferencesResponse(BaseModel):
+    """How many saved maps reference a column in their layer config."""
+
+    map_count: int = Field(
+        description="Distinct saved maps whose styles/filters/labels/popups reference this column"
+    )
+
+
 class RenameColumnRequest(BaseModel):
     new_name: str = Field(description="New column name (lowercase identifier).")
 

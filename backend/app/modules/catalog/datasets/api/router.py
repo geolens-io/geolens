@@ -314,7 +314,9 @@ async def update_dataset_metadata(
             action="metadata.edit",
             resource_type="dataset",
             resource_id=dataset_id,
-            details=meta.model_dump(exclude_none=True),
+            # exclude_unset, not exclude_none: an explicit null clear
+            # (#458 E-04) must appear in the audit/history details.
+            details=meta.model_dump(exclude_unset=True),
             ip_address=request.client.host if request.client else None,
         ),
     )

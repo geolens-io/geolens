@@ -388,6 +388,8 @@
     "columnName": "Nombre",
     "columnType": "Tipo",
     "noColumns": "Aún no hay columnas de atributos.",
+    "dropWarning": "Eliminar \"{{name}}\" borra permanentemente la columna y todos sus valores.",
+    "usedByMaps": "Usada por {{mapCount}} mapa(s) guardado(s): los estilos, filtros o etiquetas que referencian esta columna dejarán de funcionar.",
     "addColumn": "Agregar columna",
     "add": "Agregar",
     "columnNamePlaceholder": "nombre_columna",

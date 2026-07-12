@@ -14,6 +14,9 @@ interface InlineEditProps {
   onDirtyChange?: (isDirty: boolean) => void;
   /** Start in edit mode immediately (e.g. after clicking "Add" CTA). */
   initialEditing?: boolean;
+  /** fix(#458 E-04): emit an emptied value so the consumer can stage a clear.
+   * Off by default — non-clearable fields (title) must never save empty. */
+  allowClear?: boolean;
 }
 
 export function InlineEdit({
@@ -26,6 +29,7 @@ export function InlineEdit({
   canEdit = true,
   onDirtyChange,
   initialEditing = false,
+  allowClear = false,
 }: InlineEditProps) {
   const { t } = useTranslation();
   const [editing, setEditing] = useState(initialEditing);
@@ -72,7 +76,7 @@ export function InlineEdit({
   const save = useCallback(async () => {
     const trimmed = draft.trim();
     try {
-      if (trimmed && trimmed !== value) {
+      if ((trimmed || allowClear) && trimmed !== value) {
         // BUG-040: wrap onSave in try/catch so a rejected mutation never
         // strands the editor open or produces an unhandled rejection.
         await onSave(trimmed);
@@ -83,7 +87,7 @@ export function InlineEdit({
       emitDirtyChange(false);
       setEditing(false);
     }
-  }, [draft, value, onSave, emitDirtyChange, t]);
+  }, [draft, value, allowClear, onSave, emitDirtyChange, t]);
 
   const cancel = useCallback(() => {
     setDraft(value);

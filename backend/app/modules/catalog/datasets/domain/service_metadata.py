@@ -118,20 +118,26 @@ _DATASET_FIELD_MAP: dict[str, str] = {
 }
 
 
+# Never clearable to NULL via the PATCH: records.title is NOT NULL.
+_NON_CLEARABLE_FIELDS = {"title"}
+
+
 def _apply_simple_field_assignments(
     record: Any, dataset: Dataset, meta: "DatasetMeta"
 ) -> bool:
-    """Copy non-None scalar fields from meta to record/dataset. Return True if any changed."""
+    """Apply scalar fields present in the request body, including explicit
+    nulls — fix(#458 E-04): clears were silently dropped before. Absent fields
+    keep PATCH semantics; _NON_CLEARABLE_FIELDS (title, NOT NULL) drop nulls."""
     mutated = False
-    for meta_field, record_attr in _RECORD_FIELD_MAP.items():
-        value = getattr(meta, meta_field)
-        if value is not None:
-            setattr(record, record_attr, value)
-            mutated = True
-    for meta_field, dataset_attr in _DATASET_FIELD_MAP.items():
-        value = getattr(meta, meta_field)
-        if value is not None:
-            setattr(dataset, dataset_attr, value)
+    targets = ((record, _RECORD_FIELD_MAP), (dataset, _DATASET_FIELD_MAP))
+    for target, field_map in targets:
+        for meta_field, attr in field_map.items():
+            if meta_field not in meta.model_fields_set:
+                continue
+            value = getattr(meta, meta_field)
+            if value is None and meta_field in _NON_CLEARABLE_FIELDS:
+                continue
+            setattr(target, attr, value)
             mutated = True
     return mutated
 
@@ -287,9 +293,8 @@ async def update_user_metadata(
     await session.flush()
 
     # Trigger embedding regeneration if relevant fields changed.
-    if any(
-        getattr(meta, f) is not None for f in ("title", "summary", "lineage_summary")
-    ):
+    # model_fields_set, not is-not-None: an explicit clear must also re-embed.
+    if {"title", "summary", "lineage_summary"} & meta.model_fields_set:
         await _maybe_defer_embedding(record.id, dataset.id)
 
     return dataset

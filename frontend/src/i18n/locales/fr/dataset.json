@@ -388,6 +388,8 @@
     "columnName": "Nom",
     "columnType": "Type",
     "noColumns": "Aucune colonne d'attribut pour l'instant.",
+    "dropWarning": "La suppression de « {{name}} » efface définitivement la colonne et toutes ses valeurs.",
+    "usedByMaps": "Utilisée par {{mapCount}} carte(s) enregistrée(s) — les styles, filtres ou étiquettes référençant cette colonne seront cassés.",
     "addColumn": "Ajouter une colonne",
     "add": "Ajouter",
     "columnNamePlaceholder": "nom_colonne",

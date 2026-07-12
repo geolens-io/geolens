@@ -1,8 +1,8 @@
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { queryKeys } from '@/lib/query-keys';
 import { formatMutationError } from '@/lib/error-map';
 import { createFeature, updateFeature, deleteFeature } from '@/api/features';
-import { addColumn, dropColumn } from '@/api/datasets';
+import { addColumn, dropColumn, getColumnReferences } from '@/api/datasets';
 import type { Geometry } from 'geojson';
 import { toast } from 'sonner';
 import i18n from '@/i18n/i18n';
@@ -142,5 +142,19 @@ export function useDropColumn() {
     },
     // fix(#438): UX-07 — SchemaEditor also toasted; the hook now owns it.
     onError: (err) => { toast.error(formatMutationError('dataset:schema.removeFailed', err)); },
+  });
+}
+
+/**
+ * fix(#458 E-06): count saved maps whose styles/filters/labels reference a
+ * column, so SchemaEditor can warn before a destructive drop. Enabled only
+ * while a drop confirmation is open.
+ */
+export function useColumnReferences(datasetId: string, columnName: string | null) {
+  return useQuery({
+    queryKey: ['layers', 'column-references', datasetId, columnName],
+    queryFn: () => getColumnReferences(datasetId, columnName as string),
+    enabled: columnName != null,
+    staleTime: 30_000,
   });
 }

@@ -2953,6 +2953,21 @@
         "title": "ColumnPreview",
         "type": "object"
       },
+      "ColumnReferencesResponse": {
+        "description": "How many saved maps reference a column in their layer config.",
+        "properties": {
+          "map_count": {
+            "description": "Distinct saved maps whose styles/filters/labels/popups reference this column",
+            "title": "Map Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "map_count"
+        ],
+        "title": "ColumnReferencesResponse",
+        "type": "object"
+      },
       "ColumnStatsResponse": {
         "properties": {
           "count": {
@@ -33810,6 +33825,64 @@
           }
         ],
         "summary": "Rename Column Endpoint",
+        "tags": [
+          "Maps"
+        ]
+      }
+    },
+    "/layers/{dataset_id}/columns/{column_name}/references": {
+      "get": {
+        "description": "Count saved maps whose layer config references a column.\n\nfix(#458 E-06): surfaced in the schema editor before a rename/drop so the\neditor knows how many saved maps depend on the column. Count only \u2014 map\ntitles may belong to other users and are not exposed here.",
+        "operationId": "column_references_endpoint_layers__dataset_id__columns__column_name__references_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dataset_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Dataset Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "column_name",
+            "required": true,
+            "schema": {
+              "title": "Column Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ColumnReferencesResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Column References Endpoint",
         "tags": [
           "Maps"
         ]

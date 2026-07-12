@@ -16,6 +16,7 @@ from app.modules.catalog.layers.schemas import (
     AddColumnRequest,
     AlterColumnTypeRequest,
     ColumnListResponse,
+    ColumnReferencesResponse,
     CreateLayerRequest,
     CreateLayerResponse,
     RenameColumnRequest,
@@ -23,6 +24,7 @@ from app.modules.catalog.layers.schemas import (
 from app.modules.catalog.layers.service import (
     add_column,
     alter_column_type,
+    count_maps_referencing_column,
     create_layer,
     drop_column,
     rename_column,
@@ -319,3 +321,31 @@ async def drop_column_endpoint(
     await _invalidate_tiles(dataset.table_name)
 
     return ColumnListResponse(columns=columns)
+
+
+@layers_router.get(
+    "/{dataset_id}/columns/{column_name}/references",
+    response_model=ColumnReferencesResponse,
+)
+async def column_references_endpoint(
+    dataset_id: uuid.UUID,
+    column_name: str,
+    user: Identity = Depends(require_permission("create_layers")),
+    db: AsyncSession = Depends(get_db),
+) -> ColumnReferencesResponse:
+    """Count saved maps whose layer config references a column.
+
+    fix(#458 E-06): surfaced in the schema editor before a rename/drop so the
+    editor knows how many saved maps depend on the column. Count only — map
+    titles may belong to other users and are not exposed here.
+    """
+    dataset = await get_dataset(db, dataset_id)
+    if not dataset:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Dataset not found",
+        )
+    await check_dataset_write_access(db, dataset, dataset_id, user)
+
+    count = await count_maps_referencing_column(db, dataset_id, column_name)
+    return ColumnReferencesResponse(map_count=count)

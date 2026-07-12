@@ -27,7 +27,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { useAddColumn, useDropColumn } from '@/hooks/use-features';
+import { useAddColumn, useColumnReferences, useDropColumn } from '@/hooks/use-features';
 
 const ALLOWED_TYPES = ['text', 'integer', 'real', 'boolean', 'date', 'timestamp'] as const;
 const COLUMN_NAME_RE = /^[a-z][a-z0-9_]{0,62}$/;
@@ -49,6 +49,8 @@ export function SchemaEditor({ datasetId, columns, open, onOpenChange }: SchemaE
 
   const addColumnMutation = useAddColumn();
   const dropColumnMutation = useDropColumn();
+  // fix(#458 E-06): warn how many saved maps reference the column under drop confirmation
+  const columnReferences = useColumnReferences(datasetId, confirmDelete);
 
   const displayColumns = columns.filter((c) => !SYSTEM_COLUMNS.has(c.name));
 
@@ -173,6 +175,19 @@ export function SchemaEditor({ datasetId, columns, open, onOpenChange }: SchemaE
           <p className="text-sm text-muted-foreground py-4 text-center">
             {t('schema.noColumns')}
           </p>
+        )}
+
+        {confirmDelete != null && (
+          <div className="space-y-1 text-xs" role="alert">
+            <p className="text-destructive">
+              {t('schema.dropWarning', { name: confirmDelete })}
+            </p>
+            {(columnReferences.data?.map_count ?? 0) > 0 && (
+              <p className="text-amber-600 dark:text-amber-500">
+                {t('schema.usedByMaps', { mapCount: columnReferences.data!.map_count })}
+              </p>
+            )}
+          </div>
         )}
 
         {/* Add column form */}

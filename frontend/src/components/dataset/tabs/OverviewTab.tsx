@@ -342,6 +342,7 @@ export function OverviewTab({
                   <InlineEdit
                     value={summaryValue}
                     onSave={async (value) => onSummaryDraftSave(value)}
+                    allowClear
                     as="p"
                     multiline
                     canEdit={capabilities.summary.editable}

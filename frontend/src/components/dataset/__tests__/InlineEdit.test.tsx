@@ -99,3 +99,58 @@ describe('InlineEdit (BUG-040)', () => {
     expect(toast.error).not.toHaveBeenCalled();
   });
 });
+
+describe('InlineEdit allowClear (#458 E-04)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  function enterEditAndClear(container: HTMLElement) {
+    const displayEl = container.querySelector('[role="button"]') as HTMLElement;
+    fireEvent.click(displayEl);
+    const input = container.querySelector('input') as HTMLInputElement;
+    fireEvent.change(input, { target: { value: '' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+  }
+
+  it('emits an emptied value when allowClear is set', async () => {
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    const { container } = render(
+      <InlineEdit value="existing text" onSave={onSave} canEdit allowClear />,
+    );
+
+    enterEditAndClear(container);
+
+    await waitFor(() => expect(onSave).toHaveBeenCalledWith(''));
+  });
+
+  it('drops an emptied value without allowClear (title-style fields)', async () => {
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    const { container } = render(
+      <InlineEdit value="existing text" onSave={onSave} canEdit />,
+    );
+
+    enterEditAndClear(container);
+
+    await waitFor(() => {
+      const input = container.querySelector('input');
+      expect(input).toBeNull(); // editor closed
+    });
+    expect(onSave).not.toHaveBeenCalled();
+  });
+
+  it('does not emit a clear when the value was already empty', async () => {
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    const { container } = render(
+      <InlineEdit value="" onSave={onSave} canEdit allowClear placeholder="add" />,
+    );
+
+    enterEditAndClear(container);
+
+    await waitFor(() => {
+      const input = container.querySelector('input');
+      expect(input).toBeNull();
+    });
+    expect(onSave).not.toHaveBeenCalled();
+  });
+});

@@ -302,3 +302,92 @@ async def test_dcat3_catalog_validation_endpoint(
     assert report["schema"] == "Catalog"
     assert report["valid"] is True
     assert report["error_count"] == 0
+
+
+# ---------------------------------------------------------------------------
+# Clear-to-null: explicit nulls in the PATCH actually clear fields
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_patch_explicit_null_clears_field(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+):
+    """fix(#458 E-04): an explicit null clears the field; absent fields keep
+    PATCH semantics; title (NOT NULL) ignores a null."""
+    admin_id = await get_user_id(test_db_session, "admin")
+    ds = await _create_complete_dataset(
+        test_db_session, created_by=admin_id, name="ClearToNull Dataset"
+    )
+
+    resp = await client.patch(
+        f"/datasets/{ds.id}",
+        json={"summary": None, "lineage_summary": None, "title": None},
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 200, resp.text
+
+    got = await client.get(f"/datasets/{ds.id}", headers=admin_auth_header)
+    assert got.status_code == 200
+    body = got.json()
+    assert body["summary"] is None
+    assert body["lineage_summary"] is None
+    # title is non-clearable: the explicit null is dropped, not applied
+    assert body["title"] == "ClearToNull Dataset"
+    # absent fields stay untouched (PATCH semantics)
+    assert body["source_organization"] == "Original Org"
+    assert body["usage_constraints"] == "Attribution required"
+
+    # fix(#458 E-04, codex review): the audit event must record the cleared
+    # fields (exclude_unset, not exclude_none) so history reflects the change.
+    from sqlalchemy import select
+
+    from app.modules.audit.models import AuditLog
+
+    row = (
+        await test_db_session.execute(
+            select(AuditLog)
+            .where(
+                AuditLog.resource_id == ds.id,
+                AuditLog.action == "metadata.edit",
+            )
+            .order_by(AuditLog.created_at.desc())
+        )
+    ).scalar_one()
+    assert "summary" in row.details
+    assert row.details["summary"] is None
+    assert "lineage_summary" in row.details
+
+
+@pytest.mark.anyio
+async def test_patch_clear_text_field_requeues_embedding(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+    monkeypatch,
+):
+    """fix(#458 E-04, codex review): clearing summary/lineage must re-defer the
+    embedding (model_fields_set), not skip it because the value is None."""
+    from app.modules.catalog.datasets.domain import service_metadata
+
+    deferred: list = []
+
+    async def _capture(record_id, dataset_id):
+        deferred.append(record_id)
+
+    monkeypatch.setattr(service_metadata, "_maybe_defer_embedding", _capture)
+
+    admin_id = await get_user_id(test_db_session, "admin")
+    ds = await _create_complete_dataset(
+        test_db_session, created_by=admin_id, name="ReembedOnClear Dataset"
+    )
+
+    resp = await client.patch(
+        f"/datasets/{ds.id}",
+        json={"summary": None},
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 200, resp.text
+    assert len(deferred) == 1

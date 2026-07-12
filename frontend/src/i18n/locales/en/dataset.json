@@ -342,6 +342,8 @@
     "columnName": "Name",
     "columnType": "Type",
     "noColumns": "No attribute columns yet.",
+    "dropWarning": "Removing \"{{name}}\" permanently deletes the column and all its values.",
+    "usedByMaps": "Used by {{mapCount}} saved map(s) — styles, filters, or labels referencing this column will break.",
     "addColumn": "Add Column",
     "add": "Add",
     "columnNamePlaceholder": "column_name",

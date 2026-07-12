@@ -118,6 +118,7 @@ from .column_info_stats_type_0 import ColumnInfoStatsType0
 from .column_list_response import ColumnListResponse
 from .column_list_response_columns_item import ColumnListResponseColumnsItem
 from .column_preview import ColumnPreview
+from .column_references_response import ColumnReferencesResponse
 from .column_stats_response import ColumnStatsResponse
 from .column_values_response import ColumnValuesResponse
 from .commit_request import CommitRequest
@@ -680,6 +681,7 @@ __all__ = (
     "ColumnListResponse",
     "ColumnListResponseColumnsItem",
     "ColumnPreview",
+    "ColumnReferencesResponse",
     "ColumnStatsResponse",
     "ColumnValuesResponse",
     "CommitRequest",

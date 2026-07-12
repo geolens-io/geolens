@@ -1449,3 +1449,92 @@ class TestNativeSridWrites:
                 {"id": rec_id},
             )
             await test_db_session.commit()
+
+
+# ---------------------------------------------------------------------------
+# Geometry validity tests
+# ---------------------------------------------------------------------------
+
+
+class TestGeometryValidity:
+    """fix(#458 E-02): degenerate/invalid geometry is rejected with 400.
+
+    Before the shapely validity gate, degenerate input 500'd at
+    ST_GeomFromGeoJSON and self-intersecting polygons persisted, then 500'd
+    later bbox/tile reads with GEOS TopologyException.
+    """
+
+    BOWTIE = {
+        "type": "Polygon",
+        "coordinates": [[[0.0, 0.0], [2.0, 2.0], [2.0, 0.0], [0.0, 2.0], [0.0, 0.0]]],
+    }
+    TWO_POINT_RING = {
+        "type": "Polygon",
+        "coordinates": [[[0.0, 0.0], [1.0, 1.0], [0.0, 0.0]]],
+    }
+
+    async def test_self_intersecting_polygon_rejected(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        polygon_layer: Dataset,
+    ):
+        resp = await client.post(
+            f"/datasets/{polygon_layer.id}/features/",
+            json={"geometry": self.BOWTIE, "properties": {"name": "bowtie"}},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 400, resp.text
+        assert "self-intersection" in resp.json()["detail"].lower()
+
+    async def test_degenerate_ring_rejected(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        polygon_layer: Dataset,
+    ):
+        resp = await client.post(
+            f"/datasets/{polygon_layer.id}/features/",
+            json={"geometry": self.TWO_POINT_RING, "properties": {"name": "sliver"}},
+            headers=admin_auth_header,
+        )
+        # 400 from the shapely gate or 422 from schema-level coordinate checks;
+        # the pre-fix behavior was a 500.
+        assert resp.status_code in (400, 422), resp.text
+
+    async def test_empty_coordinates_rejected(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        polygon_layer: Dataset,
+    ):
+        resp = await client.post(
+            f"/datasets/{polygon_layer.id}/features/",
+            json={
+                "geometry": {"type": "Polygon", "coordinates": []},
+                "properties": {"name": "empty"},
+            },
+            headers=admin_auth_header,
+        )
+        assert resp.status_code in (400, 422), resp.text
+
+    async def test_patch_with_invalid_geometry_rejected(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        polygon_layer: Dataset,
+    ):
+        create = await client.post(
+            f"/datasets/{polygon_layer.id}/features/",
+            json={"geometry": POLYGON_GEOJSON, "properties": {"name": "ok"}},
+            headers=admin_auth_header,
+        )
+        assert create.status_code == 201, create.text
+        gid = create.json()["id"]
+
+        patch = await client.patch(
+            f"/datasets/{polygon_layer.id}/features/{gid}",
+            json={"geometry": self.BOWTIE},
+            headers=admin_auth_header,
+        )
+        assert patch.status_code == 400, patch.text
