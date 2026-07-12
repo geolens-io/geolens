@@ -11,6 +11,7 @@ WORK-03 (API-vs-worker parity via dummy overlay)
 from __future__ import annotations
 
 import asyncio
+import os
 from unittest.mock import patch
 
 import pytest
@@ -30,6 +31,14 @@ def _reset_edition():
     import app.core.edition as ed_mod
 
     ed_mod._info = None
+
+
+def _set_edition(edition: str) -> None:
+    """Force the resolved edition singleton (bypasses init_edition/license)."""
+    import app.core.edition as ed_mod
+    from app.core.edition import EditionInfo
+
+    ed_mod._info = EditionInfo(edition=edition, features=())
 
 
 def _reset_storage():
@@ -177,89 +186,89 @@ class TestBootstrapWithDummyOverlay:
 
 
 class TestAssertEnterprisePortsResolved:
-    """WORK-02: assert_enterprise_ports_resolved() loud-failure checks."""
+    """WORK-02: assert_enterprise_ports_resolved() tiered loud-failure checks."""
 
     def test_no_raise_on_community(self):
-        """Community edition (no GEOLENS_EDITION) → no raise."""
-        import os
-
+        """Resolved community + single-tenant → no raise even with Default ports."""
         from app.platform.extensions.bootstrap import assert_enterprise_ports_resolved
 
-        env = {k: v for k, v in os.environ.items() if k != "GEOLENS_EDITION"}
-        with patch.dict("os.environ", env, clear=True):
-            # Must not raise
+        # _info is None (community) via the autouse fixture.
+        with patch.dict("os.environ", {"GEOLENS_TENANCY_MODE": "single_tenant"}):
             assert_enterprise_ports_resolved()
 
-    def test_no_raise_on_explicit_community(self):
-        """GEOLENS_EDITION=community → no raise even with all-Default ports."""
-        from app.platform.extensions.bootstrap import assert_enterprise_ports_resolved
+    def test_no_raise_on_enterprise_without_cloud_ports(self):
+        """WORK-02 regression: enterprise with the enterprise-overlay ports
+        resolved but processing/catalog still Default → NO raise.
 
-        with patch.dict("os.environ", {"GEOLENS_EDITION": "community"}):
-            assert_enterprise_ports_resolved()
-
-    def test_raises_on_enterprise_with_all_default_ports(self):
-        """GEOLENS_EDITION=enterprise + all-Default ports → RuntimeError naming each."""
-        from app.platform.extensions.bootstrap import assert_enterprise_ports_resolved
-
-        with patch.dict("os.environ", {"GEOLENS_EDITION": "enterprise"}):
-            with pytest.raises(RuntimeError) as exc_info:
-                assert_enterprise_ports_resolved()
-
-        msg = str(exc_info.value)
-        # Must name the offending port(s)
-        assert (
-            "Default" in msg
-            or "default" in msg
-            or "processing_port" in msg
-            or "catalog_port" in msg
-        )
-
-    def test_raises_names_all_default_ports(self):
-        """Error message must enumerate every still-Default port."""
-        from app.platform.extensions.bootstrap import assert_enterprise_ports_resolved
-
-        with patch.dict("os.environ", {"GEOLENS_EDITION": "enterprise"}):
-            with pytest.raises(RuntimeError) as exc_info:
-                assert_enterprise_ports_resolved()
-
-        msg = str(exc_info.value)
-        # At minimum the two primary ports must appear
-        assert "processing_port" in msg or "DefaultProcessingPort" in msg
-        assert "catalog_port" in msg or "DefaultCatalogPort" in msg
-
-    def test_raises_on_partial_overlay_still_has_default_ports(self):
-        """Partial overlay (only catalog_port) → STILL raises (other ports Default).
-
-        A partial overlay cannot pass the affirmative assertion — EVERY expected
-        single-slot port must be resolved to a non-Default implementation.
+        A bare enterprise deploy legitimately runs the community processing /
+        catalog ports (only the cloud overlay replaces them), so the worker must
+        not crash-loop demanding them.
         """
-        from tests.fixtures.dummy_overlay.overlay import register_extensions as _reg
-
-        mock_ep = _make_mock_ep("dummy_overlay", _reg)
-
-        # Load the dummy overlay (registers catalog_port only; others remain Default)
-        with patch("app.platform.extensions.entry_points", return_value=[mock_ep]):
-            from app.platform.extensions import load_extensions
-
-            load_extensions()
-
-        # catalog_port is now DummyCatalogPort; processing_port, permission,
-        # identity, workflow remain Default
         from app.platform.extensions.bootstrap import assert_enterprise_ports_resolved
 
-        with patch.dict("os.environ", {"GEOLENS_EDITION": "enterprise"}):
+        _set_edition("enterprise")
+
+        class _Perm: ...
+
+        class _Ident: ...
+
+        class _Flow: ...
+
+        with (
+            patch(
+                "app.platform.extensions.get_permission_extension",
+                return_value=_Perm(),
+            ),
+            patch(
+                "app.platform.extensions.get_identity_extension",
+                return_value=_Ident(),
+            ),
+            patch(
+                "app.platform.extensions.get_workflow_extension",
+                return_value=_Flow(),
+            ),
+            patch.dict("os.environ", {"GEOLENS_TENANCY_MODE": "single_tenant"}),
+        ):
+            # processing_port / catalog_port stay Default* — must NOT raise.
+            assert_enterprise_ports_resolved()
+
+    def test_raises_on_enterprise_with_default_ports(self):
+        """Enterprise + all-Default ports → RuntimeError naming the enterprise
+        ports (permission/identity/workflow), NOT the cloud-only ports."""
+        from app.platform.extensions.bootstrap import assert_enterprise_ports_resolved
+
+        _set_edition("enterprise")
+        with patch.dict("os.environ", {"GEOLENS_TENANCY_MODE": "single_tenant"}):
             with pytest.raises(RuntimeError) as exc_info:
                 assert_enterprise_ports_resolved()
 
         msg = str(exc_info.value)
-        # Must flag the remaining Default ports (not just catalog_port which is resolved)
-        assert "Default" in msg or "processing_port" in msg or "workflow" in msg
+        assert "permission" in msg or "identity" in msg or "workflow" in msg
+        # Cloud-only ports must not be demanded under bare enterprise.
+        assert "processing_port" not in msg and "catalog_port" not in msg
 
-    def test_case_insensitive_enterprise_check(self):
-        """GEOLENS_EDITION=Enterprise (mixed case) → same loud failure."""
+    def test_raises_on_multi_tenant_missing_cloud_ports(self):
+        """multi_tenant + Default processing/catalog → RuntimeError naming them."""
         from app.platform.extensions.bootstrap import assert_enterprise_ports_resolved
 
-        with patch.dict("os.environ", {"GEOLENS_EDITION": "Enterprise"}):
+        _set_edition("enterprise")
+        with patch.dict("os.environ", {"GEOLENS_TENANCY_MODE": "multi_tenant"}):
+            with pytest.raises(RuntimeError) as exc_info:
+                assert_enterprise_ports_resolved()
+
+        msg = str(exc_info.value)
+        assert "processing_port" in msg
+        assert "catalog_port" in msg
+
+    def test_licensed_enterprise_without_env_var_is_checked(self):
+        """License-key activation (resolved enterprise, GEOLENS_EDITION unset) is
+        still asserted — the env-var dodge is closed (WORK-02)."""
+        from app.platform.extensions.bootstrap import assert_enterprise_ports_resolved
+
+        _set_edition("enterprise")
+        env = {k: v for k, v in os.environ.items() if k != "GEOLENS_EDITION"}
+        env["GEOLENS_TENANCY_MODE"] = "single_tenant"
+        with patch.dict("os.environ", env, clear=True):
             with pytest.raises(RuntimeError):
                 assert_enterprise_ports_resolved()
 
